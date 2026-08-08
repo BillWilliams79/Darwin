@@ -66,6 +66,19 @@
 //                                       from model.requirements (truncated read /
 //                                       data loss) — render LOUDLY; these rows'
 //                                       state may be under-derived
+// @property {number[]} launchReqIds     req #3360 — the EXACT /swarm-start argument
+//                                       list for this step: junction order,
+//                                       `swarm_ready` only, containers removed
+// @property {string[]} launchExcluded   one entry per linked id NOT in
+//                                       launchReqIds, pre-rendered as
+//                                       `"<reqId> <reason>"` — flat, because the
+//                                       server twin's derived block may carry no
+//                                       nested row (req #3078 payload budget)
+// @property {?string} launchBlock       req #3360 — WHY there is no command, as
+//                                       an enum to branch on: 'no-links' |
+//                                       'containers' | 'not-ready' | null. The
+//                                       first two mean CLOSE the step, the third
+//                                       means the work is not ready
 // @property {number[]} depIds           step dependencies
 // @property {string[]} timeDeps         time gates (ISO-8601)
 // @property {?number} epicId            dominant epic (rule 10)
@@ -111,12 +124,19 @@
 // @property {('auto'|'manual')} run
 // @property {string[]} machineLabels
 // @property {number[]} swarmStartArgs   the EXACT requirement-id argument list (rule 8),
-//                                       tracking containers excluded
+//                                       tracking containers and non-`swarm_ready`
+//                                       requirements excluded
 // @property {?string} swarmStartCommand '/swarm-start <req ids>', null when the
 //                                       batch has nothing launchable
+// @property {string[]} launchExcluded   req #3360 — every member's exclusions,
+//                                       flattened in member order. Present even
+//                                       when there IS a command: a PARTIAL
+//                                       exclusion is the common case
+// @property {?string} launchBlock       req #3360 — the enum behind noLaunchReason
 // @property {?string} noLaunchReason    why there is no command — null when there is
 //                                       one. Distinguishes "no links at all" from
 //                                       "every link is a container" (req #3123)
+//                                       from "nothing is launchable" (req #3360)
 //
 // @typedef {Object} StepCost  shape-compatible with the cost-rollup req (#3117)
 // @property {number} wallSecs
@@ -133,6 +153,50 @@ export const PAUSED_STATUS = 'paused';
 
 // Requirement statuses that close a step (rule 1).
 export const TERMINAL_REQUIREMENT_STATUSES = ['met', 'deferred', 'wontfix'];
+
+// The ONLY status a /swarm-start argument may carry (req #3360). Decided by the
+// user 2026-08-07 and NOT open for re-derivation: `authoring`, `approved`,
+// `met`, `deferred`, `wontfix` and `development` are ALL excluded from a step's
+// launch argument list.
+//
+// A named set rather than a boolean test, so `tests/swarm/test-pipeline-skill-contract.sh`
+// can read the rule BY NAME and pin the /swarm-start skill's prose against it —
+// widening the rule is then one edit and the binding test fails until the prose
+// follows. The two statuses worth justifying, because they are the ones a later
+// session will be tempted to re-admit: `approved` was in every previous copy of
+// this list and the user was asked about it specifically and said skip it;
+// `development` means a session already took the requirement past readiness, so
+// excluding it STRENGTHENS req #3191 (whose whole mechanism is `session-init.sh`
+// writing `development` to suppress a relaunch, defeated until now by an
+// argument list that never read the column).
+export const LAUNCHABLE_REQUIREMENT_STATUSES = ['swarm_ready'];
+
+// Why an id is NOT in a step's launch argument list — published per excluded id
+// so no consumer re-derives one.
+//
+// EACH ENTRY IS ONE FLAT STRING, `"<reqId> <reason>"`, and the shape is forced
+// rather than chosen: the server twin's derived block may carry no nested row
+// anywhere (req #3078's payload budget, pinned by
+// `test_the_derived_block_is_compact_ids_and_enums_only`), and these two must
+// stay identical. It is also the form every consumer wants — all of them RENDER
+// the exclusion and none reads the status programmatically, and for a status
+// exclusion the reason IS the status.
+export const EXCLUDED_CONTAINER = 'tracking container';
+export const EXCLUDED_UNRESOLVED = 'unresolved — not in the composed read';
+export const EXCLUDED_NO_STATUS = 'no status';
+
+// WHY a step or batch has no command, as an ENUM a consumer can BRANCH on —
+// `noLaunchReason` is the same decision rendered as a sentence for a human.
+// Both come from `launchBlock`, so they cannot disagree.
+//
+// THE THREE CASES NEED DIFFERENT READER ACTIONS, and the two that predate req
+// #3360 need the SAME one. `no-links` and `containers` mean *close the step* —
+// there is no work and there never will be. `not-ready` means *the work exists
+// and is not ready*, and closing the step there destroys the plan record for
+// work nobody has done.
+export const BLOCK_NO_LINKS = 'no-links';
+export const BLOCK_CONTAINERS = 'containers';
+export const BLOCK_NOT_READY = 'not-ready';
 
 // How a plan runs its epics (req #3388). `parallel` is every epic at once — the
 // behaviour that existed before this column, which is why it is the DEFAULT and
@@ -174,6 +238,57 @@ export function isTrackingRequirement(req) {
     if (typeof value === 'boolean') return value;
     const n = Number(value);
     return Number.isFinite(n) ? n !== 0 : false;
+}
+
+// Rule 8, with the status finally read (req #3360). Splits a step's linked ids
+// into the ones a /swarm-start may carry and one record per id it may NOT, each
+// carrying the REASON.
+//
+// Before this requirement the split subtracted containers and stopped, so an
+// orchestrated launch attempted work that was already finished — measured
+// 2026-08-07 on pipeline 79 step 230, `/swarm-start 3329 3330 3331 3332 3333
+// 3334` with three of them `met`, while the sync report printed "met —
+// /swarm-start has nothing to do with it" for each of the three on the same
+// read. The plan layer already knew and emitted the ids anyway.
+//
+// ORDER IS THE PLAN'S OWN. Both lists come out in junction order — rule 8's
+// "the requirement ids ARE the argument list" means the command must be stable
+// across cycles, and re-sorting here would make it depend on which ids happened
+// to be excluded.
+//
+// UNRESOLVED IS EXCLUDED, deliberately. A junction row whose requirement is
+// missing from the read has no readable status, and "only swarm_ready launches"
+// cannot be satisfied by a row nobody read. Fail closed.
+//
+// @param {number[]} reqIds
+// @param {number[]} trackingReqIds
+// @param {Map<number, PipelineRequirement>} reqsById
+// @returns {{launchReqIds: number[], launchExcluded: string[]}}
+function splitLaunchable(reqIds, trackingReqIds, reqsById) {
+    const tracking = new Set(trackingReqIds || []);
+    const launchReqIds = [];
+    const launchExcluded = [];
+    const note = (rid, reason) => launchExcluded.push(`${rid} ${reason}`);
+    for (const rid of reqIds || []) {
+        if (tracking.has(rid)) {
+            note(rid, EXCLUDED_CONTAINER);
+            continue;
+        }
+        const req = reqsById.get(rid);
+        if (!req) {
+            note(rid, EXCLUDED_UNRESOLVED);
+            continue;
+        }
+        const status = req.requirement_status != null ? req.requirement_status : null;
+        if (LAUNCHABLE_REQUIREMENT_STATUSES.includes(status)) {
+            launchReqIds.push(rid);
+        } else {
+            // The STATUS IS THE REASON, so it is the phrase rather than a label
+            // wrapped around one: a reader seeing `3330 met` needs no glossary.
+            note(rid, status || EXCLUDED_NO_STATUS);
+        }
+    }
+    return { launchReqIds, launchExcluded };
 }
 
 // Rule 1: STEP STATE IS DERIVED, NEVER STORED-BY-HAND. Any GATING requirement in
@@ -392,6 +507,12 @@ export function buildPlanRows(model) {
         // nothing was read that said so.
         const trackingReqIds = reqIds.filter(
             (rid) => isTrackingRequirement(reqsById.get(rid)));
+        // req #3360. Computed HERE, where reqsById is already in hand, and
+        // published on the row rather than recomputed at each call site: the
+        // launch argument list and the reasons an id is missing from it are two
+        // halves of one answer, and deriving them apart is how they disagree.
+        const { launchReqIds, launchExcluded } = splitLaunchable(
+            reqIds, trackingReqIds, reqsById);
         const labels = inheritedLabels(step.id, new Set()) || dominantLabels(step, model);
         const machines = machineLabels(step, model);
         const deps = depsByStep.get(step.id) || { depIds: [], timeDeps: [] };
@@ -405,6 +526,11 @@ export function buildPlanRows(model) {
             reqIds,
             trackingReqIds,
             unresolvedReqIds,
+            launchReqIds,
+            launchExcluded,
+            // req #3360. Per ROW as well as per batch: a solo step never forms
+            // a batch, and the plan table renders rows.
+            launchBlock: launchBlock([{ reqIds, trackingReqIds, launchReqIds }]),
             depIds: deps.depIds,
             timeDeps: deps.timeDeps,
             epicId: labels.epicId,
@@ -1008,15 +1134,63 @@ function batchLetter(i) {
     return s;
 }
 
-// The requirement ids a step actually LAUNCHES: its links minus its tracking
-// containers (req #3123). Rule 8 says a step's requirement ids ARE the
-// /swarm-start argument list, so before the flag existed a step linking its
-// plan's tracker would have launched a session against the plan itself —
-// a container has no work to do and no acceptance criteria to satisfy.
-// Now that the signal is durable, the defect is fixable, so it is fixed here.
+// The requirement ids a step actually LAUNCHES: rule 8's argument list, minus
+// its tracking containers (req #3123) and minus everything that is not
+// `swarm_ready` (req #3360).
+//
+// THE ANSWER IS READ, NOT RECOMPUTED. buildPlanRows owns the split, where the
+// requirement rows are in hand; this is the accessor both launchBatches and
+// every render surface go through, so the batch command and the per-row list
+// cannot disagree about the same step.
+//
+// IT FAILS CLOSED. A row without the field launches NOTHING rather than falling
+// back to the wider set — a silent fallback here would restore exactly the
+// defect req #3360 removed, on the one input class (a row built by something
+// other than buildPlanRows) nobody would think to test.
 function launchableReqIds(row) {
-    const tracking = new Set(row.trackingReqIds || []);
-    return (row.reqIds || []).filter((id) => !tracking.has(id));
+    return [...(row.launchReqIds || [])];
+}
+
+// Why each of this step's linked requirements is missing from its command.
+function launchExclusionsOf(row) {
+    return [...(row.launchExcluded || [])];
+}
+
+// The noLaunchReason for a batch whose launchable set is empty. ONE vocabulary,
+// EXTENDED (req #3360), never a parallel one: the caller that has to ask "is
+// this the container field or the status field?" is the caller that reads the
+// wrong one. The first two values predate req #3360 and are unchanged — a
+// corpus asserts them, and "every link is a container" and "some links are
+// finished work" want different reader actions.
+// WHICH of the three no-command cases this is — the enum, not the sentence.
+// ASKED OF THE IDS, never by parsing a rendered reason back apart. Null when
+// something IS launchable.
+function launchBlock(members) {
+    if (members.some((m) => launchableReqIds(m).length)) return null;
+    if (!members.some((m) => (m.reqIds || []).length)) return BLOCK_NO_LINKS;
+    const allContainers = members.every((m) => {
+        const tracking = new Set(m.trackingReqIds || []);
+        return (m.reqIds || []).every((rid) => tracking.has(rid));
+    });
+    return allContainers ? BLOCK_CONTAINERS : BLOCK_NOT_READY;
+}
+
+// The human sentence for each enum value — chosen BY the enum rather than
+// re-decided, so the value a consumer branches on and the sentence it prints
+// can never describe different situations.
+function noLaunchReasonFor(members) {
+    switch (launchBlock(members)) {
+    case BLOCK_NO_LINKS:
+        return 'no linked requirements — nothing to launch';
+    case BLOCK_CONTAINERS:
+        return 'every linked requirement is a tracking container — nothing to launch';
+    default:
+        // NAMED, WITH THE STATUS. A shrinking argument list with no explanation
+        // is indistinguishable from a bug (rule 7), and this is the shape where
+        // it shrank all the way to nothing.
+        return `nothing launchable — only ${LAUNCHABLE_REQUIREMENT_STATUSES.join(', ')} `
+            + `launches: ${members.flatMap(launchExclusionsOf).join(', ')}`;
+    }
 }
 
 // Rules 2 + 8: pending steps sharing an identical (dominant epic, remaining step
@@ -1063,17 +1237,24 @@ export function launchBatches(orderedRows) {
             machineLabels: labels,
             swarmStartArgs: reqIds,
             swarmStartCommand: reqIds.length ? `/swarm-start ${reqIds.join(' ')}` : null,
+            // req #3360. Flattened across members in the same member order the
+            // command is built in, so a reader can line the two up: these are
+            // the ids that WOULD have been in the command and why each is not.
+            // Carried even when the command is non-empty — a PARTIAL exclusion
+            // is the common case and the one most easily mistaken for a bug.
+            launchExcluded: members.flatMap(launchExclusionsOf),
+            // req #3360. The enum beside the sentence: noLaunchReason is for a
+            // person, this is what a consumer BRANCHES on to choose a remedy.
+            launchBlock: launchBlock(members),
             // Why there is no command, in the batch rather than at each render
             // surface — "no linked requirements" acquired a SECOND meaning with
             // req #3123 and was flatly false for the new one: a batch can now
             // carry requirement links and still have nothing to launch, because
-            // every one of them is a container. Both the table and the
-            // visualizer print this field, so they cannot drift apart.
-            noLaunchReason: reqIds.length
-                ? null
-                : (members.some((m) => (m.reqIds || []).length)
-                    ? 'every linked requirement is a tracking container — nothing to launch'
-                    : 'no linked requirements — nothing to launch'),
+            // every one of them is a container. Req #3360 added a THIRD, for the
+            // same reason: every link can be real work that is simply not
+            // launchable. Both the table and the visualizer print this field, so
+            // they cannot drift apart.
+            noLaunchReason: reqIds.length ? null : noLaunchReasonFor(members),
         });
     }
     return batches;

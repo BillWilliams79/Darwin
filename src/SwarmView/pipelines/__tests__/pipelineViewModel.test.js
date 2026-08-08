@@ -243,9 +243,12 @@ const BATCH_READS = {
         { id: 3, step_fk: 4, dep_step_fk: 1, time_at: null },
     ],
     requirements: [
-        { id: 900, requirement_status: 'approved', machine_fk: 2, feature_fk: 101 },
-        { id: 901, requirement_status: 'approved', machine_fk: 2, feature_fk: 101 },
-        { id: 902, requirement_status: 'approved', machine_fk: 2, feature_fk: 101 },
+        // `swarm_ready`, not `approved` — req #3360 makes it the ONLY launchable
+        // status, and this fixture's subject is BATCHING, so its requirements
+        // have to be launchable for the batch to carry a command at all.
+        { id: 900, requirement_status: 'swarm_ready', machine_fk: 2, feature_fk: 101 },
+        { id: 901, requirement_status: 'swarm_ready', machine_fk: 2, feature_fk: 101 },
+        { id: 902, requirement_status: 'swarm_ready', machine_fk: 2, feature_fk: 101 },
     ],
     features: [{ id: 101, title: 'Wave', epic_fk: 11 }],
     epics: [{ id: 11, title: 'Epic' }],

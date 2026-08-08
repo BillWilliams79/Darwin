@@ -12,6 +12,7 @@ import {
     dominantLabels, machineLabels, fmtCost, aggregateStepCost,
     aggregateRowCost, sumReqCost, requirementCounts, isTrackingRequirement,
     pauseState, PAUSED_STATUS,
+    LAUNCHABLE_REQUIREMENT_STATUSES, EXCLUDED_CONTAINER, EXCLUDED_UNRESOLVED,
 } from '../pipelineModel';
 import { PLAN_JSON_ROWS, SUBSTRATE_REBUILD_MODEL } from './substrateRebuildFixture';
 
@@ -69,6 +70,23 @@ function row(id, state, deps = [], opts = {}) {
         epic: opts.epic !== undefined ? opts.epic : null,
         feature: opts.feature !== undefined ? opts.feature : null,
         reqIds: opts.reqIds || [],
+        trackingReqIds: opts.trackingReqIds || [],
+        // req #3360 — `launchableReqIds` READS this field rather than
+        // recomputing it, because `buildPlanRows` is the one place with the
+        // requirement rows in hand. A hand-built row must therefore carry it,
+        // exactly as it already carries `state` and `epicId` rather than
+        // deriving them. DEFAULTS TO `reqIds` minus the containers, which is
+        // what `buildPlanRows` produces for the all-`swarm_ready` step every
+        // batching test here means to describe; a case that means to exercise
+        // the STATUS filter sets the two apart explicitly.
+        launchReqIds: opts.launchReqIds !== undefined
+            ? opts.launchReqIds
+            : (opts.reqIds || []).filter(
+                (rid) => !(opts.trackingReqIds || []).includes(rid)),
+        launchExcluded: opts.launchExcluded !== undefined
+            ? opts.launchExcluded
+            : (opts.trackingReqIds || []).map(
+                (rid) => `${rid} ${EXCLUDED_CONTAINER}`),
         depIds: deps,
         timeDeps: opts.timeDeps || [],
         machineLabels: opts.machines || [],
@@ -242,7 +260,7 @@ describe('the tracking exemption — a container is not work (req #3123)', () =>
             ],
             stepDeps: [],
             requirements: [
-                { id: 500, requirement_status: 'approved', machine_fk: null },
+                { id: 500, requirement_status: 'swarm_ready', machine_fk: null },
                 { id: 600, requirement_status: 'development', machine_fk: 3, tracking: 1 },
             ],
             features: [], epics: [], machines: [{ id: 3, title: 'WSL' }],
@@ -274,8 +292,8 @@ describe('the tracking exemption — a container is not work (req #3123)', () =>
                 { step_fk: 3, dep_step_fk: 1, time_at: null },
             ],
             requirements: [
-                { id: 500, requirement_status: 'approved', machine_fk: null },
-                { id: 501, requirement_status: 'approved', machine_fk: null },
+                { id: 500, requirement_status: 'swarm_ready', machine_fk: null },
+                { id: 501, requirement_status: 'swarm_ready', machine_fk: null },
                 { id: 600, requirement_status: 'development', machine_fk: 3, tracking: 1 },
             ],
             features: [], epics: [], machines: [{ id: 3, title: 'WSL' }],
@@ -326,8 +344,8 @@ describe('the tracking exemption — a container is not work (req #3123)', () =>
         // Two pending steps sharing a gate, one of which links a container.
         const rows = [
             row(1, STEP_DONE),
-            { ...row(2, STEP_PENDING, [1], { reqIds: [100, 200] }), trackingReqIds: [200] },
-            { ...row(3, STEP_PENDING, [1], { reqIds: [300] }), trackingReqIds: [] },
+            row(2, STEP_PENDING, [1], { reqIds: [100, 200], trackingReqIds: [200] }),
+            row(3, STEP_PENDING, [1], { reqIds: [300], trackingReqIds: [] }),
         ];
         const [batch] = launchBatches(displayOrder(rows).rows);
         expect(batch.swarmStartArgs).toEqual([100, 300]);
@@ -338,8 +356,8 @@ describe('the tracking exemption — a container is not work (req #3123)', () =>
         + 'never an argument-less one', () => {
         const rows = [
             row(1, STEP_DONE),
-            { ...row(2, STEP_PENDING, [1], { reqIds: [200] }), trackingReqIds: [200] },
-            { ...row(3, STEP_PENDING, [1], { reqIds: [201] }), trackingReqIds: [201] },
+            row(2, STEP_PENDING, [1], { reqIds: [200], trackingReqIds: [200] }),
+            row(3, STEP_PENDING, [1], { reqIds: [201], trackingReqIds: [201] }),
         ];
         const [batch] = launchBatches(displayOrder(rows).rows);
         expect(batch.swarmStartArgs).toEqual([]);
@@ -652,11 +670,11 @@ describe('launchBatches — rules 2 + 8, the launch unit is explicit', () => {
             ],
             stepDeps: [],
             requirements: [
-                { id: 70, requirement_status: 'approved', feature_fk: 1, machine_fk: null },
-                { id: 71, requirement_status: 'approved', feature_fk: 1, machine_fk: null },
-                { id: 72, requirement_status: 'approved', feature_fk: 1, machine_fk: null },
-                { id: 73, requirement_status: 'approved', feature_fk: 1, machine_fk: null },
-                { id: 74, requirement_status: 'approved', feature_fk: 2, machine_fk: null },
+                { id: 70, requirement_status: 'swarm_ready', feature_fk: 1, machine_fk: null },
+                { id: 71, requirement_status: 'swarm_ready', feature_fk: 1, machine_fk: null },
+                { id: 72, requirement_status: 'swarm_ready', feature_fk: 1, machine_fk: null },
+                { id: 73, requirement_status: 'swarm_ready', feature_fk: 1, machine_fk: null },
+                { id: 74, requirement_status: 'swarm_ready', feature_fk: 2, machine_fk: null },
             ],
             features: [{ id: 1, title: 'F1', epic_fk: 1 }, { id: 2, title: 'F2', epic_fk: 2 }],
             epics: [{ id: 1, title: 'E1' }, { id: 2, title: 'E2' }],
@@ -1004,11 +1022,34 @@ describe('code-review hardenings (2026-07-26)', () => {
             gateStepIds: [40],
             run: 'auto',
             machineLabels: ['Mac mini'],
-            swarmStartArgs: [3118, 3108],
-            swarmStartCommand: '/swarm-start 3118 3108',
         });
         const posn = new Map(ids(result.rows).map((id, i) => [id, i]));
         expect(Math.abs(posn.get(41) - posn.get(43))).toBe(1);
+
+        // req #3360, ON THE REAL FIXTURE AND WITHOUT EDITING IT. #3118 and
+        // #3108 are both `approved` here — the fixture header says pending rows
+        // were given `approved/swarm_ready` interchangeably, because before this
+        // requirement the two behaved identically. They no longer do, and the
+        // batch forms exactly as before while carrying NO command.
+        expect(batches[0].swarmStartArgs).toEqual([]);
+        expect(batches[0].swarmStartCommand).toBeNull();
+        expect(batches[0].noLaunchReason)
+            .toBe('nothing launchable — only swarm_ready launches: '
+                + '3118 approved, 3108 approved');
+        expect(batches[0].launchExcluded).toEqual(['3118 approved', '3108 approved']);
+
+        // And the SAME plan with those two moved to `swarm_ready` derives the
+        // exact command this test was written for — which is what keeps the
+        // lettering/gate/machine assertions above tied to a real launch.
+        const ready = SUBSTRATE_REBUILD_MODEL.requirements.map(
+            (r) => ([3118, 3108].includes(r.id)
+                ? { ...r, requirement_status: 'swarm_ready' } : r));
+        const readyBatches = launchBatches(displayOrder(buildPlanRows(
+            { ...SUBSTRATE_REBUILD_MODEL, steps, requirements: ready })).rows);
+        expect(readyBatches[0].swarmStartArgs).toEqual([3118, 3108]);
+        expect(readyBatches[0].swarmStartCommand).toBe('/swarm-start 3118 3108');
+        expect(readyBatches[0].noLaunchReason).toBeNull();
+        expect(readyBatches[0].launchExcluded).toEqual([]);
     });
 });
 

@@ -2881,6 +2881,12 @@ function PlanDataCard({ card, timezone, level, containerW, containerH }) {
                 {rowEl('Launch', b.swarmStartCommand
                     ? <code style={{ fontSize: '0.85em' }}>{b.swarmStartCommand}</code>
                     : (b.noLaunchReason || 'no linked requirements — nothing to launch'))}
+                {/* req #3360 — the ids the command DROPPED and why. Only
+                    alongside a command: with none, the reason above names them
+                    all already. Without this a six-requirement step showing a
+                    three-id command reads as a dropped requirement. */}
+                {b.swarmStartCommand && (b.launchExcluded || []).length > 0
+                    && rowEl('Skipped', b.launchExcluded.join(', '))}
             </div>
         );
     } else {
