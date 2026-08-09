@@ -206,12 +206,37 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             // pipeline id and the fixture's ids are allocated at seed time.
             //
             // This runs on every NAVIGATION, i.e. on every new document — so a
-            // test that needs the camera to SURVIVE (PIPE-21) must travel by
-            // in-app routing, which creates no new document and therefore does
-            // not re-run this. That is also the journey the user actually makes.
-            for (const k of Object.keys(sessionStorage)) {
-                if (k.startsWith('darwin-viewport-')) sessionStorage.removeItem(k);
-            }
+            // test that needs the camera to SURVIVE (PIPE-21, PIPE-23) must
+            // travel by in-app routing or by a second CONTEXT, neither of which
+            // re-runs this. Those are also the journeys the user actually makes.
+            //
+            // ── BOTH STORES SINCE REQ #3431, AND THAT IS A REPAIR ───────────
+            // This loop read sessionStorage only, because that is where req
+            // #3252 put the camera. Req #3431 moved the camera, the scroll
+            // offsets AND the remembered place to localStorage — so as written
+            // it silently became a NO-OP, and the guarantee every `goto` in
+            // this file is built on ("the plan opens at its base view") stopped
+            // holding. Two tests state that guarantee in their own comments and
+            // would have started failing on a camera the previous gesture left
+            // behind: PIPE-16b asserts the landing scale IS `factoryDefaultScale`
+            // after a reload, and PIPE-11/PIPE-14 re-open a plan mid-test and
+            // then look for an epic chip a surviving camera can carry off
+            // screen.
+            //
+            // THE PLACE RECORD GOES TOO, and for a different reason: a `goto`
+            // to `/swarm/pipelines` is an arrival from nowhere, so a record left
+            // by an earlier plan in the SAME test would resume and the list
+            // would never render. No test does that today; the cost of it
+            // silently starting to is a redirect nobody wrote and nobody
+            // expects, so the residue is cleared rather than reasoned about.
+            const wipeMemory = (store: Storage) => {
+                for (const k of Object.keys(store)) {
+                    if (k.startsWith('darwin-viewport-') || k.startsWith('darwin-scroll-')
+                        || k === 'darwin-swarm-pipelines-place') store.removeItem(k);
+                }
+            };
+            wipeMemory(sessionStorage);
+            wipeMemory(localStorage);
         }, [mode, viz.reqLayout, viz.stepLabel] as const);
     }
 
@@ -2769,6 +2794,157 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             expect(Math.hypot(rx - panned[0], ry - panned[1]),
                 'and it is the reset view, not the pan that preceded it')
                 .toBeGreaterThan(1);
+        });
+
+    // ── PIPE-23: coming back after the browser was closed (req #3431) ───────
+
+    test('PIPE-23: hours later, Pipelines goes straight back to the plan, the panel '
+        + 'and the camera — and the list is still reachable',
+        async ({ browser }) => {
+            // > *"if you naviggate away you would hours later when coming back,
+            // > go straight that spot. a feature saved to local storage only."*
+            //
+            // ── WHY THIS IS AN E2E CASE AND NOT A vitest ONE ────────────────
+            // The vitest journey (`PipelinesPage.restart.test.jsx`) plays the
+            // same story by clearing sessionStorage inside one JS realm. That
+            // proves the app's own logic; it cannot prove the BROWSER's part of
+            // the bargain, which is the whole subject here — that the records
+            // this feature writes are the ones a fresh browser process gets back
+            // and the ones it does not. Playwright's `storageState()` captures
+            // cookies and localStorage and NOTHING per-tab, which is exactly the
+            // boundary a restart draws, so a second context built from it is a
+            // faithful "opened it again the next morning" rather than a
+            // simulation of one.
+            //
+            // ── AND WHY IT IS NOT PIPE-21 ─────────────────────────────────
+            // PIPE-21 proves the camera survives leaving the visualizer, by
+            // IN-APP routing inside one document. Under req #3252's per-tab
+            // store that was the strongest claim available. It passes just as
+            // well with a sessionStorage camera, so it says nothing at all about
+            // the requirement this test exists for.
+            const viewport = { width: 1400, height: 900 };
+
+            // ── SESSION ONE. Open the plan, choose the Plan panel, leave the
+            //    camera somewhere distinctive.
+            const first = await browser.newContext({
+                storageState: '.auth/user.json', viewport });
+            const page = await first.newPage();
+            await page.goto(`/swarm/pipeline/${fixture.mainPipelineId}`);
+            await page.getByTestId('pipeline-mode-plan').click();
+            const container = page.getByTestId('pipeline-plan-visualizer');
+            await expect(container).toBeVisible({ timeout: 30000 });
+            const canvas = container.locator('canvas').first();
+            await expect(canvas).toBeVisible({ timeout: 15000 });
+            const read = async (p = page) => (await p.getByTestId('pipeline-plan-visualizer')
+                .getAttribute('data-transform'))!.split(',').map(Number);
+            const opened = await read();
+
+            const box = (await canvas.boundingBox())!;
+            const cx = box.x + box.width / 2;
+            const cy = box.y + box.height / 2;
+            await page.mouse.move(cx, cy);
+            await page.mouse.down();
+            await page.mouse.move(cx - 150, cy - 80, { steps: 12 });
+            await page.mouse.up();
+            // Polled on DISTANCE for PIPE-21's reason: `read()` maps through
+            // Number, so the published "0.00,-12.50" round-trips to "0,-12.5" —
+            // a string the component's own toFixed can never emit, which makes
+            // a `not.toHaveAttribute` comparison vacuously true.
+            await expect.poll(async () => {
+                const [x, y] = await read();
+                return Math.hypot(x - opened[0], y - opened[1]);
+            }, { timeout: 10000 }).toBeGreaterThan(50);
+            const panned = await read();
+
+            // The camera commits on unmount or on `pagehide`, and this session
+            // is about to do neither in a way Playwright can order against
+            // `storageState()`. `pagehide` IS the event a closing tab fires and
+            // the hook's own listener is the thing under test, so it is
+            // dispatched explicitly and then VERIFIED, rather than closing the
+            // page and hoping the write lands before the renderer goes away.
+            await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+            const cameraKey = `darwin-viewport-pipeline-plan-${fixture.mainPipelineId}`;
+            await expect.poll(
+                async () => page.evaluate((k) => localStorage.getItem(k) != null, cameraKey),
+                { message: 'the camera was committed to the durable store' }).toBe(true);
+
+            const state = await first.storageState();
+            await first.close();
+
+            // WHAT ACTUALLY CROSSES THE BOUNDARY, named before it is used. If a
+            // later change moves any of these back to a per-tab store this
+            // reddens HERE, on the record, instead of surfacing as an
+            // unexplained failure to resume three assertions further down.
+            const origin = state.origins.find(
+                (o) => o.localStorage.some((e) => e.name.startsWith('darwin-')));
+            const durable = new Set((origin?.localStorage || []).map((e) => e.name));
+            expect(durable, 'the remembered place').toContain('darwin-swarm-pipelines-place');
+            expect(durable, 'the camera').toContain(cameraKey);
+            expect(durable, 'the panel preference')
+                .toContain('darwin-swarm-pipeline-detail-mode');
+
+            // ── SESSION TWO. A different browser context: new cookies jar, new
+            //    per-tab storage, the same profile.
+            const second = await browser.newContext({ storageState: state, viewport });
+            // Snapshotted BEFORE any page script runs, because the app itself
+            // seeds sessionStorage on load. This is the assertion that makes the
+            // whole test a restart rather than a reload — without it, a feature
+            // that never left sessionStorage would pass everything below.
+            await second.addInitScript(() => {
+                (window as unknown as { __perTabAtLoad: number }).__perTabAtLoad =
+                    sessionStorage.length;
+            });
+            const next = await second.newPage();
+
+            // THE ASK. Clicking Pipelines is a `goto` here — a cold arrival, no
+            // in-app history, nothing but the durable record to go on.
+            await next.goto('/swarm/pipelines');
+            await expect(next,
+                'Pipelines went straight back to the plan, not to the list')
+                .toHaveURL(new RegExp(`/swarm/pipeline/${fixture.mainPipelineId}$`),
+                    { timeout: 30000 });
+            expect(await next.evaluate(
+                () => (window as unknown as { __perTabAtLoad: number }).__perTabAtLoad),
+                'and it did it with an empty per-tab store').toBe(0);
+
+            // THE PANEL, which is deliberately NOT in the place record — it
+            // comes back through `useViewPreference`'s localStorage seed, and
+            // that seed is the entire reason the record refuses to carry a
+            // `mode`. If it ever stops working the record would have to grow
+            // one, so this is the assertion that would say so.
+            const nextContainer = next.getByTestId('pipeline-plan-visualizer');
+            await expect(nextContainer, 'in the panel the reader left')
+                .toBeVisible({ timeout: 30000 });
+            await expect(next.getByTestId('pipeline-plan-table')).toHaveCount(0);
+
+            // THE CAMERA. Same numbers, in a browser process that never saw the
+            // gesture that produced them.
+            await expect.poll(async () => (await read(next))[2], { timeout: 15000 })
+                .toBeCloseTo(panned[2], 3);
+            const [nx, ny] = await read(next);
+            expect(nx, 'the camera came back: x').toBeCloseTo(panned[0], 0);
+            expect(ny, 'the camera came back: y').toBeCloseTo(panned[1], 0);
+
+            // ── AND THE LIST IS STILL REACHABLE. This is the one way the
+            //    feature can be catastrophic rather than merely absent: if the
+            //    resume also fired on the way OUT of a plan, the nav rail's
+            //    Pipelines item would bounce straight back and the list could
+            //    never be opened again. In-app routing, because that is the only
+            //    path on which the app can know where the reader came from.
+            await next.getByRole('link', { name: /^pipelines$/i }).click();
+            await expect(next).toHaveURL(/\/swarm\/pipelines$/, { timeout: 15000 });
+            await expect(next.getByTestId('pipelines-view-toggle'),
+                'the list rendered rather than bouncing back to the plan')
+                .toBeVisible({ timeout: 30000 });
+
+            // ...and that decision sticks: the reader's last act was to leave
+            // the plan, so the NEXT cold arrival shows the list too.
+            await next.goto('/swarm/pipelines');
+            await expect(next.getByTestId('pipelines-view-toggle'))
+                .toBeVisible({ timeout: 30000 });
+            await expect(next).toHaveURL(/\/swarm\/pipelines$/);
+
+            await second.close();
         });
 
     // ── PIPE-22: the key opens collapsed, and its '+' reads brighter (req #3309) ──
