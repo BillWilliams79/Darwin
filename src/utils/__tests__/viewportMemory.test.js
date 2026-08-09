@@ -1,7 +1,8 @@
 // Req #3252 — the canvas-camera memory contract.
+// Req #3431 — and the STORE it is kept in, which reversed to localStorage.
 //
 // The module is pure and React-free precisely so this file needs no DOM. It
-// needs a `sessionStorage`, which jsdom would provide but which is cheaper and
+// needs a `localStorage`, which jsdom would provide but which is cheaper and
 // more controllable as a stub — the point of several cases below is storage
 // BEHAVING BADLY (throwing, holding garbage), and a real one cannot be made to.
 
@@ -19,7 +20,7 @@ const KEY = viewportStorageKey('pipeline-plan', 2);
 const FP = '1200x800:64:9';
 const CAM = { x: -340.5, y: -120.25, k: 1.75 };
 
-/** A minimal in-memory sessionStorage; `fail` makes every method throw. */
+/** A minimal in-memory localStorage; `fail` makes every method throw. */
 function installStorage({ fail = false } = {}) {
     const map = new Map();
     const boom = () => { throw new DOMException('quota', 'QuotaExceededError'); };
@@ -28,7 +29,7 @@ function installStorage({ fail = false } = {}) {
         setItem: fail ? boom : (k, v) => { map.set(k, String(v)); },
         removeItem: fail ? boom : (k) => { map.delete(k); },
     };
-    vi.stubGlobal('sessionStorage', stub);
+    vi.stubGlobal('localStorage', stub);
     return map;
 }
 
@@ -36,6 +37,30 @@ describe('viewportMemory', () => {
     let store;
     beforeEach(() => { store = installStorage(); });
     afterEach(() => { vi.unstubAllGlobals(); });
+
+    // ── req #3431 — DURABILITY IS THE FEATURE, so it is asserted directly ──
+    // > *"if you navigate away you would hours later when coming back, go
+    // > straight that spot. a feature saved to local storage only."*
+    //
+    // A tab closed is a sessionStorage cleared, so "which store" is not an
+    // implementation detail here — it is the difference between the requirement
+    // being met and being unreachable. Asserting the camera round-trips proves
+    // nothing about it: it round-trips through either store equally well. What
+    // pins it is that sessionStorage is NEVER TOUCHED, in either direction.
+    describe('the store is localStorage, and only localStorage', () => {
+        it('writes, reads and clears without touching sessionStorage', () => {
+            const session = vi.fn();
+            vi.stubGlobal('sessionStorage',
+                { getItem: session, setItem: session, removeItem: session });
+
+            writeViewport(KEY, FP, CAM);
+            expect(store.get(KEY)).toBeTypeOf('string');
+            expect(readViewport(KEY, FP)).toEqual(CAM);
+            clearViewport(KEY);
+
+            expect(session).not.toHaveBeenCalled();
+        });
+    });
 
     describe('viewportStorageKey', () => {
         // The key namespace is deliberately NOT `darwin-<feature>-view`: that
@@ -195,8 +220,8 @@ describe('viewportMemory', () => {
     });
 
     describe('storage missing entirely', () => {
-        it('never throws when there is no sessionStorage at all', () => {
-            vi.stubGlobal('sessionStorage', undefined);
+        it('never throws when there is no localStorage at all', () => {
+            vi.stubGlobal('localStorage', undefined);
             expect(readViewport(KEY, FP)).toBeNull();
             expect(() => writeViewport(KEY, FP, CAM)).not.toThrow();
             expect(() => clearViewport(KEY)).not.toThrow();
