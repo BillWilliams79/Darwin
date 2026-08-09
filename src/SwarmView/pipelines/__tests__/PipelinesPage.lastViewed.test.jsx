@@ -1,12 +1,17 @@
 // @vitest-environment jsdom
 //
-// Req #3311 — "remember my last selected pipeline".
+// Req #3311 — "remember my last selected pipeline", the VISIBLE half: the list
+// marks the plan you were last on.
+// Req #3431 — the same mark, now driven off the durable place record rather
+// than `darwin-swarm-pipelines-last-opened`, and still shown when the record
+// says the reader walked back out to this list. The mark is what makes the
+// remembering something a reader can SEE; the resume (a sibling file) is what
+// makes it something they can USE, and a page that did the second without the
+// first would move people around with nothing to explain why.
 //
-// The storage and lifecycle contracts are pinned by `scrollMemory.test.js` and
-// `useScrollMemory.test.jsx`. What only an integration test can reach is the
-// round trip the user actually performs: open a plan, come back, and SEE which
-// one you were on. A page that recorded the id perfectly and rendered no mark
-// would pass every unit test and deliver nothing.
+// The storage contract itself is pinned by `pipelinePlace.test.js`. What only
+// an integration test can reach is the round trip: a record in storage, a mark
+// on the right card, and no mark anywhere else.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import React from 'react';
@@ -40,11 +45,17 @@ vi.mock('../../../hooks/useDataQueries', async (importOriginal) => {
 });
 
 import PipelinesPage from '../PipelinesPage';
+import { PIPELINE_PLACE_STORAGE_KEY } from '../pipelinePlace';
+import { noteRoute, resetRouteTrail } from '../../../utils/routeTrail';
 import AuthContext from '../../../Context/AuthContext';
 
-const LAST_KEY = 'darwin-swarm-pipelines-last-opened';
-
 let roots = [];
+
+// `at: 'list'` throughout, because that IS the reader's state whenever this page
+// is the one on screen — they are on the list. An `at: 'plan'` record would
+// RESUME rather than render, which is the sibling file's subject.
+const remember = (pipelineId, at = 'list') => localStorage.setItem(
+    PIPELINE_PLACE_STORAGE_KEY, JSON.stringify({ v: 1, at, pipelineId }));
 
 function mount() {
     const host = document.createElement('div');
@@ -64,15 +75,20 @@ function mount() {
 }
 
 const node = (testId) => document.body.querySelector(`[data-testid="${testId}"]`);
-const openCard = (id) => act(() => {
-    node(`pipeline-card-${id}`).querySelector('button, [role="button"]')
-        .dispatchEvent(new MouseEvent('click', { bubbles: true }));
-});
+
+// Mount as the reader arriving from a plan — the one entry that suppresses the
+// resume, and therefore the only way to render this page with an `at: 'plan'`
+// record still in storage.
+function mountFromPlan(planId = 5) {
+    noteRoute(`/swarm/pipeline/${planId}`);
+    return mount();
+}
 
 describe('PipelinesPage — the last selected pipeline', () => {
     beforeEach(() => {
         sessionStorage.clear();
         localStorage.clear();
+        resetRouteTrail();
         roots = [];
     });
     afterEach(() => {
@@ -89,12 +105,8 @@ describe('PipelinesPage — the last selected pipeline', () => {
         expect(node('pipeline-card-lastviewed-5')).toBeNull();
     });
 
-    it('records the plan it opens, and marks it on return', () => {
-        const first = mount();
-        openCard(5);
-        first.unmount();
-        document.body.innerHTML = '';
-
+    it('marks the plan the reader last had open', () => {
+        remember(5);
         mount();
         expect(node('pipeline-card-lastviewed-5')).not.toBeNull();
         // EXACTLY ONE mark. A predicate that matched loosely — a string id
@@ -103,52 +115,44 @@ describe('PipelinesPage — the last selected pipeline', () => {
         expect(node('pipeline-card-lastviewed-2')).toBeNull();
     });
 
-    it('moves the mark when a different plan is opened', () => {
-        const first = mount();
-        openCard(5);
-        openCard(2);
-        first.unmount();
+    it('moves the mark when the record names a different plan', () => {
+        remember(5);
+        mount().unmount();
         document.body.innerHTML = '';
 
+        remember(2);
         mount();
         expect(node('pipeline-card-lastviewed-2')).not.toBeNull();
         expect(node('pipeline-card-lastviewed-5')).toBeNull();
     });
 
-    // THE ASK'S OWN CONSTRAINT: "in local storage", and "this shouldn't affect
-    // separate tabs". `useViewPreference` is both halves — the live value is
-    // per-tab sessionStorage, and localStorage is only the seed a NEW tab starts
-    // from, read once at its own mount.
-    it('writes both the per-tab value and the new-tab seed', () => {
-        mount();
-        openCard(5);
-        expect(sessionStorage.getItem(LAST_KEY)).toBe('5');
-        expect(localStorage.getItem(LAST_KEY)).toBe('5');
-    });
-
-    it('marks the seeded plan in a tab that has never opened one', () => {
-        // A brand-new tab: localStorage carries yesterday's choice, this tab's
-        // sessionStorage is empty.
-        localStorage.setItem(LAST_KEY, '2');
-        mount();
-        expect(node('pipeline-card-lastviewed-2')).not.toBeNull();
+    // req #3431 — the mark SURVIVES walking back out to the list, which is the
+    // whole reason `pipelineId` and `at` are separate fields. Landing here sets
+    // `at: 'list'`, and if that had dropped the id the reader would lose the
+    // mark by the single act of coming to look at it.
+    it('still marks after the page has recorded a list visit', () => {
+        remember(5, 'plan');
+        // Arriving from the plan: no resume, so the page settles to `at: 'list'`.
+        mountFromPlan();
+        expect(node('pipeline-card-lastviewed-5')).not.toBeNull();
+        expect(JSON.parse(localStorage.getItem(PIPELINE_PLACE_STORAGE_KEY)))
+            .toEqual({ v: 1, at: 'list', pipelineId: 5 });
     });
 
     // The value indexes a row, so anything that is not an id must mark NOTHING
     // rather than match by accident. It comes out of web storage, so an older
-    // build's value and a hand-typed one are both reachable.
-    // `'0'` and `'  '` both parse to the NUMBER 0, which is not an id any row
-    // carries — so they belong here with the junk rather than being trusted.
-    it.each(['', '  ', '0', 'constructor', 'NaN', '{}', '5abc'])(
-        'marks nothing for a stored %s', (raw) => {
-            sessionStorage.setItem(LAST_KEY, raw);
+    // build's value and a hand-typed one are both reachable. `0` and `''` both
+    // pass a careless `Number()` and neither is an id any row carries.
+    it.each([null, '', '  ', 0, 'constructor', 'NaN', '5abc', {}])(
+        'marks nothing for a stored id of %s', (id) => {
+            remember(id);
             mount();
             expect(node('pipeline-card-lastviewed-2')).toBeNull();
             expect(node('pipeline-card-lastviewed-5')).toBeNull();
         });
 
     it('marks nothing when the remembered plan is no longer listed', () => {
-        sessionStorage.setItem(LAST_KEY, '999');
+        remember(999);
         mount();
         // Asserted against the cards that EXIST. Looking for
         // `pipeline-card-lastviewed-999` could never fail — there is no row 999

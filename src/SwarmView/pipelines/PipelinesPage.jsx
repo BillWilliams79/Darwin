@@ -20,8 +20,8 @@
 // name (the same defect req #3281 files against PipelineDetail.jsx). ViewerHeader
 // wraps the Tooltip AROUND the button and sets `aria-label` on the button itself.
 
-import { useContext, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 
 import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
@@ -40,6 +40,16 @@ import {
 import { useViewPreference } from '../../hooks/useViewPreference';
 import { useScrollMemory } from '../../hooks/useScrollMemory';
 import { scrollStorageKey } from '../../utils/viewportMemory';
+import { cameFrom } from '../../utils/routeTrail';
+import {
+    clearPipelinePlace,
+    isPipelineDetailPath,
+    pipelinePlaceAtList,
+    pipelinePlacePath,
+    prunePipelineStorage,
+    readPipelinePlace,
+    writePipelinePlace,
+} from './pipelinePlace';
 import normalizeView from '../../Components/ViewerHeader/normalizeView';
 import ViewerHeader from '../../Components/ViewerHeader/ViewerHeader';
 import ChipFilter from '../../Components/ChipFilter';
@@ -66,16 +76,13 @@ const VIEW_STORAGE_KEY = 'darwin-swarm-pipelines-view';
 // looking at the same plans in a different shape, not at a second list.
 const LIST_SCROLL_KEY = scrollStorageKey('pipelines-list');
 
-// req #3311 — "remember my last selected pipeline". A PREFERENCE, not a position,
-// so it takes `useViewPreference`'s hybrid (per-tab sessionStorage, localStorage
-// only as the seed a brand-new tab starts from) rather than the strictly per-tab
-// storage `viewportMemory.js` argues for. The distinction is that module's own:
-// a position answers "where was I in THIS artifact a moment ago" and is
-// meaningless to a tab that was never there, while "the plan I am working on" is
-// durable and reads correctly with no context at all — which is also the ask's
-// "in local storage". Seeding is read ONCE at mount, so a second tab still never
-// disturbs a live one.
-const LAST_PIPELINE_STORAGE_KEY = 'darwin-swarm-pipelines-last-opened';
+// req #3431 — the remembered place replaces req #3311's
+// `darwin-swarm-pipelines-last-opened`. See `pipelinePlace.js`: one record now
+// answers both "which plan do I mark" and "where was the reader", the second of
+// which this page needs in order to RESUME rather than merely mark. The old key
+// was written by this page's click handler alone, so a plan opened by any other
+// route was never recorded — which is most of why the first attempt could not
+// resume to it.
 
 // req #3220 — per-tab only (sessionStorage), matching useViewPreference's own
 // per-tab-first rationale (memory/view-switchable-pages.md). Needed because the
@@ -137,15 +144,18 @@ export default function PipelinesPage() {
 
     const [view, setView] = useViewPreference(VIEW_STORAGE_KEY, 'cards');
     const activeView = normalizeView(view, VIEWS);
-    // req #3311 — the plan this reader last opened, marked on return so "my last
-    // selected pipeline" is something they can SEE rather than an invisible
-    // bookmark. `''` is the never-opened default; anything unparseable (a value
-    // from an older build, or one typed into devtools) resolves to null and marks
-    // nothing, because this value indexes a row and a NaN would match none.
-    const [lastOpenedPref, setLastOpened] = useViewPreference(
-        LAST_PIPELINE_STORAGE_KEY, '');
-    const lastOpenedId = Number.isFinite(Number(lastOpenedPref)) && lastOpenedPref !== ''
-        ? Number(lastOpenedPref) : null;
+    // req #3431 — the remembered place, read ONCE per mount into state.
+    //
+    // STATE AND NOT A BARE `readPipelinePlace()` CALL, which would be simpler and
+    // wrong: this page WRITES the record below (an `at: 'list'` visit), and a
+    // per-render read would then see its own write and re-render on it. Reading
+    // once at mount is also what makes the resume decision stable — the gate must
+    // judge the record the reader arrived with, not one that changed underneath
+    // it. `lastOpenedId` marks the row (req #3311's visible half) regardless of
+    // whether the record would resume, because "the plan I last opened" is true
+    // even when the reader's last act was to walk back out to this list.
+    const [place] = useState(readPipelinePlace);
+    const lastOpenedId = place?.pipelineId ?? null;
     // req #3225 — the SAME preference the plan detail header's toggle writes.
     // This page carries no control of its own for it (the toggle lives where
     // the requirement puts it, in the header's row of toggle groups); it only
@@ -208,6 +218,72 @@ export default function PipelinesPage() {
     const isLoading = pipelinesLoading || stepsLoading || linksLoading
         || reqsLoading || machinesLoading;
 
+
+    // ── req #3431 — GO STRAIGHT BACK TO THE SPOT ────────────────────────────
+    // > *"if you navigate away you would hours later when coming back, go
+    // > straight that spot."*
+    //
+    // Req #3311 remembered which plan the reader last opened and MARKED its row.
+    // That is a bookmark, not a return: the reader still had to find and click
+    // it. This is the return, and it is one navigation with four conditions on
+    // it — each of which is a way the feature would otherwise misfire.
+    //
+    // 1. NOT WHILE LOADING. A redirect decided over a spinner is a redirect
+    //    decided over no data: condition 3 would see an empty list and conclude
+    //    the plan was deleted. Same gate, same reason, as the scroll restore
+    //    directly above.
+    // 2. `at === 'plan'`. A reader whose last act was to walk back out to this
+    //    list asked for this list. The record says which, so "resume" and
+    //    "don't" are one field rather than a heuristic — and it is what makes a
+    //    RELOAD of the list show the list.
+    // 3. THE PLAN STILL EXISTS — tested against `pipelines`, NOT `filtered`. A
+    //    plan hidden by the reader's own status filter is present and would read
+    //    as deleted, destroying a perfectly good record (data-architect review).
+    //    A genuinely deleted plan is swept below instead of navigated to, which
+    //    would land on a not-found alert that reads as a defect in the data.
+    // 4. THE READER DID NOT ARRIVE FROM A PLAN. This is the one that keeps the
+    //    page reachable. Without it, clicking Pipelines in the nav rail while on
+    //    a plan — or pressing Back — bounces straight back to the plan, and the
+    //    list can never be opened again. With it, that gesture lands here AND
+    //    rewrites the record to `at: 'list'`, so the next visit from anywhere
+    //    else lands here too: the reader's last decision was to leave the plan,
+    //    and it stands until they open one again.
+    //
+    // ── RETURNED FROM RENDER, NOT FIRED FROM AN EFFECT ─────────────────────
+    // `<Navigate replace />` after the spinner branch, the shape `HomePage.jsx`
+    // already uses for a stored-preference landing redirect. An effect renders
+    // the full list first and navigates on the next tick, so the reader sees a
+    // flash of the page they are not going to. `replace`, never a push: a pushed
+    // redirect leaves the list on the history stack, so Back re-enters it and it
+    // redirects again — condition 4's trap reached through the history API.
+    //
+    // ── THE ORIGIN IS SAMPLED ONCE, AT MOUNT ───────────────────────────────
+    // `cameFrom` is a moving value: the app shell advances the trail in its own
+    // effect, which runs AFTER this component's (React runs children first). The
+    // helper is written to answer correctly on both sides of that, but the
+    // answer must still be frozen — the gate re-evaluates as data arrives, and
+    // "where did the reader come from" is a fact about the arrival, not about
+    // the render that happens to be asking.
+    // ── AND ONCE THE READER IS ON THIS PAGE, IT NEVER FIRES (review M2) ────
+    // `settledRef` below is the same "the reader stayed" fact the settle effect
+    // already turns on, consulted here so the redirect cannot happen LATER. The
+    // inputs are not frozen: `refetchOnWindowFocus` replaces `pipelines` under a
+    // mounted page, so a plan that was missing at mount — because the read had
+    // failed, or because it was created in another tab — flips condition 3 true
+    // thirty seconds in and teleports a reader off a list they are reading.
+    //
+    // Read during render, which is safe because the ref is MONOTONIC: it goes
+    // false → true exactly once, in an effect, so it cannot differ between two
+    // reads within one commit.
+    const { pathname } = useLocation();
+    const [arrivedFromPlan] = useState(() => isPipelineDetailPath(cameFrom(pathname)));
+    const settledRef = useRef(false);
+
+    const resumeTo = !isLoading && !arrivedFromPlan && !settledRef.current
+        && place?.at === 'plan'
+        && pipelines.some((p) => p.id === place.pipelineId)
+        ? pipelinePlacePath(place) : null;
+
     // req #3311 — GATED ON THE SPINNER, and that gate is the whole subtlety. A
     // position cannot be restored onto a page that is 40px of CircularProgress:
     // every scroller clamps on assignment, so an early restore does not fail, it
@@ -216,7 +292,61 @@ export default function PipelinesPage() {
     // restores against a page that has height. Nothing is lost in the meantime —
     // a spinner emits no scroll events, so there is no position to commit and the
     // stored one is never overwritten with a 0.
-    useScrollMemory(isLoading ? null : LIST_SCROLL_KEY);
+    //
+    // req #3431 — AND PARKED WHILE RESUMING, which is the hook's "not this
+    // time" channel, the same one a deep link uses. This render returns a
+    // redirect, so restoring the list's position would scroll a page the reader
+    // is already leaving and then commit whatever that produced. Nothing is
+    // lost: they never saw the list.
+    useScrollMemory(isLoading || resumeTo ? null : LIST_SCROLL_KEY);
+
+    // Everything that is TRUE BECAUSE THE READER STAYED — so it must not run on
+    // the render that redirects, or an outgoing resume would overwrite the very
+    // record it is acting on. Once per mount: the inputs change as data arrives
+    // and none of these is a per-render fact.
+    useEffect(() => {
+        if (isLoading || resumeTo || settledRef.current) return;
+        settledRef.current = true;
+
+        // ── AN EMPTY LIST IS NOT A FACT ABOUT THE WORLD (review M1) ────────
+        // `useAllPipelines` yields `undefined` on a FAILED read — an auth blip,
+        // a 5xx, an offline tab — and this page defaults that to `[]` while
+        // `isLoading` goes false. So a read that never succeeded is
+        // indistinguishable here from a reader who owns no plans, and NEITHER
+        // of the two things below may be done on that evidence:
+        //
+        //   · CLEARING the record would destroy the reader's resume point on a
+        //     transient network fault, silently, with an empty list on screen
+        //     and no error to explain it. It is `prunePipelineStorage`'s own
+        //     guard — "no plans exist" and "the plans have not arrived" are the
+        //     same value and opposite instructions — applied to the same
+        //     destructive act on the same evidence.
+        //   · RECORDING `at: 'list'` is subtler and was the first fix's own bug:
+        //     it survives the blip, but it still tells the next visit the reader
+        //     CHOSE this list, so one failed read quietly costs them the resume.
+        //     They did not choose anything; they were shown a broken page.
+        //
+        // So the whole settle is skipped and the record is left exactly as it
+        // was. The latch above is still armed, deliberately: the reader is
+        // reading this page now, and a refetch that succeeds thirty seconds
+        // later must not teleport them off it (M2). Their next fresh arrival
+        // resumes normally.
+        if (pipelines.length === 0) return;
+
+        // Orphaned cameras and offsets from deleted plans, plus req #3311's
+        // retired key. Here rather than anywhere else because this is the one
+        // page that holds the complete live plan set (design rule 5 — it is
+        // already fetched; the sweep adds no read).
+        prunePipelineStorage(pipelines.map((p) => p.id));
+
+        if (place?.at === 'plan' && !pipelines.some((p) => p.id === place.pipelineId)) {
+            clearPipelinePlace();
+            return;
+        }
+        // Being here IS the reader's place now. Merged rather than overwritten,
+        // or the row marker would go with it.
+        writePipelinePlace(pipelinePlaceAtList(place));
+    }, [isLoading, resumeTo, pipelines, place]);
 
     const summaries = useMemo(
         () => pipelineSummaries({ pipelines, steps, stepRequirements, requirements }),
@@ -238,14 +368,15 @@ export default function PipelinesPage() {
         () => hiddenPipelineStatusCounts(pipelines, statusFilter),
         [pipelines, statusFilter]);
 
-    const open = (id) => {
-        // Recorded BEFORE the navigation, which is the only ordering that works:
-        // `navigate` unmounts this page, and the write is what the return visit
-        // reads. It is the plan's own id as a string — `useViewPreference` stores
-        // strings, and `lastOpenedId` below is the one place it becomes a number.
-        setLastOpened(String(id));
-        navigate(`/swarm/pipeline/${id}`);
-    };
+    // req #3431 — THIS HANDLER NO LONGER RECORDS ANYTHING, and that is the fix
+    // rather than an omission. Req #3311 wrote the id here, at the one call site
+    // that opens a plan from this page, so a plan reached by a `?step=` deep
+    // link, by Back, by the sessions grid or by the requirement page's "view on
+    // plan" link was never recorded. `PipelineDetail` writes the record on
+    // arrival instead: one writer, every route, nothing to keep exhaustive —
+    // the argument `viewportMemory.js` makes about return paths, applied to
+    // entry paths.
+    const open = (id) => navigate(`/swarm/pipeline/${id}`);
 
     if (isLoading) {
         return (
@@ -254,6 +385,9 @@ export default function PipelinesPage() {
             </Box>
         );
     }
+
+    // req #3431 — the resume. See the gate above; this is only where it lands.
+    if (resumeTo) return <Navigate to={resumeTo} replace />;
 
     return (
         <Box className="app-content-planpage">
