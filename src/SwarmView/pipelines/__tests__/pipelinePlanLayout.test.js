@@ -29,7 +29,9 @@ import {
     REQ_STATUS_COLORS, REQ_STATUS_ORDER, REQ_STATUS_UNKNOWN_COLOR, reqStatusColor,
     MACHINE_MAC_COLOR, MACHINE_WINDOWS_COLOR, MACHINE_ANY_COLOR,
     MACHINE_FALLBACK_PALETTE, machineEcosystem, buildMachineColorView,
-    COLOR_KEY_LABELS, DEFAULT_COLOR_KEY, isColorKey, normalizeColorKey,
+    AUTONOMY_COLORS, AUTONOMY_ORDER, AUTONOMY_UNKNOWN_COLOR, autonomyColor,
+    REQ_COLOR_SCALES, REQ_COLOR_KEYS, reqColorScale, buildReqColorViews,
+    DEFAULT_COLOR_KEY, isColorKey, normalizeColorKey,
     reqIdStyle, reqIdKeyEntries, PLAN_KEY_MAX_W,
     LABEL_MAX_CHARS, reqLabelText, REQ_VIEWS, DEFAULT_REQ_VIEW, isReqView,
     normalizeReqView, reqViewOptions, PLAN_LEVEL_BY_PREF, PLAN_LEVEL_NUMBER,
@@ -4052,27 +4054,247 @@ describe('machine colour view (moved to the pure module, req #3168)', () => {
     });
 });
 
-describe('the TRI-STATE colour key (req #3168, directive 3)', () => {
-    it('has exactly three positions and defaults to state', () => {
-        expect(Object.keys(COLOR_KEY_LABELS).sort())
-            .toEqual(['machine', 'none', 'state']);
+describe('the AUTONOMY colour scale (req #3422)', () => {
+    const PANEL = PLAN_VIZ_PALETTE.panel;
+
+    it('covers every coordination_type the schema defines, and nothing else', () => {
+        // The vocabulary from root CLAUDE.md § Requirement coordination_type. A
+        // value added server-side without a colour here falls to the dim unknown
+        // swatch — visible, but no longer on the ladder — so the set is pinned.
+        expect(AUTONOMY_ORDER)
+            .toEqual(['discuss', 'planned', 'implemented', 'deployed']);
+        expect(Object.keys(AUTONOMY_COLORS).sort())
+            .toEqual([...AUTONOMY_ORDER].sort());
+    });
+
+    it('is legible on the panel — every swatch clears 4.5:1', () => {
+        // MEASURED 2026-08-09: 4.78:1 (planned, the lowest) to 8.73:1
+        // (deployed). Same floor and same reason as the status scale: WCAG AA
+        // for normal text, and the ids render at 13.75px.
+        //
+        // `planned` SITS CLOSE TO THE FLOOR ON PURPOSE — it is the wine the
+        // stoplight directive asked for as a burgundy, and a burgundy is a
+        // dark-ink-on-white colour: a true one (#800020) measures 1.59:1 here.
+        // The darkest wine available on this panel is the ~4.6:1 band, so the
+        // floor is what is holding the hue up, and a future "make it darker"
+        // must move this assertion knowingly or not at all. (The constraint
+        // travelled with the colour when the ramp shifted a rung, and survived
+        // the nudge toward violet that raised it 4.62 -> 4.78.)
+        for (const ct of AUTONOMY_ORDER) {
+            const ratio = contrast(AUTONOMY_COLORS[ct], PANEL);
+            expect(ratio, `${ct} (${AUTONOMY_COLORS[ct]}) on ${PANEL}`)
+                .toBeGreaterThanOrEqual(4.5);
+        }
+        expect(contrast(AUTONOMY_UNKNOWN_COLOR, PANEL)).toBeGreaterThanOrEqual(4);
+    });
+
+    it('is separable — no two coordination types read as the same colour', () => {
+        // MEASURED minimum 45.9 (planned vs implemented), against the same floor
+        // of 20 the status scale is held to. The pair that used to be closest —
+        // discuss vs planned, the two reds — is 61.4 since planned was nudged
+        // toward the violet, so the scale's tightest step is now an ordinary
+        // neighbouring pair rather than a near-collision.
+        let worst = { pair: null, d: Infinity };
+        for (let i = 0; i < AUTONOMY_ORDER.length; i++) {
+            for (let j = i + 1; j < AUTONOMY_ORDER.length; j++) {
+                const a = AUTONOMY_ORDER[i];
+                const b = AUTONOMY_ORDER[j];
+                const d = deltaE(AUTONOMY_COLORS[a], AUTONOMY_COLORS[b]);
+                if (d < worst.d) worst = { pair: `${a}/${b}`, d };
+            }
+        }
+        expect(worst.d, `closest pair ${worst.pair}`).toBeGreaterThanOrEqual(20);
+    });
+
+    it('BORROWS NO STATE HUE — an autonomy colour may not read as a step state', () => {
+        // Asserted by DISTANCE rather than by inequality, because "not the same
+        // hex" would happily pass a near-identical green — and since the
+        // stoplight directive (2026-08-09) `deployed` IS a green, so this is the
+        // assertion actually holding it apart from Complete rather than a
+        // formality.
+        //
+        // MEASURED nearest: 26.4 (deployed #39d353 vs doneRing #7ee08a). That is
+        // the widest gap any recognisable green achieves against this panel's
+        // Complete green — #00c853 reaches 25.9 and every other candidate
+        // measured 9-19 — so the floor of 25 is close to the ceiling of what is
+        // available, deliberately. A greener `deployed` fails here, which is the
+        // point: the user accepted this collision knowing it was one, and the
+        // test is what stops it widening by accident.
+        //
+        // Darwin's own coordination palette is still refused for its OTHER half:
+        // CalendarFC COORDINATION_COLORS paints `implemented` yellow, which on
+        // this panel is Running.
+        const reserved = {
+            runningFill: PLAN_VIZ_PALETTE.runningFill,
+            runningRing: PLAN_VIZ_PALETTE.runningRing,
+            doneFill: PLAN_VIZ_PALETTE.doneFill,
+            doneRing: PLAN_VIZ_PALETTE.doneRing,
+        };
+        for (const ct of AUTONOMY_ORDER) {
+            for (const [name, hex] of Object.entries(reserved)) {
+                expect(deltaE(AUTONOMY_COLORS[ct], hex),
+                    `${ct} (${AUTONOMY_COLORS[ct]}) vs ${name} (${hex})`)
+                    .toBeGreaterThanOrEqual(25);
+            }
+        }
+    });
+
+    it('falls back to the dim unknown swatch, INCLUDING inherited keys', () => {
+        for (const ct of AUTONOMY_ORDER) {
+            expect(autonomyColor(ct)).toBe(AUTONOMY_COLORS[ct]);
+        }
+        for (const bogus of ['constructor', 'toString', 'valueOf', 'hasOwnProperty',
+            'DEPLOYED', '', null, undefined, 0]) {
+            expect(autonomyColor(bogus), `coordination_type=${String(bogus)}`)
+                .toBe(AUTONOMY_UNKNOWN_COLOR);
+        }
+    });
+});
+
+describe('the SCALE REGISTRY (req #3422)', () => {
+    it('describes every scale COMPLETELY — no consumer has to know one by name', () => {
+        // The registration system's whole claim: one entry is everything the
+        // toolbar, the canvas and the key need. A scale added with a field
+        // missing renders a blank chip or an untitled key, which is exactly the
+        // failure this asserts away.
+        expect(REQ_COLOR_SCALES.map((s) => s.key))
+            .toEqual(['state', 'machine', 'autonomy']);
+        for (const s of REQ_COLOR_SCALES) {
+            for (const field of ['key', 'chipLabel', 'chipTip', 'chipName', 'keyTitle']) {
+                expect(typeof s[field], `${s.key}.${field}`).toBe('string');
+                expect(s[field].length, `${s.key}.${field}`).toBeGreaterThan(0);
+            }
+            expect(typeof s.build, `${s.key}.build`).toBe('function');
+            // WCAG 2.5.3 "Label in Name" — MUI's Tooltip makes the accessible
+            // name load-bearing, so a speech user asking for the visible word
+            // must reach the chip they can see.
+            expect(s.chipName.startsWith(s.chipLabel),
+                `${s.key}: chipName must start with chipLabel`).toBe(true);
+            // Every chip teaches the neutral position, which is reachable only
+            // by clicking the pressed chip and is discoverable from no chip's
+            // label.
+            expect(s.chipTip, `${s.key}.chipTip`).toContain('click again for none');
+        }
+        // `none` is NOT a registry entry — it is the absence of a scale.
+        expect(reqColorScale('none')).toBeUndefined();
+        expect(reqColorScale('state').keyTitle).toBe('Requirement id = status');
+    });
+
+    it('is the SOURCE of the key positions, not a parallel copy', () => {
+        expect(REQ_COLOR_KEYS).toEqual(['state', 'machine', 'autonomy', 'none']);
+        // The stored preference's whole vocabulary is the registry plus `none` —
+        // there is no second list to keep in step (the `COLOR_KEY_LABELS` object
+        // that used to be one is gone; nothing rendered it).
+        for (const s of REQ_COLOR_SCALES) expect(isColorKey(s.key)).toBe(true);
+        expect(isColorKey('none')).toBe(true);
+        expect(REQ_COLOR_KEYS).toHaveLength(REQ_COLOR_SCALES.length + 1);
+    });
+
+    it('builds every scale from ONE pass over the plan\'s own rows', () => {
+        const requirements = [
+            { id: 1, requirement_status: 'met', machine_fk: 2, coordination_type: 'deployed' },
+            { id: 2, requirement_status: 'development', machine_fk: null,
+                coordination_type: 'discuss' },
+            // Present in the model, NOT drawn by the plan — so it colours if
+            // asked, and contributes no key entry.
+            { id: 3, requirement_status: 'wontfix', machine_fk: 3,
+                coordination_type: 'planned' },
+        ];
+        const machines = [{ id: 2, title: 'Mac mini', platform: 'darwin' },
+            { id: 3, title: 'WSL', platform: 'win32' }];
+        const views = buildReqColorViews({
+            requirements, machines, presentReqIds: new Set([1, 2]),
+        });
+        expect(Object.keys(views)).toEqual(['state', 'machine', 'autonomy']);
+        expect(views.state.colorOf(1)).toBe(REQ_STATUS_COLORS.met);
+        expect(views.state.colorOf(3)).toBe(REQ_STATUS_COLORS.wontfix);
+        expect(views.state.legend.map((e) => e.key)).toEqual(['development', 'met']);
+        expect(views.machine.colorOf(1)).toBe(MACHINE_MAC_COLOR);
+        expect(views.machine.colorOf(2)).toBe(MACHINE_ANY_COLOR);
+        expect(views.autonomy.colorOf(1)).toBe(AUTONOMY_COLORS.deployed);
+        expect(views.autonomy.colorOf(2)).toBe(AUTONOMY_COLORS.discuss);
+        // LADDER ORDER, not the order the requirements arrived in.
+        expect(views.autonomy.legend.map((e) => e.key)).toEqual(['discuss', 'deployed']);
+        expect(views.autonomy.legend.map((e) => e.color))
+            .toEqual([AUTONOMY_COLORS.discuss, AUTONOMY_COLORS.deployed]);
+    });
+
+    it('names a value it does not know, and a requirement it never received', () => {
+        const views = buildReqColorViews({
+            requirements: [{ id: 1, requirement_status: 'met', coordination_type: 'met' }],
+            presentReqIds: new Set([1, 99]),
+        });
+        // A drawn id with no requirement row is UNKNOWN, not absent — the same
+        // rule the status scale has always followed.
+        expect(views.autonomy.legend.map((e) => e.key)).toEqual(['unknown']);
+        expect(views.autonomy.legend[0].color).toBe(AUTONOMY_UNKNOWN_COLOR);
+        expect(views.state.legend.map((e) => e.key)).toEqual(['met', 'unknown']);
+        expect(views.state.colorOf(99)).toBe(REQ_STATUS_UNKNOWN_COLOR);
+    });
+
+    it('lists every value when no plan filter is given, and is inert on nothing', () => {
+        const views = buildReqColorViews({
+            requirements: [{ id: 1, coordination_type: 'planned' },
+                { id: 2, coordination_type: 'implemented' }],
+        });
+        expect(views.autonomy.legend.map((e) => e.key)).toEqual(['planned', 'implemented']);
+        const empty = buildReqColorViews();
+        expect(empty.autonomy.legend).toEqual([]);
+        expect(empty.machine.legend).toEqual([]);
+        expect(empty.autonomy.colorOf(1)).toBe(AUTONOMY_UNKNOWN_COLOR);
+    });
+
+    it('does NOT filter the machine key by what the plan draws', () => {
+        // Deliberate asymmetry, asserted so it cannot be "fixed" silently: a
+        // machine's key entry is named from the machine record and its colour is
+        // keyed on the PLATFORM, so the entry set must not change as the level
+        // ladder hides and shows marks.
+        const views = buildReqColorViews({
+            requirements: [{ id: 1, machine_fk: 2 }, { id: 2, machine_fk: 3 }],
+            machines: [{ id: 2, title: 'Mac mini', platform: 'darwin' },
+                { id: 3, title: 'WSL', platform: 'win32' }],
+            presentReqIds: new Set([1]),
+        });
+        expect(views.machine.legend.map((e) => e.label)).toEqual(['Mac mini', 'WSL']);
+    });
+});
+
+describe('the colour key — N scales plus NONE (req #3168 directive 3, req #3422)', () => {
+    const views = buildReqColorViews({
+        requirements: [
+            { id: 1, requirement_status: 'development', machine_fk: 2,
+                coordination_type: 'implemented' },
+            { id: 2, requirement_status: 'met', machine_fk: null,
+                coordination_type: 'deployed' },
+            { id: 3, requirement_status: 'swarm_ready', machine_fk: null,
+                coordination_type: 'discuss' },
+        ],
+        machines: [{ id: 2, title: 'Mac mini', platform: 'darwin' }],
+        presentReqIds: new Set([1, 2, 3]),
+    });
+
+    it('has one position per registered scale plus none, and defaults to state', () => {
+        expect([...REQ_COLOR_KEYS].sort())
+            .toEqual(['autonomy', 'machine', 'none', 'state']);
         expect(DEFAULT_COLOR_KEY).toBe('state');
-        for (const v of ['state', 'machine', 'none']) expect(isColorKey(v)).toBe(true);
+        for (const v of REQ_COLOR_KEYS) expect(isColorKey(v)).toBe(true);
     });
 
     it('survives a pre-existing stored preference — state and machine still mean themselves',
         () => {
-            // The values a reader's browser already holds from before the third
-            // position existed. Normalizing them to anything else would silently
-            // change an existing plan's appearance.
+            // The values a reader's browser already holds from before the
+            // neutral position and the autonomy scale existed. Normalizing them
+            // to anything else would silently change an existing plan's
+            // appearance.
             expect(normalizeColorKey('state')).toBe('state');
             expect(normalizeColorKey('machine')).toBe('machine');
+            expect(normalizeColorKey('none')).toBe('none');
         });
 
     it('survives a garbage or localStorage-injected value, INHERITED KEYS INCLUDED', () => {
         // The `isStepWidth` hazard, on a value that ends up as a Konva `fill`.
         for (const bogus of ['constructor', 'toString', 'valueOf', '__proto__',
-            'hasOwnProperty', 'STATE', 'none ', '', null, undefined, 0, {}, []]) {
+            'hasOwnProperty', 'STATE', 'none ', 'Autonomy', '', null, undefined, 0, {}, []]) {
             expect(isColorKey(bogus), `isColorKey(${String(bogus)})`).toBe(false);
             expect(normalizeColorKey(bogus), `normalizeColorKey(${String(bogus)})`)
                 .toBe(DEFAULT_COLOR_KEY);
@@ -4080,61 +4302,77 @@ describe('the TRI-STATE colour key (req #3168, directive 3)', () => {
     });
 
     it('resolves the id style per key — and NEUTRAL is near-white, not black', () => {
-        expect(reqIdStyle({ colorKey: 'state', status: 'development' }))
+        expect(reqIdStyle({ colorKey: 'state', views, reqId: 1 }))
             .toEqual({ fill: REQ_STATUS_COLORS.development, bold: true });
-        expect(reqIdStyle({ colorKey: 'machine', machineColor: MACHINE_MAC_COLOR }))
+        expect(reqIdStyle({ colorKey: 'machine', views, reqId: 1 }))
             .toEqual({ fill: MACHINE_MAC_COLOR, bold: true });
+        expect(reqIdStyle({ colorKey: 'autonomy', views, reqId: 2 }))
+            .toEqual({ fill: AUTONOMY_COLORS.deployed, bold: true });
         // THE LIGHT-MODE FINDING, pinned rather than commented: this panel is a
         // FIXED dark surface in both app themes (PLAN_VIZ_PALETTE is not
         // theme-derived and the container paints `panel` unconditionally), so
         // "white, or black in white mode" has exactly one reachable answer here.
-        expect(reqIdStyle({ colorKey: 'none' }))
+        expect(reqIdStyle({ colorKey: 'none', views, reqId: 1 }))
             .toEqual({ fill: PLAN_VIZ_PALETTE.text, bold: false });
         expect(luminance(PLAN_VIZ_PALETTE.text))
             .toBeGreaterThan(luminance(PLAN_VIZ_PALETTE.panel));
         // A hostile key falls to the default rather than painting nothing.
-        expect(reqIdStyle({ colorKey: 'constructor', status: 'met' }).fill)
+        expect(reqIdStyle({ colorKey: 'constructor', views, reqId: 2 }).fill)
             .toBe(REQ_STATUS_COLORS.met);
+        // …and so does a call with no views at all: an undefined `fill` is
+        // painted by Konva as nothing, with no error anywhere.
         expect(reqIdStyle().fill).toBe(REQ_STATUS_UNKNOWN_COLOR);
+        expect(reqIdStyle({ colorKey: 'autonomy' }).fill).toBe(REQ_STATUS_UNKNOWN_COLOR);
     });
 
-    it('builds a key that lists only the statuses the plan CONTAINS, in lifecycle order',
-        () => {
-            const { title, entries } = reqIdKeyEntries({
-                colorKey: 'state',
-                statuses: ['met', 'swarm_ready', 'met', 'development'],
-            });
-            expect(title).toBe('Requirement id = status');
-            expect(entries.map((e) => e.key)).toEqual(['swarm_ready', 'development', 'met']);
-            expect(entries.map((e) => e.label))
-                .toEqual(['swarm-ready', 'development', 'met']);
-            expect(entries.map((e) => e.color)).toEqual([
-                REQ_STATUS_COLORS.swarm_ready,
-                REQ_STATUS_COLORS.development,
-                REQ_STATUS_COLORS.met,
-            ]);
-        });
-
-    it('names an unrecognised status rather than hiding it', () => {
-        const { entries } = reqIdKeyEntries({
-            colorKey: 'state', statuses: ['met', 'brand_new_status', null],
-        });
-        expect(entries.map((e) => e.key)).toEqual(['met', 'unknown']);
-        expect(entries[1].color).toBe(REQ_STATUS_UNKNOWN_COLOR);
+    it('builds a key that lists only the values the plan CONTAINS, in scale order', () => {
+        const state = reqIdKeyEntries({ colorKey: 'state', views });
+        expect(state.title).toBe('Requirement id = status');
+        expect(state.entries.map((e) => e.key))
+            .toEqual(['swarm_ready', 'development', 'met']);
+        expect(state.entries.map((e) => e.label))
+            .toEqual(['swarm-ready', 'development', 'met']);
+        expect(state.entries.map((e) => e.color)).toEqual([
+            REQ_STATUS_COLORS.swarm_ready,
+            REQ_STATUS_COLORS.development,
+            REQ_STATUS_COLORS.met,
+        ]);
     });
 
-    it('switches wholesale to the machine key, and says so on none', () => {
-        const machineLegend = [{ key: 2, color: MACHINE_MAC_COLOR, label: 'Mac mini' }];
-        expect(reqIdKeyEntries({ colorKey: 'machine', machineLegend }))
-            .toEqual({ title: 'Requirement id = machine', entries: machineLegend });
-        const off = reqIdKeyEntries({ colorKey: 'none', statuses: ['met'] });
+    it('switches wholesale to the machine and autonomy keys, and says so on none', () => {
+        expect(reqIdKeyEntries({ colorKey: 'machine', views })).toEqual({
+            title: 'Requirement id = machine', entries: views.machine.legend,
+        });
+        const autonomy = reqIdKeyEntries({ colorKey: 'autonomy', views });
+        expect(autonomy.title).toBe('Requirement id = autonomy');
+        expect(autonomy.entries.map((e) => e.label))
+            .toEqual(['discuss', 'implemented', 'deployed']);
+        const off = reqIdKeyEntries({ colorKey: 'none', views });
         expect(off.entries).toHaveLength(1);
         expect(off.entries[0].color).toBe(PLAN_VIZ_PALETTE.text);
         expect(off.entries[0].label).toBe('no colour key');
         // And a hostile key does not produce an empty, meaningless legend.
-        expect(reqIdKeyEntries({ colorKey: 'toString', statuses: ['met'] }).title)
+        expect(reqIdKeyEntries({ colorKey: 'toString', views }).title)
             .toBe('Requirement id = status');
         expect(reqIdKeyEntries()).toEqual({ title: 'Requirement id = status', entries: [] });
+    });
+
+    it('draws the key from the SAME view the canvas paints from', () => {
+        // The one invariant that makes a key a key: every entry's colour is the
+        // colour a mark under that scale actually receives. Asserted across
+        // every registered scale, so a new one cannot ship with a key that
+        // disagrees with the canvas.
+        for (const scale of REQ_COLOR_SCALES) {
+            const { entries } = reqIdKeyEntries({ colorKey: scale.key, views });
+            const painted = new Set([1, 2, 3].map(
+                (id) => reqIdStyle({ colorKey: scale.key, views, reqId: id }).fill));
+            for (const e of entries) {
+                expect(painted, `${scale.key}: key entry ${e.key} is painted somewhere`)
+                    .toContain(e.color);
+            }
+            expect(entries.length, `${scale.key}: the key covers every painted colour`)
+                .toBe(painted.size);
+        }
     });
 });
 
