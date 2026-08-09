@@ -2897,6 +2897,19 @@ export const EPIC_CHIP_FONT = PLAN_VIZ_FONT.epic;
 // can hang past the band's right edge or under the key, which is the exact
 // under-measurement bug this module's own header comment warns about.
 export const EPIC_CHIP_OPEN_LINK_W = 24;
+// The "open this epic's requirements as task cards" control (req #3428) — a
+// SECOND link control riding beside the ↗, and the SAME kind of flat, unscaled
+// screen-px reservation for the identical reason: a fixed `fontSize: 14` MUI
+// glyph plus the chip's own flex `gap`, neither of which shrinks when the chip
+// does. It renders under exactly the same condition as the ↗ (`epicId != null`)
+// and is measured under the same condition, so the two can never drift apart.
+//
+// UNMEASURED CONTENT IS CONTENT THAT HANGS PAST THE EDGE IT WAS CLAMPED TO —
+// this file's own header warning, and since req #3257 the measured box is what
+// keeps the name inside its own rectangle and clear of the key, not merely clear
+// of another floating chip. 24 px of unreserved glyph is 24 px of name over the
+// band's right edge.
+export const EPIC_CHIP_CARDS_LINK_W = 24;
 // The pause status bubble (req #3226) — a small filled circle immediately left
 // of the epic name, the SAME kind of flat, unscaled reservation as the ↗
 // control above and for the identical reason: it is a fixed-diameter dot plus
@@ -3093,12 +3106,14 @@ export function placeEpicChips({
         // name, so this stays the identity transform for callers that never set
         // it.
         const bandText = band.epicLabel || band.epic;
-        // The two FLAT, unscaled reservations: the ↗ control (only rendered when
-        // there is an epic to open) and the pause bubble (rendered on every
-        // band, "No epic" included). Neither shrinks with the chip, and both are
-        // in the measured box before anything is clamped or clipped against it.
+        // The FLAT, unscaled reservations: the two link controls — the ↗ to the
+        // features view and the cards control to the epic's requirements (req
+        // #3428) — which render only when there is an epic to open, and the
+        // pause bubble, which renders on every band, "No epic" included. None of
+        // them shrinks with the chip, and all are in the measured box before
+        // anything is clamped or clipped against it.
         const wFull = bandText.length * charW * scale + EPIC_CHIP_PAD_W * scale
-            + (band.epicId != null ? EPIC_CHIP_OPEN_LINK_W : 0)
+            + (band.epicId != null ? EPIC_CHIP_OPEN_LINK_W + EPIC_CHIP_CARDS_LINK_W : 0)
             + EPIC_PAUSE_BUBBLE_W;
 
         // ── THE RULE ────────────────────────────────────────────────────────

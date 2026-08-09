@@ -58,3 +58,95 @@ export const readViewParam = (searchParams) => {
  */
 export const swarmViewLinkTo = (view) =>
     SWARM_VIEWS.includes(view) ? `/swarm?${SWARM_VIEW_PARAM}=${view}` : '/swarm';
+
+// ── `?epic=` — ONE epic's work, seen as task cards (req #3428) ──────────────
+//
+// `/swarm?view=cards&epic=<eid>`. The writer is the plan visualizer's epic chip
+// (`PipelinePlanVisualizer.jsx`) and the readers are this page plus three
+// components under it — five files that must agree on one query-string key
+// exactly, which is this module's whole reason for existing. It lives HERE
+// rather than in a module of its own because this module already owns `/swarm`'s
+// query string: a second one would have to import `SWARM_VIEW_PARAM` back out of
+// this one to compose a single URL, which is two owners of one contract.
+//
+// `view=cards` IS CARRIED EXPLICITLY, for the reason `swarmViewLinkTo` gives
+// above: `/swarm` alone opens whichever panel this reader last chose, so a link
+// that omitted the view would land a Table-preferring reader on the Table — and
+// this link's whole promise is the CARDS. It seeds the same TRANSIENT override,
+// so the reader's stored default is never rewritten.
+//
+// THE THIRD `?epic=` IN THIS CODEBASE, AND THAT IS FINE. `pipelineEpicLink.js`
+// owns `?epic=` on `/swarm/pipeline/<pid>`, where it means FOCUS THIS BAND;
+// `FeaturesPage.jsx` owns it on `/swarm/features`, where it means FILTER TO THIS
+// EPIC; this owns it on `/swarm` and means what the second one means. Three
+// ROUTES, one meaning each, so no reader ever has to work out which sense is in
+// play — and the key is the same word because the noun is the same, which is
+// what makes the address bar legible. The three deliberately do NOT share a
+// reader: merging them would couple three pages' query strings so that changing
+// one has to be argued on all three.
+
+/** The query parameter. `epic`, because the filter names an EPIC. */
+export const SWARM_EPIC_PARAM = 'epic';
+
+/** The view an epic link lands on. Named so the writer and this file agree. */
+export const SWARM_EPIC_VIEW = 'cards';
+
+/**
+ * The route an epic's task cards live at.
+ *
+ * Returns null when the id is unusable, so a caller renders no control at all
+ * rather than one that navigates to `/swarm?epic=undefined` and filters every
+ * requirement away under a pill reading "Epic: undefined". A plan's "No epic"
+ * band has no id and is exactly this case — the same omit-rather-than-render-a-
+ * dead-link rule `pipelineEpicLink.js` applies.
+ *
+ * @param {?number} epicId
+ * @returns {?string}
+ */
+export const swarmEpicLinkTo = (epicId) => {
+    const eid = toEpicId(epicId);
+    if (eid == null) return null;
+    return `/swarm?${SWARM_VIEW_PARAM}=${SWARM_EPIC_VIEW}&${SWARM_EPIC_PARAM}=${eid}`;
+};
+
+/**
+ * The epic id a `?epic=` parameter names, or null.
+ *
+ * VALIDATED, NEVER TRUSTED — the same rule `readViewParam` follows, and with
+ * more at stake: this value decides which requirements a page shows, and
+ * `Number('')` is 0 while `Number('1.5')` is 1.5, either of which would filter
+ * every row away under a pill naming an epic that does not exist. An id that
+ * names a REAL-SHAPED epic which simply has no row is not an error: the page
+ * filters to an empty set and the pill falls back to the raw id, exactly as
+ * `FeaturesPage.jsx` has behaved since req #3115.
+ *
+ * @param {{get: function(string): ?string}} searchParams
+ * @returns {?number}
+ */
+export const readEpicParam = (searchParams) =>
+    toEpicId(searchParams?.get?.(SWARM_EPIC_PARAM));
+
+/**
+ * The same params with the epic filter removed — where dismissing the pill goes.
+ *
+ * A NEW `URLSearchParams` rather than a mutation of the caller's: React Router
+ * hands back a live object, and mutating it in place changes the current
+ * location's params while re-rendering nothing.
+ *
+ * @param {URLSearchParams} searchParams
+ * @returns {URLSearchParams}
+ */
+export const withoutEpicParam = (searchParams) => {
+    const next = new URLSearchParams(searchParams || undefined);
+    next.delete(SWARM_EPIC_PARAM);
+    return next;
+};
+
+// NULLISH AND EMPTY ARE REJECTED BEFORE `Number` SEES THEM — `pipelineStepLink`'s
+// identical guard, for the identical reason: `Number(null)` and `Number('')` are
+// both 0, which is a perfectly good integer and a perfectly bad epic id.
+const toEpicId = (value) => {
+    if (value == null || String(value).trim() === '') return null;
+    const n = Number(String(value).trim());
+    return Number.isInteger(n) && n > 0 ? n : null;
+};

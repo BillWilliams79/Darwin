@@ -19,7 +19,12 @@ import AppContext from '../Context/AppContext';
 
 import Box from '@mui/material/Box';
 
-const CategoryTabPanel = ( { project, projectIndex, activeTab, showClosed, showSwarmStartCard } ) => {
+// req #3428 — `epicReqIds` is the epic filter's SCOPE, passed straight through
+// from the page to both card kinds. A Set of requirement ids, or `null` when no
+// filter is active. This panel neither reads the URL nor derives membership: the
+// host owns the filter, and one derivation upstairs is what stops the aggregator
+// and the category cards from disagreeing about what the epic contains.
+const CategoryTabPanel = ( { project, projectIndex, activeTab, showClosed, showSwarmStartCard, epicReqIds = null } ) => {
 
     const clearDragTabSwitch = useSwarmTabStore(s => s.clearDragTabSwitch);
 
@@ -396,7 +401,7 @@ const CategoryTabPanel = ( { project, projectIndex, activeTab, showClosed, showS
             >
                 { categoriesArray &&
                     <Box className="card swarm-card" ref={panelDrop}>
-                        {showSwarmStartCard && <SwarmStartCard />}
+                        {showSwarmStartCard && <SwarmStartCard epicReqIds={epicReqIds} />}
                         { categoriesArray.map((category, categoryIndex) => (
                             <CategoryCard {...{key: category.id,
                                            category,
@@ -411,7 +416,8 @@ const CategoryTabPanel = ( { project, projectIndex, activeTab, showClosed, showS
                                            persistCategoryOrder: persistCategoryOrder,
                                            removeCategory,
                                            isTemplate: category.id === '',
-                                           showClosed,}}/>
+                                           showClosed,
+                                           epicReqIds,}}/>
                         ))}
                     </Box>
                 }
