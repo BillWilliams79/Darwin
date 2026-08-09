@@ -86,6 +86,22 @@ const CORPUS = loadCorpus();
 const CASES = CORPUS.cases;
 const byName = (name) => CASES.find((c) => c.name === name);
 
+// req #3380 — cases whose `expect` this file's engine, `observe()` (adapting `pipelineModel.js`),
+// can actually produce. A `shape: "pipeline2"` case's `model` is not the 1.0 wire shape
+// `buildPlanRows` reads (2.0 has no `features`, stores `epic_fk` directly on the step, and so on)
+// — running it through this engine does not throw, but silently produces a 1.0 answer compared
+// against a 2.0 `expect`, which is a false failure rather than a true one. The absent key defaults
+// to `"pipeline1"`, which is every case that predates req #3380, so nothing about the existing
+// corpus changes. `shape: "pipeline2"` cases have their own generator
+// (`darwin-mcp/tests/conformance/regenerate_pipeline2_golden.py`) and their own runner
+// (`darwin-mcp/tests/unit/test_pipeline2_golden_ordering.py`) on the Python side only — there is
+// no JavaScript consumer of Pipeline 2.0 derivation to test against here.
+const PIPELINE1_CASES = CASES.filter((c) => (c.shape || 'pipeline1') === 'pipeline1');
+if (PIPELINE1_CASES.length === 0) {
+    throw new Error('the pipeline1 selector is empty — every conformance-case test below would '
+        + 'silently collect zero cases instead of failing loudly');
+}
+
 // ── Adapters ────────────────────────────────────────────────────────────────
 
 // The ONLY translation: wire (snake_case) model keys -> the camelCase keys
@@ -306,7 +322,7 @@ describe('pipeline conformance corpus', () => {
             .toEqual([]);
     });
 
-    for (const testCase of CASES) {
+    for (const testCase of PIPELINE1_CASES) {
         // `expect_js` exists only where the two engines LEGITIMATELY differ, and
         // it is hand-authored. Its absence means this engine must produce the
         // same answer the Python one does — which is the normal case and the
