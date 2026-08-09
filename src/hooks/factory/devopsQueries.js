@@ -86,10 +86,17 @@ export const devServers = createEntityQueries({
 // remove. The gateway validates every `fields=` name against the live table and
 // 400s the WHOLE read on an unknown one, so this projection may only widen once
 // migration 20260801020944 has been applied to the database this build talks to.
+// Req #3350 — `pipeline2_fk` / `epic2_fk` join the same way: the 2.0 sibling
+// pair, stamped together by one walk (unlike the 1.0 pair, they cannot
+// disagree). Same 400-on-unknown-field caveat, gated on migration
+// 20260809081441 instead. Unlike the 1.0 pair above, no UI reads THIS pair
+// yet — SessionsView/SwarmSessionDetail render the 1.0 pipeline/epic chip
+// only — because there is no Pipeline 2.0 view to link a 2.0-attributed
+// session to. This is field-list parity only, ahead of that UI.
 // ---------------------------------------------------------------------------
 const SWARM_SESSION_DEFAULT_FIELDS =
     'id,branch,task_name,source_type,source_ref,title,pr_url,swarm_status,ai_model,effort,' +
-    'worktree_path,machine_fk,pipeline_fk,epic_fk,started_at,completed_at,last_transition_at,' +
+    'worktree_path,machine_fk,pipeline_fk,epic_fk,pipeline2_fk,epic2_fk,started_at,completed_at,last_transition_at,' +
     'starting_secs,waiting_secs,planning_secs,implementing_secs,review_secs,' +
     'completion_secs,paused_secs,legacy_secs,instrumented,pre_pause_status,' +
     'phase_tokens,creator_fk,create_ts,update_ts';

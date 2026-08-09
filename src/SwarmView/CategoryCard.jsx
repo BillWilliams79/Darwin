@@ -14,6 +14,7 @@ import { useSwarmTabStore } from '../stores/useSwarmTabStore';
 import { useShowClosedStore } from '../stores/useShowClosedStore';
 import { RequirementActionsContext } from '../hooks/useRequirementActions';
 import { requirementStatusTimestampFields, requirementStatusTimestampState } from '../utils/requirementStatusTimestamps';
+import { filterToEpic, effectiveHidePipelined } from '../utils/epicMembership';
 
 import AuthContext from '../Context/AuthContext'
 import AppContext from '../Context/AppContext';
@@ -39,7 +40,7 @@ import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import { CircularProgress } from '@mui/material';
 
-const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categoryKeyDown, categoryOnBlur, clickCardClosed, clickCardDelete, moveCard, persistCategoryOrder, removeCategory, isTemplate, showClosed }) => {
+const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categoryKeyDown, categoryOnBlur, clickCardClosed, clickCardDelete, moveCard, persistCategoryOrder, removeCategory, isTemplate, showClosed, epicReqIds = null }) => {
 
     const revertDragTabSwitch = useSwarmTabStore(s => s.revertDragTabSwitch);
 
@@ -62,7 +63,15 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
     // but editing/hand-sorting an orchestrated requirement here doesn't make
     // sense (its position is the plan's, not this card's), so hiding it is the
     // fix for both the clutter and the broken edit affordance at once.
-    const hidePipelined = useShowClosedStore(s => s.hidePipelinedRequirements);
+    const storedHidePipelined = useShowClosedStore(s => s.hidePipelinedRequirements);
+    // req #3428 — an epic filter FORCES the pipeline toggle off, through the one
+    // shared predicate `SwarmView` states the rule with. `hidePipelinedRequirements`
+    // defaults to ON (req #3242) while an epic's requirements are seated in
+    // pipeline steps by construction, so without this the epic page would arrive
+    // empty. The store is never written: dismissing the pill restores exactly the
+    // toggle state the reader had.
+    const epicFilterActive = epicReqIds != null;
+    const hidePipelined = effectiveHidePipelined(storedHidePipelined, epicFilterActive);
 
     const showError = useSnackBarStore(s => s.showError);
 
@@ -238,12 +247,23 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                 );
             }
 
+            // req #3428 — the epic filter, applied exactly where the status chips
+            // and the pipeline toggle are. A no-op (same array reference) when
+            // `epicReqIds` is null, same as the two above when they are off.
+            sortedRequirementsArray = filterToEpic(sortedRequirementsArray, epicReqIds);
+
             sortedRequirementsArray.sort((a, b) => activeSort(a, b));
-            setRequirementsArray(prev => [...sortedRequirementsArray, buildTemplate(prev)]);
+            // THE ADD-A-REQUIREMENT ROW IS SUPPRESSED WHILE FILTERED. A row saved
+            // there carries no `feature_fk`, so it belongs to no epic and would
+            // vanish from this card the instant it saved — a control whose result
+            // the reader cannot see. It comes back with the filter's dismissal.
+            setRequirementsArray(prev => epicFilterActive
+                ? sortedRequirementsArray
+                : [...sortedRequirementsArray, buildTemplate(prev)]);
         } else if (serverRequirements && serverRequirements.length === 0) {
-            setRequirementsArray(prev => [buildTemplate(prev)]);
+            setRequirementsArray(prev => epicFilterActive ? [] : [buildTemplate(prev)]);
         }
-    }, [serverRequirements, requirementStatusFilter, hidePipelined, pipelinedIds]);
+    }, [serverRequirements, requirementStatusFilter, hidePipelined, pipelinedIds, epicReqIds, epicFilterActive]);
 
     // Build session status map from query data
     useEffect(() => {
@@ -492,7 +512,13 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
     const [{ isDragging }, drag] = useDrag(() => ({
         type: "categoryCard",
         item: () => ({ areaId: category.id, areaIndex: categoryIndex, domainId: projectId, areaData: { ...category } }),
-        canDrag: () => !isTemplate,
+        // req #3428 — NO REORDERING UNDER A FILTER. `moveCard` and
+        // `persistCategoryOrder` index into the FULL `categoriesArray` and write
+        // `sort_order` from those indices, while the reader is looking at a
+        // subset of the cards — so a drag here writes positions computed against
+        // neighbours they cannot see. Same reasoning req #3258 gave for hiding
+        // orchestrated rows: the ordering is not this view's to set right now.
+        canDrag: () => !isTemplate && !epicFilterActive,
         collect: (monitor) => ({
             isDragging: monitor.isDragging(),
         }),
@@ -507,7 +533,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                 revertDragTabSwitch();
             }
         },
-    }), [category, categoryIndex, projectId, isTemplate, persistCategoryOrder, removeCategory, revertDragTabSwitch]);
+    }), [category, categoryIndex, projectId, isTemplate, persistCategoryOrder, removeCategory, revertDragTabSwitch, epicFilterActive]);
 
     const cardRef = useRef(null);
     const mergedRef = useCallback((node) => {
@@ -721,6 +747,21 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
     // One implementation now, called by every path that orders this card.
     const activeSort = (a, b) => requirementActiveSort(sortMode, a, b);
 
+    // req #3428 — "only the categories that have requirements from the epic".
+    // The card that has none renders NOTHING, decided here because this component
+    // already owns that category's requirement list; asking the panel above would
+    // mean a per-category fan-out or a new aggregate read to learn something one
+    // card already knows.
+    //
+    // `undefined` (the read has not landed) counts as empty ON PURPOSE: showing
+    // the loading spinner would flash a full grid of cards that then collapses to
+    // two. The card appears when it has something to show.
+    //
+    // The "add new category" template card needs no rule of its own — it holds no
+    // requirements at all, so this removes it, which is the tell that the rule is
+    // the right one.
+    if (epicFilterActive && (!requirementsArray || requirementsArray.length === 0)) return null;
+
     return (
         <Card key={categoryIndex} raised={true} ref={mergedRef}
               data-testid={category.id === '' ? 'category-card-template' : `category-card-${category.id}`}
@@ -832,7 +873,8 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                 { (requirementsArray) ?
                     <RequirementActionsContext.Provider value={{ statusClick, coordinationClick,
                         titleChange, titleKeyDown, titleOnBlur, deleteClick, requirementsArray, setRequirementsArray,
-                        sessionStatusMap, sortMode, setCrossCardInsertIndex }}>
+                        sessionStatusMap, sortMode, setCrossCardInsertIndex,
+                        dragDisabled: epicFilterActive }}>
                         {requirementsArray.map((requirement, requirementIndex) => (
                             <RequirementRow {...{key: requirement.id, requirement, requirementIndex,
                                 categoryId: category.id, categoryName: category.category_name }}
