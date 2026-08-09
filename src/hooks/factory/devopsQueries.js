@@ -301,6 +301,23 @@ export const agentTelemetryRuns = createEntityQueries({
     defaultFields:
         'id,captured_at,label,agent_count,harness_version,source_note,' +
         'ai_model,effort,machine_fk,' +
+        // req #3202 — the shared telemetry envelope: what the CAPTURE RUN itself
+        // cost, which this page had no form of before.
+        //
+        // `prompt_text` is carried on the LIST read, deliberately, and against
+        // the general rule that a list never carries a blob (req #3078). Two
+        // reasons, both specific to this table: the page has no by-id header
+        // fetch — the picker's list IS where `activeRun` comes from, so omitting
+        // it would mean the prompt could never render at all — and a capture is
+        // a deliberate manual act that spends real billed API turns per agent,
+        // so this table grows by a handful of rows a MONTH (5 rows in production
+        // at time of writing), against a 2000-char cap. That is ~2 KB a row on a
+        // set that would need thousands of captures to approach any ceiling.
+        // darwin-mcp's own list read of this table DOES drop it (HEAVY_COLUMNS),
+        // because that surface has `darwin://agent-telemetry-runs/{id}` to fall
+        // back on and this one does not.
+        'wall_ms,tokens_input,tokens_cache_write,tokens_cache_read,tokens_output,' +
+        'prompt_text,prompt_sha256,prompt_chars,' +
         'creator_fk,create_ts,update_ts',
     fieldsInKey: true,
     defaultSort: 'captured_at:desc',

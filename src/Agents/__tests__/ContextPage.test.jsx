@@ -176,3 +176,85 @@ describe('ContextPage — CC BASE BREAKDOWN columns (req #3095)', () => {
         }
     });
 });
+
+// ---------------------------------------------------------------------------
+// req #3202 — the SHARED TELEMETRY ENVELOPE on the run header
+// ---------------------------------------------------------------------------
+// Everything above measures ONE AGENT's context. The envelope measures what the
+// CAPTURE RUN itself cost, in the same terms a swarm session records — and this
+// page showed NO run cost at all before #3202.
+//
+// These tests exist because storing the record is not delivering it: a column
+// written and never rendered is invisible, and the acceptance for #3202 is that
+// both domains USE the record. They also pin the NULL rule at the render layer,
+// which is where a fabricated zero would actually mislead somebody.
+
+describe('ContextPage — shared telemetry envelope (req #3202)', () => {
+    const ENVELOPE_RUN = {
+        ...RUN,
+        wall_ms: 252431,
+        tokens_input: 1200, tokens_cache_write: 45600,
+        tokens_cache_read: 12300000, tokens_output: 8400,
+        prompt_text: '/agent-telemetry-run 2026-08-08 capture',
+        prompt_sha256: 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789',
+        prompt_chars: 39,
+    };
+
+    it('renders the run wall clock in a human unit, from milliseconds', () => {
+        runsData = [ENVELOPE_RUN];
+        mount();
+        expect(container.querySelector('[data-testid="agent-context-wall-ms"]').textContent)
+            .toBe('4m 12s');
+    });
+
+    it('renders the four-way token usage the table below cannot show', () => {
+        runsData = [ENVELOPE_RUN];
+        mount();
+        expect(container.querySelector('[data-testid="agent-context-tokens-total"]').textContent)
+            .toBe('12.4M');
+        const breakdown = container
+            .querySelector('[data-testid="agent-context-tokens-breakdown"]').textContent;
+        expect(breakdown).toContain('Input 1.2k');
+        expect(breakdown).toContain('Cache write 45.6k');
+        expect(breakdown).toContain('Cache read 12.3M');
+        expect(breakdown).toContain('Output 8.4k');
+    });
+
+    it('renders what the run was asked — the thing nothing captured before', () => {
+        runsData = [ENVELOPE_RUN];
+        mount();
+        expect(container.querySelector('[data-testid="agent-context-prompt"]').textContent)
+            .toBe('/agent-telemetry-run 2026-08-08 capture');
+        expect(container.querySelector('[data-testid="agent-context-prompt-meta"]').textContent)
+            .toContain('abcdef012345');
+    });
+
+    it('says so when the stored prompt is only a prefix of what was asked', () => {
+        runsData = [{ ...ENVELOPE_RUN, prompt_text: 'x'.repeat(2000), prompt_chars: 5400 }];
+        mount();
+        const meta = container
+            .querySelector('[data-testid="agent-context-prompt-meta"]').textContent;
+        expect(meta).toContain('first 2,000 of');
+        expect(meta).toContain('5,400 chars');
+    });
+
+    it('hides the whole block for a pre-#3202 capture rather than showing em-dashes', () => {
+        runsData = [RUN];
+        mount();
+        expect(container.querySelector('[data-testid="agent-context-envelope"]')).toBeNull();
+    });
+
+    it('NEVER prints 0 for a token type nobody measured', () => {
+        // THE rule. A partially-measured capture must show the part it knows and
+        // an em-dash for the rest — a 0 here would be a false claim about a real
+        // run, and would understate every aggregate it fed.
+        runsData = [{ ...RUN, wall_ms: 5000, tokens_output: 8400 }];
+        mount();
+        const breakdown = container
+            .querySelector('[data-testid="agent-context-tokens-breakdown"]').textContent;
+        expect(breakdown).toContain('Output 8.4k');
+        expect(breakdown).toContain('Input —');
+        expect(breakdown).toContain('Cache read —');
+        expect(breakdown).not.toContain('Input 0');
+    });
+});
