@@ -37,7 +37,7 @@
 // @property {?string} coordination_type  carried for shape completeness; not read here
 //
 // @typedef {Object} PipelineFeature  features row: {id, title, epic_fk}
-// @typedef {Object} PipelineEpic     epics row: {id, title}
+// @typedef {Object} PipelineEpic     epics row: {id, title, epic_status, sort_order}
 // @typedef {Object} PipelineMachine  machines row: {id, title}
 //
 // @typedef {Object} PipelineModel
@@ -83,6 +83,11 @@
 // @property {string[]} timeDeps         time gates (ISO-8601)
 // @property {?number} epicId            dominant epic (rule 10)
 // @property {?string} epic
+// @property {?number} epicSortOrder     req #3430 — the dominant epic's OWN
+//                                       `epics.sort_order`, carried on the row so
+//                                       every consumer that orders epics reads
+//                                       ONE value. NULL = unordered, which sorts
+//                                       last and falls back to first appearance
 // @property {?number} featureId         dominant feature
 // @property {?string} feature
 // @property {{id: number, title: string}[]} epicLabels     full set, for tooltips
@@ -352,7 +357,8 @@ function linkedReqIds(stepId, model) {
 //
 // @param {PipelineStep} step
 // @param {PipelineModel} model
-// @returns {{epicId: ?number, epic: ?string, featureId: ?number, feature: ?string,
+// @returns {{epicId: ?number, epic: ?string, epicSortOrder: ?number,
+//            featureId: ?number, feature: ?string,
 //            epicLabels: {id: number, title: string}[],
 //            featureLabels: {id: number, title: string}[]}}
 export function dominantLabels(step, model) {
@@ -374,6 +380,11 @@ export function dominantLabels(step, model) {
     return {
         epicId: domEpic ? domEpic.id : null,
         epic: domEpic ? domEpic.title : null,
+        // req #3430. Read from the epics dictionary the label itself came from,
+        // not tallied alongside it: the tally answers WHICH epic dominates, and
+        // a second copy of the column inside it would be one more place for the
+        // two answers to disagree.
+        epicSortOrder: domEpic ? epicSortOrderOf(epicsById.get(domEpic.id)) : null,
         featureId: domFeat ? domFeat.id : null,
         feature: domFeat ? domFeat.title : null,
         epicLabels: epicTally.map(({ id, title }) => ({ id, title })),
@@ -383,6 +394,47 @@ export function dominantLabels(step, model) {
 
 function indexById(rows) {
     return new Map((rows || []).map((r) => [r.id, r]));
+}
+
+// The ONE string shape either engine accepts as `epics.sort_order` (req #3430).
+//
+// A DECIMAL GRAMMAR, not "whatever the language's parser will take", because the
+// two parsers take DIFFERENT things and every difference is an epic the browser
+// and the daemon place differently. Measured, before this pattern existed:
+// `'0x10'`/`'0b101'`/`'0o17'` parse here and not in Python; `'1_0'` parses in
+// Python and not here; `'NaN'`/`'inf'`/`'1e400'` parse in Python — and a NaN in
+// a sort key compares false against everything, so the ordering stops being
+// merely wrong and becomes incoherent.
+//
+// `^…$` here, `re.fullmatch` in the Python twin — the same grammar written twice
+// because the two engines cannot share code (see the module header).
+const SORT_ORDER_DECIMAL = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/;
+
+// req #3430. `epics.sort_order` as a FINITE number or null — never a string,
+// never NaN, never undefined. Lambda-Rest hands INT columns back as numbers
+// today, but this value is a SORT KEY: `'10' < '9'` is true for strings and
+// false for numbers, so one stringly-typed row would silently reorder a plan
+// rather than fail. A NULL (or an unparseable value) means UNORDERED, which is
+// a real answer here — it sorts last and falls back to first appearance — and
+// is deliberately not conflated with 0, a legitimate first position.
+// `pipeline_derive.py::_epic_sort_order` is the twin; they move together, and
+// the coercion table both must agree on is pinned in `pipelineModel.test.js`
+// and `darwin-mcp/tests/unit/test_epic_sort_order.py`.
+function epicSortOrderOf(epic) {
+    const raw = epic ? epic.sort_order : null;
+    // ONLY a number or a string is a candidate, and this is a WHITELIST rather
+    // than a guard list on purpose: `Number([])` is 0 and `Number(true)` is 1 in
+    // JavaScript, while `float([])` raises and `float(True)` is 1.0 in Python,
+    // so every "clever" coercion JS performs is a place the two engines could
+    // answer differently. Naming the two types the column can actually arrive as
+    // closes the whole class instead of the two members of it anyone thought of.
+    if (typeof raw !== 'number' && typeof raw !== 'string') return null;
+    // A blank string is UNORDERED, not zero — `Number('')` and `Number('  ')`
+    // are both 0 here — and so is any string outside the shared decimal
+    // grammar, whatever this language's own parser would make of it.
+    if (typeof raw === 'string' && !SORT_ORDER_DECIMAL.test(raw.trim())) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;   // NaN and ±Infinity are UNORDERED
 }
 
 function tally(list, id, title) {
@@ -535,6 +587,11 @@ export function buildPlanRows(model) {
             timeDeps: deps.timeDeps,
             epicId: labels.epicId,
             epic: labels.epic,
+            // req #3430. Travels with the label, which is what makes an
+            // INHERITED label carry the right order for free: a gate step that
+            // borrows its epic from a dependency borrows that epic's position
+            // too, and would otherwise band correctly and sort as unordered.
+            epicSortOrder: labels.epicSortOrder != null ? labels.epicSortOrder : null,
             featureId: labels.featureId,
             feature: labels.feature,
             epicLabels: labels.epicLabels,
@@ -658,7 +715,8 @@ function cmpKey(a, b) {
 // render below a pending row. Within a band: execution streams (roots = not-done
 // rows whose deps are all done, ranked active first then deepest continuation of
 // finished work), anchor (position of latest placed dependency) clustering
-// dependents under their gate, then epic (first-appearance order), run
+// dependents under their gate, then epic (`epics.sort_order`, then first
+// appearance for the unordered — req #3430), run
 // (auto before manual), numeric id. Bands, streams, topology and clustering never
 // derive from storage order — but storage position IS the POC's deterministic
 // FINAL tie-break (done band, root ranking, epic first-appearance), so callers
@@ -692,12 +750,48 @@ export function displayOrder(rows) {
     }
     const byId = new Map(rows.map((r) => [r.id, r]));
     const idx = new Map(rows.map((r, i) => [r.id, i]));
-    const epics = [];
+    // req #3430 — THE EPIC TIE-BREAK IS `epics.sort_order` FIRST, first
+    // appearance second. The user sets an order; the order the user sets is the
+    // order the user sees (ruling 2026-08-09). An epic with NO `sort_order` is
+    // UNORDERED rather than zeroth: it sorts after every ordered epic and keeps
+    // first appearance among its own kind, so a plan nobody has ordered renders
+    // exactly as it did before this requirement.
+    //
+    // The KEY is still the epic TITLE, unchanged — this is a grouping tie-break,
+    // and two epics sharing a title have always grouped together here. What that
+    // costs, stated rather than discovered: the group takes the `sort_order` of
+    // whichever of them appears first. Deterministic, identical in both engines,
+    // and reachable only by a duplicate title that no live plan has.
+    //
+    // RE-COERCED here rather than trusted: `buildPlanRows` always puts a number
+    // or null on the row, but this function is EXPORTED and takes rows a caller
+    // may have hand-built. `epicSortOrderOf` is the one definition, and the
+    // Python twin re-coerces at exactly this point for exactly this reason.
+    // THE LIMIT, measured and stated so it is not rediscovered as a defect:
+    // this term sits BELOW state banding, so it decides only among rows that
+    // already tie on (band, stream, anchor). On live pipeline 79 that is ZERO
+    // of 73 rows — which is why the epic order a person SEES is delivered by
+    // `pipelinePlanLayout.js`'s band stack, which sorts epics directly, and why
+    // the plan TABLE still reads state-first. Corpus case
+    // `epic-sort-order-does-not-outrank-a-state-band` pins it.
+    const epicKeys = [];
+    const epicOrderByKey = new Map();
     for (const r of rows) {
         const e = r.epic != null ? r.epic : null;
-        if (!epics.includes(e)) epics.push(e);
+        if (!epicOrderByKey.has(e)) {
+            epicKeys.push(e);
+            epicOrderByKey.set(e, epicSortOrderOf({ sort_order: r.epicSortOrder }));
+        }
     }
-    const epicIdx = (r) => epics.indexOf(r.epic != null ? r.epic : null);
+    const epicRank = new Map(epicKeys
+        .map((key, appearance) => ({ key, appearance, order: epicOrderByKey.get(key) }))
+        .sort((a, b) => {
+            if ((a.order === null) !== (b.order === null)) return a.order === null ? 1 : -1;
+            if (a.order !== null && a.order !== b.order) return a.order - b.order;
+            return a.appearance - b.appearance;
+        })
+        .map((e, rank) => [e.key, rank]));
+    const epicIdx = (r) => epicRank.get(r.epic != null ? r.epic : null);
     const knownDeps = (r) => depIdsOf(r).filter((d) => byId.has(d));
 
     const depthMemo = new Map();
@@ -1517,9 +1611,16 @@ export function pauseState(model, rows) {
  *
  * The browser half of `pipeline_derive.py::serial_state`. That module's
  * docstring carries the full rationale — the order is FIRST APPEARANCE IN
- * DISPLAY ORDER (topological, not `epics.sort_order`, which is global to the
- * epic and measured backwards on pipeline 79), an epic is CLOSED when every
- * step it owns is `done`, and the live epic is the first one not closed.
+ * DISPLAY ORDER, an epic is CLOSED when every step it owns is `done`, and the
+ * live epic is the first one not closed.
+ *
+ * REQ #3430 REVERSED THIS FUNCTION'S RECORDED OBJECTION TO `epics.sort_order`,
+ * without changing a line of it. The objection was that the column measured
+ * BACKWARDS on pipeline 79 — which measured stale data nobody was maintaining,
+ * not unfitness of the column. It is maintained now and the user has ruled it
+ * authoritative, so `displayOrder` orders epics by it. This function still
+ * reads FIRST APPEARANCE IN DISPLAY ORDER and therefore inherits that ordering
+ * rather than duplicating it: still one source, still no second stored fact.
  *
  * Called AFTER `pauseState`, whose `suppressedBy` list this APPENDS to rather
  * than replacing: a step held by both a pause and a turn must name both, or

@@ -18,7 +18,7 @@ import {
 const KEY = scrollStorageKey('pipeline-plan-table', 2);
 const POS = { x: 240, y: 1180 };
 
-/** A minimal in-memory sessionStorage; `fail` makes every method throw. */
+/** A minimal in-memory localStorage; `fail` makes every method throw. */
 function installStorage({ fail = false } = {}) {
     const map = new Map();
     const boom = () => { throw new DOMException('quota', 'QuotaExceededError'); };
@@ -27,7 +27,7 @@ function installStorage({ fail = false } = {}) {
         setItem: fail ? boom : (k, v) => { map.set(k, String(v)); },
         removeItem: fail ? boom : (k) => { map.delete(k); },
     };
-    vi.stubGlobal('sessionStorage', stub);
+    vi.stubGlobal('localStorage', stub);
     return map;
 }
 
@@ -35,6 +35,25 @@ describe('scroll memory', () => {
     let store;
     beforeEach(() => { store = installStorage(); });
     afterEach(() => { vi.unstubAllGlobals(); });
+
+    // req #3431 — the scroll half moved store with the camera half, and for the
+    // reason the module's own doctrine gives: a plan whose camera survived a
+    // browser restart and whose table scroll did not is one feature half
+    // delivered. Pinned the same way, by sessionStorage never being touched.
+    describe('the store is localStorage, and only localStorage', () => {
+        it('writes and reads without touching sessionStorage', () => {
+            const session = vi.fn();
+            vi.stubGlobal('sessionStorage',
+                { getItem: session, setItem: session, removeItem: session });
+
+            const key = scrollStorageKey('pipelines-list');
+            writeScroll(key, { x: 0, y: 640 });
+            expect(store.get(key)).toBeTypeOf('string');
+            expect(readScroll(key)).toEqual({ x: 0, y: 640 });
+
+            expect(session).not.toHaveBeenCalled();
+        });
+    });
 
     describe('scrollStorageKey', () => {
         it('namespaces by surface, and by record id when there is one', () => {
@@ -190,8 +209,8 @@ describe('scroll memory', () => {
     });
 
     describe('storage missing entirely', () => {
-        it('never throws when there is no sessionStorage at all', () => {
-            vi.stubGlobal('sessionStorage', undefined);
+        it('never throws when there is no localStorage at all', () => {
+            vi.stubGlobal('localStorage', undefined);
             expect(readScroll(KEY)).toBeNull();
             expect(() => writeScroll(KEY, POS)).not.toThrow();
         });

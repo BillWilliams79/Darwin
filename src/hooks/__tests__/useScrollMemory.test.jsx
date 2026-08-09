@@ -99,7 +99,7 @@ function mount(props) {
 
 describe('useScrollMemory', () => {
     beforeEach(() => {
-        sessionStorage.clear();
+        localStorage.clear();
         queue = [];
         nextFrameId = 1;
         cancelledFrames = new Set();
@@ -114,7 +114,7 @@ describe('useScrollMemory', () => {
     });
     afterEach(() => {
         vi.restoreAllMocks();
-        sessionStorage.clear();
+        localStorage.clear();
     });
 
     describe('restore', () => {

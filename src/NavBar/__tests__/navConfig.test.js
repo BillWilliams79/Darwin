@@ -54,9 +54,9 @@ describe('navConfig — Sessions sub-items', () => {
     it('leaves Sessions off the first-link position of the swarm group', () => {
         // HomePage redirects to the FIRST link of the first enabled group; if
         // Sessions ever became that link the redirect would land on a parent
-        // whose children are hidden. Requirements holds the slot.
+        // whose children are hidden. Pipelines holds the slot (req #3427).
         const firstSwarm = NAV_LINKS.find(l => l.group === 'swarm');
-        expect(firstSwarm.path).toBe('/swarm');
+        expect(firstSwarm.path).toBe('/swarm/pipelines');
     });
 });
 
@@ -124,9 +124,11 @@ describe('navConfig — Epics/Features/Steps nest under Pipelines (req #3236)', 
         expect(flat).toContain(PIPELINES_PATH);
     });
 
-    it('leaves Requirements as the swarm group\'s first link', () => {
+    it('holds the swarm group\'s first link (req #3427)', () => {
         // Same HomePage-redirect invariant the Sessions block above pins.
-        expect(NAV_LINKS.find(l => l.group === 'swarm').path).toBe('/swarm');
+        // Pipelines leads the group as of req #3427 — the plan is the entry
+        // point workers are launched from, so it reads first.
+        expect(NAV_LINKS.find(l => l.group === 'swarm').path).toBe(PIPELINES_PATH);
     });
 });
 
@@ -135,6 +137,7 @@ describe('navConfig — Epics/Features/Steps nest under Pipelines (req #3236)', 
 describe('navConfig — Machines nests under Requirements (req #3238)', () => {
     const REQUIREMENTS_PATH = '/swarm';
     const MACHINES_PATH = '/swarm/machines';
+    const PIPELINES_PATH = '/swarm/pipelines';
 
     const requirements = NAV_LINKS.find(l => l.path === REQUIREMENTS_PATH);
 
@@ -163,9 +166,12 @@ describe('navConfig — Machines nests under Requirements (req #3238)', () => {
         expect(flat).toContain(MACHINES_PATH);
     });
 
-    it('leaves Requirements as the swarm group\'s first link', () => {
+    it('sits second in the swarm group, behind Pipelines (req #3427)', () => {
         // Same HomePage-redirect invariant the Sessions block above pins.
-        expect(NAV_LINKS.find(l => l.group === 'swarm').path).toBe(REQUIREMENTS_PATH);
+        // Pipelines leads the group as of req #3427; Requirements is second.
+        const swarmLinks = NAV_LINKS.filter(l => l.group === 'swarm');
+        expect(swarmLinks[0].path).toBe(PIPELINES_PATH);
+        expect(swarmLinks[1].path).toBe(REQUIREMENTS_PATH);
     });
 });
 

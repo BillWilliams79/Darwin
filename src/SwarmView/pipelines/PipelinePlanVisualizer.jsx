@@ -92,6 +92,10 @@ import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
+// req #3428 — the icon `/swarm`'s own view toggle uses for Cards. Reusing the
+// page's mark rather than inventing one is what makes the chip's second control
+// legible as a destination.
+import ViewModuleIcon from '@mui/icons-material/ViewModule';
 
 import {
     formatTimeGates, rowMachineLabel, batchMachineLabel, STEP_RUNNING,
@@ -125,6 +129,9 @@ import {
     epicZoomHint, epicZoomHintSuffix, gestureMovedCamera, EPIC_ZOOM_CLICK_SLOP,
     EPIC_ZOOM_BAND, EPIC_ZOOM_BATCH,
 } from './pipelineEpicZoom';
+// req #3428 — the epic chip's second destination. The URL contract lives with
+// the rest of `/swarm`'s query string, so this file names no query key itself.
+import { swarmEpicLinkTo } from '../swarmViewLink';
 import { useSavedViewport } from '../../hooks/useSavedViewport';
 import { viewportStorageKey, writeViewport } from '../../utils/viewportMemory';
 import '../../CalendarFC/swarmVisualizer.css';
@@ -2555,6 +2562,66 @@ export default function PipelinePlanVisualizer({
                                     }}
                                 >
                                     ↗
+                                </Box>
+                            )}
+                            {/* req #3428 — the SECOND destination this chip
+                                offers: the epic's own requirements, as task
+                                cards, on the ordinary requirements page under a
+                                dismissable filter.
+
+                                THE MARK IS THE PAGE'S OWN VOCABULARY, not a new
+                                glyph: `ViewModuleIcon` is literally what
+                                `SwarmView`'s Cards toggle draws
+                                (`SWARM_VIEW_CHROME.cards`), so a reader who has
+                                seen that toggle recognises where this goes. A
+                                second arrow would have been wrong — ↗ already
+                                means "leave the page", and two arrows read as
+                                one control drawn twice.
+
+                                Its width is RESERVED in `placeEpicChips`
+                                (`EPIC_CHIP_CARDS_LINK_W`) under the same
+                                `epicId != null` condition that renders it — see
+                                the keep-out note above this whole flex row.
+
+                                `stopPropagation` on BOTH handlers for the reason
+                                the ↗'s own comment gives: without it the chip's
+                                handler also fires and focuses the band the user
+                                is navigating away from. */}
+                            {/* The render condition is `epicId != null` and NOTHING
+                                ELSE, because that is exactly the condition
+                                `placeEpicChips` reserves the width under. An extra
+                                truthiness term here (e.g. on the built href) would
+                                let a band reserve 24px it never draws — a small
+                                lie, but the whole point of the reservation is that
+                                the two cannot drift. The href is checked inside the
+                                handlers instead, where a null simply does nothing. */}
+                            {e.epicId != null && (
+                                <Box
+                                    component="span"
+                                    role="link"
+                                    tabIndex={0}
+                                    aria-label={`Open ${e.text} requirements in the task cards view`}
+                                    title={`Open “${e.text}” requirements in the Task Cards view`}
+                                    data-testid={`pipeline-viz-epic-cards-${e.key}`}
+                                    onClick={(ev) => {
+                                        ev.stopPropagation();
+                                        const to = swarmEpicLinkTo(e.epicId);
+                                        if (to) navigate(to);
+                                    }}
+                                    onKeyDown={(ev) => {
+                                        if (ev.key !== 'Enter') return;
+                                        ev.stopPropagation();
+                                        ev.preventDefault();
+                                        const to = swarmEpicLinkTo(e.epicId);
+                                        if (to) navigate(to);
+                                    }}
+                                    sx={{
+                                        display: 'inline-flex', alignItems: 'center',
+                                        lineHeight: 1, px: '2px', opacity: 0.7,
+                                        '&:hover': { opacity: 1 },
+                                    }}
+                                >
+                                    <ViewModuleIcon sx={{ fontSize: 14 }} />
                                 </Box>
                             )}
                         </Box>

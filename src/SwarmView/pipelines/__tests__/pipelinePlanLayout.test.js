@@ -16,7 +16,7 @@ import { buildPipelineModel, orderedPlan } from '../pipelineViewModel';
 import { semanticLevel, SEMANTIC_OUT_MAX } from '../../konvaSwarmModel';
 import {
     computePlanLayout, beadStyle, stepLabelText, BEAD_RADIUS, BEAD_HIT_RADIUS,
-    PLAN_VIZ_PALETTE, placeEpicChips, EPIC_CHIP_OPEN_LINK_W,
+    PLAN_VIZ_PALETTE, placeEpicChips, EPIC_CHIP_OPEN_LINK_W, EPIC_CHIP_CARDS_LINK_W,
     STEP_WIDTH_FACTORS, isStepWidth, K_READABLE, PLAN_VIZ_FONT, READABLE_MIN_PX,
     NEXT_HALO_RADIUS, NEXT_HALO_STROKE, NEXT_HALO_DASH, EPIC_CHIP_CHAR_W,
     NEXT_HALO_SCREEN_RADIUS, NEXT_HALO_MAX_OUTER, NEXT_HALO_MAX_MAGNIFY,
@@ -1407,7 +1407,7 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
         const scale = h / EPIC_CHIP_H;
         const text = band.epicLabel || band.epic;
         const w = text.length * EPIC_CHIP_CHAR_W * scale + EPIC_CHIP_PAD_W * scale
-            + (band.epicId != null ? EPIC_CHIP_OPEN_LINK_W : 0)
+            + (band.epicId != null ? EPIC_CHIP_OPEN_LINK_W + EPIC_CHIP_CARDS_LINK_W : 0)
             + EPIC_PAUSE_BUBBLE_W;
         return { w, h };
     };
@@ -2083,7 +2083,7 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
         // so 24 unmeasured px is 24 px that hangs past the edge it was clamped to.
         expect(chip.w).toBeCloseTo(
             20 * EPIC_CHIP_CHAR_W + EPIC_CHIP_PAD_W
-            + EPIC_CHIP_OPEN_LINK_W + EPIC_PAUSE_BUBBLE_W, 6);
+            + EPIC_CHIP_OPEN_LINK_W + EPIC_CHIP_CARDS_LINK_W + EPIC_PAUSE_BUBBLE_W, 6);
         expect(chip.clipped).toBe(false);
     });
 
@@ -2420,7 +2420,7 @@ describe('the epic name holds a legible minimum font (req #3272)', () => {
             const text = band.epicLabel || band.epic;
             const w = text.length * EPIC_CHIP_CHAR_W * scale
                 + EPIC_CHIP_PAD_W * scale
-                + (band.epicId != null ? EPIC_CHIP_OPEN_LINK_W : 0)
+                + (band.epicId != null ? EPIC_CHIP_OPEN_LINK_W + EPIC_CHIP_CARDS_LINK_W : 0)
                 + EPIC_PAUSE_BUBBLE_W;
             const x = Math.min(ix0 + MX, right - MX - w);
             const y = Math.min(iy0 + MY, bottom - MY - h);
@@ -2827,7 +2827,7 @@ describe('epic band label counts, behind a toggle (req #3225)', () => {
         // footprint is reserved on every chip now that the measured box is what
         // keeps the name inside its own rectangle.
         expect(chip.w).toBeCloseTo(20 * EPIC_CHIP_CHAR_W + 18
-            + EPIC_CHIP_OPEN_LINK_W + EPIC_PAUSE_BUBBLE_W, 6);
+            + EPIC_CHIP_OPEN_LINK_W + EPIC_CHIP_CARDS_LINK_W + EPIC_PAUSE_BUBBLE_W, 6);
     });
 
     it('the toggle is a pure display transform: the ONLY thing that changes '
@@ -3819,7 +3819,7 @@ describe('the pause status bubble (req #3226)', () => {
         });
         // + EPIC_CHIP_OPEN_LINK_W since req #3257 (see the fallback test above).
         expect(withBubble[0].w).toBeCloseTo(20 * EPIC_CHIP_CHAR_W + 18
-            + EPIC_CHIP_OPEN_LINK_W + EPIC_PAUSE_BUBBLE_W, 6);
+            + EPIC_CHIP_OPEN_LINK_W + EPIC_CHIP_CARDS_LINK_W + EPIC_PAUSE_BUBBLE_W, 6);
     });
 
     // "its rectangle belongs in the same label set the zero-overlap invariant
@@ -6466,6 +6466,85 @@ describe('time axis — vertical band order (req #3201)', () => {
         expect(timedPlan.timeAxis.bandStarts.get(1)).toBe('2026-07-25T09:00:00');
         expect(timedPlan.timeAxis.bandStarts.get(2)).toBe('2026-07-27T09:00:00');
         expect(timedPlan.timeAxis.bandStarts.get(3)).toBe(null);
+    });
+});
+
+describe('epic bands stack by `epics.sort_order` (req #3430)', () => {
+    // The user sets an epic order and the order the user sets is the order the
+    // user sees (ruling 2026-08-09). THIS is the surface that ruling is about:
+    // the band stack is what a person reads off the Pipeline Visualizer as "the
+    // order of the epics", and `displayOrder`'s own epic tie-break never reaches
+    // it — the stack is sorted here, from `epics.sort_order` off the row.
+    //
+    // Built on TIMED_MODEL on purpose: its derived-start order is Shipped, In
+    // flight, Backlog (asserted directly above), so every `sort_order` below is
+    // deliberately fighting a rule that already has a confident answer.
+    const stackOf = (epics, extra = {}) => {
+        const model = { ...TIMED_MODEL, epics, ...extra };
+        const ordered = orderedPlan(buildPipelineModel(model),
+            { now: '2026-07-28T12:00:00Z' });
+        const layout = computePlanLayout(ordered.rows, ordered.batches,
+            { timeAxis: ordered.timeAxis });
+        return layout.bands.map((b) => b.epic);
+    };
+
+    it('the user order wins outright over the derived start', () => {
+        expect(stackOf([
+            { id: 1, title: 'Shipped', sort_order: 3 },
+            { id: 2, title: 'In flight', sort_order: 2 },
+            { id: 3, title: 'Backlog', sort_order: 1 },
+        ])).toEqual(['Backlog', 'In flight', 'Shipped']);
+    });
+
+    it('an unordered epic falls back to derived start, BELOW every ordered one', () => {
+        // Backlog has never started — it sorts LAST under req #3201 and FIRST
+        // here, which is the whole point: one explicit position outranks the
+        // derived rule, and the epics the user said nothing about keep it.
+        expect(stackOf([
+            { id: 1, title: 'Shipped' },
+            { id: 2, title: 'In flight' },
+            { id: 3, title: 'Backlog', sort_order: 1 },
+        ])).toEqual(['Backlog', 'Shipped', 'In flight']);
+    });
+
+    it('NULL is unordered, not zeroth', () => {
+        expect(stackOf([
+            { id: 1, title: 'Shipped', sort_order: null },
+            { id: 2, title: 'In flight', sort_order: null },
+            { id: 3, title: 'Backlog', sort_order: 1 },
+        ])).toEqual(['Backlog', 'Shipped', 'In flight']);
+    });
+
+    it('equal values fall through to the derived start rather than tying', () => {
+        expect(stackOf([
+            { id: 1, title: 'Shipped', sort_order: 7 },
+            { id: 2, title: 'In flight', sort_order: 7 },
+            { id: 3, title: 'Backlog', sort_order: 7 },
+        ])).toEqual(['Shipped', 'In flight', 'Backlog']);
+    });
+
+    it('the label-less "No epic" band is still last of all', () => {
+        // It can never carry a `sort_order`, so it lands among the unordered —
+        // and the req #3201 tie-break that put it last still applies there.
+        const stack = stackOf([
+            { id: 1, title: 'Shipped', sort_order: 3 },
+            { id: 2, title: 'In flight', sort_order: 2 },
+            { id: 3, title: 'Backlog', sort_order: 1 },
+        ], {
+            steps: [...TIMED_MODEL.steps, {
+                id: 8, pipeline_fk: 500, title: 'Unlabelled', run: 'auto',
+                completed_at: null,
+            }],
+        });
+        expect(stack).toEqual(['Backlog', 'In flight', 'Shipped', 'No epic']);
+    });
+
+    it('a stringly-typed column still stacks numerically', () => {
+        expect(stackOf([
+            { id: 1, title: 'Shipped', sort_order: '10' },
+            { id: 2, title: 'In flight', sort_order: '9' },
+            { id: 3, title: 'Backlog', sort_order: '  ' },
+        ])).toEqual(['In flight', 'Shipped', 'Backlog']);
     });
 });
 

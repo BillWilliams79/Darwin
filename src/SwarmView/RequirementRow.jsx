@@ -46,6 +46,13 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
         titleOnBlur, deleteClick, sessionStatusMap,
         categoryColorMap, sortMode, setCrossCardInsertIndex,
         requirementsArray, setRequirementsArray,
+        // req #3428 — the host card says whether a row may be dragged at all.
+        // Under an epic filter the reader sees a SUBSET of the rows, and both
+        // drop paths (`addRequirementToCategory`'s same-card splice and its
+        // cross-card insert) rebuild `sort_order` from positions in that subset,
+        // i.e. against neighbours the reader cannot see. Defaults false, so every
+        // existing host behaves exactly as before.
+        dragDisabled = false,
         strikethroughMet = true } = useRequirementActions();
 
     // Model + Effort column preferences (req #3029). The columns always render in
@@ -98,7 +105,7 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
                 sourceHeight: rect?.height || 40,
             };
         },
-        canDrag: () => !isTemplate,
+        canDrag: () => !isTemplate && !dragDisabled,
         end: (item, monitor) => {
             // Always release the cross-card insert index — same-card splice
             // already cleared it in addRequirementToCategory; this covers the
@@ -127,8 +134,9 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
         // Volatile requirement fields + requirementIndex are intentionally NOT
         // deps — the `item` factory reads them live from refs at drag-start, so
         // the spec/connector only needs to be rebuilt when behaviour-affecting
-        // inputs change (canDrag → isTemplate; end → sortMode + the setters).
-    }), [isTemplate, sortMode, setCrossCardInsertIndex, setRequirementsArray]);
+        // inputs change (canDrag → isTemplate + dragDisabled; end → sortMode +
+        // the setters).
+    }), [isTemplate, dragDisabled, sortMode, setCrossCardInsertIndex, setRequirementsArray]);
 
     // Hover-only drop target — sets the insert indicator above/below this row
     // and writes the splice target into the parent CategoryCard via
