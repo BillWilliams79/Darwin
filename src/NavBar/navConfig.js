@@ -68,17 +68,6 @@ export const NAV_LINKS = [
         { path: '/customers', label: 'Customers', icon: BusinessIcon, group: 'systems' },
         { path: '/customer-releases', label: 'Customer Releases', icon: BusinessIcon, group: 'systems' },
     ] : []),
-    // Req #3238 — Machines nests as an L3 child of Requirements rather than
-    // standing beside it as an L2 sibling (reuses the collapsible L3 mechanism
-    // req #3209 shipped for Sessions verbatim — no second mechanism). Requirements
-    // is the first parent to carry this shape rather than the last, so future L3s
-    // (this one included) generalise onto the same field.
-    {
-        path: '/swarm', label: 'Requirements', icon: MapIcon, group: 'swarm',
-        children: [
-            { path: '/swarm/machines', label: 'Machines', icon: ComputerIcon, group: 'swarm' },
-        ],
-    },
     // Req #3236 — Epics, Features and Steps are the plan's own entities (Epic >
     // Feature > Step, sequenced into a pipeline's steps — design rule 10 walks
     // that chain for a step's label), so they nest as L3 children of Pipelines
@@ -88,12 +77,25 @@ export const NAV_LINKS = [
     // the pages happened to ship in (#3139 Epics, #3140 Steps, #3217 Features).
     // FactCheckIcon/LayersIcon/LinearScaleIcon are unchanged: the entries moved,
     // not the pages, so each keeps the icon it always carried.
+    // Req #3427 — Pipelines leads the SWARM group, ahead of Requirements: the
+    // plan is the entry point workers are launched from, so it reads first.
     {
         path: '/swarm/pipelines', label: 'Pipelines', icon: LanIcon, group: 'swarm',
         children: [
             { path: '/swarm/epics', label: 'Epics', icon: LayersIcon, group: 'swarm' },
             { path: '/swarm/features', label: 'Features', icon: FactCheckIcon, group: 'swarm' },
             { path: '/swarm/steps', label: 'Steps', icon: LinearScaleIcon, group: 'swarm' },
+        ],
+    },
+    // Req #3238 — Machines nests as an L3 child of Requirements rather than
+    // standing beside it as an L2 sibling (reuses the collapsible L3 mechanism
+    // req #3209 shipped for Sessions verbatim — no second mechanism). Requirements
+    // is the first parent to carry this shape rather than the last, so future L3s
+    // (this one included) generalise onto the same field.
+    {
+        path: '/swarm', label: 'Requirements', icon: MapIcon, group: 'swarm',
+        children: [
+            { path: '/swarm/machines', label: 'Machines', icon: ComputerIcon, group: 'swarm' },
         ],
     },
     // Req #3209 — Sessions is an L2 item with L3 children. Starts,
