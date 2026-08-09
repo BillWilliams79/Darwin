@@ -21,6 +21,7 @@ import call_rest_api from '../RestApi/RestApi';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { useRequirementsByStatus, useRequirementsDone, useSessions, useCategoryColors, useAllRequirements, usePipelinedRequirementIds } from '../hooks/useDataQueries';
 import { excludePipelined } from '../utils/pipelineMembership';
+import { filterToEpic, effectiveHidePipelined } from '../utils/epicMembership';
 import { PIPELINE_FILTERED_STATUSES, tallyRequirementStatuses } from './swarmStartCardUtils';
 import { requirementKeys } from '../hooks/useQueryKeys';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
@@ -140,7 +141,17 @@ const computeMetWindow = () => {
     };
 };
 
-const SwarmStartCard = () => {
+// req #3428 — `epicReqIds` is the epic filter's SCOPE, handed down by the host
+// (`CategoryTabPanel`, from `SwarmView`). A Set of requirement ids, or `null`
+// when no filter is active — an AGGREGATOR NEVER INVENTS A FILTER THE HOST OWNS
+// (`memory/aggregator-card-pattern.md`), and one derivation upstairs is what
+// stops this card from disagreeing with the category cards beside it.
+//
+// AN UNFILTERED AGGREGATOR OVER A FILTERED GRID would mean something different
+// from the grid beneath it, which is the defect the pattern's own tests exist to
+// catch. Applied to the ROWS and to the CHIP BADGES from the same Set, for the
+// same reason the pipeline exclusion is.
+const SwarmStartCard = ({ epicReqIds = null }) => {
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
     const queryClient = useQueryClient();
@@ -165,16 +176,77 @@ const SwarmStartCard = () => {
 
     const showError = useSnackBarStore(s => s.showError);
 
+    // ── The inputs the chip counts are built from ───────────────────────────
+    // Hoisted ABOVE `effectiveStatus` (req #3428) so the epic override below can
+    // read the counts. Nothing here depends on which chip is selected, which is
+    // what makes the move safe: `chipOffersLaunch` is the only count-adjacent
+    // value that does, and it stays where it was.
+    const pipelinedIds = usePipelinedRequirementIds(profile?.userName);
+    const storedHidePipelined = useShowClosedStore(s => s.hidePipelinedRequirements);
+    // req #3428 — an epic filter forces the OBSERVATION chips' pipeline toggle
+    // off, through the same shared predicate the requirements page uses; the
+    // unconditional launch exclusion (`PIPELINE_FILTERED_STATUSES`) is untouched,
+    // because that one is correctness rather than a viewing preference.
+    const epicFilterActive = epicReqIds != null;
+    const hidePipelined = effectiveHidePipelined(storedHidePipelined, epicFilterActive);
+
+    // All requirements across categories — the per-status counts' source (req #2549).
+    const { data: allRequirementsForCounts } = useAllRequirements(profile?.userName, {
+        fields: 'id,requirement_status',
+    });
+
+    // THE TALLY, COMPUTED ONCE. `statusCountMap` below overlays only the `met`
+    // figure onto this; the epic chip override reads the same object. Three
+    // computations of one number is how a badge and a list start disagreeing,
+    // which is the defect this file's own comments call load-bearing.
+    const baseStatusCounts = React.useMemo(() => tallyRequirementStatuses(
+        filterToEpic(allRequirementsForCounts, epicReqIds),
+        SWARM_START_STATUSES, pipelinedIds, hidePipelined).counts,
+        [allRequirementsForCounts, epicReqIds, pipelinedIds, hidePipelined]);
+
     // Persisted-store fallback — req #2584 retired 'deferred' from this card. Users
-    // with a now-invalid persisted value get re-pointed at the default. `effectiveStatus`
+    // with a now-invalid persisted value get re-pointed at the default. `storedStatus`
     // is computed synchronously so the hook calls below never fire against the stale
     // value (otherwise we'd pay one wasted fetch for 'deferred' before the useEffect ran).
-    const effectiveStatus = SWARM_START_STATUSES.includes(selectedStatus) ? selectedStatus : 'swarm_ready';
+    const storedStatus = SWARM_START_STATUSES.includes(selectedStatus) ? selectedStatus : 'swarm_ready';
     useEffect(() => {
-        if (selectedStatus !== effectiveStatus) {
-            setSelectedStatus(effectiveStatus);
+        if (selectedStatus !== storedStatus) {
+            setSelectedStatus(storedStatus);
         }
-    }, [selectedStatus, effectiveStatus, setSelectedStatus]);
+    }, [selectedStatus, storedStatus, setSelectedStatus]);
+
+    // ── OPEN ON A CHIP THAT HAS THE EPIC'S WORK (req #3428) ─────────────────
+    // MEASURED, not reasoned: every requirement under epic 11 on 2026-08-09 was
+    // `development` AND plan-carried, while `selectedStatus` persists as
+    // `swarm_ready` — so the aggregator this requirement asks to be turned ON
+    // opened with zero rows and a `0` badge. That is structural, not incidental:
+    // an epic reached FROM THE PLAN VISUALIZER is plan-carried by construction,
+    // and the three launch chips exclude plan-carried work unconditionally. Only
+    // `development` and `met` can ever show anything under an epic filter.
+    //
+    // "The aggregator is on" is the requirement's acceptance wording, and an
+    // aggregator that is on and blank does not meet it.
+    //
+    // A DERIVED OVERRIDE, exactly like the card's forced visibility and the
+    // forced pipeline toggle — `setSelectedStatus` is never called, so dismissing
+    // the pill returns the reader to their own chip. It applies ONLY while they
+    // have not picked one during this filtered visit (`chipPickedWhileFiltered`),
+    // so a deliberate click onto an empty chip is respected rather than undone.
+    //
+    // `met` IS NOT A CANDIDATE: its badge is the trailing-24h overlay below, not
+    // the tally above, so auto-selecting it here could land on another empty chip
+    // — precisely the failure being fixed. If nothing else has rows, the reader's
+    // own chip stands.
+    const [chipPickedWhileFiltered, setChipPickedWhileFiltered] = useState(false);
+    useEffect(() => { setChipPickedWhileFiltered(false); }, [epicFilterActive]);
+    const epicChipOverride = React.useMemo(() => {
+        if (!epicFilterActive || chipPickedWhileFiltered) return null;
+        if (baseStatusCounts[storedStatus] > 0) return null;
+        return SWARM_START_STATUSES.find(
+            s => s !== 'met' && baseStatusCounts[s] > 0) ?? null;
+    }, [epicFilterActive, chipPickedWhileFiltered, baseStatusCounts, storedStatus]);
+
+    const effectiveStatus = epicChipOverride ?? storedStatus;
 
     const isMet = effectiveStatus === 'met';
 
@@ -244,8 +316,6 @@ const SwarmStartCard = () => {
     // to browse, same reasoning as the requirements table — so THOSE respect
     // the same global toggle the table and Cards view do (req #3242), on top of
     // (never instead of) the unconditional launch exclusion above.
-    const pipelinedIds = usePipelinedRequirementIds(profile?.userName);
-    const hidePipelined = useShowClosedStore(s => s.hidePipelinedRequirements);
     const chipOffersLaunch = PIPELINE_FILTERED_STATUSES.includes(effectiveStatus);
     const excludeFromThisChip = chipOffersLaunch || hidePipelined;
 
@@ -265,7 +335,14 @@ const SwarmStartCard = () => {
         [serverMetRequirements, pipelinedIds, hidePipelined]);
 
     // The array that drives the card body for the currently selected chip.
-    const currentRequirements = isMet ? eligibleMetRequirements : eligibleRequirements;
+    //
+    // req #3428 — the epic filter is the LAST pass, after both pipeline
+    // exclusions, and it is an ID-SET test: none of this card's three
+    // projections carries `feature_fk`, and none of them needs to. That is the
+    // whole reason the scope arrives as ids.
+    const currentRequirements = React.useMemo(
+        () => filterToEpic(isMet ? eligibleMetRequirements : eligibleRequirements, epicReqIds),
+        [isMet, eligibleMetRequirements, eligibleRequirements, epicReqIds]);
 
     // Fetch sessions for status badges (same as CategoryCard)
     const { data: serverSessions } = useSessions(profile?.userName);
@@ -278,11 +355,6 @@ const SwarmStartCard = () => {
         serverCategoryColors.forEach(c => { if (c.color) map[c.id] = c.color; });
         return map;
     }, [serverCategoryColors]);
-
-    // Fetch all requirements across categories — powers the per-status counts below.
-    const { data: allRequirementsForCounts } = useAllRequirements(profile?.userName, {
-        fields: 'id,requirement_status',
-    });
 
     // Count requirements per status across all categories (req #2549). Reuses the
     // same useAllRequirements query — no extra fetch.
@@ -305,14 +377,21 @@ const SwarmStartCard = () => {
     // depends on it), but the card no longer tracks it: its one consumer was the
     // explanatory sentence, and this card renders no sentences. Reading `hidden`
     // again here means a message is being reintroduced.
+    //
+    // req #3428 — the epic filter narrows the COUNT SOURCE, not the tally rule,
+    // so a badge can never disagree with the rows beneath it. The met overlay
+    // reads `eligibleMetRequirements`, which is why it gets the same pass: that
+    // array is the one the rows are NOT taken from directly (`currentRequirements`
+    // filters it), so leaving the overlay alone would print an unfiltered met
+    // count over a filtered met list.
     const statusCountMap = React.useMemo(() => {
-        const { counts } = tallyRequirementStatuses(
-            allRequirementsForCounts, SWARM_START_STATUSES, pipelinedIds, hidePipelined);
+        const counts = { ...baseStatusCounts };
         if (Array.isArray(serverMetRequirements)) {
-            counts.met = eligibleMetRequirements?.length ?? serverMetRequirements.length;
+            counts.met = filterToEpic(eligibleMetRequirements, epicReqIds)?.length
+                ?? filterToEpic(serverMetRequirements, epicReqIds).length;
         }
         return counts;
-    }, [allRequirementsForCounts, serverMetRequirements, eligibleMetRequirements, pipelinedIds, hidePipelined]);
+    }, [baseStatusCounts, serverMetRequirements, eligibleMetRequirements, epicReqIds]);
 
     // Comparators are module-level — see `aggregatorSort` above.
 
@@ -335,12 +414,18 @@ const SwarmStartCard = () => {
         // discards whatever the user has typed into the add-row but not yet saved,
         // and since req #3302 this effect re-runs on a sort-order pick as well as
         // on a refetch — so the loss went from occasional to routine.
+        //
+        // req #3428 — SUPPRESSED WHILE FILTERED, the same rule `CategoryCard`
+        // applies to its own add-row: a requirement created from here carries no
+        // feature, so it belongs to no epic and would not appear on the page that
+        // offered the control.
         setRequirementsArray(prev => {
+            if (epicFilterActive) return sorted;
             const prevTemplate = prev && prev.find(r => r.id === '');
             return [...sorted, prevTemplate
                 ?? { id: '', title: '', requirement_status: 'authoring', category_fk: null }];
         });
-    }, [currentRequirements, effectiveSortMode]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [currentRequirements, effectiveSortMode, epicFilterActive]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Build session status map (same logic as CategoryCard)
     useEffect(() => {
@@ -381,6 +466,11 @@ const SwarmStartCard = () => {
 
     const handleChipClick = (status) => {
         if (status === effectiveStatus) return;
+        // req #3428 — the reader has now chosen, so the epic override stands down
+        // for the rest of this filtered visit. Recorded even outside a filter: it
+        // is reset whenever `epicFilterActive` changes, so it can only ever mean
+        // "picked during the current filter state".
+        setChipPickedWhileFiltered(true);
         setSelectedStatus(status);
     };
 
@@ -648,6 +738,11 @@ const SwarmStartCard = () => {
                         // because the aggregator is not a drop target.
                         sortMode: 'created',
                         setCrossCardInsertIndex,
+                        // req #3428 — no row may be dragged out of a filtered
+                        // aggregator either. Its rows land on a CategoryCard,
+                        // whose drop handler rebuilds `sort_order` from positions
+                        // in a list the reader is seeing a subset of.
+                        dragDisabled: epicFilterActive,
                         sessionStatusMap,
                         categoryColorMap,
                         strikethroughMet: false, // req #2584 — recent-Met list, not crossed-off
