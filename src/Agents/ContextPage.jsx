@@ -93,6 +93,10 @@ import { deleteAgentTelemetryRun, updateAgentTelemetryRun } from './actions/cont
 import { aiModelChipProps, aiModelLabel } from '../SwarmView/modelChipStyles';
 import { effortChipProps, effortLabel } from '../SwarmView/effortChipStyles';
 import {
+    NOT_MEASURED, TOKEN_FIELDS, TOKEN_LABELS, envelopeCost, envelopePrompt,
+    formatTokenCount, formatWallMs, hasEnvelope,
+} from '../utils/telemetryEnvelope';
+import {
     NA as NA_TEXT, fmt, sortByColumn, naturalSortDir, DEFAULT_SORT_FIELD, DEFAULT_SORT_DIR,
     assignMarkers, computeCells, runDateLabel,
 } from './contextRenderUtils';
@@ -634,6 +638,85 @@ const ContextPage = () => {
                                   data-testid="agent-context-effort" />
                         </Box>
                     </Box>
+
+                    {/* WHAT THIS CAPTURE RUN ITSELF COST — the shared telemetry
+                        envelope (req #3202). Everything in the table below
+                        measures ONE AGENT's context; this measures the run that
+                        produced the table, in the same terms a swarm session
+                        records, which is what makes the two comparable at all.
+                        Before #3202 this page showed no run cost whatsoever.
+
+                        The whole block is hidden for a capture with no envelope
+                        (every pre-#3202 row, and any run whose transcript could
+                        not be resolved) rather than rendered as a panel of
+                        em-dashes — but a run that measured SOME of it shows the
+                        rest as NOT_MEASURED, never as zero. That distinction is
+                        the point: ~1,900 rows carry NULL here with no backfill
+                        possible, and printing 0 for them would be a false claim
+                        about a real run. */}
+                    {hasEnvelope(activeRun) && (() => {
+                        const cost = envelopeCost(activeRun);
+                        const prompt = envelopePrompt(activeRun);
+                        return (
+                            <Box data-testid="agent-context-envelope"
+                                 sx={{ display: 'flex', gap: 4, flexWrap: 'wrap',
+                                       alignItems: 'flex-start' }}>
+                                <Box>
+                                    <Typography variant="subtitle2" color="text.secondary"
+                                                sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>
+                                        Run Wall Clock
+                                    </Typography>
+                                    <Typography variant="body2"
+                                                data-testid="agent-context-wall-ms">
+                                        {formatWallMs(activeRun.wall_ms)}
+                                    </Typography>
+                                </Box>
+                                <Box>
+                                    <Typography variant="subtitle2" color="text.secondary"
+                                                sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>
+                                        Run Tokens
+                                    </Typography>
+                                    <Typography variant="body2"
+                                                data-testid="agent-context-tokens-total">
+                                        {cost.measured ? formatTokenCount(cost.total) : NOT_MEASURED}
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary"
+                                                data-testid="agent-context-tokens-breakdown">
+                                        {TOKEN_FIELDS.map((field) => (
+                                            `${TOKEN_LABELS[field]} ${formatTokenCount(cost.parts[field])}`
+                                        )).join(' · ')}
+                                    </Typography>
+                                </Box>
+                                {prompt && (
+                                    <Box sx={{ maxWidth: 520 }}>
+                                        <Typography variant="subtitle2" color="text.secondary"
+                                                    sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>
+                                            Prompt
+                                        </Typography>
+                                        <Typography variant="body2"
+                                                    sx={{ whiteSpace: 'pre-wrap',
+                                                          wordBreak: 'break-word' }}
+                                                    data-testid="agent-context-prompt">
+                                            {prompt.text}
+                                        </Typography>
+                                        {/* The stored text is a bounded prefix. Say so
+                                            explicitly rather than letting a reader take a
+                                            clipped prompt for the whole one. */}
+                                        <Typography variant="caption" color="text.secondary"
+                                                    data-testid="agent-context-prompt-meta">
+                                            {prompt.truncated
+                                                ? `first ${prompt.text.length.toLocaleString('en-US')} of `
+                                                : ''}
+                                            {prompt.chars == null
+                                                ? ''
+                                                : `${prompt.chars.toLocaleString('en-US')} chars`}
+                                            {prompt.shaShort ? ` · sha256 ${prompt.shaShort}` : ''}
+                                        </Typography>
+                                    </Box>
+                                )}
+                            </Box>
+                        );
+                    })()}
 
                     {/* House edit-in-place field (GhostTextField's "outlined" mode —
                         same commit contract as InstructionsPage's fields): saves
