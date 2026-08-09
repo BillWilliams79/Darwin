@@ -1566,3 +1566,181 @@ describe('PlanRow.labelInherited', () => {
         }
     });
 });
+
+describe('epicSortOrder — `epics.sort_order` is the epic display order (req #3430)', () => {
+    // All-`done` plans on purpose: the done band's sort key reduces to
+    // (0, 0, 0, epicIdx, 0, stored position), so the epic term is the ONLY
+    // thing deciding and a wrong rank cannot hide behind stream or anchor
+    // ranking. The four `epic-sort-order-*` conformance cases prove the Python
+    // engine answers identically; these cover the JS-only coercion boundary and
+    // the row field the layout reads.
+    const plan = (epics, epicOfStep, extra = {}) => ({
+        pipeline: { id: 1, title: 'P', pipeline_status: 'active' },
+        steps: epicOfStep.map((_, i) => ({
+            id: i + 1, title: `S${i + 1}`, run: 'auto', notes: null,
+            completed_at: null,
+        })).concat(extra.steps || []),
+        stepRequirements: epicOfStep.map((_, i) => ({
+            step_fk: i + 1, requirement_fk: 100 + i,
+        })),
+        stepDeps: extra.stepDeps || [],
+        requirements: epicOfStep.map((epicId, i) => ({
+            id: 100 + i, requirement_status: 'met', machine_fk: null,
+            feature_fk: epicId, tracking: 0, coordination_type: 'implemented',
+        })),
+        features: [...new Set(epicOfStep)].map((epicId) => ({
+            id: epicId, title: `F${epicId}`, epic_fk: epicId,
+        })),
+        epics,
+        machines: [],
+    });
+    const orderOf = (model) => displayOrder(buildPlanRows(model)).rows.map((r) => r.id);
+
+    it('outranks first appearance — the order the user set is the order shown', () => {
+        const model = plan(
+            [{ id: 1, title: 'A', sort_order: 3 },
+             { id: 2, title: 'B', sort_order: 1 },
+             { id: 3, title: 'C', sort_order: 2 }],
+            [1, 2, 3]);
+        expect(orderOf(model)).toEqual([2, 3, 1]);
+    });
+
+    it('an unordered plan is untouched — first appearance, exactly as before', () => {
+        const model = plan(
+            [{ id: 1, title: 'A' }, { id: 2, title: 'B' }, { id: 3, title: 'C' }],
+            [1, 2, 3]);
+        expect(orderOf(model)).toEqual([1, 2, 3]);
+    });
+
+    it('NULL is UNORDERED, never ZEROTH — it sorts after every ordered epic', () => {
+        // Reading NULL as 0 (which `Number('')` and a bare numeric sort both do)
+        // would seat the epics the user said nothing about ahead of the one they
+        // explicitly placed — the same defect as not reading the column at all.
+        const model = plan(
+            [{ id: 1, title: 'A', sort_order: null },
+             { id: 2, title: 'B', sort_order: null },
+             { id: 3, title: 'C', sort_order: 2 }],
+            [1, 2, 3]);
+        expect(orderOf(model)).toEqual([3, 1, 2]);
+    });
+
+    it('0 is a real first position and beats a NULL', () => {
+        const model = plan(
+            [{ id: 1, title: 'A', sort_order: null },
+             { id: 2, title: 'B', sort_order: 0 }],
+            [1, 2]);
+        expect(orderOf(model)).toEqual([2, 1]);
+    });
+
+    it('equal values fall through to first appearance rather than tying', () => {
+        const model = plan(
+            [{ id: 1, title: 'A', sort_order: 5 },
+             { id: 2, title: 'B', sort_order: 5 }],
+            [1, 2]);
+        expect(orderOf(model)).toEqual([1, 2]);
+    });
+
+    it('a stringly-typed column still orders numerically, blanks read as NULL', () => {
+        // `'10' < '9'` is true for strings and false for numbers, so a lexical
+        // compare here would silently reorder a plan rather than fail. The
+        // Python twin `_epic_sort_order` answers identically on every one of
+        // these — the property the JSON corpus cannot express, because JSON has
+        // already decided each value's type.
+        const model = plan(
+            [{ id: 1, title: 'A', sort_order: '10' },
+             { id: 2, title: 'B', sort_order: '9' },
+             { id: 3, title: 'C', sort_order: '   ' }],
+            [1, 2, 3]);
+        expect(orderOf(model)).toEqual([2, 1, 3]);
+    });
+
+    it('refuses every type the column cannot arrive as, matching the Python twin', () => {
+        // A WHITELIST, not a guard list: `Number([])` is 0 and `Number(true)` is
+        // 1 here, while `float([])` raises and `float(True)` is 1.0 over there.
+        // Each of those is a place the two engines could order an epic
+        // differently, so both accept ONLY a number or a string.
+        for (const bad of [true, false, [], {}, [2], () => 2]) {
+            const model = plan([{ id: 1, title: 'A', sort_order: bad },
+                                { id: 2, title: 'B', sort_order: 1 }], [1, 2]);
+            const rows = buildPlanRows(model);
+            expect(rows.find((r) => r.epicId === 1).epicSortOrder,
+                `sort_order=${JSON.stringify(bad)}`).toBeNull();
+            // ...and B, which IS ordered, therefore sorts above it.
+            expect(orderOf(model)).toEqual([2, 1]);
+        }
+    });
+
+    it('accepts ONE decimal grammar, whatever this language would parse', () => {
+        // Each rejected string below parsed in exactly ONE of the two engines
+        // before the shared grammar existed (code review W1), and every one of
+        // them is an epic the browser and the daemon would have placed
+        // differently. `NaN` is the worst of them: a NaN sort key compares
+        // false against everything, so the order stops having a consistent
+        // answer rather than merely being wrong.
+        const TABLE = [
+            [3, 3], [0, 0], [-1, -1], [3.5, 3.5],
+            ['3', 3], ['  4  ', 4], ['+4', 4], ['-2.5', -2.5], ['.5', 0.5],
+            ['2.', 2], ['1e2', 100],
+            ['', null], ['   ', null], ['abc', null], ['4px', null],
+            ['1,000', null],
+            ['0x10', null], ['0b101', null], ['0o17', null], ['1_0', null],
+            ['NaN', null], ['nan', null], ['inf', null], ['Infinity', null],
+            ['-inf', null], ['1e400', null],
+            [NaN, null], [Infinity, null], [-Infinity, null],
+            [null, null], [undefined, null],
+        ];
+        for (const [raw, want] of TABLE) {
+            const model = plan([{ id: 1, title: 'A', sort_order: raw }], [1]);
+            const got = buildPlanRows(model)[0].epicSortOrder;
+            expect(got, `sort_order=${JSON.stringify(raw)}`).toBe(want);
+        }
+    });
+
+    it('every row carries epicSortOrder — a number or null, never undefined', () => {
+        const rows = buildPlanRows(SUBSTRATE_REBUILD_MODEL);
+        for (const r of rows) {
+            const v = r.epicSortOrder;
+            expect(v === null || Number.isFinite(v), `step ${r.id}`).toBe(true);
+        }
+    });
+
+    it('an INHERITED label carries its epic order with it (req #3119)', () => {
+        // Without this the req-less gate bands under the right epic and sorts as
+        // unordered, landing at the bottom of the plan, detached from the work
+        // it gates.
+        const model = plan(
+            [{ id: 1, title: 'A', sort_order: 3 },
+             { id: 2, title: 'B', sort_order: 1 }],
+            [1, 2],
+            {
+                steps: [{
+                    id: 3, title: 'Gate on A', run: 'auto', notes: null,
+                    completed_at: '2026-08-08T00:00:00',
+                }],
+                stepDeps: [{ id: 1, step_fk: 3, dep_step_fk: 1, time_at: null }],
+            });
+        const rows = buildPlanRows(model);
+        const gate = rows.find((r) => r.id === 3);
+        expect(gate.labelInherited).toBe(true);
+        expect(gate.epicId).toBe(1);
+        expect(gate.epicSortOrder).toBe(3);
+        expect(orderOf(model)).toEqual([2, 1, 3]);
+    });
+
+    it('a step with no epic at all is unordered and does not crash', () => {
+        const model = plan(
+            [{ id: 1, title: 'A', sort_order: 2 }],
+            [1],
+            {
+                steps: [{
+                    id: 2, title: 'Lone gate', run: 'auto', notes: null,
+                    completed_at: '2026-08-08T00:00:00',
+                }],
+            });
+        const rows = buildPlanRows(model);
+        const lone = rows.find((r) => r.id === 2);
+        expect(lone.epicId).toBeNull();
+        expect(lone.epicSortOrder).toBeNull();
+        expect(orderOf(model)).toEqual([1, 2]);
+    });
+});
