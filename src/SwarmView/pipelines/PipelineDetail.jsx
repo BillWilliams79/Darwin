@@ -355,8 +355,11 @@ export default function PipelineDetail() {
     // change a pure transform instead of a relayout.
     const stepLabel = 'title';
     const reqLabel = 'title';
-    // ── The colour key is TRI-STATE (req #3168, user directive 2026-08-01) ──
-    // `state` · `machine` · `none`. `normalizeColorKey` is `Object.hasOwn`-based
+    // ── The colour key is EVERY REGISTERED SCALE PLUS NONE ──────────────────
+    // req #3168 (user directive 2026-08-01), extended by req #3422 — the
+    // positions are `REQ_COLOR_KEYS`, so this page never names them and a scale
+    // added to the registry needs no edit here. `normalizeColorKey` is
+    // `Object.hasOwn`-based
     // for the same reason `isStepWidth` is: the value comes from localStorage, so
     // "constructor" is a reachable string that resolves to an inherited function,
     // and this one is handed to Konva as a text `fill`. A stored value written

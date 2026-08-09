@@ -188,9 +188,10 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             // computed from a layout, and a stale storage value would silently
             // move every one of them.
             set('darwin-pipeline-viz-step-width', 'compact');
-            // Req #3168 — the colour key is TRI-STATE ('state' | 'machine' |
-            // 'none'). Pinned to the default so PIPE-15's gesture starts from a
-            // known position and no other test inherits a previous one.
+            // Req #3168, extended by req #3422 — the colour key has one
+            // position per registered scale ('state' | 'machine' | 'autonomy')
+            // plus 'none'. Pinned to the default so PIPE-15's gesture starts
+            // from a known position and no other test inherits a previous one.
             set('darwin-pipeline-viz-color-key', 'state');
             // Req #3252 — THE CAMERA IS NOW PART OF THE PINNED STATE. The
             // visualizer remembers its pan and zoom per tab, so a `goto` no
@@ -1511,14 +1512,24 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
                 // horizontal scrollbar. It is logged because it is still the
                 // honest measure of how much control this row carries, and a
                 // sudden jump in it is worth a human look.
-                const incompressible = kids
+                const fixedKids = kids
                     .filter((k) => k.getBoundingClientRect().width >= 0.5
-                        && getComputedStyle(k).flexShrink === '0')
+                        && getComputedStyle(k).flexShrink === '0');
+                const incompressible = fixedKids
                     .reduce((sum, k) => sum + k.getBoundingClientRect().width, 0);
+                // EACH control GROUP's own width (req #3422). The row's
+                // `flex-shrink: 0` children ARE the groups — View, Width,
+                // Colour, and the Dividers between them — so the widest of them
+                // is the widest cluster of chrome on the row, which is what the
+                // title is asserted against below.
+                const widestGroup = Math.round(Math.max(0, ...fixedKids
+                    .map((k) => k.getBoundingClientRect().width)));
                 return {
                     content: Math.round(content + gap * Math.max(0, n - 1)),
                     incompressible: Math.round(
                         incompressible + gap * Math.max(0, n - 1)),
+                    widestGroup,
+                    rowWidth: Math.round(row.getBoundingClientRect().width),
                     chrome: Math.round(window.innerWidth
                         - row.getBoundingClientRect().width),
                     rowHeight: Math.round(row.getBoundingClientRect().height),
@@ -1583,19 +1594,52 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             //    against 763px before — the control set did NOT grow.
             //
             //    So assert the property that was worth having, in a form the
-            //    fixture cannot skew: at a wide desktop the plan's NAME gets at
-            //    least as much of the row as every control combined. That fails
-            //    the moment chrome starts crowding out the thing the page is
-            //    about — which is what the old assertion was really guarding —
-            //    and it does not fail because somebody named a plan verbosely.
+            //    fixture cannot skew: at a wide desktop the plan's NAME is not
+            //    crowded out by the chrome around it. That fails when the row
+            //    stops belonging to the plan — which is what the old assertion
+            //    was really guarding — and it does not fail because somebody
+            //    named a plan verbosely.
+            //
+            // ── HOW THAT PROPERTY IS EXPRESSED, AND WHY IT MOVED (req #3422) ──
+            //    It was `titleBox >= incompressible` — the name gets at least
+            //    half the row. The title is the row's ONLY non-`flexShrink:0`
+            //    child, so `titleBox = rowWidth - incompressible` and that form
+            //    reduces exactly to `incompressible <= rowWidth / 2`: a 772px
+            //    ceiling at this viewport, against a MEASURED 769px. **Three
+            //    pixels.** It had stopped being a crowding test and become a
+            //    freeze on the control set — any new control of any size tripped
+            //    it, and req #3422's own requirement text says more colour
+            //    scales are expected (AI model, effort).
+            //
+            //    MEASURED with the third colour chip (2026-08-09, this fixture,
+            //    1800px): the Autonomy chip costs 80px, incompressible 769 ->
+            //    849, and the title still holds 699px of a 1545px row — 45%,
+            //    against a widest control GROUP of a fraction of that. The name
+            //    is plainly not crowded out; the old form said it was.
+            //
+            //    Two claims replace it, both with real headroom and both
+            //    stricter than "it fits":
+            //      1. the name beats any single control CLUSTER, so no group of
+            //         chrome may dominate the thing the page is about; and
+            //      2. the name keeps at least 40% of the row, so the chrome as a
+            //         whole cannot squeeze it to a token.
+            //    A row that really did become chrome-with-a-name fails both.
             // eslint-disable-next-line no-console
             console.log(`[PIPE-18] title @1800px: box=${at1800.titleBox}px `
                 + `natural=${at1800.titleNatural}px `
-                + `(ellipsized=${at1800.titleClipped})`);
+                + `(ellipsized=${at1800.titleClipped}) `
+                + `share=${(at1800.titleBox / at1800.content * 100).toFixed(1)}% `
+                + `widest control group=${at1800.widestGroup}px`);
+            expect(at1800.widestGroup,
+                'the row really does carry control groups to measure against')
+                .toBeGreaterThan(0);
             expect(at1800.titleBox,
-                'at 1800px the plan name gets at least as much of the row as '
-                + 'all of its controls combined')
-                .toBeGreaterThanOrEqual(at1800.incompressible);
+                'at 1800px the plan name gets more of the row than any single '
+                + 'control group')
+                .toBeGreaterThan(at1800.widestGroup);
+            expect(at1800.titleBox / at1800.content,
+                'at 1800px the plan name still keeps at least 40% of the row')
+                .toBeGreaterThanOrEqual(0.40);
             // And when it DOES ellipsize the reader can still recover it — the
             // tooltip is the whole point of `noWrap` here, and since req #3242
             // removed the breadcrumb it is the ONLY recovery path left.
@@ -1823,7 +1867,13 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
                     + `height=${m.rowHeight}px (scrollbar ${m.scrollbarH}px) `
                     + `(tallest child ${m.tallestChild}px, `
                     + `title ellipsized=${m.titleClipped}, `
-                    + `band scrolls=${m.scrolls})`);
+                    + `band scrolls=${m.scrolls}, `
+                    // PRINTED, not just asserted (req #3422): this is the claim
+                    // with teeth in this sweep, and a failure that only says
+                    // "> 0" cannot tell a 2px rounding artefact from a row that
+                    // genuinely dragged the page.
+                    + `docOverflow=${m.docOverflow}px, `
+                    + `titleBox=${m.titleBox}px)`);
                 expect(m.lines, `the header is ONE line at ${width}px`).toBe(1);
                 expect(m.rowHeight - m.scrollbarH,
                     `and the row is no taller than that line at ${width}px`)
@@ -1916,9 +1966,10 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
                 .toBeGreaterThan(0);
         });
 
-    // ── PIPE-15: the key and the tri-state colour control (req #3168) ───────
+    // ── PIPE-15: the key and the colour control (req #3168, req #3422) ──────
 
-    test('PIPE-15: the key defines both channels at ONE size, and the colour key is tri-state',
+    test('PIPE-15: the key defines both channels at ONE size, and the colour control '
+        + 'offers every registered scale plus none',
         async ({ page }) => {
             await page.setViewportSize({ width: 1800, height: 1000 });
             await openPlanVisualizer(page, fixture.mainPipelineId);
@@ -1934,6 +1985,11 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             // spell the same rule out — clicking the pressed one stores 'none'.
             const stateBtn = page.getByTestId('pipeline-viz-colorkey-state');
             const machineBtn = page.getByTestId('pipeline-viz-colorkey-machine');
+            // The third scale (req #3422). Its chip, its key block and its test
+            // id all come from ONE registry entry in `pipelinePlanLayout.js`, so
+            // this locator existing at all is the registration system reaching
+            // the DOM.
+            const autonomyBtn = page.getByTestId('pipeline-viz-colorkey-autonomy');
             const scaleOf = (name: string) =>
                 page.getByTestId(`pipeline-viz-legend-scale-${name}`);
 
@@ -1998,16 +2054,29 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             }
             await expect(scaleOf('state')).not.toContainText('42');
             // Each name really is coloured, and no two share a colour.
-            const colors = await scaleOf('state').locator('span, p').evaluateAll(
+            //
+            // SCOPED TO THE WORDS, not to every span in the block (req #3422
+            // review). `KeyGroup`'s caption is a span as well, painted
+            // `PLAN_VIZ_PALETTE.dim` — the same hex as the `unknown` swatch — so
+            // a `span, p` locator counts the caption as an entry and this
+            // assertion fails, under a message about status colours, the first
+            // time a plan draws an id whose requirement row did not resolve.
+            const legendWords = (name: string) =>
+                scaleOf(name).getByTestId('pipeline-viz-legend-word');
+            const colors = await legendWords('state').evaluateAll(
                 (els) => els.map((el) => getComputedStyle(el).color)
                     .filter((c) => c && c !== 'rgba(0, 0, 0, 0)'));
+            expect(colors.length, 'the state scale draws its entries as words')
+                .toBeGreaterThan(1);
             expect(new Set(colors).size, 'each status name has its own colour')
                 .toBe(colors.length);
 
             // 3. ONE FOOTPRINT ACROSS MODES — the user's complaint was that "when
-            //    I select machine view the key gets too small". All three scales
-            //    occupy one grid cell, so the box cannot change size when the
-            //    mode does. Measured, not assumed.
+            //    I select machine view the key gets too small". EVERY scale
+            //    occupies one grid cell, so the box cannot change size when the
+            //    mode does. Measured, not assumed — and re-measured for the
+            //    autonomy scale, which is the first addition made since the
+            //    footprint rule was written.
             const sizeNow = async () => {
                 const b = (await key.boundingBox())!;
                 return { w: Math.round(b.width), h: Math.round(b.height) };
@@ -2019,19 +2088,65 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             expect(await sizeNow(), 'machine mode must not resize the key')
                 .toEqual(atState);
 
-            // 4. THE TRI-STATE GESTURE, exactly as the directive states it:
-            //    click Machine again → no colouring at all.
-            await machineBtn.click();
+            // 3b. THE AUTONOMY SCALE (req #3422) — the third chip, its own key
+            //     block, and the "only what the plan CONTAINS" discipline the
+            //     status scale already follows.
+            await autonomyBtn.click();
+            await expect(autonomyBtn).toHaveAttribute('aria-pressed', 'true');
+            await expect(machineBtn).toHaveAttribute('aria-pressed', 'false');
+            await expect(scaleOf('autonomy')).toBeVisible();
+            expect(await sizeNow(), 'autonomy mode must not resize the key either')
+                .toEqual(atState);
+            const seededCoords = [...new Set(fixture.models.main.requirements
+                .map((r) => String(r.coordination_type)))];
+            expect(seededCoords.length,
+                'the fixture exercises more than one coordination type')
+                .toBeGreaterThan(1);
+            for (const ct of seededCoords) {
+                await expect(scaleOf('autonomy'), `the scale lists "${ct}"`)
+                    .toContainText(ct);
+            }
+            // …and a coordination type the plan does NOT contain is absent. The
+            // fixture seeds no `planned` requirement, so a key listing all four
+            // would be listing the enum rather than the plan.
+            const ABSENT = ['discuss', 'planned', 'implemented', 'deployed']
+                .filter((ct) => !seededCoords.includes(ct));
+            expect(ABSENT.length, 'the fixture omits at least one coordination type')
+                .toBeGreaterThan(0);
+            for (const ct of ABSENT) {
+                await expect(scaleOf('autonomy'),
+                    `the scale does NOT list "${ct}" — the plan contains none`)
+                    .not.toContainText(ct);
+            }
+            // Each name is drawn in its own colour, the same way the canvas
+            // paints the marks. Words only — see the state scale's copy above.
+            const autonomyColors = await legendWords('autonomy')
+                .evaluateAll((els) => els.map((el) => getComputedStyle(el).color)
+                    .filter((c) => c && c !== 'rgba(0, 0, 0, 0)'));
+            expect(autonomyColors.length,
+                'the autonomy scale draws one word per coordination type it found')
+                .toBe(seededCoords.length);
+            expect(new Set(autonomyColors).size,
+                'each coordination type has its own colour').toBe(autonomyColors.length);
+
+            // 4. THE NEUTRAL GESTURE, exactly as the directive states it: click
+            //    the pressed chip again → no colouring at all.
+            await autonomyBtn.click();
+            await expect(autonomyBtn).toHaveAttribute('aria-pressed', 'false');
             await expect(machineBtn).toHaveAttribute('aria-pressed', 'false');
             await expect(stateBtn).toHaveAttribute('aria-pressed', 'false');
             await expect(scaleOf('none')).toContainText('no colour key');
             expect(await sizeNow(), 'the neutral mode must not resize the key either')
                 .toEqual(atState);
-            //    …and the third position is reachable from either button.
+            //    …and the neutral position is reachable from EVERY button.
             await stateBtn.click();
             await expect(stateBtn).toHaveAttribute('aria-pressed', 'true');
             await stateBtn.click();
             await expect(stateBtn).toHaveAttribute('aria-pressed', 'false');
+            await machineBtn.click();
+            await expect(machineBtn).toHaveAttribute('aria-pressed', 'true');
+            await machineBtn.click();
+            await expect(machineBtn).toHaveAttribute('aria-pressed', 'false');
 
             // 5. AT THIS CAMERA the key costs the epic labels no chip, and
             //    collapsing it is the control for that: a key stealing the
