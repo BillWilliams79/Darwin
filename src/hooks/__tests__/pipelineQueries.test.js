@@ -32,6 +32,7 @@ import {
     useAllEpics,
     useEpicById,
     ALL_ROWS,
+    EPIC_DEFAULT_FIELDS,
 } from '../useDataQueries';
 
 describe('pipeline key shapes', () => {
@@ -123,6 +124,21 @@ describe('projection + sort contracts', () => {
             pipelineStepDeps.config.defaultFields,
         ].join(',');
         expect(projections).not.toMatch(/session/);
+    });
+
+    it('the epic projection carries `sort_order` — the epic display order (req #3430)', () => {
+        // The browser reads epics through this ONE field list, and the plan
+        // visualizer stacks its epic bands by `epics.sort_order` (the
+        // AUTHORITATIVE order, user ruling 2026-08-09). A column absent from an
+        // explicit field list is INVISIBLE — req #2213's lesson, and precisely
+        // how the server's composed read shipped `sort_order: None` for every
+        // epic while the value sat correct in the table. It was already here
+        // when req #3430 made it load-bearing; what was missing is this line,
+        // so nothing would have noticed it leaving.
+        expect(EPIC_DEFAULT_FIELDS.split(',')).toContain('sort_order');
+        // `epic_status` (req #3223) is load-bearing in the same way — the pause
+        // bubble reads it — and rides the same list.
+        expect(EPIC_DEFAULT_FIELDS.split(',')).toContain('epic_status');
     });
 
     it('every pipeline block carries the fields-in-key collision guard', () => {

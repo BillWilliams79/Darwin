@@ -8,8 +8,12 @@
 //
 // The layout language (POC, kept verbatim unless noted):
 //   - Epic bands stacked vertically, one per DOMINANT epic (design rule 10), in
-//     DERIVED-START order since req #3201: earliest-starting epic on top,
-//     never-started epics last, epic id ascending as the tie-break. (Was
+//     `epics.sort_order` since req #3430 — the AUTHORITATIVE epic display order
+//     (user ruling 2026-08-09), and this stack is the surface that ruling is
+//     about. An epic with NO `sort_order` is UNORDERED and falls back to the
+//     req #3201 rule, below every ordered epic: DERIVED-START order,
+//     earliest-starting epic on top, never-started epics last, epic id
+//     ascending as the tie-break. (Before #3201 that fallback was
 //     first-appearance over display order, which had two problems: it made a
 //     band's position move whenever a step was appended, and it said nothing at
 //     all about time.)
@@ -1475,7 +1479,8 @@ function epicBandLabelText(epicId, epicName, epicCounts) {
  * @param {('compact'|'medium'|'wide')} [opts.stepWidth]
  * @param {?Object} [opts.timeAxis]  planTimeAxis() output (req #3201). Omitted,
  *                             the axis degenerates to pure dependency depth and
- *                             bands stack by epic id — see computeTimeColumns.
+ *                             bands stack by `epics.sort_order` (req #3430),
+ *                             then epic id — see computeTimeColumns.
  * @param {?(Map|Object)} [opts.epicCounts]  req #3225 — epicId -> {met, total}.
  *                             Null/omitted (the toggle-off state) leaves every
  *                             band's label exactly as it reads today.
@@ -1615,7 +1620,21 @@ export function computePlanLayout(rows, batches, {
     }));
     const ruler = computeRuler(slots, colX, colW, totalW);
 
-    // ── Epic bands (dominant label), stacked by DERIVED START (req #3201) ───
+    // ── Epic bands (dominant label), stacked by `epics.sort_order` (req #3430),
+    //    then by DERIVED START (req #3201) for the epics nobody has ordered ────
+    //
+    // **THE USER'S ORDER WINS.** `epics.sort_order` is the AUTHORITATIVE epic
+    // display order (user ruling, 2026-08-09), and THIS is the surface that
+    // ruling was about: the band stack is what a person looking at the Pipeline
+    // Visualizer reads as "the order of the epics". An epic carrying a
+    // `sort_order` is placed by it and by nothing else — derived start does not
+    // get a vote, because a rule that sometimes overrides the order the user
+    // typed is a rule the user cannot use.
+    //
+    // Everything below is the FALLBACK, unchanged, for epics whose `sort_order`
+    // is NULL: an unordered plan stacks exactly as it did before req #3430, and
+    // an ordered epic always sits above an unordered one.
+    //
     // The vertical axis reads as time too: the epic whose work began first sits
     // on top. An epic's start is the minimum over its requirements — there is no
     // `epics.started_at` and design rule 1 says there never will be — and
@@ -1652,10 +1671,19 @@ export function computePlanLayout(rows, batches, {
 
     const bandKeys = [];
     const bandByKey = new Map();
+    // req #3430 — epic id -> `epics.sort_order`, or null for UNORDERED. Taken
+    // from the row, which `pipelineModel.js::buildPlanRows` resolved from the
+    // one epics dictionary; this module never re-reads the table, so there is
+    // no second answer to keep in step. Every row of one band carries the same
+    // value (it is a property of the epic), so first-writer-wins is not a
+    // choice between candidates.
+    const bandSortOrders = new Map();
     for (const r of safeRows) {
         const key = r.epicId != null ? r.epicId : null;
         if (!bandByKey.has(key)) {
             const epic = r.epic || 'No epic';
+            bandSortOrders.set(key, key != null && Number.isFinite(r.epicSortOrder)
+                ? r.epicSortOrder : null);
             bandByKey.set(key, {
                 key, epicId: key, epic,
                 // req #3225 — the SAME string measures the zero-overlap label
@@ -1673,6 +1701,15 @@ export function computePlanLayout(rows, batches, {
         return v == null ? null : String(v);
     };
     bandKeys.sort((a, b) => {
+        // req #3430 — the user's order, ahead of everything derived. NULL is
+        // UNORDERED, not zeroth: it sorts after every ordered epic and then
+        // falls through to the req #3201 tiers below, so the "No epic" band
+        // (which can never carry a `sort_order`) stays last of all exactly as
+        // it was. Equal values fall through too rather than tie arbitrarily.
+        const oa = bandSortOrders.get(a);
+        const ob = bandSortOrders.get(b);
+        if ((oa == null) !== (ob == null)) return oa == null ? 1 : -1;
+        if (oa != null && oa !== ob) return oa - ob;
         const ta = bandTierOf(a);
         const tb = bandTierOf(b);
         if (ta !== tb) return ta - tb;

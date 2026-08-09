@@ -620,7 +620,16 @@ export const ALL_ROWS = 'all';
 // lifecycle: whether this epic's scope may be swarm-started. Carried here so
 // every label-dictionary reader (the plan visualizer's pause bubble, req
 // #3226) gets it for free, the same way `closed` already rides along.
-const EPIC_DEFAULT_FIELDS =
+//
+// `sort_order` was already here when req #3430 made it the AUTHORITATIVE epic
+// display order, and that is exactly why it is EXPORTED now: nothing asserted
+// it, so nothing would have noticed it leaving. A column absent from an
+// explicit field list is INVISIBLE to the browser (req #2213, hit again by req
+// #3390) — the same class of defect req #3430 fixed on the server's composed
+// read, where `sort_order` was simply not projected and every epic arrived
+// carrying None. `pipelineQueries.test.js` pins the two columns the plan
+// visualizer's epic ordering cannot work without.
+export const EPIC_DEFAULT_FIELDS =
     'id,title,description,category_fk,closed,epic_status,sort_order,create_ts';
 
 export function useAllEpics(creatorFk,
