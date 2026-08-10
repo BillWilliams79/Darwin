@@ -120,7 +120,7 @@ import {
     NEXT_HALO_RADIUS, NEXT_HALO_STROKE, NEXT_HALO_OPACITY, NEXT_HALO_DASH,
     nextHaloMagnify, nextMarkIsDot, nextMarkDotRadius,
     planLevelFor, drawsLabelKind, BEAD_LANE_OFFSET,
-    buildMachineColorView, reqIdStyle, reqIdKeyEntries, normalizeColorKey,
+    buildReqColorViews, REQ_COLOR_KEYS, reqIdStyle, reqIdKeyEntries, normalizeColorKey,
     DEFAULT_COLOR_KEY, PLAN_KEY_MAX_W, pinnedLevelOf, DEFAULT_PLAN_LEVEL_PREF,
     EPIC_PAUSE_BUBBLE_D, pauseBubbleColor, stickyRulerY, rulerScreenBottom,
 } from './pipelinePlanLayout';
@@ -138,10 +138,12 @@ import '../../CalendarFC/swarmVisualizer.css';
 
 const MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
 
-// The three requirement-mark colour scales, in the order they are reserved.
-// Every one is rendered every time (hidden when not live) so the key's footprint
-// is the MAX of the three and therefore constant — see the key's own comment.
-const REQ_KEY_SCALES = ['state', 'machine', 'none'];
+// The requirement-mark colour scales, in the order they are reserved — the
+// REGISTRY's order plus `none`, never a copy of it (req #3422), so a scale added
+// there appears in the key here with no edit. Every one is rendered every time
+// (hidden when not live) so the key's footprint is the MAX over all of them and
+// therefore constant — see the key's own comment.
+const REQ_KEY_SCALES = REQ_COLOR_KEYS;
 
 // Interactive chrome layered OVER the canvas (req #3168). d3-zoom's gesture
 // filter and the manual click hit-test both reject anything originating inside
@@ -217,7 +219,13 @@ function LegendDot({ fill, ring, label, animated, dashed }) {
 // losing anything it said.
 function LegendWord({ color, label }) {
     return (
-        <Typography variant="caption"
+        // `data-testid` so a test can ask for the WORDS and not for every span in
+        // the block (req #3422 review W1). `KeyGroup`'s own caption is a
+        // `<span>` too, and it is painted `PLAN_VIZ_PALETTE.dim` — which is
+        // EXACTLY the unknown swatch — so a "every entry has its own colour"
+        // assertion scoped to `span` counts the caption as an entry and collides
+        // with `unknown` the first time a plan contains one.
+        <Typography variant="caption" data-testid="pipeline-viz-legend-word"
                     sx={{ color, fontFamily: MONO, fontWeight: 700, fontSize: 10.5,
                            lineHeight: 1.35, whiteSpace: 'nowrap' }}>
             {label}
@@ -350,45 +358,44 @@ export default function PipelinePlanVisualizer({
         [rows, plan.batches, plan.timeAxis, reqLayout, stepLabel, stepWidth,
             reqLabel, reqTitles, epicCounts, plan.pause]);
 
-    // ── The REQUIREMENT-ID channel (req #3119, tri-state req #3168) ─────────
+    // ── The REQUIREMENT-ID channel (req #3119; #3168 neutral; #3422 registry) ─
     // Whatever the key, it rides the requirement ids and never the bead: the
     // bead's fill already carries derived STEP state (rule 1), and repainting it
     // would trade that reading for this one. The full colour language, and the
     // one-fact-one-channel-one-level rule it turns on, is documented in
-    // pipelinePlanLayout.js — which is also where every colour below is decided,
-    // so the canvas and the on-screen key cannot drift apart.
-    const machineView = useMemo(
-        () => buildMachineColorView({
-            requirements: model?.requirements, machines: model?.machines,
-        }), [model]);
+    // pipelinePlanLayout.js — which is also where every colour below is decided
+    // and where the SCALES THEMSELVES are registered, so the canvas and the
+    // on-screen key cannot drift apart and neither can name a scale the other
+    // does not have.
     // Normalized HERE as well as in the page (review discipline): the prop is a
     // persisted preference travelling through a component boundary, and a
     // visualizer rendered from anywhere else must not be able to receive a
     // localStorage string this file then hands to Konva as a `fill`.
     const activeColorKey = normalizeColorKey(colorKey);
-    // The statuses this plan actually contains — the key lists only these, which
-    // is what stops a seven-entry scale from taking the corner the epic chips
-    // need. Derived from the SAME map the hover card reads; no extra pass over
-    // the model.
-    const planStatuses = useMemo(() => {
+    // The requirements this plan actually DRAWS. Each enum scale lists only the
+    // values these carry, which is what stops a seven-entry status scale from
+    // taking the space the epic chips need. One pass over the rows, no extra
+    // read — and it is the ids rather than the values now (req #3422), because
+    // the registry's builders each read their own column off the requirement.
+    const presentReqIds = useMemo(() => {
         const seen = new Set();
-        for (const row of rows) {
-            for (const reqId of row.reqIds || []) seen.add(reqInfo.get(reqId)?.status);
-        }
+        for (const row of rows) for (const reqId of row.reqIds || []) seen.add(reqId);
         return seen;
-    }, [rows, reqInfo]);
-    // ALL THREE scales, always, not just the live one. The key stacks them in one
-    // grid cell to reserve a footprint that cannot move when the colour mode does
+    }, [rows]);
+    // EVERY scale, always, not just the live one — the canvas reads one view out
+    // of this bag and the key renders them all. The key stacks them in one grid
+    // cell to reserve a footprint that cannot move when the colour mode does
     // (user directive: "when I select machine view the key gets too small"), and
     // a cell can only be sized by children that exist. Same module and same
     // resolver as the canvas — the key is a rendering of the language, never a
     // second copy of it.
+    const reqColorViews = useMemo(() => buildReqColorViews({
+        requirements: model?.requirements, machines: model?.machines, presentReqIds,
+    }), [model, presentReqIds]);
     const reqKeyScales = useMemo(() => Object.fromEntries(
         REQ_KEY_SCALES.map((scale) => [scale, reqIdKeyEntries({
-            colorKey: scale,
-            statuses: planStatuses,
-            machineLegend: machineView.legend,
-        }).entries])), [planStatuses, machineView]);
+            colorKey: scale, views: reqColorViews,
+        }).entries])), [reqColorViews]);
     // Collapsed by default (req #3309 — the key covered too much of the plan
     // on first view) — see the key's own comment below for why this is
     // component state and not a persisted preference.
@@ -2076,16 +2083,19 @@ export default function PipelinePlanVisualizer({
             // asserted against both layouts anyway.
             //
             // The 2026-07-27 directive that made these ids white stands and is
-            // satisfied by the TRI-STATE, not overridden by it: neutral is a
-            // real position of the control, and a colour appears only when a
-            // reader turns a key on and the key is on screen naming the scale.
+            // satisfied by the NEUTRAL POSITION, not overridden by it — by that
+            // position rather than by the number of scales beside it, which is
+            // why a third scale (req #3422) does not re-open the question:
+            // neutral is a real position of the control, and a colour appears
+            // only when a reader turns a key on and the key is on screen naming
+            // the scale.
             // What that directive rejected was an unlabelled colour reading as
             // the STEP's status; `state` here is the REQUIREMENT's own status,
             // which is the fact the bead's aggregate was derived from.
             const rs = reqIdStyle({
                 colorKey: activeColorKey,
-                status: reqInfo.get(label.reqId)?.status,
-                machineColor: machineView.colorOf(label.reqId),
+                views: reqColorViews,
+                reqId: label.reqId,
             });
             // ── ID at L1/L2, TITLE at L3 (user directive 2026-08-01: "L3 can
             //    have the req titles on by default") ────────────────────────
@@ -2805,11 +2815,16 @@ export default function PipelinePlanVisualizer({
                                            dashed animated="pipeKeyBreathe" />
                             </KeyGroup>
 
-                            {/* THE REQUIREMENT channel — all three scales in ONE
-                                grid cell so the footprint cannot move when the
-                                colour key does. The swatch IS the word: each name
-                                is drawn in its own colour, which is exactly what
-                                the canvas does to the marks themselves. */}
+                            {/* THE REQUIREMENT channel — EVERY scale in ONE grid
+                                cell so the footprint cannot move when the colour
+                                key does. The swatch IS the word: each name is
+                                drawn in its own colour, which is exactly what the
+                                canvas does to the marks themselves.
+
+                                The list is the registry (req #3422), so a scale
+                                added there renders here — with its own entries
+                                and its own title — without an edit to this
+                                block. */}
                             <Box sx={{ display: 'grid' }}
                                  data-testid="pipeline-viz-legend-reqscale">
                                 {REQ_KEY_SCALES.map((scale) => {
