@@ -92,10 +92,31 @@ export const NAV_LINKS = [
     // req #3209 shipped for Sessions verbatim — no second mechanism). Requirements
     // is the first parent to carry this shape rather than the last, so future L3s
     // (this one included) generalise onto the same field.
+    //
+    // Requirements is DELIBERATELY SECOND in the swarm group (req #3427's own
+    // test pins it) — the Pipeline 2.0 block below sits AFTER it rather than
+    // between Pipelines and Requirements, so that invariant stays true.
     {
         path: '/swarm', label: 'Requirements', icon: MapIcon, group: 'swarm',
         children: [
             { path: '/swarm/machines', label: 'Machines', icon: ComputerIcon, group: 'swarm' },
+        ],
+    },
+    // Req #3393 — the Pipeline 2.0 plan-layer editors. Positioned right after
+    // Requirements (not between Pipelines and Requirements, which would break
+    // req #3427's "Requirements is second in the swarm group" invariant) so
+    // the two pipeline eras still read close together during the parallel-run
+    // period (1.0 REMAINS UNALTERED, 2.0 stands up beside it —
+    // memory/pipeline-2-first-principles.md § 10). Reuses the same three
+    // icons as the 1.0 group: the entity meaning is identical, only the era
+    // differs. Retire this block at #3356's eradication, once the 1.0
+    // Pipelines group above is removed and these routes (or their
+    // successors) take over the un-suffixed paths.
+    {
+        path: '/swarm/pipelines2', label: 'Pipelines 2.0', icon: LanIcon, group: 'swarm',
+        children: [
+            { path: '/swarm/epics2', label: 'Epics 2.0', icon: LayersIcon, group: 'swarm' },
+            { path: '/swarm/steps2', label: 'Steps 2.0', icon: LinearScaleIcon, group: 'swarm' },
         ],
     },
     // Req #3209 — Sessions is an L2 item with L3 children. Starts,

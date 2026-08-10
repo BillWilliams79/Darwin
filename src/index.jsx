@@ -61,6 +61,12 @@ import PipelinesPage from './SwarmView/pipelines/PipelinesPage';
 import PipelineDetail from './SwarmView/pipelines/PipelineDetail';
 import EpicsPage from './Epics/EpicsPage';
 import StepsPage from './Steps/StepsPage';
+// Pipeline 2.0 plan-layer editors (req #3393) — stand BESIDE the 1.0 routes
+// above, never in place of them. Own routes, own data, no import edge into
+// any 1.0 module. See PLAN.md for the re-scope rationale.
+import PipelinesPage2 from './Pipelines2/PipelinesPage2';
+import EpicsPage2 from './Epics2/EpicsPage2';
+import StepsPage2 from './Steps2/StepsPage2';
 import SystemsPage2 from './Systems/SystemsPage2';
 import BuildVisualizerPage from './BuildVisualizer/BuildVisualizerPage';
 import CustomersPage from './Customers/CustomersPage';
@@ -179,6 +185,21 @@ root.render(
                         steps are otherwise only visible on. */}
                     <Route path="swarm/steps" element= {<AuthenticatedRoute>
                                                              <StepsPage />
+                                                         </AuthenticatedRoute>} />
+                    {/* Pipeline 2.0 plan-layer editors (req #3393) — SIBLING routes,
+                        not a replacement. Each reads pipeline2_* data through its own
+                        query layer (devopsQueries2.js) and shares no component with
+                        the 1.0 routes directly above. Stay on these routes until
+                        #3356's eradication retires the 1.0 ones; only then would the
+                        "2" suffix and the parallel routes go away. */}
+                    <Route path="swarm/pipelines2" element= {<AuthenticatedRoute>
+                                                             <PipelinesPage2 />
+                                                         </AuthenticatedRoute>} />
+                    <Route path="swarm/epics2" element= {<AuthenticatedRoute>
+                                                             <EpicsPage2 />
+                                                         </AuthenticatedRoute>} />
+                    <Route path="swarm/steps2" element= {<AuthenticatedRoute>
+                                                             <StepsPage2 />
                                                          </AuthenticatedRoute>} />
                     {/* Features editor (req #3217) — the middle tier of Epic >
                         Feature > Story and the third plan editor, so it belongs to
