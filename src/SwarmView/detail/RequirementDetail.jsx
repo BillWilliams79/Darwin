@@ -15,6 +15,11 @@ import {
 } from './orchestrationIndex';
 import { epicLinkTo, planLinkTo } from '../pipelines/pipelineEpicLink';
 import { stepPlanLinkTo } from '../pipelines/pipelineStepLink';
+// req #3463 — the era↔route binding. This page never spells a plan route.
+// `useEpicPipelineLocation` / `useRequirementStepLocation` both walk the 1.0
+// tables, so the two plan links below are 1.0 by the era those hooks read from,
+// which is what `epicLinkTo`/`stepPlanLinkTo`'s default already means.
+import { DEFAULT_PLAN_ERA, isPlanEra, planDetailPath } from '../pipelines/planEra';
 import { siblingElevator, readElevatorIds } from './requirementSort';
 import { coerceSortMode, DEFAULT_SORT_MODE } from '../processSort';
 import { formatDateTime, formatDate } from '../../utils/dateFormat';
@@ -36,8 +41,9 @@ import { swarmStatusChipProps, swarmStatusLabel } from '../swarmStatusChipProps'
 import { COORDINATION_COLOR } from '../coordinationChipStyles';
 import { AI_MODEL_COLOR, AI_MODELS, aiModelLabel } from '../modelChipStyles';
 import { EFFORT_COLOR, EFFORTS, effortLabel } from '../effortChipStyles';
+import { terminalFocusState } from '../terminalFocus';
+import TerminalChip from '../TerminalChip';
 import { formatDuration } from '../../utils/formatDuration';
-import { renderSourceRef } from '../repoGitHubMap.jsx';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
@@ -166,10 +172,19 @@ const getSessionColumns = (navigate, timezone) => [
       )
     },
     {
-        field: 'source_ref',
-        headerName: 'Source',
-        width: 140,
-        renderCell: (params) => renderSourceRef(params.value, navigate),
+        // req #3455 — Terminal replaces Source here. Source was `requirement:NNNN`
+        // on EVERY row of this grid: it is the linked-sessions grid of that very
+        // requirement, so the column restated the page you were already on.
+        // Terminal answers something this page could not: which window each of
+        // those sessions is running in, and a click that brings it to the front.
+        field: 'terminal',
+        headerName: 'Terminal',
+        width: 130,
+        valueGetter: (value) => value?.label ?? '',
+        renderCell: (params) => (
+            <TerminalChip terminal={params.row.terminal}
+                          testId={`req-session-terminal-${params.row.id}`} />
+        ),
     },
     { field: 'branch',       headerName: 'Branch',    width: 200, flex: 1 },
     {
@@ -208,6 +223,15 @@ const RequirementDetail = () => {
     const fromPipelineId = location.state?.from === 'pipeline'
         ? Number(location.state?.pipelineId) : null;
     const hasPipelineOrigin = Number.isFinite(fromPipelineId) && fromPipelineId > 0;
+    // req #3463 — WHICH plan surface they came from. The plan panels stamp it
+    // alongside the id because the id alone does not identify a plan: 1.0 and
+    // 2.0 ids are disjoint. An origin state written by an older build carries
+    // no era, and 1.0 is the right reading for it — that build had no other
+    // plan page — but it is read through `isPlanEra` rather than assumed, so a
+    // junk value falls back rather than reaching `planEraBinding` and throwing
+    // inside a render.
+    const fromPipelineEra = isPlanEra(location.state?.era)
+        ? location.state.era : DEFAULT_PLAN_ERA;
     // Req #3252: WHICH PANEL of that plan. The route names the plan; the panel
     // comes from a stored preference, and a reader who reached the visualizer
     // through a `?mode=plan` link never persisted `plan` — that override is
@@ -234,8 +258,8 @@ const RequirementDetail = () => {
             // `?mode=` is a TRANSIENT override on the receiving page, never a
             // write to the reader's stored preference — so returning them to the
             // panel they left cannot change what any other plan opens in.
-            return navigate(`/swarm/pipeline/${fromPipelineId}`
-                + (fromPipelineMode ? `?mode=${fromPipelineMode}` : ''));
+            return navigate(planDetailPath(fromPipelineEra, fromPipelineId,
+                fromPipelineMode ? `mode=${fromPipelineMode}` : null));
         }
         return navigate(fromCalendar ? '/calview' : '/swarm');
     };
@@ -316,6 +340,13 @@ const RequirementDetail = () => {
     // pinned to a since-retired machine still renders that pin (see
     // `pinnedMachineMissing` below) so the state is never silently lost.
     const { data: machinesData = [] } = useMachines(profile?.userName);
+
+    // req #3455 — the Terminal column needs the machines list to answer "is this
+    // terminal on the machine this browser is on?", which a DataGrid renderCell
+    // cannot reach. Computed once per row here, exactly as SessionsView does.
+    const sessionRows = React.useMemo(
+        () => (sessions || []).map(s => ({ ...s, terminal: terminalFocusState(s, machinesData) })),
+        [sessions, machinesData]);
     const openMachines = useMemo(
         () => (machinesData || [])
             .filter(m => !m.closed)
@@ -1579,7 +1610,7 @@ const RequirementDetail = () => {
                         <Box data-testid="linked-sessions-grid">
                             <DataGrid
                                 autoHeight
-                                rows={sessions}
+                                rows={sessionRows}
                                 columns={getSessionColumns(navigate, timezone)}
                                 density="compact"
                                 disableRowSelectionOnClick

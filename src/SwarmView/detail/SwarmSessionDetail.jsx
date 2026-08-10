@@ -1,7 +1,7 @@
 import React, { useContext } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { useSession, useDevServersBySession, useAllSwarmStartSessions, useAllSwarmStarts, useAllSwarmCompleteSessions, useAllSwarmCompletes, useAllRequirements, useMachines, useAllPipelines, useAllEpics } from '../../hooks/useDataQueries';
+import { useSession, useDevServersBySession, useAllSwarmStartSessions, useAllSwarmStarts, useAllSwarmCompleteSessions, useAllSwarmCompletes, useAllRequirements, useMachines, useAllPipelines, useAllPipelines2, useAllEpics } from '../../hooks/useDataQueries';
 import { sessionKeys } from '../../hooks/useQueryKeys';
 import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
@@ -12,6 +12,8 @@ import SwarmSessionDeleteDialog from '../SwarmSessionDeleteDialog';
 import { swarmStatusChipProps, swarmStatusLabel } from '../swarmStatusChipProps';
 import { aiModelChipProps, aiModelLabel } from '../modelChipStyles';
 import { effortChipProps, effortLabel } from '../effortChipStyles';
+import { terminalFocusState, TERMINAL_STATE, TERMINAL_VISIBLE } from '../terminalFocus';
+import { sessionPipelineLink } from '../sessionPipelineLink';
 import { PHASE_BUCKETS, GROUP_COLORS, bucketTokens, parsePhaseTokens, formatTokens } from '../sessionPhases';
 import { formatDuration } from '../../utils/formatDuration';
 import { trimMicroseconds } from '../../utils/dateFormat';
@@ -50,6 +52,12 @@ const SwarmSessionDetail = () => {
         const m = machinesData.find(x => x.id === session.machine_fk);
         return m ? m.title : null;
     }, [machinesData, session]);
+    // req #3455 — WHICH TERMINAL WINDOW this session runs in, and whether this
+    // browser is on the machine that holds it. Same helper the Sessions grid
+    // uses, so the two surfaces cannot disagree about when a link is offered.
+    const terminal = React.useMemo(
+        () => (session ? terminalFocusState(session, machinesData) : null),
+        [session, machinesData]);
     // Req #2422 — reverse junction lookup for the parent swarm_start.
     // Multi-parent policy: pick the most-recent swarm_start (highest fk).
     // Matches SessionsView's last-most-recent-wins map and the MCP resource's
@@ -102,6 +110,7 @@ const SwarmSessionDetail = () => {
     // Deriving the ids instead would cost six reads and a client-side join per
     // session, which is the fan-out design rule 5 forbids.
     const { data: pipelines = [] } = useAllPipelines(profile?.userName);
+    const { data: pipelines2 = [] } = useAllPipelines2(profile?.userName);
     const { data: epics = [] } = useAllEpics(profile?.userName);
     const pipelineTitle = React.useMemo(() => {
         if (session?.pipeline_fk == null) return null;
@@ -111,6 +120,15 @@ const SwarmSessionDetail = () => {
         if (session?.epic_fk == null) return null;
         return epics.find(e => e.id === session.epic_fk)?.title ?? null;
     }, [epics, session?.epic_fk]);
+
+    // Same rule as the Sessions grid: the plan chip links only when a 2.0 id
+    // exists, because the plan page is a 2.0 route now.
+    const planLink = React.useMemo(
+        // All THREE args: without pipelines2 a 2.0-seated session gets its
+        // title from the 1.0 row while the href opens the 2.0 plan — a chip
+        // naming one plan and navigating to another.
+        () => sessionPipelineLink(session, pipelines, pipelines2),
+        [session, pipelines, pipelines2]);
 
     const hasHistory = location.key !== 'default';
     const handleBack = () => hasHistory ? navigate(-1) : navigate('/swarm/sessions');
@@ -289,13 +307,35 @@ const SwarmSessionDetail = () => {
                      stamped: NULL is a real answer (work outside any plan), not
                      a missing value, and an em-dash row for it would be noise on
                      every ad-hoc session. */}
-                {session.pipeline_fk != null &&
+                {/* Gated on the DERIVED state, not on `pipeline_fk`: a session
+                     stamped 2.0-only (pipeline2_fk set, pipeline_fk NULL — what
+                     req #3350's resolver produces for a 2.0-seated requirement)
+                     would otherwise show no Pipeline row at all here while the
+                     Sessions grid showed a working link for the same row. */}
+                {planLink.state !== 'none' &&
                     <Box sx={{ mb: 1 }} data-testid="session-pipeline">
                         <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Pipeline</Typography>
                         <Typography variant="body2" component="div">
-                            <Chip label={`#${session.pipeline_fk}`} size="small" variant="outlined"
-                                  onClick={() => navigate(`/swarm/pipeline/${session.pipeline_fk}`)}
-                                  sx={{ cursor: 'pointer', mr: 1 }}
+                            {/* req #3463 — THE ID COMES FROM THE RESOLVER, which
+                                 is the only thing that knows which column was
+                                 seated. This used to pick the column itself with
+                                 `state === 'link' ? pipeline2_fk : pipeline_fk`,
+                                 on the premise that /swarm/pipeline/:id read
+                                 pipeline2_compose — true only inside the req
+                                 #3381 window, and false again the moment #3462
+                                 reverted it. Since then a 1.0 session took the
+                                 'link' branch and rendered `#undefined`, because
+                                 its pipeline2_fk is NULL. BOTH eras are
+                                 navigable now, so there is no column to guess. */}
+                            <Chip label={`#${planLink.planId}`}
+                                  size="small" variant="outlined"
+                                  color={planLink.state === 'link' ? 'primary' : 'default'}
+                                  {...(planLink.state === 'link'
+                                      ? { onClick: () => navigate(planLink.href),
+                                          sx: { cursor: 'pointer', mr: 1 } }
+                                      : { sx: { mr: 1 } })}
+                                  title={planLink.title || undefined}
+                                  data-pipeline-state={planLink.state}
                                   data-testid="session-pipeline-chip" />
                             {pipelineTitle &&
                                 <Typography component="span" variant="body2">
@@ -354,6 +394,31 @@ const SwarmSessionDetail = () => {
                         <Typography variant="body2" data-testid="session-machine">
                             {machineName || `#${session.machine_fk}`}
                         </Typography>
+                    </Box>
+                }
+
+                {terminal && TERMINAL_VISIBLE(terminal.state) &&
+                    <Box sx={{ mb: 1 }}>
+                        <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Terminal</Typography>
+                        <Box sx={{ mt: 0.5 }} data-testid="session-terminal">
+                            <Tooltip title={terminal.title}>
+                                {/* span wrapper — a non-clickable Chip fires no
+                                    events for the Tooltip to hang off. */}
+                                <span>
+                                    <Chip
+                                        label={terminal.label}
+                                        size="small"
+                                        variant="outlined"
+                                        color={terminal.state === TERMINAL_STATE.LINK ? 'primary' : 'default'}
+                                        {...(terminal.state === TERMINAL_STATE.LINK
+                                            ? { component: 'a', href: terminal.href, clickable: true }
+                                            : {})}
+                                        data-testid="chip-session-terminal"
+                                        data-terminal-state={terminal.state}
+                                    />
+                                </span>
+                            </Tooltip>
+                        </Box>
                     </Box>
                 }
 

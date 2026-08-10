@@ -50,6 +50,27 @@ import {
     readPipelinePlace,
     writePipelinePlace,
 } from './pipelinePlace';
+// req #3463 — THIS PAGE IS THE 1.0 PLAN LIST, and it says so once, here.
+//
+// A CONSTANT AND NOT A PROP, deliberately. An era-parameterised list component
+// would mean the era of this page is decided by whoever mounts it — which is
+// the shape that let a page's data source and its links disagree in the first
+// place.
+//
+// WHAT `PAGE_ERA` ACTUALLY GOVERNS, stated exactly (code review): the route
+// this page OPENS (`planDetailPath`), the place record it WRITES and accepts
+// (`placeIsOurs`), and the storage namespace it SWEEPS (`prunePipelineStorage`).
+// It does NOT govern the reads — those are the `useAllPipelines`/
+// `useAllPipelineSteps`/… calls below, named directly.
+//
+// So re-pointing this page at 2.0 is NOT one edit, and the guard in
+// `__tests__/planEra.test.js` cannot catch a change that swaps the reads and
+// leaves `PAGE_ERA` at 1 — it scans for route STRINGS, and that change involves
+// none. `PipelineDetail.jsx` is the one page where the binding is structural
+// (`usePlanSources(era, …)` selects the whole fetch head off the era); here it
+// is a convention. Req #3393 owns re-pointing this page, and when it does, the
+// reads and this constant have to move together BY HAND.
+import { PLAN_ERA_1, planDetailPath } from './planEra';
 import normalizeView from '../../Components/ViewerHeader/normalizeView';
 import ViewerHeader from '../../Components/ViewerHeader/ViewerHeader';
 import ChipFilter from '../../Components/ChipFilter';
@@ -68,6 +89,8 @@ import {
     pipelineRequirementCounts,
     hiddenPipelineStatusCounts,
 } from './pipelineViewModel';
+
+const PAGE_ERA = PLAN_ERA_1;
 
 const VIEW_STORAGE_KEY = 'darwin-swarm-pipelines-view';
 
@@ -155,7 +178,23 @@ export default function PipelinesPage() {
     // whether the record would resume, because "the plan I last opened" is true
     // even when the reader's last act was to walk back out to this list.
     const [place] = useState(readPipelinePlace);
-    const lastOpenedId = place?.pipelineId ?? null;
+    // req #3463 — A RECORD FROM THE OTHER ERA IS NOT THIS PAGE'S RECORD. The
+    // ids are disjoint and nothing translates between them, so a 2.0 record's
+    // plan 7 would mark whichever 1.0 row happens to be numbered 7 and, worse,
+    // satisfy the resume gate's `pipelines.some(...)` check and redirect the
+    // reader into a plan they never opened. Every use of `place` below is
+    // therefore gated on the era matching.
+    //
+    // A FOREIGN RECORD IS NOT PRESERVED, and that is deliberate rather than an
+    // oversight (code review corrected the comment that said otherwise): there
+    // is ONE record across both eras by design (`pipelinePlace.js` § THREE
+    // FACTS), because the question it answers — "where was the reader?" — has
+    // one answer. So arriving on this list OVERWRITES a 2.0 record with
+    // `{at:'list', era:1, pipelineId:null}`: the reader is on the 1.0 list now,
+    // and that is true. What the gate prevents is the foreign record being
+    // READ — marking a row, or resuming into a plan — never its replacement.
+    const placeIsOurs = place?.era === PAGE_ERA;
+    const lastOpenedId = placeIsOurs ? (place?.pipelineId ?? null) : null;
     // req #3225 — the SAME preference the plan detail header's toggle writes.
     // This page carries no control of its own for it (the toggle lives where
     // the requirement puts it, in the header's row of toggle groups); it only
@@ -280,7 +319,7 @@ export default function PipelinesPage() {
     const settledRef = useRef(false);
 
     const resumeTo = !isLoading && !arrivedFromPlan && !settledRef.current
-        && place?.at === 'plan'
+        && placeIsOurs && place?.at === 'plan'
         && pipelines.some((p) => p.id === place.pipelineId)
         ? pipelinePlacePath(place) : null;
 
@@ -337,16 +376,23 @@ export default function PipelinesPage() {
         // retired key. Here rather than anywhere else because this is the one
         // page that holds the complete live plan set (design rule 5 — it is
         // already fetched; the sweep adds no read).
-        prunePipelineStorage(pipelines.map((p) => p.id));
+        prunePipelineStorage(pipelines.map((p) => p.id), PAGE_ERA);
 
-        if (place?.at === 'plan' && !pipelines.some((p) => p.id === place.pipelineId)) {
+        // req #3463 — ONLY OUR OWN ERA'S RECORD IS JUDGED AGAINST OUR OWN LIST.
+        // `pipelines` here is the 1.0 read, so asking it whether a 2.0 plan
+        // still exists is a question it cannot answer, and the honest-looking
+        // "no" would delete a perfectly good record belonging to the other
+        // page.
+        if (placeIsOurs && place?.at === 'plan'
+            && !pipelines.some((p) => p.id === place.pipelineId)) {
             clearPipelinePlace();
             return;
         }
         // Being here IS the reader's place now. Merged rather than overwritten,
-        // or the row marker would go with it.
-        writePipelinePlace(pipelinePlaceAtList(place));
-    }, [isLoading, resumeTo, pipelines, place]);
+        // or the row marker would go with it — and merged from OUR record only,
+        // so arriving on the 1.0 list does not relabel a 2.0 plan id as 1.0.
+        writePipelinePlace(pipelinePlaceAtList(placeIsOurs ? place : null, PAGE_ERA));
+    }, [isLoading, resumeTo, pipelines, place, placeIsOurs]);
 
     const summaries = useMemo(
         () => pipelineSummaries({ pipelines, steps, stepRequirements, requirements }),
@@ -376,7 +422,10 @@ export default function PipelinesPage() {
     // arrival instead: one writer, every route, nothing to keep exhaustive —
     // the argument `viewportMemory.js` makes about return paths, applied to
     // entry paths.
-    const open = (id) => navigate(`/swarm/pipeline/${id}`);
+    const open = (id) => {
+        const to = planDetailPath(PAGE_ERA, id);
+        if (to) navigate(to);
+    };
 
     if (isLoading) {
         return (

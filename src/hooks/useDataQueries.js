@@ -2,11 +2,12 @@ import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-quer
 import { useContext, useMemo } from 'react';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
-import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys, epicKeys, featureKeys, testCaseKeys, featureTestCaseKeys, testPlanKeys, testPlanCaseKeys, testRunKeys, testResultKeys, customerKeys, buildProjectKeys, branchKeys, buildKeys, customerReleaseKeys } from './useQueryKeys';
-import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, swarmCompletes, swarmCompleteSessions, machines, agents, instructions, architectureDocuments, agentDocuments, agentInstructions, agentTelemetryRuns, agentTelemetryRows, agentTelemetryRowDocs, orchestrationClaims, pipelines, pipelineSteps, pipelineStepRequirements, pipelineStepDeps, requirementSessions, sessionCostRollups } from './factory/devopsQueries';
+import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys, epicKeys, featureKeys, testCaseKeys, featureTestCaseKeys, testPlanKeys, testPlanCaseKeys, testRunKeys, testResultKeys, customerKeys, buildProjectKeys, branchKeys, buildKeys, customerReleaseKeys, pipeline2ComposeKeys } from './useQueryKeys';
+import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, swarmCompletes, swarmCompleteSessions, machines, agents, instructions, architectureDocuments, agentDocuments, agentInstructions, agentTelemetryRuns, agentTelemetryRows, agentTelemetryRowDocs, orchestrationClaims, pipelines, pipelines2, pipelineSteps, pipelineStepRequirements, pipelineStepDeps, requirementSessions, sessionCostRollups } from './factory/devopsQueries';
 // `fetchEntity` is shared with the factory so both layers handle REST errors
 // identically (req #2593).
 import { fetchEntity } from './factory/createEntityQueries';
+import call_rest_api from '../RestApi/RestApi';
 // req #3166 — THE batched GET /map_coordinates, shared with the export paths.
 import { fetchCoordinatesForRuns, buildRunTrackUri, COORD_TRACK_FIELDS } from '../services/mapCoordinatesBatch';
 // req #3428 — EPIC association (is this requirement in THIS epic), consumed by
@@ -992,6 +993,11 @@ export const agentTelemetryRowDocKeys      = agentTelemetryRowDocs.keys;
 // second cache entry that is guaranteed to refetch on every navigation. A by-id
 // hook would be dead code that quietly invites that regression back.
 export const useAllPipelines                = pipelines.useAll;
+// The Pipeline 2.0 plan INDEX. req #3455 names a session's 2.0 plan from it;
+// req #3463 renders `/swarm/pipelines2` from it and reports its ids in the plan
+// page's not-found alert. Never the plan RENDER — that is
+// `useComposedPipeline2` below.
+export const useAllPipelines2               = pipelines2.useAll;
 export const useAllPipelineSteps            = pipelineSteps.useAll;
 // Req #3224 — live orchestration reservations: who is orchestrating what, from
 // where. ONE unfiltered list read per page, joined client-side by pipeline_fk /
@@ -1005,6 +1011,51 @@ export const useAllPipelineStepRequirements = pipelineStepRequirements.useAll;
 // blocks above.
 export const pipelineStepRequirementKeys = pipelineStepRequirements.keys;
 export const useAllPipelineStepDeps         = pipelineStepDeps.useAll;
+
+// Req #3381 — the Pipeline 2.0 composed read. ONE non-generic Lambda-Rest
+// route (`pipeline2_compose`, req #3367) answers the whole plan render —
+// join AND derivation both already ran server-side — so this is a thin GET
+// over a single nested object, never a table read. `fetchEntity`'s
+// array-shaped / 404->`[]` contract does not fit a composed payload, so this
+// is hand-written rather than routed through the factory.
+//
+// The THREE READ STATES a caller distinguishes: `undefined` (still loading),
+// `null` (no such plan — a 404), or the composed object (found). A caller
+// checking `payload.derived` for the four withheld/absent regimes
+// (`pipeline2Adapter.js::deriveDiagnostic`) only does so once `data` itself
+// is a real object — `null` and `undefined` are both "nothing to derive from
+// yet" at the fetch layer, same as `!pipeline` was for the 1.0 list lookup
+// this replaces.
+export function useComposedPipeline2(pipelineId, { enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+    const validId = Number.isFinite(pipelineId);
+    const uri = `${darwinUri}/pipeline2_compose?id=${pipelineId}`;
+
+    return useQuery({
+        queryKey: pipeline2ComposeKeys.byId(pipelineId),
+        queryFn: async () => {
+            // `call_rest_api` THROWS on every non-2xx status (RestApi.jsx) —
+            // it never returns control past a 404, so the 404 check has to
+            // live in the `catch`, mirroring `fetchEntity`'s own pattern
+            // (`createEntityQueries.js`). A bare `if (result.httpStatus...)`
+            // here was dead code (code review 2026-08-09): every "not found"
+            // fell through to react-query's retry (x2) before the caller
+            // ever saw anything.
+            try {
+                const result = await call_rest_api(uri, 'GET', '', idToken);
+                if (result.httpStatus.httpStatus < 200 || result.httpStatus.httpStatus >= 300) {
+                    throw result;
+                }
+                return result.data;
+            } catch (error) {
+                if (error?.httpStatus?.httpStatus === 404) return null;
+                throw error;
+            }
+        },
+        enabled: enabled && validId && !!idToken,
+    });
+}
 
 // req #3419 — `usePipelinedRequirementIds` lived here (req #3180) and is GONE.
 // Four surfaces called it and each then wrote its own "is this row on screen"

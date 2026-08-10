@@ -101,7 +101,8 @@ vi.mock('../../../hooks/useDataQueries', async (importOriginal) => {
 import App from '../../../App';
 import PipelinesPage from '../PipelinesPage';
 import PipelineDetail from '../PipelineDetail';
-import { PIPELINE_PLACE_STORAGE_KEY } from '../pipelinePlace';
+import { PIPELINE_PLACE_SCHEMA_VERSION, PIPELINE_PLACE_STORAGE_KEY } from '../pipelinePlace';
+import { PLAN_ERA_1 } from '../planEra';
 import { resetRouteTrail } from '../../../utils/routeTrail';
 import { useSavedViewport } from '../../../hooks/useSavedViewport';
 import { scrollStorageKey, viewportStorageKey } from '../../../utils/viewportMemory';
@@ -357,7 +358,7 @@ describe('Pipelines — coming back after the browser was closed (req #3431)',
         click(node('nav-pipelines'));
         expect(onTheList(), 'the list is reachable from the plan it resumed to').toBe(true);
         expect(storedPlace(), 'and leaving it is recorded, without losing the mark')
-            .toEqual({ v: 1, at: 'list', pipelineId: 2 });
+            .toEqual({ v: PIPELINE_PLACE_SCHEMA_VERSION, at: 'list', era: PLAN_ERA_1, pipelineId: 2 });
 
         // The restore is a queued frame, not a synchronous write.
         act(() => { runFrames(4); });
@@ -382,7 +383,7 @@ describe('Pipelines — coming back after the browser was closed (req #3431)',
         mount('/swarm/pipelines');
         expect(onTheList(), 'nothing to resume to').toBe(true);
         expect(storedPlace(), 'and the page starts the record over')
-            .toEqual({ v: 1, at: 'list', pipelineId: null });
+            .toEqual({ v: PIPELINE_PLACE_SCHEMA_VERSION, at: 'list', era: PLAN_ERA_1, pipelineId: null });
         expect(cameraApi.current.read()).toBeNull();
     });
 });

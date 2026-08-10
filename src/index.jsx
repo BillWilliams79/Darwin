@@ -59,6 +59,12 @@ import SwarmCompletesPage from './SwarmCompletes/SwarmCompletesPage';
 import SwarmCompleteDetail from './SwarmCompletes/SwarmCompleteDetail';
 import PipelinesPage from './SwarmView/pipelines/PipelinesPage';
 import PipelineDetail from './SwarmView/pipelines/PipelineDetail';
+import Pipelines2Page from './SwarmView/pipelines/Pipelines2Page';
+// req #3463 — the route STRINGS come from the same module the link builders
+// use, so a matcher and a builder cannot disagree about what a plan URL is.
+import {
+    PLAN_ERA_1, PLAN_ERA_2, planDetailRoutePath, planListRoutePath,
+} from './SwarmView/pipelines/planEra';
 import EpicsPage from './Epics/EpicsPage';
 import StepsPage from './Steps/StepsPage';
 // Pipeline 2.0 plan-layer editors (req #3393) — stand BESIDE the 1.0 routes
@@ -166,11 +172,33 @@ root.render(
                         the parameterised "swarm/pipeline/:id" cannot shadow each
                         other — the singular/plural split is deliberate and matches
                         the requirement's route spec. */}
-                    <Route path="swarm/pipelines" element= {<AuthenticatedRoute>
+                    <Route path={planListRoutePath(PLAN_ERA_1)} element= {<AuthenticatedRoute>
                                                              <PipelinesPage />
                                                          </AuthenticatedRoute>} />
-                    <Route path="swarm/pipeline/:id" element= {<AuthenticatedRoute>
-                                                             <PipelineDetail />
+                    <Route path={planDetailRoutePath(PLAN_ERA_1)} element= {<AuthenticatedRoute>
+                                                             <PipelineDetail era={PLAN_ERA_1} />
+                                                         </AuthenticatedRoute>} />
+                    {/* Pipeline 2.0, standing up IN PARALLEL (req #3463). Its own
+                        list and its own detail route, reading the `pipeline2_*`
+                        tables — the 1.0 pair above is untouched and keeps
+                        answering 1.0 ids.
+
+                        THE ERA IS A PROP OF THE ROUTE, never inferred from the
+                        id: `/swarm/pipeline/79` and `/swarm/pipeline2/79` are
+                        different plans on different tables and the number cannot
+                        tell them apart. That inference is what took production
+                        down (req #3462).
+
+                        The same singular/plural specificity note above applies
+                        again here — "swarm/pipelines2" and "swarm/pipeline2/:id"
+                        cannot shadow each other, and neither can shadow the 1.0
+                        pair, because React Router ranks literal segments over
+                        parameterised ones. */}
+                    <Route path={planListRoutePath(PLAN_ERA_2)} element= {<AuthenticatedRoute>
+                                                             <Pipelines2Page />
+                                                         </AuthenticatedRoute>} />
+                    <Route path={planDetailRoutePath(PLAN_ERA_2)} element= {<AuthenticatedRoute>
+                                                             <PipelineDetail era={PLAN_ERA_2} />
                                                          </AuthenticatedRoute>} />
                     {/* Epics editor (req #3139) — the top tier of Epic > Feature
                         > Story, sited beside the pipeline routes because an epic

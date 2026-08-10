@@ -1,3 +1,6 @@
+// req #3463 — the plan LIST routes come from the era binding, so the nav
+// rail and the router cannot disagree about where a plan list lives.
+import { PLAN_ERA_1, PLAN_ERA_2, planListPath } from '../SwarmView/pipelines/planEra';
 import ViewKanbanIcon from '@mui/icons-material/ViewKanban';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import MapIcon from '@mui/icons-material/Map';
@@ -80,11 +83,18 @@ export const NAV_LINKS = [
     // Req #3427 — Pipelines leads the SWARM group, ahead of Requirements: the
     // plan is the entry point workers are launched from, so it reads first.
     {
-        path: '/swarm/pipelines', label: 'Pipelines', icon: LanIcon, group: 'swarm',
+        path: planListPath(PLAN_ERA_1), label: 'Pipelines', icon: LanIcon, group: 'swarm',
         children: [
             { path: '/swarm/epics', label: 'Epics', icon: LayersIcon, group: 'swarm' },
             { path: '/swarm/features', label: 'Features', icon: FactCheckIcon, group: 'swarm' },
             { path: '/swarm/steps', label: 'Steps', icon: LinearScaleIcon, group: 'swarm' },
+            // req #3463 — Pipeline 2.0's plan list, nested under 1.0's rather
+            // than standing beside it: 2.0 is standing up in parallel, not
+            // replacing anything yet, and an L2 sibling would read as two equal
+            // products. LABELLED BY ERA and not by anything softer ("New",
+            // "Beta"), because the one thing a reader must not do is take a
+            // plan id from one list to the other — the ids are disjoint.
+            { path: planListPath(PLAN_ERA_2), label: 'Pipelines 2.0', icon: LanIcon, group: 'swarm' },
         ],
     },
     // Req #3238 — Machines nests as an L3 child of Requirements rather than

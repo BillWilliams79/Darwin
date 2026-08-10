@@ -68,6 +68,9 @@ describe('navConfig — Sessions sub-items', () => {
 describe('navConfig — Epics/Features/Steps nest under Pipelines (req #3236)', () => {
     const PIPELINES_PATH = '/swarm/pipelines';
     const CHILD_PATHS = ['/swarm/epics', '/swarm/features', '/swarm/steps'];
+    // req #3463 — the parallel 2.0 plan list, a fourth child that is NOT part of
+    // the Epic > Feature > Step hierarchy CHILD_PATHS names.
+    const PIPELINES2_PATH = '/swarm/pipelines2';
 
     const pipelines = NAV_LINKS.find(l => l.path === PIPELINES_PATH);
 
@@ -80,8 +83,14 @@ describe('navConfig — Epics/Features/Steps nest under Pipelines (req #3236)', 
     it('nests Epics / Features / Steps under Pipelines, in hierarchy order', () => {
         // Epic > Feature > Step — not arrival order (Epics shipped #3139, Steps
         // #3140, Features #3217 last).
-        expect(pipelines.children.map(c => c.path)).toEqual(CHILD_PATHS);
-        expect(pipelines.children.map(c => c.label)).toEqual(['Epics', 'Features', 'Steps']);
+        expect(pipelines.children.map(c => c.path))
+            .toEqual([...CHILD_PATHS, PIPELINES2_PATH]);
+        // req #3463 — Pipelines 2.0 nests here too, LAST. It is not part of the
+        // Epic > Feature > Step hierarchy this test pins; it is the parallel
+        // plan surface standing up beside 1.0, so it goes after the three
+        // rather than into their order.
+        expect(pipelines.children.map(c => c.label))
+            .toEqual(['Epics', 'Features', 'Steps', 'Pipelines 2.0']);
     });
 
     it('every child carries an icon so the collapsed sidebar can render it', () => {
