@@ -18,8 +18,8 @@ import { buildPipelineModel, orderedPlan } from '../pipelineViewModel';
 import { computePlanLayout, placeEpicChips } from '../pipelinePlanLayout';
 import {
     epicCycleKey, epicZoomStateKey, nextLaunchStep, nextEpicZoom,
-    epicZoomHint, epicZoomHintSuffix, gestureMovedCamera, EPIC_ZOOM_CLICK_SLOP,
-    EPIC_ZOOM_BAND, EPIC_ZOOM_STEP,
+    epicZoomHint, epicZoomHintSuffix, epicSeatedHint, gestureMovedCamera,
+    EPIC_ZOOM_CLICK_SLOP, EPIC_ZOOM_BAND, EPIC_ZOOM_STEP,
 } from '../pipelineEpicZoom';
 import { EPIC_ZOOM_READS, EPIC_ZOOM_PIPELINE, EPIC_ZOOM_NOW } from './epicZoomFixture';
 
@@ -308,5 +308,17 @@ describe('what the control says it does (item 7)', () => {
             expect(announced).toBe(stepId != null);
             if (stepId != null) expect(epicZoomHint(stepId)).toContain(String(stepId));
         }
+    });
+});
+
+// req #3373 — the met/total suffix's denominator, named on hover.
+describe('epicSeatedHint — the count is requirements SEATED, not by feature', () => {
+    it('names the denominator only when a count is actually showing', () => {
+        expect(epicSeatedHint(true))
+            .toBe(' — the count is requirements seated under this epic');
+    });
+
+    it('says nothing when there is no count to explain', () => {
+        expect(epicSeatedHint(false)).toBe('');
     });
 });
