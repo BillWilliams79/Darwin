@@ -58,18 +58,22 @@ vi.mock('../../../RestApi/RestApi', () => ({ default: vi.fn(() => Promise.resolv
 
 vi.mock('../../../hooks/useDataQueries', async (importOriginal) => {
     const actual = await importOriginal();
-    const { composedFixture } = await import('./pipeline2ComposedFixture');
     const empty = () => ({ data: [], isLoading: false, isError: false });
     return {
         ...actual,
-        // req #3381 — the composed 2.0 read replaces the six-plus dictionary
-        // reads this file used to mock (`useAllPipelines`/`useAllPipelineSteps`/
-        // `useAllPipelineStepRequirements`/`useAllPipelineStepDeps`/
-        // `useAllRequirements`/`useAllFeatures`/`useAllEpics`).
-        useComposedPipeline2: (id) => ({
-            data: id === 2 ? composedFixture() : null,
+        useAllPipelines: () => ({
+            data: [{ id: 2, title: 'Darwin', pipeline_status: 'active', description: '' }],
             isLoading: false,
         }),
+        useAllPipelineSteps: () => ({
+            data: [{ id: 47, pipeline_fk: 2, title: 'Session Drain', run: 'auto', notes: null, completed_at: null }],
+            isLoading: false,
+        }),
+        useAllPipelineStepRequirements: empty,
+        useAllPipelineStepDeps: empty,
+        useAllRequirements: empty,
+        useAllFeatures: empty,
+        useAllEpics: empty,
         useMachines: empty,
         useAllRequirementSessions: empty,
         useAllSessionCostRollups: empty,

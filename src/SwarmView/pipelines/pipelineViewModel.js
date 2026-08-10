@@ -15,12 +15,20 @@
 
 import { formatDateTime } from '../../utils/dateFormat';
 import {
+    aggregateRowCost,
     buildPlanRows,
+    displayOrder,
+    verifyOrder,
+    launchBatches,
+    eligibility,
     requirementCounts,
+    pauseState,
+    serialState,
     STEP_DONE,
     STEP_RUNNING,
     STEP_PENDING,
 } from './pipelineModel';
+import { planTimeAxis } from './pipelinePlanTime';
 import { PIPELINE_STATUS_VALUES } from './pipelineChipStyles';
 
 const asArray = (v) => (Array.isArray(v) ? v : []);
@@ -231,6 +239,109 @@ export function buildCostIndex({ requirementSessions, sessionCosts } = {}) {
     }
 
     return { byRequirement, sessionIdsByRequirement, bySession };
+}
+
+/**
+ * Run the engine end to end over a model: derive → order → SELF-CHECK → batch →
+ * mark eligibility → attach cost → derive the time axis.
+ *
+ * The verifyOrder() call is on the RENDERED order, which is design rule 3's whole
+ * point: the renderer checks its own output and the caller renders any violation
+ * loudly. `violations` is the only green light — an empty array.
+ *
+ * Cost is attached HERE, onto `row.cost`, rather than computed in a cell
+ * renderer: the plan table and the plan visualizer are two surfaces over one
+ * plan, and a number they each derive independently is a number that can
+ * disagree. It is attached AFTER ordering and verification and is never an
+ * ordering input — cost must not be able to move a row.
+ *
+ * @param {Object} model         from buildPipelineModel
+ * @param {Object} [options]
+ * @param {(Date|number|string)} [options.now]  clock for time-gate eligibility
+ * @param {?Object} [options.costIndex]          from buildCostIndex
+ * @returns {Object} plan
+ */
+export function orderedPlan(model, { now, costIndex = null } = {}) {
+    const planRows = buildPlanRows(model || {});
+    const { rows, cycleDetected, cycleStepIds, duplicateStepIds } = displayOrder(planRows);
+    const violations = verifyOrder(rows);
+    const batches = launchBatches(rows);
+
+    const batchLetterByStepId = new Map();
+    for (const b of batches) {
+        for (const id of b.stepIds) batchLetterByStepId.set(id, b.letter);
+    }
+
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const eligibleStepIds = new Set(
+        rows.filter((r) => eligibility(r, byId, now)).map((r) => r.id),
+    );
+
+    // Junction rows whose requirement is missing from the read. Design rule 5
+    // says the page renders from bounded reads; a bounded read that TRUNCATED
+    // would under-derive step state in total silence, so it is surfaced with the
+    // ordering violations rather than shrugged off.
+    const unresolvedReqIds = [];
+    for (const r of rows) {
+        for (const id of r.unresolvedReqIds || []) {
+            if (!unresolvedReqIds.includes(id)) unresolvedReqIds.push(id);
+        }
+    }
+
+    // req #3226 — pause suppression (req #3223's enforcement half, rendered
+    // here). Mutates each row with `launchSuppressed`/`suppressedBy`, the same
+    // "freshly built rows this call owns" discipline `row.cost` relies on
+    // below, so it runs first and the cost loop's own comment still describes
+    // every mutation these rows carry.
+    const pause = pauseState(model || {}, rows);
+
+    // req #3388 — serial turn-taking, IMMEDIATELY AFTER pause and before
+    // anything reads `suppressedBy`. It appends `turn` to the same list pause
+    // just wrote, so calling it later (or not at all) leaves the browser
+    // showing a step as launchable while the engine is holding it — the two
+    // surfaces disagreeing about the live plan, which is the exact failure the
+    // shared conformance corpus exists to prevent. The corpus pins
+    // `serialState` itself; THIS line is what puts it on the browser's path.
+    const serial = serialState(model || {}, rows);
+
+    // MUTATED IN PLACE deliberately: `rows` are the freshly built PlanRows this
+    // call owns (buildPlanRows returns new objects every time), never the caller's
+    // input, so there is nothing outside this function to surprise.
+    for (const r of rows) r.cost = aggregateRowCost(r, costIndex);
+
+    // The visualizer's TIME AXIS (req #3201). Derived here rather than in the
+    // canvas for the same reason cost is: the plan table and the plan
+    // visualizer are two surfaces over one plan, and a fact they each derive
+    // independently is a fact that can disagree. Like cost, and for the same
+    // reason, it is computed AFTER ordering and is never an ordering input —
+    // display order stays topological-then-state-banded (rule 3), and only the
+    // canvas's column origins and band stacking read this.
+    const timeAxis = planTimeAxis(rows, (model && model.requirements) || []);
+
+    return {
+        rows,
+        violations,
+        timeAxis,
+        batches,
+        batchLetterByStepId,
+        eligibleStepIds,
+        cycleDetected,
+        cycleStepIds,
+        duplicateStepIds,
+        unresolvedReqIds,
+        // req #3225 — pure CPU over `model.requirements`/`model.features`,
+        // both already in hand. No extra read, same as cost/timeAxis above.
+        requirementCounts: requirementCounts(model || {}),
+        // req #3226 — see the mutation above; carried here too so a consumer
+        // that only has `plan` (not the rows) can still read the plan-wide
+        // and epic-wide pause facts.
+        pause,
+        // req #3388 — the mode, the epic order, which epics are closed, whose
+        // turn it is and what that holds. Carried beside `pause` for the same
+        // reason: a consumer with only `plan` and not the rows still needs the
+        // plan-wide answer.
+        serial,
+    };
 }
 
 /**

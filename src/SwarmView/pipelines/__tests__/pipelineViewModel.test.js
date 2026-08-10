@@ -9,6 +9,7 @@ import { describe, it, expect } from 'vitest';
 import {
     buildCostIndex,
     buildPipelineModel,
+    orderedPlan,
     planRenderRows,
     pipelineSummary,
     pipelineSummaries,
@@ -35,12 +36,6 @@ import {
     EPICS,
     MACHINES,
 } from './substrateRebuildFixture';
-// req #3381 — `orderedPlan` was deleted from pipelineViewModel.js (zero
-// production callers left once `PipelineDetail.jsx` switched to the composed
-// 2.0 read). `testOrderedPlan.js` reconstructs it as test scaffolding, purely
-// so the tests below keep exercising `planRenderRows`/`pipelineSummary`/the
-// no-'#' directive against a realistic `plan`-shaped fixture.
-import { buildTestOrderedPlan as buildTestPlan } from './testOrderedPlan';
 
 // The fixture models ONE pipeline, so its steps carry no pipeline_fk. The REST
 // rows do, and the adapter's first job is scoping by it — give them one.
@@ -142,8 +137,186 @@ describe('PLAN_REQUIREMENT_FIELDS — the one shared projection', () => {
     });
 });
 
+describe('orderedPlan — engine run + self-check', () => {
+    const plan = orderedPlan(model(), { now: '2026-07-27T03:00:00Z' });
+
+    it('renders every step of the pipeline exactly once', () => {
+        expect(plan.rows).toHaveLength(STEPS.length);
+        expect(new Set(plan.rows.map((r) => r.id)).size).toBe(STEPS.length);
+    });
+
+    it('ships a clean order for the acceptance fixture', () => {
+        // Design rule 3: an empty violation list is the ONLY green light, and the
+        // Substrate Rebuild plan is THE acceptance fixture (req #3083).
+        expect(plan.violations).toEqual([]);
+        expect(plan.cycleDetected).toBe(false);
+        expect(plan.duplicateStepIds).toEqual([]);
+    });
+
+    it('reports no unresolved requirement links when the read is complete', () => {
+        expect(plan.unresolvedReqIds).toEqual([]);
+    });
+
+    it('surfaces unresolved requirement links when the read is truncated', () => {
+        const truncated = orderedPlan(buildPipelineModel({
+            ...READS, pipeline: PIPELINE,
+            requirements: REQUIREMENTS.filter((r) => r.id !== 3050),
+        }));
+        expect(truncated.unresolvedReqIds).toContain(3050);
+    });
+
+    it('marks pending rows whose every dependency is complete as eligible', () => {
+        for (const id of plan.eligibleStepIds) {
+            const row = plan.rows.find((r) => r.id === id);
+            expect(row.state).toBe(STEP_PENDING);
+            for (const dep of row.depIds) {
+                expect(plan.rows.find((r) => r.id === dep).state).toBe(STEP_DONE);
+            }
+        }
+    });
+
+    // RECORDED PROPERTY OF THE ACCEPTANCE FIXTURE, not a placeholder: the live
+    // Substrate Rebuild plan produces ZERO launch batches. Its nearest pair is
+    // steps 41 and 43, which share the gate (step 40) and the machine but differ
+    // in run mode — an auto step and a manual step do not go out in one
+    // /swarm-start, so they are correctly not a batch. The batch machinery is
+    // therefore exercised against the synthetic model below rather than pretended
+    // into this one.
+    it('finds no launch batch in the Substrate Rebuild plan', () => {
+        expect(plan.batches).toEqual([]);
+        expect(plan.batchLetterByStepId.size).toBe(0);
+    });
+
+    it('carries requirementCounts straight from the engine (req #3225)', () => {
+        // No second derivation here — `orderedPlan` must hand back exactly
+        // what `requirementCounts(model)` computes, so the plan header and
+        // the plan visualizer print the same number from the same call.
+        expect(plan.requirementCounts).toEqual(requirementCounts(model()));
+        expect(plan.requirementCounts.overall.total).toBeGreaterThan(0);
+    });
+
+    it('carries pause state, and unpaused fixture rows are never suppressed '
+        + '(req #3226)', () => {
+        expect(plan.pause).toEqual({
+            pipelineStatus: PIPELINE.pipeline_status,
+            pipelinePaused: false,
+            pausedEpicIds: [],
+            suppressedStepIds: [],
+        });
+        expect(plan.rows.every((r) => r.launchSuppressed === false)).toBe(true);
+    });
+
+    it('a paused pipeline suppresses every row and is reflected in plan.pause '
+        + '(req #3226)', () => {
+        const paused = orderedPlan(buildPipelineModel({
+            ...READS, pipeline: { ...PIPELINE, pipeline_status: 'paused' },
+        }));
+        expect(paused.pause.pipelinePaused).toBe(true);
+        expect(paused.pause.suppressedStepIds.sort((a, b) => a - b))
+            .toEqual(paused.rows.map((r) => r.id).sort((a, b) => a - b));
+        expect(paused.rows.every((r) => r.launchSuppressed)).toBe(true);
+    });
+});
+
+// A minimal plan with a genuine batch: two pending steps sharing an identical
+// (gate, run, machine) tuple, plus a third that differs only in run mode and
+// must NOT join them.
+const BATCH_READS = {
+    steps: [
+        { id: 1, pipeline_fk: 1, title: 'gate', run: 'auto', notes: null,
+            completed_at: '2026-07-01T00:00:00' },
+        { id: 2, pipeline_fk: 1, title: 'batch mate A', run: 'auto', notes: null,
+            completed_at: null },
+        { id: 3, pipeline_fk: 1, title: 'batch mate B', run: 'auto', notes: null,
+            completed_at: null },
+        { id: 4, pipeline_fk: 1, title: 'same gate, manual', run: 'manual', notes: null,
+            completed_at: null },
+    ],
+    stepRequirements: [
+        { step_fk: 2, requirement_fk: 900 },
+        { step_fk: 3, requirement_fk: 901 },
+        { step_fk: 4, requirement_fk: 902 },
+    ],
+    stepDeps: [
+        { id: 1, step_fk: 2, dep_step_fk: 1, time_at: null },
+        { id: 2, step_fk: 3, dep_step_fk: 1, time_at: null },
+        { id: 3, step_fk: 4, dep_step_fk: 1, time_at: null },
+    ],
+    requirements: [
+        // `swarm_ready`, not `approved` — req #3360 makes it the ONLY launchable
+        // status, and this fixture's subject is BATCHING, so its requirements
+        // have to be launchable for the batch to carry a command at all.
+        { id: 900, requirement_status: 'swarm_ready', machine_fk: 2, feature_fk: 101 },
+        { id: 901, requirement_status: 'swarm_ready', machine_fk: 2, feature_fk: 101 },
+        { id: 902, requirement_status: 'swarm_ready', machine_fk: 2, feature_fk: 101 },
+    ],
+    features: [{ id: 101, title: 'Wave', epic_fk: 11 }],
+    epics: [{ id: 11, title: 'Epic' }],
+    machines: MACHINES,
+};
+
+describe('launch batches (design rule 8)', () => {
+    const plan = orderedPlan(
+        buildPipelineModel({ pipeline: PIPELINE, ...BATCH_READS }),
+        { now: '2026-07-27T03:00:00Z' });
+
+    it('groups only the steps that truly launch together', () => {
+        expect(plan.batches).toHaveLength(1);
+        expect(plan.batches[0].stepIds).toEqual([2, 3]);
+    });
+
+    it('carries the EXACT one-line /swarm-start argument list', () => {
+        expect(plan.batches[0].swarmStartArgs).toEqual([900, 901]);
+        expect(plan.batches[0].swarmStartCommand).toBe('/swarm-start 900 901');
+    });
+
+    it('names the gate and the run mode the banner prints', () => {
+        // The REMAINING gate since req #3188, and step 1 carries a completed_at
+        // stamp — so the honest banner text is "no step gate", not "steps 1".
+        // The batch is eligible NOW; naming a dep that closed on 2026-07-01
+        // read as something still holding it back.
+        expect(plan.batches[0].gateStepIds).toEqual([]);
+        expect(plan.batches[0].epicId).toBe(11);
+        expect(plan.batches[0].run).toBe('auto');
+        expect(plan.batches[0].machineLabels).toEqual(['Mac mini']);
+    });
+
+    it('gives every batch member the same letter, starting at A', () => {
+        expect(plan.batchLetterByStepId.get(2)).toBe('A');
+        expect(plan.batchLetterByStepId.get(3)).toBe('A');
+        expect(plan.batchLetterByStepId.has(4)).toBe(false);
+    });
+
+    it('renders exactly one banner, immediately above the first member', () => {
+        const rendered = planRenderRows(plan);
+        const banners = rendered.filter((e) => e.kind === 'batch');
+        expect(banners).toHaveLength(1);
+        const at = rendered.findIndex((e) => e.kind === 'batch');
+        expect(rendered[at + 1].row.id).toBe(2);
+        expect(rendered[at + 2].row.id).toBe(3);
+        expect(rendered[at + 1].batchLetter).toBe('A');
+        expect(rendered[at + 2].batchLetter).toBe('A');
+    });
+
+    it('ships a clean order — batch contiguity included', () => {
+        expect(plan.violations).toEqual([]);
+    });
+
+    it('emits a batch with no linked requirements as unlaunchable, not as a bare command', () => {
+        const reqless = orderedPlan(buildPipelineModel({
+            pipeline: PIPELINE,
+            ...BATCH_READS,
+            stepRequirements: [],
+            requirements: [],
+        }));
+        const batch = reqless.batches.find((b) => b.stepIds.includes(2));
+        expect(batch.swarmStartArgs).toEqual([]);
+        expect(batch.swarmStartCommand).toBeNull();
+    });
+});
+
 describe('planRenderRows — the flat render list', () => {
-    const plan = buildTestPlan(model(), { now: '2026-07-27T03:00:00Z' });
+    const plan = orderedPlan(model(), { now: '2026-07-27T03:00:00Z' });
     const rendered = planRenderRows(plan);
 
     it('emits every step row in display order', () => {
@@ -190,14 +363,14 @@ describe('planRenderRows — the flat render list', () => {
     });
 
     it('returns an empty list for an empty plan', () => {
-        expect(planRenderRows(buildTestPlan(buildPipelineModel()))).toEqual([]);
+        expect(planRenderRows(orderedPlan(buildPipelineModel()))).toEqual([]);
         expect(planRenderRows(null)).toEqual([]);
     });
 });
 
 describe('pipelineSummary / pipelineSummaries', () => {
     it('counts the three derived states and totals them', () => {
-        const plan = buildTestPlan(model());
+        const plan = orderedPlan(model());
         const s = pipelineSummary(plan.rows);
         expect(s.total).toBe(plan.rows.length);
         expect(s.done + s.running + s.pending).toBe(s.total);
@@ -338,7 +511,7 @@ describe('planRenderRows — grouping compares ids, not titles', () => {
     };
 
     it('prints both labels when the ids differ despite identical titles', () => {
-        const plan = buildTestPlan(buildPipelineModel({ pipeline: PIPELINE, ...SAME_TITLE_READS }));
+        const plan = orderedPlan(buildPipelineModel({ pipeline: PIPELINE, ...SAME_TITLE_READS }));
         const rows = planRenderRows(plan).filter((e) => e.kind === 'step');
         expect(rows).toHaveLength(2);
         expect(rows[0].showEpic).toBe(true);
@@ -447,7 +620,7 @@ describe('machine labels', () => {
 });
 
 describe("the no-'#' production directive", () => {
-    const plan = buildTestPlan(model(), { now: '2026-07-27T03:00:00Z' });
+    const plan = orderedPlan(model(), { now: '2026-07-27T03:00:00Z' });
 
     it('strips the hash the engine puts on an unresolvable machine id', () => {
         // machineLabels() degrades to the POC's `#<id>` form; the page must not.
@@ -596,7 +769,7 @@ describe('buildCostIndex', () => {
     });
 });
 
-describe('aggregateRowCost attaches cost to every row (was orderedPlan\'s job)', () => {
+describe('orderedPlan attaches cost to every row', () => {
     const NOW = '2026-07-27T03:00:00Z';
 
     // Step 38 links 3110, 3111 and 3112. Sessions 601/602 are private to 3110
@@ -618,13 +791,13 @@ describe('aggregateRowCost attaches cost to every row (was orderedPlan\'s job)',
     it('every row carries a cost object even with no cost data at all', () => {
         // The renderer reads row.cost unconditionally; an undefined here would be
         // a crash rather than a dash.
-        for (const r of buildTestPlan(model(), { now: NOW }).rows) {
+        for (const r of orderedPlan(model(), { now: NOW }).rows) {
             expect(r.cost).toEqual({ wallSecs: 0, tokens: 0 });
         }
     });
 
     it('a step total is the union over its requirements sessions, counted once', () => {
-        const plan = buildTestPlan(model(), { now: NOW, costIndex });
+        const plan = orderedPlan(model(), { now: NOW, costIndex });
         const row38 = plan.rows.find((r) => r.id === 38);
         // 601 + 602 + 603, with 603 counted ONCE despite serving two of the
         // step's requirements. Summing byRequirement instead would give
@@ -638,8 +811,8 @@ describe('aggregateRowCost attaches cost to every row (was orderedPlan\'s job)',
         // Cost is attached AFTER ordering and verification. If it could reach the
         // comparator, a plan would re-order itself as sessions accrued time —
         // silently, and against design rule 3's fixed banding.
-        const bare = buildTestPlan(model(), { now: NOW });
-        const costed = buildTestPlan(model(), { now: NOW, costIndex });
+        const bare = orderedPlan(model(), { now: NOW });
+        const costed = orderedPlan(model(), { now: NOW, costIndex });
         expect(costed.rows.map((r) => r.id)).toEqual(bare.rows.map((r) => r.id));
         expect(costed.violations).toEqual([]);
     });

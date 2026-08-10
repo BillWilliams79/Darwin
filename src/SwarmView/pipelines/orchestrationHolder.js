@@ -102,21 +102,6 @@ export function claimForPipeline(claims, pipelineId) {
 }
 
 /**
- * The 2.0 counterpart of `claimForPipeline` (req #3381) — `pipeline2_fk`/
- * `epic2_fk` are the SEPARATE columns a 2.0-scoped claim carries (NULL on a
- * 1.0 row, and vice versa — CLAUDE.md § Session orchestration attribution's
- * pairing pattern, reused here for claims). `claimForPipeline` itself is NOT
- * era-aware and must not become so: `PipelinesTableView.jsx`/
- * `PipelineCardsView.jsx` (the 1.0 list page) still call it against 1.0
- * pipeline ids and must keep matching on `pipeline_fk`.
- */
-export function claimForPipeline2(claims, pipeline2Id) {
-    if (pipeline2Id == null) return null;
-    return asArray(claims).find(
-        (c) => c.pipeline2_fk === pipeline2Id && c.epic2_fk == null) || null;
-}
-
-/**
  * Every reservation covering an EPIC's work — its own, plus any whole-plan
  * reservation on a plan the epic is seated in.
  *
@@ -137,17 +122,9 @@ export function claimsForEpic(claims, epicId, pipelineIds = []) {
         (c) => c.epic_fk === epicId || (c.epic_fk == null && plans.has(c.pipeline_fk)));
 }
 
-/** `pipeline:2` / `epic:7@2` for a 1.0 claim, `pipeline2:5` / `epic2:9@5` for
- * a 2.0 one — the same words the engine and its edges use, on whichever pair
- * of columns this claim actually carries (req #3381: `pipeline_fk` is NULL
- * on a 2.0 row, so testing it first would print `pipeline:null`). */
+/** `pipeline:2` / `epic:7@2` — the same words the engine and its edges use. */
 export function scopeLabel(claim) {
     if (!claim) return '';
-    if (claim.pipeline2_fk != null) {
-        return claim.epic2_fk == null
-            ? `pipeline2:${claim.pipeline2_fk}`
-            : `epic2:${claim.epic2_fk}@${claim.pipeline2_fk}`;
-    }
     return claim.epic_fk == null
         ? `pipeline:${claim.pipeline_fk}`
         : `epic:${claim.epic_fk}@${claim.pipeline_fk}`;
