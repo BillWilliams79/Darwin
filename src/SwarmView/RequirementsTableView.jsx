@@ -24,7 +24,8 @@ import { DataGrid, GridToolbar, gridExpandedSortedRowIdsSelector } from '@mui/x-
 import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
 import call_rest_api from '../RestApi/RestApi';
-import { useAllRequirements, useAllCategories, useSessions, useMachines, usePipelinedRequirementIds } from '../hooks/useDataQueries';
+import { useAllRequirements, useAllCategories, useSessions, useMachines } from '../hooks/useDataQueries';
+import { useRequirementVisibility } from '../hooks/useRequirementVisibility';
 import { requirementKeys } from '../hooks/useQueryKeys';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { requirementStatusChipProps, requirementStatusLabel } from './statusChipStyles';
@@ -125,8 +126,6 @@ const RequirementsTableView = () => {
     const creatorFk = profile?.userName;
 
     const requirementStatusFilter = useShowClosedStore(s => s.requirementStatusFilter);
-    // req #3180 — user-controlled, and it answers STEP association (see the store).
-    const hidePipelined = useShowClosedStore(s => s.hidePipelinedRequirements);
     const drill = useRequirementDrillStore(s => s.drill);
     const clearDrill = useRequirementDrillStore(s => s.clearDrill);
     const showError = useSnackBarStore(s => s.showError);
@@ -143,11 +142,10 @@ const RequirementsTableView = () => {
     // falling back to the raw id.
     const { data: machines = [] } = useMachines(creatorFk);
 
-    // req #3180 — THE membership answer, shared with the SwarmStartCard. Read
-    // unconditionally (hooks are not conditional) but consulted only while the
-    // toggle is ON; the junction read is small and the plan pages already hold
-    // it, so the cache entry is normally warm either way.
-    const pipelinedIds = usePipelinedRequirementIds(creatorFk);
+    // req #3419 — THE visibility answer, shared with the Cards view, the
+    // aggregator card and the detail page's up/down elevator. This view derives
+    // nothing of its own.
+    const { isVisible } = useRequirementVisibility(creatorFk);
 
     const categoryMap = useMemo(() => {
         const m = new Map();
@@ -183,10 +181,10 @@ const RequirementsTableView = () => {
     // Filter out:
     //  - Requirements whose status isn't in the chip filter
     //  - Requirements linked to closed categories (categoryMap only has open ones)
-    //  - req #3180 — when the pipeline toggle is ON, every requirement a pipeline
-    //    STEP carries, leaving the unscheduled residue.
+    //  - req #3180/#3419 — when the orchestrated toggle is ON, every requirement
+    //    a pipeline STEP carries or an EPIC seats, leaving the unplanned residue.
     //
-    // The pipeline toggle applies to the NORMAL branch only, exactly like the
+    // The orchestrated toggle applies to the NORMAL branch only, exactly like the
     // status chips: a Trends drill-down bypasses both. The drill's contract (see
     // req #2850 below) is that the row set EQUALS the bar that was clicked, and
     // RequirementsTrendsView charts from an unfiltered `useAllRequirements` — so
@@ -198,7 +196,6 @@ const RequirementsTableView = () => {
     // category, if a split segment was clicked). Matching reuses the chart's bucket
     // keying (`requirementBucketKey`) so the row set equals the bar that was clicked.
     const filteredRequirements = useMemo(() => {
-        const notPipelined = (r) => !hidePipelined || !pipelinedIds.has(Number(r.id));
         if (drill) {
             // categoryIds: explicit set the chart showed (a split segment → one id, or
             // a narrowed chip selection → that subset). Honored even for closed
@@ -220,9 +217,9 @@ const RequirementsTableView = () => {
         return requirements.filter(r =>
             requirementStatusFilter.includes(r.requirement_status) &&
             categoryMap.has(r.category_fk) &&
-            notPipelined(r)
+            isVisible(r)
         );
-    }, [requirements, requirementStatusFilter, categoryMap, drill, hidePipelined, pipelinedIds]);
+    }, [requirements, requirementStatusFilter, categoryMap, drill, isVisible]);
 
     // Multi-select state (v8 DataGrid shape: include=only these ids, exclude=all except these).
     // Both selectedCount and getSelectedIds are intersected with `filteredRequirements`

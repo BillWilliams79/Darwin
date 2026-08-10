@@ -49,6 +49,13 @@ let activeRows;
 let metRows;
 let allRows;
 let pipelinedIds;
+// req #3419 — the junction rows the REAL `useRequirementVisibility` reads. The
+// tests still express intent as a Set of ids; this is the wire shape.
+let junctionRows = [];
+const setPipelined = (ids) => {
+    pipelinedIds = ids;
+    junctionRows = [...ids].map((id) => ({ step_fk: 1, requirement_fk: id }));
+};
 const EMPTY = [];
 vi.mock('../../hooks/useDataQueries', () => ({
     useRequirementsByStatus: () => ({ data: activeRows }),
@@ -56,7 +63,15 @@ vi.mock('../../hooks/useDataQueries', () => ({
     useSessions: () => ({ data: EMPTY }),
     useCategoryColors: () => ({ data: EMPTY }),
     useAllRequirements: () => ({ data: allRows }),
-    usePipelinedRequirementIds: () => pipelinedIds,
+
+    // req #3419 — the three bounded reads `useRequirementVisibility` joins.
+    // The REAL hook runs here rather than a double: it owns the memoization the
+    // aggregator's `useMemo` chain depends on, and a stand-in that got that
+    // wrong would loop rather than fail. `ALL_ROWS` is re-exported because the
+    // hook passes it (a closed feature still seats its requirements).
+    useAllPipelineStepRequirements: () => ({ data: junctionRows }),
+    useAllFeatures: () => ({ data: [] }),
+    ALL_ROWS: 'all',
 }));
 
 vi.mock('../../RestApi/RestApi', () => ({
@@ -218,7 +233,7 @@ describe('SwarmStartCard renders no messages (req #3286)', () => {
         activeRows = EMPTY;
         metRows = EMPTY;
         allRows = EMPTY;
-        pipelinedIds = new Set();
+        setPipelined(new Set());
         useShowClosedStore.setState({ hidePipelinedRequirements: false });
     });
     afterEach(() => {
@@ -279,7 +294,7 @@ describe('SwarmStartCard renders no messages (req #3286)', () => {
         const rows = [req(10, 'swarm_ready'), req(11, 'swarm_ready')];
         activeRows = rows;
         allRows = rows;
-        pipelinedIds = new Set([10, 11]);
+        setPipelined(new Set([10, 11]));
         useSwarmStartCardStore.setState({ selectedStatus: 'swarm_ready' });
         const { container } = mount();
         await flush();
@@ -299,7 +314,7 @@ describe('SwarmStartCard renders no messages (req #3286)', () => {
         const rows = [req(10, 'swarm_ready'), req(11, 'swarm_ready'), req(12, 'swarm_ready')];
         activeRows = rows;
         allRows = rows;
-        pipelinedIds = new Set([11]);
+        setPipelined(new Set([11]));
         useSwarmStartCardStore.setState({ selectedStatus: 'swarm_ready' });
         const { container } = mount();
         await flush();
@@ -339,7 +354,7 @@ describe('SwarmStartCard renders no messages (req #3286)', () => {
         const rows = [req(10, 'development'), req(11, 'development')];
         activeRows = rows;
         allRows = rows;
-        pipelinedIds = new Set([10, 11]);
+        setPipelined(new Set([10, 11]));
         useShowClosedStore.setState({ hidePipelinedRequirements: true });
         useSwarmStartCardStore.setState({ selectedStatus: 'development' });
         const { container } = mount();
