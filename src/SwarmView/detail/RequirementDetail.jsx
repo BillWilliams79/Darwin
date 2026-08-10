@@ -3,8 +3,12 @@ import { useParams, useNavigate, useLocation, Link as RouterLink } from 'react-r
 import call_rest_api from '../../RestApi/RestApi';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
 import { useShowClosedStore, ALL_REQUIREMENT_STATUSES } from '../../stores/useShowClosedStore';
-import { useAllCategories, useMachines, usePipelinedRequirementIds,
+import { useAllCategories, useMachines,
     pipelineStepRequirementKeys } from '../../hooks/useDataQueries';
+// Master replaced this page's `usePipelinedRequirementIds` + `hidePipelined` pair
+// with one `useRequirementVisibility().isVisible` predicate; that change merged
+// into the body cleanly, so only the import line collided with req #3435's.
+import { useRequirementVisibility } from '../../hooks/useRequirementVisibility';
 import { useOrchestrationIndex } from './useOrchestrationIndex';
 import {
     epicForFeature, epicRowForFeature, stepOptions,
@@ -441,9 +445,9 @@ const RequirementDetail = () => {
     // Filter chips now match DB status values directly
     const siblingStatuses = [...requirementStatusFilter];
 
-    // req #3302 — the card's OTHER filter. See `visibleSiblings` below.
-    const hidePipelined = useShowClosedStore(s => s.hidePipelinedRequirements);
-    const pipelinedIds = usePipelinedRequirementIds(profile?.userName, { enabled: hidePipelined });
+    // req #3302 / #3419 — the card's OTHER filter, as the card's OWN predicate.
+    // See the elevator memo below.
+    const { isVisible } = useRequirementVisibility(profile?.userName);
 
     const queryClient = useQueryClient();
 
@@ -819,10 +823,11 @@ const RequirementDetail = () => {
     // enabled on the first row, and Down from it landed on pipelined #3136 —
     // a requirement the card does not show at all.
     //
-    // Same predicate, same source of truth (`utils/pipelineMembership.js`) and
-    // the same in-flight behaviour as the card: an unresolved junction read
-    // yields an empty set and drops nothing, so the elevator can only ever be
-    // too permissive for a moment, never hide a row the card is showing.
+    // req #3419 — no longer "the same predicate": it IS the predicate. The card,
+    // the table, the aggregator and this elevator all read
+    // `useRequirementVisibility().isVisible`, so there is no second derivation
+    // left to drift. That also fixed the narrower half of the same defect —
+    // requirements filed under an EPIC were never hidden anywhere.
     // req #3302 — the surface that opened this page hands over the ordered ids it
     // rendered (`elevatorStateFrom`), and that wins. It is the ONLY thing that
     // can be right for the SwarmStartCard aggregator, whose list is every
@@ -834,12 +839,11 @@ const RequirementDetail = () => {
     const { prevId, nextId } = useMemo(
         () => siblingElevator(siblings, {
             sortMode: sibSortMode,
-            pipelinedIds,
-            hidePipelined,
+            isVisible,
             currentId: id,
             orderedIds: linkOrderedIds,
         }),
-        [siblings, sibSortMode, pipelinedIds, hidePipelined, id, linkOrderedIds],
+        [siblings, sibSortMode, isVisible, id, linkOrderedIds],
     );
 
     const titleOverflow = Math.max(0, (requirement?.title || '').length - TITLE_SOFT_LIMIT);

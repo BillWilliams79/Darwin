@@ -9,8 +9,11 @@ import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, swar
 import { fetchEntity } from './factory/createEntityQueries';
 // req #3166 — THE batched GET /map_coordinates, shared with the export paths.
 import { fetchCoordinatesForRuns, buildRunTrackUri, COORD_TRACK_FIELDS } from '../services/mapCoordinatesBatch';
-// req #3180 — THE browser's one derivation of pipeline-step membership.
-import { pipelinedRequirementIds } from '../utils/pipelineMembership';
+// req #3428 — EPIC association (is this requirement in THIS epic), consumed by
+// `useEpicRequirementIds` below. Deliberately NOT `pipelineMembership.js`, which
+// answers STEP association; req #3419 moved the "is this row on screen" question
+// out of this module entirely, into `hooks/useRequirementVisibility.js`.
+import { epicRequirementIds } from '../utils/epicMembership';
 
 export function useDomains(creatorFk, { closed, fields = 'id,domain_name,sort_order', enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
@@ -619,7 +622,16 @@ export const ALL_ROWS = 'all';
 // lifecycle: whether this epic's scope may be swarm-started. Carried here so
 // every label-dictionary reader (the plan visualizer's pause bubble, req
 // #3226) gets it for free, the same way `closed` already rides along.
-const EPIC_DEFAULT_FIELDS =
+//
+// `sort_order` was already here when req #3430 made it the AUTHORITATIVE epic
+// display order, and that is exactly why it is EXPORTED now: nothing asserted
+// it, so nothing would have noticed it leaving. A column absent from an
+// explicit field list is INVISIBLE to the browser (req #2213, hit again by req
+// #3390) — the same class of defect req #3430 fixed on the server's composed
+// read, where `sort_order` was simply not projected and every epic arrived
+// carrying None. `pipelineQueries.test.js` pins the two columns the plan
+// visualizer's epic ordering cannot work without.
+export const EPIC_DEFAULT_FIELDS =
     'id,title,description,category_fk,closed,epic_status,sort_order,create_ts';
 
 export function useAllEpics(creatorFk,
@@ -994,18 +1006,74 @@ export const useAllPipelineStepRequirements = pipelineStepRequirements.useAll;
 export const pipelineStepRequirementKeys = pipelineStepRequirements.keys;
 export const useAllPipelineStepDeps         = pipelineStepDeps.useAll;
 
-// Req #3180 — the requirement ids a pipeline STEP carries, as a Set.
+// req #3419 — `usePipelinedRequirementIds` lived here (req #3180) and is GONE.
+// Four surfaces called it and each then wrote its own "is this row on screen"
+// expression around the Set, which is how one defect took two requirements to
+// find. The single answer — and the step-only Set, for the aggregator's
+// unconditional launch exclusion — is `hooks/useRequirementVisibility.js`.
+// Nothing else may derive it; the junction read itself stays public above
+// because the plan pages consume the ROWS, not the membership question.
+
+// Req #3428 — the requirement ids one EPIC contains, as a Set, plus the narrow
+// requirement rows the page needs to decide WHERE that work lives.
 //
-// One shared hook over the junction read above, so the two surfaces that need
-// this (the SwarmStartCard aggregator, the requirements-page filter) consult ONE
-// query cache entry and ONE derivation. It costs no extra fetch on the plan
-// pages, which already hold this exact read.
+// Modelled on `usePipelinedRequirementIds` above and for the same reason: four
+// surfaces need this answer (the Cards view's rows, the aggregator's rows, the
+// aggregator's chip badges, and which project tab to open), and they must
+// consult ONE derivation or they will disagree with each other in ways nothing
+// fails on.
 //
-// The Set is memoized on the query data, so it is referentially stable between
-// refetches that change nothing — consumers use it as a useMemo dependency.
-export function usePipelinedRequirementIds(creatorFk, { enabled = true } = {}) {
-    const { data } = useAllPipelineStepRequirements(creatorFk, { enabled });
-    return useMemo(() => pipelinedRequirementIds(data), [data]);
+// AN ID SET RATHER THAN A WIDER PROJECTION. Three of those four consumers read
+// requirements through queries that do not carry `feature_fk`
+// (`useRequirementsByStatus`, `useRequirementsDone`, and the counts read), and
+// teaching all three about epics would put a column on the wire for every reader
+// of those shared cache entries, forever, to serve a filter that is off almost
+// all the time. One narrow read answers all four instead.
+//
+// `epicId == null` DISABLES BOTH READS, so a page with no filter active pays
+// nothing — not a fetch, not a parse. It returns `{ epicReqIds: null, … }`, and
+// `null` is what every consumer treats as "no filter" (an EMPTY SET means the
+// filter is on and matches nothing, which is a different page).
+//
+// `closed: ALL_ROWS` on the features read, matching the plan pages: a CLOSED
+// feature's requirements still belong to their epic, and dropping them here
+// would silently shrink the filter's population with no visible cause. It is
+// also the exact cache entry `PipelineDetail`/`StepsPage` already hold, so
+// arriving from the plan visualizer — which is how this filter is reached —
+// costs no features fetch at all.
+//
+// The narrowest projection that answers both questions: membership needs
+// `feature_fk`, and "which project tab holds this epic's work" needs
+// `category_fk`. `useAllRequirements` puts `fields` in its cache key (req #2213),
+// so this gets its own entry and cannot serve — or be served by — a wider
+// consumer's rows.
+const EPIC_MEMBERSHIP_REQUIREMENT_FIELDS = 'id,feature_fk,category_fk';
+
+//
+// A FAILED READ IS NOT AN EMPTY EPIC. Both `isError`s are read, and on either one
+// the hook returns `epicReqIds: null` — the same value that means "no filter" —
+// plus `isError: true` so the caller can say why. Discarding the error instead
+// leaves `features`/`requirements` undefined forever, which derives an EMPTY SET,
+// which renders every card gone and every badge zero: a page indistinguishable
+// from "this epic has no work", permanently, with nothing surfaced anywhere (the
+// QueryClient has no error handler). `filterToEpic`'s in-flight direction is
+// deliberate and unchanged — an empty set while a read is IN FLIGHT is a brief,
+// self-correcting state; a failed read is neither, so it must not share it.
+export function useEpicRequirementIds(creatorFk, epicId) {
+    const active = epicId !== null && epicId !== undefined;
+    const { data: features, isError: featuresError } = useAllFeatures(creatorFk, {
+        closed: ALL_ROWS, enabled: active,
+    });
+    const { data: requirements, isError: requirementsError } = useAllRequirements(creatorFk, {
+        fields: EPIC_MEMBERSHIP_REQUIREMENT_FIELDS, enabled: active,
+    });
+    const isError = active && (featuresError || requirementsError);
+
+    const epicReqIds = useMemo(
+        () => ((active && !isError) ? epicRequirementIds(features, requirements, epicId) : null),
+        [active, isError, features, requirements, epicId]);
+
+    return { epicReqIds, isError, requirements: active ? requirements : undefined };
 }
 
 // Req #3117 — the plan page's Cost column. TWO more bounded list reads, never a

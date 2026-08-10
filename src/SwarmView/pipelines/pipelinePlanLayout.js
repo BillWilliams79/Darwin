@@ -8,8 +8,12 @@
 //
 // The layout language (POC, kept verbatim unless noted):
 //   - Epic bands stacked vertically, one per DOMINANT epic (design rule 10), in
-//     DERIVED-START order since req #3201: earliest-starting epic on top,
-//     never-started epics last, epic id ascending as the tie-break. (Was
+//     `epics.sort_order` since req #3430 — the AUTHORITATIVE epic display order
+//     (user ruling 2026-08-09), and this stack is the surface that ruling is
+//     about. An epic with NO `sort_order` is UNORDERED and falls back to the
+//     req #3201 rule, below every ordered epic: DERIVED-START order,
+//     earliest-starting epic on top, never-started epics last, epic id
+//     ascending as the tie-break. (Before #3201 that fallback was
 //     first-appearance over display order, which had two problems: it made a
 //     band's position move whenever a step was appended, and it said nothing at
 //     all about time.)
@@ -206,7 +210,7 @@ export const pauseBubbleColor = (paused) => (paused ? PAUSE_PAUSED_COLOR : PAUSE
 // motion but leaves size unexplained invites the reader to infer an encoding
 // that is not there.
 
-// ── Requirement-id scale 1 of 2: REQUIREMENT STATUS (the 'state' key) ──────
+// ── Requirement-id scale 1 of 3: REQUIREMENT STATUS (the 'state' key) ──────
 // `requirements.requirement_status`, the requirement's OWN stored field — not
 // the derived step state, which the bead already owns.
 //
@@ -257,7 +261,7 @@ export const REQ_STATUS_UNKNOWN_COLOR = PLAN_VIZ_PALETTE.dim;
 export const reqStatusColor = (status) => (Object.hasOwn(REQ_STATUS_COLORS, status)
     ? REQ_STATUS_COLORS[status] : REQ_STATUS_UNKNOWN_COLOR);
 
-// ── Requirement-id scale 2 of 2: MACHINE (the 'machine' key) ───────────────
+// ── Requirement-id scale 2 of 3: MACHINE (the 'machine' key) ───────────────
 // The high-contrast ecosystem pairing (user directive 2026-07-27): each machine
 // reads as its PLATFORM at a glance, so the two are told apart by association
 // rather than by consulting a key.
@@ -336,16 +340,115 @@ export function buildMachineColorView({ requirements = [], machines = [] } = {})
     };
 }
 
-// ── The colour key is TRI-STATE (req #3168, user directive 2026-08-01) ──────
-// `state` · `machine` · `none`. The third is not a third BUTTON — MUI's
-// exclusive ToggleButtonGroup already fires `onChange(_, null)` when the
-// selected button is clicked again, and the old handlers (`v && setPref(v)`)
-// swallowed exactly that event. Making the deselection MEAN something is one
-// line at the call site and costs the toolbar no width, which matters on a row
-// that already carries four toggle groups.
+// ── Requirement-id scale 3 of 3: AUTONOMY (the 'autonomy' key, req #3422) ──
+// `requirements.coordination_type` — how much of the work the requirement's
+// session is trusted to do without the user: `discuss` (do nothing until
+// spoken to) → `planned` (build a plan, wait for approval) → `implemented`
+// (build it, stop for review) → `deployed` (build, merge and ship).
 //
-// The gesture the directive names: State selected → click Machine → machine
-// colouring → click Machine again → NO colouring, every id neutral.
+// IT IS AN ORDINAL LADDER, so the palette is a RAMP and not four labels.
+//
+// A STOPLIGHT, on the user's directive (2026-08-09): the ends carry the
+// metaphor — `discuss` STOPS (signal red, a human speaks first) and `deployed`
+// GOES (green, full delegation). The obvious stoplight middle is AMBER, and
+// amber is Running on this panel, so the two interior rungs are told apart by
+// hue instead: a wine red that reads as "nearly stop", then a violet.
+//
+// THE RAMP SHIFTED DOWN ONE on a second directive the same day: the periwinkle
+// blue that held `implemented` was no good on this panel, so every rung moved
+// one step toward Go — the old `planned` violet became `implemented`, the old
+// `discuss` wine became `planned` — and a NEW, properly RED red took the
+// vacated STOP end. The blue is gone from this scale entirely. Two consequences
+// worth naming, because neither is a mistake: the ramp is no longer monotonic
+// in lightness (`discuss` #ff3b30 is brighter than the wine below it), and
+// `discuss`/`planned` sit in the same half of the wheel.
+//
+// `planned` WAS THEN NUDGED TOWARD THE VIOLET END (third directive, same day —
+// "a bit less the same color as Discuss… nothing dramatic"). #db5771 -> #db5795
+// is one channel: the red and green stay put and the blue rises 0x71 -> 0x95,
+// which rotates the hue 348° -> 332° without touching the family. It buys a lot
+// for that: separation from `discuss` goes 43.8 -> 61.4 ΔE, and because the move
+// is TOWARD the violet it also smooths the step into `implemented` rather than
+// trading one collision for another. Contrast improves as a side effect
+// (4.62 -> 4.78).
+//
+// TWO DELIBERATE COSTS, both measured rather than assumed:
+//
+//   1. NO RUNG OF THIS SCALE CAN BE A TRUE BURGUNDY, which is the constraint
+//      that shaped `planned` and still binds it. A burgundy is a
+//      dark-ink-on-white colour: #800020 measures 1.59:1 against this panel —
+//      not "dim", but invisible — and #9b1b3a is 2.15:1. The floor for 13.75px
+//      type is WCAG AA 4.5:1, so the darkest wine available here is the ~4.6:1
+//      band, and `planned` lives in it (4.78:1 — still the LOWEST swatch in the
+//      scale). It reads as a wine rose rather than a burgundy, and that is a
+//      property of a light mark on a dark panel, not a preference.
+//
+//   2. `deployed` IS GREEN ON A PANEL WHERE GREEN MEANS COMPLETE. That rule is
+//      real and it is why Darwin's own chip palette is not carried wholesale
+//      (`CalendarFC/timeSeriesSizes.js` COORDINATION_COLORS also paints
+//      `implemented` YELLOW, which would read as Running — that half is still
+//      refused). The stoplight was asked for with the collision named, so the
+//      green is chosen to sit as far from the Complete green as a green can:
+//      #39d353 against `doneRing` #7ee08a is ΔE 26.4, the largest separation
+//      any recognisable green achieves here (#00c853 reaches 25.9, every other
+//      candidate measured 9-19). The ids are also a DIFFERENT MARK from the
+//      beads — monospace type, not a filled circle — and the key names the
+//      scale on screen whenever it is on.
+//
+// MEASURED against the panel (#111b2b), 2026-08-09: contrast 4.78:1 (`planned`,
+// the lowest) to 8.73:1 (`deployed`); minimum pairwise CIE76 ΔE 45.9
+// (`planned`/`implemented`); nearest RESERVED state hue 26.4 (`deployed` vs
+// `doneRing`, above). All three are asserted in pipelinePlanLayout.test.js, so
+// a "nicer" hue that collapses the scale — or a greener green — fails rather
+// than ships.
+//
+// THE RAMP'S OWN STEPS, which is what a reader actually walks: 61.4 (discuss ->
+// planned), 45.9 (planned -> implemented), 147.6 (implemented -> deployed). The
+// first two are deliberately close in size — that is the "nice flow" the third
+// directive asked to preserve — and the last is large because it crosses the
+// wheel to Go.
+//
+// `discuss` sits ΔE 19.2 from MACHINE_MAC_COLOR (#FF5F56) and `planned` 31.2
+// from PLAN_VIZ_PALETTE.manualRing. The first is a different SCALE and the
+// control is exclusive, so the two are never on screen together; the second is a
+// different MARK (a bead's ring, not type). Recorded because they are the
+// closest this scale comes to anything outside it.
+export const AUTONOMY_COLORS = {
+    discuss: '#ff3b30',       // signal red — STOP; a human speaks first
+    planned: '#db5795',       // wine rose — nearly stop; plans, then waits
+    implemented: '#c58cff',   // violet — builds, then stops for review
+    deployed: '#39d353',      // green — GO; full delegation, merges and ships
+};
+
+// Key order: the ladder, not the alphabet — same rule as REQ_STATUS_ORDER, and
+// for the same reason (the on-screen key renders in this order).
+export const AUTONOMY_ORDER = ['discuss', 'planned', 'implemented', 'deployed'];
+
+// A coordination type this build does not know. The column is NOT NULL with a
+// default, so in practice this is a value added to the enum server-side before
+// the UI caught up — the same case REQ_STATUS_UNKNOWN_COLOR covers, so it is
+// the same swatch rather than a second dim grey that means the same thing.
+export const AUTONOMY_UNKNOWN_COLOR = REQ_STATUS_UNKNOWN_COLOR;
+
+// `Object.hasOwn` for the third time, and for the original reason: this value
+// arrives from the API and is handed to Konva as a `fill`, where an inherited
+// FUNCTION paints nothing and reports nothing.
+export const autonomyColor = (ct) => (Object.hasOwn(AUTONOMY_COLORS, ct)
+    ? AUTONOMY_COLORS[ct] : AUTONOMY_UNKNOWN_COLOR);
+
+// ── The colour key is N SCALES PLUS NONE (req #3168; third scale req #3422) ─
+// `state` · `machine` · `autonomy` · `none`. It was TRI-STATE when req #3168
+// wrote this note and the count is no longer the point — what survives verbatim
+// is that `none` IS NOT A BUTTON. MUI's exclusive ToggleButtonGroup already
+// fired `onChange(_, null)` when the selected button was clicked again and the
+// old handlers (`v && setPref(v)`) swallowed exactly that event; the chips that
+// replaced it spell the same rule out at the call site. Making the deselection
+// MEAN something costs the toolbar no width, which is what lets a THIRD scale be
+// added to a row that already carries four control groups.
+//
+// The gesture the directive names, unchanged by the addition: State selected →
+// click Machine → machine colouring → click Machine again → NO colouring, every
+// id neutral. Every scale reaches `none` through its own chip.
 //
 // `none` paints `PLAN_VIZ_PALETTE.text` (near-white) and there is no light-mode
 // branch, because THIS PANEL HAS NO LIGHT MODE: `PLAN_VIZ_PALETTE` is a fixed
@@ -422,77 +525,253 @@ export function buildMachineColorView({ requirements = [], machines = [] } = {})
 // pipelinePlanLayout.test.js from this constant, so the two cannot drift.
 export const PLAN_KEY_MAX_W = 470;
 
-export const COLOR_KEY_LABELS = {
-    state: 'Requirement status',
-    machine: 'Machine',
-    none: 'No colour key — ids neutral',
-};
+// ── THE SCALE REGISTRY (req #3422) ─────────────────────────────────────────
+// Two scales were spelled out BY NAME in five places: an `if` in `reqIdStyle`,
+// an `if` in `reqIdKeyEntries`, a labels object here, the toolbar's own array of
+// chips, and the visualizer's list of key blocks. Adding the third — autonomy —
+// meant five edits that had to agree, and the requirement that asked for it says
+// plainly that more are coming (AI model, effort). So the scale becomes DATA:
+// one entry describes a scale completely, and every consumer maps over the list.
+//
+// WHAT AN ENTRY OWNS, and why each field is here rather than at a call site:
+//
+//   key       the stored preference value, the test id suffix, the key-block id
+//   chipLabel/chipTip/chipName  the toolbar's three strings. They live WITH the
+//             scale because they name what the colour MEANS, which is this
+//             module's subject — the same argument req #3168 used to move the
+//             machine pairing out of the JSX. `chipName` is the accessible name
+//             and starts with `chipLabel`, which is WCAG 2.5.3 "Label in Name"
+//             (see the toolbar for why MUI's Tooltip makes that load-bearing).
+//   keyTitle  what the on-screen key calls the scale.
+//   build()   the ONE resolver: `{requirements, machines, presentReqIds}` in,
+//             `{colorOf(reqId), legend[]}` out. A scale that needs a dictionary
+//             the others do not takes it from the same argument bag and ignores
+//             the rest, so a fourth scale cannot widen anyone else's signature.
+//
+// `presentReqIds` is the set of requirement ids the plan actually DRAWS (null =
+// no filter). It is what keeps a seven-entry status scale down to the two or
+// three a given plan contains, which is what stops the key stealing the space
+// the epic chips need.
+//
+// `none` IS NOT IN THE REGISTRY. It is the ABSENCE of a scale, it has no chip,
+// no builder and no data behind it, and giving it a fake entry would put an
+// `if (key === 'none')` inside every consumer's map instead of the one place the
+// tri-state gesture already lives.
+
+/**
+ * The shared body of every scale that colours by an ENUM COLUMN on the
+ * requirement row. Status and autonomy are the same shape — a column, a colour
+ * per value, a fixed display order, one swatch for a value this build does not
+ * know — and writing that twice is how the two drift.
+ *
+ * THE SCALE'S OWN VALUE RESOLVER PAINTS EVERY SWATCH — `paint` is called for the
+ * canvas mark, for each key entry and for the unknown entry alike, so the three
+ * cannot disagree and the scale's public one-value helper (`reqStatusColor`,
+ * `autonomyColor`) is the live path rather than a second copy of it sitting
+ * beside this one. `colors` is here to answer a different question — IS this
+ * value on the scale — which decides key membership and cannot be read off a
+ * hex.
+ *
+ * @param {Object} args
+ * @param {Object[]} [args.requirements]     the plan's light requirement rows
+ * @param {?Set<number>} [args.presentReqIds] ids the plan draws; null = all
+ * @param {string} args.field                the column to read
+ * @param {Object} args.colors               the scale's membership: value → hex
+ * @param {string[]} args.order              key order (the lifecycle/ladder)
+ * @param {function(?string): string} args.paint  value → hex, unknown included
+ * @param {function(string): string} [args.labelOf]  value → key label
+ * @returns {{colorOf: function(number): string, legend: Object[]}}
+ */
+function buildEnumColorView({
+    requirements = [], presentReqIds = null, field, colors, order,
+    paint, labelOf = (v) => v,
+}) {
+    const valueById = new Map((requirements || []).map((r) => [r.id, r[field]]));
+    // `Object.hasOwn`, not a lookup + `||`: an id whose value is missing reads
+    // `undefined`, and a bracket lookup for an INHERITED key ('constructor',
+    // 'toString') resolves to a function that Konva paints as nothing at all.
+    // `paint` applies the same discipline to the colour it returns.
+    const known = (v) => Object.hasOwn(colors, v);
+    const ids = presentReqIds ? [...presentReqIds] : [...valueById.keys()];
+    const present = new Set();
+    let unknown = false;
+    for (const id of ids) {
+        const v = valueById.get(id);
+        if (known(v)) present.add(v);
+        else unknown = true;   // includes an id with no requirement row at all
+    }
+    const legend = order.filter((v) => present.has(v))
+        .map((v) => ({ key: v, color: paint(v), label: labelOf(v) }));
+    if (unknown) legend.push({ key: 'unknown', color: paint(undefined), label: 'unknown' });
+    return {
+        colorOf: (reqId) => paint(valueById.get(reqId)),
+        legend,
+    };
+}
+
+// The registry. ORDER IS THE TOOLBAR'S ORDER — the existing two first, so a
+// reader's muscle memory for the chip positions survives the addition.
+export const REQ_COLOR_SCALES = [
+    {
+        key: 'state',
+        chipLabel: 'State',
+        chipTip: 'Colour the requirement marks by requirement STATUS — '
+            + 'click again for none',
+        chipName: 'State — colour the requirement marks by requirement status',
+        keyTitle: 'Requirement id = status',
+        build: ({ requirements, presentReqIds }) => buildEnumColorView({
+            requirements,
+            presentReqIds,
+            field: 'requirement_status',
+            colors: REQ_STATUS_COLORS,
+            order: REQ_STATUS_ORDER,
+            paint: reqStatusColor,
+            // 'swarm_ready' reads as two words on the key and as one in the
+            // database. The key is for a person.
+            labelOf: (v) => v.replace('_', '-'),
+        }),
+    },
+    {
+        key: 'machine',
+        chipLabel: 'Machine',
+        chipTip: 'Colour the requirement marks by the MACHINE that ran them — '
+            + 'click again for none',
+        chipName: 'Machine — colour the requirement marks by the machine that ran them',
+        keyTitle: 'Requirement id = machine',
+        // DELIBERATELY NOT `presentReqIds`-filtered, unlike the two enum scales.
+        // A machine's colour is keyed on its PLATFORM and its key entry is NAMED
+        // FROM THE MACHINE RECORD, so its entry set is the plan's machine
+        // dictionary — a property of the plan's machines, not of which steps
+        // happen to carry them. That is the whole reason, and it is asserted
+        // directly, so the asymmetry cannot be "tidied away" by someone who
+        // assumes it was an oversight.
+        //
+        // NOT because a filtered legend would move with the zoom: `presentReqIds`
+        // is derived from `rows`, which is level-independent, so the enum scales'
+        // legends do not change with the level either. Recorded because the wrong
+        // reason was written here first, and a false premise invites the very
+        // change the true one forbids.
+        build: ({ requirements, machines }) => buildMachineColorView({ requirements, machines }),
+    },
+    {
+        key: 'autonomy',
+        chipLabel: 'Autonomy',
+        chipTip: 'Colour the requirement marks by AUTONOMY — the coordination '
+            + 'type, discuss through deployed — click again for none',
+        chipName: 'Autonomy — colour the requirement marks by coordination type',
+        keyTitle: 'Requirement id = autonomy',
+        build: ({ requirements, presentReqIds }) => buildEnumColorView({
+            requirements,
+            presentReqIds,
+            field: 'coordination_type',
+            colors: AUTONOMY_COLORS,
+            order: AUTONOMY_ORDER,
+            paint: autonomyColor,
+        }),
+    },
+];
+
+// The scale for a key, or undefined. A plain `find` over three entries — no
+// index to keep in step, and `undefined` is the honest answer for 'none' and for
+// a hostile value alike.
+export const reqColorScale = (key) => REQ_COLOR_SCALES.find((s) => s.key === key);
+
+// Every position the control and the key have: the registry, then `none`.
+export const REQ_COLOR_KEYS = [...REQ_COLOR_SCALES.map((s) => s.key), 'none'];
+
 export const DEFAULT_COLOR_KEY = 'state';
-// `Object.hasOwn` again, and for the ORIGINAL reason (`isStepWidth`): this value
-// is read straight out of localStorage, so "constructor" and "toString" are both
-// reachable strings that resolve to inherited functions.
-export const isColorKey = (v) => Object.hasOwn(COLOR_KEY_LABELS, v);
+// A `COLOR_KEY_LABELS` object held these positions until req #3422, and
+// `Object.hasOwn` on it was the guard. The object is GONE rather than renamed:
+// its values were control labels, they drifted into key titles when the registry
+// took over naming, and NOTHING EVER RENDERED THEM — a map whose keys are the
+// only live part is a list wearing an object's costume.
+//
+// The hazard it guarded against is unchanged and so is the guard's strength:
+// this value is read straight out of localStorage, where "constructor" and
+// "toString" are reachable strings that resolve to inherited FUNCTIONS on any
+// object — and an array membership test answers them the same way it answers
+// '__proto__', a number, `{}` or `[]`, which is: no.
+export const isColorKey = (v) => REQ_COLOR_KEYS.includes(v);
 export const normalizeColorKey = (v) => (isColorKey(v) ? v : DEFAULT_COLOR_KEY);
+
+/**
+ * Build EVERY scale's view in one pass, keyed by scale.
+ *
+ * All of them, not just the live one, for the reason the key already stacks all
+ * of them: the key reserves ONE footprint that cannot move when the colour mode
+ * does, and a cell can only be sized by children that exist. It is cheap —
+ * each builder is one pass over rows already in hand, no read and no fetch.
+ *
+ * @param {Object} args
+ * @param {Object[]} [args.requirements]      the plan's light requirement rows
+ * @param {Object[]} [args.machines]          the machine dictionary
+ * @param {?Set<number>} [args.presentReqIds] ids the plan draws; null = all
+ * @returns {Object<string, {colorOf: function, legend: Object[]}>}
+ */
+export function buildReqColorViews({ requirements, machines, presentReqIds = null } = {}) {
+    return Object.fromEntries(REQ_COLOR_SCALES.map((s) => [
+        s.key, s.build({ requirements, machines, presentReqIds }),
+    ]));
+}
 
 /**
  * The requirement-id text style for the active colour key. ONE resolver, so the
  * canvas and the on-screen key can never disagree about what a colour means.
  *
- * Bold in BOTH coloured keys and regular in `none`: weight is the "this channel
- * is carrying a signal" affordance, and it costs the zero-overlap contract
- * nothing because the ids are set in a MONOSPACE face, whose advance width is
- * weight-invariant — which is why `CHW_REQ` stays one number.
+ * Bold in EVERY coloured scale and regular in `none`: weight is the "this
+ * channel is carrying a signal" affordance, and it costs the zero-overlap
+ * contract nothing because the ids are set in a MONOSPACE face, whose advance
+ * width is weight-invariant — which is why `CHW_REQ` stays one number.
+ *
+ * IT TAKES THE VIEWS, NOT A COLOUR PER SCALE (req #3422). The old signature
+ * named one parameter per scale (`status`, `machineColor`), so every new scale
+ * widened it and every caller had to know which parameter that scale read. The
+ * views bag is the same for all of them, so a fourth scale changes nothing here.
  *
  * @param {Object} args
- * @param {('state'|'machine'|'none')} args.colorKey
- * @param {?string} [args.status]        requirement_status, for the 'state' key
- * @param {?string} [args.machineColor]  resolved machine colour, for 'machine'
+ * @param {string} args.colorKey   a REQ_COLOR_KEYS value
+ * @param {Object} [args.views]    buildReqColorViews() output
+ * @param {number} [args.reqId]    the requirement the mark stands for
  * @returns {{fill: string, bold: boolean}}
  */
-export function reqIdStyle({ colorKey, status, machineColor } = {}) {
+export function reqIdStyle({ colorKey, views, reqId } = {}) {
     const key = normalizeColorKey(colorKey);
-    if (key === 'machine') return { fill: machineColor || MACHINE_ANY_COLOR, bold: true };
-    if (key === 'state') return { fill: reqStatusColor(status), bold: true };
-    return { fill: PLAN_VIZ_PALETTE.text, bold: false };
+    if (key === 'none') return { fill: PLAN_VIZ_PALETTE.text, bold: false };
+    const view = views?.[key];
+    // No view for a real scale means the caller has not built one yet (an empty
+    // model, a first render). The dim unknown swatch is the honest answer and
+    // the one thing that must NOT happen is an undefined `fill`, which Konva
+    // paints as nothing with no error to see.
+    return { fill: view ? view.colorOf(reqId) : REQ_STATUS_UNKNOWN_COLOR, bold: true };
 }
 
 /**
  * The key entries for the requirement-id channel under the active colour key.
  *
- * For `state` it lists only the statuses the plan actually contains — the same
- * discipline the machine key already follows, and the reason the key stays
- * compact enough not to steal the viewport middle-bottom (req #3255; was the
- * top-right corner) from the epic chips.
+ * The entry list is the scale's own — built by its registry `build()`, which is
+ * the SAME view object `reqIdStyle` colours the canvas from, so the key cannot
+ * name a colour the marks do not use. Each enum scale lists only the values the
+ * plan actually contains, which is what keeps the key compact enough not to
+ * steal the viewport middle-bottom (req #3255; was the top-right corner) from
+ * the epic chips.
  *
  * @param {Object} args
- * @param {('state'|'machine'|'none')} args.colorKey
- * @param {Iterable<?string>} [args.statuses]  every linked requirement's status
- * @param {Object[]} [args.machineLegend]      buildMachineColorView().legend
+ * @param {string} args.colorKey  a REQ_COLOR_KEYS value
+ * @param {Object} [args.views]   buildReqColorViews() output
  * @returns {{title: string, entries: Object[]}}
  */
-export function reqIdKeyEntries({ colorKey, statuses = [], machineLegend = [] } = {}) {
+export function reqIdKeyEntries({ colorKey, views } = {}) {
     const key = normalizeColorKey(colorKey);
-    if (key === 'machine') {
-        return { title: 'Requirement id = machine', entries: machineLegend };
-    }
     if (key === 'none') {
         return {
             title: 'Requirement id',
             entries: [{ key: 'none', color: PLAN_VIZ_PALETTE.text, label: 'no colour key' }],
         };
     }
-    const present = new Set();
-    let unknown = false;
-    for (const s of statuses) {
-        if (Object.hasOwn(REQ_STATUS_COLORS, s)) present.add(s);
-        else unknown = true;
-    }
-    const entries = REQ_STATUS_ORDER.filter((s) => present.has(s))
-        .map((s) => ({ key: s, color: REQ_STATUS_COLORS[s], label: s.replace('_', '-') }));
-    if (unknown) {
-        entries.push({ key: 'unknown', color: REQ_STATUS_UNKNOWN_COLOR, label: 'unknown' });
-    }
-    return { title: 'Requirement id = status', entries };
+    // `normalizeColorKey` has already guaranteed a registry key or 'none', so
+    // the scale is present; the fallback is for a views bag that has not been
+    // built, which yields a titled but empty key rather than a crash.
+    return { title: reqColorScale(key).keyTitle, entries: views?.[key]?.legend || [] };
 }
 
 // ── World-space metrics ─────────────────────────────────────────────────────
@@ -1475,7 +1754,8 @@ function epicBandLabelText(epicId, epicName, epicCounts) {
  * @param {('compact'|'medium'|'wide')} [opts.stepWidth]
  * @param {?Object} [opts.timeAxis]  planTimeAxis() output (req #3201). Omitted,
  *                             the axis degenerates to pure dependency depth and
- *                             bands stack by epic id — see computeTimeColumns.
+ *                             bands stack by `epics.sort_order` (req #3430),
+ *                             then epic id — see computeTimeColumns.
  * @param {?(Map|Object)} [opts.epicCounts]  req #3225 — epicId -> {met, total}.
  *                             Null/omitted (the toggle-off state) leaves every
  *                             band's label exactly as it reads today.
@@ -1615,7 +1895,21 @@ export function computePlanLayout(rows, batches, {
     }));
     const ruler = computeRuler(slots, colX, colW, totalW);
 
-    // ── Epic bands (dominant label), stacked by DERIVED START (req #3201) ───
+    // ── Epic bands (dominant label), stacked by `epics.sort_order` (req #3430),
+    //    then by DERIVED START (req #3201) for the epics nobody has ordered ────
+    //
+    // **THE USER'S ORDER WINS.** `epics.sort_order` is the AUTHORITATIVE epic
+    // display order (user ruling, 2026-08-09), and THIS is the surface that
+    // ruling was about: the band stack is what a person looking at the Pipeline
+    // Visualizer reads as "the order of the epics". An epic carrying a
+    // `sort_order` is placed by it and by nothing else — derived start does not
+    // get a vote, because a rule that sometimes overrides the order the user
+    // typed is a rule the user cannot use.
+    //
+    // Everything below is the FALLBACK, unchanged, for epics whose `sort_order`
+    // is NULL: an unordered plan stacks exactly as it did before req #3430, and
+    // an ordered epic always sits above an unordered one.
+    //
     // The vertical axis reads as time too: the epic whose work began first sits
     // on top. An epic's start is the minimum over its requirements — there is no
     // `epics.started_at` and design rule 1 says there never will be — and
@@ -1652,10 +1946,19 @@ export function computePlanLayout(rows, batches, {
 
     const bandKeys = [];
     const bandByKey = new Map();
+    // req #3430 — epic id -> `epics.sort_order`, or null for UNORDERED. Taken
+    // from the row, which `pipelineModel.js::buildPlanRows` resolved from the
+    // one epics dictionary; this module never re-reads the table, so there is
+    // no second answer to keep in step. Every row of one band carries the same
+    // value (it is a property of the epic), so first-writer-wins is not a
+    // choice between candidates.
+    const bandSortOrders = new Map();
     for (const r of safeRows) {
         const key = r.epicId != null ? r.epicId : null;
         if (!bandByKey.has(key)) {
             const epic = r.epic || 'No epic';
+            bandSortOrders.set(key, key != null && Number.isFinite(r.epicSortOrder)
+                ? r.epicSortOrder : null);
             bandByKey.set(key, {
                 key, epicId: key, epic,
                 // req #3225 — the SAME string measures the zero-overlap label
@@ -1673,6 +1976,15 @@ export function computePlanLayout(rows, batches, {
         return v == null ? null : String(v);
     };
     bandKeys.sort((a, b) => {
+        // req #3430 — the user's order, ahead of everything derived. NULL is
+        // UNORDERED, not zeroth: it sorts after every ordered epic and then
+        // falls through to the req #3201 tiers below, so the "No epic" band
+        // (which can never carry a `sort_order`) stays last of all exactly as
+        // it was. Equal values fall through too rather than tie arbitrarily.
+        const oa = bandSortOrders.get(a);
+        const ob = bandSortOrders.get(b);
+        if ((oa == null) !== (ob == null)) return oa == null ? 1 : -1;
+        if (oa != null && oa !== ob) return oa - ob;
         const ta = bandTierOf(a);
         const tb = bandTierOf(b);
         if (ta !== tb) return ta - tb;
@@ -2897,6 +3209,19 @@ export const EPIC_CHIP_FONT = PLAN_VIZ_FONT.epic;
 // can hang past the band's right edge or under the key, which is the exact
 // under-measurement bug this module's own header comment warns about.
 export const EPIC_CHIP_OPEN_LINK_W = 24;
+// The "open this epic's requirements as task cards" control (req #3428) — a
+// SECOND link control riding beside the ↗, and the SAME kind of flat, unscaled
+// screen-px reservation for the identical reason: a fixed `fontSize: 14` MUI
+// glyph plus the chip's own flex `gap`, neither of which shrinks when the chip
+// does. It renders under exactly the same condition as the ↗ (`epicId != null`)
+// and is measured under the same condition, so the two can never drift apart.
+//
+// UNMEASURED CONTENT IS CONTENT THAT HANGS PAST THE EDGE IT WAS CLAMPED TO —
+// this file's own header warning, and since req #3257 the measured box is what
+// keeps the name inside its own rectangle and clear of the key, not merely clear
+// of another floating chip. 24 px of unreserved glyph is 24 px of name over the
+// band's right edge.
+export const EPIC_CHIP_CARDS_LINK_W = 24;
 // The pause status bubble (req #3226) — a small filled circle immediately left
 // of the epic name, the SAME kind of flat, unscaled reservation as the ↗
 // control above and for the identical reason: it is a fixed-diameter dot plus
@@ -3093,12 +3418,14 @@ export function placeEpicChips({
         // name, so this stays the identity transform for callers that never set
         // it.
         const bandText = band.epicLabel || band.epic;
-        // The two FLAT, unscaled reservations: the ↗ control (only rendered when
-        // there is an epic to open) and the pause bubble (rendered on every
-        // band, "No epic" included). Neither shrinks with the chip, and both are
-        // in the measured box before anything is clamped or clipped against it.
+        // The FLAT, unscaled reservations: the two link controls — the ↗ to the
+        // features view and the cards control to the epic's requirements (req
+        // #3428) — which render only when there is an epic to open, and the
+        // pause bubble, which renders on every band, "No epic" included. None of
+        // them shrinks with the chip, and all are in the measured box before
+        // anything is clamped or clipped against it.
         const wFull = bandText.length * charW * scale + EPIC_CHIP_PAD_W * scale
-            + (band.epicId != null ? EPIC_CHIP_OPEN_LINK_W : 0)
+            + (band.epicId != null ? EPIC_CHIP_OPEN_LINK_W + EPIC_CHIP_CARDS_LINK_W : 0)
             + EPIC_PAUSE_BUBBLE_W;
 
         // ── THE RULE ────────────────────────────────────────────────────────

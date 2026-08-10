@@ -44,8 +44,8 @@ function mount(api, props = { key: KEY, fingerprint: FP }) {
 }
 
 describe('useSavedViewport', () => {
-    beforeEach(() => { sessionStorage.clear(); });
-    afterEach(() => { sessionStorage.clear(); });
+    beforeEach(() => { localStorage.clear(); });
+    afterEach(() => { localStorage.clear(); });
 
     it('record alone writes nothing; commit writes', () => {
         const api = {};
@@ -61,7 +61,7 @@ describe('useSavedViewport', () => {
         const api = {};
         const h = mount(api);
         act(() => api.current.commit());
-        expect(sessionStorage.getItem(KEY)).toBeNull();
+        expect(localStorage.getItem(KEY)).toBeNull();
         h.unmount();
     });
 
@@ -82,9 +82,9 @@ describe('useSavedViewport', () => {
         const api = {};
         const h = mount(api);
         act(() => { api.current.record(CAM); api.current.commit(); });
-        sessionStorage.removeItem(KEY);
+        localStorage.removeItem(KEY);
         act(() => api.current.commit());
-        expect(sessionStorage.getItem(KEY)).toBeNull();
+        expect(localStorage.getItem(KEY)).toBeNull();
         h.unmount();
     });
 
@@ -113,7 +113,7 @@ describe('useSavedViewport', () => {
         const h = mount(api);
         const stale = api.current;
         h.unmount();
-        sessionStorage.clear();
+        localStorage.clear();
         act(() => stale.record(CAM));
         window.dispatchEvent(new Event('pagehide'));
         expect(readViewport(KEY, FP)).toBeNull();
@@ -162,10 +162,10 @@ describe('useSavedViewport', () => {
         const api = {};
         const h = mount(api, { key: null, fingerprint: FP });
         act(() => { api.current.record(CAM); api.current.commit(); });
-        expect(sessionStorage.length).toBe(0);
+        expect(localStorage.length).toBe(0);
         expect(api.current.read()).toBeNull();
         h.unmount();
-        expect(sessionStorage.length).toBe(0);
+        expect(localStorage.length).toBe(0);
     });
 
     it('clear forgets both the stored camera and a pending one', () => {
