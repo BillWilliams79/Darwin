@@ -10,7 +10,11 @@
 
 import { describe, it, expect } from 'vitest';
 
-import { buildPipelineModel } from '../pipelineViewModel';
+// req #3462 (production outage) restored `orderedPlan` to pipelineViewModel.js
+// itself, so the req #3381 workaround this file used — importing
+// `buildTestOrderedPlan as orderedPlan` from the now-deleted `testOrderedPlan.js`
+// shim — is gone with it; import the real thing again.
+import { buildPipelineModel, orderedPlan } from '../pipelineViewModel';
 import { computePlanLayout, placeEpicChips } from '../pipelinePlanLayout';
 import {
     epicCycleKey, epicZoomStateKey, nextLaunchStep, nextEpicZoom,
@@ -18,9 +22,6 @@ import {
     EPIC_ZOOM_BAND, EPIC_ZOOM_STEP,
 } from '../pipelineEpicZoom';
 import { EPIC_ZOOM_READS, EPIC_ZOOM_PIPELINE, EPIC_ZOOM_NOW } from './epicZoomFixture';
-// req #3381 — `orderedPlan` was deleted from pipelineViewModel.js; see
-// testOrderedPlan.js's header for why this file still needs a `plan` fixture.
-import { buildTestOrderedPlan as orderedPlan } from './testOrderedPlan';
 
 const plan = orderedPlan(
     buildPipelineModel({ pipeline: EPIC_ZOOM_PIPELINE, ...EPIC_ZOOM_READS }),

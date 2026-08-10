@@ -81,30 +81,16 @@ const PIPELINES = [
 
 vi.mock('../../../hooks/useDataQueries', async (importOriginal) => {
     const actual = await importOriginal();
-    const { composedFixture } = await import('./pipeline2ComposedFixture');
     const empty = () => ({ data: [], isLoading: false, isError: false });
-    // req #3381 — `useAllPipelines` SURVIVES: the LIST page (`PipelinesPage`)
-    // is still 1.0 and untouched by this requirement. Only the DETAIL page's
-    // fetch changed, to the composed 2.0 read, keyed by the SAME ids
-    // `PIPELINES` above already names.
-    const FIXTURES = {
-        2: composedFixture({ id: 2, title: 'Darwin' }),
-        5: composedFixture({ id: 5, title: 'Substrate' }),
-    };
     return {
         ...actual,
         useAllPipelines: () => ({ data: PIPELINES, isLoading: false, isError: false }),
-        // PipelinesPage.jsx itself (the LIST page, untouched — still 1.0)
-        // reads these directly for its own per-card summaries
-        // (`pipelineSummaries`/`pipelineRequirementCounts`); only the DETAIL
-        // page's fetch moved to the composed 2.0 read.
         useAllPipelineSteps: empty,
         useAllPipelineStepRequirements: empty,
         useAllPipelineStepDeps: empty,
         useAllRequirements: empty,
         useAllFeatures: empty,
         useAllEpics: empty,
-        useComposedPipeline2: (id) => ({ data: FIXTURES[id] ?? null, isLoading: false }),
         useMachines: empty,
         useOrchestrationClaims: empty,
         useAllRequirementSessions: empty,
