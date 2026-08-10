@@ -1918,12 +1918,12 @@ export default function PipelinePlanVisualizer({
         if (arc.straight) {
             worldNodes.push(
                 <Line key={`arc-${i}`} points={[arc.x1, arc.y1, arc.x2, arc.y2]}
-                      stroke="#3d5a86" strokeWidth={1.2} opacity={0.65}
+                      stroke={P.arc} strokeWidth={1.2} opacity={0.85}
                       listening={false} />);
         } else {
             worldNodes.push(
-                <Path key={`arc-${i}`} data={arc.path} stroke="#3d5a86"
-                      strokeWidth={1.2} opacity={0.65} listening={false} />);
+                <Path key={`arc-${i}`} data={arc.path} stroke={P.arc}
+                      strokeWidth={1.2} opacity={0.85} listening={false} />);
         }
     });
 

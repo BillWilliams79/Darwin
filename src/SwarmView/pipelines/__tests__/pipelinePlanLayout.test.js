@@ -3201,6 +3201,15 @@ describe('the pause status bubble (req #3226)', () => {
     });
 });
 
+describe('the dependency-arc stroke (req #3366)', () => {
+    it('clears the 3:1 WCAG AA floor for graphical marks against the panel', () => {
+        // MEASURED 2026-08-10: prior `#3d5a86` ~1.75:1 (the "too light"
+        // complaint this brightened); `PLAN_VIZ_PALETTE.arc` ~3.80:1.
+        expect(contrast(PLAN_VIZ_PALETTE.arc, PLAN_VIZ_PALETTE.panel))
+            .toBeGreaterThanOrEqual(3);
+    });
+});
+
 // ── The channel table matches the rendered key (req #3374 P3) ──────────────
 // `COLOR_CHANNELS` is the header table in the module docblock, as data.
 // `PipelinePlanVisualizer` reads its two `KeyGroup` titles from
