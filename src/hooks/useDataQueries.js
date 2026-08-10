@@ -987,6 +987,11 @@ export const useAllPipelineSteps            = pipelineSteps.useAll;
 // rows and never grows with the size of a plan.
 export const useOrchestrationClaims         = orchestrationClaims.useAll;
 export const useAllPipelineStepRequirements = pipelineStepRequirements.useAll;
+// Req #3435 — the requirement editor's Step row WRITES this junction (seating a
+// requirement on a step), so it needs the invalidation prefix as well as the
+// read. Same `<entity>Keys = <entity>.keys` convention as the agent-telemetry
+// blocks above.
+export const pipelineStepRequirementKeys = pipelineStepRequirements.keys;
 export const useAllPipelineStepDeps         = pipelineStepDeps.useAll;
 
 // Req #3180 — the requirement ids a pipeline STEP carries, as a Set.
