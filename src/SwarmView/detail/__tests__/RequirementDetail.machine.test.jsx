@@ -33,10 +33,31 @@ const MACHINES = [
 // `useMachines` is produced by createEntityQueries, so its fetch happens INSIDE
 // the factory module and a fetchEntity mock would not intercept it. Override the
 // hook the component actually consumes instead.
+// Req #3435 — the Orchestration box added six list reads to every mount of this
+// page. This suite is about the Machine pin and uses none of them, so they are stubbed
+// EMPTY rather than left to run: an unstubbed mount pays five extra TanStack
+// queries per test. That removes the cost rather than budgeting for it; the
+// timeout note above covers what remains, which is render cost, not I/O.
+// A FUNCTION DECLARATION, not a const: `vi.mock` factories are hoisted above
+// every module-level binding, so a `const` here is in its temporal dead zone
+// when the factory runs and the mock fails with a bare "error when mocking a
+// module". Declarations hoist whole.
+function orchestrationStubs() {
+    const empty = { data: [], isLoading: false, isError: false, isPending: false, isSuccess: true };
+    return {
+        useAllPipelines: () => empty,
+        useAllPipelineSteps: () => empty,
+        useAllPipelineStepRequirements: () => empty,
+        useAllEpics: () => empty,
+        useAllFeatures: () => empty,
+    };
+}
+
 vi.mock('../../../hooks/useDataQueries', async (importOriginal) => {
     const actual = await importOriginal();
     return {
         ...actual,
+        ...orchestrationStubs(),
         useMachines: () => ({ data: MACHINES }),
         useAllCategories: () => ({ data: [{ id: 1, category_name: 'Swarm' }] }),
     };
@@ -122,7 +143,13 @@ function baseRequirement(overrides = {}) {
     };
 }
 
-describe('RequirementDetail machine pin (req #2978)', () => {
+// Req #3435 — 15s, not vitest's 5000ms default. These cases MOUNT THE WHOLE
+// requirement page in jsdom, and the first one in a file also pays module init
+// for MUI. Measured before this requirement, the slowest case here already took
+// ~4s of the 5s budget, so the default was a latent flake rather than a real
+// ceiling; the Orchestration box's two extra MUI Selects are what pushed it
+// over. The assertions below are unchanged — only the budget they may take.
+describe('RequirementDetail machine pin (req #2978)', { timeout: 15000 }, () => {
     beforeEach(() => {
         putBodies.length = 0;
         requirementRow = baseRequirement();

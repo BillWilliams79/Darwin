@@ -429,15 +429,9 @@ export const agentTelemetryRowDocs = createEntityQueries({
 // a second copy of it on the wire would invite a join against the wrong one.
 export const orchestrationClaims = createEntityQueries({
     entity: 'orchestration_claims',
-    // `pipeline2_fk`/`epic2_fk` (req #3369) added by req #3381's code review
-    // — `claimForPipeline2`/`scopeLabel`'s 2.0 branch (orchestrationHolder.js)
-    // read these and were silently dead without them: NULL on a 1.0 row and
-    // vice versa (the same era pairing req #3350 already widened `sessions`'
-    // projection for, two declarations up, which this one was missed
-    // alongside).
     defaultFields:
-        'id,pipeline_fk,epic_fk,pipeline2_fk,epic2_fk,machine_fk,terminal_pid,' +
-        'engine_pid,polls,claimed_at,creator_fk,create_ts,update_ts',
+        'id,pipeline_fk,epic_fk,machine_fk,terminal_pid,engine_pid,polls,' +
+        'claimed_at,creator_fk,create_ts,update_ts',
     fieldsInKey: true,
     defaultSort: 'claimed_at:asc',
 });

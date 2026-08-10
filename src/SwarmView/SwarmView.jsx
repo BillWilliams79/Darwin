@@ -318,6 +318,11 @@ const SwarmView = () => {
     ];
 
     // Model/Effort display preference (req #3029) — only meaningful in Cards view.
+    //
+    // req #3419 deliberately adds NOTHING here. The gold orchestrated mark had
+    // two toggles and a border-size ladder for one round and they were removed:
+    // the mark is one fixed appearance, so there is nothing to configure and
+    // nothing to keep in sync.
     const settingsToggleItems = view === 'cards' ? [
         {
             label: 'Show Model & Effort on all cards',
@@ -469,13 +474,20 @@ const SwarmView = () => {
                                 testId="requirement-status-filter"
                             />
                         )}
-                        {/* req #3180 — the label names the question it answers:
-                            PIPELINE STEP association ("is this scheduled"), not
-                            epic association ("does this belong to a body of
-                            work"). A requirement can carry a feature, and so an
-                            epic, while sitting in no plan at all; a label that
-                            didn't distinguish them would be read as answering
-                            whichever one the user had in mind. */}
+                        {/* req #3419 — ORCHESTRATED now means BOTH: a pipeline
+                            step carries it, OR an epic seats it (requirement ->
+                            feature -> epic). req #3180 answered step
+                            association alone and called the gap "what the
+                            filter exists to expose"; measured on production,
+                            what the reader saw was a control asked to hide
+                            orchestrated work still showing 4 epic-seated
+                            requirements in one card. Filed twice, so the
+                            control now answers the question its label makes.
+                            The tooltip names both halves for the same reason
+                            #3180's named one: a reader must not have to guess
+                            which membership the icon means. LAUNCH ELIGIBILITY
+                            is unaffected and stays step-only — see
+                            `swarmStartCardUtils.aggregatorRowVisible`. */}
                         {/* `!drill` for the same reason the status chips carry it:
                             a Trends drill-down bypasses both filters, so leaving
                             the control on screen would show an ON toggle that is
@@ -500,8 +512,8 @@ const SwarmView = () => {
                             says the exact opposite of what the reader sees. */}
                         {(view === 'cards' || (view === 'table' && !drill)) && !epicFilterEngaged && (
                             <Tooltip title={hidePipelined
-                                ? 'Hiding orchestrated requirements'
-                                : 'Showing orchestrated requirements'}>
+                                ? 'Hiding orchestrated requirements (on a plan step or in an epic)'
+                                : 'Showing orchestrated requirements (on a plan step or in an epic)'}>
                                 <IconButton
                                     size="small"
                                     onClick={toggleHidePipelined}

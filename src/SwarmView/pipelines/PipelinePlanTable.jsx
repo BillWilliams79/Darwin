@@ -12,8 +12,9 @@
 //      ordering regressions shipped in one day). A sortable grid hands the user a
 //      one-click way to produce an order the invariants forbid, with no way for
 //      the renderer to object.
-//   2. Launch-batch banner rows (design rule 8) are full-width rows that must sit
-//      immediately above their members. A grid row is a record; a banner is not.
+//   2. A step row carries a MULTI-LINE payload — the requirement links and, on
+//      scheduled work, the exact `/swarm-start` argument list (design rule 8).
+//      A grid row is one line of records; this is not.
 //   3. Epic/Feature render once per contiguous group — a property OF THE ORDER,
 //      which re-sorting or filtering silently falsifies.
 //
@@ -44,7 +45,6 @@ import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import Link from '@mui/material/Link';
 import Paper from '@mui/material/Paper';
-import Stack from '@mui/material/Stack';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
 import TableCell from '@mui/material/TableCell';
@@ -57,11 +57,10 @@ import CheckIcon from '@mui/icons-material/Check';
 
 import { useScrollMemory } from '../../hooks/useScrollMemory';
 import { scrollStorageKey } from '../../utils/viewportMemory';
-import { fmtCost, STEP_DONE, STEP_RUNNING } from './pipelineModel';
+import { fmtCost, STEP_DONE, STEP_RUNNING, STEP_PENDING } from './pipelineModel';
 import {
     planRenderRows,
     rowMachineLabel,
-    batchMachineLabel,
     formatTimeGates,
     stepName,
     stepDescription,
@@ -72,7 +71,7 @@ import {
     runLabel,
     runChipProps,
     ROW_ACCENT,
-    BATCH_ACCENT,
+    LAUNCH_ACCENT,
     ELIGIBLE_MARKER_COLOR,
     // req #3226 — the SAME red the pause bubble/halo use, so "suppressed"
     // reads as one fact across every surface it appears on rather than three
@@ -103,13 +102,16 @@ const COL = {
     cost: 96,
     epic: 190,
     feature: 170,
+    // NOTE: `reqs` (below) was widened from 168 by req #3371 — the step row now
+    // carries the `/swarm-start` command under its requirement links, and the
+    // command's arguments ARE those ids.
     // The step NAME (req #3119) — its own column, because a name and a
     // description answer different questions and the plan is skimmed by name.
     // Sized to the live plan's longest ("Guiding Principles and Data Refactor",
     // 36 chars) without flexing: a name column that reflows on content would
     // make the whole grid jump between plans.
     name: 210,
-    reqs: 168,
+    reqs: 240,
     deps: 200,
 };
 
@@ -164,79 +166,69 @@ export function OrderViolationsAlert({ plan }) {
 }
 
 // The condensation advisory that used to render here was DELETED, not hidden
-// (req #3303): it proposed a merge that batching already performs, and it could
-// not see the file contention rule 2's concurrency condition turns on. The
-// batch banner below is what the plan table says about steps that launch
-// together, and it is the whole of it.
+// (req #3303): it proposed a merge that launch grouping already performed, and
+// it could not see the file contention rule 2's concurrency condition turns on.
 
-// ── Launch-batch banner row (design rule 8) ─────────────────────────────────
-// Carries the batch letter, its member steps, its gate, and the EXACT one-line
-// /swarm-start argument list — the launch unit is explicit, not implied by
-// adjacency.
-function BatchBannerRow({ batch, colSpan, timezone }) {
-    // The REMAINING gate since req #3188 — the deps that are still open, which
-    // every member shares. So the empty case is "nothing left", not "never had
-    // one": a batch behind a Complete gate is launchable NOW, and printing the
-    // dep that closed weeks ago read as something still holding it back.
-    const gate = batch.gateStepIds.length
-        ? `steps ${batch.gateStepIds.join(', ')}`
-        : 'no remaining step gate';
-    // Through the SAME formatter the Depends-on cell uses. This banner printed
-    // the raw wire value — UTC, microseconds included — while the row eight lines
-    // below showed the localized one, for the same instant.
-    const timeGates = formatTimeGates(batch.timeDeps, timezone);
+// ── The step's own launch line (design rule 8, req #3371 / polish item P8) ──
+//
+// THE COMMAND DID NOT DISAPPEAR WITH THE BANNER — IT MOVED ONTO THE ROW.
+// Until Pipeline 2.0 the exact `/swarm-start` argument list rode a full-width
+// banner above the first member of each launch group, because a launch was N
+// steps and no single row could speak for it. In 2.0 the STEP is the launch
+// unit, so the whole payload is a property of ONE row: the member requirement
+// ids are the links this sits under, its declared dep steps are the
+// pre-existing Depends-on cell (that cell has never distinguished a met dep
+// from an open one, on 1.0 or 2.0 rows alike — this requirement did not add
+// or narrow that), the run mode is the Run chip and the machines are the
+// Machine cell. What none of those columns carried is the COMMAND, and
+// design rule 8's own artifact is the one thing a reader cannot reconstruct
+// from the others — so it renders here, inline, directly beneath the ids
+// that ARE its arguments.
+//
+// SCHEDULED WORK ONLY. The banner appeared over pending rows and nothing else
+// (a launch group was formed from pending steps), and that population is the
+// honest one: a Complete step's "nothing left to launch" is noise on every
+// finished row of a 150-step plan, and a Running step is already out.
+function StepLaunchLine({ row }) {
+    if (row.state !== STEP_PENDING) return null;
+    const command = row.swarmStartCommand || null;
+    const reason = row.noLaunchReason || null;
+    if (!command && !reason) return null;
+    const excluded = row.launchExcluded || [];
     return (
-        <TableRow data-testid={`pipeline-batch-banner-${batch.letter}`}>
-            <TableCell
-                colSpan={colSpan}
-                sx={{
-                    bgcolor: BATCH_ACCENT.bg,
-                    color: BATCH_ACCENT.color,
-                    borderTop: BATCH_ACCENT.borderTop,
-                    borderBottom: BATCH_ACCENT.borderBottom,
-                    py: 0.75,
-                    fontSize: '0.78rem',
-                    letterSpacing: '0.03em',
-                }}
-            >
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-                    <strong>LAUNCH BATCH {batch.letter}</strong>
-                    <span>steps {batch.stepIds.join(' ')}</span>
-                    <span>·</span>
-                    <span>gate: {gate}</span>
-                    {timeGates.map((t) => <span key={t}>· after {t}</span>)}
-                    <span>·</span>
-                    <span>{runLabel(batch.run)}</span>
-                    <span>·</span>
-                    <span>{batchMachineLabel(batch)}</span>
-                    {batch.swarmStartCommand ? (
-                        <Box
-                            component="code"
-                            sx={{ color: BATCH_ACCENT.codeColor, bgcolor: BATCH_ACCENT.codeBg,
-                                   px: 0.75, py: 0.25, borderRadius: '3px',
-                                   fontFamily: 'monospace' }}
-                            data-testid={`pipeline-batch-command-${batch.letter}`}
-                        >
-                            {batch.swarmStartCommand}
-                        </Box>
-                    ) : (
-                        <em>{batch.noLaunchReason
-                            || 'no linked requirements — nothing to launch'}</em>
-                    )}
-                    {/* req #3360. A PARTIAL exclusion is the common case and it
-                        is invisible without this: the command reads
-                        `/swarm-start 3329 3331 3333` on a step that links six
-                        requirements, which is indistinguishable from a dropped
-                        one. Rendered only ALONGSIDE a command — when there is
-                        none, `noLaunchReason` above already names every id. */}
-                    {batch.swarmStartCommand && (batch.launchExcluded || []).length > 0 && (
-                        <em data-testid={`pipeline-batch-skipped-${batch.letter}`}>
-                            skipped: {batch.launchExcluded.join(', ')}
-                        </em>
-                    )}
+        <Box sx={{ mt: 0.5, display: 'flex', flexDirection: 'column', gap: 0.25 }}>
+            {command ? (
+                <Box
+                    component="code"
+                    sx={{ color: LAUNCH_ACCENT.codeColor, bgcolor: LAUNCH_ACCENT.codeBg,
+                           px: 0.75, py: 0.25, borderRadius: '3px',
+                           fontFamily: 'monospace', fontSize: '0.75rem',
+                           overflowWrap: 'anywhere' }}
+                    data-testid={`pipeline-launch-command-${row.id}`}
+                >
+                    {command}
                 </Box>
-            </TableCell>
-        </TableRow>
+            ) : (
+                <Typography variant="caption" color="text.secondary"
+                            sx={{ fontStyle: 'italic' }}
+                            data-testid={`pipeline-launch-blocked-${row.id}`}>
+                    {reason}
+                </Typography>
+            )}
+            {/* req #3360. A PARTIAL exclusion is the common case and it is
+                invisible without this: the command reads `/swarm-start 3329
+                3331 3333` on a step that links six requirements, which is
+                indistinguishable from a dropped one. Rendered only ALONGSIDE a
+                command — when there is none, the reason above already names
+                every id. */}
+            {command && excluded.length > 0 && (
+                <Typography variant="caption" color="text.secondary"
+                            sx={{ fontStyle: 'italic' }}
+                            data-testid={`pipeline-launch-skipped-${row.id}`}>
+                    skipped: {excluded.join(', ')}
+                </Typography>
+            )}
+        </Box>
     );
 }
 
@@ -336,7 +328,6 @@ export default function PipelinePlanTable({ plan, pipeline, timezone, focusStepI
     // per-requirement fan-out that got the POC's version disabled.
 
     const renderRows = useMemo(() => planRenderRows(plan), [plan]);
-    const hasBatches = (plan.batches || []).length > 0;
 
     // Req #3115 handshake: a bead click in the Plan visualizer switches to this
     // mode with focusStepId set — scroll that row to center and highlight it.
@@ -391,11 +382,6 @@ export default function PipelinePlanTable({ plan, pipeline, timezone, focusStepI
         ? scrollStorageKey('pipeline-plan-table-x', pipeline.id) : null,
     tableEl, { restore: !linkOwnsScroll });
 
-    // Column count for the banner colSpan — must track the Cost column's
-    // visibility or the banner under-spans and leaves a ragged edge.
-    // 10 fixed columns since the Name column landed (req #3119).
-    const colSpan = 10 + (showCost ? 1 : 0);
-
     if (!renderRows.length) {
         return (
             <Box>
@@ -415,10 +401,13 @@ export default function PipelinePlanTable({ plan, pipeline, timezone, focusStepI
             <OrderViolationsAlert plan={plan} />
 
             {/* The Time / Tokens control moved to the page header row (req
-                #3119). What stays here is the pair of things that describe THIS
-                table: the cost-read failure notice and the batch legend. */}
+                #3119). What stays here is the one thing that describes THIS
+                table: the cost-read failure notice. The launch-group legend
+                beside it ("these steps go out in one /swarm-start") went with
+                the group itself — req #3371 — and needs no replacement: one
+                step IS one launch, so there is no grouping left to explain. */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1, flexWrap: 'wrap',
-                        minHeight: (showCost && costError) || hasBatches ? undefined : 0 }}>
+                        minHeight: showCost && costError ? undefined : 0 }}>
                 {showCost && costError && (
                     <Typography variant="caption" color="error"
                                 data-testid="pipeline-cost-error">
@@ -428,17 +417,6 @@ export default function PipelinePlanTable({ plan, pipeline, timezone, focusStepI
                     </Typography>
                 )}
                 <Box sx={{ flexGrow: 1 }} />
-                {/* Legend key renders ONLY when a batch exists — POC polish
-                    directive, kept in the product. */}
-                {hasBatches && (
-                    <Stack direction="row" spacing={1} alignItems="center"
-                           data-testid="pipeline-batch-legend">
-                        <Box sx={{ width: 18, borderTop: BATCH_ACCENT.borderTop }} />
-                        <Typography variant="caption" sx={{ color: BATCH_ACCENT.color }}>
-                            launch batch — these steps go out in one /swarm-start
-                        </Typography>
-                    </Stack>
-                )}
             </Box>
 
             <TableContainer component={Paper} variant="outlined" ref={setTableEl}>
@@ -464,17 +442,7 @@ export default function PipelinePlanTable({ plan, pipeline, timezone, focusStepI
                     </TableHead>
                     <TableBody>
                         {renderRows.map((entry) => {
-                            if (entry.kind === 'batch') {
-                                return (
-                                    <BatchBannerRow
-                                        key={`batch-${entry.batch.letter}`}
-                                        batch={entry.batch}
-                                        colSpan={colSpan}
-                                        timezone={timezone}
-                                    />
-                                );
-                            }
-                            const { row, showEpic, showFeature, eligible, batchLetter } = entry;
+                            const { row, showEpic, showFeature, eligible } = entry;
                             const running = row.state === STEP_RUNNING;
                             // The visualizer-focused row outranks the state tints:
                             // the user just clicked THIS bead and must find it.
@@ -484,11 +452,12 @@ export default function PipelinePlanTable({ plan, pipeline, timezone, focusStepI
                                 : running
                                 ? ROW_ACCENT.running.tint
                                 : eligible ? ROW_ACCENT.eligible.tint : undefined;
-                            // Batch membership is the loudest edge (it says "this
-                            // launches with others"); otherwise running, then eligible.
-                            const edge = batchLetter
-                                ? ROW_ACCENT.batchMember.edge
-                                : running ? ROW_ACCENT.running.edge
+                            // THE EDGE IS THE ROW'S OWN STATE, on every row (req
+                            // #3371). A dashed teal edge used to outrank both of
+                            // these, marking membership of a multi-step launch
+                            // group; one step is one launch now, so there is no
+                            // membership and nothing to outrank them with.
+                            const edge = running ? ROW_ACCENT.running.edge
                                 : eligible ? ROW_ACCENT.eligible.edge : undefined;
                             // Step gates and wall-clock gates render on SEPARATE
                             // lines. A formatted datetime contains both spaces and
@@ -613,6 +582,11 @@ export default function PipelinePlanTable({ plan, pipeline, timezone, focusStepI
                                                testid={`pipeline-feature-${row.id}`} />
                                     <TableCell sx={{ width: COL.reqs }}>
                                         <RequirementLinks row={row} pipelineId={pipeline?.id} />
+                                        {/* Design rule 8's own artifact, on the
+                                            row that owns it — see StepLaunchLine.
+                                            Directly under the ids because they
+                                            ARE the command's arguments. */}
+                                        <StepLaunchLine row={row} />
                                     </TableCell>
                                     <TableCell sx={{ minWidth: 340 }}>
                                         <Typography variant="body2"

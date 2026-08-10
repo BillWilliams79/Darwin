@@ -40,10 +40,25 @@ const reqData = [
 ];
 const EMPTY_SESSIONS = [];
 let pipelinedIds = new Set([10, 11]);
+// req #3419 MERGE — `usePipelinedRequirementIds` is gone; the REAL
+// `useRequirementVisibility` now owns both the id set and the epic override
+// (`effectiveHidePipelined` moved inside it). Feed it the three bounded reads it
+// joins, as the wire shapes they arrive in, so the epic-forces-toggle-off rule
+// this file exists to test is exercised for real rather than stubbed past.
+//
+// MODULE-LEVEL constants, never inline `[]` literals: a fresh array per render
+// churns the hook's memoized Sets and re-runs the card's seeding effect, which
+// is a synchronous render loop rather than a failing assertion.
+const JUNCTION = [...pipelinedIds].map((id) => ({ step_fk: 1, requirement_fk: id }));
+const ALL_REQS = reqData.map(({ id, feature_fk }) => ({ id, feature_fk }));
+const FEATURES = [{ id: 46, epic_fk: 11 }, { id: 50, epic_fk: 12 }];
 vi.mock('../../hooks/useDataQueries', () => ({
     useRequirements: () => ({ data: reqData }),
     useSessions: () => ({ data: EMPTY_SESSIONS }),
-    usePipelinedRequirementIds: () => pipelinedIds,
+    useAllPipelineStepRequirements: () => ({ data: JUNCTION }),
+    useAllRequirements: () => ({ data: ALL_REQS }),
+    useAllFeatures: () => ({ data: FEATURES }),
+    ALL_ROWS: 'all',
 }));
 
 vi.mock('../../RestApi/RestApi', () => ({ default: vi.fn(() => Promise.resolve({ httpStatus: { httpStatus: 200 }, data: [] })) }));

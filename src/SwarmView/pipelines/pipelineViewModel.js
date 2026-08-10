@@ -15,12 +15,20 @@
 
 import { formatDateTime } from '../../utils/dateFormat';
 import {
+    aggregateRowCost,
     buildPlanRows,
+    displayOrder,
+    verifyOrder,
+    launchBatches,
+    eligibility,
     requirementCounts,
+    pauseState,
+    serialState,
     STEP_DONE,
     STEP_RUNNING,
     STEP_PENDING,
 } from './pipelineModel';
+import { planTimeAxis } from './pipelinePlanTime';
 import { PIPELINE_STATUS_VALUES } from './pipelineChipStyles';
 
 const asArray = (v) => (Array.isArray(v) ? v : []);
@@ -234,18 +242,124 @@ export function buildCostIndex({ requirementSessions, sessionCosts } = {}) {
 }
 
 /**
- * The flat render list the plan table maps over: launch-batch banner rows
- * interleaved with step rows, each step row pre-decorated with everything the
- * cell renderers need.
+ * Run the engine end to end over a model: derive → order → SELF-CHECK → batch →
+ * mark eligibility → attach cost → derive the time axis.
  *
- * A banner is emitted immediately before the FIRST member of its batch in display
- * order. One banner per batch is always correct: the banner names its own
- * members, so it stays readable even on the split described at the foot of this
- * comment.
+ * The verifyOrder() call is on the RENDERED order, which is design rule 3's whole
+ * point: the renderer checks its own output and the caller renders any violation
+ * loudly. `violations` is the only green light — an empty array.
  *
- * Epic/Feature "render once per contiguous group" is computed over STEP rows
- * only: a banner between two rows of the same epic must not restart the group,
- * or the plan would repeat a label for purely decorative reasons.
+ * Cost is attached HERE, onto `row.cost`, rather than computed in a cell
+ * renderer: the plan table and the plan visualizer are two surfaces over one
+ * plan, and a number they each derive independently is a number that can
+ * disagree. It is attached AFTER ordering and verification and is never an
+ * ordering input — cost must not be able to move a row.
+ *
+ * @param {Object} model         from buildPipelineModel
+ * @param {Object} [options]
+ * @param {(Date|number|string)} [options.now]  clock for time-gate eligibility
+ * @param {?Object} [options.costIndex]          from buildCostIndex
+ * @returns {Object} plan
+ */
+export function orderedPlan(model, { now, costIndex = null } = {}) {
+    const planRows = buildPlanRows(model || {});
+    const { rows, cycleDetected, cycleStepIds, duplicateStepIds } = displayOrder(planRows);
+    const violations = verifyOrder(rows);
+    const batches = launchBatches(rows);
+
+    const batchLetterByStepId = new Map();
+    for (const b of batches) {
+        for (const id of b.stepIds) batchLetterByStepId.set(id, b.letter);
+    }
+
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const eligibleStepIds = new Set(
+        rows.filter((r) => eligibility(r, byId, now)).map((r) => r.id),
+    );
+
+    // Junction rows whose requirement is missing from the read. Design rule 5
+    // says the page renders from bounded reads; a bounded read that TRUNCATED
+    // would under-derive step state in total silence, so it is surfaced with the
+    // ordering violations rather than shrugged off.
+    const unresolvedReqIds = [];
+    for (const r of rows) {
+        for (const id of r.unresolvedReqIds || []) {
+            if (!unresolvedReqIds.includes(id)) unresolvedReqIds.push(id);
+        }
+    }
+
+    // req #3226 — pause suppression (req #3223's enforcement half, rendered
+    // here). Mutates each row with `launchSuppressed`/`suppressedBy`, the same
+    // "freshly built rows this call owns" discipline `row.cost` relies on
+    // below, so it runs first and the cost loop's own comment still describes
+    // every mutation these rows carry.
+    const pause = pauseState(model || {}, rows);
+
+    // req #3388 — serial turn-taking, IMMEDIATELY AFTER pause and before
+    // anything reads `suppressedBy`. It appends `turn` to the same list pause
+    // just wrote, so calling it later (or not at all) leaves the browser
+    // showing a step as launchable while the engine is holding it — the two
+    // surfaces disagreeing about the live plan, which is the exact failure the
+    // shared conformance corpus exists to prevent. The corpus pins
+    // `serialState` itself; THIS line is what puts it on the browser's path.
+    const serial = serialState(model || {}, rows);
+
+    // MUTATED IN PLACE deliberately: `rows` are the freshly built PlanRows this
+    // call owns (buildPlanRows returns new objects every time), never the caller's
+    // input, so there is nothing outside this function to surprise.
+    for (const r of rows) r.cost = aggregateRowCost(r, costIndex);
+
+    // The visualizer's TIME AXIS (req #3201). Derived here rather than in the
+    // canvas for the same reason cost is: the plan table and the plan
+    // visualizer are two surfaces over one plan, and a fact they each derive
+    // independently is a fact that can disagree. Like cost, and for the same
+    // reason, it is computed AFTER ordering and is never an ordering input —
+    // display order stays topological-then-state-banded (rule 3), and only the
+    // canvas's column origins and band stacking read this.
+    const timeAxis = planTimeAxis(rows, (model && model.requirements) || []);
+
+    return {
+        rows,
+        violations,
+        timeAxis,
+        batches,
+        batchLetterByStepId,
+        eligibleStepIds,
+        cycleDetected,
+        cycleStepIds,
+        duplicateStepIds,
+        unresolvedReqIds,
+        // req #3225 — pure CPU over `model.requirements`/`model.features`,
+        // both already in hand. No extra read, same as cost/timeAxis above.
+        requirementCounts: requirementCounts(model || {}),
+        // req #3226 — see the mutation above; carried here too so a consumer
+        // that only has `plan` (not the rows) can still read the plan-wide
+        // and epic-wide pause facts.
+        pause,
+        // req #3388 — the mode, the epic order, which epics are closed, whose
+        // turn it is and what that holds. Carried beside `pause` for the same
+        // reason: a consumer with only `plan` and not the rows still needs the
+        // plan-wide answer.
+        serial,
+    };
+}
+
+/**
+ * The flat render list the plan table maps over: ONE ENTRY PER STEP ROW,
+ * pre-decorated with everything the cell renderers need.
+ *
+ * ONE ROW KIND (req #3371). This list used to interleave full-width
+ * launch banners with the step rows — a banner immediately before the first
+ * member of each launch group, carrying that group's letter, members, gate, run
+ * mode, machines and the exact `/swarm-start` argument list. In Pipeline 2.0 the
+ * STEP is the launch unit, so all of that is a property of ONE row and renders
+ * on it: `kind`, the per-row launch-group letter and the emitted/by-letter
+ * bookkeeping are gone with the banner, and the plan table renders the command
+ * in the step's own Requirement(s) cell.
+ *
+ * Epic/Feature "render once per contiguous group" therefore has nothing to skip
+ * over any more — it used to be computed over STEP rows only, so a banner
+ * between two rows of the same epic could not restart the group.
  *
  * Grouping compares epic/feature IDS, not titles. Two distinct epics that happen
  * to share a title would otherwise merge into one visual group and the second's
@@ -253,49 +367,28 @@ export function buildCostIndex({ requirementSessions, sessionCosts } = {}) {
  * (epic 9003 and feature 9012 are both titled "Swarm Orchestration Feature").
  * The engine exposes both ids, so there is no reason to compare display strings.
  *
- * NOTE on batch banners: a banner CAN span a non-member row, and since req #3192
- * that no longer implies a violation is on screen to explain it.
- *
- * Design rule 3 orders its criteria — topological, THEN state bands — so a
- * Running step that gates a Scheduled batch-mate is TRAPPED between two members
- * of that batch and no ordering separates them. `verifyOrder` used to report the
- * forced case as `batch-contiguity`; it now excuses exactly the splits that are
- * forced, so this render is the ordinary appearance of a legitimate plan.
- *
- * It reads correctly without the alert: the banner names its own members
- * (`steps 1 3`), and the intervening row gets no `batchLetter` — there is no
- * batch COLUMN, so what that changes is the row's left-border accent, which
- * falls through to its state colour instead of the dashed batch-member edge. An
- * AVOIDABLE split still raises `batch-contiguity` and the page still renders it
- * loudly — that one really is the ordering's fault.
- *
- * @param {Object} plan  from orderedPlan
- * @returns {Array<{kind: 'batch'|'step'}>}
+ * @param {Object} plan  `orderedPlan`'s return — req #3462 reverted the
+ *   Pipeline 2.0 composed-read path (`adaptComposedPipeline2`) off the detail
+ *   page after a production outage, so `orderedPlan` is this function's only
+ *   caller again; the shape (`rows`, `eligibleStepIds`) is what's read, not
+ *   the producer, so this keeps working unchanged if that path returns.
+ * @returns {Array<{row: Object, showEpic: boolean, showFeature: boolean,
+ *                  eligible: boolean}>}
  */
 export function planRenderRows(plan) {
-    const { rows = [], batches = [], batchLetterByStepId = new Map(),
-        eligibleStepIds = new Set() } = plan || {};
-    const batchByLetter = new Map(batches.map((b) => [b.letter, b]));
-    const emitted = new Set();
+    const { rows = [], eligibleStepIds = new Set() } = plan || {};
     const out = [];
     let prevEpic;
     let prevFeature;
 
     for (const row of rows) {
-        const letter = batchLetterByStepId.get(row.id);
-        if (letter && !emitted.has(letter)) {
-            emitted.add(letter);
-            out.push({ kind: 'batch', batch: batchByLetter.get(letter) });
-        }
         const epic = row.epicId != null ? row.epicId : null;
         const feature = row.featureId != null ? row.featureId : null;
         out.push({
-            kind: 'step',
             row,
             showEpic: epic !== prevEpic,
             showFeature: feature !== prevFeature,
             eligible: eligibleStepIds.has(row.id),
-            batchLetter: letter || null,
         });
         prevEpic = epic;
         prevFeature = feature;
@@ -420,7 +513,7 @@ export function pipelinesEmptyMessage(hiddenStatusCounts) {
 //
 // SCOPE, stated precisely because it is easy to over-apply: it governs labels
 // this UI GENERATES — requirement id links, machine labels, step ids, gate and
-// batch text. It does NOT govern the plan's own prose. A step title like
+// launch text. It does NOT govern the plan's own prose. A step title like
 // "Clone canary 2 (Mac mini, #3077 R13)" and a notes field like "dispositioned
 // into #3061 scope" are stored PLAN CONTENT, and rewriting them at render time
 // would be falsifying the user's own record to satisfy a styling rule. They
@@ -451,20 +544,18 @@ export function rowMachineLabel(row) {
     return labels.length ? labels.join(' / ') : '—';
 }
 
-/**
- * A launch batch's machine labels, same rules, for the banner row.
- */
-export function batchMachineLabel(batch) {
-    const labels = asArray(batch && batch.machineLabels).map(stripHash);
-    return labels.length ? labels.join(' / ') : '—';
-}
+// A second machine formatter lived here until req #3371 — same rules, reading
+// a launch group's own `machineLabels` for the banner row. The step row's cell
+// already goes through `rowMachineLabel` above, and with the banner gone there
+// was one carrier and one caller, so the duplicate is deleted rather than
+// renamed: a helper nothing calls is worse than the three lines it saved.
 
 // ── Time gates ──────────────────────────────────────────────────────────────
 //
-// ONE formatter, used by BOTH the Depends-on cell and the launch-batch banner.
-// They are the same instant and must not read two different ways eight rows
-// apart — the banner shipped the raw wire value (`2026-07-24 06:31:38.000000`,
-// UTC, microseconds and all) while the cell showed a localized one.
+// ONE formatter, used by BOTH the Depends-on cell and the launch line on a step
+// row. They are the same instant and must not read two different ways — the old
+// launch banner shipped the raw wire value (`2026-07-24 06:31:38.000000`, UTC,
+// microseconds and all) while the cell showed a localized one.
 //
 // `dateFormat.formatDateTime` now normalizes BOTH the MySQL space-separated
 // naive form and the ISO-ish `T` form to UTC (req #3120 fixed the asymmetry
@@ -482,7 +573,7 @@ export function formatTimeGate(timeAt, timezone) {
 }
 
 /**
- * All of a step's or batch's wall-clock gates, formatted.
+ * All of a step's wall-clock gates, formatted.
  *
  * Returned as an ARRAY, never pre-joined: a formatted datetime contains both
  * spaces and commas, so any single-character delimiter is ambiguous inside it —

@@ -3,10 +3,17 @@ import { useParams, useNavigate, useLocation, Link as RouterLink } from 'react-r
 import call_rest_api from '../../RestApi/RestApi';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
 import { useShowClosedStore, ALL_REQUIREMENT_STATUSES } from '../../stores/useShowClosedStore';
-import { useAllCategories, useMachines, useFeatureById, useEpicById, usePipelinedRequirementIds } from '../../hooks/useDataQueries';
-import { useEpicPipelineLocation } from './useEpicPipelineLocation';
-import { useRequirementStepLocation } from './useRequirementStepLocation';
-import { epicLinkTo } from '../pipelines/pipelineEpicLink';
+import { useAllCategories, useMachines,
+    pipelineStepRequirementKeys } from '../../hooks/useDataQueries';
+// Master replaced this page's `usePipelinedRequirementIds` + `hidePipelined` pair
+// with one `useRequirementVisibility().isVisible` predicate; that change merged
+// into the body cleanly, so only the import line collided with req #3435's.
+import { useRequirementVisibility } from '../../hooks/useRequirementVisibility';
+import { useOrchestrationIndex } from './useOrchestrationIndex';
+import {
+    epicForFeature, epicRowForFeature, stepOptions,
+} from './orchestrationIndex';
+import { epicLinkTo, planLinkTo } from '../pipelines/pipelineEpicLink';
 import { stepPlanLinkTo } from '../pipelines/pipelineStepLink';
 import { siblingElevator, readElevatorIds } from './requirementSort';
 import { coerceSortMode, DEFAULT_SORT_MODE } from '../processSort';
@@ -36,7 +43,7 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import TextField from '@mui/material/TextField';
-import { CircularProgress, Stack, Typography } from '@mui/material';
+import { alpha, CircularProgress, Stack, Typography } from '@mui/material';
 import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
 import Tooltip from '@mui/material/Tooltip';
@@ -47,6 +54,7 @@ import NorthIcon from '@mui/icons-material/North';
 import SouthIcon from '@mui/icons-material/South';
 import LayersIcon from '@mui/icons-material/Layers';
 import LanIcon from '@mui/icons-material/Lan';
+import AccountTreeIcon from '@mui/icons-material/AccountTree';
 
 // Soft limit for requirement titles — the swarm terminal, status line, and iTerm tab title
 // all cap at 35 chars (see ~/.claude/statusline.sh and scripts/swarm/iterm-launch.sh). Req #2410.
@@ -89,6 +97,66 @@ const CHIP_TEXT_INSET = 8;
 const FIELDSET_LEFT_INSET = 13;
 const SETTINGS_LABEL_WIDTH = ID_PREFIX_WIDTH - CHIP_TEXT_INSET;
 const FIELDSET_LABEL_WIDTH = SETTINGS_LABEL_WIDTH - FIELDSET_LEFT_INSET;
+
+// Req #3435 — the Orchestration box's two selects, styled as the Category select
+// is: standard variant with the underline suppressed until hover and no dropdown
+// arrow, so the value reads as text rather than as a form field. `minWidth` keeps
+// the box from resizing as the reader moves between a short plan name and a long
+// epic name; `maxWidth` keeps a long epic title from widening the whole row past
+// the AI Settings fieldset beside it, letting the label ellipsize instead.
+const ORCH_SELECT_SX = {
+    minWidth: 200,
+    maxWidth: 320,
+    fontSize: '0.95rem',
+    fontWeight: 500,
+    color: 'text.secondary',
+    '& .MuiSelect-select': {
+        py: 0,
+        pr: '0 !important',
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+    },
+    '&:before': { borderBottomColor: 'transparent' },
+    // Derived from the palette, not a hardcoded colour: the literal this box
+    // shipped with was white, which is invisible under a light palette.
+    '&:hover:not(.Mui-disabled):before': (theme) => ({
+        borderBottomColor: alpha(theme.palette.text.primary, 0.3),
+    }),
+};
+
+// Req #3435 — the two READ-ONLY rows. Same metrics as the select beside them so
+// all three values start at the same x and a long step title ellipsizes rather
+// than widening the fieldset past the AI Settings box next to it.
+// Fixed `width`, not content-sized — the same construction, and the same
+// constant, the Model/Effort rows use inside the AI Settings fieldset beside
+// this one (req #3327's alignment discipline). So a row name occupies a column of
+// exactly the width Autonomy gives its own label, and the icon after it starts at
+// one x on all three rows regardless of whether the word is "Pipeline" or "Epic" —
+// which is the whole reason it is not content-sized.
+//
+// It is NOT trying to align with Autonomy's label on screen: the two fieldsets sit
+// side by side in one flex row, not stacked, so there is no shared x to hit. What
+// is shared is the METRIC — same label width, same 8px gap after it — which is
+// what makes the two boxes read as one rhythm.
+const ORCH_ROW_LABEL_SX = {
+    width: FIELDSET_LABEL_WIDTH,
+    flexShrink: 0,
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+};
+
+const ORCH_VALUE_SX = {
+    minWidth: 200,
+    maxWidth: 320,
+    fontSize: '0.95rem',
+    fontWeight: 500,
+    color: 'text.secondary',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+};
 
 const getSessionColumns = (navigate, timezone) => [
     { field: 'id',           headerName: 'ID',        width: 70 },
@@ -277,108 +345,129 @@ const RequirementDetail = () => {
             }),
         [machinesData]
     );
-    // Req #3234 — Epic linkage (read-only): requirement -> feature -> epic.
-    // Targeted single-row reads (`useFeatureById`/`useEpicById`, existing in
-    // useDataQueries.js but previously unused anywhere) rather than the plan
-    // view's whole-table `useAllFeatures`/`useAllEpics` label dictionaries —
-    // this page needs at most one feature row and one epic row, not the whole
-    // account's features/epics just to resolve one requirement's chain.
-    // `!isNew` is implied by `linkedFeatureFk != null`: the new-draft literal above
-    // has no `feature_fk` key at all, so a brand-new requirement never reaches here.
-    const linkedFeatureFk = requirement?.feature_fk ?? null;
-    const { data: linkedFeatureRaw, isLoading: linkedFeatureLoading, isError: linkedFeatureErrored } =
-        useFeatureById(profile?.userName, linkedFeatureFk, { enabled: linkedFeatureFk != null });
-    const linkedFeature = Array.isArray(linkedFeatureRaw) ? linkedFeatureRaw[0] : linkedFeatureRaw;
-    const linkedEpicFk = linkedFeature?.epic_fk ?? null;
-    const { data: linkedEpicRaw, isLoading: linkedEpicLoading, isError: linkedEpicErrored } =
-        useEpicById(profile?.userName, linkedEpicFk, { enabled: linkedEpicFk != null });
-    const linkedEpic = Array.isArray(linkedEpicRaw) ? linkedEpicRaw[0] : linkedEpicRaw;
-    // Still resolving if the feature fetch hasn't landed yet, or it has and named
-    // an epic whose fetch hasn't landed yet. NOT loading when there is simply no
-    // feature (or no epic) to resolve — that is an answer, not a pending one.
-    const epicLinkResolving = linkedFeatureFk != null &&
-        (linkedFeatureLoading || (linkedEpicFk != null && linkedEpicLoading));
-    // Code review, req #3234: a failed fetch is NOT "no epic" — `isLoading` alone
-    // (TanStack v5: pending && fetching) goes false once retries exhaust on an
-    // error, same as on a real resolve, and rendering "No epic" there asserts a
-    // wrong fact the user can't tell apart from the true unlinked case. Kept
-    // distinct from `epicLinkResolving` rather than folded in: this box is
-    // read-only and reports what it knows, so "couldn't check" and "checked,
-    // there's nothing" have to read differently.
-    const epicLinkErrored = linkedFeatureErrored || (linkedEpicFk != null && linkedEpicErrored);
+    // ── Req #3435 — the Orchestration box: WHICH PLAN, WHICH EPIC ───────────
+    // One index over six bounded list reads replaces the two targeted resolvers
+    // this box used to run (`useEpicPipelineLocation`, five serial hops for one
+    // epic; `useRequirementStepLocation`, three for one requirement). Those were
+    // right for a box that only REPORTED; this one OFFERS, and an epic dropdown
+    // asks "which plan is this epic in?" of every epic at once — the exact
+    // fan-out a per-row chain cannot serve. Five of the six reads are the same
+    // cache entries the plan pages hold. Detail in `useOrchestrationIndex.js`.
+    const orchestration = useOrchestrationIndex(profile?.userName, { enabled: !isNew });
+    const orchIndex = orchestration.index;
+    const orchSettled = orchestration.isSettled;
+    // SPLIT, not one flag (code review). The epic assignment needs `epics` and
+    // `features` and nothing else; a transient failure on any of the four
+    // plan-side reads has nothing to do with the write, and folding them
+    // together let one of them disable assignment entirely. The predecessor
+    // degraded gracefully by design — req #3235's own comment said a failed
+    // plan-location lookup "just renders no second link" — and that property
+    // has to survive the consolidation.
+    const epicSideErrored = orchestration.errors.epics || orchestration.errors.features;
+    const planSideErrored = orchestration.errors.plan;
+    // `errors.epicPlanMap` is deliberately NOT consumed here any more. It gated
+    // the epic list's narrowing; with the epic read-only, the only derived
+    // scoping left is the STEP list's, and a failed chained read empties
+    // `epicByStep` — which reads as "this step has no epic yet" and therefore
+    // WIDENS the list rather than narrowing it. Widening is the safe direction
+    // (the reader sees more steps, never fewer), so there is nothing to guard.
 
-    // Req #3235 — the epic box's SECOND link: where the epic sits on the plan
-    // visualizer, alongside the link above that opens the epic itself. Kicked
-    // off from `linkedEpicFk` directly rather than waiting on `linkedEpic` to
-    // land — the pipeline chain needs only the id, not the epic row, so the
-    // two resolve in parallel instead of one queueing behind the other.
-    // Deliberately not consuming the hook's `isLoading`/`isError`: this box's
-    // Loading/Error/No-epic states are the req #3234 contract and stay
-    // exactly as built (out of scope), so a slow or failed plan-location
-    // lookup just renders no second link — no different from "no pipeline" —
-    // rather than blocking or relabeling the first one.
-    const { pipelineId: epicPipelineId } = useEpicPipelineLocation(
-        profile?.userName, linkedEpicFk, { enabled: linkedEpicFk != null });
-    // Code review, req #3235: HOISTED rather than called inline in the JSX
-    // `to=` prop. `epicLinkTo` returns null for a non-integer epic id (a
-    // future BIGINT serialized as a string, a partial/mocked row) — the
-    // caller is documented and tested to render no link at all for that case,
-    // but `to={null}` handed straight to react-router's RouterLink throws at
-    // render instead. Mirrors `StepsPage.jsx`'s `const to = stepLinkTo(...)`
-    // guard for the sibling module.
-    // ── Req #3253 — the link lands on THIS REQUIREMENT'S STEP, not its epic ──
-    // `?epic=` fits the WHOLE band, and on a large epic (Pipeline on plan 2 spans
-    // most of the plan) fitting the entire epic IS a zoomed-out view. The link
-    // means "show me where this requirement lives", so it names the step.
+    // ── THREE LEVELS, AND ONLY ONE OF THEM IS SETTABLE ──────────────────────
+    // Pipeline, Epic, Step — top to bottom, each with a button that opens the
+    // visualizer AT THAT LEVEL and a value beside it. The Epic is the only
+    // selector; Pipeline and Step are read-only text.
     //
-    // The epic chain above still runs, and is still the answer when NO step
-    // carries this requirement — that is the one case an epic fit is right for,
-    // and it is left byte-identical to what req #3235 shipped.
+    // That is not a shortcut, it is what the data allows. There is no
+    // `requirements.pipeline_fk` and no `requirements.step_fk`: a requirement
+    // reaches a plan only by being seated on a `pipeline_steps` row, which is a
+    // PLAN mutation the Primary AI owns (memory/swarm-orchestration-doctrine.md),
+    // not a field on a requirement. An earlier cut of this box shipped a pipeline
+    // SELECT anyway, as a display-plus-local-filter, and it was withdrawn: it was
+    // indistinguishable from the control beside it (identical styling, sitting
+    // under a Category select that DOES save on change) while silently
+    // discarding the reader's choice on navigation, and it carried two meanings
+    // that disagree the moment a different plan is picked — "the plan this
+    // requirement is on" and "the plan I am filtering by".
     //
-    // WHY IT LIVES IN THE EPIC BOX. This is req #3235's control, re-pointed —
-    // the epic fieldset is its home and the requirement describes it there. A
-    // requirement on a step but under NO epic therefore still shows no plan link
-    // (the box renders "No epic" and nothing else), which is the box's existing
-    // contract rather than something this change decides.
-    const { stepId: planStepId, pipelineId: stepPipelineId,
-        isSettled: stepLocSettled } =
-        useRequirementStepLocation(profile?.userName, id);
-    // Hoisted, and null-guarded the same way `epicLinkTo`'s result is: both
-    // builders return null for an unusable id and `to={null}` handed to
-    // react-router's Link throws at render.
-    const stepPlanLink = planStepId != null
-        ? stepPlanLinkTo(stepPipelineId, planStepId) : null;
-    // ── THE FALLBACK WAITS FOR AN ANSWER (code review MAJ-1) ────────────────
-    // A null `stepPlanLink` means EITHER "no step carries this requirement" OR
-    // "the step chain has not answered yet", and only the first of those is a
-    // reason to fall back. Falling back on the second renders the epic href —
-    // and lets the reader click it — for the round trip or two the chain takes,
-    // landing them on exactly the whole-epic fit this requirement removes.
+    // Making the other two settable at all is req #3453 (authoring/discuss) —
+    // deliberately a design conversation, not a backlog item, because drag and
+    // drop onto the visualizer is as plausible an answer as two more selects.
     //
-    // Reachable on the ORDINARY path, not a cold load: opening a sibling
-    // requirement from the list on this page re-renders rather than remounts, so
-    // every hop of the epic chain is a cache hit and answers on the first paint
-    // while the step chain re-queries from scratch.
+    // THE EPIC IS READ-ONLY TOO NOW. It is reached only through
+    // `requirements.feature_fk`, and which of an epic's features carries a
+    // requirement is an editorial choice — this page tried deriving it, was
+    // measured wrong on nine of eleven live epics, then offered it explicitly,
+    // and the user's call is that it does not belong here at all. Setting the
+    // epic (and the plan) from this page is req #3453.
+
+    // The requirement's own seat: which step of which plan carries it. The Step
+    // row's value, and the narrowest of the three links — `?step=` lands the
+    // camera on one bead, where `?epic=` fits the whole band and on a large epic
+    // IS a zoomed-out view (req #3253).
+    const requirementSeat = orchIndex.requirementSeat.get(Number(id)) || null;
+    const seatStep = requirementSeat && requirementSeat.stepId != null
+        ? (orchIndex.stepsById.get(requirementSeat.stepId) || { id: requirementSeat.stepId })
+        : null;
+
+    // READ OFF THE LIVE ROW, not the index's requirements projection: this page
+    // holds the row it fetched and has just written to, while the projection is
+    // a cache that lags a PUT by one invalidation. The box therefore updates the
+    // instant an assignment lands rather than a refetch later.
     //
-    // Showing NO link for that window is the right trade — the epic box already
-    // omits this link rather than rendering a dead one, so an absent link is a
-    // state the reader has seen, and a wrong destination is not.
-    const epicPlanLinkTo = stepPlanLink
-        || (stepLocSettled && linkedEpic ? epicLinkTo(epicPipelineId, linkedEpic.id) : null);
-    // WHICH of the two the reader is about to follow. The label and the icon are
-    // shared — it is one control that goes to one plan — but the tooltip and the
-    // accessible name must not claim to show the epic's location when the camera
-    // is about to land on one step of it (and vice versa).
-    const planLinkIsStep = stepPlanLink != null;
+    // COERCED, unlike everything else read off the live row: it is a Map key
+    // (`epicByFeature`) and a `'46'` from the wire indexes as a different feature
+    // than 46. The index normalises every id it holds (`toId`); this is the one
+    // read that happens outside it.
+    const currentFeatureFk = (() => {
+        const raw = requirement?.feature_fk;
+        if (raw == null || raw === '') return null;
+        const n = Number(raw);
+        return Number.isInteger(n) ? n : null;
+    })();
+    const currentEpicId = epicForFeature(orchIndex, currentFeatureFk);
+    const currentEpicRow = epicRowForFeature(orchIndex, currentFeatureFk);
+
+    // WHICH PLAN. The seat's, when a step carries this requirement; otherwise the
+    // one its epic reaches (req #3235's fallback, kept). The two are DIFFERENT
+    // FACTS — seated-vs-unseated is what the sync report splits into
+    // UNSEATED-REQS and ORPHANS, and it decides whether a launch is the
+    // coordinator's to make — but they no longer need a parenthetical to tell
+    // apart: the Step row below says so structurally by reading "—".
+    const epicPipelineId = currentEpicId != null
+        ? (orchIndex.epicPrimaryPipeline.get(currentEpicId) ?? null) : null;
+    const seatPipelineId = requirementSeat ? requirementSeat.pipelineId : null;
+    const shownPipelineId = seatPipelineId ?? epicPipelineId;
+    const shownPipelineRow = shownPipelineId != null
+        ? orchIndex.pipelinesById.get(shownPipelineId) : null;
+
+    // ── The ONE settable level: which open step of this epic carries the work ─
+    // Scoped to the plan and epic already on screen, so picking here can never
+    // move the requirement to another epic — which is what keeps the three rows
+    // consistent without a second write. See `stepOptions`.
+    const stepChoices = stepOptions(orchIndex, {
+        pipelineId: shownPipelineId,
+        epicId: currentEpicId,
+        currentStepId: seatStep ? seatStep.id : null,
+    });
+
+    // ── The three links, one per level ──────────────────────────────────────
+    // Every builder returns null for an unusable id, and `to={null}` handed to
+    // react-router's Link throws at render — so each is null-guarded and its
+    // button renders disabled rather than dead (the box's existing "omit rather
+    // than render a dead link" rule, req #3235).
+    const pipelineLink = planLinkTo(shownPipelineId);
+    const epicPlanLink = epicLinkTo(epicPipelineId, currentEpicId);
+    const stepPlanLink = seatStep ? stepPlanLinkTo(seatPipelineId, seatStep.id) : null;
 
     // Filter chips now match DB status values directly
     const siblingStatuses = [...requirementStatusFilter];
 
-    // req #3302 — the card's OTHER filter. See `visibleSiblings` below.
-    const hidePipelined = useShowClosedStore(s => s.hidePipelinedRequirements);
-    const pipelinedIds = usePipelinedRequirementIds(profile?.userName, { enabled: hidePipelined });
+    // req #3302 / #3419 — the card's OTHER filter, as the card's OWN predicate.
+    // See the elevator memo below.
+    const { isVisible } = useRequirementVisibility(profile?.userName);
 
     const queryClient = useQueryClient();
+
 
     const requirementDelete = useConfirmDialog({
         onConfirm: ({ requirementId }) => {
@@ -600,6 +689,67 @@ const RequirementDetail = () => {
         saveField('machine_fk', newVal === null ? 'NULL' : newVal);
     };
 
+    // ── Req #3435 — seat this requirement on a step ─────────────────────────
+    // WRITES `pipeline_step_requirements`, the junction that actually places a
+    // requirement on a plan. There is no column on `requirements` that can do it.
+    //
+    // ## THIS CROSSES A LINE StepsPage DELIBERATELY DOES NOT, ON PURPOSE
+    //
+    // `src/Steps/StepsPage.jsx`'s header says it edits a step's own columns and
+    // NOT this junction, because "a browser form that unlinks a requirement while
+    // the 2.0 orchestration engine is polling that plan would race the launch
+    // decision with no error anywhere" (req #3083's operating rule — plan edit and
+    // launch are ONE act). That reasoning is unchanged and still correct.
+    //
+    // The user was shown the conflict and the mitigations available (a guard on
+    // `orchestration_claims`, which the UI already reads, or refusing on an
+    // `active` plan) and chose the unguarded write, 2026-08-10. So the race is a
+    // KNOWN, ACCEPTED cost of editing a seat from here, not an oversight — do not
+    // "fix" this by adding a silent refusal, and do not delete this note.
+    //
+    // ## Order of operations
+    //
+    // INSERT the new link, THEN delete the old. The reverse leaves the
+    // requirement silently seated nowhere if the insert fails; this way a failed
+    // delete leaves it on two steps, which the plan view shows and a person can
+    // undo. Neither is good — this one is at least visible.
+    const handleStepChange = async (event) => {
+        if (isNew) return;   // draft — `id` is the literal 'new'.
+        const raw = event.target.value;
+        const clearing = raw === '';
+        const nextStepId = clearing ? null : Number(raw);
+        if (!clearing && !Number.isInteger(nextStepId)) return;
+        const prevStepId = seatStep ? seatStep.id : null;
+        if (nextStepId === prevStepId) return;
+
+        const uri = `${darwinUri}/pipeline_step_requirements`;
+        const reqId = parseInt(id);
+        try {
+            if (nextStepId != null) {
+                await call_rest_api(uri, 'POST',
+                    { step_fk: nextStepId, requirement_fk: reqId }, idToken);
+            }
+            if (prevStepId != null) {
+                // Composite PK (step_fk, requirement_fk) — no surrogate id, so
+                // the DELETE body names both columns. Same shape as
+                // `unlinkFeatureTestCase` in Features/actions/validationApi.js.
+                await call_rest_api(uri, 'DELETE',
+                    { step_fk: prevStepId, requirement_fk: reqId }, idToken);
+            }
+        } catch (error) {
+            showError(error, 'Unable to update step');
+            // Re-read rather than patch local state: the seat lives in the
+            // junction cache, not on the requirement row, and a half-applied
+            // move is exactly the case a guessed rollback would get wrong.
+            queryClient.invalidateQueries({
+                queryKey: pipelineStepRequirementKeys.all(profile.userName) });
+            return;
+        }
+        queryClient.invalidateQueries({
+            queryKey: pipelineStepRequirementKeys.all(profile.userName) });
+        queryClient.invalidateQueries({ queryKey: ['orchestration_index'] });
+    };
+
     const handleCategoryChange = async (event) => {
         const newCategoryFk = parseInt(event.target.value, 10);
         if (!Number.isFinite(newCategoryFk)) return;  // ignore the placeholder value
@@ -690,10 +840,11 @@ const RequirementDetail = () => {
     // enabled on the first row, and Down from it landed on pipelined #3136 —
     // a requirement the card does not show at all.
     //
-    // Same predicate, same source of truth (`utils/pipelineMembership.js`) and
-    // the same in-flight behaviour as the card: an unresolved junction read
-    // yields an empty set and drops nothing, so the elevator can only ever be
-    // too permissive for a moment, never hide a row the card is showing.
+    // req #3419 — no longer "the same predicate": it IS the predicate. The card,
+    // the table, the aggregator and this elevator all read
+    // `useRequirementVisibility().isVisible`, so there is no second derivation
+    // left to drift. That also fixed the narrower half of the same defect —
+    // requirements filed under an EPIC were never hidden anywhere.
     // req #3302 — the surface that opened this page hands over the ordered ids it
     // rendered (`elevatorStateFrom`), and that wins. It is the ONLY thing that
     // can be right for the SwarmStartCard aggregator, whose list is every
@@ -705,12 +856,11 @@ const RequirementDetail = () => {
     const { prevId, nextId } = useMemo(
         () => siblingElevator(siblings, {
             sortMode: sibSortMode,
-            pipelinedIds,
-            hidePipelined,
+            isVisible,
             currentId: id,
             orderedIds: linkOrderedIds,
         }),
-        [siblings, sibSortMode, pipelinedIds, hidePipelined, id, linkOrderedIds],
+        [siblings, sibSortMode, isVisible, id, linkOrderedIds],
     );
 
     const titleOverflow = Math.max(0, (requirement?.title || '').length - TITLE_SOFT_LIMIT);
@@ -1087,15 +1237,29 @@ const RequirementDetail = () => {
                         </Box>
                     </Box>
 
-                    {/* Epic linkage (req #3234) — READ-ONLY: reports the derived
-                        requirement -> feature -> epic chain and navigates, nothing more.
-                        Deliberately NOT the edit-in-place cell pattern the rest of the page
-                        uses; matching AI Settings' LOOK is the requirement, its editable
-                        BEHAVIOUR is not. Same fieldset/legend/border/radius so the two read
-                        as a pair; no editability fade since there is nothing here to edit. */}
+                    {/* ── Orchestration (req #3435) ──────────────────────────────
+                        WHICH PLAN and WHICH EPIC, in two rows and nothing else.
+                        Same fieldset/legend/border/radius as AI Settings so the
+                        two read as a pair.
+
+                        Each row is one ICON BUTTON that navigates and one SELECT
+                        that names the thing — the Category select's idiom
+                        (standard variant, no dropdown arrow, the value rendered
+                        as text), so the box reads as prose until it is clicked.
+
+                        The pipeline row WRITES NOTHING: there is no
+                        `requirements.pipeline_fk`, and a seat on a plan is a
+                        `pipeline_steps` mutation the Primary AI owns. It displays
+                        the plan this requirement is on and filters the epic list.
+                        The epic row is the one that assigns.
+
+                        No third line. The `via feature "…"` caption this box used
+                        to carry is deliberately gone: the feature tier is the
+                        SEAT that carries an epic label, not a fact the reader of
+                        a requirement needs. */}
                     <Box
                         component="fieldset"
-                        data-testid="requirement-epic-linkage-group"
+                        data-testid="requirement-orchestration-group"
                         sx={{
                             width: 'fit-content', maxWidth: '100%',
                             m: 0, px: 1.5, pt: 0.25, pb: 1.25,
@@ -1106,88 +1270,175 @@ const RequirementDetail = () => {
                     >
                         <Box component="legend" sx={{ ml: 1, px: 0.5 }}>
                             <Typography variant="subtitle2" color="text.secondary">
-                                Epic
+                                Orchestration
                             </Typography>
                         </Box>
-                        {epicLinkResolving ? (
-                            <Typography variant="body2" color="text.secondary" data-testid="epic-linkage-loading">
+                        {!orchSettled ? (
+                            <Typography variant="body2" color="text.secondary" data-testid="orchestration-loading">
                                 Loading…
                             </Typography>
-                        ) : epicLinkErrored ? (
-                            // Code review, req #3234: distinct from "No epic" — a failed
-                            // fetch is not the same fact as a confirmed-absent link.
-                            <Typography variant="body2" color="text.secondary" data-testid="epic-linkage-error">
-                                Epic unavailable
+                        ) : (epicSideErrored && planSideErrored) ? (
+                            // Distinct from an empty selection — a failed read is
+                            // not the same fact as a confirmed-absent link, and
+                            // offering an assignment list built from rows that
+                            // never arrived would silently omit real options.
+                            <Typography variant="body2" color="text.secondary" data-testid="orchestration-error">
+                                Orchestration unavailable
                             </Typography>
-                        ) : linkedEpic ? (
+                        ) : (
                             <>
-                                {/* Two links, distinguishable by icon + label before either is
-                                    clicked (req #3235): LayersIcon/"open the epic" matches the
-                                    Epics nav entry's own icon, LanIcon/"view on plan" matches
-                                    Pipelines' — the app's existing iconography, not a new one
-                                    invented for this box. A real anchor (react-router Link), not
-                                    a span with onClick/onKeyDown — natively focusable/keyboard-
-                                    activatable and supports middle-click, ctrl-click and "copy
-                                    link address" (code review, req #3234). */}
-                                <Stack direction="row" spacing={0.5} alignItems="center">
-                                    <Tooltip title="Open the epic editor">
-                                        <LayersIcon fontSize="small" sx={{ color: 'text.secondary' }} />
+                                {/* ── PIPELINE ── read-only. LanIcon matches the
+                                    Pipelines nav entry's own icon — the app's
+                                    existing iconography, not one invented here. */}
+                                {planSideErrored ? (
+                                    <Typography variant="body2" color="text.secondary"
+                                                data-testid="orchestration-pipeline-error">
+                                        Pipeline unavailable
+                                    </Typography>
+                                ) : (
+                                <Stack direction="row" spacing={1} alignItems="center"
+                                       data-testid="orchestration-pipeline-row">
+                                    <Typography variant="subtitle2" color="text.secondary"
+                                                sx={ORCH_ROW_LABEL_SX}
+                                                data-testid="orchestration-pipeline-label">
+                                        Pipeline
+                                    </Typography>
+                                    <Tooltip title="View this plan on the visualizer">
+                                        {/* SPAN WRAPPER: a disabled MUI button
+                                            fires no events, so a Tooltip anchored
+                                            straight to it never opens — and the
+                                            disabled state is the common one for a
+                                            requirement on no plan. */}
+                                        <span>
+                                            <IconButton
+                                                size="small"
+                                                disabled={!pipelineLink}
+                                                aria-label="View this plan on the visualizer"
+                                                data-testid="orchestration-pipeline-link"
+                                                {...(pipelineLink ? { component: RouterLink, to: pipelineLink } : {})}
+                                            >
+                                                <LanIcon fontSize="small" />
+                                            </IconButton>
+                                        </span>
                                     </Tooltip>
-                                    <Typography
-                                        component={RouterLink}
-                                        to={`/swarm/epics?id=${linkedEpic.id}`}
-                                        variant="body2"
-                                        aria-label={`Open epic ${linkedEpic.title}`}
-                                        sx={{ color: 'primary.main', textDecoration: 'underline', cursor: 'pointer' }}
-                                        data-testid="epic-linkage-link"
-                                    >
-                                        {linkedEpic.title}
+                                    <Typography sx={ORCH_VALUE_SX} data-testid="orchestration-pipeline-value">
+                                        {shownPipelineRow ? shownPipelineRow.title
+                                            : shownPipelineId != null ? `Pipeline ${shownPipelineId}`
+                                                : 'No pipeline'}
                                     </Typography>
                                 </Stack>
-                                {linkedFeature && (
-                                    <Typography variant="caption" color="text.secondary">
-                                        via feature &quot;{linkedFeature.title}&quot;
-                                    </Typography>
                                 )}
-                                {/* Req #3235 — omitted, not a dead link, when the epic is in no
-                                    pipeline (epicPlanLinkTo stays null) or the lookup is still
-                                    resolving. A dead link is worse than an absent one.
 
-                                    Req #3253 — the same control, now pointed at this
-                                    REQUIREMENT'S step whenever one carries it. Same
-                                    icon and same label: it is one control going to
-                                    one plan, and a reader picking between "epic" and
-                                    "step" wording would be picking between two things
-                                    that are not on offer. What DOES change is the
-                                    tooltip and the accessible name, which must not
-                                    claim the camera is about to fit the epic when it
-                                    is about to land on one step of it. */}
-                                {epicPlanLinkTo != null && (
-                                    <Stack direction="row" spacing={0.5} alignItems="center">
-                                        <Tooltip title={planLinkIsStep
-                                            ? "View this requirement's step on the plan visualizer"
-                                            : "View this epic's location on the plan visualizer"}>
-                                            <LanIcon fontSize="small" sx={{ color: 'text.secondary' }} />
-                                        </Tooltip>
-                                        <Typography
-                                            component={RouterLink}
-                                            to={epicPlanLinkTo}
-                                            variant="body2"
-                                            aria-label={planLinkIsStep
-                                                ? `View this requirement's step on the plan visualizer`
-                                                : `View epic ${linkedEpic.title} on the plan visualizer`}
-                                            sx={{ color: 'primary.main', textDecoration: 'underline', cursor: 'pointer' }}
-                                            data-testid="epic-linkage-plan-link"
-                                        >
-                                            View on plan
-                                        </Typography>
-                                    </Stack>
+                                {/* ── EPIC ── read-only. An epic is reached only
+                                    through `requirements.feature_fk`, and which
+                                    feature carries it is an editorial choice this
+                                    page stopped guessing (req #3453 holds the
+                                    question of setting it from here at all).
+                                    LayersIcon matches the Epics nav entry. */}
+                                {epicSideErrored ? (
+                                    <Typography variant="body2" color="text.secondary"
+                                                data-testid="orchestration-epic-error">
+                                        Epic unavailable
+                                    </Typography>
+                                ) : (
+                                <Stack direction="row" spacing={1} alignItems="center"
+                                       data-testid="orchestration-epic-row">
+                                    <Typography variant="subtitle2" color="text.secondary"
+                                                sx={ORCH_ROW_LABEL_SX}
+                                                data-testid="orchestration-epic-label">
+                                        Epic
+                                    </Typography>
+                                    <Tooltip title="View this epic's location on the plan visualizer">
+                                        <span>
+                                            <IconButton
+                                                size="small"
+                                                disabled={!epicPlanLink}
+                                                // NAMES THE EPIC: a reader tabbing
+                                                // the box otherwise cannot tell
+                                                // which epic this opens.
+                                                aria-label={currentEpicRow
+                                                    ? `View epic ${currentEpicRow.title} on the plan visualizer`
+                                                    : "View this epic's location on the plan visualizer"}
+                                                data-testid="orchestration-epic-link"
+                                                {...(epicPlanLink
+                                                    ? { component: RouterLink, to: epicPlanLink } : {})}
+                                            >
+                                                <LayersIcon fontSize="small" />
+                                            </IconButton>
+                                        </span>
+                                    </Tooltip>
+                                    <Typography sx={ORCH_VALUE_SX} data-testid="orchestration-epic-value">
+                                        {currentEpicRow ? currentEpicRow.title
+                                            : currentFeatureFk != null ? `Feature ${currentFeatureFk}`
+                                                : 'No epic'}
+                                    </Typography>
+                                </Stack>
+                                )}
+
+                                {/* ── STEP ── THE ONE SETTABLE LEVEL. Picking here
+                                    writes `pipeline_step_requirements` — see
+                                    `handleStepChange` for why that crosses a line
+                                    StepsPage draws, and on whose authority.
+
+                                    The list is scoped to this plan and this epic
+                                    (`stepOptions`), so a pick can never move the
+                                    requirement to another epic — which is what
+                                    keeps the three rows consistent without a
+                                    second write. An em-dash value IS "no step
+                                    sequences this requirement", the distinction
+                                    the sync report splits into UNSEATED-REQS and
+                                    ORPHANS. */}
+                                {planSideErrored ? null : (
+                                <Stack direction="row" spacing={1} alignItems="center"
+                                       data-testid="orchestration-step-row">
+                                    <Typography variant="subtitle2" color="text.secondary"
+                                                sx={ORCH_ROW_LABEL_SX}
+                                                data-testid="orchestration-step-label">
+                                        Step
+                                    </Typography>
+                                    <Tooltip title="View this requirement's step on the plan visualizer">
+                                        <span>
+                                            <IconButton
+                                                size="small"
+                                                disabled={!stepPlanLink}
+                                                aria-label="View this requirement's step on the plan visualizer"
+                                                data-testid="orchestration-step-link"
+                                                {...(stepPlanLink ? { component: RouterLink, to: stepPlanLink } : {})}
+                                            >
+                                                <AccountTreeIcon fontSize="small" />
+                                            </IconButton>
+                                        </span>
+                                    </Tooltip>
+                                    <Select
+                                        value={seatStep ? seatStep.id : ''}
+                                        onChange={handleStepChange}
+                                        displayEmpty
+                                        renderValue={(selected) => {
+                                            if (selected === '' || selected == null) return 'No step';
+                                            const st = orchIndex.stepsById.get(Number(selected));
+                                            return (st && st.title) ? st.title : `Step ${selected}`;
+                                        }}
+                                        variant="standard"
+                                        IconComponent={() => null}
+                                        data-testid="orchestration-step-select"
+                                        // Lands on the role="combobox" element
+                                        // (`.MuiSelect-select`), not on the hidden
+                                        // native input — without it a screen reader
+                                        // announces the display VALUE as the
+                                        // control's own name.
+                                        inputProps={{ 'aria-label': 'Step' }}
+                                        sx={ORCH_SELECT_SX}
+                                    >
+                                        <MenuItem value="">No step</MenuItem>
+                                        {stepChoices.map(entry => (
+                                            <MenuItem key={entry.step.id} value={entry.step.id}>
+                                                {entry.label}
+                                            </MenuItem>
+                                        ))}
+                                    </Select>
+                                </Stack>
                                 )}
                             </>
-                        ) : (
-                            <Typography variant="body2" color="text.secondary" data-testid="epic-linkage-none">
-                                No epic
-                            </Typography>
                         )}
                     </Box>
                     </Box>

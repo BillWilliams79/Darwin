@@ -12,7 +12,6 @@ import { describe, it, expect } from 'vitest';
 import {
     STALE_AFTER_SECONDS,
     claimForPipeline,
-    claimForPipeline2,
     claimsForEpic,
     heartbeatAgeSeconds,
     heldForSeconds,
@@ -140,44 +139,6 @@ describe('scope selection', () => {
     it('renders the same scope words the engine uses', () => {
         expect(scopeLabel(claims[0])).toBe('pipeline:2');
         expect(scopeLabel(claims[1])).toBe('epic:7@2');
-    });
-});
-
-describe('scope selection — 2.0 (req #3381 code review)', () => {
-    // `pipeline2_fk`/`epic2_fk` are the SEPARATE columns a 2.0-scoped claim
-    // carries — NULL on a 1.0 row, and vice versa. `claim()`'s default
-    // fixture above never sets them, matching an un-widened
-    // `useOrchestrationClaims` read or a genuine 1.0 claim: both must read
-    // as `undefined`, not as a 2.0 scope of pipeline `undefined`.
-    const claims = [
-        claim({ id: 10, pipeline_fk: null, epic_fk: null, pipeline2_fk: 6, epic2_fk: null }),
-        claim({ id: 11, pipeline_fk: null, epic_fk: null, pipeline2_fk: 6, epic2_fk: 9 }),
-        claim({ id: 12, pipeline_fk: 2, epic_fk: null }),   // a 1.0 claim, unchanged
-    ];
-
-    it('claimForPipeline2 finds only the WHOLE-PLAN 2.0 reservation', () => {
-        expect(claimForPipeline2(claims, 6).id).toBe(10);
-        expect(claimForPipeline2(claims, 42)).toBeNull();
-        expect(claimForPipeline2(claims, null)).toBeNull();
-    });
-
-    it('claimForPipeline2 never matches a 1.0-only claim (pipeline2_fk absent)', () => {
-        // The bug this guards: `undefined === 6` is false, so a 1.0 claim
-        // must not accidentally satisfy a 2.0 lookup for the same numeric id.
-        expect(claimForPipeline2([claims[2]], 2)).toBeNull();
-    });
-
-    it('claimForPipeline never matches a 2.0-only claim (pipeline_fk absent)', () => {
-        expect(claimForPipeline([claims[0], claims[1]], 6)).toBeNull();
-    });
-
-    it('scopeLabel renders pipeline2:/epic2: for a 2.0 claim', () => {
-        expect(scopeLabel(claims[0])).toBe('pipeline2:6');
-        expect(scopeLabel(claims[1])).toBe('epic2:9@6');
-    });
-
-    it('scopeLabel still renders pipeline:/epic: for a 1.0 claim, unaffected', () => {
-        expect(scopeLabel(claims[2])).toBe('pipeline:2');
     });
 });
 

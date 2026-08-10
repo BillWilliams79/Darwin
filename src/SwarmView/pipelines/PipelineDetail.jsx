@@ -25,7 +25,6 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 
 import Alert from '@mui/material/Alert';
-import AlertTitle from '@mui/material/AlertTitle';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
@@ -46,14 +45,21 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 
 import call_rest_api from '../../RestApi/RestApi';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
-import { pipeline2ComposeKeys } from '../../hooks/useQueryKeys';
+import { pipelineKeys } from '../../hooks/useQueryKeys';
 import AppContext from '../../Context/AppContext';
 import AuthContext from '../../Context/AuthContext';
 import '../../CalendarFC/CalendarFC.css';
 import {
+    ALL_ROWS,
+    useAllEpics,
+    useAllFeatures,
+    useAllPipelineStepDeps,
+    useAllPipelineStepRequirements,
+    useAllPipelineSteps,
+    useAllPipelines,
     useAllRequirementSessions,
+    useAllRequirements,
     useAllSessionCostRollups,
-    useComposedPipeline2,
     useMachines,
     useOrchestrationClaims,
 } from '../../hooks/useDataQueries';
@@ -66,7 +72,7 @@ import {
     findPipelineDetailMode,
 } from './pipelineDetailModes';
 import { pipelineStatusChipProps, toolbarChipProps } from './pipelineChipStyles';
-import { claimForPipeline2, holderView } from './orchestrationHolder';
+import { claimForPipeline, holderView } from './orchestrationHolder';
 import { readFocusStepParam, readLevelParam } from './pipelineStepLink';
 import { readFocusEpicParam } from './pipelineEpicLink';
 import { writePipelinePlace } from './pipelinePlace';
@@ -85,12 +91,12 @@ import {
     DEFAULT_COLOR_KEY, DEFAULT_PLAN_LEVEL_PREF, DEFAULT_STEP_WIDTH,
     isStepWidth, normalizeColorKey, normalizePlanLevelPref,
 } from './pipelinePlanLayout';
-import { buildCostIndex } from './pipelineViewModel';
 import {
-    adaptComposedPipeline2,
-    buildPlan2Model,
-    deriveDiagnostic,
-} from './pipeline2Adapter';
+    PLAN_REQUIREMENT_FIELDS,
+    buildCostIndex,
+    buildPipelineModel,
+    orderedPlan,
+} from './pipelineViewModel';
 
 // A SHARED frozen empty array for the `data = EMPTY` defaults below. A `= []`
 // literal mints a NEW array on every render while `data` is undefined — which is
@@ -131,7 +137,7 @@ const EMPTY = Object.freeze([]);
 // children unmount), so `draft` and `savedRef` survive a close — which is what
 // lets the close handler save text the field never got to blur on.
 function PipelineDescriptionDialog({ pipeline, open, onClose }) {
-    const { idToken } = useContext(AuthContext);
+    const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
     const queryClient = useQueryClient();
     const showError = useSnackBarStore((s) => s.showError);
@@ -180,14 +186,7 @@ function PipelineDescriptionDialog({ pipeline, open, onClose }) {
         // Already saved, or already on the wire — either way, nothing to send.
         if (value === (inFlightRef.current ?? savedRef.current)) return;
         inFlightRef.current = value;
-        // req #3381 — `pipeline` is now a `pipeline2_pipelines` row (the
-        // composed 2.0 read), so the edit-in-place field writes to the 2.0
-        // table and re-reads via the composed read's OWN query key — never
-        // the 1.0 `pipelines` table/`pipelineKeys` this dialog PUT to before
-        // the cutover. Item 5's "optimistic edits become re-reads": no local
-        // patch of `pipeline.description` here, the invalidation is the
-        // whole story.
-        call_rest_api(`${darwinUri}/pipeline2_pipelines`, 'PUT',
+        call_rest_api(`${darwinUri}/pipelines`, 'PUT',
             [{ id: pipeline.id, description: value }], idToken)
             .then((result) => {
                 const code = result?.httpStatus?.httpStatus;
@@ -196,7 +195,7 @@ function PipelineDescriptionDialog({ pipeline, open, onClose }) {
                 } else {
                     savedRef.current = value;
                     queryClient.invalidateQueries({
-                        queryKey: pipeline2ComposeKeys.byId(pipeline.id) });
+                        queryKey: pipelineKeys.all(profile?.userName) });
                 }
             })
             .catch((error) => showError(error, 'Unable to update the pipeline description'))
@@ -514,24 +513,22 @@ export default function PipelineDetail() {
     const activeLevelPref = normalizePlanLevelPref(levelOverride ?? storedLevelPref);
     const activeMode = normalizeView(modeOverride || mode, PIPELINE_DETAIL_MODES);
 
-    // req #3381 — THE FETCH LAYER COLLAPSES. What used to be six-plus
-    // dictionary reads (pipelines, steps, step requirements, step deps,
-    // requirements, features, epics — `useAllFeatures` DIES here entirely,
-    // the one real Feature site this directory owned) joined and derived
-    // client-side (`buildPipelineModel` + `orderedPlan`) is now ONE call of
-    // the composed 2.0 read (`pipeline2_compose`, req #3367): the join AND
-    // the derivation both already ran server-side, in Lambda, and this page
-    // consumes the result rather than rebuilding it. `useMachines` survives
-    // as a second, small, whole-app dictionary read — 2.0's composed payload
-    // carries no `machines` table of its own (`pipeline2Adapter.js`'s
-    // header), and it is not scoped per-plan, so it costs nothing more than
-    // it always did.
-    //
-    // MEASURED READ COUNT: was 7 (pipelines, steps, step_requirements,
-    // step_deps, requirements, features, epics) + machines = 8 hooks feeding
-    // this page; now 2 (the composed read, machines) always-on, plus the two
-    // opt-in cost reads unchanged either way.
-    const { data: composed, isLoading: composedLoading } = useComposedPipeline2(pipelineId);
+    // The list read, not a by-id read: /swarm/pipelines has already primed this
+    // exact cache entry, so arriving here costs nothing. A by-id hook would be a
+    // second cache entry and a guaranteed fetch on every navigation.
+    const { data: pipelines = [], isLoading: pipelinesLoading } = useAllPipelines(creatorFk);
+    const { data: steps = [], isLoading: stepsLoading } = useAllPipelineSteps(creatorFk);
+    const { data: stepRequirements = [], isLoading: linksLoading } =
+        useAllPipelineStepRequirements(creatorFk);
+    const { data: stepDeps = [], isLoading: depsLoading } = useAllPipelineStepDeps(creatorFk);
+    const { data: requirements = [], isLoading: reqsLoading } =
+        useAllRequirements(creatorFk, { fields: PLAN_REQUIREMENT_FIELDS });
+    // Labels are a DICTIONARY here, not a catalog: closed epics/features must
+    // still resolve or the plan blanks a column it has data for.
+    const { data: features = [], isLoading: featuresLoading, isError: featuresError } =
+        useAllFeatures(creatorFk, { closed: ALL_ROWS });
+    const { data: epics = [], isLoading: epicsLoading, isError: epicsError } =
+        useAllEpics(creatorFk);
     const { data: machines = [], isLoading: machinesLoading, isError: machinesError } =
         useMachines(creatorFk);
 
@@ -551,11 +548,6 @@ export default function PipelineDetail() {
     // there), so gating the whole plan on it would trade a correct-but-costless
     // first paint for a slower one. They also do not gate because they are
     // OPT-IN at the UI: the Cost column is hidden until the user asks for it.
-    // #3345 did not move cost into the composed payload (verified against
-    // `pipeline2_compose.py` — no session/cost table appears in its reads), so
-    // this pair of reads is UNRELATED to the fetch this requirement collapses
-    // and survives unchanged, feeding `pipeline2Adapter.js` the same way it
-    // fed `orderedPlan`.
     const { data: requirementSessions = EMPTY, isError: requirementSessionsError } =
         useAllRequirementSessions(creatorFk);
     const { data: sessionCosts = EMPTY, isError: sessionCostsError } =
@@ -565,47 +557,48 @@ export default function PipelineDetail() {
     // about the data rather than about the fetch. The table says which it is.
     const costError = requirementSessionsError || sessionCostsError;
 
-    const isLoading = composedLoading || machinesLoading;
+    // EVERY read gates the render, the three label dictionaries included. They are
+    // not decoration: `displayOrder()` breaks ties on epic first-appearance order,
+    // so rendering before features/epics resolve produces a DIFFERENT, silently
+    // wrong row order — and one that verifyOrder() accepts, because a plan with no
+    // epics violates no invariant. The one failure mode design rule 3's self-check
+    // cannot catch is the one where the inputs, not the algorithm, are wrong.
+    const isLoading = pipelinesLoading || stepsLoading || linksLoading
+        || depsLoading || reqsLoading || featuresLoading || epicsLoading || machinesLoading;
 
-    // A failed `machines` read must not render as a column of bare ids with no
-    // explanation — the same argument `dictionaryError` made for the 1.0
-    // fetch layer, narrowed to the one dictionary this page still fetches
-    // separately from the composed read.
-    const dictionaryError = machinesError;
+    // Same argument, one step further: `fetchEntity` turns a 404 into `[]` and a
+    // 5xx leaves `data` undefined, so a FAILED dictionary read is indistinguishable
+    // from an empty one and would ship that wrong order permanently, with blank
+    // Epic/Feature columns and numeric machine ids as its only symptoms. Say so.
+    const dictionaryError = featuresError || epicsError || machinesError;
 
-    const pipeline = composed?.pipeline ?? null;
+    const pipeline = useMemo(
+        () => pipelines.find((p) => p.id === pipelineId) || null,
+        [pipelines, pipelineId]);
 
-    // req #3381 item 3 — A WITHHELD OR DEGRADED `derived` BLOCK IS A HARD
-    // STOP, NOT AN EMPTY RENDER. `null` (regime A — nothing withheld) means
-    // proceed; any other value is one of the four regimes
-    // (`derivation_failed` / `budget_derived_only` / `budget_rows_truncated`
-    // / wholly absent) and the plan panel below renders it as a diagnostic
-    // INSTEAD OF attempting a partial draw from rows with no derived state.
-    const diagnostic = useMemo(() => deriveDiagnostic(composed), [composed]);
-    const canRenderPlan = !!pipeline && !diagnostic;
-
-    const model = useMemo(
-        () => (canRenderPlan ? buildPlan2Model(composed, machines) : null),
-        [canRenderPlan, composed, machines]);
+    const model = useMemo(() => buildPipelineModel({
+        pipeline, steps, stepRequirements, stepDeps, requirements, features, epics, machines,
+    }), [pipeline, steps, stepRequirements, stepDeps, requirements, features, epics, machines]);
 
     const costIndex = useMemo(
         () => buildCostIndex({ requirementSessions, sessionCosts }),
         [requirementSessions, sessionCosts]);
 
+    // `now` is read ONCE per model change and handed to the engine, which never
+    // reads a clock itself. Time-gate eligibility therefore re-evaluates when the
+    // data does — on focus, on invalidation — rather than on a timer.
     const plan = useMemo(
-        () => (canRenderPlan
-            ? adaptComposedPipeline2(composed, { machines, costIndex })
-            : null),
-        [canRenderPlan, composed, machines, costIndex]);
-    // req #3225 — the whole-plan met/total, read straight off the composed
-    // read's own `derived.requirement_counts` (no second pass over anything).
-    const planReqCounts = plan?.requirementCounts?.overall;
+        () => orderedPlan(model, { now: new Date(), costIndex }),
+        [model, costIndex]);
+    // req #3225 — the whole-plan met/total, read straight off `orderedPlan`'s
+    // own derivation (no second pass over `model`).
+    const planReqCounts = plan.requirementCounts?.overall;
 
     // req #3224 — the WHOLE-PLAN reservation. An epic-scoped one is a different
     // and weaker claim ("a slice of this plan is being orchestrated") and is the
     // epics page's answer, not this header's.
     const orchestrationHolder = useMemo(
-        () => holderView(claimForPipeline2(orchestrationClaims, pipeline?.id), machines),
+        () => holderView(claimForPipeline(orchestrationClaims, pipeline?.id), machines),
         [orchestrationClaims, pipeline?.id, machines]);
 
     // `planMachines` — the distinct machine set behind the header's machine chip
@@ -686,10 +679,8 @@ export default function PipelineDetail() {
 
     // req #3242 — epics represented in THIS plan (a requirement with no epic
     // is excluded by `requirementCounts` itself, so this is never inflated by
-    // a "no epic" bucket). `plan` is null while `diagnostic` is set (item 3 —
-    // a withheld/absent `derived` block is a hard stop, so there is no
-    // requirement-counts derivation to read).
-    const planEpicCount = plan?.requirementCounts?.byEpic?.length ?? 0;
+    // a "no epic" bucket).
+    const planEpicCount = plan.requirementCounts?.byEpic?.length ?? 0;
 
     // ── ONE STRING PER ELLIPSIZING LINE ──────────────────────────────────────
     // `noWrap` with a tooltip needs the whole text as a VALUE: CSS
@@ -1092,33 +1083,10 @@ export default function PipelineDetail() {
             {dictionaryError && (
                 <Alert severity="error" variant="outlined" sx={{ mb: 2 }}
                        data-testid="pipeline-dictionary-error">
-                    The machine list failed to load. Machines will read as bare ids
-                    on this plan until it recovers. Reload before acting on this page.
-                </Alert>
-            )}
-
-            {/* req #3381 item 3 — A WITHHELD OR DEGRADED `derived` BLOCK IS A
-                HARD STOP, NOT AN EMPTY RENDER. `diagnostic` is set for all
-                four regimes (`derivation_failed`, `budget_derived_only`,
-                `budget_rows_truncated`, and the wholly-absent key) — the
-                panel below is never attempted from rows with no derived
-                state; this banner replaces it, in the SAME Alert treatment
-                `OrderViolationsAlert` (PipelinePlanTable.jsx) already uses
-                for an order-invariant failure, rather than inventing a
-                second diagnostic surface. */}
-            {diagnostic && (
-                <Alert severity="error" variant="outlined" sx={{ mb: 2 }}
-                       data-testid="pipeline-derived-withheld">
-                    <AlertTitle>
-                        Plan derivation unavailable ({diagnostic.regime})
-                    </AlertTitle>
-                    {diagnostic.message}
-                    {!diagnostic.rowsComplete && (
-                        <>
-                            {' '}The underlying rows are INCOMPLETE — do not sequence
-                            or launch from this plan until it recovers.
-                        </>
-                    )}
+                    The epic, feature or machine list failed to load. Epic and Feature
+                    columns will be blank, machines will read as bare ids, and the ROW
+                    ORDER is computed with those labels missing — it is not the plan&apos;s
+                    real order. Reload before acting on this page.
                 </Alert>
             )}
 
@@ -1126,10 +1094,7 @@ export default function PipelineDetail() {
                 canvas cancels this Box's `p: 3` on its own sides/bottom via a
                 negative margin, which relies on being the last thing in flow
                 — anything rendered after it here would overlap the canvas by
-                24px instead of leaving a gap. A withheld/absent `derived`
-                block renders NO panel at all (item 3's hard stop) — the
-                diagnostic Alert above is then the last child instead. */}
-            {canRenderPlan && (
+                24px instead of leaving a gap. */}
             <ActiveComponent plan={plan} model={model} pipeline={pipeline} timezone={timezone}
                              focusStepId={focusStepId} onStepFocus={onStepFocus}
                              focusEpicId={focusEpicId}
@@ -1154,7 +1119,6 @@ export default function PipelineDetail() {
                              onEffectiveLevel={setEffectiveLevel}
                              resetViewNonce={resetViewNonce}
                              />
-            )}
         </Box>
     );
 }

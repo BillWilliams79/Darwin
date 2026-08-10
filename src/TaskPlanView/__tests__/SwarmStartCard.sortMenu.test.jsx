@@ -26,13 +26,31 @@ vi.mock('react-router-dom', () => ({ useNavigate: () => () => {} }));
 let activeRows;
 let metRows;
 const EMPTY = [];
+// req #3419 — MODULE-LEVEL, never an inline `[]` literal. Each of these is a
+// query double called on every render; a fresh array each time churns the id
+// Sets in `useRequirementVisibility`, which churns every predicate and filtered
+// array downstream, which re-runs the seeding effect, which sets state — a
+// SYNCHRONOUS render loop that no per-test timeout can interrupt. Measured in
+// review: it wedged the worker rather than failing a test.
+const EMPTY_JUNCTION = [];
+const EMPTY_FEATURES = [];
+const EMPTY_ALL_REQS = [];
+
 vi.mock('../../hooks/useDataQueries', () => ({
     useRequirementsByStatus: () => ({ data: activeRows }),
     useRequirementsDone: () => ({ data: metRows }),
     useSessions: () => ({ data: EMPTY }),
     useCategoryColors: () => ({ data: EMPTY }),
     useAllRequirements: () => ({ data: EMPTY }),
-    usePipelinedRequirementIds: () => new Set(),
+
+    // req #3419 — the three bounded reads `useRequirementVisibility` joins.
+    // The REAL hook runs here rather than a double: it owns the memoization the
+    // aggregator's `useMemo` chain depends on, and a stand-in that got that
+    // wrong would loop rather than fail. `ALL_ROWS` is re-exported because the
+    // hook passes it (a closed feature still seats its requirements).
+    useAllPipelineStepRequirements: () => ({ data: EMPTY_JUNCTION }),
+    useAllFeatures: () => ({ data: EMPTY_FEATURES }),
+    ALL_ROWS: 'all',
 }));
 
 vi.mock('../../RestApi/RestApi', () => ({

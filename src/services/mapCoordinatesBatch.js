@@ -5,7 +5,8 @@
 // per run". `rest_get_table.py` has supported `?col=(1,2,3)` -> `col IN (...)`
 // all along, parameterized, and two production call sites already use it
 // (BuildVisualizer/useBuildVisualizerData.js,
-// SwarmView/detail/useEpicPipelineLocation.js). Nothing had to change in
+// SwarmView/detail/useOrchestrationIndex.js — req #3435 replaced the
+// `useEpicPipelineLocation.js` named here originally). Nothing had to change in
 // Lambda-Rest; only a client that knows how to ASK for N runs at once, which is
 // this module.
 //
