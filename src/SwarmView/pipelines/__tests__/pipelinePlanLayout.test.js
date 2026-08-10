@@ -4155,15 +4155,26 @@ describe('the 35-character ceiling (req #3168, directive B)', () => {
 });
 
 describe('requirement marks: id or TITLE (req #3168, directive E)', () => {
-    it('SHOWING TITLES COSTS EXACTLY ONE LINE PER LANE, AND NO WIDTH', () => {
+    it('SHOWING TITLES COSTS NO WIDTH, EVER — HEIGHT GROWS WITH THE SWIM LANES', () => {
         // The frozen-geometry directive stands on the HORIZONTAL axis: a title
         // may never widen a column or the world, because that was the user's
-        // explicit refusal. The swim-lane directive that followed asks for
-        // vertical separation, and that is not free — an odd column's marks drop
-        // one line, so each lane must own that line.
+        // explicit refusal. That is untouched by req #3362.
         //
-        // Pinned as an EXACT identity rather than a bound: one REQ_LINE_H per
-        // lane in the plan, no more, and it must be the ONLY thing that moved.
+        // The VERTICAL cost is no longer a flat one line per lane. Before req
+        // #3362 only a lone mark could stagger, and it cost exactly one line —
+        // pinned here as `lanes * REQ_LINE_H`. Now a stack of N marks can be
+        // pushed down to clear a busier neighbour's full extent, so a lane
+        // chaining several unequal-count columns costs MORE than one line, and a
+        // lane with no conflict at all still costs exactly one (the unconditional
+        // `+ REQ_LINE_H` `lanePitch` charges every lane in title mode). The
+        // total is therefore a MEASURED fact, not a formula derived from lane
+        // count alone — re-derive it from `pipelinePlanLayout.test.js` rather
+        // than trusting the number on this line if the fixture ever changes.
+        //
+        // It IS still independent of `stepWidth` and `stepLabel` (offsets come
+        // from requirement COUNTS, never from pixel width), so the same delta
+        // holds across every combination below.
+        const SWIM_LANE_HEIGHT_DELTA = 450; // 24 × REQ_LINE_H, measured on this fixture
         for (const stepLabel of ['id', 'title']) {
             for (const stepWidth of Object.keys(STEP_WIDTH_FACTORS)) {
                 const base = computePlanLayout(plan.rows,
@@ -4178,9 +4189,8 @@ describe('requirement marks: id or TITLE (req #3168, directive E)', () => {
                 expect(titled.width, where).toBe(base.width);
                 expect([...titled.nodes.values()].map((n) => n.x), where)
                     .toEqual([...base.nodes.values()].map((n) => n.x));
-                // Vertical: one line per lane, and nothing else.
-                const lanes = base.bands.reduce((sum, b) => sum + b.sub, 0);
-                expect(titled.height - base.height, where).toBe(lanes * REQ_LINE_H);
+                // Vertical: the measured swim-lane cost, and nothing else.
+                expect(titled.height - base.height, where).toBe(SWIM_LANE_HEIGHT_DELTA);
                 expect(titled.bands.map((b) => b.sub), where)
                     .toEqual(base.bands.map((b) => b.sub));
             }
@@ -4196,19 +4206,23 @@ describe('requirement marks: id or TITLE (req #3168, directive E)', () => {
         // The swim-lane directive (2026-08-01) moved these numbers UP without
         // widening a single column: a lone title inside a run of 1-req steps
         // draws on its own line and may reach into its neighbours, so the MAX
-        // rises while the MIN — a mark in a stack, still column-bound — does not.
+        // rose while the MIN — a mark still column-bound — did not.
+        //
+        // req #3362 generalized eligibility from "lone mark in a run of lone
+        // marks" to "every mark, cleared of its neighbours by the swim-lane
+        // offset sweep" — so a mark that used to be column-bound (the old MIN)
+        // may now also reach into a neighbour, and the MIN rises with it. The
+        // MAX is unchanged: it was already the ceiling (ID prefix included) and
+        // nothing widens past LABEL_MAX_CHARS.
         //
         // With `Step: Title` the column already carries TITLE_COL_MIN (144·f),
-        // and the run-widened marks reach the ceiling at Width L — 35 chars,
-        // now 40 after the req #3242 bump (the id prefix `reqLabelText` adds
-        // eats into the same ceiling, which is why it moved). Measured: 21 of
-        // 55 marks qualify on this fixture.
+        // and a widened mark reaches the ceiling at Width L — 40 characters
+        // (req #3242). With `Step: ID` the column is only as wide as the ids
+        // need, so both ends are lower — the two controls interact.
         expect([at('title', 'compact'), at('title', 'medium'), at('title', 'wide')])
-            .toEqual([[18, 33], [19, 35], [23, 40]]);
-        // With `Step: ID` the column is only as wide as the ids need, so both
-        // ends are lower. This is why the pair of controls interacts.
+            .toEqual([[23, 33], [24, 35], [28, 40]]);
         expect([at('id', 'compact'), at('id', 'medium'), at('id', 'wide')])
-            .toEqual([[8, 20], [9, 22], [11, 26]]);
+            .toEqual([[14, 20], [14, 22], [16, 26]]);
     });
 
     it('keeps every requirement mark inside its column slab — the frozen contract', () => {
@@ -4229,26 +4243,24 @@ describe('requirement marks: id or TITLE (req #3168, directive E)', () => {
                         ...view, stepLabel, stepWidth,
                         reqTitles: FIXTURE_TITLES,
                     });
-                    // Since the swim-lane directive (2026-08-01) containment is
-                    // KIND-DEPENDENT here, exactly as it already was for step
-                    // labels. A lone requirement title inside a run of 1-req
-                    // steps is STAGGERED — its column's neighbours draw on the
-                    // other line — so it may reach a bounded distance into them.
-                    // Its guarantee is not "inside the slab" but "no further than
-                    // STAGGER_REACH of one neighbour", and the pairwise property
-                    // that follows from it is asserted by the zero-overlap test
-                    // below. Everything else is still slab-contained.
-                    const marksOf = new Map();
-                    for (const l of layout.labels) {
-                        if (l.kind === 'req') marksOf.set(l.stepId, (marksOf.get(l.stepId) || 0) + 1);
-                    }
+                    // Since the swim-lane directive (2026-08-01, generalized by
+                    // req #3362) containment is KIND-DEPENDENT here, exactly as
+                    // it already was for step labels. A requirement title (any
+                    // stack size, not just a lone mark since req #3362) is
+                    // STAGGERED — the swim-lane offset sweep cleared it against
+                    // its same-lane neighbours — so it may reach a bounded
+                    // distance into them. Its guarantee is not "inside the
+                    // slab" but "no further than STAGGER_REACH of one
+                    // neighbour", and the pairwise property that follows from
+                    // it is asserted by the zero-overlap test below. Everything
+                    // else (id marks, and titles in `horizontal`, which the
+                    // CONTROL withholds) is still slab-contained.
                     for (const label of layout.labels) {
                         if (label.kind !== 'req') continue;
                         const n = layout.nodes.get(label.stepId);
                         const half = layout.colW[n.depth] / 2;
                         const staggered = view.reqLabel === 'title'
-                            && view.reqLayout !== 'horizontal'
-                            && marksOf.get(label.stepId) === 1;
+                            && view.reqLayout !== 'horizontal';
                         // The reach a staggered mark is allowed, per side: the
                         // same STAGGER_REACH 0.4 of the NARROWER neighbour that
                         // bounds a staggered step label.
@@ -4268,6 +4280,118 @@ describe('requirement marks: id or TITLE (req #3168, directive E)', () => {
                 }
             }
         }
+    });
+
+    // req #3362 — a step with more than one requirement no longer stays
+    // column-bound just because it isn't a lone mark, and the fewer-requirement
+    // side of an adjacent pair draws in the "higher" (smaller-y) swim lane.
+    describe('requirement-count swim lanes (req #3362)', () => {
+        // Step 1 (5 requirements, depth 0, lane 0) sits directly left of step 3
+        // (1 requirement, depth 1, lane 0) on the live Substrate fixture — the
+        // exact "multi-req step next to a single-req step" shape #3362 is
+        // about. Before this requirement, step 3 could not stagger AT ALL
+        // (its left neighbour carried more than one requirement) and step 1's
+        // marks were bound to bare `colW`, never the 40-character ceiling.
+        it('the fewer-requirement step draws ABOVE the busier one it reaches into', () => {
+            const layout = computePlanLayout(plan.rows,
+                { ...reqViewOptions('titles'), stepLabel: 'id', stepWidth: 'compact',
+                    reqTitles: FIXTURE_TITLES });
+            const marksOf = (stepId) => layout.labels
+                .filter((l) => l.kind === 'req' && l.stepId === stepId)
+                .sort((a, b) => a.y - b.y);
+            const step1 = marksOf(1); // 5 requirements — the busier side
+            const step3 = marksOf(3); // 1 requirement — the fewer side
+            expect(step1, 'step 1 carries all 5 of its marks').toHaveLength(5);
+            expect(step3, 'step 3 carries its 1 mark').toHaveLength(1);
+            // "Fewer requirements → higher swim lane": step 3's single line
+            // sits strictly above (smaller y than) every one of step 1's five
+            // lines. This is a RELATIVE claim, not "step 3 sits at offset 0" —
+            // step 3 ties with ITS OWN right neighbour (step 4) and so carries
+            // a one-line offset of its own (see the tie-chain test below); it
+            // is simply pushed down far LESS than the busier step 1 is.
+            for (const mark of step1) {
+                expect(step3[0].y, `step 3's mark vs step 1's ${mark.text}`)
+                    .toBeLessThan(mark.y);
+            }
+            // And step 1 (the busier side) is the one pushed down — its first
+            // line is not the lane's top line (y increases downward, so
+            // "pushed down" is a larger y than an unshifted lone mark would
+            // draw at).
+            expect(step1[0].y).toBeGreaterThan(step3[0].y);
+        });
+
+        it('a multi-requirement step now spends the stagger budget too, not just colW', () => {
+            // Width L (`wide`) is where the pre-#3362 MIN (a mark still
+            // column-bound inside a stack) measured 23 characters — see the
+            // MEASURED table above. Step 1 (5 requirements) was exactly that
+            // MIN case: column-bound at `colW`, never the wider stagger
+            // budget. Measured here at 30 — strictly past the old column-only
+            // bound — because `widened` no longer excludes it.
+            const layout = computePlanLayout(plan.rows,
+                { ...reqViewOptions('titles'), stepLabel: 'title', stepWidth: 'wide',
+                    reqTitles: FIXTURE_TITLES });
+            const step1Marks = layout.labels
+                .filter((l) => l.kind === 'req' && l.stepId === 1);
+            expect(step1Marks.length).toBe(5);
+            const OLD_COLUMN_BOUND_MIN = 23; // pre-#3362 pinned MIN at Width L
+            expect(Math.max(...step1Marks.map((l) => l.text.length)),
+                'a multi-requirement step must draw past the old column-only bound')
+                .toBeGreaterThan(OLD_COLUMN_BOUND_MIN);
+        });
+
+        it('a tied single-requirement pair still separates by one REQ_LINE_H, exactly as pre-#3362', () => {
+            // Steps 3 and 4 sit in a lane that also carries step 1 (5
+            // requirements) earlier — NOT a uniform run — but 3 and 4
+            // themselves are a tied pair (1 requirement each), which is the
+            // req #3119 case this change must leave untouched: a tie still
+            // resolves by column parity, using the same 'wide'-width,
+            // real-title fixture the req #3242 gap test already exercises.
+            const REAL_TITLES = new Map([
+                [3050, 'darwin-mcp rearchitecture: Lambda-Rest as single DB gateway (clean-sheet REST transport)'],
+                [3056, 'Views show autonomy'],
+                [3063, 'Instruction Edit In Place'],
+                [3064, 'Aggregator Card Polish'],
+            ]);
+            const layout = computePlanLayout(plan.rows,
+                { ...reqViewOptions('titles'), stepLabel: 'title', stepWidth: 'wide',
+                    reqTitles: REAL_TITLES });
+            // Steps 3 and 4 (both 1 requirement, adjacent columns, same lane)
+            // are the pair req #3242's breathing-room test already measures.
+            // Their vertical separation must still be the parity-driven
+            // REQ_LINE_H apart, not something a chained neighbour distorted.
+            const m3 = layout.labels.find((l) => l.kind === 'req' && l.stepId === 3);
+            const m4 = layout.labels.find((l) => l.kind === 'req' && l.stepId === 4);
+            expect(Math.abs(m3.y - m4.y)).toBe(REQ_LINE_H);
+        });
+
+        // Found in review: a TIE did not chain through the previous column's
+        // own offset the way a strictly-fewer neighbour does, so a sequence of
+        // equal-count columns (e.g. counts 1, 1, 2, 2 on one lane) could land
+        // two of them on the same absolute lines — this is a synthetic,
+        // minimal reproduction of that exact shape, independent of whether the
+        // Substrate fixture or the fuzz corpus happens to contain it today.
+        it('a chained tie sequence (1, 1, 2, 2 on one lane) draws with zero overlap', () => {
+            const rows = [
+                { id: 1, title: 'Alpha', reqIds: [101], depIds: [] },
+                { id: 2, title: 'Bravo', reqIds: [201], depIds: [1] },
+                { id: 3, title: 'Charlie', reqIds: [301, 302], depIds: [2] },
+                { id: 4, title: 'Delta', reqIds: [401, 402], depIds: [3] },
+            ];
+            const titles = new Map(
+                [101, 201, 301, 302, 401, 402].map((id) => [id, LONG_TITLE]));
+            const layout = computePlanLayout(rows,
+                { reqLayout: 'vertical', reqLabel: 'title', stepLabel: 'id', reqTitles: titles });
+            assertNoLabelOverlap(layout, '1,1,2,2 tie chain');
+            // And the offsets are genuinely CHAINED, not just non-overlapping
+            // by accident: step 4 (tied with step 3, itself already pushed
+            // down to clear step 1/2) must clear step 3's FULL two-line
+            // block, not merely step 3's raw count.
+            const m3 = layout.labels.filter((l) => l.kind === 'req' && l.stepId === 3)
+                .sort((a, b) => a.y - b.y);
+            const m4 = layout.labels.filter((l) => l.kind === 'req' && l.stepId === 4)
+                .sort((a, b) => a.y - b.y);
+            expect(m4[0].y).toBeGreaterThanOrEqual(m3[m3.length - 1].y + REQ_LINE_H - 0.01);
+        });
     });
 
     it('holds zero label overlap and no label-on-bead with titles showing', () => {
@@ -6789,5 +6913,31 @@ describe('cell invariant over a timed fuzz corpus (req #3229)', () => {
                 assertNoLabelOverlap(layout, `seed ${seed}`);
             }
         });
+    });
+
+    // req #3362 review finding M2: `COMBOS` never sets `reqLabel`, so it
+    // defaults to 'id' and the swim-lane offset sweep (`staggerReqs`, gated on
+    // `reqLabel === 'title'`) never runs anywhere in this corpus — the fuzz
+    // sweep above is blind to the whole mechanism this requirement added.
+    // Setting `reqLabel: 'title'` alone is ALSO not enough: with no
+    // `reqTitles`, `reqLabelText` falls back to the bare id (4 characters),
+    // which is narrow enough that adjacent marks never overlap horizontally
+    // even when they land on the same line — so this needs BOTH title mode
+    // AND long synthetic titles (the same `LONG_TITLE` fixture the Substrate
+    // suite above uses) to actually exercise the geometry that changed. This
+    // is what caught the un-chained tie-branch bug (a 1,1,2,2 same-lane count
+    // sequence overlapping) that the id-mode sweep could not see.
+    it('title mode with long titles: zero label overlap, over the whole corpus', () => {
+        for (const { seed, reads } of corpus) {
+            const plan = orderedPlan(buildPipelineModel(reads), { now: FUZZ_NOW });
+            const reqTitles = new Map();
+            for (const r of plan.rows) {
+                for (const id of r.reqIds || []) reqTitles.set(id, LONG_TITLE);
+            }
+            const layout = computePlanLayout(plan.rows,
+                { reqLayout: 'vertical', reqLabel: 'title', stepLabel: 'id',
+                    timeAxis: plan.timeAxis, reqTitles });
+            assertNoLabelOverlap(layout, `seed ${seed}`);
+        }
     });
 });

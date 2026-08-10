@@ -997,7 +997,8 @@ const TITLE_SLOT = 14;          // deviation 2 — reserved per-lane title line
 //
 // +25% (req #3242 user directive, "a little more space between the lanes...
 // for readability") — was 15. This is the SAME constant that sets the
-// staggered-column vertical offset (`reqStaggerOf`), which is what was
+// staggered-column vertical offset (the per-band `reqOffsets` sweep, req
+// #3362), which is what was
 // actually reported: two single-requirement steps in ADJACENT columns
 // (`Dual-Path Purge` -> `Wontfix Fold-In` on the live plan), both eligible to
 // stagger, landed on lines only 1px apart vertically while overlapping ~60px
@@ -1962,36 +1963,40 @@ export function computePlanLayout(rows, opts = {}) {
     const staggerOf = (d) => (d % 2) * STAGGER_GAP;
 
     // ── Requirement titles get their own swim lane per column (user directive
-    //    2026-08-01) ──────────────────────────────────────────────────────────
+    //    2026-08-01, generalized to requirement COUNT req #3362) ────────────────
     // A requirement TITLE is ~17 characters where an id was 4, and the column is
     // frozen — so a title is boxed by its own slab and there is nothing left to
     // give it. The step label above the bead solved exactly this problem in req
-    // #3119 and the answer is reusable: give ODD COLUMNS their own line, so a
-    // mark and its left/right neighbours are never drawn at the same height, and
-    // each may then overflow its own column into the room beside it.
+    // #3119 and the answer is reusable: give a column its own line, so a mark and
+    // its left/right neighbours are never drawn at the same height, and each may
+    // then overflow its own column into the room beside it.
     //
-    // The user's phrasing — "separate the titles vertically by nearest
-    // neighbours, then alternate heights in sequences of 1 req per step" — names
-    // both halves of what makes this sound:
+    // req #3119 gave that line to ODD COLUMNS by pure parity, and restricted it
+    // to a run of LONE marks (nMarks === 1) — a stack of N occupies N consecutive
+    // lines, and a flat one-line offset only clears a neighbour that is itself
+    // one line tall. A step with more than one requirement stayed column-bound at
+    // whatever colW affords, never the 40-character ceiling a lone mark could
+    // reach (req #3362 finding).
     //
-    //   · SEPARATE BY NEAREST NEIGHBOUR. The offset is applied to EVERY req block
-    //     in this mode, not only the widened ones. Offsetting just the wide ones
-    //     leaves a widened single title on line 0 beside a stacked block that
-    //     also starts on line 0, and the reach lands straight on it.
-    //   · ALTERNATE IN SEQUENCES OF 1 REQ PER STEP. Only a step with exactly ONE
-    //     requirement is widened. A stack of N marks occupies N consecutive
-    //     lines, so two adjacent stacks overlap on N−1 of them however they are
-    //     offset — parity separates a stack from a stack for one line only. A
-    //     1-mark block is the only one whose parity offset is a complete
-    //     separation, so it is the only one allowed to spend the extra room.
+    // The fix is the same idea, sized to the actual neighbour instead of a flat
+    // line: which column owns line 0 (the "higher" swim lane) is now decided by
+    // WHO HAS FEWER REQUIREMENTS, not by parity — the fewer-marks column reaches
+    // into its busier neighbour unshifted, and the busier column is pushed down
+    // far enough to clear the whole of what reached into it. A tie (equal counts,
+    // the original run-of-1 case) still resolves by parity, so a uniform run is
+    // byte-identical to the pre-#3362 layout. See the per-band `reqOffsets` sweep
+    // (below, in the lane-assignment loop) for the derivation — it needs each
+    // lane's final occupant map, which does not exist yet at this point in the
+    // module, so the offset itself is band-local and read back through
+    // `band.reqOffsets` where the requirement marks are drawn.
     //
-    // What that leaves is the same pairwise proof the step labels already carry:
-    // only SAME-parity columns (d±2) share a line, they intrude on the shared
-    // column d±1 from opposite sides, and STAGGER_REACH 0.4 per side cannot meet.
-    // A widened mark beside a column-contained one is safe for the same reason —
-    // the contained one never leaves its slab and the reach is under half of it.
+    // The reach itself is UNCHANGED: bounded to the immediate neighbour only
+    // (`staggerBudget`, `STAGGER_REACH` below), so the pairwise proof the step
+    // labels already carry still holds — only SAME-parity columns (d±2) share a
+    // line, they intrude on the shared column d±1 from opposite sides, and
+    // STAGGER_REACH 0.4 per side cannot meet. Only WHICH line a stack starts on
+    // changed, never how far sideways it may reach.
     const staggerReqs = reqLabel === 'title' && reqLayout !== 'horizontal';
-    const reqStaggerOf = (d) => (staggerReqs ? (d % 2) * REQ_LINE_H : 0);
     const colX = [];
     {
         let acc = LEFT;
@@ -2366,6 +2371,88 @@ export function computePlanLayout(rows, opts = {}) {
         }
         const sub = Math.max(1, ...steps.map((r) => laneById.get(r.id) + 1));
         const maxReqs = Math.max(1, ...steps.map((r) => (r.reqIds || []).length));
+
+        // ── Requirement-count swim lanes (req #3362) ────────────────────────
+        // TITLE mode only. Before this, only a LONE mark (nMarks === 1) ever
+        // spent the stagger budget, and only inside a run where both same-lane
+        // neighbours were themselves lone marks — a stack of N drew column-bound
+        // at whatever colW affords (as low as 18 characters on this fixture),
+        // never the 40-character ceiling every other combination can reach. The
+        // restriction existed because the OLD offset was a flat one line
+        // (`(d % 2) * REQ_LINE_H`): fine for separating two 1-line blocks, not
+        // enough to clear a taller neighbour's stack.
+        //
+        // Generalized: TWO SWEEPS per lane (left-to-right, right-to-left) give
+        // every occupied depth the number of lines its OWN stack must start on.
+        // A same-lane neighbour with FEWER marks is the one that reaches — it
+        // stays unshifted (offset 0, the "higher" swim lane) — while a neighbour
+        // with MORE marks costs nothing (it never reaches, so nothing to clear).
+        // A tie (equal counts — the run-of-1 case req #3119 already handled)
+        // resolves by column parity, exactly as before, so a uniform run is
+        // BYTE-IDENTICAL to the old flat scheme. Chained through the previous
+        // column's OWN offset (`offL.get(d - 1)`) so a monotonic run (1, 2, 3…)
+        // clears every predecessor's full extent, not just its immediate
+        // neighbour's raw count — the counterexample that breaks a one-hop-only
+        // rule is a 3/2/1 chain, where the middle column is busier than its
+        // right neighbour and fewer than its left: a one-hop rule gives it two
+        // contradictory offsets, the chained one resolves them consistently.
+        //
+        // Reach is symmetric and BOUNDED to the immediate neighbour exactly as
+        // before (`staggerBudget`, `STAGGER_REACH`) — this only changes WHICH
+        // line a stack starts on, never how far sideways it may reach, so the
+        // zero-overlap proof for distant (d±2) same-parity columns is untouched.
+        // Raw count, deliberately NOT `Math.max(1, …)` (found in review) — a
+        // req-less step draws zero requirement marks (`laneReqs` below sizes
+        // it that way too), so it must read as zero lines to a neighbour's
+        // sweep as well, or a neighbour would be pushed down to clear a line
+        // this step never actually occupies.
+        const countAt = (lane, d) => {
+            const occ = used.get(d)?.get(lane);
+            if (occ === undefined || occ === RESERVED) return 0;
+            return (byId.get(occ)?.reqIds || []).length;
+        };
+        const reqOffsets = new Map(); // depth -> Map(lane -> offset, in REQ_LINE_H units)
+        if (staggerReqs) {
+            for (const lane of new Set(steps.map((r) => laneById.get(r.id)))) {
+                const offL = new Map();
+                for (let d = 0; d <= maxCol; d++) {
+                    const own = countAt(lane, d);
+                    if (own === 0) continue;
+                    const left = countAt(lane, d - 1);
+                    if (left === 0) offL.set(d, 0);
+                    else if (left < own) offL.set(d, (offL.get(d - 1) || 0) + left);
+                    else if (left > own) offL.set(d, 0);
+                    // A TIE still needs to CHAIN like the strictly-fewer case
+                    // (found in review, req #3362): parity only decides WHICH
+                    // side goes lower, it does not by itself clear a neighbour
+                    // that was ITSELF pushed down by a tie further back. A
+                    // sequence of equal counts (e.g. 1, 1, 2, 2) needs offsets
+                    // 0, 1, 2, 4 — not 0, 1, 0, 2 — or the d=2/d=3 pair (same
+                    // count, same un-chained parity value) lands on the same
+                    // lines. d and d+1 in a tie have opposite parity, so
+                    // exactly one of `offL.get(d - 1)` / this column's own
+                    // odd-branch chain is ever non-zero, which is what keeps a
+                    // uniform run byte-identical to the pre-#3362 0,1,0,1.
+                    else offL.set(d, (d % 2 === 1) ? (offL.get(d - 1) || 0) + left : 0);
+                }
+                const offR = new Map();
+                for (let d = maxCol; d >= 0; d--) {
+                    const own = countAt(lane, d);
+                    if (own === 0) continue;
+                    const right = countAt(lane, d + 1);
+                    if (right === 0) offR.set(d, 0);
+                    else if (right < own) offR.set(d, (offR.get(d + 1) || 0) + right);
+                    else if (right > own) offR.set(d, 0);
+                    else offR.set(d, (d % 2 === 1) ? (offR.get(d + 1) || 0) + right : 0);
+                }
+                for (let d = 0; d <= maxCol; d++) {
+                    if (countAt(lane, d) === 0) continue;
+                    if (!reqOffsets.has(d)) reqOffsets.set(d, new Map());
+                    reqOffsets.get(d).set(lane, Math.max(offL.get(d) || 0, offR.get(d) || 0));
+                }
+            }
+        }
+
         // Lane pitch (zero-overlap contract, half 2): the vertical envelope of
         // one lane — step label above, bead, req ids below, then the reserved
         // title slot — never reaches the next lane's label.
@@ -2379,10 +2466,16 @@ export function computePlanLayout(rows, opts = {}) {
         // and the whole plan taller than the panel for no reason. 'horizontal'
         // keeps a constant pitch because its req ids sit on ONE line whatever
         // the count, so there is nothing lane-specific to measure.
+        //
+        // Includes the swim-lane OFFSET (req #3362), not just the step's own
+        // count — a stack pushed down to clear a busier neighbour needs its
+        // lane to reserve the room it was pushed INTO, or it runs into the next
+        // lane down exactly the way an un-pushed 5-req stack used to.
         const laneReqs = new Map();
         for (const r of steps) {
             const lane = laneById.get(r.id);
-            const n = (r.reqIds || []).length;
+            const d = colOf.get(r.id);
+            const n = (r.reqIds || []).length + (reqOffsets.get(d)?.get(lane) || 0);
             if (n > (laneReqs.get(lane) || 0)) laneReqs.set(lane, n);
         }
         // The stagger costs one extra line per lane, and it is charged ONCE
@@ -2428,7 +2521,7 @@ export function computePlanLayout(rows, opts = {}) {
         // name (the visualizer's floating chip) clamp to THIS, not to headerH.
         const epicLaneH = headerH - STEP_LABEL_RISE - (staggerLabels ? STAGGER_GAP : 0);
         bands.push({ ...band, steps, sub, maxReqs, pitch, laneY, laneReqs,
-            headerH, epicLaneH });
+            headerH, epicLaneH, reqOffsets });
         bandUsed.push(used);
     }
     // The ruler's reservation, charged ONCE and unconditionally (see RULER_H).
@@ -2537,17 +2630,6 @@ export function computePlanLayout(rows, opts = {}) {
     // ── Label rectangles — every piece of text the canvas draws, as world
     // boxes, so the zero-overlap invariant is a testable property of THIS
     // module's output rather than a hope about the renderer.
-    // How many requirement marks the step occupying (band, lane, depth) draws.
-    // An empty cell, or one holding only a reserved arc corridor, is 0 — nothing
-    // is drawn there, so nothing can be collided with. Reads the SAME cell map
-    // the lane placement built, so "who is my neighbour on this lane" has one
-    // answer in this module rather than a second index that can drift from it.
-    const laneNeighbourMarks = (bandIndex, lane, d) => {
-        const occ = bandUsed[bandIndex]?.get(d)?.get(lane);
-        if (occ === undefined || occ === RESERVED) return 0;
-        return (byId.get(occ)?.reqIds || []).length;
-    };
-
     const labels = [];
     for (const r of safeRows) {
         const n = nodes.get(r.id);
@@ -2598,32 +2680,19 @@ export function computePlanLayout(rows, opts = {}) {
         const nMarks = Math.max(1, ids.length);
         const perReq = reqLayout === 'horizontal' ? nMarks : 1;
         const gaps = reqLayout === 'horizontal' ? (nMarks - 1) * CHW_REQ : 0;
-        // A SINGLE staggered title spends the stagger budget — its own column
-        // plus a bounded reach into each neighbour. Everything else is bounded by
-        // its own column exactly as before, so no id anywhere and no stacked
-        // block moves by a pixel.
-        //
-        // AND ONLY INSIDE A RUN OF SINGLE-REQUIREMENT STEPS — which is what "in
-        // sequences of 1 req per step" buys, and it is load-bearing rather than
-        // decorative. The parity offset moves a block by ONE line, so it clears a
-        // neighbour only while that neighbour is one line tall. Measured on the
-        // Substrate fixture the moment the run condition was missing: step 1 is a
-        // 5-requirement stack at d=0 occupying lines 0–4, and its 1-requirement
-        // neighbour step 3 at d=1 — offset by exactly one line — landed on line 1
-        // OF THAT STACK, 14px of overlap, at two separate places in the plan.
-        //
-        // So a title may only spend the extra room when the steps on the same
-        // lane to its left and right are themselves at most one mark tall. That
-        // is a run of 1-req steps, and inside such a run the alternation is a
-        // complete separation.
-        const widened = staggerReqs && nMarks === 1
-            && laneNeighbourMarks(n.bandIndex, n.lane, n.depth - 1) <= 1
-            && laneNeighbourMarks(n.bandIndex, n.lane, n.depth + 1) <= 1;
+        const band = bands[n.bandIndex];
+        // Every staggered title spends the stagger budget now — its own column
+        // plus a bounded reach into each neighbour — regardless of stack height
+        // (req #3362). Safe because `band.reqOffsets` (computed in the
+        // lane-assignment loop above) already placed this stack on the lines
+        // its neighbours cannot reach: a busier neighbour was pushed down far
+        // enough to clear us if we're the fewer side, or we were if it is.
+        const widened = staggerReqs;
         const reqRoom = widened ? staggerBudget(n.depth) : colW[n.depth];
         const reqMax = Math.max(1,
             Math.floor((reqRoom - 6 - gaps) / (CHW_REQ * perReq)));
         const showTitles = reqLabel === 'title';
-        const reqDy = reqStaggerOf(n.depth);
+        const reqDy = (band.reqOffsets.get(n.depth)?.get(n.lane) || 0) * REQ_LINE_H;
         const texts = ids.map((reqId) => reqLabelText(reqId,
             { reqLabel, reqTitles, maxChars: reqMax }));
         if (reqLayout === 'horizontal') {
@@ -2675,7 +2744,6 @@ export function computePlanLayout(rows, opts = {}) {
         // The reserved title slot (drawn at the 'in' zoom level, and skipped
         // when the step label already IS the title — it would duplicate).
         if (stepLabel !== 'title') {
-            const band = bands[n.bandIndex];
             // Staggered too, and therefore budgeted the same way: the title may
             // reach into its neighbours because they draw on the other line.
             // Before req #3119 this was capped at the bare column width, which
@@ -2692,8 +2760,9 @@ export function computePlanLayout(rows, opts = {}) {
                 // label-vs-bead invariant, which is why that test exists.
                 const laneN = Math.max(1, band.laneReqs.get(n.lane) || 1);
                 // The slot clears the DEEPEST mark on this lane, not its own
-                // step's — so in titles mode it drops by the MAXIMUM parity
-                // offset any column can take, never by this column's own.
+                // step's — `laneN` already includes the swim-lane offset (req
+                // #3362) of whichever column in this lane was pushed down
+                // furthest, never just this column's own.
                 //
                 // Using `reqDy` here is wrong and was measured wrong: an EVEN
                 // column's slot is unshifted while its ODD neighbour's marks are
@@ -4071,8 +4140,9 @@ export function epicFocusTransform(layout, band, size, kBase, kFloor) {
  *     and the reserved title slot, all of which carry `stepId`.
  *
  * The second term is what makes the rect right rather than merely centred. A
- * step's requirement marks stack BELOW its bead (`n.y + 14 + i * REQ_LINE_H`)
- * and its title sits ABOVE it, so a fit to the bead alone would centre the bead
+ * step's requirement marks stack BELOW its bead (`n.y + 14 + reqDy + i *
+ * REQ_LINE_H` — `reqDy` is the swim-lane offset, req #3362) and its title sits
+ * ABOVE it, so a fit to the bead alone would centre the bead
  * and push the requirement ids — the thing the reader followed the link to see —
  * off the bottom of a tight viewport. The band case fits vertically to
  * `band.height`, which already contains all of that; a single step has no such
