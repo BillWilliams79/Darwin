@@ -13,6 +13,8 @@ import { aiModelChipProps, aiModelLabel } from './modelChipStyles';
 import { effortChipProps, effortLabel } from './effortChipStyles';
 import { formatDuration } from '../utils/formatDuration';
 import { renderSourceRef } from './repoGitHubMap.jsx';
+// req #3463 — the era↔route binding. This grid never spells a plan route.
+import { planDetailPath, planEraOfSession } from './pipelines/planEra';
 import SessionsStatsView from './SessionsStatsView';
 import React, { useContext, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -88,19 +90,26 @@ const getSessionColumns = (navigate, timezone) => [
         // the title is resolved client-side from the already-cached pipelines
         // list, exactly as Machine resolves its name. NULL is a real answer
         // (work outside any plan) and renders as an em-dash.
+        //
+        // req #3463 — THE COLUMN NAMES THE ERA. A session row carries
+        // `pipeline_fk` (1.0, req #3186) or `pipeline2_fk` (2.0, req #3350),
+        // never both, and the two id spaces are disjoint — so the chip reads
+        // the pair through `planEraOfSession` and lets `planDetailPath` pick
+        // the route. Taking the id without taking its era is exactly how a 2.0
+        // id reached the 1.0 plan page in production (req #3462).
         field: 'pipeline_title',
         headerName: 'Pipeline',
         width: 150,
-        renderCell: (params) => params.row.pipeline_fk != null
-            ? <Chip label={params.value || `#${params.row.pipeline_fk}`} size="small"
+        renderCell: (params) => {
+            const seat = planEraOfSession(params.row);
+            if (!seat) return '—';
+            const to = planDetailPath(seat.era, seat.pipelineId);
+            return <Chip label={params.value || `#${seat.pipelineId}`} size="small"
                     variant="outlined"
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        navigate(`/swarm/pipeline/${params.row.pipeline_fk}`);
-                    }}
-                    sx={{ cursor: 'pointer' }}
-                    data-testid={`session-pipeline-${params.row.id}`} />
-            : '—',
+                    onClick={to ? (e) => { e.stopPropagation(); navigate(to); } : undefined}
+                    sx={to ? { cursor: 'pointer' } : undefined}
+                    data-testid={`session-pipeline-${params.row.id}`} />;
+        },
     },
     {
         // req #2943 — which machine ran this session. Name resolved client-side
@@ -356,6 +365,12 @@ const SessionsView = () => {
             dev_server_port: devServerMap[s.id] || null,
             swarm_start_fk: swarmStartBySession[s.id] || null,
             machine_name: s.machine_fk != null ? (machineNameById[s.machine_fk] ?? null) : null,
+            // 1.0 ONLY, deliberately (req #3463): `pipelineTitleById` is built
+            // from the 1.0 `pipelines` read, so resolving a 2.0 `pipeline2_fk`
+            // through it would print whichever 1.0 plan happens to share that
+            // number — a WRONG title, which is worse than none. A 2.0 session's
+            // chip falls back to `#<id>` until the 2.0 plan list is a read this
+            // grid makes.
             pipeline_title: s.pipeline_fk != null ? (pipelineTitleById[s.pipeline_fk] ?? null) : null,
           }))
         : null;

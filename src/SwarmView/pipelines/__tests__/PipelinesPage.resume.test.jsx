@@ -55,15 +55,21 @@ vi.mock('../../../hooks/useDataQueries', async (importOriginal) => {
 });
 
 import PipelinesPage from '../PipelinesPage';
-import { PIPELINE_PLACE_STORAGE_KEY } from '../pipelinePlace';
+import { PIPELINE_PLACE_SCHEMA_VERSION, PIPELINE_PLACE_STORAGE_KEY } from '../pipelinePlace';
 import { noteRoute, resetRouteTrail } from '../../../utils/routeTrail';
 import { readScroll, scrollStorageKey, writeScroll } from '../../../utils/viewportMemory';
+import { PLAN_ERA_1, PLAN_ERA_2 } from '../planEra';
 import AuthContext from '../../../Context/AuthContext';
 
 let roots = [];
 
-const remember = (at, pipelineId) => localStorage.setItem(
-    PIPELINE_PLACE_STORAGE_KEY, JSON.stringify({ v: 1, at, pipelineId }));
+// req #3463 — `v` follows the module's own constant rather than a literal, and
+// the record carries an `era`. A hand-written `v: 1` here would seed a record
+// the reader now DROPS (v1 predates the era field), so every journey below
+// would silently exercise "no record at all" and pass for the wrong reason.
+const remember = (at, pipelineId, era = PLAN_ERA_1) => localStorage.setItem(
+    PIPELINE_PLACE_STORAGE_KEY,
+    JSON.stringify({ v: PIPELINE_PLACE_SCHEMA_VERSION, at, era, pipelineId }));
 
 const storedPlace = () => {
     const raw = localStorage.getItem(PIPELINE_PLACE_STORAGE_KEY);
@@ -160,7 +166,32 @@ describe('PipelinesPage — resuming the last plan (req #3431)', () => {
             remember('plan', 5);
             mount();
             expect(landedOn()).toBe('/swarm/pipeline/5');
-            expect(storedPlace()).toEqual({ v: 1, at: 'plan', pipelineId: 5 });
+            expect(storedPlace()).toEqual({ v: PIPELINE_PLACE_SCHEMA_VERSION, at: 'plan', era: PLAN_ERA_1, pipelineId: 5 });
+        });
+    });
+
+    // ── req #3463 — A FOREIGN-ERA RECORD (code review) ────────────────────
+    // This list reads `pipelines` (1.0). A 2.0 record naming plan 2 is a
+    // DIFFERENT plan that happens to share a number — nothing translates
+    // between the id spaces — so honouring it would resume the reader into a
+    // plan they never opened. That is req #3462's outage arriving by resume
+    // instead of by click, which is why the era gate exists and why it needs a
+    // test that actually supplies the other era.
+    describe('a record from the other era', () => {
+        it('does NOT resume, even when the id exists in this era too', () => {
+            remember('plan', 2, PLAN_ERA_2);
+            mount();
+            expect(landedOn()).toBeNull();
+        });
+
+        it('replaces it with this list\'s own place, rather than preserving it', () => {
+            // ONE RECORD ACROSS BOTH ERAS by design: the reader is on the 1.0
+            // list now, and the record says so. What the gate prevents is the
+            // foreign record being READ, never its replacement.
+            remember('plan', 2, PLAN_ERA_2);
+            mount();
+            expect(storedPlace()).toEqual({
+                v: PIPELINE_PLACE_SCHEMA_VERSION, at: 'list', era: PLAN_ERA_1, pipelineId: null });
         });
     });
 
@@ -182,7 +213,7 @@ describe('PipelinesPage — resuming the last plan (req #3431)', () => {
             noteRoute('/swarm/pipeline/2');
             mount().unmount();
             document.body.innerHTML = '';
-            expect(storedPlace()).toEqual({ v: 1, at: 'list', pipelineId: 2 });
+            expect(storedPlace()).toEqual({ v: PIPELINE_PLACE_SCHEMA_VERSION, at: 'list', era: PLAN_ERA_1, pipelineId: 2 });
 
             resetRouteTrail();          // a fresh page load, cold trail
             mount();
@@ -223,7 +254,7 @@ describe('PipelinesPage — resuming the last plan (req #3431)', () => {
         it('shows the list on a first-ever visit', () => {
             mount();
             expect(onTheList()).toBe(true);
-            expect(storedPlace()).toEqual({ v: 1, at: 'list', pipelineId: null });
+            expect(storedPlace()).toEqual({ v: PIPELINE_PLACE_SCHEMA_VERSION, at: 'list', era: PLAN_ERA_1, pipelineId: null });
         });
 
         it('shows the list when the record is unreadable', () => {
@@ -249,7 +280,7 @@ describe('PipelinesPage — resuming the last plan (req #3431)', () => {
             mount();
             expect(landedOn()).toBeNull();
             expect(onTheList()).toBe(false);          // still the spinner
-            expect(storedPlace()).toEqual({ v: 1, at: 'plan', pipelineId: 2 });
+            expect(storedPlace()).toEqual({ v: PIPELINE_PLACE_SCHEMA_VERSION, at: 'plan', era: PLAN_ERA_1, pipelineId: 2 });
         });
 
         // THE SEQUENCE THE RUNNING APP ALWAYS TAKES, and the one every other
@@ -305,7 +336,7 @@ describe('PipelinesPage — resuming the last plan (req #3431)', () => {
             mount();
             expect(onTheList()).toBe(true);
             expect(landedOn()).toBeNull();
-            expect(storedPlace()).toEqual({ v: 1, at: 'plan', pipelineId: 2 });
+            expect(storedPlace()).toEqual({ v: PIPELINE_PLACE_SCHEMA_VERSION, at: 'plan', era: PLAN_ERA_1, pipelineId: 2 });
         });
 
         // The same guard must not swallow a REAL deletion: a non-empty list is
@@ -408,7 +439,7 @@ describe('PipelinesPage — resuming the last plan (req #3431)', () => {
             mount();
             expect(landedOn()).toBe('/swarm/pipeline/2');
             expect(localStorage.getItem('darwin-viewport-pipeline-plan-777')).toBe('orphan');
-            expect(storedPlace()).toEqual({ v: 1, at: 'plan', pipelineId: 2 });
+            expect(storedPlace()).toEqual({ v: PIPELINE_PLACE_SCHEMA_VERSION, at: 'plan', era: PLAN_ERA_1, pipelineId: 2 });
         });
     });
 

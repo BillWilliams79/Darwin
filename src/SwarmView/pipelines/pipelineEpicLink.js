@@ -18,6 +18,11 @@
 // NO JSX and no React: a pure module vitest can exercise without a DOM, and a
 // component file with non-component exports drops out of Fast Refresh.
 
+// The route is `planEra.js`'s, not this module's (req #3463) — see
+// `pipelineStepLink.js`'s identical import for why. This file still owns the
+// `?epic=` half of the contract, which is what it was always for.
+import { DEFAULT_PLAN_ERA, planDetailPath } from './planEra';
+
 export const FOCUS_EPIC_PARAM = 'epic';
 
 /**
@@ -30,18 +35,19 @@ export const FOCUS_EPIC_PARAM = 'epic';
  *
  * @param {?number} pipelineId
  * @param {?number} epicId
+ * @param {number} [era] the era `pipelineId` was READ from (req #3463)
  * @returns {?string}
  */
-export function epicLinkTo(pipelineId, epicId) {
-    const pid = toId(pipelineId);
+export function epicLinkTo(pipelineId, epicId, era = DEFAULT_PLAN_ERA) {
     const eid = toId(epicId);
-    if (pid == null || eid == null) return null;
-    return `/swarm/pipeline/${pid}?mode=plan&${FOCUS_EPIC_PARAM}=${eid}`;
+    if (eid == null) return null;
+    return planDetailPath(era, pipelineId, `mode=plan&${FOCUS_EPIC_PARAM}=${eid}`);
 }
 
 // NULLISH AND EMPTY ARE REJECTED BEFORE `Number` SEES THEM — see
 // pipelineStepLink.js's identical guard for why 0 is a legitimate id and
-// `Number(null)`/`Number('')` are not.
+// `Number(null)`/`Number('')` are not. It survives for the EPIC id only; the
+// PIPELINE id is normalized by `planEra.js::normalizePlanId` (req #3463).
 function toId(value) {
     if (value == null || value === '') return null;
     const n = Number(value);

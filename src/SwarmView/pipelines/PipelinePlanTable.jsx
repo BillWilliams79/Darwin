@@ -58,6 +58,7 @@ import CheckIcon from '@mui/icons-material/Check';
 import { useScrollMemory } from '../../hooks/useScrollMemory';
 import { scrollStorageKey } from '../../utils/viewportMemory';
 import { fmtCost, STEP_DONE, STEP_RUNNING } from './pipelineModel';
+import { DEFAULT_PLAN_ERA, planStorageNamespace } from './planEra';
 import {
     planRenderRows,
     rowMachineLabel,
@@ -249,7 +250,7 @@ function BatchBannerRow({ batch, colSpan, timezone }) {
 // Without the distinction the derivation looks broken to a reader who is right
 // to check it. Kept to a style + tooltip on the existing link deliberately: no
 // second chip, no new column, no new view.
-function RequirementLinks({ row, pipelineId }) {
+function RequirementLinks({ row, pipelineId, era }) {
     if (!row.reqIds.length) return <span>—</span>;
     const tracking = new Set(row.trackingReqIds || []);
     return (
@@ -268,8 +269,11 @@ function RequirementLinks({ row, pipelineId }) {
                         // table through a bead click or a `?step=` link never
                         // persisted `table` (both are transient overrides by design),
                         // so Back sent them to whichever panel their preference held.
+                        // req #3463 — `era` rides with the id. Back has to
+                        // rebuild a plan route, and an id with no era is not an
+                        // address: 1.0 and 2.0 ids are disjoint.
                         state={pipelineId
-                            ? { from: 'pipeline', pipelineId, mode: 'table' } : undefined}
+                            ? { from: 'pipeline', pipelineId, era, mode: 'table' } : undefined}
                         underline="hover"
                         sx={{
                             fontFamily: 'monospace',
@@ -323,6 +327,11 @@ function GroupCell({ show, value, labels, width, color, testid }) {
 }
 
 export default function PipelinePlanTable({ plan, pipeline, timezone, focusStepId,
+    // req #3463 — WHICH plan surface this panel is drawing. The page owns it (it
+    // is the era of the route the page is mounted at) and the panel only needs
+    // it to stamp the requirement links' Back state, so a plan id can be
+    // returned to the route it came from.
+    era = DEFAULT_PLAN_ERA,
     costError = false, showCost = false }) {
     // `showCost` is OWNED BY THE PAGE since req #3119 — the Time / Tokens control
     // renders in the header row beside the pipeline name, with the visualizer's
@@ -361,7 +370,8 @@ export default function PipelinePlanTable({ plan, pipeline, timezone, focusStepI
     // their own positions, and an unidentified plan persists nothing rather than
     // inheriting another's.
     const planScrollKey = pipeline?.id != null
-        ? scrollStorageKey('pipeline-plan-table', pipeline.id) : null;
+        // req #3463 — era-qualified; see PipelinePlanVisualizer's camera key.
+        ? scrollStorageKey(`${planStorageNamespace(era)}-table`, pipeline.id) : null;
     // A DEEP LINK OWNS THE SCROLL POSITION FOR ITS ONE LANDING. `?step=` scrolls
     // its row to centre in the effect above, and a restore racing that would put
     // the reader somewhere neither of them asked for. So the RESTORE is suppressed
@@ -388,7 +398,7 @@ export default function PipelinePlanTable({ plan, pipeline, timezone, focusStepI
     // exactly as on the other axis.
     const [tableEl, setTableEl] = useState(null);
     useScrollMemory(pipeline?.id != null
-        ? scrollStorageKey('pipeline-plan-table-x', pipeline.id) : null,
+        ? scrollStorageKey(`${planStorageNamespace(era)}-table-x`, pipeline.id) : null,
     tableEl, { restore: !linkOwnsScroll });
 
     // Column count for the banner colSpan — must track the Cost column's
@@ -612,7 +622,7 @@ export default function PipelinePlanTable({ plan, pipeline, timezone, focusStepI
                                                color="#0f9b8e"
                                                testid={`pipeline-feature-${row.id}`} />
                                     <TableCell sx={{ width: COL.reqs }}>
-                                        <RequirementLinks row={row} pipelineId={pipeline?.id} />
+                                        <RequirementLinks row={row} pipelineId={pipeline?.id} era={era} />
                                     </TableCell>
                                     <TableCell sx={{ minWidth: 340 }}>
                                         <Typography variant="body2"

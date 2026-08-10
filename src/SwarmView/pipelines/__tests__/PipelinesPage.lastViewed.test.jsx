@@ -45,7 +45,8 @@ vi.mock('../../../hooks/useDataQueries', async (importOriginal) => {
 });
 
 import PipelinesPage from '../PipelinesPage';
-import { PIPELINE_PLACE_STORAGE_KEY } from '../pipelinePlace';
+import { PIPELINE_PLACE_SCHEMA_VERSION, PIPELINE_PLACE_STORAGE_KEY } from '../pipelinePlace';
+import { PLAN_ERA_1, PLAN_ERA_2 } from '../planEra';
 import { noteRoute, resetRouteTrail } from '../../../utils/routeTrail';
 import AuthContext from '../../../Context/AuthContext';
 
@@ -54,8 +55,12 @@ let roots = [];
 // `at: 'list'` throughout, because that IS the reader's state whenever this page
 // is the one on screen — they are on the list. An `at: 'plan'` record would
 // RESUME rather than render, which is the sibling file's subject.
-const remember = (pipelineId, at = 'list') => localStorage.setItem(
-    PIPELINE_PLACE_STORAGE_KEY, JSON.stringify({ v: 1, at, pipelineId }));
+const remember = (pipelineId, at = 'list', era = PLAN_ERA_1) => localStorage.setItem(
+    // req #3463 — `v` from the module's own constant, plus the `era` the
+    // record now carries. A literal `v: 1` seeds a record the reader DROPS,
+    // so every case below would silently exercise 'no record at all'.
+    PIPELINE_PLACE_STORAGE_KEY,
+    JSON.stringify({ v: PIPELINE_PLACE_SCHEMA_VERSION, at, era, pipelineId }));
 
 function mount() {
     const host = document.createElement('div');
@@ -115,6 +120,18 @@ describe('PipelinesPage — the last selected pipeline', () => {
         expect(node('pipeline-card-lastviewed-2')).toBeNull();
     });
 
+    // req #3463 (code review) — the mark is the VISIBLE half of the record, so
+    // the era gate has to hold here too. This list reads `pipelines` (1.0); a
+    // 2.0 record naming plan 5 is a different plan that happens to share a
+    // number, and lighting up the 1.0 row for it would tell the reader they
+    // last opened something they never did.
+    it('marks nothing when the record belongs to the OTHER era', () => {
+        remember(5, 'list', PLAN_ERA_2);
+        mount();
+        expect(node('pipeline-card-lastviewed-5')).toBeNull();
+        expect(node('pipeline-card-lastviewed-2')).toBeNull();
+    });
+
     it('moves the mark when the record names a different plan', () => {
         remember(5);
         mount().unmount();
@@ -136,7 +153,7 @@ describe('PipelinesPage — the last selected pipeline', () => {
         mountFromPlan();
         expect(node('pipeline-card-lastviewed-5')).not.toBeNull();
         expect(JSON.parse(localStorage.getItem(PIPELINE_PLACE_STORAGE_KEY)))
-            .toEqual({ v: 1, at: 'list', pipelineId: 5 });
+            .toEqual({ v: PIPELINE_PLACE_SCHEMA_VERSION, at: 'list', era: PLAN_ERA_1, pipelineId: 5 });
     });
 
     // The value indexes a row, so anything that is not an id must mark NOTHING

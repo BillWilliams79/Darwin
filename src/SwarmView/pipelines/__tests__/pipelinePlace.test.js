@@ -52,17 +52,33 @@ describe('pipelinePlace', () => {
     afterEach(() => { vi.unstubAllGlobals(); });
 
     describe('round trip', () => {
-        it('remembers a plan', () => {
+        it('remembers a plan, AND WHICH ERA IT IS ON', () => {
+            // req #3463 — an id alone is not an address: 1.0 and 2.0 have
+            // disjoint id spaces and nothing translates between them, so a
+            // record naming plan 2 is a 1.0 address or a 2.0 one depending
+            // entirely on `era`.
+            writePipelinePlace({ at: 'plan', era: 1, pipelineId: 2 });
+            expect(readPipelinePlace()).toEqual({ at: 'plan', era: 1, pipelineId: 2 });
+
+            writePipelinePlace({ at: 'plan', era: 2, pipelineId: 2 });
+            expect(readPipelinePlace()).toEqual({ at: 'plan', era: 2, pipelineId: 2 });
+        });
+
+        it('defaults a caller that names no era to 1.0', () => {
+            // Every pre-#3463 call site meant 1.0, so an omitted era reproduces
+            // today's behaviour rather than quietly moving the reader.
             writePipelinePlace({ at: 'plan', pipelineId: 2 });
-            expect(readPipelinePlace()).toEqual({ at: 'plan', pipelineId: 2 });
+            expect(readPipelinePlace()).toEqual({ at: 'plan', era: 1, pipelineId: 2 });
         });
 
         it('remembers the list, keeping the plan last opened', () => {
-            writePipelinePlace({ at: 'plan', pipelineId: 2 });
+            writePipelinePlace({ at: 'plan', era: 1, pipelineId: 2 });
             writePipelinePlace(pipelinePlaceAtList(readPipelinePlace()));
             // `at` moved and the id did NOT — walking out to the list stops the
-            // resume without un-marking the row the list is meant to mark.
-            expect(readPipelinePlace()).toEqual({ at: 'list', pipelineId: 2 });
+            // resume without un-marking the row the list is meant to mark. The
+            // ERA moves with the id (req #3463): keeping one without the other
+            // would leave a 2.0 plan number labelled 1.0.
+            expect(readPipelinePlace()).toEqual({ at: 'list', era: 1, pipelineId: 2 });
         });
 
         it('is nothing at all before the first visit', () => {
@@ -110,17 +126,20 @@ describe('pipelinePlace', () => {
         // the page uses it to decide whether to resume at all. The id simply
         // resolves to null, which every consumer already treats as "no plan".
         it('keeps the place but drops an unusable id', () => {
-            store.local.set(KEY, raw({ v: 1, at: 'plan', pipelineId: '12abc' }));
-            expect(readPipelinePlace()).toEqual({ at: 'plan', pipelineId: null });
+            store.local.set(KEY, raw({
+                v: PIPELINE_PLACE_SCHEMA_VERSION, at: 'plan', era: 1, pipelineId: '12abc' }));
+            expect(readPipelinePlace()).toEqual({ at: 'plan', era: 1, pipelineId: null });
         });
 
         // `Number(null)` and `Number('')` are both 0, and 0 is a perfectly good
         // integer — so an id that never resolved would otherwise become a
         // confident navigation to a plan that does not exist.
         it('does not turn null or empty into plan 0', () => {
-            store.local.set(KEY, raw({ v: 1, at: 'plan', pipelineId: null }));
+            store.local.set(KEY, raw({
+                v: PIPELINE_PLACE_SCHEMA_VERSION, at: 'plan', era: 1, pipelineId: null }));
             expect(readPipelinePlace().pipelineId).toBeNull();
-            store.local.set(KEY, raw({ v: 1, at: 'plan', pipelineId: '' }));
+            store.local.set(KEY, raw({
+                v: PIPELINE_PLACE_SCHEMA_VERSION, at: 'plan', era: 1, pipelineId: '' }));
             expect(readPipelinePlace().pipelineId).toBeNull();
         });
 
@@ -133,6 +152,63 @@ describe('pipelinePlace', () => {
             writePipelinePlace({ at: 'nowhere', pipelineId: 2 });
             writePipelinePlace(null);
             expect(store.local.has(KEY)).toBe(false);
+        });
+
+        // ── req #3463 — the ERA is validated exactly as hard as the rest ────
+        // This record is a CHANNEL: an id written by one plan page is later
+        // rebuilt into a route and navigated to. Letting a junk or missing era
+        // through is the same hole as letting a junk id through, one level up
+        // — it produces a confident navigation to the wrong era's page, which
+        // is req #3462 arriving by resume instead of by click.
+
+        it('READS a v1 record as 1.0 — every reader keeps their place', () => {
+            // The one migration branch this module carries, and it is PROVABLE
+            // rather than an inference: v1 could only have been written by a
+            // build that had no second era. Dropping it instead would cost
+            // every existing reader their remembered plan — Pipeline 1.0 paying
+            // for Pipeline 2.0's change, which the requirement forbids outright.
+            store.local.set(KEY, raw({ v: 1, at: 'plan', pipelineId: 2 }));
+            expect(readPipelinePlace()).toEqual({ at: 'plan', era: 1, pipelineId: 2 });
+        });
+
+        it('still drops a v2 record whose era is MISSING', () => {
+            // Not the same thing as v1 at all: a v2 writer always stamps an
+            // era, so its absence is a writer bug or tampering — there is
+            // nothing to migrate from and no era it provably meant.
+            store.local.set(KEY, raw({
+                v: PIPELINE_PLACE_SCHEMA_VERSION, at: 'plan', pipelineId: 2 }));
+            expect(readPipelinePlace()).toBeNull();
+        });
+
+        it('still drops an unknown future version', () => {
+            store.local.set(KEY, raw({ v: 99, at: 'plan', era: 1, pipelineId: 2 }));
+            expect(readPipelinePlace()).toBeNull();
+        });
+
+        it('refuses a stored era that names no era this app serves', () => {
+            for (const bad of [0, 3, '1', '2', null, true, {}]) {
+                store.local.set(KEY, raw({
+                    v: PIPELINE_PLACE_SCHEMA_VERSION, at: 'plan', era: bad, pipelineId: 2 }));
+                expect(readPipelinePlace(), `era ${JSON.stringify(bad)}`).toBeNull();
+            }
+        });
+
+        it("refuses to WRITE an era it does not recognise", () => {
+            writePipelinePlace({ at: 'plan', era: 3, pipelineId: 2 });
+            expect(store.local.has(KEY)).toBe(false);
+            writePipelinePlace({ at: 'plan', era: '2', pipelineId: 2 });
+            expect(store.local.has(KEY)).toBe(false);
+        });
+
+        it('pipelinePlaceAtList takes the LIST PAGE era when there is no record', () => {
+            // A reader standing on a list with no history has opened no plan of
+            // any era, so the list's own era is the only honest answer.
+            expect(pipelinePlaceAtList(null, 2))
+                .toEqual({ at: 'list', era: 2, pipelineId: null });
+            // But a real record keeps ITS era — arriving on the 1.0 list must
+            // not relabel a 2.0 plan id as 1.0.
+            expect(pipelinePlaceAtList({ era: 2, pipelineId: 7 }, 1))
+                .toEqual({ at: 'list', era: 2, pipelineId: 7 });
         });
     });
 
@@ -152,13 +228,21 @@ describe('pipelinePlace', () => {
             // NOT `?mode=` — see the module header. The panel comes from the
             // reader's stored preference, and a query parameter here would be a
             // link channel carrying standing state.
-            expect(pipelinePlacePath({ at: 'plan', pipelineId: 2 })).toBe('/swarm/pipeline/2');
+            expect(pipelinePlacePath({ at: 'plan', era: 1, pipelineId: 2 }))
+                .toBe('/swarm/pipeline/2');
+            // req #3463 — the SAME id, the other era, a different address.
+            expect(pipelinePlacePath({ at: 'plan', era: 2, pipelineId: 2 }))
+                .toBe('/swarm/pipeline2/2');
         });
 
         it('is null when there is no plan to go to', () => {
-            expect(pipelinePlacePath({ at: 'list', pipelineId: null })).toBeNull();
+            expect(pipelinePlacePath({ at: 'list', era: 1, pipelineId: null })).toBeNull();
             expect(pipelinePlacePath(null)).toBeNull();
-            expect(pipelinePlacePath({ pipelineId: 'x' })).toBeNull();
+            expect(pipelinePlacePath({ era: 1, pipelineId: 'x' })).toBeNull();
+            // A record with NO era names no route at all — it cannot be
+            // defaulted here, because the caller that wrote it knew its era and
+            // guessing on its behalf is the whole defect (req #3463).
+            expect(pipelinePlacePath({ at: 'plan', pipelineId: 2 })).toBeNull();
         });
     });
 

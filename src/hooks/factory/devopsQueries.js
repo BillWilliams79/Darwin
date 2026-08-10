@@ -414,11 +414,42 @@ export const agentTelemetryRowDocs = createEntityQueries({
 // a second copy of it on the wire would invite a join against the wrong one.
 export const orchestrationClaims = createEntityQueries({
     entity: 'orchestration_claims',
+    // `pipeline2_fk`/`epic2_fk` (req #3369) added by req #3381's code review
+    // — `claimForPipeline2`/`scopeLabel`'s 2.0 branch (orchestrationHolder.js)
+    // read these and were silently dead without them: NULL on a 1.0 row and
+    // vice versa (the same era pairing req #3350 already widened `sessions`'
+    // projection for, two declarations up, which this one was missed
+    // alongside).
     defaultFields:
-        'id,pipeline_fk,epic_fk,machine_fk,terminal_pid,engine_pid,polls,' +
-        'claimed_at,creator_fk,create_ts,update_ts',
+        'id,pipeline_fk,epic_fk,pipeline2_fk,epic2_fk,machine_fk,terminal_pid,' +
+        'engine_pid,polls,claimed_at,creator_fk,create_ts,update_ts',
     fieldsInKey: true,
     defaultSort: 'claimed_at:asc',
+});
+
+// ── The Pipeline 2.0 plan INDEX (req #3463) ────────────────────────────────
+// A LIST read of `pipeline2_pipelines`, and deliberately nothing more. The 2.0
+// plan RENDER is `pipeline2_compose` (req #3367) — one composed route that
+// already ran the join and the derivation server-side — so this entity exists
+// for the two questions a composed by-id read cannot answer:
+//
+//   1. WHICH PLANS EXIST, for the 2.0 list page (the id PRODUCER; a 2.0 detail
+//      route with no producer behind it is unreachable by construction, which
+//      is half of what req #3462 was).
+//   2. WHICH IDS THIS ERA HOLDS, for the not-found alert — so "there are no 2.0
+//      plans at all" is distinguishable from "id 79 is not one of them".
+//
+// `description` is deliberately ABSENT: this is a list read and the goal text
+// is a heavy blob column, the same bounded-list-read rule the 1.0 `pipelines`
+// projection above obeys for its own list surfaces. The composed read carries
+// it for the one plan being rendered.
+export const pipeline2Pipelines = createEntityQueries({
+    entity: 'pipeline2_pipelines',
+    defaultFields:
+        'id,title,pipeline_status,execution_mode,machine_fk,' +
+        'started_at,completed_at,creator_fk,create_ts,update_ts',
+    fieldsInKey: true,
+    defaultSort: 'id:desc',
 });
 
 export const pipelines = createEntityQueries({

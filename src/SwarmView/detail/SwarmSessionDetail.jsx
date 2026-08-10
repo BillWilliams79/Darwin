@@ -15,6 +15,8 @@ import { effortChipProps, effortLabel } from '../effortChipStyles';
 import { PHASE_BUCKETS, GROUP_COLORS, bucketTokens, parsePhaseTokens, formatTokens } from '../sessionPhases';
 import { formatDuration } from '../../utils/formatDuration';
 import { trimMicroseconds } from '../../utils/dateFormat';
+// req #3463 — the era↔route binding. This page never spells a plan route.
+import { PLAN_ERA_1, planDetailPath, planEraOfSession } from '../pipelines/planEra';
 
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -103,14 +105,30 @@ const SwarmSessionDetail = () => {
     // session, which is the fan-out design rule 5 forbids.
     const { data: pipelines = [] } = useAllPipelines(profile?.userName);
     const { data: epics = [] } = useAllEpics(profile?.userName);
+    // req #3463 — WHICH ERA seated this session, read from the column that
+    // carries the id rather than from the id itself. `pipeline_fk` (1.0, req
+    // #3186) and `pipeline2_fk` (2.0, req #3350) are disjoint id spaces with no
+    // translation between them, so the chip's route follows the column.
+    const planSeat = React.useMemo(() => planEraOfSession(session), [session]);
+    const planSeatPath = planSeat ? planDetailPath(planSeat.era, planSeat.pipelineId) : null;
+    // 1.0 titles ONLY — `pipelines` is the 1.0 list read, and resolving a 2.0 id
+    // through it would print whichever 1.0 plan shares that number. A 2.0
+    // session shows the bare `#<id>` chip instead of a wrong name.
     const pipelineTitle = React.useMemo(() => {
         if (session?.pipeline_fk == null) return null;
         return pipelines.find(p => p.id === session.pipeline_fk)?.title ?? null;
     }, [pipelines, session?.pipeline_fk]);
+    // req #3463 — the EPIC follows the same column pair one level down
+    // (`epic_fk` / `epic2_fk`), so it is read off `planSeat` rather than off the
+    // row: taking the pipeline era-correctly and then reading `session.epic_fk`
+    // directly would be era-blind about the epic, which is the same defect
+    // half-fixed. `epics` is the 1.0 read, so a 2.0 epic id resolves to no
+    // TITLE and the chip shows the bare `#<id>` — never a 1.0 epic's name.
+    const seatEpicId = planSeat?.epicId ?? null;
     const epicTitle = React.useMemo(() => {
-        if (session?.epic_fk == null) return null;
-        return epics.find(e => e.id === session.epic_fk)?.title ?? null;
-    }, [epics, session?.epic_fk]);
+        if (planSeat?.era !== PLAN_ERA_1 || seatEpicId == null) return null;
+        return epics.find(e => e.id === seatEpicId)?.title ?? null;
+    }, [epics, planSeat?.era, seatEpicId]);
 
     const hasHistory = location.key !== 'default';
     const handleBack = () => hasHistory ? navigate(-1) : navigate('/swarm/sessions');
@@ -289,13 +307,13 @@ const SwarmSessionDetail = () => {
                      stamped: NULL is a real answer (work outside any plan), not
                      a missing value, and an em-dash row for it would be noise on
                      every ad-hoc session. */}
-                {session.pipeline_fk != null &&
+                {planSeat != null &&
                     <Box sx={{ mb: 1 }} data-testid="session-pipeline">
                         <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Pipeline</Typography>
                         <Typography variant="body2" component="div">
-                            <Chip label={`#${session.pipeline_fk}`} size="small" variant="outlined"
-                                  onClick={() => navigate(`/swarm/pipeline/${session.pipeline_fk}`)}
-                                  sx={{ cursor: 'pointer', mr: 1 }}
+                            <Chip label={`#${planSeat.pipelineId}`} size="small" variant="outlined"
+                                  onClick={planSeatPath ? () => navigate(planSeatPath) : undefined}
+                                  sx={{ cursor: planSeatPath ? 'pointer' : 'default', mr: 1 }}
                                   data-testid="session-pipeline-chip" />
                             {pipelineTitle &&
                                 <Typography component="span" variant="body2">
@@ -306,14 +324,14 @@ const SwarmSessionDetail = () => {
                     </Box>
                 }
 
-                {session.epic_fk != null &&
+                {seatEpicId != null &&
                     <Box sx={{ mb: 1 }} data-testid="session-epic">
                         <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Epic</Typography>
                         <Typography variant="body2" component="div">
                             {/* No epic detail route exists, so this is a label
                                  chip and not a link — a dead click is worse than
                                  an honest static chip. */}
-                            <Chip label={`#${session.epic_fk}`} size="small" variant="outlined"
+                            <Chip label={`#${seatEpicId}`} size="small" variant="outlined"
                                   sx={{ mr: 1 }}
                                   data-testid="session-epic-chip" />
                             {epicTitle &&
