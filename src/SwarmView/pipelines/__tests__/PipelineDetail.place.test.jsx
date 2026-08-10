@@ -85,7 +85,8 @@ vi.mock('../../../hooks/useDataQueries', async (importOriginal) => {
 });
 
 import PipelineDetail from '../PipelineDetail';
-import { PIPELINE_PLACE_STORAGE_KEY } from '../pipelinePlace';
+import { PIPELINE_PLACE_SCHEMA_VERSION, PIPELINE_PLACE_STORAGE_KEY } from '../pipelinePlace';
+import { PLAN_ERA_1 } from '../planEra';
 import AuthContext from '../../../Context/AuthContext';
 import AppContext from '../../../Context/AppContext';
 
@@ -163,7 +164,7 @@ describe('PipelineDetail — recording the remembered place (req #3431)', () => 
     // no error anywhere to say so.
     it('records the plan the reader is looking at', () => {
         mount('/swarm/pipeline/2');
-        expect(storedPlace()).toEqual({ v: 1, at: 'plan', pipelineId: 2 });
+        expect(storedPlace()).toEqual({ v: PIPELINE_PLACE_SCHEMA_VERSION, at: 'plan', era: PLAN_ERA_1, pipelineId: 2 });
     });
 
     // THE FIELD SET IS THE CONTRACT, so it is asserted as a field set rather
@@ -174,12 +175,15 @@ describe('PipelineDetail — recording the remembered place (req #3431)', () => 
     // A `mode` quietly added back here would put `?mode=` in the resumed URL,
     // where it outranks the reader's own preference and then LIES in the
     // address bar the moment they pick a different panel.
-    it('records exactly {v, at, pipelineId} — never the panel', () => {
+    it('records exactly {v, at, era, pipelineId} — never the panel', () => {
         mount('/swarm/pipeline/2');
-        expect(Object.keys(storedPlace()).sort()).toEqual(['at', 'pipelineId', 'v']);
+        // req #3463 added `era` and NOTHING ELSE. It is in the contract for the
+        // same reason the panel is out of it: an id with no era is not an
+        // address, while a panel is already durable elsewhere.
+        expect(Object.keys(storedPlace()).sort()).toEqual(['at', 'era', 'pipelineId', 'v']);
         click('pipeline-mode-plan');
         expect(node('mode-plan')).not.toBeNull();
-        expect(storedPlace()).toEqual({ v: 1, at: 'plan', pipelineId: 2 });
+        expect(storedPlace()).toEqual({ v: PIPELINE_PLACE_SCHEMA_VERSION, at: 'plan', era: PLAN_ERA_1, pipelineId: 2 });
     });
 
     // THE REASON THE WRITER MOVED HERE. Each of these is a route req #3311's
@@ -192,7 +196,7 @@ describe('PipelineDetail — recording the remembered place (req #3431)', () => 
         ['a bare bookmark', '/swarm/pipeline/2'],
     ])('records an arrival by %s', (_label, url) => {
         mount(url);
-        expect(storedPlace()).toEqual({ v: 1, at: 'plan', pipelineId: 2 });
+        expect(storedPlace()).toEqual({ v: PIPELINE_PLACE_SCHEMA_VERSION, at: 'plan', era: PLAN_ERA_1, pipelineId: 2 });
     });
 
     // GATED ON THE RESOLVED PLAN, not on the id in the URL. A hand-typed or
@@ -211,9 +215,9 @@ describe('PipelineDetail — recording the remembered place (req #3431)', () => 
     // resume.
     it('leaves an existing record intact when the URL names no plan', () => {
         localStorage.setItem(PIPELINE_PLACE_STORAGE_KEY,
-            JSON.stringify({ v: 1, at: 'plan', pipelineId: 2 }));
+            JSON.stringify({ v: PIPELINE_PLACE_SCHEMA_VERSION, at: 'plan', era: PLAN_ERA_1, pipelineId: 2 }));
         mount('/swarm/pipeline/999');
-        expect(storedPlace()).toEqual({ v: 1, at: 'plan', pipelineId: 2 });
+        expect(storedPlace()).toEqual({ v: PIPELINE_PLACE_SCHEMA_VERSION, at: 'plan', era: PLAN_ERA_1, pipelineId: 2 });
     });
 
     // THE SEQUENCE THE REAL APP ALWAYS TAKES, which no other case here covers:
@@ -226,7 +230,7 @@ describe('PipelineDetail — recording the remembered place (req #3431)', () => 
         expect(storedPlace(), 'nothing is decided over a spinner').toBeNull();
         loading = false;
         h.rerender();
-        expect(storedPlace()).toEqual({ v: 1, at: 'plan', pipelineId: 2 });
+        expect(storedPlace()).toEqual({ v: PIPELINE_PLACE_SCHEMA_VERSION, at: 'plan', era: PLAN_ERA_1, pipelineId: 2 });
     });
 
     // This page survives an in-place switch from one plan to the next without
@@ -237,7 +241,7 @@ describe('PipelineDetail — recording the remembered place (req #3431)', () => 
         mount('/swarm/pipeline/2');
         expect(storedPlace().pipelineId).toBe(2);
         click('go-plan-5');
-        expect(storedPlace()).toEqual({ v: 1, at: 'plan', pipelineId: 5 });
+        expect(storedPlace()).toEqual({ v: PIPELINE_PLACE_SCHEMA_VERSION, at: 'plan', era: PLAN_ERA_1, pipelineId: 5 });
     });
 
     // localStorage BY NAME — "a feature saved to local storage only", and

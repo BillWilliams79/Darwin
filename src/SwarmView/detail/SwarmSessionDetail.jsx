@@ -316,11 +316,18 @@ const SwarmSessionDetail = () => {
                     <Box sx={{ mb: 1 }} data-testid="session-pipeline">
                         <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Pipeline</Typography>
                         <Typography variant="body2" component="div">
-                            {/* Clickable ONLY with a 2.0 id: /swarm/pipeline/:id
-                                 reads pipeline2_compose now, so a 1.0 pipeline_fk
-                                 here 404s (measured: fk 79 -> 404, same plan is
-                                 2.0 id 7). See sessionPipelineLink.js. */}
-                            <Chip label={`#${planLink.state === 'link' ? session.pipeline2_fk : session.pipeline_fk}`}
+                            {/* req #3463 — THE ID COMES FROM THE RESOLVER, which
+                                 is the only thing that knows which column was
+                                 seated. This used to pick the column itself with
+                                 `state === 'link' ? pipeline2_fk : pipeline_fk`,
+                                 on the premise that /swarm/pipeline/:id read
+                                 pipeline2_compose — true only inside the req
+                                 #3381 window, and false again the moment #3462
+                                 reverted it. Since then a 1.0 session took the
+                                 'link' branch and rendered `#undefined`, because
+                                 its pipeline2_fk is NULL. BOTH eras are
+                                 navigable now, so there is no column to guess. */}
+                            <Chip label={`#${planLink.planId}`}
                                   size="small" variant="outlined"
                                   color={planLink.state === 'link' ? 'primary' : 'default'}
                                   {...(planLink.state === 'link'
