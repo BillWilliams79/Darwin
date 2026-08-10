@@ -5692,6 +5692,84 @@ describe('epic bands stack by `epics.sort_order` (req #3430)', () => {
     });
 });
 
+describe('a band is a plain column read — no re-tallying in this module (req #3372 item 1)', () => {
+    // Bands are keyed on `row.epicId` alone, whatever it holds — this module
+    // never re-derives it from a requirement -> feature -> epic walk (that
+    // tally is upstream, out of this module's scope by req #3372's own
+    // boundary: "you own the DRAWING ... consume its output"). Two steps
+    // carrying the SAME `epicId` band together regardless of how many
+    // requirements either has; two with DIFFERENT ids never merge.
+    const mk = (id, epicId, epic, reqIds = []) => ({
+        id, title: `s${id}`, run: 'auto', state: 'pending', reqIds,
+        depIds: [], timeDeps: [], epicId, epic,
+        epicLabels: [], featureLabels: [], machineLabels: [], machineLabel: '—',
+    });
+
+    it('groups purely by epicId, independent of the requirement count behind it', () => {
+        // The two epic-6 rows deliberately carry DIFFERENT non-empty reqIds
+        // sets — if this module were re-tallying instead of reading the
+        // column, a requirement-count-driven grouping would split them.
+        const rows = [
+            mk(1, 6, 'Mapping', [101, 102]), mk(2, 6, 'Mapping', [103]),
+            mk(3, 7, 'Backlog', [104, 105, 106]),
+        ];
+        const layout = computePlanLayout(rows);
+        expect(layout.bands.map((b) => b.epicId).sort((a, b) => a - b)).toEqual([6, 7]);
+        expect(layout.nodes.get(1).bandIndex).toBe(layout.nodes.get(2).bandIndex);
+        expect(layout.nodes.get(3).bandIndex).not.toBe(layout.nodes.get(1).bandIndex);
+    });
+
+    it('a null epicId still bands on its own — the "No epic" case is not assumed unreachable', () => {
+        // Req #3372's body instructs deleting this branch on the premise that
+        // `epic_fk` is NOT NULL upstream. MEASURED against the live code path
+        // (2026-08-10): req #3462 reverted req #3381's composed-read cutover
+        // the same day this requirement was worked, so the only live consumer
+        // of this module (`PipelineDetail.jsx`, via `pipelineModel.js`) still
+        // derives `epicId` by a requirement -> feature -> epic tally that CAN
+        // return null (a step with no linked requirement and nothing to
+        // inherit from). Deleting the null-band branch here would misrender —
+        // or throw on — that still-live case, so it is kept deliberately. See
+        // req #3372's completion report / follow-on for the structural fix.
+        const rows = [mk(1, 6, 'Mapping'), mk(2, null, 'No epic')];
+        const layout = computePlanLayout(rows);
+        expect(layout.bands).toHaveLength(2);
+        expect(layout.bands.some((b) => b.epicId == null)).toBe(true);
+        expect(layout.nodes.get(1).bandIndex).not.toBe(layout.nodes.get(2).bandIndex);
+    });
+});
+
+describe('cross-epic dependency edges stay legal — sameBand keeps routing, reports nothing '
+    + '(req #3372 item 3, gate-delta F1)', () => {
+    // Gate-delta F1 (stage-2 review pass, 2026-08-08) supersedes item 3's
+    // original "convert sameBand into a reported violation" instruction: a
+    // cross-epic arc is LEGAL and `sameBand` stays a pure boolean routing
+    // input — no assertion, no reported violation. This fixture is the
+    // POSITIVE case the delta calls for: proof the layout draws a normal
+    // 'early' arc across a band boundary rather than warning, crashing, or
+    // dropping it.
+    const mk = (id, epicId, depIds = []) => ({
+        id, title: `s${id}`, run: 'auto', state: 'pending', reqIds: [],
+        depIds, timeDeps: [], epicId, epic: `epic-${epicId}`,
+        epicLabels: [], featureLabels: [], machineLabels: [], machineLabel: '—',
+    });
+    const rows = [mk(1, 6), mk(2, 7, [1])];
+    const layout = computePlanLayout(rows);
+    const arc = layout.arcs.find((a) => a.fromId === 1 && a.toId === 2);
+
+    it('routes the cross-band arc as an ordinary "early" shape', () => {
+        expect(arc).toBeTruthy();
+        expect(arc.route).toBe('early');
+    });
+
+    it('draws it like any other arc — no violation, warning or side-channel field', () => {
+        expect(arc.path).toBeTruthy();
+        expect(layout.arcs.length).toBe(1);
+        expect(Object.keys(arc).sort()).toEqual(
+            ['fromId', 'toId', 'straight', 'route', 'x1', 'y1', 'x2', 'y2', 'path'].sort());
+        expect(layout.violations).toBeUndefined();
+    });
+});
+
 describe('time axis — horizontal position (req #3201)', () => {
     it('every arc still points forward — no step renders left of a dependency', () => {
         for (const r of timedPlan.rows) {

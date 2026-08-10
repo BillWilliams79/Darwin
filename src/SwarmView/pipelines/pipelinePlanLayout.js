@@ -1941,6 +1941,21 @@ export function computePlanLayout(rows, opts = {}) {
     const planPaused = !!pauseInfo?.pipelinePaused;
     const bandPausedOf = (key) => planPaused || (key != null && pausedEpicIdSet.has(key));
 
+    // req #3372 (2026-08-10) — the requirement asked for the "No epic" band
+    // (the `key == null` case throughout this file) to be deleted outright,
+    // on the premise that `epic_fk` is a NOT NULL column upstream by the time
+    // a row reaches this module. MEASURED WRONG the same day: req #3462
+    // reverted req #3381's cutover of the browser onto the 2.0 composed read
+    // (a production outage — no 1.0<->2.0 pipeline id mapping exists), so
+    // `computePlanLayout`'s only live caller — `PipelinePlanVisualizer.jsx`,
+    // mounted by `PipelineDetail.jsx` via `pipelineDetailModes.js`, fed by
+    // `pipelineModel.js`'s dominant-epic tally + label inheritance — can
+    // still hand this module a row with `epicId == null`. Deleting the
+    // branch here would misrender or throw on that still-reachable case, so
+    // it is kept — see `pipelinePlanLayout.test.js` "a band is a plain
+    // column read" for the fixture proving it is exercised on purpose, not
+    // defensively. This module's own job is unaffected either way: it never
+    // re-tallies an epic itself, it only reads `row.epicId` as handed to it.
     const bandKeys = [];
     const bandByKey = new Map();
     // req #3430 — epic id -> `epics.sort_order`, or null for UNORDERED. Taken
@@ -2360,6 +2375,13 @@ export function computePlanLayout(rows, opts = {}) {
                 });
                 continue;
             }
+            // req #3372 gate-delta F1 (2026-08-08) — a cross-epic dependency
+            // edge is LEGAL, not a defect to report. `sameBand` stays a pure
+            // boolean routing input: a cross-band arc simply takes the
+            // 'early' shape below, same as any other cross-band arc always
+            // has. No assertion, no violation, no side-channel field — see
+            // "cross-epic dependency edges stay legal" in
+            // `pipelinePlanLayout.test.js` for the positive fixture.
             const sameBand = a.bandIndex === b.bandIndex;
             const late = sameBand
                 && corridorClear(a.bandIndex, a.lane, a.depth, b.depth, dId, r.id);
