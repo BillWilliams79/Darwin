@@ -160,10 +160,15 @@ export const pauseBubbleColor = (paused) => (paused ? PAUSE_PAUSED_COLOR : PAUSE
 // ════════════════════════════════════════════════════════════════════════════
 //
 // Every colour on this surface is decided in THIS module, so the panel has one
-// vocabulary with one home and the on-screen key (PipelinePlanVisualizer's
-// `PlanKey`) is a rendering of it rather than a second, hand-maintained list.
+// vocabulary with one home and the on-screen key (the `KeyGroup`s inside
+// `PipelinePlanVisualizer`) is a rendering of it rather than a second,
+// hand-maintained list.
 //
 // ── The channels, and the ONE rule that keeps them apart ───────────────────
+//
+// `COLOR_CHANNELS` below IS this table — DATA, not prose (req #3374 P3), so a
+// test can hold it and the rendered key together instead of trusting a
+// markdown comment to stay in sync with a JSX `Stack` by hand.
 //
 // | Channel                | Encodes                                   | Level       |
 // |------------------------|-------------------------------------------|-------------|
@@ -172,7 +177,17 @@ export const pauseBubbleColor = (paused) => (paused ? PAUSE_PAUSED_COLOR : PAUSE
 // | outer HALO (dashed)    | eligible now — "next up"                  | STEP        |
 // | requirement-id TEXT    | the ACTIVE colour key: requirement status | REQUIREMENT |
 // |                        | · machine pin · nothing                    |             |
-// | epic BAND tint/stroke  | which epic — identity, not status         | EPIC        |
+//
+// EPIC IDENTITY IS A CHANNEL WITHOUT A KEY ROW, on purpose (req #3374 P3,
+// superseding an earlier draft of this table that listed "epic BAND
+// tint/stroke" as its fifth row — sixth counting the launch-unit box #3371
+// removed — a row the on-screen key never rendered). A key row would be a
+// swatch-per-band list duplicating what the bands already say: each band's
+// tint IS its floating name's own chip, drawn
+// in situ on the band it colours, and a plan can carry more bands than a
+// legend has room for while the chips never run out of room to name
+// themselves. See P6 for what a key row would have cost in the dimension
+// this surface is most expensive in.
 //
 // The table had a sixth row until req #3371: a dashed teal BOX at the LAUNCH
 // UNIT level, meaning "one `/swarm-start` launches these". In 2.0 the launch
@@ -211,6 +226,22 @@ export const pauseBubbleColor = (paused) => (paused ? PAUSE_PAUSED_COLOR : PAUSE
 // **No mark is sized by data.** Stated because a key that covers colour and
 // motion but leaves size unexplained invites the reader to infer an encoding
 // that is not there.
+
+// The channel table above, as DATA (req #3374 P3). `PipelinePlanVisualizer`'s
+// two `KeyGroup`s read their titles from `KEY_GROUP_TITLES`, derived below
+// rather than hand-typed a second time, so the on-screen key cannot drift
+// from the set of channels marked `inKey`. `epic` is the one channel with
+// `inKey: false` — see the table comment above for why the key omits it.
+export const COLOR_CHANNELS = [
+    { channel: 'bead FILL', level: 'step', inKey: true },
+    { channel: 'bead RING', level: 'step', inKey: true },
+    { channel: 'outer HALO (dashed)', level: 'step', inKey: true },
+    { channel: 'requirement-id TEXT', level: 'requirement', inKey: true },
+    { channel: 'epic BAND tint/stroke', level: 'epic', inKey: false },
+];
+export const KEY_GROUP_TITLES = [...new Set(
+    COLOR_CHANNELS.filter((c) => c.inKey).map((c) => c.level),
+)];
 
 // ── Requirement-id scale 1 of 3: REQUIREMENT STATUS (the 'state' key) ──────
 // `requirements.requirement_status`, the requirement's OWN stored field — not
@@ -458,7 +489,9 @@ export const autonomyColor = (ct) => (Object.hasOwn(AUTONOMY_COLORS, ct)
 // themes by design (see PipelinePlanVisualizer's header — "the directive is to
 // keep THIS page's look"). A theme branch here could never fire, so writing one
 // would be dead code claiming to handle a case that does not exist.
-// ── How WIDE the on-screen key may be, and why the cap is on width ─────────
+// ── How TALL the on-screen key may be, and why the cap MOVED to height ─────
+// (req #3374 P6 — this constant was `PLAN_KEY_MAX_W` until this requirement.)
+//
 // The key's measured rect is the keep-out `placeEpicChips` resolves the epic
 // names against, and the resolution is HORIZONTAL ONLY by design — moving a
 // chip vertically would put it on another band's line, which is a wrong label
@@ -466,21 +499,21 @@ export const autonomyColor = (ct) => (Object.hasOwn(AUTONOMY_COLORS, ct)
 //
 // SINCE req #3257 that resolution is a CLIP-OR-DROP, not a displacement: an
 // epic name is pinned to its own band's rectangle and may not slide sideways
-// out of it, so the width that would run under the key is cut off and a chip
-// with less than a few characters left is dropped outright.
+// out of it, so whatever runs under the key is cut off, or dropped outright
+// once too few characters would be left to read.
 //
 // **THE OLD INVARIANT — "the key's WIDTH is its entire cost; its HEIGHT is
-// free" — IS FALSE UNDER THAT RULE AND IS NOT CARRIED FORWARD.** It was a
-// property of the displacement pass: a chip that met the key slid sideways and
-// still drew, so a taller key only changed WHICH chips moved. With nowhere to
-// slide, a taller key exposes more band rows to the keep-out and those chips
-// are lost.
+// free" — IS FALSE UNDER THAT RULE.** It was a property of the displacement
+// pass this module no longer has: a chip that met the key used to slide
+// sideways and still draw, so a taller key only changed WHICH chips moved.
+// With nowhere to slide, a taller key exposes more band rows to the keep-out
+// and those chips are lost instead.
 //
-// **AND THE KEY MOVED.** Req #3255 put it at BOTTOM-CENTER, which changed both
-// the magnitude and which axis is steeper. RE-MEASURED 2026-08-02 on the
+// **THE KEY ALSO MOVED.** Req #3255 put it at BOTTOM-CENTER, which changed
+// both the magnitude and WHICH AXIS IS STEEPER. MEASURED 2026-08-02 on the
 // Substrate fixture (1500×900 panel) over k ∈ {0.2 … 2} × 4 pans × 29
-// x-offsets, 1566 chips drawn with no key, against the CURRENT bottom-center
-// geometry:
+// x-offsets, 1566 chips drawn with no key, against that bottom-center
+// geometry (`w=470` was the width cap of the day):
 //
 //   at w=470   height    30    60   100   140   180
 //              dropped   11    22    44    55    77
@@ -488,44 +521,92 @@ export const autonomyColor = (ct) => (Object.hasOwn(AUTONOMY_COLORS, ct)
 //   at h=30    width     90   300   420   470   600   900  1100
 //              dropped    3     7    10    11    13    19    23
 //
-// Two consequences, both the reverse of the top-right era:
+// HEIGHT WAS THE STEEPER AXIS — 66 names lost across the height range against
+// 20 across the width range — because a bottom-anchored box grows UPWARD into
+// more band rows while its width only ever spans the panel's middle. A cap
+// named `PLAN_KEY_MAX_W` was, from that point on, capping the CHEAPER
+// dimension: recorded rather than fixed at the time, because changing the cap
+// belonged to req #3255's own surface, not to the requirement that found it.
 //
-//   1. THE MOVE MADE THE KEY ~17× CHEAPER (187 → 11 dropped at 470×30). A name
-//      is pinned to its band's LEFT edge, and a bottom-center box is no longer
-//      where those names land.
-//   2. HEIGHT IS NOW THE STEEPER AXIS — 66 names across the height range against
-//      20 across the width range — because a bottom-anchored box grows UPWARD
-//      into more band rows while its width only spans the panel's middle.
+// **REQ #3374 P6 IS THAT FIX**, RE-MEASURED (2026-08-10) rather than assumed
+// still true — #3371 and #3373 emptied the key's launch-unit and epic-band
+// rows since, and the Substrate fixture itself is not the same shape it was
+// on 2026-08-02. Same fixture, same sweep, the OLD table's OWN `w`/`h` ranges
+// so the two are comparable:
 //
-// So `PLAN_KEY_MAX_W` now caps the CHEAPER dimension. Not a regression — the
-// cap predates the move and the key is far cheaper overall — but it is no
-// longer the defence it was named for, and a bottom-center key's honest guard
-// would be on HEIGHT. Recorded here rather than silently re-asserted; changing
-// the cap belongs to req #3255's surface. Every number above is asserted in
-// `pipelinePlanLayout.test.js` (monotone in each dimension, height strictly
-// steeper than width, and the move strictly cheaper than the top-right key), so
-// they are measured rather than remembered — and the inversion fails loudly if
-// the key moves again.
+//   at w=470   height    30    60   100   140   180
+//              dropped   33    33    44    66    77
 //
-// RAISED TO 470 on the user's directive (2026-08-01): "make the key wide enough
-// to fit the whole row of requirement statuses… the word requirement on one line
-// and then all the statuses on the next with their colors". The seven status
-// names are 57 mono characters at 10.5px bold — ~359px — plus six 8px gaps and
-// the box's own 16px of padding, i.e. ~423px. At 420 that row clips; 470 fits it
-// with headroom for a longer status set.
+//   at h=30    width     90   300   420   470   600   900  1100
+//              dropped    9    21    30    33    39    57    69
 //
-// RE-MEASURED before raising it, because the table above was taken on the
-// pre-retune world and the 2026-08-01 width retune (+10%/+10%/+20%) made every
-// column wider and the world with it. On the CURRENT geometry, over
-// k ∈ {0.2…2} × 4 pans × 6 x-offsets: the key costs 9 chips at 420 — and the
-// SAME 9 at 440, 460, 480, 500, 540 and 580. The width→loss curve is flat across
-// that band now, so this raise costs nothing; it is the SHAPE (tall and narrow,
-// one row per channel) that still matters, and a percentage width — the thing
-// this constant replaced — would still be the failure.
+// The absolute counts moved (33 vs 11, 69 vs 23 — a different fixture, a
+// different key), but the SLOPE is what "steeper axis" actually claims, and
+// it still favours height: 44 dropped over the 150px height range (≈0.29 per
+// px) against 60 over the 1010px width range (≈0.06 per px) — height costs
+// roughly 5x more per pixel of growth. The direction #3257 found survives;
+// only the exact counts were stale.
 //
-// The cap is enforced in the component's `sx` and swept in
-// pipelinePlanLayout.test.js from this constant, so the two cannot drift.
-export const PLAN_KEY_MAX_W = 470;
+// **WHERE THE CAP ITSELF LANDS.** #3371/#3373 also mean the key's height no
+// longer grows with CONTENT the way its width still can: every group left is
+// a fixed "caption line, then one `flexWrap: 'nowrap'` row" (see `KeyGroup`),
+// so a machine scale with many machines only ever widens its one row now,
+// never wraps it into a taller key. RE-SWEPT at a representative w=300 (the
+// key no longer needs 470 of width — see below) to size the cap itself:
+//
+//   at w=300   height    30    50    78   110   140
+//              dropped   21    21    21    28    42
+//
+// Flat from 30 through 78 (the real two-group content height, estimated
+// below) — the cap only starts costing names past it. 110 costs 7 more than
+// the flat floor and stays well inside the cheap part of the curve, so it
+// carries real headroom without buying into the steep part of the slope.
+//
+// **THE NUMBER ITSELF IS ESTIMATED FROM THE COMPONENT'S OWN TYPOGRAPHY
+// CONSTANTS**, the same way `470` was derived from character counts rather
+// than a live DOM measurement (no browser mounts in this test run either):
+// container `py: 0.9` (14.4px), the STEP group (caption 9px + 2.4px gap +
+// a `LegendDot` row at MUI's default caption line-height, 12px × 1.66 ≈
+// 19.9px ⇒ ~31.3px), the REQUIREMENT group (`pt`/`mt`/border ≈ 7px + caption
+// 9px + 2.4px gap + a `LegendWord` row at its own 10.5px × 1.35 ≈ 14.2px ⇒
+// ~32.6px) — ≈78px of estimated content, matching the flat part of the
+// re-measured curve above. 110 carries ~40% headroom over that, the same
+// margin 470 carried for width, for a font-metrics difference this estimate
+// did not account for exactly, or a future third channel.
+//
+// **WIDTH IS DELIBERATELY UNCAPPED NOW.** Content-driven width was always the
+// cheaper axis, and P3 already reduced the key to exactly two rows that never
+// wrap — nothing left on this surface grows a key's width without bound the
+// way an unmeasured future row could grow its height. MEASURED at h=78 (the
+// real content height), width still costs real names as it grows —
+//
+//   at h=78    width    150   300   470   600   900  1100
+//              dropped   12    21    33    39    57    69
+//
+// — a genuine, accepted cost on a many-machine plan, not an oversight: the
+// trade this requirement's own doc names for capping the STEEPER axis instead.
+//
+// TWO EDGES THIS SWEEP DOES NOT COVER (code review finding, req #3374 P7),
+// named rather than silently accepted:
+//   1. `PipelinePlanVisualizer`'s `keepOut.x = (viewportW − key.w) / 2` goes
+//      NEGATIVE once the key is wider than the viewport, which then drops
+//      every epic chip whose y overlaps the key's band regardless of x. The
+//      old 470 cap made that unreachable above a ~500px panel; uncapped width
+//      makes it reachable on a many-machine plan viewed on a narrow window.
+//      The sweep above stops at w=1100 on a 1500px viewport and never
+//      exercises this.
+//   2. `110` is an ESTIMATE from typography constants (below), never checked
+//      in a live browser — `deployed` coordination skips manual UI review.
+//      An overflow here would clip the bottom of the requirement group
+//      outside the panel's own background and border, a quieter failure than
+//      the width overflow it replaces.
+// Neither is asserted against; both are one look at the rendered key (any
+// machine-heavy plan, narrow window) away from being closed or ruled out.
+//
+// The cap is enforced in the component's `sx` (`maxHeight`, not `maxWidth`)
+// and swept in pipelinePlanLayout.test.js from this constant, so the two
+// cannot drift.
+export const PLAN_KEY_MAX_H = 110;
 
 // ── THE SCALE REGISTRY (req #3422) ─────────────────────────────────────────
 // Two scales were spelled out BY NAME in five places: an `if` in `reqIdStyle`,
@@ -826,13 +907,15 @@ const BEAD_R = 10;
 // (`(EPIC_CHIP_MIN_H + 2·CHIP_MARGIN_Y) / epicLaneH`, i.e. 21.6/62) and the
 // floored chip is drawn over lane 0's step labels below that — reachable by
 // wheel (the live plan's zoom floor is 0.11) and on landing/Reset on any plan
-// whose `factoryDefaultScale` is smaller. Nothing detects it:
-// `collectWorldObstacles` excludes `'epic'` and `placeEpicChips`'s only
-// `keepOut` is the legend. The overlap itself was accepted by #3272 on the
-// user's own directive (a floored, legible name over a 60%-opaque panel beats a
-// name too small to read); #3324 only removes the claim that a pin could not
-// reach it. If that trade is ever revisited, the fix is a taller reservation or
-// an obstacle entry — not a legibility gate on the pin.
+// whose `factoryDefaultScale` is smaller. Nothing PREVENTS it — `placeEpicChips`
+// has run no obstacle-avoidance pass at all since #3257 (its only `keepOut` is
+// the legend) — but it is MEASURED, at exactly this boundary, and pinned in
+// vitest so a future change to the constants above cannot move it silently
+// (req #3374 P5). The overlap itself was accepted by #3272 on the user's own
+// directive (a floored, legible name over a 60%-opaque panel beats a name too
+// small to read); #3324 only removes the claim that a pin could not reach it.
+// If that trade is ever revisited, the fix is a taller reservation or an
+// obstacle entry — not a legibility gate on the pin.
 // 83, not 62, because THE HEADER IS NOT THE CLEAR STRIP. A lane-0 step label is
 // drawn 31px ABOVE its bead, and the bead sits 10px below the header — so the
 // label reaches 21px back UP into the header (a further STAGGER_GAP on top of
@@ -2387,12 +2470,12 @@ export function computePlanLayout(rows, opts = {}) {
                 && corridorClear(a.bandIndex, a.lane, a.depth, b.depth, dId, r.id);
             // The arc carried a `bbox` (the convex hull of its own Bézier
             // control points) from req #3210 until req #3257: its ONLY consumer
-            // was `collectWorldObstacles`, feeding the sticky epic chips'
-            // avoidance pass, and both are gone — an epic name is pinned to its
-            // band's rectangle now and draws OVER whatever it crosses. Computed
-            // on every arc of every layout, it was dead weight the moment that
-            // pass was, so it goes with it rather than waiting to be rediscovered
-            // as a field nobody reads.
+            // was the sticky epic chips' obstacle-avoidance pass, and that pass
+            // is gone along with it — an epic name is pinned to its band's
+            // rectangle now and draws OVER whatever it crosses. Computed on
+            // every arc of every layout, it was dead weight the moment the pass
+            // was, so it goes with it rather than waiting to be rediscovered as
+            // a field nobody reads.
             let path;
             if (late) {
                 const bend = Math.min((colW[b.depth] || 110) * 0.9, Math.max(40, x2 - x1));
@@ -2761,9 +2844,10 @@ export function computePlanLayout(rows, opts = {}) {
 //     out of its own rectangle. The PANEL'S OWN RIGHT EDGE is resolved the same
 //     way and by the same code, because the reader cannot tell the two apart —
 //     and because dropping at one while clipping at the other let the key SAVE a
-//     chip the panel edge alone would have dropped. See `PLAN_KEY_MAX_W` for what
+//     chip the panel edge alone would have dropped. See `PLAN_KEY_MAX_H` for what
 //     the key costs, re-measured: "the key's height is free" was a property of
-//     the displacement pass and is FALSE under clip-or-drop.
+//     the displacement pass and is FALSE under clip-or-drop — false enough that
+//     height, not width, is what the key is capped on now (req #3374 P6).
 const CHIP_PAD = 8;
 // The margins the name carries from its rectangle's corner — the SAME numbers
 // the chip has always been inset by, now named because the rule above is stated
@@ -3522,19 +3606,22 @@ export const NEXT_HALO_MAX_MAGNIFY = NEXT_HALO_MAX_OUTER / NEXT_HALO_OUTER;
  * what it was before any of these requirements existed.
  *
  * @param {number} k  the world→screen scale actually being drawn at
- * @param {boolean} [labelsDrawn]  `drawsLabelKind('step', level)` for this
- *   frame. Defaults to `false` — the answer at every scale where the question
- *   did not exist before #3324, so a caller that only knows `k` gets #3280's
- *   pure-`k` curve. **THE DEFAULT IS THE PERMISSIVE ANSWER, deliberately and at
- *   a cost** (review finding): it is what lets the tests sweep the bare curve,
- *   and it is why a SECOND renderer that forgot the argument would magnify over
- *   its own drawn labels in silence. There is exactly one production caller
- *   (`PipelinePlanVisualizer`'s `labelsDrawn`, read from the same `drawsKind`
- *   the label loop uses); a second one must pass it.
+ * @param {boolean} labelsDrawn  `drawsLabelKind('step', level)` for this
+ *   frame. **REQUIRED (req #3374 P4)** — it used to default to `false`, the
+ *   permissive answer, which is exactly what let a SECOND renderer that forgot
+ *   the argument magnify over its own drawn labels in silence. There is
+ *   exactly one production caller (`PipelinePlanVisualizer`'s `labelsDrawn`,
+ *   read from the same `drawsKind` the label loop uses); a second one must
+ *   pass it too, loudly enforced below rather than assumed. A caller that only
+ *   wants #3280's bare-`k` curve passes `false` explicitly.
  * @returns {number} a factor in [1, NEXT_HALO_MAX_MAGNIFY], monotone
  *   non-increasing in `k` and continuous everywhere
  */
-export function nextHaloMagnify(k, labelsDrawn = false) {
+export function nextHaloMagnify(k, labelsDrawn) {
+    if (typeof labelsDrawn !== 'boolean') {
+        throw new Error('nextHaloMagnify: labelsDrawn is required (req #3374 P4) — '
+            + 'pass false explicitly for the bare-k curve');
+    }
     if (labelsDrawn) return 1;
     if (!Number.isFinite(k) || k <= 0) return 1;
     const want = NEXT_HALO_SCREEN_RADIUS / (NEXT_HALO_RADIUS * k);
@@ -3672,11 +3759,17 @@ export const NEXT_MARK_SCREEN_RADIUS = NEXT_HALO_MAX_OUTER * NEXT_MARK_FLOOR_K;
  * to forbid.
  *
  * @param {number} k  the world→screen scale actually being drawn at
- * @param {boolean} [labelsDrawn]  `drawsLabelKind('step', level)` for this
- *   frame; defaults to `false`, the pre-#3324 answer.
+ * @param {boolean} labelsDrawn  `drawsLabelKind('step', level)` for this
+ *   frame. **REQUIRED (req #3374 P4)**, for the identical reason
+ *   `nextHaloMagnify`'s own argument is — see its docblock. Pass `false`
+ *   explicitly for the pre-#3324 bare-`k` answer.
  * @returns {boolean}
  */
-export function nextMarkIsDot(k, labelsDrawn = false) {
+export function nextMarkIsDot(k, labelsDrawn) {
+    if (typeof labelsDrawn !== 'boolean') {
+        throw new Error('nextMarkIsDot: labelsDrawn is required (req #3374 P4) — '
+            + 'pass false explicitly for the bare-k curve');
+    }
     if (labelsDrawn) return false;
     return Number.isFinite(k) && k > 0 && k < NEXT_MARK_FLOOR_K;
 }
@@ -3686,7 +3779,7 @@ export function nextMarkIsDot(k, labelsDrawn = false) {
  * multiplied by the camera's own `k`, always renders at
  * `NEXT_MARK_SCREEN_RADIUS` screen px regardless of how small `k` gets.
  *
- * Only meaningful where `nextMarkIsDot(k)` is true; the caller picks the
+ * Only meaningful where `nextMarkIsDot(k, labelsDrawn)` is true; the caller picks the
  * branch, this only sizes it.
  *
  * @param {number} k  the world→screen scale actually being drawn at

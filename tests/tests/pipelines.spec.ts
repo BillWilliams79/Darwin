@@ -2169,8 +2169,11 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             //    in `pipelinePlanLayout.test.js` — since #3257 a name is pinned
             //    to its band's rectangle and the key CLIPS or DROPS it rather
             //    than displacing it, so BOTH the key's width and its height cost
-            //    names (measured: 187 dropped at 470×30, 256 at 470×180, over a
-            //    swept camera). This assertion holds because at the DEFAULT
+            //    names in the top-right position this comment was originally
+            //    measured against — a stale position since req #3255 moved the
+            //    key to bottom-center (its own current cost curve, re-measured
+            //    again by req #3374 P6, is `PLAN_KEY_MAX_H`'s own docblock, not
+            //    this file). This assertion holds because at the DEFAULT
             //    camera every chip sits at its rectangle's left edge and the key
             //    is in the top-RIGHT corner — the two simply do not meet. The
             //    sibling requirement moving the key to the bottom centre changes
@@ -2801,12 +2804,15 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             // BOTTOM-CENTER (req #3255), not a corner, and collapsed by default
             // (req #3309) — this test never touches the toggle, so the ONLY
             // live chrome in that band is the 32×28 collapsed panel, but the
-            // keep-out below stays sized to PLAN_KEY_MAX_W (470px) and a
-            // generous height regardless, in case a future occasion opens it;
-            // the epic chips clamp to the top of the viewport.
+            // keep-out below stays GENEROUSLY sized regardless, in case a
+            // future occasion opens it; the epic chips clamp to the top of
+            // the viewport. Width is no longer capped at all (req #3374 P6 —
+            // `PLAN_KEY_MAX_W` is gone, only `PLAN_KEY_MAX_H` caps HEIGHT
+            // now), so this buffer is chosen wide enough for a many-machine
+            // key rather than tied to the old 470px width cap.
             const [tx, ty, k] = panned;
             const M = 24;             // panel edges
-            const KEY_W = 470 + M;    // PLAN_KEY_MAX_W, bottom-center
+            const KEY_W = 900 + M;    // generous — uncapped key width, req #3374 P6
             const KEY_H = 260;        // generous — taller than the key gets
             const CHIP_H = 100;       // the clamped epic-chip strip along the top
             const reqLabel = (layout.labels as Array<

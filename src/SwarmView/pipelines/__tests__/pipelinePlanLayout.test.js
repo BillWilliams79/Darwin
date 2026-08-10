@@ -32,7 +32,7 @@ import {
     AUTONOMY_COLORS, AUTONOMY_ORDER, AUTONOMY_UNKNOWN_COLOR, autonomyColor,
     REQ_COLOR_SCALES, REQ_COLOR_KEYS, reqColorScale, buildReqColorViews,
     DEFAULT_COLOR_KEY, isColorKey, normalizeColorKey,
-    reqIdStyle, reqIdKeyEntries, PLAN_KEY_MAX_W,
+    reqIdStyle, reqIdKeyEntries, PLAN_KEY_MAX_H,
     LABEL_MAX_CHARS, reqLabelText, REQ_VIEWS, DEFAULT_REQ_VIEW, isReqView,
     normalizeReqView, reqViewOptions, PLAN_LEVEL_BY_PREF, PLAN_LEVEL_NUMBER,
     DEFAULT_PLAN_LEVEL_PREF, isPlanLevelPref, normalizePlanLevelPref, pinnedLevelOf,
@@ -46,6 +46,7 @@ import {
     stickyRulerY, rulerScreenBottom,
     EPIC_PALETTE,
     PAUSE_ACTIVE_COLOR, PAUSE_PAUSED_COLOR, pauseBubbleColor, EPIC_PAUSE_BUBBLE_W,
+    COLOR_CHANNELS, KEY_GROUP_TITLES,
 } from '../pipelinePlanLayout';
 
 const NOW = '2026-07-27T03:00:00Z';
@@ -1287,6 +1288,54 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
             .toBeGreaterThan(0);
     });
 
+    // ── WHERE THE OVERLAP STARTS, PINNED (req #3374 P5) ─────────────────────
+    // The two tests above prove the overlap with lane 0's step labels exists
+    // somewhere below the font floor; THIS test does not re-touch that content
+    // — it pins the exact `k` the floor itself kicks in at (below which the
+    // chip is provably floored and provably escapes its lane; at/above which
+    // it is provably neither), so a future change to `EPIC_CHIP_MIN_H`,
+    // `CHIP_MARGIN_Y` or the epic lane's own height moves this number rather
+    // than silently invalidating it. The two combine: this is WHERE, the
+    // tests above are THAT. DERIVED, not chosen — the same discipline
+    // `NEXT_MARK_FLOOR_K` follows a few hundred lines below.
+    it('pins the exact k where the floored chip starts escaping its own epic '
+        + 'lane (~0.348) — the boundary the sibling tests prove overlaps content',
+        () => {
+            const epicLaneH = layout.bands[0].epicLaneH ?? layout.bands[0].headerH;
+            const kBoundary = (EPIC_CHIP_MIN_H + 2 * MY) / epicLaneH;
+            // MEASURED 2026-08-10: 21.6 / 62 = 0.34838709...
+            expect(kBoundary).toBeCloseTo(0.348387, 6);
+            for (const band of layout.bands) {
+                expect(band.epicLaneH ?? band.headerH, `band ${band.key}'s own lane`)
+                    .toBe(epicLaneH);
+            }
+
+            // BELOW the boundary: `laneHoldsChip` says the lane cannot hold the
+            // floored chip, on EVERY band alike, and the real `placeEpicChips`
+            // output confirms it — the floor from req #3272 has already kicked
+            // in ('never touches ... while its lane can hold it' above is what
+            // ties that floor to the actual overlap with lane 0's content).
+            const below = kBoundary - 0.005;
+            for (const band of layout.bands) expect(laneHoldsChip(band, below)).toBe(false);
+            const chipBelow = chipsAt({ x: 0, y: 0, k: below })
+                .find((c) => c.band === layout.bands[0]);
+            expect(chipBelow, `no chip for the boundary band at k=${below}`).toBeTruthy();
+            expect(chipBelow.h).toBeCloseTo(EPIC_CHIP_MIN_H, 6);
+
+            // AT OR ABOVE the boundary: every band's lane holds its own
+            // (unfloored) chip, and the real chip stays inside it — the
+            // guarantee 'stays inside its own epic lane ...' above proves for
+            // every `laneHoldsChip` band, pinned here at the closest point to
+            // the boundary the guarantee is exercised at.
+            const above = kBoundary + 0.005;
+            for (const band of layout.bands) expect(laneHoldsChip(band, above)).toBe(true);
+            const chipAbove = chipsAt({ x: 0, y: 0, k: above })
+                .find((c) => c.band === layout.bands[0]);
+            expect(chipAbove, `no chip for the boundary band at k=${above}`).toBeTruthy();
+            const laneBottomAbove = layout.bands[0].y * above + epicLaneH * above;
+            expect(chipAbove.y + chipAbove.h).toBeLessThanOrEqual(laneBottomAbove + 0.01);
+        });
+
     // The DELIBERATE consequence of the rule, stated so it reads as a decision
     // rather than as an oversight: once the band's top has scrolled past, the
     // clamped name sits over that band's own content and DRAWS OVER IT on its
@@ -2250,7 +2299,7 @@ describe('the next-step halo survives Overview (req #3271)', () => {
     // makes this a claim about what is on screen.
     it('is exactly 1 at every k where the labels are drawn', () => {
         for (const k of K_SWEEP.filter(labelsLegible)) {
-            expect(nextHaloMagnify(k), `k=${k}`).toBe(1);
+            expect(nextHaloMagnify(k, false), `k=${k}`).toBe(1);
         }
         // Non-vacuity: the sweep must actually contain legible scales.
         expect(K_SWEEP.filter(labelsLegible).length).toBeGreaterThan(5);
@@ -2260,7 +2309,7 @@ describe('the next-step halo survives Overview (req #3271)', () => {
     // range, where the mark had shrunk below its target, is touched at all.
     it('is exactly 1 once the mark already meets its target on screen', () => {
         for (const k of K_SWEEP.filter((v) => v >= 1)) {
-            expect(nextHaloMagnify(k), `k=${k}`).toBe(1);
+            expect(nextHaloMagnify(k, false), `k=${k}`).toBe(1);
         }
     });
 
@@ -2269,7 +2318,7 @@ describe('the next-step halo survives Overview (req #3271)', () => {
     // the case fails at the first k in the sweep.
     it('holds the halo SCREEN-constant across a k sweep, until the cap bites', () => {
         for (const k of [...K_SWEEP, 0.45, 0.6, 0.75].sort((a, b) => a - b)) {
-            const m = nextHaloMagnify(k);
+            const m = nextHaloMagnify(k, false);
             if (m >= NEXT_HALO_MAX_MAGNIFY || m === 1) continue;
             // ALL THREE ARE THE SAME IDENTITY times a different constant, and
             // saying so is the correction (review finding on this block: the
@@ -2294,7 +2343,7 @@ describe('the next-step halo survives Overview (req #3271)', () => {
         // The sweep must actually EXERCISE the screen-constant branch, or the
         // loop above passes by skipping everything (review-proofing).
         const exercised = [...K_SWEEP, 0.45, 0.6, 0.75].filter((k) => {
-            const m = nextHaloMagnify(k);
+            const m = nextHaloMagnify(k, false);
             return m > 1 && m < NEXT_HALO_MAX_MAGNIFY;
         });
         expect(exercised.length).toBeGreaterThan(2);
@@ -2323,7 +2372,7 @@ describe('the next-step halo survives Overview (req #3271)', () => {
         const swept = [LIVE_ZOOM_FLOOR,
             ...K_SWEEP.filter((v) => v < 0.5 && v > LIVE_ZOOM_FLOOR)];
         for (const k of swept) {
-            const gapPx = (innerAt(nextHaloMagnify(k)) - BEAD_OUTER_RADIUS) * k;
+            const gapPx = (innerAt(nextHaloMagnify(k, false)) - BEAD_OUTER_RADIUS) * k;
             const unfixedPx = (innerAt(1) - BEAD_OUTER_RADIUS) * k;
             expect(unfixedPx, `world-constant gap px at k=${k}`).toBeLessThan(0.2);
             expect(gapPx, `gap px at k=${k}`).toBeGreaterThan(0.9);
@@ -2348,12 +2397,12 @@ describe('the next-step halo survives Overview (req #3271)', () => {
         // lands on `kDefault` = 0.8, one wheel-click in from here. See the
         // `turns the measured Overview scales` case below.)
         const kFitWide = 1440 / 3620.2;
-        expect((innerAt(nextHaloMagnify(kFitWide)) - BEAD_OUTER_RADIUS) * kFitWide,
+        expect((innerAt(nextHaloMagnify(kFitWide, false)) - BEAD_OUTER_RADIUS) * kFitWide,
             'gap px at fit-to-width, 1440px panel').toBeGreaterThan(4);
         // And the world gap never closes at any k, magnified or not.
         let prevGap = null;
         for (const k of [...K_SWEEP].sort((a, b) => b - a)) {
-            const gap = innerAt(nextHaloMagnify(k)) - BEAD_OUTER_RADIUS;
+            const gap = innerAt(nextHaloMagnify(k, false)) - BEAD_OUTER_RADIUS;
             expect(gap, `k=${k}`).toBeGreaterThan(0);
             if (prevGap !== null) expect(gap, `k=${k}`).toBeGreaterThanOrEqual(prevGap);
             prevGap = gap;
@@ -2481,7 +2530,7 @@ describe('the next-step halo survives Overview (req #3271)', () => {
     });
 
     it('is monotone — zooming out never shrinks the mark', () => {
-        const ms = K_SWEEP.map((k) => nextHaloMagnify(k));
+        const ms = K_SWEEP.map((k) => nextHaloMagnify(k, false));
         for (let i = 1; i < ms.length; i += 1) {
             expect(ms[i], `k=${K_SWEEP[i]}`).toBeLessThanOrEqual(ms[i - 1]);
         }
@@ -2489,7 +2538,7 @@ describe('the next-step halo survives Overview (req #3271)', () => {
 
     it('falls back to 1 on a scale that is not a usable number', () => {
         for (const k of [0, -1, NaN, Infinity, -Infinity, undefined, null]) {
-            expect(nextHaloMagnify(k), `k=${k}`).toBe(1);
+            expect(nextHaloMagnify(k, false), `k=${k}`).toBe(1);
         }
     });
 
@@ -2526,7 +2575,7 @@ describe('the next-step halo survives Overview (req #3271)', () => {
             expect((innerAt(1) - BEAD_OUTER_RADIUS) * k, `old gap px at k=${k}`)
                 .toBeLessThan(0.11);
             // What it is now — a dashed ring, clear of the bead.
-            const m = nextHaloMagnify(k);
+            const m = nextHaloMagnify(k, false);
             expect(NEXT_HALO_STROKE * m * k, `stroke px at k=${k}`).toBeGreaterThan(1.3);
             expect(NEXT_HALO_RADIUS * m * k, `radius px at k=${k}`).toBeGreaterThan(8);
             expect(NEXT_HALO_DASH[0] * m * k, `dash px at k=${k}`).toBeGreaterThan(1.9);
@@ -2615,7 +2664,7 @@ describe('the next-step halo survives the level CROSSINGS (req #3280)', () => {
         // deleting the argument would leave this sweep green.
         expect(drawn, 'kind × mode × k combinations that draw')
             .toBeGreaterThan(500);
-        expect(REACHABLE.filter((k) => nextHaloMagnify(k) > 1).length)
+        expect(REACHABLE.filter((k) => nextHaloMagnify(k, false) > 1).length)
             .toBeGreaterThan(20);
         expect(pinnedBelowLegible, 'pinned kinds drawn below K_READABLE')
             .toBeGreaterThan(20);
@@ -2639,8 +2688,8 @@ describe('the next-step halo survives the level CROSSINGS (req #3280)', () => {
             const level = planLevelFor(null, k / LIVE_K_DEFAULT, k);
             if (!drawsLabelKind('step', level)) continue;
             autoDraws += 1;
-            expect(nextHaloMagnify(k), `unflagged m at k=${k.toFixed(4)}`).toBe(1);
-            expect(nextMarkIsDot(k), `unflagged dot at k=${k.toFixed(4)}`).toBe(false);
+            expect(nextHaloMagnify(k, false), `unflagged m at k=${k.toFixed(4)}`).toBe(1);
+            expect(nextMarkIsDot(k, false), `unflagged dot at k=${k.toFixed(4)}`).toBe(false);
         }
         expect(autoDraws, 'scales where AUTO draws the step label')
             .toBeGreaterThan(100);
@@ -2696,8 +2745,8 @@ describe('the next-step halo survives the level CROSSINGS (req #3280)', () => {
         const jumps = [];
         for (let i = 1; i < REACHABLE.length; i += 1) {
             const [a, b] = [REACHABLE[i - 1], REACHABLE[i]];
-            const ra = NEXT_HALO_RADIUS * nextHaloMagnify(a) * a;
-            const rb = NEXT_HALO_RADIUS * nextHaloMagnify(b) * b;
+            const ra = NEXT_HALO_RADIUS * nextHaloMagnify(a, false) * a;
+            const rb = NEXT_HALO_RADIUS * nextHaloMagnify(b, false) * b;
             const rel = Math.abs(rb - ra) / Math.min(ra, rb);
             const bound = (b - a) / a;
             if (rel > bound + 1e-9) {
@@ -2724,10 +2773,10 @@ describe('the next-step halo survives the level CROSSINGS (req #3280)', () => {
         expect(semanticLevel(0.399 / LIVE_K_DEFAULT)).toBe('out');
         expect(semanticLevel(0.400 / LIVE_K_DEFAULT)).toBe('mid');
         const px = (k) => ({
-            radius: NEXT_HALO_RADIUS * nextHaloMagnify(k) * k,
-            stroke: NEXT_HALO_STROKE * nextHaloMagnify(k) * k,
-            dash: NEXT_HALO_DASH[0] * nextHaloMagnify(k) * k,
-            gap: (innerAt(nextHaloMagnify(k)) - BEAD_OUTER_RADIUS) * k,
+            radius: NEXT_HALO_RADIUS * nextHaloMagnify(k, false) * k,
+            stroke: NEXT_HALO_STROKE * nextHaloMagnify(k, false) * k,
+            dash: NEXT_HALO_DASH[0] * nextHaloMagnify(k, false) * k,
+            gap: (innerAt(nextHaloMagnify(k, false)) - BEAD_OUTER_RADIUS) * k,
         });
         const below = px(0.399);
         const above = px(0.400);
@@ -2753,7 +2802,7 @@ describe('the next-step halo survives the level CROSSINGS (req #3280)', () => {
         const band = REACHABLE.filter((k) => k >= kBoundary && k < K_READABLE);
         expect(band.length, 'the band is swept').toBeGreaterThan(5);
         for (const k of band) {
-            const m = nextHaloMagnify(k);
+            const m = nextHaloMagnify(k, false);
             expect(NEXT_HALO_RADIUS * m * k, `radius px at k=${k}`)
                 .toBeCloseTo(NEXT_HALO_SCREEN_RADIUS, 6);
             expect(NEXT_HALO_STROKE * m * k, `stroke px at k=${k}`)
@@ -2766,7 +2815,7 @@ describe('the next-step halo survives the level CROSSINGS (req #3280)', () => {
         }
         // The band's TOP is where the unmagnified mark takes over, at the same
         // size — the identity that makes the two branches meet.
-        expect(NEXT_HALO_RADIUS * nextHaloMagnify(K_READABLE) * K_READABLE)
+        expect(NEXT_HALO_RADIUS * nextHaloMagnify(K_READABLE, false) * K_READABLE)
             .toBeCloseTo(NEXT_HALO_SCREEN_RADIUS, 10);
     });
 
@@ -2778,8 +2827,8 @@ describe('the next-step halo survives the level CROSSINGS (req #3280)', () => {
         expect(NEXT_HALO_SCREEN_RADIUS).toBeCloseTo(NEXT_HALO_RADIUS * K_READABLE, 10);
         expect(labelsLegible(K_READABLE)).toBe(true);
         expect(labelsLegible(K_READABLE - 1e-9)).toBe(false);
-        expect(nextHaloMagnify(K_READABLE)).toBe(1);
-        expect(nextHaloMagnify(K_READABLE - 1e-9)).toBeCloseTo(1, 8);
+        expect(nextHaloMagnify(K_READABLE, false)).toBe(1);
+        expect(nextHaloMagnify(K_READABLE - 1e-9, false)).toBeCloseTo(1, 8);
     });
 
     // The predicate is measured on the SMALLEST required text and the module's
@@ -2859,7 +2908,7 @@ describe('the next-step halo survives the level CROSSINGS (req #3280)', () => {
     // MARK, which is a design decision and a follow-on requirement, and this
     // case exists so the arithmetic is checked rather than remembered.
     it('cannot reach the deep zoom-out band, and says where it stops', () => {
-        const strokePx = (k) => NEXT_HALO_STROKE * nextHaloMagnify(k) * k;
+        const strokePx = (k) => NEXT_HALO_STROKE * nextHaloMagnify(k, false) * k;
         // WHERE IT STOPS, found by SEARCHING the swept range rather than by
         // restating the algebra (review finding: the first draft computed
         // `1.2 / (STROKE × MAX_MAGNIFY)` and then asserted the predicate that
@@ -2909,14 +2958,14 @@ describe('the next-step halo survives the level CROSSINGS (req #3280)', () => {
     // REACHABLE sweep and the SAME live-plan zoom floor, so both halves of the
     // story are measured against one sweep rather than two.
     describe('the deep-zoom-out DOT covers what the ring cannot (req #3299)', () => {
-        const strokePx = (k) => NEXT_HALO_STROKE * nextHaloMagnify(k) * k;
+        const strokePx = (k) => NEXT_HALO_STROKE * nextHaloMagnify(k, false) * k;
 
         it('the dot band IS the band the ring cannot reach — found by '
             + 'SEARCHING the swept range, not by restating the closed form '
             + '(same discipline as the sibling case above)', () => {
             const unreadable = new Set(
                 REACHABLE.filter((k) => strokePx(k) < NEXT_MARK_MIN_STROKE_PX));
-            const dotted = new Set(REACHABLE.filter((k) => nextMarkIsDot(k)));
+            const dotted = new Set(REACHABLE.filter((k) => nextMarkIsDot(k, false)));
             expect(unreadable.size, 'ring-unreadable samples').toBeGreaterThan(10);
             expect(dotted.size, 'dot-drawn samples').toBe(unreadable.size);
             for (const k of unreadable) expect(dotted.has(k), `k=${k}`).toBe(true);
@@ -2945,17 +2994,17 @@ describe('the next-step halo survives the level CROSSINGS (req #3280)', () => {
             const below = REACHABLE.filter((k) => k < NEXT_MARK_FLOOR_K);
             expect(atOrAbove.length).toBeGreaterThan(0);
             expect(below.length).toBeGreaterThan(0);
-            for (const k of atOrAbove) expect(nextMarkIsDot(k), `k=${k}`).toBe(false);
-            for (const k of below) expect(nextMarkIsDot(k), `k=${k}`).toBe(true);
+            for (const k of atOrAbove) expect(nextMarkIsDot(k, false), `k=${k}`).toBe(false);
+            for (const k of below) expect(nextMarkIsDot(k, false), `k=${k}`).toBe(true);
             // The exact boundary itself stays on the ring — `nextMarkIsDot` is
             // a strict `<`, so a camera parked exactly at the floor is not a
             // special case needing its own branch.
-            expect(nextMarkIsDot(NEXT_MARK_FLOOR_K)).toBe(false);
+            expect(nextMarkIsDot(NEXT_MARK_FLOOR_K, false)).toBe(false);
         });
 
         it('holds the dot at a FIXED screen radius across the whole '
             + 'reachable deep-zoom-out range, including the live zoom floor', () => {
-            const below = REACHABLE.filter((k) => nextMarkIsDot(k));
+            const below = REACHABLE.filter((k) => nextMarkIsDot(k, false));
             expect(below.length, 'reachable samples below the floor')
                 .toBeGreaterThan(10);
             for (const k of [...below, LIVE_ZOOM_FLOOR]) {
@@ -2987,7 +3036,7 @@ describe('the next-step halo survives the level CROSSINGS (req #3280)', () => {
         it('never merges with the bead\'s own ring — clears it by at least '
             + 'the acceptance stroke at every k it draws at, including the '
             + 'top of its own band where the bead is largest', () => {
-            const below = REACHABLE.filter((k) => nextMarkIsDot(k));
+            const below = REACHABLE.filter((k) => nextMarkIsDot(k, false));
             expect(below.length).toBeGreaterThan(10);
             // The true worst case is the supremum of the dot's domain
             // (k -> NEXT_MARK_FLOOR_K from below, where the bead is largest)
@@ -3015,10 +3064,34 @@ describe('the next-step halo survives the level CROSSINGS (req #3280)', () => {
             for (const bad of [NaN, 0, -1, Infinity]) {
                 expect(Number.isFinite(nextMarkDotRadius(bad)), `k=${bad}`).toBe(true);
             }
-            expect(nextMarkIsDot(NaN)).toBe(false);
-            expect(nextMarkIsDot(0)).toBe(false);
-            expect(nextMarkIsDot(-1)).toBe(false);
+            expect(nextMarkIsDot(NaN, false)).toBe(false);
+            expect(nextMarkIsDot(0, false)).toBe(false);
+            expect(nextMarkIsDot(-1, false)).toBe(false);
         });
+    });
+});
+
+// `labelsDrawn` is REQUIRED on both functions (req #3374 P4) — a forgotten
+// argument used to default to `false`, the permissive answer, and magnify a
+// halo over its own drawn labels in silence. A second caller that forgets it
+// now throws instead of drawing wrong.
+describe('labelsDrawn is required, not defaulted (req #3374 P4)', () => {
+    it('nextHaloMagnify throws when labelsDrawn is omitted or not a boolean', () => {
+        expect(() => nextHaloMagnify(0.5)).toThrow(/labelsDrawn/);
+        for (const bad of [undefined, null, 0, 1, 'false', 'true']) {
+            expect(() => nextHaloMagnify(0.5, bad), `bad=${String(bad)}`).toThrow(/labelsDrawn/);
+        }
+        expect(() => nextHaloMagnify(0.5, false)).not.toThrow();
+        expect(() => nextHaloMagnify(0.5, true)).not.toThrow();
+    });
+
+    it('nextMarkIsDot throws when labelsDrawn is omitted or not a boolean', () => {
+        expect(() => nextMarkIsDot(0.1)).toThrow(/labelsDrawn/);
+        for (const bad of [undefined, null, 0, 1, 'false', 'true']) {
+            expect(() => nextMarkIsDot(0.1, bad), `bad=${String(bad)}`).toThrow(/labelsDrawn/);
+        }
+        expect(() => nextMarkIsDot(0.1, false)).not.toThrow();
+        expect(() => nextMarkIsDot(0.1, true)).not.toThrow();
     });
 });
 
@@ -3096,6 +3169,32 @@ describe('the pause status bubble (req #3226)', () => {
             expect(label.w).toBeCloseTo(
                 bandText.length * EPIC_CHIP_CHAR_W + EPIC_PAUSE_BUBBLE_W, 6);
         }
+    });
+});
+
+// ── The channel table matches the rendered key (req #3374 P3) ──────────────
+// `COLOR_CHANNELS` is the header table in the module docblock, as data.
+// `PipelinePlanVisualizer` reads its two `KeyGroup` titles from
+// `KEY_GROUP_TITLES` rather than a hand-typed literal, so this test — which
+// touches neither Konva nor React — is enough to catch the table and the
+// on-screen key drifting apart: either one changing what it renders shows up
+// here as soon as it changes what this module exports.
+describe('the channel table and the on-screen key (req #3374 P3)', () => {
+    it('keys only the channels marked inKey, in first-seen order', () => {
+        expect(KEY_GROUP_TITLES).toEqual(['step', 'requirement']);
+    });
+
+    it('every inKey channel names a level KEY_GROUP_TITLES actually carries', () => {
+        for (const c of COLOR_CHANNELS) {
+            if (c.inKey) expect(KEY_GROUP_TITLES).toContain(c.level);
+        }
+    });
+
+    it('epic identity is the one channel excluded from the key', () => {
+        const epic = COLOR_CHANNELS.find((c) => c.level === 'epic');
+        expect(epic).toBeDefined();
+        expect(epic.inKey).toBe(false);
+        expect(KEY_GROUP_TITLES).not.toContain('epic');
     });
 });
 
@@ -3640,18 +3739,18 @@ describe("the KEY is a keep-out: what it costs the epic labels (req #3168, re-me
         { reqLayout: 'vertical', stepLabel: 'title' });
     const VIEWPORT = { w: 1500, h: 900 };
 
-    // The complete key (directive 2) is TALLER than the bead legend it replaces
-    // — one row per CHANNEL, plus a heading and the size/motion footer — and no
-    // wider, because the component caps it at PLAN_KEY_MAX_W. These sizes
-    // bracket what it can actually be at that cap: collapsed (just the toggle
-    // button — the default state since req #3309, and the panel's own
-    // `minWidth`/`minHeight` floor), the ordinary expanded key, and the worst
-    // case (a machine key on a many-machine plan, wrapped over several rows).
+    // The complete key (directive 2) is capped on HEIGHT, not width, since req
+    // #3374 P6 — see `PLAN_KEY_MAX_H`. These sizes bracket what it can actually
+    // be: collapsed (just the toggle button — the default state since req
+    // #3309, and the panel's own `minWidth`/`minHeight` floor), the ordinary
+    // expanded key, at the height cap with a typical width, and the worst case
+    // (a machine key on a many-machine plan — WIDE, since #3371/#3373 left the
+    // key's two groups with no way to grow taller than the cap, only wider).
     const KEY_SIZES = [
         { w: 32, h: 28, label: 'collapsed (default since req #3309)' },
         { w: 300, h: 76, label: 'expanded, state key' },
-        { w: PLAN_KEY_MAX_W, h: 96, label: 'expanded, wrapped to the cap' },
-        { w: PLAN_KEY_MAX_W, h: 180, label: 'worst case — many machines, at the cap' },
+        { w: 300, h: PLAN_KEY_MAX_H, label: 'expanded, at the height cap' },
+        { w: 900, h: PLAN_KEY_MAX_H, label: 'worst case — many machines, wide, at the height cap' },
     ];
 
     it('never lets a chip land under the key, at any key size, zoom or pan', () => {
@@ -3716,7 +3815,7 @@ describe("the KEY is a keep-out: what it costs the epic labels (req #3168, re-me
         expect(checked, 'the sweep checked real chips').toBeGreaterThan(200);
     });
 
-    // ── WHAT THE KEY COSTS, RE-MEASURED (req #3257) ────────────────────────
+    // ── WHAT THE KEY COSTS, RE-MEASURED (req #3257, then req #3374 P6) ─────
     // THE OLD INVARIANT IS FALSE AND IS NOT CARRIED FORWARD. Until #3257 this
     // block asserted "the key's WIDTH is its entire cost to the epic labels; its
     // HEIGHT is free", and the mechanism was displacement: a chip that met the
@@ -3724,36 +3823,29 @@ describe("the KEY is a keep-out: what it costs the epic labels (req #3168, re-me
     // clip-or-drop a taller key exposes more band rows to it, and those chips
     // have nowhere to go.
     //
-    // RE-MEASURED AGAIN once req #3255 moved the key to BOTTOM-CENTER — which
-    // changed both the magnitude and WHICH AXIS IS STEEPER, so the top-right
-    // numbers could not simply be carried over.
-    //
-    // MEASURED 2026-08-02 on the Substrate fixture (1500×900 panel), over
-    // k ∈ {0.2, 0.35, 0.5, 0.8, 1.2, 1.5, 2} × y ∈ {0, −150, −500, −900} ×
-    // x ∈ 0…1400 step 50 — 1566 chips drawn with no key at all:
+    // RE-MEASURED AGAIN once req #3255 moved the key to BOTTOM-CENTER, and
+    // AGAIN by req #3374 P6 once #3371/#3373 emptied the key's launch-unit and
+    // epic-band rows — each move changed the magnitude, and the #3255 move
+    // changed WHICH AXIS IS STEEPER, so the numbers could not simply be carried
+    // forward either time. MEASURED 2026-08-10 on the Substrate fixture
+    // (1500×900 panel), over k ∈ {0.2, 0.35, 0.5, 0.8, 1.2, 1.5, 2} ×
+    // y ∈ {0, −150, −500, −900} × x ∈ 0…1400 step 50, on the OLD table's own
+    // w/h ranges so this and the pre-P6 numbers stay comparable:
     //
     //   at w=470:   h  30    60   100   140   180
-    //               dropped  11    22    44    55    77
+    //               dropped  33    33    44    66    77
     //
     //   at h=30:    w  90   300   420   470   600   900  1100
-    //               dropped   3     7    10    11    13    19    23
+    //               dropped   9    21    30    33    39    57    69
     //
-    // TWO FINDINGS, both of which contradict the pre-#3255 shape of this block:
-    //
-    //  1. THE MOVE MADE THE KEY ~17× CHEAPER (187 → 11 dropped at 470×30). A
-    //     name is pinned to its band's LEFT edge, and the bottom-center key no
-    //     longer sits where those names land.
-    //  2. HEIGHT IS NOW THE STEEPER AXIS, the reverse of the top-right era: the
-    //     range costs 66 names in height against 20 in width. A bottom-anchored
-    //     box grows UPWARD into more band rows, while its width only ever spans
-    //     the middle of the panel where few chip x-positions fall.
-    //
-    // `PLAN_KEY_MAX_W` therefore now caps the CHEAPER dimension. That is not a
-    // bug introduced here — the cap predates the move and the key is far cheaper
-    // overall — but it does mean the cap is no longer the defence it was named
-    // for, and the honest guard for a bottom-center key would be on HEIGHT.
-    // Recorded rather than silently re-asserted; changing the cap belongs to
-    // req #3255's own surface, not to this one.
+    // The absolute counts moved from the 2026-08-02 table (11→33, 23→69 — a
+    // different fixture shape, a shorter key) but the SLOPE — what "steeper
+    // axis" actually means — still favours height: 44 dropped over the 150px
+    // height range (≈0.29/px) against 60 over the 1010px width range
+    // (≈0.06/px), roughly 5x steeper per pixel. `PLAN_KEY_MAX_H` (renamed from
+    // `PLAN_KEY_MAX_W`) caps that steeper axis now; width is deliberately
+    // uncapped. Full derivation of the cap's own value in
+    // `pipelinePlanLayout.js` above `PLAN_KEY_MAX_H`.
     const costOf = (w, h) => {
         let dropped = 0;
         for (const k of [0.2, 0.35, 0.5, 0.8, 1.2, 1.5, 2]) {
@@ -3775,7 +3867,10 @@ describe("the KEY is a keep-out: what it costs the epic labels (req #3168, re-me
 
     it('costs epic names in BOTH dimensions, monotonically — the pre-#3257 '
         + '"height is free" invariant no longer holds', () => {
-        const byHeight = [30, 60, 100, 140, 180].map((h) => costOf(PLAN_KEY_MAX_W, h));
+        // 470 is no longer a cap (req #3374 P6 uncapped width) — it is kept
+        // here only as the fixed reference width the measured table above
+        // used, so this sweep stays comparable to it.
+        const byHeight = [30, 60, 100, 140, 180].map((h) => costOf(470, h));
         for (let i = 1; i < byHeight.length; i++) {
             expect(byHeight[i], `height ${[30, 60, 100, 140, 180][i]} vs the one below`)
                 .toBeGreaterThanOrEqual(byHeight[i - 1]);
@@ -3787,39 +3882,65 @@ describe("the KEY is a keep-out: what it costs the epic labels (req #3168, re-me
             + 'was true only of the displacement pass #3257 deleted')
             .toBeGreaterThan(byHeight[0]);
 
-        const WIDTHS = [90, 300, 420, PLAN_KEY_MAX_W, 600, 900, 1100];
+        const WIDTHS = [90, 300, 420, 470, 600, 900, 1100];
         const byWidth = WIDTHS.map((w) => costOf(w, 30));
         for (let i = 1; i < byWidth.length; i++) {
             expect(byWidth[i], `width ${WIDTHS[i]} vs ${WIDTHS[i - 1]}`)
                 .toBeGreaterThanOrEqual(byWidth[i - 1]);
         }
         // The curve is a real curve and not a constant: the widest key costs
-        // an order of magnitude more names than the collapsed one.
+        // several times more names than the narrowest one.
         expect(byWidth[byWidth.length - 1],
-            'a 1100px key vs a collapsed one').toBeGreaterThan(5 * byWidth[0]);
+            'a 1100px key vs a 90px one').toBeGreaterThan(5 * byWidth[0]);
     });
 
     it('HEIGHT is the steeper axis now that the key sits bottom-center — so '
-        + 'PLAN_KEY_MAX_W caps the cheaper dimension', () => {
-        const base = costOf(PLAN_KEY_MAX_W, 30);
-        const tallCost = costOf(PLAN_KEY_MAX_W, 180) - base;
+        + 'PLAN_KEY_MAX_H rightly caps it, not width', () => {
+        const base = costOf(470, 30);
+        const tallCost = costOf(470, 180) - base;
         const wideCost = costOf(900, 30) - base;
-        expect(tallCost, 'growing the key to its worst-case height').toBeGreaterThan(0);
+        expect(tallCost, 'growing the key to a worst-case height').toBeGreaterThan(0);
         expect(wideCost, 'a 900px key must still cost names').toBeGreaterThan(0);
         // THE INVERSION, pinned so it cannot revert silently. Under the
-        // top-right key width was steeper (155 vs 69); bottom-center reverses it
-        // (66 vs 20). If a future move puts width back on top, this fails and
-        // the comment above gets re-measured rather than quietly rotting.
+        // top-right key width was steeper; bottom-center reverses it, and
+        // req #3374 P6 moved the cap to match. If a future move puts width
+        // back on top, this fails and the comment above gets re-measured
+        // rather than quietly rotting.
         expect(tallCost, 'height must cost more than width for a BOTTOM-anchored '
             + 'key — if this fails, the key moved again and the table above is stale')
             .toBeGreaterThan(wideCost);
     });
 
+    it('the actual PLAN_KEY_MAX_H cap costs little — the flat part of the '
+        + 'height curve, not the steep part past it', () => {
+        // The cap's own derivation (see `PLAN_KEY_MAX_H` in
+        // pipelinePlanLayout.js): content is ~78px, so the curve is flat up to
+        // there and only starts climbing past it. 110 should sit close to that
+        // floor, not out on the steep part a much taller key would reach.
+        //
+        // MEASURED 2026-08-10: 21 at h=78, 28 at h=110 (the cap), 49 at h=180
+        // — a real bound (review finding, req #3374 P7: the first draft of
+        // this test asserted `atCap - atFloor < wellPast - atFloor`, which is
+        // the SAME inequality as `atCap < wellPast` with `atFloor` subtracted
+        // from both sides — algebraically guaranteed by the line above it and
+        // therefore not a claim about "little" at all). The cap's own extra
+        // cost (7) must stay a minority of the steep segment's extra cost
+        // (28) for "little" to mean something.
+        const atFloor = costOf(300, 78);
+        const atCap = costOf(300, PLAN_KEY_MAX_H);
+        const wellPast = costOf(300, 180);
+        expect(atCap, 'the cap must not already be on the steep part of the curve')
+            .toBeLessThan(wellPast);
+        expect(atCap - atFloor,
+            'the cap\'s own cost over the real content height must be a MINORITY '
+            + 'of what the steep segment past it costs, not merely less')
+            .toBeLessThan(0.5 * (wellPast - atFloor));
+    });
+
     it('the bottom-center move made the key far cheaper than the top-right one', () => {
-        // The #3255 move is worth a number, not just a note: at the cap, a
-        // top-right key dropped 187 names over this sweep and a bottom-center
-        // one drops 11. Asserted as an order of magnitude so it tracks the
-        // finding rather than a specific fixture count.
+        // The #3255 move is worth a number, not just a note. Asserted as an
+        // order of magnitude so it tracks the finding rather than a specific
+        // fixture count that will drift as the fixture does.
         const topRight = (() => {
             let dropped = 0;
             for (const k of [0.2, 0.35, 0.5, 0.8, 1.2, 1.5, 2]) {
@@ -3829,8 +3950,7 @@ describe("the KEY is a keep-out: what it costs the epic labels (req #3168, re-me
                             viewport: VIEWPORT, worldWidth: layout.width };
                         const bare = placeEpicChips(args);
                         const withKey = placeEpicChips({ ...args,
-                            keepOut: { x: VIEWPORT.w - 10 - PLAN_KEY_MAX_W, y: 8,
-                                w: PLAN_KEY_MAX_W, h: 30 } });
+                            keepOut: { x: VIEWPORT.w - 10 - 470, y: 8, w: 470, h: 30 } });
                         dropped += bare.filter(
                             (c) => !withKey.some((d) => d.key === c.key)).length;
                     }
@@ -3838,8 +3958,8 @@ describe("the KEY is a keep-out: what it costs the epic labels (req #3168, re-me
             }
             return dropped;
         })();
-        expect(topRight, 'the old top-right key cost real names').toBeGreaterThan(100);
-        expect(costOf(PLAN_KEY_MAX_W, 30) * 5,
+        expect(topRight, 'the old top-right key cost real names').toBeGreaterThan(50);
+        expect(costOf(470, 30) * 3,
             'the bottom-center key must be far cheaper than the top-right one')
             .toBeLessThan(topRight);
     });
@@ -3883,26 +4003,30 @@ describe('the 35-character ceiling (req #3168, directive B)', () => {
     // than a promise — if a future edit moves any of these, the user is being
     // given a different deal and should be told.
     it('draws the MEASURED number of characters per mode and width', () => {
+        // [min, max] — req #3374 P7 review finding W1: this used to assert
+        // only the max, while the doc table it backs also claims a MIN
+        // column. A doc claiming pinned coverage a test does not actually
+        // provide is the exact failure P7 exists to remove.
         const at = (view, stepWidth) => {
             const { step } = drawn({ ...reqViewOptions(view),
                 stepLabel: 'title', stepWidth });
-            return Math.max(...step);
+            return [Math.min(...step), Math.max(...step)];
         };
         // `horizontal` columns are sized by the requirement-id STRING, which is
-        // wide enough that the ceiling is what binds — it drew 42 / 45 / 50
-        // before the cap (35, then 40 after the req #3242 bump).
+        // wide enough that the ceiling is what binds the MAX — it drew 42 / 45
+        // / 50 before the cap (35, then 40 after the req #3242 bump).
         expect([at('horizontal', 'compact'), at('horizontal', 'medium'),
-            at('horizontal', 'wide')]).toEqual([40, 40, 40]);
+            at('horizontal', 'wide')]).toEqual([[19, 40], [20, 40], [23, 40]]);
         // `vertical` columns are TITLE_COL_MIN, so the stagger budget binds and
         // the ceiling is inert below Width L. These are the numbers the geometry
         // gives after the 2026-08-01 width retune (+10% / +10% / +20%). Width L
         // was ALSO ceiling-bound at the old 35 (its true budget is 36) — raising
         // the ceiling to 40 (req #3242) let that one extra character through.
         expect([at('vertical', 'compact'), at('vertical', 'medium'),
-            at('vertical', 'wide')]).toEqual([27, 29, 36]);
+            at('vertical', 'wide')]).toEqual([[19, 27], [20, 29], [23, 36]]);
         // Showing requirement TITLES costs the step label nothing.
         expect([at('titles', 'compact'), at('titles', 'medium'),
-            at('titles', 'wide')]).toEqual([27, 29, 36]);
+            at('titles', 'wide')]).toEqual([[19, 27], [20, 29], [23, 36]]);
     });
 
     it('the ceiling did not move a single column', () => {
