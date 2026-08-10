@@ -108,6 +108,15 @@ export const mapCoordinateKeys = {
     byRun: (runId) => ['map_coordinates', { runId }],
 };
 
+// Req #3381 — the Pipeline 2.0 composed read (`pipeline2_compose`, req
+// #3367). Not creator-scoped in the key: the route itself scopes by the
+// authenticated token (Lambda-Rest req #3050), and this cache entry is one
+// per PLAN, the same way `mapCoordinateKeys.byRun` is one per run rather than
+// one per (creator, run).
+export const pipeline2ComposeKeys = {
+    byId: (pipelineId) => ['pipeline2_compose', { id: pipelineId }],
+};
+
 export const mapViewKeys = {
     all: (creatorFk) => ['map_views', creatorFk],
 };

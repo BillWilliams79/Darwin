@@ -12,7 +12,10 @@ import { describe, it, expect } from 'vitest';
 import { SUBSTRATE_REBUILD_MODEL, MACHINES } from './substrateRebuildFixture';
 import { timedFuzzCorpus, FUZZ_NOW } from './timedFuzzPlans';
 import { EPIC_ZOOM_READS, EPIC_ZOOM_PIPELINE, EPIC_ZOOM_NOW } from './epicZoomFixture';
-import { buildPipelineModel, orderedPlan } from '../pipelineViewModel';
+import { buildPipelineModel } from '../pipelineViewModel';
+// req #3381 — `orderedPlan` was deleted from pipelineViewModel.js; see
+// testOrderedPlan.js's header for why this file still needs a `plan` fixture.
+import { buildTestOrderedPlan as orderedPlan } from './testOrderedPlan';
 import { semanticLevel, SEMANTIC_OUT_MAX } from '../../konvaSwarmModel';
 import {
     computePlanLayout, beadStyle, stepLabelText, BEAD_RADIUS, BEAD_HIT_RADIUS,

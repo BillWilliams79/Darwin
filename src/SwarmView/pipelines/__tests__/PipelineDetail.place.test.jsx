@@ -53,30 +53,29 @@ vi.mock('../../../RestApi/RestApi', () => ({
     default: vi.fn(() => Promise.resolve({ httpStatus: { httpStatus: 200 }, data: [] })),
 }));
 
-const PIPELINES = [
-    { id: 2, title: 'Darwin', pipeline_status: 'active', description: '' },
-    { id: 5, title: 'Substrate', pipeline_status: 'completed', description: '' },
-];
-
 // Flipped per test to stage the sequence the real app ALWAYS goes through:
 // mount over a spinner, then the reads land.
 let loading = false;
 
 vi.mock('../../../hooks/useDataQueries', async (importOriginal) => {
     const actual = await importOriginal();
+    const { composedFixture } = await import('./pipeline2ComposedFixture');
     const empty = () => ({ data: [], isLoading: false, isError: false });
     const gated = () => ({ data: [], isLoading: loading, isError: false });
+    // req #3381 — the composed 2.0 read replaces the six-plus dictionary
+    // reads this file used to mock, keyed by the SAME `id` the old
+    // `useAllPipelines` fixture carried (2 and 5), with `loading` staging
+    // the spinner->landed sequence the same way it did before.
+    const FIXTURES = {
+        2: composedFixture({ id: 2, title: 'Darwin' }),
+        5: composedFixture({ id: 5, title: 'Substrate', pipelineStatus: 'completed' }),
+    };
     return {
         ...actual,
-        useAllPipelines: () => ({
-            data: loading ? [] : PIPELINES, isLoading: loading, isError: false,
+        useComposedPipeline2: (id) => ({
+            data: loading ? undefined : (FIXTURES[id] ?? null),
+            isLoading: loading,
         }),
-        useAllPipelineSteps: gated,
-        useAllPipelineStepRequirements: gated,
-        useAllPipelineStepDeps: gated,
-        useAllRequirements: gated,
-        useAllFeatures: gated,
-        useAllEpics: gated,
         useMachines: gated,
         useOrchestrationClaims: empty,
         useAllRequirementSessions: empty,

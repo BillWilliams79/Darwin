@@ -9,7 +9,7 @@
 
 import { describe, it, expect } from 'vitest';
 
-import { buildPipelineModel, orderedPlan } from '../pipelineViewModel';
+import { buildPipelineModel } from '../pipelineViewModel';
 import { computePlanLayout, placeEpicChips, STEP_DONE } from '../pipelinePlanLayout';
 import {
     epicCycleKey, epicZoomStateKey, nextBatchLetter, nextEpicZoom,
@@ -17,6 +17,9 @@ import {
     EPIC_ZOOM_BAND, EPIC_ZOOM_BATCH,
 } from '../pipelineEpicZoom';
 import { EPIC_ZOOM_READS, EPIC_ZOOM_PIPELINE, EPIC_ZOOM_NOW } from './epicZoomFixture';
+// req #3381 — `orderedPlan` was deleted from pipelineViewModel.js; see
+// testOrderedPlan.js's header for why this file still needs a `plan` fixture.
+import { buildTestOrderedPlan as orderedPlan } from './testOrderedPlan';
 
 const plan = orderedPlan(
     buildPipelineModel({ pipeline: EPIC_ZOOM_PIPELINE, ...EPIC_ZOOM_READS }),
