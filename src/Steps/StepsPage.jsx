@@ -58,7 +58,7 @@
 // field nothing renders.
 
 import { useContext, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 
 import Alert from '@mui/material/Alert';
@@ -307,6 +307,22 @@ export default function StepsPage() {
     });
     const [pipelineFilter, setPipelineFilter] = useState(ALL_PIPELINES);
 
+    // Epic filter via ?epic=<id> (req #3373) — the plan visualizer epic chip's
+    // ↗ control lands here, the same `FeaturesPage.jsx` doctrine: a URL param,
+    // not persisted state, so the link IS the filter and dismissing the chip
+    // clears it without touching anything else. Integer ids only, matching
+    // `FeaturesPage`'s guard — `Number(' ')` is 0 and `Number('1.5')` is 1.5,
+    // either of which would filter every step out under a chip reading "Epic: 0".
+    const [searchParams, setSearchParams] = useSearchParams();
+    const epicParamRaw = searchParams.get('epic');
+    const epicFilter = epicParamRaw != null && /^\d+$/.test(epicParamRaw.trim())
+        ? Number(epicParamRaw.trim()) : null;
+    const clearEpicFilter = () => {
+        const next = new URLSearchParams(searchParams);
+        next.delete('epic');
+        setSearchParams(next, { replace: true });
+    };
+
     const [dialogOpen, setDialogOpen] = useState(false);
     const [editTarget, setEditTarget] = useState(null);
     const [formPipelineFk, setFormPipelineFk] = useState('');
@@ -331,7 +347,8 @@ export default function StepsPage() {
     const rows = useMemo(() => filterStepRows(allRows, {
         pipelineIds: pipelineFilter === ALL_PIPELINES ? null : [Number(pipelineFilter)],
         states: stateFilter,
-    }), [allRows, pipelineFilter, stateFilter]);
+        epicIds: epicFilter !== null ? [epicFilter] : null,
+    }), [allRows, pipelineFilter, stateFilter, epicFilter]);
 
     // The WHOLE plan, never the filtered view (view-switchable-pages § V7). The
     // "N of M" line beside it is where the filter's effect is stated.
@@ -835,6 +852,20 @@ export default function StepsPage() {
                     testId="steps-state-filter"
                     chipTestIdPrefix="steps-state-chip"
                 />
+
+                {epicFilter !== null && (
+                    // The plan visualizer's epic chip ↗ landed here (req #3373).
+                    // The ✕ clears the filter; the body carries no navigation of
+                    // its own — unlike FeaturesPage's identical chip, this page
+                    // IS the destination, so there is nowhere else for a click
+                    // on the body to usefully go.
+                    <Chip size="small" color="secondary"
+                          label={`Epic: ${epics.find(e => e.id === epicFilter)?.title
+                              || epicFilter}`}
+                          onDelete={clearEpicFilter}
+                          sx={{ flexShrink: 0 }}
+                          data-testid="steps-epic-filter-chip" />
+                )}
 
                 <Typography variant="caption" sx={{ color: 'text.secondary' }}
                             data-testid="steps-accounting">

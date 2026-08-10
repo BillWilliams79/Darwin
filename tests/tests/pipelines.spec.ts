@@ -416,9 +416,9 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             await expect(page.getByTestId('pipeline-order-violations')).toHaveCount(0);
         });
 
-    // ── PIPE-03: state chips, epic/feature groups, machine column ───────────
+    // ── PIPE-03: state chips, epic groups, machine column ───────────────────
 
-    test('PIPE-03: state chips, contiguous epic/feature groups and machine labels',
+    test('PIPE-03: state chips, contiguous epic groups and machine labels',
         async ({ page }) => {
             await openPlanTable(page, fixture.mainPipelineId);
 
@@ -433,22 +433,18 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             expect(new Set(plan.rows.map((r) => r.state)).size,
                 'the fixture must exercise more than one state').toBeGreaterThan(1);
 
-            // Epic/Feature render ONCE per contiguous group: the first row of a
-            // group carries the label, the rest carry an empty cell. Compared
-            // against the ids the engine derived, never against display strings.
+            // Epic renders ONCE per contiguous group: the first row of a group
+            // carries the label, the rest carry an empty cell. Compared against
+            // the id the engine derived, never against the display string. The
+            // Feature column went with req #3373 — it was never drawn anywhere
+            // but this same "once per contiguous group" pass.
             let prevEpic: number | null | undefined;
-            let prevFeature: number | null | undefined;
             for (const row of plan.rows) {
                 const epicId = row.epicId ?? null;
-                const featureId = row.featureId ?? null;
                 const epicCell = page.getByTestId(`pipeline-epic-${row.id}`);
-                const featureCell = page.getByTestId(`pipeline-feature-${row.id}`);
                 await expect(epicCell).toHaveText(
                     epicId !== prevEpic ? (row.epic || '—') : '');
-                await expect(featureCell).toHaveText(
-                    featureId !== prevFeature ? (row.feature || '—') : '');
                 prevEpic = epicId;
-                prevFeature = featureId;
             }
 
             // Machine column: multi-machine steps join with ' / ', a step with no
@@ -925,11 +921,12 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
         await expect(page).toHaveURL(new RegExp(`/swarm/requirement/${reqLabel.reqId}$`),
             { timeout: 15000 });
 
-        // Epic band label → the features view filtered to that epic. Since
-        // req #3204 the chip's NAME focuses the band (PIPE-14) and this
-        // navigation — the req #3119 production directive — lives on the chip's
-        // own ↗ control. It moved; it did not disappear, and it is a visible
-        // control rather than a modifier-key secret.
+        // Epic band label → that epic's steps. Since req #3204 the chip's NAME
+        // focuses the band (PIPE-14) and this navigation — the req #3119
+        // production directive, re-pointed by req #3373 off the retired
+        // Features route — lives on the chip's own ↗ control. It moved; it did
+        // not disappear, and it is a visible control rather than a
+        // modifier-key secret.
         //
         // Located by testid rather than by canvas coordinates: the ↗ is an HTML
         // node, so there is no world-to-screen conversion to get wrong.
@@ -940,7 +937,7 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
         const openEpic = page.getByTestId(`pipeline-viz-epic-open-${epicBand.epicId}`);
         await expect(openEpic).toBeVisible({ timeout: 15000 });
         await openEpic.click();
-        await expect(page).toHaveURL(new RegExp(`/swarm/features\\?epic=${epicBand.epicId}$`),
+        await expect(page).toHaveURL(new RegExp(`/swarm/steps\\?epic=${epicBand.epicId}$`),
             { timeout: 15000 });
     });
 
@@ -2842,7 +2839,7 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             expect(epicBand, 'the plan renders epic bands').toBeTruthy();
             await page.getByTestId(`pipeline-viz-epic-open-${epicBand.epicId}`).click();
             await expect(page).toHaveURL(
-                new RegExp(`/swarm/features\\?epic=${epicBand.epicId}$`), { timeout: 15000 });
+                new RegExp(`/swarm/steps\\?epic=${epicBand.epicId}$`), { timeout: 15000 });
             await page.goBack();
             await expectRestored('browser Back');
 

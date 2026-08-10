@@ -35,7 +35,14 @@ const asArray = (v) => (Array.isArray(v) ? v : []);
 
 // The requirement projection the plan needs, SHARED by the list page and the
 // detail page. Bounded and explicit: `feature_fk` carries the Epic > Feature
-// label chain (design rule 10), `machine_fk` the Machine column,
+// label chain (design rule 10) that `dominantLabels`/`requirementCounts`
+// (pipelineModel.js) still resolve down to an EPIC — req #3373 stopped the
+// drawing files from reading the FEATURE half of that chain (the Feature
+// column, the datacard's feature line), but the fetch itself is unchanged:
+// this engine is the 1.0 one, confirmed live and byte-identical by req #3462's
+// same-day revert of req #3381's attempt to cut it over, so `epicId` still has
+// no other source. Dropping `feature_fk` here would silently null out every
+// band's epic. `machine_fk` the Machine column,
 // `requirement_status` the derived step state (design rule 1), `tracking` the
 // CONTAINER exemption to that derivation (req #3123 — without it a step linking
 // a tracking requirement derives Running forever), `title` the link tooltips.
@@ -357,41 +364,40 @@ export function orderedPlan(model, { now, costIndex = null } = {}) {
  * bookkeeping are gone with the banner, and the plan table renders the command
  * in the step's own Requirement(s) cell.
  *
- * Epic/Feature "render once per contiguous group" therefore has nothing to skip
- * over any more — it used to be computed over STEP rows only, so a banner
- * between two rows of the same epic could not restart the group.
+ * Epic "render once per contiguous group" therefore has nothing to skip over
+ * any more — it used to be computed over STEP rows only, so a banner between
+ * two rows of the same epic could not restart the group. The FEATURE tier
+ * (req #3373) is gone with it: Feature was never drawn anywhere but this
+ * "once per contiguous group" pass, so removing the second tier is the whole
+ * of the change.
  *
- * Grouping compares epic/feature IDS, not titles. Two distinct epics that happen
- * to share a title would otherwise merge into one visual group and the second's
- * label would be suppressed — and the seeded plan already has the near-miss
- * (epic 9003 and feature 9012 are both titled "Swarm Orchestration Feature").
- * The engine exposes both ids, so there is no reason to compare display strings.
+ * Grouping compares the epic ID, not its title. Two distinct epics that happen
+ * to share a title would otherwise merge into one visual group and the
+ * second's label would be suppressed — and the seeded plan already has the
+ * near-miss (epic 9003 and feature 9012 are both titled "Swarm Orchestration
+ * Feature"). The engine exposes the id, so there is no reason to compare
+ * display strings.
  *
  * @param {Object} plan  `orderedPlan`'s return — req #3462 reverted the
  *   Pipeline 2.0 composed-read path (`adaptComposedPipeline2`) off the detail
  *   page after a production outage, so `orderedPlan` is this function's only
  *   caller again; the shape (`rows`, `eligibleStepIds`) is what's read, not
  *   the producer, so this keeps working unchanged if that path returns.
- * @returns {Array<{row: Object, showEpic: boolean, showFeature: boolean,
- *                  eligible: boolean}>}
+ * @returns {Array<{row: Object, showEpic: boolean, eligible: boolean}>}
  */
 export function planRenderRows(plan) {
     const { rows = [], eligibleStepIds = new Set() } = plan || {};
     const out = [];
     let prevEpic;
-    let prevFeature;
 
     for (const row of rows) {
         const epic = row.epicId != null ? row.epicId : null;
-        const feature = row.featureId != null ? row.featureId : null;
         out.push({
             row,
             showEpic: epic !== prevEpic,
-            showFeature: feature !== prevFeature,
             eligible: eligibleStepIds.has(row.id),
         });
         prevEpic = epic;
-        prevFeature = feature;
     }
     return out;
 }
