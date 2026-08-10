@@ -72,6 +72,10 @@ export const PLAN_VIZ_PALETTE = {
     panel: '#111b2b',
     line: '#26374f',
     wire: '#3a5580',
+    // The dependency-arc stroke connecting steps (req #3366) — brightened from
+    // `#3d5a86`/0.65 (measured ~1.75:1 against `panel`, under the 3:1 WCAG AA
+    // floor for graphical marks) to `#5c87c9`/0.85 (~3.80:1).
+    arc: '#5c87c9',
     text: '#d7e3f4',
     dim: '#6f83a0',
     accent: '#4ad9c8',
