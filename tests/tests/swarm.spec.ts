@@ -202,14 +202,18 @@ test.describe('Swarm View', () => {
     await expect(page.getByText('E2E Test Session').first()).toBeVisible({ timeout: 10000 });
   });
 
-  test('SWM-22: SessionsView Source column shows issue link', async ({ page }) => {
+  // req #3455 — REPLACES the old "Source column shows issue link" assertion.
+  // The Source column is gone from this grid: it repeated `requirement:NNNN` on
+  // every row of a table whose rows ARE requirements, and Terminal took its
+  // place. The old test asserted on `source-issue-link`, a testid that now
+  // renders nowhere in the app, so it could only ever time out.
+  test('SWM-22: SessionsView Terminal column renders', async ({ page }) => {
     await page.goto('/swarm/sessions');
     await expect(page.getByTestId('sessions-datagrid')).toBeVisible({ timeout: 10000 });
-    // The Source column should render a clickable issue link for the issue-sourced session
-    const issueLink = page.getByTestId('sessions-datagrid').getByTestId('source-issue-link').first();
-    await expect(issueLink).toBeVisible({ timeout: 10000 });
-    const href = await issueLink.getAttribute('href');
-    expect(href).toContain('github.com/BillWilliams79/Darwin/issues/8');
+    // The header is the durable assertion: a given row's terminal cell is an
+    // em-dash for any session launched before req #3455, which is most of them.
+    await expect(page.getByRole('columnheader', { name: 'Terminal' }))
+      .toBeVisible({ timeout: 10000 });
   });
 
   test('SWM-21: Back to Swarm navigation works', async ({ page }) => {

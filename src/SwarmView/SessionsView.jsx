@@ -1,20 +1,21 @@
 import '../index.css';
 import AuthContext from '../Context/AuthContext';
-import { useSessions, useDevServers, useAllSwarmStartSessions, useMachines, useAllPipelines } from '../hooks/useDataQueries';
+import { useSessions, useDevServers, useAllSwarmStartSessions, useMachines, useAllPipelines, useAllPipelines2 } from '../hooks/useDataQueries';
 import { useShowClosedStore, ALL_SESSION_STATUSES } from '../stores/useShowClosedStore';
 import { useViewPreference } from '../hooks/useViewPreference';
-import { formatDateTime, formatDate } from '../utils/dateFormat';
+import { formatDate, formatHM12 } from '../utils/dateFormat';
 import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 
 import { swarmStatusChipProps, swarmStatusLabel } from './swarmStatusChipProps';
 import { machineChipProps, machineLabel, UNASSIGNED_MACHINE } from './machineChipStyles';
+import { terminalFocusState } from './terminalFocus';
+import { sessionPipelineLink } from './sessionPipelineLink';
+import TerminalChip from './TerminalChip';
+import ModelEffortPill from './ModelEffortPill';
 import ChipFilter from '../Components/ChipFilter';
-import { aiModelChipProps, aiModelLabel } from './modelChipStyles';
-import { effortChipProps, effortLabel } from './effortChipStyles';
+import { aiModelLabel } from './modelChipStyles';
+import { effortLabel } from './effortChipStyles';
 import { formatDuration } from '../utils/formatDuration';
-import { renderSourceRef } from './repoGitHubMap.jsx';
-// req #3463 — the era↔route binding. This grid never spells a plan route.
-import { planDetailPath, planEraOfSession } from './pipelines/planEra';
 import SessionsStatsView from './SessionsStatsView';
 import React, { useContext, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -35,6 +36,21 @@ import { CircularProgress, Typography } from '@mui/material';
 
 const SESSIONS_VIEW_STORAGE_KEY = 'darwin-swarm-sessions-view';
 
+// The session LIFECYCLE, in order, as DISPLAY LABELS — what the Status column
+// sorts on:
+//   starting -> [waiting | planning] -> active -> review -> paused ->
+//   completing -> completed
+//
+// Declared here rather than derived from ALL_SESSION_STATUSES, which looks like
+// the same list but is not: that one is FILTER-CHIP order and puts `paused`
+// last, after `completed`. Two different questions — which order to offer the
+// chips in, and which order the work actually moves through — so they get two
+// lists instead of one that silently serves the wrong one.
+const SWARM_STATUS_ORDER = [
+    'starting', 'waiting', 'planning', 'active', 'review',
+    'paused', 'completing', 'completed',
+].map(swarmStatusLabel);
+
 // req #2992 — status vocabulary is fixed, so its options are module-level.
 // swarmStatusChipProps supplies the semantic colors; the ChipFilter palette is
 // not consulted for this dimension.
@@ -44,115 +60,135 @@ const sessionStatusOptions = ALL_SESSION_STATUSES.map(status => ({
     chipProps: swarmStatusChipProps(status),
 }));
 
-// Render a chip for source_ref values matching `requirement:N` (clickable,
-// primary-color, navigates to the requirement detail). For other shapes
-// (GitHub issue refs, plain strings) fall back to renderSourceRef.
-const renderRequirementCell = (sourceRef, navigate) => {
-    if (!sourceRef) return '—';
-    const m = String(sourceRef).match(/^(?:priority|requirement):(\d+)$/);
-    if (m) {
-        const reqId = m[1];
-        return (
-            <Chip label={`#${reqId}`} size="small" color="primary"
-                  onClick={(e) => {
-                      e.stopPropagation();
-                      navigate(`/swarm/requirement/${reqId}`);
-                  }}
-                  sx={{ cursor: 'pointer' }}
-                  data-testid={`session-requirement-${reqId}`} />
-        );
-    }
-    return renderSourceRef(sourceRef, navigate);
+// The merged `NNNN - <title>` label, and the id behind it.
+//
+// The title is shown IN FULL — no character cap. It was clipped to one line's
+// worth, then two, and each cap was a guess at how much of a title matters. The
+// cell wraps and the row grows instead, so the answer is always "all of it".
+// Wrap freely — no line clamp. `getRowHeight: 'auto'` on the grid lets the row
+// grow to whatever the title needs.
+const WRAP_FULL = {
+    whiteSpace: 'normal',
+    overflowWrap: 'anywhere',
+    lineHeight: 1.4,
+    // Breathing room above and below. With `getRowHeight: 'auto'` the row grows
+    // to match, so a wrapped title no longer sits flush against the row divider.
+    py: 1.25,
+    display: 'block',
 };
 
-const getSessionColumns = (navigate, timezone) => [
-    { field: 'id',           headerName: 'ID',          width: 70 },
+export const reqIdOf = (sourceRef) => {
+    const m = String(sourceRef || '').match(/^(?:priority|requirement):(\d+)$/);
+    return m ? m[1] : null;
+};
+
+export const requirementLabel = (session) => {
+    const title = session.title || session.task_name || '';
+    const reqId = reqIdOf(session.source_ref);
+    if (!reqId) return title || '';
+    return title ? `${reqId} - ${title}` : `${reqId}`;
+};
+
+// A timestamp on two lines: date, then time. See the Started column for why.
+// Renders an em-dash for a null so an empty cell is never mistaken for a
+// zero-length one.
+const StackedTimestamp = ({ value, timezone }) => {
+    if (!value) return '—';
+    return (
+        // Centred on BOTH axes, and the two lines are separated by an explicit
+        // gap rather than by line-height leading. At 13px/1.25 the natural
+        // leading was ~3.25px; 5px is 50% more, and being explicit means the
+        // spacing no longer changes if the font size does.
+        <Box sx={{
+            display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center',
+            gap: '5px', width: '100%', height: '100%', py: 0.75,
+        }}>
+            {/* Both lines share the DATE's typeface — same size, same colour.
+                The time line used to be smaller and dimmer, which read as a
+                caption hanging off the date rather than as the other half of
+                one value. */}
+            <Box sx={{ fontSize: '0.8125rem', lineHeight: 1.1 }}>{formatDate(value, timezone)}</Box>
+            <Box sx={{ fontSize: '0.8125rem', lineHeight: 1.1 }}>{formatHM12(value, timezone)}</Box>
+        </Box>
+    );
+};
+
+// Column order is deliberate and left-to-right by how a reader scans a run:
+// what STATE is it in → where can I reach it (Terminal, Dev Server) → what work
+// (Requirement) → what plan (Pipeline) → where and how it ran (Machine,
+// Model/Effort) → how long (Duration, Started, Completed).
+//
+// The session ID column is GONE. This reads as a dashboard now, and the id was
+// the least useful thing on the row: it addresses nothing the reader types, and
+// clicking the row still opens that session.
+const getSessionColumns = (navigate, timezone, showCompleted) => [
     {
+        // A COLOURED CHIP. Status is the one column where the colour is doing
+        // real work — it is what the eye lands on first when scanning for a
+        // session that needs attention, and it matches the filter chips above
+        // the grid. (Machine stays plain text: its colour carried no such
+        // urgency.) Labels are capitalised by swarmStatusLabel.
         field: 'swarm_status',
         headerName: 'Status',
         width: 120,
+        valueGetter: (value) => swarmStatusLabel(value),
+        // Sorted by the LIFECYCLE, not alphabetically. Alphabetical order puts
+        // Completed first and Waiting last, which is noise; the lifecycle is the
+        // order the reader already has in their head. Unknown statuses sort last
+        // rather than colliding at 0 with `starting`.
+        sortComparator: (a, b) => {
+            const rank = (label) => {
+                const i = SWARM_STATUS_ORDER.indexOf(label);
+                return i === -1 ? SWARM_STATUS_ORDER.length : i;
+            };
+            return rank(a) - rank(b);
+        },
         renderCell: (params) => (
-            <Chip label={swarmStatusLabel(params.value)} size="small"
-                  {...swarmStatusChipProps(params.value)}
+            <Chip label={swarmStatusLabel(params.row.swarm_status)} size="small"
+                  {...swarmStatusChipProps(params.row.swarm_status)}
                   data-testid="chip-swarm-status" />
         ),
     },
     {
-        field: 'source_ref',
-        headerName: 'Requirement',
+        // req #3455 — WHICH TERMINAL WINDOW the worker runs in, and a click that
+        // brings it to the front when it is on THIS machine. `terminal` is
+        // computed once per row in enrichedSessions (it needs the machines list,
+        // which a column renderer has no access to).
+        field: 'terminal',
+        headerName: 'Terminal',
         width: 120,
-        renderCell: (params) => renderRequirementCell(params.value, navigate),
-    },
-    { field: 'title',        headerName: 'Title',       width: 250 },
-    {
-        // req #3186 — which pipeline this session was advancing. `pipeline_fk`
-        // is a COLUMN on the session row, so this column costs the grid nothing;
-        // the title is resolved client-side from the already-cached pipelines
-        // list, exactly as Machine resolves its name. NULL is a real answer
-        // (work outside any plan) and renders as an em-dash.
+        // The grid filters/quick-searches/exports on this string, not on the
+        // object — an object cell would render '[object Object]' in the CSV
+        // export and match nothing in the quick filter.
+        valueGetter: (value) => value?.label ?? '',
+        // ...but it must not SORT on it: "Terminal 10" sorts before "Terminal 4"
+        // lexicographically, which is nonsense for a window number.
         //
-        // req #3463 — THE COLUMN NAMES THE ERA. A session row carries
-        // `pipeline_fk` (1.0, req #3186) or `pipeline2_fk` (2.0, req #3350),
-        // never both, and the two id spaces are disjoint — so the chip reads
-        // the pair through `planEraOfSession` and lets `planDetailPath` pick
-        // the route. Taking the id without taking its era is exactly how a 2.0
-        // id reached the 1.0 plan page in production (req #3462).
-        field: 'pipeline_title',
-        headerName: 'Pipeline',
-        width: 150,
-        renderCell: (params) => {
-            const seat = planEraOfSession(params.row);
-            if (!seat) return '—';
-            const to = planDetailPath(seat.era, seat.pipelineId);
-            return <Chip label={params.value || `#${seat.pipelineId}`} size="small"
-                    variant="outlined"
-                    onClick={to ? (e) => { e.stopPropagation(); navigate(to); } : undefined}
-                    sx={to ? { cursor: 'pointer' } : undefined}
-                    data-testid={`session-pipeline-${params.row.id}`} />;
+        // Un-numbered rows sort LAST ASCENDING (and therefore first descending —
+        // MUI implements desc as `-1 * comparator`, so "last in both directions"
+        // is not something a comparator alone can express; the earlier comment
+        // claimed it anyway). Ascending is the direction that matters: most rows
+        // have no terminal, and a click on this header should surface the ones
+        // that do. Equal sentinels return 0 rather than Infinity-Infinity = NaN.
+        sortComparator: (a, b) => {
+            const num = (v) => {
+                const digits = String(v ?? '').replace(/\D+/g, '');
+                return digits === '' ? Number.POSITIVE_INFINITY : Number(digits);
+            };
+            const va = num(a), vb = num(b);
+            if (va === vb) return 0;
+            return va - vb;
         },
-    },
-    {
-        // req #2943 — which machine ran this session. Name resolved client-side
-        // from the machines query cache; NULL / unresolved renders em-dash.
-        // req #2992 — rendered as a chip in the same palette color the machine
-        // selector uses, so the filter chip and the rows it admits match.
-        field: 'machine_name',
-        headerName: 'Machine',
-        width: 130,
-        renderCell: (params) => params.value
-            ? <Chip label={params.value} size="small"
-                    {...machineChipProps(params.row.machine_fk)}
-                    data-testid="chip-machine" />
-            : '—',
-    },
-    {
-        // req #2909 — the Claude model the session ran with. Pre-migration
-        // rows render as Opus (the documented backfill default).
-        field: 'ai_model',
-        headerName: 'Model',
-        width: 90,
         renderCell: (params) => (
-            <Chip label={aiModelLabel(params.value)} size="small"
-                  {...aiModelChipProps(params.value)}
-                  data-testid="chip-ai-model" />
-        ),
-    },
-    {
-        // req #2916 — the Claude Code effort level the session ran with.
-        // Pre-migration rows render as High (the documented backfill default).
-        field: 'effort',
-        headerName: 'Effort',
-        width: 100,
-        renderCell: (params) => (
-            <Chip label={effortLabel(params.value)} size="small"
-                  {...effortChipProps(params.value)}
-                  data-testid="chip-effort" />
+            <TerminalChip terminal={params.row.terminal}
+                          testId={`session-terminal-${params.row.id}`} />
         ),
     },
     {
         field: 'dev_server_port',
         headerName: 'Dev Server',
-        width: 100,
+        width: 120,   // fits the header text; 100 clipped it
         renderCell: (params) => params.value
             ? <Chip label={params.value} size="small" color="primary"
                     component="a" href={`https://localhost:${params.value}`}
@@ -162,25 +198,103 @@ const getSessionColumns = (navigate, timezone) => [
             : '—',
     },
     {
-        // Req #2422 — reverse junction lookup. Value populated client-side from
-        // useAllSwarmStartSessions; pre-#2422 sessions and primary-closeout
-        // sessions have no link (cell shows "—").
-        field: 'swarm_start_fk',
-        headerName: 'Swarm-Start',
-        width: 110,
+        // Requirement id AND title in ONE column: `NNNN - <title>`. They were two
+        // columns and were always read as one phrase, so the split cost a column
+        // of width to say nothing. The whole cell navigates to the requirement —
+        // the id was the only link before, which made a 4-character click target.
+        //
+        // 330px is a WRAP WIDTH, not a fit-the-longest-value width — the title
+        // has no cap, so there is no longest value to fit. It is ~43 characters
+        // per line at the grid's 0.875rem body font, which keeps the common
+        // one-requirement-per-line reading while letting long titles run on.
+        field: 'requirement_label',
+        headerName: 'Requirement',
+        width: 330,
+        // Wraps to as many lines as the full title needs; the row grows with it
+        // (`getRowHeight: 'auto'` below).
+        renderCell: (params) => {
+            const reqId = params.row.requirement_id;
+            if (!params.value) return '—';
+            // White, not blue: no requirement to link to (an issue-sourced or
+            // direct session). Colour here means 'this goes somewhere'.
+            if (!reqId) return <Box component="span" sx={WRAP_FULL}>{params.value}</Box>;
+            return (
+                <Box component="span"
+                     onClick={(e) => { e.stopPropagation(); navigate(`/swarm/requirement/${reqId}`); }}
+                     // NOT blue. Every row in this column is a requirement, so
+                     // colouring the linked ones split one column into two
+                     // visual kinds for no information gain. The hover
+                     // underline still says it is clickable.
+                     sx={{ cursor: 'pointer', ...WRAP_FULL,
+                           '&:hover': { textDecoration: 'underline' } }}
+                     data-testid={`session-requirement-${reqId}`}>
+                    {params.value}
+                </Box>
+            );
+        },
+    },
+    {
+        // req #3186 — which pipeline this session was advancing. `pipeline_fk`
+        // is a COLUMN on the session row, so this column costs the grid nothing;
+        // the title is resolved client-side from the already-cached pipelines
+        // list. NULL is a real answer (work outside any plan) → em-dash.
+        field: 'pipeline_title',
+        headerName: 'Pipeline',
+        width: 170,
+        valueGetter: (value, row) => row.pipeline?.label ?? '',
+        renderCell: (params) => {
+            const plan = params.row.pipeline;
+            if (!plan || plan.state === 'none') return '—';
+            const clickable = plan.state === 'link';
+            return (
+                <Tooltip title={plan.title || ''}>
+                    {/* span wrapper — a non-clickable Chip fires no events for
+                        the Tooltip to hang off. */}
+                    <span>
+                        <Chip label={plan.label} size="small" variant="outlined"
+                              color={clickable ? 'primary' : 'default'}
+                              {...(clickable ? {
+                                  onClick: (e) => { e.stopPropagation(); navigate(plan.href); },
+                                  sx: { cursor: 'pointer' },
+                              } : {})}
+                              data-pipeline-state={plan.state}
+                              data-testid={`session-pipeline-${params.row.id}`} />
+                    </span>
+                </Tooltip>
+            );
+        },
+    },
+    {
+        // req #2943 — which machine ran this session. Name resolved client-side
+        // from the machines query cache; NULL / unresolved renders em-dash.
+        // Plain TEXT, not a chip: every row carries one, so a column of solid
+        // colour blocks competed with Status and Terminal for attention while
+        // saying something far less urgent. The machine FILTER keeps its chips —
+        // that is where the colour earns its place.
+        field: 'machine_name',
+        headerName: 'Machine',
+        width: 130,
         renderCell: (params) => params.value
-            ? <Chip label={`#${params.value}`} size="small" variant="outlined"
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        navigate(`/swarm/swarm-starts/${params.value}`);
-                    }}
-                    sx={{ cursor: 'pointer' }}
-                    data-testid={`session-launch-${params.row.id}`} />
+            ? <span data-testid="cell-machine">{params.value}</span>
             : '—',
+    },
+    {
+        // req #2909 / #2916 — model and effort, ONE pill in two halves. Two
+        // separate facts that are always read together; see ModelEffortPill.
+        field: 'model_effort',
+        headerName: 'Model / Effort',
+        width: 160,   // the widest pair is Sonnet|Ultracode
+        sortable: false,
+        valueGetter: (value, row) => `${aiModelLabel(row.ai_model)} ${effortLabel(row.effort)}`,
+        renderCell: (params) => (
+            <ModelEffortPill model={params.row.ai_model} effort={params.row.effort}
+                             testId="pill-model-effort" />
+        ),
     },
     {
         field: 'duration',
         headerName: 'Duration',
+        headerAlign: 'center',
         width: 120,
         valueGetter: (value, row) => {
             if (row.instrumented) {
@@ -199,7 +313,8 @@ const getSessionColumns = (navigate, timezone) => [
             const row = params.row;
             const isLegacy = !row.instrumented;
             return (
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center',
+                           gap: 0.5, width: '100%' }}>
                     <span>{formatDuration(params.value)}</span>
                     {isLegacy && params.value != null && (
                         <Chip label="Legacy" size="small" variant="outlined"
@@ -210,17 +325,24 @@ const getSessionColumns = (navigate, timezone) => [
         },
     },
     {
+        // Date on line one, time on line two. One line of `2026-08-10 14:07:23`
+        // is 19 characters of which only the last 8 differ across a same-day
+        // run, so the eye scans a wall of identical prefixes; stacked, the date
+        // reads once and the times line up as a column.
         field: 'started_at',
         headerName: 'Started',
-        width: 170,
-        valueFormatter: (value) => value ? formatDateTime(value, timezone) : '—',
+        width: 120,
+        renderCell: (params) => <StackedTimestamp value={params.value} timezone={timezone} />,
     },
-    {
+    // Completed is only meaningful when completed sessions are on screen. With
+    // the default filter (which excludes them) every cell was an em-dash — a
+    // column of nothing. It returns the moment `completed` is in the filter.
+    ...(showCompleted ? [{
         field: 'completed_at',
         headerName: 'Completed',
-        width: 170,
-        valueFormatter: (value) => value ? formatDateTime(value, timezone) : '—',
-    },
+        width: 120,
+        renderCell: (params) => <StackedTimestamp value={params.value} timezone={timezone} />,
+    }] : []),
 ];
 
 const SessionCard = ({ session, navigate, timezone }) => (
@@ -244,12 +366,13 @@ const SessionCard = ({ session, navigate, timezone }) => (
                     </Typography>
                 )}
                 <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-                    <Chip label={aiModelLabel(session.ai_model)} size="small"
-                          {...aiModelChipProps(session.ai_model)}
-                          data-testid="chip-ai-model" />
-                    <Chip label={effortLabel(session.effort)} size="small"
-                          {...effortChipProps(session.effort)}
-                          data-testid="chip-effort" />
+                    {/* One pill, two halves — the same component the grid uses. */}
+                    <ModelEffortPill model={session.ai_model} effort={session.effort}
+                                     testId="pill-model-effort" />
+                    {/* req #3455 — same component, same rules as the grid column,
+                        including which states render at all. */}
+                    <TerminalChip terminal={session.terminal}
+                                  testId={`session-terminal-${session.id}`} />
                     {session.dev_server_port && (
                         <Chip label={`Port ${session.dev_server_port}`} size="small" color="primary"
                               component="a" href={`https://localhost:${session.dev_server_port}`}
@@ -286,6 +409,9 @@ const SessionsView = () => {
     // read for the whole grid, shared with the /swarm/pipelines pages via the
     // same query cache; the per-row id is already on the session.
     const { data: pipelinesData } = useAllPipelines(profile?.userName);
+    // req #3455 — the 2.0 plan list, so a 2.0-seated session is NAMED rather
+    // than rendered as a bare id nothing in the app lists.
+    const { data: pipelines2Data } = useAllPipelines2(profile?.userName);
 
     const pipelineTitleById = useMemo(() => {
         const map = {};
@@ -359,21 +485,32 @@ const SessionsView = () => {
         return map;
     }, [swarmStartSessions]);
 
-    const enrichedSessions = sessionsArray
-        ? sessionsArray.map(s => ({
+    // Memoised: `getRowHeight: 'auto'` makes MUI re-measure every row whenever
+    // `rows` changes identity, and each row now scans the machines list and
+    // two pipeline lists. A fresh array on every render paid all of that again.
+    const enrichedSessions = useMemo(() => !sessionsArray ? null
+        : sessionsArray.map(s => ({
             ...s,
             dev_server_port: devServerMap[s.id] || null,
             swarm_start_fk: swarmStartBySession[s.id] || null,
             machine_name: s.machine_fk != null ? (machineNameById[s.machine_fk] ?? null) : null,
-            // 1.0 ONLY, deliberately (req #3463): `pipelineTitleById` is built
-            // from the 1.0 `pipelines` read, so resolving a 2.0 `pipeline2_fk`
-            // through it would print whichever 1.0 plan happens to share that
-            // number — a WRONG title, which is worse than none. A 2.0 session's
-            // chip falls back to `#<id>` until the 2.0 plan list is a read this
-            // grid makes.
             pipeline_title: s.pipeline_fk != null ? (pipelineTitleById[s.pipeline_fk] ?? null) : null,
-          }))
-        : null;
+            // The plan chip: label from either era, link ONLY when a 2.0 id
+            // exists, because /swarm/pipeline/:id is a 2.0 route now.
+            pipeline: sessionPipelineLink(s, pipelinesData, pipelines2Data),
+            // req #3455 — computed here rather than in the column renderer
+            // because it needs the machines list to answer "is this terminal on
+            // the machine this browser is running on?", and a DataGrid renderCell
+            // has no access to component scope.
+            terminal: terminalFocusState(s, machinesData),
+            // The merged Requirement column. `source_ref` is `requirement:NNNN`
+            // (legacy `priority:NNNN`); anything else has no requirement to
+            // link to and falls back to the bare title.
+            requirement_id: reqIdOf(s.source_ref),
+            requirement_label: requirementLabel(s),
+          })),
+        [sessionsArray, devServerMap, swarmStartBySession, machineNameById,
+         pipelineTitleById, machinesData, pipelinesData, pipelines2Data]);
 
     // req #2992 — a session's machine filter key. Anything without a chip of its
     // own (NULL machine_fk, or an fk pointing at a closed/deleted machine) maps
@@ -390,6 +527,11 @@ const SessionsView = () => {
             sessionStatusFilter.includes(s.swarm_status)
             && (sessionMachineFilter === null || sessionMachineFilter.includes(machineKeyFor(s))))
         : null;
+
+    // Is the Completed column worth its width? Only when completed sessions can
+    // actually appear. The default filter excludes them, so the column was a
+    // full column of em-dashes.
+    const showCompleted = sessionStatusFilter.includes('completed');
 
     const sortedSessions = filteredSessions
         ? [...filteredSessions].sort((a, b) => b.id - a.id)
@@ -455,8 +597,12 @@ const SessionsView = () => {
                 <Box sx={{ width: '100%' }} data-testid="sessions-datagrid">
                     <DataGrid
                         autoHeight
-                        rows={filteredSessions}
-                        columns={getSessionColumns(navigate, profile?.timezone)}
+                        rows={sortedSessions}
+                        columns={getSessionColumns(navigate, profile?.timezone, showCompleted)}
+                        // AUTO, not fixed: the Requirement cell now shows the whole
+                        // title, so row height is content-dependent and a fixed
+                        // value would clip exactly the titles worth reading.
+                        getRowHeight={() => 'auto'}
                         slots={{ toolbar: GridToolbar }}
                         slotProps={{
                             toolbar: {
@@ -465,12 +611,39 @@ const SessionsView = () => {
                         }}
                         initialState={{
                             pagination: { paginationModel: { pageSize: 25 } },
-                            sorting: { sortModel: [{ field: 'id', sort: 'desc' }] },
+                            // Default sort: STATUS, ascending, in lifecycle order
+                            // (see SWARM_STATUS_ORDER). A dashboard is read by
+                            // "what needs me", and that is a state question.
+                            sorting: { sortModel: [
+                                // Status first, then newest-first WITHIN a status.
+                                // Without the second key every tie group (which is
+                                // most of the grid) fell back to gateway order.
+                                { field: 'swarm_status', sort: 'asc' },
+                                { field: 'started_at', sort: 'desc' },
+                            ] },
                         }}
                         pageSizeOptions={[10, 25, 50, 100]}
                         disableRowSelectionOnClick
                         onRowClick={(params) => navigate(`/swarm/session/${params.id}`)}
-                        sx={{ cursor: 'pointer' }}
+                        // ONE `sx`. Two sx props on the same element compile to a
+                        // single object literal and the LAST one wins, so an
+                        // earlier block is silently discarded — which is exactly
+                        // what happened to the cell-centering rules here (the
+                        // build warned "Duplicate sx attribute" and still exited 0).
+                        sx={{
+                            cursor: 'pointer',
+                            // Vertically centre EVERY cell's content — chips, pills,
+                            // text and the stacked timestamps alike. Needed because
+                            // MUI's default `.MuiDataGrid-cell` is `display: block`
+                            // (flex is opt-in per column via `display: 'flex'`), so
+                            // with `getRowHeight: 'auto'` a three-line title left
+                            // every pill floating at the top of a tall row.
+                            '& .MuiDataGrid-cell': {
+                                minHeight: 58,
+                                display: 'flex',
+                                alignItems: 'center',
+                            },
+                        }}
                         data-testid="sessions-grid"
                     />
                 </Box>

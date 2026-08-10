@@ -18,6 +18,7 @@ import AppBar from '@mui/material/AppBar';
 import BottomNavigation from '@mui/material/BottomNavigation';
 import BottomNavigationAction from '@mui/material/BottomNavigationAction';
 import Box from '@mui/material/Box';
+import Chip from '@mui/material/Chip';
 import Collapse from '@mui/material/Collapse';
 import IconButton from '@mui/material/IconButton';
 import List from '@mui/material/List';
@@ -109,6 +110,23 @@ const NavBarSidebar = () => {
         const row = devServersArray.find(s => s.port === port);
         return row?.terminal_number ?? null;
     }, [devServersArray]);
+
+    // req #3455 — the window handle comes from the dev server's OWN launching
+    // shell, injected by scripts/devserver-start.sh as a Vite env var, NOT from
+    // the database: `dev_servers` is pinned to production while sessions follow
+    // the dev/prod split, so a DB join would be right only by coincidence.
+    // The NUMBER still prefers the dev_servers row (it is the claim of record)
+    // and falls back to the env var.
+    const devTerminalWindowId = import.meta.env.VITE_DEV_TERMINAL_WINDOW_ID || null;
+    const devTerminalNumber = currentDevTerminal
+        ?? (import.meta.env.VITE_DEV_TERMINAL_NUMBER || null);
+    const devTerminalLabel = devTerminalNumber != null
+        ? `Terminal - ${devTerminalNumber}`
+        : (devTerminalWindowId ? 'Focus terminal' : null);
+    const devTerminalHref = (isDev && devTerminalWindowId)
+        ? `darwin-term://focus?window=${encodeURIComponent(devTerminalWindowId)}`
+          + `&label=${encodeURIComponent(devTerminalLabel || 'dev server')}`
+        : null;
 
     // Filter nav groups/links based on profile app toggle settings. Per-key
     // default lives in GROUP_PROFILE_DEFAULT so Swarm Validate (default 0)
@@ -460,11 +478,54 @@ const NavBarSidebar = () => {
                                     }}>
                                         Dev Server
                                     </Typography>
-                                    {currentDevTerminal != null && (
-                                        <Typography sx={{ fontSize: 12, color: 'rgba(255,255,255,0.9)', lineHeight: 1.4 }}
-                                                    data-testid="navbar-dev-terminal">
-                                            Terminal - {currentDevTerminal}
-                                        </Typography>
+                                    {/* req #3455 — a working pill, not a label.
+                                        This card already knew WHICH terminal the
+                                        dev server runs in; it just could not take
+                                        you there. Clicking focuses that iTerm2
+                                        window. Falls back to plain text when no
+                                        window handle was captured (a dev server
+                                        started outside iterm-launch.sh), because
+                                        a pill that cannot be clicked is a worse
+                                        lie than a label that never promised to. */}
+                                    {devTerminalLabel != null && (
+                                        devTerminalHref ? (
+                                            <Chip
+                                                component="a"
+                                                href={devTerminalHref}
+                                                clickable
+                                                size="small"
+                                                label={devTerminalLabel}
+                                                data-testid="navbar-dev-terminal"
+                                                variant="outlined"
+                                                sx={{
+                                                    alignSelf: 'flex-start',
+                                                    height: 22,
+                                                    // 13px — one point up from the 12px the
+                                                    // surrounding card text uses, so the one
+                                                    // interactive line in the block reads as
+                                                    // the primary one.
+                                                    fontSize: 13,
+                                                    fontWeight: 700,
+                                                    // CLEAR in the centre: the ring and the
+                                                    // label carry the orange, the fill stays
+                                                    // transparent so the pill sits ON the dark
+                                                    // card instead of punching a block out of it.
+                                                    color: DEV_ORANGE,
+                                                    bgcolor: 'transparent',
+                                                    borderColor: DEV_ORANGE,
+                                                    '& .MuiChip-label': { px: 1 },
+                                                    '&:hover': {
+                                                        bgcolor: 'rgba(255,255,255,0.08)',
+                                                        borderColor: DEV_ORANGE,
+                                                    },
+                                                }}
+                                            />
+                                        ) : (
+                                            <Typography sx={{ fontSize: 12, color: 'rgba(255,255,255,0.9)', lineHeight: 1.4 }}
+                                                        data-testid="navbar-dev-terminal">
+                                                {devTerminalLabel}
+                                            </Typography>
+                                        )
                                     )}
                                     {/* Active DB — orange + (PROD) suffix when dev is pointing at production (req #2683) */}
                                     <Typography sx={{

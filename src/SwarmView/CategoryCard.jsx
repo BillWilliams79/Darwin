@@ -6,7 +6,8 @@ import RequirementRow from './RequirementRow';
 import RequirementDeleteDialog from './RequirementDeleteDialog';
 import call_rest_api from '../RestApi/RestApi';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
-import { useRequirements, useSessions, usePipelinedRequirementIds } from '../hooks/useDataQueries';
+import { useRequirements, useSessions } from '../hooks/useDataQueries';
+import { useRequirementVisibility } from '../hooks/useRequirementVisibility';
 import { requirementKeys, categoryKeys } from '../hooks/useQueryKeys';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
@@ -14,7 +15,7 @@ import { useSwarmTabStore } from '../stores/useSwarmTabStore';
 import { useShowClosedStore } from '../stores/useShowClosedStore';
 import { RequirementActionsContext } from '../hooks/useRequirementActions';
 import { requirementStatusTimestampFields, requirementStatusTimestampState } from '../utils/requirementStatusTimestamps';
-import { filterToEpic, effectiveHidePipelined } from '../utils/epicMembership';
+import { filterToEpic } from '../utils/epicMembership';
 
 import AuthContext from '../Context/AuthContext'
 import AppContext from '../Context/AppContext';
@@ -58,20 +59,16 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
     const sortModeMutationRef = useRef(0);
 
     const requirementStatusFilter = useShowClosedStore(s => s.requirementStatusFilter);
-    // req #3258 — same toggle as the requirements Table view (req #3180); Cards
-    // view was deliberately unfiltered by it until now (memory/architecture.md),
-    // but editing/hand-sorting an orchestrated requirement here doesn't make
-    // sense (its position is the plan's, not this card's), so hiding it is the
-    // fix for both the clutter and the broken edit affordance at once.
-    const storedHidePipelined = useShowClosedStore(s => s.hidePipelinedRequirements);
-    // req #3428 — an epic filter FORCES the pipeline toggle off, through the one
-    // shared predicate `SwarmView` states the rule with. `hidePipelinedRequirements`
-    // defaults to ON (req #3242) while an epic's requirements are seated in
-    // pipeline steps by construction, so without this the epic page would arrive
-    // empty. The store is never written: dismissing the pill restores exactly the
-    // toggle state the reader had.
+    // req #3428 — is the epic filter on? Used for the drag guard and the
+    // suppressed add-row below, and handed to `useRequirementVisibility` so the
+    // filter can force the orchestrated toggle off.
+    //
+    // req #3419 MERGE NOTE: this card no longer reads
+    // `hidePipelinedRequirements` or calls `effectiveHidePipelined` itself. Both
+    // moved INTO the hook, which is the one place that answers "is this row on
+    // screen" for every surface — keeping the override here would have restored
+    // exactly the per-surface copy req #3419 removed, one requirement later.
     const epicFilterActive = epicReqIds != null;
-    const hidePipelined = effectiveHidePipelined(storedHidePipelined, epicFilterActive);
 
     const showError = useSnackBarStore(s => s.showError);
 
@@ -207,12 +204,17 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
         enabled: category.id !== '',
     });
 
-    // req #3258 — THE membership answer, shared with the Table view and the
-    // SwarmStartCard (req #3180). Read unconditionally (hooks are not
-    // conditional) but consulted only while the toggle is ON; the junction
-    // read is small and the plan pages already hold it, so the cache entry is
-    // normally warm either way.
-    const pipelinedIds = usePipelinedRequirementIds(profile?.userName);
+    // req #3419 — THE visibility answer, identical on every browse surface
+    // (Table view, the aggregator card, the detail page's up/down elevator).
+    // This card derives nothing of its own: `filterVisible` IS the rule, and it
+    // covers step-carried AND epic-filed work (req #3258 covered only the first,
+    // which is the defect req #3419 fixes).
+    // `orchestratedIds` is the SAME set `filterVisible` hides by — it is handed
+    // to the rows so an orchestrated requirement can be MARKED (gold title box,
+    // req #3419) when the toggle is showing them. Marking and hiding must never
+    // become two answers to one question.
+    const { filterVisible, orchestratedIds } = useRequirementVisibility(
+        profile?.userName, { epicFilterActive });
 
     // Seed local state from query data (hybrid pattern — local state owns template row).
     //
@@ -238,14 +240,13 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                 requirementStatusFilter.includes(p.requirement_status)
             );
 
-            // req #3258 — same predicate as the Table view: hide requirements a
-            // pipeline step carries when the toggle is on. A no-op array when
-            // the toggle is off, same as `requirementStatusFilter` above.
-            if (hidePipelined) {
-                sortedRequirementsArray = sortedRequirementsArray.filter(p =>
-                    !pipelinedIds.has(Number(p.id))
-                );
-            }
+            // req #3419 — THE shared predicate, not a local copy. Returns the
+            // same array when nothing is dropped (toggle off, or reads still in
+            // flight), so this costs nothing on the off path.
+            // `sortedRequirementsArray` is already this effect's private copy,
+            // and `filterVisible` returns either it or a fresh `.filter` result —
+            // both private, so the in-place sort below is safe.
+            sortedRequirementsArray = filterVisible(sortedRequirementsArray);
 
             // req #3428 — the epic filter, applied exactly where the status chips
             // and the pipeline toggle are. A no-op (same array reference) when
@@ -263,7 +264,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
         } else if (serverRequirements && serverRequirements.length === 0) {
             setRequirementsArray(prev => epicFilterActive ? [] : [buildTemplate(prev)]);
         }
-    }, [serverRequirements, requirementStatusFilter, hidePipelined, pipelinedIds, epicReqIds, epicFilterActive]);
+    }, [serverRequirements, requirementStatusFilter, filterVisible, epicReqIds, epicFilterActive]);
 
     // Build session status map from query data
     useEffect(() => {
@@ -873,7 +874,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                 { (requirementsArray) ?
                     <RequirementActionsContext.Provider value={{ statusClick, coordinationClick,
                         titleChange, titleKeyDown, titleOnBlur, deleteClick, requirementsArray, setRequirementsArray,
-                        sessionStatusMap, sortMode, setCrossCardInsertIndex,
+                        sessionStatusMap, sortMode, setCrossCardInsertIndex, orchestratedIds,
                         dragDisabled: epicFilterActive }}>
                         {requirementsArray.map((requirement, requirementIndex) => (
                             <RequirementRow {...{key: requirement.id, requirement, requirementIndex,

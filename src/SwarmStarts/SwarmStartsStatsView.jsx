@@ -38,7 +38,7 @@ import {
 import { parsePhaseBreakdown } from '../utils/phaseTelemetry';
 import { swarmStartTokenTotal } from './tokenTotals';
 import { AI_MODELS, AI_MODEL_COLOR, aiModelLabel } from '../SwarmView/modelChipStyles';
-import { EFFORTS, EFFORT_COLOR, effortLabel } from '../SwarmView/effortChipStyles';
+import { EFFORTS, EFFORT_COLOR, effortLabel, effortDistinctColor } from '../SwarmView/effortChipStyles';
 
 const STATS_WIDTH = 1140;
 const ARG_DISPLAY_LIMIT = 60;
@@ -385,7 +385,7 @@ const tooltipStyle = {
 const MODEL_PIE_COLORS = Object.fromEntries(
     AI_MODELS.map(m => [aiModelLabel(m), AI_MODEL_COLOR[m]]));
 const EFFORT_PIE_COLORS = Object.fromEntries(
-    EFFORTS.map(e => [effortLabel(e), EFFORT_COLOR[e]]));
+    EFFORTS.map(e => [effortLabel(e), effortDistinctColor(e)]));
 const PIE_FALLBACK = ['#7E57C2', '#E91E63', '#ffca28', '#66bb6a', '#42a5f5'];
 
 const colorFor = (label, map, idx) => map[label] || PIE_FALLBACK[idx % PIE_FALLBACK.length];

@@ -26,7 +26,7 @@
 // Level-of-detail via the SAME semanticLevel() the swarm canvas uses, so the
 // three depth levels feel identical. Mapping (worker judgment, documented per
 // the requirement):
-//   out — epic bands, beads, dependency arcs, batch boxes
+//   out — epic bands, beads, dependency arcs
 //   mid — + step labels (ID or Title per toggle) + requirement ids
 //   in  — + per-step title line (the reserved slot) + the hover datacard is the
 //         full detail surface at every level
@@ -37,7 +37,7 @@
 //
 // ── Design language ────────────────────────────────────────────────────────
 // The POC page's palette (dark navy panel, mono type, EPAL epic colors, teal
-// batch accent) renders verbatim in both app themes — the directive is to keep
+// launch accent) renders verbatim in both app themes — the directive is to keep
 // THIS page's look, not the swarm canvas's day-row language.
 //
 // THE PANEL HAS NO LIGHT MODE, and that is load-bearing rather than incidental
@@ -59,10 +59,10 @@
 // rule 9 — no session data). Generated labels carry NO '#'. Click targets
 // (production directives): requirement id → /swarm/requirement/:id; bead →
 // Table mode scrolled/highlighted to the row (onStepFocus); epic band label →
-// FOCUS the band (req #3204), with /swarm/features?epic=<id> — the req #3119
-// directive, the minimal target since there are no dedicated epic pages — moved
-// onto the chip's own ↗ control so it stays a visible affordance rather than
-// being deleted or buried under a modifier key.
+// FOCUS the band (req #3204), with /swarm/steps?epic=<id> — the req #3119
+// directive, re-pointed by req #3373 when the Features route it used to open
+// was retired — moved onto the chip's own ↗ control so it stays a visible
+// affordance rather than being deleted or buried under a modifier key.
 //
 // ── Epic focus (req #3204) ─────────────────────────────────────────────────
 // Clicking an epic's name fits that band to the viewport. THIS IS NOT A MODE:
@@ -98,7 +98,7 @@ import Typography from '@mui/material/Typography';
 import ViewModuleIcon from '@mui/icons-material/ViewModule';
 
 import {
-    formatTimeGates, rowMachineLabel, batchMachineLabel, STEP_RUNNING,
+    formatTimeGates, rowMachineLabel, STEP_RUNNING, STEP_PENDING,
 } from './pipelineViewModel';
 import { fmtCost } from './pipelineModel';
 import { DEFAULT_PLAN_ERA, planStorageNamespace } from './planEra';
@@ -113,7 +113,7 @@ import { effortLabel } from '../effortChipStyles';
 import { OrderViolationsAlert } from './PipelinePlanTable';
 import {
     computePlanLayout, beadStyle, placeEpicChips,
-    epicFocusTransform, stepFocusTransform, batchFocusTransform,
+    epicFocusTransform, stepFocusTransform,
     factoryDefaultScale, clampPlanTransform,
     PLAN_VIZ_PALETTE as P, PLAN_VIZ_FONT as F, BEAD_RADIUS, BEAD_HIT_RADIUS,
     CHW_EPIC, ZOOM_MIN_RATIO, ZOOM_MAX_RATIO,
@@ -126,9 +126,9 @@ import {
     EPIC_PAUSE_BUBBLE_D, pauseBubbleColor, stickyRulerY, rulerScreenBottom,
 } from './pipelinePlanLayout';
 import {
-    epicCycleKey, epicZoomStateKey, nextBatchLetter, nextEpicZoom,
-    epicZoomHint, epicZoomHintSuffix, gestureMovedCamera, EPIC_ZOOM_CLICK_SLOP,
-    EPIC_ZOOM_BAND, EPIC_ZOOM_BATCH,
+    epicCycleKey, epicZoomStateKey, nextLaunchStep, nextEpicZoom,
+    epicZoomHint, epicZoomHintSuffix, epicSeatedHint, gestureMovedCamera,
+    EPIC_ZOOM_CLICK_SLOP, EPIC_ZOOM_BAND, EPIC_ZOOM_STEP,
 } from './pipelineEpicZoom';
 // req #3428 — the epic chip's second destination. The URL contract lives with
 // the rest of `/swarm`'s query string, so this file names no query key itself.
@@ -309,8 +309,6 @@ export default function PipelinePlanVisualizer({
 
     const rows = plan.rows || [];
     const rowById = useMemo(() => new Map(rows.map((r) => [r.id, r])), [rows]);
-    const batchByLetter = useMemo(
-        () => new Map((plan.batches || []).map((b) => [b.letter, b])), [plan.batches]);
     const eligibleStepIds = plan.eligibleStepIds || new Set();
 
     // Requirement name + status for the hover tooltip (req #3119). The canvas
@@ -352,15 +350,15 @@ export default function PipelinePlanVisualizer({
     // rather than being derived here for the same reason cost does: two
     // surfaces over one plan must not each derive the same fact.
     const layout = useMemo(
-        () => computePlanLayout(rows, plan.batches || [], {
+        () => computePlanLayout(rows, {
             reqLayout, stepLabel, stepWidth, reqLabel, reqTitles,
             timeAxis: plan.timeAxis || null, epicCounts,
-            // req #3226 — `plan.pause` comes from `orderedPlan` (same
+            // req #3226 — `plan.pause` comes from the composed derivation (same
             // provenance as `requirementCounts`/`timeAxis` above): one
             // derivation, read here rather than recomputed.
             pauseInfo: plan.pause || null,
         }),
-        [rows, plan.batches, plan.timeAxis, reqLayout, stepLabel, stepWidth,
+        [rows, plan.timeAxis, reqLayout, stepLabel, stepWidth,
             reqLabel, reqTitles, epicCounts, plan.pause]);
 
     // ── The REQUIREMENT-ID channel (req #3119; #3168 neutral; #3422 registry) ─
@@ -421,7 +419,7 @@ export default function PipelinePlanVisualizer({
     // GROW into
     // the complete vocabulary without anyone re-tuning a constant: its size
     // depends on the live colour key (a status scale filtered to the plan, or one
-    // entry per machine), on whether a batch box is drawn, and on whether the
+    // entry per machine) and on whether the
     // reader has collapsed it. Any hard-coded keep-out would be wrong on most
     // plans in one direction or the other.
     const [legendEl, setLegendEl] = useState(null);
@@ -441,7 +439,7 @@ export default function PipelinePlanVisualizer({
     const focusSeqRef = useRef(0);
     const [size, setSize] = useState({ w: 0, h: 0 });
     const [transform, setTransform] = useState(null);
-    const [card, setCard] = useState(null);   // {x, y, kind: 'step'|'batch', ...}
+    const [card, setCard] = useState(null);   // {x, y, kind: 'step'|'req', ...}
 
     // ── The camera survives leaving the page (req #3252) ────────────────────
     // `transform` above is component state, and EVERY way of leaving this panel
@@ -838,22 +836,22 @@ export default function PipelinePlanVisualizer({
                 // review). See that effect for what this stops.
                 if (ev.sourceEvent) userMovedCameraRef.current = true;
                 // ── AND A REAL ONE ENDS THE EPIC NAME'S CYCLE (req #3297) ───
-                // Level 2 ("show me the next batch") is only the right answer
+                // Level 2 ("show me the next launch") is only the right answer
                 // to the next click while the reader is still looking at the
                 // band this control put them on. A drag or a wheel breaks that
                 // premise, and the cycle ref cannot see either.
                 //
                 // Left unhooked: land on `?epic=11` (which counts as click 1),
                 // pan to the far side of the plan, click epic 11's name meaning
-                // "take me back" — and drop straight inside batch A at 2.6× the
-                // readable default, having never seen the band.
+                // "take me back" — and drop straight onto its next launch step
+                // at 2.6× the readable default, having never seen the band.
                 //
                 // BUT NOT ON `sourceEvent` ALONE, which is where the flag above
                 // and this part deliberately: the chip is a descendant of the
                 // element this behaviour is bound to, so a mousedown on the
                 // NAME starts a pan and every pixel of hand-jitter inside the
                 // click emits a real zoom event. Clearing on those would break
-                // the band → batch step for anyone whose hand moves — i.e.
+                // the band → step move for anyone whose hand moves — i.e.
                 // intermittently. `gestureMovedCamera` asks d3's own
                 // click-vs-drag question with d3's own number.
                 if (ev.sourceEvent
@@ -1043,7 +1041,7 @@ export default function PipelinePlanVisualizer({
             // view is applied. Neither path carries a `sourceEvent`, so the
             // zoom handler cannot see it, and without this the level survives:
             // click an epic name, click Width, click the same name — and you
-            // land inside its batch at 2.6× the readable default, having never
+            // land on its next launch step at 2.6× the readable default, never
             // seen the band. Exactly the failure the deep-link comment below
             // says the design rules out, reached by a different road.
             //
@@ -1114,7 +1112,7 @@ export default function PipelinePlanVisualizer({
         userMovedCameraRef.current = true;
         // …and ends the epic name's cycle for the same reason (req #3297): the
         // reader is no longer looking at the band this control put them on, so
-        // the next click on that name owes them the band, not its next batch.
+        // the next click on that name owes them the band, not its next launch.
         // Reset reaches the camera through `zoom.transform`, which carries no
         // `sourceEvent`, so the zoom handler above cannot see it — this is the
         // same explicit-instruction case the line above exists for.
@@ -1321,11 +1319,6 @@ export default function PipelinePlanVisualizer({
         const p = e?.target?.getStage?.()?.getPointerPosition?.();
         if (p) setCard({ x: p.x, y: p.y, kind: 'step', row });
     }, []);
-    const showBatchCard = useCallback((letter, e) => {
-        const batch = batchByLetter.get(letter);
-        const p = e?.target?.getStage?.()?.getPointerPosition?.();
-        if (p && batch) setCard({ x: p.x, y: p.y, kind: 'batch', batch });
-    }, [batchByLetter]);
     const showReqCard = useCallback((reqId, e) => {
         const p = e?.target?.getStage?.()?.getPointerPosition?.();
         if (p) setCard({ x: p.x, y: p.y, kind: 'req', reqId, info: reqInfo.get(reqId) });
@@ -1461,37 +1454,43 @@ export default function PipelinePlanVisualizer({
     // and what makes PIPE-16's "pinning must not move the camera" true at every
     // scale rather than only at the ones the correction declined to fire on.
 
-    // ── THE SECOND STOP: ONE LAUNCH BATCH (req #3297) ───────────────────────
-    // The THIRD geometry function through the SAME `applyFocus`, and the third
-    // caller written to look identical to the other two on purpose — the flag
-    // discipline above took two review findings to get right and must never
-    // exist in a second copy. Only `batchFocusTransform` differs, and `opts` is
-    // not even offered: a batch focus is only ever reached by the reader
-    // clicking, so it always persists (item 5), and a parameter whose one legal
-    // value is the default is a way to get it wrong later.
-    const focusBatch = useCallback((band, letter) => applyFocus(
-        batchFocusTransform(layout, band, letter, size, kDefault, kZoomFloor)),
+    // ── THE SECOND STOP: THE NEXT LAUNCH STEP (req #3297, #3371) ────────────
+    // NO NEW GEOMETRY FUNCTION. This used to call a third fit of its own,
+    // framing the dashed launch-unit rectangle; req #3371 made the STEP the
+    // launch unit, so the second stop re-points at `stepFocusTransform` — req
+    // #3253's, already here for the `?step=` deep link, already carrying the
+    // crop margin (`STEP_FOCUS_CONTEXT`) that keeps a single bead from filling
+    // the panel. Two focus functions now, not three.
+    //
+    // Written to look identical to the band caller on purpose — the flag
+    // discipline in `applyFocus` took two review findings to get right and must
+    // never exist in a second copy. `opts` is not even offered: this focus is
+    // only ever reached by the reader clicking, so it always persists (item 5),
+    // and a parameter whose one legal value is the default is a way to get it
+    // wrong later.
+    const focusLaunchStep = useCallback((stepId) => applyFocus(
+        stepFocusTransform(layout, stepId, size, kDefault, kZoomFloor)),
     [applyFocus, layout, size, kDefault, kZoomFloor]);
 
-    // Which batch each band's SECOND click goes to — computed once per layout
+    // Which STEP each band's SECOND click goes to — computed once per layout
     // rather than per click, because the epic chips also need it to say what
     // they do (the `title`/`aria-label` below) and a control that named one
-    // batch and zoomed to another would be worse than one that named none.
-    // `null` for a band with no next batch, which is what keeps that band's
-    // clicks on the level-1 fit instead of reaching for a transform that would
-    // come back null.
-    const nextBatchByEpic = useMemo(() => {
+    // step and zoomed to another would be worse than one that named none.
+    // `null` for a band with no next launch step, which is what keeps that
+    // band's clicks on the level-1 fit instead of reaching for a transform that
+    // would come back null.
+    const nextLaunchByEpic = useMemo(() => {
         const m = new Map();
         for (const band of layout.bands) {
             m.set(epicCycleKey(band),
-                nextBatchLetter(plan.batches || [], layout, band, rowById));
+                nextLaunchStep(rows, layout, band, eligibleStepIds));
         }
         return m;
-    }, [layout, plan.batches, rowById]);
+    }, [layout, rows, eligibleStepIds]);
 
     // WHERE THE CYCLE LIVES: a ref, not state. Nothing on screen is a function
     // of it — the camera is moved by d3, the chip's label is a function of the
-    // LAYOUT (which batch is next), not of where the reader currently is — so
+    // LAYOUT (which step is next), not of where the reader currently is — so
     // holding it in state would re-render the whole canvas on every click for
     // no visible difference. It is also why the cycle is a pure function in
     // `pipelineEpicZoom.js`: a ref is invisible to a test, and the rules are the
@@ -1509,23 +1508,23 @@ export default function PipelinePlanVisualizer({
     // copy that has to be kept in step.
     const activateEpicName = useCallback((band) => {
         const key = epicZoomStateKey(pipeline?.id, band);
-        const letter = nextBatchByEpic.get(epicCycleKey(band)) || null;
-        const next = nextEpicZoom(epicZoomRef.current, key, letter != null);
-        // THE BATCH MOVE IS ATTEMPTED, THE BAND MOVE IS THE FLOOR (code review).
-        // If the batch fit comes back null — the two halves disagreeing, or a
+        const stepId = nextLaunchByEpic.get(epicCycleKey(band));
+        const next = nextEpicZoom(epicZoomRef.current, key, stepId != null);
+        // THE STEP MOVE IS ATTEMPTED, THE BAND MOVE IS THE FLOOR (code review).
+        // If the step fit comes back null — the two halves disagreeing, or a
         // container not ready — the level would never advance and every further
-        // click would retry the same failing batch, with the band fit
+        // click would retry the same failing step, with the band fit
         // unreachable. Falling through to the band makes the control
         // self-healing: something always happens, and the cycle is never stuck
         // at a level the camera is not actually on.
         let level = next;
-        let moved = next === EPIC_ZOOM_BATCH && focusBatch(band, letter);
+        let moved = next === EPIC_ZOOM_STEP && focusLaunchStep(stepId);
         if (!moved) {
             level = EPIC_ZOOM_BAND;
             moved = focusEpic(band);
         }
         if (moved) epicZoomRef.current = { key, level };
-    }, [nextBatchByEpic, focusBatch, focusEpic, pipeline?.id]);
+    }, [nextLaunchByEpic, focusLaunchStep, focusEpic, pipeline?.id]);
 
     // ── WHERE THE CYCLE IS CLEARED, AND WHY IT IS THREE PLACES ──────────────
     // Level 2 is only the right answer to the NEXT click while the premise
@@ -1901,25 +1900,6 @@ export default function PipelinePlanVisualizer({
         }
     });
 
-    layout.batchBoxes.forEach((box) => {
-        // Konva has no independent fill/stroke opacity — the POC's 4% wash and
-        // 85% dashed edge are rgba colors on one Rect.
-        worldNodes.push(
-            // Keyed on the SEGMENT, not the batch. A letter was unique per box
-            // while a batch produced one segment per BAND and could never span
-            // two — but req #3188 made batch-mates share only their REMAINING
-            // gate, so one batch legitimately produces one segment per column
-            // and `batch-A` became a duplicate React key on every such plan.
-            // React warns and reserves the right to drop a child.
-            <Rect key={`batch-${box.letter}-${box.bandIndex}-${box.depth}`}
-                  x={box.x} y={box.y}
-                  width={box.width} height={box.height} cornerRadius={10}
-                  fill="rgba(74, 217, 200, 0.04)"
-                  stroke="rgba(74, 217, 200, 0.85)" dash={[6, 4]} strokeWidth={1.2}
-                  onMouseEnter={(e) => { cursorPointer(e, true); showBatchCard(box.letter, e); }}
-                  onMouseLeave={(e) => { cursorPointer(e, false); hideCard(); }} />);
-    });
-
     // The next-step halo's magnification for THIS frame (req #3271). Computed
     // once per render rather than per row: it depends only on the scale being
     // drawn at, and `dash` is an array prop — a fresh one per bead would hand
@@ -2026,7 +2006,7 @@ export default function PipelinePlanVisualizer({
                           fill={P.doneCheck} listening={false} />
                 )}
             </Group>);
-        // Hit target on top of the bead (and above any batch box under it).
+        // Hit target on top of the bead.
         // Its radius is a LAYOUT constant since req #3213 — the label hit
         // regions below are pushed above these circles, so the clearance
         // between the two is an invariant the layout tests assert.
@@ -2040,12 +2020,11 @@ export default function PipelinePlanVisualizer({
 
     // ── Hover regions on the TEXT (req #3213 D1/D2) ─────────────────────────
     // The words are the larger, more obvious target than the bead beside them,
-    // and until now they did not listen at all — so hovering a step name fell
-    // THROUGH to the dashed batch rectangle underneath and produced the batch
-    // card where a step card was wanted. The batch box is pushed before this
-    // loop, so every region added here is already above it: the topmost, most
-    // specific listening element wins and the rectangle stays the fallback for
-    // empty space inside its own bounds.
+    // and until req #3213 they did not listen at all — so hovering a step name
+    // fell THROUGH to the dashed launch-unit rectangle underneath and produced
+    // that rectangle's card where a step card was wanted. The rectangle left
+    // with req #3371, and these regions stay: they are the reason a step name
+    // answers with its own step at all.
     //
     // The region is the label's OWN world rect — the exact x/y/w/h
     // pipelinePlanLayout exports and the zero-overlap invariant already sweeps.
@@ -2150,9 +2129,9 @@ export default function PipelinePlanVisualizer({
                       fontSize={F.title} fontFamily={MONO} fill={P.dim}
                       listening={false} />);
             // The reserved title slot is the step's own name in a second place
-            // (req #3213 D2): it is drawn over the batch box like the step
-            // label, so leaving it silent would put the batch card under half
-            // the text belonging to a step.
+            // (req #3213 D2): it answers with the step it belongs to, exactly
+            // as the step label above does, rather than leaving half a step's
+            // text silent.
             //
             // THIS BRANCH IS FOR A NON-DEFAULT CONFIGURATION, honestly stated
             // (review finding): the layout emits `kind: 'title'` only when
@@ -2200,31 +2179,15 @@ export default function PipelinePlanVisualizer({
         } else if (label.kind === 'epic') {
             // Drawn as an HTML overlay below, not in the world — see
             // `floatingEpics`. Nothing is pushed here.
-        } else if (label.kind === 'batch') {
-            worldNodes.push(
-                <Text key={`lbl-${i}`} x={label.x} y={label.y} text={label.text}
-                      fontSize={F.batch} fontFamily={MONO} fill={P.batch}
-                      listening={false} />);
-            // The letter names the box, so it answers with the box's card (req
-            // #3213 D2 acceptance). It sits just ABOVE the box's top edge (req
-            // #3256), or — when that column had no clear room — back in the
-            // band's header strip with the leader line below joining the two.
-            // Either way it is outside the rectangle, so this is not a
-            // duplicate of the rectangle's own hover but the only way to reach
-            // a batch by its name.
-            worldNodes.push(labelHit(`lblhit-${i}`, label, {
-                onMouseEnter: (e) => { cursorPointer(e, true); showBatchCard(label.letter, e); },
-                onMouseLeave: (e) => { cursorPointer(e, false); hideCard(); },
-            }));
-            if (label.leader) {
-                worldNodes.push(
-                    <Line key={`lbl-${i}-leader`}
-                          points={[label.leader.x1, label.leader.y1,
-                                   label.leader.x2, label.leader.y2]}
-                          stroke="rgba(74, 217, 200, 0.55)" strokeWidth={1}
-                          dash={[4, 4]} listening={false} />);
-            }
         }
+        // THE LABEL KINDS THIS SWEEP HANDLES ARE THE LABEL KINDS THE LAYOUT
+        // EMITS, and req #3371 narrowed both by one. `computePlanLayout` used
+        // to emit a fifth kind — the launch unit's letter, with an optional
+        // leader line down to its dashed rectangle — and it is gone from the
+        // layout, so there is no branch for it here. Deliberately NOT left as
+        // a defensive `else`: a case no data can reach is a case no test can
+        // cover, and the zero-overlap label contract is narrower by exactly
+        // one text kind rather than looser by an unreachable one.
     });
 
     return (
@@ -2275,16 +2238,8 @@ export default function PipelinePlanVisualizer({
                  // the rails were removed on the user's directive (2026-08-01).
                  data-world={`${Math.round(layout.width)},${Math.round(layout.height)}`}
                  // Same device as `data-transform`, for the same reason and now
-                 // carrying the same duty (req #3168). The dashed batch box is
-                 // canvas geometry, so the only DOM proof it was drawn used to be
-                 // the legend's conditional batch key — and the user directive to
-                 // strip the key back to step marks + the requirement scale
-                 // removed that proxy. Publishing the COUNT is strictly better
-                 // evidence than the key ever was: it is what the canvas actually
-                 // drew rather than a second thing derived from the same flag.
-                 data-batch-boxes={layout.batchBoxes.length}
-                 // `slots,labelled` — the time ruler (req #3207), published for
-                 // the same reason the batch-box count is: canvas geometry is
+                 // `slots,labelled` — the time ruler (req #3207), published
+                 // because canvas geometry is
                  // otherwise only observable as pixels, and the DEGRADATION rule
                  // is the half that a screenshot cannot distinguish from a plan
                  // that simply has fewer days. The two numbers differing IS the
@@ -2392,7 +2347,7 @@ export default function PipelinePlanVisualizer({
                             //
                             // Req #3297 made this a CYCLE, and both inputs call
                             // the SAME `activateEpicName` — so Enter/Space walk
-                            // band → batch → band exactly as the mouse does,
+                            // band → step → band exactly as the mouse does,
                             // rather than a keyboard path that re-fits the band
                             // forever while the mouse gets the new level.
                             role="button"
@@ -2409,21 +2364,23 @@ export default function PipelinePlanVisualizer({
                             // silently does one of two plausible things is
                             // worse than either. The chip's two controls each
                             // name themselves: the body zooms, the ↗ below
-                            // opens the features view, and both say so.
+                            // opens the epic's steps, and both say so.
                             //
                             // AND SINCE REQ #3297 IT NAMES BOTH STOPS — but
                             // only where the second one exists. A band with no
-                            // next batch has no second stop to go to — its
+                            // launch step has no second stop to go to — its
                             // clicks keep fitting the band — and a label
                             // promising a zoom that cannot happen is the same
                             // "silently does one of two
                             // plausible things" defect this tooltip was written
                             // to close, arrived at from the other direction. So
-                            // the batch clause is a function of
-                            // `nextBatchByEpic` — the SAME lookup the click
+                            // the second-stop clause is a function of
+                            // `nextLaunchByEpic` — the SAME lookup the click
                             // itself reads, so the promise and the behaviour
-                            // cannot drift, down to naming the same letter.
-                            title={epicZoomHint(nextBatchByEpic.get(e.key))}
+                            // cannot drift, down to naming the same step id.
+                            title={epicZoomHint(nextLaunchByEpic.get(e.key))
+                                + epicSeatedHint(!!(showReqCounts && e.epicId != null
+                                    && epicCounts?.get(e.epicId)))}
                             // req #3226 — the pause bubble is colour-only
                             // (green/red), the least discriminable pair for
                             // the most common colour-vision deficiency and
@@ -2438,7 +2395,7 @@ export default function PipelinePlanVisualizer({
                             // pause still reads as the last fact about the epic
                             // being named rather than a control of its own.
                             aria-label={`Zoom pipeline epic ${e.text}`
-                                + epicZoomHintSuffix(nextBatchByEpic.get(e.key))
+                                + epicZoomHintSuffix(nextLaunchByEpic.get(e.key))
                                 + (e.band?.paused ? ' — paused' : ' — active')}
                             data-testid={`pipeline-viz-epic-${e.key}`}
                             sx={{
@@ -2537,23 +2494,31 @@ export default function PipelinePlanVisualizer({
                             <Box component="span" className="pipeline-viz-epic-name">
                                 {e.text}
                             </Box>
-                            {/* The req #3119 target — the features view filtered
-                                to this epic — kept as its OWN visible control
-                                now that the chip body focuses instead. Its click
-                                must not also focus, hence stopPropagation; the
-                                react-router navigate leaves the page anyway, but
-                                relying on that would make the ordering matter. */}
+                            {/* The req #3119 target, RE-POINTED by req #3373: the
+                                Features route it used to open is being retired
+                                (req #3357), and `/swarm/steps?epic=<id>` is the
+                                only remaining destination that answers the
+                                question this control always asked — "show me
+                                the work under this epic" — with step and
+                                requirement detail rather than one epic row.
+                                THIS CONTROL IS WHAT ADDS THE FILTER: StepsPage
+                                only filtered by pipeline before this. Kept as
+                                its OWN visible control now that the chip body
+                                focuses instead. Its click must not also focus,
+                                hence stopPropagation; the react-router navigate
+                                leaves the page anyway, but relying on that would
+                                make the ordering matter. */}
                             {e.epicId != null && (
                                 <Box
                                     component="span"
                                     role="link"
                                     tabIndex={0}
-                                    aria-label={`Open ${e.text} in the features view`}
-                                    title={`Open “${e.text}” in the features view`}
+                                    aria-label={`Open ${e.text}'s steps`}
+                                    title={`Open “${e.text}”'s steps`}
                                     data-testid={`pipeline-viz-epic-open-${e.key}`}
                                     onClick={(ev) => {
                                         ev.stopPropagation();
-                                        navigate(`/swarm/features?epic=${e.epicId}`);
+                                        navigate(`/swarm/steps?epic=${e.epicId}`);
                                     }}
                                     onKeyDown={(ev) => {
                                         if (ev.key !== 'Enter') return;
@@ -2562,7 +2527,7 @@ export default function PipelinePlanVisualizer({
                                         // user is navigating away from.
                                         ev.stopPropagation();
                                         ev.preventDefault();
-                                        navigate(`/swarm/features?epic=${e.epicId}`);
+                                        navigate(`/swarm/steps?epic=${e.epicId}`);
                                     }}
                                     sx={{
                                         fontSize: 12, fontWeight: 400, opacity: 0.7,
@@ -2640,7 +2605,7 @@ export default function PipelinePlanVisualizer({
                 {/* ── THE KEY (req #3168, user directives 2026-08-01) ────────
                     "Have a common key displayed in the upper right", then a
                     second pass on what it should hold: no "Key" heading, no
-                    small-print footer, no epic-band or launch-batch entries, the
+                    small-print footer, no epic-band or launch-unit entries, the
                     requirement group labelled simply "Requirement", each status
                     or machine name drawn IN ITS OWN COLOUR rather than beside a
                     sample id, and — the one with teeth — **one stable footprint
@@ -2887,10 +2852,16 @@ export default function PipelinePlanVisualizer({
 
 // ── Hover datacard (reuses the shared .ts-datacard CSS) ─────────────────────
 // Step: title, state, run, deps (step gates + wall-clock gates through the ONE
-// shared formatter), dominant + FULL epic/feature label sets from the engine,
-// requirement ids, machines, and — at the 'in' level only — Cost (req #3117).
-// Batch: the launch unit with its exact /swarm-start argument list. No session
-// data anywhere (design rule 9); no generated '#'.
+// shared formatter), the step's epic as a single value (req #3373 — the
+// dominant-plus-full-set rendering and the Feature line both went with it: a
+// set of one is not a set, and Feature was never drawn anywhere on this
+// surface), requirement ids, machines, the step's own exact /swarm-start
+// argument list,
+// and — at the 'in' level only — Cost (req #3117). A THIRD card kind used to
+// caption the dashed launch-unit rectangle and carry that command; req #3371
+// made the step the launch unit, so the command is a field on the step's own
+// card and there are two kinds. No session data anywhere (design rule 9); no
+// generated '#'.
 //
 // COST IS LEVEL-GATED, matching the level ladder's own rule: 'in' is where the
 // per-step detail slot opens (the title line above does the same). It is also
@@ -2955,37 +2926,10 @@ function PlanDataCard({ card, timezone, level, containerW, containerH }) {
                 {rowEl('Effort', info.effort ? effortLabel(info.effort) : '—')}
             </div>
         );
-    } else if (card.kind === 'batch') {
-        const b = card.batch;
-        const timeGates = formatTimeGates(b.timeDeps, timezone);
-        body = (
-            <div className="ts-datacard">
-                <div className="ts-datacard-title">Launch batch {b.letter}</div>
-                {rowEl('Steps', b.stepIds.join(' '))}
-                {/* The REMAINING gate since req #3188 — same wording as the
-                    plan table's banner, because the two are one plan. */}
-                {rowEl('Gate', b.gateStepIds.length
-                    ? `steps ${b.gateStepIds.join(', ')}` : 'no remaining step gate')}
-                {timeGates.map((g) => <div key={g}>{rowEl('After', g)}</div>)}
-                {rowEl('Run', runLabel(b.run))}
-                {b.machineLabels.length > 0 && rowEl('Machines', batchMachineLabel(b))}
-                {rowEl('Launch', b.swarmStartCommand
-                    ? <code style={{ fontSize: '0.85em' }}>{b.swarmStartCommand}</code>
-                    : (b.noLaunchReason || 'no linked requirements — nothing to launch'))}
-                {/* req #3360 — the ids the command DROPPED and why. Only
-                    alongside a command: with none, the reason above names them
-                    all already. Without this a six-requirement step showing a
-                    three-id command reads as a dropped requirement. */}
-                {b.swarmStartCommand && (b.launchExcluded || []).length > 0
-                    && rowEl('Skipped', b.launchExcluded.join(', '))}
-            </div>
-        );
     } else {
         const r = card.row;
         const timeGates = formatTimeGates(r.timeDeps, timezone);
         const depText = r.depIds.length ? r.depIds.join(' ') : '—';
-        const epicAll = (r.epicLabels || []).map((l) => l.title).join(' · ');
-        const featAll = (r.featureLabels || []).map((l) => l.title).join(' · ');
         body = (
             <div className="ts-datacard">
                 {/* NAME ALONE in the heading, id as the first field (req #3213
@@ -2999,10 +2943,7 @@ function PlanDataCard({ card, timezone, level, containerW, containerH }) {
                 {rowEl('Run', runLabel(r.run))}
                 {rowEl('Deps', depText)}
                 {timeGates.map((g) => <div key={g}>{rowEl('After', g)}</div>)}
-                {r.epic && rowEl('Epic', (r.epicLabels || []).length > 1
-                    ? `${r.epic} (all: ${epicAll})` : r.epic)}
-                {r.feature && rowEl('Feature', (r.featureLabels || []).length > 1
-                    ? `${r.feature} (all: ${featAll})` : r.feature)}
+                {r.epic && rowEl('Epic', r.epic)}
                 {/* Tracking containers marked with a trailing † and named below
                     (req #3123). The card answers the same question the plan
                     table now answers — "this step links a requirement still in
@@ -3026,6 +2967,25 @@ function PlanDataCard({ card, timezone, level, containerW, containerH }) {
                 {/* Through the shared stripper: the engine degrades an unknown
                     machine id to '#<id>' and the no-'#' directive covers it. */}
                 {rowEl('Machine', rowMachineLabel(r))}
+                {/* DESIGN RULE 8'S ARTIFACT, ON THE STEP IT BELONGS TO (req
+                    #3371). A separate card used to carry this for the dashed
+                    launch-unit rectangle; the step is the launch unit now, so
+                    the command sits with the step it launches — the same fact
+                    the plan table renders on the same row, from the same
+                    fields. SCHEDULED work only, matching the table: a finished
+                    step's "nothing to launch" is noise, and a running one is
+                    already out. */}
+                {r.state === STEP_PENDING && (r.swarmStartCommand || r.noLaunchReason)
+                    && rowEl('Launch', r.swarmStartCommand
+                        ? <code style={{ fontSize: '0.85em' }}>{r.swarmStartCommand}</code>
+                        : r.noLaunchReason)}
+                {/* req #3360 — the ids the command DROPPED and why. Only
+                    alongside a command: with none, the reason above names them
+                    all already. Without this a six-requirement step showing a
+                    three-id command reads as a dropped requirement. */}
+                {r.state === STEP_PENDING && r.swarmStartCommand
+                    && (r.launchExcluded || []).length > 0
+                    && rowEl('Skipped', r.launchExcluded.join(', '))}
             </div>
         );
     }

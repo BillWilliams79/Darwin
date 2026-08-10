@@ -354,7 +354,8 @@ preserved deliberately: steps are inserted SEQUENTIALLY so id order matches the
 canonical stored order the display-order tie-break depends on, and step titles are
 verbatim so the no-'#' audit is measured against real plan prose.
 
-Three plans are seeded: the 34-step Substrate plan, a four-step launch-batch plan,
+Three plans are seeded: the 34-step Substrate plan, a four-step co-launchable plan
+(four steps sharing one launch key — the shape that used to draw a launch group),
 and a two-step plan with a deliberate dependency cycle. A stale-fixture sweep runs
 before every seed, because `cleanupStaleData` knows nothing about pipelines and its
 requirement deletes actually FAIL against a leaked plan (`requirement_fk` is
@@ -378,14 +379,14 @@ the browser half; the two share a database and nothing else.
 | PIPE-01 | Cards\|Table switch on `/swarm/pipelines` | Both views render, the choice persists via `useViewPreference`, a row click opens the plan |
 | PIPE-02 | Rendered step order vs `displayOrder` | The full 34-row sequence matches element for element, and the engine's own `violations` are empty first |
 | PIPE-03 | State chips, epic/feature groups, machine column | Every chip reads the DERIVED state; labels render once per contiguous group (compared by id, not title); machine cells match `rowMachineLabel`, em-dash on the req-less step |
-| PIPE-04 | Launch-batch banner | `LAUNCH BATCH A`, the exact `/swarm-start <ids>` command, the wall-clock gate, the banner immediately above its first member, the legend key, and — since req #3303 — the ABSENCE of any condensation advisory, asserted here because this is the plan shape that used to raise one |
-| PIPE-04b | No batch | No banner and NO legend key on the Substrate plan, with `batches === []` asserted as a precondition |
+| PIPE-04 | The step row's `/swarm-start` (req #3371) | Each SCHEDULED step row carries the exact `/swarm-start <ids>` command for its OWN launch argument list, every fixture requirement appears among the commands drawn, the wall-clock gate renders through the shared formatter, and — since req #3303 — the ABSENCE of any condensation advisory, asserted here because this is the plan shape that used to raise one. Was a full-width `LAUNCH BATCH A` banner until req #3371 made the step the launch unit |
+| PIPE-04b | No launch line off the scheduled band | No launch command and no blocked-reason line on any Complete or Running row — the launch line is scoped to SCHEDULED work. Was "no banner and no legend key" until req #3371 removed both |
 | PIPE-05 | Time / Tokens toggle | Cost hidden by default; one cell per row when revealed; a dash or a real figure; no cost-error notice |
 | PIPE-06 | Requirement link | Renders the bare id and navigates to `/swarm/requirement/:id` |
 | PIPE-07 | NO-'#' audit | Zero `#<digits>` in generated labels on both views. Stored plan prose is excluded — and the exclusion is evidenced, since the fixture's step 22 really contains "#3077 R13" |
 | PIPE-08 | Visualizer drag | The canvas mounts, a drag changes the world transform (pixel diff on a plan with no pulsing bead), and neither the container nor the document scrolls horizontally |
 | PIPE-09 | Zoom | The level chip crosses Overview → Plan → Detail and the canvas redraws at each |
-| PIPE-10 | Batch box + conditional key | One dashed box and a visible key on the batch plan; no box and no key on the Substrate plan |
+| ~~PIPE-10~~ | ~~Launch rectangle + conditional key~~ | **DELETED by req #3371.** It asserted one dashed launch-unit rectangle and a visible legend key on the co-launchable plan and neither on the Substrate plan. The rectangle, its `data-batch-boxes` count attribute and the key are all gone: the step is the launch unit and the bead stands for it, so there is no construct left to draw conditionally |
 | PIPE-11 | Click targets | Bead → Table mode focused on that row; requirement label → `/swarm/requirement/:id`; epic band label → `/swarm/features?epic=<id>` |
 | PIPE-12 | Loud failure | The corrupted plan raises the non-dismissible invariant banner naming the cycle, on BOTH views |
 | PIPE-13 | Description in the title bar (req #3179) | The goal field is ABSENT from the page column; the info button is inside the header row, right of the title and every chip; it opens a Dialog carrying the seeded text and closing unmounts it; and the canvas starts within 16px of the header row and runs to the bottom of the viewport |

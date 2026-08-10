@@ -5,11 +5,11 @@
 // layouts and both step-label modes — four combinations, each asserted by rect
 // intersection over the label boxes the layout itself exports, not by eyeball.
 // Lane assignment, cross-column reservation, column-width containment and
-// launch-batch box geometry are the supporting invariants.
+// lane assignment and column-width containment are the supporting invariants.
 
 import { describe, it, expect } from 'vitest';
 
-import { SUBSTRATE_REBUILD_MODEL, MACHINES } from './substrateRebuildFixture';
+import { SUBSTRATE_REBUILD_MODEL, MACHINES, EPICS } from './substrateRebuildFixture';
 import { timedFuzzCorpus, FUZZ_NOW } from './timedFuzzPlans';
 import { EPIC_ZOOM_READS, EPIC_ZOOM_PIPELINE, EPIC_ZOOM_NOW } from './epicZoomFixture';
 import { buildPipelineModel, orderedPlan } from '../pipelineViewModel';
@@ -41,7 +41,7 @@ import {
     FOCUS_MAX_RATIO, FOCUS_MIN_RATIO, FOCUS_PAD, STEP_DONE, ZOOM_MAX_RATIO, ZOOM_MIN_RATIO, bandFitRect, epicFocusTransform,
     FOCUS_LABEL_H, epicFocusNeighbours,
     stepFitRect, stepFocusTransform,
-    batchFitRect, batchFocusTransform, BATCH_FOCUS_CONTEXT,
+    STEP_FOCUS_CONTEXT,
     RULER_H, computeRuler, slotTickText, factoryDefaultScale,
     stickyRulerY, rulerScreenBottom,
     EPIC_PALETTE,
@@ -115,7 +115,7 @@ function assertNoLabelOverlap(layout, name) {
 }
 
 describe('placement fundamentals (Substrate Rebuild fixture)', () => {
-    const layout = computePlanLayout(plan.rows, plan.batches);
+    const layout = computePlanLayout(plan.rows);
 
     it('places every row exactly once', () => {
         expect(layout.nodes.size).toBe(plan.rows.length);
@@ -162,7 +162,7 @@ describe('placement fundamentals (Substrate Rebuild fixture)', () => {
 });
 
 describe('chain lanes with cross-column reservation', () => {
-    const layout = computePlanLayout(plan.rows, plan.batches);
+    const layout = computePlanLayout(plan.rows);
 
     it('keeps every straight (same-lane) arc clear of unrelated beads', () => {
         assertStraightArcsClear(layout, plan.rows);
@@ -187,7 +187,7 @@ describe('chain lanes with cross-column reservation', () => {
             mk(8, [9], 1, 'E1'),
             mk(9, [], 2, 'E2'),
         ];
-        const l = computePlanLayout(rows, []);
+        const l = computePlanLayout(rows);
         assertStraightArcsClear(l, rows);
     });
 
@@ -234,7 +234,7 @@ describe('corridor-aware lanes and adaptive arc routing (epic #6 shape)', () => 
         mk(47, []), mk(48, [47]), mk(49, []), mk(50, [47]),
         mk(51, []), mk(52, []), mk(53, [48, 49, 50, 51, 52]), mk(54, [53]),
     ];
-    const layout = computePlanLayout(rows, []);
+    const layout = computePlanLayout(rows);
     const n = (id) => layout.nodes.get(id);
 
     it('keeps the main chain straight on one lane', () => {
@@ -286,12 +286,12 @@ describe('zero label overlap — all four layout/label combinations', () => {
     for (const opts of COMBOS) {
         const name = `${opts.reqLayout} reqs × ${opts.stepLabel} labels`;
         it(`no two labels intersect (${name})`, () => {
-            const layout = computePlanLayout(plan.rows, plan.batches, opts);
+            const layout = computePlanLayout(plan.rows, opts);
             assertNoLabelOverlap(layout, name);
         });
 
         it(`no label intersects any bead (${name})`, () => {
-            const layout = computePlanLayout(plan.rows, plan.batches, opts);
+            const layout = computePlanLayout(plan.rows, opts);
             const beads = [...layout.nodes.values()].map(beadRect);
             for (const label of layout.labels) {
                 for (const bead of beads) {
@@ -309,7 +309,7 @@ describe('zero label overlap — all four layout/label combinations', () => {
         // bounded fraction of one neighbour", which combined with the parity
         // offset is what makes the no-two-labels-intersect test above pass.
         it(`req labels stay inside their column slab (${name})`, () => {
-            const layout = computePlanLayout(plan.rows, plan.batches, opts);
+            const layout = computePlanLayout(plan.rows, opts);
             for (const label of layout.labels) {
                 if (label.stepId == null || label.kind !== 'req') continue;
                 const n = layout.nodes.get(label.stepId);
@@ -328,8 +328,8 @@ describe('zero label overlap — all four layout/label combinations', () => {
         // review). A per-label invariant that implies nothing about pairs is not
         // coverage for a pairwise guarantee.
         it(`no two same-line staggered labels overlap, at any column width (${name})`, () => {
-            const check = (rows, batches, label) => {
-                const layout = computePlanLayout(rows, batches, opts);
+            const check = (rows, label) => {
+                const layout = computePlanLayout(rows, opts);
                 const staggered = layout.labels.filter((l) => l.stepId != null
                     && (l.kind === 'title'
                         || (l.kind === 'step' && opts.stepLabel === 'title')));
@@ -347,7 +347,7 @@ describe('zero label overlap — all four layout/label combinations', () => {
                     }
                 }
             };
-            check(plan.rows, plan.batches, `fixture (${name})`);
+            check(plan.rows, `fixture (${name})`);
             // The fixture's columns happen to be near-uniform. The failure mode
             // needs WIDE outer columns around a NARROW shared one, so construct
             // it: one chain (⇒ one lane, ⇒ same line for d and d+2) whose ends
@@ -371,19 +371,19 @@ describe('zero label overlap — all four layout/label combinations', () => {
                 machineLabels: [],
                 machineLabel: '',
             }));
-            check(wide, [], `wide-outer-columns (${name})`);
+            check(wide, `wide-outer-columns (${name})`);
         });
 
         // ── The two invariants req #3213's hover regions RIDE ON ────────────
-        // The renderer now draws a transparent hit Rect at each step/title/
-        // batch label's own rect, pushed ABOVE both the bead hit circles and
-        // the dashed batch boxes. Neither of the clearances that makes that
+        // The renderer draws a transparent hit Rect at each step/title
+        // label's own rect, pushed ABOVE the bead hit circles. Neither of the
+        // clearances that makes that
         // safe was asserted anywhere (review finding): the sweep above checks
         // labels against the BEAD at radius 10, but ownership is decided at the
         // HIT circle's 15. Both were measured clean when they shipped; what
         // these two tests buy is that they stay that way.
         it(`no label rect reaches into another step's bead hit circle (${name})`, () => {
-            const layout = computePlanLayout(plan.rows, plan.batches, opts);
+            const layout = computePlanLayout(plan.rows, opts);
             // Rect × CIRCLE, not rect × bbox: the corner of a bounding box is
             // 4.4px outside the circle it encloses, which is the whole margin
             // being asserted.
@@ -395,7 +395,7 @@ describe('zero label overlap — all four layout/label combinations', () => {
             for (const label of layout.labels) {
                 // Only the kinds that carry a hit region. A 'req' label is a
                 // listening Text and has always been drawn over its own column.
-                if (!['step', 'title', 'batch'].includes(label.kind)) continue;
+                if (!['step', 'title'].includes(label.kind)) continue;
                 for (const [stepId, n] of layout.nodes) {
                     // Its OWN bead may share a pixel of the ring — same step,
                     // same card, so the reading cannot be wrong.
@@ -412,14 +412,14 @@ describe('zero label overlap — all four layout/label combinations', () => {
     }
 
     it('emits one req label per linked requirement, none prefixed with #', () => {
-        const layout = computePlanLayout(plan.rows, plan.batches);
+        const layout = computePlanLayout(plan.rows);
         for (const r of plan.rows) {
             const reqLabels = layout.labels
                 .filter((l) => l.kind === 'req' && l.stepId === r.id);
             expect(reqLabels.map((l) => l.reqId)).toEqual(r.reqIds);
         }
-        // The no-'#' directive governs GENERATED labels (step ids, req ids,
-        // batch text) — step TITLES are stored plan content and render verbatim.
+        // The no-'#' directive governs GENERATED labels (step ids, req ids) —
+        // step TITLES are stored plan content and render verbatim.
         for (const l of layout.labels) {
             if (l.kind === 'title' || l.kind === 'epic') continue;
             expect(l.text.includes('#')).toBe(false);
@@ -427,767 +427,12 @@ describe('zero label overlap — all four layout/label combinations', () => {
     });
 
     it('reserves the title slot only when the step label is not already the title', () => {
-        const withIds = computePlanLayout(plan.rows, plan.batches, { stepLabel: 'id' });
-        const withTitles = computePlanLayout(plan.rows, plan.batches, { stepLabel: 'title' });
+        const withIds = computePlanLayout(plan.rows, { stepLabel: 'id' });
+        const withTitles = computePlanLayout(plan.rows, { stepLabel: 'title' });
         expect(withIds.labels.some((l) => l.kind === 'title')).toBe(true);
         expect(withTitles.labels.some((l) => l.kind === 'title')).toBe(false);
     });
 });
-
-describe('launch-batch box geometry', () => {
-    it('draws ZERO boxes for the Substrate Rebuild plan (its nearest pair differs in run mode)', () => {
-        expect(plan.batches).toEqual([]);
-        const layout = computePlanLayout(plan.rows, plan.batches);
-        expect(layout.batchBoxes).toEqual([]);
-    });
-
-    // A genuine batch — and since req #3188 its two members share an epic,
-    // because the engine's launch key includes the dominant epic and can no
-    // longer group across two. The same-gate MANUAL step is the non-member, and
-    // it sits in a second band so the plan still renders more than one.
-    // Epic titles are deliberately LONG: the review found the batch letter
-    // colliding with a long epic label when both lived in the band header, and
-    // that collision is what the label-overlap combinations below still guard.
-    const CROSS_EPIC_READS = {
-        steps: [
-            { id: 1, pipeline_fk: 1, title: 'gate', run: 'auto', notes: null,
-                completed_at: '2026-07-01T00:00:00' },
-            { id: 2, pipeline_fk: 1, title: 'batch mate A', run: 'auto', notes: null,
-                completed_at: null },
-            { id: 3, pipeline_fk: 1, title: 'batch mate B', run: 'auto', notes: null,
-                completed_at: null },
-            { id: 4, pipeline_fk: 1, title: 'same gate, manual', run: 'manual', notes: null,
-                completed_at: null },
-        ],
-        stepRequirements: [
-            { step_fk: 2, requirement_fk: 900 },
-            { step_fk: 3, requirement_fk: 901 },
-            { step_fk: 4, requirement_fk: 902 },
-        ],
-        stepDeps: [
-            { id: 1, step_fk: 2, dep_step_fk: 1, time_at: null },
-            { id: 2, step_fk: 3, dep_step_fk: 1, time_at: null },
-            { id: 3, step_fk: 4, dep_step_fk: 1, time_at: null },
-        ],
-        requirements: [
-            { id: 900, requirement_status: 'approved', machine_fk: 2, feature_fk: 101 },
-            { id: 901, requirement_status: 'approved', machine_fk: 2, feature_fk: 101 },
-            { id: 902, requirement_status: 'approved', machine_fk: 2, feature_fk: 102 },
-        ],
-        features: [
-            { id: 101, title: 'Wave One', epic_fk: 11 },
-            { id: 102, title: 'Wave Two', epic_fk: 12 },
-        ],
-        epics: [
-            { id: 11, title: 'Swarm Orchestration Substrate Rebuild Epic One' },
-            { id: 12, title: 'Primary and Swarm Agentic Integration Epic Two' },
-        ],
-        machines: MACHINES,
-    };
-    const crossPlan = orderedPlan(
-        buildPipelineModel({
-            pipeline: { id: 1, title: 'x', pipeline_status: 'active', machine_fk: 2 },
-            ...CROSS_EPIC_READS,
-        }),
-        { now: NOW });
-
-    it('boxes every member and excludes non-members', () => {
-        expect(crossPlan.batches).toHaveLength(1);
-        const layout = computePlanLayout(crossPlan.rows, crossPlan.batches);
-        const inSomeBox = (n) => layout.batchBoxes.some((box) =>
-            n.x > box.x && n.x < box.x + box.width
-            && n.y > box.y && n.y < box.y + box.height);
-
-        const m2 = layout.nodes.get(2);
-        const m3 = layout.nodes.get(3);
-        const outsider = layout.nodes.get(4);
-        // Since req #3188 an ENGINE-PRODUCED batch always sits in one band —
-        // bands key on `epicId` and so does the launch key — so one segment,
-        // one letter. The non-member is in another band entirely and must stay
-        // outside the box regardless.
-        expect(m2.bandIndex).toBe(m3.bandIndex);
-        expect(outsider.bandIndex).not.toBe(m2.bandIndex);
-        expect(layout.batchBoxes).toHaveLength(1);
-        // EVERY segment carries the letter (req #3188). One label for a
-        // batch that draws two side-by-side boxes leaves the second reading
-        // as an anonymous batch of its own.
-        expect(layout.labels.filter((l) => l.kind === 'batch'))
-            .toHaveLength(layout.batchBoxes.length);
-        expect(inSomeBox(m2)).toBe(true);
-        expect(inSomeBox(m3)).toBe(true);
-        expect(inSomeBox(outsider)).toBe(false);
-        expect(layout.labels.filter((l) => l.kind === 'batch')).toHaveLength(1);
-    });
-
-    // ── D2's acceptance, in geometry (req #3213) ────────────────────────────
-    // "Verify the batch card is still reachable by hovering the box itself."
-    // The step / title / batch label hit regions are drawn ABOVE the dashed
-    // rectangle, so the rectangle only stays reachable while they leave some of
-    // its face uncovered — and nothing asserted that. Grid-sampled rather than
-    // computed as a rectangle union: the union routine would be more code than
-    // the property it checks. Run over the batched plan, because the Substrate
-    // fixture deliberately produces ZERO boxes (see the first test above) and
-    // this test would be silently vacuous on it.
-    it('keeps a hoverable interior in every batch box, in all four combinations', () => {
-        for (const opts of COMBOS) {
-            const layout = computePlanLayout(crossPlan.rows, crossPlan.batches, opts);
-            expect(layout.batchBoxes.length).toBeGreaterThan(0);
-            const covers = layout.labels.filter(
-                (l) => l.kind === 'step' || l.kind === 'title' || l.kind === 'batch');
-            for (const box of layout.batchBoxes) {
-                let free = 0;
-                let total = 0;
-                for (let i = 0; i < 40; i++) {
-                    for (let j = 0; j < 40; j++) {
-                        const px = box.x + (box.width * (i + 0.5)) / 40;
-                        const py = box.y + (box.height * (j + 0.5)) / 40;
-                        total++;
-                        if (!covers.some((l) => px >= l.x && px <= l.x + l.w
-                            && py >= l.y && py <= l.y + l.h)) free++;
-                    }
-                }
-                // A deliberately loose floor — measured 81-89% free on the live
-                // plan. It fails on a REGRESSION, not on a nudge.
-                expect(free / total,
-                    `batch ${box.letter} interior covered (${opts.reqLayout} × ${opts.stepLabel})`)
-                    .toBeGreaterThan(0.5);
-            }
-        }
-    });
-
-    it('segments a MULTI-COLUMN batch per column rather than drawing one wide rect', () => {
-        // REQ #3188 REGRESSION. Batch-mates used to share a raw dep set and
-        // therefore a depth, so one column per batch was sound; keying on the
-        // REMAINING gate makes "gated by a Complete step" and "not gated at all"
-        // one launch unit at DIFFERENT depths. A single-column box then left a
-        // member outside itself and enclosed whatever unrelated bead sat in the
-        // column it did cover.
-        const reads = {
-            steps: [
-                { id: 1, pipeline_fk: 1, title: 'closed gate', run: 'auto', notes: null,
-                    completed_at: null },
-                { id: 2, pipeline_fk: 1, title: 'behind the closed gate', run: 'auto',
-                    notes: null, completed_at: null },
-                { id: 3, pipeline_fk: 1, title: 'no gate at all', run: 'auto',
-                    notes: null, completed_at: null },
-            ],
-            stepRequirements: [
-                { step_fk: 1, requirement_fk: 950 },
-                { step_fk: 2, requirement_fk: 951 },
-                { step_fk: 3, requirement_fk: 952 },
-            ],
-            stepDeps: [{ id: 1, step_fk: 2, dep_step_fk: 1, time_at: null }],
-            requirements: [
-                { id: 950, requirement_status: 'met', machine_fk: 2, feature_fk: 301 },
-                { id: 951, requirement_status: 'approved', machine_fk: 2, feature_fk: 301 },
-                { id: 952, requirement_status: 'approved', machine_fk: 2, feature_fk: 301 },
-            ],
-            features: [{ id: 301, title: 'F1', epic_fk: 31 }],
-            epics: [{ id: 31, title: 'Epic A' }],
-            machines: MACHINES,
-        };
-        const p = orderedPlan(buildPipelineModel({
-            pipeline: { id: 1, title: 'x', pipeline_status: 'active', machine_fk: 2 },
-            ...reads,
-        }), { now: NOW });
-        expect(p.batches).toHaveLength(1);
-        expect(p.batches[0].stepIds.slice().sort()).toEqual([2, 3]);
-
-        const layout = computePlanLayout(p.rows, p.batches);
-        const m2 = layout.nodes.get(2);
-        const m3 = layout.nodes.get(3);
-        const outsider = layout.nodes.get(1);
-        expect(m2.depth).not.toBe(m3.depth);
-        expect(layout.batchBoxes).toHaveLength(2);
-        // EVERY segment carries the letter (req #3188). One label for a
-        // batch that draws two side-by-side boxes leaves the second reading
-        // as an anonymous batch of its own.
-        expect(layout.labels.filter((l) => l.kind === 'batch'))
-            .toHaveLength(layout.batchBoxes.length);
-
-        const encloses = (box, n) => n.x > box.x && n.x < box.x + box.width
-            && n.y > box.y && n.y < box.y + box.height;
-        // Every member is inside SOME segment…
-        for (const member of [m2, m3]) {
-            expect(layout.batchBoxes.some((box) => encloses(box, member)),
-                `member ${member.id} must be boxed`).toBe(true);
-        }
-        // …and the Complete step sharing step 3's column is inside NONE.
-        for (const box of layout.batchBoxes) {
-            expect(encloses(box, outsider), 'the gate must stay outside').toBe(false);
-        }
-    });
-
-    it('segments a cross-band batch per band rather than drawing one tall rect', () => {
-        // THE GEOMETRY IS TESTED DIRECTLY, with a HAND-BUILT batch, because the
-        // engine can no longer produce this input: req #3188 put the dominant
-        // epic in the launch key, and bands key on the same field. That makes
-        // this branch defensive rather than reachable — computePlanLayout takes
-        // rows and batches as arguments and cannot know they were derived
-        // together, so a stale or hand-assembled batch must still not enclose a
-        // band it has no member in (the original review finding). Deleting the
-        // segmentation instead would trade a tested defence for an untested
-        // assumption about every caller, forever.
-        const batch = { letter: 'A', stepIds: [2, 4], swarmStartArgs: [900, 902] };
-        const layout = computePlanLayout(crossPlan.rows, [batch]);
-        const m2 = layout.nodes.get(2);
-        const m4 = layout.nodes.get(4);
-        expect(m2.bandIndex).not.toBe(m4.bandIndex);
-        expect(layout.batchBoxes).toHaveLength(2);
-        // EVERY segment carries the letter (req #3188). One label for a
-        // batch that draws two side-by-side boxes leaves the second reading
-        // as an anonymous batch of its own.
-        expect(layout.labels.filter((l) => l.kind === 'batch'))
-            .toHaveLength(layout.batchBoxes.length);
-        expect(layout.batchBoxes.map((b) => b.stepIds)).toEqual([[2], [4]]);
-        // The non-member sharing band 2's neighbourhood is never swallowed.
-        const outsider = layout.nodes.get(3);
-        for (const box of layout.batchBoxes) {
-            const inside = outsider.x > box.x && outsider.x < box.x + box.width
-                && outsider.y > box.y && outsider.y < box.y + box.height;
-            expect(inside).toBe(false);
-        }
-    });
-
-    it('never encloses a bead from an unrelated band between two members', () => {
-        // Review dataset: members in the first and third bands, a NON-member in
-        // the band between them, all sharing the gate. The POC's single tall
-        // rect read step 3 as launching in batch A; segments must not.
-        //
-        // The batch is HAND-BUILT for the same reason as the segmentation test
-        // above: since req #3188 the engine's launch key carries the dominant
-        // epic, so it can no longer emit a batch whose members sit in different
-        // bands. The geometry still has to survive one.
-        const reads = {
-            steps: [
-                { id: 1, pipeline_fk: 1, title: 'gate', run: 'auto', notes: null,
-                    completed_at: '2026-07-01T00:00:00' },
-                { id: 2, pipeline_fk: 1, title: 'mate A', run: 'auto', notes: null,
-                    completed_at: null },
-                { id: 3, pipeline_fk: 1, title: 'not a mate', run: 'manual', notes: null,
-                    completed_at: null },
-                { id: 4, pipeline_fk: 1, title: 'mate B', run: 'auto', notes: null,
-                    completed_at: null },
-            ],
-            stepRequirements: [
-                { step_fk: 2, requirement_fk: 900 },
-                { step_fk: 3, requirement_fk: 901 },
-                { step_fk: 4, requirement_fk: 902 },
-            ],
-            stepDeps: [
-                { id: 1, step_fk: 2, dep_step_fk: 1, time_at: null },
-                { id: 2, step_fk: 3, dep_step_fk: 1, time_at: null },
-                { id: 3, step_fk: 4, dep_step_fk: 1, time_at: null },
-            ],
-            requirements: [
-                { id: 900, requirement_status: 'approved', machine_fk: 2, feature_fk: 201 },
-                { id: 901, requirement_status: 'approved', machine_fk: 2, feature_fk: 202 },
-                { id: 902, requirement_status: 'approved', machine_fk: 2, feature_fk: 203 },
-            ],
-            features: [
-                { id: 201, title: 'F1', epic_fk: 21 },
-                { id: 202, title: 'F2', epic_fk: 22 },
-                { id: 203, title: 'F3', epic_fk: 23 },
-            ],
-            epics: [
-                { id: 21, title: 'Epic A' }, { id: 22, title: 'Epic B' },
-                { id: 23, title: 'Epic C' },
-            ],
-            machines: MACHINES,
-        };
-        const p = orderedPlan(
-            buildPipelineModel({
-                pipeline: { id: 1, title: 'x', pipeline_status: 'active', machine_fk: 2 },
-                ...reads,
-            }),
-            { now: NOW });
-        // Each of the three steps derives its own epic, so the engine correctly
-        // proposes NO batch at all — the input this geometry has to survive is
-        // constructed, not derived.
-        expect(p.batches).toEqual([]);
-        const batch = { letter: 'A', stepIds: [2, 4], swarmStartArgs: [900, 902] };
-        const layout = computePlanLayout(p.rows, [batch]);
-        expect(layout.batchBoxes).toHaveLength(2);
-        const outsider = layout.nodes.get(3);
-        for (const box of layout.batchBoxes) {
-            const inside = outsider.x > box.x && outsider.x < box.x + box.width
-                && outsider.y > box.y && outsider.y < box.y + box.height;
-            expect(inside).toBe(false);
-        }
-    });
-
-    for (const opts of COMBOS) {
-        const name = `batch plan, ${opts.reqLayout} reqs × ${opts.stepLabel} labels`;
-        it(`zero label overlap with batch letters and long epic titles (${name})`, () => {
-            const layout = computePlanLayout(crossPlan.rows, crossPlan.batches, opts);
-            assertNoLabelOverlap(layout, name);
-        });
-    }
-
-    // ── req #3225 — epic label counts on TOP of long titles + batch letters ──
-    // `crossPlan`'s two epics (47/48 chars) are already close to the worst
-    // realistic case; double-digit counts push them further. THE ACCEPTANCE
-    // CRITERION ITSELF: the zero-overlap invariant must still hold once labels
-    // grow by a count suffix — wider labels COVERED BY the invariant, never
-    // drawn around it.
-    it('appends "met/total" to the band whose epic the map names', () => {
-        const [firstBand] = crossPlan.rows
-            .map((r) => r.epicId).filter((id) => id != null);
-        const epicCounts = new Map([[firstBand, { met: 3, total: 7 }]]);
-        const layout = computePlanLayout(crossPlan.rows, crossPlan.batches,
-            { reqLayout: 'vertical', stepLabel: 'title', epicCounts });
-        const band = layout.bands.find((b) => b.epicId === firstBand);
-        expect(band.epicLabel).toBe(`${band.epic} 3/7`);
-        // THE SAME STRING measures the zero-overlap label rect — not a second,
-        // unchecked rectangle drawn beside the name.
-        const label = layout.labels.find((l) => l.kind === 'epic' && l.epicId === firstBand);
-        expect(label.text).toBe(band.epicLabel);
-        // + EPIC_PAUSE_BUBBLE_W (req #3226) — grown onto this rect the same
-        // way the count suffix is: the zero-overlap invariant sweeps
-        // `layout.labels`, so anything the chip actually reserves belongs here.
-        expect(label.w).toBeCloseTo(
-            band.epicLabel.length * EPIC_CHIP_CHAR_W + EPIC_PAUSE_BUBBLE_W, 6);
-    });
-
-    it('accepts a plain object as well as a Map, matching the reqTitles convention', () => {
-        const [firstBand] = crossPlan.rows
-            .map((r) => r.epicId).filter((id) => id != null);
-        const layout = computePlanLayout(crossPlan.rows, crossPlan.batches, {
-            epicCounts: { [firstBand]: { met: 2, total: 4 } },
-        });
-        const band = layout.bands.find((b) => b.epicId === firstBand);
-        expect(band.epicLabel).toBe(`${band.epic} 2/4`);
-    });
-
-    const WIDE_COUNTS = new Map([[11, { met: 99, total: 100 }], [12, { met: 0, total: 100 }]]);
-    for (const opts of COMBOS) {
-        const name = `${opts.reqLayout} reqs × ${opts.stepLabel} labels, counts on`;
-        it(`zero label overlap with long epic titles AND count suffixes (${name})`, () => {
-            const withCounts = computePlanLayout(crossPlan.rows, crossPlan.batches,
-                { ...opts, epicCounts: WIDE_COUNTS });
-            assertNoLabelOverlap(withCounts, name);
-            const beads = [...withCounts.nodes.values()].map(beadRect);
-            for (const label of withCounts.labels) {
-                for (const bead of beads) {
-                    expect(rectsOverlap(label, bead)).toBe(false);
-                }
-            }
-        });
-    }
-
-    // Verification-round regression: two batches at the same depth in ONE band.
-    // The first packing pass let a batch's mates spread around the other
-    // batch's lanes, so its box enclosed all of them. The contiguous-run
-    // allocation must keep every box to exactly its own members.
-    it('keeps two same-depth batches in one band strictly apart', () => {
-        const mk = (id, depIds, reqIds) => ({
-            id, title: `s${id}`, run: 'auto', state: 'pending', reqIds,
-            depIds, timeDeps: [], epicId: 1, epic: 'E1',
-            epicLabels: [], featureLabels: [], machineLabels: [], machineLabel: '—',
-        });
-        const rows = [
-            mk(1, [], []),
-            mk(2, [], []),
-            mk(6, [2], [906]), mk(7, [2], [907]), mk(8, [2], [908]),
-            mk(3, [1, 2], [903]), mk(4, [1, 2], [904]),
-        ];
-        const batches = [
-            { letter: 'A', stepIds: [6, 7, 8] },
-            { letter: 'B', stepIds: [3, 4] },
-        ];
-        const layout = computePlanLayout(rows, batches);
-        for (const box of layout.batchBoxes) {
-            const members = new Set(box.stepIds);
-            for (const n of layout.nodes.values()) {
-                if (members.has(n.id)) continue;
-                const inside = n.x > box.x && n.x < box.x + box.width
-                    && n.y > box.y && n.y < box.y + box.height;
-                if (inside) {
-                    throw new Error(`batch ${box.letter} box encloses `
-                        + `non-member step ${n.id}`);
-                }
-            }
-            // And every member really is inside its own box.
-            for (const id of members) {
-                const n = layout.nodes.get(id);
-                if (!n) continue;
-                expect(n.x > box.x && n.x < box.x + box.width
-                    && n.y > box.y && n.y < box.y + box.height).toBe(true);
-            }
-        }
-        assertNoLabelOverlap(layout, 'two same-depth batches');
-        assertStraightArcsClear(layout, rows);
-    });
-});
-
-// ── req #3256 — the batch letter's corridor, and the dead lane in its box ────
-// Both halves were MEASURED on the live plan (pipeline 2, 2026-08-02) before
-// anything moved: a `batch A` letter parked in the band header dropped a 689px
-// dashed leader to a box near the bottom of a 27-lane band, and that box spanned
-// lanes 7/9/10/11 with an empty row at 8 whose only occupant sat one column to
-// the left. This fixture reproduces the SHAPE rather than the plan: a gate step
-// plus four batch-mates at two depths in a many-lane band, with neighbouring
-// steps in the same column able to take a lane between the mates.
-// The bound on how far a batch letter may climb looking for clear space,
-// DERIVED here from published band geometry exactly as the module derives it —
-// the bead row of the lane above the box. A retyped constant would agree with a
-// changed layout by accident, and there is no fixed number to retype anyway:
-// the room above a box is one lane pitch, and a lane pitch grows with the
-// requirement stack its lane carries (req #3119).
-// The batch letter climbs to the first clear slot above its box and may not
-// leave the band doing it — its floor is the band's own reserved letter strip,
-// where the fallback would put it. There is no tighter bound to assert and
-// deliberately so: see the ceiling's comment in the module.
-const letterCeilingY = (layout, box) => layout.bands[box.bandIndex].y + 26;
-const letterCeiling = (layout, box, label) => label.y >= letterCeilingY(layout, box);
-
-// The two bead invariants the Substrate fixture asserts, re-run over a given
-// layout. The batch letter MOVED in req #3256 and the module-level versions of
-// these only ever see a fixture that produces zero batch boxes, so a letter
-// landing on a bead — which is exactly what a first cut of that move did, on
-// every congested column — was invisible to them.
-// Same kind filter and same own-bead exemption as the module-level version, so
-// the two cannot say different things about one layout.
-function assertNoLabelOnBead(layout, name) {
-    for (const l of layout.labels) {
-        if (!['step', 'title', 'batch'].includes(l.kind)) continue;
-        for (const [stepId, n] of layout.nodes) {
-            if (l.stepId === stepId) continue;
-            const cx = Math.max(l.x, Math.min(n.x, l.x + l.w));
-            const cy = Math.max(l.y, Math.min(n.y, l.y + l.h));
-            const d = Math.hypot(n.x - cx, n.y - cy);
-            if (d < BEAD_HIT_RADIUS) {
-                throw new Error(`label on bead (${name}): ${l.kind} label `
-                    + `${JSON.stringify(l)} reaches step ${stepId}'s hit circle at `
-                    + `(${n.x}, ${n.y}) — distance ${d.toFixed(1)} < ${BEAD_HIT_RADIUS}`);
-            }
-        }
-    }
-}
-
-describe('batch letters and box lane spans (req #3256)', () => {
-    // Mates land at two depths because req #3188 keys the launch on the
-    // REMAINING gate: step 20/21 gate on the complete root, 22/23 on a complete
-    // step one column deeper, so all four share an empty remaining gate and one
-    // launch key while sitting in two columns. Eight complete fillers hanging
-    // off the same root are what force the dep-adjacent lane INSERTION path —
-    // each finds its anchor lane taken and opens a fractional lane below it,
-    // which is what lands inside the batch's reserved run.
-    //
-    // AGAINST req #3229's RUN, not the one it replaced. That requirement made
-    // the run per (letter, column) and published `runIntervals` so nothing else
-    // enters one — but it enforces the interval AT ITS OWN COLUMN, which is the
-    // cell question. The fractional lane these fillers open is at another
-    // column, so it clears every check #3229 added and still becomes a lane row
-    // between two mates at the band-wide renumber. Measured on the 400-plan
-    // corpus with #3229 merged and nothing else: 1084 of 3848 boxes spanning a
-    // row no member occupies, zero of them enclosing a foreign bead.
-    const denseReads = (() => {
-        const steps = [];
-        const stepDeps = [];
-        const stepRequirements = [];
-        const requirements = [];
-        let rid = 9000;
-        const mk = (id, title, deps, status) => {
-            steps.push({ id, pipeline_fk: 1, title, run: 'auto', notes: null,
-                completed_at: null });
-            for (const d of deps) {
-                stepDeps.push({ id: id * 100 + d, step_fk: id, dep_step_fk: d,
-                    time_at: null });
-            }
-            for (let k = 0; k < 3; k++) {
-                rid += 1;
-                stepRequirements.push({ id: id * 50 + k, step_fk: id, requirement_fk: rid });
-                requirements.push({
-                    id: rid, title: `A fairly long requirement title ${rid}`,
-                    requirement_status: status, feature_fk: 701, tracking: 0,
-                    machine_fk: 2, started_at: null,
-                    completed_at: status === 'met' ? '2026-07-01T00:00:00Z' : null,
-                });
-            }
-        };
-        mk(1, 'The root gate step with a long name', [], 'met');
-        for (let i = 2; i <= 9; i++) mk(i, `Filler step number ${i} with a long name`, [1], 'met');
-        mk(10, 'Satisfied gate for the batch', [1], 'met');
-        mk(20, 'Batch mate one long title here', [1], 'swarm_ready');
-        mk(21, 'Batch mate two long title here', [1], 'swarm_ready');
-        mk(22, 'Batch mate three long title here', [10], 'swarm_ready');
-        mk(23, 'Batch mate four long title here', [10], 'swarm_ready');
-        for (let i = 30; i <= 36; i++) mk(i, `Deep filler ${i} with a long name`, [10], 'met');
-        return {
-            steps,
-            stepDeps,
-            stepRequirements,
-            requirements,
-            features: [{ id: 701, title: 'Dense Feature', epic_fk: 71 }],
-            epics: [{ id: 71, title: 'A Dense Epic With A Long Title' }],
-            machines: MACHINES,
-        };
-    })();
-
-    const densePlan = orderedPlan(buildPipelineModel({
-        pipeline: { id: 1, title: 'dense', pipeline_status: 'active', machine_fk: 2 },
-        ...denseReads,
-    }), { now: NOW });
-
-    it('groups all four mates into one batch across two depths', () => {
-        expect(densePlan.batches).toHaveLength(1);
-        expect(densePlan.batches[0].stepIds.slice().sort((a, b) => a - b))
-            .toEqual([20, 21, 22, 23]);
-    });
-
-    it('gives the band more lanes than the batch, so the run must survive them', () => {
-        const layout = computePlanLayout(densePlan.rows, densePlan.batches);
-        const band = layout.bands[layout.nodes.get(20).bandIndex];
-        expect(band.sub).toBeGreaterThan(8);
-    });
-
-    for (const opts of COMBOS) {
-        const name = `${opts.reqLayout} reqs × ${opts.stepLabel} labels`;
-
-        // DELIVERABLE 2. A dashed box is a claim about which steps launch
-        // together; a lane row inside it that no member occupies reads as a
-        // fifth, nameless member and is what produced the doubled first-to-
-        // second gap in the reported screenshot.
-        it(`encloses no lane its own members do not occupy (${name})`, () => {
-            const layout = computePlanLayout(densePlan.rows, densePlan.batches, opts);
-            expect(layout.batchBoxes.length).toBeGreaterThan(0);
-            for (const box of layout.batchBoxes) {
-                const lanes = box.stepIds.map((id) => layout.nodes.get(id).lane)
-                    .sort((a, b) => a - b);
-                const span = lanes[lanes.length - 1] - lanes[0] + 1;
-                expect(span,
-                    `batch ${box.letter} box spans ${span} lane rows for `
-                    + `${lanes.length} members (lanes ${lanes.join(',')})`)
-                    .toBe(lanes.length);
-            }
-        });
-
-        // DELIVERABLE 1. No leader at all here — the letter is its box's
-        // caption, inside the box's x-range and a few pixels above it, which is
-        // the whole point of taking it off the band header. Under the old
-        // placement the SAME fixture drew leaders of 1629–2191px.
-        it(`anchors every batch letter to its own box (${name})`, () => {
-            const layout = computePlanLayout(densePlan.rows, densePlan.batches, opts);
-            const letters = layout.labels.filter((x) => x.kind === 'batch');
-            expect(letters).toHaveLength(layout.batchBoxes.length);
-            letters.forEach((l, i) => {
-                const box = layout.batchBoxes[i];
-                expect(l.leader, `batch ${l.letter} still needs a leader`).toBeNull();
-                expect(l.x).toBeGreaterThanOrEqual(box.x);
-                expect(l.x + l.w).toBeLessThanOrEqual(box.x + box.width);
-                expect(box.y - (l.y + l.h), `batch ${l.letter} rise above its box`)
-                    .toBeGreaterThanOrEqual(0);
-                expect(letterCeiling(layout, box, l)).toBe(true);
-            });
-        });
-
-        // The invariant this module exists to prove, on the fixture the two
-        // fixes above were tuned against — moving text near a box top is
-        // exactly how the epic-label × batch-letter collision shipped once.
-        it(`holds zero label overlap and no label-on-bead, dense fixture (${name})`, () => {
-            const layout = computePlanLayout(densePlan.rows, densePlan.batches, opts);
-            assertNoLabelOverlap(layout, `dense batch fixture (${name})`);
-            assertNoLabelOnBead(layout, `dense batch fixture (${name})`);
-        });
-    }
-
-    // ── The CONGESTED column, where the letter cannot sit ON its box ─────────
-    // Three complete chains push the batch onto a deep lane, and the step
-    // directly above it in the SAME column carries a requirement stack whose
-    // marks cover both ends of the box. The letter has to climb through that
-    // stack, and the drop-line — which the common case above no longer draws —
-    // is what keeps it and its box one thing. Measured here: 42–87px, against
-    // the 407–689px the header-strip placement drew on the live plan.
-    //
-    // This is where the letter runs out of room, so it is where the BEAD sweep
-    // is load-bearing. A first cut of req #3256 clashed against labels only, and
-    // since a requirement mark sits 14px under its bead, displacing off one put
-    // the letter's top edge exactly on that bead's centre — in every congested
-    // case. Hence the bead assertion below as well as the overlap one.
-    //
-    // NOT the header-strip fallback: that branch places the letter AT the
-    // ceiling, and these rows all land above it. It has no test and no measured
-    // input reaches it — 0 of 3848 boxes in the sweep below, 0 of 78,692 in an
-    // independent adversarial sweep at review. It is kept as the module's
-    // totality guarantee (the reserved strip is free by construction), on the
-    // same reasoning the cross-band segmentation defence above is kept.
-    const congestedPlan = (nReq) => {
-        const steps = [];
-        const stepDeps = [];
-        const stepRequirements = [];
-        const requirements = [];
-        let rid = 8000;
-        const mk = (id, title, deps, status) => {
-            steps.push({ id, pipeline_fk: 1, title, run: 'auto', notes: null,
-                completed_at: null });
-            for (const d of deps) {
-                stepDeps.push({ id: id * 100 + d, step_fk: id, dep_step_fk: d, time_at: null });
-            }
-            for (let k = 0; k < nReq; k++) {
-                rid += 1;
-                stepRequirements.push({ id: id * 50 + k, step_fk: id, requirement_fk: rid });
-                requirements.push({
-                    id: rid, title: `Requirement title ${rid} that is quite long indeed`,
-                    requirement_status: status, feature_fk: 801, tracking: 0,
-                    machine_fk: 2, started_at: null,
-                    completed_at: status === 'met' ? '2026-07-01T00:00:00Z' : null,
-                });
-            }
-        };
-        mk(1, 'Root gate step', [], 'met');
-        for (let i = 0; i < 3; i++) {
-            mk(10 + i, `Mid step ${i} with a long name`, [1], 'met');
-            mk(40 + i, `Deep step ${i} with a long name`, [10 + i], 'met');
-        }
-        mk(30, 'Satisfied batch gate', [1], 'met');
-        mk(20, 'Batch mate one', [30], 'swarm_ready');
-        mk(21, 'Batch mate two', [30], 'swarm_ready');
-        return orderedPlan(buildPipelineModel({
-            pipeline: { id: 1, title: 'congested', pipeline_status: 'active', machine_fk: 2 },
-            steps,
-            stepDeps,
-            stepRequirements,
-            requirements,
-            features: [{ id: 801, title: 'Congested Feature', epic_fk: 81 }],
-            epics: [{ id: 81, title: 'A Congested Epic' }],
-            machines: MACHINES,
-        }), { now: NOW });
-    };
-
-    // The stack grows by one line per requirement and the letter's climb grows
-    // with it — which is exactly why the ceiling is DERIVED from the band's
-    // laneY and not a constant. A 96px window held at three requirements and
-    // dropped the letter back to the band header — a 455px leader — at four.
-    for (const nReq of [1, 2, 3, 4]) {
-        it(`draws a drop-line joining letter to box, ${nReq} req(s) above`, () => {
-            const p = congestedPlan(nReq);
-            expect(p.batches).toHaveLength(1);
-            const layout = computePlanLayout(p.rows, p.batches,
-                { reqLayout: 'horizontal', stepLabel: 'id' });
-            const letters = layout.labels.filter((x) => x.kind === 'batch');
-            expect(letters).toHaveLength(layout.batchBoxes.length);
-            let withLeader = 0;
-            letters.forEach((l, i) => {
-                const box = layout.batchBoxes[i];
-                expect(Math.min(...box.stepIds.map((id) => layout.nodes.get(id).lane)),
-                    'the batch must be pushed off lane 0 for this to test anything')
-                    .toBeGreaterThan(0);
-                expect(letterCeiling(layout, box, l),
-                    `batch ${l.letter} climbed past the lane above's bead row`).toBe(true);
-                expect(l.x).toBeGreaterThanOrEqual(box.x);
-                expect(l.x + l.w).toBeLessThanOrEqual(box.x + box.width);
-                if (l.leader) {
-                    withLeader++;
-                    expect(l.leader.y2).toBe(box.y);
-                    expect(l.leader.y1).toBeGreaterThan(l.y);
-                    expect(l.leader.y2 - l.leader.y1).toBeLessThanOrEqual(
-                        box.y - letterCeilingY(layout, box));
-                }
-            });
-            expect(withLeader, 'this fixture exists to exercise the leader branch')
-                .toBeGreaterThan(0);
-            assertNoLabelOverlap(layout, `congested column, ${nReq} req(s)`);
-            assertNoLabelOnBead(layout, `congested column, ${nReq} req(s)`);
-        });
-    }
-
-    // ── The sweep the two fixtures above cannot be ──────────────────────────
-    // Both fixtures are shapes somebody REASONED their way to, and the module's
-    // failure mode is precisely that a shape nobody reasoned about breaks a
-    // constant. So the same four properties run over generated plans too, from
-    // a FIXED seed — deterministic, no snapshot, and a counter-example arrives
-    // as a plan this file can print rather than as a flake.
-    //
-    // SIZED AGAINST A MEASURED DEFECT RATE, not by feel: the label-on-bead bug
-    // this suite was extended for showed up on 1.3% of letters, so a 200-box
-    // sweep would have let a regression through about one run in fifteen. 300
-    // plans is ~1500 boxes and still well under a second.
-    it('holds every batch property over seeded random plans', () => {
-        let seed = 12345;
-        const rnd = () => {
-            seed = (seed * 1103515245 + 12345) % 2147483648;
-            return seed / 2147483648;
-        };
-        const STATUSES = ['met', 'development', 'approved', 'swarm_ready', 'authoring'];
-        let boxes = 0;
-        for (let it = 0; it < 300; it++) {
-            const nSteps = 6 + Math.floor(rnd() * 22);
-            const nEpics = 1 + Math.floor(rnd() * 3);
-            const steps = [];
-            const stepDeps = [];
-            const stepRequirements = [];
-            const requirements = [];
-            const features = [];
-            const epics = [];
-            for (let e = 1; e <= nEpics; e++) {
-                epics.push({ id: e, title: `Epic ${e} with a longish title` });
-                features.push({ id: 100 + e, title: `Feature ${e}`, epic_fk: e });
-            }
-            let rid = 5000;
-            for (let s = 1; s <= nSteps; s++) {
-                steps.push({ id: s, pipeline_fk: 1, run: 'auto', notes: null,
-                    completed_at: null, title: `Step ${s} with a moderately long name` });
-                const nd = Math.floor(rnd() * 3);
-                for (let k = 0; k < nd; k++) {
-                    const d = 1 + Math.floor(rnd() * (s - 1));
-                    if (d >= 1 && d < s) {
-                        stepDeps.push({ id: s * 100 + k, step_fk: s, dep_step_fk: d,
-                            time_at: null });
-                    }
-                }
-                const st = STATUSES[Math.floor(rnd() * STATUSES.length)];
-                const nr = 1 + Math.floor(rnd() * 4);
-                const f = 101 + Math.floor(rnd() * nEpics);
-                for (let k = 0; k < nr; k++) {
-                    rid += 1;
-                    stepRequirements.push({ id: s * 50 + k, step_fk: s, requirement_fk: rid });
-                    requirements.push({ id: rid, requirement_status: st, feature_fk: f,
-                        tracking: 0, machine_fk: null,
-                        title: `Requirement title ${rid} of some length`,
-                        started_at: st === 'development' ? '2026-07-20T00:00:00Z' : null,
-                        completed_at: st === 'met' ? '2026-07-01T00:00:00Z' : null });
-                }
-            }
-            const p = orderedPlan(buildPipelineModel({
-                pipeline: { id: 1, title: 'fuzz', pipeline_status: 'active' },
-                steps, stepRequirements, stepDeps, requirements, features, epics,
-                machines: [],
-            }), { now: NOW });
-            if (!p.batches.length) continue;
-            for (const opts of COMBOS) {
-                const where = `seed plan ${it} (${opts.reqLayout} × ${opts.stepLabel})`;
-                const layout = computePlanLayout(p.rows, p.batches, opts);
-                assertNoLabelOverlap(layout, where);
-                assertNoLabelOnBead(layout, where);
-                const letters = layout.labels.filter((l) => l.kind === 'batch');
-                expect(letters).toHaveLength(layout.batchBoxes.length);
-                layout.batchBoxes.forEach((box, i) => {
-                    boxes++;
-                    const lanes = box.stepIds.map((id) => layout.nodes.get(id).lane)
-                        .sort((a, b) => a - b);
-                    expect(lanes[lanes.length - 1] - lanes[0] + 1,
-                        `${where}: batch ${box.letter} box spans a lane no member occupies `
-                        + `(lanes ${lanes.join(',')})`).toBe(lanes.length);
-                    const l = letters[i];
-                    expect(letterCeiling(layout, box, l),
-                        `${where}: batch ${l.letter} climbed past the lane above`).toBe(true);
-                    expect(l.x).toBeGreaterThanOrEqual(box.x);
-                    expect(l.x + l.w).toBeLessThanOrEqual(box.x + box.width);
-                });
-            }
-        }
-        // Guards the sweep against silently generating nothing to look at.
-        expect(boxes).toBeGreaterThan(1000);
-        // The 5s default was never right for this one — "well under a second"
-        // above was measured on an idle machine, and 300 seeded plans × the
-        // full property set runs 1.1–3.9s in practice, so it timed out
-        // intermittently under any parallel load (observed on an unmodified
-        // tree, before req #3271 added to this file). A budget matched to the
-        // work it actually does, rather than a flake nobody owns.
-    }, 30000);
-});
-
 describe('bead vocabulary (POC roles)', () => {
     const rowById = new Map(plan.rows.map((r) => [r.id, r]));
 
@@ -1232,9 +477,32 @@ describe('step labels', () => {
     });
 });
 
+// ── THE SIGNATURE CHANGE THAT COULD NOT FAIL SILENTLY (req #3371) ──────────
+// `computePlanLayout(rows, batches, opts)` was the signature through nine
+// requirements and ~100 call sites, and the middle argument was deleted. A
+// stale caller does not throw — it hands an array in as `opts`, every option
+// falls back to its default, and the plan renders CORRECTLY but in the wrong
+// requirement layout, with the wrong step width and no time axis. This case is
+// why that is a stack trace instead.
+describe('the removed second positional argument', () => {
+    it('refuses an array where the options bag belongs, loudly', () => {
+        expect(() => computePlanLayout(plan.rows, [])).toThrow(TypeError);
+        expect(() => computePlanLayout(plan.rows, [{ letter: 'A', stepIds: [1] }]))
+            .toThrow(/second argument/i);
+    });
+
+    it('still accepts the shapes a real caller passes', () => {
+        expect(() => computePlanLayout(plan.rows)).not.toThrow();
+        expect(() => computePlanLayout(plan.rows, {})).not.toThrow();
+        expect(() => computePlanLayout(plan.rows, undefined)).not.toThrow();
+        expect(computePlanLayout(plan.rows, { stepWidth: 'wide' }).stepWidth)
+            .toBe('wide');
+    });
+});
+
 describe('empty plan', () => {
     it('returns an explicit empty layout rather than NaN geometry', () => {
-        const layout = computePlanLayout([], []);
+        const layout = computePlanLayout([]);
         expect(layout.empty).toBe(true);
         expect(layout.nodes.size).toBe(0);
         expect(layout.labels).toEqual([]);
@@ -1248,8 +516,8 @@ describe('step width option (req #3168)', () => {
 
     it('compact is the IDENTITY — an unchanged reader gets the unchanged plan', () => {
         for (const opts of COMBOS) {
-            const before = computePlanLayout(plan.rows, plan.batches, opts);
-            const after = computePlanLayout(plan.rows, plan.batches,
+            const before = computePlanLayout(plan.rows, opts);
+            const after = computePlanLayout(plan.rows,
                 { ...opts, stepWidth: 'compact' });
             expect(after.colW).toEqual(before.colW);
             expect(after.width).toBe(before.width);
@@ -1257,7 +525,7 @@ describe('step width option (req #3168)', () => {
     });
 
     it('every wider setting widens EVERY column, monotonically', () => {
-        const at = (w) => computePlanLayout(plan.rows, plan.batches, { stepWidth: w }).colW;
+        const at = (w) => computePlanLayout(plan.rows, { stepWidth: w }).colW;
         const compact = at('compact');
         const medium = at('medium');
         const wide = at('wide');
@@ -1287,7 +555,7 @@ describe('step width option (req #3168)', () => {
             const name = `${opts.reqLayout} × ${opts.stepLabel} × ${stepWidth}`;
             it(`holds zero label overlap, no label-on-bead and column containment (${name})`,
                 () => {
-                    const layout = computePlanLayout(plan.rows, plan.batches,
+                    const layout = computePlanLayout(plan.rows,
                         { ...opts, stepWidth });
                     assertNoLabelOverlap(layout, name);
                     const beads = [...layout.nodes.values()].map(beadRect);
@@ -1310,14 +578,14 @@ describe('step width option (req #3168)', () => {
     }
 
     it('an unknown width falls back to compact rather than producing NaN geometry', () => {
-        const compact = computePlanLayout(plan.rows, plan.batches, { stepWidth: 'compact' });
+        const compact = computePlanLayout(plan.rows, { stepWidth: 'compact' });
         // Including the INHERITED Object.prototype keys. The setting is read from
         // localStorage, so these are reachable strings, and a plain truthiness
         // lookup returns the inherited FUNCTION — every column width becomes NaN
         // and the canvas renders blank with no error (review finding).
         for (const bogus of ['enormous', 'toString', 'constructor', 'valueOf',
             '', null, undefined, 0]) {
-            const layout = computePlanLayout(plan.rows, plan.batches, { stepWidth: bogus });
+            const layout = computePlanLayout(plan.rows, { stepWidth: bogus });
             expect(layout.colW, `stepWidth=${String(bogus)}`).toEqual(compact.colW);
             expect(Number.isFinite(layout.width)).toBe(true);
         }
@@ -1338,7 +606,7 @@ describe('readable default scale (req #3168)', () => {
         // The fixture is 34 steps. Fit-to-width across a 1600px panel puts the
         // requirement ids below the floor, which is the defect the requirement
         // names — assert the premise rather than trusting the anecdote.
-        const layout = computePlanLayout(plan.rows, plan.batches,
+        const layout = computePlanLayout(plan.rows,
             { reqLayout: 'vertical', stepLabel: 'title' });
         const kFit = 1600 / layout.width;
         expect(PLAN_VIZ_FONT.req * kFit).toBeLessThan(READABLE_MIN_PX);
@@ -1358,7 +626,7 @@ describe('readable default scale (req #3168)', () => {
 // then the guarantee req #3210 used to buy with a special case and this rule
 // has to keep on its own.
 describe('epic name pinned to its band, clamped to the viewport (req #3257)', () => {
-    const layout = computePlanLayout(plan.rows, plan.batches,
+    const layout = computePlanLayout(plan.rows,
         { reqLayout: 'vertical', stepLabel: 'title' });
     const VIEWPORT = { w: 1500, h: 900 };
 
@@ -2174,7 +1442,7 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
 // The floor is now on the FONT and the box is DERIVED from it. This block
 // asserts the four things the requirement asked for and the two it forbade.
 describe('the epic name holds a legible minimum font (req #3272)', () => {
-    const layout = computePlanLayout(plan.rows, plan.batches,
+    const layout = computePlanLayout(plan.rows,
         { reqLayout: 'vertical', stepLabel: 'title' });
     const VIEWPORT = { w: 1500, h: 900 };
     const MX = 6;
@@ -2751,7 +2019,7 @@ describe('epic band label counts, behind a toggle (req #3225)', () => {
     const VIEWPORT = { w: 1500, h: 900 };
 
     it('omitting epicCounts leaves every band label exactly as it reads today', () => {
-        const withCounts = computePlanLayout(plan.rows, plan.batches,
+        const withCounts = computePlanLayout(plan.rows,
             { reqLayout: 'vertical', stepLabel: 'title' });
         for (const band of withCounts.bands) {
             expect(band.epicLabel).toBe(band.epic);
@@ -2766,12 +2034,46 @@ describe('epic band label counts, behind a toggle (req #3225)', () => {
     });
 
     it('leaves a band untouched when the map carries no entry for its epic', () => {
-        const layout = computePlanLayout(plan.rows, plan.batches,
+        const layout = computePlanLayout(plan.rows,
             { epicCounts: new Map([[999999, { met: 1, total: 1 }]]) });
         for (const band of layout.bands) {
             expect(band.epicLabel).toBe(band.epic);
         }
     });
+
+    // Restored after req #3371 deleted it as collateral of removing the batch
+    // box describe block it happened to sit in — the branch it tests
+    // (`epicBandLabelText`'s `Object.hasOwn` path) is unrelated to batches.
+    it('accepts a plain object as well as a Map, matching the reqTitles convention', () => {
+        const [firstEpicId] = plan.rows.map((r) => r.epicId).filter((id) => id != null);
+        const layout = computePlanLayout(plan.rows,
+            { epicCounts: { [firstEpicId]: { met: 2, total: 4 } } });
+        const band = layout.bands.find((b) => b.epicId === firstEpicId);
+        expect(band.epicLabel).toBe(`${band.epic} 2/4`);
+    });
+
+    // Restored after req #3371 for the same reason — the zero-overlap
+    // invariant with count suffixes on the fixture's longest title (epic 4,
+    // "Primary and Swarm Agentic Integration", 38 chars) is unrelated to
+    // batches and lost its only coverage when that describe block went.
+    {
+        const WIDE_COUNTS = new Map(
+            EPICS.map((e) => [e.id, { met: 99, total: 100 }]));
+        for (const opts of COMBOS) {
+            const name = `${opts.reqLayout} reqs × ${opts.stepLabel} labels, counts on`;
+            it(`zero label overlap with long epic titles AND count suffixes (${name})`, () => {
+                const withCounts = computePlanLayout(plan.rows,
+                    { ...opts, epicCounts: WIDE_COUNTS });
+                assertNoLabelOverlap(withCounts, name);
+                const beads = [...withCounts.nodes.values()].map(beadRect);
+                for (const label of withCounts.labels) {
+                    for (const bead of beads) {
+                        expect(rectsOverlap(label, bead)).toBe(false);
+                    }
+                }
+            });
+        }
+    }
 
     it('never suffixes the "No epic" band, even with a non-empty counts map', () => {
         // A bead with no epic has no requirement set to count against — a
@@ -2786,19 +2088,19 @@ describe('epic band label counts, behind a toggle (req #3225)', () => {
             pipeline: { id: 1, title: 'x', pipeline_status: 'active' }, ...reads,
         }), { now: NOW });
         expect(p.rows[0].epicId).toBeNull();
-        const layout = computePlanLayout(p.rows, p.batches,
+        const layout = computePlanLayout(p.rows,
             { epicCounts: new Map([[1, { met: 1, total: 1 }]]) });
         const noEpicBand = layout.bands.find((b) => b.epicId == null);
         expect(noEpicBand.epicLabel).toBe(noEpicBand.epic);
     });
 
     it('placeEpicChips draws the epicLabel text and measures its width, not the bare name', () => {
-        const baseLayout = computePlanLayout(plan.rows, plan.batches,
+        const baseLayout = computePlanLayout(plan.rows,
             { reqLayout: 'vertical', stepLabel: 'title' });
         const epicCounts = new Map(baseLayout.bands
             .filter((b) => b.epicId != null)
             .map((b) => [b.epicId, { met: 9, total: 99 }]));
-        const withCounts = computePlanLayout(plan.rows, plan.batches,
+        const withCounts = computePlanLayout(plan.rows,
             { reqLayout: 'vertical', stepLabel: 'title', epicCounts });
         const chips = placeEpicChips({
             bands: withCounts.bands, transform: { x: 0, y: 0, k: K_READABLE },
@@ -2832,9 +2134,9 @@ describe('epic band label counts, behind a toggle (req #3225)', () => {
 
     it('the toggle is a pure display transform: the ONLY thing that changes '
         + 'with epicCounts is band.epicLabel and the label/chip rects built from it', () => {
-        const without = computePlanLayout(plan.rows, plan.batches,
+        const without = computePlanLayout(plan.rows,
             { reqLayout: 'vertical', stepLabel: 'title' });
-        const withCounts = computePlanLayout(plan.rows, plan.batches, {
+        const withCounts = computePlanLayout(plan.rows, {
             reqLayout: 'vertical', stepLabel: 'title',
             epicCounts: new Map(without.bands
                 .filter((b) => b.epicId != null)
@@ -2869,7 +2171,7 @@ describe('next-step highlight (req #3168)', () => {
     it('clears every label box in all four layout combinations', () => {
         const outer = NEXT_HALO_RADIUS + NEXT_HALO_STROKE / 2;
         for (const opts of COMBOS) {
-            const layout = computePlanLayout(plan.rows, plan.batches, opts);
+            const layout = computePlanLayout(plan.rows, opts);
             for (const label of layout.labels) {
                 if (label.stepId == null) continue;
                 const n = layout.nodes.get(label.stepId);
@@ -3076,24 +2378,27 @@ describe('the next-step halo survives Overview (req #3271)', () => {
     it('crosses no world furniture, at any k the zoom can reach', () => {
         const worstOuter = outerAt(NEXT_HALO_MAX_MAGNIFY);
         // The substrate fixture in all four label/layout combinations, PLUS the
-        // timed fuzz corpus — which is the only source here that draws launch
-        // -unit boxes in quantity (the substrate plan draws none).
+        // timed fuzz corpus — 400 deterministic plans, which is what keeps the
+        // sweep over PLAN SHAPES rather than over one fixture's.
         const layouts = [
             ...COMBOS.map((opts) => ({
                 label: `${opts.reqLayout}/${opts.stepLabel}`,
-                layout: computePlanLayout(plan.rows, plan.batches, opts),
+                layout: computePlanLayout(plan.rows, opts),
             })),
-            // BOTH requirement layouts. `horizontal` is the default, and its
-            // box bottom is BATCH_BOX_DROP_H = 30 — three world px of slack.
-            // `vertical` is BATCH_BOX_DROP_V = 28, which is the clearance the
-            // ceiling is actually SET BY, leaving exactly the designed 1px. A
-            // sweep that ran only the default asserted 934 times against the
-            // looser constant and never touched the binding one (review finding).
+            // BOTH requirement layouts, still. They used to differ in the
+            // clearance they exercised — the launch-unit box's bottom edge was
+            // 30 world px under `horizontal` reqs and 28 (the ceiling's own
+            // binding constraint) under `vertical`, so a sweep that ran only
+            // the default never touched the binding one (review finding). Req
+            // #3371 deleted that box, and the binding clearance is now the epic
+            // chip strip, which does not vary with the requirement layout —
+            // but the lane pitches and column widths still do, so both layouts
+            // stay swept.
             ...[...timedFuzzCorpus()].flatMap(({ seed, reads }) => {
                 const p = orderedPlan(buildPipelineModel(reads), { now: FUZZ_NOW });
                 return ['horizontal', 'vertical'].map((reqLayout) => ({
                     label: `fuzz seed ${seed} ${reqLayout}`,
-                    layout: computePlanLayout(p.rows, p.batches,
+                    layout: computePlanLayout(p.rows,
                         { reqLayout, timeAxis: p.timeAxis }),
                 }));
             }),
@@ -3102,32 +2407,13 @@ describe('the next-step halo survives Overview (req #3271)', () => {
         // this sweeps ~10^5 comparisons and vitest's per-expect overhead is what
         // pushed the case past its timeout.
         const bad = [];
-        const seen = { boxes: 0, bands: 0, laneZero: 0, letters: 0, letterPairs: 0 };
-        // Per requirement layout, because `vertical` is the one carrying the
-        // BINDING clearance (BATCH_BOX_DROP_V = 28, 1px of margin) and a total
-        // cannot tell a both-layout sweep from a horizontal-only one: the
-        // horizontal-only version drew 467 boxes, comfortably over any total
-        // threshold that a both-layout count of 934 would also clear.
-        const boxesByLayout = { horizontal: 0, vertical: 0 };
-        let minLetterD2 = Infinity;
-        let minLetterAt = 'none';
+        const seen = { bands: 0, laneZero: 0 };
+        // THE LAUNCH-UNIT BOX'S FOUR EDGES USED TO BE SWEPT HERE, and they were
+        // the binding clearance. Req #3371 deleted the box, so what is left is
+        // the epic chip strip — which IS the binding clearance now — plus the
+        // bead pairs in the case below.
         for (const { label: where, layout } of layouts) {
-            seen.boxes += layout.batchBoxes.length;
             seen.bands += layout.bands.length;
-            for (const key of Object.keys(boxesByLayout)) {
-                if (where.includes(key)) boxesByLayout[key] += layout.batchBoxes.length;
-            }
-            // Its own launch-unit box, on all four sides.
-            for (const box of layout.batchBoxes) {
-                for (const id of box.stepIds) {
-                    const n = layout.nodes.get(id);
-                    const at = `${where} step ${id}`;
-                    if (n.y - worstOuter <= box.y) bad.push(`${at}: box top`);
-                    if (n.y + worstOuter >= box.y + box.height) bad.push(`${at}: box bottom`);
-                    if (n.x - worstOuter <= box.x) bad.push(`${at}: box left`);
-                    if (n.x + worstOuter >= box.x + box.width) bad.push(`${at}: box right`);
-                }
-            }
             // The epic chip's strip, which is the room above a LANE-0 bead.
             // Tested UNCONDITIONALLY for every lane-0 bead: the first version
             // skipped on the PASSING condition, so its `expect` could only ever
@@ -3143,56 +2429,16 @@ describe('the next-step halo survives Overview (req #3271)', () => {
                     }
                 }
             }
-            // The launch-unit LETTER — text, and the one thing a per-bead
-            // clearance cannot bound, because the letter a halo crosses belongs
-            // to a NEIGHBOURING column's box. Measured at 4 crossings in 467
-            // letters before `beadRectsOf` was widened to the halo's reach.
-            //
-            // Stated as a measured MINIMUM DISTANCE rather than as "no pair
-            // intersects". After the fix no pair comes close, so an
-            // intersection counter reads zero for two different reasons — fixed,
-            // or never compared — and cannot tell them apart. A minimum shrinks
-            // visibly when the geometry moves. Squared distances: this is the
-            // hot loop of the case.
-            const beads = [...layout.nodes.values()];
-            for (const l of layout.labels.filter((x) => x.kind === 'batch')) {
-                seen.letters += 1;
-                for (const n of beads) {
-                    seen.letterPairs += 1;
-                    const dx = Math.max(l.x - n.x, 0, n.x - (l.x + l.w));
-                    const dy = Math.max(l.y - n.y, 0, n.y - (l.y + l.h));
-                    const d2 = dx * dx + dy * dy;
-                    if (d2 < minLetterD2) {
-                        minLetterD2 = d2;
-                        minLetterAt = `${where}: letter ${l.letter} × bead ${n.id}`;
-                    }
-                }
-            }
         }
         expect(bad.slice(0, 12)).toEqual([]);
-        // No bead's halo reaches ANY launch-unit letter. MEASURED at its
-        // tightest: 30.82 world px, seed 127 / letter A / bead 4 — the same
-        // letter-and-bead the review found at 19.34, i.e. inside the 23..27
-        // annulus — against a reach of 27, so 3.8px of margin. The MINIMUM is
-        // the whole assertion: a letter far outside the ring and a letter
-        // wholly inside it are both safe, and only the first is reachable here.
-        expect(Math.sqrt(minLetterD2), `nearest letter: ${minLetterAt}`)
-            .toBeGreaterThan(worstOuter);
         // Non-vacuity, per FURNITURE KIND — a total says nothing about whether
         // each kind was actually compared against.
         // Thresholds sit just under the MEASURED counts, not orders of
         // magnitude below them: a guard at 20 against an actual 1624 catches
         // total collapse and nothing else.
-        expect(boxesByLayout.horizontal, 'boxes swept, horizontal reqs')
-            .toBeGreaterThan(400);
-        expect(boxesByLayout.vertical, 'boxes swept, vertical reqs — the BINDING clearance')
-            .toBeGreaterThan(400);
-        expect(seen.boxes, 'launch-unit boxes swept').toBeGreaterThan(900);
         expect(seen.bands, 'epic bands swept').toBeGreaterThan(1500);
         expect(seen.laneZero, 'lane-0 beads compared to a chip strip')
             .toBeGreaterThan(6000);
-        expect(seen.letters, 'launch-unit letters swept').toBeGreaterThan(900);
-        expect(seen.letterPairs, 'letter × bead pairs measured').toBeGreaterThan(15000);
     }, 20000);
 
     // Kept separate because it is O(beads²): the substrate fixture in all four
@@ -3202,7 +2448,7 @@ describe('the next-step halo survives Overview (req #3271)', () => {
         const worstOuter = outerAt(NEXT_HALO_MAX_MAGNIFY);
         let pairs = 0;
         for (const opts of COMBOS) {
-            const pts = [...computePlanLayout(plan.rows, plan.batches, opts)
+            const pts = [...computePlanLayout(plan.rows, opts)
                 .nodes.values()];
             for (let i = 0; i < pts.length; i += 1) {
                 for (let j = i + 1; j < pts.length; j += 1) {
@@ -3227,7 +2473,10 @@ describe('the next-step halo survives Overview (req #3271)', () => {
     // `min(clearances) - 1` here would only restate the three lines above it in
     // the source, so it is deliberately not asserted.
     it('takes its ceiling from the tightest clearance, derived not typed', () => {
-        expect(Object.keys(NEXT_HALO_CLEARANCES).length).toBeGreaterThanOrEqual(7);
+        // FOUR since req #3371 removed the launch-unit box's three entries.
+        // The floor is what it has always been: a list shrinking back toward a
+        // one-constraint answer is the failure both wrong ceilings had.
+        expect(Object.keys(NEXT_HALO_CLEARANCES).length).toBeGreaterThanOrEqual(4);
         expect(NEXT_HALO_MAX_MAGNIFY).toBeGreaterThan(1.8);
     });
 
@@ -3375,7 +2624,6 @@ describe('the next-step halo survives the level CROSSINGS (req #3280)', () => {
         // that started gating them would silently change what those clearances
         // are protecting.
         for (const level of LEVELS) {
-            expect(drawsLabelKind('batch', level), `batch at ${level}`).toBe(true);
             expect(drawsLabelKind('slot', level), `slot at ${level}`).toBe(true);
         }
     });
@@ -3625,10 +2873,18 @@ describe('the next-step halo survives the level CROSSINGS (req #3280)', () => {
         expect(fails.length, 'scales that do not — the band this cannot reach')
             .toBeGreaterThan(10);
         // It is a clean split, not a scatter: every failing sample is below
-        // every holding one, so "below k ≈ 0.3" is the whole of the shortfall.
+        // every holding one, so "below k ≈ 0.27" is the whole of the shortfall.
+        //
+        // THE SPLIT MOVED WITH THE CEILING (req #3371), and it moved because
+        // the ceiling is DERIVED. Removing the launch-unit rectangle's three
+        // entries from `NEXT_HALO_CLEARANCES` took `NEXT_HALO_MAX_MAGNIFY` from
+        // 2.0x to 2.222x, and the acceptance stroke is met 10% further out as a
+        // result: the band pinned here was k ≈ 0.30 and is now k ≈ 0.27. The
+        // window is deliberately still narrow — a WIDE window would pass
+        // whatever the ceiling became, which is the opposite of pinning it.
         expect(Math.max(...fails)).toBeLessThan(Math.min(...holds));
-        expect(Math.min(...holds)).toBeGreaterThan(0.29);
-        expect(Math.min(...holds)).toBeLessThan(0.31);
+        expect(Math.min(...holds)).toBeGreaterThan(0.26);
+        expect(Math.min(...holds)).toBeLessThan(0.28);
         // THE PROOF that no ceiling under NEXT_HALO_MAX_OUTER could have closed
         // it: at the zoom floor the halo's ENTIRE outer edge is under three
         // screen px, so the ring is smaller than the stroke it would need. This
@@ -3669,8 +2925,11 @@ describe('the next-step halo survives the level CROSSINGS (req #3280)', () => {
         it('is derived from the ring\'s own acceptance floor, not chosen', () => {
             expect(NEXT_MARK_FLOOR_K).toBeCloseTo(
                 NEXT_MARK_MIN_STROKE_PX / (NEXT_HALO_STROKE * NEXT_HALO_MAX_MAGNIFY), 10);
-            expect(NEXT_MARK_FLOOR_K).toBeGreaterThan(0.29);
-            expect(NEXT_MARK_FLOOR_K).toBeLessThan(0.31);
+            // 0.27 since req #3371 raised the magnification ceiling — see the
+            // sibling case above for why the number moved and why the window
+            // stays tight around whatever the derivation currently yields.
+            expect(NEXT_MARK_FLOOR_K).toBeGreaterThan(0.26);
+            expect(NEXT_MARK_FLOOR_K).toBeLessThan(0.28);
             // The formula only means what it claims to on the CAPPED branch
             // (`strokePx(k) = STROKE × MAX_MAGNIFY × k` there) — true only
             // while the floor itself sits below where the magnification caps
@@ -3681,7 +2940,7 @@ describe('the next-step halo survives the level CROSSINGS (req #3280)', () => {
         });
 
         it('draws the ring at and above the floor, the dot only below it — '
-            + 'the k >= 0.3 band this requirement must not move', () => {
+            + 'the band req #3299 must not move', () => {
             const atOrAbove = REACHABLE.filter((k) => k >= NEXT_MARK_FLOOR_K);
             const below = REACHABLE.filter((k) => k < NEXT_MARK_FLOOR_K);
             expect(atOrAbove.length).toBeGreaterThan(0);
@@ -3789,7 +3048,7 @@ describe('the pause status bubble (req #3226)', () => {
 
     it('computePlanLayout: a band is paused when the WHOLE PLAN is paused — '
         + 'including the "No epic" band', () => {
-        const layout = computePlanLayout(plan.rows, plan.batches,
+        const layout = computePlanLayout(plan.rows,
             { pauseInfo: { pipelinePaused: true, pausedEpicIds: [] } });
         expect(layout.bands.length).toBeGreaterThan(0);
         expect(layout.bands.every((b) => b.paused === true)).toBe(true);
@@ -3797,7 +3056,7 @@ describe('the pause status bubble (req #3226)', () => {
 
     it('computePlanLayout: a band is paused when ITS OWN epic is paused, '
         + 'neighbours untouched', () => {
-        const layout = computePlanLayout(plan.rows, plan.batches,
+        const layout = computePlanLayout(plan.rows,
             { pauseInfo: { pipelinePaused: false, pausedEpicIds: [1] } });
         for (const band of layout.bands) {
             expect(band.paused).toBe(band.epicId === 1);
@@ -3805,7 +3064,7 @@ describe('the pause status bubble (req #3226)', () => {
     });
 
     it('defaults every band to unpaused when pauseInfo is omitted', () => {
-        const layout = computePlanLayout(plan.rows, plan.batches);
+        const layout = computePlanLayout(plan.rows);
         expect(layout.bands.every((b) => b.paused === false)).toBe(true);
     });
 
@@ -3828,7 +3087,7 @@ describe('the pause status bubble (req #3226)', () => {
     // (`layout.labels`, kind 'epic') is what `assertNoLabelOverlap` actually
     // sweeps, and req #3225 set the precedent that the two must grow together.
     it('the kind:"epic" label rect ALSO carries the bubble reservation', () => {
-        const layout = computePlanLayout(plan.rows, plan.batches);
+        const layout = computePlanLayout(plan.rows);
         const epicLabels = layout.labels.filter((l) => l.kind === 'epic');
         expect(epicLabels.length).toBeGreaterThan(0);
         for (const label of epicLabels) {
@@ -4377,7 +3636,7 @@ describe('the colour key — N scales plus NONE (req #3168 directive 3, req #342
 });
 
 describe("the KEY is a keep-out: what it costs the epic labels (req #3168, re-measured #3257)", () => {
-    const layout = computePlanLayout(plan.rows, plan.batches,
+    const layout = computePlanLayout(plan.rows,
         { reqLayout: 'vertical', stepLabel: 'title' });
     const VIEWPORT = { w: 1500, h: 900 };
 
@@ -4600,7 +3859,7 @@ const FIXTURE_TITLES = new Map(
     SUBSTRATE_REBUILD_MODEL.requirements.map((r) => [r.id, LONG_TITLE]));
 
 const drawn = (opts) => {
-    const layout = computePlanLayout(plan.rows, plan.batches,
+    const layout = computePlanLayout(plan.rows,
         { reqTitles: FIXTURE_TITLES, ...opts });
     const pick = (kind) => layout.labels.filter((l) => l.kind === kind)
         .map((l) => l.text.length);
@@ -4652,9 +3911,9 @@ describe('the 35-character ceiling (req #3168, directive B)', () => {
         // layout with no title labels at all shares its columns with one that
         // has them, at every width.
         for (const stepWidth of Object.keys(STEP_WIDTH_FACTORS)) {
-            const ids = computePlanLayout(plan.rows, plan.batches,
+            const ids = computePlanLayout(plan.rows,
                 { reqLayout: 'vertical', stepLabel: 'id', stepWidth });
-            const titled = computePlanLayout(plan.rows, plan.batches,
+            const titled = computePlanLayout(plan.rows,
                 { reqLayout: 'vertical', stepLabel: 'id', stepWidth,
                     reqTitles: FIXTURE_TITLES });
             expect(titled.colW).toEqual(ids.colW);
@@ -4676,10 +3935,10 @@ describe('requirement marks: id or TITLE (req #3168, directive E)', () => {
         // lane in the plan, no more, and it must be the ONLY thing that moved.
         for (const stepLabel of ['id', 'title']) {
             for (const stepWidth of Object.keys(STEP_WIDTH_FACTORS)) {
-                const base = computePlanLayout(plan.rows, plan.batches,
+                const base = computePlanLayout(plan.rows,
                     { ...reqViewOptions('vertical'), stepLabel, stepWidth,
                         reqTitles: FIXTURE_TITLES });
-                const titled = computePlanLayout(plan.rows, plan.batches,
+                const titled = computePlanLayout(plan.rows,
                     { ...reqViewOptions('titles'), stepLabel, stepWidth,
                         reqTitles: FIXTURE_TITLES });
                 const where = `${stepLabel} x ${stepWidth}`;
@@ -4735,7 +3994,7 @@ describe('requirement marks: id or TITLE (req #3168, directive E)', () => {
         for (const view of combos) {
             for (const stepLabel of ['id', 'title']) {
                 for (const stepWidth of Object.keys(STEP_WIDTH_FACTORS)) {
-                    const layout = computePlanLayout(plan.rows, plan.batches, {
+                    const layout = computePlanLayout(plan.rows, {
                         ...view, stepLabel, stepWidth,
                         reqTitles: FIXTURE_TITLES,
                     });
@@ -4784,7 +4043,7 @@ describe('requirement marks: id or TITLE (req #3168, directive E)', () => {
         for (const stepLabel of ['id', 'title']) {
             for (const stepWidth of Object.keys(STEP_WIDTH_FACTORS)) {
                 const name = `titles x ${stepLabel} x ${stepWidth}`;
-                const layout = computePlanLayout(plan.rows, plan.batches, {
+                const layout = computePlanLayout(plan.rows, {
                     ...reqViewOptions('titles'), stepLabel, stepWidth,
                     reqTitles: FIXTURE_TITLES,
                 });
@@ -4829,7 +4088,7 @@ describe('requirement marks: id or TITLE (req #3168, directive E)', () => {
             return Math.max(dx, dy);
         };
         for (const stepWidth of Object.keys(STEP_WIDTH_FACTORS)) {
-            const layout = computePlanLayout(plan.rows, plan.batches, {
+            const layout = computePlanLayout(plan.rows, {
                 ...reqViewOptions('titles'), stepLabel: 'title', stepWidth,
                 reqTitles: REAL_TITLES,
             });
@@ -4882,12 +4141,12 @@ describe('requirement marks: id or TITLE (req #3168, directive E)', () => {
         // used to infer that from `kind === 'title'`; a requirement mark that can
         // be EITHER a generated id or a stored name breaks that inference, so the
         // module states it.
-        const ids = computePlanLayout(plan.rows, plan.batches,
+        const ids = computePlanLayout(plan.rows,
             { ...reqViewOptions('vertical'), stepLabel: 'id', reqTitles: FIXTURE_TITLES });
         for (const l of ids.labels.filter((x) => x.kind === 'req')) {
             expect(l.prose).toBe(false);
         }
-        const titled = computePlanLayout(plan.rows, plan.batches,
+        const titled = computePlanLayout(plan.rows,
             { ...reqViewOptions('titles'), stepLabel: 'title',
                 reqTitles: FIXTURE_TITLES });
         for (const l of titled.labels.filter((x) => x.kind === 'req')) {
@@ -4900,7 +4159,7 @@ describe('requirement marks: id or TITLE (req #3168, directive E)', () => {
             .toBe(false);
         // Every generated mark stays generated.
         for (const l of titled.labels) {
-            if (l.kind === 'batch' || l.kind === 'epic') expect(l.prose).toBeFalsy();
+            if (l.kind === 'epic') expect(l.prose).toBeFalsy();
         }
     });
 });
@@ -4923,7 +4182,7 @@ describe('the requirement-view control (req #3168, directive E)', () => {
     it('measures the stub that justifies that constraint', () => {
         // Not asserted from the rule — MEASURED from the layout, so the
         // constraint is evidence rather than an opinion.
-        const layout = computePlanLayout(plan.rows, plan.batches, {
+        const layout = computePlanLayout(plan.rows, {
             reqLayout: 'horizontal', reqLabel: 'title', stepLabel: 'title',
             reqTitles: FIXTURE_TITLES,
         });
@@ -5185,7 +4444,7 @@ const TIMED_SUBSTRATE = {
 
 const timedPlan = orderedPlan(buildPipelineModel(TIMED_MODEL),
     { now: '2026-07-28T12:00:00Z' });
-const timedLayout = computePlanLayout(timedPlan.rows, timedPlan.batches,
+const timedLayout = computePlanLayout(timedPlan.rows,
     { timeAxis: timedPlan.timeAxis });
 // NO `buildPipelineModel` here, and that is the whole point of this line.
 // SUBSTRATE_REBUILD_MODEL is a MODEL, not a raw payload — line 34 feeds it to
@@ -5204,7 +4463,7 @@ const colOfStep = (layout, id) => layout.nodes.get(id).depth;
 // route that transform through the d3-zoom behavior, which is a browser
 // property and is asserted in the E2E (PIPE-13).
 describe('epic focus geometry', () => {
-    const layout = computePlanLayout(plan.rows, plan.batches,
+    const layout = computePlanLayout(plan.rows,
         { reqLayout: 'horizontal', stepLabel: 'id' });
     const bandOf = (epic) => {
         const b = layout.bands.find((x) => x.epic === epic);
@@ -5258,7 +4517,7 @@ describe('epic focus geometry', () => {
     // the fix, at 1600×820: "Application Backlog" lost 10.6px off the right edge
     // in horizontal+id, and the default view was down to 7.6px of its 44.
     describe.each(COMBOS)('drawn content fits, in $reqLayout + $stepLabel', (combo) => {
-        const lay = computePlanLayout(plan.rows, plan.batches, combo);
+        const lay = computePlanLayout(plan.rows, combo);
 
         // Everything this band's steps actually DRAW: beads and every label
         // carrying one of its step ids. Deliberately recomputed here from the
@@ -5468,7 +4727,7 @@ describe('epic focus geometry', () => {
     it('returns null rather than NaN geometry on degenerate input', () => {
         const band = layout.bands[0];
         const kBase = 0.5;
-        expect(bandFitRect(computePlanLayout([], []), band)).toBeNull();
+        expect(bandFitRect(computePlanLayout([]), band)).toBeNull();
         expect(bandFitRect(layout, { ...band, stepIds: [] })).toBeNull();
         expect(bandFitRect(layout, { ...band, stepIds: [999999] })).toBeNull();
         expect(bandFitRect(layout, { ...band, height: 0 })).toBeNull();
@@ -5889,7 +5148,7 @@ describe('epic focus reserves room for the neighbours\' names (req #3274)', () =
 
     // ── THE SMALL EPIC IS UNTOUCHED ─────────────────────────────────────────
     it('a ONE-STEP epic still lands at the focus ceiling, on the Detail level', () => {
-        const layout = computePlanLayout(plan.rows, plan.batches,
+        const layout = computePlanLayout(plan.rows,
             { reqLayout: 'horizontal', stepLabel: 'id' });
         const band = layout.bands.find((b) => b.stepIds.length === 1);
         expect(band, 'the fixture has a one-step band').toBeTruthy();
@@ -5992,7 +5251,7 @@ describe('epic focus reserves room for the neighbours\' names (req #3274)', () =
     };
 
     it('leaves STEP focus unchanged — it reserves nothing and never did', () => {
-        const layout = computePlanLayout(plan.rows, plan.batches,
+        const layout = computePlanLayout(plan.rows,
             { reqLayout: 'vertical', stepLabel: 'title' });
         const size = { w: 1400, h: 800 };
         const kBase = size.w / layout.width;
@@ -6019,7 +5278,7 @@ describe('epic focus reserves room for the neighbours\' names (req #3274)', () =
 // division of labour: everything here is falsifiable arithmetic, and the
 // component adds only the decision to route the transform through d3-zoom.
 describe('step focus geometry (req #3253)', () => {
-    const layout = computePlanLayout(plan.rows, plan.batches,
+    const layout = computePlanLayout(plan.rows,
         { reqLayout: 'vertical', stepLabel: 'title' });
     const stepIds = [...layout.nodes.keys()];
 
@@ -6094,6 +5353,36 @@ describe('step focus geometry (req #3253)', () => {
         expect(stepTr.k / kBase).toBeCloseTo(FOCUS_MAX_RATIO, 9);
     });
 
+    // STEP_FOCUS_CONTEXT (req #3297, re-pointed by req #3371) is applied
+    // INSIDE stepFocusTransform, not stepFitRect — so unlike the old batch
+    // test, there is no fitRect call that already carries the inflation to
+    // compare against. Re-derive kFit from the RAW rect via fitTransform's
+    // own documented formula (`min(availW/rect.w, availH/rect.h)`, no
+    // neighbours/ruler reserve on a step target) and assert the transform's k
+    // is exactly that, scaled down by the margin — the same relationship the
+    // deleted `inflates by BATCH_FOCUS_CONTEXT` test pinned for its subject.
+    //
+    // On every OTHER test in this block the FOCUS_MAX_RATIO ceiling binds
+    // instead (see 'shares the epic focus's clamp' below) — the ordinary case
+    // the constant's own comment calls out as making it inert — so kBase is
+    // derived FROM the fit here rather than from the layout, specifically to
+    // land in the fit-bound regime where the margin is observable at all.
+    it('inflates by STEP_FOCUS_CONTEXT when the fit — not the ceiling — binds', () => {
+        const id = stepIds[0];
+        const rect = stepFitRect(layout, id);
+        const size = { w: 900, h: 640 };
+        const availW = Math.max(size.w * 0.5, size.w - 2 * FOCUS_PAD);
+        const availH = Math.max(size.h * 0.5, size.h - 2 * FOCUS_PAD);
+        const kFitRaw = Math.min(availW / rect.w, availH / rect.h);
+        const kFitInflated = kFitRaw / (1 + 2 * STEP_FOCUS_CONTEXT);
+        const kBase = kFitInflated / 2;
+        const kFloor = kBase * 1e-9;
+        expect(kBase * FOCUS_MAX_RATIO).toBeGreaterThan(kFitInflated);
+        const tr = stepFocusTransform(layout, id, size, kBase, kFloor);
+        expect(tr).toBeTruthy();
+        expect(tr.k).toBeCloseTo(kFitInflated, 6);
+    });
+
     it('centres the step and leaves at least FOCUS_PAD on all four sides', () => {
         const size = { w: 1200, h: 700 };
         const kBase = size.w / layout.width;
@@ -6149,157 +5438,12 @@ describe('step focus geometry (req #3253)', () => {
         expect(stepFitRect(layout, 999999)).toBeNull();
         expect(stepFitRect(layout, null)).toBeNull();
         expect(stepFitRect(layout, undefined)).toBeNull();
-        expect(stepFitRect(computePlanLayout([], []), id)).toBeNull();
+        expect(stepFitRect(computePlanLayout([]), id)).toBeNull();
         expect(stepFitRect(null, id)).toBeNull();
         expect(stepFocusTransform(layout, 999999, { w: 800, h: 600 }, kBase, kBase * FOCUS_MIN_RATIO)).toBeNull();
         expect(stepFocusTransform(layout, id, { w: 0, h: 0 }, kBase, kBase * FOCUS_MIN_RATIO)).toBeNull();
         expect(stepFocusTransform(layout, id, undefined, kBase, kBase * FOCUS_MIN_RATIO)).toBeNull();
         expect(stepFocusTransform(layout, id, { w: 800, h: 600 }, 0, 0.1)).toBeNull();
-    });
-});
-
-// ── The THIRD focus target (req #3297) ──────────────────────────────────────
-// The epic name's second stop: one launch batch of one band. The SELECTION
-// half — which batch that is, and which level a click lands on — is pinned in
-// `pipelineEpicZoom.test.js` against this same fixture.
-describe('batch focus geometry (req #3297)', () => {
-    const batchPlan = orderedPlan(
-        buildPipelineModel({ pipeline: EPIC_ZOOM_PIPELINE, ...EPIC_ZOOM_READS }),
-        { now: EPIC_ZOOM_NOW },
-    );
-    const lay = computePlanLayout(batchPlan.rows, batchPlan.batches);
-    const bandOf = (key) => lay.bands.find((b) => (b.key == null ? 'none' : b.key) === key);
-    const batchBand = bandOf(11);       // holds A (two segments) and B (one)
-    const plainBand = bandOf(12);       // one step, no batch at all
-    const size = { w: 900, h: 640 };
-    const kBase = 0.6;
-    const kFloor = kBase * FOCUS_MIN_RATIO;
-    const segmentsOf = (letter) => lay.batchBoxes.filter((b) => b.letter === letter);
-
-    it('is set up on a plan that actually derives batches', () => {
-        expect(batchPlan.batches.map((b) => b.letter)).toEqual(['A', 'B']);
-        expect(segmentsOf('A')).toHaveLength(2);
-        expect(segmentsOf('B')).toHaveLength(1);
-    });
-
-    // A batch is ONE launch unit; `computePlanLayout` splits its box per
-    // (band, column) only so a segment never encloses a non-member. Fitting one
-    // segment would frame part of the /swarm-start and call it the batch.
-    it('unions every segment the batch draws in that band', () => {
-        const rect = batchFitRect(lay, batchBand, 'A');
-        expect(rect).toBeTruthy();
-        for (const seg of segmentsOf('A')) {
-            expect(rect.x).toBeLessThanOrEqual(seg.x);
-            expect(rect.y).toBeLessThanOrEqual(seg.y);
-            expect(rect.x + rect.w).toBeGreaterThanOrEqual(seg.x + seg.width);
-            expect(rect.y + rect.h).toBeGreaterThanOrEqual(seg.y + seg.height);
-        }
-        // …and it is genuinely wider than either segment alone, so the union is
-        // doing work rather than the two happening to coincide.
-        const widest = Math.max(...segmentsOf('A').map((s) => s.width));
-        expect(rect.w).toBeGreaterThan(widest);
-    });
-
-    // The context margin (`BATCH_FOCUS_CONTEXT`): proportional, symmetric, and
-    // therefore incapable of moving the camera — only of changing k, and only
-    // where the fit rather than the ceiling binds.
-    it('inflates by BATCH_FOCUS_CONTEXT on all four sides, symmetrically', () => {
-        const segs = segmentsOf('B');
-        const box = segs[0];
-        const rect = batchFitRect(lay, batchBand, 'B');
-        expect(rect.w).toBeCloseTo(box.width * (1 + 2 * BATCH_FOCUS_CONTEXT), 6);
-        expect(rect.h).toBeCloseTo(box.height * (1 + 2 * BATCH_FOCUS_CONTEXT), 6);
-        // Same centre as the bare box — this is what makes the constant unable
-        // to shift the framing.
-        expect(rect.x + rect.w / 2).toBeCloseTo(box.x + box.width / 2, 6);
-        expect(rect.y + rect.h / 2).toBeCloseTo(box.y + box.height / 2, 6);
-    });
-
-    it('centres the batch in the viewport', () => {
-        const rect = batchFitRect(lay, batchBand, 'A');
-        const tr = batchFocusTransform(lay, batchBand, 'A', size, kBase, kFloor);
-        expect(tr).toBeTruthy();
-        expect(tr.x + (rect.x + rect.w / 2) * tr.k).toBeCloseTo(size.w / 2, 6);
-        expect(tr.y + (rect.y + rect.h / 2) * tr.k).toBeCloseTo(size.h / 2, 6);
-    });
-
-    // Requirement item 8. A batch box is small, so the tight fit wants a scale
-    // far past anything the surface allows; the ceiling is what turns that into
-    // the reference framing — the box comfortably readable with the plan still
-    // around it — and what stops the next wheel event snapping the camera back.
-    it('clamps at the same ceiling every other focus uses', () => {
-        for (const letter of ['A', 'B']) {
-            const tr = batchFocusTransform(lay, batchBand, letter, size, kBase, kFloor);
-            expect(tr.k).toBeLessThanOrEqual(kBase * FOCUS_MAX_RATIO + 1e-9);
-            expect(tr.k).toBeGreaterThanOrEqual(kFloor - 1e-9);
-        }
-        // And on this fixture the ceiling really is what binds — otherwise the
-        // assertion above would pass on a fit that never approached it.
-        const tr = batchFocusTransform(lay, batchBand, 'B', size, kBase, kFloor);
-        expect(tr.k).toBeCloseTo(kBase * FOCUS_MAX_RATIO, 9);
-    });
-
-    it('leaves every segment of the batch on screen', () => {
-        for (const letter of ['A', 'B']) {
-            const tr = batchFocusTransform(lay, batchBand, letter, size, kBase, kFloor);
-            for (const seg of segmentsOf(letter)) {
-                expect(tr.x + seg.x * tr.k).toBeGreaterThanOrEqual(0);
-                expect(tr.y + seg.y * tr.k).toBeGreaterThanOrEqual(0);
-                expect(tr.x + (seg.x + seg.width) * tr.k).toBeLessThanOrEqual(size.w);
-                expect(tr.y + (seg.y + seg.height) * tr.k).toBeLessThanOrEqual(size.h);
-            }
-        }
-    });
-
-    // Requirement item 6, the geometry end: a band with no box for that letter
-    // has nothing to fit, and must return null so the caller can leave the
-    // camera exactly where it is rather than apply a transform built from
-    // Infinity.
-    it('refuses a band that draws no box for the letter', () => {
-        expect(batchFitRect(lay, plainBand, 'A')).toBeNull();
-        expect(batchFocusTransform(lay, plainBand, 'A', size, kBase, kFloor)).toBeNull();
-        expect(batchFitRect(lay, batchBand, 'Z')).toBeNull();
-        expect(batchFocusTransform(lay, batchBand, 'Z', size, kBase, kFloor)).toBeNull();
-    });
-
-    it('returns null rather than NaN geometry on degenerate input', () => {
-        expect(batchFitRect(null, batchBand, 'A')).toBeNull();
-        expect(batchFitRect(lay, null, 'A')).toBeNull();
-        expect(batchFitRect(lay, batchBand, null)).toBeNull();
-        expect(batchFitRect(lay, { stepIds: [] }, 'A')).toBeNull();
-        expect(batchFitRect(computePlanLayout([], []), batchBand, 'A')).toBeNull();
-        expect(batchFocusTransform(lay, batchBand, 'A', { w: 0, h: 0 }, kBase, kFloor)).toBeNull();
-        expect(batchFocusTransform(lay, batchBand, 'A', undefined, kBase, kFloor)).toBeNull();
-        expect(batchFocusTransform(lay, batchBand, 'A', size, 0, kFloor)).toBeNull();
-    });
-
-    // The floor is the CALLER'S OWN (req #3274) and this function inherits that
-    // contract unchanged — a missing one refuses the fit rather than
-    // re-deriving a copy that silently disagrees with `scaleExtent`.
-    it('requires the caller to hand in its own scale floor', () => {
-        expect(batchFocusTransform(lay, batchBand, 'A', size, kBase)).toBeNull();
-        expect(batchFocusTransform(lay, batchBand, 'A', size, kBase, 0)).toBeNull();
-        expect(batchFocusTransform(lay, batchBand, 'A', size, kBase, -1)).toBeNull();
-        expect(batchFocusTransform(lay, batchBand, 'A', size, kBase, NaN)).toBeNull();
-        expect(batchFocusTransform(lay, batchBand, 'A', size, kBase, kFloor)).toBeTruthy();
-    });
-
-    // The band scoping is a DEFENCE on an argument this module does not derive
-    // (since req #3188 an engine batch cannot span bands). Asserted against a
-    // hand-built layout, because the engine cannot produce the input it guards.
-    it('ignores a same-letter segment belonging to another band', () => {
-        const foreign = {
-            ...lay,
-            batchBoxes: [
-                ...segmentsOf('B'),
-                { letter: 'B', stepIds: [8], x: 4000, y: 4000, width: 60, height: 60,
-                    bandIndex: 1, depth: 0 },
-            ],
-        };
-        const rect = batchFitRect(foreign, batchBand, 'B');
-        const box = segmentsOf('B')[0];
-        expect(rect.x + rect.w).toBeLessThan(4000);
-        expect(rect.x + rect.w / 2).toBeCloseTo(box.x + box.width / 2, 6);
     });
 });
 
@@ -6381,7 +5525,7 @@ describe('the base view = factory default scale (req #3216 D1, req #3312)', () =
     // number below is READ from the layout rather than restated, so a change to
     // the row pitch moves the fixture and the cases with it.
     describe('is the view a plan opens in (req #3312)', () => {
-        const world = computePlanLayout(plan.rows, plan.batches);
+        const world = computePlanLayout(plan.rows);
         // Exactly as PipelinePlanVisualizer derives them, so these cases
         // exercise the real contract between the three numbers rather than a
         // convenient floor.
@@ -6483,7 +5627,7 @@ describe('epic bands stack by `epics.sort_order` (req #3430)', () => {
         const model = { ...TIMED_MODEL, epics, ...extra };
         const ordered = orderedPlan(buildPipelineModel(model),
             { now: '2026-07-28T12:00:00Z' });
-        const layout = computePlanLayout(ordered.rows, ordered.batches,
+        const layout = computePlanLayout(ordered.rows,
             { timeAxis: ordered.timeAxis });
         return layout.bands.map((b) => b.epic);
     };
@@ -6638,7 +5782,7 @@ describe('time axis — review regressions', () => {
         const p = orderedPlan(buildPipelineModel(model), { now: '2026-07-10T00:00:00Z' });
         return {
             plan: p,
-            layout: computePlanLayout(p.rows, p.batches, { timeAxis: p.timeAxis }),
+            layout: computePlanLayout(p.rows, { timeAxis: p.timeAxis }),
         };
     };
     const r = (o) => ({
@@ -6711,8 +5855,7 @@ describe('time axis — the zero-overlap contract still holds at plan scale', ()
     it('runs on a real, multi-slot, multi-band plan — not on an empty one', () => {
         expect(timedSubstratePlan.rows.length)
             .toBe(SUBSTRATE_REBUILD_MODEL.steps.length);
-        const layout = computePlanLayout(timedSubstratePlan.rows,
-            timedSubstratePlan.batches, { timeAxis: timedSubstratePlan.timeAxis });
+        const layout = computePlanLayout(timedSubstratePlan.rows, { timeAxis: timedSubstratePlan.timeAxis });
         expect(layout.empty).toBe(false);
         expect(layout.slots.length).toBeGreaterThan(2);
         expect(layout.bands.length).toBeGreaterThan(1);
@@ -6722,7 +5865,7 @@ describe('time axis — the zero-overlap contract still holds at plan scale', ()
 
     for (const combo of COMBOS) {
         const name = `${combo.reqLayout}/${combo.stepLabel}`;
-        const layout = computePlanLayout(timedSubstratePlan.rows, timedSubstratePlan.batches,
+        const layout = computePlanLayout(timedSubstratePlan.rows,
             { ...combo, timeAxis: timedSubstratePlan.timeAxis });
 
         it(`no two labels intersect (${name})`, () => {
@@ -6833,7 +5976,7 @@ describe('time ruler (req #3207)', () => {
                 ? { ...r, completed_at: '2026-07-31T09:00:00' } : r)),
         };
         const p = orderedPlan(buildPipelineModel(gapped), { now: '2026-08-01T12:00:00Z' });
-        const L = computePlanLayout(p.rows, p.batches, { timeAxis: p.timeAxis });
+        const L = computePlanLayout(p.rows, { timeAxis: p.timeAxis });
         const days = L.ruler.slots.filter((s) => s.kind === 'dated');
         const gap = days.find((s) => s.day === '2026-07-31');
         expect(gap).toBeDefined();
@@ -6858,7 +6001,7 @@ describe('time ruler (req #3207)', () => {
             }),
         };
         const p = orderedPlan(buildPipelineModel(spanning), { now: '2026-07-28T12:00:00Z' });
-        const L = computePlanLayout(p.rows, p.batches, { timeAxis: p.timeAxis });
+        const L = computePlanLayout(p.rows, { timeAxis: p.timeAxis });
         const days = L.ruler.slots.filter((s) => s.kind === 'dated');
         expect(days[0].label).toBe("Jul 25 '25");
         // The same calendar day one year on must NOT render as a second bare
@@ -6937,7 +6080,7 @@ describe('time ruler (req #3207)', () => {
 
     it('never lets a ruler tick reach a band, a bead or any other label', () => {
         for (const opts of COMBOS) {
-            const layout = computePlanLayout(timedPlan.rows, timedPlan.batches,
+            const layout = computePlanLayout(timedPlan.rows,
                 { ...opts, timeAxis: timedPlan.timeAxis });
             assertNoLabelOverlap(layout, `${opts.reqLayout} × ${opts.stepLabel} + ruler`);
             for (const l of rulerLabels(layout)) {
@@ -6958,9 +6101,9 @@ describe('time ruler (req #3207)', () => {
         // the strip.
         const heights = new Set();
         for (const opts of COMBOS) {
-            heights.add(computePlanLayout(timedPlan.rows, timedPlan.batches,
+            heights.add(computePlanLayout(timedPlan.rows,
                 { ...opts, timeAxis: timedPlan.timeAxis }).ruler.h);
-            heights.add(computePlanLayout(plan.rows, plan.batches, opts).ruler.h);
+            heights.add(computePlanLayout(plan.rows, opts).ruler.h);
         }
         expect(heights.size).toBe(1);
         expect([...heights][0]).toBe(RULER_H);
@@ -6972,7 +6115,7 @@ describe('time ruler (req #3207)', () => {
         // The no-timeAxis path is a real path (computeTimeColumns' degenerate
         // case), and a plan with no dates must not render a blank strip that
         // reads as a rendering fault.
-        const untimed = computePlanLayout(plan.rows, plan.batches);
+        const untimed = computePlanLayout(plan.rows);
         expect(untimed.ruler.slots).toHaveLength(1);
         expect(untimed.ruler.slots[0].kind).toBe('unknown');
         expect(untimed.ruler.slots[0].label).toBe('undated');
@@ -6982,7 +6125,7 @@ describe('time ruler (req #3207)', () => {
     });
 
     it('returns an INERT ruler for the empty plan rather than omitting it', () => {
-        const empty = computePlanLayout([], []);
+        const empty = computePlanLayout([]);
         expect(empty.ruler).toEqual({ h: RULER_H, slots: [], futureX: null });
     });
 
@@ -7171,7 +6314,7 @@ describe('epic band palette — no brown, no muddy tones (req #3219)', () => {
         // asserting `bands[].color` against `EPIC_PALETTE[i % len]` on THAT
         // (sorted, not discovery) order is what proves colour follows it.
         const rows = Array.from({ length: n }, (_, i) => mk(i + 1, n - i, `E${n - i}`));
-        const layout = computePlanLayout(rows, []);
+        const layout = computePlanLayout(rows);
         expect(layout.bands.map((b) => b.epicId))
             .toEqual(Array.from({ length: n }, (_, i) => i + 1));
         expect(layout.bands.map((b) => b.color)).toEqual(
@@ -7189,23 +6332,27 @@ describe('epic band palette — no brown, no muddy tones (req #3219)', () => {
 // "Never two beads on one `(band, column, lane)` cell" is this module's oldest
 // invariant, it has an assertion in the plan-scale block above, and it was still
 // violated in the field. Every fixture this suite owns — Substrate (34 real
-// rows), the timed Substrate, the cross-epic plan — satisfies it. The shape that
-// breaks it is a plan with SEVERAL launch batches whose mates sit at DIFFERENT
-// dependency depths, which is a graph nobody hand-writes and which req #3188
-// made reachable when it regrouped batches on the REMAINING gate instead of a
-// shared dep set.
-//
-// So the corpus, not another fixture: 150 deterministic plans (see
+// rows), the timed Substrate, the cross-epic plan — satisfies it, which is why
+// a CORPUS rather than another fixture: 400 deterministic plans (see
 // `timedFuzzPlans.js` for the generator's shape argument), each laid out WITH
 // and WITHOUT a time axis. Deterministic means a failure names a seed and that
 // seed is a permanent repro — `makeTimedPlan(<seed>)` is the whole reproducer.
 //
+// THE COVERAGE IS KEPT DELIBERATELY, AND IT IS WHY THIS BLOCK SURVIVED REQ
+// #3371. The mechanism that used to violate the invariant was the launch-unit
+// LANE RUN — mates of one launch sitting at different dependency depths, a
+// graph nobody hand-writes — and req #3371 deleted the run along with the
+// rectangle it existed to keep honest. Deleting this sweep with it would have
+// traded a real defect class for a smaller test suite: the cell invariant is
+// this surface's OLDEST promise, it is now carried by the ordinary lane
+// allocation alone, and losing its coverage while deleting the run's coverage
+// is exactly what req #3229 was filed to prevent.
+//
 // The BEFORE measurement, kept because it is what the corpus is sized for: the
-// shipped 400 plans collide on seeds 89, 303 and 358 against the pre-fix module.
-// The original 150-plan cut collided on seed 115 at `(0, 2, 3)` between steps 13
-// and 11 — batch A's run allocated at column 0 and consumed at column 2, batch
-// B's run allocated in between — WITH and WITHOUT the axis (columns 5 and 2),
-// which is how the "the time axis causes it" reading was refuted.
+// shipped 400 plans collide on seeds 89, 303 and 358 against the pre-fix
+// module. The original 150-plan cut collided on seed 115 at `(0, 2, 3)` between
+// steps 13 and 11 — WITH and WITHOUT the axis (columns 5 and 2), which is how
+// the "the time axis causes it" reading was refuted.
 describe('cell invariant over a timed fuzz corpus (req #3229)', () => {
     const corpus = timedFuzzCorpus();
 
@@ -7220,44 +6367,51 @@ describe('cell invariant over a timed fuzz corpus (req #3229)', () => {
         return out;
     };
 
-    it('the corpus is non-vacuous, and carries the hazard shape', () => {
+    it('the corpus is non-vacuous, and carries the shapes the allocator branches on', () => {
         // The precondition guard req #3207 added, for exactly the reason it
         // added it: 16 plan-scale tests once asserted over an empty array in
         // total silence, and shipped that way. A fuzz corpus is MORE exposed to
-        // that, not less — a generator that quietly stopped producing batches
-        // would leave three green tests asserting nothing about the defect they
-        // were written for. So the shape is asserted, not just the row count:
-        // the MULTI-COLUMN BATCH is the thing the fix is about.
+        // that, not less — a generator that quietly stopped producing the shape
+        // under test would leave the sweeps below green and vacuous.
+        //
+        // WHAT THE SHAPE ASSERTIONS ARE NOW (req #3371). They used to count
+        // MULTI-COLUMN LAUNCH GROUPS, because the lane run those produced was
+        // the mechanism that broke the cell invariant. That run is deleted, so
+        // the shape that still exercises the allocator is a band DEEP ENOUGH to
+        // make lanes contend: `sub >= 2` means at least two lanes were assigned,
+        // and `sub >= 3` is where the dep-adjacent INSERTION path (fractional
+        // lanes, renumbered ordinally at band close) does its work. MEASURED on
+        // the shipped corpus: 6332 rows, 804 bands, 566 multi-lane, 331 deep,
+        // 290 of 400 plans carrying a deep band, deepest 11 lanes, 4111 dated
+        // steps. Thresholds sit just under those, so a generator that collapsed
+        // fails rather than passes quietly.
         let rows = 0;
-        let batches = 0;
-        let multiColumnBatches = 0;
-        let hazardPlans = 0;
+        let bands = 0;
+        let multiLaneBands = 0;
+        let deepBands = 0;
+        let plansWithDeepBand = 0;
         let dated = 0;
         for (const { reads } of corpus) {
             const plan = orderedPlan(buildPipelineModel(reads), { now: FUZZ_NOW });
-            const layout = computePlanLayout(plan.rows, plan.batches,
+            const layout = computePlanLayout(plan.rows,
                 { timeAxis: plan.timeAxis });
             rows += plan.rows.length;
-            batches += plan.batches.length;
-            let wide = 0;
-            for (const b of plan.batches) {
-                const cells = new Set(b.stepIds
-                    .map((id) => layout.nodes.get(id)).filter(Boolean)
-                    .map((n) => `${n.bandIndex}|${n.depth}`));
-                if (cells.size >= 2) wide += 1;
+            bands += layout.bands.length;
+            let deep = false;
+            for (const band of layout.bands) {
+                if (band.sub >= 2) multiLaneBands += 1;
+                if (band.sub >= 3) { deepBands += 1; deep = true; }
             }
-            multiColumnBatches += wide;
-            // A multi-column batch sharing its plan with another batch — the
-            // precise shape that produced the collision.
-            if (wide >= 1 && plan.batches.length >= 2) hazardPlans += 1;
+            if (deep) plansWithDeepBand += 1;
             dated += [...plan.timeAxis.stepStarts.values()]
                 .filter((s) => s && s.kind === 'dated').length;
         }
         expect(corpus).toHaveLength(400);
         expect(rows).toBeGreaterThan(5000);
-        expect(batches).toBeGreaterThan(200);
-        expect(multiColumnBatches).toBeGreaterThan(100);
-        expect(hazardPlans).toBeGreaterThan(20);
+        expect(bands).toBeGreaterThan(700);
+        expect(multiLaneBands).toBeGreaterThan(400);
+        expect(deepBands).toBeGreaterThan(250);
+        expect(plansWithDeepBand).toBeGreaterThan(200);
         expect(dated).toBeGreaterThan(2000);
     });
 
@@ -7265,7 +6419,7 @@ describe('cell invariant over a timed fuzz corpus (req #3229)', () => {
         const failures = [];
         for (const { seed, reads } of corpus) {
             const plan = orderedPlan(buildPipelineModel(reads), { now: FUZZ_NOW });
-            const layout = computePlanLayout(plan.rows, plan.batches,
+            const layout = computePlanLayout(plan.rows,
                 { timeAxis: plan.timeAxis });
             expect(layout.nodes.size).toBe(plan.rows.length);
             for (const c of cellCollisions(layout)) failures.push(`seed ${seed} — ${c}`);
@@ -7277,7 +6431,7 @@ describe('cell invariant over a timed fuzz corpus (req #3229)', () => {
         const failures = [];
         for (const { seed, reads } of corpus) {
             const plan = orderedPlan(buildPipelineModel(reads), { now: FUZZ_NOW });
-            const layout = computePlanLayout(plan.rows, plan.batches);
+            const layout = computePlanLayout(plan.rows);
             expect(layout.nodes.size).toBe(plan.rows.length);
             for (const c of cellCollisions(layout)) failures.push(`seed ${seed} — ${c}`);
         }
@@ -7292,7 +6446,7 @@ describe('cell invariant over a timed fuzz corpus (req #3229)', () => {
         it('gives every bead its own position, and draws no label over another', () => {
             for (const { seed, reads } of corpus) {
                 const plan = orderedPlan(buildPipelineModel(reads), { now: FUZZ_NOW });
-                const layout = computePlanLayout(plan.rows, plan.batches,
+                const layout = computePlanLayout(plan.rows,
                     { ...opts, timeAxis: plan.timeAxis });
                 const seen = new Map();
                 for (const n of layout.nodes.values()) {
@@ -7306,95 +6460,4 @@ describe('cell invariant over a timed fuzz corpus (req #3229)', () => {
             }
         });
     });
-});
-
-// ── The batch box encloses ONLY its members (req #3229) ─────────────────────
-// A companion to the cell invariant above, and the reason it is here rather
-// than folded in: the two break through the SAME mechanism (a batch lane run
-// allocated in raw values over a lane space that is fractional until the
-// ordinal renumber) but they are different promises to the reader. A shared
-// cell draws two beads on top of each other; a run that is contiguous when
-// allocated and NOT contiguous after renumbering draws a launch-unit box
-// around a step that is not in the launch unit.
-//
-// THE FIVE-STEP CASE IS HAND-BUILT ON PURPOSE. The corpus below is what proved
-// the fix, but this shape needs no fuzzing at all — which is exactly why it
-// must not be corpus-only. Steps 5 and 6 are batch A and take raw lanes 0 and
-// 1; step 7 then finds its dep's lane occupied, mints the midpoint 0.5 through
-// dep-adjacent insertion, and `{0, 0.5, 1}` renumbers to `{0, 1, 2}` — leaving
-// the non-member ordinally BETWEEN the two mates, inside their box.
-describe('launch-batch boxes enclose only their members (req #3229)', () => {
-    const mk = (id, depIds) => ({
-        id, title: `s${id}`, run: 'auto', state: 'pending', reqIds: [],
-        depIds, timeDeps: [], epicId: 1, epic: 'E1',
-        epicLabels: [], featureLabels: [], machineLabels: [], machineLabel: '—',
-    });
-
-    const enclosedNonMembers = (layout) => {
-        const out = [];
-        for (const box of layout.batchBoxes) {
-            const members = new Set(box.batchStepIds);
-            for (const n of layout.nodes.values()) {
-                if (members.has(n.id)) continue;
-                if (n.x > box.x && n.x < box.x + box.width
-                    && n.y > box.y && n.y < box.y + box.height) {
-                    out.push(`batch ${box.letter} encloses step ${n.id}`);
-                }
-            }
-        }
-        return out;
-    };
-
-    it('keeps an inserted lane out of a batch run — five steps, no fuzzing', () => {
-        const rows = [mk(1, []), mk(2, []), mk(5, [1]), mk(6, [2]), mk(7, [1])];
-        const layout = computePlanLayout(rows, [{ letter: 'A', stepIds: [5, 6] }]);
-        // The precondition: the box has to actually be drawn, or this asserts
-        // nothing. Two mates in one column is one segment.
-        expect(layout.batchBoxes.length).toBeGreaterThan(0);
-        expect(enclosedNonMembers(layout)).toEqual([]);
-    });
-
-    // THE OTHER SIDE OF THE SAME DEFECT, and the one the corpus does NOT reach
-    // — found in the second code-review round, measured at 7 cases per 40,000
-    // layouts with none inside the shipped 400. `runIntervals` stops a later
-    // step entering a published run; this is a run being allocated AROUND a
-    // bead that is already sitting there. Batch B has a single mate at column
-    // 2, so it publishes no interval, and step 6 takes a fractional lane off
-    // its dep chain; batch C is then dep-anchored to a fractional `start` and
-    // its two lanes straddle it. Checking only `start + k` never looks between
-    // them. Ordinals come out `7@l0, 6@l1, 8@l2` — box C around a non-member.
-    it('never allocates a run AROUND a bead already inside it', () => {
-        const rows = [mk(1, []), mk(2, []), mk(3, []), mk(4, [1]), mk(5, [1]),
-            mk(6, [5]), mk(7, [4]), mk(8, [4]), mk(10, [6])];
-        const layout = computePlanLayout(rows, [
-            { letter: 'B', stepIds: [6, 10] },
-            { letter: 'C', stepIds: [7, 8] },
-        ]);
-        // Precondition: batch C must actually draw a box at step 6's column,
-        // or the assertion below is about nothing.
-        const n6 = layout.nodes.get(6);
-        expect(layout.batchBoxes.some((b) => b.letter === 'C' && b.depth === n6.depth))
-            .toBe(true);
-        expect(enclosedNonMembers(layout)).toEqual([]);
-    });
-
-    describe.each([{ axis: true }, { axis: false }])('over the corpus, axis=$axis',
-        ({ axis }) => {
-            it('never draws a launch-unit box around a non-member', () => {
-                const failures = [];
-                let boxes = 0;
-                for (const { seed, reads } of timedFuzzCorpus()) {
-                    const plan = orderedPlan(buildPipelineModel(reads), { now: FUZZ_NOW });
-                    const layout = computePlanLayout(plan.rows, plan.batches,
-                        axis ? { timeAxis: plan.timeAxis } : {});
-                    boxes += layout.batchBoxes.length;
-                    for (const f of enclosedNonMembers(layout)) {
-                        failures.push(`seed ${seed} — ${f}`);
-                    }
-                }
-                // Non-vacuity: the corpus must actually DRAW boxes.
-                expect(boxes).toBeGreaterThan(200);
-                expect(failures).toEqual([]);
-            });
-        });
 });

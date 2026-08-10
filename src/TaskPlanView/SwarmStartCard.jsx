@@ -19,16 +19,16 @@ import RequirementRow from '../SwarmView/RequirementRow';
 import RequirementDeleteDialog from '../SwarmView/RequirementDeleteDialog';
 import call_rest_api from '../RestApi/RestApi';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
-import { useRequirementsByStatus, useRequirementsDone, useSessions, useCategoryColors, useAllRequirements, usePipelinedRequirementIds } from '../hooks/useDataQueries';
-import { excludePipelined } from '../utils/pipelineMembership';
-import { filterToEpic, effectiveHidePipelined } from '../utils/epicMembership';
-import { PIPELINE_FILTERED_STATUSES, tallyRequirementStatuses } from './swarmStartCardUtils';
+import { useRequirementsByStatus, useRequirementsDone, useSessions, useCategoryColors, useAllRequirements } from '../hooks/useDataQueries';
+import { useRequirementVisibility } from '../hooks/useRequirementVisibility';
+import { filterKeepingIdentity } from '../utils/pipelineMembership';
+import { filterToEpic } from '../utils/epicMembership';
+import { aggregatorRowVisible, tallyRequirementStatuses } from './swarmStartCardUtils';
 import { requirementKeys } from '../hooks/useQueryKeys';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { RequirementActionsContext } from '../hooks/useRequirementActions';
 import { useSwarmStartCardStore } from '../stores/useSwarmStartCardStore';
-import { useShowClosedStore } from '../stores/useShowClosedStore';
 import { requirementStatusChipProps, requirementStatusLabel } from '../SwarmView/statusChipStyles';
 import { requirementStatusTimestampFields, requirementStatusTimestampState } from '../utils/requirementStatusTimestamps';
 
@@ -181,14 +181,18 @@ const SwarmStartCard = ({ epicReqIds = null }) => {
     // read the counts. Nothing here depends on which chip is selected, which is
     // what makes the move safe: `chipOffersLaunch` is the only count-adjacent
     // value that does, and it stays where it was.
-    const pipelinedIds = usePipelinedRequirementIds(profile?.userName);
-    const storedHidePipelined = useShowClosedStore(s => s.hidePipelinedRequirements);
     // req #3428 — an epic filter forces the OBSERVATION chips' pipeline toggle
-    // off, through the same shared predicate the requirements page uses; the
-    // unconditional launch exclusion (`PIPELINE_FILTERED_STATUSES`) is untouched,
-    // because that one is correctness rather than a viewing preference.
+    // off; the unconditional launch exclusion is untouched, because that one is
+    // correctness rather than a viewing preference.
     const epicFilterActive = epicReqIds != null;
-    const hidePipelined = effectiveHidePipelined(storedHidePipelined, epicFilterActive);
+
+    // req #3180 / #3419 / #3428 — this card OFFERS requirements for a direct
+    // swarm-start AND is a browse surface, and an epic filter overrides the
+    // browse half. All three rules meet in ONE object: the hook applies the epic
+    // override to the toggle, and `aggregatorRowVisible` layers the unconditional
+    // launch exclusion on top. The chip badges below consume the very same
+    // object, so a count can never disagree with the rows under it.
+    const visibility = useRequirementVisibility(profile?.userName, { epicFilterActive });
 
     // All requirements across categories — the per-status counts' source (req #2549).
     const { data: allRequirementsForCounts } = useAllRequirements(profile?.userName, {
@@ -201,8 +205,8 @@ const SwarmStartCard = ({ epicReqIds = null }) => {
     // which is the defect this file's own comments call load-bearing.
     const baseStatusCounts = React.useMemo(() => tallyRequirementStatuses(
         filterToEpic(allRequirementsForCounts, epicReqIds),
-        SWARM_START_STATUSES, pipelinedIds, hidePipelined).counts,
-        [allRequirementsForCounts, epicReqIds, pipelinedIds, hidePipelined]);
+        SWARM_START_STATUSES, visibility).counts,
+        [allRequirementsForCounts, epicReqIds, visibility]);
 
     // Persisted-store fallback — req #2584 retired 'deferred' from this card. Users
     // with a now-invalid persisted value get re-pointed at the default. `storedStatus`
@@ -304,35 +308,32 @@ const SwarmStartCard = ({ epicReqIds = null }) => {
         { fields: 'id,title,requirement_status,coordination_type,ai_model,effort,category_fk,completed_at' },
     );
 
-    // req #3180 — this card OFFERS requirements for a direct swarm-start, so the
-    // ones a pipeline step already carries do not belong on its launch chips:
-    // their launch is the coordinator's to make, at the point the plan says so.
-    //
-    // The launch exclusion (PIPELINE_FILTERED_STATUSES) is UNCONDITIONAL — not a
-    // user preference. Offering an ineligible launch is a defect, not a viewing
-    // choice, so nothing gates it here.
-    //
-    // The DEVELOPMENT/MET chips are different: both populations are legitimate
-    // to browse, same reasoning as the requirements table — so THOSE respect
-    // the same global toggle the table and Cards view do (req #3242), on top of
-    // (never instead of) the unconditional launch exclusion above.
-    const chipOffersLaunch = PIPELINE_FILTERED_STATUSES.includes(effectiveStatus);
-    const excludeFromThisChip = chipOffersLaunch || hidePipelined;
+    // Memoized AND identity-preserving, and both halves are load-bearing.
+    // `eligibleRequirements` is a dependency of the seeding `useEffect` below,
+    // which calls `setRequirementsArray` — so an array that changes identity on
+    // every render is not wasted work, it is a synchronous render loop. A bare
+    // `.filter` does exactly that whenever anything upstream churns (a query
+    // hook handing back a fresh `[]`, say). `filterKeepingIdentity` returns the
+    // INPUT when it drops nothing, which is what absorbed that churn before req
+    // #3419 — see its docstring.
+    const rowVisible = React.useMemo(
+        () => aggregatorRowVisible(effectiveStatus, visibility),
+        [effectiveStatus, visibility]);
 
-    // Memoized because this feeds a useEffect dependency and a useMemo below —
-    // `excludePipelined` mints a new array whenever it actually drops something,
-    // so an unmemoized call would re-seed local state on every render.
     const eligibleRequirements = React.useMemo(
-        () => excludePipelined(serverRequirements, pipelinedIds, excludeFromThisChip),
-        [serverRequirements, pipelinedIds, excludeFromThisChip]);
+        () => filterKeepingIdentity(serverRequirements, rowVisible),
+        [serverRequirements, rowVisible]);
 
-    // The Met chip's own population never went through `eligibleRequirements`
-    // (its query is `serverMetRequirements`, not `serverRequirements`) — so the
-    // toggle needs its own pass here. `chipOffersLaunch` never applies to Met
-    // (it is not in PIPELINE_FILTERED_STATUSES), hence `hidePipelined` alone.
+    // The Met chip's own population never goes through `eligibleRequirements`
+    // (its query is `serverMetRequirements`, not `serverRequirements`) — so it
+    // needs its own pass, under the Met chip's own rule.
+    const metRowVisible = React.useMemo(
+        () => aggregatorRowVisible('met', visibility),
+        [visibility]);
+
     const eligibleMetRequirements = React.useMemo(
-        () => excludePipelined(serverMetRequirements, pipelinedIds, hidePipelined),
-        [serverMetRequirements, pipelinedIds, hidePipelined]);
+        () => filterKeepingIdentity(serverMetRequirements, metRowVisible),
+        [serverMetRequirements, metRowVisible]);
 
     // The array that drives the card body for the currently selected chip.
     //
@@ -362,8 +363,9 @@ const SwarmStartCard = ({ epicReqIds = null }) => {
     // useAllRequirements doesn't carry completed_at and can't be filtered to the
     // 24-hour window here. Returns { authoring, approved, swarm_ready, development, met }.
     //
-    // req #3180 — a launch chip's count applies the SAME rule as its list, from
-    // the same Set, so the header can never disagree with the rows beneath it.
+    // req #3180 / #3419 — a chip's count applies the SAME rule as its list, from
+    // the SAME function (`aggregatorRowVisible`), so the header can never
+    // disagree with the rows beneath it.
     //
     // LOAD-BEARING: a chip's badge matches the rows beneath it only because both
     // sources are the same population — `useAllRequirements` here and
@@ -385,6 +387,8 @@ const SwarmStartCard = ({ epicReqIds = null }) => {
     // filters it), so leaving the overlay alone would print an unfiltered met
     // count over a filtered met list.
     const statusCountMap = React.useMemo(() => {
+        // req #3428 — `baseStatusCounts` above IS the tally (computed once, under
+        // the epic filter); this only overlays the trailing-24h `met` figure.
         const counts = { ...baseStatusCounts };
         if (Array.isArray(serverMetRequirements)) {
             counts.met = filterToEpic(eligibleMetRequirements, epicReqIds)?.length
@@ -746,6 +750,10 @@ const SwarmStartCard = ({ epicReqIds = null }) => {
                         sessionStatusMap,
                         categoryColorMap,
                         strikethroughMet: false, // req #2584 — recent-Met list, not crossed-off
+                        // req #3419 — the SAME set the toggle hides by, so a row
+                        // that survives this card's own launch exclusion is still
+                        // marked when it is plan work.
+                        orchestratedIds: visibility.orchestratedIds,
                     }}>
                         {/* req #3286 — THE CARD RENDERS NO MESSAGES. Two used to sit here:
                             the "No <status> requirements" empty state and the req #3180

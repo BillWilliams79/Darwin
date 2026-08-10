@@ -48,7 +48,7 @@ import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
 
 import AuthContext from '../../Context/AuthContext';
-import { useAllPipeline2Pipelines } from '../../hooks/useDataQueries';
+import { useAllPipelines2 } from '../../hooks/useDataQueries';
 import { formatDateTime } from '../../utils/dateFormat';
 import { pipelineStatusChipProps } from './pipelineChipStyles';
 import { prunePipelineStorage } from './pipelinePlace';
@@ -68,7 +68,7 @@ export default function Pipelines2Page() {
     const timezone = profile?.timezone;
 
     const { data: pipelines = [], isLoading, isError } =
-        useAllPipeline2Pipelines(creatorFk);
+        useAllPipelines2(creatorFk);
 
     const open = (id) => {
         const to = planDetailPath(PAGE_ERA, id);

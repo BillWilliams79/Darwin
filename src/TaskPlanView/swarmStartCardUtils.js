@@ -25,7 +25,45 @@ export const sortSwarmReadyItems = (items) => {
 export const PIPELINE_FILTERED_STATUSES = ['authoring', 'approved', 'swarm_ready'];
 
 /**
- * Per-status counts for the chip badges, applying the pipeline exclusion.
+ * THE aggregator's row rule for ONE chip — req #3419.
+ *
+ * Both things this card does with the rule (build the chip's ROW LIST, and count
+ * the chip's BADGE) call this. They used to be two transcriptions of one
+ * sentence, which is a list and its own count able to disagree.
+ *
+ * TWO EXCLUSIONS, and they answer different questions:
+ *
+ *   LAUNCH LEGALITY — `PIPELINE_FILTERED_STATUSES` chips offer a direct
+ *     swarm-start, and a requirement a pipeline STEP carries is not eligible for
+ *     one (req #3180). UNCONDITIONAL: offering an ineligible launch is a defect,
+ *     not a viewing preference, so no toggle gates it. STEP association ONLY —
+ *     widening it to epic membership would withhold work that IS launchable.
+ *
+ *   BROWSE PREFERENCE — the reader's global "hide orchestrated requirements"
+ *     toggle, which since req #3419 means step-carried OR epic-filed. Applies to
+ *     every chip, on top of (never instead of) the launch exclusion.
+ *
+ * @param {string} status  the chip's requirement_status
+ * @param {object} ctx  from `useRequirementVisibility`
+ * @param {Set<number>} [ctx.pipelinedIds]      STEP association
+ * @param {Set<number>} [ctx.orchestratedIds]   step OR epic
+ * @param {boolean} [ctx.hideOrchestrated]
+ * @returns {(row: {id: number|string}) => boolean} true = the row belongs here
+ */
+export const aggregatorRowVisible = (status, {
+    pipelinedIds, orchestratedIds, hideOrchestrated = false,
+} = {}) => {
+    const offersLaunch = PIPELINE_FILTERED_STATUSES.includes(status);
+    return (row) => {
+        const id = Number(row?.id);
+        if (offersLaunch && pipelinedIds && pipelinedIds.has(id)) return false;
+        if (hideOrchestrated && orchestratedIds && orchestratedIds.has(id)) return false;
+        return true;
+    };
+};
+
+/**
+ * Per-status counts for the chip badges, applying the same rule as the rows.
  *
  * Pure so the "which chips filter" decision is pinned by tests rather than only
  * by a rendered card.
@@ -39,22 +77,21 @@ export const PIPELINE_FILTERED_STATUSES = ['authoring', 'approved', 'swarm_ready
  * population is 0.
  *
  * @param {Array<{id: number, requirement_status: string}>} requirements
- * @param {string[]} statuses      the chip vocabulary; every key is initialized to 0
- * @param {Set<number>} pipelinedIds  from `pipelinedRequirementIds`
- * @param {boolean} [hidePipelined=false]  req #3242 — the same global
- *        `useShowClosedStore.hidePipelinedRequirements` toggle the requirements
- *        pages read. `PIPELINE_FILTERED_STATUSES` stays UNCONDITIONAL regardless
- *        of this flag (offering an ineligible launch is a defect, not a viewing
- *        preference — see the module comment); this only widens exclusion to
- *        the observation statuses (development/met) when the reader has asked
- *        to hide orchestrated requirements everywhere, matching the toggle's
- *        behaviour on the requirements table and Cards view.
+ * @param {string[]} statuses  the chip vocabulary; every key is initialized to 0
+ * @param {object} ctx  the `useRequirementVisibility` context handed to
+ *        `aggregatorRowVisible` — ONE rule, so the badge cannot disagree with
+ *        the rows it sits above.
  * @returns {{counts: Object, hidden: Object}}
  */
-export const tallyRequirementStatuses = (requirements, statuses, pipelinedIds, hidePipelined = false) => {
+export const tallyRequirementStatuses = (requirements, statuses, ctx = {}) => {
     const counts = {};
     const hidden = {};
-    statuses.forEach(s => { counts[s] = 0; hidden[s] = 0; });
+    const visibleFor = {};
+    statuses.forEach(s => {
+        counts[s] = 0;
+        hidden[s] = 0;
+        visibleFor[s] = aggregatorRowVisible(s, ctx);
+    });
     if (!Array.isArray(requirements)) return { counts, hidden };
 
     for (const r of requirements) {
@@ -63,8 +100,7 @@ export const tallyRequirementStatuses = (requirements, statuses, pipelinedIds, h
         if (!r || r.id === '' || r.id === undefined || r.id === null) continue;
         const status = r.requirement_status;
         if (counts[status] === undefined) continue;
-        if ((PIPELINE_FILTERED_STATUSES.includes(status) || hidePipelined)
-                && pipelinedIds && pipelinedIds.has(Number(r.id))) {
+        if (!visibleFor[status](r)) {
             hidden[status] += 1;
             continue;
         }

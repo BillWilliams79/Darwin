@@ -108,7 +108,7 @@ vi.mock('../../../hooks/useDataQueries', async (importOriginal) => {
                 isLoading: false,
             };
         },
-        useAllPipeline2Pipelines: (creatorFk, opts = {}) => {
+        useAllPipelines2: (creatorFk, opts = {}) => {
             if (opts.enabled !== false) reads.pipeline2Index = (reads.pipeline2Index || 0) + 1;
             return {
                 data: opts.enabled === false || !listSettled ? [] : known2,

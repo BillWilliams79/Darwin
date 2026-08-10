@@ -66,15 +66,30 @@ describe('swarmStatusLabel', () => {
         expect(swarmStatusLabel('review')).toBe('Reviewing');
     });
 
-    it('returns the status string as-is for most other statuses', () => {
-        expect(swarmStatusLabel('waiting')).toBe('waiting');
-        expect(swarmStatusLabel('planning')).toBe('planning');
-        expect(swarmStatusLabel('starting')).toBe('starting');
-        expect(swarmStatusLabel('completed')).toBe('completed');
-        expect(swarmStatusLabel('paused')).toBe('paused');
+    // Every label is capitalised. This used to return the RAW lowercase column
+    // value for these, so a Sessions row read "Implementing" beside "planning".
+    it('capitalises every other status', () => {
+        expect(swarmStatusLabel('waiting')).toBe('Waiting');
+        expect(swarmStatusLabel('planning')).toBe('Planning');
+        expect(swarmStatusLabel('starting')).toBe('Starting');
+        expect(swarmStatusLabel('completed')).toBe('Completed');
+        expect(swarmStatusLabel('paused')).toBe('Paused');
+        expect(swarmStatusLabel('completing')).toBe('Completing');
     });
 
-    it('returns "completing" for completing', () => {
-        expect(swarmStatusLabel('completing')).toBe('completing');
+    it('capitalises an unknown status rather than showing it raw', () => {
+        expect(swarmStatusLabel('sideways')).toBe('Sideways');
+    });
+
+    it('renders nothing for a missing status', () => {
+        expect(swarmStatusLabel(null)).toBe('');
+        expect(swarmStatusLabel(undefined)).toBe('');
+    });
+
+    it('leaves no label lowercase — the defect this closes', () => {
+        for (const s of ['starting', 'waiting', 'planning', 'active', 'review',
+                         'paused', 'completing', 'completed']) {
+            expect(swarmStatusLabel(s)[0]).toBe(swarmStatusLabel(s)[0].toUpperCase());
+        }
     });
 });

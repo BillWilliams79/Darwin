@@ -94,9 +94,24 @@ export const devServers = createEntityQueries({
 // only — because there is no Pipeline 2.0 view to link a 2.0-attributed
 // session to. This is field-list parity only, ahead of that UI.
 // ---------------------------------------------------------------------------
+// Req #3455 — `terminal_window_id` / `terminal_number` (WHICH TERMINAL WINDOW the
+// worker runs in) join the projection. A VARCHAR(64) and an INT, and their whole
+// purpose is a per-row chip in the Sessions GRID: leaving them out would mean a
+// per-session fetch to render a column, which is the fan-out the projection
+// exists to avoid. Same 400-on-unknown-field caveat as the pairs above — the
+// gateway validates every `fields=` name against the live table and 400s the
+// WHOLE read on one it does not know, so this projection may only widen once
+// migration 20260810013244 has been applied to the database this build talks to.
+// NOT a theoretical caveat here — MEASURED through the gateway 2026-08-09, the
+// same call against both databases: `fields=id,terminal_window_id,terminal_number`
+// returned 200 on `darwin_dev` (migrated) and **400 on production `darwin`**
+// (not yet). Shipping this file to production ahead of the migration does not
+// cost the Terminal column, it costs the entire Sessions page. The migration's
+// own header carries the ordering requirement.
 const SWARM_SESSION_DEFAULT_FIELDS =
     'id,branch,task_name,source_type,source_ref,title,pr_url,swarm_status,ai_model,effort,' +
-    'worktree_path,machine_fk,pipeline_fk,epic_fk,pipeline2_fk,epic2_fk,started_at,completed_at,last_transition_at,' +
+    'worktree_path,machine_fk,terminal_window_id,terminal_number,' +
+    'pipeline_fk,epic_fk,pipeline2_fk,epic2_fk,started_at,completed_at,last_transition_at,' +
     'starting_secs,waiting_secs,planning_secs,implementing_secs,review_secs,' +
     'completion_secs,paused_secs,legacy_secs,instrumented,pre_pause_status,' +
     'phase_tokens,creator_fk,create_ts,update_ts';
@@ -427,23 +442,32 @@ export const orchestrationClaims = createEntityQueries({
     defaultSort: 'claimed_at:asc',
 });
 
-// ── The Pipeline 2.0 plan INDEX (req #3463) ────────────────────────────────
-// A LIST read of `pipeline2_pipelines`, and deliberately nothing more. The 2.0
-// plan RENDER is `pipeline2_compose` (req #3367) — one composed route that
-// already ran the join and the derivation server-side — so this entity exists
-// for the two questions a composed by-id read cannot answer:
+// ---------------------------------------------------------------------------
+// pipeline2_pipelines — the Pipeline 2.0 plan layer (req #3339, widened #3463).
 //
-//   1. WHICH PLANS EXIST, for the 2.0 list page (the id PRODUCER; a 2.0 detail
-//      route with no producer behind it is unreachable by construction, which
-//      is half of what req #3462 was).
-//   2. WHICH IDS THIS ERA HOLDS, for the not-found alert — so "there are no 2.0
-//      plans at all" is distinguishable from "id 79 is not one of them".
+// TWO requirements arrived at this same entity independently and it is ONE
+// declaration, not two:
 //
-// `description` is deliberately ABSENT: this is a list read and the goal text
-// is a heavy blob column, the same bounded-list-read rule the 1.0 `pipelines`
-// projection above obeys for its own list surfaces. The composed read carries
-// it for the one plan being rendered.
-export const pipeline2Pipelines = createEntityQueries({
+//   * req #3339/#3455 needs it so a session stamped with `pipeline2_fk` can
+//     have its plan NAMED rather than shown as a bare `#7`.
+//   * req #3463 needs it as the 2.0 id PRODUCER — the rows behind
+//     `/swarm/pipelines2`, and the ids the plan page's not-found alert reports
+//     so that "there are no 2.0 plans at all" is distinguishable from "id 79 is
+//     not one of them".
+//
+// It is a LIST read and nothing more. The 2.0 plan RENDER is `pipeline2_compose`
+// (req #3367) — one composed route that already ran the join and the derivation
+// server-side — reached through `useComposedPipeline2`, never through this.
+//
+// `description` is deliberately ABSENT: the goal text is a heavy blob column and
+// this is an index read, the same bounded-list-read rule the 1.0 `pipelines`
+// projection below obeys for its own list surfaces. The composed read carries it
+// for the one plan being rendered.
+//
+// `defaultSort` matches the 1.0 entity's so the two plan lists present in the
+// same order. It is not in the cache key (only `fields` is), so both consumers
+// above share one entry.
+export const pipelines2 = createEntityQueries({
     entity: 'pipeline2_pipelines',
     defaultFields:
         'id,title,pipeline_status,execution_mode,machine_fk,' +

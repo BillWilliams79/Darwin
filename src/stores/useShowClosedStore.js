@@ -24,13 +24,24 @@ export const useShowClosedStore = create(
             sessionMachineFilter: DEFAULT_SESSION_MACHINES,
 
             // req #3180 — the requirements pages' pipeline filter (now Cards
-            // view too, req #3258). ON hides every requirement a pipeline STEP
-            // carries, leaving the residue: work nobody has scheduled. Note
-            // which question it answers — STEP association (a
-            // `pipeline_step_requirements` row, "is this scheduled"), NOT epic
-            // association ("does this belong to a body of work"), which a
-            // requirement can carry while sitting in no plan at all. Exposing
-            // that gap is the point of the ON state.
+            // view too, req #3258). ON hides every ORCHESTRATED requirement,
+            // leaving the residue: work that is part of no plan at all.
+            //
+            // req #3419 WIDENED WHAT THAT MEANS, and reversed this comment.
+            // It used to answer STEP association only (a
+            // `pipeline_step_requirements` row, "is this scheduled") and NOT
+            // epic association ("does this belong to a body of work"), and it
+            // said exposing the gap between them was the point of the ON state.
+            // Measured on production, that gap is what the reader reports as a
+            // bug — asked to hide orchestrated work, the page kept showing
+            // requirements plainly seated under an epic. Filed twice. ON now
+            // means STEP **or** EPIC.
+            //
+            // THE KEY NAME IS HISTORY, NOT THE RULE. It keeps its req #3180
+            // spelling so no persistence migration is needed; the rule itself
+            // lives in `hooks/useRequirementVisibility.js`, which is the ONLY
+            // thing that should read this key besides the control in
+            // `SwarmView.jsx`. Do not re-derive it from here.
             //
             // A CONTROL, not an automatic exclusion, because on a BROWSE page
             // both populations are legitimate to look at and only the user knows

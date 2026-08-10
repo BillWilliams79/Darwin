@@ -19,11 +19,29 @@ export const swarmStatusChipProps = (status) => {
     }
 };
 
+// EVERY label is capitalised. The old version special-cased two statuses and
+// returned the RAW DB value for the rest, so a Sessions row read "Implementing"
+// next to "planning" and "waiting" — the column looked like it held two
+// different kinds of data. `completing` was even hardcoded lowercase.
+//
+// Declared as a map rather than capitalising the raw value, so a status whose
+// display name differs from its column value (active -> Implementing,
+// review -> Reviewing) stays in the same place as the ones that do not.
+const SWARM_STATUS_LABEL = {
+    starting:   'Starting',
+    waiting:    'Waiting',
+    planning:   'Planning',
+    active:     'Implementing',
+    review:     'Reviewing',
+    paused:     'Paused',
+    completing: 'Completing',
+    completed:  'Completed',
+};
+
 export const swarmStatusLabel = (status) => {
-    switch (status) {
-        case 'active':     return 'Implementing';
-        case 'review':     return 'Reviewing';
-        case 'completing': return 'completing';
-        default:           return status;
-    }
+    if (SWARM_STATUS_LABEL[status]) return SWARM_STATUS_LABEL[status];
+    // An unknown status is still shown, capitalised — never blank, and never
+    // raw lowercase beside eight capitalised siblings.
+    if (!status) return '';
+    return String(status).charAt(0).toUpperCase() + String(status).slice(1);
 };

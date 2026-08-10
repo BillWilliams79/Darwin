@@ -46,7 +46,7 @@ import {
     useAllPipelineStepRequirements,
     useAllPipelineSteps,
     useAllPipelines,
-    useAllPipeline2Pipelines,
+    useAllPipelines2,
     useAllRequirements,
     useComposedPipeline2,
 } from '../../hooks/useDataQueries';
@@ -196,7 +196,7 @@ export function usePlan2Sources(pipelineId, creatorFk,
     // uninformative message this whole guard replaced.
     const missed = enabled && composed === null;
     const { data: known = EMPTY, isSuccess: knownSettled } =
-        useAllPipeline2Pipelines(creatorFk, { enabled: missed });
+        useAllPipelines2(creatorFk, { enabled: missed });
 
     const isLoading = enabled && composedLoading;
 

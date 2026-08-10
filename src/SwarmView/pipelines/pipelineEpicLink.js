@@ -44,6 +44,25 @@ export function epicLinkTo(pipelineId, epicId, era = DEFAULT_PLAN_ERA) {
     return planDetailPath(era, pipelineId, `mode=plan&${FOCUS_EPIC_PARAM}=${eid}`);
 }
 
+/**
+ * The plan itself, with no band or bead singled out (req #3435).
+ *
+ * The requirement page's Orchestration box names a PIPELINE on its first row,
+ * and that row's button has to lead somewhere even when nothing narrower is
+ * addressable — the reader picked a plan this requirement is not seated in, or
+ * it is seated in one whose step has not resolved. `mode=plan` is carried for
+ * the same reason `epicLinkTo` carries it: the destination is the visualizer,
+ * and omitting the mode lands on whichever panel the reader's stored preference
+ * happens to be.
+ *
+ * @param {?number} pipelineId
+ * @param {number} [era] the era `pipelineId` was READ from (req #3463)
+ * @returns {?string}
+ */
+export function planLinkTo(pipelineId, era = DEFAULT_PLAN_ERA) {
+    return planDetailPath(era, pipelineId, 'mode=plan');
+}
+
 // NULLISH AND EMPTY ARE REJECTED BEFORE `Number` SEES THEM — see
 // pipelineStepLink.js's identical guard for why 0 is a legitimate id and
 // `Number(null)`/`Number('')` are not. It survives for the EPIC id only; the

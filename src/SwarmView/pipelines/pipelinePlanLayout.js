@@ -1,7 +1,7 @@
 // pipelinePlanLayout.js — pure geometry for the Plan visualizer (req #3115),
 // the product form of the POC viz-generate.py Plan mode archived in req #3080.
 //
-// PURE LOGIC ONLY: engine PlanRows + LaunchBatches in, world-space geometry out.
+// PURE LOGIC ONLY: engine PlanRows in, world-space geometry out.
 // No React, no Konva, no DOM text measurement — widths come from a fixed
 // monospace character metric so the zero-overlap guarantee is decidable here and
 // testable in vitest without a canvas (the konvaSwarmModel.js separation).
@@ -32,17 +32,16 @@
 //     column widths account for whichever is drawn. Zero label overlap holds in
 //     all four combinations BY CONSTRUCTION, and the exported label rects let
 //     tests assert it rather than trust it.
-//   - Launch-batch dashed boxes around batch-mates (identical epic + remaining
-//     gate + run + machines — the engine's launchKey), drawn as ONE SEGMENT PER
-//     (BAND, COLUMN). Both axes matter and for different reasons. Since req
-//     #3188 the key carries the dominant epic — the same field these bands are
-//     keyed on — so an ENGINE-PRODUCED box always sits in exactly one BAND; that
-//     segmentation stays as a tested defence, because this module takes rows and
-//     batches as arguments and cannot know they were derived together. The
-//     COLUMN axis is the live one: #3188 also keys on the REMAINING gate, so a
-//     step gated by an already-Complete dep and a gate-less step are one launch
-//     unit at different dependency depths. A rect spanning either axis would
-//     enclose a non-member, which is the review finding this shape exists for.
+//   - THE STEP IS THE LAUNCH UNIT (Pipeline 2.0, req #3371). The multi-step
+//     launch grouping this surface used to draw — a dashed teal rectangle, a
+//     letter, a leader line, a contiguous lane run holding its members together
+//     and 16px of extra band header reserving a strip for that letter — is gone
+//     entirely. A step carries its own `/swarm-start` argument list, so the plan
+//     TABLE renders that command on the step's own row and the canvas draws one
+//     bead per launch. Do not re-introduce a launch-unit rectangle here: with
+//     one step per command there is nothing left for it to group, and its
+//     geometry is what bounded the next-up halo's ceiling (see
+//     NEXT_HALO_CLEARANCES).
 //
 // THE COLOUR LANGUAGE LIVES HERE TOO (req #3168). Geometry and colour are the
 // two things this surface decides, both are pure, and both are things the
@@ -86,7 +85,6 @@ export const PLAN_VIZ_PALETTE = {
     pendingRing: '#5b729355',
     manualRing: '#ff9bf5',
     eligibleRing: '#7ee08a',
-    batch: '#4ad9c8',
     // The pause status bubble's two colours (req #3226) — a NEW channel
     // (SCOPE: is this band's launch suppressed?), so neither reuses an
     // existing entry outright even where a hue is nearby, to avoid the bubble
@@ -175,7 +173,11 @@ export const pauseBubbleColor = (paused) => (paused ? PAUSE_PAUSED_COLOR : PAUSE
 // | requirement-id TEXT    | the ACTIVE colour key: requirement status | REQUIREMENT |
 // |                        | · machine pin · nothing                    |             |
 // | epic BAND tint/stroke  | which epic — identity, not status         | EPIC        |
-// | batch BOX (dashed teal)| one `/swarm-start` launches these         | LAUNCH UNIT |
+//
+// The table had a sixth row until req #3371: a dashed teal BOX at the LAUNCH
+// UNIT level, meaning "one `/swarm-start` launches these". In 2.0 the launch
+// unit IS the step, so that channel would restate the bead's own level — the
+// rule below, exactly — and it is gone rather than re-pointed.
 //
 // > **ONE FACT, ONE CHANNEL, ONE LEVEL.** No two channels may encode the same
 // > fact at the same level. The bead speaks for the STEP — an aggregate the
@@ -847,35 +849,14 @@ const STEP_LABEL_RISE = 21;
 // because the NEXT-STEP HALO's ceiling is derived from it (req #3271): the room
 // above a LANE-0 bead is the epic chip's strip, and the distance to it is
 // `STEP_LABEL_RISE + BEAD_LANE_OFFSET` — headerH cancels, so the bound holds for
-// batch-hosting and staggered bands identically.
+// staggered bands identically.
 export const BEAD_LANE_OFFSET = 10;
-const BATCH_HEADER_EXTRA = 16;  // extra header for bands hosting batch members:
-                                // reserves the letter strip + keeps box tops
-                                // below the epic label (review finding)
-// The batch letter's own rect (req #3256). How far above its box the letter may
-// be displaced looking for clear space is NOT a constant — see the search
-// itself: the room above a box is one lane pitch, and a lane pitch grows with
-// the requirement stack its lane carries (req #3119), so any fixed window is
-// beaten by a lane with one more requirement than the number it was tuned
-// against. Measured: a 96px window held to 3 requirements and fell back to the
-// header strip — a 455px leader — at 4.
-const BATCH_LETTER_H = 11;
-const BATCH_LETTER_GAP = 3;
-// Under this the letter is the box's caption and a drop-line would be noise;
-// over it something else sits between the two and the line is what keeps them
-// one thing.
-const BATCH_LETTER_LEADER_MIN = 20;
-// The launch-unit box's own geometry, relative to the beads it encloses: how
-// far it insets from its column, its width floor, and how far above/below a
-// bead centre its edges sit. Named because the NEXT-STEP HALO's ceiling is the
-// SMALLEST of these clearances (req #3271) — a halo that grew past one would
-// leave the box that says "one /swarm-start launches these", at exactly the
-// zoom level a launch unit is read at.
-const BATCH_BOX_INSET = 8;
-const BATCH_BOX_MIN_W = 56;
-const BATCH_BOX_RISE = 40;      // above the bead centre
-const BATCH_BOX_DROP_V = 28;    // below it, 'vertical' reqs — the TIGHTEST edge
-const BATCH_BOX_DROP_H = 30;    // below it, 'horizontal' reqs
+// EVERY BAND NOW TAKES THE SAME HEADER (req #3371). A band hosting launchable
+// work used to take 16px more, reserving the launch-unit letter's fallback
+// strip and keeping a launch rectangle's top clear of the epic label. With no
+// rectangle and no letter there is nothing to reserve, so the plan is 16px
+// shorter per band that used to host one and `headerH` is a function of the
+// stagger alone.
 const BAND_GAP = 8;
 const LANE_BASE_H = 62;         // POC 56 + type-scale headroom, before the title slot
 // The content floor a column may never shrink below, per requirement layout.
@@ -932,9 +913,8 @@ export const LABEL_MAX_CHARS = 40;
 // keeps two of those from meeting.
 const STAGGER_GAP = 18;
 // The shortest a lane can ever be: `lanePitch()` adds a per-lane requirement
-// stack on top of this and never subtracts. Named because two separate proofs
-// read it — the batch-letter sweep's band-scoping argument, and the next-step
-// halo's band-rectangle clearance (req #3271).
+// stack on top of this and never subtracts. Named because the next-step halo's
+// band-rectangle clearance is derived from it (req #3271).
 const MIN_LANE_PITCH = LANE_BASE_H + TITLE_SLOT + STAGGER_GAP;
 // Fraction of a neighbouring column a staggered label may reach into, PER SIDE.
 // Labels are centred on their column, so the budget must bound the reach into
@@ -961,7 +941,7 @@ const STAGGER_REACH = 0.4;
 // arithmetic `colW` itself applies at line ~1176.
 export const TITLE_COL_MIN = 144;
 export const PLAN_VIZ_FONT = {
-    label: 16.5, req: 13.75, title: 9.5, epic: 15, batch: 10, check: 9, slot: 13,
+    label: 16.5, req: 13.75, title: 9.5, epic: 15, check: 9, slot: 13,
 };
 
 export const BEAD_RADIUS = BEAD_R;
@@ -1745,8 +1725,11 @@ function epicBandLabelText(epicId, epicName, epicCounts) {
  *
  * @param {Object[]} rows      engine PlanRows, DISPLAY order (steps sort within
  *                             a band by column, so pass displayOrder output)
- * @param {Object[]} batches   engine LaunchBatch[] (launchBatches output)
- * @param {Object} [opts]
+ * @param {Object} [opts]      NOTE: this was the THIRD parameter until req
+ *                             #3371 removed the launch-grouping argument
+ *                             between the two. A caller that still passes an
+ *                             array here silently loses its options, so the
+ *                             guard below refuses one loudly instead.
  * @param {('horizontal'|'vertical')} [opts.reqLayout]
  * @param {('id'|'title')} [opts.reqLabel]   what the marks UNDER a bead say
  * @param {(Map|Object)} [opts.reqTitles]    requirement id -> title, for 'title'
@@ -1766,18 +1749,32 @@ function epicBandLabelText(epicId, epicName, epicCounts) {
  *                             concept at all.
  * @returns {Object} layout — see the shape assembled at the bottom
  */
-export function computePlanLayout(rows, batches, {
-    reqLayout = 'horizontal', stepLabel = 'id', stepWidth = DEFAULT_STEP_WIDTH,
-    reqLabel = 'id', reqTitles = null, timeAxis = null, epicCounts = null,
-    pauseInfo = null,
-} = {}) {
+export function computePlanLayout(rows, opts = {}) {
+    // THE ONE PIECE OF DEFENSIVE CODE IN THIS MODULE, and it earns its place.
+    // This function took a middle argument — the engine's launch groupings —
+    // through nine requirements and ~100 call sites, and req #3371 deleted it.
+    // A stale caller does not fail: it hands that array in as `opts`, every
+    // option falls back to its default, and the plan renders CORRECTLY but in
+    // the wrong requirement layout, with the wrong step width and no time axis.
+    // That is the failure mode a silent argument shift always has — plausible
+    // output, no error, no test to catch it. Refusing an array here turns it
+    // into a stack trace at the call site.
+    if (Array.isArray(opts)) {
+        throw new TypeError(
+            'computePlanLayout(rows, opts): the launch-grouping argument was '
+            + 'removed (req #3371). Drop the second argument from this call.');
+    }
+    const {
+        reqLayout = 'horizontal', stepLabel = 'id', stepWidth = DEFAULT_STEP_WIDTH,
+        reqLabel = 'id', reqTitles = null, timeAxis = null, epicCounts = null,
+        pauseInfo = null,
+    } = opts || {};
     const safeRows = Array.isArray(rows) ? rows : [];
-    const safeBatches = Array.isArray(batches) ? batches : [];
     const widthFactor = stepWidthFactor(stepWidth);
     if (safeRows.length === 0) {
         return {
             width: MIN_WORLD_W, height: 120, bands: [], nodes: new Map(),
-            arcs: [], batchBoxes: [], labels: [], colW: [], colX: [],
+            arcs: [], labels: [], colW: [], colX: [],
             slots: [], slotOf: new Map(),
             // An INERT ruler, not a missing one: `layout.ruler.h` is the
             // reservation and every consumer reads it unconditionally, so an
@@ -2004,13 +2001,6 @@ export function computePlanLayout(rows, batches, {
         bandByKey.get(key).color = EPIC_PALETTE[i % EPIC_PALETTE.length];
     });
 
-    // Batch letters, for adjacency inside a band (a box must never enclose a
-    // non-member — POC sorted batch-mates together within the band).
-    const batchOf = new Map();
-    for (const b of safeBatches) {
-        for (const id of b.stepIds || []) batchOf.set(id, b.letter);
-    }
-
     // ── Chain-aware lanes with cross-column reservation ─────────────────────
     // Steps place in ascending depth order, so by the time a step chooses a
     // lane every shallower column is FINAL — checking the arc's intermediate
@@ -2044,10 +2034,14 @@ export function computePlanLayout(rows, batches, {
     const RESERVED = Symbol('reserved');
     for (const key of bandKeys) {
         const band = bandByKey.get(key);
+        // COLUMN-MAJOR, and that is now the whole sort (req #3371). Two further
+        // keys used to follow it — grouped steps ahead of ungrouped ones, then
+        // by the group's letter — so a launch unit's members were adjacent
+        // inside a column and its dashed rectangle could enclose exactly them.
+        // With no rectangle there is nothing to keep adjacent, and a tie-break
+        // that orders nothing only makes the placement harder to reason about.
         const steps = [...band.steps].sort((a, b) =>
-            (colOf.get(a.id) - colOf.get(b.id)) ||
-            ((batchOf.has(a.id) ? 0 : 1) - (batchOf.has(b.id) ? 0 : 1)) ||
-            String(batchOf.get(a.id) || '').localeCompare(String(batchOf.get(b.id) || '')));
+            (colOf.get(a.id) - colOf.get(b.id)));
         const used = new Map(); // depth -> Map(lane -> step id | RESERVED)
         const laneBeads = new Map(); // lane -> [{id, d}] — real beads only
         // Every lane this band has ASSIGNED, whether or not the cell was free
@@ -2087,54 +2081,8 @@ export function computePlanLayout(rows, batches, {
                 dependentsInBand.get(a.id).push(r.id);
             }
         }
-        // A batch RUN, as a raw-lane interval at one column — the box invariant's
-        // half of the bookkeeping (req #3229). `batchBoxes` draws one rect per
-        // (band, column) segment spanning its members' lanes, so the rect
-        // encloses a FOREIGN bead the moment any non-member's lane falls
-        // strictly between two mates' lanes at that column. Contiguity at
-        // allocation time does NOT establish that, because `start + k` is
-        // integer arithmetic over a lane space that is FRACTIONAL until the
-        // ordinal renumber at band close: the dep-adjacent insertion path mints
-        // `(al + below) / 2`, batched steps sort ahead of unbatched ones within
-        // a column, and `{0, 0.5, 1}` renumbers to `{0, 1, 2}` — a non-member
-        // ordinally between two mates that were adjacent when allocated. Five
-        // steps reproduce it, so this was never a fuzz-only shape.
-        //
-        // This half stops a LATER step entering a published run. The other half
-        // — stopping a run being allocated AROUND a bead already sitting inside
-        // it — is `interiorClear` at the allocation site, and BOTH are needed.
-        const runIntervals = new Map(); // depth -> [{letter, lo, hi}]
-        // The run (of ANOTHER letter) that `lane` falls strictly inside, if any.
-        const enclosingRun = (d, lane, letter) =>
-            (runIntervals.get(d) || []).find((x) =>
-                x.letter !== letter && lane > x.lo && lane < x.hi);
-        // …AT ANY COLUMN — because a run's interval is a claim on the BAND'S
-        // LANE VALUES, not only on its own column's cells (req #3256).
-        //
-        // The per-column form above answers the CELL question: is a foreign bead
-        // about to land between two mates in the column the box is drawn in. That
-        // is what req #3229 needed and it is not the whole box. The ordinal
-        // renumber at band close sorts every value the BAND assigned, so a value
-        // taken at ANY column that falls strictly inside a published interval
-        // becomes a whole lane row between two mates. The box then encloses no
-        // foreign bead — the occupant is a column away — and still spans a DEAD
-        // ROW, which is precisely the shape req #3256 was filed against: measured
-        // on the live plan, batch A on lanes 7/9/10/11 with an empty row at 8
-        // whose only occupant, step 120, sat one column to the left. Measured on
-        // the 400-plan corpus with the per-column claim alone: 1084 of 3848 boxes
-        // spanned a row no member occupies, all of them this case.
-        const enclosingRunAnyColumn = (lane, letter) => {
-            for (const list of runIntervals.values()) {
-                const hit = list.find((x) =>
-                    x.letter !== letter && lane > x.lo && lane < x.hi);
-                if (hit) return hit;
-            }
-            return undefined;
-        };
-        // A lane is usable only if (1) the cell is free, (2) it is not inside
-        // another batch's run at this column (req #3229 — `runIntervals` above;
-        // own-letter mates are exempt, they ARE the run), (3) every same-lane
-        // dependency arc into it crosses only in-chain beads, and (4) — the
+        // A lane is usable only if (1) the cell is free, (2) every same-lane
+        // dependency arc into it crosses only in-chain beads, and (3) — the
         // corridor-aware rule (user directive, epic #6 plan) — no shallower
         // bead already on the lane still owes an arc PAST this column to a
         // deeper same-band dependent: parking here would sit this bead on that
@@ -2142,9 +2090,16 @@ export function computePlanLayout(rows, batches, {
         // shallower bead is one of r's own deps (r continues that chain — the
         // arc anchors elsewhere or reroutes) or when r is in-chain between the
         // two ends.
+        //
+        // A FOURTH CHECK LEFT WITH THE LAUNCH GROUPING (req #3371): a lane
+        // strictly inside ANOTHER launch unit's contiguous lane run was refused,
+        // so the dashed rectangle drawn around a run could never enclose a
+        // foreign bead. There are no runs and no rectangles now, so that clause
+        // has no subject — and the one invariant it shared with the rest of this
+        // predicate, *no two beads on one `(band, column, lane)` cell*, is check
+        // (1) and is untouched.
         const laneOk = (r, d, lane) => {
             if (!free(d, lane)) return false;
-            if (enclosingRunAnyColumn(lane, batchOf.get(r.id))) return false;
             for (const a of sameEpicDepsOf(r)) {
                 const al = laneById.get(a.id);
                 if (al === lane && !corridorOk(a, r, lane)) {
@@ -2174,207 +2129,72 @@ export function computePlanLayout(rows, batches, {
             }
             return true;
         };
-        // Same-band batch-mates take a CONTIGUOUS RUN of lanes, allocated when
-        // the first mate places: the lowest run of members.length lanes that
-        // all pass laneOk (dep-anchored candidates first, so a gate on this
-        // band's lane keeps its straight arc when possible). (Review found the
-        // earlier next-free-lane packing letting mates spread around an occupied
-        // lane, boxing unrelated steps in ~15% of multi-batch plans.)
-        //
-        // A CONTIGUOUS RUN IS NOT ON ITS OWN THE BOX INVARIANT, and this comment
-        // used to claim it was — "a batch box therefore encloses exactly its
-        // members" was here, in the present tense, through two review rounds
-        // while being measurably false. Contiguity holds in RAW lane values; the
-        // box is drawn from ORDINALS. Making the box invariant true takes the
-        // run plus `runIntervals` plus `interiorClear`, all three, each for a
-        // different way a foreign bead gets between two mates.
-        //
-        // THE RUN IS PER (BAND, COLUMN), NOT PER BAND — req #3229, and the
-        // difference is a bead drawn on top of another bead. The run used to be
-        // allocated once per letter per band and handed out to every mate
-        // wherever it landed, on two safety arguments that req #3188 falsified
-        // when it regrouped batches on the REMAINING gate instead of a shared
-        // dep set, so mates legitimately sit at different DEPTHS:
-        //
-        //   1. "the pre-check holds for every mate" — it ran `laneOk` at the
-        //      FIRST mate's column. A mate two columns deeper consumed a lane
-        //      nothing had checked there.
-        //   2. "the sort keeps mates consecutive" — the sort is COLUMN first,
-        //      so mates of one letter are consecutive only WITHIN a column. A
-        //      whole second batch's run was allocated in between.
-        //
-        // Measured (fuzz seed 115, `timedFuzzPlans.js`): batch A's four-lane run
-        // was allocated at column 0, batch B's two-lane run at column 0 starting
-        // one lane below it, and at column 2 A's mate 13 and B's mate 11 both
-        // resolved to lane 3. `take()` is a deliberate no-op on an occupied
-        // cell, so the second bead was swallowed in silence. Reproduced with AND
-        // without a time axis — the axis changes which plans reach this, never
-        // whether the path is sound.
-        //
-        // Keying the run on `letter|column` makes BOTH arguments true as
-        // written: the pre-check runs at the column the lanes are consumed in,
-        // it checks each ACTUAL mate rather than assuming a shared dep set, and
-        // within one column same-letter mates ARE consecutive in the sort, so
-        // nothing places between the check and the last mate.
-        //
-        // THAT IS THE CELL INVARIANT ONLY. The BOX invariant needs `runIntervals`
-        // above and does not follow from per-column allocation — allocating
-        // `start + k` leaves the run contiguous in RAW values, and the ordinal
-        // renumber at band close can still slide a later fractional lane between
-        // two mates. Reviewing this change measured it going the wrong way: 38
-        // enclosed non-members over the corpus before, 32 after, with new
-        // instances at seeds 212 and 363 where a fractional dep-anchored `start`
-        // (which per-column allocation reaches far more often, deep columns
-        // being where fractional lanes live) bracketed an unrelated bead.
-        // With `runIntervals` AND `interiorClear`: 0 enclosed non-members over
-        // 40,000 layouts (20,000 generator seeds × axis on/off). `runIntervals`
-        // alone was 0 over the 400-plan corpus but still 7 at that scale — the
-        // scope on a measurement is part of the measurement.
-        const batchRunNext = new Map(); // `letter|column` -> next lane in that run
+        // ONE LANE RULE FOR EVERY STEP (req #3371). Until the launch grouping
+        // left there were two: a launch-unit member took the next lane of a
+        // CONTIGUOUS RUN allocated when its first mate placed, and everything
+        // else took the rule below. That run existed to keep a dashed rectangle
+        // around exactly its own members, and keeping it honest took five
+        // functions, two invariants and a 400-plan fuzz corpus (req
+        // #3229/#3256). With no rectangle there is nothing to keep contiguous,
+        // so the whole allocator is gone and the enclosure invariant it
+        // protected has no subject. THE OTHER INVARIANT — no two beads on one
+        // `(band, column, lane)` cell — is the oldest rule on this surface,
+        // survives unchanged, and is still swept over the same fuzz corpus: the
+        // run is what used to VIOLATE it, never what established it.
         for (const r of steps) {
             const d = colOf.get(r.id);
-            const letter = batchOf.get(r.id);
             let lane = null;
-            if (letter !== undefined) {
-                const runKey = `${letter}|${d}`;
-                if (!batchRunNext.has(runKey)) {
-                    // This column's mates, in the order they will place — the
-                    // sort above is stable and column-major, so `steps` filtered
-                    // this way IS that order.
-                    const mates = steps.filter((s) => batchOf.get(s.id) === letter
-                        && colOf.get(s.id) === d);
-                    const mateIds = new Set(mates.map((m) => m.id));
-                    // THE RUN'S INTERIOR, not just its n lanes. `runIntervals`
-                    // stops a later step entering a published run; this stops a
-                    // run being allocated AROUND a bead that is already there,
-                    // which is the same box defect approached from the other
-                    // side. Checking `start + k` alone cannot see it: with an
-                    // INTEGER start the interior integers are the mates' own
-                    // lanes and nothing foreign can sit between them, but a
-                    // dep-anchored `start` is routinely FRACTIONAL, and then an
-                    // occupant at some other fraction inside `(start, hi)` is
-                    // examined by nothing — `free()` only ever looks at the
-                    // endpoints, and `enclosingRun` cannot help because the
-                    // interval does not exist yet. Nine steps reproduce it
-                    // (see the box tests); measured, it also survived at 7
-                    // cases per 40,000 layouts, none inside the 400-plan
-                    // corpus. Reserved corridor cells are NOT occupants here —
-                    // an arc running through the box crosses no bead.
-                    //
-                    // WHICH COLUMN THE OCCUPANT SITS IN DOES NOT MATTER (req
-                    // #3256). Asking `occupant(d, v)` asks the CELL question —
-                    // would this box enclose a foreign bead — and a value used
-                    // one column over answers "no" while still becoming a lane
-                    // ROW between two mates at the band-wide renumber. That
-                    // leaves the box enclosing nothing and spanning a dead row,
-                    // and it is the commonest shape of this defect: measured on
-                    // the 400-plan corpus, 1084 of 3848 boxes. So a value
-                    // strictly inside the run that is not one of the run's own
-                    // lanes disqualifies `start`, whatever column assigned it.
-                    const mateLanes = (start) =>
-                        new Set(mates.map((_, k) => start + k));
-                    const interiorClear = (start) => {
-                        const hi = start + mates.length - 1;
-                        const own = mateLanes(start);
-                        for (const v of lanesUsed) {
-                            if (!(v > start && v < hi)) continue;
-                            if (!own.has(v)) return false;
-                            const o = occupant(d, v);
-                            if (o !== undefined && o !== RESERVED && !mateIds.has(o)) {
-                                return false;
-                            }
-                        }
-                        return true;
-                    };
-                    const runOk = (start) => interiorClear(start)
-                        && mates.every((m, k) => laneOk(m, d, start + k));
-                    let start = null;
-                    for (const a of sameEpicDepsOf(r)) {
-                        const al = laneById.get(a.id);
-                        if (al !== undefined && runOk(al)) { start = al; break; }
-                    }
-                    if (start === null) {
-                        start = 0;
-                        while (!runOk(start)) start += 1;
-                    }
-                    batchRunNext.set(runKey, start);
-                    // Publish the interval so nothing else lands inside it —
-                    // see `runIntervals`. A one-mate segment spans no gap.
-                    if (mates.length > 1) {
-                        if (!runIntervals.has(d)) runIntervals.set(d, []);
-                        runIntervals.get(d).push(
-                            { letter, lo: start, hi: start + mates.length - 1 });
-                    }
-                }
-                lane = batchRunNext.get(runKey);
-                batchRunNext.set(runKey, lane + 1);
-            } else {
-                for (const a of sameEpicDepsOf(r)) {
-                    const al = laneById.get(a.id);
-                    if (al !== undefined && laneOk(r, d, al)) { lane = al; break; }
-                }
-                if (lane === null) {
-                    // Dep-adjacent lane INSERTION (user directive, epic #6 plan
-                    // image review): when every anchored lane is occupied or
-                    // corridor-blocked, a branch step opens a FRESH lane
-                    // directly below its parent instead of scanning downward
-                    // past every reserved corridor — the scan banished the
-                    // branch below unrelated roots and its dependency arc then
-                    // dove across all of their outgoing corridors. Lanes are
-                    // fractional during placement (0.5 sits between 0 and 1)
-                    // and renumbered ordinally at band close, so a fresh value
-                    // carries no cells, no corridors, and always places.
-                    //
-                    // "FRESH" IS DECIDED AGAINST `lanesUsed`, NOT `laneBeads`
-                    // (req #3229) — and this one is LATENT: no plan in the fuzz
-                    // corpus reaches it, before or after the batch-run fix
-                    // above, so it is hardening rather than a measured repro.
-                    // Kept because it is what makes the paragraph above TRUE as
-                    // written. `laneBeads` is populated by `take()`, which is a
-                    // deliberate no-op on an occupied cell, so a bead that
-                    // landed on an already-taken cell is ABSENT from it — a
-                    // later `below` scan steps over that lane and `al + 1`
-                    // resolves onto something that is anything but fresh. (That
-                    // is the mechanism req #3229 was filed against; measuring it
-                    // REFUTED it as this defect's cause, and left it standing as
-                    // a way the invariant could break next.) `lanesUsed` records
-                    // every lane this band has ASSIGNED, however the bead got
-                    // there, so `al + 1` is fresh only when nothing sits above
-                    // `al` at all, and otherwise the midpoint falls strictly
-                    // between two used values with nothing in between.
-                    //
-                    // This is the ONE path that bypasses `laneOk`, so it also
-                    // has to honour `runIntervals` itself. A midpoint can only
-                    // fall inside a run when the ANCHOR does — nothing is used
-                    // strictly between `al` and `below`, so a run bracketing the
-                    // midpoint must have `lo <= al`. Re-anchoring below that
-                    // run's last mate and retrying therefore terminates: the
-                    // anchor moves strictly upward through distinct run ends,
-                    // and there are finitely many runs in this band.
-                    //
-                    // It honours them at EVERY column (req #3256), because this
-                    // is the path that opens a fresh FRACTIONAL value and the
-                    // renumber that turns one into a lane row is band-wide. A
-                    // step here is a non-member by construction, so no interval
-                    // is exempt.
-                    const anchors = sameEpicDepsOf(r)
-                        .map((a) => laneById.get(a.id))
-                        .filter((v) => v !== undefined);
-                    if (anchors.length > 0) {
-                        let al = Math.min(...anchors);
-                        for (;;) {
-                            const below = [...lanesUsed]
-                                .filter((v) => v > al)
-                                .sort((p, q) => p - q)[0];
-                            lane = below === undefined ? al + 1 : (al + below) / 2;
-                            const run = enclosingRunAnyColumn(lane, letter);
-                            if (!run) break;
-                            al = run.hi;
-                        }
-                    } else {
-                        lane = 0;
-                        while (!laneOk(r, d, lane)) lane += 1;
-                    }
+            for (const a of sameEpicDepsOf(r)) {
+                const al = laneById.get(a.id);
+                if (al !== undefined && laneOk(r, d, al)) { lane = al; break; }
+            }
+            if (lane === null) {
+                // Dep-adjacent lane INSERTION (user directive, epic #6 plan
+                // image review): when every anchored lane is occupied or
+                // corridor-blocked, a branch step opens a FRESH lane
+                // directly below its parent instead of scanning downward
+                // past every reserved corridor — the scan banished the
+                // branch below unrelated roots and its dependency arc then
+                // dove across all of their outgoing corridors. Lanes are
+                // fractional during placement (0.5 sits between 0 and 1)
+                // and renumbered ordinally at band close, so a fresh value
+                // carries no cells, no corridors, and always places.
+                //
+                // "FRESH" IS DECIDED AGAINST `lanesUsed`, NOT `laneBeads`
+                // (req #3229) — and this one is LATENT: no plan in the fuzz
+                // corpus reaches it, so it is hardening rather than a
+                // measured repro.
+                // Kept because it is what makes the paragraph above TRUE as
+                // written. `laneBeads` is populated by `take()`, which is a
+                // deliberate no-op on an occupied cell, so a bead that
+                // landed on an already-taken cell is ABSENT from it — a
+                // later `below` scan steps over that lane and `al + 1`
+                // resolves onto something that is anything but fresh. (That
+                // is the mechanism req #3229 was filed against; measuring it
+                // REFUTED it as this defect's cause, and left it standing as
+                // a way the invariant could break next.) `lanesUsed` records
+                // every lane this band has ASSIGNED, however the bead got
+                // there, so `al + 1` is fresh only when nothing sits above
+                // `al` at all, and otherwise the midpoint falls strictly
+                // between two used values with nothing in between.
+                //
+                // This is the ONE path that bypasses `laneOk`. It used to
+                // have a second obligation for that reason — honour every
+                // published launch-unit lane run and re-anchor below one it
+                // landed inside — and req #3371 removed those runs, so the
+                // midpoint is simply taken.
+                const anchors = sameEpicDepsOf(r)
+                    .map((a) => laneById.get(a.id))
+                    .filter((v) => v !== undefined);
+                if (anchors.length > 0) {
+                    const al = Math.min(...anchors);
+                    const below = [...lanesUsed]
+                        .filter((v) => v > al)
+                        .sort((p, q) => p - q)[0];
+                    lane = below === undefined ? al + 1 : (al + below) / 2;
+                } else {
+                    lane = 0;
+                    while (!laneOk(r, d, lane)) lane += 1;
                 }
             }
             laneById.set(r.id, lane);
@@ -2452,23 +2272,19 @@ export function computePlanLayout(rows, batches, {
         // Retained for consumers that want a representative pitch; band height
         // now comes from laneY, never from sub × pitch.
         const pitch = lanePitch(0);
-        // Bands hosting batch members take a taller header: it reserves the
-        // batch-letter strip (below the epic label, above lane 0's step label)
-        // and keeps the box top clear of the epic label — found in review as an
-        // epic-label × batch-label collision on long epic titles. Since req
-        // #3256 the letter normally rides its own box and the strip is its
-        // FALLBACK, but a lane-0 box's top still lands inside this header and
-        // the strip is still what guarantees the fallback somewhere legal to
-        // go, so the reservation is unchanged.
-        // The header also absorbs the stagger, but ONLY in title mode: lane 0's
+        // EVERY BAND TAKES THE SAME HEADER (req #3371). A band hosting launch-
+        // unit members used to take 16px more, reserving the letter's fallback
+        // strip and keeping a launch rectangle's top clear of the epic label — a
+        // collision found in review on long epic titles. No rectangle, no
+        // letter, no reservation, so a plan is 16px shorter per band that used
+        // to host one.
+        // The header still absorbs the stagger, and ONLY in title mode: lane 0's
         // step label is what gets LIFTED on odd columns (req #3119), and without
-        // the extra line it rises into the epic label — and, in a band hosting a
-        // batch, into the batch letter strip. Both collisions were caught by the
-        // overlap invariant. In id mode nothing above the bead moves (the title
+        // the extra line it rises into the epic label — a collision the overlap
+        // invariant caught. In id mode nothing above the bead moves (the title
         // slot staggers DOWNWARD instead), so charging the header there would be
         // 14px of dead space per band in the default view.
-        const headerH = BAND_HEADER + (staggerLabels ? STAGGER_GAP : 0)
-            + (steps.some((r) => batchOf.has(r.id)) ? BATCH_HEADER_EXTRA : 0);
+        const headerH = BAND_HEADER + (staggerLabels ? STAGGER_GAP : 0);
         // The EPIC'S OWN LANE: the part of the header no step content can reach.
         // Derived, never assumed — see BAND_HEADER. Consumers that place the epic
         // name (the visualizer's floating chip) clamp to THIS, not to headerH.
@@ -2478,8 +2294,8 @@ export function computePlanLayout(rows, batches, {
         bandUsed.push(used);
     }
     // The ruler's reservation, charged ONCE and unconditionally (see RULER_H).
-    // Every band, node, arc and batch box is derived from this y, so the whole
-    // plan shifts by one constant and nothing below has to know about the strip.
+    // Every band, node and arc is derived from this y, so the whole plan shifts
+    // by one constant and nothing below has to know about the strip.
     let y = 8 + ruler.h;
     for (const band of bands) {
         band.y = y;
@@ -2569,72 +2385,6 @@ export function computePlanLayout(rows, batches, {
             arcs.push({
                 fromId: dId, toId: r.id, straight: false,
                 route: late ? 'late' : 'early', x1, y1, x2, y2, path,
-            });
-        }
-    }
-
-    // ── Launch-batch boxes ─────────────────────────────────────────────────
-    // One box SEGMENT per (epic band, column) the batch touches, not one rect:
-    // a single rect spanning either axis also encloses whatever unrelated band
-    // or column lies between two members (review finding) — a user would read a
-    // non-member as launching in the batch. Segments share the letter and the
-    // hover payload, so the launch unit stays one visible thing.
-    //
-    // Since req #3188 an engine-produced batch cannot span BANDS (the launch key
-    // and the band key are both the dominant epic); that half is kept as a
-    // DEFENCE on an argument this module does not derive — see the module
-    // header. The COLUMN half is live and reachable: #3188 keys on the remaining
-    // gate, so batch-mates legitimately sit at different dependency depths.
-    const batchBoxes = [];
-    for (const b of safeBatches) {
-        const members = (b.stepIds || []).map((id) => nodes.get(id)).filter(Boolean);
-        if (members.length < 2) continue;
-        // ONE SEGMENT PER (BAND, COLUMN) — req #3188 made the column half of that
-        // load-bearing, and getting it wrong is the SAME defect the band half was
-        // built for, on the other axis. Until #3188 batch-mates shared a raw dep
-        // set, so they shared a depth, so one column and one x/width for the
-        // whole batch was sound. Now they share the REMAINING gate: a step gated
-        // by an already-Complete dep and a step with no gate at all are one
-        // launch unit at DIFFERENT depths. Measured on the corpus's own
-        // `batch-groups-on-remaining-gate` case — batch A is [3, 5, 2] with 3
-        // and 5 at depth 0 and 2 at depth 1 — a single-column box left member 2
-        // outside it and enclosed the unrelated Complete step 1.
-        const byCell = new Map();
-        for (const n of members) {
-            const cell = `${n.bandIndex}|${n.depth}`;
-            if (!byCell.has(cell)) byCell.set(cell, []);
-            byCell.get(cell).push(n);
-        }
-        // Band first, then column: the letter goes on the FIRST segment, and the
-        // plan reads top-to-bottom before left-to-right.
-        const cells = [...byCell.keys()].sort((p, q) => {
-            const [pb, pd] = p.split('|').map(Number);
-            const [qb, qd] = q.split('|').map(Number);
-            return (pb - qb) || (pd - qd);
-        });
-        for (const cell of cells) {
-            const ms = byCell.get(cell);
-            const [bandIndex, depth] = cell.split('|').map(Number);
-            const w = Math.max((colW[depth] || 110) - BATCH_BOX_INSET,
-                BATCH_BOX_MIN_W);
-            const yTop = Math.min(...ms.map((n) => n.y)) - BATCH_BOX_RISE;
-            const yBot = Math.max(...ms.map((n) => {
-                const row = byId.get(n.id);
-                const nReqs = (row.reqIds || []).length;
-                // The box must enclose the marks it is drawn around, and in
-                // titles mode an odd column's stack starts a line lower.
-                return n.y + reqStaggerOf(n.depth) + (reqLayout === 'vertical'
-                    ? BATCH_BOX_DROP_V + Math.max(0, nReqs - 1) * REQ_LINE_H
-                    : BATCH_BOX_DROP_H);
-            }));
-            batchBoxes.push({
-                letter: b.letter, stepIds: ms.map((n) => n.id),
-                batchStepIds: b.stepIds, x: ms[0].x - w / 2, y: yTop,
-                width: w, height: yBot - yTop,
-                // `(bandIndex, depth)` identifies the segment — the renderer's
-                // React key, since `letter` alone stopped being unique per box
-                // when a batch acquired more than one segment (req #3188).
-                bandIndex, depth,
             });
         }
     }
@@ -2825,7 +2575,8 @@ export function computePlanLayout(rows, batches, {
     // zero-overlap contract is asserted over `layout.labels` in all four
     // reqLayout × stepLabel combinations, and a date strip that carried its own
     // rects would be text on this surface that no invariant covers — which is
-    // how the epic label × batch letter collision got shipped once already.
+    // how an epic-label collision got shipped once already (against the
+    // launch-unit letter, itself since deleted by req #3371).
     // Left-anchored just inside the tick, because a ruler label belongs to a
     // BOUNDARY, not to the middle of a region whose width is an accident of how
     // many columns that day happened to need.
@@ -2858,195 +2609,12 @@ export function computePlanLayout(rows, batches, {
             w: bandText.length * CHW_EPIC + EPIC_PAUSE_BUBBLE_W, h: 16,
         });
     }
-    // ── Batch letters ───────────────────────────────────────────────────────
-    // THE LETTER RIDES ITS BOX (req #3256). It used to live in the band's
-    // reserved header strip whatever lane the box sat on, with a dashed LEADER
-    // dropped from the letter to the box top so the two still read as one
-    // thing. That is right for a box on lane 0 and absurd for a box far down a
-    // tall band: the reporting screenshot's batch A dropped 689px down an
-    // otherwise empty band, and re-measured on the live plan 2026-08-02 batch B
-    // still dropped 407px. A hairline crossing several hundred pixels of
-    // nothing reads as an empty vertical corridor, not as an association.
-    // Anchored a letter-height above its own box top, inside the box's own
-    // x-range, it usually needs no line at all.
-    //
-    // Each of the box's TWO ends is tried, and each is DISPLACED UPWARD past
-    // everything already on the canvas in its x-range — labels AND beads, see
-    // both below. What is in the way is its own member's step label, which
-    // `title` mode LIFTS above the box top on odd columns, and whatever the
-    // lane above left in this column: a staggered title slot can sit as little
-    // as 6px above a box top. A search rather than a tuned constant because the
-    // vertical neighbourhood of a box top is genuinely different in each of the
-    // four layout combinations, and a constant clearing all four today is one
-    // type-scale change away from being wrong in silence. `labels` already
-    // holds every step, requirement, title, ruler and epic rect at this point,
-    // and each earlier batch letter as it is pushed — so letters displace off
-    // each other too and need no separate stagger.
-    //
-    // WHERE IT ENDS UP IS BOUNDED BY THE BAND, not by a distance: the ceiling
-    // is the band's own reserved letter strip. A box whose column is congested
-    // the whole way there falls back to that strip, which the search reaches by
-    // itself — see the `best === null` note below for why nothing can actually
-    // get there. The strip is free by construction (BATCH_HEADER_EXTRA buys it,
-    // below the epic label and above lane 0's step label), so the two review
-    // findings it was built for stand untouched.
-    //
-    // WHAT THIS DOES NOT CLAIM. The worst case is still a long drop-line: 1 of
-    // 3848 fuzzed boxes climbs 245px, against the 689px the header placement
-    // drew on the live plan and against 0px for every box on the live plan now.
-    // The corridor is not abolished — it stops being the normal case.
-    //
-    // EVERY SEGMENT IS LABELLED, not just the first (req #3188). While a batch
-    // could only segment across BANDS — which the engine can no longer produce
-    // at all — one letter for the whole batch read as one launch unit stacked
-    // vertically. Column segments sit SIDE BY SIDE and are reachable on any plan
-    // where mates share only their remaining gate, and an unlabelled dashed box
-    // beside a labelled one reads as a second, anonymous batch. Repeating
-    // "batch A" is the honest rendering: both boxes ARE batch A.
-    // Beads as rects covering EVERYTHING A BEAD OWNS, PER BAND — the sweep
-    // below is band-scoped and the memo is what makes that cheap. Scoping is
-    // sound because a letter cannot leave its own band (its ceiling is inside
-    // it) and the nearest foreign bead is ~103px away: the previous band's
-    // deepest bead sits at least `lanePitch − BEAD_LANE_OFFSET` above its band
-    // bottom, and `lanePitch` is at least MIN_LANE_PITCH = 94, comfortably more
-    // than the bead's own reach plus BEAD_LANE_OFFSET. That inequality is the
-    // dependency; if a lane could ever be shorter than a bead, this filter
-    // would have to go. THE NUMBER TO BEAT IS 37, NOT 25 — req #3271 widened
-    // the rects from the hit circle (15) to the halo's reach (27), so the
-    // margin here narrowed from 69 to 57 while the conclusion held.
-    const bandBeadRects = new Map();
-    const beadRectsOf = (bandIndex) => {
-        if (!bandBeadRects.has(bandIndex)) {
-            // THE HIT CIRCLE IS NO LONGER THE OUTERMOST THING A BEAD OWNS
-            // (req #3271). The next-step halo magnifies at Overview and reaches
-            // NEXT_HALO_MAX_OUTER — further than BEAD_HIT_RADIUS — so a search
-            // that cleared only the hit circle left the letter inside the ring:
-            // measured over the fuzz corpus, 4 letters in 467 sliced by a
-            // NEIGHBOURING column's halo. A per-bead entry in
-            // NEXT_HALO_CLEARANCES cannot bound that, because the letter belongs
-            // to a different column's box — the clearance model that has to
-            // widen is this one. `max()` rather than the halo constant alone, so
-            // the hit circle still governs if it ever grows past the halo.
-            //
-            // Read at CALL time, not at module init: `computePlanLayout` runs
-            // long after this module is evaluated, so the forward reference to a
-            // constant declared below is not a TDZ hazard.
-            const reach = Math.max(BEAD_HIT_RADIUS, NEXT_HALO_MAX_OUTER);
-            bandBeadRects.set(bandIndex, [...nodes.values()]
-                .filter((n) => n.bandIndex === bandIndex)
-                .map((n) => ({
-                    x: n.x - reach, y: n.y - reach, w: 2 * reach, h: 2 * reach,
-                })));
-        }
-        return bandBeadRects.get(bandIndex);
-    };
-    for (const box of batchBoxes) {
-        const text = `batch ${box.letter}`;
-        const w = text.length * 6;
-        const band = bands[box.bandIndex];
-        // TWO ANCHORS, NEAREST WINS. A column's furniture is centred on the
-        // bead — step label, requirement marks, title slot, the bead itself —
-        // so the two ends of a box have DIFFERENT vertical profiles, and the
-        // letter climbing 300px at one end can often sit 14px above the box at
-        // the other. Measured over 3848 fuzzed boxes: with the left end alone,
-        // two climbed 245px and 326px — the corridor this requirement exists to
-        // remove, just shorter; with both, one climbs 245px and nothing else
-        // exceeds 75px, and the right end wins on ~7% of boxes. Both keep the
-        // letter inside the box's own x-range, so neither costs the association.
-        //
-        // Clamped into the box, and de-duplicated: `batchLetter` runs past 'Z'
-        // to 'AA' and beyond, so on a minimum-width column the two ends can meet
-        // or cross, and an unclamped right anchor would hang off the left of the
-        // very box it names.
-        const anchorAt = (xx) => Math.max(box.x, Math.min(xx, box.x + box.width - w));
-        const anchors = [...new Set([
-            anchorAt(box.x + 5), anchorAt(box.x + box.width - 5 - w),
-        ])];
-        // THE CEILING IS THE BAND'S OWN LETTER STRIP, and nothing narrower. The
-        // room above a box is one lane pitch, a lane pitch grows with the
-        // requirement stack its lane carries (req #3119), and the marks in that
-        // stack can leave no 11px gap at all — so any tighter ceiling is a
-        // constant that some plan beats, and beating it means falling back to
-        // the band header and the several-hundred-pixel leader this requirement
-        // exists to remove. Climbing costs a drop-line; giving up costs the
-        // defect back.
-        const ceiling = band.y + 26;
-        // WHAT THE LETTER MUST CLEAR IS EVERY MARK, NOT EVERY LABEL. A bead is
-        // not a label, and leaving it out of this test is not a near-miss: a
-        // requirement mark sits `n.y + 14` under its bead, so displacing off one
-        // lands the letter's top edge exactly on the bead's CENTRE — measured in
-        // review on every congested column, breaking the no-label-on-bead and
-        // hit-circle invariants at once and putting the letter's own hover rect
-        // over a step's. Beads join the sweep as rects covering the bead's full
-        // reach (`BEAD_MARK_RADIUS` — the halo, not just the hit circle, since
-        // req #3271), so the search displaces off them exactly as off a label.
-        const beadRects = beadRectsOf(box.bandIndex);
-        const hits = (r, xx, yy) => r.x < xx + w && xx < r.x + r.w
-            && r.y < yy + BATCH_LETTER_H && yy < r.y + r.h;
-        const clash = (xx, yy) => labels.find((l) => hits(l, xx, yy))
-            || beadRects.find((b) => hits(b, xx, yy));
-        let best = null;
-        for (const x of anchors) {
-            // Strictly decreasing: a clashing rect's own top is always above
-            // `y + BATCH_LETTER_H`, so the next candidate is above this one, and
-            // `ceiling` bounds the walk. It therefore exits either clear or
-            // below the ceiling — never clear-but-untested, which is why the
-            // rejection below tests only the ceiling.
-            let y = box.y - BATCH_LETTER_H - BATCH_LETTER_GAP;
-            for (let hit = clash(x, y); hit && y >= ceiling; hit = clash(x, y)) {
-                y = hit.y - BATCH_LETTER_H - BATCH_LETTER_GAP;
-            }
-            if (y < ceiling) continue;
-            // Largest y = smallest climb. Strict, so the left end keeps a tie.
-            if (best === null || y > best.y) best = { x, y };
-        }
-        if (best === null) {
-            // THE LAST RESORT, AND IT IS STRUCTURALLY UNREACHABLE. Getting here
-            // needs a rect topped above `ceiling + 14` and bottomed below
-            // `ceiling` — inside the strip BATCH_HEADER_EXTRA reserves. Every
-            // band reaching this loop hosts a batch member, so it carries that
-            // extra; the epic label and the ruler ticks end ABOVE the ceiling,
-            // and the lowest-topped thing under them is lane 0's step label at
-            // `band.y + 78`, identically in both stagger modes (the `+18` in
-            // `headerH` cancels the `−18` lift). Measured at review over 1592
-            // batch-hosting bands: zero rects in that window, the nearest
-            // topping at `band.y + 55` against the 40 required — measured when
-            // the bead rects were the hit circle. RE-MEASURED at req #3271's
-            // wider rects over the fuzz corpus: still zero fallbacks and an
-            // unchanged max climb of 85, with the first fallback appearing only
-            // at a rect radius of 60 against the 27 shipped. Kept anyway,
-            // because a `best` of null would otherwise be a crash and because
-            // the strip is the one place whose freedom is a construction rather
-            // than a measurement.
-            best = { x: anchors[0], y: ceiling };
-        }
-        // A leader is drawn only when the letter ended up far enough above its
-        // box that something ELSE is between the two — under that it reads as
-        // the box's caption and a line would be noise. So the leader stops being
-        // the normal case and becomes what it was always for. Its own path is
-        // NOT swept: a drop-line may cross a mark the letter climbed past. That
-        // is deliberate — a leader that dodged would stop reading as a join —
-        // and it is the one piece of geometry here no invariant covers.
-        const leaderTo = (lx, ly) => ({
-            x1: lx + 4, y1: ly + BATCH_LETTER_H + 1,
-            x2: Math.min(Math.max(lx + 4, box.x + 6), box.x + box.width - 6),
-            y2: box.y,
-        });
-        const leader = box.y - (best.y + BATCH_LETTER_H) > BATCH_LETTER_LEADER_MIN
-            ? leaderTo(best.x, best.y) : null;
-        labels.push({
-            kind: 'batch', letter: box.letter, text,
-            x: best.x, y: best.y, w, h: BATCH_LETTER_H, leader,
-        });
-    }
-
     return {
         width: totalW,
         height: totalH,
         bands: bands.map(({ steps, ...b }) => ({ ...b, stepIds: steps.map((s) => s.id) })),
         nodes,
         arcs,
-        batchBoxes,
         labels,
         colW,
         colX,
@@ -3809,14 +3377,31 @@ const NEXT_HALO_OUTER = NEXT_HALO_RADIUS + NEXT_HALO_STROKE / 2;
 //    2.37 — and a 2.37 ceiling would leave the branch reachable. The candidate
 //    is still rejected, but on the SECOND ground below rather than this one:
 //    half a column pitch is a one-constraint answer that says nothing about the
-//    launch-unit box, which is the clearance that actually binds at 28. Kept
-//    with its refutation corrected rather than deleted, because this list exists
-//    so a future reader does not re-derive a ceiling that was already tried.
+//    rest of the furniture. Kept with its refutation corrected rather than
+//    deleted, because this list exists so a future reader does not re-derive a
+//    ceiling that was already tried.
 //  - "NEVER REACHES ANOTHER BEAD" was the second (3.76×). It cleared beads and
 //    crossed everything else — the epic chip's strip at every k below 0.371
-//    (which INCLUDES the opening view on a 1200px panel), and its own launch
-//    -unit box on all four sides through essentially the whole 'out' band. Both
+//    (which INCLUDES the opening view on a 1200px panel), and the launch-unit
+//    box on all four sides through essentially the whole 'out' band. Both
 //    found in review, measured, not hypothetical.
+//
+// THE CEILING MOVED WHEN THE LAUNCH RECTANGLE LEFT, AND THAT WAS A DECISION
+// (req #3371). THREE of the seven entries were that rectangle's own edges —
+// below (28, the binding one across the whole module), above (40) and to the
+// side (31.2) — and deleting it deleted them. The remaining
+// entries are unchanged, so the binding constraint simply moved to the next
+// one: `epicChipStrip` at 31, i.e. `NEXT_HALO_MAX_OUTER` 27 -> 30 and
+// `NEXT_HALO_MAX_MAGNIFY` 2.0x -> 2.222x. The mark req #3271 exists for is 11%
+// larger at Overview at zero cost, and `NEXT_MARK_FLOOR_K` (below) moves with
+// it, so the ring survives 10% further out.
+//
+// PINNING THE CEILING AT THE OLD LITERAL 27 WAS CONSIDERED AND REFUSED. It
+// would have kept every measured figure in [[pipeline-plan-visualizer]]
+// byte-valid and changed no pixel — at the cost of a constant nothing derives,
+// which is exactly the failure the `min()`-over-an-enumerated-list shape was
+// built to prevent. The list is exhaustive by construction; a hand-pinned
+// number is a fourth wrong ceiling waiting to be discovered.
 //
 // So the ceiling is `min()` over the real list, and each entry is DERIVED from
 // the constant that actually places that furniture. A new mark near a bead adds
@@ -3833,34 +3418,32 @@ const NEXT_HALO_OUTER = NEXT_HALO_RADIUS + NEXT_HALO_STROKE / 2;
 //  - LANE WIRES run straight THROUGH bead centres by construction, for the same
 //    reason.
 //
-// AND ONE PIECE OF FURNITURE IS NOT BOUNDABLE HERE AT ALL: the launch-unit
-// LETTER. The letter a halo crosses belongs to a NEIGHBOURING column's box, so
-// no per-bead clearance reaches it. It is handled where the stale model was —
-// `beadRectsOf` sizes its rects on `max(BEAD_HIT_RADIUS, NEXT_HALO_MAX_OUTER)`.
-// Named here because this list advertises itself as the index.
+// ONE PIECE OF FURNITURE USED TO BE UNBOUNDABLE HERE, and it left with the
+// launch grouping. The launch-unit LETTER belonged to a NEIGHBOURING column's
+// rectangle, so no per-bead clearance could reach it and the fix lived in the
+// letter's own placement search instead (`beadRectsOf`, which sized its rects
+// on `max(BEAD_HIT_RADIUS, NEXT_HALO_MAX_OUTER)` for exactly that reason).
+// Req #3371 deleted the letter, the search and that function, so every piece of
+// furniture a halo can reach is now IN the list below — which is what this list
+// has always claimed to be.
 //
 // The test for this lives in the halo's own describe block and measures against
-// the layout's OUTPUT — batch boxes, chip strips, letters, bead pairs — not
-// against the constants below, because measuring against the constants is
-// exactly what let two wrong ceilings through review.
+// the layout's OUTPUT — chip strips, bead pairs — not against the constants
+// below, because measuring against the constants is exactly what let two wrong
+// ceilings through review.
 export const NEXT_HALO_CLEARANCES = {
-    // The launch-unit box, whose four edges are the tightest things a bead has
-    // near it. `DROP_V` (28) is the binding one across the whole module.
-    batchBoxBelow: BATCH_BOX_DROP_V,
-    batchBoxAbove: BATCH_BOX_RISE,
-    batchBoxSide: (COL_MIN_W_HORIZONTAL * MIN_STEP_WIDTH_FACTOR
-        - BATCH_BOX_INSET) / 2,
-    // The epic chip's strip, above a LANE-0 bead. `headerH` cancels out of the
-    // derivation, so one number covers batch-hosting and staggered bands too.
+    // The epic chip's strip, above a LANE-0 bead — THE BINDING ENTRY since req
+    // #3371 removed the launch-unit box's three. `headerH` cancels out of the
+    // derivation, so one number covers staggered bands too.
     // It describes the chip's RESTING position: `placeEpicChips` pins a chip
     // down into the band body while its band is partly scrolled off, and in that
     // state the chip overlaps beads and halos alike. Pre-existing sticky
     // behaviour, not something a world clearance can promise about.
     epicChipStrip: STEP_LABEL_RISE + BEAD_LANE_OFFSET,
     // The time axis's vertical slot rules, drawn at column LEFT EDGES — so half
-    // the tightest column, not the whole pitch. Non-binding today (35.2 against
-    // the batch box's 28) and listed because it would bind before the
-    // neighbouring bead if this list ever loosened.
+    // the tightest column, not the whole pitch. Non-binding (35.2 against the
+    // chip strip's 31) and listed because it is the next entry that would bind
+    // if this list ever loosened again.
     slotRule: COL_MIN_W_HORIZONTAL * MIN_STEP_WIDTH_FACTOR / 2,
     // The BAND rectangle, which is the last piece of world geometry a bead can
     // reach. A lane-0 bead is `headerH + BEAD_LANE_OFFSET` >= 93 below the band
@@ -3954,10 +3537,19 @@ export function nextHaloMagnify(k, labelsDrawn = false) {
 // — DERIVED, not chosen, so a future change to the stroke width or the
 // magnification ceiling moves this floor with it rather than silently
 // disagreeing (the same discipline `NEXT_HALO_MAX_OUTER` and
-// `NEXT_HALO_SCREEN_RADIUS` already follow). On the live plan this floor is
-// k = 0.3 — matching the measured split in
+// `NEXT_HALO_SCREEN_RADIUS` already follow). **THIS FLOOR IS NOW k = 0.27**,
+// measured by evaluating this module — matching the split asserted in
 // `pipelinePlanLayout.test.js` ("cannot reach the deep zoom-out band, and
 // says where it stops").
+//
+// IT MOVED, AND THE DERIVATION IS WHY IT MOVED CORRECTLY (req #3371). It read
+// k = 0.3 for as long as `NEXT_HALO_MAX_MAGNIFY` was 2.0; removing the launch
+// rectangle's three entries from `NEXT_HALO_CLEARANCES` raised the ceiling to
+// 2.222x and this floor fell with it, so the RING survives 10% further out
+// instead of handing over to the dot. `NEXT_MARK_SCREEN_RADIUS` is INVARIANT
+// across that change (8.100 both ways — `NEXT_HALO_MAX_OUTER x NEXT_MARK_FLOOR_K`,
+// and the two terms cancel exactly), which is the whole reason a moving ceiling
+// is a note here rather than a redesign.
 //
 // BELOW IT NO RING CAN WORK, at any ceiling: `NEXT_HALO_CLEARANCES` bounds the
 // ring's WORLD size, and world size buys nothing once the ENTIRE mark is under
@@ -4249,9 +3841,6 @@ export function epicFocusNeighbours(layout, band) {
  * live plan before this was fixed: the rightmost title of one band landed 7px
  * PAST the viewport edge with the pad supposedly reserving 44.
  *
- * Batch boxes are deliberately not consulted: `computePlanLayout` sizes them at
- * `colW[depth] - 8`, so they can never exceed the column extent already taken.
- *
  * Non-contiguous columns are spanned rather than skipped: an epic with steps at
  * depth 0 and depth 4 wants both on screen, and there is no meaningful fit that
  * omits the middle.
@@ -4338,15 +3927,10 @@ export function epicFocusTransform(layout, band, size, kBase, kFloor) {
  * step whose label happens to be short from being magnified past its neighbours
  * into a view with no context. The `FOCUS_MAX_RATIO` clamp handles the rest.
  *
- * THE BATCH BOX IS OMITTED, and NOT for `bandFitRect`'s reason (code review).
- * That one argues the box can never exceed the column extent, which is a
- * HORIZONTAL argument resting on a band's vertical fit already being
- * `band.height`; a single step has no such precomputed extent. It is omitted
- * because a batch box spans every step in its segment, and fitting one step to
- * a rectangle drawn around its SIBLINGS is the zoomed-out view this function
- * exists to replace. So the box may legitimately clip top and bottom — the
- * reader asked for one step, and its own bead, label and requirement marks are
- * all inside the rect.
+ * THE RECT IS THE STEP'S OWN EXTENT AND NOTHING MORE — the crop margin that
+ * keeps a single bead from filling the panel is applied by
+ * `stepFocusTransform`, not baked in here, because it is a property of the FIT
+ * rather than of what the step occupies.
  *
  * @returns {{x:number,y:number,w:number,h:number}|null} null when the step is
  *   not placed on this layout — the caller must not fit.
@@ -4401,121 +3985,53 @@ export function stepFitRect(layout, stepId) {
  *   layout, there is no viewport yet, or no floor was handed in.
  */
 export function stepFocusTransform(layout, stepId, size, kBase, kFloor) {
-    return fitTransform(stepFitRect(layout, stepId), size, kBase, null, kFloor);
+    const rect = stepFitRect(layout, stepId);
+    if (!rect) return null;
+    // The crop margin lives HERE rather than in `stepFitRect` (req #3371): the
+    // rect answers "what does this step occupy", which nothing about framing
+    // should change, and the inflation answers "how much plan do I want around
+    // it". Symmetric, so the centre — and therefore which point lands in the
+    // middle of the viewport — is untouched.
+    const padX = rect.w * STEP_FOCUS_CONTEXT;
+    const padY = rect.h * STEP_FOCUS_CONTEXT;
+    return fitTransform(
+        { x: rect.x - padX, y: rect.y - padY,
+          w: rect.w + 2 * padX, h: rect.h + 2 * padY },
+        size, kBase, null, kFloor);
 }
 
-// ── THE BATCH FIT'S CONTEXT MARGIN (req #3297) ──────────────────────────────
-// The fraction of the batch rect's OWN width and height added on each side
-// before the fit. It is the difference between "the dashed box fills the panel"
-// and the framing the requirement asked for — the launch unit comfortably
-// readable with the plan still visible around it.
+// ── THE STEP FIT'S CONTEXT MARGIN (req #3297, re-pointed by req #3371) ─────
+// The fraction of the step rect's OWN width and height added on each side
+// before the fit. It is the difference between "one bead fills the panel" and
+// the framing req #3297 asked for — the launch unit comfortably readable with
+// the plan still visible around it.
+//
+// KEPT BY VALUE (0.25) WHEN ITS SUBJECT CHANGED (req #3371). It used to inflate
+// the dashed multi-step launch rectangle; in 2.0 the STEP is the launch unit,
+// so the constant follows the unit rather than dying with the drawing. The
+// framing argument is identical whatever the unit: "read it IN its plan, not
+// extracted from it".
 //
 // Proportional, and symmetric, for two reasons that are worth keeping straight:
 //
 //   · SYMMETRIC means it cannot change WHICH POINT ends up at the centre of the
 //     viewport. The inflated rect has the same centre as the bare one, so the
-//     batch stays framed on exactly the same spot whatever this number is. The
+//     step stays framed on exactly the same spot whatever this number is. The
 //     only thing it can change is `k` — and then, necessarily, the translation
 //     that carries that centre at the new scale; the claim is about the framing,
 //     not about the two numbers. And it changes `k` only when the fit — rather
-//     than the `FOCUS_MAX_RATIO` ceiling — is what binds. That is the LARGE
-//     batch box: a six-lane run whose tight fit would otherwise crop to its own
-//     dashed edge.
-//   · On the SMALL box — one column, two beads, the reference screenshot's own
-//     case — the ceiling binds and this constant is inert. The generous
-//     whitespace there is `FOCUS_MAX_RATIO`, exactly as it is for a one-step
-//     epic, and NOT this number. Do not tune this expecting the small case to
-//     move; it will not. Requirement item 8 is that ceiling, and it is why a
-//     batch box small enough to want k=8 still lands at 2.6 × the readable
+//     than the `FOCUS_MAX_RATIO` ceiling — is what binds.
+//   · ON A SINGLE STEP THE CEILING USUALLY BINDS AND THIS CONSTANT IS INERT.
+//     The generous whitespace around a one-bead fit is `FOCUS_MAX_RATIO`,
+//     exactly as it is for a one-step epic, and NOT this number. Do not tune
+//     this expecting the ordinary case to move; it will not. That ceiling is
+//     why a step small enough to want k=8 still lands at 2.6 x the readable
 //     default.
 //
 // A world-space constant would have been wrong on both counts: a fixed number
-// of world px is a different fraction of every box, and on the small box — the
-// one that most wants air — it is the smallest fraction of all.
-export const BATCH_FOCUS_CONTEXT = 0.25;
-
-/**
- * The world-space rectangle ONE LAUNCH BATCH occupies within ONE BAND
- * (req #3297) — the union of every `batchBoxes` SEGMENT that batch draws there,
- * inflated by `BATCH_FOCUS_CONTEXT`.
- *
- * The union, not one segment: a batch is one launch unit and `computePlanLayout`
- * splits its box per (band, column) precisely so a segment never encloses a
- * non-member. Fitting one segment would put the reader in front of part of the
- * `/swarm-start` and call it the batch.
- *
- * SCOPED BY THE BAND'S OWN STEP IDS, not by `box.bandIndex`. The caller has a
- * band object (that is what the epic name carries — see `placeEpicChips`), never
- * its index, and `indexOf` on the bands array is an identity assumption this
- * module has no reason to make. A segment belongs to the band when it holds a
- * step the band holds. Since req #3188 an engine batch cannot span bands at all,
- * so the scoping is a defence rather than a discriminator — the same standing
- * this module already gives that argument where `batchBoxes` is built.
- *
- * THE BATCH LETTER IS DELIBERATELY OUTSIDE THE RECT, and that is not the
- * omission it looks like. The letter is placed by a de-collision sweep that may
- * lift it far above its own box (the sweep's own comment records a letter
- * climbing 300px), and a rect that chased it would zoom the launch unit — the
- * thing the reader clicked for — down to a smudge at the bottom of a view mostly
- * full of empty band. The context margin above is what keeps the letter on
- * screen in the ordinary case, which is the right trade: the letter is a label
- * for the box, so losing it costs identification, while losing the box costs the
- * feature.
- *
- * @param {Object} layout   computePlanLayout output
- * @param {Object} band     a `layout.bands` entry (carries `stepIds`)
- * @param {string} letter   the batch letter, e.g. 'A'
- * @returns {{x:number,y:number,w:number,h:number}|null} null when that band
- *   draws no box for that letter — the caller must not fit.
- */
-export function batchFitRect(layout, band, letter) {
-    if (!layout || !band || !letter || !Array.isArray(layout.batchBoxes)) return null;
-    const ids = new Set(band.stepIds || []);
-    if (!ids.size) return null;
-    let left = Infinity;
-    let right = -Infinity;
-    let top = Infinity;
-    let bottom = -Infinity;
-    for (const box of layout.batchBoxes) {
-        if (box.letter !== letter) continue;
-        if (!(box.stepIds || []).some((id) => ids.has(id))) continue;
-        if (!Number.isFinite(box.x) || !Number.isFinite(box.y)
-            || !Number.isFinite(box.width) || !Number.isFinite(box.height)) continue;
-        if (box.x < left) left = box.x;
-        if (box.x + box.width > right) right = box.x + box.width;
-        if (box.y < top) top = box.y;
-        if (box.y + box.height > bottom) bottom = box.y + box.height;
-    }
-    if (!(right > left) || !(bottom > top)) return null;
-    const w = right - left;
-    const h = bottom - top;
-    const padX = w * BATCH_FOCUS_CONTEXT;
-    const padY = h * BATCH_FOCUS_CONTEXT;
-    return { x: left - padX, y: top - padY, w: w + 2 * padX, h: h + 2 * padY };
-}
-
-/**
- * The {x, y, k} that frames ONE LAUNCH BATCH of ONE BAND (req #3297) — the
- * second stop of the epic name's two-state zoom.
- *
- * The THIRD geometry function feeding `PipelinePlanVisualizer`'s single
- * `applyFocus`, and deliberately nothing more than that: same `fitTransform`,
- * same `FOCUS_MAX_RATIO` ceiling, same REQUIRED `kFloor` contract as the band
- * and the step (see the FLOOR block above `bandFitRect`). The camera move, its
- * transition and its four flags live in the component and exist once.
- *
- * `neighbours` is null, as it is for the step fit: the reserve exists so a
- * FOCUSED BAND's neighbours can still print their names beside it, and a batch
- * sits inside one band with the band's own name already clamped to the viewport
- * by `placeEpicChips`. Nothing here needs a strip reserved for it.
- *
- * @returns {{x:number,y:number,k:number}|null} null when that band draws no box
- *   for that letter, there is no viewport yet, or no floor was handed in — in
- *   every one of which the caller must leave the camera exactly where it is.
- */
-export function batchFocusTransform(layout, band, letter, size, kBase, kFloor) {
-    return fitTransform(batchFitRect(layout, band, letter), size, kBase, null, kFloor);
-}
+// of world px is a different fraction of every rect, and on the smallest rect —
+// the one that most wants air — it is the smallest fraction of all.
+export const STEP_FOCUS_CONTEXT = 0.25;
 
 // The centring itself, shared by both focus targets (extracted req #3253).
 // A rect, a viewport and the base scale in; the transform d3-zoom is handed out.

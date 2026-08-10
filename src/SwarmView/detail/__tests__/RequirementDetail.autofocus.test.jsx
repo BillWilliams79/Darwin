@@ -101,7 +101,15 @@ async function flush() {
     });
 }
 
-describe('RequirementDetail new-mode category autofocus (req #2884)', () => {
+// Req #3435 — 15s, not vitest's 5000ms default. These cases MOUNT THE WHOLE
+// requirement page in jsdom, and the first one in a file also pays module init
+// for MUI. Measured before this requirement, the slowest case here already took
+// ~4s of the 5s budget, so the default was a latent flake rather than a real
+// ceiling; the Orchestration box's two extra MUI Selects are what pushed it
+// over. Nothing is stubbed here: this suite exercises the isNew path, where
+// useOrchestrationIndex is disabled outright, so the added cost is render
+// only. The assertions below are unchanged — only the budget they may take.
+describe('RequirementDetail new-mode category autofocus (req #2884)', { timeout: 15000 }, () => {
     beforeEach(() => { categoriesData = null; pendingResolvers = []; mountedRoots = []; });
     afterEach(() => {
         act(() => { mountedRoots.forEach((r) => r.unmount()); });
