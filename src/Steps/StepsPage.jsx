@@ -105,6 +105,7 @@ import { useSnackBarStore } from '../stores/useSnackBarStore';
 import ChipFilter from '../Components/ChipFilter/ChipFilter';
 import { formatDateTime } from '../utils/dateFormat';
 import { PLAN_REQUIREMENT_FIELDS } from '../SwarmView/pipelines/pipelineViewModel';
+import { sortReqIdsByStatus } from '../SwarmView/pipelines/pipelinePlanLayout';
 import {
     runChipProps,
     runLabel,
@@ -166,12 +167,17 @@ const oneLine = (value) => (value ? String(value).replace(/\s+/g, ' ').trim() : 
 // Requirement ids for a hover, marking the containers. A tracking requirement is
 // linked but never gates (req #3123), and a reader looking at a step that says
 // "3 requirements — Scheduled" needs to see which of them the derivation ignored.
-const reqIdSummary = (row) => {
+//
+// Sorted met-first, deferred/wontfix-last (req #3363) via the SAME ladder the
+// plan visualizer stacks its requirement marks with — `statusOf` defaults to a
+// no-op lookup so a caller with no status map still gets the row's own order
+// rather than a crash.
+const reqIdSummary = (row, statusOf = () => null) => {
     const ids = row.reqIds || [];
     if (!ids.length) return 'No requirements linked — this step is completed by hand.';
     const tracking = new Set(row.trackingReqIds || []);
     const unresolved = new Set(row.unresolvedReqIds || []);
-    return ids.map((id) => {
+    return sortReqIdsByStatus(ids, statusOf).map((id) => {
         if (tracking.has(id)) return `${id} (tracking)`;
         if (unresolved.has(id)) return `${id} (not found)`;
         return String(id);
@@ -343,6 +349,11 @@ export default function StepsPage() {
     const { rows: allRows, unrenderedStepIds } = useMemo(() => buildStepEditorRows({
         pipelines, steps, stepRequirements, stepDeps, requirements, features, epics,
     }), [pipelines, steps, stepRequirements, stepDeps, requirements, features, epics]);
+
+    // req #3363 — id -> requirement_status, for the "Reqs" tooltip's sort.
+    const reqStatusById = useMemo(
+        () => new Map(requirements.map((r) => [r.id, r.requirement_status])),
+        [requirements]);
 
     const rows = useMemo(() => filterStepRows(allRows, {
         pipelineIds: pipelineFilter === ALL_PIPELINES ? null : [Number(pipelineFilter)],
@@ -760,7 +771,7 @@ export default function StepsPage() {
             field: 'reqCount', headerName: 'Reqs', width: 90, type: 'number',
             valueGetter: (_v, row) => (row.reqIds || []).length,
             renderCell: (params) => (
-                <Tooltip title={reqIdSummary(params.row)}>
+                <Tooltip title={reqIdSummary(params.row, (id) => reqStatusById.get(id))}>
                     <Box component="span" data-testid={`step-req-count-${params.row.id}`}>
                         {params.value}
                     </Box>

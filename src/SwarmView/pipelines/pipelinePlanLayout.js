@@ -294,6 +294,46 @@ export const REQ_STATUS_UNKNOWN_COLOR = PLAN_VIZ_PALETTE.dim;
 export const reqStatusColor = (status) => (Object.hasOwn(REQ_STATUS_COLORS, status)
     ? REQ_STATUS_COLORS[status] : REQ_STATUS_UNKNOWN_COLOR);
 
+// ── Requirement marks: STACK order under a step (req #3363) ────────────────
+// A different ladder from `REQ_STATUS_ORDER` above on purpose — that one is the
+// legend's reading order (the pipeline, authoring to wontfix); this is what a
+// reader scanning DOWN a step's own requirement stack wants first. `met` leads
+// because "is this step actually finished" is the question a multi-requirement
+// step exists to answer, and the two statuses nobody returns to (`deferred`,
+// `wontfix`) sink to the bottom in the order the user named them — everything
+// still in flight runs in ladder order between the two, closest-to-done first.
+export const REQ_STEP_SORT_ORDER = {
+    met: 0, development: 1, swarm_ready: 2, approved: 3, authoring: 4,
+    deferred: 5, wontfix: 6,
+};
+
+// One past the last known rank — a status this build does not know (an
+// unresolved id, or an enum value shipped ahead of the UI) sinks below every
+// recognised one rather than guessing where it belongs.
+const REQ_STEP_SORT_UNKNOWN = Object.keys(REQ_STEP_SORT_ORDER).length;
+
+/**
+ * Sort a step's linked requirement ids by status for on-canvas display (req
+ * #3363). Stable: two requirements sharing a status keep the order the
+ * caller gave them, rather than the sort tie-breaking on id or anything else.
+ *
+ * @param {number[]} reqIds
+ * @param {(id: number) => ?string} statusOf  requirement id -> requirement_status
+ * @returns {number[]}
+ */
+export function sortReqIdsByStatus(reqIds, statusOf) {
+    const ids = Array.isArray(reqIds) ? reqIds : [];
+    const rank = (id) => {
+        const status = typeof statusOf === 'function' ? statusOf(id) : null;
+        return Object.hasOwn(REQ_STEP_SORT_ORDER, status)
+            ? REQ_STEP_SORT_ORDER[status] : REQ_STEP_SORT_UNKNOWN;
+    };
+    return ids
+        .map((id, i) => [id, i])
+        .sort(([aId, aI], [bId, bI]) => (rank(aId) - rank(bId)) || (aI - bI))
+        .map(([id]) => id);
+}
+
 // ── Requirement-id scale 2 of 3: MACHINE (the 'machine' key) ───────────────
 // The high-contrast ecosystem pairing (user directive 2026-07-27): each machine
 // reads as its PLATFORM at a glance, so the two are told apart by association
