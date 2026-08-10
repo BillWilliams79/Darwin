@@ -122,8 +122,9 @@ import {
     nextHaloMagnify, nextMarkIsDot, nextMarkDotRadius,
     planLevelFor, drawsLabelKind, BEAD_LANE_OFFSET,
     buildReqColorViews, REQ_COLOR_KEYS, reqIdStyle, reqIdKeyEntries, normalizeColorKey,
-    DEFAULT_COLOR_KEY, PLAN_KEY_MAX_W, pinnedLevelOf, DEFAULT_PLAN_LEVEL_PREF,
+    DEFAULT_COLOR_KEY, PLAN_KEY_MAX_H, pinnedLevelOf, DEFAULT_PLAN_LEVEL_PREF,
     EPIC_PAUSE_BUBBLE_D, pauseBubbleColor, stickyRulerY, rulerScreenBottom,
+    KEY_GROUP_TITLES,
 } from './pipelinePlanLayout';
 import {
     epicCycleKey, epicZoomStateKey, nextLaunchStep, nextEpicZoom,
@@ -1776,8 +1777,20 @@ export default function PipelinePlanVisualizer({
         // and text do. Never a hand-guessed pixel offset: `RULER_H` is world
         // units and the pin makes the screen edge a function of `t`, so any
         // constant here would be right at exactly one zoom.
+        //
+        // The SAME number insets the DOM overlay below (req #3374 P1) — see
+        // `epicOverlayTopInset` — so the two pinned consumers of this edge can
+        // never disagree with each other either.
         topInset: rulerScreenBottom(t),
     });
+    // req #3374 P1: a departing chip's y comes from `placeEpicChips`' own
+    // `bottom − CHIP_MARGIN_Y − h` clamp term (the one that makes a name
+    // LEAVE WITH its band), which is free to go below `topInset` — the OTHER
+    // clamp term is what floors it at the ruler, and the two are a `min()`
+    // apart, so the leave-with-band term can win. That drew the name over the
+    // pinned ruler for its last ~26px. Reusing the SAME `rulerScreenBottom(t)`
+    // here clips it at the DOM layer instead of re-deriving the edge.
+    const epicOverlayTopInset = rulerScreenBottom(t);
 
     const chipBg = rgba(P.panel, EPIC_CHIP_BG_ALPHA);
 
@@ -2168,8 +2181,10 @@ export default function PipelinePlanVisualizer({
             // can land under it on screen — the same trade-off the sticky
             // epic chips already accept (their own comment: "a sticky chip
             // landed on a live bead" was a known, documented cost, not a
-            // defect to chase to zero). `collectWorldObstacles` excludes this
-            // kind for the identical reason it already excludes `'epic'`.
+            // defect to chase to zero). Nothing here gets obstacle avoidance
+            // either — the layout has run no such pass, for any label kind,
+            // since req #3257 — so this is the identical cost paid a second
+            // time, not a special case carved out for slot labels.
             stickyRulerNodes.push(
                 <Text key={`lbl-${i}`} x={label.x} y={label.y} text={label.text}
                       fontSize={F.slot} fontFamily={MONO}
@@ -2332,7 +2347,8 @@ export default function PipelinePlanVisualizer({
                     neighbours keep their names by the ordinary rule instead of
                     by a special case pinned to the viewport edge. Their
                     guarantee is re-asserted in vitest against the new rule. */}
-                <Box sx={{ position: 'absolute', inset: 0, pointerEvents: 'none',
+                <Box sx={{ position: 'absolute', top: epicOverlayTopInset, left: 0,
+                            right: 0, bottom: 0, pointerEvents: 'none',
                             overflow: 'hidden' }}
                      data-testid="pipeline-viz-epic-layer">
                     {floatingEpics.map((e) => (
@@ -2399,7 +2415,16 @@ export default function PipelinePlanVisualizer({
                                 + (e.band?.paused ? ' — paused' : ' — active')}
                             data-testid={`pipeline-viz-epic-${e.key}`}
                             sx={{
-                                position: 'absolute', left: e.x, top: e.y,
+                                // `e.y` is screen-absolute (panel-origin), but
+                                // this chip's containing block now starts at
+                                // `epicOverlayTopInset` (req #3374 P1) — not 0
+                                // — so it is charged BACK OUT here. Without
+                                // it every chip would sit `epicOverlayTopInset`
+                                // px lower than `placeEpicChips` placed it: the
+                                // clearance the container inset already pays
+                                // for, charged a second time.
+                                position: 'absolute', left: e.x,
+                                top: e.y - epicOverlayTopInset,
                                 // The height and font the placement pass MEASURED
                                 // — both come back from `placeEpicChips`, because
                                 // it now scales the chip to fit its own epic lane
@@ -2627,14 +2652,19 @@ export default function PipelinePlanVisualizer({
                     feedback loop, and no risk of a scale being clipped to a
                     footprint that was reserved for a different one.
 
-                    IT IS STILL WIDTH-CAPPED. This element's measured rect is the
-                    keep-out `placeEpicChips` resolves the floating epic names
-                    against — by CLIPPING them at this box's left edge since req
-                    #3257, since a name may not slide out of its own band's
-                    rectangle to dodge it — so width is the whole cost and
-                    `PLAN_KEY_MAX_W` is the whole defence.
-                    Removing the plan-level rows made the key SHORTER, which costs
-                    the epic labels nothing either way.
+                    IT IS HEIGHT-CAPPED, NOT WIDTH-CAPPED (req #3374 P6). This
+                    element's measured rect is the keep-out `placeEpicChips`
+                    resolves the floating epic names against — by CLIPPING them
+                    at this box's left edge since req #3257, since a name may
+                    not slide out of its own band's rectangle to dodge it — and
+                    a bottom-anchored box grows UPWARD into more band rows as it
+                    gets TALLER, which `pipelinePlanLayout.js`'s own re-measure
+                    (see `PLAN_KEY_MAX_H`) found costs roughly 5x more per pixel
+                    than the box getting WIDER. `PLAN_KEY_MAX_W` capped the
+                    cheaper axis from the day the key moved to bottom-center
+                    (req #3255) until this requirement; width is now
+                    deliberately uncapped, and a machine-heavy plan's wider key
+                    is the accepted, measured cost of that trade.
 
                     Collapse is LOCAL STATE, not a persisted preference: a stored
                     one would need seeding in the E2E fixture and could arrive
@@ -2648,7 +2678,7 @@ export default function PipelinePlanVisualizer({
                     Bottom-center is out of that flow on every plan shape.
                     Centered with `left: 50%` + `translateX(-50%)` rather than
                     a fixed width, because the key's own width is content-
-                    driven (`PLAN_KEY_MAX_W` caps it, doesn't fix it). */}
+                    driven and, since req #3374 P6, deliberately uncapped. */}
                 <Stack direction="column" spacing={0}
                        useFlexGap
                        ref={setLegendEl}
@@ -2665,7 +2695,7 @@ export default function PipelinePlanVisualizer({
                               border: `1px solid ${P.line}`,
                               boxShadow: '0 6px 18px rgba(0, 0, 0, 0.45)',
                               pointerEvents: 'none', userSelect: 'none',
-                              maxWidth: PLAN_KEY_MAX_W,
+                              maxHeight: PLAN_KEY_MAX_H,
                               // Collapsed, the panel's only child is the
                               // absolutely-positioned toggle below, which does
                               // not participate in flex layout — so the panel
@@ -2746,16 +2776,18 @@ export default function PipelinePlanVisualizer({
                                 and its top padding do not survive as an edge
                                 over nothing.
 
-                                `PLAN_KEY_MAX_W` needs no re-measurement for
-                                this. It is a CAP, and the box sizes to its
-                                widest line; the 186px control was never that
-                                line (the step channel's five swatches and names
-                                are), and even if it had been, a NARROWER key
-                                only ever gives the floating epic labels more
-                                room — the cap's whole purpose. The sweep behind
-                                that constant bounds the key's cost to the chips
-                                from above, so removing a row cannot invalidate
-                                it in either direction.
+                                No re-measurement was needed for this removal
+                                either, under the WIDTH cap that stood here at
+                                the time (`PLAN_KEY_MAX_W`, since renamed and
+                                moved to height by req #3374 P6 — see
+                                `PLAN_KEY_MAX_H`): it was a CAP, and the box
+                                sizes to its widest line; the 186px control was
+                                never that line (the step channel's five
+                                swatches and names are), and even if it had
+                                been, a NARROWER key only ever gives the
+                                floating epic labels more room. The point
+                                survives the rename — one FEWER row can only
+                                shrink the box on whichever axis is capped now.
 
                                 The pan exemption travelled with the control in
                                 the only sense that matters: the `data-viz-chrome`
@@ -2767,7 +2799,7 @@ export default function PipelinePlanVisualizer({
                             {/* THE STEP channel. Running and next-up carry live
                                 motion in the key itself, because naming a rhythm
                                 in words is not the same as showing it. */}
-                            <KeyGroup title="step" first>
+                            <KeyGroup title={KEY_GROUP_TITLES[0]} first>
                                 <LegendDot fill={P.doneFill} label="Complete" />
                                 <LegendDot fill={P.runningFill} label="Running"
                                            animated="pipeKeyPulse" />
@@ -2809,7 +2841,7 @@ export default function PipelinePlanVisualizer({
                                              aria-hidden={!active}
                                              sx={{ gridArea: '1 / 1',
                                                     visibility: active ? 'visible' : 'hidden' }}>
-                                            <KeyGroup title="requirement">
+                                            <KeyGroup title={KEY_GROUP_TITLES[1]}>
                                                 {reqKeyScales[scale].map((e) => (
                                                     <LegendWord key={e.key} color={e.color}
                                                                 label={e.label} />
