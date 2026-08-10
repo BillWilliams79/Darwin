@@ -36,6 +36,7 @@ import DoneAllIcon from '@mui/icons-material/DoneAll';
 import ModelEffortIcon from './ModelEffortIcon';
 import { modelEffortGridTemplate } from './modelEffortLayout';
 import { useModelEffortDisplayStore } from '../stores/useModelEffortDisplayStore';
+import { orchestratedMarkSx } from './orchestratedMarkStyles';
 
 
 const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryName }) => {
@@ -46,7 +47,34 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
         titleOnBlur, deleteClick, sessionStatusMap,
         categoryColorMap, sortMode, setCrossCardInsertIndex,
         requirementsArray, setRequirementsArray,
+        orchestratedIds,
         strikethroughMet = true } = useRequirementActions();
+
+    // req #3419 — MARK the plan work. The toggle in the header hides it; when the
+    // reader turns the toggle OFF, orchestrated and unplanned rows sit side by
+    // side with nothing to tell them apart, and that is the state the reader is
+    // in precisely when the distinction matters.
+    //
+    // THE SAME SET, not a second answer. `orchestratedIds` comes from the host
+    // card's `useRequirementVisibility()` — the one hook that decides what the
+    // toggle hides — so a row can never be gold and visible-under-hiding, nor
+    // plain and hidden. Marking and hiding are one predicate (req #3419's whole
+    // point); computing "is this orchestrated" here would be the sixth copy.
+    //
+    // The template add-row is never marked: its id is '', and `Number('')` is 0,
+    // which is not a requirement id. Guarded explicitly anyway rather than relying
+    // on that — the same guard `pipelineMembership` makes.
+    // Absent context (a host that predates this) → undefined → no marking, which
+    // degrades to the previous appearance rather than throwing.
+    const isOrchestrated = requirement.id !== ''
+        && !!orchestratedIds?.has(Number(requirement.id));
+
+    // ONE fixed appearance — there is nothing to configure. Memoized anyway
+    // because `sx` identity drives MUI's style recomputation and this row
+    // re-renders on every keystroke in its own title field.
+    const markSx = React.useMemo(
+        () => orchestratedMarkSx({ isOrchestrated }),
+        [isOrchestrated]);
 
     // Model + Effort column preferences (req #3029). The columns always render in
     // the aggregator card; `showOnAllCards` promotes them onto CategoryCard rows
@@ -546,7 +574,20 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
                         multiline
                         disabled = {categoryId !== '' ? false : categoryName === '' ? true : false}
                         autoComplete ='off'
-                        sx = {{...(status === 'met' && strikethroughMet && {textDecoration: 'line-through'}), ...((status === 'deferred' || status === 'wontfix') && {opacity: 0.5}),}}
+                        data-testid={requirement.id === '' ? undefined
+                            : `requirement-title-${requirement.id}`}
+                        data-orchestrated={requirement.id === '' ? undefined
+                            : String(isOrchestrated)}
+                        sx = {{...(status === 'met' && strikethroughMet && {textDecoration: 'line-through'}), ...((status === 'deferred' || status === 'wontfix') && {opacity: 0.5}),
+                               // req #3419 — the gold ORCHESTRATED mark. The row
+                               // renders it; it does not DECIDE it. Both halves
+                               // live elsewhere on purpose: whether this row is
+                               // orchestrated comes from the one visibility hook,
+                               // and what the mark looks like from the one pure
+                               // `orchestratedMarkSx`. An empty object here means
+                               // an unmarked row is byte-identical to before.
+                               ...markSx,
+                        }}
                         size = 'small'
                         slotProps={{ htmlInput: { maxLength: 256 } }}
                         inputRef={isTemplate ? titleInputRef : undefined}

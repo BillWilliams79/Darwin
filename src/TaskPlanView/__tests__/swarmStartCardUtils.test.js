@@ -3,8 +3,24 @@ import {
     sortSwarmReadyItems,
     getCoordLabel,
     PIPELINE_FILTERED_STATUSES,
+    aggregatorRowVisible,
     tallyRequirementStatuses,
 } from '../swarmStartCardUtils';
+
+// req #3419 — the tally takes the `useRequirementVisibility` context object now,
+// and applies it through `aggregatorRowVisible`, the SAME function the card
+// filters its rows with. Before, the list and its own badge were two
+// transcriptions of one rule.
+//
+// These tests were written against the pre-#3419 `(pipelinedIds, hidePipelined)`
+// pair, where BOTH exclusions read one Set. `ctx` reproduces exactly that, so
+// every assertion below still means what it meant — the widening (an
+// `orchestratedIds` that is a strict superset) is asserted separately.
+const ctx = (ids, hide = false) => ({
+    pipelinedIds: ids,
+    orchestratedIds: ids,
+    hideOrchestrated: hide,
+});
 
 const req = (id, overrides = {}) => ({
     id,
@@ -108,14 +124,14 @@ describe('tallyRequirementStatuses', () => {
     ];
 
     it('counts every chip when no requirement is pipelined', () => {
-        const { counts } = tallyRequirementStatuses(rows, ALL_CHIPS, new Set());
+        const { counts } = tallyRequirementStatuses(rows, ALL_CHIPS, ctx(new Set()));
         expect(counts).toEqual({
             authoring: 2, approved: 1, swarm_ready: 1, development: 1, met: 1,
         });
     });
 
     it('drops a pipelined launch-chip requirement from counts', () => {
-        const { counts } = tallyRequirementStatuses(rows, ALL_CHIPS, new Set([2, 3, 4]));
+        const { counts } = tallyRequirementStatuses(rows, ALL_CHIPS, ctx(new Set([2, 3, 4])));
         expect(counts.authoring).toBe(1);
         expect(counts.approved).toBe(0);
         expect(counts.swarm_ready).toBe(0);
@@ -124,7 +140,7 @@ describe('tallyRequirementStatuses', () => {
     it('leaves development and met counted even when pipelined', () => {
         // THE decision. If this test starts failing because someone made the
         // exclusion uniform, the Development chip has just gone blank.
-        const { counts } = tallyRequirementStatuses(rows, ALL_CHIPS, new Set([5, 6]));
+        const { counts } = tallyRequirementStatuses(rows, ALL_CHIPS, ctx(new Set([5, 6])));
         expect(counts.development).toBe(1);
         expect(counts.met).toBe(1);
     });
@@ -133,19 +149,17 @@ describe('tallyRequirementStatuses', () => {
         // id === '' is the "type a title here" row, not a requirement — and
         // Number('') is 0, which must never reach the Set lookup.
         const withTemplate = [...rows, { id: '', requirement_status: 'authoring' }];
-        const { counts } = tallyRequirementStatuses(withTemplate, ALL_CHIPS, new Set([0]));
+        const { counts } = tallyRequirementStatuses(withTemplate, ALL_CHIPS, ctx(new Set([0])));
         expect(counts.authoring).toBe(2);
     });
 
     it('matches a numeric Set against string row ids', () => {
-        const { counts } = tallyRequirementStatuses(
-            [{ id: '4', requirement_status: 'swarm_ready' }], ALL_CHIPS, new Set([4]));
+        const { counts } = tallyRequirementStatuses([{ id: '4', requirement_status: 'swarm_ready' }], ALL_CHIPS, ctx(new Set([4])));
         expect(counts.swarm_ready).toBe(0);
     });
 
     it('ignores statuses outside the chip vocabulary', () => {
-        const { counts } = tallyRequirementStatuses(
-            [...rows, req(9, { requirement_status: 'wontfix' })], ALL_CHIPS, new Set());
+        const { counts } = tallyRequirementStatuses([...rows, req(9, { requirement_status: 'wontfix' })], ALL_CHIPS, ctx(new Set()));
         expect(counts.wontfix).toBeUndefined();
         expect(Object.keys(counts)).toEqual(ALL_CHIPS);
     });
@@ -153,14 +167,14 @@ describe('tallyRequirementStatuses', () => {
     it('returns a zeroed map for a missing read', () => {
         // The in-flight state. Showing MORE than we eventually will is the
         // deliberate direction — never hide eligible work behind a pending fetch.
-        const { counts } = tallyRequirementStatuses(undefined, ALL_CHIPS, new Set([1]));
+        const { counts } = tallyRequirementStatuses(undefined, ALL_CHIPS, ctx(new Set([1])));
         expect(counts).toEqual({
             authoring: 0, approved: 0, swarm_ready: 0, development: 0, met: 0,
         });
     });
 
     it('tolerates a missing pipelined Set', () => {
-        const { counts } = tallyRequirementStatuses(rows, ALL_CHIPS, undefined);
+        const { counts } = tallyRequirementStatuses(rows, ALL_CHIPS, ctx(undefined));
         expect(counts.swarm_ready).toBe(1);
     });
 
@@ -170,14 +184,13 @@ describe('tallyRequirementStatuses', () => {
     // to hide orchestrated requirements everywhere.
     describe('hidePipelined (req #3242)', () => {
         it('defaults to false — identical to omitting the argument', () => {
-            const withDefault = tallyRequirementStatuses(rows, ALL_CHIPS, new Set([5, 6]));
-            const explicitFalse = tallyRequirementStatuses(rows, ALL_CHIPS, new Set([5, 6]), false);
+            const withDefault = tallyRequirementStatuses(rows, ALL_CHIPS, ctx(new Set([5, 6])));
+            const explicitFalse = tallyRequirementStatuses(rows, ALL_CHIPS, ctx(new Set([5, 6]), false));
             expect(explicitFalse).toEqual(withDefault);
         });
 
         it('hides development and met when true', () => {
-            const { counts, hidden } = tallyRequirementStatuses(
-                rows, ALL_CHIPS, new Set([5, 6]), true);
+            const { counts, hidden } = tallyRequirementStatuses(rows, ALL_CHIPS, ctx(new Set([5, 6]), true));
             expect(counts.development).toBe(0);
             expect(counts.met).toBe(0);
             expect(hidden.development).toBe(1);
@@ -185,8 +198,8 @@ describe('tallyRequirementStatuses', () => {
         });
 
         it('leaves launch chips exclusion identical whether true or false — never doubled, never skipped', () => {
-            const off = tallyRequirementStatuses(rows, ALL_CHIPS, new Set([1, 2, 4]), false);
-            const on = tallyRequirementStatuses(rows, ALL_CHIPS, new Set([1, 2, 4]), true);
+            const off = tallyRequirementStatuses(rows, ALL_CHIPS, ctx(new Set([1, 2, 4]), false));
+            const on = tallyRequirementStatuses(rows, ALL_CHIPS, ctx(new Set([1, 2, 4]), true));
             expect(on.counts.authoring).toBe(off.counts.authoring);
             expect(on.counts.swarm_ready).toBe(off.counts.swarm_ready);
             expect(on.hidden.authoring).toBe(off.hidden.authoring);
@@ -194,12 +207,87 @@ describe('tallyRequirementStatuses', () => {
         });
 
         it('count + hidden still sums to the population with the flag on', () => {
-            const { counts, hidden } = tallyRequirementStatuses(
-                rows, ALL_CHIPS, new Set([1, 2, 3, 4, 5, 6]), true);
+            const { counts, hidden } = tallyRequirementStatuses(rows, ALL_CHIPS, ctx(new Set([1, 2, 3, 4, 5, 6]), true));
             for (const s of ALL_CHIPS) {
                 const total = rows.filter(r => r.requirement_status === s).length;
                 expect(counts[s] + hidden[s]).toBe(total);
             }
         });
+    });
+});
+
+// ── req #3419 — ONE rule for the rows and the badge, and TWO memberships ─────
+describe('aggregatorRowVisible (req #3419)', () => {
+    // 10 is step-carried (and therefore also orchestrated); 20 is epic-seated
+    // with no step; 30 is neither.
+    const V = {
+        pipelinedIds: new Set([10]),
+        orchestratedIds: new Set([10, 20]),
+        hideOrchestrated: false,
+    };
+    const ids = (status, v, rows) => rows.filter(aggregatorRowVisible(status, v)).map(r => r.id);
+    const ROWS = [{ id: 10 }, { id: 20 }, { id: 30 }];
+
+    it('withholds step-carried work from a LAUNCH chip unconditionally', () => {
+        // req #3180: its launch is the coordinator's to make. No toggle gates it.
+        for (const status of PIPELINE_FILTERED_STATUSES) {
+            expect(ids(status, V, ROWS)).toEqual([20, 30]);
+        }
+    });
+
+    it('KEEPS epic-seated work on a launch chip while the toggle is off', () => {
+        // The decision this pins: a requirement seated under an epic that no
+        // step carries IS launchable. Widening launch eligibility to epic
+        // membership would withhold real work — which is why the two Sets stay
+        // separate rather than collapsing into one.
+        expect(ids('swarm_ready', V, ROWS)).toContain(20);
+    });
+
+    it('keeps everything on an observation chip while the toggle is off', () => {
+        expect(ids('development', V, ROWS)).toEqual([10, 20, 30]);
+        expect(ids('met', V, ROWS)).toEqual([10, 20, 30]);
+    });
+
+    it('drops BOTH memberships on every chip once the toggle is on', () => {
+        const on = { ...V, hideOrchestrated: true };
+        expect(ids('development', on, ROWS)).toEqual([30]);
+        expect(ids('met', on, ROWS)).toEqual([30]);
+        expect(ids('swarm_ready', on, ROWS)).toEqual([30]);
+    });
+
+    it('tolerates a missing context entirely — shows everything', () => {
+        // The in-flight state, and the deliberate failure direction: never hide
+        // eligible work behind a read that has not landed.
+        expect(ROWS.filter(aggregatorRowVisible('swarm_ready'))).toEqual(ROWS);
+        expect(ROWS.filter(aggregatorRowVisible('swarm_ready', {}))).toEqual(ROWS);
+    });
+});
+
+describe('the badge cannot disagree with the rows (req #3419)', () => {
+    // This is the property the shared function buys. Asserting it by OUTCOME —
+    // count the rows the card would render, compare to the badge — is the only
+    // form that stays true if someone re-inlines one of the two.
+    const ROWS = [
+        req(10, { requirement_status: 'swarm_ready' }),
+        req(20, { requirement_status: 'swarm_ready' }),
+        req(30, { requirement_status: 'swarm_ready' }),
+        req(40, { requirement_status: 'development' }),
+        req(50, { requirement_status: 'development' }),
+    ];
+    const CHIPS = ['authoring', 'approved', 'swarm_ready', 'development', 'met'];
+    const V = {
+        pipelinedIds: new Set([10]),
+        orchestratedIds: new Set([10, 20, 40]),
+    };
+
+    it.each([false, true])('agrees per chip with hideOrchestrated=%s', (hide) => {
+        const v = { ...V, hideOrchestrated: hide };
+        const { counts } = tallyRequirementStatuses(ROWS, CHIPS, v);
+        for (const status of CHIPS) {
+            const rendered = ROWS
+                .filter(r => r.requirement_status === status)
+                .filter(aggregatorRowVisible(status, v));
+            expect(counts[status]).toBe(rendered.length);
+        }
     });
 });

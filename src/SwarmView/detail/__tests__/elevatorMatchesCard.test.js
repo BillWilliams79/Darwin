@@ -17,7 +17,7 @@ import { processSort, processSortReverse, requirementActiveSort, requirementHand
          coerceSortMode, DEFAULT_SORT_MODE } from '../../processSort';
 import { siblingProcessSort, siblingProcessSortReverse, siblingActiveSort, siblingElevator,
          elevatorStateFrom, readElevatorIds } from '../requirementSort';
-import { excludePipelined, pipelinedRequirementIds } from '../../../utils/pipelineMembership';
+import { orchestratedRequirementIds } from '../../../utils/pipelineMembership';
 
 const CHIPS = ['authoring', 'approved', 'swarm_ready', 'development'];
 
@@ -37,6 +37,20 @@ const AGENTS_CATEGORY = [
 
 const junction = (rows) => rows.filter(r => r.pipelined).map(r => ({ requirement_fk: r.id }));
 
+// req #3419 — features, so the fixture can express EPIC association as well as
+// step association. `epicSeated` rows carry `feature_fk: 900`, whose feature
+// names an epic; `feature_fk: 901` names none and must NOT count.
+const FEATURES = [{ id: 900, epic_fk: 4 }, { id: 901, epic_fk: null }];
+
+// THE predicate, built exactly the way `useRequirementVisibility` builds it, and
+// then handed to BOTH models below. One predicate is the whole point of req
+// #3419: while the card and the elevator each derived their own, the two could
+// (and did) answer different questions.
+const visibilityFor = (rows, hideOrchestrated) => {
+    const ids = orchestratedRequirementIds(junction(rows), rows, FEATURES);
+    return (r) => !hideOrchestrated || !ids.has(Number(r?.id));
+};
+
 // What the CARD renders: status chips, then the pipelined filter, then the sort.
 //
 // `CategoryCard.activeSort` is now a one-line delegation to `requirementActiveSort`
@@ -48,7 +62,7 @@ const junction = (rows) => rows.filter(r => r.pipelined).map(r => ({ requirement
 // the same vacuity this file already carries one scar from.
 const cardRows = (rows, { mode = 'process', hidePipelined = true, chips = CHIPS } = {}) => {
     const byStatus = rows.filter(r => chips.includes(r.requirement_status));
-    const visible = excludePipelined(byStatus, pipelinedRequirementIds(junction(rows)), hidePipelined);
+    const visible = byStatus.filter(visibilityFor(rows, hidePipelined));
     return [...visible].sort((a, b) => requirementActiveSort(mode, a, b)).map(r => r.id);
 };
 
@@ -61,8 +75,7 @@ const elevator = (rows, { mode = 'process', hidePipelined = true, chips = CHIPS,
         rows.filter(r => chips.includes(r.requirement_status)),
         {
             sortMode: mode,
-            pipelinedIds: pipelinedRequirementIds(junction(rows)),
-            hidePipelined,
+            isVisible: visibilityFor(rows, hidePipelined),
             currentId,
         },
     );
@@ -134,6 +147,53 @@ describe('population parity — the elevator walks exactly the card\'s rows', ()
         const allPipelined = AGENTS_CATEGORY.map(r => ({ ...r, pipelined: true }));
         expect(elevatorRows(allPipelined)).toEqual([]);
         expect(cardRows(allPipelined)).toEqual([]);
+    });
+});
+
+// ── req #3419 — the OTHER half of "orchestrated" ─────────────────────────────
+//
+// Measured on production 2026-08-09: with the toggle ON, category 1 still showed
+// #3304/#3314 (feature 35 -> epic 4), #3385 (feature 31 -> epic 7) and #3433
+// (feature 41 -> epic 9). No pipeline step carried them, so the step-only
+// predicate kept them, on every surface — the card, the table, the aggregator
+// AND these arrows. One predicate now, so one fix covers all four.
+describe('epic-seated work is orchestrated too (req #3419)', () => {
+    // 3100 and 3152 are unplanned; 3074 is step-carried; 3160 is epic-seated
+    // with NO step; 3161 carries a feature that names no epic, so it is NOT.
+    const MIXED = [
+        { id: 3074, requirement_status: 'authoring', started_at: null, completed_at: null, deferred_at: null, pipelined: true,  feature_fk: null },
+        { id: 3100, requirement_status: 'authoring', started_at: null, completed_at: null, deferred_at: null, pipelined: false, feature_fk: null },
+        { id: 3160, requirement_status: 'authoring', started_at: null, completed_at: null, deferred_at: null, pipelined: false, feature_fk: 900 },
+        { id: 3161, requirement_status: 'authoring', started_at: null, completed_at: null, deferred_at: null, pipelined: false, feature_fk: 901 },
+        { id: 3152, requirement_status: 'authoring', started_at: null, completed_at: null, deferred_at: null, pipelined: false, feature_fk: null },
+    ];
+
+    // Every row is `authoring`, so `process` mode falls to its id-ascending
+    // secondary sort — the expected orders below are id order, not fixture order.
+    it('hides the epic-seated requirement with the toggle ON', () => {
+        expect(cardRows(MIXED)).toEqual([3100, 3152, 3161]);
+        expect(elevatorRows(MIXED)).toEqual([3100, 3152, 3161]);
+    });
+
+    it('keeps a requirement whose feature names no epic', () => {
+        // Categorized is not planned. Hiding this would remove work nobody has
+        // scheduled — the exact residue the toggle exists to leave behind.
+        expect(cardRows(MIXED)).toContain(3161);
+    });
+
+    it('shows it again with the toggle OFF — it is a control, not a rule', () => {
+        const opts = { hidePipelined: false };
+        expect(cardRows(MIXED, opts)).toEqual([3074, 3100, 3152, 3160, 3161]);
+        expect(elevatorRows(MIXED, opts)).toEqual(cardRows(MIXED, opts));
+    });
+
+    it('never lets Down land on an epic-seated row the card hides', () => {
+        // The reported symptom, on the arrows: before req #3419 the elevator
+        // and the card BOTH kept 3160, so this passed vacuously; the assertion
+        // that matters is that the arrow ids equal the rendered list.
+        const { nextId } = elevator(MIXED, { currentId: 3100 });
+        expect(nextId).toBe(3152);
+        expect(elevatorRows(MIXED)).not.toContain(3160);
     });
 });
 
@@ -264,8 +324,7 @@ describe('the handed-over order — the aggregator\'s fix', () => {
         const ids = siblingElevator([], {
             sortMode: 'process',
             orderedIds: handed.siblingIds,
-            pipelinedIds: new Set([3101, 2401]),
-            hidePipelined: true,
+            isVisible: (r) => ![3101, 2401].includes(Number(r?.id)),
         }).ordered.map(r => r.id);
         expect(ids).toEqual([3170, 3101, 2401, 3154]);
     });
@@ -273,8 +332,8 @@ describe('the handed-over order — the aggregator\'s fix', () => {
     it('falls back to the category query when the link carried no ids', () => {
         const viaQuery = siblingElevator(
             AGENTS_CATEGORY.filter(r => CHIPS.includes(r.requirement_status)),
-            { sortMode: 'process', pipelinedIds: pipelinedRequirementIds(junction(AGENTS_CATEGORY)),
-              hidePipelined: true, currentId: 3100, orderedIds: readElevatorIds(undefined) },
+            { sortMode: 'process', isVisible: visibilityFor(AGENTS_CATEGORY, true),
+              currentId: 3100, orderedIds: readElevatorIds(undefined) },
         );
         expect(viaQuery.prevId).toBeNull();
         expect(viaQuery.nextId).toBe(3152);

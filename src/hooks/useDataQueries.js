@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
-import { useContext, useMemo } from 'react';
+import { useContext } from 'react';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys, epicKeys, featureKeys, testCaseKeys, featureTestCaseKeys, testPlanKeys, testPlanCaseKeys, testRunKeys, testResultKeys, customerKeys, buildProjectKeys, branchKeys, buildKeys, customerReleaseKeys } from './useQueryKeys';
@@ -9,8 +9,6 @@ import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, swar
 import { fetchEntity } from './factory/createEntityQueries';
 // req #3166 — THE batched GET /map_coordinates, shared with the export paths.
 import { fetchCoordinatesForRuns, buildRunTrackUri, COORD_TRACK_FIELDS } from '../services/mapCoordinatesBatch';
-// req #3180 — THE browser's one derivation of pipeline-step membership.
-import { pipelinedRequirementIds } from '../utils/pipelineMembership';
 
 export function useDomains(creatorFk, { closed, fields = 'id,domain_name,sort_order', enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
@@ -989,19 +987,13 @@ export const useOrchestrationClaims         = orchestrationClaims.useAll;
 export const useAllPipelineStepRequirements = pipelineStepRequirements.useAll;
 export const useAllPipelineStepDeps         = pipelineStepDeps.useAll;
 
-// Req #3180 — the requirement ids a pipeline STEP carries, as a Set.
-//
-// One shared hook over the junction read above, so the two surfaces that need
-// this (the SwarmStartCard aggregator, the requirements-page filter) consult ONE
-// query cache entry and ONE derivation. It costs no extra fetch on the plan
-// pages, which already hold this exact read.
-//
-// The Set is memoized on the query data, so it is referentially stable between
-// refetches that change nothing — consumers use it as a useMemo dependency.
-export function usePipelinedRequirementIds(creatorFk, { enabled = true } = {}) {
-    const { data } = useAllPipelineStepRequirements(creatorFk, { enabled });
-    return useMemo(() => pipelinedRequirementIds(data), [data]);
-}
+// req #3419 — `usePipelinedRequirementIds` lived here (req #3180) and is GONE.
+// Four surfaces called it and each then wrote its own "is this row on screen"
+// expression around the Set, which is how one defect took two requirements to
+// find. The single answer — and the step-only Set, for the aggregator's
+// unconditional launch exclusion — is `hooks/useRequirementVisibility.js`.
+// Nothing else may derive it; the junction read itself stays public above
+// because the plan pages consume the ROWS, not the membership question.
 
 // Req #3117 — the plan page's Cost column. TWO more bounded list reads, never a
 // per-requirement fetch: the junction maps requirements to their sessions, the

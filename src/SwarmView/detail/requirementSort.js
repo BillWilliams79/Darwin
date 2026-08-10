@@ -11,8 +11,6 @@
 // test can reach the answer the component actually renders rather than
 // re-deriving it — the failure mode that let this ship with a green suite.
 
-import { excludePipelined } from '../../utils/pipelineMembership';
-
 // req #3302 — ONE IMPLEMENTATION. These were a second transcription of
 // `../processSort.js`'s comparators, kept in step by hand and by this file's own
 // header comment. They are now re-exports of the single implementation, under
@@ -42,18 +40,23 @@ const siblingActiveSortLocal = requirementActiveSort;
  * One function because the three answers are one fact. Splitting them is how the
  * page came to sort the right rows and navigate the wrong ones.
  *
- * `hidePipelined` is passed through rather than assumed: the toggle is a user
- * CONTROL on a browse surface (`useShowClosedStore.hidePipelinedRequirements`),
- * so the elevator has to follow it in BOTH positions. When it is off — or while
- * the junction read is still in flight, leaving `pipelinedIds` empty —
- * `excludePipelined` returns the input untouched, so the elevator can only ever
- * be momentarily too permissive, never hide a row the card is showing.
+ * req #3419 — the population filter arrives as the CARD'S OWN PREDICATE
+ * (`useRequirementVisibility().isVisible`) rather than as the ingredients to
+ * re-derive it here. This file previously re-applied `excludePipelined` from a
+ * `(pipelinedIds, hidePipelined)` pair — a second transcription of the rule, and
+ * the very drift its own header warns about, one layer down. Handing the
+ * predicate over means the elevator walks the rows the card renders BY
+ * CONSTRUCTION; there is nothing left that could disagree.
+ *
+ * Omitting `isVisible` shows everything, which keeps the honest degradation the
+ * previous shape had: while the visibility reads are in flight the predicate is
+ * momentarily too permissive, never hiding a row the card is showing.
  *
  * @param {Array<{id: number|string, requirement_status: string}>} siblings
  * @param {object}  opts
  * @param {string}  opts.sortMode       'process' | 'reverse' | 'hand'
- * @param {Set<number>} [opts.pipelinedIds]  from `pipelinedRequirementIds`
- * @param {boolean} [opts.hidePipelined=false]
+ * @param {(row: {id: number|string}) => boolean} [opts.isVisible]
+ *        `useRequirementVisibility().isVisible`; omitted = every sibling walks.
  * @param {number|string} [opts.currentId]   the requirement being viewed
  * @returns {{ordered: Array, currentIndex: number, prevId: (number|null), nextId: (number|null)}}
  *   `currentIndex` is -1 when the current requirement is not in the visible set
@@ -62,8 +65,7 @@ const siblingActiveSortLocal = requirementActiveSort;
  */
 export const siblingElevator = (siblings, {
     sortMode,
-    pipelinedIds,
-    hidePipelined = false,
+    isVisible,
     currentId,
     orderedIds = null,
 } = {}) => {
@@ -76,7 +78,7 @@ export const siblingElevator = (siblings, {
         ? orderedIds.map(id => ({ id }))
         : (() => {
             const rows = Array.isArray(siblings) ? siblings : [];
-            const visible = excludePipelined(rows, pipelinedIds, hidePipelined) || [];
+            const visible = typeof isVisible === 'function' ? rows.filter(isVisible) : rows;
             return [...visible].sort((a, b) => siblingActiveSortLocal(sortMode, a, b));
         })();
 
