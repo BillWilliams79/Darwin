@@ -58,9 +58,10 @@ export const PIPELINE_DETAIL_MODES = [
         // `epics.sort_order` (req #3430 — the authoritative epic display order),
         // falling back to derived start for the epics carrying none,
         // chain-aware swim lanes, TIME-SLOT columns floored by dependency depth
-        // (req #3201 — they were raw dependency depth), launch-batch boxes,
-        // drag-pan + three-level zoom (react-konva + d3-zoom, the Swarm
-        // Visualizer's feel).
+        // (req #3201 — they were raw dependency depth), and drag-pan +
+        // three-level zoom (react-konva + d3-zoom, the Swarm Visualizer's
+        // feel). It drew a dashed multi-step launch rectangle too until req
+        // #3371 made the step the launch unit.
         value: 'plan',
         label: 'Plan',
         icon: AccountTreeIcon,

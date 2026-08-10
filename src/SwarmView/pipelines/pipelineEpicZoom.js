@@ -1,30 +1,38 @@
-// pipelineEpicZoom.js — the epic name's two-state zoom (req #3297).
+// pipelineEpicZoom.js — the epic name's two-state zoom (req #3297, re-pointed
+// at the STEP by req #3371).
 //
 // The epic name on the plan visualizer is a PROGRESSIVE-DISCLOSURE control, not
 // a one-shot fit. It answers two questions, in the order a reader asks them:
 //
 //   level 1 (req #3204)  "where is this epic?"        → the whole band
-//   level 2 (req #3297)  "what does it launch next?"  → its next launch batch
+//   level 2 (req #3297)  "what does it launch next?"  → its next launch STEP
 //
 // and a third click returns to level 1, so the same input reverses the move and
-// there is no dead end. Everything here is the SELECTION half — which batch, and
+// there is no dead end. Everything here is the SELECTION half — which step, and
 // which level the next activation lands on. The GEOMETRY half is
-// `batchFocusTransform` in pipelinePlanLayout.js, and the camera move itself is
+// `stepFocusTransform` in pipelinePlanLayout.js, and the camera move itself is
 // `applyFocus` in PipelinePlanVisualizer.jsx, which exists exactly once.
+//
+// ── WHY THE STEP IS THE UNIT (req #3371) ────────────────────────────────────
+// Req #3297 chose a multi-step launch grouping here and rejected the step in
+// these words: *"a STEP is a fragment of a launch: zooming to one member of a
+// group of four shows a reader part of a command and calls it the next thing to
+// happen."* In Pipeline 2.0 that sentence is false — the step IS the command,
+// carrying its own `/swarm-start` argument list — so the objection evaporates
+// and the step becomes the correct unit by #3297's own test: the smallest thing
+// on this surface the reader can act on. One command, one wave, one decision.
 //
 // NO JSX and no React, for `pipelineEpicLink.js`'s reasons: the cycle is the part
 // of this feature most worth pinning in vitest, and the panel it lives in is
 // react-konva, which jsdom cannot render. A pure module is how the rules below
 // are reachable by a test at all.
 
-import { STEP_DONE } from './pipelineModel';
-
 // What an activation of the epic name should do next. TWO answers, and there is
 // deliberately no third — a "do nothing at all" answer existed here for one
 // review round and is documented at `nextEpicZoom` as the thing that must not
 // come back.
 export const EPIC_ZOOM_BAND = 'band';
-export const EPIC_ZOOM_BATCH = 'batch';
+export const EPIC_ZOOM_STEP = 'step';
 
 /**
  * The identity the cycle is keyed on.
@@ -58,11 +66,11 @@ export function epicCycleKey(band) {
  * `/swarm/pipeline/7` re-renders the same component instance instead of
  * remounting it, and a ref survives the move (code review). An epic seated in
  * both plans would otherwise carry its level across: the reader's very first
- * click in the new plan lands inside a batch of a plan they have not looked at.
+ * click in the new plan lands on a step of a plan they have not looked at.
  * `epicFocusAppliedRef` folds `pipeline?.id` into its own key for exactly this
  * reason and this is the same fold.
  *
- * NOT used for the `nextBatchByEpic` lookup, which is keyed by
+ * NOT used for the `nextLaunchStepByEpic` lookup, which is keyed by
  * `epicCycleKey` alone so it matches what `placeEpicChips` publishes as the
  * chip's `key`. Two keys, two questions: which chip is this, and which plan's
  * cycle am I in.
@@ -76,61 +84,50 @@ export function epicZoomStateKey(pipelineId, band) {
 }
 
 /**
- * WHICH BATCH a second click on this band zooms to — the lowest-lettered launch
- * batch the band still has to launch, or null when it has none.
+ * WHICH STEP a second click on this band zooms to — the ELIGIBLE, UNSUPPRESSED
+ * step earliest in DISPLAY ORDER within the band, or null when it has none.
  *
- * "Lowest-lettered" is read off `batches` IN ORDER and never by sorting the
- * letters: `launchBatches` assigns them in display order, where A launches
- * first, and past batch 26 the letters go AA, AB — which sorts BEFORE 'B'
- * lexically and after it in the plan. The engine already owns this ordering
- * (design rule 3), so this reads it rather than restating it.
+ * "Earliest in display order" is read off `rows` IN ORDER and never re-sorted:
+ * `displayOrder` is design rule 3's output — topological, then state bands, then
+ * execution streams — so the first eligible row of a band IS the next thing that
+ * band launches. The engine already owns that ordering; this reads it rather
+ * than restating it.
  *
- * Two filters, and both are load-bearing for a different reason:
+ * Three filters, each load-bearing for a different reason:
  *
- *   · A DRAWN BOX. `layout.batchBoxes` is the gate, not `batches`, because the
- *     thing being zoomed to is the box: a batch whose members did not make it
- *     onto this layout has no rectangle, and "focus the batch" has no meaning.
- *     This is also what makes requirement item 6's "a band with no lettered
- *     batch" answerable at all, rather than a null-transform accident.
- *   · AT LEAST ONE NON-DONE STEP. Today this cannot subtract anything —
- *     `launchBatches` only ever groups `STEP_PENDING` rows, so every batch it
- *     emits is entirely un-launched. It is written anyway because the
- *     requirement states the rule and because the alternative is a silent
- *     dependency on another module's internals: if a batch ever carries a
- *     finished member, "next" must still mean the next one that has work left.
+ *   · A DRAWN BEAD. `layout.nodes` is the gate, because the thing being zoomed
+ *     to is the bead: a step that did not make it onto this layout has no
+ *     rectangle, and "focus the step" has no meaning. This is also what makes
+ *     "a band with no next launch step" answerable at all, rather than a
+ *     null-transform accident.
+ *   · ELIGIBLE. The question the second click answers is *what launches next*,
+ *     and eligibility is the engine's own answer to it — every gate satisfied,
+ *     work still to do. Without it the "next" step of a band deep in its own
+ *     backlog would be one nothing can start.
+ *   · UNSUPPRESSED. A step whose scope is PAUSED is genuinely eligible and will
+ *     not go out (req #3223 keeps the two facts apart deliberately), so naming
+ *     it as the next launch would promise a launch the plan is holding.
  *
- * AND NOT ON `eligibleStepIds`, which requirement item 3 names — because the
- * ordering it also names ALREADY encodes it. `plan.batches` is emitted in
- * display order, and design rule 3 bands that order by state, so the launchable
- * batch is the low letter; filtering on eligibility as well would be the second
- * ordering rule item 3 forbids. It would also answer the wrong question in the
- * one case where the two differ: every batch of the band gated, where an
- * eligibility filter returns NOTHING and the reader — who asked what launches
- * next, not what launches now — is shown their own band again.
- *
- * @param {Object[]} batches   `plan.batches` — engine order, A launches first
- * @param {Object} layout      computePlanLayout output
- * @param {Object} band        a `layout.bands` entry
- * @param {Map} rowById        plan rows by id, for step state
- * @returns {?string} the batch letter, or null when this band has no next batch
+ * @param {Object[]} rows   `plan.rows` — DISPLAY order, the first match wins
+ * @param {Object} layout   computePlanLayout output
+ * @param {Object} band     a `layout.bands` entry
+ * @param {?Set} eligibleStepIds  `plan.eligibleStepIds`
+ * @returns {?number} the step id, or null when this band has no next launch step
  */
-export function nextBatchLetter(batches, layout, band, rowById) {
-    if (!Array.isArray(batches) || !batches.length) return null;
-    if (!layout || !Array.isArray(layout.batchBoxes) || !band) return null;
+export function nextLaunchStep(rows, layout, band, eligibleStepIds) {
+    if (!Array.isArray(rows) || !rows.length) return null;
+    if (!layout || !layout.nodes || typeof layout.nodes.has !== 'function') return null;
+    if (!band) return null;
     const ids = new Set(band.stepIds || []);
     if (!ids.size) return null;
-    // The letters this band actually draws a box for.
-    const drawn = new Set();
-    for (const box of layout.batchBoxes) {
-        if ((box.stepIds || []).some((id) => ids.has(id))) drawn.add(box.letter);
-    }
-    for (const b of batches) {
-        if (!b || !drawn.has(b.letter)) continue;
-        const unfinished = (b.stepIds || []).some((id) => {
-            const row = rowById && rowById.get ? rowById.get(id) : null;
-            return row != null && row.state !== STEP_DONE;
-        });
-        if (unfinished) return b.letter;
+    const eligible = eligibleStepIds instanceof Set ? eligibleStepIds : null;
+    if (!eligible || !eligible.size) return null;
+    for (const row of rows) {
+        if (!row || !ids.has(row.id)) continue;
+        if (!eligible.has(row.id)) continue;
+        if (row.launchSuppressed) continue;
+        if (!layout.nodes.has(row.id)) continue;
+        return row.id;
     }
     return null;
 }
@@ -147,7 +144,7 @@ export function nextBatchLetter(batches, layout, band, rowById) {
 // hand-jitter between down and up emits a real zoom event that translates the
 // world. Treating any such event as "the reader moved the camera" would clear
 // the cycle level on the very click that is supposed to advance it — the
-// band → batch step would work only for a perfectly still hand, i.e.
+// band → step step would work only for a perfectly still hand, i.e.
 // intermittently, which is worse than not working.
 //
 // TWO PRECISIONS ON "ONE NUMBER", so the next reader is not misled by it:
@@ -204,51 +201,49 @@ export function gestureMovedCamera(from, to) {
  *
  *   1. A DIFFERENT epic always starts at the band (requirement item 2). The
  *      state is per-epic and never global — a reader who has drilled into epic
- *      A's batch and then clicks epic B is asking "where is B", not "what does
- *      B launch next", and answering the second question would drop them into a
- *      corner of a band they have never seen.
- *   2. From the band, the batch — IF there is one. Where there is not, the
- *      answer stays the band, which is the control's own pre-#3297 behaviour;
- *      see the ruling below for why that is not the "do nothing" it looks like
- *      it should be.
- *   3. From the batch, back to the band. The same input reverses the move, so
+ *      A's next launch and then clicks epic B is asking "where is B", not "what
+ *      does B launch next", and answering the second question would drop them
+ *      into a corner of a band they have never seen.
+ *   2. From the band, the next launch STEP — IF there is one. Where there is
+ *      not, the answer stays the band, which is the control's own pre-#3297
+ *      behaviour; see the ruling below for why that is not the "do nothing" it
+ *      looks like it should be.
+ *   3. From the step, back to the band. The same input reverses the move, so
  *      the control is never a dead end and the reader never has to find another
  *      way out of the zoom it put them in.
  *
  * `state` is whatever this function last returned, paired with the epic it was
  * returned for — and it is also what a `?epic=` LANDING seeds (requirement item
  * 4): a deep link leaves the reader at band focus, so it counts as click 1 and
- * their first manual click on that same name goes to the batch rather than
+ * their first manual click on that same name goes to the step rather than
  * re-fitting the band they are already looking at.
  *
- * ── NO BATCH MEANS THE CONTROL IS UNCHANGED, NOT DISABLED (code review) ─────
+ * ── NO NEXT STEP MEANS THE CONTROL IS UNCHANGED, NOT DISABLED (code review) ──
  * The first cut returned a third answer here — do nothing at all — reading
  * requirement item 6's "the second click leaves the camera exactly where it is"
- * literally. **It made the epic name a ONE-SHOT control on every batch-less
- * band, permanently, for the rest of the visit.** Measured: the E2E's own plan
- * derives NO launch batches, so that was every chip on it; PIPE-14 drags the
- * canvas and clicks the same name expecting to come back, and got nothing. An
- * epic mid-flight has no batch either, so it reached production shapes too, and
- * a `?epic=` landing on a batch-less epic burned the reader's FIRST click.
+ * literally. **It made the epic name a ONE-SHOT control on every band with no
+ * second stop, permanently, for the rest of the visit** — and that is the
+ * common case: an epic whose work is all finished, or all gated, has no next
+ * launch, and PIPE-14 drags the canvas and clicks the same name expecting to
+ * come back.
  *
  * That is req #3204 deleted on the majority of bands, in the name of a
- * requirement whose own item 1 says "no dead-end state" — and it is a bigger
- * change than the one being asked for. So: **a band with no second stop keeps
- * exactly the behaviour it had before this requirement.** Item 6 is still
- * honoured where it bites — no batch transform is computed, nothing half-zooms,
- * no fallback to single-step focus is invented — and a reader who clicks twice
+ * requirement whose own item 1 says "no dead-end state". So: **a band with no
+ * second stop keeps exactly the behaviour it had before this requirement.**
+ * Item 6 is still honoured where it bites — no step transform is computed,
+ * nothing half-zooms, no fallback is invented — and a reader who clicks twice
  * without moving lands on the identical transform, which IS the camera left
  * exactly where it was. Do not reintroduce the third answer.
  *
  * @param {?{key: (string|number), level: string}} state  last applied, or null
  * @param {string|number} key           the epic being activated
- * @param {boolean} hasNextBatch        does this band have a next batch?
- * @returns {'band'|'batch'}
+ * @param {boolean} hasNextStep         does this band have a next launch step?
+ * @returns {'band'|'step'}
  */
-export function nextEpicZoom(state, key, hasNextBatch) {
+export function nextEpicZoom(state, key, hasNextStep) {
     if (!state || state.key !== key) return EPIC_ZOOM_BAND;
-    if (state.level === EPIC_ZOOM_BATCH) return EPIC_ZOOM_BAND;
-    return hasNextBatch ? EPIC_ZOOM_BATCH : EPIC_ZOOM_BAND;
+    if (state.level === EPIC_ZOOM_STEP) return EPIC_ZOOM_BAND;
+    return hasNextStep ? EPIC_ZOOM_STEP : EPIC_ZOOM_BAND;
 }
 
 // ── WHAT THE CONTROL SAYS IT DOES (requirement item 7) ──────────────────────
@@ -256,29 +251,29 @@ export function nextEpicZoom(state, key, hasNextBatch) {
 // closed on this very tooltip, from the other side: it described the old
 // navigate-away behaviour long after the click had become a fit. So the second
 // stop is announced only where the band HAS a second stop, and it names the
-// letter it will actually go to — the caller passes the value of
-// `nextBatchLetter`, so what the label promises and what the click does are one
+// step it will actually go to — the caller passes the value of
+// `nextLaunchStep`, so what the label promises and what the click does are one
 // lookup and cannot disagree.
 //
-// The letter is spelled out ("launch batch A") rather than shown bare: on the
-// canvas the letter rides its own dashed box and the association is visual, and
-// a tooltip or a screen reader reading "A" alone has none of that context.
+// The id is spelled out ("launch step 71") rather than shown bare: on the
+// canvas a bare number beside an epic name is indistinguishable from a count,
+// and a screen reader reading "71" alone has no context at all.
 const EPIC_ZOOM_HINT = 'Zoom pipeline epic';
 
 /**
  * The clause naming the second stop, or '' when there is not one.
- * @param {?string} letter  `nextBatchLetter`'s answer for this band
+ * @param {?number} stepId  `nextLaunchStep`'s answer for this band
  */
-export function epicZoomHintSuffix(letter) {
-    return letter ? ` — click again for launch batch ${letter}` : '';
+export function epicZoomHintSuffix(stepId) {
+    return stepId != null ? ` — click again for launch step ${stepId}` : '';
 }
 
 /**
  * The chip's `title`. The aria-label is NOT this string plus the epic name —
  * it interleaves the name and the pause clause — so the two are composed from
  * the shared suffix above rather than one being built out of the other.
- * @param {?string} letter  `nextBatchLetter`'s answer for this band
+ * @param {?number} stepId  `nextLaunchStep`'s answer for this band
  */
-export function epicZoomHint(letter) {
-    return EPIC_ZOOM_HINT + epicZoomHintSuffix(letter);
+export function epicZoomHint(stepId) {
+    return EPIC_ZOOM_HINT + epicZoomHintSuffix(stepId);
 }

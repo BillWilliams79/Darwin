@@ -22,7 +22,7 @@
 // ── WHAT IT ASSERTS, AND WHAT IT DELIBERATELY DOES NOT ──────────────────────
 // It renders the real table with a minimal but REALISTIC plan and asserts the
 // container paints with its rows. It makes no claim about columns, ordering,
-// batch banners, cost or scroll memory — those are `pipelineViewModel`'s and
+// launch lines, cost or scroll memory — those are `pipelineViewModel`'s and
 // `planRenderRows`' own tests, and a smoke test that duplicated them would break
 // on every legitimate presentation change and stop being run.
 //
@@ -57,16 +57,20 @@ const PLAN = {
         {
             id: 48, title: 'Pause Enforcement', run: 'manual', notes: null,
             completedAt: null, state: 'pending',
-            reqIds: [3223], trackingReqIds: [], unresolvedReqIds: [],
+            reqIds: [3223, 3224], trackingReqIds: [], unresolvedReqIds: [],
             // A step dependency AND a time gate, so `formatTimeGates` runs too.
             depIds: [47], timeDeps: [{ at: '2026-08-04T12:00:00Z' }],
             epicId: 4, epic: 'Orchestration', featureId: 9, feature: 'Engine',
             epicLabels: ['Orchestration'], featureLabels: ['Engine'],
             machines: [], cost: null,
+            // req #3371 — design rule 8's artifact, now a property of the row.
+            // A PARTIAL exclusion too, which is the common case: two linked
+            // requirements, one launchable.
+            swarmStartCommand: '/swarm-start 3223',
+            launchExcluded: ['3224 not swarm_ready'],
+            noLaunchReason: null,
         },
     ],
-    batches: [],
-    batchLetterByStepId: new Map(),
     eligibleStepIds: new Set([48]),
     violations: [],
 };
@@ -114,6 +118,24 @@ describe('PipelinePlanTable mounts (req #3324)', () => {
         // The rows really painted — otherwise this would pass on an empty shell.
         expect(document.body.textContent).toContain('Session Drain');
         expect(document.body.textContent).toContain('Pause Enforcement');
+    });
+
+    // req #3371 — THE `/swarm-start` COMMAND DID NOT DISAPPEAR WITH THE BANNER.
+    // The full-width launch banner that used to carry design rule 8's argument
+    // list is gone; the command is a property of the step's own row now, so the
+    // smoke test asserts it is actually painted rather than merely computable.
+    // Scoped to SCHEDULED work, which is why the Running row must NOT carry one.
+    it('renders a scheduled step\'s exact /swarm-start argument list on its own row', () => {
+        render();
+        const cmd = document.querySelector('[data-testid="pipeline-launch-command-48"]');
+        expect(cmd).not.toBeNull();
+        expect(cmd.textContent).toBe('/swarm-start 3223');
+        // The ids the command DROPPED, alongside it (req #3360).
+        expect(document.querySelector('[data-testid="pipeline-launch-skipped-48"]')
+            .textContent).toContain('3224 not swarm_ready');
+        // The Running row is already out — no launch line on it.
+        expect(document.querySelector('[data-testid="pipeline-launch-command-47"]'))
+            .toBeNull();
     });
 
     // The three optional props, because each one opens a branch — and a hook

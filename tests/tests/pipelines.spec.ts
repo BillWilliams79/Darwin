@@ -26,19 +26,27 @@ import { seedPipelineFixture, SeededPipelines } from '../helpers/pipelineFixture
 
 import {
     buildPipelineModel,
-    orderedPlan,
     rowMachineLabel,
 } from '../../src/SwarmView/pipelines/pipelineViewModel.js';
+// req #3381 deleted `orderedPlan` from the view model — the browser now reads a
+// composed, pre-derived payload. The 1.0 ENGINE pieces it composed are still
+// live (this fixture seeds 1.0 rows), so this spec uses the same test-only
+// reconstruction the vitest suites do rather than a second composition of its
+// own. See `testOrderedPlan.js`'s header.
+import {
+    buildTestOrderedPlan as orderedPlan,
+} from '../../src/SwarmView/pipelines/__tests__/testOrderedPlan.js';
 import {
     computePlanLayout, REQ_LINE_H, K_READABLE, BEAD_HIT_RADIUS,
-    epicFocusTransform, batchFocusTransform, FOCUS_PAD, FOCUS_MAX_RATIO,
+    epicFocusTransform, stepFocusTransform, FOCUS_PAD, FOCUS_MAX_RATIO,
     ZOOM_MIN_RATIO, factoryDefaultScale,
 } from '../../src/SwarmView/pipelines/pipelinePlanLayout.js';
-// req #3297 — the epic name's second stop. The spec derives WHICH batch the
-// page will pick from the same pure function the page reads, never from a
-// hard-coded letter: the fixture's batch letters move whenever its steps do.
+// req #3297, re-pointed by req #3371 — the epic name's second stop is the next
+// launch STEP. The spec derives WHICH step the page will pick from the same
+// pure function the page reads, never from a hard-coded id: the fixture's
+// eligible set moves whenever its steps do.
 import {
-    nextBatchLetter, epicZoomHint, epicZoomHintSuffix,
+    nextLaunchStep, epicZoomHint, epicZoomHintSuffix,
 } from '../../src/SwarmView/pipelines/pipelineEpicZoom.js';
 // PIPE-19 asserts the Autonomy row against the label table the card renders
 // through, not against a hand-copied string — the point of D5 is that the card
@@ -466,65 +474,75 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             }
         });
 
-    // ── PIPE-04: launch-batch banner + the exact /swarm-start ───────────────
+    // ── PIPE-04: the step row carries the exact /swarm-start ────────────────
+    // REWRITTEN BY REQ #3371, not deleted. It used to assert a full-width
+    // LAUNCH BATCH banner above the first member of a multi-step launch group.
+    // The step is the launch unit in 2.0, so design rule 8's artifact — the
+    // exact argument list — is a property of ONE row and renders on it. What is
+    // being proven is unchanged: the launch unit is EXPLICIT, never an
+    // implication of adjacency.
 
-    test('PIPE-04: the launch-batch banner carries the exact /swarm-start argument list',
+    test('PIPE-04: a scheduled step row carries the exact /swarm-start argument list',
         async ({ page }) => {
             await openPlanTable(page, fixture.batchPipelineId);
 
-            const banner = page.getByTestId('pipeline-batch-banner-A');
-            await expect(banner).toBeVisible();
-            await expect(banner).toContainText('LAUNCH BATCH A');
+            // The fixture's co-launchable steps, in display order. Each one is
+            // its own launch now, so each carries its own command.
+            const pending = batchPlan.rows.filter((r) => r.state === 'pending');
+            expect(pending.length, 'the fixture seeds scheduled work').toBeGreaterThan(0);
 
-            // Design rule 8: the launch unit is EXPLICIT — the exact command,
-            // not an implication of adjacency. Requirement ids in display order.
-            const command = page.getByTestId('pipeline-batch-command-A');
-            await expect(command).toHaveText(
-                `/swarm-start ${fixture.batchRequirementIds.join(' ')}`);
+            for (const row of pending) {
+                if (!row.launchReqIds.length) continue;
+                const command = page.getByTestId(`pipeline-launch-command-${row.id}`);
+                await expect(command).toHaveText(
+                    `/swarm-start ${row.launchReqIds.join(' ')}`);
+            }
+            // Non-vacuity: at least one row actually drew a command, so the loop
+            // above cannot pass by skipping everything.
+            await expect(page.locator('[data-testid^="pipeline-launch-command-"]')
+                .first()).toBeVisible();
 
-            // The banner sits immediately above its first member.
-            const order = await page.evaluate(() => Array.from(
-                document.querySelectorAll(
-                    '[data-testid^="pipeline-step-row-"], [data-testid^="pipeline-batch-banner-"]'),
-            ).map((el) => el.getAttribute('data-testid')!));
-            const bannerAt = order.indexOf('pipeline-batch-banner-A');
-            expect(bannerAt).toBeGreaterThanOrEqual(0);
-            expect(order[bannerAt + 1]).toMatch(/^pipeline-step-row-/);
+            // Every argument the fixture expects to see launched appears in the
+            // commands the page drew, across the rows that now carry them.
+            const drawn = await page.locator('[data-testid^="pipeline-launch-command-"]')
+                .allTextContents();
+            for (const reqId of fixture.batchRequirementIds) {
+                expect(drawn.join(' '), `requirement ${reqId} appears in a command`)
+                    .toContain(String(reqId));
+            }
 
             // The wall-clock half of the gate renders through the SAME formatter
-            // the Depends-on cell uses — the banner once shipped the raw UTC wire
-            // value while the row eight lines below showed a localized one.
-            await expect(banner).toContainText('after ');
-            const firstMember = batchPlan.rows.find((r) => r.state === 'pending')!;
+            // everywhere it appears — the old banner once shipped the raw UTC
+            // wire value while the row eight lines below showed a localized one.
+            const firstMember = pending[0];
             await expect(page.getByTestId(`pipeline-deps-${firstMember.id}`))
                 .toContainText('after ');
 
-            // The legend key renders only when a batch exists (POC polish
-            // directive, kept in the product).
-            await expect(page.getByTestId('pipeline-batch-legend')).toBeVisible();
-
             // NO CONDENSATION ADVISORY (req #3303). This is the case that used to
             // raise it — co-gated steps sharing a launch key — so the negative is
-            // asserted HERE, where the banner would appear if it came back, rather
-            // than on a plan that could never have shown one.
+            // asserted HERE rather than on a plan that could never have shown one.
             await expect(page.getByTestId('pipeline-condensation-proposals'))
                 .toHaveCount(0);
-            // The banner rendered as a SIBLING above the table, so the text check
-            // is on the page, not on the table element.
             await expect(page.getByText(/could be condensed/)).toHaveCount(0);
         });
 
-    test('PIPE-04b: no banner and NO legend key on a plan without a launch batch',
+    test('PIPE-04b: no launch line on a step with nothing scheduled to launch',
         async ({ page }) => {
-            // Precondition, asserted rather than assumed: the Substrate fixture's
-            // co-gated pending steps differ in run mode or machine, so the engine
-            // finds no batch. If a future fixture edit grows one, this fails here
-            // — visibly — instead of silently voiding the negative case.
-            expect(plan.batches, 'the Substrate fixture has no launch batch').toEqual([]);
-
+            // THE NEGATIVE MOVED WITH THE CONSTRUCT (req #3371). It used to
+            // assert the ABSENCE of a banner and of a legend key on a plan the
+            // engine found no launch group in; the group is gone, so what is
+            // left to prove is that the launch line is scoped to SCHEDULED work
+            // and does not appear on finished or running rows.
             await openPlanTable(page, fixture.mainPipelineId);
-            await expect(page.locator('[data-testid^="pipeline-batch-banner-"]')).toHaveCount(0);
-            await expect(page.getByTestId('pipeline-batch-legend')).toHaveCount(0);
+            const notPending = plan.rows.filter((r) => r.state !== 'pending');
+            expect(notPending.length, 'the Substrate fixture has finished work')
+                .toBeGreaterThan(0);
+            for (const row of notPending.slice(0, 8)) {
+                await expect(page.getByTestId(`pipeline-launch-command-${row.id}`))
+                    .toHaveCount(0);
+                await expect(page.getByTestId(`pipeline-launch-blocked-${row.id}`))
+                    .toHaveCount(0);
+            }
         });
 
     // ── PIPE-05: the cost toggle ───────────────────────────────────────────
@@ -574,7 +592,7 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
     test("PIPE-07: no generated '#<digits>' label on either view", async ({ page }) => {
         // SCOPE, per pipelineViewModel.js § The no-'#' directive: the rule governs
         // labels the UI GENERATES — step ids, requirement links, machine labels,
-        // gates, batch text, chips. It does NOT govern the plan's own stored
+        // gates, launch commands, chips. It does NOT govern the plan's own stored
         // prose, and the fixture proves the distinction: step 22's title really
         // contains "#3077 R13". Rewriting stored content at render time would be
         // falsifying the user's record to satisfy a styling rule. So the sweep
@@ -621,13 +639,13 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
         // The visualizer draws its labels into a <canvas>, so a DOM sweep cannot
         // see them; what IS in the DOM there is the toolbar, the legend and the
         // zoom chip. Sweep those, and rely on the engine-level guarantee for the
-        // canvas: rowMachineLabel/batchMachineLabel strip the one generated '#'
+        // canvas: rowMachineLabel strips the one generated '#'
         // the engine can emit, and pipelinePlanLayout builds every other label
         // from bare ids.
         await openPlanVisualizer(page, fixture.mainPipelineId);
         expect(await sweep(), 'plan visualizer chrome').toEqual([]);
 
-        const layout = computePlanLayout(plan.rows, plan.batches,
+        const layout = computePlanLayout(plan.rows,
             { reqLayout: 'horizontal', stepLabel: 'id' });
         type VizLabel = { kind: string; text: string; prose?: boolean };
         const labels = layout.labels as VizLabel[];
@@ -765,58 +783,29 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             // it changes WHAT IS DRAWN. Per-step title lines are the slot that
             // opens at 'in' and at no other level, so their presence in the
             // layout is the detail the ladder gates.
-            const layout = computePlanLayout(batchPlan.rows, batchPlan.batches,
+            const layout = computePlanLayout(batchPlan.rows,
                 { reqLayout: 'horizontal', stepLabel: 'id' });
             const kinds = new Set(layout.labels.map((l: { kind: string }) => l.kind));
             expect(kinds.has('title'), "the 'in' level has title labels to reveal").toBe(true);
             expect(kinds.has('step'), "the 'out' level has step labels to suppress").toBe(true);
         });
 
-    test('PIPE-10: the dashed batch box is drawn only on a plan that has a batch',
-        async ({ page }) => {
-            // RE-ANCHORED (req #3168). The box is canvas geometry, so this test
-            // used to prove it through the visualizer legend's conditional batch
-            // KEY — the only thing in the DOM that tracked it. The user directive
-            // stripping the key back to step marks + the requirement scale
-            // removed that proxy, so the component now publishes what it actually
-            // drew: `data-batch-boxes`, the same device and the same reasoning as
-            // `data-transform` beside it.
-            //
-            // This is STRICTLY BETTER evidence than the legend key was. The key
-            // was a second thing derived from the same flag, so a bug between the
-            // flag and the drawn rect was invisible to it; the count is the
-            // length of the array the canvas iterates to draw the boxes.
-            const batchLayout = computePlanLayout(batchPlan.rows, batchPlan.batches,
-                { reqLayout: 'horizontal', stepLabel: 'id' });
-            expect(batchPlan.batches).toHaveLength(1);
-            expect(batchLayout.batchBoxes).toHaveLength(1);
-            expect(batchLayout.batchBoxes[0].letter).toBe('A');
-
-            await openPlanVisualizer(page, fixture.batchPipelineId);
-            await expect(page.getByTestId('pipeline-plan-visualizer'))
-                .toHaveAttribute('data-batch-boxes', '1');
-
-            const mainLayout = computePlanLayout(plan.rows, plan.batches,
-                { reqLayout: 'horizontal', stepLabel: 'id' });
-            expect(mainLayout.batchBoxes).toEqual([]);
-
-            await openPlanVisualizer(page, fixture.mainPipelineId);
-            await expect(page.getByTestId('pipeline-plan-visualizer'))
-                .toHaveAttribute('data-batch-boxes', '0');
-
-            // The TABLE view's batch legend is untouched by the directive and
-            // still carries the conditional key — asserted in PIPE-04/04b. The
-            // two surfaces are checked separately on purpose: they are different
-            // renderings of one plan and a shared assertion would hide a
-            // regression in either.
-        });
+    // ── PIPE-10 IS DELETED, AND ITS SUBJECT IS WHY (req #3371) ─────────────
+    // It asserted that the dashed launch-unit RECTANGLE was drawn on a plan
+    // holding a multi-step launch group and not on one without, through a count
+    // attribute the component published for exactly that purpose. The
+    // rectangle, the attribute and the grouping are all gone; the step is the
+    // launch unit and the bead already stands for it. There is no re-pointed
+    // form of this case — a construct that does not exist cannot be
+    // conditionally drawn — and inventing one against the beads would restate
+    // PIPE-02's own coverage. PIPE-10b below is untouched: the ruler is a
+    // different construct that merely borrowed the same DOM-publishing device.
 
     test('PIPE-10b: the time ruler draws a tick per slot, thinning labels not overlapping them',
         async ({ page }) => {
-            // Req #3207. Same device and same reasoning as `data-batch-boxes`
-            // above: the ruler is canvas geometry, so the DOM carries what the
-            // canvas actually drew rather than a second thing derived from the
-            // same flag.
+            // Req #3207. The ruler is canvas geometry, so the DOM carries what
+            // the canvas actually drew rather than a second thing derived from
+            // the same flag — the `data-transform` device again.
             //
             // TWO numbers, because the DEGRADATION rule is the half a screenshot
             // cannot check. A pixel diff cannot tell a ruler that thinned three
@@ -827,7 +816,7 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             // is firing where there is room.
             for (const pipelineId of [fixture.batchPipelineId, fixture.mainPipelineId]) {
                 const p = pipelineId === fixture.batchPipelineId ? batchPlan : plan;
-                const L = computePlanLayout(p.rows, p.batches,
+                const L = computePlanLayout(p.rows,
                     { ...PLAN_VIEW_OPTIONS, timeAxis: p.timeAxis || null });
                 expect(L.ruler.slots.length).toBeGreaterThan(0);
                 const labelled = L.ruler.slots.filter(
@@ -889,7 +878,7 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
         // (radius)·containerWidth/layout.width — on a four-step plan that is tens
         // of pixels, on the 34-step plan it is a handful. This test is about the
         // click TARGETS existing and routing, not about the layout's density.
-        const layout = computePlanLayout(batchPlan.rows, batchPlan.batches,
+        const layout = computePlanLayout(batchPlan.rows,
             // `timeAxis` is part of the geometry since req #3201 — the page
             // passes `plan.timeAxis`, and a layout computed without it puts the
             // columns somewhere else, so every derived click coordinate misses.
@@ -975,7 +964,7 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             // layout computed from `viz` alone puts the bands at different y,
             // so the focus rectangle this test derives is for a plan the
             // component is not drawing.
-            const layout = computePlanLayout(plan.rows, plan.batches,
+            const layout = computePlanLayout(plan.rows,
                 { ...PLAN_VIEW_OPTIONS, ...viz, timeAxis: plan.timeAxis || null });
             const canvas = await openPlanVisualizer(page, fixture.mainPipelineId, viz);
             const container = page.getByTestId('pipeline-plan-visualizer');
@@ -1115,19 +1104,20 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
                 .toBeCloseTo(-90, -1);
             expect(dy - fy).toBeCloseTo(-50, -1);
 
-            // ── THE SECOND CLICK, AFTER THE DRAG (req #3204, re-ruled #3297) ─
+            // ── THE SECOND CLICK, AFTER THE DRAG (req #3204, re-ruled #3297,
+            // re-pointed at the STEP by req #3371) ──────────────────────────
             // Two outcomes, and WHICH one is a property of the plan, not of the
             // test's mood — so it is derived from the same pure function the
-            // page reads (`nextBatchLetter`) rather than assumed.
+            // page reads (`nextLaunchStep`) rather than assumed.
             //
-            //   · no next batch  → the click re-fits the band, exactly as it
-            //     always has. #3297's second level does not exist here, and a
+            //   · no next launch step → the click re-fits the band, exactly as
+            //     it always has. #3297's second level does not exist here, and a
             //     level that does not exist takes nothing away from the one
             //     below it: this is the assertion that the epic name did NOT
-            //     become a one-shot control on a batch-less plan.
-            //   · a next batch   → the click lands on THAT BATCH, and a third
-            //     click comes back to the band. The cycle, end to end, through
-            //     the real component.
+            //     become a one-shot control on a band with no second stop.
+            //   · a next launch step  → the click lands on THAT STEP, and a
+            //     third click comes back to the band. The cycle, end to end,
+            //     through the real component.
             //
             // Note the drag above ALSO clears the cycle level (a gesture means
             // the reader is no longer looking at the band this control put them
@@ -1144,18 +1134,18 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             expect(ay).toBeCloseTo(fy, -1);
             expect(ak).toBeCloseTo(fk, 3);
 
-            const letter = nextBatchLetter(plan.batches, layout, band,
-                new Map(plan.rows.map((r: { id: number }) => [r.id, r])));
-            if (letter) {
-                const wantBatch = batchFocusTransform(
-                    layout, band, letter, size, kBase, kZoomFloor)!;
-                expect(wantBatch, 'the batch has a fit transform').toBeTruthy();
+            const launchStepId = nextLaunchStep(
+                plan.rows, layout, band, plan.eligibleStepIds);
+            if (launchStepId != null) {
+                const wantStep = stepFocusTransform(
+                    layout, launchStepId, size, kBase, kZoomFloor)!;
+                expect(wantStep, 'the step has a fit transform').toBeTruthy();
                 await clickName();
                 const [bx, by, bk] = await read();
-                expect(bx, `the next click lands on batch ${letter}`)
-                    .toBeCloseTo(wantBatch.x, -1);
-                expect(by).toBeCloseTo(wantBatch.y, -1);
-                expect(bk).toBeCloseTo(wantBatch.k, 3);
+                expect(bx, `the next click lands on step ${launchStepId}`)
+                    .toBeCloseTo(wantStep.x, -1);
+                expect(by).toBeCloseTo(wantStep.y, -1);
+                expect(bk).toBeCloseTo(wantStep.k, 3);
                 // …and the same input reverses the move (item 1, "no dead-end
                 // state"). This is the whole reason the second level is a CYCLE
                 // and not a one-way door.
@@ -1166,11 +1156,11 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
                 expect(cy).toBeCloseTo(fy, -1);
                 expect(ck).toBeCloseTo(fk, 3);
             } else {
-                // The batch-less plan's own guarantee: repeating the click
-                // keeps re-fitting rather than going dead.
+                // The second-stop-less band's own guarantee: repeating the
+                // click keeps re-fitting rather than going dead.
                 await clickName();
                 const [rx, ry, rk] = await read();
-                expect(rx, 'a batch-less epic name keeps working, click after click')
+                expect(rx, 'an epic name with no second stop keeps working, click after click')
                     .toBeCloseTo(fx, -1);
                 expect(ry).toBeCloseTo(fy, -1);
                 expect(rk).toBeCloseTo(fk, 3);
@@ -1178,15 +1168,15 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
 
             // ── KEYBOARD PARITY (req #3204's chip, req #3297's cycle) ────────
             // The camera is on the BAND fit at this point in both branches
-            // above, so Enter is the cycle's next step — the batch where there
-            // is one, the band again where there is not. Both inputs run one
+            // above, so Enter is the cycle's next stop — the launch step where
+            // there is one, the band again where there is not. Both inputs run one
             // handler in the component, and this is what asserts that they did
             // not drift into a mouse-only feature.
             await page.getByTestId(`pipeline-viz-epic-${band.key}`).press('Enter');
             await settle();
             const [kx, ky, kk] = await read();
-            const wantKeyed = letter
-                ? batchFocusTransform(layout, band, letter, size, kBase, kZoomFloor)!
+            const wantKeyed = launchStepId != null
+                ? stepFocusTransform(layout, launchStepId, size, kBase, kZoomFloor)!
                 : want;
             expect(kx, 'Enter drives the same cycle step the mouse does')
                 .toBeCloseTo(wantKeyed.x, -1);
@@ -2287,7 +2277,7 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
 
             // 4. STEP/REQ/TITLE ARE GATED, EACH ON ITS OWN CONDITION (req #3221).
             //    `data-drawn` only ever enumerates these three kinds — the ruler's
-            //    slot ticks, the batch letters and the epic band names are NOT
+            //    slot ticks and the epic band names are NOT
             //    level-gated and draw at every level regardless (see `drawsKind`'s
             //    `return true` fallback), so this attribute proves the ladder for
             //    the three kinds it tracks, not "Overview draws nothing" in
@@ -2318,7 +2308,7 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             await drawnAt('3', 'step,req,title', 'Detail adds the per-step title slot');
             // And the plan really has step labels to draw, or the attribute
             // above would be describing an empty set.
-            const layout = computePlanLayout(plan.rows, plan.batches,
+            const layout = computePlanLayout(plan.rows,
                 { reqLayout: 'horizontal', stepLabel: 'id' });
             expect(layout.labels.filter((l: { kind: string }) => l.kind === 'step').length,
                 'the plan has one step label per row').toBe(plan.rows.length);
@@ -2340,7 +2330,7 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             //    which would make the rest of this step pass while proving
             //    nothing.
             const vizBox = (await canvas.boundingBox())!;
-            const planLayout = computePlanLayout(plan.rows, plan.batches,
+            const planLayout = computePlanLayout(plan.rows,
                 // `timeAxis` is part of the geometry (req #3201) and the page
                 // passes it — a layout computed without it has a different
                 // width, and width is the whole of `kFit` below.
@@ -2452,7 +2442,7 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             await expect(container, 'reporting that level, not the ladder\'s answer')
                 .toHaveAttribute('data-level', 'mid');
             const landedBox = (await canvas.boundingBox())!;
-            const landedLayout = computePlanLayout(plan.rows, plan.batches,
+            const landedLayout = computePlanLayout(plan.rows,
                 { ...PLAN_VIEW_OPTIONS, timeAxis: plan.timeAxis || null });
             const landedSize = { w: landedBox.width, h: landedBox.height };
             const kFitLanded = landedSize.w / landedLayout.width;
@@ -2551,12 +2541,12 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             // "I do not want any other spacing to have to change") and taller by
             // exactly the swim lane the later directive asked for: one line per
             // lane, so a lone title can alternate clear of its neighbours.
-            const asTitles = computePlanLayout(plan.rows, plan.batches, {
+            const asTitles = computePlanLayout(plan.rows, {
                 ...PLAN_VIEW_OPTIONS,
                 reqTitles: new Map(fixture.models.main.requirements.map(
                     (r) => [r.id, `Requirement ${r.id}`])),
             });
-            const asIds = computePlanLayout(plan.rows, plan.batches,
+            const asIds = computePlanLayout(plan.rows,
                 { ...PLAN_VIEW_OPTIONS, reqLabel: 'id' });
             expect(asTitles.colW).toEqual(asIds.colW);
             expect(asTitles.width).toBe(asIds.width);
@@ -2567,18 +2557,20 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
     // ── PIPE-19: the hover datacards (req #3213) ───────────────────────────
     //
     // The whole of #3213's acceptance is a HOVER claim — "hovering a step name,
-    // a bead, a requirement number, a batch box and an epic chip each produces
-    // the card for the thing under the cursor, first try, with no dead zones
-    // and no wrong card" — and no test at any level asserted a datacard before
+    // a bead, a requirement number and an epic chip each produces the card for
+    // the thing under the cursor, first try, with no dead zones and no wrong
+    // card" — and no test at any level asserted a datacard before
     // this one. The unit suite can only prove the GEOMETRY leaves room; which
     // card actually appears is a question about Konva's hit graph and the order
     // the renderer pushes its nodes, and only a browser can answer it.
     test('PIPE-19: every hover target answers with its own card, and the cards lead with a name',
         async ({ page }) => {
-            // The BATCH plan, because half of what is under test is D2 — a step
-            // name drawn OVER a dashed batch rectangle must beat it — and the
-            // Substrate plan draws no boxes at all.
-            const layout = computePlanLayout(batchPlan.rows, batchPlan.batches,
+            // The launch-group plan, kept as the fixture: D2 was originally
+            // about a step name beating the dashed launch rectangle drawn under
+            // it, and req #3371 deleted that rectangle. What survives is the
+            // claim that still has a subject — the step name answers with the
+            // STEP card rather than falling through to anything beneath it.
+            const layout = computePlanLayout(batchPlan.rows,
                 { ...PLAN_VIEW_OPTIONS, timeAxis: batchPlan.timeAxis || null,
                     epicCounts: epicCountsOf(batchPlan) });
             const canvas = await openPlanVisualizer(page, fixture.batchPipelineId);
@@ -2617,26 +2609,17 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
                 }));
             };
 
-            // ── D1 + D2: the step NAME, and it must beat the box beneath it ──
-            // Chosen as a label that genuinely OVERLAPS a batch rectangle where
-            // the plan offers one, so the assertion is about competition rather
-            // than about empty canvas.
+            // ── D1 + D2: the step NAME answers with its own step ────────────
             const stepLabels = layout.labels.filter(
                 (l: { kind: string }) => l.kind === 'step') as Array<
                     { x: number; y: number; w: number; h: number; stepId: number }>;
             expect(stepLabels.length, 'the plan draws step labels').toBeGreaterThan(0);
-            const overBox = stepLabels.find((l) => layout.batchBoxes.some(
-                (b: { x: number; y: number; width: number; height: number }) =>
-                    l.x < b.x + b.width && b.x < l.x + l.w
-                    && l.y < b.y + b.height && b.y < l.y + l.h));
-            const stepLabel = overBox ?? stepLabels[0];
+            const stepLabel = stepLabels[0];
             const stepRow = batchPlan.rows.find(
                 (r: { id: number }) => r.id === stepLabel.stepId)!;
             const stepCard = await hover(mid(stepLabel));
-            expect(stepCard.kind,
-                overBox
-                    ? 'a step name drawn over a batch box answers with the STEP card'
-                    : 'a step name answers with the step card').toBe('step');
+            expect(stepCard.kind, 'a step name answers with the step card')
+                .toBe('step');
             // D3 — the NAME alone is the heading and the id is a field. The
             // heading used to be `Step <id> — <title>`, so asserting the title
             // is the whole string is what pins the split.
@@ -2679,40 +2662,14 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             expect(reqCard.rows.Effort).toBe(effortLabel(seeded.effort));
             expect(reqCard.rows.Effort).toBe('XHigh');
 
-            // ── D2 acceptance: the batch stays reachable, both ways ─────────
-            const batchBox = layout.batchBoxes[0] as
-                { x: number; y: number; width: number; height: number; letter: string };
-            expect(batchBox, 'the batch plan draws a box').toBeTruthy();
-            // By its LETTER — the label sits in the band header strip, often
-            // above the box's own top edge, so this is not the same target.
-            const batchLabel = layout.labels.find(
-                (l: { kind: string; letter?: string }) =>
-                    l.kind === 'batch' && l.letter === batchBox.letter) as
-                { x: number; y: number; w: number; h: number };
-            expect(await hover(mid(batchLabel))).toMatchObject({ kind: 'batch' });
-            // And by the BOX ITSELF — at a point inside it that no label covers,
-            // found rather than assumed, because a hard-coded corner would drift
-            // with the layout.
-            const covers = layout.labels.filter(
-                (l: { kind: string }) => ['step', 'title', 'batch'].includes(l.kind));
-            let free: { x: number; y: number } | null = null;
-            for (let i = 1; i < 12 && !free; i++) {
-                for (let j = 1; j < 12 && !free; j++) {
-                    const px = batchBox.x + (batchBox.width * i) / 12;
-                    const py = batchBox.y + (batchBox.height * j) / 12;
-                    const covered = covers.some(
-                        (l: { x: number; y: number; w: number; h: number }) =>
-                            px >= l.x && px <= l.x + l.w && py >= l.y && py <= l.y + l.h);
-                    // Not on a bead either — that is the step's hit circle, and
-                    // it is legitimately above the box.
-                    const onBead = [...layout.nodes.values()].some(
-                        (n: { x: number; y: number }) =>
-                            Math.hypot(n.x - px, n.y - py) < BEAD_HIT_RADIUS + 2);
-                    if (!covered && !onBead) free = { x: px, y: py };
-                }
-            }
-            expect(free, 'the batch box keeps an uncovered interior').toBeTruthy();
-            expect(await hover(at(free!.x, free!.y))).toMatchObject({ kind: 'batch' });
+            // ── D2's THIRD TARGET IS DELETED, and its subject is why ───────
+            // It hovered the dashed launch-unit rectangle — by its LETTER, and
+            // by a point inside the rectangle that no label covered — and
+            // asserted both produced that rectangle's own card. Req #3371
+            // deleted the rectangle, the letter and the card, and moved the one
+            // fact they carried (the exact `/swarm-start` argument list) onto
+            // the STEP's own card, where it is asserted above. There is nothing
+            // left to hover.
 
             // ── D6: the epic chip names what its click does ─────────────────
             //
@@ -2737,18 +2694,18 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             expect(epicCountsOf(batchPlan).size,
                 'the fixture exercises the counted band label').toBeGreaterThan(0);
             const chip = page.getByTestId(`pipeline-viz-epic-${epicBand.epicId}`);
-            // req #3297 — the chip now names BOTH stops, and only where the
-            // second one exists. Derived from the same pure function the page
-            // reads, so this asserts the AGREEMENT (promise == behaviour) and
-            // not a copy of today's letter: on this fixture the band hosts a
-            // batch, so the clause is present, and the derivation would drop it
-            // by itself if the fixture ever stopped deriving one.
-            const d6Letter = nextBatchLetter(batchPlan.batches, layout, epicBand,
-                new Map(batchPlan.rows.map((r: { id: number }) => [r.id, r])));
-            expect(d6Letter,
-                'the D6 fixture band hosts a launch batch, so the chip names it')
-                .toBeTruthy();
-            await expect(chip).toHaveAttribute('title', epicZoomHint(d6Letter));
+            // req #3297, re-pointed by req #3371 — the chip names BOTH stops,
+            // and only where the second one exists. Derived from the same pure
+            // function the page reads, so this asserts the AGREEMENT (promise ==
+            // behaviour) and not a copy of today's id: on this fixture the band
+            // holds eligible work, so the clause is present, and the derivation
+            // would drop it by itself if the fixture ever stopped holding any.
+            const d6Step = nextLaunchStep(
+                batchPlan.rows, layout, epicBand, batchPlan.eligibleStepIds);
+            expect(d6Step,
+                'the D6 fixture band holds eligible work, so the chip names it')
+                .not.toBeNull();
+            await expect(chip).toHaveAttribute('title', epicZoomHint(d6Step));
             // The accessible name still carries WHICH epic — a tooltip that
             // named only the gesture would be a regression for a screen reader.
             // req #3226 — and now the pause fact too, folded onto the SAME
@@ -2758,7 +2715,7 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             // one label, so it is still ONE announced element.
             await expect(chip).toHaveAttribute(
                 'aria-label', `Zoom pipeline epic ${epicText}`
-                    + epicZoomHintSuffix(d6Letter)
+                    + epicZoomHintSuffix(d6Step)
                     + (epicBand.paused ? ' — paused' : ' — active'));
             // …and the ↗ beside it still names itself distinctly, which is what
             // makes the chip two controls rather than one ambiguous one.
@@ -2831,7 +2788,7 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             // stored preference here is `plan`, but a reader who arrived by
             // `?mode=plan` link would previously have been returned to the Table
             // and never seen the restored camera).
-            const layout = computePlanLayout(batchPlan.rows, batchPlan.batches,
+            const layout = computePlanLayout(batchPlan.rows,
                 { ...PLAN_VIEW_OPTIONS, timeAxis: batchPlan.timeAxis || null });
             // The label to click is chosen by WHERE IT NOW IS, not by being
             // first in the list. The camera has been panned by (-140, -70), and
