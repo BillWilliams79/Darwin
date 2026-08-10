@@ -188,9 +188,10 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             // computed from a layout, and a stale storage value would silently
             // move every one of them.
             set('darwin-pipeline-viz-step-width', 'compact');
-            // Req #3168 — the colour key is TRI-STATE ('state' | 'machine' |
-            // 'none'). Pinned to the default so PIPE-15's gesture starts from a
-            // known position and no other test inherits a previous one.
+            // Req #3168, extended by req #3422 — the colour key has one
+            // position per registered scale ('state' | 'machine' | 'autonomy')
+            // plus 'none'. Pinned to the default so PIPE-15's gesture starts
+            // from a known position and no other test inherits a previous one.
             set('darwin-pipeline-viz-color-key', 'state');
             // Req #3252 — THE CAMERA IS NOW PART OF THE PINNED STATE. The
             // visualizer remembers its pan and zoom per tab, so a `goto` no
@@ -206,12 +207,37 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             // pipeline id and the fixture's ids are allocated at seed time.
             //
             // This runs on every NAVIGATION, i.e. on every new document — so a
-            // test that needs the camera to SURVIVE (PIPE-21) must travel by
-            // in-app routing, which creates no new document and therefore does
-            // not re-run this. That is also the journey the user actually makes.
-            for (const k of Object.keys(sessionStorage)) {
-                if (k.startsWith('darwin-viewport-')) sessionStorage.removeItem(k);
-            }
+            // test that needs the camera to SURVIVE (PIPE-21, PIPE-23) must
+            // travel by in-app routing or by a second CONTEXT, neither of which
+            // re-runs this. Those are also the journeys the user actually makes.
+            //
+            // ── BOTH STORES SINCE REQ #3431, AND THAT IS A REPAIR ───────────
+            // This loop read sessionStorage only, because that is where req
+            // #3252 put the camera. Req #3431 moved the camera, the scroll
+            // offsets AND the remembered place to localStorage — so as written
+            // it silently became a NO-OP, and the guarantee every `goto` in
+            // this file is built on ("the plan opens at its base view") stopped
+            // holding. Two tests state that guarantee in their own comments and
+            // would have started failing on a camera the previous gesture left
+            // behind: PIPE-16b asserts the landing scale IS `factoryDefaultScale`
+            // after a reload, and PIPE-11/PIPE-14 re-open a plan mid-test and
+            // then look for an epic chip a surviving camera can carry off
+            // screen.
+            //
+            // THE PLACE RECORD GOES TOO, and for a different reason: a `goto`
+            // to `/swarm/pipelines` is an arrival from nowhere, so a record left
+            // by an earlier plan in the SAME test would resume and the list
+            // would never render. No test does that today; the cost of it
+            // silently starting to is a redirect nobody wrote and nobody
+            // expects, so the residue is cleared rather than reasoned about.
+            const wipeMemory = (store: Storage) => {
+                for (const k of Object.keys(store)) {
+                    if (k.startsWith('darwin-viewport-') || k.startsWith('darwin-scroll-')
+                        || k === 'darwin-swarm-pipelines-place') store.removeItem(k);
+                }
+            };
+            wipeMemory(sessionStorage);
+            wipeMemory(localStorage);
         }, [mode, viz.reqLayout, viz.stepLabel] as const);
     }
 
@@ -1511,14 +1537,24 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
                 // horizontal scrollbar. It is logged because it is still the
                 // honest measure of how much control this row carries, and a
                 // sudden jump in it is worth a human look.
-                const incompressible = kids
+                const fixedKids = kids
                     .filter((k) => k.getBoundingClientRect().width >= 0.5
-                        && getComputedStyle(k).flexShrink === '0')
+                        && getComputedStyle(k).flexShrink === '0');
+                const incompressible = fixedKids
                     .reduce((sum, k) => sum + k.getBoundingClientRect().width, 0);
+                // EACH control GROUP's own width (req #3422). The row's
+                // `flex-shrink: 0` children ARE the groups — View, Width,
+                // Colour, and the Dividers between them — so the widest of them
+                // is the widest cluster of chrome on the row, which is what the
+                // title is asserted against below.
+                const widestGroup = Math.round(Math.max(0, ...fixedKids
+                    .map((k) => k.getBoundingClientRect().width)));
                 return {
                     content: Math.round(content + gap * Math.max(0, n - 1)),
                     incompressible: Math.round(
                         incompressible + gap * Math.max(0, n - 1)),
+                    widestGroup,
+                    rowWidth: Math.round(row.getBoundingClientRect().width),
                     chrome: Math.round(window.innerWidth
                         - row.getBoundingClientRect().width),
                     rowHeight: Math.round(row.getBoundingClientRect().height),
@@ -1583,19 +1619,52 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             //    against 763px before — the control set did NOT grow.
             //
             //    So assert the property that was worth having, in a form the
-            //    fixture cannot skew: at a wide desktop the plan's NAME gets at
-            //    least as much of the row as every control combined. That fails
-            //    the moment chrome starts crowding out the thing the page is
-            //    about — which is what the old assertion was really guarding —
-            //    and it does not fail because somebody named a plan verbosely.
+            //    fixture cannot skew: at a wide desktop the plan's NAME is not
+            //    crowded out by the chrome around it. That fails when the row
+            //    stops belonging to the plan — which is what the old assertion
+            //    was really guarding — and it does not fail because somebody
+            //    named a plan verbosely.
+            //
+            // ── HOW THAT PROPERTY IS EXPRESSED, AND WHY IT MOVED (req #3422) ──
+            //    It was `titleBox >= incompressible` — the name gets at least
+            //    half the row. The title is the row's ONLY non-`flexShrink:0`
+            //    child, so `titleBox = rowWidth - incompressible` and that form
+            //    reduces exactly to `incompressible <= rowWidth / 2`: a 772px
+            //    ceiling at this viewport, against a MEASURED 769px. **Three
+            //    pixels.** It had stopped being a crowding test and become a
+            //    freeze on the control set — any new control of any size tripped
+            //    it, and req #3422's own requirement text says more colour
+            //    scales are expected (AI model, effort).
+            //
+            //    MEASURED with the third colour chip (2026-08-09, this fixture,
+            //    1800px): the Autonomy chip costs 80px, incompressible 769 ->
+            //    849, and the title still holds 699px of a 1545px row — 45%,
+            //    against a widest control GROUP of a fraction of that. The name
+            //    is plainly not crowded out; the old form said it was.
+            //
+            //    Two claims replace it, both with real headroom and both
+            //    stricter than "it fits":
+            //      1. the name beats any single control CLUSTER, so no group of
+            //         chrome may dominate the thing the page is about; and
+            //      2. the name keeps at least 40% of the row, so the chrome as a
+            //         whole cannot squeeze it to a token.
+            //    A row that really did become chrome-with-a-name fails both.
             // eslint-disable-next-line no-console
             console.log(`[PIPE-18] title @1800px: box=${at1800.titleBox}px `
                 + `natural=${at1800.titleNatural}px `
-                + `(ellipsized=${at1800.titleClipped})`);
+                + `(ellipsized=${at1800.titleClipped}) `
+                + `share=${(at1800.titleBox / at1800.content * 100).toFixed(1)}% `
+                + `widest control group=${at1800.widestGroup}px`);
+            expect(at1800.widestGroup,
+                'the row really does carry control groups to measure against')
+                .toBeGreaterThan(0);
             expect(at1800.titleBox,
-                'at 1800px the plan name gets at least as much of the row as '
-                + 'all of its controls combined')
-                .toBeGreaterThanOrEqual(at1800.incompressible);
+                'at 1800px the plan name gets more of the row than any single '
+                + 'control group')
+                .toBeGreaterThan(at1800.widestGroup);
+            expect(at1800.titleBox / at1800.content,
+                'at 1800px the plan name still keeps at least 40% of the row')
+                .toBeGreaterThanOrEqual(0.40);
             // And when it DOES ellipsize the reader can still recover it — the
             // tooltip is the whole point of `noWrap` here, and since req #3242
             // removed the breadcrumb it is the ONLY recovery path left.
@@ -1823,7 +1892,13 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
                     + `height=${m.rowHeight}px (scrollbar ${m.scrollbarH}px) `
                     + `(tallest child ${m.tallestChild}px, `
                     + `title ellipsized=${m.titleClipped}, `
-                    + `band scrolls=${m.scrolls})`);
+                    + `band scrolls=${m.scrolls}, `
+                    // PRINTED, not just asserted (req #3422): this is the claim
+                    // with teeth in this sweep, and a failure that only says
+                    // "> 0" cannot tell a 2px rounding artefact from a row that
+                    // genuinely dragged the page.
+                    + `docOverflow=${m.docOverflow}px, `
+                    + `titleBox=${m.titleBox}px)`);
                 expect(m.lines, `the header is ONE line at ${width}px`).toBe(1);
                 expect(m.rowHeight - m.scrollbarH,
                     `and the row is no taller than that line at ${width}px`)
@@ -1916,9 +1991,10 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
                 .toBeGreaterThan(0);
         });
 
-    // ── PIPE-15: the key and the tri-state colour control (req #3168) ───────
+    // ── PIPE-15: the key and the colour control (req #3168, req #3422) ──────
 
-    test('PIPE-15: the key defines both channels at ONE size, and the colour key is tri-state',
+    test('PIPE-15: the key defines both channels at ONE size, and the colour control '
+        + 'offers every registered scale plus none',
         async ({ page }) => {
             await page.setViewportSize({ width: 1800, height: 1000 });
             await openPlanVisualizer(page, fixture.mainPipelineId);
@@ -1934,6 +2010,11 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             // spell the same rule out — clicking the pressed one stores 'none'.
             const stateBtn = page.getByTestId('pipeline-viz-colorkey-state');
             const machineBtn = page.getByTestId('pipeline-viz-colorkey-machine');
+            // The third scale (req #3422). Its chip, its key block and its test
+            // id all come from ONE registry entry in `pipelinePlanLayout.js`, so
+            // this locator existing at all is the registration system reaching
+            // the DOM.
+            const autonomyBtn = page.getByTestId('pipeline-viz-colorkey-autonomy');
             const scaleOf = (name: string) =>
                 page.getByTestId(`pipeline-viz-legend-scale-${name}`);
 
@@ -1998,16 +2079,29 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             }
             await expect(scaleOf('state')).not.toContainText('42');
             // Each name really is coloured, and no two share a colour.
-            const colors = await scaleOf('state').locator('span, p').evaluateAll(
+            //
+            // SCOPED TO THE WORDS, not to every span in the block (req #3422
+            // review). `KeyGroup`'s caption is a span as well, painted
+            // `PLAN_VIZ_PALETTE.dim` — the same hex as the `unknown` swatch — so
+            // a `span, p` locator counts the caption as an entry and this
+            // assertion fails, under a message about status colours, the first
+            // time a plan draws an id whose requirement row did not resolve.
+            const legendWords = (name: string) =>
+                scaleOf(name).getByTestId('pipeline-viz-legend-word');
+            const colors = await legendWords('state').evaluateAll(
                 (els) => els.map((el) => getComputedStyle(el).color)
                     .filter((c) => c && c !== 'rgba(0, 0, 0, 0)'));
+            expect(colors.length, 'the state scale draws its entries as words')
+                .toBeGreaterThan(1);
             expect(new Set(colors).size, 'each status name has its own colour')
                 .toBe(colors.length);
 
             // 3. ONE FOOTPRINT ACROSS MODES — the user's complaint was that "when
-            //    I select machine view the key gets too small". All three scales
-            //    occupy one grid cell, so the box cannot change size when the
-            //    mode does. Measured, not assumed.
+            //    I select machine view the key gets too small". EVERY scale
+            //    occupies one grid cell, so the box cannot change size when the
+            //    mode does. Measured, not assumed — and re-measured for the
+            //    autonomy scale, which is the first addition made since the
+            //    footprint rule was written.
             const sizeNow = async () => {
                 const b = (await key.boundingBox())!;
                 return { w: Math.round(b.width), h: Math.round(b.height) };
@@ -2019,19 +2113,65 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             expect(await sizeNow(), 'machine mode must not resize the key')
                 .toEqual(atState);
 
-            // 4. THE TRI-STATE GESTURE, exactly as the directive states it:
-            //    click Machine again → no colouring at all.
-            await machineBtn.click();
+            // 3b. THE AUTONOMY SCALE (req #3422) — the third chip, its own key
+            //     block, and the "only what the plan CONTAINS" discipline the
+            //     status scale already follows.
+            await autonomyBtn.click();
+            await expect(autonomyBtn).toHaveAttribute('aria-pressed', 'true');
+            await expect(machineBtn).toHaveAttribute('aria-pressed', 'false');
+            await expect(scaleOf('autonomy')).toBeVisible();
+            expect(await sizeNow(), 'autonomy mode must not resize the key either')
+                .toEqual(atState);
+            const seededCoords = [...new Set(fixture.models.main.requirements
+                .map((r) => String(r.coordination_type)))];
+            expect(seededCoords.length,
+                'the fixture exercises more than one coordination type')
+                .toBeGreaterThan(1);
+            for (const ct of seededCoords) {
+                await expect(scaleOf('autonomy'), `the scale lists "${ct}"`)
+                    .toContainText(ct);
+            }
+            // …and a coordination type the plan does NOT contain is absent. The
+            // fixture seeds no `planned` requirement, so a key listing all four
+            // would be listing the enum rather than the plan.
+            const ABSENT = ['discuss', 'planned', 'implemented', 'deployed']
+                .filter((ct) => !seededCoords.includes(ct));
+            expect(ABSENT.length, 'the fixture omits at least one coordination type')
+                .toBeGreaterThan(0);
+            for (const ct of ABSENT) {
+                await expect(scaleOf('autonomy'),
+                    `the scale does NOT list "${ct}" — the plan contains none`)
+                    .not.toContainText(ct);
+            }
+            // Each name is drawn in its own colour, the same way the canvas
+            // paints the marks. Words only — see the state scale's copy above.
+            const autonomyColors = await legendWords('autonomy')
+                .evaluateAll((els) => els.map((el) => getComputedStyle(el).color)
+                    .filter((c) => c && c !== 'rgba(0, 0, 0, 0)'));
+            expect(autonomyColors.length,
+                'the autonomy scale draws one word per coordination type it found')
+                .toBe(seededCoords.length);
+            expect(new Set(autonomyColors).size,
+                'each coordination type has its own colour').toBe(autonomyColors.length);
+
+            // 4. THE NEUTRAL GESTURE, exactly as the directive states it: click
+            //    the pressed chip again → no colouring at all.
+            await autonomyBtn.click();
+            await expect(autonomyBtn).toHaveAttribute('aria-pressed', 'false');
             await expect(machineBtn).toHaveAttribute('aria-pressed', 'false');
             await expect(stateBtn).toHaveAttribute('aria-pressed', 'false');
             await expect(scaleOf('none')).toContainText('no colour key');
             expect(await sizeNow(), 'the neutral mode must not resize the key either')
                 .toEqual(atState);
-            //    …and the third position is reachable from either button.
+            //    …and the neutral position is reachable from EVERY button.
             await stateBtn.click();
             await expect(stateBtn).toHaveAttribute('aria-pressed', 'true');
             await stateBtn.click();
             await expect(stateBtn).toHaveAttribute('aria-pressed', 'false');
+            await machineBtn.click();
+            await expect(machineBtn).toHaveAttribute('aria-pressed', 'true');
+            await machineBtn.click();
+            await expect(machineBtn).toHaveAttribute('aria-pressed', 'false');
 
             // 5. AT THIS CAMERA the key costs the epic labels no chip, and
             //    collapsing it is the control for that: a key stealing the
@@ -2769,6 +2909,157 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             expect(Math.hypot(rx - panned[0], ry - panned[1]),
                 'and it is the reset view, not the pan that preceded it')
                 .toBeGreaterThan(1);
+        });
+
+    // ── PIPE-23: coming back after the browser was closed (req #3431) ───────
+
+    test('PIPE-23: hours later, Pipelines goes straight back to the plan, the panel '
+        + 'and the camera — and the list is still reachable',
+        async ({ browser }) => {
+            // > *"if you naviggate away you would hours later when coming back,
+            // > go straight that spot. a feature saved to local storage only."*
+            //
+            // ── WHY THIS IS AN E2E CASE AND NOT A vitest ONE ────────────────
+            // The vitest journey (`PipelinesPage.restart.test.jsx`) plays the
+            // same story by clearing sessionStorage inside one JS realm. That
+            // proves the app's own logic; it cannot prove the BROWSER's part of
+            // the bargain, which is the whole subject here — that the records
+            // this feature writes are the ones a fresh browser process gets back
+            // and the ones it does not. Playwright's `storageState()` captures
+            // cookies and localStorage and NOTHING per-tab, which is exactly the
+            // boundary a restart draws, so a second context built from it is a
+            // faithful "opened it again the next morning" rather than a
+            // simulation of one.
+            //
+            // ── AND WHY IT IS NOT PIPE-21 ─────────────────────────────────
+            // PIPE-21 proves the camera survives leaving the visualizer, by
+            // IN-APP routing inside one document. Under req #3252's per-tab
+            // store that was the strongest claim available. It passes just as
+            // well with a sessionStorage camera, so it says nothing at all about
+            // the requirement this test exists for.
+            const viewport = { width: 1400, height: 900 };
+
+            // ── SESSION ONE. Open the plan, choose the Plan panel, leave the
+            //    camera somewhere distinctive.
+            const first = await browser.newContext({
+                storageState: '.auth/user.json', viewport });
+            const page = await first.newPage();
+            await page.goto(`/swarm/pipeline/${fixture.mainPipelineId}`);
+            await page.getByTestId('pipeline-mode-plan').click();
+            const container = page.getByTestId('pipeline-plan-visualizer');
+            await expect(container).toBeVisible({ timeout: 30000 });
+            const canvas = container.locator('canvas').first();
+            await expect(canvas).toBeVisible({ timeout: 15000 });
+            const read = async (p = page) => (await p.getByTestId('pipeline-plan-visualizer')
+                .getAttribute('data-transform'))!.split(',').map(Number);
+            const opened = await read();
+
+            const box = (await canvas.boundingBox())!;
+            const cx = box.x + box.width / 2;
+            const cy = box.y + box.height / 2;
+            await page.mouse.move(cx, cy);
+            await page.mouse.down();
+            await page.mouse.move(cx - 150, cy - 80, { steps: 12 });
+            await page.mouse.up();
+            // Polled on DISTANCE for PIPE-21's reason: `read()` maps through
+            // Number, so the published "0.00,-12.50" round-trips to "0,-12.5" —
+            // a string the component's own toFixed can never emit, which makes
+            // a `not.toHaveAttribute` comparison vacuously true.
+            await expect.poll(async () => {
+                const [x, y] = await read();
+                return Math.hypot(x - opened[0], y - opened[1]);
+            }, { timeout: 10000 }).toBeGreaterThan(50);
+            const panned = await read();
+
+            // The camera commits on unmount or on `pagehide`, and this session
+            // is about to do neither in a way Playwright can order against
+            // `storageState()`. `pagehide` IS the event a closing tab fires and
+            // the hook's own listener is the thing under test, so it is
+            // dispatched explicitly and then VERIFIED, rather than closing the
+            // page and hoping the write lands before the renderer goes away.
+            await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+            const cameraKey = `darwin-viewport-pipeline-plan-${fixture.mainPipelineId}`;
+            await expect.poll(
+                async () => page.evaluate((k) => localStorage.getItem(k) != null, cameraKey),
+                { message: 'the camera was committed to the durable store' }).toBe(true);
+
+            const state = await first.storageState();
+            await first.close();
+
+            // WHAT ACTUALLY CROSSES THE BOUNDARY, named before it is used. If a
+            // later change moves any of these back to a per-tab store this
+            // reddens HERE, on the record, instead of surfacing as an
+            // unexplained failure to resume three assertions further down.
+            const origin = state.origins.find(
+                (o) => o.localStorage.some((e) => e.name.startsWith('darwin-')));
+            const durable = new Set((origin?.localStorage || []).map((e) => e.name));
+            expect(durable, 'the remembered place').toContain('darwin-swarm-pipelines-place');
+            expect(durable, 'the camera').toContain(cameraKey);
+            expect(durable, 'the panel preference')
+                .toContain('darwin-swarm-pipeline-detail-mode');
+
+            // ── SESSION TWO. A different browser context: new cookies jar, new
+            //    per-tab storage, the same profile.
+            const second = await browser.newContext({ storageState: state, viewport });
+            // Snapshotted BEFORE any page script runs, because the app itself
+            // seeds sessionStorage on load. This is the assertion that makes the
+            // whole test a restart rather than a reload — without it, a feature
+            // that never left sessionStorage would pass everything below.
+            await second.addInitScript(() => {
+                (window as unknown as { __perTabAtLoad: number }).__perTabAtLoad =
+                    sessionStorage.length;
+            });
+            const next = await second.newPage();
+
+            // THE ASK. Clicking Pipelines is a `goto` here — a cold arrival, no
+            // in-app history, nothing but the durable record to go on.
+            await next.goto('/swarm/pipelines');
+            await expect(next,
+                'Pipelines went straight back to the plan, not to the list')
+                .toHaveURL(new RegExp(`/swarm/pipeline/${fixture.mainPipelineId}$`),
+                    { timeout: 30000 });
+            expect(await next.evaluate(
+                () => (window as unknown as { __perTabAtLoad: number }).__perTabAtLoad),
+                'and it did it with an empty per-tab store').toBe(0);
+
+            // THE PANEL, which is deliberately NOT in the place record — it
+            // comes back through `useViewPreference`'s localStorage seed, and
+            // that seed is the entire reason the record refuses to carry a
+            // `mode`. If it ever stops working the record would have to grow
+            // one, so this is the assertion that would say so.
+            const nextContainer = next.getByTestId('pipeline-plan-visualizer');
+            await expect(nextContainer, 'in the panel the reader left')
+                .toBeVisible({ timeout: 30000 });
+            await expect(next.getByTestId('pipeline-plan-table')).toHaveCount(0);
+
+            // THE CAMERA. Same numbers, in a browser process that never saw the
+            // gesture that produced them.
+            await expect.poll(async () => (await read(next))[2], { timeout: 15000 })
+                .toBeCloseTo(panned[2], 3);
+            const [nx, ny] = await read(next);
+            expect(nx, 'the camera came back: x').toBeCloseTo(panned[0], 0);
+            expect(ny, 'the camera came back: y').toBeCloseTo(panned[1], 0);
+
+            // ── AND THE LIST IS STILL REACHABLE. This is the one way the
+            //    feature can be catastrophic rather than merely absent: if the
+            //    resume also fired on the way OUT of a plan, the nav rail's
+            //    Pipelines item would bounce straight back and the list could
+            //    never be opened again. In-app routing, because that is the only
+            //    path on which the app can know where the reader came from.
+            await next.getByRole('link', { name: /^pipelines$/i }).click();
+            await expect(next).toHaveURL(/\/swarm\/pipelines$/, { timeout: 15000 });
+            await expect(next.getByTestId('pipelines-view-toggle'),
+                'the list rendered rather than bouncing back to the plan')
+                .toBeVisible({ timeout: 30000 });
+
+            // ...and that decision sticks: the reader's last act was to leave
+            // the plan, so the NEXT cold arrival shows the list too.
+            await next.goto('/swarm/pipelines');
+            await expect(next.getByTestId('pipelines-view-toggle'))
+                .toBeVisible({ timeout: 30000 });
+            await expect(next).toHaveURL(/\/swarm\/pipelines$/);
+
+            await second.close();
         });
 
     // ── PIPE-22: the key opens collapsed, and its '+' reads brighter (req #3309) ──

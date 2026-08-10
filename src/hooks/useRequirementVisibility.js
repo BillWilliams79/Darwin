@@ -57,9 +57,10 @@ import {
     ALL_ROWS,
 } from './useDataQueries';
 import { useShowClosedStore } from '../stores/useShowClosedStore';
+import { effectiveHidePipelined } from '../utils/epicMembership';
 import {
     pipelinedRequirementIds,
-    epicRequirementIds,
+    epicSeatedRequirementIds,
     excludeByIds,
 } from '../utils/pipelineMembership';
 
@@ -70,6 +71,17 @@ const FEATURE_FIELDS = 'id,epic_fk';
 
 /**
  * @param {string} creatorFk  the profile userName; falsy disables every read.
+ * @param {object} [opts]
+ * @param {boolean} [opts.epicFilterActive=false]  req #3428 — an epic filter
+ *        FORCES the orchestrated toggle off, because an epic's requirements are
+ *        seated in pipeline steps by construction and the toggle defaults ON
+ *        (req #3242), so an epic page would otherwise arrive empty. Applied
+ *        HERE, through `effectiveHidePipelined`, rather than by each caller:
+ *        req #3428 introduced that predicate to stop the header control and the
+ *        row filter disagreeing, and req #3419 exists to stop the row filter
+ *        being written five times — so the override belongs in the one place
+ *        that answers the question. The store is never WRITTEN: dismissing the
+ *        epic pill restores exactly the toggle state the reader had.
  * @returns {{
  *   hideOrchestrated: boolean,
  *   pipelinedIds: Set<number>,
@@ -91,8 +103,9 @@ const FEATURE_FIELDS = 'id,epic_fk';
  * the SAME ARRAY REFERENCE when nothing is dropped, so it is safe in a
  * `useMemo`/`useEffect` dependency.
  */
-export function useRequirementVisibility(creatorFk) {
-    const hideOrchestrated = useShowClosedStore(s => s.hidePipelinedRequirements);
+export function useRequirementVisibility(creatorFk, { epicFilterActive = false } = {}) {
+    const storedHideOrchestrated = useShowClosedStore(s => s.hidePipelinedRequirements);
+    const hideOrchestrated = effectiveHidePipelined(storedHideOrchestrated, epicFilterActive);
 
     // Read unconditionally — hooks are not conditional, and gating these on the
     // toggle would mean the FIRST flip renders stale-empty for a round trip,
@@ -104,7 +117,7 @@ export function useRequirementVisibility(creatorFk) {
     const { data: features } = useAllFeatures(creatorFk, {
         fields: FEATURE_FIELDS,
         // A CLOSED feature still seats its requirements under its epic — see
-        // `epicRequirementIds`. `closed: 0` (the hook default) would
+        // `epicSeatedRequirementIds`. `closed: 0` (the hook default) would
         // un-orchestrate everything under a finished feature.
         closed: ALL_ROWS,
     });
@@ -114,7 +127,7 @@ export function useRequirementVisibility(creatorFk) {
         [stepRequirements]);
 
     const epicIds = useMemo(
-        () => epicRequirementIds(requirementFeatureRows, features),
+        () => epicSeatedRequirementIds(requirementFeatureRows, features),
         [requirementFeatureRows, features]);
 
     // The union, built here rather than by `orchestratedRequirementIds` so the

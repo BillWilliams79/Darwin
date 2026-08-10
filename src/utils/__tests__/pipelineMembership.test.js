@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { pipelinedRequirementIds, epicRequirementIds, orchestratedRequirementIds, excludeByIds } from '../pipelineMembership';
+import { pipelinedRequirementIds, epicSeatedRequirementIds, orchestratedRequirementIds, excludeByIds } from '../pipelineMembership';
 
 // req #3180. This module is the browser's ONE answer to "does a pipeline step
 // carry this requirement" — both the SwarmStartCard aggregator and the
@@ -98,7 +98,7 @@ describe('excludeByIds', () => {
 // epic 4), #3385 (feature 31 -> epic 7), #3433 (feature 41 -> epic 9) — because
 // no pipeline STEP carried them yet. These pin the wider question.
 
-describe('epicRequirementIds (req #3419)', () => {
+describe('epicSeatedRequirementIds (req #3419)', () => {
     const FEATURES = [
         { id: 35, epic_fk: 4 },
         { id: 31, epic_fk: 7 },
@@ -107,7 +107,7 @@ describe('epicRequirementIds (req #3419)', () => {
     ];
 
     it('collects requirements whose feature names an epic', () => {
-        const ids = epicRequirementIds([
+        const ids = epicSeatedRequirementIds([
             { id: 3304, feature_fk: 35 },
             { id: 3385, feature_fk: 31 },
             { id: 3433, feature_fk: 41 },
@@ -118,12 +118,12 @@ describe('epicRequirementIds (req #3419)', () => {
     it('does NOT count a requirement whose feature names no epic', () => {
         // "Filed under a feature" is not "part of a body of work". A feature
         // with a null epic_fk is categorization, not a plan.
-        const ids = epicRequirementIds([{ id: 3400, feature_fk: 99 }], FEATURES);
+        const ids = epicSeatedRequirementIds([{ id: 3400, feature_fk: 99 }], FEATURES);
         expect(ids.size).toBe(0);
     });
 
     it('does NOT count a requirement with no feature at all', () => {
-        const ids = epicRequirementIds([
+        const ids = epicSeatedRequirementIds([
             { id: 3418, feature_fk: null },
             { id: 3420 },
         ], FEATURES);
@@ -134,25 +134,25 @@ describe('epicRequirementIds (req #3419)', () => {
         // A dangling fk must not be read as epic membership — the feature read
         // may simply not have landed, and guessing "orchestrated" would hide
         // work behind a fetch gap. Fail toward showing more.
-        const ids = epicRequirementIds([{ id: 3304, feature_fk: 35 }], []);
+        const ids = epicSeatedRequirementIds([{ id: 3304, feature_fk: 35 }], []);
         expect(ids.size).toBe(0);
     });
 
     it('normalizes string ids the way the step answer does', () => {
-        const ids = epicRequirementIds([{ id: '3304', feature_fk: '35' }], FEATURES);
+        const ids = epicSeatedRequirementIds([{ id: '3304', feature_fk: '35' }], FEATURES);
         expect(ids.has(3304)).toBe(true);
     });
 
     it('never counts the template row', () => {
         // CategoryCard's add-row carries id '' and no feature; Number('') is 0,
         // which must not become a member of anything.
-        const ids = epicRequirementIds([{ id: '', feature_fk: 35 }], FEATURES);
+        const ids = epicSeatedRequirementIds([{ id: '', feature_fk: 35 }], FEATURES);
         expect(ids.size).toBe(0);
     });
 
     it('returns an empty set while either read is in flight', () => {
-        expect(epicRequirementIds(undefined, FEATURES).size).toBe(0);
-        expect(epicRequirementIds([{ id: 3304, feature_fk: 35 }], undefined).size).toBe(0);
+        expect(epicSeatedRequirementIds(undefined, FEATURES).size).toBe(0);
+        expect(epicSeatedRequirementIds([{ id: 3304, feature_fk: 35 }], undefined).size).toBe(0);
     });
 });
 

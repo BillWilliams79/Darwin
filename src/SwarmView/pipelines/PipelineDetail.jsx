@@ -75,6 +75,7 @@ import { pipelineStatusChipProps, toolbarChipProps } from './pipelineChipStyles'
 import { claimForPipeline, holderView } from './orchestrationHolder';
 import { readFocusStepParam, readLevelParam } from './pipelineStepLink';
 import { readFocusEpicParam } from './pipelineEpicLink';
+import { writePipelinePlace } from './pipelinePlace';
 // Req #3261 P8 — the Plan mode's own controls, in their own component, exactly
 // as `SwarmView.jsx` renders `<VisualizerToolbar />` for its canvas mode (S4).
 // `SemanticLevelControl` and `PLAN_LEVEL_NUMBER` went with them; this page no
@@ -355,8 +356,11 @@ export default function PipelineDetail() {
     // change a pure transform instead of a relayout.
     const stepLabel = 'title';
     const reqLabel = 'title';
-    // ── The colour key is TRI-STATE (req #3168, user directive 2026-08-01) ──
-    // `state` · `machine` · `none`. `normalizeColorKey` is `Object.hasOwn`-based
+    // ── The colour key is EVERY REGISTERED SCALE PLUS NONE ──────────────────
+    // req #3168 (user directive 2026-08-01), extended by req #3422 — the
+    // positions are `REQ_COLOR_KEYS`, so this page never names them and a scale
+    // added to the registry needs no edit here. `normalizeColorKey` is
+    // `Object.hasOwn`-based
     // for the same reason `isStepWidth` is: the value comes from localStorage, so
     // "constructor" is a reachable string that resolves to an inherited function,
     // and this one is handed to Konva as a text `fill`. A stored value written
@@ -602,6 +606,37 @@ export default function PipelineDetail() {
     // went on the 2026-08-01 directive; this memo outlived it, unread, still
     // walking every row and every row's machine labels on each plan change.
     // Unlike a dead import, it cost something.
+
+    // ── req #3431 — THE READER IS HERE, SO THIS IS THE PLACE ────────────────
+    // The single writer of the remembered place. Req #3311 wrote it from the
+    // LIST page's click handler, which recorded a plan opened by clicking a card
+    // and no other arrival: not a `?step=` deep link, not the sessions grid's
+    // "view the plan", not the requirement page's epic box, not Back. Recording
+    // on ARRIVAL covers all of them and every route added later, without any of
+    // them being enumerated — the same argument `viewportMemory.js` makes about
+    // return paths, pointed the other way.
+    //
+    // GATED ON `pipeline`, not on `pipelineId`: a URL naming a plan that does
+    // not exist must not become the place the reader is sent back to. The
+    // record is left alone in that case rather than cleared, because a
+    // hand-typed bad id says nothing about the plan they were last really on.
+    //
+    // THE PANEL IS NOT RECORDED, deliberately — `pipelinePlace.js` argues it out.
+    // The short version: `activeMode` is already durable through
+    // `useViewPreference`, and the only channel a resume could replay it on is
+    // `?mode=`, which everything on this page treats as a LINK asking to see one
+    // thing once. The reader lands in the panel they left either way.
+    // KEYED ON THE ID, NOT ON `pipeline`. The memo above mints a new object
+    // every time the pipelines read refetches — which `refetchOnWindowFocus`
+    // makes routine — and `localStorage.setItem` is synchronous and serializing.
+    // Depending on the object writes the identical record on every focus; the id
+    // changes only when the reader actually moves to another plan, which is the
+    // only moment there is anything new to record.
+    const placePipelineId = pipeline?.id ?? null;
+    useEffect(() => {
+        if (placePipelineId == null) return;
+        writePipelinePlace({ at: 'plan', pipelineId: placePipelineId });
+    }, [placePipelineId]);
 
     if (isLoading) {
         return (

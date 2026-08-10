@@ -47,7 +47,17 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
         titleOnBlur, deleteClick, sessionStatusMap,
         categoryColorMap, sortMode, setCrossCardInsertIndex,
         requirementsArray, setRequirementsArray,
+        // req #3419 — the set the visibility toggle hides by, so a row that IS
+        // on screen can still be MARKED as plan work. Same set, never a second
+        // derivation.
         orchestratedIds,
+        // req #3428 — the host card says whether a row may be dragged at all.
+        // Under an epic filter the reader sees a SUBSET of the rows, and both
+        // drop paths (`addRequirementToCategory`'s same-card splice and its
+        // cross-card insert) rebuild `sort_order` from positions in that subset,
+        // i.e. against neighbours the reader cannot see. Defaults false, so every
+        // existing host behaves exactly as before.
+        dragDisabled = false,
         strikethroughMet = true } = useRequirementActions();
 
     // req #3419 — MARK the plan work. The toggle in the header hides it; when the
@@ -126,7 +136,7 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
                 sourceHeight: rect?.height || 40,
             };
         },
-        canDrag: () => !isTemplate,
+        canDrag: () => !isTemplate && !dragDisabled,
         end: (item, monitor) => {
             // Always release the cross-card insert index — same-card splice
             // already cleared it in addRequirementToCategory; this covers the
@@ -155,8 +165,9 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
         // Volatile requirement fields + requirementIndex are intentionally NOT
         // deps — the `item` factory reads them live from refs at drag-start, so
         // the spec/connector only needs to be rebuilt when behaviour-affecting
-        // inputs change (canDrag → isTemplate; end → sortMode + the setters).
-    }), [isTemplate, sortMode, setCrossCardInsertIndex, setRequirementsArray]);
+        // inputs change (canDrag → isTemplate + dragDisabled; end → sortMode +
+        // the setters).
+    }), [isTemplate, dragDisabled, sortMode, setCrossCardInsertIndex, setRequirementsArray]);
 
     // Hover-only drop target — sets the insert indicator above/below this row
     // and writes the splice target into the parent CategoryCard via
@@ -574,8 +585,14 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
                         multiline
                         disabled = {categoryId !== '' ? false : categoryName === '' ? true : false}
                         autoComplete ='off'
+                        // `req-title-`, NOT `requirement-title-`: `requirement-`
+                        // is a ROW-level prefix namespace, selected wholesale by
+                        // `[data-testid^="requirement-"]` in swarm.spec.ts and in
+                        // req #3428's epic-filter specs. A title testid under it
+                        // makes every such selector return two nodes per row —
+                        // caught by those specs, and it would have broken E2E.
                         data-testid={requirement.id === '' ? undefined
-                            : `requirement-title-${requirement.id}`}
+                            : `req-title-${requirement.id}`}
                         data-orchestrated={requirement.id === '' ? undefined
                             : String(isOrchestrated)}
                         sx = {{...(status === 'met' && strikethroughMet && {textDecoration: 'line-through'}), ...((status === 'deferred' || status === 'wontfix') && {opacity: 0.5}),

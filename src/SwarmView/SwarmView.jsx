@@ -9,8 +9,9 @@ import { useShowClosedStore, ALL_REQUIREMENT_STATUSES } from '../stores/useShowC
 import { useSwarmStartCardStore } from '../stores/useSwarmStartCardStore';
 import { useModelEffortDisplayStore } from '../stores/useModelEffortDisplayStore';
 import { useRequirementDrillStore } from '../stores/useRequirementDrillStore';
-import { useProjects } from '../hooks/useDataQueries';
+import { useProjects, useAllEpics, useAllCategories, useEpicRequirementIds } from '../hooks/useDataQueries';
 import { projectKeys } from '../hooks/useQueryKeys';
+import { firstProjectIndexWithEpicWork } from '../utils/epicMembership';
 
 import ProjectCloseDialog from './ProjectCloseDialog';
 import ProjectAddDialog from './ProjectAddDialog';
@@ -21,7 +22,8 @@ import SwarmVisualizerView from './SwarmVisualizerView';
 import RequirementsTrendsView from './RequirementsTrendsView';
 import VisualizerToolbar from './VisualizerToolbar';
 
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useRef } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 
@@ -45,8 +47,9 @@ import RequirementJumpInput from '../NavBar/RequirementJumpInput';
 import FolderIcon from '@mui/icons-material/Folder';
 import CategoryIcon from '@mui/icons-material/Category';
 import { requirementStatusChipProps, requirementStatusLabel } from './statusChipStyles';
+import Chip from '@mui/material/Chip';
 import ChipFilter from '../Components/ChipFilter';
-import { SWARM_VIEWS } from './swarmViewLink';
+import { SWARM_VIEWS, readEpicParam, withoutEpicParam } from './swarmViewLink';
 import { useSwarmViewSelection } from './useSwarmViewSelection';
 
 // req #2992 — fixed vocabulary, so options are module-level. Colors come from
@@ -117,6 +120,84 @@ const SwarmView = () => {
     // chips are replaced by the drill pill (the chips don't apply while drilled).
     const drill = useRequirementDrillStore(s => s.drill);
     const showClosed = false;
+
+    // ── `?epic=` — the plan visualizer's epic chip lands here (req #3428) ────
+    // A URL param, not a store: the LINK IS THE FILTER, so it is deep-linkable,
+    // survives a reload, and dismissing the pill clears it without touching a
+    // single saved preference. That is the doctrine `FeaturesPage.jsx` already
+    // states for the sibling target of the same chip, and the reason this is not
+    // shaped like `useRequirementDrillStore` — a drill is computed INSIDE its
+    // page and never crosses a route; this arrives from a different one.
+    const navigate = useNavigate();
+    const [searchParams, setSearchParams] = useSearchParams();
+    const epicId = readEpicParam(searchParams);
+    const epicFilterActive = epicId !== null;
+    // THE FILTER IS THE CARDS VIEW'S — one expression, so the pill, the two
+    // suppressed controls and the row predicate can only ever turn on together.
+    // In the other panels the parameter sleeps: it is still in the address bar,
+    // nothing is filtered, and nothing claims to be.
+    const epicFilterApplies = epicFilterActive && view === 'cards';
+    // ONE derivation of "which requirements does this epic contain", shared with
+    // every card and the aggregator — see the hook for why it is an id Set and
+    // not a wider projection.
+    //
+    // KEYED ON `epicFilterApplies`, NOT `epicFilterActive`: with `?epic=` in the
+    // address bar and the reader on Table/Visualizer/Trends the filter is asleep,
+    // and three reads whose results nothing consumes are pure cost.
+    const scopedEpicId = epicFilterApplies ? epicId : null;
+    const { epicReqIds, isError: epicScopeError, requirements: epicScopeRequirements } =
+        useEpicRequirementIds(profile?.userName, scopedEpicId);
+    const { data: epicRows = [] } = useAllEpics(profile?.userName, { enabled: epicFilterApplies });
+    const { data: allCategories = [] } = useAllCategories(profile?.userName, {
+        fields: 'id,project_fk', closed: 0, enabled: epicFilterApplies,
+    });
+    const epicTitle = epicFilterActive
+        ? (epicRows.find(e => Number(e.id) === epicId)?.title ?? String(epicId))
+        : null;
+    // A FAILED MEMBERSHIP READ SHOWS EVERYTHING AND SAYS SO. `epicReqIds` is null
+    // on error, so nothing is filtered; the pill goes red and names the state
+    // instead of the epic. The alternative — an empty Set — renders every card
+    // gone and every badge zero, which reads as "this epic has no work" and never
+    // corrects itself. Filtering is a claim, and a claim that cannot be checked
+    // must not be made silently.
+    const epicFilterFailed = epicFilterApplies && epicScopeError;
+    // IS A SCOPE ACTUALLY IN FORCE? Everything the filter OVERRIDES hangs off
+    // this rather than off `epicFilterApplies`, so a failed read restores the two
+    // suppressed controls and the aggregator's own preference along with the
+    // rows — the same rule from the other side: a control is off screen only
+    // while something else is deciding for it.
+    const epicFilterEngaged = epicFilterApplies && epicReqIds != null;
+    const clearEpicFilter = () => setSearchParams(withoutEpicParam(searchParams), { replace: true });
+
+    // WHERE THE EPIC'S WORK ACTUALLY LIVES, so the link does not land on an
+    // empty tab. An epic's requirements sit in categories and categories sit in
+    // projects, so a bare landing opens whichever project this reader last
+    // worked in — routinely one with none of that epic in it, i.e. the feature
+    // invisible on arrival.
+    //
+    // SEEDED ONCE PER `epicId`, the same re-seed discipline `useSwarmViewSelection`
+    // uses for `linkView`: a manual tab click wins from that moment on, and
+    // clearing the filter re-arms it for the next link.
+    //
+    // IT DOES NOT REDEFINE THE READER'S WORKING PROJECT — see the effect below,
+    // which stands down while the filter is engaged. Letting it through would
+    // have made following this link write `darwin_working_project` to
+    // localStorage for 90 days, so a reader who glanced at one epic would find
+    // bare `/swarm` opening on a different project ever after. That is the one
+    // thing this whole feature promises not to do.
+    const epicTabSeededFor = useRef(null);
+    useEffect(() => {
+        if (!epicFilterEngaged) { epicTabSeededFor.current = null; return; }
+        if (epicTabSeededFor.current === epicId) return;
+        const index = firstProjectIndexWithEpicWork(
+            projectsArray, allCategories, epicScopeRequirements, epicReqIds);
+        // null means either "not resolved yet" (try again next render) or
+        // "nowhere" — and leaving the reader on the tab they chose is the right
+        // answer to the second, so neither case seeds.
+        if (index === null) return;
+        epicTabSeededFor.current = epicId;
+        setActiveTab(index);
+    }, [epicFilterEngaged, epicId, projectsArray, allCategories, epicScopeRequirements, epicReqIds]);
 
     // TanStack Query — fetch projects (open only or with closed based on chip filter)
     const { data: serverProjects } = useProjects(profile?.userName, {
@@ -196,15 +277,24 @@ const SwarmView = () => {
         defaultInfo: ''
     });
 
-    // Persist working project whenever active tab changes
+    // Persist working project whenever active tab changes.
+    //
+    // req #3428 — NOT WHILE AN EPIC FILTER IS ENGAGED. `darwin_working_project`
+    // is persisted to localStorage with a 90-day life, and the tab under a filter
+    // is not a choice the reader made about where they work — it is either this
+    // page's own seed or a click inside a transient, dismissable view. Writing it
+    // would mean glancing at one epic silently re-homed bare `/swarm`, which is
+    // the same class of defect as the filter writing the view preference or the
+    // aggregator toggle, and this is where it would have leaked in.
     useEffect(() => {
+        if (epicFilterEngaged) return;
         if (projectsArray && projectsArray.length > 0) {
             const tabIndex = parseInt(activeTab);
             if (tabIndex >= 0 && tabIndex < projectsArray.length) {
                 setWorkingProject(projectsArray[tabIndex].id);
             }
         }
-    }, [activeTab, projectsArray]);
+    }, [activeTab, projectsArray, epicFilterEngaged]);
 
     const changeActiveTab = (event, newValue) => {
         if (newValue === 9999)
@@ -342,6 +432,40 @@ const SwarmView = () => {
                         )}
                         {view === 'visualizer' && <VisualizerToolbar />}
                         <Box sx={{ flexGrow: 1 }} />
+                        {/* req #3428 — the epic filter's dismissable pill, first
+                            item of the right-hand cluster because that is where
+                            this page's filters live. Deliberately NOT on the
+                            left: the project `<Tabs>` there carry
+                            `flexShrink: 1, minWidth: 0`, so a variable-width
+                            chip beside them steals width from the tabs.
+
+                            RENDERED EXACTLY WHEN IT IS APPLYING — `view ===
+                            'cards'` is the same condition the row filter turns
+                            on, because this filter is the CARDS view's. In the
+                            other three panels the parameter sleeps and re-applies
+                            on return; only the ✕ clears it. A control on screen
+                            that is not applying is the defect the `!drill`
+                            guards below already exist to avoid.
+
+                            The body opens the Epics editor and the ✕ clears the
+                            filter — `FeaturesPage.jsx`'s chip, which is the other
+                            end of the same epic chip's two links. MUI routes the
+                            delete icon's click to `onDelete` alone, so the two
+                            never fire together. */}
+                        {epicFilterApplies && (
+                            <Chip size="small"
+                                  color={epicFilterFailed ? 'error' : 'secondary'}
+                                  label={epicFilterFailed
+                                      ? `Epic filter unavailable — showing everything`
+                                      : `Epic: ${epicTitle}`}
+                                  onClick={() => navigate('/swarm/epics')}
+                                  title={epicFilterFailed
+                                      ? 'The epic membership read failed, so nothing is being filtered'
+                                      : 'Open the Epics editor'}
+                                  onDelete={clearEpicFilter}
+                                  sx={{ flexShrink: 0, cursor: 'pointer' }}
+                                  data-testid="swarm-epic-filter-chip" />
+                        )}
                         {(view === 'cards' || (view === 'table' && !drill)) && (
                             <ChipFilter
                                 options={requirementStatusOptions}
@@ -380,7 +504,13 @@ const SwarmView = () => {
                             `hidePipelined` used to light up blue to announce
                             the filter it applies; now the icon announces what
                             is CURRENTLY VISIBLE, not which control is active. */}
-                        {(view === 'cards' || (view === 'table' && !drill)) && (
+                        {/* req #3428 — `!epicFilterApplies` joins `!drill` for
+                            the reason stated three comments up: an epic filter
+                            forces this toggle OFF (`effectiveHidePipelined`), so
+                            leaving it on screen would show a control that is not
+                            applying — and, worse, an ON toggle whose stored value
+                            says the exact opposite of what the reader sees. */}
+                        {(view === 'cards' || (view === 'table' && !drill)) && !epicFilterEngaged && (
                             <Tooltip title={hidePipelined
                                 ? 'Hiding orchestrated requirements (on a plan step or in an epic)'
                                 : 'Showing orchestrated requirements (on a plan step or in an epic)'}>
@@ -399,7 +529,12 @@ const SwarmView = () => {
                                 </IconButton>
                             </Tooltip>
                         )}
-                        {view === 'cards' && (
+                        {/* Hidden under an epic filter for the same reason: the
+                            aggregator is forced visible there (the requirement's
+                            "you get the aggregator on"), so this toggle would
+                            flip a stored preference and change nothing on
+                            screen. */}
+                        {view === 'cards' && !epicFilterEngaged && (
                             <Tooltip title={showSwarmStartCard ? 'Hide Swarm-Start Card' : 'Show Swarm-Start Card'}>
                                 <IconButton
                                     size="small"
@@ -427,13 +562,29 @@ const SwarmView = () => {
                     )}
 
                     {/* Content — cards view */}
+                    {/* req #3428 — TWO derived overrides, neither of which
+                        writes a store.
+
+                        The aggregator is FORCED VISIBLE under an epic filter
+                        (the requirement's "you get the aggregator on") by OR-ing
+                        the host's own boolean, never by calling `toggle()`: an
+                        external condition must not overwrite uncommitted user
+                        intent, so dismissing the pill restores exactly the
+                        aggregator state the reader had.
+
+                        `epicReqIds` is the SCOPE, threaded down as a prop
+                        because the HOST owns the filter — an aggregator never
+                        invents one. `null` (not an empty Set) is what says "no
+                        filter": an empty Set means the filter is on and matches
+                        nothing, which is a different page. */}
                     {view === 'cards' && projectsArray.map( (project, projectIndex) =>
                         <CategoryTabPanel key={project.id}
                                           project = {project}
                                           projectIndex = {projectIndex}
                                           activeTab = {activeTab}
                                           showClosed = {showClosed}
-                                          showSwarmStartCard = {showSwarmStartCard}>
+                                          epicReqIds = {epicFilterEngaged ? epicReqIds : null}
+                                          showSwarmStartCard = {showSwarmStartCard || epicFilterEngaged}>
                         </CategoryTabPanel>
                     )}
 

@@ -37,7 +37,7 @@ import SemanticLevelControl from '../../Components/SemanticLevelControl';
 // `SemanticLevelControl` reads its own "Detail:" style from, so the three
 // captions on this row cannot drift into three voices.
 import { TOOLBAR_CAPTION_SX } from '../../Components/toolbarStyles';
-import { PLAN_LEVEL_NUMBER } from './pipelinePlanLayout';
+import { PLAN_LEVEL_NUMBER, REQ_COLOR_SCALES } from './pipelinePlanLayout';
 import { toolbarChipProps } from './pipelineChipStyles';
 
 // Reset's wording, in ONE place: it is both the tooltip and the accessible name
@@ -66,36 +66,28 @@ const STEP_WIDTHS = [
         name: 'L — column width, wide' },
 ];
 
-// ONE TOOLTIP PER CONTROL, never one over the group (P6 / S8). A single Tooltip
-// wrapped both of these before, so it could say what the pair was FOR and could
-// not say what either one DID — and the width group two positions to its left
-// already tooltipped per button, so the row contradicted itself about its own
-// rule. The tri-state hint stays on both, because clicking the pressed chip is
-// how the third position is reached and that is not discoverable from either
-// chip alone.
-const COLOR_KEYS = [
-    {
-        value: 'state',
-        label: 'State',
-        tip: 'Colour the requirement marks by requirement STATUS — '
-            + 'click again for none',
-        name: 'State — colour the requirement marks by requirement status',
-    },
-    {
-        value: 'machine',
-        label: 'Machine',
-        tip: 'Colour the requirement marks by the MACHINE that ran them — '
-            + 'click again for none',
-        name: 'Machine — colour the requirement marks by the machine that ran them',
-    },
-];
+// THE COLOUR CHIPS ARE THE REGISTRY, not a copy of it (req #3422). This array
+// used to be written out here, which meant a scale's LABEL lived in the toolbar
+// while its COLOURS lived in `pipelinePlanLayout.js` — two files to edit for one
+// scale, and nothing to catch a chip that named a scale the canvas could not
+// paint. `REQ_COLOR_SCALES` carries both, so the third scale (Autonomy) reached
+// this row without an edit to this file's control at all.
+//
+// ONE TOOLTIP PER CONTROL, never one over the group (P6 / S8), and the strings
+// travel with the scale for that rule's own reason: a tooltip has to say what
+// THAT chip does. A single Tooltip wrapped the pair before, so it could say what
+// they were FOR and could not say what either one DID — and the width group two
+// positions to its left already tooltipped per button, so the row contradicted
+// itself about its own rule. The deselect hint is on every chip, because
+// clicking the pressed one is how the neutral position is reached and that is
+// not discoverable from any one chip.
 
 /**
  * @param {Object} props
  * @param {string} props.stepWidth              'compact' | 'medium' | 'wide'
  * @param {function} props.onChangeStepWidth    receives the new width
- * @param {string} props.colorKey               'state' | 'machine' | 'none'
- * @param {function} props.onChangeColorKey     receives 'state'|'machine'|'none'
+ * @param {string} props.colorKey               a REQ_COLOR_KEYS value
+ * @param {function} props.onChangeColorKey     receives a REQ_COLOR_KEYS value
  * @param {string} props.planLevelPref          'auto' | '1' | '2' | '3'
  * @param {?string} props.effectiveLevel        the canvas's 'out'|'mid'|'in'
  * @param {function} props.onChangeLevelPref    receives 'auto' | '1' | '2' | '3'
@@ -260,31 +252,32 @@ export default function PipelinePlanToolbar({
                 bead's fill is derived STEP state and stays that (the
                 one-fact-one-channel-one-level rule in pipelinePlanLayout.js).
 
-                THREE POSITIONS FROM TWO CHIPS, unchanged in behaviour by the
-                move off `ToggleButtonGroup`. The group used to lean on MUI's
-                exclusive-group `onChange(_, null)` to report the third position;
-                chips have no group to fire that, so the "click the pressed one
-                again" rule is spelled out here instead. `useViewPreference`
-                ignores null, which is why 'none' is stored as a string.
+                N+1 POSITIONS FROM N CHIPS, unchanged in behaviour by the move
+                off `ToggleButtonGroup` and unchanged again by the third scale
+                (req #3422). The group used to lean on MUI's exclusive-group
+                `onChange(_, null)` to report the neutral position; chips have no
+                group to fire that, so the "click the pressed one again" rule is
+                spelled out here instead. `useViewPreference` ignores null, which
+                is why 'none' is stored as a string.
 
-                It gains a caption for the same reason Width did: two bare chips
-                reading "State" and "Machine" name their own VALUES and leave the
-                axis they select unstated, which is P9's defect with no first
-                option to hide the name in. */}
+                It gains a caption for the same reason Width did: bare chips
+                reading "State", "Machine" and "Autonomy" name their own VALUES
+                and leave the axis they select unstated, which is P9's defect
+                with no first option to hide the name in. */}
             <Stack direction="row" spacing={0.5} useFlexGap alignItems="center"
                    sx={{ flexShrink: 0 }}
                    data-testid="pipeline-viz-colorkey-toggle">
                 <Box component="span" sx={TOOLBAR_CAPTION_SX}>Colour:</Box>
-                {COLOR_KEYS.map(({ value, label, tip, name }) => {
-                    const on = colorKey === value;
+                {REQ_COLOR_SCALES.map(({ key, chipLabel, chipTip, chipName }) => {
+                    const on = colorKey === key;
                     return (
-                        <Tooltip key={value} title={tip}>
+                        <Tooltip key={key} title={chipTip}>
                             <Chip
-                                label={label}
-                                aria-label={name}
-                                onClick={() => onChangeColorKey(on ? 'none' : value)}
+                                label={chipLabel}
+                                aria-label={chipName}
+                                onClick={() => onChangeColorKey(on ? 'none' : key)}
                                 {...toolbarChipProps(on)}
-                                data-testid={`pipeline-viz-colorkey-${value}`}
+                                data-testid={`pipeline-viz-colorkey-${key}`}
                             />
                         </Tooltip>
                     );

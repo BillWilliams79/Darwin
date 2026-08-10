@@ -354,11 +354,11 @@ describe('req #3419 — one visibility rule, every surface (the single harness)'
     describe('orchestrated rows are MARKED, from the same set that hides them', () => {
         const marked = (container) =>
             [...container.querySelectorAll('[data-orchestrated="true"]')]
-                .map(el => Number(el.getAttribute('data-testid').replace('requirement-title-', '')))
+                .map(el => Number(el.getAttribute('data-testid').replace('req-title-', '')))
                 .sort((a, b) => a - b);
         const plain = (container) =>
             [...container.querySelectorAll('[data-orchestrated="false"]')]
-                .map(el => Number(el.getAttribute('data-testid').replace('requirement-title-', '')))
+                .map(el => Number(el.getAttribute('data-testid').replace('req-title-', '')))
                 .sort((a, b) => a - b);
 
         it('marks exactly the orchestrated rows when the toggle is OFF', async () => {

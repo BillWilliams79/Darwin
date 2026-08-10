@@ -16,7 +16,7 @@
 //     process — so they are deliberate duplicates of one rule, exactly like
 //     pipelineModel.js and pipeline_derive.py.
 //
-//   EPIC association (`epicRequirementIds`)
+//   EPIC association (`epicSeatedRequirementIds`)
 //     `requirements.feature_fk` -> `features.epic_fk` — "does this belong to a
 //     BODY OF WORK". True of plenty of requirements no step carries yet.
 //
@@ -83,7 +83,16 @@ export const pipelinedRequirementIds = (stepRequirements) => {
 };
 
 /**
- * Requirement ids whose `feature_fk` resolves to a feature that names an EPIC.
+ * Requirement ids whose `feature_fk` resolves to a feature that names ANY epic.
+ *
+ * NAMED `epicSeated…`, NOT `epicRequirementIds`, and the distinction is load
+ * bearing: `utils/epicMembership.js` (req #3428) exports an
+ * `epicRequirementIds(features, requirements, epicId)` that answers a DIFFERENT
+ * question — "is this requirement in THIS epic", for the epic filter. This one
+ * asks "is this requirement in an epic AT ALL", for the orchestrated mark and
+ * the browse toggle. Two same-named exports in two modules is a wrong import
+ * away from a silent, plausible-looking answer, so only one of them keeps the
+ * bare name.
  *
  * A feature with a NULL `epic_fk` is NOT epic association — the requirement is
  * filed, but under nothing a plan is organized around. Requiring the epic is
@@ -101,7 +110,7 @@ export const pipelinedRequirementIds = (stepRequirements) => {
  * @param {Array<{id: number, epic_fk: number|null}>} features
  * @returns {Set<number>}
  */
-export const epicRequirementIds = (requirements, features) => {
+export const epicSeatedRequirementIds = (requirements, features) => {
     const ids = new Set();
     if (!Array.isArray(requirements) || !Array.isArray(features)) return ids;
 
@@ -133,7 +142,7 @@ export const epicRequirementIds = (requirements, features) => {
  */
 export const orchestratedRequirementIds = (stepRequirements, requirements, features) => {
     const ids = pipelinedRequirementIds(stepRequirements);
-    for (const id of epicRequirementIds(requirements, features)) ids.add(id);
+    for (const id of epicSeatedRequirementIds(requirements, features)) ids.add(id);
     return ids;
 };
 
