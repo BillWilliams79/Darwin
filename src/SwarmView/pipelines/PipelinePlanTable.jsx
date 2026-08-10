@@ -79,6 +79,7 @@ import {
     // coincidental reds.
     PAUSE_PAUSED_COLOR,
 } from './pipelineChipStyles';
+import { sortReqIdsByStatus } from './pipelinePlanLayout';
 
 const NOWRAP = { whiteSpace: 'nowrap' };
 
@@ -241,12 +242,19 @@ function StepLaunchLine({ row }) {
 // Without the distinction the derivation looks broken to a reader who is right
 // to check it. Kept to a style + tooltip on the existing link deliberately: no
 // second chip, no new column, no new view.
-function RequirementLinks({ row, pipelineId, era }) {
+//
+// Sorted met-first, deferred/wontfix-last (req #3363), the same ladder the
+// Plan visualizer stacks its requirement marks with — `statusOf` is the
+// table's own status lookup, so Table and Plan modes agree on the order for
+// the same step. `row.reqIds` ITSELF is untouched (junction order — the
+// engine's contract); only the array handed to `.map` here is reordered.
+function RequirementLinks({ row, pipelineId, era, statusOf }) {
     if (!row.reqIds.length) return <span>—</span>;
     const tracking = new Set(row.trackingReqIds || []);
+    const sortedIds = sortReqIdsByStatus(row.reqIds, statusOf);
     return (
         <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
-            {row.reqIds.map((id) => {
+            {sortedIds.map((id) => {
                 const isTracking = tracking.has(id);
                 const link = (
                     <Link
@@ -316,13 +324,19 @@ function GroupCell({ show, value, width, color, testid }) {
     );
 }
 
-export default function PipelinePlanTable({ plan, pipeline, timezone, focusStepId,
+export default function PipelinePlanTable({ plan, model, pipeline, timezone, focusStepId,
     // req #3463 — WHICH plan surface this panel is drawing. The page owns it (it
     // is the era of the route the page is mounted at) and the panel only needs
     // it to stamp the requirement links' Back state, so a plan id can be
     // returned to the route it came from.
     era = DEFAULT_PLAN_ERA,
     costError = false, showCost = false }) {
+    // req #3363 — id -> requirement_status, for `RequirementLinks`' sort. The
+    // SAME light projection the page already read (`model.requirements`); no
+    // extra fetch.
+    const reqStatusById = useMemo(
+        () => new Map((model?.requirements || []).map((r) => [r.id, r.requirement_status])),
+        [model]);
     // `showCost` is OWNED BY THE PAGE since req #3119 — the Time / Tokens control
     // renders in the header row beside the pipeline name, with the visualizer's
     // toggles, so both modes put their controls in one place.
@@ -584,7 +598,8 @@ export default function PipelinePlanTable({ plan, pipeline, timezone, focusStepI
                                                color="#b07fd8"
                                                testid={`pipeline-epic-${row.id}`} />
                                     <TableCell sx={{ width: COL.reqs }}>
-                                        <RequirementLinks row={row} pipelineId={pipeline?.id} era={era} />
+                                        <RequirementLinks row={row} pipelineId={pipeline?.id} era={era}
+                                                          statusOf={(id) => reqStatusById.get(id)} />
                                         {/* Design rule 8's own artifact, on the
                                             row that owns it — see StepLaunchLine.
                                             Directly under the ids because they

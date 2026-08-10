@@ -124,7 +124,7 @@ import {
     buildReqColorViews, REQ_COLOR_KEYS, reqIdStyle, reqIdKeyEntries, normalizeColorKey,
     DEFAULT_COLOR_KEY, PLAN_KEY_MAX_H, pinnedLevelOf, DEFAULT_PLAN_LEVEL_PREF,
     EPIC_PAUSE_BUBBLE_D, pauseBubbleColor, stickyRulerY, rulerScreenBottom,
-    KEY_GROUP_TITLES,
+    KEY_GROUP_TITLES, sortReqIdsByStatus,
 } from './pipelinePlanLayout';
 import {
     epicCycleKey, epicZoomStateKey, nextLaunchStep, nextEpicZoom,
@@ -308,10 +308,6 @@ export default function PipelinePlanVisualizer({
 }) {
     const navigate = useNavigate();
 
-    const rows = plan.rows || [];
-    const rowById = useMemo(() => new Map(rows.map((r) => [r.id, r])), [rows]);
-    const eligibleStepIds = plan.eligibleStepIds || new Set();
-
     // Requirement name + status for the hover tooltip (req #3119). The canvas
     // keeps drawing bare IDS — a plan title is many times the width of the
     // column it hangs under, so putting names on the surface either shrinks them
@@ -327,6 +323,24 @@ export default function PipelinePlanVisualizer({
                 coordination: r.coordination_type, model: r.ai_model, effort: r.effort,
             }])),
         [model]);
+    // req #3363 — the requirement marks stacked under a step sort met-first,
+    // deferred/wontfix last (`sortReqIdsByStatus`'s own ladder). Only the ORDER
+    // of each row's `reqIds` changes here; the ROW ARRAY keeps the engine's own
+    // order (bead z-stacking, column/lane placement all key off it), and every
+    // other field on a row — `launchReqIds`, `trackingReqIds`,
+    // `swarmStartCommand` — is the engine's answer, computed before this runs
+    // and left untouched, so re-ordering the display never touches what
+    // `/swarm-start` launches.
+    const rows = useMemo(() => {
+        const base = plan.rows || [];
+        if (!base.length) return base;
+        const statusOf = (id) => reqInfo.get(id)?.status;
+        return base.map((r) => ((r.reqIds || []).length > 1
+            ? { ...r, reqIds: sortReqIdsByStatus(r.reqIds, statusOf) }
+            : r));
+    }, [plan.rows, reqInfo]);
+    const rowById = useMemo(() => new Map(rows.map((r) => [r.id, r])), [rows]);
+    const eligibleStepIds = plan.eligibleStepIds || new Set();
     // The requirement TITLE lookup, when that mark is showing (req #3168). Built
     // from `reqInfo`, which the hover card already needed — so the option costs
     // no extra read and no extra pass over the model. Passed as an ARGUMENT

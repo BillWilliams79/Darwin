@@ -47,6 +47,7 @@ import {
     EPIC_PALETTE,
     PAUSE_ACTIVE_COLOR, PAUSE_PAUSED_COLOR, pauseBubbleColor, EPIC_PAUSE_BUBBLE_W,
     COLOR_CHANNELS, KEY_GROUP_TITLES,
+    REQ_STEP_SORT_ORDER, sortReqIdsByStatus,
 } from '../pipelinePlanLayout';
 
 const NOW = '2026-07-27T03:00:00Z';
@@ -3367,6 +3368,84 @@ describe('requirement-status colour scale (req #3168, directive 1)', () => {
             expect(reqStatusColor(bogus), `status=${String(bogus)}`)
                 .toBe(REQ_STATUS_UNKNOWN_COLOR);
         }
+    });
+});
+
+describe('requirement mark stack order (req #3363)', () => {
+    it('covers every requirement status, met leading and wontfix trailing', () => {
+        expect(REQ_STEP_SORT_ORDER).toEqual({
+            met: 0, development: 1, swarm_ready: 2, approved: 3, authoring: 4,
+            deferred: 5, wontfix: 6,
+        });
+        expect(Object.keys(REQ_STEP_SORT_ORDER).sort())
+            .toEqual([...REQ_STATUS_ORDER].sort());
+    });
+
+    it('sorts met first, then the active ladder, deferred and wontfix last', () => {
+        const statuses = {
+            1: 'authoring', 2: 'approved', 3: 'swarm_ready', 4: 'development',
+            5: 'met', 6: 'deferred', 7: 'wontfix',
+        };
+        const ids = [1, 2, 3, 4, 5, 6, 7];
+        expect(sortReqIdsByStatus(ids, (id) => statuses[id]))
+            .toEqual([5, 4, 3, 2, 1, 6, 7]);
+    });
+
+    it('is stable within a status — ties keep the caller\'s order', () => {
+        const statuses = { 10: 'development', 11: 'met', 12: 'development', 13: 'met' };
+        expect(sortReqIdsByStatus([10, 11, 12, 13], (id) => statuses[id]))
+            .toEqual([11, 13, 10, 12]);
+    });
+
+    it('sinks an unknown or missing status below every recognised one', () => {
+        // wontfix (rank 6) is the LOWEST recognised rank, so id 1 must still
+        // lead both unknowns — an equals-input assertion here would pass
+        // against a no-op sort and prove nothing.
+        const statuses = { 1: 'wontfix', 2: 'bogus-status' };
+        expect(sortReqIdsByStatus([2, 3, 1], (id) => statuses[id]))
+            .toEqual([1, 2, 3]);
+        // No lookup at all — every id is equally unknown, so the input order
+        // survives untouched (the default `statusOf` in `reqIdSummary`).
+        expect(sortReqIdsByStatus([3, 1, 2])).toEqual([3, 1, 2]);
+    });
+
+    it('tolerates a non-array input the way every other reqIds consumer does', () => {
+        expect(sortReqIdsByStatus(null, () => 'met')).toEqual([]);
+        expect(sortReqIdsByStatus(undefined, () => 'met')).toEqual([]);
+    });
+
+    // The reordering itself happens ONE LEVEL UP, in `PipelinePlanVisualizer`'s
+    // `rows` memo, which hands `computePlanLayout` a row whose `reqIds` is
+    // ALREADY sorted (`sortReqIdsByStatus` above is the whole of that logic).
+    // What closes the loop is proving this module is a faithful PASS-THROUGH —
+    // that it stacks/lists the 'req' marks in exactly the order `reqIds`
+    // arrives in, never re-deriving an order of its own — in both req layouts.
+    it('draws the "req" marks in the exact order reqIds arrives in — vertical', () => {
+        const row = {
+            id: 1, title: 's1', run: 'auto', state: 'pending',
+            reqIds: [30, 10, 20], depIds: [], timeDeps: [],
+            epicId: null, epic: null, epicLabels: [], featureLabels: [],
+            machineLabels: [], machineLabel: '—',
+        };
+        const layout = computePlanLayout([row], { reqLayout: 'vertical' });
+        const marks = layout.labels
+            .filter((l) => l.kind === 'req' && l.stepId === 1)
+            .sort((a, b) => a.y - b.y);
+        expect(marks.map((m) => m.reqId)).toEqual([30, 10, 20]);
+    });
+
+    it('draws the "req" marks in the exact order reqIds arrives in — horizontal', () => {
+        const row = {
+            id: 1, title: 's1', run: 'auto', state: 'pending',
+            reqIds: [30, 10, 20], depIds: [], timeDeps: [],
+            epicId: null, epic: null, epicLabels: [], featureLabels: [],
+            machineLabels: [], machineLabel: '—',
+        };
+        const layout = computePlanLayout([row], { reqLayout: 'horizontal' });
+        const marks = layout.labels
+            .filter((l) => l.kind === 'req' && l.stepId === 1)
+            .sort((a, b) => a.x - b.x);
+        expect(marks.map((m) => m.reqId)).toEqual([30, 10, 20]);
     });
 });
 
