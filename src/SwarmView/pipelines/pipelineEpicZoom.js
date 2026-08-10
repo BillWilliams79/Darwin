@@ -277,3 +277,16 @@ export function epicZoomHintSuffix(stepId) {
 export function epicZoomHint(stepId) {
     return EPIC_ZOOM_HINT + epicZoomHintSuffix(stepId);
 }
+
+// ── req #3373 — the met/total suffix's denominator, named on hover ──────────
+// `epicBandLabelText` (pipelinePlanLayout.js) appends "met/total" straight onto
+// the chip's own text when the Counts toggle is on, so a reader comparing a
+// screenshot across the pre-/post-containment eras has no way to tell that the
+// count started meaning "requirements SEATED under this epic's steps" rather
+// than "requirements whose feature belongs to this epic" (req #3225 / #3349) —
+// the two agree on every count today (measured, all six live epics), which is
+// exactly why the silent conflation is possible. One word said once, here,
+// where the chip is already being described.
+export function epicSeatedHint(hasCounts) {
+    return hasCounts ? ' — the count is requirements seated under this epic' : '';
+}

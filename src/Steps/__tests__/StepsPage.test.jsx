@@ -25,6 +25,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
+import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -123,7 +124,11 @@ import { useSnackBarStore } from '../../stores/useSnackBarStore';
 let mountedRoots = [];
 let queryClient;
 
-function mount() {
+// `initialEntries` defaults to a bare route — req #3373's `?epic=<id>` filter
+// tests pass `['/swarm/steps?epic=<id>']`. `useSearchParams` needs a real
+// Router in the tree, the same `EpicsPage.test.jsx` doctrine; `useNavigate`
+// stays mocked above regardless.
+function mount(initialEntries = ['/swarm/steps']) {
     const container = document.createElement('div');
     document.body.appendChild(container);
     queryClient = new QueryClient({
@@ -133,13 +138,15 @@ function mount() {
     const root = createRoot(container);
     act(() => {
         root.render(
-            <QueryClientProvider client={queryClient}>
-                <AppContext.Provider value={{ darwinUri: 'http://test.local/darwin' }}>
-                    <AuthContext.Provider value={{ idToken: 'tok', profile: { userName: 'tester', timezone: 'UTC' } }}>
-                        <StepsPage />
-                    </AuthContext.Provider>
-                </AppContext.Provider>
-            </QueryClientProvider>
+            <MemoryRouter initialEntries={initialEntries}>
+                <QueryClientProvider client={queryClient}>
+                    <AppContext.Provider value={{ darwinUri: 'http://test.local/darwin' }}>
+                        <AuthContext.Provider value={{ idToken: 'tok', profile: { userName: 'tester', timezone: 'UTC' } }}>
+                            <StepsPage />
+                        </AuthContext.Provider>
+                    </AppContext.Provider>
+                </QueryClientProvider>
+            </MemoryRouter>
         );
     });
     mountedRoots.push(root);
@@ -305,6 +312,50 @@ describe('StepsPage rows', () => {
         mount();
         expect(node('steps-unrendered-warning').textContent).toContain('99');
         expect(rowIds()).not.toContain(99);
+    });
+});
+
+// req #3373 — the plan visualizer's epic chip ↗ control re-points at
+// `/swarm/steps?epic=<id>`, and THIS is the filter it now lands on: it did
+// not exist before this requirement (StepsPage filtered by pipeline only).
+describe('StepsPage — ?epic=<id> filter (req #3373)', () => {
+    it('narrows to the steps whose dominant epic matches the param', () => {
+        mount(['/swarm/steps?epic=900']);
+        // Step 10 -> requirement 3050 -> feature 100 -> epic 900. Steps 11, 20,
+        // 21 either carry no requirement or resolve to epic 901.
+        expect(rowIds()).toEqual([10]);
+    });
+
+    it('renders a dismissable chip naming the epic by title', () => {
+        mount(['/swarm/steps?epic=900']);
+        expect(node('steps-epic-filter-chip').textContent).toContain('Swarm Substrate');
+    });
+
+    it('clearing the chip restores every plan\'s steps', () => {
+        mount(['/swarm/steps?epic=900']);
+        expect(rowIds()).toEqual([10]);
+        // MUI's Chip renders the delete affordance as a child SVG, and jsdom's
+        // SVGElement has no `.click()` — dispatch the event `onDelete` listens
+        // for directly, the same outcome a real pointer click produces.
+        act(() => {
+            node('steps-epic-filter-chip').querySelector('svg')
+                .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        });
+        expect(node('steps-epic-filter-chip')).toBeNull();
+        expect(rowIds().sort((a, b) => a - b)).toEqual([10, 11, 20, 21]);
+    });
+
+    it('ignores a non-integer param rather than filtering everything out', () => {
+        mount(['/swarm/steps?epic=abc']);
+        expect(node('steps-epic-filter-chip')).toBeNull();
+        expect(rowIds().sort((a, b) => a - b)).toEqual([10, 11, 20, 21]);
+    });
+
+    it('narrows to a different epic independently — this is a real filter, not a fixed id', () => {
+        mount(['/swarm/steps?epic=901']);
+        // Epic 901 is step 20's (requirement 3111 -> feature 101 -> epic 901),
+        // in the OTHER plan from the epic-900 case above.
+        expect(rowIds()).toEqual([20]);
     });
 });
 

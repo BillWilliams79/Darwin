@@ -318,16 +318,12 @@ describe('planRenderRows — the flat render list', () => {
         expect(rendered.map((e) => e.row.id)).toEqual(plan.rows.map((r) => r.id));
     });
 
-    it('shows an Epic/Feature label once per contiguous group', () => {
+    it('shows an Epic label once per contiguous group', () => {
         let prevEpic;
-        let prevFeature;
         for (const entry of rendered) {
             const epic = entry.row.epic != null ? entry.row.epic : null;
-            const feature = entry.row.feature != null ? entry.row.feature : null;
             expect(entry.showEpic).toBe(epic !== prevEpic);
-            expect(entry.showFeature).toBe(feature !== prevFeature);
             prevEpic = epic;
-            prevFeature = feature;
         }
     });
 
@@ -479,7 +475,7 @@ describe('planRenderRows — grouping compares ids, not titles', () => {
         machines: MACHINES,
     };
 
-    it('prints both labels when the ids differ despite identical titles', () => {
+    it('prints the label when epic ids differ despite identical titles', () => {
         const plan = orderedPlan(buildPipelineModel({ pipeline: PIPELINE, ...SAME_TITLE_READS }));
         // No `.filter((e) => e.kind === 'step')` — req #3371 collapsed
         // `planRenderRows` to one row kind, so every entry already is one.
@@ -487,7 +483,6 @@ describe('planRenderRows — grouping compares ids, not titles', () => {
         expect(rows).toHaveLength(2);
         expect(rows[0].showEpic).toBe(true);
         expect(rows[1].showEpic).toBe(true);
-        expect(rows[1].showFeature).toBe(true);
     });
 });
 

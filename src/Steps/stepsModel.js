@@ -262,14 +262,19 @@ export function buildStepEditorRows({
  * user who deselects every chip gets an empty view, which is honest feedback that
  * the filter is doing something.
  *
+ * `epicIds` (req #3373) — the plan visualizer's epic chip ↗ control lands here:
+ * `row.epicId` is the SAME dominant-epic field the plan pages band by, so a
+ * step spanning no epic (`epicId === null`) never matches a real filter value.
+ *
  * @param {Object[]} rows
- * @param {{pipelineIds: ?number[], states: ?string[]}} filters
+ * @param {{pipelineIds: ?number[], states: ?string[], epicIds: ?number[]}} filters
  * @returns {Object[]}
  */
-export function filterStepRows(rows, { pipelineIds = null, states = null } = {}) {
+export function filterStepRows(rows, { pipelineIds = null, states = null, epicIds = null } = {}) {
     return asArray(rows).filter((row) => {
         if (pipelineIds != null && !pipelineIds.includes(row.pipelineId)) return false;
         if (states != null && !states.includes(row.state)) return false;
+        if (epicIds != null && !epicIds.includes(row.epicId)) return false;
         return true;
     });
 }

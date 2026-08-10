@@ -59,10 +59,10 @@
 // rule 9 — no session data). Generated labels carry NO '#'. Click targets
 // (production directives): requirement id → /swarm/requirement/:id; bead →
 // Table mode scrolled/highlighted to the row (onStepFocus); epic band label →
-// FOCUS the band (req #3204), with /swarm/features?epic=<id> — the req #3119
-// directive, the minimal target since there are no dedicated epic pages — moved
-// onto the chip's own ↗ control so it stays a visible affordance rather than
-// being deleted or buried under a modifier key.
+// FOCUS the band (req #3204), with /swarm/steps?epic=<id> — the req #3119
+// directive, re-pointed by req #3373 when the Features route it used to open
+// was retired — moved onto the chip's own ↗ control so it stays a visible
+// affordance rather than being deleted or buried under a modifier key.
 //
 // ── Epic focus (req #3204) ─────────────────────────────────────────────────
 // Clicking an epic's name fits that band to the viewport. THIS IS NOT A MODE:
@@ -126,8 +126,8 @@ import {
 } from './pipelinePlanLayout';
 import {
     epicCycleKey, epicZoomStateKey, nextLaunchStep, nextEpicZoom,
-    epicZoomHint, epicZoomHintSuffix, gestureMovedCamera, EPIC_ZOOM_CLICK_SLOP,
-    EPIC_ZOOM_BAND, EPIC_ZOOM_STEP,
+    epicZoomHint, epicZoomHintSuffix, epicSeatedHint, gestureMovedCamera,
+    EPIC_ZOOM_CLICK_SLOP, EPIC_ZOOM_BAND, EPIC_ZOOM_STEP,
 } from './pipelineEpicZoom';
 // req #3428 — the epic chip's second destination. The URL contract lives with
 // the rest of `/swarm`'s query string, so this file names no query key itself.
@@ -2355,7 +2355,7 @@ export default function PipelinePlanVisualizer({
                             // silently does one of two plausible things is
                             // worse than either. The chip's two controls each
                             // name themselves: the body zooms, the ↗ below
-                            // opens the features view, and both say so.
+                            // opens the epic's steps, and both say so.
                             //
                             // AND SINCE REQ #3297 IT NAMES BOTH STOPS — but
                             // only where the second one exists. A band with no
@@ -2369,7 +2369,9 @@ export default function PipelinePlanVisualizer({
                             // `nextLaunchByEpic` — the SAME lookup the click
                             // itself reads, so the promise and the behaviour
                             // cannot drift, down to naming the same step id.
-                            title={epicZoomHint(nextLaunchByEpic.get(e.key))}
+                            title={epicZoomHint(nextLaunchByEpic.get(e.key))
+                                + epicSeatedHint(!!(showReqCounts && e.epicId != null
+                                    && epicCounts?.get(e.epicId)))}
                             // req #3226 — the pause bubble is colour-only
                             // (green/red), the least discriminable pair for
                             // the most common colour-vision deficiency and
@@ -2483,23 +2485,31 @@ export default function PipelinePlanVisualizer({
                             <Box component="span" className="pipeline-viz-epic-name">
                                 {e.text}
                             </Box>
-                            {/* The req #3119 target — the features view filtered
-                                to this epic — kept as its OWN visible control
-                                now that the chip body focuses instead. Its click
-                                must not also focus, hence stopPropagation; the
-                                react-router navigate leaves the page anyway, but
-                                relying on that would make the ordering matter. */}
+                            {/* The req #3119 target, RE-POINTED by req #3373: the
+                                Features route it used to open is being retired
+                                (req #3357), and `/swarm/steps?epic=<id>` is the
+                                only remaining destination that answers the
+                                question this control always asked — "show me
+                                the work under this epic" — with step and
+                                requirement detail rather than one epic row.
+                                THIS CONTROL IS WHAT ADDS THE FILTER: StepsPage
+                                only filtered by pipeline before this. Kept as
+                                its OWN visible control now that the chip body
+                                focuses instead. Its click must not also focus,
+                                hence stopPropagation; the react-router navigate
+                                leaves the page anyway, but relying on that would
+                                make the ordering matter. */}
                             {e.epicId != null && (
                                 <Box
                                     component="span"
                                     role="link"
                                     tabIndex={0}
-                                    aria-label={`Open ${e.text} in the features view`}
-                                    title={`Open “${e.text}” in the features view`}
+                                    aria-label={`Open ${e.text}'s steps`}
+                                    title={`Open “${e.text}”'s steps`}
                                     data-testid={`pipeline-viz-epic-open-${e.key}`}
                                     onClick={(ev) => {
                                         ev.stopPropagation();
-                                        navigate(`/swarm/features?epic=${e.epicId}`);
+                                        navigate(`/swarm/steps?epic=${e.epicId}`);
                                     }}
                                     onKeyDown={(ev) => {
                                         if (ev.key !== 'Enter') return;
@@ -2508,7 +2518,7 @@ export default function PipelinePlanVisualizer({
                                         // user is navigating away from.
                                         ev.stopPropagation();
                                         ev.preventDefault();
-                                        navigate(`/swarm/features?epic=${e.epicId}`);
+                                        navigate(`/swarm/steps?epic=${e.epicId}`);
                                     }}
                                     sx={{
                                         fontSize: 12, fontWeight: 400, opacity: 0.7,
@@ -2833,8 +2843,11 @@ export default function PipelinePlanVisualizer({
 
 // ── Hover datacard (reuses the shared .ts-datacard CSS) ─────────────────────
 // Step: title, state, run, deps (step gates + wall-clock gates through the ONE
-// shared formatter), dominant + FULL epic/feature label sets from the engine,
-// requirement ids, machines, the step's own exact /swarm-start argument list,
+// shared formatter), the step's epic as a single value (req #3373 — the
+// dominant-plus-full-set rendering and the Feature line both went with it: a
+// set of one is not a set, and Feature was never drawn anywhere on this
+// surface), requirement ids, machines, the step's own exact /swarm-start
+// argument list,
 // and — at the 'in' level only — Cost (req #3117). A THIRD card kind used to
 // caption the dashed launch-unit rectangle and carry that command; req #3371
 // made the step the launch unit, so the command is a field on the step's own
@@ -2908,8 +2921,6 @@ function PlanDataCard({ card, timezone, level, containerW, containerH }) {
         const r = card.row;
         const timeGates = formatTimeGates(r.timeDeps, timezone);
         const depText = r.depIds.length ? r.depIds.join(' ') : '—';
-        const epicAll = (r.epicLabels || []).map((l) => l.title).join(' · ');
-        const featAll = (r.featureLabels || []).map((l) => l.title).join(' · ');
         body = (
             <div className="ts-datacard">
                 {/* NAME ALONE in the heading, id as the first field (req #3213
@@ -2923,10 +2934,7 @@ function PlanDataCard({ card, timezone, level, containerW, containerH }) {
                 {rowEl('Run', runLabel(r.run))}
                 {rowEl('Deps', depText)}
                 {timeGates.map((g) => <div key={g}>{rowEl('After', g)}</div>)}
-                {r.epic && rowEl('Epic', (r.epicLabels || []).length > 1
-                    ? `${r.epic} (all: ${epicAll})` : r.epic)}
-                {r.feature && rowEl('Feature', (r.featureLabels || []).length > 1
-                    ? `${r.feature} (all: ${featAll})` : r.feature)}
+                {r.epic && rowEl('Epic', r.epic)}
                 {/* Tracking containers marked with a trailing † and named below
                     (req #3123). The card answers the same question the plan
                     table now answers — "this step links a requirement still in

@@ -15,8 +15,8 @@
 //   2. A step row carries a MULTI-LINE payload — the requirement links and, on
 //      scheduled work, the exact `/swarm-start` argument list (design rule 8).
 //      A grid row is one line of records; this is not.
-//   3. Epic/Feature render once per contiguous group — a property OF THE ORDER,
-//      which re-sorting or filtering silently falsifies.
+//   3. Epic renders once per contiguous group — a property OF THE ORDER, which
+//      re-sorting or filtering silently falsifies.
 //
 // Everything in table-design.md that still applies is applied: compact density,
 // no cell wrap on the narrow columns, widths sized to the widest realistic value,
@@ -101,7 +101,6 @@ const COL = {
     machine: 148,
     cost: 96,
     epic: 190,
-    feature: 170,
     // NOTE: `reqs` (below) was widened from 168 by req #3371 — the step row now
     // carries the `/swarm-start` command under its requirement links, and the
     // command's arguments ARE those ids.
@@ -298,20 +297,19 @@ function RequirementLinks({ row, pipelineId }) {
 // `width` only, no maxWidth/ellipsis: `max-width` is not honoured on a table cell
 // under the default `table-layout: auto`, so an ellipsis rule there expresses an
 // intent the browser will not deliver. The TableContainer scrolls instead.
-function GroupCell({ show, value, labels, width, color, testid }) {
+//
+// SINGLE VALUE ONLY (req #3373) — no dominant-plus-full-set tooltip. The Feature
+// column this once shared a signature with is gone, and the engine's own
+// `epicLabels` set (design rule 10's multi-epic case) is a field this table no
+// longer reads, matching the datacard's identical choice for the same reason.
+function GroupCell({ show, value, width, color, testid }) {
     const text = show ? (value || '—') : '';
-    const extra = show && labels && labels.length > 1
-        ? labels.map((l) => l.title).join(' · ')
-        : null;
-    const cell = (
+    return (
         <TableCell sx={{ ...NOWRAP, width, color, fontWeight: 600 }}
                    data-testid={testid}>
             {text}
         </TableCell>
     );
-    // A step whose requirements span more than one epic/feature is legitimate
-    // (design rule 10) — the dominant label renders, the full set is the tooltip.
-    return extra ? <Tooltip title={`All: ${extra}`}>{cell}</Tooltip> : cell;
 }
 
 export default function PipelinePlanTable({ plan, pipeline, timezone, focusStepId,
@@ -432,7 +430,6 @@ export default function PipelinePlanTable({ plan, pipeline, timezone, focusStepI
                                 <TableCell sx={{ ...NOWRAP, width: COL.cost }}>Cost</TableCell>
                             )}
                             <TableCell sx={{ ...NOWRAP, width: COL.epic }}>Epic</TableCell>
-                            <TableCell sx={{ ...NOWRAP, width: COL.feature }}>Feature</TableCell>
                             <TableCell sx={{ ...NOWRAP, width: COL.reqs }}>
                                 Requirement(s)
                             </TableCell>
@@ -442,7 +439,7 @@ export default function PipelinePlanTable({ plan, pipeline, timezone, focusStepI
                     </TableHead>
                     <TableBody>
                         {renderRows.map((entry) => {
-                            const { row, showEpic, showFeature, eligible } = entry;
+                            const { row, showEpic, eligible } = entry;
                             const running = row.state === STEP_RUNNING;
                             // The visualizer-focused row outranks the state tints:
                             // the user just clicked THIS bead and must find it.
@@ -573,13 +570,9 @@ export default function PipelinePlanTable({ plan, pipeline, timezone, focusStepI
                                         </TableCell>
                                     )}
                                     <GroupCell show={showEpic} value={row.epic}
-                                               labels={row.epicLabels} width={COL.epic}
+                                               width={COL.epic}
                                                color="#b07fd8"
                                                testid={`pipeline-epic-${row.id}`} />
-                                    <GroupCell show={showFeature} value={row.feature}
-                                               labels={row.featureLabels} width={COL.feature}
-                                               color="#0f9b8e"
-                                               testid={`pipeline-feature-${row.id}`} />
                                     <TableCell sx={{ width: COL.reqs }}>
                                         <RequirementLinks row={row} pipelineId={pipeline?.id} />
                                         {/* Design rule 8's own artifact, on the
@@ -619,7 +612,7 @@ export default function PipelinePlanTable({ plan, pipeline, timezone, focusStepI
 
             <Typography variant="caption" color="text.secondary"
                         sx={{ display: 'block', mt: 1.5 }}>
-                Hierarchy: Epic &gt; Feature &gt; Story (requirement). Step state is derived
+                Hierarchy: Epic &gt; Story (requirement). Step state is derived
                 from the linked requirements and is never stored; row order is computed
                 — topological, then Complete before Running before Scheduled — and
                 verified on every render.
