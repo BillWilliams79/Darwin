@@ -34,7 +34,7 @@ import {
 import { PHASE_BUCKETS, GROUP_COLORS, bucketTokens, parsePhaseTokens, formatTokens,
          TOKEN_TYPES, tokenPhaseKey } from './sessionPhases';
 import { AI_MODELS, AI_MODEL_COLOR, aiModelLabel } from './modelChipStyles';
-import { EFFORTS, EFFORT_COLOR, effortLabel } from './effortChipStyles';
+import { EFFORTS, EFFORT_COLOR, effortLabel, effortDistinctColor } from './effortChipStyles';
 import { formatDuration } from '../utils/formatDuration';
 
 const STATS_WIDTH = 1140;
@@ -376,7 +376,9 @@ export function computeSessionStats(rows) {
             .map(e => ({
                 effort: e,
                 label: effortLabel(e),
-                color: EFFORT_COLOR[e],
+                // DISTINCT ramp: a pie slice carries no label and cannot
+                // pulse, so xhigh and ultracode would be one colour.
+                color: effortDistinctColor(e),
                 count: effortMap[e].count,
                 secs: effortMap[e].secs,
                 tokens: effortMap[e].tokens,
@@ -576,7 +578,7 @@ const MODEL_PIE_COLORS = Object.fromEntries(
 
 // Effort-split pie colors, keyed by capitalized effort label (req #2916).
 const EFFORT_PIE_COLORS = Object.fromEntries(
-    EFFORTS.map(e => [effortLabel(e), EFFORT_COLOR[e]]));
+    EFFORTS.map(e => [effortLabel(e), effortDistinctColor(e)]));
 
 export default function SessionsStatsView({ rows = [] }) {
     const stats = computeSessionStats(rows);

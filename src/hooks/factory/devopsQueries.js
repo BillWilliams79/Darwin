@@ -94,9 +94,24 @@ export const devServers = createEntityQueries({
 // only — because there is no Pipeline 2.0 view to link a 2.0-attributed
 // session to. This is field-list parity only, ahead of that UI.
 // ---------------------------------------------------------------------------
+// Req #3455 — `terminal_window_id` / `terminal_number` (WHICH TERMINAL WINDOW the
+// worker runs in) join the projection. A VARCHAR(64) and an INT, and their whole
+// purpose is a per-row chip in the Sessions GRID: leaving them out would mean a
+// per-session fetch to render a column, which is the fan-out the projection
+// exists to avoid. Same 400-on-unknown-field caveat as the pairs above — the
+// gateway validates every `fields=` name against the live table and 400s the
+// WHOLE read on one it does not know, so this projection may only widen once
+// migration 20260810013244 has been applied to the database this build talks to.
+// NOT a theoretical caveat here — MEASURED through the gateway 2026-08-09, the
+// same call against both databases: `fields=id,terminal_window_id,terminal_number`
+// returned 200 on `darwin_dev` (migrated) and **400 on production `darwin`**
+// (not yet). Shipping this file to production ahead of the migration does not
+// cost the Terminal column, it costs the entire Sessions page. The migration's
+// own header carries the ordering requirement.
 const SWARM_SESSION_DEFAULT_FIELDS =
     'id,branch,task_name,source_type,source_ref,title,pr_url,swarm_status,ai_model,effort,' +
-    'worktree_path,machine_fk,pipeline_fk,epic_fk,pipeline2_fk,epic2_fk,started_at,completed_at,last_transition_at,' +
+    'worktree_path,machine_fk,terminal_window_id,terminal_number,' +
+    'pipeline_fk,epic_fk,pipeline2_fk,epic2_fk,started_at,completed_at,last_transition_at,' +
     'starting_secs,waiting_secs,planning_secs,implementing_secs,review_secs,' +
     'completion_secs,paused_secs,legacy_secs,instrumented,pre_pause_status,' +
     'phase_tokens,creator_fk,create_ts,update_ts';
@@ -425,6 +440,23 @@ export const orchestrationClaims = createEntityQueries({
         'engine_pid,polls,claimed_at,creator_fk,create_ts,update_ts',
     fieldsInKey: true,
     defaultSort: 'claimed_at:asc',
+});
+
+// ---------------------------------------------------------------------------
+// pipeline2_pipelines (req #3339) — the Pipeline 2.0 plan layer.
+//
+// Needed here because `/swarm/pipeline/:id` is a 2.0 route: a session stamped
+// with `pipeline2_fk` can only have its plan NAMED from this table, and without
+// it the chip fell back to a bare `#7` that appears in no list the user can
+// see. Same projection shape as the 1.0 block below; no description (the plan
+// goal is a detail-page read, not an index one).
+// ---------------------------------------------------------------------------
+export const pipelines2 = createEntityQueries({
+    entity: 'pipeline2_pipelines',
+    defaultFields:
+        'id,title,pipeline_status,execution_mode,machine_fk,' +
+        'started_at,completed_at,creator_fk,create_ts,update_ts',
+    fieldsInKey: true,
 });
 
 export const pipelines = createEntityQueries({

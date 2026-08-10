@@ -29,8 +29,9 @@ import { swarmStatusChipProps, swarmStatusLabel } from '../swarmStatusChipProps'
 import { COORDINATION_COLOR } from '../coordinationChipStyles';
 import { AI_MODEL_COLOR, AI_MODELS, aiModelLabel } from '../modelChipStyles';
 import { EFFORT_COLOR, EFFORTS, effortLabel } from '../effortChipStyles';
+import { terminalFocusState } from '../terminalFocus';
+import TerminalChip from '../TerminalChip';
 import { formatDuration } from '../../utils/formatDuration';
-import { renderSourceRef } from '../repoGitHubMap.jsx';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
@@ -98,10 +99,19 @@ const getSessionColumns = (navigate, timezone) => [
       )
     },
     {
-        field: 'source_ref',
-        headerName: 'Source',
-        width: 140,
-        renderCell: (params) => renderSourceRef(params.value, navigate),
+        // req #3455 — Terminal replaces Source here. Source was `requirement:NNNN`
+        // on EVERY row of this grid: it is the linked-sessions grid of that very
+        // requirement, so the column restated the page you were already on.
+        // Terminal answers something this page could not: which window each of
+        // those sessions is running in, and a click that brings it to the front.
+        field: 'terminal',
+        headerName: 'Terminal',
+        width: 130,
+        valueGetter: (value) => value?.label ?? '',
+        renderCell: (params) => (
+            <TerminalChip terminal={params.row.terminal}
+                          testId={`req-session-terminal-${params.row.id}`} />
+        ),
     },
     { field: 'branch',       headerName: 'Branch',    width: 200, flex: 1 },
     {
@@ -248,6 +258,13 @@ const RequirementDetail = () => {
     // pinned to a since-retired machine still renders that pin (see
     // `pinnedMachineMissing` below) so the state is never silently lost.
     const { data: machinesData = [] } = useMachines(profile?.userName);
+
+    // req #3455 — the Terminal column needs the machines list to answer "is this
+    // terminal on the machine this browser is on?", which a DataGrid renderCell
+    // cannot reach. Computed once per row here, exactly as SessionsView does.
+    const sessionRows = React.useMemo(
+        () => (sessions || []).map(s => ({ ...s, terminal: terminalFocusState(s, machinesData) })),
+        [sessions, machinesData]);
     const openMachines = useMemo(
         () => (machinesData || [])
             .filter(m => !m.closed)
@@ -1328,7 +1345,7 @@ const RequirementDetail = () => {
                         <Box data-testid="linked-sessions-grid">
                             <DataGrid
                                 autoHeight
-                                rows={sessions}
+                                rows={sessionRows}
                                 columns={getSessionColumns(navigate, timezone)}
                                 density="compact"
                                 disableRowSelectionOnClick

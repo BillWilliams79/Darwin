@@ -8,7 +8,7 @@ import { useContext, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import AuthContext from '../Context/AuthContext';
-import { useAllSwarmCompletes } from '../hooks/useDataQueries';
+import { useAllSwarmCompletes, useAllSwarmCompleteSessions, useSessions } from '../hooks/useDataQueries';
 import { useViewPreference } from '../hooks/useViewPreference';
 import { formatDateTime } from '../utils/dateFormat';
 import { formatDuration } from '../utils/formatDuration';
@@ -60,6 +60,36 @@ export default function SwarmCompletesPage() {
 
     const { data: swarmCompletes = [], isLoading } = useAllSwarmCompletes(creatorFk);
 
+    // WHICH REQUIREMENT this close-out finished. `swarm_completes` has no
+    // requirement column and should not gain one — the fact is already
+    // recorded, one join away: the invocation links to its sessions through
+    // `swarm_complete_sessions`, and a session names its requirement in
+    // `source_ref` (`requirement:NNNN`). Two bounded list reads, both already
+    // cached and shared with the Sessions and Requirement pages, resolved
+    // client-side; deriving it per row would be a fan-out.
+    const { data: completeSessions = [] } = useAllSwarmCompleteSessions(creatorFk);
+    const { data: sessions = [] } = useSessions(creatorFk);
+
+    const requirementByComplete = useMemo(() => {
+        const reqBySession = {};
+        for (const s of sessions || []) {
+            const m = String(s.source_ref || '').match(/^(?:priority|requirement):(\d+)$/);
+            if (m) reqBySession[s.id] = m[1];
+        }
+        // A close-out can carry several sessions, and a multi-session closeout
+        // legitimately spans requirements. The LOWEST id wins so the column is
+        // stable across renders rather than showing whichever row arrived first;
+        // `+N` says there are others instead of hiding them.
+        const out = {};
+        for (const j of completeSessions || []) {
+            const reqId = reqBySession[j.session_fk];
+            if (!reqId) continue;
+            (out[j.swarm_complete_fk] ||= new Set()).add(reqId);
+        }
+        return Object.fromEntries(Object.entries(out).map(
+            ([k, set]) => [k, [...set].sort((a, b) => Number(a) - Number(b))]));
+    }, [completeSessions, sessions]);
+
     // View toggle (Table | Stats) — req #2794.
     const [view, setView] = useViewPreference(VIEW_STORAGE_KEY, 'table');
     const handleViewChange = (_event, newView) => setView(newView);
@@ -84,6 +114,38 @@ export default function SwarmCompletesPage() {
                       sx={{ fontFamily: 'monospace',
                              ...(skillChipProps(params.value)?.sx || {}) }} />
             ),
+        },
+        {
+            // WHICH REQUIREMENT was completed — the question this table could not
+            // answer, and the reason a reader had to open a row to find out what
+            // a close-out was FOR. Between Skill and Status because it reads as
+            // "this skill, on this requirement, ended this way".
+            //
+            // Derived, never stored: see requirementByComplete above.
+            field: 'requirement',
+            headerName: 'Requirement',
+            width: 130,
+            valueGetter: (value, row) => (requirementByComplete[row.id] || []).join(','),
+            renderCell: (params) => {
+                const ids = requirementByComplete[params.row.id] || [];
+                if (ids.length === 0) return '—';
+                const [first, ...rest] = ids;
+                return (
+                    <Stack direction="row" spacing={0.5} alignItems="center">
+                        <Chip label={`#${first}`} size="small" color="primary" variant="outlined"
+                              onClick={(e) => { e.stopPropagation(); navigate(`/swarm/requirement/${first}`); }}
+                              sx={{ cursor: 'pointer' }}
+                              data-testid={`complete-requirement-${params.row.id}`} />
+                        {rest.length > 0 && (
+                            <Tooltip title={`Also closed: ${rest.map(r => `#${r}`).join(', ')}`}>
+                                <Typography variant="caption" color="text.secondary">
+                                    +{rest.length}
+                                </Typography>
+                            </Tooltip>
+                        )}
+                    </Stack>
+                );
+            },
         },
         {
             field: 'status',
@@ -141,7 +203,10 @@ export default function SwarmCompletesPage() {
             width: 200,
             valueFormatter: (value) => value ? formatDateTime(value, timezone) : '—',
         },
-    ], [timezone]);
+    // requirementByComplete and navigate are read inside renderCell, so the
+    // memo must depend on them — otherwise the column renders the first lookup
+    // it ever saw and never updates when the junction read lands.
+    ], [timezone, requirementByComplete, navigate]);
 
     const initialState = useMemo(() => ({
         pagination: { paginationModel: { pageSize: 25 } },
