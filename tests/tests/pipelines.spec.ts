@@ -24,18 +24,17 @@ import { seedPipelineFixture, SeededPipelines } from '../helpers/pipelineFixture
 // reads; `pipeline-plan-table` appearing means every one of them resolved,
 // because PipelineDetail gates its whole render on them.
 
+// req #3381 deleted `orderedPlan` from the view model in favor of a composed,
+// pre-derived 2.0 read; req #3462 (production outage, 2026-08-09) reverted
+// PipelineDetail.jsx off that cutover the same week — no 1.0<->2.0 pipeline id
+// mapping exists — and restored `orderedPlan` here as a live production
+// export. This spec imports it directly again rather than through the
+// test-only `testOrderedPlan.js` reconstruction the revert deleted.
 import {
     buildPipelineModel,
     rowMachineLabel,
+    orderedPlan,
 } from '../../src/SwarmView/pipelines/pipelineViewModel.js';
-// req #3381 deleted `orderedPlan` from the view model — the browser now reads a
-// composed, pre-derived payload. The 1.0 ENGINE pieces it composed are still
-// live (this fixture seeds 1.0 rows), so this spec uses the same test-only
-// reconstruction the vitest suites do rather than a second composition of its
-// own. See `testOrderedPlan.js`'s header.
-import {
-    buildTestOrderedPlan as orderedPlan,
-} from '../../src/SwarmView/pipelines/__tests__/testOrderedPlan.js';
 import {
     computePlanLayout, REQ_LINE_H, K_READABLE, BEAD_HIT_RADIUS,
     epicFocusTransform, stepFocusTransform, FOCUS_PAD, FOCUS_MAX_RATIO,
@@ -446,6 +445,11 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
                     epicId !== prevEpic ? (row.epic || '—') : '');
                 prevEpic = epicId;
             }
+            // No feature cell of any kind rendered — the RENDER half of
+            // VIS-004 (`vitest`'s `planRenderRows` suite asserts the model
+            // half: no `showFeature`/`feature` key on a render-list entry).
+            await expect(page.locator('[data-testid^="pipeline-feature-"]'))
+                .toHaveCount(0);
 
             // Machine column: multi-machine steps join with ' / ', a step with no
             // requirements reads an em-dash.
@@ -911,7 +915,28 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             .toHaveAttribute('data-focused', 'true');
 
         // Requirement label → /swarm/requirement/:id.
+        //
+        // req #3375 fix: the batch plan is four steps in two short bands, and
+        // since req #3372 the "No epic" band is a real second band rather than
+        // a branch nothing seeded — the world is taller than it was, so the
+        // factory-default landing (req #3312) now lands this specific fixture
+        // at 'out', where the semantic-level ladder correctly draws no req
+        // labels at all (§ *A mark that is drawn at every level*). Clicking a
+        // label's WORLD coordinate at that scale hits nothing, on live canvas
+        // exactly as it would for a real reader.
+        //
+        // The fix is the level PIN, not a zoom. `zoomToLegibleMid` (used
+        // elsewhere in this file) wheels in around the CANVAS CENTER, which on
+        // a plan this small pans the specific label this test needs off
+        // screen entirely (measured: reqPt landed at negative screen
+        // coordinates). Pinning L2 instead changes what is DRAWN without
+        // moving the camera at all — "the transform must be byte-identical
+        // across a pin" (PIPE-16's own words) — so the SAME `frame()` transform
+        // the bead click above already used stays valid.
         at = await frame();
+        await page.getByTestId('pipeline-viz-level-2').click();
+        await expect(page.getByTestId('pipeline-plan-visualizer'))
+            .toHaveAttribute('data-level', 'mid');
         const reqLabel = layout.labels.find(
             (l: { kind: string }) => l.kind === 'req') as
             { x: number; y: number; reqId: number; text: string };

@@ -486,6 +486,7 @@ describe('step labels', () => {
 // requirement layout, with the wrong step width and no time axis. This case is
 // why that is a stack trace instead.
 describe('the removed second positional argument', () => {
+    // COVERS: VIS-003
     it('refuses an array where the options bag belongs, loudly', () => {
         expect(() => computePlanLayout(plan.rows, [])).toThrow(TypeError);
         expect(() => computePlanLayout(plan.rows, [{ letter: 'A', stepIds: [1] }]))
@@ -2527,6 +2528,33 @@ describe('the next-step halo survives Overview (req #3271)', () => {
         // one-constraint answer is the failure both wrong ceilings had.
         expect(Object.keys(NEXT_HALO_CLEARANCES).length).toBeGreaterThanOrEqual(4);
         expect(NEXT_HALO_MAX_MAGNIFY).toBeGreaterThan(1.8);
+    });
+
+    // req #3375 addition (code review of req #3331, 2026-08-07): the two
+    // tests above and the ring→dot crossover test below all pin these
+    // quantities by DERIVATION — self-consistent with the constants they are
+    // built from, but silent if every input constant drifted together and
+    // landed on a different plateau. This test pins the CEILING and its
+    // downstream FLOOR by the VALUE pipeline-plan-visualizer.md's "with the
+    // box gone" row cites, so a retune that is internally consistent but
+    // lands away from the measured/documented numbers is still caught.
+    // (Not a VIS-005 marker: this is the halo ceiling/floor cascade, unrelated
+    // to the epic-scoped state-banding self-check VIS-005 names — see
+    // TEST_PLAN.md for why VIS-005 is registered untestable, not covered here.)
+    it('the raised ceiling and its downstream floor are MEASURED, not only '
+        + 'self-consistent (req #3375, ONE ADDITION)', () => {
+        expect(NEXT_HALO_MAX_OUTER).toBeCloseTo(30, 6);
+        expect(NEXT_HALO_MAX_MAGNIFY).toBeCloseTo(20 / 9, 10); // 2.222...x
+        expect(NEXT_MARK_FLOOR_K).toBeCloseTo(0.27, 6);
+        // The flat-band lower edge (K_READABLE / M) — moved 0.400 -> 0.360
+        // downstream of the same ceiling change, per the design record's
+        // table, and had no assertion of its own VALUE anywhere in this file.
+        expect(K_READABLE / NEXT_HALO_MAX_MAGNIFY).toBeCloseTo(0.36, 6);
+        // NEXT_MARK_SCREEN_RADIUS is invariant across the ceiling move (the
+        // OUTER and FLOOR_K terms cancel) — pinned here at the value the
+        // design record calls out as the reason this is a note and not a
+        // redesign.
+        expect(NEXT_MARK_SCREEN_RADIUS).toBeCloseTo(8.1, 6);
     });
 
     it('is monotone — zooming out never shrinks the mark', () => {
@@ -5841,6 +5869,27 @@ describe('a band is a plain column read — no re-tallying in this module (req #
         expect(layout.bands.map((b) => b.epicId).sort((a, b) => a - b)).toEqual([6, 7]);
         expect(layout.nodes.get(1).bandIndex).toBe(layout.nodes.get(2).bandIndex);
         expect(layout.nodes.get(3).bandIndex).not.toBe(layout.nodes.get(1).bandIndex);
+    });
+
+    // COVERS: VIS-002
+    it('epic grouping wins over a global topological sort — a cross-epic dep '
+        + 'pointing "backward" through band order does not reorder the bands '
+        + '(req #3375)', () => {
+        // Step 1 (epic 6, the FIRST band) depends on step 2 (epic 7, the
+        // SECOND band) — the opposite direction a global topological sort
+        // would want (it would need epic 7's step rendered before epic 6's).
+        // "Display order is a tree walk: epic order first, then the
+        // dependency graph WITHIN each epic" means this edge affects arc
+        // ROUTING (tested elsewhere as legal/cross-epic) and nothing about
+        // which band either step is in or which band comes first.
+        const rows = [
+            { ...mk(1, 6, 'Mapping'), depIds: [2] },
+            mk(2, 7, 'Backlog'),
+        ];
+        const layout = computePlanLayout(rows);
+        expect(layout.bands.map((b) => b.epicId)).toEqual([6, 7]);
+        expect(layout.nodes.get(1).bandIndex).toBe(0);
+        expect(layout.nodes.get(2).bandIndex).toBe(1);
     });
 
     it('a null epicId still bands on its own — the "No epic" case is not assumed unreachable', () => {
