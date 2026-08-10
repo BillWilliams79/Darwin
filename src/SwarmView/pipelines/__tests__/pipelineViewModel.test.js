@@ -17,7 +17,6 @@ import {
     pipelinesEmptyMessage,
     machineTitle,
     rowMachineLabel,
-    batchMachineLabel,
     stepProse,
     stepName,
     stepDescription,
@@ -146,46 +145,27 @@ describe('planRenderRows — the flat render list', () => {
     const plan = buildTestPlan(model(), { now: '2026-07-27T03:00:00Z' });
     const rendered = planRenderRows(plan);
 
-    it('emits every step row in display order', () => {
-        const stepEntries = rendered.filter((e) => e.kind === 'step');
-        expect(stepEntries.map((e) => e.row.id)).toEqual(plan.rows.map((r) => r.id));
-    });
-
-    it('emits exactly one banner per batch, immediately above its first member', () => {
-        const banners = rendered.filter((e) => e.kind === 'batch');
-        expect(banners).toHaveLength(plan.batches.length);
-        for (const [i, entry] of rendered.entries()) {
-            if (entry.kind !== 'batch') continue;
-            const next = rendered[i + 1];
-            expect(next.kind).toBe('step');
-            expect(entry.batch.stepIds).toContain(next.row.id);
-        }
+    // ONE ENTRY PER ROW, and nothing else in the list (req #3371). This used
+    // to interleave a full-width launch banner above the first member of each
+    // launch group, and the three tests that pinned it — one banner per group,
+    // banners sitting immediately above their first member, and a banner never
+    // restarting an epic/feature group — went with the banner. The step is the
+    // launch unit now, so the list and the plan's rows are the same sequence.
+    it('emits every step row in display order, and nothing else', () => {
+        expect(rendered).toHaveLength(plan.rows.length);
+        expect(rendered.map((e) => e.row.id)).toEqual(plan.rows.map((r) => r.id));
     });
 
     it('shows an Epic/Feature label once per contiguous group', () => {
         let prevEpic;
         let prevFeature;
         for (const entry of rendered) {
-            if (entry.kind !== 'step') continue;   // a banner must not restart a group
             const epic = entry.row.epic != null ? entry.row.epic : null;
             const feature = entry.row.feature != null ? entry.row.feature : null;
             expect(entry.showEpic).toBe(epic !== prevEpic);
             expect(entry.showFeature).toBe(feature !== prevFeature);
             prevEpic = epic;
             prevFeature = feature;
-        }
-    });
-
-    it('does not restart a group across an intervening batch banner', () => {
-        // Concretely: for every banner, if the rows on either side share an epic,
-        // the row below the banner must NOT re-print the label.
-        for (const [i, entry] of rendered.entries()) {
-            if (entry.kind !== 'batch') continue;
-            const before = [...rendered.slice(0, i)].reverse().find((e) => e.kind === 'step');
-            const after = rendered[i + 1];
-            if (before && before.row.epic === after.row.epic) {
-                expect(after.showEpic).toBe(false);
-            }
         }
     });
 
@@ -339,7 +319,7 @@ describe('planRenderRows — grouping compares ids, not titles', () => {
 
     it('prints both labels when the ids differ despite identical titles', () => {
         const plan = buildTestPlan(buildPipelineModel({ pipeline: PIPELINE, ...SAME_TITLE_READS }));
-        const rows = planRenderRows(plan).filter((e) => e.kind === 'step');
+        const rows = planRenderRows(plan);
         expect(rows).toHaveLength(2);
         expect(rows[0].showEpic).toBe(true);
         expect(rows[1].showEpic).toBe(true);
@@ -453,13 +433,13 @@ describe("the no-'#' production directive", () => {
         // machineLabels() degrades to the POC's `#<id>` form; the page must not.
         expect(rowMachineLabel({ machineLabels: ['#77', 'Mac mini'] }))
             .toBe('77 / Mac mini');
-        expect(batchMachineLabel({ machineLabels: ['#77'] })).toBe('77');
+        expect(rowMachineLabel({ machineLabels: ['#77'] })).toBe('77');
     });
 
-    it('renders an em-dash for a step or batch with no machine', () => {
+    it('renders an em-dash for a step with no machine', () => {
         expect(rowMachineLabel({ machineLabels: [] })).toBe('—');
         expect(rowMachineLabel({})).toBe('—');
-        expect(batchMachineLabel(null)).toBe('—');
+        expect(rowMachineLabel(null)).toBe('—');
     });
 
     it('generates no hash in any label the UI composes for the fixture plan', () => {
@@ -472,12 +452,7 @@ describe("the no-'#' production directive", () => {
             generated.push(rowMachineLabel(r));
             generated.push(r.reqIds.join(' '));
             generated.push([...r.depIds, ...r.timeDeps].join(' '));
-        }
-        for (const b of plan.batches) {
-            generated.push(b.swarmStartCommand || '');
-            generated.push(batchMachineLabel(b));
-            generated.push(b.stepIds.join(' '));
-            generated.push(b.gateStepIds.join(' '));
+            generated.push(r.swarmStartCommand || '');
         }
         expect(generated.join('|')).not.toContain('#');
     });

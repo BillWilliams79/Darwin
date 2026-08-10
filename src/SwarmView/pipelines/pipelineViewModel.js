@@ -234,18 +234,21 @@ export function buildCostIndex({ requirementSessions, sessionCosts } = {}) {
 }
 
 /**
- * The flat render list the plan table maps over: launch-batch banner rows
- * interleaved with step rows, each step row pre-decorated with everything the
- * cell renderers need.
+ * The flat render list the plan table maps over: ONE ENTRY PER STEP ROW,
+ * pre-decorated with everything the cell renderers need.
  *
- * A banner is emitted immediately before the FIRST member of its batch in display
- * order. One banner per batch is always correct: the banner names its own
- * members, so it stays readable even on the split described at the foot of this
- * comment.
+ * ONE ROW KIND (req #3371). This list used to interleave full-width
+ * launch banners with the step rows — a banner immediately before the first
+ * member of each launch group, carrying that group's letter, members, gate, run
+ * mode, machines and the exact `/swarm-start` argument list. In Pipeline 2.0 the
+ * STEP is the launch unit, so all of that is a property of ONE row and renders
+ * on it: `kind`, the per-row launch-group letter and the emitted/by-letter
+ * bookkeeping are gone with the banner, and the plan table renders the command
+ * in the step's own Requirement(s) cell.
  *
- * Epic/Feature "render once per contiguous group" is computed over STEP rows
- * only: a banner between two rows of the same epic must not restart the group,
- * or the plan would repeat a label for purely decorative reasons.
+ * Epic/Feature "render once per contiguous group" therefore has nothing to skip
+ * over any more — it used to be computed over STEP rows only, so a banner
+ * between two rows of the same epic could not restart the group.
  *
  * Grouping compares epic/feature IDS, not titles. Two distinct epics that happen
  * to share a title would otherwise merge into one visual group and the second's
@@ -253,49 +256,24 @@ export function buildCostIndex({ requirementSessions, sessionCosts } = {}) {
  * (epic 9003 and feature 9012 are both titled "Swarm Orchestration Feature").
  * The engine exposes both ids, so there is no reason to compare display strings.
  *
- * NOTE on batch banners: a banner CAN span a non-member row, and since req #3192
- * that no longer implies a violation is on screen to explain it.
- *
- * Design rule 3 orders its criteria — topological, THEN state bands — so a
- * Running step that gates a Scheduled batch-mate is TRAPPED between two members
- * of that batch and no ordering separates them. `verifyOrder` used to report the
- * forced case as `batch-contiguity`; it now excuses exactly the splits that are
- * forced, so this render is the ordinary appearance of a legitimate plan.
- *
- * It reads correctly without the alert: the banner names its own members
- * (`steps 1 3`), and the intervening row gets no `batchLetter` — there is no
- * batch COLUMN, so what that changes is the row's left-border accent, which
- * falls through to its state colour instead of the dashed batch-member edge. An
- * AVOIDABLE split still raises `batch-contiguity` and the page still renders it
- * loudly — that one really is the ordering's fault.
- *
- * @param {Object} plan  from orderedPlan
- * @returns {Array<{kind: 'batch'|'step'}>}
+ * @param {Object} plan  the composed plan (`adaptComposedPipeline2`)
+ * @returns {Array<{row: Object, showEpic: boolean, showFeature: boolean,
+ *                  eligible: boolean}>}
  */
 export function planRenderRows(plan) {
-    const { rows = [], batches = [], batchLetterByStepId = new Map(),
-        eligibleStepIds = new Set() } = plan || {};
-    const batchByLetter = new Map(batches.map((b) => [b.letter, b]));
-    const emitted = new Set();
+    const { rows = [], eligibleStepIds = new Set() } = plan || {};
     const out = [];
     let prevEpic;
     let prevFeature;
 
     for (const row of rows) {
-        const letter = batchLetterByStepId.get(row.id);
-        if (letter && !emitted.has(letter)) {
-            emitted.add(letter);
-            out.push({ kind: 'batch', batch: batchByLetter.get(letter) });
-        }
         const epic = row.epicId != null ? row.epicId : null;
         const feature = row.featureId != null ? row.featureId : null;
         out.push({
-            kind: 'step',
             row,
             showEpic: epic !== prevEpic,
             showFeature: feature !== prevFeature,
             eligible: eligibleStepIds.has(row.id),
-            batchLetter: letter || null,
         });
         prevEpic = epic;
         prevFeature = feature;
@@ -420,7 +398,7 @@ export function pipelinesEmptyMessage(hiddenStatusCounts) {
 //
 // SCOPE, stated precisely because it is easy to over-apply: it governs labels
 // this UI GENERATES — requirement id links, machine labels, step ids, gate and
-// batch text. It does NOT govern the plan's own prose. A step title like
+// launch text. It does NOT govern the plan's own prose. A step title like
 // "Clone canary 2 (Mac mini, #3077 R13)" and a notes field like "dispositioned
 // into #3061 scope" are stored PLAN CONTENT, and rewriting them at render time
 // would be falsifying the user's own record to satisfy a styling rule. They
@@ -451,20 +429,18 @@ export function rowMachineLabel(row) {
     return labels.length ? labels.join(' / ') : '—';
 }
 
-/**
- * A launch batch's machine labels, same rules, for the banner row.
- */
-export function batchMachineLabel(batch) {
-    const labels = asArray(batch && batch.machineLabels).map(stripHash);
-    return labels.length ? labels.join(' / ') : '—';
-}
+// A second machine formatter lived here until req #3371 — same rules, reading
+// a launch group's own `machineLabels` for the banner row. The step row's cell
+// already goes through `rowMachineLabel` above, and with the banner gone there
+// was one carrier and one caller, so the duplicate is deleted rather than
+// renamed: a helper nothing calls is worse than the three lines it saved.
 
 // ── Time gates ──────────────────────────────────────────────────────────────
 //
-// ONE formatter, used by BOTH the Depends-on cell and the launch-batch banner.
-// They are the same instant and must not read two different ways eight rows
-// apart — the banner shipped the raw wire value (`2026-07-24 06:31:38.000000`,
-// UTC, microseconds and all) while the cell showed a localized one.
+// ONE formatter, used by BOTH the Depends-on cell and the launch line on a step
+// row. They are the same instant and must not read two different ways — the old
+// launch banner shipped the raw wire value (`2026-07-24 06:31:38.000000`, UTC,
+// microseconds and all) while the cell showed a localized one.
 //
 // `dateFormat.formatDateTime` now normalizes BOTH the MySQL space-separated
 // naive form and the ISO-ish `T` form to UTC (req #3120 fixed the asymmetry
@@ -482,7 +458,7 @@ export function formatTimeGate(timeAt, timezone) {
 }
 
 /**
- * All of a step's or batch's wall-clock gates, formatted.
+ * All of a step's wall-clock gates, formatted.
  *
  * Returned as an ARRAY, never pre-joined: a formatted datetime contains both
  * spaces and commas, so any single-character delimiter is ambiguous inside it —

@@ -63,21 +63,22 @@ export const runChipProps = (run) => ({ sx: RUN_CHIP[run] || RUN_CHIP.auto });
 // Row accents. `borderLeft` is applied to the row's FIRST cell (a <tr> cannot
 // carry a border under `border-collapse: collapse` in every engine), matching
 // the POC's `tr.active td:first-child` rule.
+// A THIRD accent lived here until req #3371: a DASHED teal left edge marking a
+// row as a member of a multi-step launch group, which outranked `running` and
+// `eligible` on style while leaving their tint alone. In Pipeline 2.0 the STEP
+// is the launch unit, so there is no membership to mark and every row's edge
+// falls through to its own state colour.
 export const ROW_ACCENT = {
     running: { tint: 'rgba(255,200,87,0.10)', edge: '3px solid #ffc857' },
     eligible: { tint: 'rgba(126,224,138,0.09)', edge: '3px solid #7ee08a' },
-    // Batch members carry a DASHED edge so a row that is both eligible and a
-    // batch member still reads as "in a batch" — the two never fight because a
-    // batch member's edge wins on style while the tint stays the eligible one.
-    batchMember: { edge: '3px dashed #4ad9c8' },
 };
 
-// Launch-batch banner + legend accent (design rule 8).
-export const BATCH_ACCENT = {
-    color: '#4ad9c8',
-    bg: 'rgba(74,217,200,0.07)',
-    borderTop: '1px dashed #4ad9c8',
-    borderBottom: '1px dashed rgba(74,217,200,0.4)',
+// The `/swarm-start` command's own code chip on a step row (design rule 8).
+// Teal, deliberately: it is the LAUNCH channel, distinct from the state hues
+// (amber = in flight, green = done) the rest of this vocabulary reserves. The
+// full-width banner these two colours were introduced for is gone; the command
+// they style is not.
+export const LAUNCH_ACCENT = {
     codeColor: '#7fe8da',
     codeBg: '#0d2b28',
 };

@@ -286,10 +286,14 @@ describe('adaptComposedPipeline2 — the plan object', () => {
         },
     };
 
-    it('never derives batches — 2.0 has none, drawn or otherwise', () => {
+    // TWO EMPTY COMPATIBILITY FIELDS stood on this object until req #3371:
+    // `batches: []` and `batchLetterByStepId: new Map()`, so the drawing that
+    // still destructured them ran unchanged and drew nothing. That drawing is
+    // gone, so the fields are too, and their absence is the assertion — a
+    // silently re-added empty field is a consumer waiting to be re-added.
+    it('publishes no launch-grouping fields at all', () => {
         const plan = adaptComposedPipeline2(payload);
-        expect(plan.batches).toEqual([]);
-        expect(plan.batchLetterByStepId.size).toBe(0);
+        expect(Object.keys(plan).filter((k) => /batch/i.test(k))).toEqual([]);
     });
 
     it('reshapes eligible_step_ids into a Set', () => {

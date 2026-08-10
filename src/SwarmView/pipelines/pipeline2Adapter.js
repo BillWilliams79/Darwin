@@ -32,9 +32,9 @@
 //     epic comes directly from containment (`pipeline2_steps.epic_fk`), never
 //     a features->epic chain, so there is exactly one epic per step, not a
 //     dominant-label tally over several.
-//   - `batches`/`batchLetterByStepId` — Batch does not exist in 2.0 (req
-//     #3371 owns removing the drawing machinery; this module never builds one
-//     to remove).
+//   - any multi-step LAUNCH GROUPING — the step is the launch unit in 2.0, so
+//     there is no grouping to build. Two empty compatibility fields stood here
+//     until req #3371 deleted the drawing that read them.
 //   - `labelInherited` — 2.0's `epic_fk` is NOT NULL (containment), so a step
 //     never lacks a label to inherit from a dependency the way a req-less 1.0
 //     step could.
@@ -279,15 +279,6 @@ export function adaptComposedPipeline2(payload, { machines = [], costIndex = nul
         // it — the gap was shipping-a-known-regression, not a design choice
         // for a later requirement to make.
         timeAxis: planTimeAxis(rows, payload.requirements || []),
-        // Batch does not exist in 2.0 (module header) — present as empty so
-        // every consumer that destructures `plan.batches`/
-        // `batchLetterByStepId` (planRenderRows, PipelinePlanTable's banner
-        // logic) runs unchanged and draws no banners, exactly as the live
-        // plan already does today (memory/pipeline-2-visualizer-design.md § 1
-        // measured zero batches drawing on production before this
-        // requirement even ran).
-        batches: [],
-        batchLetterByStepId: new Map(),
         eligibleStepIds: new Set(derived.eligible_step_ids || []),
         cycleDetected: Boolean(derived.cycle_detected),
         cycleStepIds: derived.cycle_step_ids || [],

@@ -1,31 +1,29 @@
 // epicZoomFixture.js — the plan the epic name's two-state zoom is pinned
-// against (req #3297).
+// against (req #3297; re-pointed at the STEP by req #3371).
 //
-// Built rather than borrowed: the Substrate Rebuild fixture derives NO launch
-// batches at all (`plan.batches` is `[]`, asserted in pipelinePlanLayout.test.js),
-// and this feature is entirely about batches. Shared by
-// `pipelinePlanLayout.test.js` (the geometry) and `pipelineEpicZoom.test.js`
-// (the selection and the cycle) so both halves reason about the SAME plan —
-// a fit that frames a batch the selector would never pick proves nothing.
+// Built rather than borrowed: the Substrate Rebuild fixture has a single
+// eligible step and no interesting band shape, and this feature is entirely
+// about WHICH step a band launches next. Used by `pipelineEpicZoom.test.js`
+// (the selection and the cycle).
 //
 // What it deliberately contains, and why each piece is there:
 //
-//   band 0, epic 11  — TWO batches, so "lowest letter first" has something to
-//                      choose between, and batch A spans TWO COLUMNS, so the
-//                      geometry has to union its segments rather than fit one.
-//                      A's mates share an EMPTY remaining gate at different
-//                      depths (step 4 has none, steps 2 and 3 are gated by an
-//                      already-Complete step) — the live case req #3188 found;
-//                      B's mates are gated by step 5, which is still pending,
-//                      so it is a genuinely later batch.
-//   band 1, epic 12  — ONE step, no batch. Requirement item 6's "a band with no
-//                      lettered batch", which must be an honest no-op.
-//   band 2, no epic  — the completed gate step. `band.key` is null here, which
-//                      is the `epicCycleKey` case that has to be a string.
+//   band 0, epic 11  — SIX steps across two columns, several of them eligible,
+//                      so "earliest in display order" has something to choose
+//                      between and a suppression test has a second candidate to
+//                      fall through to. Steps 4 and 5 have no gate at all;
+//                      2 and 3 are gated by an already-Complete step (so they
+//                      are eligible too, one column further right); 6 and 7 are
+//                      gated by the still-pending step 5, so they are NOT.
+//   band 1, epic 12  — ONE step, eligible. The single-candidate case.
+//   band 2, no epic  — the completed gate step, and the only band with NOTHING
+//                      eligible: requirement item 6's honest no-op. `band.key`
+//                      is null here, which is the `epicCycleKey` case that has
+//                      to be a string.
 //
-// Derived facts, so a reader does not have to run it: batches are
-// A = [4, 5, 2, 3] and B = [6, 7]; `layout.batchBoxes` is three segments —
-// A at depths 0 and 1, B at depth 1 — all in band 0.
+// Derived facts, so a reader does not have to run it: display order is
+// 1 · 4 · 5 · 2 · 3 · 6 · 7 · 8, eligible is {4, 5, 2, 3, 8}, so band 11's next
+// launch step is 4, band 12's is 8, and the "No epic" band's is null.
 
 import { MACHINES } from './substrateRebuildFixture';
 
@@ -50,8 +48,8 @@ export const EPIC_ZOOM_READS = {
     stepDeps: [
         { id: 1, step_fk: 2, dep_step_fk: 1, time_at: null },
         { id: 2, step_fk: 3, dep_step_fk: 1, time_at: null },
-        // 4 and 5 have no gate at all — same REMAINING gate as 2 and 3, one
-        // column earlier. That is what makes batch A two segments wide.
+        // 4 and 5 have no gate at all, so they place one column left of 2 and
+        // 3 — which is what spreads this band's eligible work over two columns.
         { id: 4, step_fk: 6, dep_step_fk: 5, time_at: null },
         { id: 5, step_fk: 7, dep_step_fk: 5, time_at: null },
     ],

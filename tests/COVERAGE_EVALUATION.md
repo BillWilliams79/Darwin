@@ -208,19 +208,19 @@ in ~2.8 minutes. Test IDs and the fixture strategy are documented in TEST_PLAN.m
 | req #3080 rule | Covered by |
 |----------------|------------|
 | 1 — step state is DERIVED, never stored | PIPE-03 (every chip), MUT-05 (`completed_at` only on a req-less step), MUT-07 (all three derivations) |
-| 2 — a step is a swarm-start (launch unit) | PIPE-04 (batch banner + the exact `/swarm-start` command; also asserts no condensation advisory — req #3303 deleted it, so the rule is covered by what the batch LAUNCHES, never by a proposal to merge), MUT-07 (multi-requirement step) |
+| 2 — a step is a swarm-start (launch unit) | PIPE-04 (the step row's own exact `/swarm-start` command — literally this rule since req #3371 made the step the launch unit; also asserts no condensation advisory, which req #3303 deleted, so the rule is covered by what the STEP launches and never by a proposal to merge), MUT-07 (multi-requirement step) |
 | 3 — display order computed + self-verified | PIPE-02 (full sequence vs `displayOrder`), PIPE-12 (loud failure), every MUT case (`verifyOrder` clean after each) |
 | 4 — deps reference stable step ids | MUT-08 (drop refused while referenced, named gate, no residue) |
 | 5 — render path is fast, no N+1 | MUT `readPlan()` uses the single composed read and asserts `step_count` against the steps returned |
 | 6 — refresh is event-driven | Indirect only — see gaps |
 | 7 — automation that waits fails loud | Out of scope here (the watchdog is a shell script, not a UI surface) |
-| 8 — launch batch visibility | PIPE-04 (exact `/swarm-start` args, gate, banner placement), PIPE-10 (dashed box + conditional key) |
+| 8 — launch unit visibility | PIPE-04 (exact `/swarm-start` args on the step's own row, and the gate). PIPE-10's dashed rectangle and conditional key were deleted with the multi-step launch grouping (req #3371) |
 | 9 — requirement-centric views carry no session data | Structural: the plan reads carry no session table at all |
 | 10 — one epic/feature label per step | PIPE-03 (contiguous groups compared by ID, not title) |
 
 Production directives from the POC polish review are covered by PIPE-07 (no '#'),
 PIPE-08 (no horizontal scrollbar, drag-pan), PIPE-11 (steps/requirements/epics are
-clickable links) and PIPE-10 (batch key only when a batch renders).
+clickable links).
 
 ### Defect found and fixed by this battery
 
