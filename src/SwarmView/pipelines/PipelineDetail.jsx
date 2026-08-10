@@ -25,6 +25,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 
 import Alert from '@mui/material/Alert';
+import AlertTitle from '@mui/material/AlertTitle';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
@@ -45,20 +46,12 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 
 import call_rest_api from '../../RestApi/RestApi';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
-import { pipelineKeys } from '../../hooks/useQueryKeys';
+import { pipeline2ComposeKeys, pipelineKeys } from '../../hooks/useQueryKeys';
 import AppContext from '../../Context/AppContext';
 import AuthContext from '../../Context/AuthContext';
 import '../../CalendarFC/CalendarFC.css';
 import {
-    ALL_ROWS,
-    useAllEpics,
-    useAllFeatures,
-    useAllPipelineStepDeps,
-    useAllPipelineStepRequirements,
-    useAllPipelineSteps,
-    useAllPipelines,
     useAllRequirementSessions,
-    useAllRequirements,
     useAllSessionCostRollups,
     useMachines,
     useOrchestrationClaims,
@@ -72,7 +65,13 @@ import {
     findPipelineDetailMode,
 } from './pipelineDetailModes';
 import { pipelineStatusChipProps, toolbarChipProps } from './pipelineChipStyles';
-import { claimForPipeline, holderView } from './orchestrationHolder';
+import { claimForPipeline, claimForPipeline2, holderView } from './orchestrationHolder';
+// req #3463 — the era↔route binding, and the per-era fetch heads it selects.
+// This page never spells a plan route or an entity name.
+import {
+    DEFAULT_PLAN_ERA, PLAN_ERA_2, planEntityName, planEraLabel, planListPath,
+} from './planEra';
+import { usePlanSources } from './usePlanSources';
 import { readFocusStepParam, readLevelParam } from './pipelineStepLink';
 import { readFocusEpicParam } from './pipelineEpicLink';
 import { writePipelinePlace } from './pipelinePlace';
@@ -92,10 +91,10 @@ import {
     isStepWidth, normalizeColorKey, normalizePlanLevelPref,
 } from './pipelinePlanLayout';
 import {
-    PLAN_REQUIREMENT_FIELDS,
+    // The two-read cost fold, which is neither era's plan derivation and feeds
+    // both heads identically (req #3463). `buildPipelineModel`/`orderedPlan`
+    // moved to `usePlanSources.js` with the rest of 1.0's fetch head.
     buildCostIndex,
-    buildPipelineModel,
-    orderedPlan,
 } from './pipelineViewModel';
 
 // A SHARED frozen empty array for the `data = EMPTY` defaults below. A `= []`
@@ -136,7 +135,13 @@ const EMPTY = Object.freeze([]);
 // The component stays MOUNTED while the dialog is shut (only MUI's <Dialog>
 // children unmount), so `draft` and `savedRef` survive a close — which is what
 // lets the close handler save text the field never got to blur on.
-function PipelineDescriptionDialog({ pipeline, open, onClose }) {
+// req #3463 — WHICH TABLE THIS DIALOG WRITES, and which cache entry it then
+// invalidates, are era facts. `pipeline` here is a row of whichever plan table
+// the page's era named, so a hard-coded `/pipelines` PUT would write the 1.0
+// table using a 2.0 row's id — a cross-era write, silent, into a real row
+// belonging to a different plan. Both halves come from `era`: the entity from
+// `planEntityName`, the invalidation from the key the matching head reads by.
+function PipelineDescriptionDialog({ pipeline, era, open, onClose }) {
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
     const queryClient = useQueryClient();
@@ -186,7 +191,7 @@ function PipelineDescriptionDialog({ pipeline, open, onClose }) {
         // Already saved, or already on the wire — either way, nothing to send.
         if (value === (inFlightRef.current ?? savedRef.current)) return;
         inFlightRef.current = value;
-        call_rest_api(`${darwinUri}/pipelines`, 'PUT',
+        call_rest_api(`${darwinUri}/${planEntityName(era)}`, 'PUT',
             [{ id: pipeline.id, description: value }], idToken)
             .then((result) => {
                 const code = result?.httpStatus?.httpStatus;
@@ -194,8 +199,14 @@ function PipelineDescriptionDialog({ pipeline, open, onClose }) {
                     showError(result, 'Unable to update the pipeline description');
                 } else {
                     savedRef.current = value;
+                    // 1.0 re-reads through the `pipelines` LIST cache entry the
+                    // page joins from; 2.0's description arrives inside the
+                    // composed payload, which has its own per-plan key. Same
+                    // act, two different things to invalidate.
                     queryClient.invalidateQueries({
-                        queryKey: pipelineKeys.all(profile?.userName) });
+                        queryKey: era === PLAN_ERA_2
+                            ? pipeline2ComposeKeys.byId(pipeline.id)
+                            : pipelineKeys.all(profile?.userName) });
                 }
             })
             .catch((error) => showError(error, 'Unable to update the pipeline description'))
@@ -258,7 +269,16 @@ function PipelineDescriptionDialog({ pipeline, open, onClose }) {
     );
 }
 
-export default function PipelineDetail() {
+/**
+ * The plan page, for EITHER era (req #3463).
+ *
+ * `era` is a PROP set by the route (`index.jsx`), never inferred from the id in
+ * the URL — that inference is impossible, which is the whole lesson of req
+ * #3462: `/swarm/pipeline/79` and `/swarm/pipeline2/79` are different plans on
+ * different tables and the number cannot tell them apart. It defaults to 1.0 so
+ * that a caller which names no era gets today's page exactly.
+ */
+export default function PipelineDetail({ era = DEFAULT_PLAN_ERA }) {
     const { id } = useParams();
     const navigate = useNavigate();
     const { profile } = useContext(AuthContext);
@@ -292,7 +312,11 @@ export default function PipelineDetail() {
     // on an :id change, so an open dialog would otherwise stay open and re-title
     // itself to a plan the user never asked to edit.
     const [descriptionOpen, setDescriptionOpen] = useState(false);
-    useEffect(() => { setDescriptionOpen(false); }, [pipelineId]);
+    // `era` is in the dep list (code review): both routes render this same
+    // component at the same tree position, so React Router REUSES the
+    // instance and `/swarm/pipeline/7 -> /swarm/pipeline2/7` changes neither
+    // `pipelineId` nor anything else this effect watched.
+    useEffect(() => { setDescriptionOpen(false); }, [era, pipelineId]);
     // Defaults vertical + title (user directive 2026-07-31); a persisted
     // preference still wins — useViewPreference only falls back to these.
     //
@@ -467,7 +491,10 @@ export default function PipelineDetail() {
         setFocusStepId(linkStepId);
         setFocusEpicId(linkEpicId);
         setLevelOverride(linkLevel);
-    }, [linkView, linkStepId, linkEpicId, linkLevel, pipelineId]);
+        // `era` for the same reason the description dialog has it: an era
+        // switch at the same id reuses this instance, and a `?step=` focus
+        // from the other era's plan would survive into this one.
+    }, [linkView, linkStepId, linkEpicId, linkLevel, era, pipelineId]);
     const onStepFocus = useCallback((stepId) => {
         setFocusStepId(stepId);
         setModeOverride('table');
@@ -513,23 +540,12 @@ export default function PipelineDetail() {
     const activeLevelPref = normalizePlanLevelPref(levelOverride ?? storedLevelPref);
     const activeMode = normalizeView(modeOverride || mode, PIPELINE_DETAIL_MODES);
 
-    // The list read, not a by-id read: /swarm/pipelines has already primed this
-    // exact cache entry, so arriving here costs nothing. A by-id hook would be a
-    // second cache entry and a guaranteed fetch on every navigation.
-    const { data: pipelines = [], isLoading: pipelinesLoading } = useAllPipelines(creatorFk);
-    const { data: steps = [], isLoading: stepsLoading } = useAllPipelineSteps(creatorFk);
-    const { data: stepRequirements = [], isLoading: linksLoading } =
-        useAllPipelineStepRequirements(creatorFk);
-    const { data: stepDeps = [], isLoading: depsLoading } = useAllPipelineStepDeps(creatorFk);
-    const { data: requirements = [], isLoading: reqsLoading } =
-        useAllRequirements(creatorFk, { fields: PLAN_REQUIREMENT_FIELDS });
-    // Labels are a DICTIONARY here, not a catalog: closed epics/features must
-    // still resolve or the plan blanks a column it has data for.
-    const { data: features = [], isLoading: featuresLoading, isError: featuresError } =
-        useAllFeatures(creatorFk, { closed: ALL_ROWS });
-    const { data: epics = [], isLoading: epicsLoading, isError: epicsError } =
-        useAllEpics(creatorFk);
-    const { data: machines = [], isLoading: machinesLoading, isError: machinesError } =
+    // `machines` is a small WHOLE-APP dictionary, not a per-plan read, and it is
+    // fetched here rather than in either head because both eras need it and
+    // neither carries it: 1.0 hands it to `buildPipelineModel`, 2.0's composed
+    // payload has no `machines` table of its own (`pipeline2Adapter.js`'s
+    // header).
+    const { data: machines = EMPTY, isLoading: machinesLoading, isError: machinesError } =
         useMachines(creatorFk);
 
     // Req #3224 — the durable orchestration reservation on THIS plan. One more
@@ -557,49 +573,53 @@ export default function PipelineDetail() {
     // about the data rather than about the fetch. The table says which it is.
     const costError = requirementSessionsError || sessionCostsError;
 
-    // EVERY read gates the render, the three label dictionaries included. They are
-    // not decoration: `displayOrder()` breaks ties on epic first-appearance order,
-    // so rendering before features/epics resolve produces a DIFFERENT, silently
-    // wrong row order — and one that verifyOrder() accepts, because a plan with no
-    // epics violates no invariant. The one failure mode design rule 3's self-check
-    // cannot catch is the one where the inputs, not the algorithm, are wrong.
-    const isLoading = pipelinesLoading || stepsLoading || linksLoading
-        || depsLoading || reqsLoading || featuresLoading || epicsLoading || machinesLoading;
-
-    // Same argument, one step further: `fetchEntity` turns a 404 into `[]` and a
-    // 5xx leaves `data` undefined, so a FAILED dictionary read is indistinguishable
-    // from an empty one and would ship that wrong order permanently, with blank
-    // Epic/Feature columns and numeric machine ids as its only symptoms. Say so.
-    const dictionaryError = featuresError || epicsError || machinesError;
-
-    const pipeline = useMemo(
-        () => pipelines.find((p) => p.id === pipelineId) || null,
-        [pipelines, pipelineId]);
-
-    const model = useMemo(() => buildPipelineModel({
-        pipeline, steps, stepRequirements, stepDeps, requirements, features, epics, machines,
-    }), [pipeline, steps, stepRequirements, stepDeps, requirements, features, epics, machines]);
-
     const costIndex = useMemo(
         () => buildCostIndex({ requirementSessions, sessionCosts }),
         [requirementSessions, sessionCosts]);
 
-    // `now` is read ONCE per model change and handed to the engine, which never
-    // reads a clock itself. Time-gate eligibility therefore re-evaluates when the
-    // data does — on focus, on invalidation — rather than on a timer.
-    const plan = useMemo(
-        () => orderedPlan(model, { now: new Date(), costIndex }),
-        [model, costIndex]);
-    // req #3225 — the whole-plan met/total, read straight off `orderedPlan`'s
-    // own derivation (no second pass over `model`).
-    const planReqCounts = plan.requirementCounts?.overall;
+    // ── THE FETCH, PER ERA (req #3463) ──────────────────────────────────────
+    // The four values below are all this page consumes, and how they are
+    // obtained is entirely different in the two eras — 1.0 joins seven reads in
+    // the browser, 2.0 consumes one composed read that already did. Both heads
+    // live in `usePlanSources.js` and only the one for THIS ROUTE's era runs;
+    // everything from here down is era-blind.
+    const {
+        pipeline, model, plan, diagnostic, isLoading: planLoading,
+        dictionaryError: planDictionaryError, knownIds,
+    } = usePlanSources(era, pipelineId, creatorFk, { machines, costIndex });
+
+    const isLoading = planLoading || machinesLoading;
+
+    // `machines` is this page's own read in both eras, so its failure is
+    // reported here rather than in either head. 1.0 adds the epic/feature
+    // dictionaries to it (a failed one silently reorders the plan — see
+    // `usePlan1Sources`); 2.0 carries its labels in the composed payload and has
+    // none to add.
+    const dictionaryError = planDictionaryError || machinesError;
+
+    // req #3381 item 3 — a withheld or degraded `derived` block is a HARD STOP,
+    // not an empty render. 2.0 only; `diagnostic` is always null in 1.0, which
+    // derives in the browser and has nothing to withhold.
+    const canRenderPlan = !!pipeline && !diagnostic && !!plan;
+
+    // req #3225 — the whole-plan met/total, read straight off the plan's own
+    // derivation (no second pass over `model`). `plan` is null while a
+    // diagnostic is set, so this is optional in both eras.
+    const planReqCounts = plan?.requirementCounts?.overall;
 
     // req #3224 — the WHOLE-PLAN reservation. An epic-scoped one is a different
     // and weaker claim ("a slice of this plan is being orchestrated") and is the
     // epics page's answer, not this header's.
+    //
+    // req #3463 — WHICH COLUMN PAIR a claim carries is an era fact: a 2.0 claim
+    // has `pipeline2_fk`/`epic2_fk` and NULL `pipeline_fk`, so asking
+    // `claimForPipeline` about a 2.0 plan matches nothing while
+    // `claimForPipeline2` on a 1.0 plan does the same — the lookup follows the
+    // route, exactly as the read does.
+    const claimFor = era === PLAN_ERA_2 ? claimForPipeline2 : claimForPipeline;
     const orchestrationHolder = useMemo(
-        () => holderView(claimForPipeline(orchestrationClaims, pipeline?.id), machines),
-        [orchestrationClaims, pipeline?.id, machines]);
+        () => holderView(claimFor(orchestrationClaims, pipeline?.id), machines),
+        [claimFor, orchestrationClaims, pipeline?.id, machines]);
 
     // `planMachines` — the distinct machine set behind the header's machine chip
     // — was REMOVED with the rest of the dead code (req #3241). The chip itself
@@ -635,8 +655,10 @@ export default function PipelineDetail() {
     const placePipelineId = pipeline?.id ?? null;
     useEffect(() => {
         if (placePipelineId == null) return;
-        writePipelinePlace({ at: 'plan', pipelineId: placePipelineId });
-    }, [placePipelineId]);
+        // req #3463 — the era rides with the id: the resume gate rebuilds a
+        // plan route from this record, and an id with no era is not an address.
+        writePipelinePlace({ at: 'plan', era, pipelineId: placePipelineId });
+    }, [era, placePipelineId]);
 
     if (isLoading) {
         return (
@@ -646,15 +668,54 @@ export default function PipelineDetail() {
         );
     }
 
+    // ── req #3463 GUARD B — A MISS IS LOUD AND NAMES ITS SOURCE ─────────────
+    // This alert used to read "No pipeline with id 79." and nothing else, and
+    // that sentence is why req #3462's outage survived its own verification:
+    // #3381's dev server issued the identical 404 EIGHTY TIMES against an empty
+    // `darwin_dev.pipeline2_pipelines`, and every one of them rendered as this
+    // tidy warning. "This plan was deleted", "this table is empty", "you are
+    // asking the wrong era" and "the read failed" were one indistinguishable
+    // message.
+    //
+    // So it now names the ERA, the ENTITY that answered, and the ids that
+    // entity actually holds. `knownIds` is free in 1.0 (the list read the page
+    // already made) and costs one extra list read in 2.0, fired ONLY on this
+    // path. Three cases, three different sentences:
+    //
+    //   knownIds == null    the id list did not resolve — say so, claim nothing
+    //   knownIds is []      the table is EMPTY, which is a fact about the DATA
+    //   knownIds has rows   the id is not among them, and they are printed
     if (!pipeline) {
+        const eraLabel = planEraLabel(era);
+        const entity = planEntityName(era);
         return (
             <Box sx={{ p: 3 }}>
                 <Alert severity="warning" data-testid="pipeline-not-found">
-                    No pipeline with id {pipelineId}.{' '}
-                    <Link component="button" variant="body2"
-                          onClick={() => navigate('/swarm/pipelines')}>
-                        Back to pipelines
-                    </Link>
+                    <AlertTitle>
+                        No Pipeline {eraLabel} plan with id {pipelineId}
+                    </AlertTitle>
+                    <Typography variant="body2" component="div"
+                                data-testid="pipeline-not-found-source">
+                        This page reads <code>{entity}</code>.{' '}
+                        {knownIds == null
+                            ? 'The list of plans it holds did not load, so whether this '
+                              + 'id exists there is unknown.'
+                            : knownIds.length === 0
+                                ? 'That table holds NO plans at all — this is an '
+                                  + 'empty table, not a missing plan.'
+                                : `It holds ${knownIds.length} plan${knownIds.length === 1 ? '' : 's'}: `
+                                  + `${knownIds.join(', ')}.`}
+                    </Typography>
+                    <Typography variant="body2" component="div" sx={{ mt: 1 }}>
+                        {/* Plan ids are NOT shared between the eras and nothing
+                            translates between them, so "try the other one" is
+                            never a suggestion this page makes — it would be
+                            telling the reader to guess. */}
+                        <Link component="button" variant="body2"
+                              onClick={() => navigate(planListPath(era))}>
+                            Back to Pipeline {eraLabel} plans
+                        </Link>
+                    </Typography>
                 </Alert>
             </Box>
         );
@@ -680,7 +741,10 @@ export default function PipelineDetail() {
     // req #3242 — epics represented in THIS plan (a requirement with no epic
     // is excluded by `requirementCounts` itself, so this is never inflated by
     // a "no epic" bucket).
-    const planEpicCount = plan.requirementCounts?.byEpic?.length ?? 0;
+    // `plan` is null while `diagnostic` is set (req #3381 item 3 — a
+    // withheld/absent `derived` block is a hard stop, so there is no
+    // requirement-counts derivation to read).
+    const planEpicCount = plan?.requirementCounts?.byEpic?.length ?? 0;
 
     // ── ONE STRING PER ELLIPSIZING LINE ──────────────────────────────────────
     // `noWrap` with a tooltip needs the whole text as a VALUE: CSS
@@ -1076,17 +1140,48 @@ export default function PipelineDetail() {
                 unmount; saving it instead is possible (the unmounting instance
                 still holds B's `pipeline` prop) but would make a navigation
                 commit text the user never confirmed. */}
-            <PipelineDescriptionDialog key={pipeline.id} pipeline={pipeline}
+            <PipelineDescriptionDialog key={`${era}:${pipeline.id}`} pipeline={pipeline} era={era}
                                        open={descriptionOpen}
                                        onClose={() => setDescriptionOpen(false)} />
 
             {dictionaryError && (
                 <Alert severity="error" variant="outlined" sx={{ mb: 2 }}
                        data-testid="pipeline-dictionary-error">
-                    The epic, feature or machine list failed to load. Epic and Feature
-                    columns will be blank, machines will read as bare ids, and the ROW
-                    ORDER is computed with those labels missing — it is not the plan&apos;s
-                    real order. Reload before acting on this page.
+                    {era === PLAN_ERA_2
+                        ? <>The machine list failed to load. Machines will read as bare
+                            ids on this plan until it recovers. Reload before acting on
+                            this page.</>
+                        : <>The epic, feature or machine list failed to load. Epic and
+                            Feature columns will be blank, machines will read as bare ids,
+                            and the ROW ORDER is computed with those labels missing — it is
+                            not the plan&apos;s real order. Reload before acting on this
+                            page.</>}
+                </Alert>
+            )}
+
+            {/* req #3381 item 3 — A WITHHELD OR DEGRADED `derived` BLOCK IS A
+                HARD STOP, NOT AN EMPTY RENDER. `diagnostic` is set for all four
+                regimes (`derivation_failed`, `budget_derived_only`,
+                `budget_rows_truncated`, and the wholly-absent key) — the panel
+                below is never attempted from rows with no derived state; this
+                banner replaces it, in the SAME Alert treatment
+                `OrderViolationsAlert` (PipelinePlanTable.jsx) already uses for
+                an order-invariant failure, rather than inventing a second
+                diagnostic surface. 2.0 only: 1.0 derives in the browser and has
+                nothing to withhold. */}
+            {diagnostic && (
+                <Alert severity="error" variant="outlined" sx={{ mb: 2 }}
+                       data-testid="pipeline-derived-withheld">
+                    <AlertTitle>
+                        Plan derivation unavailable ({diagnostic.regime})
+                    </AlertTitle>
+                    {diagnostic.message}
+                    {!diagnostic.rowsComplete && (
+                        <>
+                            {' '}The underlying rows are INCOMPLETE — do not sequence
+                            or launch from this plan until it recovers.
+                        </>
+                    )}
                 </Alert>
             )}
 
@@ -1094,8 +1189,12 @@ export default function PipelineDetail() {
                 canvas cancels this Box's `p: 3` on its own sides/bottom via a
                 negative margin, which relies on being the last thing in flow
                 — anything rendered after it here would overlap the canvas by
-                24px instead of leaving a gap. */}
+                24px instead of leaving a gap. A withheld/absent `derived` block
+                renders NO panel at all (item 3's hard stop) — the diagnostic
+                Alert above is then the last child instead. */}
+            {canRenderPlan && (
             <ActiveComponent plan={plan} model={model} pipeline={pipeline} timezone={timezone}
+                             era={era}
                              focusStepId={focusStepId} onStepFocus={onStepFocus}
                              focusEpicId={focusEpicId}
                              costError={!!costError}
@@ -1119,6 +1218,7 @@ export default function PipelineDetail() {
                              onEffectiveLevel={setEffectiveLevel}
                              resetViewNonce={resetViewNonce}
                              />
+            )}
         </Box>
     );
 }

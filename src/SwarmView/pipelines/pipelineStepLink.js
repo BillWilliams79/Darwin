@@ -34,6 +34,12 @@
 // own (`pipelineModel`), so this file still runs under vitest with no DOM, which
 // its own test suite exercises.
 import { isPlanLevelPref } from './pipelinePlanLayout';
+// TWO imports now (req #3463). The route itself is no longer this module's to
+// spell: `planEra.js` owns the era↔route binding, and a builder here that
+// interpolated `/swarm/pipeline/` directly is exactly what let a 2.0 id reach a
+// 1.0 route in production. This module still owns the QUERY-STRING half of the
+// contract — which is what it was always for — and asks planEra for the path.
+import { DEFAULT_PLAN_ERA, planDetailPath } from './planEra';
 
 export const FOCUS_STEP_PARAM = 'step';
 
@@ -63,14 +69,15 @@ export const STEP_PLAN_LINK_LEVEL = '2';
  *
  * @param {?number} pipelineId
  * @param {?number} stepId
+ * @param {number} [era] the era `pipelineId` was READ from (req #3463)
  * @returns {?string}
  */
-export function stepPlanLinkTo(pipelineId, stepId) {
-    const pid = toId(pipelineId);
+export function stepPlanLinkTo(pipelineId, stepId, era = DEFAULT_PLAN_ERA) {
     const sid = toId(stepId);
-    if (pid == null || sid == null) return null;
-    return `/swarm/pipeline/${pid}?mode=plan&${FOCUS_STEP_PARAM}=${sid}`
-        + `&${FOCUS_LEVEL_PARAM}=${STEP_PLAN_LINK_LEVEL}`;
+    if (sid == null) return null;
+    return planDetailPath(era, pipelineId,
+        `mode=plan&${FOCUS_STEP_PARAM}=${sid}`
+        + `&${FOCUS_LEVEL_PARAM}=${STEP_PLAN_LINK_LEVEL}`);
 }
 
 /**
@@ -101,21 +108,26 @@ export function readLevelParam(searchParams) {
  *
  * @param {?number} pipelineId
  * @param {?number} stepId
+ * @param {number} [era] the era `pipelineId` was READ from (req #3463)
  * @returns {?string}
  */
-export function stepLinkTo(pipelineId, stepId) {
-    const pid = toId(pipelineId);
+export function stepLinkTo(pipelineId, stepId, era = DEFAULT_PLAN_ERA) {
     const sid = toId(stepId);
-    if (pid == null || sid == null) return null;
-    return `/swarm/pipeline/${pid}?mode=table&${FOCUS_STEP_PARAM}=${sid}`;
+    if (sid == null) return null;
+    return planDetailPath(era, pipelineId, `mode=table&${FOCUS_STEP_PARAM}=${sid}`);
 }
 
 // NULLISH AND EMPTY ARE REJECTED BEFORE `Number` SEES THEM, which is the whole
 // reason this is a function and not an inline `Number.isInteger(Number(x))`:
 // `Number(null)` and `Number('')` are both 0, and 0 is a perfectly good integer.
 // A step whose `pipeline_fk` did not resolve would have produced a confident link
-// to `/swarm/pipeline/0` — a plan that does not exist, rendering the page's
-// not-found alert as though the data were at fault.
+// to plan 0 — a plan that does not exist, rendering the page's not-found alert
+// as though the data were at fault.
+//
+// It survives for the STEP id only (req #3463). The PIPELINE id is normalized
+// by `planEra.js::normalizePlanId`, which is this same guard hoisted to the
+// module that owns the route — the two must stay identical, and the way to
+// guarantee that is for there to be one of them on the path-building side.
 function toId(value) {
     if (value == null || value === '') return null;
     const n = Number(value);

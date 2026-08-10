@@ -9,52 +9,79 @@
 // sequences with no stored mapping (`pipeline2_pipelines` has no legacy-id
 // column), so one is always wrong.
 //
-// WHICH ONE IS RIGHT IS A PROPERTY OF THE PAGE, NOT OF THE SESSION, and it has
-// already flipped once during this requirement. `PipelineDetail.jsx` resolves
-// its plan with `pipelines.find(p => p.id === pipelineId)` off `useAllPipelines`
-// — the **1.0** table — so `pipeline_fk` is the id that navigates today. If that
-// page moves to `pipeline2_*`, THIS FUNCTION is the single place that changes;
-// that is why the choice lives here and not inline in three grids.
+// WHICH ONE IS RIGHT IS A PROPERTY OF THE PAGE, NOT OF THE SESSION. This
+// function said so and named itself as the single place that would change when
+// the plan page grew a 2.0 side. req #3463 is that change, and it took the
+// shape this header did not predict: the page did not MOVE to `pipeline2_*`,
+// a SECOND page appeared beside it. `/swarm/pipeline/:id` still serves 1.0 and
+// `/swarm/pipeline2/:id` now serves 2.0, so BOTH attributions navigate and
+// neither is "the id that navigates today" any more.
+//
+// So the `unlinked` state below is gone: it existed only because a 2.0-seated
+// session had nowhere to go. Its tooltip said "which the plan page does not
+// serve yet", and that sentence is now false.
+//
+// THE ROUTE IS NOT SPELLED HERE. `planEra.js` owns the era↔route binding and
+// `__tests__/planEra.test.js` fails the build on any production file that
+// writes a plan route as a string — this file included. That guard is the
+// mechanical reason the #3462 outage cannot recur, and hard-coding
+// `/swarm/pipeline/${id}` here would be exactly the shape it exists to catch.
 //
 // A title match between the two tables is NOT used to bridge the gap — plan
 // titles collide in live data, and a wrong bridge sends the reader to a
 // different plan, which is worse than sending them nowhere.
 
+import { PLAN_ERA_1, PLAN_ERA_2, planDetailPath, planEraLabel } from './pipelines/planEra';
+
 /**
  * @param session    a swarm_sessions row (needs pipeline_fk / pipeline2_fk)
- * @param pipelines  the 1.0 `pipelines` list — resolves the title AND the link
- * @param pipelines2 the 2.0 `pipeline2_pipelines` list — title resolution only,
- *                   so a 2.0-only session is named rather than shown as a bare id
- * @returns {state, label, title, href} — href non-null only when navigable.
+ * @param pipelines  the 1.0 `pipelines` list — title resolution
+ * @param pipelines2 the 2.0 `pipeline2_pipelines` list — title resolution
+ * @returns {state, era, planId, label, title, href} — href non-null only when
+ *          navigable. `era`/`planId` are the SEATED plan, so a caller rendering
+ *          the bare id shows the one that matches the link instead of guessing
+ *          which column to read (req #3463).
  */
 export const sessionPipelineLink = (session, pipelines, pipelines2) => {
     const oneOh = session?.pipeline_fk ?? null;
     const twoOh = session?.pipeline2_fk ?? null;
 
     if (oneOh == null && twoOh == null) {
-        return { state: 'none', label: null, title: null, href: null };
+        return { state: 'none', era: null, planId: null, label: null, title: null, href: null };
     }
 
     const title = (pipelines || []).find(p => p.id === oneOh)?.title
         || (twoOh != null ? (pipelines2 || []).find(p => p.id === twoOh)?.title : null);
     const label = title || `#${oneOh ?? twoOh}`;
 
-    if (oneOh != null) {
+    // THE COLUMN NAMES THE ERA, and the era names the route. 1.0 is checked
+    // first only because a row carrying both is a data defect that should
+    // resolve somewhere rather than nowhere; the two are exclusive in practice.
+    const era = oneOh != null ? PLAN_ERA_1 : PLAN_ERA_2;
+    const planId = oneOh != null ? oneOh : twoOh;
+    const href = planDetailPath(era, planId);
+
+    // `planDetailPath` returns null for an id that is not a usable integer, and
+    // an unnavigable chip is the right answer for one — the same "omit rather
+    // than render a dead link" rule the rest of that module applies.
+    if (href == null) {
         return {
-            state: 'link',
+            state: 'unlinked',
+            era,
+            planId,
             label,
-            title: `Open plan ${label}`,
-            href: `/swarm/pipeline/${oneOh}`,
+            title: `${label} — this session names plan ${JSON.stringify(planId)}, `
+                 + 'which is not a usable plan id. Nothing to open from here.',
+            href: null,
         };
     }
 
-    // 2.0-seated only. Named, but not navigable: the plan page reads the 1.0
-    // table, so a 2.0 id in the URL renders "No pipeline with id N".
     return {
-        state: 'unlinked',
+        state: 'link',
+        era,
+        planId,
         label,
-        title: `${label} — this session is attributed to the Pipeline 2.0 plan `
-             + `(#${twoOh}), which the plan page does not serve yet. Nothing to open from here.`,
-        href: null,
+        title: `Open Pipeline ${planEraLabel(era)} plan ${label}`,
+        href,
     };
 };
