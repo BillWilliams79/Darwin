@@ -467,10 +467,25 @@ describe('computeSessionStats effort split (req #2916)', () => {
         expect(ultra.tokens).toBe(40);
     });
 
+    // req #3455 re-cut the effort ramp: xhigh moved from light green (#81c784,
+    // now `high`) to dark green. The pie takes its colour from
+    // effortDistinctColor, which matches EFFORT_COLOR everywhere except
+    // ultracode — see the next case.
     it('carries capitalized label + palette color per effort', () => {
         const s = computeSessionStats([mkSession({ effort: 'xhigh' })]);
         expect(s.effortAggregate).toEqual([
-            { effort: 'xhigh', label: 'XHigh', color: '#81c784', count: 1, secs: 0, tokens: 0 },
+            { effort: 'xhigh', label: 'XHigh', color: '#388e3c', count: 1, secs: 0, tokens: 0 },
         ]);
+    });
+
+    it('gives ultracode its OWN slice colour, not xhigh\'s', () => {
+        // In the pill these two share a green and are told apart by a pulse and
+        // a written label. A pie slice has neither, so two rungs would render as
+        // one indistinguishable wedge with two different legend rows.
+        const s = computeSessionStats([
+            mkSession({ effort: 'xhigh' }), mkSession({ effort: 'ultracode' }),
+        ]);
+        const byEffort = Object.fromEntries(s.effortAggregate.map(r => [r.effort, r.color]));
+        expect(byEffort.ultracode).not.toBe(byEffort.xhigh);
     });
 });
