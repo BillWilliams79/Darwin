@@ -10,6 +10,7 @@ import {
     FOCUS_EPIC_PARAM,
     readFocusEpicParam,
     epicLinkTo,
+    planLinkTo,
 } from '../pipelineEpicLink';
 
 describe('epicLinkTo', () => {
@@ -67,5 +68,42 @@ describe('readFocusEpicParam', () => {
     it('exports the key both halves agree on', () => {
         expect(FOCUS_EPIC_PARAM).toBe('epic');
         expect(epicLinkTo(1, 2)).toContain(`${FOCUS_EPIC_PARAM}=2`);
+    });
+});
+
+// Req #3435 — the Orchestration box's pipeline row needs a destination even
+// when nothing narrower is addressable (the reader pointed the filter at a plan
+// this requirement is not seated in).
+describe('planLinkTo', () => {
+    it('lands on the plan, in plan mode, with nothing focused', () => {
+        expect(planLinkTo(2)).toBe('/swarm/pipeline/2?mode=plan');
+    });
+
+    it('carries the mode explicitly, so a stored table preference cannot win', () => {
+        expect(new URLSearchParams(planLinkTo(79).slice(planLinkTo(79).indexOf('?')))
+            .get('mode')).toBe('plan');
+    });
+
+    // A caller renders NO link at all rather than one that navigates to
+    // /swarm/pipeline/undefined — the same rule epicLinkTo/stepLinkTo follow.
+    it('is null for every unusable id, and 0 is usable', () => {
+        expect(planLinkTo(null)).toBeNull();
+        expect(planLinkTo(undefined)).toBeNull();
+        expect(planLinkTo('')).toBeNull();
+        expect(planLinkTo('12abc')).toBeNull();
+        expect(planLinkTo(1.5)).toBeNull();
+        expect(planLinkTo(0)).toBe('/swarm/pipeline/0?mode=plan');
+    });
+
+    it('accepts a numeric string from the wire', () => {
+        expect(planLinkTo('2')).toBe('/swarm/pipeline/2?mode=plan');
+    });
+
+    // It must NOT smuggle a focus parameter in — that is epicLinkTo's job, and
+    // a stray `?epic=` here would fit a band the reader did not ask for.
+    it('names no epic and no step', () => {
+        const search = new URLSearchParams(planLinkTo(2).slice(planLinkTo(2).indexOf('?')));
+        expect(search.get(FOCUS_EPIC_PARAM)).toBeNull();
+        expect(search.get('step')).toBeNull();
     });
 });
