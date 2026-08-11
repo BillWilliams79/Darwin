@@ -24,18 +24,17 @@ import { seedPipelineFixture, SeededPipelines } from '../helpers/pipelineFixture
 // reads; `pipeline-plan-table` appearing means every one of them resolved,
 // because PipelineDetail gates its whole render on them.
 
+// req #3381 deleted `orderedPlan` from the view model in favor of a composed,
+// pre-derived 2.0 read; req #3462 (production outage, 2026-08-09) reverted
+// PipelineDetail.jsx off that cutover the same week — no 1.0<->2.0 pipeline id
+// mapping exists — and restored `orderedPlan` here as a live production
+// export. This spec imports it directly again rather than through the
+// test-only `testOrderedPlan.js` reconstruction the revert deleted.
 import {
     buildPipelineModel,
     rowMachineLabel,
+    orderedPlan,
 } from '../../src/SwarmView/pipelines/pipelineViewModel.js';
-// req #3381 deleted `orderedPlan` from the view model — the browser now reads a
-// composed, pre-derived payload. The 1.0 ENGINE pieces it composed are still
-// live (this fixture seeds 1.0 rows), so this spec uses the same test-only
-// reconstruction the vitest suites do rather than a second composition of its
-// own. See `testOrderedPlan.js`'s header.
-import {
-    buildTestOrderedPlan as orderedPlan,
-} from '../../src/SwarmView/pipelines/__tests__/testOrderedPlan.js';
 import {
     computePlanLayout, REQ_LINE_H, K_READABLE, BEAD_HIT_RADIUS,
     epicFocusTransform, stepFocusTransform, FOCUS_PAD, FOCUS_MAX_RATIO,
@@ -446,6 +445,11 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
                     epicId !== prevEpic ? (row.epic || '—') : '');
                 prevEpic = epicId;
             }
+            // No feature cell of any kind rendered — the RENDER half of
+            // VIS-004 (`vitest`'s `planRenderRows` suite asserts the model
+            // half: no `showFeature`/`feature` key on a render-list entry).
+            await expect(page.locator('[data-testid^="pipeline-feature-"]'))
+                .toHaveCount(0);
 
             // Machine column: multi-machine steps join with ' / ', a step with no
             // requirements reads an em-dash.
@@ -911,7 +915,28 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             .toHaveAttribute('data-focused', 'true');
 
         // Requirement label → /swarm/requirement/:id.
+        //
+        // req #3375 fix: the batch plan is four steps in two short bands, and
+        // since req #3372 the "No epic" band is a real second band rather than
+        // a branch nothing seeded — the world is taller than it was, so the
+        // factory-default landing (req #3312) now lands this specific fixture
+        // at 'out', where the semantic-level ladder correctly draws no req
+        // labels at all (§ *A mark that is drawn at every level*). Clicking a
+        // label's WORLD coordinate at that scale hits nothing, on live canvas
+        // exactly as it would for a real reader.
+        //
+        // The fix is the level PIN, not a zoom. `zoomToLegibleMid` (used
+        // elsewhere in this file) wheels in around the CANVAS CENTER, which on
+        // a plan this small pans the specific label this test needs off
+        // screen entirely (measured: reqPt landed at negative screen
+        // coordinates). Pinning L2 instead changes what is DRAWN without
+        // moving the camera at all — "the transform must be byte-identical
+        // across a pin" (PIPE-16's own words) — so the SAME `frame()` transform
+        // the bead click above already used stays valid.
         at = await frame();
+        await page.getByTestId('pipeline-viz-level-2').click();
+        await expect(page.getByTestId('pipeline-plan-visualizer'))
+            .toHaveAttribute('data-level', 'mid');
         const reqLabel = layout.labels.find(
             (l: { kind: string }) => l.kind === 'req') as
             { x: number; y: number; reqId: number; text: string };
@@ -2169,8 +2194,11 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             //    in `pipelinePlanLayout.test.js` — since #3257 a name is pinned
             //    to its band's rectangle and the key CLIPS or DROPS it rather
             //    than displacing it, so BOTH the key's width and its height cost
-            //    names (measured: 187 dropped at 470×30, 256 at 470×180, over a
-            //    swept camera). This assertion holds because at the DEFAULT
+            //    names in the top-right position this comment was originally
+            //    measured against — a stale position since req #3255 moved the
+            //    key to bottom-center (its own current cost curve, re-measured
+            //    again by req #3374 P6, is `PLAN_KEY_MAX_H`'s own docblock, not
+            //    this file). This assertion holds because at the DEFAULT
             //    camera every chip sits at its rectangle's left edge and the key
             //    is in the top-RIGHT corner — the two simply do not meet. The
             //    sibling requirement moving the key to the bottom centre changes
@@ -2801,12 +2829,15 @@ test.describe('Swarm Orchestration — pipelines UI', () => {
             // BOTTOM-CENTER (req #3255), not a corner, and collapsed by default
             // (req #3309) — this test never touches the toggle, so the ONLY
             // live chrome in that band is the 32×28 collapsed panel, but the
-            // keep-out below stays sized to PLAN_KEY_MAX_W (470px) and a
-            // generous height regardless, in case a future occasion opens it;
-            // the epic chips clamp to the top of the viewport.
+            // keep-out below stays GENEROUSLY sized regardless, in case a
+            // future occasion opens it; the epic chips clamp to the top of
+            // the viewport. Width is no longer capped at all (req #3374 P6 —
+            // `PLAN_KEY_MAX_W` is gone, only `PLAN_KEY_MAX_H` caps HEIGHT
+            // now), so this buffer is chosen wide enough for a many-machine
+            // key rather than tied to the old 470px width cap.
             const [tx, ty, k] = panned;
             const M = 24;             // panel edges
-            const KEY_W = 470 + M;    // PLAN_KEY_MAX_W, bottom-center
+            const KEY_W = 900 + M;    // generous — uncapped key width, req #3374 P6
             const KEY_H = 260;        // generous — taller than the key gets
             const CHIP_H = 100;       // the clamped epic-chip strip along the top
             const reqLabel = (layout.labels as Array<

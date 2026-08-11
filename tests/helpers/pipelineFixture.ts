@@ -564,8 +564,16 @@ export async function seedPipelineFixture(idToken: string,
                 id: featureIdOf.get(f.id)!, title: `${stamp}-${f.title}`,
                 epic_fk: epicIdOf.get(f.epic_fk)!,
             }));
-        const epics = (EPICS as Array<{ id: number; title: string }>).map((e) => ({
-            id: epicIdOf.get(e.id)!, title: `${stamp}-${e.title}`,
+        // `sort_order: i` mirrors the insert above exactly (req #3375 fix): it
+        // was missing here, which is invisible to any test that reads only
+        // `displayOrder`'s row SEQUENCE (unaffected by band stacking) but wrong
+        // the moment a test reads `pipelinePlanLayout.js`'s band ORDER — the
+        // plan visualizer's bands sort by `epics.sort_order` (req #3430) before
+        // falling back to derived start, and the client-side re-derivation must
+        // agree with what the page actually fetched or every band-position
+        // assertion is comparing against data nobody's page ever saw.
+        const epics = (EPICS as Array<{ id: number; title: string }>).map((e, i) => ({
+            id: epicIdOf.get(e.id)!, title: `${stamp}-${e.title}`, sort_order: i,
         }));
         const machines = (MACHINES as Array<{ id: number; title: string }>).map((m) => ({
             id: machineIdOf.get(m.id)!, title: `${stamp}-${m.title}`,

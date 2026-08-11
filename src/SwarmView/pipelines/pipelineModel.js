@@ -79,6 +79,14 @@
 //                                       'containers' | 'not-ready' | null. The
 //                                       first two mean CLOSE the step, the third
 //                                       means the work is not ready
+// @property {?string} swarmStartCommand req #3371 item 4 — '/swarm-start <ids>'
+//                                       from launchReqIds, null when nothing on
+//                                       this row is launchable. The step IS the
+//                                       launch unit in 2.0, so this is the ONLY
+//                                       place design rule 8's exact argument
+//                                       list renders — StepLaunchLine reads it
+// @property {?string} noLaunchReason    the human sentence for launchBlock, null
+//                                       when swarmStartCommand is not
 // @property {number[]} depIds           step dependencies
 // @property {string[]} timeDeps         time gates (ISO-8601)
 // @property {?number} epicId            dominant epic (rule 10)
@@ -568,6 +576,9 @@ export function buildPlanRows(model) {
         const labels = inheritedLabels(step.id, new Set()) || dominantLabels(step, model);
         const machines = machineLabels(step, model);
         const deps = depsByStep.get(step.id) || { depIds: [], timeDeps: [] };
+        // The one-row "group" `launchBlock`/`noLaunchReasonFor` share below —
+        // every field either function reads, `launchExcluded` included.
+        const launchOnlyMember = { reqIds, trackingReqIds, launchReqIds, launchExcluded };
         return {
             id: step.id,
             title: step.title,
@@ -580,9 +591,23 @@ export function buildPlanRows(model) {
             unresolvedReqIds,
             launchReqIds,
             launchExcluded,
-            // req #3360. Per ROW as well as per batch: a solo step never forms
-            // a batch, and the plan table renders rows.
-            launchBlock: launchBlock([{ reqIds, trackingReqIds, launchReqIds }]),
+            // req #3360, then req #3371/#3375: per ROW as well as per batch — a
+            // solo step never forms a batch, and since #3371 the STEP is the
+            // launch unit, so the plan table's row is the ONLY place these three
+            // render. `launchBatches` (below) computes the identical trio for a
+            // 2+-member GROUP; here the "group" is this row alone, which is what
+            // makes `noLaunchReasonFor`/`launchBlock` reusable unchanged — both
+            // take a `members` array, and `launchOnlyMember` below carries every
+            // field either one reads, `launchExcluded` included (code review,
+            // req #3375: the first cut omitted it from the literal passed to
+            // `noLaunchReasonFor`, so a partially-excluded row's reason rendered
+            // "nothing launchable — only swarm_ready launches: " with the list
+            // silently dropped — measured live on pipeline 79, 15 of 63 rows).
+            launchBlock: launchBlock([launchOnlyMember]),
+            swarmStartCommand: launchReqIds.length
+                ? `/swarm-start ${launchReqIds.join(' ')}` : null,
+            noLaunchReason: launchReqIds.length
+                ? null : noLaunchReasonFor([launchOnlyMember]),
             depIds: deps.depIds,
             timeDeps: deps.timeDeps,
             epicId: labels.epicId,

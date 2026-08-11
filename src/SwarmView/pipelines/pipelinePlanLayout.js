@@ -72,6 +72,10 @@ export const PLAN_VIZ_PALETTE = {
     panel: '#111b2b',
     line: '#26374f',
     wire: '#3a5580',
+    // The dependency-arc stroke connecting steps (req #3366) — brightened from
+    // `#3d5a86`/0.65 (measured ~1.75:1 against `panel`, under the 3:1 WCAG AA
+    // floor for graphical marks) to `#5c87c9`/0.85 (~3.80:1).
+    arc: '#5c87c9',
     text: '#d7e3f4',
     dim: '#6f83a0',
     accent: '#4ad9c8',
@@ -160,10 +164,15 @@ export const pauseBubbleColor = (paused) => (paused ? PAUSE_PAUSED_COLOR : PAUSE
 // ════════════════════════════════════════════════════════════════════════════
 //
 // Every colour on this surface is decided in THIS module, so the panel has one
-// vocabulary with one home and the on-screen key (PipelinePlanVisualizer's
-// `PlanKey`) is a rendering of it rather than a second, hand-maintained list.
+// vocabulary with one home and the on-screen key (the `KeyGroup`s inside
+// `PipelinePlanVisualizer`) is a rendering of it rather than a second,
+// hand-maintained list.
 //
 // ── The channels, and the ONE rule that keeps them apart ───────────────────
+//
+// `COLOR_CHANNELS` below IS this table — DATA, not prose (req #3374 P3), so a
+// test can hold it and the rendered key together instead of trusting a
+// markdown comment to stay in sync with a JSX `Stack` by hand.
 //
 // | Channel                | Encodes                                   | Level       |
 // |------------------------|-------------------------------------------|-------------|
@@ -172,7 +181,17 @@ export const pauseBubbleColor = (paused) => (paused ? PAUSE_PAUSED_COLOR : PAUSE
 // | outer HALO (dashed)    | eligible now — "next up"                  | STEP        |
 // | requirement-id TEXT    | the ACTIVE colour key: requirement status | REQUIREMENT |
 // |                        | · machine pin · nothing                    |             |
-// | epic BAND tint/stroke  | which epic — identity, not status         | EPIC        |
+//
+// EPIC IDENTITY IS A CHANNEL WITHOUT A KEY ROW, on purpose (req #3374 P3,
+// superseding an earlier draft of this table that listed "epic BAND
+// tint/stroke" as its fifth row — sixth counting the launch-unit box #3371
+// removed — a row the on-screen key never rendered). A key row would be a
+// swatch-per-band list duplicating what the bands already say: each band's
+// tint IS its floating name's own chip, drawn
+// in situ on the band it colours, and a plan can carry more bands than a
+// legend has room for while the chips never run out of room to name
+// themselves. See P6 for what a key row would have cost in the dimension
+// this surface is most expensive in.
 //
 // The table had a sixth row until req #3371: a dashed teal BOX at the LAUNCH
 // UNIT level, meaning "one `/swarm-start` launches these". In 2.0 the launch
@@ -211,6 +230,22 @@ export const pauseBubbleColor = (paused) => (paused ? PAUSE_PAUSED_COLOR : PAUSE
 // **No mark is sized by data.** Stated because a key that covers colour and
 // motion but leaves size unexplained invites the reader to infer an encoding
 // that is not there.
+
+// The channel table above, as DATA (req #3374 P3). `PipelinePlanVisualizer`'s
+// two `KeyGroup`s read their titles from `KEY_GROUP_TITLES`, derived below
+// rather than hand-typed a second time, so the on-screen key cannot drift
+// from the set of channels marked `inKey`. `epic` is the one channel with
+// `inKey: false` — see the table comment above for why the key omits it.
+export const COLOR_CHANNELS = [
+    { channel: 'bead FILL', level: 'step', inKey: true },
+    { channel: 'bead RING', level: 'step', inKey: true },
+    { channel: 'outer HALO (dashed)', level: 'step', inKey: true },
+    { channel: 'requirement-id TEXT', level: 'requirement', inKey: true },
+    { channel: 'epic BAND tint/stroke', level: 'epic', inKey: false },
+];
+export const KEY_GROUP_TITLES = [...new Set(
+    COLOR_CHANNELS.filter((c) => c.inKey).map((c) => c.level),
+)];
 
 // ── Requirement-id scale 1 of 3: REQUIREMENT STATUS (the 'state' key) ──────
 // `requirements.requirement_status`, the requirement's OWN stored field — not
@@ -262,6 +297,46 @@ export const REQ_STATUS_UNKNOWN_COLOR = PLAN_VIZ_PALETTE.dim;
 // paints nothing with no error to see.
 export const reqStatusColor = (status) => (Object.hasOwn(REQ_STATUS_COLORS, status)
     ? REQ_STATUS_COLORS[status] : REQ_STATUS_UNKNOWN_COLOR);
+
+// ── Requirement marks: STACK order under a step (req #3363) ────────────────
+// A different ladder from `REQ_STATUS_ORDER` above on purpose — that one is the
+// legend's reading order (the pipeline, authoring to wontfix); this is what a
+// reader scanning DOWN a step's own requirement stack wants first. `met` leads
+// because "is this step actually finished" is the question a multi-requirement
+// step exists to answer, and the two statuses nobody returns to (`deferred`,
+// `wontfix`) sink to the bottom in the order the user named them — everything
+// still in flight runs in ladder order between the two, closest-to-done first.
+export const REQ_STEP_SORT_ORDER = {
+    met: 0, development: 1, swarm_ready: 2, approved: 3, authoring: 4,
+    deferred: 5, wontfix: 6,
+};
+
+// One past the last known rank — a status this build does not know (an
+// unresolved id, or an enum value shipped ahead of the UI) sinks below every
+// recognised one rather than guessing where it belongs.
+const REQ_STEP_SORT_UNKNOWN = Object.keys(REQ_STEP_SORT_ORDER).length;
+
+/**
+ * Sort a step's linked requirement ids by status for on-canvas display (req
+ * #3363). Stable: two requirements sharing a status keep the order the
+ * caller gave them, rather than the sort tie-breaking on id or anything else.
+ *
+ * @param {number[]} reqIds
+ * @param {(id: number) => ?string} statusOf  requirement id -> requirement_status
+ * @returns {number[]}
+ */
+export function sortReqIdsByStatus(reqIds, statusOf) {
+    const ids = Array.isArray(reqIds) ? reqIds : [];
+    const rank = (id) => {
+        const status = typeof statusOf === 'function' ? statusOf(id) : null;
+        return Object.hasOwn(REQ_STEP_SORT_ORDER, status)
+            ? REQ_STEP_SORT_ORDER[status] : REQ_STEP_SORT_UNKNOWN;
+    };
+    return ids
+        .map((id, i) => [id, i])
+        .sort(([aId, aI], [bId, bI]) => (rank(aId) - rank(bId)) || (aI - bI))
+        .map(([id]) => id);
+}
 
 // ── Requirement-id scale 2 of 3: MACHINE (the 'machine' key) ───────────────
 // The high-contrast ecosystem pairing (user directive 2026-07-27): each machine
@@ -458,7 +533,9 @@ export const autonomyColor = (ct) => (Object.hasOwn(AUTONOMY_COLORS, ct)
 // themes by design (see PipelinePlanVisualizer's header — "the directive is to
 // keep THIS page's look"). A theme branch here could never fire, so writing one
 // would be dead code claiming to handle a case that does not exist.
-// ── How WIDE the on-screen key may be, and why the cap is on width ─────────
+// ── How TALL the on-screen key may be, and why the cap MOVED to height ─────
+// (req #3374 P6 — this constant was `PLAN_KEY_MAX_W` until this requirement.)
+//
 // The key's measured rect is the keep-out `placeEpicChips` resolves the epic
 // names against, and the resolution is HORIZONTAL ONLY by design — moving a
 // chip vertically would put it on another band's line, which is a wrong label
@@ -466,21 +543,21 @@ export const autonomyColor = (ct) => (Object.hasOwn(AUTONOMY_COLORS, ct)
 //
 // SINCE req #3257 that resolution is a CLIP-OR-DROP, not a displacement: an
 // epic name is pinned to its own band's rectangle and may not slide sideways
-// out of it, so the width that would run under the key is cut off and a chip
-// with less than a few characters left is dropped outright.
+// out of it, so whatever runs under the key is cut off, or dropped outright
+// once too few characters would be left to read.
 //
 // **THE OLD INVARIANT — "the key's WIDTH is its entire cost; its HEIGHT is
-// free" — IS FALSE UNDER THAT RULE AND IS NOT CARRIED FORWARD.** It was a
-// property of the displacement pass: a chip that met the key slid sideways and
-// still drew, so a taller key only changed WHICH chips moved. With nowhere to
-// slide, a taller key exposes more band rows to the keep-out and those chips
-// are lost.
+// free" — IS FALSE UNDER THAT RULE.** It was a property of the displacement
+// pass this module no longer has: a chip that met the key used to slide
+// sideways and still draw, so a taller key only changed WHICH chips moved.
+// With nowhere to slide, a taller key exposes more band rows to the keep-out
+// and those chips are lost instead.
 //
-// **AND THE KEY MOVED.** Req #3255 put it at BOTTOM-CENTER, which changed both
-// the magnitude and which axis is steeper. RE-MEASURED 2026-08-02 on the
+// **THE KEY ALSO MOVED.** Req #3255 put it at BOTTOM-CENTER, which changed
+// both the magnitude and WHICH AXIS IS STEEPER. MEASURED 2026-08-02 on the
 // Substrate fixture (1500×900 panel) over k ∈ {0.2 … 2} × 4 pans × 29
-// x-offsets, 1566 chips drawn with no key, against the CURRENT bottom-center
-// geometry:
+// x-offsets, 1566 chips drawn with no key, against that bottom-center
+// geometry (`w=470` was the width cap of the day):
 //
 //   at w=470   height    30    60   100   140   180
 //              dropped   11    22    44    55    77
@@ -488,44 +565,92 @@ export const autonomyColor = (ct) => (Object.hasOwn(AUTONOMY_COLORS, ct)
 //   at h=30    width     90   300   420   470   600   900  1100
 //              dropped    3     7    10    11    13    19    23
 //
-// Two consequences, both the reverse of the top-right era:
+// HEIGHT WAS THE STEEPER AXIS — 66 names lost across the height range against
+// 20 across the width range — because a bottom-anchored box grows UPWARD into
+// more band rows while its width only ever spans the panel's middle. A cap
+// named `PLAN_KEY_MAX_W` was, from that point on, capping the CHEAPER
+// dimension: recorded rather than fixed at the time, because changing the cap
+// belonged to req #3255's own surface, not to the requirement that found it.
 //
-//   1. THE MOVE MADE THE KEY ~17× CHEAPER (187 → 11 dropped at 470×30). A name
-//      is pinned to its band's LEFT edge, and a bottom-center box is no longer
-//      where those names land.
-//   2. HEIGHT IS NOW THE STEEPER AXIS — 66 names across the height range against
-//      20 across the width range — because a bottom-anchored box grows UPWARD
-//      into more band rows while its width only spans the panel's middle.
+// **REQ #3374 P6 IS THAT FIX**, RE-MEASURED (2026-08-10) rather than assumed
+// still true — #3371 and #3373 emptied the key's launch-unit and epic-band
+// rows since, and the Substrate fixture itself is not the same shape it was
+// on 2026-08-02. Same fixture, same sweep, the OLD table's OWN `w`/`h` ranges
+// so the two are comparable:
 //
-// So `PLAN_KEY_MAX_W` now caps the CHEAPER dimension. Not a regression — the
-// cap predates the move and the key is far cheaper overall — but it is no
-// longer the defence it was named for, and a bottom-center key's honest guard
-// would be on HEIGHT. Recorded here rather than silently re-asserted; changing
-// the cap belongs to req #3255's surface. Every number above is asserted in
-// `pipelinePlanLayout.test.js` (monotone in each dimension, height strictly
-// steeper than width, and the move strictly cheaper than the top-right key), so
-// they are measured rather than remembered — and the inversion fails loudly if
-// the key moves again.
+//   at w=470   height    30    60   100   140   180
+//              dropped   33    33    44    66    77
 //
-// RAISED TO 470 on the user's directive (2026-08-01): "make the key wide enough
-// to fit the whole row of requirement statuses… the word requirement on one line
-// and then all the statuses on the next with their colors". The seven status
-// names are 57 mono characters at 10.5px bold — ~359px — plus six 8px gaps and
-// the box's own 16px of padding, i.e. ~423px. At 420 that row clips; 470 fits it
-// with headroom for a longer status set.
+//   at h=30    width     90   300   420   470   600   900  1100
+//              dropped    9    21    30    33    39    57    69
 //
-// RE-MEASURED before raising it, because the table above was taken on the
-// pre-retune world and the 2026-08-01 width retune (+10%/+10%/+20%) made every
-// column wider and the world with it. On the CURRENT geometry, over
-// k ∈ {0.2…2} × 4 pans × 6 x-offsets: the key costs 9 chips at 420 — and the
-// SAME 9 at 440, 460, 480, 500, 540 and 580. The width→loss curve is flat across
-// that band now, so this raise costs nothing; it is the SHAPE (tall and narrow,
-// one row per channel) that still matters, and a percentage width — the thing
-// this constant replaced — would still be the failure.
+// The absolute counts moved (33 vs 11, 69 vs 23 — a different fixture, a
+// different key), but the SLOPE is what "steeper axis" actually claims, and
+// it still favours height: 44 dropped over the 150px height range (≈0.29 per
+// px) against 60 over the 1010px width range (≈0.06 per px) — height costs
+// roughly 5x more per pixel of growth. The direction #3257 found survives;
+// only the exact counts were stale.
 //
-// The cap is enforced in the component's `sx` and swept in
-// pipelinePlanLayout.test.js from this constant, so the two cannot drift.
-export const PLAN_KEY_MAX_W = 470;
+// **WHERE THE CAP ITSELF LANDS.** #3371/#3373 also mean the key's height no
+// longer grows with CONTENT the way its width still can: every group left is
+// a fixed "caption line, then one `flexWrap: 'nowrap'` row" (see `KeyGroup`),
+// so a machine scale with many machines only ever widens its one row now,
+// never wraps it into a taller key. RE-SWEPT at a representative w=300 (the
+// key no longer needs 470 of width — see below) to size the cap itself:
+//
+//   at w=300   height    30    50    78   110   140
+//              dropped   21    21    21    28    42
+//
+// Flat from 30 through 78 (the real two-group content height, estimated
+// below) — the cap only starts costing names past it. 110 costs 7 more than
+// the flat floor and stays well inside the cheap part of the curve, so it
+// carries real headroom without buying into the steep part of the slope.
+//
+// **THE NUMBER ITSELF IS ESTIMATED FROM THE COMPONENT'S OWN TYPOGRAPHY
+// CONSTANTS**, the same way `470` was derived from character counts rather
+// than a live DOM measurement (no browser mounts in this test run either):
+// container `py: 0.9` (14.4px), the STEP group (caption 9px + 2.4px gap +
+// a `LegendDot` row at MUI's default caption line-height, 12px × 1.66 ≈
+// 19.9px ⇒ ~31.3px), the REQUIREMENT group (`pt`/`mt`/border ≈ 7px + caption
+// 9px + 2.4px gap + a `LegendWord` row at its own 10.5px × 1.35 ≈ 14.2px ⇒
+// ~32.6px) — ≈78px of estimated content, matching the flat part of the
+// re-measured curve above. 110 carries ~40% headroom over that, the same
+// margin 470 carried for width, for a font-metrics difference this estimate
+// did not account for exactly, or a future third channel.
+//
+// **WIDTH IS DELIBERATELY UNCAPPED NOW.** Content-driven width was always the
+// cheaper axis, and P3 already reduced the key to exactly two rows that never
+// wrap — nothing left on this surface grows a key's width without bound the
+// way an unmeasured future row could grow its height. MEASURED at h=78 (the
+// real content height), width still costs real names as it grows —
+//
+//   at h=78    width    150   300   470   600   900  1100
+//              dropped   12    21    33    39    57    69
+//
+// — a genuine, accepted cost on a many-machine plan, not an oversight: the
+// trade this requirement's own doc names for capping the STEEPER axis instead.
+//
+// TWO EDGES THIS SWEEP DOES NOT COVER (code review finding, req #3374 P7),
+// named rather than silently accepted:
+//   1. `PipelinePlanVisualizer`'s `keepOut.x = (viewportW − key.w) / 2` goes
+//      NEGATIVE once the key is wider than the viewport, which then drops
+//      every epic chip whose y overlaps the key's band regardless of x. The
+//      old 470 cap made that unreachable above a ~500px panel; uncapped width
+//      makes it reachable on a many-machine plan viewed on a narrow window.
+//      The sweep above stops at w=1100 on a 1500px viewport and never
+//      exercises this.
+//   2. `110` is an ESTIMATE from typography constants (below), never checked
+//      in a live browser — `deployed` coordination skips manual UI review.
+//      An overflow here would clip the bottom of the requirement group
+//      outside the panel's own background and border, a quieter failure than
+//      the width overflow it replaces.
+// Neither is asserted against; both are one look at the rendered key (any
+// machine-heavy plan, narrow window) away from being closed or ruled out.
+//
+// The cap is enforced in the component's `sx` (`maxHeight`, not `maxWidth`)
+// and swept in pipelinePlanLayout.test.js from this constant, so the two
+// cannot drift.
+export const PLAN_KEY_MAX_H = 110;
 
 // ── THE SCALE REGISTRY (req #3422) ─────────────────────────────────────────
 // Two scales were spelled out BY NAME in five places: an `if` in `reqIdStyle`,
@@ -826,13 +951,15 @@ const BEAD_R = 10;
 // (`(EPIC_CHIP_MIN_H + 2·CHIP_MARGIN_Y) / epicLaneH`, i.e. 21.6/62) and the
 // floored chip is drawn over lane 0's step labels below that — reachable by
 // wheel (the live plan's zoom floor is 0.11) and on landing/Reset on any plan
-// whose `factoryDefaultScale` is smaller. Nothing detects it:
-// `collectWorldObstacles` excludes `'epic'` and `placeEpicChips`'s only
-// `keepOut` is the legend. The overlap itself was accepted by #3272 on the
-// user's own directive (a floored, legible name over a 60%-opaque panel beats a
-// name too small to read); #3324 only removes the claim that a pin could not
-// reach it. If that trade is ever revisited, the fix is a taller reservation or
-// an obstacle entry — not a legibility gate on the pin.
+// whose `factoryDefaultScale` is smaller. Nothing PREVENTS it — `placeEpicChips`
+// has run no obstacle-avoidance pass at all since #3257 (its only `keepOut` is
+// the legend) — but it is MEASURED, at exactly this boundary, and pinned in
+// vitest so a future change to the constants above cannot move it silently
+// (req #3374 P5). The overlap itself was accepted by #3272 on the user's own
+// directive (a floored, legible name over a 60%-opaque panel beats a name too
+// small to read); #3324 only removes the claim that a pin could not reach it.
+// If that trade is ever revisited, the fix is a taller reservation or an
+// obstacle entry — not a legibility gate on the pin.
 // 83, not 62, because THE HEADER IS NOT THE CLEAR STRIP. A lane-0 step label is
 // drawn 31px ABOVE its bead, and the bead sits 10px below the header — so the
 // label reaches 21px back UP into the header (a further STAGGER_GAP on top of
@@ -874,7 +1001,8 @@ const TITLE_SLOT = 14;          // deviation 2 — reserved per-lane title line
 //
 // +25% (req #3242 user directive, "a little more space between the lanes...
 // for readability") — was 15. This is the SAME constant that sets the
-// staggered-column vertical offset (`reqStaggerOf`), which is what was
+// staggered-column vertical offset (the per-band `reqOffsets` sweep, req
+// #3362), which is what was
 // actually reported: two single-requirement steps in ADJACENT columns
 // (`Dual-Path Purge` -> `Wontfix Fold-In` on the live plan), both eligible to
 // stagger, landed on lines only 1px apart vertically while overlapping ~60px
@@ -1839,36 +1967,40 @@ export function computePlanLayout(rows, opts = {}) {
     const staggerOf = (d) => (d % 2) * STAGGER_GAP;
 
     // ── Requirement titles get their own swim lane per column (user directive
-    //    2026-08-01) ──────────────────────────────────────────────────────────
+    //    2026-08-01, generalized to requirement COUNT req #3362) ────────────────
     // A requirement TITLE is ~17 characters where an id was 4, and the column is
     // frozen — so a title is boxed by its own slab and there is nothing left to
     // give it. The step label above the bead solved exactly this problem in req
-    // #3119 and the answer is reusable: give ODD COLUMNS their own line, so a
-    // mark and its left/right neighbours are never drawn at the same height, and
-    // each may then overflow its own column into the room beside it.
+    // #3119 and the answer is reusable: give a column its own line, so a mark and
+    // its left/right neighbours are never drawn at the same height, and each may
+    // then overflow its own column into the room beside it.
     //
-    // The user's phrasing — "separate the titles vertically by nearest
-    // neighbours, then alternate heights in sequences of 1 req per step" — names
-    // both halves of what makes this sound:
+    // req #3119 gave that line to ODD COLUMNS by pure parity, and restricted it
+    // to a run of LONE marks (nMarks === 1) — a stack of N occupies N consecutive
+    // lines, and a flat one-line offset only clears a neighbour that is itself
+    // one line tall. A step with more than one requirement stayed column-bound at
+    // whatever colW affords, never the 40-character ceiling a lone mark could
+    // reach (req #3362 finding).
     //
-    //   · SEPARATE BY NEAREST NEIGHBOUR. The offset is applied to EVERY req block
-    //     in this mode, not only the widened ones. Offsetting just the wide ones
-    //     leaves a widened single title on line 0 beside a stacked block that
-    //     also starts on line 0, and the reach lands straight on it.
-    //   · ALTERNATE IN SEQUENCES OF 1 REQ PER STEP. Only a step with exactly ONE
-    //     requirement is widened. A stack of N marks occupies N consecutive
-    //     lines, so two adjacent stacks overlap on N−1 of them however they are
-    //     offset — parity separates a stack from a stack for one line only. A
-    //     1-mark block is the only one whose parity offset is a complete
-    //     separation, so it is the only one allowed to spend the extra room.
+    // The fix is the same idea, sized to the actual neighbour instead of a flat
+    // line: which column owns line 0 (the "higher" swim lane) is now decided by
+    // WHO HAS FEWER REQUIREMENTS, not by parity — the fewer-marks column reaches
+    // into its busier neighbour unshifted, and the busier column is pushed down
+    // far enough to clear the whole of what reached into it. A tie (equal counts,
+    // the original run-of-1 case) still resolves by parity, so a uniform run is
+    // byte-identical to the pre-#3362 layout. See the per-band `reqOffsets` sweep
+    // (below, in the lane-assignment loop) for the derivation — it needs each
+    // lane's final occupant map, which does not exist yet at this point in the
+    // module, so the offset itself is band-local and read back through
+    // `band.reqOffsets` where the requirement marks are drawn.
     //
-    // What that leaves is the same pairwise proof the step labels already carry:
-    // only SAME-parity columns (d±2) share a line, they intrude on the shared
-    // column d±1 from opposite sides, and STAGGER_REACH 0.4 per side cannot meet.
-    // A widened mark beside a column-contained one is safe for the same reason —
-    // the contained one never leaves its slab and the reach is under half of it.
+    // The reach itself is UNCHANGED: bounded to the immediate neighbour only
+    // (`staggerBudget`, `STAGGER_REACH` below), so the pairwise proof the step
+    // labels already carry still holds — only SAME-parity columns (d±2) share a
+    // line, they intrude on the shared column d±1 from opposite sides, and
+    // STAGGER_REACH 0.4 per side cannot meet. Only WHICH line a stack starts on
+    // changed, never how far sideways it may reach.
     const staggerReqs = reqLabel === 'title' && reqLayout !== 'horizontal';
-    const reqStaggerOf = (d) => (staggerReqs ? (d % 2) * REQ_LINE_H : 0);
     const colX = [];
     {
         let acc = LEFT;
@@ -2243,6 +2375,88 @@ export function computePlanLayout(rows, opts = {}) {
         }
         const sub = Math.max(1, ...steps.map((r) => laneById.get(r.id) + 1));
         const maxReqs = Math.max(1, ...steps.map((r) => (r.reqIds || []).length));
+
+        // ── Requirement-count swim lanes (req #3362) ────────────────────────
+        // TITLE mode only. Before this, only a LONE mark (nMarks === 1) ever
+        // spent the stagger budget, and only inside a run where both same-lane
+        // neighbours were themselves lone marks — a stack of N drew column-bound
+        // at whatever colW affords (as low as 18 characters on this fixture),
+        // never the 40-character ceiling every other combination can reach. The
+        // restriction existed because the OLD offset was a flat one line
+        // (`(d % 2) * REQ_LINE_H`): fine for separating two 1-line blocks, not
+        // enough to clear a taller neighbour's stack.
+        //
+        // Generalized: TWO SWEEPS per lane (left-to-right, right-to-left) give
+        // every occupied depth the number of lines its OWN stack must start on.
+        // A same-lane neighbour with FEWER marks is the one that reaches — it
+        // stays unshifted (offset 0, the "higher" swim lane) — while a neighbour
+        // with MORE marks costs nothing (it never reaches, so nothing to clear).
+        // A tie (equal counts — the run-of-1 case req #3119 already handled)
+        // resolves by column parity, exactly as before, so a uniform run is
+        // BYTE-IDENTICAL to the old flat scheme. Chained through the previous
+        // column's OWN offset (`offL.get(d - 1)`) so a monotonic run (1, 2, 3…)
+        // clears every predecessor's full extent, not just its immediate
+        // neighbour's raw count — the counterexample that breaks a one-hop-only
+        // rule is a 3/2/1 chain, where the middle column is busier than its
+        // right neighbour and fewer than its left: a one-hop rule gives it two
+        // contradictory offsets, the chained one resolves them consistently.
+        //
+        // Reach is symmetric and BOUNDED to the immediate neighbour exactly as
+        // before (`staggerBudget`, `STAGGER_REACH`) — this only changes WHICH
+        // line a stack starts on, never how far sideways it may reach, so the
+        // zero-overlap proof for distant (d±2) same-parity columns is untouched.
+        // Raw count, deliberately NOT `Math.max(1, …)` (found in review) — a
+        // req-less step draws zero requirement marks (`laneReqs` below sizes
+        // it that way too), so it must read as zero lines to a neighbour's
+        // sweep as well, or a neighbour would be pushed down to clear a line
+        // this step never actually occupies.
+        const countAt = (lane, d) => {
+            const occ = used.get(d)?.get(lane);
+            if (occ === undefined || occ === RESERVED) return 0;
+            return (byId.get(occ)?.reqIds || []).length;
+        };
+        const reqOffsets = new Map(); // depth -> Map(lane -> offset, in REQ_LINE_H units)
+        if (staggerReqs) {
+            for (const lane of new Set(steps.map((r) => laneById.get(r.id)))) {
+                const offL = new Map();
+                for (let d = 0; d <= maxCol; d++) {
+                    const own = countAt(lane, d);
+                    if (own === 0) continue;
+                    const left = countAt(lane, d - 1);
+                    if (left === 0) offL.set(d, 0);
+                    else if (left < own) offL.set(d, (offL.get(d - 1) || 0) + left);
+                    else if (left > own) offL.set(d, 0);
+                    // A TIE still needs to CHAIN like the strictly-fewer case
+                    // (found in review, req #3362): parity only decides WHICH
+                    // side goes lower, it does not by itself clear a neighbour
+                    // that was ITSELF pushed down by a tie further back. A
+                    // sequence of equal counts (e.g. 1, 1, 2, 2) needs offsets
+                    // 0, 1, 2, 4 — not 0, 1, 0, 2 — or the d=2/d=3 pair (same
+                    // count, same un-chained parity value) lands on the same
+                    // lines. d and d+1 in a tie have opposite parity, so
+                    // exactly one of `offL.get(d - 1)` / this column's own
+                    // odd-branch chain is ever non-zero, which is what keeps a
+                    // uniform run byte-identical to the pre-#3362 0,1,0,1.
+                    else offL.set(d, (d % 2 === 1) ? (offL.get(d - 1) || 0) + left : 0);
+                }
+                const offR = new Map();
+                for (let d = maxCol; d >= 0; d--) {
+                    const own = countAt(lane, d);
+                    if (own === 0) continue;
+                    const right = countAt(lane, d + 1);
+                    if (right === 0) offR.set(d, 0);
+                    else if (right < own) offR.set(d, (offR.get(d + 1) || 0) + right);
+                    else if (right > own) offR.set(d, 0);
+                    else offR.set(d, (d % 2 === 1) ? (offR.get(d + 1) || 0) + right : 0);
+                }
+                for (let d = 0; d <= maxCol; d++) {
+                    if (countAt(lane, d) === 0) continue;
+                    if (!reqOffsets.has(d)) reqOffsets.set(d, new Map());
+                    reqOffsets.get(d).set(lane, Math.max(offL.get(d) || 0, offR.get(d) || 0));
+                }
+            }
+        }
+
         // Lane pitch (zero-overlap contract, half 2): the vertical envelope of
         // one lane — step label above, bead, req ids below, then the reserved
         // title slot — never reaches the next lane's label.
@@ -2256,10 +2470,16 @@ export function computePlanLayout(rows, opts = {}) {
         // and the whole plan taller than the panel for no reason. 'horizontal'
         // keeps a constant pitch because its req ids sit on ONE line whatever
         // the count, so there is nothing lane-specific to measure.
+        //
+        // Includes the swim-lane OFFSET (req #3362), not just the step's own
+        // count — a stack pushed down to clear a busier neighbour needs its
+        // lane to reserve the room it was pushed INTO, or it runs into the next
+        // lane down exactly the way an un-pushed 5-req stack used to.
         const laneReqs = new Map();
         for (const r of steps) {
             const lane = laneById.get(r.id);
-            const n = (r.reqIds || []).length;
+            const d = colOf.get(r.id);
+            const n = (r.reqIds || []).length + (reqOffsets.get(d)?.get(lane) || 0);
             if (n > (laneReqs.get(lane) || 0)) laneReqs.set(lane, n);
         }
         // The stagger costs one extra line per lane, and it is charged ONCE
@@ -2305,7 +2525,7 @@ export function computePlanLayout(rows, opts = {}) {
         // name (the visualizer's floating chip) clamp to THIS, not to headerH.
         const epicLaneH = headerH - STEP_LABEL_RISE - (staggerLabels ? STAGGER_GAP : 0);
         bands.push({ ...band, steps, sub, maxReqs, pitch, laneY, laneReqs,
-            headerH, epicLaneH });
+            headerH, epicLaneH, reqOffsets });
         bandUsed.push(used);
     }
     // The ruler's reservation, charged ONCE and unconditionally (see RULER_H).
@@ -2387,12 +2607,12 @@ export function computePlanLayout(rows, opts = {}) {
                 && corridorClear(a.bandIndex, a.lane, a.depth, b.depth, dId, r.id);
             // The arc carried a `bbox` (the convex hull of its own Bézier
             // control points) from req #3210 until req #3257: its ONLY consumer
-            // was `collectWorldObstacles`, feeding the sticky epic chips'
-            // avoidance pass, and both are gone — an epic name is pinned to its
-            // band's rectangle now and draws OVER whatever it crosses. Computed
-            // on every arc of every layout, it was dead weight the moment that
-            // pass was, so it goes with it rather than waiting to be rediscovered
-            // as a field nobody reads.
+            // was the sticky epic chips' obstacle-avoidance pass, and that pass
+            // is gone along with it — an epic name is pinned to its band's
+            // rectangle now and draws OVER whatever it crosses. Computed on
+            // every arc of every layout, it was dead weight the moment the pass
+            // was, so it goes with it rather than waiting to be rediscovered as
+            // a field nobody reads.
             let path;
             if (late) {
                 const bend = Math.min((colW[b.depth] || 110) * 0.9, Math.max(40, x2 - x1));
@@ -2414,17 +2634,6 @@ export function computePlanLayout(rows, opts = {}) {
     // ── Label rectangles — every piece of text the canvas draws, as world
     // boxes, so the zero-overlap invariant is a testable property of THIS
     // module's output rather than a hope about the renderer.
-    // How many requirement marks the step occupying (band, lane, depth) draws.
-    // An empty cell, or one holding only a reserved arc corridor, is 0 — nothing
-    // is drawn there, so nothing can be collided with. Reads the SAME cell map
-    // the lane placement built, so "who is my neighbour on this lane" has one
-    // answer in this module rather than a second index that can drift from it.
-    const laneNeighbourMarks = (bandIndex, lane, d) => {
-        const occ = bandUsed[bandIndex]?.get(d)?.get(lane);
-        if (occ === undefined || occ === RESERVED) return 0;
-        return (byId.get(occ)?.reqIds || []).length;
-    };
-
     const labels = [];
     for (const r of safeRows) {
         const n = nodes.get(r.id);
@@ -2475,32 +2684,19 @@ export function computePlanLayout(rows, opts = {}) {
         const nMarks = Math.max(1, ids.length);
         const perReq = reqLayout === 'horizontal' ? nMarks : 1;
         const gaps = reqLayout === 'horizontal' ? (nMarks - 1) * CHW_REQ : 0;
-        // A SINGLE staggered title spends the stagger budget — its own column
-        // plus a bounded reach into each neighbour. Everything else is bounded by
-        // its own column exactly as before, so no id anywhere and no stacked
-        // block moves by a pixel.
-        //
-        // AND ONLY INSIDE A RUN OF SINGLE-REQUIREMENT STEPS — which is what "in
-        // sequences of 1 req per step" buys, and it is load-bearing rather than
-        // decorative. The parity offset moves a block by ONE line, so it clears a
-        // neighbour only while that neighbour is one line tall. Measured on the
-        // Substrate fixture the moment the run condition was missing: step 1 is a
-        // 5-requirement stack at d=0 occupying lines 0–4, and its 1-requirement
-        // neighbour step 3 at d=1 — offset by exactly one line — landed on line 1
-        // OF THAT STACK, 14px of overlap, at two separate places in the plan.
-        //
-        // So a title may only spend the extra room when the steps on the same
-        // lane to its left and right are themselves at most one mark tall. That
-        // is a run of 1-req steps, and inside such a run the alternation is a
-        // complete separation.
-        const widened = staggerReqs && nMarks === 1
-            && laneNeighbourMarks(n.bandIndex, n.lane, n.depth - 1) <= 1
-            && laneNeighbourMarks(n.bandIndex, n.lane, n.depth + 1) <= 1;
+        const band = bands[n.bandIndex];
+        // Every staggered title spends the stagger budget now — its own column
+        // plus a bounded reach into each neighbour — regardless of stack height
+        // (req #3362). Safe because `band.reqOffsets` (computed in the
+        // lane-assignment loop above) already placed this stack on the lines
+        // its neighbours cannot reach: a busier neighbour was pushed down far
+        // enough to clear us if we're the fewer side, or we were if it is.
+        const widened = staggerReqs;
         const reqRoom = widened ? staggerBudget(n.depth) : colW[n.depth];
         const reqMax = Math.max(1,
             Math.floor((reqRoom - 6 - gaps) / (CHW_REQ * perReq)));
         const showTitles = reqLabel === 'title';
-        const reqDy = reqStaggerOf(n.depth);
+        const reqDy = (band.reqOffsets.get(n.depth)?.get(n.lane) || 0) * REQ_LINE_H;
         const texts = ids.map((reqId) => reqLabelText(reqId,
             { reqLabel, reqTitles, maxChars: reqMax }));
         if (reqLayout === 'horizontal') {
@@ -2552,7 +2748,6 @@ export function computePlanLayout(rows, opts = {}) {
         // The reserved title slot (drawn at the 'in' zoom level, and skipped
         // when the step label already IS the title — it would duplicate).
         if (stepLabel !== 'title') {
-            const band = bands[n.bandIndex];
             // Staggered too, and therefore budgeted the same way: the title may
             // reach into its neighbours because they draw on the other line.
             // Before req #3119 this was capped at the bare column width, which
@@ -2569,8 +2764,9 @@ export function computePlanLayout(rows, opts = {}) {
                 // label-vs-bead invariant, which is why that test exists.
                 const laneN = Math.max(1, band.laneReqs.get(n.lane) || 1);
                 // The slot clears the DEEPEST mark on this lane, not its own
-                // step's — so in titles mode it drops by the MAXIMUM parity
-                // offset any column can take, never by this column's own.
+                // step's — `laneN` already includes the swim-lane offset (req
+                // #3362) of whichever column in this lane was pushed down
+                // furthest, never just this column's own.
                 //
                 // Using `reqDy` here is wrong and was measured wrong: an EVEN
                 // column's slot is unshifted while its ODD neighbour's marks are
@@ -2761,9 +2957,10 @@ export function computePlanLayout(rows, opts = {}) {
 //     out of its own rectangle. The PANEL'S OWN RIGHT EDGE is resolved the same
 //     way and by the same code, because the reader cannot tell the two apart —
 //     and because dropping at one while clipping at the other let the key SAVE a
-//     chip the panel edge alone would have dropped. See `PLAN_KEY_MAX_W` for what
+//     chip the panel edge alone would have dropped. See `PLAN_KEY_MAX_H` for what
 //     the key costs, re-measured: "the key's height is free" was a property of
-//     the displacement pass and is FALSE under clip-or-drop.
+//     the displacement pass and is FALSE under clip-or-drop — false enough that
+//     height, not width, is what the key is capped on now (req #3374 P6).
 const CHIP_PAD = 8;
 // The margins the name carries from its rectangle's corner — the SAME numbers
 // the chip has always been inset by, now named because the rule above is stated
@@ -3522,19 +3719,22 @@ export const NEXT_HALO_MAX_MAGNIFY = NEXT_HALO_MAX_OUTER / NEXT_HALO_OUTER;
  * what it was before any of these requirements existed.
  *
  * @param {number} k  the world→screen scale actually being drawn at
- * @param {boolean} [labelsDrawn]  `drawsLabelKind('step', level)` for this
- *   frame. Defaults to `false` — the answer at every scale where the question
- *   did not exist before #3324, so a caller that only knows `k` gets #3280's
- *   pure-`k` curve. **THE DEFAULT IS THE PERMISSIVE ANSWER, deliberately and at
- *   a cost** (review finding): it is what lets the tests sweep the bare curve,
- *   and it is why a SECOND renderer that forgot the argument would magnify over
- *   its own drawn labels in silence. There is exactly one production caller
- *   (`PipelinePlanVisualizer`'s `labelsDrawn`, read from the same `drawsKind`
- *   the label loop uses); a second one must pass it.
+ * @param {boolean} labelsDrawn  `drawsLabelKind('step', level)` for this
+ *   frame. **REQUIRED (req #3374 P4)** — it used to default to `false`, the
+ *   permissive answer, which is exactly what let a SECOND renderer that forgot
+ *   the argument magnify over its own drawn labels in silence. There is
+ *   exactly one production caller (`PipelinePlanVisualizer`'s `labelsDrawn`,
+ *   read from the same `drawsKind` the label loop uses); a second one must
+ *   pass it too, loudly enforced below rather than assumed. A caller that only
+ *   wants #3280's bare-`k` curve passes `false` explicitly.
  * @returns {number} a factor in [1, NEXT_HALO_MAX_MAGNIFY], monotone
  *   non-increasing in `k` and continuous everywhere
  */
-export function nextHaloMagnify(k, labelsDrawn = false) {
+export function nextHaloMagnify(k, labelsDrawn) {
+    if (typeof labelsDrawn !== 'boolean') {
+        throw new Error('nextHaloMagnify: labelsDrawn is required (req #3374 P4) — '
+            + 'pass false explicitly for the bare-k curve');
+    }
     if (labelsDrawn) return 1;
     if (!Number.isFinite(k) || k <= 0) return 1;
     const want = NEXT_HALO_SCREEN_RADIUS / (NEXT_HALO_RADIUS * k);
@@ -3672,11 +3872,17 @@ export const NEXT_MARK_SCREEN_RADIUS = NEXT_HALO_MAX_OUTER * NEXT_MARK_FLOOR_K;
  * to forbid.
  *
  * @param {number} k  the world→screen scale actually being drawn at
- * @param {boolean} [labelsDrawn]  `drawsLabelKind('step', level)` for this
- *   frame; defaults to `false`, the pre-#3324 answer.
+ * @param {boolean} labelsDrawn  `drawsLabelKind('step', level)` for this
+ *   frame. **REQUIRED (req #3374 P4)**, for the identical reason
+ *   `nextHaloMagnify`'s own argument is — see its docblock. Pass `false`
+ *   explicitly for the pre-#3324 bare-`k` answer.
  * @returns {boolean}
  */
-export function nextMarkIsDot(k, labelsDrawn = false) {
+export function nextMarkIsDot(k, labelsDrawn) {
+    if (typeof labelsDrawn !== 'boolean') {
+        throw new Error('nextMarkIsDot: labelsDrawn is required (req #3374 P4) — '
+            + 'pass false explicitly for the bare-k curve');
+    }
     if (labelsDrawn) return false;
     return Number.isFinite(k) && k > 0 && k < NEXT_MARK_FLOOR_K;
 }
@@ -3686,7 +3892,7 @@ export function nextMarkIsDot(k, labelsDrawn = false) {
  * multiplied by the camera's own `k`, always renders at
  * `NEXT_MARK_SCREEN_RADIUS` screen px regardless of how small `k` gets.
  *
- * Only meaningful where `nextMarkIsDot(k)` is true; the caller picks the
+ * Only meaningful where `nextMarkIsDot(k, labelsDrawn)` is true; the caller picks the
  * branch, this only sizes it.
  *
  * @param {number} k  the world→screen scale actually being drawn at
@@ -3938,8 +4144,9 @@ export function epicFocusTransform(layout, band, size, kBase, kFloor) {
  *     and the reserved title slot, all of which carry `stepId`.
  *
  * The second term is what makes the rect right rather than merely centred. A
- * step's requirement marks stack BELOW its bead (`n.y + 14 + i * REQ_LINE_H`)
- * and its title sits ABOVE it, so a fit to the bead alone would centre the bead
+ * step's requirement marks stack BELOW its bead (`n.y + 14 + reqDy + i *
+ * REQ_LINE_H` — `reqDy` is the swim-lane offset, req #3362) and its title sits
+ * ABOVE it, so a fit to the bead alone would centre the bead
  * and push the requirement ids — the thing the reader followed the link to see —
  * off the bottom of a tight viewport. The band case fits vertically to
  * `band.height`, which already contains all of that; a single step has no such

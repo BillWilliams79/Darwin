@@ -331,6 +331,21 @@ describe('planRenderRows — the flat render list', () => {
         expect(planRenderRows(orderedPlan(buildPipelineModel()))).toEqual([]);
         expect(planRenderRows(null)).toEqual([]);
     });
+
+    // COVERS: VIS-004 -- the RENDER half only (PlanRow itself, upstream in
+    // pipelineModel.js, still carries featureId/feature/featureLabels — that
+    // is #3349's derivation, out of this surface's boundary, and stays
+    // populated deliberately per pipeline-2-visualizer-design.md's boundary
+    // table). This asserts the narrower, testable claim: the entries THIS
+    // render preparation emits carry no feature-grouping tier at all, not
+    // even an `undefined` `showFeature` key a stale caller could
+    // accidentally read as falsy-but-present.
+    it('a render-list entry has no feature tier — no showFeature, no feature '
+        + 'key of any kind (req #3373/#3375)', () => {
+        for (const entry of rendered) {
+            expect(Object.keys(entry).sort()).toEqual(['eligible', 'row', 'showEpic']);
+        }
+    });
 });
 
 describe('pipelineSummary / pipelineSummaries', () => {

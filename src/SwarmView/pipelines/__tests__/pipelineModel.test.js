@@ -364,6 +364,10 @@ describe('the tracking exemption — a container is not work (req #3123)', () =>
         expect(batch.swarmStartCommand).toBeNull();
     });
 
+    // COVERS: VIS-001 -- step 19 carries TWO epicLabels (the full set, used
+    // by the hover datacard) but exactly ONE dominant `epic` — the field the
+    // render bands on. "Exactly one epic" is a claim about the render, not
+    // about the label set a step's linked requirements happen to span.
     it('rule 10 is NOT filtered: a container still contributes its epic/feature '
         + 'and machine labels', () => {
         const byId = new Map(buildPlanRows(SUBSTRATE_REBUILD_MODEL).map((r) => [r.id, r]));
