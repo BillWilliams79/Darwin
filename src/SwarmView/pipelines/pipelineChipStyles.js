@@ -155,3 +155,42 @@ export const pipelineStatusChipProps = (status) => {
         default:          return { color: 'default' };
     }
 };
+
+// ---------------------------------------------------------------------------
+// Pipeline 2.0 plan-layer editor chips (req #3393), added to this SHARED file
+// rather than a separate one — req #3463's `Pipelines2Page.jsx` already
+// imports `pipelineStatusChipProps` straight from here for the identical
+// `pipeline_status` vocabulary, which is the precedent this follows: the two
+// eras share a vocabulary, they share the one function that colors it.
+// ---------------------------------------------------------------------------
+
+// epic_status — active|paused (req #3393/#3336). NEW: no equivalent editable
+// control exists in 1.0 at all, only a derived bubble. Amber-for-paused,
+// matching `pipeline_status`'s own `paused` treatment above, so "paused" reads
+// as one color across every plan-layer surface, either era.
+const EPIC2_STATUS_CHIP = {
+    active: { bgcolor: '#1c3a52', color: '#8fd0ff' },
+    paused: { bgcolor: '#ff9800', color: '#000' },
+};
+
+export const epicStatus2Label = (status) => (status === 'paused' ? 'Paused' : 'Active');
+
+export const epicStatus2ChipProps = (status) => ({
+    sx: EPIC2_STATUS_CHIP[status] || EPIC2_STATUS_CHIP.active,
+});
+
+// execution_mode — parallel|serial (req #3388/#3393). NEW: no UI anywhere
+// renders or edits this field today, in either era. Styled as a two-value
+// click-to-toggle chip in the same visual language as `runChipProps` above,
+// deliberately a different hue (teal/amber) so it never reads as a run-mode
+// chip at a glance.
+const EXECUTION_MODE_CHIP = {
+    parallel: { bgcolor: '#0d3d3a', color: '#7fe8da' },
+    serial: { bgcolor: '#3d2b0d', color: '#e8b87f' },
+};
+
+export const executionModeLabel = (mode) => (mode === 'serial' ? 'Serial' : 'Parallel');
+
+export const executionModeChipProps = (mode) => ({
+    sx: EXECUTION_MODE_CHIP[mode] || EXECUTION_MODE_CHIP.parallel,
+});

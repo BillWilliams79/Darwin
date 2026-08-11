@@ -3,7 +3,7 @@ import { useContext, useMemo } from 'react';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys, epicKeys, featureKeys, testCaseKeys, featureTestCaseKeys, testPlanKeys, testPlanCaseKeys, testRunKeys, testResultKeys, customerKeys, buildProjectKeys, branchKeys, buildKeys, customerReleaseKeys, pipeline2ComposeKeys } from './useQueryKeys';
-import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, swarmCompletes, swarmCompleteSessions, machines, agents, instructions, architectureDocuments, agentDocuments, agentInstructions, agentTelemetryRuns, agentTelemetryRows, agentTelemetryRowDocs, orchestrationClaims, pipelines, pipelines2, pipelineSteps, pipelineStepRequirements, pipelineStepDeps, requirementSessions, sessionCostRollups } from './factory/devopsQueries';
+import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, swarmCompletes, swarmCompleteSessions, machines, agents, instructions, architectureDocuments, agentDocuments, agentInstructions, agentTelemetryRuns, agentTelemetryRows, agentTelemetryRowDocs, orchestrationClaims, pipelines, pipelines2, pipeline2Epics, pipeline2Steps, pipeline2StepRequirements, pipeline2StepDeps, pipelineSteps, pipelineStepRequirements, pipelineStepDeps, requirementSessions, sessionCostRollups } from './factory/devopsQueries';
 // `fetchEntity` is shared with the factory so both layers handle REST errors
 // identically (req #2593).
 import { fetchEntity } from './factory/createEntityQueries';
@@ -998,6 +998,18 @@ export const useAllPipelines                = pipelines.useAll;
 // page's not-found alert. Never the plan RENDER — that is
 // `useComposedPipeline2` below.
 export const useAllPipelines2               = pipelines2.useAll;
+export const pipeline2Keys = pipelines2.keys;
+// req #3393 — the Pipeline 2.0 plan-layer EDITORS: epics, steps, and their two
+// junctions. Same `<entity>.useAll` / `<entity>Keys = <entity>.keys` pattern
+// as every other block on this page.
+export const useAllPipeline2Epics = pipeline2Epics.useAll;
+export const pipeline2EpicKeys = pipeline2Epics.keys;
+export const useAllPipeline2Steps = pipeline2Steps.useAll;
+export const pipeline2StepKeys = pipeline2Steps.keys;
+export const useAllPipeline2StepRequirements = pipeline2StepRequirements.useAll;
+export const pipeline2StepRequirementKeys = pipeline2StepRequirements.keys;
+export const useAllPipeline2StepDeps = pipeline2StepDeps.useAll;
+export const pipeline2StepDepKeys = pipeline2StepDeps.keys;
 export const useAllPipelineSteps            = pipelineSteps.useAll;
 // Req #3224 — live orchestration reservations: who is orchestrating what, from
 // where. ONE unfiltered list read per page, joined client-side by pipeline_fk /
