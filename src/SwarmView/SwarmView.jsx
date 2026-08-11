@@ -124,10 +124,11 @@ const SwarmView = () => {
     // ── `?epic=` — the plan visualizer's epic chip lands here (req #3428) ────
     // A URL param, not a store: the LINK IS THE FILTER, so it is deep-linkable,
     // survives a reload, and dismissing the pill clears it without touching a
-    // single saved preference. That is the doctrine `FeaturesPage.jsx` already
-    // states for the sibling target of the same chip, and the reason this is not
-    // shaped like `useRequirementDrillStore` — a drill is computed INSIDE its
-    // page and never crosses a route; this arrives from a different one.
+    // single saved preference. That is the same doctrine `StepsPage.jsx` states
+    // for the sibling target of the same chip (req #3373), and the reason this
+    // is not shaped like `useRequirementDrillStore` — a drill is computed
+    // INSIDE its page and never crosses a route; this arrives from a different
+    // one.
     const navigate = useNavigate();
     const [searchParams, setSearchParams] = useSearchParams();
     const epicId = readEpicParam(searchParams);
@@ -448,10 +449,9 @@ const SwarmView = () => {
                             guards below already exist to avoid.
 
                             The body opens the Epics editor and the ✕ clears the
-                            filter — `FeaturesPage.jsx`'s chip, which is the other
-                            end of the same epic chip's two links. MUI routes the
-                            delete icon's click to `onDelete` alone, so the two
-                            never fire together. */}
+                            filter — the other end of the same epic chip's two
+                            links. MUI routes the delete icon's click to
+                            `onDelete` alone, so the two never fire together. */}
                         {epicFilterApplies && (
                             <Chip size="small"
                                   color={epicFilterFailed ? 'error' : 'secondary'}

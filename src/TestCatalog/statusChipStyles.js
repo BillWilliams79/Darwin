@@ -1,20 +1,8 @@
-// Centralised chip style props for the req #2380 status / type / result enums.
-// Mirrors the exemplar `SwarmView/statusChipStyles.js` pattern so the four new
-// pages render enums consistently (color + capitalized label) and a future
-// theme change lives in one place.
-
-// feature_status: draft | active | deprecated
-export function featureStatusChipProps(status) {
-    switch (status) {
-        case 'active':
-            return { sx: { bgcolor: 'success.light', color: 'success.contrastText' } };
-        case 'deprecated':
-            return { sx: { bgcolor: 'grey.400', color: 'grey.900' } };
-        case 'draft':
-        default:
-            return { sx: { bgcolor: 'warning.light', color: 'warning.contrastText' } };
-    }
-}
+// Centralised chip style props for the req #2380 status / type / result enums
+// (the feature_status enum retired with FeaturesPage by req #3357). Mirrors
+// the exemplar `SwarmView/statusChipStyles.js` pattern so these three pages
+// render enums consistently (color + capitalized label) and a future theme
+// change lives in one place.
 
 // test_type: manual | automated | hybrid
 export function testTypeChipProps(type) {
@@ -60,7 +48,6 @@ export function resultStatusChipProps(status) {
 }
 
 // Used to keep DataGrid status sorts in a meaningful order (not alphabetical).
-export const FEATURE_STATUS_ORDER = { draft: 0, active: 1, deprecated: 2 };
 export const TEST_TYPE_ORDER     = { manual: 0, hybrid: 1, automated: 2 };
 export const RUN_STATUS_ORDER    = { in_progress: 0, completed: 1, aborted: 2 };
 export const RESULT_STATUS_ORDER = { not_run: 0, skipped: 1, blocked: 2, failed: 3, passed: 4 };

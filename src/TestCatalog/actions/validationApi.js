@@ -1,12 +1,14 @@
-// Mutation utilities for the Features & Test Cases registry (req #2380).
+// Mutation utilities for the Test Cases registry (req #2380; the Feature half
+// retired by req #3357 — test cases now link to Requirement via req #3352's
+// junction, not to Feature).
 // All mutations use call_rest_api directly; callers handle TanStack Query cache
 // invalidation via queryClient.invalidateQueries({ queryKey: ... }).
 //
 // Key contracts:
 // - POST body: single object
 // - PUT body: array of row updates, each with `id`
-// - DELETE body: { id } or { feature_fk, test_case_fk } (junction tables use composite key)
-// - Junction tables (feature_test_cases, test_plan_cases) have NO id column and
+// - DELETE body: { id } or { requirement_fk, test_case_fk } (junction tables use composite key)
+// - Junction tables (requirement_test_cases, test_plan_cases) have NO id column and
 //   NO PUT support. Link = POST; Unlink = DELETE; Reorder = DELETE-all + POST-all
 //   at new sort_orders (see reorderTestPlanCases below).
 //
@@ -34,24 +36,6 @@ function assertOk(result, action) {
     return result.data;
 }
 
-// ----- features -----
-
-export async function createFeature(darwinUri, idToken, { title, description, feature_status = 'draft', category_fk, sort_order = null }) {
-    const r = await call_rest_api(`${darwinUri}/features`, 'POST',
-        { title, description, feature_status, category_fk, sort_order }, idToken);
-    return assertOk(r, 'createFeature');
-}
-
-export async function updateFeature(darwinUri, idToken, id, fields) {
-    const r = await call_rest_api(`${darwinUri}/features`, 'PUT', [{ id, ...fields }], idToken);
-    return assertOk(r, 'updateFeature');
-}
-
-export async function deleteFeature(darwinUri, idToken, id) {
-    const r = await call_rest_api(`${darwinUri}/features`, 'DELETE', { id }, idToken);
-    return assertOk(r, 'deleteFeature');
-}
-
 // ----- test_cases -----
 
 export async function createTestCase(darwinUri, idToken,
@@ -72,20 +56,20 @@ export async function deleteTestCase(darwinUri, idToken, id) {
     return assertOk(r, 'deleteTestCase');
 }
 
-// ----- feature_test_cases (junction — DELETE+POST pattern) -----
+// ----- requirement_test_cases (junction — DELETE+POST pattern, req #3352) -----
 
-export async function linkFeatureTestCase(darwinUri, idToken, feature_fk, test_case_fk) {
-    const r = await call_rest_api(`${darwinUri}/feature_test_cases`, 'POST',
-        { feature_fk, test_case_fk }, idToken);
+export async function linkRequirementTestCase(darwinUri, idToken, requirement_fk, test_case_fk) {
+    const r = await call_rest_api(`${darwinUri}/requirement_test_cases`, 'POST',
+        { requirement_fk, test_case_fk }, idToken);
     // 201 with an empty body — no id column to read back (req #3057). The
     // returned data is '' by design; callers use it only as a success signal.
-    return assertOk(r, 'linkFeatureTestCase');
+    return assertOk(r, 'linkRequirementTestCase');
 }
 
-export async function unlinkFeatureTestCase(darwinUri, idToken, feature_fk, test_case_fk) {
-    const r = await call_rest_api(`${darwinUri}/feature_test_cases`, 'DELETE',
-        { feature_fk, test_case_fk }, idToken);
-    return assertOk(r, 'unlinkFeatureTestCase');
+export async function unlinkRequirementTestCase(darwinUri, idToken, requirement_fk, test_case_fk) {
+    const r = await call_rest_api(`${darwinUri}/requirement_test_cases`, 'DELETE',
+        { requirement_fk, test_case_fk }, idToken);
+    return assertOk(r, 'unlinkRequirementTestCase');
 }
 
 // ----- test_plans -----

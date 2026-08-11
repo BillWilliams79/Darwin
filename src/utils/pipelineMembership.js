@@ -1,7 +1,7 @@
-// Requirement ORCHESTRATION membership — req #3180, widened by req #3419.
+// Requirement ORCHESTRATION membership — req #3180, widened by req #3419,
+// narrowed back by req #3357.
 //
-// THE browser's one answer to "is this requirement part of a plan". Two
-// different questions live here and they must not be collapsed:
+// THE browser's one answer to "is this requirement part of a plan":
 //
 //   STEP association (`pipelinedRequirementIds`)
 //     A `pipeline_step_requirements` junction row exists — "is this SCHEDULED".
@@ -16,51 +16,43 @@
 //     process — so they are deliberate duplicates of one rule, exactly like
 //     pipelineModel.js and pipeline_derive.py.
 //
-//   EPIC association (`epicSeatedRequirementIds`)
-//     `requirements.feature_fk` -> `features.epic_fk` — "does this belong to a
-//     BODY OF WORK". True of plenty of requirements no step carries yet.
+//   ORCHESTRATED (`orchestratedRequirementIds`) — THE answer the user-facing
+//     browse toggle asks for.
 //
-//   ORCHESTRATED (`orchestratedRequirementIds`) — the UNION, and THE answer the
-//     user-facing browse toggle asks for.
+// req #3419 ADDED a second population — requirements "filed under a BODY OF
+// WORK" via `requirements.feature_fk -> features.epic_fk`, true of plenty of
+// requirements no step carried yet — and unioned it with the step set so the
+// toggle would not miss epic-filed-but-unseated work.
 //
-// req #3419 — WHY THE UNION EXISTS. req #3180 pointed the browse toggle at STEP
-// association alone and wrote that the gap between the two populations "is
-// exactly what the filter exists to expose". Measured against production on
-// 2026-08-09, that gap is what the control's reader sees as a bug: category 1
-// under the default status chips holds 27 requirements, 9 survive the toggle,
-// and 4 of those 9 are filed under an epic (#3304 and #3314 -> feature 35 ->
-// epic 4, #3385 -> feature 31 -> epic 7, #3433 -> feature 41 -> epic 9). Asked
-// to hide orchestrated work, the page kept showing work that is plainly part of
-// a plan. That was filed twice (req #3419 is the second), so the control now
-// answers the question its label makes.
+// req #3357 RETIRES IT, because Feature (the only mechanism that could file a
+// requirement into an epic without also seating it on a step) leaves the
+// frontend entirely, and re-deriving the same fact off a step's epic is not
+// possible for 1.0: no 1.0 `pipeline_steps` row carries an `epic_fk` — only
+// Pipeline 2.0's `pipeline2_steps` does, a disjoint id space unrelated to the
+// live 1.0 "Darwin" plan this toggle filters. So `orchestratedRequirementIds`
+// COLLAPSES to `pipelinedRequirementIds` — every requirement this toggle can
+// still call "part of a plan" is one a step actually carries. The #3419 gap
+// (an epic-filed, unseated requirement staying visible under the toggle) is
+// an ACCEPTED, TRANSITIONAL regression: the population it was catching only
+// existed because Feature did.
 //
-// The two answers stay SEPARATE functions rather than one widened set, because
-// they are asked by different rules and only one of them is unconditional:
-// LEGALITY reads the step set (`aggregatorRowVisible`'s `offersLaunch` branch),
-// VISIBILITY reads the union.
-//
-// WHAT THE BROWSE TOGGLE COSTS ON THE LAUNCH CHIPS, measured 2026-08-09 against
-// production with the toggle at its shipped default (ON, req #3242):
+// WHAT THE BROWSE TOGGLE COST ON THE LAUNCH CHIPS under req #3419, for the
+// historical record (measured 2026-08-09 against production, toggle at its
+// shipped default ON, req #3242) — NO LONGER TRUE now that the union is gone,
+// kept here because the reasoning explains why `pipelinedRequirementIds`
+// alone was always the right predicate for LAUNCH LEGALITY specifically:
 //
 //     approved     2 offered -> 0   (#3172, #3176)
 //     authoring   42 offered -> 33  (#3178 #3304 #3314 #3315 #3385 #3424 #3425 #3426 #3433)
 //     swarm_ready  UNAFFECTED — no swarm_ready requirement was epic-seated
 //
-// swarm_ready being untouched is the load-bearing part of that table: it is the
-// chip the launch workflow actually runs on, so the practical cost is the
-// two-row `approved` chip going empty.
-//
-// Every id there is LEGAL to launch — no step carries it. So the approved chip
-// is empty in the default configuration, and that is a real consequence, not an
-// oversight. It is kept because the two rules answer opposite questions:
-// req #3180's is "offering a launch the coordinator owns is a DEFECT", which is
-// about showing something the reader must NOT act on; the toggle's is "I do not
-// want plan work on screen", which is a PREFERENCE, and a filter reducing what
-// you can act on is what a filter does. The reader reverses it with one click,
-// and the aggregator sits inside the same Cards view the requirement asked to
-// clean up — exempting it would put the hidden rows straight back on screen a
-// card away. If that trade turns out wrong, the change is one condition in
-// `aggregatorRowVisible`, not here.
+// Every id in that table was LEGAL to launch — no step carried it — which is
+// why req #3180's rule (`aggregatorRowVisible`'s `offersLaunch` branch) was
+// always `pipelinedRequirementIds` alone and never the union: "offering a
+// launch the coordinator owns is a DEFECT" is about showing something the
+// reader must NOT act on, a narrower question than the browse toggle's
+// preference. That distinction is why the two stayed separate call sites even
+// while the browse toggle's own answer has now rejoined it.
 
 /**
  * Requirement ids at least one pipeline STEP carries.
@@ -83,68 +75,19 @@ export const pipelinedRequirementIds = (stepRequirements) => {
 };
 
 /**
- * Requirement ids whose `feature_fk` resolves to a feature that names ANY epic.
- *
- * NAMED `epicSeated…`, NOT `epicRequirementIds`, and the distinction is load
- * bearing: `utils/epicMembership.js` (req #3428) exports an
- * `epicRequirementIds(features, requirements, epicId)` that answers a DIFFERENT
- * question — "is this requirement in THIS epic", for the epic filter. This one
- * asks "is this requirement in an epic AT ALL", for the orchestrated mark and
- * the browse toggle. Two same-named exports in two modules is a wrong import
- * away from a silent, plausible-looking answer, so only one of them keeps the
- * bare name.
- *
- * A feature with a NULL `epic_fk` is NOT epic association — the requirement is
- * filed, but under nothing a plan is organized around. Requiring the epic is
- * what makes this answerable as "part of a body of work" rather than merely
- * "categorized".
- *
- * CLOSED features count. `features.closed` says the feature is finished, not
- * that its requirements left the epic, and a caller that reads only open
- * features would silently un-orchestrate everything under a completed feature.
- * The hook therefore reads features with `closed: ALL_ROWS`.
- *
- * @param {Array<{id: number|string, feature_fk: number|null}>} requirements
- *        rows carrying `feature_fk` — a WHOLE-TABLE projection, never the
- *        per-surface list. See `useRequirementVisibility` for why.
- * @param {Array<{id: number, epic_fk: number|null}>} features
- * @returns {Set<number>}
- */
-export const epicSeatedRequirementIds = (requirements, features) => {
-    const ids = new Set();
-    if (!Array.isArray(requirements) || !Array.isArray(features)) return ids;
-
-    const featureHasEpic = new Set();
-    for (const f of features) {
-        if (!f || f.id === null || f.id === undefined) continue;
-        if (f.epic_fk === null || f.epic_fk === undefined) continue;
-        featureHasEpic.add(Number(f.id));
-    }
-    if (featureHasEpic.size === 0) return ids;
-
-    for (const r of requirements) {
-        if (!r || r.id === null || r.id === undefined || r.id === '') continue;
-        if (r.feature_fk === null || r.feature_fk === undefined) continue;
-        if (!featureHasEpic.has(Number(r.feature_fk))) continue;
-        ids.add(Number(r.id));
-    }
-    return ids;
-};
-
-/**
- * THE browse answer: a requirement is ORCHESTRATED when a pipeline step carries
- * it OR it is filed under an epic.
+ * THE browse answer: a requirement is ORCHESTRATED when a pipeline step
+ * carries it. Req #3357 retired the second population this used to union in
+ * (epic-filed-but-unseated, via `requirements.feature_fk -> features.epic_fk`)
+ * — see the module header. Kept as its own named export, distinct from
+ * `pipelinedRequirementIds`, so a future population (Pipeline 2.0 step
+ * membership, say) has a single place to widen the union again without every
+ * call site changing what function it imports.
  *
  * @param {Array} stepRequirements  the junction rows
- * @param {Array} requirements      whole-table `id,feature_fk` projection
- * @param {Array} features          whole-table `id,epic_fk` projection
  * @returns {Set<number>}
  */
-export const orchestratedRequirementIds = (stepRequirements, requirements, features) => {
-    const ids = pipelinedRequirementIds(stepRequirements);
-    for (const id of epicSeatedRequirementIds(requirements, features)) ids.add(id);
-    return ids;
-};
+export const orchestratedRequirementIds = (stepRequirements) =>
+    pipelinedRequirementIds(stepRequirements);
 
 /**
  * Drop every row whose id is in `ids`. The ONE filter primitive — both facts

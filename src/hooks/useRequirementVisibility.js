@@ -1,4 +1,5 @@
-// THE requirement-visibility answer for every browse surface — req #3419.
+// THE requirement-visibility answer for every browse surface — req #3419,
+// narrowed by req #3357.
 //
 // ── WHY THIS HOOK EXISTS (You Only Need One) ────────────────────────────────
 //
@@ -17,57 +18,26 @@
 // There is now one hook: every surface asks it, nobody re-derives it, and a
 // change to the rule is one edit that every surface inherits.
 //
-// ── WHY THE SETS ARE BUILT FROM WHOLE-TABLE READS, NOT FROM THE LIST'S ROWS ──
+// ── WHY THE EPIC-FILED-BUT-UNSEATED POPULATION IS GONE (req #3357) ──────────
 //
-// Epic association needs `feature_fk` on the requirement. The per-surface
-// projections DISAGREE about carrying it — `useRequirements` does,
-// `useRequirementsByStatus`, `useRequirementsDone` and the detail page's sibling
-// fetch do not — so a predicate reading `r.feature_fk` would answer correctly on
-// one card and silently answer "not orchestrated" on the others. Deriving the id
-// SET from its own bounded reads makes the predicate `ids.has(r.id)`, which every
-// projection can satisfy, and removes the whole class of drift.
-//
-// COST, MEASURED — and these reads are COLD, not warm. An earlier version of
-// this comment claimed they were already on the page; they are not:
-//
-//   * `useAllRequirements` keys on `{fields}` (useDataQueries.js), and this
-//     hook's `id,feature_fk` matches no existing caller — the table asks for
-//     `id,title,requirement_status,…`, the aggregator for `id,requirement_status`.
-//     Three distinct cache entries, three distinct whole-table reads.
-//   * the junction is read only by the PLAN pages (PipelineDetail, PipelinesPage,
-//     StepsPage), not by `/swarm` or `/taskcards`.
-//   * `useAllFeatures` with `{fields:'id,epic_fk', closed:'all'}` is a fourth
-//     distinct key.
-//
-// Net: +2 whole-table reads on the `/swarm` cards, the `/swarm` table and
-// `/taskcards`; +3 on `/swarm/requirement/:id`, which previously gated its one
-// junction read on the toggle. All three are 2-column bounded lists and
-// TanStack dedupes them across the N mounted `CategoryCard`s, so this is a
-// handful of small requests and NOT a fan-out — req #3080 design rule 5 holds
-// (no per-requirement fetch, and the request count does not grow with the
-// number of requirements or cards). Stated plainly here so nobody has to
-// re-measure it to know what the hook costs.
+// req #3419 unioned in a second population — requirements epic-filed via
+// `requirements.feature_fk -> features.epic_fk` but not yet carried by any
+// step — because the toggle otherwise still showed work that was plainly
+// part of a plan. Feature leaving the frontend retires the ONLY mechanism
+// that could produce that population (see `utils/pipelineMembership.js`'s
+// header for the full reasoning), so this hook now reads ONE bounded list —
+// the step-requirement junction — instead of three.
 
 import { useCallback, useMemo } from 'react';
 
-import {
-    useAllPipelineStepRequirements,
-    useAllRequirements,
-    useAllFeatures,
-    ALL_ROWS,
-} from './useDataQueries';
+import { useAllPipelineStepRequirements } from './useDataQueries';
 import { useShowClosedStore } from '../stores/useShowClosedStore';
 import { effectiveHidePipelined } from '../utils/epicMembership';
 import {
     pipelinedRequirementIds,
-    epicSeatedRequirementIds,
+    orchestratedRequirementIds,
     excludeByIds,
 } from '../utils/pipelineMembership';
-
-// Whole-table projections, narrow on purpose. `fields` is in every one of these
-// cache keys, so these slices never collide with a caller asking for more.
-const REQUIREMENT_FIELDS = 'id,feature_fk';
-const FEATURE_FIELDS = 'id,epic_fk';
 
 /**
  * @param {string} creatorFk  the profile userName; falsy disables every read.
@@ -107,39 +77,21 @@ export function useRequirementVisibility(creatorFk, { epicFilterActive = false }
     const storedHideOrchestrated = useShowClosedStore(s => s.hidePipelinedRequirements);
     const hideOrchestrated = effectiveHidePipelined(storedHideOrchestrated, epicFilterActive);
 
-    // Read unconditionally — hooks are not conditional, and gating these on the
+    // Read unconditionally — hooks are not conditional, and gating this on the
     // toggle would mean the FIRST flip renders stale-empty for a round trip,
-    // showing rows the user just asked to hide. All three are cached lists.
+    // showing rows the user just asked to hide.
     const { data: stepRequirements } = useAllPipelineStepRequirements(creatorFk);
-    const { data: requirementFeatureRows } = useAllRequirements(creatorFk, {
-        fields: REQUIREMENT_FIELDS,
-    });
-    const { data: features } = useAllFeatures(creatorFk, {
-        fields: FEATURE_FIELDS,
-        // A CLOSED feature still seats its requirements under its epic — see
-        // `epicSeatedRequirementIds`. `closed: 0` (the hook default) would
-        // un-orchestrate everything under a finished feature.
-        closed: ALL_ROWS,
-    });
 
     const pipelinedIds = useMemo(
         () => pipelinedRequirementIds(stepRequirements),
         [stepRequirements]);
 
-    const epicIds = useMemo(
-        () => epicSeatedRequirementIds(requirementFeatureRows, features),
-        [requirementFeatureRows, features]);
-
-    // The union, built here rather than by `orchestratedRequirementIds` so the
-    // two halves keep their own memo and a junction refetch does not re-walk the
-    // requirement/feature join (and vice versa). Same rule, same result — the
-    // harness asserts it against the pure function.
-    const orchestratedIds = useMemo(() => {
-        if (epicIds.size === 0) return pipelinedIds;
-        const ids = new Set(pipelinedIds);
-        for (const id of epicIds) ids.add(id);
-        return ids;
-    }, [pipelinedIds, epicIds]);
+    // orchestratedRequirementIds(stepRequirements) === pipelinedRequirementIds
+    // today (req #3357 retired the epic-filed union) — computed through the
+    // named export anyway so a future widening has one place to happen.
+    const orchestratedIds = useMemo(
+        () => orchestratedRequirementIds(stepRequirements),
+        [stepRequirements]);
 
     const isVisible = useCallback(
         (row) => !hideOrchestrated || !orchestratedIds.has(Number(row?.id)),

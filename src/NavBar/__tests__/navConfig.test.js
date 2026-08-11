@@ -60,23 +60,25 @@ describe('navConfig — Sessions sub-items', () => {
     });
 });
 
-// Req #3236 — Epics, Features and Steps nest as L3 children of Pipelines,
-// reusing the exact mechanism the Sessions block above pins. This SUPERSEDES
-// #3139, #3140 and #3217, each of which pinned "sibling, never a child of
-// Pipelines" for one of these three — the earlier assertions are inverted here
-// on purpose, not merely deleted.
-describe('navConfig — Epics/Features/Steps nest under Pipelines (req #3236)', () => {
+// Req #3236 — Epics and Steps nest as L3 children of Pipelines, reusing the
+// exact mechanism the Sessions block above pins. This SUPERSEDES #3139 and
+// #3140, each of which pinned "sibling, never a child of Pipelines" for one
+// of these two — the earlier assertions are inverted here on purpose, not
+// merely deleted. req #3357 retired the Features entry that once sat between
+// them (the Feature tier itself left the plan; a step belongs to its epic
+// directly).
+describe('navConfig — Epics/Steps nest under Pipelines (req #3236)', () => {
     const PIPELINES_PATH = '/swarm/pipelines';
-    const CHILD_PATHS = ['/swarm/epics', '/swarm/features', '/swarm/steps'];
-    // req #3463 — the parallel 2.0 plan list, a fourth child that is NOT part of
-    // the Epic > Feature > Step hierarchy CHILD_PATHS names.
+    const CHILD_PATHS = ['/swarm/epics', '/swarm/steps'];
+    // req #3463 — the parallel 2.0 plan list, a third child that is NOT part of
+    // the Epic > Step hierarchy CHILD_PATHS names.
     const PIPELINES2_PATH = '/swarm/pipelines2';
     // req #3393 — the 2.0 plan-layer editors. They nest HERE, alongside
     // Pipelines 2.0, rather than under it: NavBarSidebar renders exactly two
     // levels (a Pipelines-2.0-owns-Epics-2.0-and-Steps-2.0 L4 shape would be
     // silently dropped), so the only place a 2.0 child can go is this same
-    // array. Ordered after Pipelines 2.0 for the reason Epics/Features/Steps
-    // follow Pipelines: the list before what it lists.
+    // array. Ordered after Pipelines 2.0 for the reason Epics/Steps follow
+    // Pipelines: the list before what it lists.
     const PIPELINES2_CHILD_PATHS = ['/swarm/epics2', '/swarm/steps2'];
 
     const pipelines = NAV_LINKS.find(l => l.path === PIPELINES_PATH);
@@ -87,17 +89,16 @@ describe('navConfig — Epics/Features/Steps nest under Pipelines (req #3236)', 
         expect(pipelines.label).toBe('Pipelines');
     });
 
-    it('nests Epics / Features / Steps under Pipelines, in hierarchy order', () => {
-        // Epic > Feature > Step — not arrival order (Epics shipped #3139, Steps
-        // #3140, Features #3217 last).
+    it('nests Epics / Steps under Pipelines, in hierarchy order', () => {
+        // Epic > Step — not arrival order (Epics shipped #3139, Steps #3140).
         expect(pipelines.children.map(c => c.path))
             .toEqual([...CHILD_PATHS, PIPELINES2_PATH, ...PIPELINES2_CHILD_PATHS]);
-        // req #3463 — Pipelines 2.0 nests here too, right after the three. It
-        // is not part of the Epic > Feature > Step hierarchy this test pins;
-        // it is the parallel plan surface standing up beside 1.0.
+        // req #3463 — Pipelines 2.0 nests here too, right after the two. It
+        // is not part of the Epic > Step hierarchy this test pins; it is the
+        // parallel plan surface standing up beside 1.0.
         // req #3393 — Epics 2.0 / Steps 2.0 follow it, same reasoning.
         expect(pipelines.children.map(c => c.label))
-            .toEqual(['Epics', 'Features', 'Steps', 'Pipelines 2.0', 'Epics 2.0', 'Steps 2.0']);
+            .toEqual(['Epics', 'Steps', 'Pipelines 2.0', 'Epics 2.0', 'Steps 2.0']);
     });
 
     it('every child carries an icon so the collapsed sidebar can render it', () => {
@@ -113,19 +114,10 @@ describe('navConfig — Epics/Features/Steps nest under Pipelines (req #3236)', 
         CHILD_PATHS.forEach(p => expect(topLevel).not.toContain(p));
     });
 
-    it('no longer files Features under the swarm-validate group', () => {
-        const validatePaths = NAV_LINKS.filter(l => l.group === 'swarm-validate')
-                                       .map(l => l.path);
-        expect(validatePaths).not.toContain('/swarm/features');
-    });
-
-    it('lists Features exactly once across the whole tree', () => {
-        // The collision the requirement calls out: a Features/test-cases app
-        // lives elsewhere in Darwin, and there must be exactly one nav row for
-        // this /swarm/features editor, nested and nowhere else.
+    it('no longer lists a Features route anywhere in the tree (req #3357)', () => {
         const occurrences = flattenNavLinks(NAV_LINKS)
             .filter(l => l.path === '/swarm/features').length;
-        expect(occurrences).toBe(1);
+        expect(occurrences).toBe(0);
     });
 
     it('leaves the swarm-validate group intact', () => {
