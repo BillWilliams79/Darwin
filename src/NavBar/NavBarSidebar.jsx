@@ -160,7 +160,15 @@ const NavBarSidebar = () => {
         // so a child route highlights only its own nav item, not the parent index
         // too (req #3013 added /agents/instructions + /agents/documents).
         if (path === '/swarm' || path === '/agents') return location.pathname === path;
-        return location.pathname.startsWith(path);
+        // Every other link matches itself OR a `/`-delimited sub-route of
+        // itself (`/swarm/testruns/42` for the `/swarm/testruns` link) —
+        // never a mere STRING prefix. A bare `startsWith` matched
+        // `/swarm/epics2` against the `/swarm/epics` link (code review, req
+        // #3393): a plan-layer editor whose path happens to extend another
+        // link's path by an unrelated suffix lit up both nav rows, and the
+        // mobile bottom nav — which takes the FIRST match in flattened order
+        // — selected the wrong one outright.
+        return location.pathname === path || location.pathname.startsWith(`${path}/`);
     };
 
     // Landing on an L3 route (a bookmark, a redirect, a page link) opens its

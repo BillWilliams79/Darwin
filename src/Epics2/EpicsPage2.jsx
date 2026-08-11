@@ -1,9 +1,11 @@
 // /swarm/epics2 — the Pipeline 2.0 plan-layer epics editor (req #3393).
 //
 // Stands BESIDE `/swarm/epics` (Darwin/src/Epics/EpicsPage.jsx), never in
-// place of it — reads pipeline2_epics, imports nothing from that file or from
-// any other 1.0 module (structural copy, not a shared component). See
-// PLAN.md for the full re-scope rationale.
+// place of it, and shares no COMPONENT with it (structural copy). It DOES
+// share the query layer and chip-style files (`useDataQueries.js`,
+// `pipelineChipStyles.js`) — req #3463 established that additive-extension
+// convention for this feature first, and this page follows it rather than a
+// parallel copy. See PLAN.md for the full re-scope rationale.
 //
 // Shape follows EpicsPage.jsx exactly: one DataGrid, a click-to-toggle closed
 // chip, create/edit through one dialog. Differences from the 1.0 page, all
@@ -53,19 +55,19 @@ import DeleteIcon from '@mui/icons-material/Delete';
 
 import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
-import { useAllCategories } from '../hooks/useDataQueries';
 import {
+    useAllCategories,
     useAllPipelines2,
     useAllPipeline2Epics,
     useAllPipeline2Steps,
     pipeline2EpicKeys,
     pipeline2StepKeys,
-} from '../hooks/factory/devopsQueries2';
+} from '../hooks/useDataQueries';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import ChipFilter from '../Components/ChipFilter/ChipFilter';
 import { formatDate } from '../utils/dateFormat';
-import { epicStatus2ChipProps, epicStatus2Label } from '../Pipelines2/pipeline2ChipStyles';
-import { createEpic2, updateEpic2, deleteEpic2, REST_NULL } from './epics2Api';
+import { epicStatus2ChipProps, epicStatus2Label } from '../SwarmView/pipelines/pipelineChipStyles';
+import { createEpic2, updateEpic2, deleteEpic2, isRestNullLiteral, REST_NULL } from './epics2Api';
 
 // Same projection 1.0's EpicsPage requests — a NAME DICTIONARY, no `closed`
 // filter (an epic filed under a since-closed category must still render it).
@@ -77,8 +79,9 @@ const CLOSED_FILTER_OPTIONS = [
 ];
 
 // SMALLINT — the column's real width. Copied from EpicsPage.jsx rather than
-// imported (small pure function, same decoupling rationale as everywhere
-// else in this feature — see devopsQueries2.js's header).
+// imported: a small pure validation function, not a data or style dependency,
+// so it stays a local copy even where the query layer and chip styles now
+// share their 1.0 files directly.
 const SORT_ORDER_MIN = -32768;
 const SORT_ORDER_MAX = 32767;
 
@@ -239,6 +242,15 @@ export default function EpicsPage2() {
         const sortOrder = parseSortOrder(formSortOrder);
         if (!title) {
             showError('Title is required');
+            return;
+        }
+        // `title` is NOT NULL — a typed "NULL" is Lambda-Rest's clear-column
+        // sentinel on BOTH POST and PUT, so it would otherwise reach the
+        // gateway as SQL NULL and fail as an opaque 500 (code review, req
+        // #3393; matches StepsPage2's identical guard for its own title field).
+        if (isRestNullLiteral(title)) {
+            showError(`"${REST_NULL}" is the API's clear-this-column sentinel and cannot `
+                + 'be a title. Try "Null" or another wording.');
             return;
         }
         if (!editTarget && (formPipelineFk === '' || formPipelineFk == null)) {

@@ -21,8 +21,11 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 vi.mock('@mui/x-data-grid', () => ({
     GridToolbar: () => null,
-    DataGrid: ({ rows, columns }) => (
-        <div data-testid="grid">
+    // `data-testid` forwarded from the real usage (`steps2-grid`), not
+    // hardcoded — see PipelinesPage2.test.jsx's identical fix for why a
+    // hardcoded value here is a latent bug.
+    DataGrid: ({ rows, columns, 'data-testid': testId = 'grid' }) => (
+        <div data-testid={testId}>
             {rows.map((row, index) => (
                 <div key={row.id} data-testid={`grid-row-${row.id}`} data-index={index}>
                     {columns.map((col) => {
@@ -51,7 +54,7 @@ let stepDeps;
 let requirements;
 let loading;
 
-vi.mock('../../hooks/factory/devopsQueries2', async (importOriginal) => {
+vi.mock('../../hooks/useDataQueries', async (importOriginal) => {
     const actual = await importOriginal();
     return {
         ...actual,
@@ -61,13 +64,6 @@ vi.mock('../../hooks/factory/devopsQueries2', async (importOriginal) => {
             data: stepRequirements, isLoading: loading.links, isError: loading.linksError }),
         useAllPipeline2StepDeps: () => ({
             data: stepDeps, isLoading: loading.deps, isError: loading.depsError }),
-    };
-});
-
-vi.mock('../../hooks/useDataQueries', async (importOriginal) => {
-    const actual = await importOriginal();
-    return {
-        ...actual,
         useAllRequirements: () => ({
             data: requirements, isLoading: loading.requirements, isError: loading.requirementsError }),
     };

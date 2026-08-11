@@ -2,8 +2,8 @@
 //
 // PURE: plain rows in, plain rows out. No React, no MUI, no hooks, no clock —
 // same shape as `Darwin/src/Steps/stepsModel.js`, whose functions this ports a
-// SUBSET of rather than importing (see devopsQueries2.js's header for why 2.0
-// code carries no import edge into any 1.0 file).
+// SUBSET of rather than importing (see pipeline2ViewModel.js's header for why
+// this file stays a structural copy rather than an import).
 //
 // ## Why this is a guard, not a state engine
 //

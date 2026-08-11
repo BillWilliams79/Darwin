@@ -59,7 +59,6 @@ import SwarmCompletesPage from './SwarmCompletes/SwarmCompletesPage';
 import SwarmCompleteDetail from './SwarmCompletes/SwarmCompleteDetail';
 import PipelinesPage from './SwarmView/pipelines/PipelinesPage';
 import PipelineDetail from './SwarmView/pipelines/PipelineDetail';
-import Pipelines2Page from './SwarmView/pipelines/Pipelines2Page';
 // req #3463 — the route STRINGS come from the same module the link builders
 // use, so a matcher and a builder cannot disagree about what a plan URL is.
 import {
@@ -194,8 +193,13 @@ root.render(
                         cannot shadow each other, and neither can shadow the 1.0
                         pair, because React Router ranks literal segments over
                         parameterised ones. */}
+                    {/* req #3393 — the full-featured 2.0 plan editor supersedes
+                        #3463's deliberately-thin placeholder here (that file's
+                        own header said so: "either where they land or it is
+                        deleted in favour of the page that has them"). Same
+                        route, same era binding — only the component changed. */}
                     <Route path={planListRoutePath(PLAN_ERA_2)} element= {<AuthenticatedRoute>
-                                                             <Pipelines2Page />
+                                                             <PipelinesPage2 />
                                                          </AuthenticatedRoute>} />
                     <Route path={planDetailRoutePath(PLAN_ERA_2)} element= {<AuthenticatedRoute>
                                                              <PipelineDetail era={PLAN_ERA_2} />
@@ -214,15 +218,12 @@ root.render(
                     <Route path="swarm/steps" element= {<AuthenticatedRoute>
                                                              <StepsPage />
                                                          </AuthenticatedRoute>} />
-                    {/* Pipeline 2.0 plan-layer editors (req #3393) — SIBLING routes,
-                        not a replacement. Each reads pipeline2_* data through its own
-                        query layer (devopsQueries2.js) and shares no component with
-                        the 1.0 routes directly above. Stay on these routes until
-                        #3356's eradication retires the 1.0 ones; only then would the
-                        "2" suffix and the parallel routes go away. */}
-                    <Route path="swarm/pipelines2" element= {<AuthenticatedRoute>
-                                                             <PipelinesPage2 />
-                                                         </AuthenticatedRoute>} />
+                    {/* Pipeline 2.0 plan-layer editors, epic and step tiers
+                        (req #3393). The pipelines2 LIST route above already
+                        carries this era's list; these two are not "plan
+                        routes" in planEra.js's sense (they list epics/steps,
+                        not plans) so they stay literal here, same as their
+                        1.0 counterparts two blocks up. */}
                     <Route path="swarm/epics2" element= {<AuthenticatedRoute>
                                                              <EpicsPage2 />
                                                          </AuthenticatedRoute>} />

@@ -476,6 +476,53 @@ export const pipelines2 = createEntityQueries({
     defaultSort: 'id:desc',
 });
 
+// ---------------------------------------------------------------------------
+// The Pipeline 2.0 plan-layer EDITORS (req #3393) — epics, steps and their two
+// junctions. `pipelines2` above is the req #3463 id PRODUCER (a thin list);
+// these four are what a person actually edits (execution_mode aside, which
+// lives on the pipeline row itself, above). Same additive-to-this-file
+// convention #3463 established for `pipelines2`, rather than a second parallel
+// file — one place per table, both eras.
+//
+// `description` IS carried here (unlike `pipelines2`'s list projection above):
+// these are the editor pages' own reads, not an id-producing index, and the
+// description dialogs/fields need it inline.
+export const pipeline2Epics = createEntityQueries({
+    entity: 'pipeline2_epics',
+    defaultFields:
+        'id,pipeline_fk,title,description,epic_status,sort_order,category_fk,' +
+        'closed,creator_fk,create_ts,update_ts',
+    fieldsInKey: true,
+    defaultSort: 'sort_order:asc',
+});
+
+// No `pipeline_fk` — containment means a step's plan is derived through its
+// epic (data record § 6), unlike 1.0's `pipelineSteps` below. `sort=id:asc`
+// for the same load-bearing reason as 1.0's block: no sequence column exists,
+// so canonical stored order is the auto-increment id.
+export const pipeline2Steps = createEntityQueries({
+    entity: 'pipeline2_steps',
+    defaultFields: 'id,epic_fk,title,run,notes,not_before,completed_at,creator_fk',
+    fieldsInKey: true,
+    defaultSort: 'id:asc',
+});
+
+// Junction, `PRIMARY KEY (requirement_fk)` alone (stage-2 gate ruling, req
+// #3336 — one step per requirement, structural) — no `id`, never request one.
+export const pipeline2StepRequirements = createEntityQueries({
+    entity: 'pipeline2_step_requirements',
+    defaultFields: 'step_fk,requirement_fk',
+    fieldsInKey: true,
+});
+
+// Dependency edges. No `time_at` (schema difference from 1.0's block below —
+// the time gate is `pipeline2_steps.not_before` now, a column, not a row kind).
+export const pipeline2StepDeps = createEntityQueries({
+    entity: 'pipeline2_step_deps',
+    defaultFields: 'id,step_fk,dep_step_fk',
+    fieldsInKey: true,
+});
+
 export const pipelines = createEntityQueries({
     entity: 'pipelines',
     defaultFields:

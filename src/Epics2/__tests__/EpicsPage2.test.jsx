@@ -28,8 +28,12 @@ vi.mock('react-router-dom', async (importOriginal) => ({
 
 vi.mock('@mui/x-data-grid', () => ({
     GridToolbar: () => null,
-    DataGrid: ({ rows, columns }) => (
-        <div data-testid="grid">
+    // `data-testid` forwarded from the real usage (`epics2-grid`), not
+    // hardcoded — see PipelinesPage2.test.jsx's identical fix for why a
+    // hardcoded value here is a latent bug (found via that file's view-toggle
+    // test, the only one that queried a grid's own testid directly).
+    DataGrid: ({ rows, columns, 'data-testid': testId = 'grid' }) => (
+        <div data-testid={testId}>
             {rows.map((row, index) => (
                 <div key={row.id} data-testid={`grid-row-${row.id}`} data-index={index}>
                     {columns.map((col) => {
@@ -57,28 +61,28 @@ let steps;
 let categories;
 let loading;
 
-vi.mock('../../hooks/factory/devopsQueries2', async (importOriginal) => {
+vi.mock('../../hooks/useDataQueries', async (importOriginal) => {
     const actual = await importOriginal();
     return {
         ...actual,
         useAllPipelines2: () => ({ data: pipelines, isLoading: loading.pipelines }),
         useAllPipeline2Epics: () => ({ data: epics, isLoading: loading.epics }),
         useAllPipeline2Steps: () => ({ data: steps, isLoading: loading.steps }),
-    };
-});
-
-vi.mock('../../hooks/useDataQueries', async (importOriginal) => {
-    const actual = await importOriginal();
-    return {
-        ...actual,
         useAllCategories: () => ({ data: categories, isLoading: loading.categories }),
     };
 });
 
 const restCalls = [];
+// Keyed by exact GET uri -> data to return; unset GETs (and every non-GET)
+// fall back to the empty-array default. Lets the two-phase-delete tests
+// script a live re-read without a full REST mock.
+let restGetResponses = {};
 vi.mock('../../RestApi/RestApi', () => ({
     default: vi.fn((uri, method, body) => {
         restCalls.push({ uri, method, body });
+        if (method === 'GET' && Object.prototype.hasOwnProperty.call(restGetResponses, uri)) {
+            return Promise.resolve({ httpStatus: { httpStatus: 200 }, data: restGetResponses[uri] });
+        }
         return Promise.resolve({ httpStatus: { httpStatus: 200 }, data: [] });
     }),
 }));
@@ -132,6 +136,7 @@ const rowIds = () => [...document.body.querySelectorAll('[data-testid^="grid-row
 beforeEach(() => {
     navigations.length = 0;
     restCalls.length = 0;
+    restGetResponses = {};
     mountedRoots = [];
     loading = { pipelines: false, epics: false, steps: false, categories: false };
     pipelines = [
@@ -309,7 +314,16 @@ describe('EpicsPage2 delete', () => {
         click(node('epic2-delete-4'));
         await flush();
 
+        // Two-phase delete (code review, req #3393): first reads this epic's
+        // own step ids so any intra/cross-epic dependency edges can be sorted
+        // before the epic DELETE — see epics2Api.js's `deleteEpic2` header.
+        // The mock returns an empty step list, so no dep-edge reads/clears
+        // follow; that branch has its own coverage below.
         expect(restCalls).toEqual([{
+            uri: 'http://test.local/darwin/pipeline2_steps?epic_fk=4&fields=id',
+            method: 'GET',
+            body: '',
+        }, {
             uri: 'http://test.local/darwin/pipeline2_epics',
             method: 'DELETE',
             body: { id: 4 },
@@ -317,5 +331,51 @@ describe('EpicsPage2 delete', () => {
         const keys = queryClient.invalidateQueries.mock.calls.map(c => c[0].queryKey);
         expect(keys.map(k => k[0])).toContain('pipeline2_epics');
         expect(keys.map(k => k[0])).toContain('pipeline2_steps');
+    });
+
+    it('clears an intra-epic dependency edge, then deletes (two-phase delete)', async () => {
+        vi.spyOn(window, 'confirm').mockReturnValue(true);
+        // Epic 4 owns steps 100 and 101 (see the `steps` fixture above); 101
+        // depends on 100, both inside epic 4 — the InnoDB RESTRICT-vs-cascade
+        // false refusal `deleteEpic2`'s header describes.
+        restGetResponses['http://test.local/darwin/pipeline2_steps?epic_fk=4&fields=id'] =
+            [{ id: 100 }, { id: 101 }];
+        restGetResponses['http://test.local/darwin/pipeline2_step_deps?dep_step_fk=(100,101)'
+            + '&fields=id,step_fk,dep_step_fk'] = [{ id: 900, step_fk: 101, dep_step_fk: 100 }];
+        mount();
+        click(node('epic2-delete-4'));
+        await flush();
+
+        expect(restCalls.map(c => ({ uri: c.uri, method: c.method }))).toEqual([
+            { uri: 'http://test.local/darwin/pipeline2_steps?epic_fk=4&fields=id', method: 'GET' },
+            {
+                uri: 'http://test.local/darwin/pipeline2_step_deps?dep_step_fk=(100,101)'
+                    + '&fields=id,step_fk,dep_step_fk',
+                method: 'GET',
+            },
+            { uri: 'http://test.local/darwin/pipeline2_step_deps', method: 'DELETE' },
+            { uri: 'http://test.local/darwin/pipeline2_epics', method: 'DELETE' },
+        ]);
+        expect(restCalls[2].body).toEqual({ id: 900 });
+        expect(restCalls[3].body).toEqual({ id: 4 });
+        expect(useSnackBarStore.getState().open).toBe(false);
+    });
+
+    it('refuses when a step outside the epic depends on one of its steps', async () => {
+        vi.spyOn(window, 'confirm').mockReturnValue(true);
+        // Step 102 belongs to epic 5 (see the `steps` fixture above) and
+        // depends on step 100, which belongs to epic 4 — a real cross-epic
+        // edge, not the false-refusal case above.
+        restGetResponses['http://test.local/darwin/pipeline2_steps?epic_fk=4&fields=id'] =
+            [{ id: 100 }, { id: 101 }];
+        restGetResponses['http://test.local/darwin/pipeline2_step_deps?dep_step_fk=(100,101)'
+            + '&fields=id,step_fk,dep_step_fk'] = [{ id: 901, step_fk: 102, dep_step_fk: 100 }];
+        mount();
+        click(node('epic2-delete-4'));
+        await flush();
+
+        expect(restCalls.some(c => c.method === 'DELETE')).toBe(false);
+        expect(useSnackBarStore.getState().open).toBe(true);
+        expect(useSnackBarStore.getState().message).toContain('409');
     });
 });

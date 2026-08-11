@@ -71,6 +71,13 @@ describe('navConfig — Epics/Features/Steps nest under Pipelines (req #3236)', 
     // req #3463 — the parallel 2.0 plan list, a fourth child that is NOT part of
     // the Epic > Feature > Step hierarchy CHILD_PATHS names.
     const PIPELINES2_PATH = '/swarm/pipelines2';
+    // req #3393 — the 2.0 plan-layer editors. They nest HERE, alongside
+    // Pipelines 2.0, rather than under it: NavBarSidebar renders exactly two
+    // levels (a Pipelines-2.0-owns-Epics-2.0-and-Steps-2.0 L4 shape would be
+    // silently dropped), so the only place a 2.0 child can go is this same
+    // array. Ordered after Pipelines 2.0 for the reason Epics/Features/Steps
+    // follow Pipelines: the list before what it lists.
+    const PIPELINES2_CHILD_PATHS = ['/swarm/epics2', '/swarm/steps2'];
 
     const pipelines = NAV_LINKS.find(l => l.path === PIPELINES_PATH);
 
@@ -84,13 +91,13 @@ describe('navConfig — Epics/Features/Steps nest under Pipelines (req #3236)', 
         // Epic > Feature > Step — not arrival order (Epics shipped #3139, Steps
         // #3140, Features #3217 last).
         expect(pipelines.children.map(c => c.path))
-            .toEqual([...CHILD_PATHS, PIPELINES2_PATH]);
-        // req #3463 — Pipelines 2.0 nests here too, LAST. It is not part of the
-        // Epic > Feature > Step hierarchy this test pins; it is the parallel
-        // plan surface standing up beside 1.0, so it goes after the three
-        // rather than into their order.
+            .toEqual([...CHILD_PATHS, PIPELINES2_PATH, ...PIPELINES2_CHILD_PATHS]);
+        // req #3463 — Pipelines 2.0 nests here too, right after the three. It
+        // is not part of the Epic > Feature > Step hierarchy this test pins;
+        // it is the parallel plan surface standing up beside 1.0.
+        // req #3393 — Epics 2.0 / Steps 2.0 follow it, same reasoning.
         expect(pipelines.children.map(c => c.label))
-            .toEqual(['Epics', 'Features', 'Steps', 'Pipelines 2.0']);
+            .toEqual(['Epics', 'Features', 'Steps', 'Pipelines 2.0', 'Epics 2.0', 'Steps 2.0']);
     });
 
     it('every child carries an icon so the collapsed sidebar can render it', () => {
@@ -130,7 +137,9 @@ describe('navConfig — Epics/Features/Steps nest under Pipelines (req #3236)', 
     it('exposes the new L3 routes in the flattened list', () => {
         const flat = flattenNavLinks(NAV_LINKS).map(l => l.path);
         CHILD_PATHS.forEach(p => expect(flat).toContain(p));
+        PIPELINES2_CHILD_PATHS.forEach(p => expect(flat).toContain(p));
         expect(flat).toContain(PIPELINES_PATH);
+        expect(flat).toContain(PIPELINES2_PATH);
     });
 
     it('holds the swarm group\'s first link (req #3427)', () => {

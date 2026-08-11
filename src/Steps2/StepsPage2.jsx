@@ -1,9 +1,12 @@
 // /swarm/steps2 — the Pipeline 2.0 plan-layer steps editor (req #3393).
 //
 // Stands BESIDE `/swarm/steps` (Darwin/src/Steps/StepsPage.jsx), never in
-// place of it — reads pipeline2_steps, imports nothing from that file or from
-// any other 1.0 module (structural copy, not a shared component). See
-// PLAN.md for the full re-scope rationale.
+// place of it, and shares no COMPONENT with it (structural copy). It DOES
+// share the query layer, chip-style file and era binding
+// (`useDataQueries.js`, `pipelineChipStyles.js`, `planEra.js`) — req #3463
+// established that additive-extension convention for this feature first, and
+// this page follows it rather than a parallel copy. See PLAN.md for the full
+// re-scope rationale.
 //
 // Shape follows StepsPage.jsx: one DataGrid, click-to-toggle chips, one
 // dialog for create/edit. Differences from the 1.0 page, all schema-driven:
@@ -25,11 +28,15 @@
 //   - Gate/link columns (`reqCount`, `gateCount`) are read-only counts with
 //     an id tooltip, exactly like 1.0 — no seat/dependency editor, matching
 //     the requirement's own deliberate-omissions list.
-//   - The Epic cell is a plain label, not a link — there is no 2.0 plan
-//     detail/visualizer page yet to deep-link into (`PLAN.md`'s named gap).
+//   - The Epic cell links to this step's plan at `/swarm/pipeline2/:id` (req
+//     #3463/#3372's visualizer) via `planDetailPath` — PLAN.md's "no 2.0 plan
+//     detail page to deep-link into" gap is now closed. It links the PLAN,
+//     not a specific step within it: 2.0's `?step=` focus handshake (the
+//     1.0 `pipelineStepLink.js` equivalent) is that visualizer's own concern,
+//     not this editor's.
 
 import { useContext, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 
 import Box from '@mui/material/Box';
@@ -64,12 +71,17 @@ import {
     pipeline2StepKeys,
     pipeline2StepRequirementKeys,
     pipeline2StepDepKeys,
-} from '../hooks/factory/devopsQueries2';
-import { useAllRequirements } from '../hooks/useDataQueries';
+    useAllRequirements,
+} from '../hooks/useDataQueries';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import ChipFilter from '../Components/ChipFilter/ChipFilter';
 import { formatDateTime } from '../utils/dateFormat';
-import { run2ChipProps, run2Label } from '../Pipelines2/pipeline2ChipStyles';
+import { runChipProps, runLabel } from '../SwarmView/pipelines/pipelineChipStyles';
+// req #3463 built the reachable 2.0 visualizer at planDetailPath(PLAN_ERA_2,
+// id) — the "no 2.0 plan detail page to deep-link into" gap this file used to
+// note is closed. The Epic column links there via the SAME builder the router
+// uses, never a literal string (planEra.js's own guard forbids one).
+import { PLAN_ERA_2, planDetailPath } from '../SwarmView/pipelines/planEra';
 import { buildStep2Rows, completionGuard2, gatingRequirementIds2 } from './steps2Model';
 import {
     REST_NULL,
@@ -117,10 +129,15 @@ const blockerClause = (row) => {
         : `steps ${ids.join(', ')} depend on it`;
 };
 
-const gateSummary = (row) => ((row.depIds || []).length
+// `timezone` is required, not optional with a silent UTC fallback — code
+// review (req #3393) found the original version interpolated `row.not_before`
+// (naive UTC) verbatim while the Gate COLUMN two cells over renders the same
+// instant through `formatDateTime(value, timezone)`, so one grid showed one
+// gate at two different times with nothing marking either as UTC.
+const gateSummary = (row, timezone) => ((row.depIds || []).length
     ? `after step${row.depIds.length === 1 ? '' : 's'} ${row.depIds.join(', ')}`
     : 'No step gate.') + (row.not_before
-        ? ` · not before ${row.not_before}`
+        ? ` · not before ${formatDateTime(row.not_before, timezone)}`
         : '');
 
 // HTML `<input type="datetime-local">` reads/writes local wall-clock time with
@@ -150,6 +167,7 @@ export default function StepsPage2() {
     const queryClient = useQueryClient();
     const showError = useSnackBarStore(s => s.showError);
     const [searchParams, setSearchParams] = useSearchParams();
+    const navigate = useNavigate();
 
     const creatorFk = profile?.userName;
     const timezone = profile?.timezone;
@@ -413,7 +431,24 @@ export default function StepsPage2() {
         { field: 'title', headerName: 'Step', flex: 1, minWidth: 180 },
         {
             field: 'epicTitle', headerName: 'Epic', width: 160,
-            valueFormatter: (value, row) => value || `#${row.epic_fk}`,
+            renderCell: (params) => {
+                const label = params.value || `#${params.row.epic_fk}`;
+                const to = planDetailPath(PLAN_ERA_2, params.row.pipelineFk);
+                return (
+                    <Box sx={{ display: 'flex', alignItems: 'center', height: '100%' }}>
+                        <Tooltip title={to ? `Open this step's plan (2.0)` : label}>
+                            <Chip
+                                label={label}
+                                size="small"
+                                variant="outlined"
+                                clickable={!!to}
+                                onClick={(e) => { e.stopPropagation(); if (to) navigate(to); }}
+                                data-testid={`step2-plan-link-${params.row.id}`}
+                            />
+                        </Tooltip>
+                    </Box>
+                );
+            },
         },
         {
             field: 'completedAt', headerName: 'State', width: 130, sortable: false,
@@ -451,9 +486,9 @@ export default function StepsPage2() {
                     ? 'Manual — reported eligible, never launched. Click for Auto.'
                     : 'Auto — the orchestrator launches this step when its gate clears. Click for Manual.'}>
                     <Chip
-                        label={run2Label(params.value)}
+                        label={runLabel(params.value)}
                         size="small"
-                        {...run2ChipProps(params.value)}
+                        {...runChipProps(params.value)}
                         clickable
                         onClick={() => toggleRun(params.row)}
                         data-testid={`step2-run-chip-${params.row.id}`}
@@ -476,7 +511,7 @@ export default function StepsPage2() {
             field: 'gateCount', headerName: 'Gate', width: 90, type: 'number',
             valueGetter: (_v, row) => (row.depIds || []).length,
             renderCell: (params) => (
-                <Tooltip title={gateSummary(params.row)}>
+                <Tooltip title={gateSummary(params.row, timezone)}>
                     <Box component="span" data-testid={`step2-gate-count-${params.row.id}`}>
                         {params.value}
                     </Box>

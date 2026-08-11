@@ -95,6 +95,15 @@ export const NAV_LINKS = [
             // "Beta"), because the one thing a reader must not do is take a
             // plan id from one list to the other — the ids are disjoint.
             { path: planListPath(PLAN_ERA_2), label: 'Pipelines 2.0', icon: LanIcon, group: 'swarm' },
+            // req #3393 — the 2.0 plan-layer editors, same nesting rule as
+            // #3463's Pipelines 2.0 entry directly above: children of the SAME
+            // Pipelines parent rather than a second top-level group, because
+            // NavBarSidebar renders only two levels (no L4), so an editor
+            // nested UNDER "Pipelines 2.0" is not renderable. Ordered after
+            // Pipelines 2.0 for the same reason Epics/Features/Steps follow
+            // Pipelines: the list before the things it lists.
+            { path: '/swarm/epics2', label: 'Epics 2.0', icon: LayersIcon, group: 'swarm' },
+            { path: '/swarm/steps2', label: 'Steps 2.0', icon: LinearScaleIcon, group: 'swarm' },
         ],
     },
     // Req #3238 — Machines nests as an L3 child of Requirements rather than
@@ -110,23 +119,6 @@ export const NAV_LINKS = [
         path: '/swarm', label: 'Requirements', icon: MapIcon, group: 'swarm',
         children: [
             { path: '/swarm/machines', label: 'Machines', icon: ComputerIcon, group: 'swarm' },
-        ],
-    },
-    // Req #3393 — the Pipeline 2.0 plan-layer editors. Positioned right after
-    // Requirements (not between Pipelines and Requirements, which would break
-    // req #3427's "Requirements is second in the swarm group" invariant) so
-    // the two pipeline eras still read close together during the parallel-run
-    // period (1.0 REMAINS UNALTERED, 2.0 stands up beside it —
-    // memory/pipeline-2-first-principles.md § 10). Reuses the same three
-    // icons as the 1.0 group: the entity meaning is identical, only the era
-    // differs. Retire this block at #3356's eradication, once the 1.0
-    // Pipelines group above is removed and these routes (or their
-    // successors) take over the un-suffixed paths.
-    {
-        path: '/swarm/pipelines2', label: 'Pipelines 2.0', icon: LanIcon, group: 'swarm',
-        children: [
-            { path: '/swarm/epics2', label: 'Epics 2.0', icon: LayersIcon, group: 'swarm' },
-            { path: '/swarm/steps2', label: 'Steps 2.0', icon: LinearScaleIcon, group: 'swarm' },
         ],
     },
     // Req #3209 — Sessions is an L2 item with L3 children. Starts,
