@@ -9,7 +9,6 @@ import DnsIcon from '@mui/icons-material/Dns';
 import PedalBikeIcon from '@mui/icons-material/PedalBike';
 import RepeatIcon from '@mui/icons-material/Repeat';
 import RouteIcon from '@mui/icons-material/Route';
-import FactCheckIcon from '@mui/icons-material/FactCheck';
 import ChecklistIcon from '@mui/icons-material/Checklist';
 import PlaylistAddCheckIcon from '@mui/icons-material/PlaylistAddCheck';
 import PlayCircleIcon from '@mui/icons-material/PlayCircle';
@@ -71,22 +70,23 @@ export const NAV_LINKS = [
         { path: '/customers', label: 'Customers', icon: BusinessIcon, group: 'systems' },
         { path: '/customer-releases', label: 'Customer Releases', icon: BusinessIcon, group: 'systems' },
     ] : []),
-    // Req #3236 — Epics, Features and Steps are the plan's own entities (Epic >
-    // Feature > Step, sequenced into a pipeline's steps — design rule 10 walks
-    // that chain for a step's label), so they nest as L3 children of Pipelines
-    // rather than standing beside it as L2 siblings. Reuses the collapsible L3
-    // mechanism req #3209 shipped for Sessions verbatim — no second mechanism.
-    // Order is hierarchy order (Epic, then Feature, then Step), not the order
-    // the pages happened to ship in (#3139 Epics, #3140 Steps, #3217 Features).
-    // FactCheckIcon/LayersIcon/LinearScaleIcon are unchanged: the entries moved,
-    // not the pages, so each keeps the icon it always carried.
+    // Req #3236 — Epics and Steps are the plan's own entities, sequenced into a
+    // pipeline's steps, so they nest as L3 children of Pipelines rather than
+    // standing beside it as L2 siblings. Reuses the collapsible L3 mechanism
+    // req #3209 shipped for Sessions verbatim — no second mechanism. Order is
+    // hierarchy order (Epic, then Step). LayersIcon/LinearScaleIcon are
+    // unchanged: the entries moved, not the pages, so each keeps the icon it
+    // always carried.
+    // Req #3357 — the Feature tier (and its Features entry here, between Epics
+    // and Steps) was retired: a step now belongs to its epic directly rather
+    // than through an intermediate Feature row, so the plan-editor cluster went
+    // from three L3 children to two.
     // Req #3427 — Pipelines leads the SWARM group, ahead of Requirements: the
     // plan is the entry point workers are launched from, so it reads first.
     {
         path: planListPath(PLAN_ERA_1), label: 'Pipelines', icon: LanIcon, group: 'swarm',
         children: [
             { path: '/swarm/epics', label: 'Epics', icon: LayersIcon, group: 'swarm' },
-            { path: '/swarm/features', label: 'Features', icon: FactCheckIcon, group: 'swarm' },
             { path: '/swarm/steps', label: 'Steps', icon: LinearScaleIcon, group: 'swarm' },
             // req #3463 — Pipeline 2.0's plan list, nested under 1.0's rather
             // than standing beside it: 2.0 is standing up in parallel, not
@@ -100,7 +100,7 @@ export const NAV_LINKS = [
             // Pipelines parent rather than a second top-level group, because
             // NavBarSidebar renders only two levels (no L4), so an editor
             // nested UNDER "Pipelines 2.0" is not renderable. Ordered after
-            // Pipelines 2.0 for the same reason Epics/Features/Steps follow
+            // Pipelines 2.0 for the same reason Epics/Steps follow
             // Pipelines: the list before the things it lists.
             { path: '/swarm/epics2', label: 'Epics 2.0', icon: LayersIcon, group: 'swarm' },
             { path: '/swarm/steps2', label: 'Steps 2.0', icon: LinearScaleIcon, group: 'swarm' },
@@ -144,22 +144,6 @@ export const NAV_LINKS = [
     // Req #3031 — persisted actual-token telemetry of the agents pattern;
     // labelled "Telemetry" (renamed from "Context" req #3065).
     { path: '/agents/context', label: 'Telemetry', icon: DataUsageIcon, group: 'agents' },
-    // Features moved out of this group to the plan-editor cluster above (req
-    // #3217). No page below navigates to /swarm/features, so nothing here lost a
-    // link.
-    //
-    // A link belongs to exactly one group, and a group's toggle decides whether it
-    // renders at all, so the move is a TRADE and not a pure gain. Measured across
-    // the four toggle states: Swarm on / Validate off went from hidden to visible
-    // (the case that matters — `app_swarm_validate` ships 0, so before this the
-    // entry was dead for anyone who had not gone looking for the toggle), and
-    // Swarm OFF / Validate on went the other way, from visible to hidden. Accepted
-    // deliberately: this requirement reclassifies Features as a PLAN entity, the
-    // middle tier of Epic > Feature > Story, so hiding it with the plan group is
-    // the classification behaving correctly rather than a leak. The route still
-    // resolves in that state; it is the nav row that is absent.
-    // NavBarSidebar.featuresNav.test.jsx pins all four states so the trade cannot
-    // be reversed silently.
     { path: '/swarm/testcases', label: 'Test Cases', icon: ChecklistIcon, group: 'swarm-validate' },
     { path: '/swarm/testplans', label: 'Test Plans', icon: PlaylistAddCheckIcon, group: 'swarm-validate' },
     { path: '/swarm/testruns', label: 'Test Runs', icon: PlayCircleIcon, group: 'swarm-validate' },

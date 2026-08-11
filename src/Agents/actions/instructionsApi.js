@@ -1,5 +1,5 @@
 // Mutation utilities for the instruction registry (req #3049).
-// Peer to Features/actions/validationApi.js: all mutations go through
+// Peer to TestCatalog/actions/validationApi.js: all mutations go through
 // call_rest_api; callers own TanStack Query invalidation.
 //
 // REST contracts that shape this file — all verified against the live API, not

@@ -222,19 +222,26 @@ export async function fetchExportData(darwinUri, userName, idToken, profile, sel
     }
 
     // Swarm: requirements, swarm_sessions, projects, categories,
-    // features, test_cases, test_plans (req #2380 — persistent content).
+    // test_cases, test_plans (req #2380 — persistent content).
     // test_runs and test_results are ephemeral execution data and NOT exported.
-    // feature_test_cases and test_plan_cases are link-only junction tables and NOT exported.
+    // requirement_test_cases and test_plan_cases are link-only junction tables and NOT exported.
+    // `features` was exported here until req #3357 retired the Feature tier
+    // from the frontend — its rows are no longer read by this app at all, so
+    // there is nothing left to export. See req #3357's report for the
+    // before/after: the export used to carry a `features` array (id, title,
+    // description, feature_status, category_fk, closed, sort_order, create_ts,
+    // update_ts per row); it no longer does, and no other array replaces it —
+    // features live on in the schema (eradication phase E6, req #3355) but an
+    // export of them is not this app's job once nothing here reads them.
     if (selectedApps.swarm) {
         const [requirements, swarmSessions, projects, categories,
-               features, testCases, testPlans] = await Promise.all([
+               testCases, testPlans] = await Promise.all([
             safeGet(`${darwinUri}/requirements`),
             // Req #2837/#2829 — `swarm_sessions` now follows the dev/prod split like
             // every other table, so the dev export reads the seeded `darwin_dev` rows.
             safeGet(`${darwinUri}/swarm_sessions`),
             safeGet(`${darwinUri}/projects`),
             safeGet(`${darwinUri}/categories`),
-            safeGet(`${darwinUri}/features`),
             safeGet(`${darwinUri}/test_cases`),
             safeGet(`${darwinUri}/test_plans`),
         ]);
@@ -309,18 +316,6 @@ export async function fetchExportData(darwinUri, userName, idToken, profile, sel
             closed: c.closed,
             create_ts: c.create_ts,
             update_ts: c.update_ts,
-        }));
-
-        result.features = features.map(f => ({
-            id: f.id,
-            title: f.title,
-            description: f.description,
-            feature_status: f.feature_status,
-            category_fk: f.category_fk,
-            closed: f.closed,
-            sort_order: f.sort_order,
-            create_ts: f.create_ts,
-            update_ts: f.update_ts,
         }));
 
         result.testCases = testCases.map(tc => ({

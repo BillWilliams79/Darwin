@@ -17,7 +17,7 @@ import {
 } from '../hooks/useDataQueries';
 import { testPlanKeys, testPlanCaseKeys } from '../hooks/useQueryKeys';
 import { useViewPreference } from '../hooks/useViewPreference';
-import { useFeaturesFilterStore } from '../stores/useFeaturesFilterStore';
+import { useTestCatalogFilterStore } from '../stores/useTestCatalogFilterStore';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import {
     createTestPlan, updateTestPlan, deleteTestPlan,
@@ -73,8 +73,8 @@ export default function TestPlansPage() {
     const [editTarget, setEditTarget] = useState(null);
     const [detailPlan, setDetailPlan] = useState(null);
 
-    const categoryFilter = useFeaturesFilterStore(s => s.categoryFilter);
-    const setCategoryFilter = useFeaturesFilterStore(s => s.setCategoryFilter);
+    const categoryFilter = useTestCatalogFilterStore(s => s.categoryFilter);
+    const setCategoryFilter = useTestCatalogFilterStore(s => s.setCategoryFilter);
 
     const creatorFk = profile?.userName;
     const { data: plans = [], isLoading } = useAllTestPlans(creatorFk);

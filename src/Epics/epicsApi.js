@@ -1,10 +1,11 @@
 // Mutation utilities for the epics data type (req #3139).
 //
-// Epics are the top tier of Epic > Feature > Story (req #3111, migration 076).
-// The frontend has read them since req #3114 (`useAllEpics`, `useEpicById`) but
-// had no write path at all — the only epic surfaces were the plan visualizer's
-// epic chip and the `/swarm/features?epic=<id>` filter it navigates to. This
-// module is the write half, and it goes through the SAME gateway path the MCP
+// Epics are the top tier of Epic > Step (req #3111, migration 076). The
+// frontend has read them since req #3114 (`useAllEpics`, `useEpicById`) but
+// had no write path at all — the only epic surfaces were the plan
+// visualizer's epic chip and the (since-retired) `/swarm/features?epic=<id>`
+// filter it navigated to. This module is the write half, and it goes through
+// the SAME gateway path the MCP
 // epic service (`darwin-mcp/services/epics.py`, req #3146) already POSTs, PUTs
 // and DELETEs: `{darwinUri}/epics`. No new backend surface exists or is needed.
 //

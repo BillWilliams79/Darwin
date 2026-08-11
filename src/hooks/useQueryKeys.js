@@ -140,10 +140,12 @@ export const epicKeys = {
     byId: (creatorFk, id) => ['epics', creatorFk, { id }],
 };
 
+// Trimmed to `.all` by req #3357 — the Features route, its by-id/by-category
+// pages and their hooks are retired; `useAllFeatures` (the LABEL DICTIONARY
+// read `src/SwarmView/pipelines/usePlanSources.js` still depends on) is the
+// one surviving consumer.
 export const featureKeys = {
     all: (creatorFk) => ['features', creatorFk],
-    byId: (creatorFk, id) => ['features', creatorFk, { id }],
-    byCategory: (creatorFk, categoryId) => ['features', creatorFk, { categoryId }],
 };
 
 export const testCaseKeys = {
@@ -153,8 +155,12 @@ export const testCaseKeys = {
     byFeature: (creatorFk, featureId) => ['test_cases', creatorFk, { featureId }],
 };
 
-export const featureTestCaseKeys = {
-    all: (creatorFk) => ['feature_test_cases', creatorFk],
+// Req #3357 — feature_test_cases re-homed onto the requirement (req #3352's
+// junction). feature_test_cases the TABLE survives as a Feature concern the
+// SCHEMA still carries (eradication phase E6, req #3355) but the frontend no
+// longer reads it.
+export const requirementTestCaseKeys = {
+    all: (creatorFk) => ['requirement_test_cases', creatorFk],
 };
 
 export const testPlanKeys = {

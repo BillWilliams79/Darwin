@@ -47,10 +47,9 @@ import MapRouteSettingsView from './Maps/MapRouteSettingsView';
 import MapPartnerSettingsView from './Maps/MapPartnerSettingsView';
 import PhotoBrowser from './photo-browser/PhotoBrowser';
 import PhotoSettingsView from './photo-browser/PhotoSettingsView';
-import FeaturesPage from './Features/FeaturesPage';
-import TestCasesPage from './Features/TestCasesPage';
-import TestPlansPage from './Features/TestPlansPage';
-import { TestRunsPage, TestRunDetail } from './Features/TestRunsPage';
+import TestCasesPage from './TestCatalog/TestCasesPage';
+import TestPlansPage from './TestCatalog/TestPlansPage';
+import { TestRunsPage, TestRunDetail } from './TestCatalog/TestRunsPage';
 import SwarmStartsPage from './SwarmStarts/SwarmStartsPage';
 import SwarmStartDetail from './SwarmStarts/SwarmStartDetail';
 import SwarmUndosPage from './SwarmUndos/SwarmUndosPage';
@@ -229,14 +228,6 @@ root.render(
                                                          </AuthenticatedRoute>} />
                     <Route path="swarm/steps2" element= {<AuthenticatedRoute>
                                                              <StepsPage2 />
-                                                         </AuthenticatedRoute>} />
-                    {/* Features editor (req #3217) — the middle tier of Epic >
-                        Feature > Story and the third plan editor, so it belongs to
-                        the block above rather than to the validate routes below it.
-                        The route is unchanged and predates the requirement (#2380);
-                        what #3217 added is the formal nav entry that reaches it. */}
-                    <Route path="swarm/features" element= {<AuthenticatedRoute>
-                                                             <FeaturesPage />
                                                          </AuthenticatedRoute>} />
                     <Route path="swarm/testcases" element= {<AuthenticatedRoute>
                                                              <TestCasesPage />

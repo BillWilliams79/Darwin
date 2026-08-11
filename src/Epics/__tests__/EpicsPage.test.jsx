@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 //
-// Req #3139 — the Epics editor.
+// Req #3139 — the Epics editor. Narrowed by req #3357: the Feature tier left
+// the frontend, so the Features count cell (and its features.epic_fk ON
+// DELETE SET NULL invalidation) is retired in favour of a plain Steps link.
 //
 // The DataGrid is STUBBED (see the mock below): jsdom gives every element a
 // zero-size box, so the real grid virtualizes down to no cells at all and a
@@ -13,13 +15,12 @@
 // requirement's code.
 //
 // What IS pinned is the wiring the requirement is about:
-//   - the Features count cell navigates to the epic-filtered features view,
-//     which is the "connects to the existing epic editor" clause
+//   - the Steps cell navigates to the epic-filtered steps view, which is the
+//     "connects to the existing epic editor" clause
 //   - create / edit send the right body to the right endpoint, including the
 //     REST 'NULL' sentinel that a JSON null cannot express on a PUT
 //   - the closed chip toggles the flag rather than opening a dialog
-//   - delete is gated on confirm and invalidates the FEATURES cache too,
-//     because features.epic_fk is ON DELETE SET NULL
+//   - delete is gated on confirm
 //   - the closed filter and the sort_order-nulls-last ordering
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -67,7 +68,6 @@ vi.mock('@mui/x-data-grid', () => ({
 }));
 
 let epics;
-let features;
 let categories;
 let loading;
 // req #3224 — live orchestration reservations and the machines that name them.
@@ -82,7 +82,6 @@ vi.mock('../../hooks/useDataQueries', async (importOriginal) => {
     return {
         ...actual,
         useAllEpics: () => ({ data: epics, isLoading: loading.epics }),
-        useAllFeatures: () => ({ data: features, isLoading: loading.features }),
         useAllCategories: () => ({ data: categories, isLoading: loading.categories }),
         useOrchestrationClaims: () => ({ data: orchestrationClaims }),
         useMachines: () => ({ data: machines }),
@@ -154,7 +153,7 @@ beforeEach(() => {
     navigations.length = 0;
     restCalls.length = 0;
     mountedRoots = [];
-    loading = { epics: false, features: false, categories: false };
+    loading = { epics: false, categories: false };
     epics = [
         { id: 4, title: 'Pipeline', description: 'Plans as data.\n\nSecond para.', category_fk: 1, closed: 0, sort_order: 4, create_ts: '2026-07-28 05:15:14' },
         { id: 2, title: 'Application Backlog', description: null, category_fk: 1, closed: 0, sort_order: 1, create_ts: '2026-07-28 05:15:14' },
@@ -163,12 +162,6 @@ beforeEach(() => {
     ];
     orchestrationClaims = [];
     machines = [{ id: 4, title: 'Mac mini', hostname: 'mac-mini' }];
-    features = [
-        { id: 10, title: 'f1', epic_fk: 4 },
-        { id: 11, title: 'f2', epic_fk: 4 },
-        { id: 12, title: 'f3', epic_fk: null },
-        { id: 13, title: 'f4', epic_fk: 2 },
-    ];
     // sort_order is deliberately OUT of fetch order: 'Mapping' arrives second
     // but sorts first, so the create-default assertion below proves the page
     // respects the user's ordering rather than whatever MySQL returned first.
@@ -207,13 +200,6 @@ describe('EpicsPage rows', () => {
         expect(node('epics-accounting').textContent).toContain('0 of 4');
     });
 
-    it('counts the features filed under each epic, unfiled ones excluded', () => {
-        mount();
-        expect(node('epic-features-link-4').textContent).toBe('2');
-        expect(node('epic-features-link-2').textContent).toBe('1');
-        expect(node('epic-features-link-9').textContent).toBe('0');
-    });
-
     it('collapses a multi-paragraph description to one line', () => {
         mount();
         expect(node('cell-description-4').textContent).toBe('Plans as data. Second para.');
@@ -226,34 +212,24 @@ describe('EpicsPage rows', () => {
         expect(node('cell-category_name-9').textContent).toContain('Mapping');
     });
 
-    // The three reads land independently. Painting the grid off the epics read
-    // alone shows every Features count as 0 and lets a delete be confirmed
-    // WITHOUT the "its N features will be unfiled" clause — a wrong number is
-    // not a loading state.
-    it('holds the grid until the features read lands, not just the epics one', () => {
-        loading = { epics: false, features: true, categories: false };
-        mount();
-        expect(node('epics-datagrid')).toBeNull();
-    });
-
     it('holds the grid until the category labels land', () => {
-        loading = { epics: false, features: false, categories: true };
+        loading = { epics: false, categories: true };
         mount();
         expect(node('epics-datagrid')).toBeNull();
     });
 });
 
-describe('EpicsPage — connection to the features view', () => {
-    it('navigates to the epic-filtered features view from the Features cell', () => {
+describe('EpicsPage — connection to the steps view (req #3357)', () => {
+    it('navigates to the epic-filtered steps view from the Steps cell', () => {
         mount();
-        click(node('epic-features-link-4'));
-        expect(navigations).toEqual(['/swarm/features?epic=4']);
+        click(node('epic-steps-link-4'));
+        expect(navigations).toEqual(['/swarm/steps?epic=4']);
     });
 
-    it('navigates even when the epic has no features yet', () => {
+    it('navigates for every epic, whatever it holds', () => {
         mount();
-        click(node('epic-features-link-9'));
-        expect(navigations).toEqual(['/swarm/features?epic=9']);
+        click(node('epic-steps-link-9'));
+        expect(navigations).toEqual(['/swarm/steps?epic=9']);
     });
 });
 
@@ -476,13 +452,6 @@ describe('EpicsPage delete', () => {
         expect(restCalls).toEqual([]);
     });
 
-    it('names the unfiling consequence in the confirmation', () => {
-        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
-        mount();
-        click(node('epic-delete-4'));
-        expect(confirmSpy.mock.calls[0][0]).toContain('2 features will be unfiled');
-    });
-
     it('DELETEs by id and invalidates every cache the SET NULL touches', async () => {
         vi.spyOn(window, 'confirm').mockReturnValue(true);
         mount();
@@ -508,10 +477,9 @@ describe('EpicsPage delete', () => {
     });
 });
 
-// req #3234 — the requirement detail page's Epic linkage box links here via
-// `?id=<id>`. This flat grid + dialog page has no per-row route, so "landing
-// on" a specific epic means auto-opening the same edit dialog the Edit icon
-// opens — the page's own presentation of one epic's full detail.
+// req #3234 — this flat grid + dialog page has no per-row route, so "landing
+// on" a specific epic via `?id=<id>` means auto-opening the same edit dialog
+// the Edit icon opens — the page's own presentation of one epic's full detail.
 describe('EpicsPage — ?id=<id> deep-link (req #3234)', () => {
     it('opens the edit dialog for the epic named in the id param once epics have loaded', async () => {
         mount(['/swarm/epics?id=2']);
@@ -543,7 +511,7 @@ describe('EpicsPage — ?id=<id> deep-link (req #3234)', () => {
     });
 
     it('does not open the dialog while categories are still loading', async () => {
-        loading = { epics: false, features: false, categories: true };
+        loading = { epics: false, categories: true };
         mount(['/swarm/epics?id=2']);
         await flush();
 

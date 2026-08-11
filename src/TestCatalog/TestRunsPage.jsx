@@ -13,7 +13,7 @@ import {
 } from '../hooks/useDataQueries';
 import { testRunKeys, testResultKeys } from '../hooks/useQueryKeys';
 import { useViewPreference } from '../hooks/useViewPreference';
-import { useFeaturesFilterStore } from '../stores/useFeaturesFilterStore';
+import { useTestCatalogFilterStore } from '../stores/useTestCatalogFilterStore';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { recordTestResult, completeTestRun, abortTestRun } from './actions/validationApi';
 import {
@@ -58,8 +58,8 @@ export function TestRunsPage() {
 
     // Reuse the shared category filter (same store the other three pages use).
     // Runs don't have a direct category_fk; we filter via the plan's category_fk.
-    const categoryFilter = useFeaturesFilterStore(s => s.categoryFilter);
-    const setCategoryFilter = useFeaturesFilterStore(s => s.setCategoryFilter);
+    const categoryFilter = useTestCatalogFilterStore(s => s.categoryFilter);
+    const setCategoryFilter = useTestCatalogFilterStore(s => s.setCategoryFilter);
 
     const { data: runs = [], isLoading } = useAllTestRuns(creatorFk);
     const { data: plans = [] } = useAllTestPlans(creatorFk, { fields: 'id,title,category_fk' });

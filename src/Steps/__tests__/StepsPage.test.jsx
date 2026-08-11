@@ -1,6 +1,11 @@
 // @vitest-environment jsdom
 //
-// Req #3140 — the Steps editor.
+// Req #3140 — the Steps editor. `features` is deliberately STILL READ here
+// (req #3357 code review): the engine's dominant-epic derivation (design rule
+// 10, requirement -> feature -> epic) and the `?epic=<id>` filter (req #3373)
+// both need it, and the latter is what the plan visualizer's already-shipped
+// epic chip ↗ links to — dropping the read broke that live control. See
+// `StepsPage.jsx`'s "`features` KEPT ALIVE" file-header note.
 //
 // The DataGrid is STUBBED (see the mock below) for EpicsPage.test.jsx's reason:
 // jsdom gives every element a zero-size box, so the real grid virtualizes down to
@@ -302,7 +307,7 @@ describe('StepsPage rows', () => {
     });
 
     it('says the Epic column is blank because a read FAILED, not because there is no epic', () => {
-        errors = { features: true, epics: false };
+        errors = { ...errors, features: true };
         mount();
         expect(node('steps-dictionary-error')).not.toBeNull();
     });
@@ -318,6 +323,8 @@ describe('StepsPage rows', () => {
 // req #3373 — the plan visualizer's epic chip ↗ control re-points at
 // `/swarm/steps?epic=<id>`, and THIS is the filter it now lands on: it did
 // not exist before this requirement (StepsPage filtered by pipeline only).
+// req #3357 code review — `features` stays live here specifically so this
+// already-shipped filter keeps working; see StepsPage.jsx's file header.
 describe('StepsPage — ?epic=<id> filter (req #3373)', () => {
     it('narrows to the steps whose dominant epic matches the param', () => {
         mount(['/swarm/steps?epic=900']);

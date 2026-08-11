@@ -370,19 +370,14 @@ describe('fetchExportData', () => {
             expect(result.categories[0].color).toBe('#ff0000');
         });
 
-        it('exports features, test_cases, and test_plans (req #2380)', async () => {
+        it('exports test_cases and test_plans, and no longer exports features (req #3357)', async () => {
             mockApi({
                 '/requirements': [],
                 '/swarm_sessions': [],
                 '/projects': [],
                 '/categories': [],
-                '/features': [{
-                    id: 1, title: 'Feature X', description: '**Given**...\n**When**...\n**Then**...',
-                    feature_status: 'active', category_fk: 1, closed: 0, sort_order: 5,
-                    create_ts: 't', update_ts: null,
-                }],
                 '/test_cases': [{
-                    id: 10, title: 'Feature X validates input', preconditions: 'logged in',
+                    id: 10, title: 'Login form validates input', preconditions: 'logged in',
                     steps: '1. Click', expected: 'modal opens', test_type: 'automated',
                     tags: 'smoke,auth', category_fk: 1, closed: 0, sort_order: 1,
                     create_ts: 't', update_ts: null,
@@ -395,17 +390,17 @@ describe('fetchExportData', () => {
             });
 
             const result = await fetchExportData(DARWIN_URI, 'user-123', ID_TOKEN, PROFILE, SELECTED);
-            expect(result.features).toHaveLength(1);
-            expect(result.features[0].feature_status).toBe('active');
-            expect(result.features[0].description).toContain('Given');
             expect(result.testCases).toHaveLength(1);
             expect(result.testCases[0].test_type).toBe('automated');
             expect(result.testCases[0].tags).toBe('smoke,auth');
             expect(result.testCases[0].expected).toBe('modal opens');
             expect(result.testPlans).toHaveLength(1);
             expect(result.testPlans[0].title).toBe('Smoke plan');
-            // Verify junction tables and execution tables are NOT exported
+            // Verify junction tables, execution tables, and the retired Feature
+            // tier are NOT exported.
+            expect(result.features).toBeUndefined();
             expect(result.featureTestCases).toBeUndefined();
+            expect(result.requirementTestCases).toBeUndefined();
             expect(result.testPlanCases).toBeUndefined();
             expect(result.testRuns).toBeUndefined();
             expect(result.testResults).toBeUndefined();
