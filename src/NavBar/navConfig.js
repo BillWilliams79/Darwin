@@ -95,6 +95,15 @@ export const NAV_LINKS = [
             // "Beta"), because the one thing a reader must not do is take a
             // plan id from one list to the other — the ids are disjoint.
             { path: planListPath(PLAN_ERA_2), label: 'Pipelines 2.0', icon: LanIcon, group: 'swarm' },
+            // req #3393 — the 2.0 plan-layer editors, same nesting rule as
+            // #3463's Pipelines 2.0 entry directly above: children of the SAME
+            // Pipelines parent rather than a second top-level group, because
+            // NavBarSidebar renders only two levels (no L4), so an editor
+            // nested UNDER "Pipelines 2.0" is not renderable. Ordered after
+            // Pipelines 2.0 for the same reason Epics/Features/Steps follow
+            // Pipelines: the list before the things it lists.
+            { path: '/swarm/epics2', label: 'Epics 2.0', icon: LayersIcon, group: 'swarm' },
+            { path: '/swarm/steps2', label: 'Steps 2.0', icon: LinearScaleIcon, group: 'swarm' },
         ],
     },
     // Req #3238 — Machines nests as an L3 child of Requirements rather than
@@ -102,6 +111,10 @@ export const NAV_LINKS = [
     // req #3209 shipped for Sessions verbatim — no second mechanism). Requirements
     // is the first parent to carry this shape rather than the last, so future L3s
     // (this one included) generalise onto the same field.
+    //
+    // Requirements is DELIBERATELY SECOND in the swarm group (req #3427's own
+    // test pins it) — the Pipeline 2.0 block below sits AFTER it rather than
+    // between Pipelines and Requirements, so that invariant stays true.
     {
         path: '/swarm', label: 'Requirements', icon: MapIcon, group: 'swarm',
         children: [
