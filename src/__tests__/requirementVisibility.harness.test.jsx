@@ -29,6 +29,13 @@
 // keeps its original row shape (so the surface-by-surface structure of this
 // harness stays intact) but every row's orchestration now turns on STEP
 // association alone.
+//
+// req #3491 adds requirement 105, carried by a Pipeline 2.0 step ONLY (no 1.0
+// junction row at all) — the exact population the pre-fix code reported as
+// unplanned. It is seeded with the SAME `requirement_status` as 101 so every
+// assertion that already excludes 101 by construction (the aggregator's
+// unconditional launch exclusion, the COMPARABLE filter) needs only the same
+// treatment extended to 105, never a new branch of reasoning.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import React from 'react';
@@ -53,6 +60,7 @@ vi.mock('react-router-dom', () => ({
 // 102  unplanned (the req #3419 epic population it once carried is retired)
 // 103  unplanned
 // 104  unplanned, status development
+// 105  carried by pipeline2 step 304 (2.0, no 1.0 row at all) -> req #3491
 const CATEGORY_ID = 5;
 const ROWS = [
     { id: 100, title: 'Unplanned', requirement_status: 'authoring', category_fk: CATEGORY_ID, sort_order: 0, coordination_type: 'implemented', ai_model: 'opus', effort: 'high', machine_fk: null, started_at: null, completed_at: null, deferred_at: null },
@@ -60,12 +68,16 @@ const ROWS = [
     { id: 102, title: 'Unplanned (formerly epic-seated)', requirement_status: 'authoring', category_fk: CATEGORY_ID, sort_order: 2, coordination_type: 'implemented', ai_model: 'opus', effort: 'high', machine_fk: null, started_at: null, completed_at: null, deferred_at: null },
     { id: 103, title: 'Unplanned', requirement_status: 'authoring', category_fk: CATEGORY_ID, sort_order: 3, coordination_type: 'implemented', ai_model: 'opus', effort: 'high', machine_fk: null, started_at: null, completed_at: null, deferred_at: null },
     { id: 104, title: 'Unplanned, in flight', requirement_status: 'development', category_fk: CATEGORY_ID, sort_order: 4, coordination_type: 'implemented', ai_model: 'opus', effort: 'high', machine_fk: null, started_at: '2026-08-01T00:00:00', completed_at: null, deferred_at: null },
+    { id: 105, title: 'On a 2.0 plan step', requirement_status: 'authoring', category_fk: CATEGORY_ID, sort_order: 5, coordination_type: 'implemented', ai_model: 'opus', effort: 'high', machine_fk: null, started_at: null, completed_at: null, deferred_at: null },
 ];
 const JUNCTION = [{ step_fk: 1, requirement_fk: 101 }];
+// req #3491 — the 2.0 junction, disjoint from JUNCTION above: 105 has NO 1.0
+// row at all, which is the exact shape a 2.0-seated requirement takes.
+const JUNCTION_2_0 = [{ step_fk: 304, requirement_fk: 105 }];
 const CATEGORIES = [{ id: CATEGORY_ID, category_name: 'Harness', project_fk: 1, color: null, sort_mode: 'process' }];
 
 // The answer, stated once, independently of any component.
-const ORCHESTRATED = [101];
+const ORCHESTRATED = [101, 105];
 const VISIBLE_WHEN_HIDING = [100, 102, 103, 104];
 
 // ── the ONE mock: the wire ───────────────────────────────────────────────────
@@ -91,6 +103,7 @@ const serve = (uri) => {
         return ROWS;
     }
     if (table === 'pipeline_step_requirements') return JUNCTION;
+    if (table === 'pipeline2_step_requirements') return JUNCTION_2_0;
     if (table === 'categories') return CATEGORIES;
     return [];
 };
@@ -244,8 +257,8 @@ describe('req #3419 — one visibility rule, every surface (the single harness)'
             // req #3419's epic population is retired — see the module header —
             // so `orchestratedIds` and `pipelinedIds` agree exactly.
             mount(<Probe />);
-            await settle(() => probed.pipelinedIds.size === 1);
-            expect([...probed.pipelinedIds]).toEqual([101]);
+            await settle(() => probed.pipelinedIds.size === ORCHESTRATED.length);
+            expect([...probed.pipelinedIds].sort((a, b) => a - b)).toEqual(ORCHESTRATED);
             expect(probed.orchestratedIds).toEqual(probed.pipelinedIds);
         }, TIMEOUT);
 
@@ -253,16 +266,25 @@ describe('req #3419 — one visibility rule, every surface (the single harness)'
             mount(<Probe />);
             await settle(() => probed.orchestratedIds.size === ORCHESTRATED.length);
             expect(probed.orchestratedIds)
-                .toEqual(orchestratedRequirementIds(JUNCTION));
+                .toEqual(orchestratedRequirementIds(JUNCTION, JUNCTION_2_0));
+        }, TIMEOUT);
+
+        it('sees a 2.0-only seating with no 1.0 row at all (req #3491)', async () => {
+            // 105 has no `pipeline_step_requirements` row whatsoever — the exact
+            // shape that reported `pipelined = false` before this fix.
+            mount(<Probe />);
+            await settle(() => probed.orchestratedIds.size === ORCHESTRATED.length);
+            expect(probed.orchestratedIds.has(105)).toBe(true);
         }, TIMEOUT);
 
         it('actually issued the read — an empty answer must not be silent', async () => {
             // `fetchEntity` turns a 404 into `[]`, so a hook pointed at the wrong
             // URL produces "nothing is orchestrated" rather than an error. Assert
-            // the read happened at all.
+            // the read happened at all — both eras.
             mount(<Probe />);
             await settle(() => probed.orchestratedIds.size === ORCHESTRATED.length);
             expect(restCalls.some(u => u.includes('/pipeline_step_requirements'))).toBe(true);
+            expect(restCalls.some(u => u.includes('/pipeline2_step_requirements'))).toBe(true);
         }, TIMEOUT);
 
         it('hides nothing while the reads are in flight', () => {
@@ -287,8 +309,8 @@ describe('req #3419 — one visibility rule, every surface (the single harness)'
             useShowClosedStore.setState({ hidePipelinedRequirements: false });
             const c = mount(<Card />);
             await settle(cardLoaded(c));
-            await settle(() => renderedIds(c).length === 5);
-            expect(renderedIds(c).sort((a, b) => a - b)).toEqual([100, 101, 102, 103, 104]);
+            await settle(() => renderedIds(c).length === 6);
+            expect(renderedIds(c).sort((a, b) => a - b)).toEqual([100, 101, 102, 103, 104, 105]);
         }, TIMEOUT);
 
         it('responds to the toggle live, without a remount', async () => {
@@ -299,8 +321,9 @@ describe('req #3419 — one visibility rule, every surface (the single harness)'
             await act(async () => {
                 useShowClosedStore.getState().toggleHidePipelinedRequirements();
             });
-            await settle(() => renderedIds(c).length === 5);
+            await settle(() => renderedIds(c).length === 6);
             expect(renderedIds(c)).toContain(102);
+            expect(renderedIds(c)).toContain(105);
         }, TIMEOUT);
 
         it('keeps the add-row template regardless of the toggle', async () => {
@@ -320,6 +343,7 @@ describe('req #3419 — one visibility rule, every surface (the single harness)'
             await settle(() => renderedIds(c).length === 3);
             const ids = renderedIds(c);
             expect(ids).not.toContain(101);   // req #3180 — unconditional
+            expect(ids).not.toContain(105);   // req #3491 — 2.0-seated, same rule
             expect(ids).toEqual([100, 102, 103]);
         }, TIMEOUT);
 
@@ -368,7 +392,7 @@ describe('req #3419 — one visibility rule, every surface (the single harness)'
             useShowClosedStore.setState({ hidePipelinedRequirements: false });
             const c = mount(<Card />);
             await settle(cardLoaded(c));
-            await settle(() => renderedIds(c).length === 5);
+            await settle(() => renderedIds(c).length === 6);
             expect(marked(c)).toEqual(ORCHESTRATED);
             expect(plain(c)).toEqual(VISIBLE_WHEN_HIDING);
         }, TIMEOUT);
@@ -379,8 +403,9 @@ describe('req #3419 — one visibility rule, every surface (the single harness)'
             useShowClosedStore.setState({ hidePipelinedRequirements: false });
             const c = mount(<Card />);
             await settle(cardLoaded(c));
-            await settle(() => renderedIds(c).length === 5);
-            expect(marked(c)).toContain(101);      // step-carried
+            await settle(() => renderedIds(c).length === 6);
+            expect(marked(c)).toContain(101);      // step-carried, 1.0
+            expect(marked(c)).toContain(105);      // step-carried, 2.0 (req #3491)
             expect(marked(c)).not.toContain(102);  // no longer a population at all
         }, TIMEOUT);
 
@@ -435,8 +460,8 @@ describe('req #3419 — one visibility rule, every surface (the single harness)'
         it('shows every row with the toggle OFF', async () => {
             useShowClosedStore.setState({ hidePipelinedRequirements: false });
             const c = mount(<RequirementsTableView />);
-            await settle(() => tableIds(c).length === 5);
-            expect(tableIds(c)).toEqual([100, 101, 102, 103, 104]);
+            await settle(() => tableIds(c).length === 6);
+            expect(tableIds(c)).toEqual([100, 101, 102, 103, 104, 105]);
         }, TIMEOUT);
 
         it('renders the same rows the Cards view does', async () => {
@@ -492,7 +517,7 @@ describe('req #3419 — one visibility rule, every surface (the single harness)'
         // both surfaces could show (authoring, minus the step-carried one the
         // launch rule removes), do they render the same set?
         const COMPARABLE = ROWS
-            .filter(r => r.requirement_status === 'authoring' && r.id !== 101)
+            .filter(r => r.requirement_status === 'authoring' && r.id !== 101 && r.id !== 105)
             .map(r => r.id);
 
         it.each([true, false])('card, aggregator and hook agree (hiding=%s)', async (hiding) => {
@@ -508,7 +533,7 @@ describe('req #3419 — one visibility rule, every surface (the single harness)'
             await settle(cardLoaded(card));
             await settle(aggregatorLoaded(agg));
             await settle(() => probed.orchestratedIds.size === ORCHESTRATED.length
-                && renderedIds(card).length === (hiding ? VISIBLE_WHEN_HIDING.length : 5));
+                && renderedIds(card).length === (hiding ? VISIBLE_WHEN_HIDING.length : 6));
 
             const fromCard = renderedIds(card).filter(id => COMPARABLE.includes(id));
             const fromAggregator = renderedIds(agg).filter(id => COMPARABLE.includes(id));

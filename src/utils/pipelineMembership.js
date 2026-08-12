@@ -55,39 +55,53 @@
 // while the browse toggle's own answer has now rejoined it.
 
 /**
- * Requirement ids at least one pipeline STEP carries.
+ * Requirement ids at least one pipeline STEP carries, EITHER era, unioned.
+ *
+ * req #3491 — widened to also read the 2.0 junction. Mirrors the backend's own
+ * union (`darwin-mcp/services/requirements.py::_pipelined_requirement_ids`),
+ * which this deliberately duplicates rather than shares: the browser reaches
+ * Lambda-Rest, the daemon reaches it from a localhost process. `stepRequirements2`
+ * defaults to `undefined` so every existing 1.0-only call site keeps working
+ * unchanged.
  *
  * @param {Array<{requirement_fk: number}>} stepRequirements  rows from
- *        `useAllPipelineStepRequirements` (the junction, whole-table read).
+ *        `useAllPipelineStepRequirements` (the 1.0 junction, whole-table read).
+ * @param {Array<{requirement_fk: number}>} [stepRequirements2]  rows from
+ *        `useAllPipeline2StepRequirements` (the 2.0 junction, whole-table read).
  * @returns {Set<number>}
  */
-export const pipelinedRequirementIds = (stepRequirements) => {
+export const pipelinedRequirementIds = (stepRequirements, stepRequirements2) => {
     const ids = new Set();
-    if (!Array.isArray(stepRequirements)) return ids;
-    for (const link of stepRequirements) {
-        // A junction row with no requirement_fk cannot name a requirement. Skip
-        // it rather than seeding the set with null/undefined, which would make
-        // `has(r.id)` answer true for any row whose own id was missing.
-        if (!link || link.requirement_fk === null || link.requirement_fk === undefined) continue;
-        ids.add(Number(link.requirement_fk));
-    }
+    const addAll = (links) => {
+        if (!Array.isArray(links)) return;
+        for (const link of links) {
+            // A junction row with no requirement_fk cannot name a requirement. Skip
+            // it rather than seeding the set with null/undefined, which would make
+            // `has(r.id)` answer true for any row whose own id was missing.
+            if (!link || link.requirement_fk === null || link.requirement_fk === undefined) continue;
+            ids.add(Number(link.requirement_fk));
+        }
+    };
+    addAll(stepRequirements);
+    addAll(stepRequirements2);
     return ids;
 };
 
 /**
  * THE browse answer: a requirement is ORCHESTRATED when a pipeline step
- * carries it. Req #3357 retired the second population this used to union in
- * (epic-filed-but-unseated, via `requirements.feature_fk -> features.epic_fk`)
- * — see the module header. Kept as its own named export, distinct from
- * `pipelinedRequirementIds`, so a future population (Pipeline 2.0 step
- * membership, say) has a single place to widen the union again without every
- * call site changing what function it imports.
+ * carries it, either era. Req #3357 retired the second population this used to
+ * union in (epic-filed-but-unseated, via `requirements.feature_fk ->
+ * features.epic_fk`) — see the module header. Req #3491 widened it again, this
+ * time with the 2.0 junction rather than a re-derivation off Feature. Kept as
+ * its own named export, distinct from `pipelinedRequirementIds`, so both stay
+ * one call site each even though they answer identically today.
  *
- * @param {Array} stepRequirements  the junction rows
+ * @param {Array} stepRequirements  the 1.0 junction rows
+ * @param {Array} [stepRequirements2]  the 2.0 junction rows
  * @returns {Set<number>}
  */
-export const orchestratedRequirementIds = (stepRequirements) =>
-    pipelinedRequirementIds(stepRequirements);
+export const orchestratedRequirementIds = (stepRequirements, stepRequirements2) =>
+    pipelinedRequirementIds(stepRequirements, stepRequirements2);
 
 /**
  * Drop every row whose id is in `ids`. The ONE filter primitive — both facts
