@@ -65,12 +65,18 @@ const BINDING = Object.freeze({
     // The web-storage namespace for PER-PLAN state (camera, scroll offsets).
     // The key is `<prefix><namespace>-<planId>`.
     //
-    // This was `pipeline2-plan` until req #3356 dropped the era marker. The
+    // This was `pipeline2-plan` until req #3356 dropped the era marker.
+    // Deliberately NOT `pipeline-plan` — that was the FIRST generation's own
+    // namespace (see `git log`), so reusing it would not orphan anything; it
+    // would silently ADOPT a first-generation era's stored camera/scroll
+    // state for any plan id that happened to exist in both eras (id
+    // collision, not migration — a stale camera for the WRONG plan, not a
+    // missing one). `plan-view` has never been used by either era. The
     // rename ORPHANS existing per-plan cameras and scroll offsets rather than
     // migrating them, which is the same call `PIPELINE_PLACE_SCHEMA_VERSION`
     // makes and for the same reason — see `pipelinePlace.js`, which documents
     // the cost and the prune that collects what is left behind.
-    storageNamespace: 'pipeline-plan',
+    storageNamespace: 'plan-view',
 });
 
 /** The Lambda-Rest entity that answers the plan reads. */

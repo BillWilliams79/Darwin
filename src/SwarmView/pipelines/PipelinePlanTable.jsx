@@ -271,13 +271,16 @@ function RequirementLinks({ row, pipelineId, statusOf }) {
                         // table through a bead click or a `?step=` link never
                         // persisted `table` (both are transient overrides by design),
                         // so Back sent them to whichever panel their preference held.
-                        // req #3463 — `era` rides with the id. Back has to
-                        // rebuild a plan route, and an id with no era is not an
-                        // address. STILL SENT after req #3356 removed the prop:
-                        // `RequirementDetail.jsx` reads it and defaults an
-                        // absent one to 1.0, so dropping it here would rebuild a
-                        // dead `/swarm/pipeline/<2.0 id>` — the exact #3462
-                        // shape. It is a literal now rather than a prop.
+                        // req #3463 named `era` here because Back had to rebuild
+                        // a plan route and an id with no era was not an address
+                        // — TWO eras meant one id space was ambiguous without it.
+                        // req #3356 removed the second era, so the state below
+                        // deliberately carries no `era` any more: there is only
+                        // one id space now, `RequirementDetail.jsx` ignores a
+                        // stale `era` if an old state object still carries one,
+                        // and reintroducing this field would resurrect exactly
+                        // the two-facts-in-two-places shape req #3462's outage
+                        // was caused by.
                         state={pipelineId
                             ? { from: 'pipeline', pipelineId, mode: 'table' }
                             : undefined}

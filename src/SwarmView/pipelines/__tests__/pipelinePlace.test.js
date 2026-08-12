@@ -242,21 +242,21 @@ describe('pipelinePlace', () => {
 
     describe('prunePipelineStorage', () => {
         const seed = () => {
-            store.local.set('darwin-viewport-pipeline-plan-2', 'cam2');
-            store.local.set('darwin-viewport-pipeline-plan-9', 'cam9');
-            store.local.set('darwin-scroll-pipeline-plan-table-2', 'y2');
-            store.local.set('darwin-scroll-pipeline-plan-table-9', 'y9');
-            store.local.set('darwin-scroll-pipeline-plan-table-x-2', 'x2');
-            store.local.set('darwin-scroll-pipeline-plan-table-x-9', 'x9');
+            store.local.set('darwin-viewport-plan-view-2', 'cam2');
+            store.local.set('darwin-viewport-plan-view-9', 'cam9');
+            store.local.set('darwin-scroll-plan-view-table-2', 'y2');
+            store.local.set('darwin-scroll-plan-view-table-9', 'y9');
+            store.local.set('darwin-scroll-plan-view-table-x-2', 'x2');
+            store.local.set('darwin-scroll-plan-view-table-x-9', 'x9');
         };
 
         it('drops every surface of a plan that no longer exists', () => {
             seed();
             prunePipelineStorage([2]);
             expect([...store.local.keys()].sort()).toEqual([
-                'darwin-scroll-pipeline-plan-table-2',
-                'darwin-scroll-pipeline-plan-table-x-2',
-                'darwin-viewport-pipeline-plan-2',
+                'darwin-scroll-plan-view-table-2',
+                'darwin-scroll-plan-view-table-x-2',
+                'darwin-viewport-plan-view-2',
             ]);
         });
 
@@ -264,7 +264,7 @@ describe('pipelinePlace', () => {
         // first-match sweep reads its id as `x-9`, fails the integer test, and
         // silently exempts every horizontal offset forever.
         it('reads the horizontal table key as a plan key, not as unknown', () => {
-            store.local.set('darwin-scroll-pipeline-plan-table-x-9', 'x9');
+            store.local.set('darwin-scroll-plan-view-table-x-9', 'x9');
             prunePipelineStorage([2]);
             expect(store.local.size).toBe(0);
         });
@@ -273,7 +273,7 @@ describe('pipelinePlace', () => {
         // into the freed slot, which leaves half the orphans behind.
         it('collects every orphan in one pass', () => {
             for (let i = 10; i < 20; i += 1) {
-                store.local.set(`darwin-viewport-pipeline-plan-${i}`, 'cam');
+                store.local.set(`darwin-viewport-plan-view-${i}`, 'cam');
             }
             prunePipelineStorage([2]);
             expect(store.local.size).toBe(0);

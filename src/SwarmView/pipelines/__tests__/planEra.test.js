@@ -40,7 +40,7 @@ describe('the binding', () => {
         expect(planListPath()).toBe('/swarm/pipelines');
         expect(planDetailPath(7)).toBe('/swarm/pipeline/7');
         expect(planEntityName()).toBe('pipelines');
-        expect(planStorageNamespace()).toBe('pipeline-plan');
+        expect(planStorageNamespace()).toBe('plan-view');
     });
 
     it('carries NO era marker anywhere in the binding (req #3356)', () => {

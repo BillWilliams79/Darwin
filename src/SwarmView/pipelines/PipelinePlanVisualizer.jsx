@@ -2143,12 +2143,16 @@ export default function PipelinePlanVisualizer({
                       // The pan and zoom now come back too, which is what retires
                       // the old closing clause of this comment ("only pan/zoom
                       // re-fits") — see the saved-viewport block near the top.
-                      // req #3463 — `era` rides with the id, so Back can rebuild
-                      // a plan route. An id with no era is not an address.
-                      // STILL SENT after req #3356 removed the prop:
-                      // `RequirementDetail.jsx` reads it and defaults an absent
-                      // one to 1.0, so dropping it would rebuild a dead
-                      // `/swarm/pipeline/<2.0 id>` — the exact #3462 shape.
+                      // req #3463 named `era` here because Back had to rebuild
+                      // a plan route and an id with no era was not an address
+                      // — TWO eras meant one id space was ambiguous without it.
+                      // req #3356 removed the second era, so the state below
+                      // deliberately carries no `era` any more: there is only
+                      // one id space now, `RequirementDetail.jsx` ignores a
+                      // stale `era` if an old state object still carries one,
+                      // and reintroducing this field would resurrect exactly
+                      // the two-facts-in-two-places shape req #3462's outage
+                      // was caused by.
                       onActivate={() => navigate(`/swarm/requirement/${label.reqId}`,
                           pipeline?.id
                               ? { state: { from: 'pipeline', pipelineId: pipeline.id,
