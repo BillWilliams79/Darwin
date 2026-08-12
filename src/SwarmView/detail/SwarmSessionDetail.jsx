@@ -1,7 +1,7 @@
 import React, { useContext } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { useSession, useDevServersBySession, useAllSwarmStartSessions, useAllSwarmStarts, useAllSwarmCompleteSessions, useAllSwarmCompletes, useAllRequirements, useMachines, useAllPipelines, useAllPipelines2, useAllEpics } from '../../hooks/useDataQueries';
+import { useSession, useDevServersBySession, useAllSwarmStartSessions, useAllSwarmStarts, useAllSwarmCompleteSessions, useAllSwarmCompletes, useAllRequirements, useMachines, useAllPipelines, useAllPipelines2, useAllEpics, useAllPipeline2Epics } from '../../hooks/useDataQueries';
 import { sessionKeys } from '../../hooks/useQueryKeys';
 import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
@@ -14,6 +14,7 @@ import { aiModelChipProps, aiModelLabel } from '../modelChipStyles';
 import { effortChipProps, effortLabel } from '../effortChipStyles';
 import { terminalFocusState, TERMINAL_STATE, TERMINAL_VISIBLE } from '../terminalFocus';
 import { sessionPipelineLink } from '../sessionPipelineLink';
+import { PLAN_ERA_1, PLAN_ERA_2 } from '../pipelines/planEra';
 import { PHASE_BUCKETS, GROUP_COLORS, bucketTokens, parsePhaseTokens, formatTokens } from '../sessionPhases';
 import { formatDuration } from '../../utils/formatDuration';
 import { trimMicroseconds } from '../../utils/dateFormat';
@@ -112,14 +113,7 @@ const SwarmSessionDetail = () => {
     const { data: pipelines = [] } = useAllPipelines(profile?.userName);
     const { data: pipelines2 = [] } = useAllPipelines2(profile?.userName);
     const { data: epics = [] } = useAllEpics(profile?.userName);
-    const pipelineTitle = React.useMemo(() => {
-        if (session?.pipeline_fk == null) return null;
-        return pipelines.find(p => p.id === session.pipeline_fk)?.title ?? null;
-    }, [pipelines, session?.pipeline_fk]);
-    const epicTitle = React.useMemo(() => {
-        if (session?.epic_fk == null) return null;
-        return epics.find(e => e.id === session.epic_fk)?.title ?? null;
-    }, [epics, session?.epic_fk]);
+    const { data: epics2 = [] } = useAllPipeline2Epics(profile?.userName);
 
     // Same rule as the Sessions grid: the plan chip links only when a 2.0 id
     // exists, because the plan page is a 2.0 route now.
@@ -129,6 +123,45 @@ const SwarmSessionDetail = () => {
         // naming one plan and navigating to another.
         () => sessionPipelineLink(session, pipelines, pipelines2),
         [session, pipelines, pipelines2]);
+
+    // req #3433 — `sessionPipelineLink` already searches BOTH pipeline lists
+    // and resolves the title into `planLink.label`; before this fix the
+    // separate `pipelineTitle` memo below re-read `session.pipeline_fk`
+    // against the 1.0 `pipelines` list alone, so a 2.0-attributed session's
+    // Pipeline row showed a bare `#7` with no name even after the chip itself
+    // went era-aware (req #3463). `label` falls back to `#<id>` when no title
+    // resolved, so this only renders when there is a real name to add.
+    const pipelineTitle = planLink.state !== 'none' && planLink.label !== `#${planLink.planId}`
+        ? planLink.label : null;
+
+    // The Epic row follows the SAME era `planLink` picked, so the two rows
+    // never name two different plans for one session (a data defect on the
+    // row — both columns stamped — otherwise had the Pipeline row favour 1.0
+    // while an independent epic lookup favoured 2.0). Only when the session
+    // carries no pipeline attribution at all (a partial/cleared stamp) does
+    // this fall back to whichever epic column IS set — an epic fact worth
+    // showing even with no plan beside it, matching the row's pre-fix
+    // behaviour for that case.
+    const epicAttribution = React.useMemo(() => {
+        if (planLink.era === PLAN_ERA_2) {
+            return session?.epic2_fk != null ? { epicId: session.epic2_fk, era: PLAN_ERA_2 } : null;
+        }
+        if (planLink.era === PLAN_ERA_1) {
+            return session?.epic_fk != null ? { epicId: session.epic_fk, era: PLAN_ERA_1 } : null;
+        }
+        // No pipeline attribution at all — fall back to whichever epic column
+        // is actually set, rather than tying the Epic row's existence to a
+        // plan attribution it does not have.
+        if (session?.epic_fk != null) return { epicId: session.epic_fk, era: PLAN_ERA_1 };
+        if (session?.epic2_fk != null) return { epicId: session.epic2_fk, era: PLAN_ERA_2 };
+        return null;
+    }, [planLink.era, session?.epic_fk, session?.epic2_fk]);
+
+    const epicTitle = React.useMemo(() => {
+        if (!epicAttribution) return null;
+        const list = epicAttribution.era === PLAN_ERA_2 ? epics2 : epics;
+        return list.find(e => e.id === epicAttribution.epicId)?.title ?? null;
+    }, [epicAttribution, epics, epics2]);
 
     const hasHistory = location.key !== 'default';
     const handleBack = () => hasHistory ? navigate(-1) : navigate('/swarm/sessions');
@@ -346,14 +379,14 @@ const SwarmSessionDetail = () => {
                     </Box>
                 }
 
-                {session.epic_fk != null &&
+                {epicAttribution?.epicId != null &&
                     <Box sx={{ mb: 1 }} data-testid="session-epic">
                         <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Epic</Typography>
                         <Typography variant="body2" component="div">
                             {/* No epic detail route exists, so this is a label
                                  chip and not a link — a dead click is worse than
                                  an honest static chip. */}
-                            <Chip label={`#${session.epic_fk}`} size="small" variant="outlined"
+                            <Chip label={`#${epicAttribution.epicId}`} size="small" variant="outlined"
                                   sx={{ mr: 1 }}
                                   data-testid="session-epic-chip" />
                             {epicTitle &&
