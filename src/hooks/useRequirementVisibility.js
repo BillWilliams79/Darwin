@@ -30,7 +30,7 @@
 
 import { useCallback, useMemo } from 'react';
 
-import { useAllPipelineStepRequirements } from './useDataQueries';
+import { useAllPipelineStepRequirements, useAllPipeline2StepRequirements } from './useDataQueries';
 import { useShowClosedStore } from '../stores/useShowClosedStore';
 import { effectiveHidePipelined } from '../utils/epicMembership';
 import {
@@ -79,19 +79,20 @@ export function useRequirementVisibility(creatorFk, { epicFilterActive = false }
 
     // Read unconditionally — hooks are not conditional, and gating this on the
     // toggle would mean the FIRST flip renders stale-empty for a round trip,
-    // showing rows the user just asked to hide.
+    // showing rows the user just asked to hide. Both eras: req #3491.
     const { data: stepRequirements } = useAllPipelineStepRequirements(creatorFk);
+    const { data: stepRequirements2 } = useAllPipeline2StepRequirements(creatorFk);
 
     const pipelinedIds = useMemo(
-        () => pipelinedRequirementIds(stepRequirements),
-        [stepRequirements]);
+        () => pipelinedRequirementIds(stepRequirements, stepRequirements2),
+        [stepRequirements, stepRequirements2]);
 
-    // orchestratedRequirementIds(stepRequirements) === pipelinedRequirementIds
-    // today (req #3357 retired the epic-filed union) — computed through the
-    // named export anyway so a future widening has one place to happen.
+    // orchestratedRequirementIds(...) === pipelinedRequirementIds(...) today
+    // (req #3357 retired the epic-filed union) — computed through the named
+    // export anyway so a future widening has one place to happen.
     const orchestratedIds = useMemo(
-        () => orchestratedRequirementIds(stepRequirements),
-        [stepRequirements]);
+        () => orchestratedRequirementIds(stepRequirements, stepRequirements2),
+        [stepRequirements, stepRequirements2]);
 
     const isVisible = useCallback(
         (row) => !hideOrchestrated || !orchestratedIds.has(Number(row?.id)),
