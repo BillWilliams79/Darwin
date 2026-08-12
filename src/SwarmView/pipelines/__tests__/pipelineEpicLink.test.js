@@ -69,6 +69,15 @@ describe('readFocusEpicParam', () => {
         expect(FOCUS_EPIC_PARAM).toBe('epic');
         expect(epicLinkTo(1, 2)).toContain(`${FOCUS_EPIC_PARAM}=2`);
     });
+
+    // req #3356 — the `era` PARAMETER IS GONE, not merely defaulted. It existed
+    // so a caller holding a 1.0 id could ask for the 1.0 route; there are no 1.0
+    // ids and no 1.0 route. A surviving parameter would be a way to ask for a
+    // page that does not exist, which is req #3462's shape.
+    it('takes no era argument — a stray one cannot redirect the link', () => {
+        expect(epicLinkTo(2, 55, 1)).toBe(epicLinkTo(2, 55));
+        expect(epicLinkTo(2, 55)).toBe('/swarm/pipeline/2?mode=plan&epic=55');
+    });
 });
 
 // Req #3435 — the Orchestration box's pipeline row needs a destination even

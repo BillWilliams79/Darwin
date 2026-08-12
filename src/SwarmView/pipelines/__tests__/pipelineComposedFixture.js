@@ -1,6 +1,6 @@
-// pipeline2ComposedFixture.js — a minimal, valid `pipeline2_compose` payload
+// pipelineComposedFixture.js — a minimal, valid `pipeline_compose` payload
 // for PipelineDetail's component tests (req #3381). NOT imported by
-// `pipeline2Adapter.test.js` — that file builds its own payloads inline to
+// `pipelineAdapter.test.js` — that file builds its own payloads inline to
 // exercise specific shapes; this one exists purely so the component tests
 // that mount `PipelineDetail` (which need SOME composed read to get past
 // `isLoading` and the not-found branch) do not each hand-roll the same
@@ -22,7 +22,7 @@ const asArray = (v) => (Array.isArray(v) ? v : []);
  * @param {Object[]} [options.requirements]
  * @param {Object[]} [options.stepRequirements]  `{step_fk, requirement_fk}`
  * @param {Object[]} [options.stepDeps]          `{id, step_fk, dep_step_fk}`
- * @returns {Object} a composed `pipeline2_compose` payload, `derived` present
+ * @returns {Object} a composed `pipeline_compose` payload, `derived` present
  */
 export function composedFixture({
     id = 2,

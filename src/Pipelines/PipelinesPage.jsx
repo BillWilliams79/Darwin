@@ -1,21 +1,21 @@
-// /swarm/pipelines2 — the Pipeline 2.0 plan-layer pipelines editor (req #3393).
+// /swarm/pipelines — the plan-layer pipelines editor (req #3393).
 //
-// Renders at the SAME route req #3463's `planListRoutePath(PLAN_ERA_2)`
+// Renders at the route `planListRoutePath()`
 // registers in index.jsx — it supersedes that requirement's deliberately-thin
-// `Pipelines2Page.jsx` placeholder, exactly as that file's own header
+// `PipelinesPage.jsx` placeholder, exactly as that file's own header
 // anticipated ("either where they land or it is deleted in favour of the page
 // that has them"). Never touches `/swarm/pipelines` (1.0) or its component.
 //
 // Cards + Table, like 1.0's PipelinesPage.jsx — the Cards/Table toggle, the
 // status filter, and browsing the plan set were the pieces missing after the
 // first pass (found in manual review): this page IS the 2.0 producer
-// `/swarm/pipeline2/:id` (the visualizer, req #3463/#3372) needs to be
+// `/swarm/pipeline/:id` (the visualizer, req #3463/#3372) needs to be
 // reachable from, so it has to be a real browsing surface, not just an
 // editor grid. Table view is that editor grid (execution_mode toggle,
-// description dialog) — Cards view is `Pipelines2CardsView.jsx`, a new file
+// description dialog) — Cards view is `PipelinesCardsView.jsx`, a new file
 // adapted from `PipelineCardsView.jsx`.
 //
-// No create button: pipelines are created via the MCP `create_pipeline2` tool
+// No create button: pipelines are created via the MCP `create_pipeline` tool
 // by the Primary AI, matching 1.0's PipelinesPage.jsx, which carries no create
 // control of its own either.
 //
@@ -30,7 +30,7 @@
 // are the SHARED files (`useDataQueries.js`, `pipelineChipStyles.js`,
 // `orchestrationHolder.js`, `pipelinePlace.js`) rather than parallel copies —
 // req #3463 established that additive-extension convention first, and this
-// page follows it. `pipeline2ViewModel.js` is the one genuinely NEW model
+// page follows it. `pipelinesViewModel.js` is the one genuinely NEW model
 // here: the done/open summary and the requirement met/total counts, neither
 // of which needs (or fabricates) the unverified 1.0 derivation engine — see
 // that file's header.
@@ -72,11 +72,11 @@ import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
 import {
     useMachines,
-    useAllPipelines2,
-    pipeline2Keys,
-    useAllPipeline2Epics,
-    useAllPipeline2Steps,
-    useAllPipeline2StepRequirements,
+    useAllPipelines,
+    pipelineKeys,
+    useAllEpics,
+    useAllPipelineSteps,
+    useAllPipelineStepRequirements,
     useAllRequirements,
     useOrchestrationClaims,
 } from '../hooks/useDataQueries';
@@ -98,17 +98,24 @@ import {
     DEFAULT_REQ_COUNTS,
 } from '../SwarmView/pipelines/pipelineViewModel';
 // req #3463/#3372 built the reachable 2.0 visualizer at
-// planDetailPath(PLAN_ERA_2, id). This list is that visualizer's PRODUCER
+// planDetailPath(id). This list is that visualizer's PRODUCER
 // (the whole reason it was safe to ship) — a row here has to open it, or the
 // producer/consumer pair is only reachable by hand-typing a URL.
-import { PLAN_ERA_2, planDetailPath } from '../SwarmView/pipelines/planEra';
-import { readPipelinePlace } from '../SwarmView/pipelines/pipelinePlace';
-import { pipeline2Summaries, pipeline2RequirementCounts } from './pipeline2ViewModel';
-import Pipelines2CardsView from './Pipelines2CardsView';
-import { updatePipeline2 } from './pipelines2Api';
+import { planDetailPath } from '../SwarmView/pipelines/planEra';
+import { readPipelinePlace, prunePipelineStorage } from '../SwarmView/pipelines/pipelinePlace';
+import { pipelineSummaries, pipelineRequirementCounts } from './pipelinesViewModel';
+import PipelinesCardsView from './PipelinesCardsView';
+import { updatePipeline } from './pipelinesApi';
 
-const VIEW_STORAGE_KEY = 'darwin-swarm-pipelines2-view';
-const STATUS_FILTER_STORAGE_KEY = 'darwin-swarm-pipelines2-status-filter';
+// req #3356 — the `2` is out of both keys now that there is one plan list.
+// Dropping it ORPHANS the two stored preferences rather than migrating them, so
+// on first load after this ships a reader's view choice (Cards vs Table) and
+// status filter fall back to their defaults, once. That is the same call
+// `PIPELINE_PLACE_SCHEMA_VERSION` and the plan storage namespace make, and for
+// the same reason: a migration branch for a view preference lives forever, and
+// re-establishing it costs one click.
+const VIEW_STORAGE_KEY = 'darwin-swarm-pipelines-view';
+const STATUS_FILTER_STORAGE_KEY = 'darwin-swarm-pipelines-status-filter';
 
 const VIEWS = [
     { value: 'cards', label: 'Cards view', icon: ViewModuleIcon },
@@ -117,16 +124,16 @@ const VIEWS = [
 
 const DEFAULT_PIPELINE_STATUSES = ['draft', 'active', 'paused'];
 
-// `description` is NOT in `pipelines2`'s own defaultFields (devopsQueries.js
+// `description` is NOT in `pipelines`' own defaultFields (devopsQueries.js
 // deliberately keeps req #3463's id-producer index light) — this page both
 // RENDERS and EDITS the description, so it must ask for it explicitly. Code
 // review (req #3393): without this, every row arrived with
 // `description === undefined`, the Goal dialog opened EMPTY over a real goal,
 // and the first save silently overwrote it — a real data-loss path, confirmed
 // against production plan 7's 454-character description. Own cache entry
-// (`pipelines2` has `fieldsInKey: true`), so this does not collide with req
+// (`pipelines` has `fieldsInKey: true`), so this does not collide with req
 // #3463's own narrower read of the same table.
-const PIPELINES2_FIELDS = 'id,title,description,pipeline_status,execution_mode,'
+const PIPELINES_FIELDS = 'id,title,description,pipeline_status,execution_mode,'
     + 'machine_fk,started_at,completed_at,creator_fk,create_ts,update_ts';
 
 const pipelineStatusOptions = PIPELINE_STATUS_VALUES.map((status) => ({
@@ -159,10 +166,10 @@ function writeStoredStatusFilter(statuses) {
 // Structural port of `PipelineDescriptionDialog`
 // (Darwin/src/SwarmView/pipelines/PipelineDetail.jsx:139-259) — local draft +
 // save-on-blur/close, the same `savedRef`/`inFlightRef` staleness guards —
-// writing to `pipeline2_pipelines` instead of `pipelines`. Copied rather than
-// imported/generalized: see pipeline2ViewModel.js's header for why this stays
+// writing to `pipelines` instead of `pipelines`. Copied rather than
+// imported/generalized: see pipelinesViewModel.js's header for why this stays
 // a structural copy rather than an import.
-function Pipeline2DescriptionDialog({ pipeline, open, onClose }) {
+function PipelineDescriptionDialog({ pipeline, open, onClose }) {
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
     const queryClient = useQueryClient();
@@ -183,7 +190,7 @@ function Pipeline2DescriptionDialog({ pipeline, open, onClose }) {
         const value = draft;
         if (value === (inFlightRef.current ?? savedRef.current)) return;
         inFlightRef.current = value;
-        call_rest_api(`${darwinUri}/pipeline2_pipelines`, 'PUT',
+        call_rest_api(`${darwinUri}/pipelines`, 'PUT',
             [{ id: pipeline.id, description: value }], idToken)
             .then((result) => {
                 const code = result?.httpStatus?.httpStatus;
@@ -192,7 +199,7 @@ function Pipeline2DescriptionDialog({ pipeline, open, onClose }) {
                 } else {
                     savedRef.current = value;
                     queryClient.invalidateQueries({
-                        queryKey: pipeline2Keys.all(profile?.userName) });
+                        queryKey: pipelineKeys.all(profile?.userName) });
                 }
             })
             .catch((error) => showError(error, 'Unable to update the pipeline description'))
@@ -213,7 +220,7 @@ function Pipeline2DescriptionDialog({ pipeline, open, onClose }) {
             maxWidth="md"
             fullWidth
             disableScrollLock
-            data-testid="pipeline2-description-dialog"
+            data-testid="pipelines-description-dialog"
         >
             <DialogTitle>Description — {pipeline.title}</DialogTitle>
             <DialogContent dividers>
@@ -230,7 +237,7 @@ function Pipeline2DescriptionDialog({ pipeline, open, onClose }) {
                     autoComplete="off"
                     autoFocus
                     sx={{ mt: 1 }}
-                    data-testid="pipeline2-goal"
+                    data-testid="pipelines-goal"
                 />
             </DialogContent>
             <DialogActions>
@@ -240,7 +247,7 @@ function Pipeline2DescriptionDialog({ pipeline, open, onClose }) {
     );
 }
 
-export default function PipelinesPage2() {
+export default function PipelinesPage() {
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
     const queryClient = useQueryClient();
@@ -271,25 +278,38 @@ export default function PipelinesPage2() {
     // -era record is dropped rather than guessed at).
     const [lastOpenedId] = useState(() => {
         const place = readPipelinePlace();
-        return place?.era === PLAN_ERA_2 ? place.pipelineId : null;
+        return place?.pipelineId ?? null;
     });
 
     const open = (id) => {
-        const to = planDetailPath(PLAN_ERA_2, id);
+        const to = planDetailPath(id);
         if (to) navigate(to);
     };
 
     const { data: pipelines = [], isLoading: pipelinesLoading } =
-        useAllPipelines2(creatorFk, { fields: PIPELINES2_FIELDS });
+        useAllPipelines(creatorFk, { fields: PIPELINES_FIELDS });
+
+    // The orphan sweep for per-plan camera/scroll storage (viewportMemory.js
+    // keys keyed by plan id) had no caller anywhere in `src/` after the 1.0
+    // list page — its only caller — was deleted (code review, req #3356):
+    // every camera and scroll offset for every plan ever opened, including
+    // deleted ones, would otherwise accumulate in localStorage for the life
+    // of the browser profile. This page is the natural home — it already
+    // fetches the live id set on every mount, which is exactly what the
+    // prune needs to tell a live plan from an orphan.
+    useEffect(() => {
+        if (pipelinesLoading) return;
+        prunePipelineStorage(pipelines.map((p) => p.id));
+    }, [pipelinesLoading, pipelines]);
     const { data: machines = [], isLoading: machinesLoading } = useMachines(creatorFk);
     const { data: epics = [], isLoading: epicsLoading, isError: epicsError } =
-        useAllPipeline2Epics(creatorFk);
+        useAllEpics(creatorFk);
     const { data: steps = [], isLoading: stepsLoading, isError: stepsError } =
-        useAllPipeline2Steps(creatorFk);
+        useAllPipelineSteps(creatorFk);
     const { data: stepRequirements = [], isLoading: linksLoading } =
-        useAllPipeline2StepRequirements(creatorFk);
+        useAllPipelineStepRequirements(creatorFk);
     // `id,requirement_status` is enough for the met/total counts — see
-    // pipeline2ViewModel.js. A narrower projection than 1.0's PLAN_REQUIREMENT_FIELDS
+    // pipelinesViewModel.js. A narrower projection than 1.0's PLAN_REQUIREMENT_FIELDS
     // on purpose: this page derives no step state from it, only a stored-status tally.
     const { data: requirements = [], isLoading: reqsLoading } =
         useAllRequirements(creatorFk, { fields: 'id,requirement_status' });
@@ -299,10 +319,10 @@ export default function PipelinesPage2() {
         || stepsLoading || linksLoading || reqsLoading;
 
     // A step's PLAN is reachable only through its epic (containment — no
-    // `pipeline_fk` column on pipeline2_steps), so a failed epics OR steps
+    // `pipeline_fk` column on pipeline_steps), so a failed epics OR steps
     // read does not just blank one column, it zeroes every card's step
     // count, progress bar and requirement tally — indistinguishable from a
-    // genuinely empty plan (code review, req #3393; StepsPage2.jsx draws the
+    // genuinely empty plan (code review, req #3393; StepsPage.jsx draws the
     // identical distinction for the same underlying reason).
     const planDataError = epicsError || stepsError;
     const failedReadsText = [epicsError && 'epics', stepsError && 'steps']
@@ -312,19 +332,19 @@ export default function PipelinesPage2() {
 
     const machineById = new Map(machines.map((m) => [m.id, m]));
 
-    const summaries = pipeline2Summaries({ pipelines, steps, epics });
-    const reqCounts = pipeline2RequirementCounts({
+    const summaries = pipelineSummaries({ pipelines, steps, epics });
+    const reqCounts = pipelineRequirementCounts({
         pipelines, steps, epics, stepRequirements, requirements });
 
     const filtered = pipelines.filter((p) => statusFilter.includes(p.pipeline_status));
     const hiddenStatusCounts = hiddenPipelineStatusCounts(pipelines, statusFilter);
 
     const invalidatePipelines = () =>
-        queryClient.invalidateQueries({ queryKey: pipeline2Keys.all(creatorFk) });
+        queryClient.invalidateQueries({ queryKey: pipelineKeys.all(creatorFk) });
 
     const toggleExecutionMode = async (row) => {
         try {
-            await updatePipeline2(darwinUri, idToken, row.id,
+            await updatePipeline(darwinUri, idToken, row.id,
                 { execution_mode: row.execution_mode === 'serial' ? 'parallel' : 'serial' });
             invalidatePipelines();
         } catch (err) {
@@ -337,7 +357,7 @@ export default function PipelinesPage2() {
         {
             field: 'title', headerName: 'Pipeline', flex: 1, minWidth: 220,
             renderCell: (params) => (
-                <Tooltip title="Open this plan's visualizer (2.0)">
+                <Tooltip title="Open this plan's visualizer">
                     <Box
                         component="span"
                         role="link"
@@ -349,7 +369,7 @@ export default function PipelinesPage2() {
                             open(params.row.id);
                         }}
                         sx={{ cursor: 'pointer', color: 'primary.main', textDecoration: 'underline' }}
-                        data-testid={`pipeline2-open-title-${params.row.id}`}
+                        data-testid={`pipelines-open-title-${params.row.id}`}
                     >
                         {params.value}
                     </Box>
@@ -363,7 +383,7 @@ export default function PipelinesPage2() {
                     label={params.value}
                     size="small"
                     {...pipelineStatusChipProps(params.value)}
-                    data-testid={`pipeline2-status-${params.row.id}`}
+                    data-testid={`pipelines-status-${params.row.id}`}
                 />
             ),
         },
@@ -379,7 +399,7 @@ export default function PipelinesPage2() {
                         {...executionModeChipProps(params.value)}
                         clickable
                         onClick={(e) => { e.stopPropagation(); toggleExecutionMode(params.row); }}
-                        data-testid={`pipeline2-execmode-chip-${params.row.id}`}
+                        data-testid={`pipelines-execmode-chip-${params.row.id}`}
                     />
                 </Tooltip>
             ),
@@ -410,7 +430,7 @@ export default function PipelinesPage2() {
                             variant={hasDescription ? 'contained' : 'outlined'}
                             startIcon={<InfoOutlinedIcon fontSize="small" />}
                             onClick={(e) => { e.stopPropagation(); setDescriptionTarget(params.row); }}
-                            data-testid={`pipeline2-description-btn-${params.row.id}`}
+                            data-testid={`pipelines-description-btn-${params.row.id}`}
                         >
                             Goal
                         </Button>
@@ -425,7 +445,7 @@ export default function PipelinesPage2() {
                 <Tooltip title="Open plan">
                     <IconButton size="small"
                                 onClick={(e) => { e.stopPropagation(); open(params.row.id); }}
-                                data-testid={`pipeline2-open-${params.row.id}`}>
+                                data-testid={`pipelines-open-${params.row.id}`}>
                         <OpenInNewIcon fontSize="small" />
                     </IconButton>
                 </Tooltip>
@@ -442,21 +462,21 @@ export default function PipelinesPage2() {
     }
 
     return (
-        <Box className="app-content-planpage" data-testid="pipelines2-page">
+        <Box className="app-content-planpage" data-testid="pipelines-page">
             <Box className="app-content-view-toggle" sx={{ mt: 3, px: 3 }}>
                 <ViewerHeader
-                    title="Pipelines 2.0"
+                    title="Pipelines"
                     views={VIEWS}
                     view={activeView}
                     onViewChange={setView}
-                    testIdPrefix="pipelines2"
+                    testIdPrefix="pipelines"
                     filters={
                         <ChipFilter
                             options={pipelineStatusOptions}
                             selected={statusFilter}
                             onToggle={toggleStatus}
-                            testId="pipelines2-status-filter"
-                            chipTestIdPrefix="pipelines2-status-chip"
+                            testId="pipelines-status-filter"
+                            chipTestIdPrefix="pipelines-status-chip"
                         />
                     }
                     accounting={<>
@@ -470,7 +490,7 @@ export default function PipelinesPage2() {
             {planDataError && (
                 <Box sx={{ px: 3 }}>
                     <Alert severity="error" variant="outlined" sx={{ mb: 2 }}
-                           data-testid="pipelines2-plan-data-error">
+                           data-testid="pipelines-plan-data-error">
                         The {failedReadsText} read{failedReadsText.includes(' and ') ? 's' : ''} failed
                         to load. Every step count, progress bar and requirement tally below is
                         computed as though those rows do not exist — a plan with real work may show
@@ -481,7 +501,7 @@ export default function PipelinesPage2() {
 
             <Box className="app-content-tabpanel" sx={{ px: 3, pt: 0 }}>
                 {activeView === 'table' ? (
-                    <Box sx={{ width: '100%' }} data-testid="pipelines2-datagrid">
+                    <Box sx={{ width: '100%' }} data-testid="pipelines-datagrid">
                         <DataGrid
                             autoHeight
                             rows={filtered}
@@ -495,11 +515,11 @@ export default function PipelinesPage2() {
                             disableRowSelectionOnClick
                             onRowClick={(params) => open(params.id)}
                             sx={{ '& .MuiDataGrid-row': { cursor: 'pointer' } }}
-                            data-testid="pipelines2-grid"
+                            data-testid="pipelines-grid"
                         />
                     </Box>
                 ) : (
-                    <Pipelines2CardsView
+                    <PipelinesCardsView
                         pipelines={filtered}
                         summaries={summaries}
                         reqCounts={reqCounts}
@@ -514,7 +534,7 @@ export default function PipelinesPage2() {
             </Box>
 
             {descriptionTarget && (
-                <Pipeline2DescriptionDialog
+                <PipelineDescriptionDialog
                     key={descriptionTarget.id}
                     pipeline={descriptionTarget}
                     open={!!descriptionTarget}

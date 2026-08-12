@@ -1,6 +1,8 @@
 // pipelineStepLink.js — the addressable-step contract (req #3140).
 //
-// ONE step of a plan, named by URL: `/swarm/pipeline/<pid>?mode=table&step=<sid>`.
+// ONE step of a plan, named by URL: `<plan detail route>?mode=table&step=<sid>`.
+// The route half comes from `planEra.js` (2.0 by default since req #3356);
+// this module owns the `?step=` / `?level=` half.
 //
 // WHY BOTH HALVES LIVE IN ONE MODULE. The writer is the Steps editor
 // (`src/Steps/StepsPage.jsx`) and the reader is the plan page
@@ -36,10 +38,22 @@
 import { isPlanLevelPref } from './pipelinePlanLayout';
 // TWO imports now (req #3463). The route itself is no longer this module's to
 // spell: `planEra.js` owns the era↔route binding, and a builder here that
-// interpolated `/swarm/pipeline/` directly is exactly what let a 2.0 id reach a
+// interpolated the plan route directly is exactly what let a 2.0 id reach a
 // 1.0 route in production. This module still owns the QUERY-STRING half of the
 // contract — which is what it was always for — and asks planEra for the path.
-import { DEFAULT_PLAN_ERA, planDetailPath } from './planEra';
+//
+// ── THERE IS NO ERA TO CHOOSE (req #3356) ──────────────────────────────────
+// These builders briefly took an `era` argument, defaulting to 2.0 while both
+// plan surfaces stood: the producer of the ids `stepPlanLinkTo` receives
+// (`useOrchestrationIndex`, the requirement page's Orchestration box) was
+// already 2.0, so defaulting to 1.0 would have put a 2.0 id on a 1.0 route —
+// req #3462, the outage `planEra.js` exists to prevent, arriving through the
+// one door it left open.
+//
+// Pipeline 1.0 is eradicated, so the argument is GONE rather than defaulted. A
+// surviving one would be a way to ask for a route that does not exist, which is
+// the same failure wearing a parameter.
+import { planDetailPath } from './planEra';
 
 export const FOCUS_STEP_PARAM = 'step';
 
@@ -69,13 +83,14 @@ export const STEP_PLAN_LINK_LEVEL = '2';
  *
  * @param {?number} pipelineId
  * @param {?number} stepId
- * @param {number} [era] the era `pipelineId` was READ from (req #3463)
+ * @param {number} [era] the era `pipelineId` was READ from (req #3463).
+ *        Defaults to 2.0 since req #3356 — see the module header.
  * @returns {?string}
  */
-export function stepPlanLinkTo(pipelineId, stepId, era = DEFAULT_PLAN_ERA) {
+export function stepPlanLinkTo(pipelineId, stepId) {
     const sid = toId(stepId);
     if (sid == null) return null;
-    return planDetailPath(era, pipelineId,
+    return planDetailPath(pipelineId,
         `mode=plan&${FOCUS_STEP_PARAM}=${sid}`
         + `&${FOCUS_LEVEL_PARAM}=${STEP_PLAN_LINK_LEVEL}`);
 }
@@ -108,13 +123,14 @@ export function readLevelParam(searchParams) {
  *
  * @param {?number} pipelineId
  * @param {?number} stepId
- * @param {number} [era] the era `pipelineId` was READ from (req #3463)
+ * @param {number} [era] the era `pipelineId` was READ from (req #3463).
+ *        Defaults to 2.0 since req #3356 — see the module header.
  * @returns {?string}
  */
-export function stepLinkTo(pipelineId, stepId, era = DEFAULT_PLAN_ERA) {
+export function stepLinkTo(pipelineId, stepId) {
     const sid = toId(stepId);
     if (sid == null) return null;
-    return planDetailPath(era, pipelineId, `mode=table&${FOCUS_STEP_PARAM}=${sid}`);
+    return planDetailPath(pipelineId, `mode=table&${FOCUS_STEP_PARAM}=${sid}`);
 }
 
 // NULLISH AND EMPTY ARE REJECTED BEFORE `Number` SEES THEM, which is the whole

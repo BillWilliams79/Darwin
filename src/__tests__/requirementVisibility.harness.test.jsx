@@ -30,10 +30,13 @@
 // harness stays intact) but every row's orchestration now turns on STEP
 // association alone.
 //
-// req #3491 adds requirement 105, carried by a Pipeline 2.0 step ONLY (no 1.0
-// junction row at all) — the exact population the pre-fix code reported as
-// unplanned. It is seeded with the SAME `requirement_status` as 101 so every
-// assertion that already excludes 101 by construction (the aggregator's
+// req #3491 added requirement 105, carried by a second junction table (Pipeline
+// 2.0's own) while the first and second generation ran side by side — the
+// exact population the pre-fix code reported as unplanned. Req #3356 retired
+// that second table (renamed into the first's vacated name), so 105 is seeded
+// in the SAME junction as 101 now; it stays in the fixture as an ordinary
+// second step-carried row, seeded with the SAME `requirement_status` as 101 so
+// every assertion that already excludes 101 by construction (the aggregator's
 // unconditional launch exclusion, the COMPARABLE filter) needs only the same
 // treatment extended to 105, never a new branch of reasoning.
 
@@ -60,7 +63,7 @@ vi.mock('react-router-dom', () => ({
 // 102  unplanned (the req #3419 epic population it once carried is retired)
 // 103  unplanned
 // 104  unplanned, status development
-// 105  carried by pipeline2 step 304 (2.0, no 1.0 row at all) -> req #3491
+// 105  carried by pipeline step 304                 -> STEP association
 const CATEGORY_ID = 5;
 const ROWS = [
     { id: 100, title: 'Unplanned', requirement_status: 'authoring', category_fk: CATEGORY_ID, sort_order: 0, coordination_type: 'implemented', ai_model: 'opus', effort: 'high', machine_fk: null, started_at: null, completed_at: null, deferred_at: null },
@@ -70,10 +73,10 @@ const ROWS = [
     { id: 104, title: 'Unplanned, in flight', requirement_status: 'development', category_fk: CATEGORY_ID, sort_order: 4, coordination_type: 'implemented', ai_model: 'opus', effort: 'high', machine_fk: null, started_at: '2026-08-01T00:00:00', completed_at: null, deferred_at: null },
     { id: 105, title: 'On a 2.0 plan step', requirement_status: 'authoring', category_fk: CATEGORY_ID, sort_order: 5, coordination_type: 'implemented', ai_model: 'opus', effort: 'high', machine_fk: null, started_at: null, completed_at: null, deferred_at: null },
 ];
-const JUNCTION = [{ step_fk: 1, requirement_fk: 101 }];
-// req #3491 — the 2.0 junction, disjoint from JUNCTION above: 105 has NO 1.0
-// row at all, which is the exact shape a 2.0-seated requirement takes.
-const JUNCTION_2_0 = [{ step_fk: 304, requirement_fk: 105 }];
+const JUNCTION = [
+    { step_fk: 1, requirement_fk: 101 },
+    { step_fk: 304, requirement_fk: 105 },
+];
 const CATEGORIES = [{ id: CATEGORY_ID, category_name: 'Harness', project_fk: 1, color: null, sort_mode: 'process' }];
 
 // The answer, stated once, independently of any component.
@@ -102,8 +105,11 @@ const serve = (uri) => {
         }
         return ROWS;
     }
+    // req #3356 — the junction moved to Pipeline 2.0. Routed on the REAL table
+    // name so a hook still reading the 1.0 one gets `[]` here (an empty
+    // orchestrated set, hiding nothing) and every cross-surface assertion below
+    // fails loudly, which is the whole point of mocking only the wire.
     if (table === 'pipeline_step_requirements') return JUNCTION;
-    if (table === 'pipeline2_step_requirements') return JUNCTION_2_0;
     if (table === 'categories') return CATEGORIES;
     return [];
 };
@@ -266,12 +272,12 @@ describe('req #3419 — one visibility rule, every surface (the single harness)'
             mount(<Probe />);
             await settle(() => probed.orchestratedIds.size === ORCHESTRATED.length);
             expect(probed.orchestratedIds)
-                .toEqual(orchestratedRequirementIds(JUNCTION, JUNCTION_2_0));
+                .toEqual(orchestratedRequirementIds(JUNCTION));
         }, TIMEOUT);
 
-        it('sees a 2.0-only seating with no 1.0 row at all (req #3491)', async () => {
-            // 105 has no `pipeline_step_requirements` row whatsoever — the exact
-            // shape that reported `pipelined = false` before this fix.
+        it('sees every step-carried requirement, including one seated on a later step', async () => {
+            // 105 is seated on step 304, not step 1 — this pins that the read is a
+            // whole-table junction scan, not a lookup keyed to a specific step.
             mount(<Probe />);
             await settle(() => probed.orchestratedIds.size === ORCHESTRATED.length);
             expect(probed.orchestratedIds.has(105)).toBe(true);
@@ -280,11 +286,20 @@ describe('req #3419 — one visibility rule, every surface (the single harness)'
         it('actually issued the read — an empty answer must not be silent', async () => {
             // `fetchEntity` turns a 404 into `[]`, so a hook pointed at the wrong
             // URL produces "nothing is orchestrated" rather than an error. Assert
-            // the read happened at all — both eras.
+            // the read happened at all.
             mount(<Probe />);
             await settle(() => probed.orchestratedIds.size === ORCHESTRATED.length);
-            expect(restCalls.some(u => u.includes('/pipeline_step_requirements'))).toBe(true);
-            expect(restCalls.some(u => u.includes('/pipeline2_step_requirements'))).toBe(true);
+            // req #3356 — asserted on the EXACT table name, anchored at a word
+            // boundary. This case used to carry a second, NEGATIVE assertion
+            // that the 1.0 junction was never read; the migration renamed the
+            // 2.0 table into the 1.0 name, so there is one table and the two
+            // assertions became a contradiction about it. What survives is the
+            // half that still means something: the read happened, against the
+            // junction, by name. req #3491 later added a positive assertion for
+            // a SECOND read (`/pipeline2_step_requirements`, while both eras
+            // still ran side by side) — that table no longer exists, so neither
+            // does the read.
+            expect(restCalls.some(u => /\/pipeline_step_requirements\b/.test(u))).toBe(true);
         }, TIMEOUT);
 
         it('hides nothing while the reads are in flight', () => {
@@ -343,7 +358,7 @@ describe('req #3419 — one visibility rule, every surface (the single harness)'
             await settle(() => renderedIds(c).length === 3);
             const ids = renderedIds(c);
             expect(ids).not.toContain(101);   // req #3180 — unconditional
-            expect(ids).not.toContain(105);   // req #3491 — 2.0-seated, same rule
+            expect(ids).not.toContain(105);   // same rule, second step-carried row
             expect(ids).toEqual([100, 102, 103]);
         }, TIMEOUT);
 
@@ -404,8 +419,8 @@ describe('req #3419 — one visibility rule, every surface (the single harness)'
             const c = mount(<Card />);
             await settle(cardLoaded(c));
             await settle(() => renderedIds(c).length === 6);
-            expect(marked(c)).toContain(101);      // step-carried, 1.0
-            expect(marked(c)).toContain(105);      // step-carried, 2.0 (req #3491)
+            expect(marked(c)).toContain(101);      // step-carried
+            expect(marked(c)).toContain(105);      // step-carried, second row
             expect(marked(c)).not.toContain(102);  // no longer a population at all
         }, TIMEOUT);
 

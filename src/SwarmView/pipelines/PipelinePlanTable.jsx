@@ -58,7 +58,10 @@ import CheckIcon from '@mui/icons-material/Check';
 import { useScrollMemory } from '../../hooks/useScrollMemory';
 import { scrollStorageKey } from '../../utils/viewportMemory';
 import { fmtCost, STEP_DONE, STEP_RUNNING, STEP_PENDING } from './pipelineModel';
-import { DEFAULT_PLAN_ERA, planStorageNamespace } from './planEra';
+// req #3356 — the `era` PROP and ARGUMENT are both gone (there is one era) but
+// `planEra.js` stays the ONE place a plan route, entity or storage namespace is
+// spelled, so the accessors are still called — now with no argument.
+import { planStorageNamespace } from './planEra';
 import {
     planRenderRows,
     rowMachineLabel,
@@ -248,7 +251,7 @@ function StepLaunchLine({ row }) {
 // table's own status lookup, so Table and Plan modes agree on the order for
 // the same step. `row.reqIds` ITSELF is untouched (junction order — the
 // engine's contract); only the array handed to `.map` here is reordered.
-function RequirementLinks({ row, pipelineId, era, statusOf }) {
+function RequirementLinks({ row, pipelineId, statusOf }) {
     if (!row.reqIds.length) return <span>—</span>;
     const tracking = new Set(row.trackingReqIds || []);
     const sortedIds = sortReqIdsByStatus(row.reqIds, statusOf);
@@ -268,11 +271,19 @@ function RequirementLinks({ row, pipelineId, era, statusOf }) {
                         // table through a bead click or a `?step=` link never
                         // persisted `table` (both are transient overrides by design),
                         // so Back sent them to whichever panel their preference held.
-                        // req #3463 — `era` rides with the id. Back has to
-                        // rebuild a plan route, and an id with no era is not an
-                        // address: 1.0 and 2.0 ids are disjoint.
+                        // req #3463 named `era` here because Back had to rebuild
+                        // a plan route and an id with no era was not an address
+                        // — TWO eras meant one id space was ambiguous without it.
+                        // req #3356 removed the second era, so the state below
+                        // deliberately carries no `era` any more: there is only
+                        // one id space now, `RequirementDetail.jsx` ignores a
+                        // stale `era` if an old state object still carries one,
+                        // and reintroducing this field would resurrect exactly
+                        // the two-facts-in-two-places shape req #3462's outage
+                        // was caused by.
                         state={pipelineId
-                            ? { from: 'pipeline', pipelineId, era, mode: 'table' } : undefined}
+                            ? { from: 'pipeline', pipelineId, mode: 'table' }
+                            : undefined}
                         underline="hover"
                         sx={{
                             fontFamily: 'monospace',
@@ -324,12 +335,11 @@ function GroupCell({ show, value, width, color, testid }) {
     );
 }
 
+// req #3463 gave this panel an `era` prop naming WHICH plan surface it was
+// drawing; req #3356 removed it with Pipeline 1.0. The panel reads the one era
+// directly for the two things it needs an era for — its scroll-storage
+// namespace and the requirement links' Back state.
 export default function PipelinePlanTable({ plan, model, pipeline, timezone, focusStepId,
-    // req #3463 — WHICH plan surface this panel is drawing. The page owns it (it
-    // is the era of the route the page is mounted at) and the panel only needs
-    // it to stamp the requirement links' Back state, so a plan id can be
-    // returned to the route it came from.
-    era = DEFAULT_PLAN_ERA,
     costError = false, showCost = false }) {
     // req #3363 — id -> requirement_status, for `RequirementLinks`' sort. The
     // SAME light projection the page already read (`model.requirements`); no
@@ -374,7 +384,7 @@ export default function PipelinePlanTable({ plan, model, pipeline, timezone, foc
     // inheriting another's.
     const planScrollKey = pipeline?.id != null
         // req #3463 — era-qualified; see PipelinePlanVisualizer's camera key.
-        ? scrollStorageKey(`${planStorageNamespace(era)}-table`, pipeline.id) : null;
+        ? scrollStorageKey(`${planStorageNamespace()}-table`, pipeline.id) : null;
     // A DEEP LINK OWNS THE SCROLL POSITION FOR ITS ONE LANDING. `?step=` scrolls
     // its row to centre in the effect above, and a restore racing that would put
     // the reader somewhere neither of them asked for. So the RESTORE is suppressed
@@ -401,7 +411,7 @@ export default function PipelinePlanTable({ plan, model, pipeline, timezone, foc
     // exactly as on the other axis.
     const [tableEl, setTableEl] = useState(null);
     useScrollMemory(pipeline?.id != null
-        ? scrollStorageKey(`${planStorageNamespace(era)}-table-x`, pipeline.id) : null,
+        ? scrollStorageKey(`${planStorageNamespace()}-table-x`, pipeline.id) : null,
     tableEl, { restore: !linkOwnsScroll });
 
     if (!renderRows.length) {
@@ -598,7 +608,7 @@ export default function PipelinePlanTable({ plan, model, pipeline, timezone, foc
                                                color="#b07fd8"
                                                testid={`pipeline-epic-${row.id}`} />
                                     <TableCell sx={{ width: COL.reqs }}>
-                                        <RequirementLinks row={row} pipelineId={pipeline?.id} era={era}
+                                        <RequirementLinks row={row} pipelineId={pipeline?.id}
                                                           statusOf={(id) => reqStatusById.get(id)} />
                                         {/* Design rule 8's own artifact, on the
                                             row that owns it — see StepLaunchLine.

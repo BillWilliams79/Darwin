@@ -451,7 +451,15 @@ const SwarmView = () => {
                             The body opens the Epics editor and the ✕ clears the
                             filter — the other end of the same epic chip's two
                             links. MUI routes the delete icon's click to
-                            `onDelete` alone, so the two never fire together. */}
+                            `onDelete` alone, so the two never fire together.
+
+                            req #3356 — the 1.0 editor was DELETED and the
+                            surviving one took its route back, so this target is
+                            `/swarm/epics` again. It briefly pointed at
+                            `/swarm/epics2` while both eras stood; a chip whose
+                            whole affordance is "open the editor" landing on
+                            Error404 is worse than no chip, so this string moves
+                            in the same commit as the route. */}
                         {epicFilterApplies && (
                             <Chip size="small"
                                   color={epicFilterFailed ? 'error' : 'secondary'}

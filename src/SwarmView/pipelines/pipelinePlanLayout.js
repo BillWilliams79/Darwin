@@ -565,6 +565,15 @@ export const autonomyColor = (ct) => (Object.hasOwn(AUTONOMY_COLORS, ct)
 //   at h=30    width     90   300   420   470   600   900  1100
 //              dropped    3     7    10    11    13    19    23
 //
+// **WHY THE MOVE WAS WORTH MAKING, which is the one number this module did not
+// carry** (rescued from the deleted `memory/pipeline-plan-visualizer.md` by
+// req #3356; it was the only surviving justification for req #3255's
+// placement). Against the SAME 470x30 geometry, the OLD top-right key dropped
+// **187** names where bottom-center drops **11** — **the move made the key
+// ~17x cheaper.** The cause is the clip-or-drop rule above: an epic name is
+// pinned to its band's LEFT edge, and a bottom-center box is simply not where
+// those names land.
+//
 // HEIGHT WAS THE STEEPER AXIS — 66 names lost across the height range against
 // 20 across the width range — because a bottom-anchored box grows UPWARD into
 // more band rows while its width only ever spans the panel's middle. A cap
@@ -1027,8 +1036,11 @@ const STEP_LABEL_MAX = 60;      // hard ceiling on a title label above the bead
 // header are all UNTOUCHED, and the text is fitted to the room that already
 // exists.
 //
-// What that yields is a measured fact, not a promise — see the table in
-// [[pipeline-plan-visualizer]] and the assertions in pipelinePlanLayout.test.js.
+// What that yields is a measured fact, not a promise — see the assertions in
+// pipelinePlanLayout.test.js § "the 35-character ceiling (req #3168,
+// directive B)", which are now the only home of that measurement: the
+// per-layout character table lived in [[pipeline-plan-visualizer]], deleted
+// with the first generation (req #3356).
 // The ceiling BITES only where the existing budget already exceeded it (the
 // `horizontal` step label, which drew 42-50 characters), and is inert where the
 // budget is the binding constraint (`vertical`, 24-29).
@@ -3616,11 +3628,13 @@ const NEXT_HALO_OUTER = NEXT_HALO_RADIUS + NEXT_HALO_STROKE / 2;
 // it, so the ring survives 10% further out.
 //
 // PINNING THE CEILING AT THE OLD LITERAL 27 WAS CONSIDERED AND REFUSED. It
-// would have kept every measured figure in [[pipeline-plan-visualizer]]
-// byte-valid and changed no pixel — at the cost of a constant nothing derives,
-// which is exactly the failure the `min()`-over-an-enumerated-list shape was
-// built to prevent. The list is exhaustive by construction; a hand-pinned
-// number is a fourth wrong ceiling waiting to be discovered.
+// would have kept every measured figure in the halo record byte-valid
+// ([[pipeline-2-visualizer-design]] § 2.2 tabulates both ceilings, today and
+// "with the box gone") and changed no pixel — at the cost of a constant
+// nothing derives, which is exactly the failure the
+// `min()`-over-an-enumerated-list shape was built to prevent. The list is
+// exhaustive by construction; a hand-pinned number is a fourth wrong ceiling
+// waiting to be discovered.
 //
 // So the ceiling is `min()` over the real list, and each entry is DERIVED from
 // the constant that actually places that furniture. A new mark near a bead adds

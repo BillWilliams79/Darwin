@@ -79,6 +79,15 @@ describe('readFocusStepParam', () => {
         expect(FOCUS_STEP_PARAM).toBe('step');
         expect(stepLinkTo(1, 2)).toContain(`${FOCUS_STEP_PARAM}=2`);
     });
+
+    // req #3356 — the `era` PARAMETER IS GONE, not merely defaulted. It existed
+    // so a caller holding a 1.0 id could ask for the 1.0 route; there are no 1.0
+    // ids and no 1.0 route. A surviving parameter would be a way to ask for a
+    // page that does not exist, which is req #3462's shape.
+    it('takes no era argument — a stray one cannot redirect the link', () => {
+        expect(stepLinkTo(2, 47, 1)).toBe(stepLinkTo(2, 47));
+        expect(stepPlanLinkTo(2, 47, 1)).toBe(stepPlanLinkTo(2, 47));
+    });
 });
 
 // ── Req #3253 — the same step, seen on the PLAN ─────────────────────────────

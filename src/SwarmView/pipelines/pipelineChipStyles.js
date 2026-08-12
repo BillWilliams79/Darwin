@@ -1,11 +1,23 @@
 // pipelineChipStyles.js — the plan-table chip vocabulary (req #3114).
 //
 // Values are carried VERBATIM from the archived POC stylesheet in req #3080 and
-// the groomed rules in memory/swarm-orchestration.md § "UI rules — plan table":
+// the plan-table UI rules groomed into the first generation's
+// memory/swarm-orchestration.md § "UI rules — plan table". That document was
+// deleted with the first generation (req #3356) and the chip vocabulary moved
+// to no successor, so the list below is its only surviving statement — keep it
+// complete:
 //
 //   Complete  dark-green + check      Running  amber (row tinted, amber left edge)
 //   Scheduled neutral                 Manual   magenta        Auto  blue
 //   Eligible  green left edge + tint + a "eligible" marker
+//
+// Two plan-table disciplines travelled with that list and have no other home
+// either, so they are stated here:
+//
+//   - NO DECORATIVE CONCEPTS beyond the vocabulary above — no gates, no glyph
+//     codes, nothing that has to be learned before the table can be read.
+//   - COMPLETED ROWS RENDER AT FULL BRIGHTNESS. No lowlighting, no fading. A
+//     finished step is part of the plan's record, not visual noise to recede.
 //
 // Every chip carries BOTH its own background and its own text color, so it reads
 // identically in Darwin's light and dark themes (ThemeWrapper supports both) —
@@ -158,7 +170,7 @@ export const pipelineStatusChipProps = (status) => {
 
 // ---------------------------------------------------------------------------
 // Pipeline 2.0 plan-layer editor chips (req #3393), added to this SHARED file
-// rather than a separate one — req #3463's `Pipelines2Page.jsx` already
+// rather than a separate one — req #3463's `PipelinesPage.jsx` already
 // imports `pipelineStatusChipProps` straight from here for the identical
 // `pipeline_status` vocabulary, which is the precedent this follows: the two
 // eras share a vocabulary, they share the one function that colors it.
@@ -168,7 +180,7 @@ export const pipelineStatusChipProps = (status) => {
 // control exists in 1.0 at all, only a derived bubble. Amber-for-paused,
 // matching `pipeline_status`'s own `paused` treatment above, so "paused" reads
 // as one color across every plan-layer surface, either era.
-const EPIC2_STATUS_CHIP = {
+const EPIC_STATUS_CHIP = {
     active: { bgcolor: '#1c3a52', color: '#8fd0ff' },
     paused: { bgcolor: '#ff9800', color: '#000' },
 };
@@ -176,7 +188,7 @@ const EPIC2_STATUS_CHIP = {
 export const epicStatus2Label = (status) => (status === 'paused' ? 'Paused' : 'Active');
 
 export const epicStatus2ChipProps = (status) => ({
-    sx: EPIC2_STATUS_CHIP[status] || EPIC2_STATUS_CHIP.active,
+    sx: EPIC_STATUS_CHIP[status] || EPIC_STATUS_CHIP.active,
 });
 
 // execution_mode — parallel|serial (req #3388/#3393). NEW: no UI anywhere

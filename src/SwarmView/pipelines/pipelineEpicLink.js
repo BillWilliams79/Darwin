@@ -1,6 +1,8 @@
 // pipelineEpicLink.js — the addressable-epic contract (req #3235).
 //
-// ONE epic's location on a plan, named by URL: `/swarm/pipeline/<pid>?mode=plan&epic=<eid>`.
+// ONE epic's location on a plan, named by URL: `<plan detail route>?mode=plan&epic=<eid>`.
+// The route half comes from `planEra.js` (2.0 by default since req #3356); this
+// module owns the `?epic=` half.
 //
 // Mirrors `pipelineStepLink.js` (req #3140) — same shape, same reasons: the
 // writer (the requirement page's epic box, `RequirementDetail.jsx`) and the
@@ -21,7 +23,18 @@
 // The route is `planEra.js`'s, not this module's (req #3463) — see
 // `pipelineStepLink.js`'s identical import for why. This file still owns the
 // `?epic=` half of the contract, which is what it was always for.
-import { DEFAULT_PLAN_ERA, planDetailPath } from './planEra';
+//
+// ── THERE IS NO ERA TO CHOOSE (req #3356) ──────────────────────────────────
+// These builders briefly took an `era` argument, defaulting to 2.0 while both
+// plan surfaces stood: every producer of the ids they receive was already 2.0
+// (`useOrchestrationIndex`), so defaulting to 1.0 would have rendered a 2.0 id
+// against a 1.0 route — req #3462, the outage `planEra.js` exists to prevent,
+// arriving through the one door it left open.
+//
+// Pipeline 1.0 is eradicated, so the argument is GONE rather than defaulted. A
+// surviving one would be a way to ask for a route that does not exist, which is
+// the same failure wearing a parameter.
+import { planDetailPath } from './planEra';
 
 export const FOCUS_EPIC_PARAM = 'epic';
 
@@ -35,13 +48,14 @@ export const FOCUS_EPIC_PARAM = 'epic';
  *
  * @param {?number} pipelineId
  * @param {?number} epicId
- * @param {number} [era] the era `pipelineId` was READ from (req #3463)
+ * @param {number} [era] the era `pipelineId` was READ from (req #3463).
+ * Defaults to 2.0 since req #3356 — see the module header.
  * @returns {?string}
  */
-export function epicLinkTo(pipelineId, epicId, era = DEFAULT_PLAN_ERA) {
+export function epicLinkTo(pipelineId, epicId) {
     const eid = toId(epicId);
     if (eid == null) return null;
-    return planDetailPath(era, pipelineId, `mode=plan&${FOCUS_EPIC_PARAM}=${eid}`);
+    return planDetailPath(pipelineId, `mode=plan&${FOCUS_EPIC_PARAM}=${eid}`);
 }
 
 /**
@@ -56,11 +70,12 @@ export function epicLinkTo(pipelineId, epicId, era = DEFAULT_PLAN_ERA) {
  * happens to be.
  *
  * @param {?number} pipelineId
- * @param {number} [era] the era `pipelineId` was READ from (req #3463)
+ * @param {number} [era] the era `pipelineId` was READ from (req #3463).
+ * Defaults to 2.0 since req #3356 — see the module header.
  * @returns {?string}
  */
-export function planLinkTo(pipelineId, era = DEFAULT_PLAN_ERA) {
-    return planDetailPath(era, pipelineId, 'mode=plan');
+export function planLinkTo(pipelineId) {
+    return planDetailPath(pipelineId, 'mode=plan');
 }
 
 // NULLISH AND EMPTY ARE REJECTED BEFORE `Number` SEES THEM — see
