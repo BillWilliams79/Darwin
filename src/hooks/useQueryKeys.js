@@ -6,7 +6,7 @@
 // from `factory/devopsQueries.js` via the `createEntityQueries` factory
 // (req #2593). Their re-exports live at the bottom of this file.
 
-import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, orchestrationClaims, pipelines, pipelineSteps, pipelineStepRequirements, pipelineStepDeps, requirementSessions, sessionCostRollups } from './factory/devopsQueries';
+import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, orchestrationClaims, pipelines, epics, pipelineSteps, pipelineStepRequirements, pipelineStepDeps, requirementSessions, sessionCostRollups } from './factory/devopsQueries';
 
 export const domainKeys = {
     all: (creatorFk) => ['domains', creatorFk],
@@ -68,9 +68,12 @@ export const swarmStartSessionKeys = swarmStartSessions.keys;
 export const swarmUndoKeys = swarmUndos.keys;
 export const devServerKeys = devServers.keys;
 
-// Req #3114 — Swarm Orchestration pipelines. Four bounded list reads joined
+// Req #3114 — Swarm Orchestration pipelines. Bounded list reads joined
 // client-side by the plan page (design rule 5: no N+1 at render).
+// `epicKeys` joined them at req #3356, when the plan layer collapsed to one era
+// and `epics` stopped being a hand-written hierarchy read (see below).
 export const pipelineKeys = pipelines.keys;
+export const epicKeys = epics.keys;
 export const pipelineStepKeys = pipelineSteps.keys;
 export const pipelineStepRequirementKeys = pipelineStepRequirements.keys;
 export const pipelineStepDepKeys = pipelineStepDeps.keys;
@@ -108,13 +111,13 @@ export const mapCoordinateKeys = {
     byRun: (runId) => ['map_coordinates', { runId }],
 };
 
-// Req #3381 — the Pipeline 2.0 composed read (`pipeline2_compose`, req
-// #3367). Not creator-scoped in the key: the route itself scopes by the
-// authenticated token (Lambda-Rest req #3050), and this cache entry is one
-// per PLAN, the same way `mapCoordinateKeys.byRun` is one per run rather than
-// one per (creator, run).
-export const pipeline2ComposeKeys = {
-    byId: (pipelineId) => ['pipeline2_compose', { id: pipelineId }],
+// Req #3381 — the composed plan read (the `pipeline_compose` route, req #3367).
+// Not creator-scoped in the key: the route itself scopes by the authenticated
+// token (Lambda-Rest req #3050), and this cache entry is one per PLAN, the same
+// way `mapCoordinateKeys.byRun` is one per run rather than one per (creator,
+// run).
+export const pipelineComposeKeys = {
+    byId: (pipelineId) => ['pipeline_compose', { id: pipelineId }],
 };
 
 export const mapViewKeys = {
@@ -132,13 +135,11 @@ export const mapRunPartnerKeys = {
 // Req #2380 — Swarm Features & Test Cases registry. `fields` must appear in the
 // extended key (req #2213) so two callers with different projections don't collide.
 
-// Req #3111 migration 076 / req #3114 — the top tier of Epic > Feature > Story.
-// Sits with featureKeys because it is the same hierarchy; the pipeline EXECUTION
-// tables are factory keys, re-exported at the bottom of this file.
-export const epicKeys = {
-    all: (creatorFk) => ['epics', creatorFk],
-    byId: (creatorFk, id) => ['epics', creatorFk, { id }],
-};
+// `epicKeys` MOVED to the factory re-export block above (req #3356). It was
+// hand-written here while `epics` was the 1.0 hierarchy's top tier and the plan
+// EXECUTION tables were factory keys; the plan layer collapse made `epics` a
+// plan-layer table like the other four, so its key comes from the same
+// declaration its hooks do rather than being stated a second time here.
 
 // Trimmed to `.all` by req #3357 — the Features route, its by-id/by-category
 // pages and their hooks are retired; `useAllFeatures` (the LABEL DICTIONARY

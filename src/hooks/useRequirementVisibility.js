@@ -27,10 +27,27 @@
 // that could produce that population (see `utils/pipelineMembership.js`'s
 // header for the full reasoning), so this hook now reads ONE bounded list —
 // the step-requirement junction — instead of three.
+//
+// ── THE FIRST-GENERATION JUNCTION IS GONE (req #3356) ───────────────────────
+//
+// The one list read is `pipeline_step_requirements` — the second generation's
+// junction, renamed onto that name once the first generation's own table of
+// the same name was dropped. A toggle still reading the pre-rename table would
+// answer from a table that no longer exists — every requirement would read as
+// unorchestrated and the control would silently do nothing.
+//
+// THE ROW SHAPE IS IDENTICAL (`step_fk`, `requirement_fk`), so
+// `pipelinedRequirementIds` / `orchestratedRequirementIds` needed no
+// adaptation: only the source table moved. What DID change underneath is the
+// junction's primary key — it keys on `requirement_fk` ALONE (one step per
+// requirement, the req #3336 stage-2 gate ruling), so the id set this hook
+// derives can no longer contain a duplicate at all. Neither function ever
+// relied on that, and both stay set-valued rather than being "simplified"
+// into a lookup.
 
 import { useCallback, useMemo } from 'react';
 
-import { useAllPipelineStepRequirements, useAllPipeline2StepRequirements } from './useDataQueries';
+import { useAllPipelineStepRequirements } from './useDataQueries';
 import { useShowClosedStore } from '../stores/useShowClosedStore';
 import { effectiveHidePipelined } from '../utils/epicMembership';
 import {
@@ -79,20 +96,23 @@ export function useRequirementVisibility(creatorFk, { epicFilterActive = false }
 
     // Read unconditionally — hooks are not conditional, and gating this on the
     // toggle would mean the FIRST flip renders stale-empty for a round trip,
-    // showing rows the user just asked to hide. Both eras: req #3491.
+    // showing rows the user just asked to hide. req #3491 widened this to a
+    // second, first-generation read while both eras ran side by side; req
+    // #3356 retired that hook (`useAllPipeline2StepRequirements` no longer
+    // exists in `useDataQueries.js`) along with the rest of the first
+    // generation, so this is back to the one read it started as.
     const { data: stepRequirements } = useAllPipelineStepRequirements(creatorFk);
-    const { data: stepRequirements2 } = useAllPipeline2StepRequirements(creatorFk);
 
     const pipelinedIds = useMemo(
-        () => pipelinedRequirementIds(stepRequirements, stepRequirements2),
-        [stepRequirements, stepRequirements2]);
+        () => pipelinedRequirementIds(stepRequirements),
+        [stepRequirements]);
 
     // orchestratedRequirementIds(...) === pipelinedRequirementIds(...) today
     // (req #3357 retired the epic-filed union) — computed through the named
     // export anyway so a future widening has one place to happen.
     const orchestratedIds = useMemo(
-        () => orchestratedRequirementIds(stepRequirements, stepRequirements2),
-        [stepRequirements, stepRequirements2]);
+        () => orchestratedRequirementIds(stepRequirements),
+        [stepRequirements]);
 
     const isVisible = useCallback(
         (row) => !hideOrchestrated || !orchestratedIds.has(Number(row?.id)),

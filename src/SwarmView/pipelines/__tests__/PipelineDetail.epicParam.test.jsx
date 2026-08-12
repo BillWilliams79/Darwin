@@ -41,25 +41,25 @@ vi.mock('../pipelineDetailModes', () => {
 
 vi.mock('../../../RestApi/RestApi', () => ({ default: vi.fn(() => Promise.resolve({ httpStatus: { httpStatus: 200 }, data: [] })) }));
 
+// req #3356 — ONE composed read where the 1.0 seven used to be. The fixture
+// carries the SAME step 47 the 1.0 mock supplied, so every `?step=47` case
+// below still names a step the page can resolve; `composedFixture` builds the
+// `derived` block the page hard-stops without.
 vi.mock('../../../hooks/useDataQueries', async (importOriginal) => {
     const actual = await importOriginal();
+    const { composedFixture } = await import('./pipelineComposedFixture');
+    const composed = composedFixture({ id: 2, title: 'Darwin' });
     const empty = () => ({ data: [], isLoading: false, isError: false });
     return {
         ...actual,
+        useComposedPipeline: (id) => ({
+            data: Number(id) === 2 ? composed : null, isLoading: false,
+        }),
         useAllPipelines: () => ({
-            data: [{ id: 2, title: 'Darwin', pipeline_status: 'active', description: '' }],
-            isLoading: false,
+            data: [{ id: 2 }], isLoading: false, isError: false, isSuccess: true,
         }),
-        useAllPipelineSteps: () => ({
-            data: [{ id: 47, pipeline_fk: 2, title: 'Session Drain', run: 'auto', notes: null, completed_at: null }],
-            isLoading: false,
-        }),
-        useAllPipelineStepRequirements: empty,
-        useAllPipelineStepDeps: empty,
-        useAllRequirements: empty,
-        useAllFeatures: empty,
-        useAllEpics: empty,
         useMachines: empty,
+        useOrchestrationClaims: empty,
         useAllRequirementSessions: empty,
         useAllSessionCostRollups: empty,
     };

@@ -1,33 +1,33 @@
-// /swarm/epics — the Epics editor (req #3139).
+// /swarm/epics — the plan-layer epics editor (req #3393).
 //
-// Epics are the TOP tier of Epic > Step (req #3111, migration 076). Every
-// other tier already had a page: requirements at /swarm, steps at
-// /swarm/steps. Epics had none — req #3115 shipped the `?epic=<id>` filter on
-// the (since-retired) features view as "the minimal target the requirement
-// asked for; dedicated epic pages are deliberately deferred". This is that
-// deferred page, and it sits as an L2 nav entry directly under Pipelines
-// because an epic is what a plan is made OF.
+// Stands BESIDE `/swarm/epics` (Darwin/src/Epics/EpicsPage.jsx), never in
+// place of it, and shares no COMPONENT with it (structural copy). It DOES
+// share the query layer and chip-style files (`useDataQueries.js`,
+// `pipelineChipStyles.js`) — req #3463 established that additive-extension
+// convention for this feature first, and this page follows it rather than a
+// parallel copy. See PLAN.md for the full re-scope rationale.
 //
-// Shape follows MachinesView (/swarm/machines): one DataGrid, a click-to-toggle
-// closed chip, no cards/trends views. Create and Edit go through one dialog
-// rather than inline editing, because `description` is multi-paragraph prose and
-// `category_fk` is a constrained choice — neither fits a grid cell.
+// Shape follows EpicsPage.jsx exactly: one DataGrid, a click-to-toggle closed
+// chip, create/edit through one dialog. Differences from the 1.0 page, all
+// schema-driven:
 //
-// Deliberately NOT a `ViewerHeader` page (memory/darwin-viewer-pages.md): that
-// contract is for a dataset shown through MORE THAN ONE presentation, and it
-// mandates a ToggleButtonGroup even at length 1 — a dead control on a page with
-// a single view. The siblings this page sits beside (Machines, Customers)
-// all hand-roll the same header row. Adopting ViewerHeader is the
-// right move the day this page grows a second view, not before.
-//
-// req #3357 — THE FEATURE TIER LEFT. The Features count cell that used to
-// navigate to /swarm/features?epic=<id> is gone; the column that replaces it
-// opens /swarm/steps?epic=<id> instead (the same target req #3373 repointed
-// the plan visualizer's epic chip ↗ at), because a step count would need the
-// same feature_fk chain walk this requirement retires. It carries no count —
-// deriving "how many steps under this epic" would cost the same chain walk.
+//   - The dialog gains a Pipeline select (`pipeline_fk`, required at create,
+//     DISABLED once editing — re-homing an epic is `move_epic`, an
+//     MCP-only tool with cross-plan-edge checks this page does not
+//     reproduce, matching StepsPage.jsx's identical rule for its own
+//     `pipeline_fk` field).
+//   - `epic_status` (active|paused) gets a click-to-toggle chip — genuinely
+//     new UI: there is no pause/unpause control anywhere today, in either
+//     era, only a derived bubble.
+//   - No Features count column — 2.0 has no feature tier (containment goes
+//     straight epic -> step). A step_count column takes its place, linking to
+//     `/swarm/steps?epic=<id>`.
+//   - No orchestration-claim "orchestrated by" badge — not in the
+//     requirement's field matrix; left out deliberately rather than folded
+//     in silently.
 
-import { useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useContext } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -52,65 +52,43 @@ import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
-import LinearScaleIcon from '@mui/icons-material/LinearScale';
 
 import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
-import { useAllEpics, useAllCategories, useMachines, useOrchestrationClaims } from '../hooks/useDataQueries';
-import { claimsForEpic, holderView } from '../SwarmView/pipelines/orchestrationHolder';
-import { epicKeys, featureKeys, sessionKeys } from '../hooks/useQueryKeys';
+import {
+    useAllCategories,
+    useAllPipelines,
+    useAllEpics,
+    useAllPipelineSteps,
+    epicKeys,
+    pipelineStepKeys,
+} from '../hooks/useDataQueries';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import ChipFilter from '../Components/ChipFilter/ChipFilter';
 import { formatDate } from '../utils/dateFormat';
-import { createEpic, updateEpic, deleteEpic, REST_NULL } from './epicsApi';
+import { epicStatus2ChipProps, epicStatus2Label } from '../SwarmView/pipelines/pipelineChipStyles';
+import { createEpic, updateEpic, deleteEpic, isRestNullLiteral, REST_NULL } from './epicsApi';
 
-// The same projection RequirementsTrendsView already requests, deliberately —
-// `useAllCategories` keys on `fields`, so matching it shares one cache entry
-// instead of paying for a second read of the same table. No `closed` filter:
-// this is a NAME DICTIONARY first (an epic filed under a since-closed category
-// must still render its category, not a blank), and the dialog narrows it to
-// open categories itself.
+// Same projection 1.0's EpicsPage requests — a NAME DICTIONARY, no `closed`
+// filter (an epic filed under a since-closed category must still render it).
 const CATEGORY_FIELDS = 'id,category_name,color,sort_order,closed';
 
-// Explicit chipProps, not the ChipFilter palette: open/closed is a fixed
-// two-value VOCABULARY, and the palette is for dimensions whose values are data
-// (machines, projects). Left to hash, 'open' and 'closed' would pick arbitrary
-// colours that contradict the grid's own Status chip two columns away — the
-// same word in two colours on one screen.
 const CLOSED_FILTER_OPTIONS = [
     { value: 'open', label: 'Open', chipProps: { color: 'success' } },
     { value: 'closed', label: 'Closed', chipProps: { color: 'default' } },
 ];
 
-// SMALLINT — the column's real width, not INT. 40000 is a 1264 from MySQL and
-// a 500 at the gateway, which is a worse answer than refusing it in the form.
+// SMALLINT — the column's real width. Copied from EpicsPage.jsx rather than
+// imported: a small pure validation function, not a data or style dependency,
+// so it stays a local copy even where the query layer and chip styles now
+// share their 1.0 files directly.
 const SORT_ORDER_MIN = -32768;
 const SORT_ORDER_MAX = 32767;
 
-// The ENTITY ROOT of the swarm_sessions cache, and it has to be the root.
-// `sessions` is declared `byIdCreatorScoped: false`, so its two key shapes are
-// SIBLINGS rather than ancestor and descendant — ['swarm_sessions', creatorFk]
-// for the list, ['swarm_sessions', {id}] for a detail row — and they diverge at
-// element 1, where 'tester' and {id:42} fail deep equality. Neither prefix
-// reaches the other. That matters here because SwarmSessionDetail is the ONLY
-// component that renders a session's `epic_fk` at all, and it reads through the
-// byId key: invalidating the list alone refreshes every cache except the one
-// that shows the column. Derived from the factory rather than typed out, so an
-// entity rename cannot desync it.
-const SESSION_CACHE_ROOT = sessionKeys.all(null).slice(0, 1);
-
-// Collapse prose to one line for the grid cell. Epic descriptions are several
-// paragraphs (see darwin://epics) and a raw multi-line value renders as a single
-// clipped line with the newlines swallowed anyway — this at least keeps the
-// words on either side of a break from running together.
 const oneLine = (value) => (value ? String(value).replace(/\s+/g, ' ').trim() : '');
 
-// sort_order is a nullable SMALLINT fed by a text input, so there are THREE
-// answers, not two, and collapsing the last two loses data: EMPTY (clear the
-// column), a usable integer, and INVALID. `<input type="number">` keeps "4.5"
-// and "4e3" in the field rather than clearing them, so treating anything
-// non-integer as empty would silently wipe an epic's plan position on a typo.
-// Returns { value } | { empty: true } | { invalid: <reason> }.
+// sort_order is a nullable SMALLINT fed by a text input — three answers, not
+// two: EMPTY (clear the column), a usable integer, and INVALID.
 const parseSortOrder = (raw) => {
     const t = (raw ?? '').trim();
     if (t === '') return { empty: true };
@@ -133,24 +111,14 @@ export default function EpicsPage() {
     const creatorFk = profile?.userName;
     const timezone = profile?.timezone;
 
+    const { data: pipelines = [], isLoading: pipelinesLoading } = useAllPipelines(creatorFk);
     const { data: epics = [], isLoading: epicsLoading } = useAllEpics(creatorFk);
+    const { data: steps = [], isLoading: stepsLoading } = useAllPipelineSteps(creatorFk);
     const { data: categories = [], isLoading: categoriesLoading } =
         useAllCategories(creatorFk, { fields: CATEGORY_FIELDS });
-    // req #3224 — which epics are being orchestrated, from where. Deliberately
-    // NOT in `isLoading`: it feeds an OPTIONAL badge whose absence means "not
-    // orchestrated", which is the right reading while it is in flight too.
-    const { data: orchestrationClaims = [] } = useOrchestrationClaims(creatorFk);
-    // machines are what turn a machine_fk into a name; the page already has none
-    // of its own, so this is the one read the badge adds beyond the claims.
-    const { data: machines = [] } = useMachines(creatorFk);
 
-    // Every read that feeds a NUMBER OR A LABEL gates the spinner (the
-    // PipelinesPage rule).
-    const isLoading = epicsLoading || categoriesLoading;
+    const isLoading = pipelinesLoading || epicsLoading || stepsLoading || categoriesLoading;
 
-    // Plain state, deliberately: unlike PipelinesPage's persisted filter, this
-    // page has no detail route to click into and come back from, so there is no
-    // navigation that could silently forget a chip the user turned on.
     const [closedFilter, setClosedFilter] = useState(['open']);
     const toggleClosedFilter = (value) => setClosedFilter(current => (
         current.includes(value)
@@ -160,11 +128,28 @@ export default function EpicsPage() {
 
     const [dialogOpen, setDialogOpen] = useState(false);
     const [editTarget, setEditTarget] = useState(null);
+    const [formPipelineFk, setFormPipelineFk] = useState('');
     const [formTitle, setFormTitle] = useState('');
     const [formDescription, setFormDescription] = useState('');
     const [formCategoryFk, setFormCategoryFk] = useState('');
     const [formSortOrder, setFormSortOrder] = useState('');
+    const [formEpicStatus, setFormEpicStatus] = useState('active');
     const [submitting, setSubmitting] = useState(false);
+
+    const stepCountByEpic = useMemo(() => {
+        const m = {};
+        for (const s of steps) {
+            if (s.epic_fk == null) continue;
+            m[s.epic_fk] = (m[s.epic_fk] || 0) + 1;
+        }
+        return m;
+    }, [steps]);
+
+    const pipelineById = useMemo(() => {
+        const m = {};
+        for (const p of pipelines) m[p.id] = p;
+        return m;
+    }, [pipelines]);
 
     const categoryById = useMemo(() => {
         const m = {};
@@ -172,12 +157,6 @@ export default function EpicsPage() {
         return m;
     }, [categories]);
 
-    // Open categories in the user's own order (sort_order NULLs last, then name),
-    // plus whichever one the epic being edited already carries even if it has
-    // since been closed — otherwise opening the dialog on such an epic shows an
-    // empty Select and saving would silently re-file it. The order matters
-    // beyond tidiness: `openCreate` defaults to the first entry, and "whichever
-    // row the database happened to return first" is not a default worth having.
     const categoryOptions = useMemo(() => {
         const open = categories.filter(c => !c.closed).sort((a, b) => {
             const ao = a.sort_order == null ? Infinity : a.sort_order;
@@ -192,84 +171,56 @@ export default function EpicsPage() {
         return open;
     }, [categories, categoryById, editTarget]);
 
+    // Plans in the same order PipelinesPage shows them (id:desc — newest first).
+    const pipelineOptions = useMemo(() => pipelines.map(
+        p => ({ id: p.id, title: p.title })), [pipelines]);
+
     const rows = useMemo(() => {
         const visible = epics.filter(e => (
             closedFilter.includes(e.closed ? 'closed' : 'open')
         ));
-        // sort_order NULLs last, then id — the order darwin://epics itself uses.
-        // Pre-sorted rather than an initial sortModel because MUI sorts a null
-        // sort_order to the TOP in ascending order, which puts brand-new,
-        // unordered epics above the ordered plan.
         return [...visible]
-            .map(e => {
-                // THE EPIC'S OWN reservation only. A WHOLE-PLAN orchestrator
-                // also owns this epic's steps, but knowing which plans an epic
-                // is seated in means walking epic -> steps -> requirements ->
-                // step links, and that is more whole-table reads for a
-                // badge. The plan surfaces answer the whole-plan case directly,
-                // so this page answers the question it can answer exactly —
-                // hence the empty `pipelineIds`.
-                const holder = holderView(claimsForEpic(orchestrationClaims, e.id, [])[0],
-                                          machines);
-                return {
-                    ...e,
-                    orchestrated_by: holder ? holder.label : '',
-                    orchestrated_title: holder ? holder.title : '',
-                    orchestrated_stale: holder ? holder.stale : false,
-                };
-            })
+            .map(e => ({
+                ...e,
+                step_count: stepCountByEpic[e.id] || 0,
+                pipeline_title: pipelineById[e.pipeline_fk]?.title
+                    ?? (e.pipeline_fk != null ? `#${e.pipeline_fk}` : ''),
+            }))
             .sort((a, b) => {
                 const ao = a.sort_order == null ? Infinity : a.sort_order;
                 const bo = b.sort_order == null ? Infinity : b.sort_order;
                 return ao - bo || a.id - b.id;
             });
-    }, [epics, closedFilter, orchestrationClaims, machines]);
+    }, [epics, closedFilter, stepCountByEpic, pipelineById]);
 
     const invalidateEpics = () =>
         queryClient.invalidateQueries({ queryKey: epicKeys.all(creatorFk) });
 
     const openCreate = () => {
         setEditTarget(null);
+        setFormPipelineFk(pipelineOptions[0]?.id ?? '');
         setFormTitle('');
         setFormDescription('');
-        // Pre-select the first OPEN category (the house rule this page's own
-        // dialog, and the (retired) FeatureEditDialog, both followed).
-        // category_fk is required by the API, so an empty default is a dead Save
-        // button on a form that looks complete. `categoryOptions` was memoized
-        // for the previous `editTarget` and may still carry that epic's closed
-        // category appended at the end, so the openness test is explicit rather
-        // than positional — filing new work under a closed category is wrong
-        // even when it is the only category left.
         setFormCategoryFk(categoryOptions.find(c => !c.closed)?.id ?? '');
         setFormSortOrder('');
+        setFormEpicStatus('active');
         setDialogOpen(true);
     };
 
     const openEdit = (row) => {
         setEditTarget(row);
+        setFormPipelineFk(row.pipeline_fk ?? '');
         setFormTitle(row.title || '');
         setFormDescription(row.description || '');
         setFormCategoryFk(row.category_fk ?? '');
         setFormSortOrder(row.sort_order == null ? '' : String(row.sort_order));
+        setFormEpicStatus(row.epic_status === 'paused' ? 'paused' : 'active');
         setDialogOpen(true);
     };
 
-    // Deep-link via ?id=<id> (req #3234): the requirement detail page's
-    // Orchestration box used to link here from its Epic row (retired, req
-    // #3357). A flat DataGrid has no per-row route to land on, so "click
-    // through to it" means open the same edit dialog the Edit icon opens —
-    // the page's own presentation of one epic's full detail (title,
-    // description, category) that a grid row cannot show. Fires once per
-    // param (autoOpenedIdRef) and clears the param on success so reopening
-    // the dialog and hitting Back doesn't re-trigger it; an id with no
-    // matching row is silently ignored — the grid still renders normally
-    // rather than blocking on a bad link.
+    // Deep-link via ?id=<id>, matching EpicsPage.jsx's own contract.
     const autoOpenedIdRef = useRef(null);
     useEffect(() => {
-        // Gated on the PAGE's loading flag, not `epicsLoading` alone (code review,
-        // req #3234): the dialog this opens needs `categoryOptions`, which is built
-        // from `categories` — opening it while that read is still in flight put a
-        // real category id into a Select with no matching MenuItem yet.
         if (isLoading) return;
         const raw = searchParams.get('id');
         if (!raw || !/^\d+$/.test(raw.trim())) return;
@@ -282,6 +233,7 @@ export default function EpicsPage() {
         const next = new URLSearchParams(searchParams);
         next.delete('id');
         setSearchParams(next, { replace: true });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isLoading, epics, searchParams]);
 
     const handleSubmit = async () => {
@@ -292,15 +244,23 @@ export default function EpicsPage() {
             showError('Title is required');
             return;
         }
-        // category_fk is ON DELETE RESTRICT and required by the API — a create
-        // without it fails at the gateway, so refuse it here with a real message.
+        // `title` is NOT NULL — a typed "NULL" is Lambda-Rest's clear-column
+        // sentinel on BOTH POST and PUT, so it would otherwise reach the
+        // gateway as SQL NULL and fail as an opaque 500 (code review, req
+        // #3393; matches StepsPage's identical guard for its own title field).
+        if (isRestNullLiteral(title)) {
+            showError(`"${REST_NULL}" is the API's clear-this-column sentinel and cannot `
+                + 'be a title. Try "Null" or another wording.');
+            return;
+        }
+        if (!editTarget && (formPipelineFk === '' || formPipelineFk == null)) {
+            showError('Pipeline is required');
+            return;
+        }
         if (formCategoryFk === '' || formCategoryFk == null) {
             showError('Category is required');
             return;
         }
-        // An unusable sort order is REFUSED, never silently treated as "clear
-        // it": the two look identical in the payload and one of them destroys
-        // the epic's position in the plan.
         if (sortOrder.invalid) {
             showError(sortOrder.invalid);
             return;
@@ -308,32 +268,28 @@ export default function EpicsPage() {
         setSubmitting(true);
         try {
             if (editTarget) {
-                // Every editable column is sent, with the nullable ones cleared
-                // via the REST 'NULL' sentinel. One code path beats diffing the
-                // form against the row and getting the empty cases wrong.
+                // `pipeline_fk` is deliberately never sent here — the field is
+                // disabled once editing (see this file's header).
                 await updateEpic(darwinUri, idToken, editTarget.id, {
                     title,
                     description: description || REST_NULL,
                     category_fk: formCategoryFk,
                     sort_order: sortOrder.empty ? REST_NULL : sortOrder.value,
+                    epic_status: formEpicStatus,
                 });
             } else {
                 await createEpic(darwinUri, idToken, {
+                    pipeline_fk: formPipelineFk,
                     title,
                     description: description || null,
                     category_fk: formCategoryFk,
-                    // POST takes a real null; the 'NULL' string is a PUT-only
-                    // sentinel and would be stored as the literal text.
                     sort_order: sortOrder.empty ? null : sortOrder.value,
+                    epic_status: formEpicStatus,
                 });
             }
             invalidateEpics();
             setDialogOpen(false);
         } catch (err) {
-            // TWO-argument form on purpose. call_rest_api THROWS a bare
-            // `{data, httpStatus}` object for every gateway error, so `err.message`
-            // is undefined on exactly the failures worth reporting; the store's
-            // second argument is what renders the status code beside the text.
             showError(err, editTarget ? 'Could not save epic' : 'Could not create epic');
         } finally {
             setSubmitting(false);
@@ -349,37 +305,44 @@ export default function EpicsPage() {
         }
     };
 
-    const handleDelete = async (row) => {
-        if (!window.confirm(`Delete epic "${row.title}"?`)) return;
+    const toggleEpicStatus = async (row) => {
         try {
-            await deleteEpic(darwinUri, idToken, row.id);
+            await updateEpic(darwinUri, idToken, row.id,
+                { epic_status: row.epic_status === 'paused' ? 'active' : 'paused' });
             invalidateEpics();
-            // BOTH columns that point at an epic are ON DELETE SET NULL, so both
-            // caches are now stale (code review, req #3357): `features.epic_fk`
-            // — `useAllFeatures` is still live for `StepsPage`/`usePlanSources`,
-            // so a stale cache there would keep the plan visualizer's epic band
-            // and this page's own Steps filter resolving against a deleted
-            // epic for up to the hook's staleTime — and swarm_sessions.epic_fk
-            // (req #3186's attribution row, which would otherwise keep
-            // rendering a bare `#<id>` chip for an epic that no longer exists —
-            // the title lookup fails once the epics list refetches). The
-            // session invalidation goes to the ENTITY ROOT deliberately; see
-            // SESSION_CACHE_ROOT above for why the list key cannot reach the row
-            // that actually renders the column.
-            queryClient.invalidateQueries({ queryKey: featureKeys.all(creatorFk) });
-            queryClient.invalidateQueries({ queryKey: SESSION_CACHE_ROOT });
         } catch (err) {
-            showError(err, 'Could not delete epic');
+            showError(err, 'Could not change the epic pause state');
         }
     };
 
-    // Deliberately NOT memoized (the CustomersPage shape). Every
-    // action cell closes over `idToken`, which is refreshed in place by
-    // AuthContext; a memoized column array would keep firing REST calls with the
-    // token it captured on first render long after that token expired.
+    const handleDelete = async (row) => {
+        const count = row.step_count;
+        const consequence = count
+            ? ` Its ${count} step${count === 1 ? '' : 's'} will be deleted with it (a step never `
+              + 'survives its epic — containment). This cannot be undone.'
+            : ' This cannot be undone.';
+        if (!window.confirm(`Delete epic "${row.title}"?${consequence}`)) return;
+        try {
+            await deleteEpic(darwinUri, idToken, row.id);
+            invalidateEpics();
+            // The epic's steps CASCADE away with it (when the delete succeeds),
+            // so this page's own step_count read is stale until invalidated —
+            // same rule StepsPage.jsx's handleDelete follows for its own
+            // dependency/link caches after a cascading delete.
+            queryClient.invalidateQueries({ queryKey: pipelineStepKeys.all(creatorFk) });
+        } catch (err) {
+            showError(err, 'Could not delete epic — if another step outside it depends on one '
+                + 'of its steps, remove that dependency first');
+        }
+    };
+
     const columns = [
         { field: 'id', headerName: 'ID', width: 70 },
         { field: 'title', headerName: 'Epic', flex: 1, minWidth: 200 },
+        {
+            field: 'pipeline_title', headerName: 'Pipeline', width: 160,
+            valueFormatter: (value) => value || '—',
+        },
         {
             field: 'category_name', headerName: 'Category', width: 150,
             valueGetter: (_v, row) => categoryById[row.category_fk]?.category_name || '',
@@ -398,44 +361,50 @@ export default function EpicsPage() {
             valueFormatter: (value) => value || '—',
         },
         {
-            // req #3357 — the Features count cell is retired with the Feature
-            // tier; this opens the same epic-filtered destination req #3373
-            // repointed the plan visualizer's epic chip ↗ at. No count: a step
-            // count would need the same feature_fk chain walk this requirement
-            // retires.
-            field: 'steps', headerName: 'Steps', width: 90, sortable: false,
-            filterable: false,
+            field: 'step_count', headerName: 'Steps', width: 90, type: 'number',
             renderCell: (params) => (
-                <Box sx={{ display: 'flex', alignItems: 'center', height: '100%' }}>
-                    <Tooltip title={`Open the steps filed under ${params.row.title}`}>
-                        <IconButton size="small"
-                                    aria-label={`Open the steps filed under ${params.row.title}`}
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        navigate(`/swarm/steps?epic=${params.row.id}`);
-                                    }}
-                                    data-testid={`epic-steps-link-${params.row.id}`}>
-                            <LinearScaleIcon fontSize="small" />
-                        </IconButton>
-                    </Tooltip>
+                <Box
+                    component="span"
+                    role="link"
+                    tabIndex={0}
+                    aria-label={`Open the steps filed under ${params.row.title}`}
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        navigate(`/swarm/steps?epic=${params.row.id}`);
+                    }}
+                    onKeyDown={(e) => {
+                        if (e.key !== 'Enter') return;
+                        e.stopPropagation();
+                        navigate(`/swarm/steps?epic=${params.row.id}`);
+                    }}
+                    sx={{
+                        cursor: 'pointer',
+                        textDecoration: params.value > 0 ? 'underline' : 'none',
+                        color: params.value > 0 ? 'primary.main' : 'text.secondary',
+                    }}
+                    data-testid={`epic2-steps-link-${params.row.id}`}
+                >
+                    {params.value}
                 </Box>
             ),
         },
         {
-            // req #3224 — is this epic being SWARM-ORCHESTRATED right now, and
-            // from which machine. An empty cell is a real answer, so it renders
-            // as an em-dash rather than an unreadable empty chip.
-            field: 'orchestrated_by', headerName: 'Orchestrated by', width: 180,
-            renderCell: (params) => (params.value ? (
-                <Tooltip title={params.row.orchestrated_title}>
-                    <Chip size="small" label={params.value}
-                          color={params.row.orchestrated_stale ? 'warning' : 'success'}
-                          variant={params.row.orchestrated_stale ? 'outlined' : 'filled'}
-                          data-testid={`epic-holder-${params.row.id}`} />
+            field: 'epic_status', headerName: 'Pause', width: 100, sortable: false,
+            renderCell: (params) => (
+                <Tooltip title={params.value === 'paused'
+                    ? 'Paused — this epic\'s work will not swarm-start. Click to unpause.'
+                    : 'Active — click to pause (stops this epic swarm-starting; everything '
+                      + 'already running is untouched).'}>
+                    <Chip
+                        label={epicStatus2Label(params.value)}
+                        size="small"
+                        {...epicStatus2ChipProps(params.value)}
+                        clickable
+                        onClick={() => toggleEpicStatus(params.row)}
+                        data-testid={`epic2-pause-chip-${params.row.id}`}
+                    />
                 </Tooltip>
-            ) : (
-                <Box sx={{ color: 'text.secondary' }}>—</Box>
-            )),
+            ),
         },
         {
             field: 'sort_order', headerName: 'Order', width: 90, type: 'number',
@@ -451,7 +420,7 @@ export default function EpicsPage() {
                     variant={params.value ? 'outlined' : 'filled'}
                     onClick={() => toggleClosed(params.row)}
                     clickable
-                    data-testid={`epic-toggle-closed-${params.row.id}`}
+                    data-testid={`epic2-toggle-closed-${params.row.id}`}
                 />
             ),
         },
@@ -466,14 +435,14 @@ export default function EpicsPage() {
                 <Stack direction="row" spacing={0.5}>
                     <Tooltip title="Edit">
                         <IconButton size="small"
-                                    data-testid={`epic-edit-${params.row.id}`}
+                                    data-testid={`epic2-edit-${params.row.id}`}
                                     onClick={(e) => { e.stopPropagation(); openEdit(params.row); }}>
                             <EditIcon fontSize="small" />
                         </IconButton>
                     </Tooltip>
                     <Tooltip title="Delete">
                         <IconButton size="small"
-                                    data-testid={`epic-delete-${params.row.id}`}
+                                    data-testid={`epic2-delete-${params.row.id}`}
                                     onClick={(e) => { e.stopPropagation(); handleDelete(params.row); }}>
                             <DeleteIcon fontSize="small" />
                         </IconButton>
@@ -484,7 +453,8 @@ export default function EpicsPage() {
     ];
 
     return (
-        <Box sx={{ gridArea: 'content', p: 3, width: '100%', overflow: 'auto' }}>
+        <Box sx={{ gridArea: 'content', p: 3, width: '100%', overflow: 'auto' }}
+             data-testid="epics-page">
             <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 2 }}>
                 <Typography variant="h5">Epics</Typography>
                 <ChipFilter
@@ -500,7 +470,8 @@ export default function EpicsPage() {
                 </Typography>
                 <Box sx={{ flexGrow: 1 }} />
                 <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}
-                        data-testid="epic-add">
+                        disabled={!pipelineOptions.length}
+                        data-testid="epic2-add">
                     New Epic
                 </Button>
             </Stack>
@@ -528,19 +499,32 @@ export default function EpicsPage() {
             )}
 
             <Dialog open={dialogOpen} onClose={() => !submitting && setDialogOpen(false)}
-                    maxWidth="md" fullWidth data-testid="epic-edit-dialog">
+                    maxWidth="md" fullWidth data-testid="epic2-edit-dialog">
                 <DialogTitle>{editTarget ? 'Edit epic' : 'New epic'}</DialogTitle>
                 <DialogContent>
                     <Stack spacing={2} sx={{ mt: 1 }}>
+                        <FormControl fullWidth required disabled={!!editTarget}>
+                            <InputLabel>Pipeline</InputLabel>
+                            <Select label="Pipeline" value={formPipelineFk}
+                                    onChange={(e) => setFormPipelineFk(e.target.value)}
+                                    data-testid="epic2-pipeline-select">
+                                {pipelineOptions.map(p => (
+                                    <MenuItem key={p.id} value={p.id}>{p.title}</MenuItem>
+                                ))}
+                            </Select>
+                        </FormControl>
+                        {editTarget && (
+                            <Typography variant="caption" sx={{ color: 'text.secondary', mt: -1 }}>
+                                An epic&apos;s plan membership is not editable from this dialog —
+                                use the move tool (MCP `move_epic`) to re-home it.
+                            </Typography>
+                        )}
                         <TextField
                             label="Title"
                             value={formTitle}
                             onChange={(e) => setFormTitle(e.target.value)}
                             autoFocus required fullWidth
-                            // maxLength matches the column (VARCHAR 256). Without
-                            // it a longer title reaches MySQL, fails 1406, and
-                            // comes back as an opaque 500 (the RequirementRow rule).
-                            slotProps={{ htmlInput: { 'data-testid': 'epic-title-input', maxLength: 256 } }}
+                            slotProps={{ htmlInput: { 'data-testid': 'epic2-title-input', maxLength: 256 } }}
                         />
                         <TextField
                             label="Description"
@@ -548,29 +532,37 @@ export default function EpicsPage() {
                             onChange={(e) => setFormDescription(e.target.value)}
                             helperText="What this epic is for — purpose, not a fact a query can answer."
                             fullWidth multiline minRows={6}
-                            slotProps={{ htmlInput: { 'data-testid': 'epic-description-input' } }}
+                            slotProps={{ htmlInput: { 'data-testid': 'epic2-description-input' } }}
                         />
                         <FormControl fullWidth required>
                             <InputLabel>Category</InputLabel>
                             <Select label="Category" value={formCategoryFk}
                                     onChange={(e) => setFormCategoryFk(e.target.value)}
-                                    data-testid="epic-category-select">
+                                    data-testid="epic2-category-select">
                                 {categoryOptions.map(c => (
                                     <MenuItem key={c.id} value={c.id}>{c.category_name}</MenuItem>
                                 ))}
+                            </Select>
+                        </FormControl>
+                        <FormControl fullWidth>
+                            <InputLabel>Pause state</InputLabel>
+                            <Select label="Pause state" value={formEpicStatus}
+                                    onChange={(e) => setFormEpicStatus(e.target.value)}
+                                    data-testid="epic2-status-select">
+                                <MenuItem value="active">Active — swarm-starts normally</MenuItem>
+                                <MenuItem value="paused">Paused — suppresses swarm-start</MenuItem>
                             </Select>
                         </FormControl>
                         <TextField
                             label="Sort order"
                             value={formSortOrder}
                             onChange={(e) => setFormSortOrder(e.target.value)}
-                            helperText="Whole number, position in the plan. Leave blank for unordered (sorts last)."
+                            helperText={"Whole number, position among this plan's epics. Leave "
+                                + 'blank for derived order (started epics by start date, '
+                                + 'unstarted after by creation).'}
                             type="number" fullWidth
-                            // step/min/max are the spinner's manners only — a typed
-                            // "4.5" still arrives here, which is why handleSubmit
-                            // refuses it rather than trusting the field.
                             slotProps={{ htmlInput: {
-                                'data-testid': 'epic-sort-order-input',
+                                'data-testid': 'epic2-sort-order-input',
                                 step: 1, min: SORT_ORDER_MIN, max: SORT_ORDER_MAX,
                             } }}
                         />
@@ -579,8 +571,9 @@ export default function EpicsPage() {
                 <DialogActions>
                     <Button onClick={() => setDialogOpen(false)} disabled={submitting}>Cancel</Button>
                     <Button variant="contained" onClick={handleSubmit}
-                            disabled={submitting || !formTitle.trim() || formCategoryFk === ''}
-                            data-testid="epic-save">
+                            disabled={submitting || !formTitle.trim() || formCategoryFk === ''
+                                || (!editTarget && formPipelineFk === '')}
+                            data-testid="epic2-save">
                         {editTarget ? 'Save' : 'Create'}
                     </Button>
                 </DialogActions>

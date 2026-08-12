@@ -1,10 +1,23 @@
-// planEra.test.js — the era↔route↔entity binding, and THE GUARD (req #3463).
+// planEra.test.js — the route↔entity binding, and THE GUARD (req #3463).
 //
-// The second `describe` in this file is the mechanical reason req #3462's class
+// The last `describe` in this file is the mechanical reason req #3462's class
 // of outage cannot recur. It is not a unit test of a function: it reads the
 // whole of `src/` off disk and fails if any file other than `planEra.js` spells
 // a plan route as a string. Everything else here is ordinary coverage of the
 // module that test forces everyone through.
+//
+// ── req #3356: ONE ERA, AND THE GUARD IS WHAT SURVIVES ─────────────────────
+// This file used to assert that the two eras produced DIFFERENT routes, that an
+// unknown era THREW, and that `planEraOfSession` read the era off whichever
+// column carried the seat. Pipeline 1.0 is eradicated: `PLAN_ERA_1`/`_2`,
+// `PLAN_ERAS`, `DEFAULT_PLAN_ERA`, `isPlanEra`, `planEraBinding`,
+// `planEraLabel` and `planEraOfSession` are all gone, so those cases are gone
+// with them rather than being repaired into tautologies about a single value.
+//
+// THE GUARD IS UNTOUCHED AND IS THE POINT. Its value was never the branching —
+// it is that a plan route is spelled in exactly one file — and that is a
+// stronger claim now, not a weaker one: with one era there is no longer even a
+// second legitimate spelling to confuse an offender with.
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
@@ -12,83 +25,40 @@ import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
-    DEFAULT_PLAN_ERA,
-    PLAN_ERAS,
-    PLAN_ERA_1,
-    PLAN_ERA_2,
-    isPlanEra,
     normalizePlanId,
     planDetailPath,
     planDetailPathPattern,
     planDetailRoutePath,
     planEntityName,
-    planEraBinding,
-    planEraLabel,
-    planEraOfSession,
     planListPath,
     planListRoutePath,
     planStorageNamespace,
 } from '../planEra';
 
 describe('the binding', () => {
-    it('binds each era to its own route, entity and storage namespace', () => {
-        expect(planListPath(PLAN_ERA_1)).toBe('/swarm/pipelines');
-        expect(planDetailPath(PLAN_ERA_1, 79)).toBe('/swarm/pipeline/79');
-        expect(planEntityName(PLAN_ERA_1)).toBe('pipelines');
-        expect(planStorageNamespace(PLAN_ERA_1)).toBe('pipeline-plan');
-
-        expect(planListPath(PLAN_ERA_2)).toBe('/swarm/pipelines2');
-        expect(planDetailPath(PLAN_ERA_2, 7)).toBe('/swarm/pipeline2/7');
-        expect(planEntityName(PLAN_ERA_2)).toBe('pipeline2_pipelines');
-        expect(planStorageNamespace(PLAN_ERA_2)).toBe('pipeline2-plan');
+    it('binds the plan surface to its route, entity and storage namespace', () => {
+        expect(planListPath()).toBe('/swarm/pipelines');
+        expect(planDetailPath(7)).toBe('/swarm/pipeline/7');
+        expect(planEntityName()).toBe('pipelines');
+        expect(planStorageNamespace()).toBe('plan-view');
     });
 
-    it('NEVER produces the same route for two eras — the whole point', () => {
-        // THE OUTAGE, AS AN ASSERTION (req #3462). Production `pipelines` held
-        // {2, 79, 80} and `pipeline2_pipelines` held {7}. The defect was that one
-        // route answered for both id spaces, so an id from either could be
-        // handed to it. Here, the SAME id produces two different addresses and
-        // the reader of either always knows which table answers.
-        for (const id of [2, 7, 79, 80]) {
-            expect(planDetailPath(PLAN_ERA_1, id))
-                .not.toBe(planDetailPath(PLAN_ERA_2, id));
+    it('carries NO era marker anywhere in the binding (req #3356)', () => {
+        // The eradication, as an assertion. Every value this module hands out is
+        // a string a reader SEES — in the address bar, in the not-found alert,
+        // or as a web-storage key — so a stray `2` here is a user-visible
+        // leftover, not an internal detail.
+        for (const value of [planListPath(), planDetailPath(7), planEntityName(),
+            planStorageNamespace(), planListRoutePath(), planDetailRoutePath()]) {
+            expect(value).not.toMatch(/2/);
         }
     });
 
-    it('defaults to 1.0 so an omitted era reproduces the pre-#3463 app', () => {
-        expect(DEFAULT_PLAN_ERA).toBe(PLAN_ERA_1);
-        expect(planListPath()).toBe(planListPath(PLAN_ERA_1));
-        expect(planDetailPath(undefined, 2)).toBe('/swarm/pipeline/2');
-        expect(planStorageNamespace()).toBe('pipeline-plan');
-    });
-
-    it('THROWS on an unknown era rather than falling back', () => {
-        // A silent fallback is exactly the #3462 failure mode: something asks
-        // for an era that does not exist and gets one era's route pointed at
-        // another era's data. Loud is the only safe answer, and it is only
-        // reachable from code that is wrong.
-        for (const bad of [0, 3, '1', '2', null, {}, NaN]) {
-            expect(() => planEraBinding(bad)).toThrow(/unknown plan era/);
-        }
-        // `undefined` alone means "omitted" and takes the default.
-        expect(() => planEraBinding(undefined)).not.toThrow();
-    });
-
-    it('isPlanEra admits exactly the two eras, as NUMBERS', () => {
-        expect(PLAN_ERAS).toEqual([PLAN_ERA_1, PLAN_ERA_2]);
-        expect(isPlanEra(1)).toBe(true);
-        expect(isPlanEra(2)).toBe(true);
-        // A stored/serialized era arrives as a string from web storage and from
-        // router state. Admitting it would defeat every `=== PAGE_ERA` compare
-        // downstream, so it is refused here and the record is dropped.
-        for (const bad of ['1', '2', 0, 3, null, undefined, true, [1]]) {
-            expect(isPlanEra(bad)).toBe(false);
-        }
-    });
-
-    it('labels each era for a reader without ever labelling a decision', () => {
-        expect(planEraLabel(PLAN_ERA_1)).toBe('1.0');
-        expect(planEraLabel(PLAN_ERA_2)).toBe('2.0');
+    it('keeps the list and detail routes distinguishable', () => {
+        // They differ by ONE character and share a prefix, which is exactly why
+        // the pattern below is anchored and demands a digits-only id segment.
+        expect(planListPath()).not.toBe(planDetailPath(7));
+        expect(planDetailPathPattern().test(planListPath())).toBe(false);
     });
 });
 
@@ -97,23 +67,23 @@ describe('planDetailPath — id handling', () => {
         // `Number(null)` and `Number('')` are both 0, and 0 is a perfectly good
         // integer — a plan id that never resolved would otherwise produce a
         // confident link to plan 0, rendering the not-found alert as though the
-        // DATA were at fault.
-        for (const bad of [null, undefined, '', 'abc', '12abc', 1.5, NaN, {}, []]) {
-            expect(planDetailPath(PLAN_ERA_1, bad)).toBeNull();
-            expect(planDetailPath(PLAN_ERA_2, bad)).toBeNull();
+        // DATA were at fault. `Number([])` is 0 and `Number(true)` is 1, so the
+        // guard is a type whitelist rather than a nullish check.
+        for (const bad of [null, undefined, '', 'abc', '12abc', 1.5, NaN, {}, [], true]) {
+            expect(planDetailPath(bad)).toBeNull();
         }
     });
 
     it('accepts 0 and a numeric string, because both are real ids', () => {
-        expect(planDetailPath(PLAN_ERA_1, 0)).toBe('/swarm/pipeline/0');
-        expect(planDetailPath(PLAN_ERA_1, '79')).toBe('/swarm/pipeline/79');
+        expect(planDetailPath(0)).toBe('/swarm/pipeline/0');
+        expect(planDetailPath('79')).toBe('/swarm/pipeline/79');
     });
 
     it('appends a query string only when one is given', () => {
-        expect(planDetailPath(PLAN_ERA_1, 2, 'mode=table&step=9'))
+        expect(planDetailPath(2, 'mode=table&step=9'))
             .toBe('/swarm/pipeline/2?mode=table&step=9');
-        expect(planDetailPath(PLAN_ERA_1, 2, null)).toBe('/swarm/pipeline/2');
-        expect(planDetailPath(PLAN_ERA_1, 2, '')).toBe('/swarm/pipeline/2');
+        expect(planDetailPath(2, null)).toBe('/swarm/pipeline/2');
+        expect(planDetailPath(2, '')).toBe('/swarm/pipeline/2');
     });
 
     it('normalizePlanId is the same guard the builder applies', () => {
@@ -126,20 +96,25 @@ describe('planDetailPath — id handling', () => {
 });
 
 describe('planDetailPathPattern', () => {
-    it('matches its own era and not the other', () => {
-        expect(planDetailPathPattern(PLAN_ERA_1).test('/swarm/pipeline/2')).toBe(true);
-        expect(planDetailPathPattern(PLAN_ERA_1).test('/swarm/pipeline2/2')).toBe(false);
-        expect(planDetailPathPattern(PLAN_ERA_2).test('/swarm/pipeline2/7')).toBe(true);
-        expect(planDetailPathPattern(PLAN_ERA_2).test('/swarm/pipeline/7')).toBe(false);
+    it('matches a plan detail path', () => {
+        expect(planDetailPathPattern().test('/swarm/pipeline/2')).toBe(true);
     });
 
     it('never matches a LIST path — they differ by one character', () => {
-        expect(planDetailPathPattern(PLAN_ERA_1).test('/swarm/pipelines')).toBe(false);
-        expect(planDetailPathPattern(PLAN_ERA_2).test('/swarm/pipelines2')).toBe(false);
+        expect(planDetailPathPattern().test('/swarm/pipelines')).toBe(false);
+    });
+
+    it('never matches the RETIRED 2.0 routes (req #3356)', () => {
+        // A reader with an old bookmark or an old localStorage record must not
+        // be treated as standing on a plan page. `pipelinePlace.js` uses this
+        // pattern as its resume gate's anti-bounce test, and a false positive
+        // there makes the list unreachable.
+        expect(planDetailPathPattern().test('/swarm/pipeline2/7')).toBe(false);
+        expect(planDetailPathPattern().test('/swarm/pipelines2')).toBe(false);
     });
 
     it('requires a digits-only id segment and nothing after it', () => {
-        const re = planDetailPathPattern(PLAN_ERA_1);
+        const re = planDetailPathPattern();
         expect(re.test('/swarm/pipeline/2/')).toBe(true);
         expect(re.test('/swarm/pipeline/2/anything')).toBe(false);
         expect(re.test('/swarm/pipeline/abc')).toBe(false);
@@ -147,55 +122,7 @@ describe('planDetailPathPattern', () => {
     });
 
     it('agrees with the builder — derived from one literal, not two', () => {
-        for (const era of PLAN_ERAS) {
-            expect(planDetailPathPattern(era).test(planDetailPath(era, 42))).toBe(true);
-        }
-    });
-});
-
-describe('planEraOfSession — the COLUMN names the era', () => {
-    it('reads a 1.0 seat off pipeline_fk', () => {
-        expect(planEraOfSession({ pipeline_fk: 79, pipeline2_fk: null }))
-            .toEqual({ era: PLAN_ERA_1, pipelineId: 79, epicId: null });
-    });
-
-    it('reads a 2.0 seat off pipeline2_fk', () => {
-        expect(planEraOfSession({ pipeline_fk: null, pipeline2_fk: 7 }))
-            .toEqual({ era: PLAN_ERA_2, pipelineId: 7, epicId: null });
-    });
-
-    // The EPIC is the same column pair one level down (code review). A caller
-    // that took the pipeline from here and then read `row.epic_fk` itself would
-    // be era-correct about the plan and era-blind about the epic — half a fix.
-    it('reads the EPIC from the matching era, never the other one', () => {
-        expect(planEraOfSession({ pipeline_fk: 79, epic_fk: 4, epic2_fk: 99 }))
-            .toEqual({ era: PLAN_ERA_1, pipelineId: 79, epicId: 4 });
-        expect(planEraOfSession({ pipeline2_fk: 7, epic2_fk: 9, epic_fk: 99 }))
-            .toEqual({ era: PLAN_ERA_2, pipelineId: 7, epicId: 9 });
-    });
-
-    it('reports a NULL epic as null — work on a plan but under no epic', () => {
-        expect(planEraOfSession({ pipeline_fk: 79, epic_fk: null }).epicId).toBeNull();
-        expect(planEraOfSession({ pipeline2_fk: 7, epic2_fk: null }).epicId).toBeNull();
-    });
-
-    it('returns null for work outside any plan — a REAL answer, not an error', () => {
-        expect(planEraOfSession({ pipeline_fk: null, pipeline2_fk: null })).toBeNull();
-        expect(planEraOfSession({})).toBeNull();
-        expect(planEraOfSession(null)).toBeNull();
-    });
-
-    it('attributes a row carrying BOTH to 2.0, surfacing the data defect', () => {
-        // A row with both columns set is not legal (the two are exclusive). 2.0
-        // is tested first so the newer era wins, which surfaces the defect
-        // rather than hiding it under the era being retired — the same order
-        // `scopeLabel` uses in orchestrationHolder.js.
-        expect(planEraOfSession({ pipeline_fk: 79, pipeline2_fk: 7 }).era).toBe(PLAN_ERA_2);
-    });
-
-    it('does not mistake an unusable id for a seat', () => {
-        expect(planEraOfSession({ pipeline_fk: '', pipeline2_fk: null })).toBeNull();
-        expect(planEraOfSession({ pipeline_fk: 'x', pipeline2_fk: null })).toBeNull();
+        expect(planDetailPathPattern().test(planDetailPath(42))).toBe(true);
     });
 });
 
@@ -204,18 +131,14 @@ describe('route declarations', () => {
         // A matcher and a builder that state the route separately are how a
         // rename breaks the guard while the link keeps working. `index.jsx`
         // declares from these, so there is one literal per route in the app.
-        expect(planListRoutePath(PLAN_ERA_1)).toBe('swarm/pipelines');
-        expect(planDetailRoutePath(PLAN_ERA_1)).toBe('swarm/pipeline/:id');
-        expect(planListRoutePath(PLAN_ERA_2)).toBe('swarm/pipelines2');
-        expect(planDetailRoutePath(PLAN_ERA_2)).toBe('swarm/pipeline2/:id');
+        expect(planListRoutePath()).toBe('swarm/pipelines');
+        expect(planDetailRoutePath()).toBe('swarm/pipeline/:id');
     });
 
     it('route paths are the link paths without the leading slash', () => {
-        for (const era of PLAN_ERAS) {
-            expect(`/${planListRoutePath(era)}`).toBe(planListPath(era));
-            expect(`/${planDetailRoutePath(era)}`)
-                .toBe(planDetailPath(era, 0).replace('/0', '/:id'));
-        }
+        expect(`/${planListRoutePath()}`).toBe(planListPath());
+        expect(`/${planDetailRoutePath()}`)
+            .toBe(planDetailPath(0).replace('/0', '/:id'));
     });
 });
 
@@ -298,7 +221,7 @@ describe('THE GUARD — no file outside planEra.js spells a plan route', () => {
             });
         }
         // Named in the failure, not merely counted: the fix is to route the
-        // line through `planDetailPath(era, id)` / `planListPath(era)` with the
+        // line through `planDetailPath(id)` / `planListPath(era)` with the
         // era of the data it read the id from, and a reader needs to see which
         // line to change.
         expect(offenders).toEqual([]);

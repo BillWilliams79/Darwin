@@ -38,22 +38,23 @@ vi.mock('../../../RestApi/RestApi', () => ({
     default: vi.fn(() => Promise.resolve({ httpStatus: { httpStatus: 200 }, data: [] })),
 }));
 
-const PIPELINES = [
-    { id: 2, title: 'Darwin', pipeline_status: 'paused', description: '' },
-];
-
+// req #3356 — ONE composed read where the 1.0 seven used to be. The plan is
+// `paused`, which is the whole subject of this file: `composedFixture` puts that
+// status on both `pipeline.pipeline_status` and `derived.pause`, so the header
+// chip has the same fact to draw from that the live page gives it.
 vi.mock('../../../hooks/useDataQueries', async (importOriginal) => {
     const actual = await importOriginal();
+    const { composedFixture } = await import('./pipelineComposedFixture');
+    const composed = composedFixture({ id: 2, title: 'Darwin', pipelineStatus: 'paused' });
     const empty = () => ({ data: [], isLoading: false, isError: false });
     return {
         ...actual,
-        useAllPipelines: () => ({ data: PIPELINES, isLoading: false, isError: false }),
-        useAllPipelineSteps: empty,
-        useAllPipelineStepRequirements: empty,
-        useAllPipelineStepDeps: empty,
-        useAllRequirements: empty,
-        useAllFeatures: empty,
-        useAllEpics: empty,
+        useComposedPipeline: (id) => ({
+            data: Number(id) === 2 ? composed : null, isLoading: false,
+        }),
+        useAllPipelines: () => ({
+            data: [{ id: 2 }], isLoading: false, isError: false, isSuccess: true,
+        }),
         useMachines: empty,
         useOrchestrationClaims: empty,
         useAllRequirementSessions: empty,

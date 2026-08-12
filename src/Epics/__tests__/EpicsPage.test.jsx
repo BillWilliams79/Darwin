@@ -1,27 +1,15 @@
 // @vitest-environment jsdom
 //
-// Req #3139 — the Epics editor. Narrowed by req #3357: the Feature tier left
-// the frontend, so the Features count cell (and its features.epic_fk ON
-// DELETE SET NULL invalidation) is retired in favour of a plain Steps link.
+// req #3393 — the Pipeline 2.0 epics editor. Structural sibling of
+// Darwin/src/Epics/__tests__/EpicsPage.test.jsx, same DataGrid-stub rationale
+// (see that file's header) — copied rather than imported, matching the rest
+// of this feature's file-isolation rule.
 //
-// The DataGrid is STUBBED (see the mock below): jsdom gives every element a
-// zero-size box, so the real grid virtualizes down to no cells at all and a
-// suite built on it asserts against an empty table. The stub renders each row
-// through the SAME column contract the real grid uses — `valueGetter(value,
-// row)` then `valueFormatter(value, row)` then `renderCell({ row, value })`,
-// v7 argument order — so a column that mis-uses that signature still fails
-// here. What the stub deliberately does NOT prove is grid behaviour itself
-// (sorting by header click, pagination, quick filter); none of that is this
-// requirement's code.
-//
-// What IS pinned is the wiring the requirement is about:
-//   - the Steps cell navigates to the epic-filtered steps view, which is the
-//     "connects to the existing epic editor" clause
-//   - create / edit send the right body to the right endpoint, including the
-//     REST 'NULL' sentinel that a JSON null cannot express on a PUT
-//   - the closed chip toggles the flag rather than opening a dialog
-//   - delete is gated on confirm
-//   - the closed filter and the sort_order-nulls-last ordering
+// What is pinned: create/edit send the right body including the REST 'NULL'
+// sentinel; the Pipeline select is disabled once editing; the epic_status
+// pause chip toggles with a one-field PUT; the closed chip and closed filter;
+// delete names the step-cascade consequence; the step_count link navigates to
+// the epic-filtered steps view.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import React from 'react';
@@ -33,19 +21,19 @@ import { MemoryRouter } from 'react-router-dom';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const navigations = [];
-// Spread the real module rather than replacing it: a narrow `{ useNavigate }`
-// mock turns any future router import in the page into an undefined-export
-// crash that says nothing about the actual failure.
 vi.mock('react-router-dom', async (importOriginal) => ({
     ...(await importOriginal()),
     useNavigate: () => (to) => navigations.push(to),
 }));
 
-// Mirrors the real column contract closely enough to catch a signature error.
 vi.mock('@mui/x-data-grid', () => ({
     GridToolbar: () => null,
-    DataGrid: ({ rows, columns }) => (
-        <div data-testid="grid">
+    // `data-testid` forwarded from the real usage (`epics-grid`), not
+    // hardcoded — see PipelinesPage2.test.jsx's identical fix for why a
+    // hardcoded value here is a latent bug (found via that file's view-toggle
+    // test, the only one that queried a grid's own testid directly).
+    DataGrid: ({ rows, columns, 'data-testid': testId = 'grid' }) => (
+        <div data-testid={testId}>
             {rows.map((row, index) => (
                 <div key={row.id} data-testid={`grid-row-${row.id}`} data-index={index}>
                     {columns.map((col) => {
@@ -67,36 +55,39 @@ vi.mock('@mui/x-data-grid', () => ({
     ),
 }));
 
+let pipelines;
 let epics;
+let steps;
 let categories;
 let loading;
-// req #3224 — live orchestration reservations and the machines that name them.
-// Mocked alongside the other three so this file's REST-call assertions stay
-// exact: an unmocked hook would fire two real GETs through the mocked client
-// and land in every `restCalls` comparison below.
-let orchestrationClaims;
-let machines;
 
 vi.mock('../../hooks/useDataQueries', async (importOriginal) => {
     const actual = await importOriginal();
     return {
         ...actual,
+        useAllPipelines: () => ({ data: pipelines, isLoading: loading.pipelines }),
         useAllEpics: () => ({ data: epics, isLoading: loading.epics }),
+        useAllPipelineSteps: () => ({ data: steps, isLoading: loading.steps }),
         useAllCategories: () => ({ data: categories, isLoading: loading.categories }),
-        useOrchestrationClaims: () => ({ data: orchestrationClaims }),
-        useMachines: () => ({ data: machines }),
     };
 });
 
 const restCalls = [];
+// Keyed by exact GET uri -> data to return; unset GETs (and every non-GET)
+// fall back to the empty-array default. Lets the two-phase-delete tests
+// script a live re-read without a full REST mock.
+let restGetResponses = {};
 vi.mock('../../RestApi/RestApi', () => ({
     default: vi.fn((uri, method, body) => {
         restCalls.push({ uri, method, body });
+        if (method === 'GET' && Object.prototype.hasOwnProperty.call(restGetResponses, uri)) {
+            return Promise.resolve({ httpStatus: { httpStatus: 200 }, data: restGetResponses[uri] });
+        }
         return Promise.resolve({ httpStatus: { httpStatus: 200 }, data: [] });
     }),
 }));
 
-import EpicsPage from '../EpicsPage';
+import EpicsPage2 from '../EpicsPage';
 import AuthContext from '../../Context/AuthContext';
 import AppContext from '../../Context/AppContext';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
@@ -104,9 +95,6 @@ import { useSnackBarStore } from '../../stores/useSnackBarStore';
 let mountedRoots = [];
 let queryClient;
 
-// `initialEntries` defaults to a bare route — req #3234's `?id=<id>` deep-link
-// tests pass `['/swarm/epics?id=<id>']`. `useSearchParams` (req #3234) needs a
-// real Router in the tree; `useNavigate` stays mocked above regardless.
 function mount(initialEntries = ['/swarm/epics']) {
     const container = document.createElement('div');
     document.body.appendChild(container);
@@ -121,7 +109,7 @@ function mount(initialEntries = ['/swarm/epics']) {
                 <QueryClientProvider client={queryClient}>
                     <AppContext.Provider value={{ darwinUri: 'http://test.local/darwin' }}>
                         <AuthContext.Provider value={{ idToken: 'tok', profile: { userName: 'tester', timezone: 'UTC' } }}>
-                            <EpicsPage />
+                            <EpicsPage2 />
                         </AuthContext.Provider>
                     </AppContext.Provider>
                 </QueryClientProvider>
@@ -134,7 +122,6 @@ function mount(initialEntries = ['/swarm/epics']) {
 
 const node = (testId) => document.body.querySelector(`[data-testid="${testId}"]`);
 const click = (el) => act(() => { el.click(); });
-
 const type = (el, value) => act(() => {
     const proto = el instanceof HTMLTextAreaElement
         ? HTMLTextAreaElement.prototype
@@ -142,38 +129,38 @@ const type = (el, value) => act(() => {
     Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, value);
     el.dispatchEvent(new Event('input', { bubbles: true }));
 });
-
-// Let the awaited REST call and the state updates that follow it settle.
 const flush = () => act(async () => { await Promise.resolve(); await Promise.resolve(); });
-
 const rowIds = () => [...document.body.querySelectorAll('[data-testid^="grid-row-"]')]
     .map(el => Number(el.getAttribute('data-testid').replace('grid-row-', '')));
 
 beforeEach(() => {
     navigations.length = 0;
     restCalls.length = 0;
+    restGetResponses = {};
     mountedRoots = [];
-    loading = { epics: false, categories: false };
-    epics = [
-        { id: 4, title: 'Pipeline', description: 'Plans as data.\n\nSecond para.', category_fk: 1, closed: 0, sort_order: 4, create_ts: '2026-07-28 05:15:14' },
-        { id: 2, title: 'Application Backlog', description: null, category_fk: 1, closed: 0, sort_order: 1, create_ts: '2026-07-28 05:15:14' },
-        { id: 9, title: 'Unordered', description: null, category_fk: 577, closed: 0, sort_order: null, create_ts: '2026-07-31 02:38:14' },
-        { id: 7, title: 'Retired', description: null, category_fk: 1, closed: 1, sort_order: 2, create_ts: '2026-07-31 10:43:32' },
+    loading = { pipelines: false, epics: false, steps: false, categories: false };
+    pipelines = [
+        { id: 7, title: 'Plan Seven' },
+        { id: 8, title: 'Plan Eight' },
     ];
-    orchestrationClaims = [];
-    machines = [{ id: 4, title: 'Mac mini', hostname: 'mac-mini' }];
-    // sort_order is deliberately OUT of fetch order: 'Mapping' arrives second
-    // but sorts first, so the create-default assertion below proves the page
-    // respects the user's ordering rather than whatever MySQL returned first.
+    epics = [
+        { id: 4, pipeline_fk: 7, title: 'Core rebuild', description: null, category_fk: 1,
+          epic_status: 'active', closed: 0, sort_order: 0, create_ts: '2026-08-01 00:00:00' },
+        { id: 5, pipeline_fk: 7, title: 'Parked work', description: null, category_fk: 1,
+          epic_status: 'paused', closed: 0, sort_order: 1, create_ts: '2026-08-01 00:00:00' },
+        { id: 6, pipeline_fk: 7, title: 'Retired', description: null, category_fk: 1,
+          epic_status: 'active', closed: 1, sort_order: 2, create_ts: '2026-08-01 00:00:00' },
+    ];
+    steps = [
+        { id: 100, epic_fk: 4 },
+        { id: 101, epic_fk: 4 },
+        { id: 102, epic_fk: 5 },
+    ];
     categories = [
         { id: 1, category_name: 'Darwin', color: '#123456', closed: 0, sort_order: 5 },
-        { id: 577, category_name: 'Mapping', color: null, closed: 0, sort_order: 1 },
-        { id: 900, category_name: 'Archived', color: null, closed: 1, sort_order: 0 },
     ];
     useSnackBarStore.setState({ open: false, message: '' });
 });
-
-const snackMessage = () => useSnackBarStore.getState().message;
 
 afterEach(() => {
     act(() => { mountedRoots.forEach(r => r.unmount()); });
@@ -181,251 +168,121 @@ afterEach(() => {
     vi.restoreAllMocks();
 });
 
-describe('EpicsPage rows', () => {
-    it('shows open epics by default, ordered by sort_order with NULLs last', () => {
+describe('EpicsPage2 rows', () => {
+    it('shows open epics by default, ordered by sort_order', () => {
         mount();
-        expect(rowIds()).toEqual([2, 4, 9]);
+        expect(rowIds()).toEqual([4, 5]);
     });
 
-    it('adds the closed epics when the Closed chip is toggled on', () => {
+    it('adds closed epics when the Closed chip is toggled on', () => {
         mount();
         click(node('epics-closed-chip-closed'));
-        expect(rowIds()).toEqual([2, 7, 4, 9]);
+        expect(rowIds()).toEqual([4, 5, 6]);
     });
 
-    it('shows nothing — not everything — when every filter chip is off', () => {
+    it('counts steps filed under each epic', () => {
         mount();
-        click(node('epics-closed-chip-open'));
-        expect(rowIds()).toEqual([]);
-        expect(node('epics-accounting').textContent).toContain('0 of 4');
+        expect(node('epic2-steps-link-4').textContent).toBe('2');
+        expect(node('epic2-steps-link-5').textContent).toBe('1');
     });
 
-    it('collapses a multi-paragraph description to one line', () => {
+    it('resolves the pipeline title for the row', () => {
         mount();
-        expect(node('cell-description-4').textContent).toBe('Plans as data. Second para.');
-        expect(node('cell-description-2').textContent).toBe('—');
-    });
-
-    it('resolves the category name for the row', () => {
-        mount();
-        expect(node('cell-category_name-4').textContent).toContain('Darwin');
-        expect(node('cell-category_name-9').textContent).toContain('Mapping');
-    });
-
-    it('holds the grid until the category labels land', () => {
-        loading = { epics: false, categories: true };
-        mount();
-        expect(node('epics-datagrid')).toBeNull();
+        expect(node('cell-pipeline_title-4').textContent).toBe('Plan Seven');
     });
 });
 
-describe('EpicsPage — connection to the steps view (req #3357)', () => {
+describe('EpicsPage — connection to the steps view', () => {
     it('navigates to the epic-filtered steps view from the Steps cell', () => {
         mount();
-        click(node('epic-steps-link-4'));
+        click(node('epic2-steps-link-4'));
         expect(navigations).toEqual(['/swarm/steps?epic=4']);
     });
-
-    it('navigates for every epic, whatever it holds', () => {
-        mount();
-        click(node('epic-steps-link-9'));
-        expect(navigations).toEqual(['/swarm/steps?epic=9']);
-    });
 });
 
-// req #3224 — the Darwin UI names the holder of every reserved scope. Here that
-// is the epic's OWN reservation; a whole-plan orchestrator also owns this epic's
-// steps, but knowing which plans an epic is seated in costs three more
-// whole-table reads, so the plan surfaces answer that case and this one answers
-// exactly what it can answer.
-describe('EpicsPage — orchestration holder (req #3224)', () => {
-    it('shows nothing when no reservation covers the epic', () => {
+describe('EpicsPage2 create', () => {
+    it('POSTs pipeline_fk, trimmed title and the first open category', async () => {
         mount();
-        // An em-dash, not an empty chip: "nobody is orchestrating this" is a
-        // real answer and it has to be legible as one.
-        expect(node('epic-holder-4')).toBeNull();
-        expect(node('cell-orchestrated_by-4').textContent).toBe('—');
-    });
-
-    it('names the machine and how long it has been held', () => {
-        orchestrationClaims = [{
-            id: 1, pipeline_fk: 2, epic_fk: 4, machine_fk: 4,
-            terminal_pid: 41234, engine_pid: 55012, polls: 12,
-            claimed_at: '2026-08-01 10:00:00',
-            update_ts: new Date(Date.now() - 30_000).toISOString().slice(0, 19).replace('T', ' '),
-        }];
-        mount();
-        const chip = node('epic-holder-4');
-        expect(chip).not.toBeNull();
-        expect(chip.textContent).toContain('Mac mini');
-        // ...and only that epic. A reservation is scoped, not global.
-        expect(node('epic-holder-2')).toBeNull();
-    });
-
-    it('marks a reservation whose orchestrator stopped heartbeating as stale', () => {
-        orchestrationClaims = [{
-            id: 1, pipeline_fk: 2, epic_fk: 4, machine_fk: 4,
-            terminal_pid: 41234, engine_pid: 55012, polls: 12,
-            claimed_at: '2026-08-01 10:00:00',
-            update_ts: '2026-08-01 10:00:00',        // long past the threshold
-        }];
-        mount();
-        // A stale claim is the most interesting row on this surface — it is a
-        // scope blocked by an orchestrator that died — so it is FLAGGED, never
-        // hidden and never shown as live.
-        expect(node('epic-holder-4').textContent).toContain('stale');
-    });
-});
-
-describe('EpicsPage create', () => {
-    // The default category is the first OPEN one BY SORT ORDER (id 577), not
-    // the first row the read returned (id 1) and not the closed id 900, which
-    // sorts ahead of both.
-    it('POSTs the trimmed title with a null description and the first open category', async () => {
-        mount();
-        click(node('epic-add'));
-        type(node('epic-title-input'), '  New Epic  ');
-        click(node('epic-save'));
+        click(node('epic2-add'));
+        type(node('epic2-title-input'), '  New Epic  ');
+        click(node('epic2-save'));
         await flush();
 
         expect(restCalls).toEqual([{
             uri: 'http://test.local/darwin/epics',
             method: 'POST',
-            body: { title: 'New Epic', description: null, category_fk: 577, sort_order: null },
+            body: {
+                pipeline_fk: 7, title: 'New Epic', description: null,
+                category_fk: 1, sort_order: null, epic_status: 'active',
+            },
         }]);
     });
 
-    it('never pre-selects a CLOSED category, even one that sorts first', () => {
+    it('refuses to submit without a pipeline selected', async () => {
+        pipelines = [];
         mount();
-        click(node('epic-add'));
-        // Reached through the same dialog the save reads from, so this pins the
-        // rendered choice rather than the payload alone.
-        expect(node('epic-category-select').textContent).toContain('Mapping');
-    });
-
-    it('sends a real integer sort_order when one is given', async () => {
-        mount();
-        click(node('epic-add'));
-        type(node('epic-title-input'), 'Ordered');
-        type(node('epic-sort-order-input'), '12');
-        click(node('epic-save'));
-        await flush();
-
-        expect(restCalls[0].body.sort_order).toBe(12);
-    });
-
-    it('refuses to submit a blank title', async () => {
-        mount();
-        click(node('epic-add'));
-        type(node('epic-title-input'), '   ');
-        expect(node('epic-save').disabled).toBe(true);
-        click(node('epic-save'));
-        await flush();
-        expect(restCalls).toEqual([]);
+        expect(node('epic2-add').disabled).toBe(true);
     });
 });
 
-describe('EpicsPage sort order validation', () => {
-    // The dangerous case: "invalid" and "empty" both look like a missing number,
-    // but only one of them should reach the wire as a clear-the-column.
-    // Both refusals assert the MESSAGE as well as the silence: "sent nothing and
-    // said nothing" is a sibling of the defect being fixed, and `restCalls === []`
-    // alone cannot tell the two apart.
-    it('refuses a fractional sort order instead of silently clearing the column', async () => {
+describe('EpicsPage2 edit', () => {
+    it('disables the Pipeline select once editing', () => {
         mount();
-        click(node('epic-edit-4'));
-        type(node('epic-sort-order-input'), '4.5');
-        click(node('epic-save'));
-        await flush();
-        expect(restCalls).toEqual([]);
-        expect(snackMessage()).toContain('whole number');
+        click(node('epic2-edit-4'));
+        expect(node('epic2-pipeline-select').className).toContain('Mui-disabled');
     });
 
-    it('refuses a value wider than the SMALLINT column', async () => {
+    it('PUTs every editable column, never pipeline_fk', async () => {
         mount();
-        click(node('epic-edit-4'));
-        type(node('epic-sort-order-input'), '40000');
-        click(node('epic-save'));
-        await flush();
-        expect(restCalls).toEqual([]);
-        expect(snackMessage()).toContain('32767');
-    });
-
-    it('sends 0 as a real position, never as a clear', async () => {
-        // `0` is falsy and a legitimate sort_order (a live category uses it) —
-        // the one value most likely to be lost by an `|| REST_NULL` shortcut.
-        mount();
-        click(node('epic-edit-4'));
-        type(node('epic-sort-order-input'), '0');
-        click(node('epic-save'));
-        await flush();
-        expect(restCalls[0].body[0].sort_order).toBe(0);
-    });
-
-    it('accepts a negative whole number', async () => {
-        mount();
-        click(node('epic-edit-4'));
-        type(node('epic-sort-order-input'), '-3');
-        click(node('epic-save'));
-        await flush();
-        expect(restCalls[0].body[0].sort_order).toBe(-3);
-    });
-});
-
-describe('EpicsPage edit', () => {
-    it('PUTs an array carrying the id and every editable column', async () => {
-        mount();
-        click(node('epic-edit-4'));
-        type(node('epic-title-input'), 'Pipeline v2');
-        click(node('epic-save'));
+        click(node('epic2-edit-4'));
+        type(node('epic2-title-input'), 'Renamed');
+        click(node('epic2-save'));
         await flush();
 
         expect(restCalls).toEqual([{
             uri: 'http://test.local/darwin/epics',
             method: 'PUT',
             body: [{
-                id: 4,
-                title: 'Pipeline v2',
-                description: 'Plans as data.\n\nSecond para.',
-                category_fk: 1,
-                sort_order: 4,
+                id: 4, title: 'Renamed', description: 'NULL',
+                category_fk: 1, sort_order: 0, epic_status: 'active',
             }],
         }]);
     });
 
-    it("clears an emptied description with the REST 'NULL' sentinel, not a JSON null", async () => {
+    it("clears sort_order with the REST 'NULL' sentinel", async () => {
         mount();
-        click(node('epic-edit-4'));
-        type(node('epic-description-input'), '');
-        click(node('epic-save'));
+        click(node('epic2-edit-4'));
+        type(node('epic2-sort-order-input'), '');
+        click(node('epic2-save'));
         await flush();
-
-        expect(restCalls[0].body[0].description).toBe('NULL');
-    });
-
-    it("clears an emptied sort order with the same sentinel", async () => {
-        mount();
-        click(node('epic-edit-4'));
-        type(node('epic-sort-order-input'), '');
-        click(node('epic-save'));
-        await flush();
-
         expect(restCalls[0].body[0].sort_order).toBe('NULL');
-    });
-
-    it('opens the dialog pre-filled from the row it was launched on', () => {
-        mount();
-        click(node('epic-edit-2'));
-        expect(node('epic-title-input').value).toBe('Application Backlog');
-        expect(node('epic-description-input').value).toBe('');
-        expect(node('epic-sort-order-input').value).toBe('1');
     });
 });
 
-describe('EpicsPage closed toggle', () => {
-    it('closes an open epic with a one-field PUT', async () => {
+describe('EpicsPage2 pause toggle', () => {
+    it('pauses an active epic with a one-field PUT', async () => {
         mount();
-        click(node('epic-toggle-closed-4'));
+        click(node('epic2-pause-chip-4'));
+        await flush();
+        expect(restCalls).toEqual([{
+            uri: 'http://test.local/darwin/epics',
+            method: 'PUT',
+            body: [{ id: 4, epic_status: 'paused' }],
+        }]);
+    });
+
+    it('unpauses a paused epic', async () => {
+        mount();
+        click(node('epic2-pause-chip-5'));
+        await flush();
+        expect(restCalls[0].body).toEqual([{ id: 5, epic_status: 'active' }]);
+    });
+});
+
+describe('EpicsPage2 closed toggle', () => {
+    it('closes an open epic', async () => {
+        mount();
+        click(node('epic2-toggle-closed-4'));
         await flush();
         expect(restCalls).toEqual([{
             uri: 'http://test.local/darwin/epics',
@@ -433,88 +290,92 @@ describe('EpicsPage closed toggle', () => {
             body: [{ id: 4, closed: 1 }],
         }]);
     });
-
-    it('re-opens a closed epic', async () => {
-        mount();
-        click(node('epics-closed-chip-closed'));
-        click(node('epic-toggle-closed-7'));
-        await flush();
-        expect(restCalls[0].body).toEqual([{ id: 7, closed: 0 }]);
-    });
 });
 
-describe('EpicsPage delete', () => {
+describe('EpicsPage2 delete', () => {
     it('does nothing when the confirmation is declined', async () => {
         vi.spyOn(window, 'confirm').mockReturnValue(false);
         mount();
-        click(node('epic-delete-4'));
+        click(node('epic2-delete-4'));
         await flush();
         expect(restCalls).toEqual([]);
     });
 
-    it('DELETEs by id and invalidates every cache the SET NULL touches', async () => {
+    it('names the step-cascade consequence in the confirmation', () => {
+        const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+        mount();
+        click(node('epic2-delete-4'));
+        expect(confirmSpy.mock.calls[0][0]).toContain('2 steps will be deleted');
+    });
+
+    it('DELETEs by id and invalidates the steps cache', async () => {
         vi.spyOn(window, 'confirm').mockReturnValue(true);
         mount();
-        click(node('epic-delete-4'));
+        click(node('epic2-delete-4'));
         await flush();
 
+        // Two-phase delete (code review, req #3393): first reads this epic's
+        // own step ids so any intra/cross-epic dependency edges can be sorted
+        // before the epic DELETE — see epicsApi.js's `deleteEpic` header.
+        // The mock returns an empty step list, so no dep-edge reads/clears
+        // follow; that branch has its own coverage below.
         expect(restCalls).toEqual([{
+            uri: 'http://test.local/darwin/pipeline_steps?epic_fk=4&fields=id',
+            method: 'GET',
+            body: '',
+        }, {
             uri: 'http://test.local/darwin/epics',
             method: 'DELETE',
             body: { id: 4 },
         }]);
         const keys = queryClient.invalidateQueries.mock.calls.map(c => c[0].queryKey);
         expect(keys.map(k => k[0])).toContain('epics');
-        expect(keys.map(k => k[0])).toContain('features');
-        // The WHOLE key, not just its first element. req #3186's
-        // swarm_sessions.epic_fk is ON DELETE SET NULL too, and the only
-        // component that renders it reads through the byId key
-        // ['swarm_sessions', {id}] — a SIBLING of the list key
-        // ['swarm_sessions', creatorFk], not a descendant. Asserting
-        // `queryKey[0] === 'swarm_sessions'` is satisfied by the list key, which
-        // misses the detail row entirely; only the bare entity root reaches it.
-        expect(keys).toContainEqual(['swarm_sessions']);
-    });
-});
-
-// req #3234 — this flat grid + dialog page has no per-row route, so "landing
-// on" a specific epic via `?id=<id>` means auto-opening the same edit dialog
-// the Edit icon opens — the page's own presentation of one epic's full detail.
-describe('EpicsPage — ?id=<id> deep-link (req #3234)', () => {
-    it('opens the edit dialog for the epic named in the id param once epics have loaded', async () => {
-        mount(['/swarm/epics?id=2']);
-        await flush();
-
-        expect(node('epic-edit-dialog').className).toContain('MuiDialog');
-        expect(node('epic-title-input').value).toBe('Application Backlog');
+        expect(keys.map(k => k[0])).toContain('pipeline_steps');
     });
 
-    it('does not keep re-opening (and resetting) the form on later renders', async () => {
-        mount(['/swarm/epics?id=2']);
+    it('clears an intra-epic dependency edge, then deletes (two-phase delete)', async () => {
+        vi.spyOn(window, 'confirm').mockReturnValue(true);
+        // Epic 4 owns steps 100 and 101 (see the `steps` fixture above); 101
+        // depends on 100, both inside epic 4 — the InnoDB RESTRICT-vs-cascade
+        // false refusal `deleteEpic`'s header describes.
+        restGetResponses['http://test.local/darwin/pipeline_steps?epic_fk=4&fields=id'] =
+            [{ id: 100 }, { id: 101 }];
+        restGetResponses['http://test.local/darwin/pipeline_step_deps?dep_step_fk=(100,101)'
+            + '&fields=id,step_fk,dep_step_fk'] = [{ id: 900, step_fk: 101, dep_step_fk: 100 }];
+        mount();
+        click(node('epic2-delete-4'));
         await flush();
-        expect(node('epic-title-input').value).toBe('Application Backlog');
 
-        // The param is cleared and the ref guards against re-firing — if either
-        // failed, a later render would call `openEdit` again and stomp this.
-        type(node('epic-title-input'), 'Renamed');
-        await flush();
-        await flush();
-        expect(node('epic-title-input').value).toBe('Renamed');
+        expect(restCalls.map(c => ({ uri: c.uri, method: c.method }))).toEqual([
+            { uri: 'http://test.local/darwin/pipeline_steps?epic_fk=4&fields=id', method: 'GET' },
+            {
+                uri: 'http://test.local/darwin/pipeline_step_deps?dep_step_fk=(100,101)'
+                    + '&fields=id,step_fk,dep_step_fk',
+                method: 'GET',
+            },
+            { uri: 'http://test.local/darwin/pipeline_step_deps', method: 'DELETE' },
+            { uri: 'http://test.local/darwin/epics', method: 'DELETE' },
+        ]);
+        expect(restCalls[2].body).toEqual({ id: 900 });
+        expect(restCalls[3].body).toEqual({ id: 4 });
+        expect(useSnackBarStore.getState().open).toBe(false);
     });
 
-    it('ignores an id with no matching row — the grid still renders normally', async () => {
-        mount(['/swarm/epics?id=999']);
+    it('refuses when a step outside the epic depends on one of its steps', async () => {
+        vi.spyOn(window, 'confirm').mockReturnValue(true);
+        // Step 102 belongs to epic 5 (see the `steps` fixture above) and
+        // depends on step 100, which belongs to epic 4 — a real cross-epic
+        // edge, not the false-refusal case above.
+        restGetResponses['http://test.local/darwin/pipeline_steps?epic_fk=4&fields=id'] =
+            [{ id: 100 }, { id: 101 }];
+        restGetResponses['http://test.local/darwin/pipeline_step_deps?dep_step_fk=(100,101)'
+            + '&fields=id,step_fk,dep_step_fk'] = [{ id: 901, step_fk: 102, dep_step_fk: 100 }];
+        mount();
+        click(node('epic2-delete-4'));
         await flush();
 
-        expect(node('epic-title-input')).toBeNull();
-        expect(rowIds()).toEqual([2, 4, 9]);
-    });
-
-    it('does not open the dialog while categories are still loading', async () => {
-        loading = { epics: false, categories: true };
-        mount(['/swarm/epics?id=2']);
-        await flush();
-
-        expect(node('epic-title-input')).toBeNull();
+        expect(restCalls.some(c => c.method === 'DELETE')).toBe(false);
+        expect(useSnackBarStore.getState().open).toBe(true);
+        expect(useSnackBarStore.getState().message).toContain('409');
     });
 });

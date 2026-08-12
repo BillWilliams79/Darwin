@@ -28,7 +28,7 @@
 // requirement into an epic without also seating it on a step) leaves the
 // frontend entirely, and re-deriving the same fact off a step's epic is not
 // possible for 1.0: no 1.0 `pipeline_steps` row carries an `epic_fk` — only
-// Pipeline 2.0's `pipeline2_steps` does, a disjoint id space unrelated to the
+// Pipeline 2.0's `pipeline_steps` does, a disjoint id space unrelated to the
 // live 1.0 "Darwin" plan this toggle filters. So `orchestratedRequirementIds`
 // COLLAPSES to `pipelinedRequirementIds` — every requirement this toggle can
 // still call "part of a plan" is one a step actually carries. The #3419 gap
@@ -55,53 +55,52 @@
 // while the browse toggle's own answer has now rejoined it.
 
 /**
- * Requirement ids at least one pipeline STEP carries, EITHER era, unioned.
+ * Requirement ids at least one pipeline STEP carries.
  *
- * req #3491 — widened to also read the 2.0 junction. Mirrors the backend's own
- * union (`darwin-mcp/services/requirements.py::_pipelined_requirement_ids`),
- * which this deliberately duplicates rather than shares: the browser reaches
- * Lambda-Rest, the daemon reaches it from a localhost process. `stepRequirements2`
- * defaults to `undefined` so every existing 1.0-only call site keeps working
- * unchanged.
+ * req #3491 widened this to also read a second, first-generation junction
+ * while both eras ran side by side; req #3356 retired that union along with
+ * the first generation itself — `useAllPipeline2StepRequirements` (the hook
+ * that fed the second argument) no longer exists in `useDataQueries.js`, so
+ * a caller still passing one would be reading `undefined`, harmlessly, but
+ * for the wrong reason. Collapsed back to one argument. Mirrors the backend's
+ * own single-junction read
+ * (`darwin-mcp/services/requirements.py::_pipelined_requirement_ids`), which
+ * this deliberately duplicates rather than shares: the browser reaches
+ * Lambda-Rest, the daemon reaches it from a localhost process.
  *
  * @param {Array<{requirement_fk: number}>} stepRequirements  rows from
- *        `useAllPipelineStepRequirements` (the 1.0 junction, whole-table read).
- * @param {Array<{requirement_fk: number}>} [stepRequirements2]  rows from
- *        `useAllPipeline2StepRequirements` (the 2.0 junction, whole-table read).
+ *        `useAllPipelineStepRequirements` (the junction, whole-table read).
+ *        The 1.0 junction fed this until req #3356; the ROW SHAPE is
+ *        identical, so only the caller moved.
  * @returns {Set<number>}
  */
-export const pipelinedRequirementIds = (stepRequirements, stepRequirements2) => {
+export const pipelinedRequirementIds = (stepRequirements) => {
     const ids = new Set();
-    const addAll = (links) => {
-        if (!Array.isArray(links)) return;
-        for (const link of links) {
-            // A junction row with no requirement_fk cannot name a requirement. Skip
-            // it rather than seeding the set with null/undefined, which would make
-            // `has(r.id)` answer true for any row whose own id was missing.
-            if (!link || link.requirement_fk === null || link.requirement_fk === undefined) continue;
-            ids.add(Number(link.requirement_fk));
-        }
-    };
-    addAll(stepRequirements);
-    addAll(stepRequirements2);
+    if (!Array.isArray(stepRequirements)) return ids;
+    for (const link of stepRequirements) {
+        // A junction row with no requirement_fk cannot name a requirement. Skip
+        // it rather than seeding the set with null/undefined, which would make
+        // `has(r.id)` answer true for any row whose own id was missing.
+        if (!link || link.requirement_fk === null || link.requirement_fk === undefined) continue;
+        ids.add(Number(link.requirement_fk));
+    }
     return ids;
 };
 
 /**
  * THE browse answer: a requirement is ORCHESTRATED when a pipeline step
- * carries it, either era. Req #3357 retired the second population this used to
- * union in (epic-filed-but-unseated, via `requirements.feature_fk ->
- * features.epic_fk`) — see the module header. Req #3491 widened it again, this
- * time with the 2.0 junction rather than a re-derivation off Feature. Kept as
- * its own named export, distinct from `pipelinedRequirementIds`, so both stay
- * one call site each even though they answer identically today.
+ * carries it. Req #3357 retired the second population this used to union in
+ * (epic-filed-but-unseated, via `requirements.feature_fk -> features.epic_fk`)
+ * — see the module header; req #3491's later, first-generation-junction union
+ * is retired the same way (see `pipelinedRequirementIds`). Kept as its own
+ * named export, distinct from `pipelinedRequirementIds`, so both stay one
+ * call site each even though they answer identically today.
  *
- * @param {Array} stepRequirements  the 1.0 junction rows
- * @param {Array} [stepRequirements2]  the 2.0 junction rows
+ * @param {Array} stepRequirements  the junction rows
  * @returns {Set<number>}
  */
-export const orchestratedRequirementIds = (stepRequirements, stepRequirements2) =>
-    pipelinedRequirementIds(stepRequirements, stepRequirements2);
+export const orchestratedRequirementIds = (stepRequirements) =>
+    pipelinedRequirementIds(stepRequirements);
 
 /**
  * Drop every row whose id is in `ids`. The ONE filter primitive — both facts

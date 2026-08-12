@@ -1,7 +1,7 @@
 import React, { useContext } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { useSession, useDevServersBySession, useAllSwarmStartSessions, useAllSwarmStarts, useAllSwarmCompleteSessions, useAllSwarmCompletes, useAllRequirements, useMachines, useAllPipelines, useAllPipelines2, useAllEpics, useAllPipeline2Epics } from '../../hooks/useDataQueries';
+import { useSession, useDevServersBySession, useAllSwarmStartSessions, useAllSwarmStarts, useAllSwarmCompleteSessions, useAllSwarmCompletes, useAllRequirements, useMachines, useAllPipelines, useAllEpics } from '../../hooks/useDataQueries';
 import { sessionKeys } from '../../hooks/useQueryKeys';
 import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
@@ -14,7 +14,6 @@ import { aiModelChipProps, aiModelLabel } from '../modelChipStyles';
 import { effortChipProps, effortLabel } from '../effortChipStyles';
 import { terminalFocusState, TERMINAL_STATE, TERMINAL_VISIBLE } from '../terminalFocus';
 import { sessionPipelineLink } from '../sessionPipelineLink';
-import { PLAN_ERA_1, PLAN_ERA_2 } from '../pipelines/planEra';
 import { PHASE_BUCKETS, GROUP_COLORS, bucketTokens, parsePhaseTokens, formatTokens } from '../sessionPhases';
 import { formatDuration } from '../../utils/formatDuration';
 import { trimMicroseconds } from '../../utils/dateFormat';
@@ -110,58 +109,48 @@ const SwarmSessionDetail = () => {
     // page-level list reads that are cached and shared with the pipelines pages.
     // Deriving the ids instead would cost six reads and a client-side join per
     // session, which is the fan-out design rule 5 forbids.
+    //
+    // ONE ERA'S LISTS, since req #3356 eradicated Pipeline 1.0. `useAllPipelines`
+    // and `useAllEpics` are gone from this page with the branches that consumed
+    // them — two fewer list reads per session view.
     const { data: pipelines = [] } = useAllPipelines(profile?.userName);
-    const { data: pipelines2 = [] } = useAllPipelines2(profile?.userName);
     const { data: epics = [] } = useAllEpics(profile?.userName);
-    const { data: epics2 = [] } = useAllPipeline2Epics(profile?.userName);
 
-    // Same rule as the Sessions grid: the plan chip links only when a 2.0 id
-    // exists, because the plan page is a 2.0 route now.
     const planLink = React.useMemo(
-        // All THREE args: without pipelines2 a 2.0-seated session gets its
-        // title from the 1.0 row while the href opens the 2.0 plan — a chip
-        // naming one plan and navigating to another.
-        () => sessionPipelineLink(session, pipelines, pipelines2),
-        [session, pipelines, pipelines2]);
+        () => sessionPipelineLink(session, pipelines),
+        [session, pipelines]);
 
-    // req #3433 — `sessionPipelineLink` already searches BOTH pipeline lists
-    // and resolves the title into `planLink.label`; before this fix the
-    // separate `pipelineTitle` memo below re-read `session.pipeline_fk`
-    // against the 1.0 `pipelines` list alone, so a 2.0-attributed session's
+    // req #3433 — `sessionPipelineLink` resolves the title into `planLink.label`;
+    // before that fix a separate `pipelineTitle` memo here re-read the session's
+    // plan column against the wrong era's list, so a 2.0-attributed session's
     // Pipeline row showed a bare `#7` with no name even after the chip itself
     // went era-aware (req #3463). `label` falls back to `#<id>` when no title
     // resolved, so this only renders when there is a real name to add.
     const pipelineTitle = planLink.state !== 'none' && planLink.label !== `#${planLink.planId}`
         ? planLink.label : null;
 
-    // The Epic row follows the SAME era `planLink` picked, so the two rows
-    // never name two different plans for one session (a data defect on the
-    // row — both columns stamped — otherwise had the Pipeline row favour 1.0
-    // while an independent epic lookup favoured 2.0). Only when the session
-    // carries no pipeline attribution at all (a partial/cleared stamp) does
-    // this fall back to whichever epic column IS set — an epic fact worth
-    // showing even with no plan beside it, matching the row's pre-fix
-    // behaviour for that case.
-    const epicAttribution = React.useMemo(() => {
-        if (planLink.era === PLAN_ERA_2) {
-            return session?.epic2_fk != null ? { epicId: session.epic2_fk, era: PLAN_ERA_2 } : null;
-        }
-        if (planLink.era === PLAN_ERA_1) {
-            return session?.epic_fk != null ? { epicId: session.epic_fk, era: PLAN_ERA_1 } : null;
-        }
-        // No pipeline attribution at all — fall back to whichever epic column
-        // is actually set, rather than tying the Epic row's existence to a
-        // plan attribution it does not have.
-        if (session?.epic_fk != null) return { epicId: session.epic_fk, era: PLAN_ERA_1 };
-        if (session?.epic2_fk != null) return { epicId: session.epic2_fk, era: PLAN_ERA_2 };
-        return null;
-    }, [planLink.era, session?.epic_fk, session?.epic2_fk]);
+    // THE EPIC ROW READS `epic_fk` AND NOTHING ELSE (req #3356).
+    //
+    // This used to branch on the era `planLink` picked, so the Pipeline and Epic
+    // rows could never name two different plans for one session — a real hazard
+    // while a row could carry both column pairs. With 1.0 gone there is one pair
+    // left, so the two rows cannot disagree and the branch has nothing to
+    // arbitrate. `epic_fk` is deliberately not read even as a fallback, for the
+    // reason `sessionPipelineLink` gives about `pipeline_fk`: a 1.0 id shown
+    // beside a 2.0 plan names a different epic.
+    //
+    // It is still INDEPENDENT of `planLink.state`: a session stamped with an
+    // epic and no pipeline is a partial stamp, and the epic is a fact worth
+    // showing with no plan beside it.
+    const epicAttribution = React.useMemo(
+        () => (session?.epic_fk != null
+            ? { epicId: session.epic_fk } : null),
+        [session?.epic_fk]);
 
     const epicTitle = React.useMemo(() => {
         if (!epicAttribution) return null;
-        const list = epicAttribution.era === PLAN_ERA_2 ? epics2 : epics;
-        return list.find(e => e.id === epicAttribution.epicId)?.title ?? null;
-    }, [epicAttribution, epics, epics2]);
+        return epics.find(e => e.id === epicAttribution.epicId)?.title ?? null;
+    }, [epicAttribution, epics]);
 
     const hasHistory = location.key !== 'default';
     const handleBack = () => hasHistory ? navigate(-1) : navigate('/swarm/sessions');
@@ -340,26 +329,29 @@ const SwarmSessionDetail = () => {
                      stamped: NULL is a real answer (work outside any plan), not
                      a missing value, and an em-dash row for it would be noise on
                      every ad-hoc session. */}
-                {/* Gated on the DERIVED state, not on `pipeline_fk`: a session
-                     stamped 2.0-only (pipeline2_fk set, pipeline_fk NULL — what
-                     req #3350's resolver produces for a 2.0-seated requirement)
-                     would otherwise show no Pipeline row at all here while the
-                     Sessions grid showed a working link for the same row. */}
+                {/* Gated on the DERIVED state, never on a raw column. The rule
+                     was written when reading the wrong one of two plan columns
+                     hid this row entirely for a 2.0-seated session while the
+                     Sessions grid showed a working link for the same row. req
+                     #3356 left one column, but the rule stands on its own: the
+                     resolver decides whether there is anything to show, and this
+                     JSX asks it rather than re-deciding. */}
                 {planLink.state !== 'none' &&
                     <Box sx={{ mb: 1 }} data-testid="session-pipeline">
                         <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Pipeline</Typography>
                         <Typography variant="body2" component="div">
-                            {/* req #3463 — THE ID COMES FROM THE RESOLVER, which
-                                 is the only thing that knows which column was
-                                 seated. This used to pick the column itself with
-                                 `state === 'link' ? pipeline2_fk : pipeline_fk`,
+                            {/* req #3463 — THE ID COMES FROM THE RESOLVER, and
+                                 that survives req #3356 removing the second era.
+                                 This JSX used to pick the column itself with
+                                 `state === 'link' ? pipeline_fk : pipeline_fk`,
                                  on the premise that /swarm/pipeline/:id read
-                                 pipeline2_compose — true only inside the req
+                                 pipeline_compose — true only inside the req
                                  #3381 window, and false again the moment #3462
-                                 reverted it. Since then a 1.0 session took the
-                                 'link' branch and rendered `#undefined`, because
-                                 its pipeline2_fk is NULL. BOTH eras are
-                                 navigable now, so there is no column to guess. */}
+                                 reverted it. A 1.0 session then took the 'link'
+                                 branch and rendered `#undefined`. The lesson is
+                                 not "there are two columns", it is that a
+                                 renderer inferring an id from a state flag will
+                                 be wrong the next time the data layer moves. */}
                             <Chip label={`#${planLink.planId}`}
                                   size="small" variant="outlined"
                                   color={planLink.state === 'link' ? 'primary' : 'default'}

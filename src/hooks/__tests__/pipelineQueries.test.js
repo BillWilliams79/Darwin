@@ -1,18 +1,32 @@
 // Req #3114 — Swarm Orchestration pipelines data layer: key shapes + hook
 // exports. Mirrors the devopsQueriesParity / machinesQueries pattern for the
-// newest four factory entities, plus the hand-written epics hooks that sit with
-// the features hooks in useDataQueries.js.
+// plan-layer factory entities.
+//
+// req #3356 — THE PLAN LAYER IS ONE ERA. Migration 20260812175325 dropped the
+// 1.0 tables and 20260812184333 renamed the 2.0 ones into the vacated names, so
+// `pipelines` / `epics` / `pipeline_steps` / the two junctions now MEAN what the
+// `pipeline2_*` tables meant. Two consequences are asserted below rather than
+// assumed, because both would fail as a 400 on a live read:
+//   * `pipeline_step_deps` has NO `time_at` column — the time gate is
+//     `pipeline_steps.not_before`, a column on the STEP, not a kind of dep row;
+//   * `pipeline_steps` carries `epic_fk` and NOT `pipeline_fk` — a step's plan
+//     is reached through its epic (containment).
+// `epics` also moved: the hand-written `EPIC_DEFAULT_FIELDS`/`useAllEpics`/
+// `useEpicById` trio in useDataQueries.js was absorbed into a factory block, so
+// the epic projection is now `epics.config.defaultFields` and `useEpicById` no
+// longer exists.
 //
 // Beyond shape, two things here are LOAD-BEARING and pinned deliberately:
 //   * pipeline_steps must sort id:asc — displayOrder()'s deterministic final
 //     tie-break is the row's position in the input array, so "canonical stored
 //     order" has to be requested, not hoped for;
 //   * pipeline_step_requirements must never project an `id` column — it is a
-//     composite-PK junction and has none.
+//     keyed junction and has none.
 
 import { describe, it, expect } from 'vitest';
 import {
     pipelines,
+    epics,
     pipelineSteps,
     pipelineStepRequirements,
     pipelineStepDeps,
@@ -30,9 +44,7 @@ import {
     useAllPipelineStepRequirements,
     useAllPipelineStepDeps,
     useAllEpics,
-    useEpicById,
     ALL_ROWS,
-    EPIC_DEFAULT_FIELDS,
 } from '../useDataQueries';
 
 describe('pipeline key shapes', () => {
@@ -79,8 +91,10 @@ describe('hook exports', () => {
         }
     });
     it('every epic hook is a function', () => {
+        // `useEpicById` is NOT asserted here any more: req #3356 deleted it with
+        // the hand-written epics trio (it had no caller left once the 1.0 plan
+        // surface went), and `useAllEpics` is now the factory block's `useAll`.
         expect(typeof useAllEpics).toBe('function');
-        expect(typeof useEpicById).toBe('function');
     });
 });
 
@@ -102,11 +116,25 @@ describe('projection + sort contracts', () => {
         expect(pipelineStepRequirements.config.defaultFields).toBe('step_fk,requirement_fk');
     });
 
-    it('pipeline_step_deps projects both condition kinds', () => {
-        // Exactly one of dep_step_fk / time_at is set per row; a dual-condition
-        // gate is two rows on one step, so both columns must come back.
-        expect(pipelineStepDeps.config.defaultFields).toContain('dep_step_fk');
-        expect(pipelineStepDeps.config.defaultFields).toContain('time_at');
+    it('pipeline_step_deps projects the edge and nothing else — there is no time_at', () => {
+        // INVERTED BY req #3356. The 1.0 dep table modelled a time gate as a
+        // KIND OF DEP ROW (`time_at` set instead of `dep_step_fk`), and this
+        // asserted both columns came back. The surviving table has no `time_at`
+        // at all — the time gate is `pipeline_steps.not_before`, a column on the
+        // STEP — so requesting it would 400 the whole read.
+        expect(pipelineStepDeps.config.defaultFields).toBe('id,step_fk,dep_step_fk');
+        expect(pipelineStepDeps.config.defaultFields).not.toContain('time_at');
+    });
+
+    it('pipeline_steps projects epic_fk, not pipeline_fk (containment)', () => {
+        // A step belongs to an EPIC and reaches its plan in two hops; there is
+        // no `pipeline_fk` column on the step to project. Naming one would 400
+        // the read, and every consumer that walks step -> epic -> plan (the
+        // requirement-detail Orchestration box, the plans list roll-up) depends
+        // on `epic_fk` actually arriving.
+        const fields = pipelineSteps.config.defaultFields.split(',');
+        expect(fields).toContain('epic_fk');
+        expect(fields).not.toContain('pipeline_fk');
     });
 
     it('pipeline_steps projects no state and no seq column', () => {
@@ -135,18 +163,29 @@ describe('projection + sort contracts', () => {
         // epic while the value sat correct in the table. It was already here
         // when req #3430 made it load-bearing; what was missing is this line,
         // so nothing would have noticed it leaving.
-        expect(EPIC_DEFAULT_FIELDS.split(',')).toContain('sort_order');
+        //
+        // RE-POINTED, NOT WEAKENED, by req #3356: the hand-written
+        // `EPIC_DEFAULT_FIELDS` was absorbed into the `epics` factory block, so
+        // the ONE field list the browser reads epics through is now
+        // `epics.config.defaultFields` (frozen by createEntityQueries).
+        const epicFields = epics.config.defaultFields.split(',');
+        expect(epicFields).toContain('sort_order');
         // `epic_status` (req #3223) is load-bearing in the same way — the pause
         // bubble reads it — and rides the same list.
-        expect(EPIC_DEFAULT_FIELDS.split(',')).toContain('epic_status');
+        expect(epicFields).toContain('epic_status');
     });
 
-    it('every pipeline block carries the fields-in-key collision guard', () => {
+    it('every plan-layer block carries the fields-in-key collision guard', () => {
         // Req #2213 / #3015: without it, two callers with different projections
         // share one cache entry and the narrower fetch can win — silently, as a
         // blank column. It has to be in place BEFORE the second caller exists.
-        for (const block of [pipelines, pipelineSteps, pipelineStepRequirements,
-            pipelineStepDeps]) {
+        //
+        // `epics` joined this list at req #3356. That is the whole reason the
+        // hand-written pair was folded in rather than left beside the factory
+        // block: two readers of one entity with different projections, one of
+        // them with no guard, is precisely the collision above.
+        for (const block of [pipelines, epics, pipelineSteps,
+            pipelineStepRequirements, pipelineStepDeps]) {
             expect(block.config.fieldsInKey).toBe(true);
         }
     });

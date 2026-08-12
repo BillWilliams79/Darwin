@@ -1,16 +1,16 @@
-// Mutation utilities for the pipeline2_pipelines data type (req #3393).
+// Mutation utilities for the pipelines data type (req #3393).
 //
 // Goes through the same generic gateway path darwin-mcp/services/pipelines2.py
-// already POSTs/PUTs to: `{darwinUri}/pipeline2_pipelines`. No new backend
+// already POSTs/PUTs to: `{darwinUri}/pipelines`. No new backend
 // surface exists or is needed. Pattern mirrors Epics/epicsApi.js.
 //
-// No `createPipeline2`/`deletePipeline2` here — PipelinesPage2 has no create
-// or delete affordance (pipelines are created via the MCP `create_pipeline2`
+// No `createPipeline`/`deletePipeline` here — PipelinesPage has no create
+// or delete affordance (pipelines are created via the MCP `create_pipeline`
 // tool by the Primary AI, matching 1.0's PipelinesPage.jsx, which carries no
 // create control of its own either). Only the two fields this page edits —
 // `execution_mode` and `description` — need a write path.
 //
-// Column shape (from darwin-mcp/services/pipelines2.py's `update_pipeline2`):
+// Column shape (from darwin-mcp/services/pipelines2.py's `update_pipeline`):
 //   title           NOT NULL
 //   description     nullable TEXT
 //   pipeline_status draft|active|paused|completed|aborted
@@ -41,8 +41,8 @@ export const REST_NULL = 'NULL';
  * Update a pipeline's own columns. `fields` is a partial update; nullable
  * columns the caller wants CLEARED must arrive as REST_NULL.
  */
-export async function updatePipeline2(darwinUri, idToken, id, fields) {
-    const r = await call_rest_api(`${darwinUri}/pipeline2_pipelines`, 'PUT',
+export async function updatePipeline(darwinUri, idToken, id, fields) {
+    const r = await call_rest_api(`${darwinUri}/pipelines`, 'PUT',
         [{ id, ...fields }], idToken);
-    return assertOk(r, 'updatePipeline2');
+    return assertOk(r, 'updatePipeline');
 }

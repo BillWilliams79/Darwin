@@ -118,71 +118,11 @@ describe('orchestratedRequirementIds (req #3357)', () => {
     });
 });
 
-// ── req #3491 — the second (2.0) junction argument ───────────────────────────
-//
-// A requirement seated on a Pipeline 2.0 step has NO row at all in the 1.0
-// junction, so the union has to see it through the second argument alone —
-// not merely "pass an empty second array and get the same answer as before".
-
-describe('pipelinedRequirementIds — the 2.0 junction (req #3491)', () => {
-    const JUNCTION_1_0 = [{ step_fk: 1, requirement_fk: 101 }];
-    const JUNCTION_2_0 = [{ step_fk: 304, requirement_fk: 105 }];
-
-    it('sees a 2.0-only seating with no 1.0 row at all', () => {
-        const ids = pipelinedRequirementIds([], JUNCTION_2_0);
-        expect(ids).toEqual(new Set([105]));
-    });
-
-    it('unions both eras rather than picking one', () => {
-        const ids = pipelinedRequirementIds(JUNCTION_1_0, JUNCTION_2_0);
-        expect(ids).toEqual(new Set([101, 105]));
-    });
-
-    it('de-duplicates a requirement seated in both eras at once', () => {
-        const bothEras = [{ step_fk: 1, requirement_fk: 101 }];
-        const ids = pipelinedRequirementIds(JUNCTION_1_0, bothEras);
-        expect(ids.size).toBe(1);
-        expect(ids.has(101)).toBe(true);
-    });
-
-    it('the 1.0 read still in flight (undefined) does not lose a landed 2.0 answer', () => {
-        // A real intermediate state on every page load: the two junction
-        // reads land independently. "Show more, never less" has to hold
-        // per-era, not only once both have resolved.
-        const ids = pipelinedRequirementIds(undefined, JUNCTION_2_0);
-        expect(ids).toEqual(new Set([105]));
-    });
-
-    it('the 2.0 read still in flight (undefined) does not lose a landed 1.0 answer', () => {
-        const ids = pipelinedRequirementIds(JUNCTION_1_0, undefined);
-        expect(ids).toEqual(new Set([101]));
-    });
-
-    it('a missing second argument behaves exactly as the 1-arg call always did', () => {
-        expect(pipelinedRequirementIds(JUNCTION_1_0)).toEqual(new Set([101]));
-    });
-
-    it('tolerates null/{} for the second argument same as the first', () => {
-        expect(pipelinedRequirementIds(JUNCTION_1_0, null)).toEqual(new Set([101]));
-        expect(pipelinedRequirementIds(JUNCTION_1_0, {})).toEqual(new Set([101]));
-    });
-
-    it('normalizes string ids on the 2.0 side too', () => {
-        const ids = pipelinedRequirementIds([], [{ step_fk: '304', requirement_fk: '105' }]);
-        expect(ids.has(105)).toBe(true);
-    });
-
-    it('drops a 2.0 row with no requirement_fk, same as the 1.0 rule', () => {
-        const ids = pipelinedRequirementIds([], [{ step_fk: 304, requirement_fk: null }]);
-        expect(ids.size).toBe(0);
-    });
-});
-
-describe('orchestratedRequirementIds — the 2.0 junction (req #3491)', () => {
-    it('is the same union as pipelinedRequirementIds', () => {
-        const j1 = [{ step_fk: 1, requirement_fk: 101 }];
-        const j2 = [{ step_fk: 304, requirement_fk: 105 }];
-        expect(orchestratedRequirementIds(j1, j2)).toEqual(pipelinedRequirementIds(j1, j2));
-        expect(orchestratedRequirementIds(j1, j2)).toEqual(new Set([101, 105]));
-    });
-});
+// req #3491 gave both functions a second argument reading a first-generation
+// junction, unioned with the first, while the first and second generation ran
+// side by side. Req #3356 retired that union along with the first
+// generation's table: the second generation's junction was renamed onto the
+// vacated name, so a single argument is once again the whole answer, and the
+// describe blocks that lived here (testing the union, the de-duplication
+// across eras, and the independent-in-flight-read cases) were removed with
+// it — the single-junction cases above already cover the surviving behavior.

@@ -85,14 +85,18 @@ export const devServers = createEntityQueries({
 // fetched; leaving them out would force the six-read walk the columns exist to
 // remove. The gateway validates every `fields=` name against the live table and
 // 400s the WHOLE read on an unknown one, so this projection may only widen once
-// migration 20260801020944 has been applied to the database this build talks to.
-// Req #3350 — `pipeline2_fk` / `epic2_fk` join the same way: the 2.0 sibling
-// pair, stamped together by one walk (unlike the 1.0 pair, they cannot
-// disagree). Same 400-on-unknown-field caveat, gated on migration
-// 20260809081441 instead. Unlike the 1.0 pair above, no UI reads THIS pair
-// yet — SessionsView/SwarmSessionDetail render the 1.0 pipeline/epic chip
-// only — because there is no Pipeline 2.0 view to link a 2.0-attributed
-// session to. This is field-list parity only, ahead of that UI.
+// the migration adding a column has been applied to the database this build
+// talks to.
+//
+// THERE IS EXACTLY ONE PAIR NOW (req #3356). This projection named FOUR columns
+// until the plan layer was collapsed: the 1.0 pair above, plus an era-marked 2.0
+// sibling pair (req #3350) stamped by one walk. Migration 20260812175325 DROPPED
+// the 1.0 columns outright and 20260812184333 RENAMED the 2.0 pair into the
+// vacated names — so the two names below are the 2.0 columns wearing the plain
+// names, and the era-marked spellings no longer exist on the table at all.
+// Naming them here would no longer be field-list parity, it would be a 400 on an
+// unknown field — and per the caveat above that costs the entire Sessions page,
+// not one column.
 // ---------------------------------------------------------------------------
 // Req #3455 — `terminal_window_id` / `terminal_number` (WHICH TERMINAL WINDOW the
 // worker runs in) join the projection. A VARCHAR(64) and an INT, and their whole
@@ -111,7 +115,7 @@ export const devServers = createEntityQueries({
 const SWARM_SESSION_DEFAULT_FIELDS =
     'id,branch,task_name,source_type,source_ref,title,pr_url,swarm_status,ai_model,effort,' +
     'worktree_path,machine_fk,terminal_window_id,terminal_number,' +
-    'pipeline_fk,epic_fk,pipeline2_fk,epic2_fk,started_at,completed_at,last_transition_at,' +
+    'pipeline_fk,epic_fk,started_at,completed_at,last_transition_at,' +
     'starting_secs,waiting_secs,planning_secs,implementing_secs,review_secs,' +
     'completion_secs,paused_secs,legacy_secs,instrumented,pre_pause_status,' +
     'phase_tokens,creator_fk,create_ts,update_ts';
@@ -429,46 +433,47 @@ export const agentTelemetryRowDocs = createEntityQueries({
 // a second copy of it on the wire would invite a join against the wrong one.
 export const orchestrationClaims = createEntityQueries({
     entity: 'orchestration_claims',
-    // `pipeline2_fk`/`epic2_fk` (req #3369) added by req #3381's code review
-    // — `claimForPipeline2`/`scopeLabel`'s 2.0 branch (orchestrationHolder.js)
-    // read these and were silently dead without them: NULL on a 1.0 row and
-    // vice versa (the same era pairing req #3350 already widened `sessions`'
-    // projection for, two declarations up, which this one was missed
-    // alongside).
+    // ONE SCOPE PAIR (req #3356). This named both eras' pairs until the plan
+    // layer was collapsed — the 1.0 pair below plus an era-marked 2.0 sibling
+    // pair (req #3369). Migration 20260812184333 dropped the 1.0 columns and
+    // renamed the 2.0 pair into their names, so the two below are the only scope
+    // columns the table has; asking for the era-marked spellings would 400 the
+    // read.
     defaultFields:
-        'id,pipeline_fk,epic_fk,pipeline2_fk,epic2_fk,machine_fk,terminal_pid,' +
+        'id,pipeline_fk,epic_fk,machine_fk,terminal_pid,' +
         'engine_pid,polls,claimed_at,creator_fk,create_ts,update_ts',
     fieldsInKey: true,
     defaultSort: 'claimed_at:asc',
 });
 
 // ---------------------------------------------------------------------------
-// pipeline2_pipelines — the Pipeline 2.0 plan layer (req #3339, widened #3463).
+// THE PLAN LAYER — one era, plain names (req #3356).
 //
-// TWO requirements arrived at this same entity independently and it is ONE
-// declaration, not two:
+// These five blocks were declared twice until this requirement: a 1.0 set
+// (`pipelines`/`pipeline_steps`/…) and a 2.0 set (`pipeline2_*`) standing up
+// beside it. Migration 20260812175325 DROPPED the 1.0 tables and 20260812184333
+// RENAMED the 2.0 tables into the vacated names, so there is one set of tables
+// and one set of declarations. The 1.0 blocks are gone rather than repointed —
+// they had no consumer left, and leaving them would have meant two declarations
+// racing for one entity with different projections.
 //
-//   * req #3339/#3455 needs it so a session stamped with `pipeline2_fk` can
-//     have its plan NAMED rather than shown as a bare `#7`.
-//   * req #3463 needs it as the 2.0 id PRODUCER — the rows behind
-//     `/swarm/pipelines2`, and the ids the plan page's not-found alert reports
-//     so that "there are no 2.0 plans at all" is distinguishable from "id 79 is
-//     not one of them".
+// `pipelines` serves TWO consumers as ONE declaration, not two:
 //
-// It is a LIST read and nothing more. The 2.0 plan RENDER is `pipeline2_compose`
-// (req #3367) — one composed route that already ran the join and the derivation
-// server-side — reached through `useComposedPipeline2`, never through this.
+//   * req #3339/#3455 needs it so a session stamped with `pipeline_fk` can have
+//     its plan NAMED rather than shown as a bare `#7`.
+//   * req #3463 needs it as the id PRODUCER — the rows behind `/swarm/pipelines`,
+//     and the ids the plan page's not-found alert reports so that "there are no
+//     plans at all" is distinguishable from "id 79 is not one of them".
+//
+// It is a LIST read and nothing more. The plan RENDER is the `pipeline_compose`
+// route (req #3367) — one composed route that already ran the join and the
+// derivation server-side — reached through `useComposedPipeline`, never here.
 //
 // `description` is deliberately ABSENT: the goal text is a heavy blob column and
-// this is an index read, the same bounded-list-read rule the 1.0 `pipelines`
-// projection below obeys for its own list surfaces. The composed read carries it
-// for the one plan being rendered.
-//
-// `defaultSort` matches the 1.0 entity's so the two plan lists present in the
-// same order. It is not in the cache key (only `fields` is), so both consumers
-// above share one entry.
-export const pipelines2 = createEntityQueries({
-    entity: 'pipeline2_pipelines',
+// this is an index read (the bounded-list-read rule, req #3078). The composed
+// read carries it for the one plan being rendered.
+export const pipelines = createEntityQueries({
+    entity: 'pipelines',
     defaultFields:
         'id,title,pipeline_status,execution_mode,machine_fk,' +
         'started_at,completed_at,creator_fk,create_ts,update_ts',
@@ -477,18 +482,22 @@ export const pipelines2 = createEntityQueries({
 });
 
 // ---------------------------------------------------------------------------
-// The Pipeline 2.0 plan-layer EDITORS (req #3393) — epics, steps and their two
-// junctions. `pipelines2` above is the req #3463 id PRODUCER (a thin list);
-// these four are what a person actually edits (execution_mode aside, which
-// lives on the pipeline row itself, above). Same additive-to-this-file
-// convention #3463 established for `pipelines2`, rather than a second parallel
-// file — one place per table, both eras.
+// The plan-layer EDITORS (req #3393) — epics, steps and their two junctions.
+// `pipelines` above is the req #3463 id PRODUCER (a thin list); these four are
+// what a person actually edits (execution_mode aside, which lives on the
+// pipeline row itself, above).
 //
-// `description` IS carried here (unlike `pipelines2`'s list projection above):
+// `description` IS carried here (unlike `pipelines`' list projection above):
 // these are the editor pages' own reads, not an id-producing index, and the
 // description dialogs/fields need it inline.
-export const pipeline2Epics = createEntityQueries({
-    entity: 'pipeline2_epics',
+//
+// This block also absorbed the hand-written `useAllEpics`/`useEpicById` pair
+// that used to read this same table from `useDataQueries.js` (req #3356). Two
+// readers of one entity with different projections is the req #2213 collision
+// this file's `fieldsInKey` exists to prevent, and the hand-written pair had no
+// consumer left once the 1.0 plan surface went.
+export const epics = createEntityQueries({
+    entity: 'epics',
     defaultFields:
         'id,pipeline_fk,title,description,epic_status,sort_order,category_fk,' +
         'closed,creator_fk,create_ts,update_ts',
@@ -497,11 +506,15 @@ export const pipeline2Epics = createEntityQueries({
 });
 
 // No `pipeline_fk` — containment means a step's plan is derived through its
-// epic (data record § 6), unlike 1.0's `pipelineSteps` below. `sort=id:asc`
-// for the same load-bearing reason as 1.0's block: no sequence column exists,
-// so canonical stored order is the auto-increment id.
-export const pipeline2Steps = createEntityQueries({
-    entity: 'pipeline2_steps',
+// epic (data record § 6). `sort=id:asc` IS LOAD-BEARING, not cosmetic: there is
+// no sequence column (design rule 3 — display order is computed at render), and
+// `pipelineModel.displayOrder()` uses a row's position in the input array as its
+// deterministic FINAL tie-break for the done band, root ranking and epic
+// first-appearance order. "Canonical stored order" for a table whose only stable
+// identity is its AUTO_INCREMENT id means id ascending; without the explicit
+// sort the plan could re-order between renders on an unordered result set.
+export const pipelineSteps = createEntityQueries({
+    entity: 'pipeline_steps',
     defaultFields: 'id,epic_fk,title,run,notes,not_before,completed_at,creator_fk',
     fieldsInKey: true,
     defaultSort: 'id:asc',
@@ -509,65 +522,26 @@ export const pipeline2Steps = createEntityQueries({
 
 // Junction, `PRIMARY KEY (requirement_fk)` alone (stage-2 gate ruling, req
 // #3336 — one step per requirement, structural) — no `id`, never request one.
-export const pipeline2StepRequirements = createEntityQueries({
-    entity: 'pipeline2_step_requirements',
-    defaultFields: 'step_fk,requirement_fk',
-    fieldsInKey: true,
-});
-
-// Dependency edges. No `time_at` (schema difference from 1.0's block below —
-// the time gate is `pipeline2_steps.not_before` now, a column, not a row kind).
-export const pipeline2StepDeps = createEntityQueries({
-    entity: 'pipeline2_step_deps',
-    defaultFields: 'id,step_fk,dep_step_fk',
-    fieldsInKey: true,
-});
-
-export const pipelines = createEntityQueries({
-    entity: 'pipelines',
-    defaultFields:
-        'id,title,description,pipeline_status,execution_mode,machine_fk,' +
-        'started_at,completed_at,creator_fk,create_ts,update_ts',
-    fieldsInKey: true,
-    defaultSort: 'id:desc',
-});
-
-// `sort=id:asc` IS LOAD-BEARING, not cosmetic. pipeline_steps has no seq column
-// (design rule 3 — display order is computed at render), and pipelineModel's
-// displayOrder() uses the position of a row in the input array as its
-// deterministic FINAL tie-break for the done band, root ranking and epic
-// first-appearance order. "Canonical stored order" for a table whose only stable
-// identity is its AUTO_INCREMENT id means id ascending; without the explicit
-// sort the plan could re-order between renders on an unordered result set.
-export const pipelineSteps = createEntityQueries({
-    entity: 'pipeline_steps',
-    defaultFields: 'id,pipeline_fk,title,run,notes,completed_at,creator_fk',
-    fieldsInKey: true,
-    defaultSort: 'id:asc',
-});
-
-// Junction, composite PK (step_fk, requirement_fk) — NO `id` column, never
-// request one. No creator_fk either (correctly absent from Lambda-Rest
-// CREATOR_FK_TABLES): the links inherit their step's ownership, exactly like
-// swarm_start_sessions and agent_documents. The `creatorFk` argument to useAll
-// therefore only shapes the cache key and the enabled predicate.
+//
+// `fieldsInKey` even though the projection is already the narrowest the junction
+// has: it is the req #2213 / #3015 collision guard, and its whole point is that
+// it has to be there BEFORE a second caller with a different projection arrives,
+// because the failure mode is silent (one caller serves the other its narrower
+// column set and a column renders blank).
 export const pipelineStepRequirements = createEntityQueries({
     entity: 'pipeline_step_requirements',
     defaultFields: 'step_fk,requirement_fk',
-    // `fieldsInKey` even though there is one caller and only two columns to ask
-    // for: it is the req #2213 / #3015 collision guard, and its whole point is
-    // that it has to be there BEFORE the second caller with a different
-    // projection arrives, because the failure mode is silent (one caller serves
-    // the other its narrower column set and a column renders blank).
     fieldsInKey: true,
 });
 
-// Dependency edges. One row = ONE condition; exactly one of dep_step_fk /
-// time_at is set, and a dual-condition gate is simply two rows on one step
-// (req #3111). Surrogate `id`, no creator_fk — same ownership rule as above.
+// Dependency edges. No `time_at` column — the time gate is
+// `pipeline_steps.not_before`, a column on the step, not a kind of dep row.
+// Surrogate `id`, no creator_fk: the edges inherit their step's ownership, so
+// the `creatorFk` argument to useAll only shapes the cache key and the enabled
+// predicate.
 export const pipelineStepDeps = createEntityQueries({
     entity: 'pipeline_step_deps',
-    defaultFields: 'id,step_fk,dep_step_fk,time_at',
+    defaultFields: 'id,step_fk,dep_step_fk',
     fieldsInKey: true,
 });
 

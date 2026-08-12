@@ -1,4 +1,4 @@
-// pipeline2ViewModel.js — the Pipeline 2.0 LIST page's summary model (req #3393).
+// pipelinesViewModel.js — the Pipeline 2.0 LIST page's summary model (req #3393).
 //
 // PURE: plain rows in, plain summaries out. No React, no MUI, no hooks, no
 // clock. Counterpart of `Darwin/src/SwarmView/pipelines/pipelineViewModel.js`'s
@@ -6,11 +6,11 @@
 // of them: those depend on `buildPipelineModel`/`buildPlanRows`, the full 1.0
 // derivation engine, which has no verified 2.0 counterpart reachable from this
 // session (`Lambda-Rest/pipeline2_derive.py` lives in a repo this session does
-// not have checked out — see `steps2Model.js`'s header for the full
+// not have checked out — see `stepsModel.js`'s header for the full
 // rationale, which applies here identically).
 //
 // So this module reports a HONEST, SMALLER fact: done vs. open, the same
-// two-state model `steps2Model.js`'s `completionGuard2` already uses for the
+// two-state model `stepsModel.js`'s `completionGuard2` already uses for the
 // editor, never a guessed three-state Pending/Running/Done. A card that said
 // "Running" without a verified definition of Running would be a fabricated
 // number wearing a real one's clothes.
@@ -20,13 +20,13 @@
 // era-agnostic functions of a `pipeline_status` string and a `machine_fk`,
 // with no coupling to which table produced the row, and req #3463 already
 // established importing them straight from the 1.0 files as the convention
-// for exactly this kind of vocabulary (its own `Pipelines2Page.jsx` imported
-// `pipelineStatusChipProps` the same way). `PipelinesPage2.jsx` imports them
+// for exactly this kind of vocabulary (its own `PipelinesPage.jsx` imported
+// `pipelineStatusChipProps` the same way). `PipelinesPage.jsx` imports them
 // directly from `pipelineViewModel.js` / `pipelineChipStyles.js`.
 //
-// THE RULE THIS FEATURE'S STRUCTURAL COPIES (Pipelines2Page2.jsx/EpicsPage2.jsx/
-// StepsPage2.jsx as pages, epics2Api.js/steps2Api.js/pipelines2Api.js as write
-// paths, steps2Model.js as the derivation-adjacent guard) POINT AT, stated
+// THE RULE THIS FEATURE'S STRUCTURAL COPIES (PipelinesPage.jsx/EpicsPage.jsx/
+// StepsPage.jsx as pages, epicsApi.js/stepsApi.js/pipelinesApi.js as write
+// paths, stepsModel.js as the derivation-adjacent guard) POINT AT, stated
 // once here rather than in each of them (code review, req #3393 — the
 // original pointer target, `devopsQueries2.js`, was deleted when the query
 // LAYER moved to the shared-file convention above; the STRUCTURAL copies
@@ -48,15 +48,15 @@ const asArray = (v) => (Array.isArray(v) ? v : []);
  * already fetched, never from N per-pipeline fetches (and NEVER from a
  * per-pipeline composed-read fan-out — that route is real but its payload is
  * sized for rendering ONE plan, not for a list index; see PLAN.md/session
- * notes on why `useComposedPipeline2` is not used here).
+ * notes on why `useComposedPipeline` is not used here).
  *
  * @param {Object} args
- * @param {Object[]} args.pipelines  pipeline2_pipelines rows
- * @param {Object[]} args.steps      ALL pipeline2_steps rows
- * @param {Object[]} args.epics      ALL pipeline2_epics rows (to resolve step -> pipeline)
+ * @param {Object[]} args.pipelines  pipelines rows
+ * @param {Object[]} args.steps      ALL pipeline_steps rows
+ * @param {Object[]} args.epics      ALL epics rows (to resolve step -> pipeline)
  * @returns {Map<number, {total: number, done: number, open: number}>}
  */
-export function pipeline2Summaries({ pipelines, steps, epics } = {}) {
+export function pipelineSummaries({ pipelines, steps, epics } = {}) {
     const pipelineByEpic = new Map();
     for (const e of asArray(epics)) {
         if (e && e.id != null) pipelineByEpic.set(e.id, e.pipeline_fk);
@@ -84,18 +84,18 @@ export function pipeline2Summaries({ pipelines, steps, epics } = {}) {
  * Per-pipeline requirement met/total counts for the LIST page (parity with
  * 1.0's `pipelineRequirementCounts`, req #3225). UNLIKE the 1.0 version this
  * needs no derivation engine at all: `requirement_status === 'met'` is a
- * stored fact on the requirement row, and `pipeline2_step_requirements` is a
+ * stored fact on the requirement row, and `pipeline_step_requirements` is a
  * real membership edge — counting the two together is a join, not a guess.
  *
  * @param {Object} args
  * @param {Object[]} args.pipelines
- * @param {Object[]} args.steps               ALL pipeline2_steps rows
- * @param {Object[]} args.epics                ALL pipeline2_epics rows
- * @param {Object[]} args.stepRequirements    ALL pipeline2_step_requirements rows
+ * @param {Object[]} args.steps               ALL pipeline_steps rows
+ * @param {Object[]} args.epics                ALL epics rows
+ * @param {Object[]} args.stepRequirements    ALL pipeline_step_requirements rows
  * @param {Object[]} args.requirements        any superset (needs `id`, `requirement_status`)
  * @returns {Map<number, {met: number, total: number}>}
  */
-export function pipeline2RequirementCounts({ pipelines, steps, epics,
+export function pipelineRequirementCounts({ pipelines, steps, epics,
     stepRequirements, requirements } = {}) {
     const pipelineByEpic = new Map();
     for (const e of asArray(epics)) {

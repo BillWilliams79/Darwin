@@ -1,164 +1,105 @@
-// stepsModel.js — the pure page model behind /swarm/steps (req #3140).
+// stepsModel.js — the pure completion-guard model behind /swarm/steps (req #3393).
 //
-// PURE: plain rows in, plain rows out. No React, no MUI, no hooks, no clock. Its
-// own module so vitest can exercise it without a DOM and so StepsPage stays in
-// React Fast Refresh (the instructionSort.js lesson).
+// PURE: plain rows in, plain rows out. No React, no MUI, no hooks, no clock —
+// same shape as `Darwin/src/Steps/stepsModel.js`, whose functions this ports a
+// SUBSET of rather than importing (see pipelinesViewModel.js's header for why
+// this file stays a structural copy rather than an import).
 //
-// ## It does not derive step state. It ASKS.
+// ## Why this is a guard, not a state engine
 //
-// A step's state is derived, never stored (req #3080 design rule 1), and Darwin
-// already has exactly two implementations of that derivation on purpose:
-// `pipelineModel.js` for the browser and `pipeline_derive.py` for the daemon,
-// kept honest by a shared 29-case conformance corpus. A third one here — even a
-// three-line one — would be a third thing to keep in step, and the failure mode
-// is an editor page that disagrees with the plan it edits about whether a step
-// is Running. So this module runs the REAL engine: `buildPipelineModel` narrows
-// the whole-table reads to one plan, `buildPlanRows` derives, and everything
-// below only decorates the result.
+// 1.0's `stepsModel.js` deliberately runs the REAL derivation engine
+// (`pipelineModel.js`'s `buildPlanRows`) rather than re-deriving step state a
+// second time, because Darwin already has exactly two implementations of that
+// derivation on purpose (the browser's and the daemon's, kept honest by a
+// shared conformance corpus) and a third would be a third thing to keep in
+// step.
 //
-// COST: pure CPU over rows the app has already fetched, and no gateway read of
-// its own — the six lists are the same ones `/swarm/pipelines` and
-// `/swarm/pipeline/:id` use, so arriving from either paints from cache (design
-// rule 5, and memory/detail-page-interlinking.md's composition rule). The work
-// grows with the number of steps, never with the number of requests.
+// Pipeline 2.0 moved its real derivation server-side
+// (`Lambda-Rest/pipeline_compose.py` / `pipeline2_derive.py`, req #3367) —
+// but that repo is not checked out in this session, so its exact algorithm
+// cannot be read and verified here. Writing a THIRD, unverified JS port of it
+// against a guess would be exactly the failure mode design rule 13 ("nothing
+// stated twice — one implementation per rule") exists to prevent.
 //
-// It deliberately does NOT call `orderedPlan`: display order, launch batches,
-// eligibility and the time axis are the PLAN's concerns. This page is a grid the
-// user sorts by clicking a header, and a topologically-ordered editor that
-// silently re-sorts itself when a requirement closes would be a worse editor.
-
-import {
-    buildPipelineModel,
-} from '../SwarmView/pipelines/pipelineViewModel';
-import {
-    buildPlanRows,
-    isTrackingRequirement,
-    STEP_DONE,
-    STEP_RUNNING,
-    STEP_PENDING,
-} from '../SwarmView/pipelines/pipelineModel';
+// What this module ports instead is narrower and does not need that engine at
+// all: the design-intent doctrine (memory/pipeline-2-plan-layer-intent.md)
+// states the actual predicate the completion guard needs —
+//
+//   "A step has no state column... The one case that carries a stamp of its
+//   own is a step with no requirement that speaks for its progress — either
+//   none at all, or only ones that stand for a whole programme."
+//
+// — which means GATING is a function of whether any non-container requirement
+// is LINKED at all, never of its live status. That is a join over two small
+// junction/dictionary reads, not a derivation, and it is the identical
+// predicate 1.0's `gatingRequirementIds`/`completionGuard` implement (minus
+// the epic/feature/batch machinery 2.0's containment removed). `StepsPage`
+// therefore renders `completed_at` as a two-state Open/Complete chip rather
+// than 1.0's three-state Pending/Running/Done — see PLAN.md for the full
+// scoping rationale. Full three-state rendering is the 2.0 visualizer's job,
+// once it exists and can share one real implementation with the composed
+// route.
 
 const asArray = (v) => (Array.isArray(v) ? v : []);
 
-export { STEP_DONE, STEP_RUNNING, STEP_PENDING };
-
 /**
- * The steps whose dependency row references `stepId` — design rule 4's blockers.
+ * Whether a requirement row carries the req #3123 CONTAINER flag. Byte-for-
+ * byte the same predicate as `pipelineModel.js`'s `isTrackingRequirement` —
+ * copied rather than imported (see this module's header).
  *
- * ## This is a PREVIEW of the database's answer, not the enforcement
- *
- * The enforcement is `pipeline_step_deps.dep_step_fk ON DELETE RESTRICT`, and
- * since `deleteStep` is a single statement that constraint is reached with
- * nothing else attempted — a blocked delete is an atomic 409 with the plan
- * untouched. So this function's whole job is to turn that 409 into a sentence
- * naming the steps responsible, from data the page already has.
- *
- * That makes MATCHING THE DATABASE the only correctness criterion here. It is not
- * a safety check that may err on the strict side; a disagreement in either
- * direction is a wrong message. Which is why a SELF-DEPENDENCY counts: InnoDB
- * evaluates the RESTRICT even against a dep row that is itself inside the same
- * cascade (measured and recorded in darwin-mcp/tests/conftest.py — it is why a
- * multi-step sweep needs two phases), so `(step_fk=X, dep_step_fk=X)` really does
- * refuse the delete of X. Excluding it here would have been right when this check
- * WAS the enforcement — the step would have been permanently undeletable through
- * the page — and is wrong now that the database refuses anyway: the user would
- * get a bare gateway code where a named refusal was available. No current write
- * surface can create such a row (`set_step_deps` rejects self-deps loudly), so
- * this is about the two answers agreeing, not about an input in flight.
- *
- * Sorted and de-duplicated so the message is stable: two dependency rows on one
- * step (a step gate plus a wall-clock gate) must not name it twice.
- *
- * @param {number} stepId
- * @param {Object[]} stepDeps  pipeline_step_deps rows
- * @returns {number[]}
+ * @param {Object} req
+ * @returns {boolean}
  */
-export function dropBlockers(stepId, stepDeps) {
-    const blockers = new Set();
-    for (const dep of asArray(stepDeps)) {
-        if (!dep) continue;
-        // A WALL-CLOCK row references no step and can never block a delete. The
-        // test is on the ROW rather than only on the comparison because
-        // `dep_step_fk` is null on those rows: a nullish `stepId` reaching here
-        // would equal every one of them and refuse a legal delete, naming steps
-        // that merely carry a time gate.
-        if (dep.dep_step_fk == null || dep.dep_step_fk !== stepId) continue;
-        blockers.add(dep.step_fk);
-    }
-    return [...blockers].sort((a, b) => a - b);
+export function isTrackingRequirement2(req) {
+    const value = req == null ? null : req.tracking;
+    if (value === null || value === undefined || value === '') return false;
+    if (typeof value === 'boolean') return value;
+    const n = Number(value);
+    return Number.isFinite(n) ? n !== 0 : false;
 }
 
 /**
- * The GATING subset of a link set — design rule 1's input, in one place.
- *
- * Used by `buildStepEditorRows` for the grid and by the page's LIVE re-read
- * before a stamp, so the displayed guard and the enforced guard cannot be two
+ * The GATING subset of a link set — the guard's input, in one place. Used by
+ * `buildStepRows` for the grid and by the page's LIVE re-read before a
+ * stamp, so the displayed guard and the enforced guard cannot be two
  * different rules.
  *
- * TRACKING CONTAINERS ARE EXEMPT (req #3123): a container is not work and never
- * gates a step, so a step whose only links are containers falls through to its
- * own `completed_at` exactly as a link-less step does. Counting them would make
- * such a step permanently un-completable — the exemption's own new bug.
- *
- * An UNRESOLVED id — one the requirements read did not return — gates, because
- * `isTrackingRequirement(undefined)` is false. Nothing was read that said it is a
- * container, and refusing a stamp is the recoverable direction.
+ * TRACKING CONTAINERS ARE EXEMPT (req #3123): a container is not work and
+ * never gates a step. An UNRESOLVED id — one the requirements read did not
+ * return — gates, because `isTrackingRequirement2(undefined)` is false and
+ * refusing a stamp is the recoverable direction.
  *
  * @param {number[]} reqIds
  * @param {Object[]} requirements  any superset
  * @returns {number[]}
  */
-export function gatingRequirementIds(reqIds, requirements) {
+export function gatingRequirementIds2(reqIds, requirements) {
     const byId = new Map(asArray(requirements).map((r) => [r.id, r]));
-    return asArray(reqIds).filter((rid) => !isTrackingRequirement(byId.get(rid)));
+    return asArray(reqIds).filter((rid) => !isTrackingRequirement2(byId.get(rid)));
 }
 
 /**
- * Whether `completed_at` may be stamped on this row — design rule 1, client-side.
+ * Whether `completed_at` may be stamped on this row.
  *
- * The browser writes straight to Lambda-Rest, so the rule the MCP's
- * `complete_pipeline_step` enforces in Python is unenforced unless the client
- * enforces it. A requirement-backed step's state is DERIVED from its
- * requirements; a stored stamp could only ever agree with them by luck, and the
- * plan table would keep rendering the derived answer while the column quietly
- * said something else.
+ * THIS FUNCTION IS THE FAST PATH, NOT THE ENFORCEMENT — it answers from
+ * whatever link set the caller's row was built from, which is a ≤30s cache.
+ * What actually decides is StepsPage's `completeFlow`, which re-reads the
+ * step's links live before any stamp and calls this again on the result.
  *
- * THIS FUNCTION IS THE FAST PATH, NOT THE ENFORCEMENT. It answers from whatever
- * link set the caller's row was built from, which is a ≤30s cache. What actually
- * decides is StepsPage's `completeFlow`, which re-reads the step's links live
- * before any stamp and calls this again on the result. Use it to render, and to
- * refuse early; never as the last word before a write.
- *
- * ## It is deliberately STRICTER than `deriveStepState` on an unresolved id
- *
- * `buildPlanRows` filters unresolved ids out with `.filter(Boolean)` before
- * `deriveStepState` sees them, so a step whose only link is an unreadable
- * requirement DERIVES from its own stamp — while this guard counts that id and
- * refuses. The two disagree on purpose, because they answer different questions:
- * the engine asks *what does the data say this step is*, and the safest answer
- * for a row it cannot read is to fall back to the stored column. This asks *may a
- * human overwrite that column*, and the honest answer while a link is unreadable
- * is no. Such a step renders Scheduled and refuses the stamp until the read
- * recovers — visibly stuck rather than invisibly wrong.
- *
- * @param {Object} row  a step editor row
+ * @param {Object} row  a step editor row carrying `gatingReqIds`/`trackingReqIds`/`completedAt`
  * @returns {{allowed: boolean, reason: string}}
  */
-export function completionGuard(row) {
+export function completionGuard2(row) {
     const gating = asArray(row && row.gatingReqIds);
     if (!gating.length) {
         return {
             allowed: true,
             reason: row && row.completedAt
                 ? 'Complete — click to reopen this step'
-                : 'Scheduled — click to mark this step complete',
+                : 'Open — click to mark this step complete',
         };
     }
     const tracking = asArray(row.trackingReqIds);
-    // The verbs agree with the noun. A `${n === 1 ? '' : 's'}` that switches only
-    // the noun produced "1 tracking container 3083 are exempt and were not
-    // counted" — and the singular is the common case, so it was the wording most
-    // readers would have seen.
     const one = tracking.length === 1;
     const exempt = tracking.length
         ? ` (${tracking.length} tracking container${one ? '' : 's'} `
@@ -174,132 +115,68 @@ export function completionGuard(row) {
 }
 
 /**
- * Every step in every plan, decorated for the editor grid.
+ * The steps whose dependency row references `stepId` — a PREVIEW of the
+ * database's ON DELETE RESTRICT answer, not the enforcement (see
+ * `stepsApi.js`'s `deleteStep`). No `time_at` branch to skip: 2.0's
+ * `pipeline_step_deps` carries no wall-clock rows — the one time gate lives
+ * on the step itself (`not_before`).
  *
- * Steps are grouped by `pipeline_fk` and derived one plan at a time, because the
- * engine's contract is a model scoped to ONE pipeline — the junction and dep
- * tables carry no pipeline_fk, so there is no other way to narrow them. A step
- * whose pipeline is missing from the pipelines read is still derived, against a
- * synthetic `{id: <fk>}`: an unresolved plan is a fetch problem, and dropping the
- * step would hide it from the one page that could fix it.
- *
- * `unrenderedStepIds` is the honesty channel. Any step the grouping could not
- * place — a null or non-integer `pipeline_fk` — comes back here rather than
- * vanishing, and the page says so. Silence about a dropped row on an editor page
- * is how a plan loses a step nobody can see.
- *
- * @param {Object} args  the six bounded list reads plus the three dictionaries
- * @returns {{rows: Object[], unrenderedStepIds: number[]}}
+ * @param {number} stepId
+ * @param {Object[]} stepDeps  pipeline_step_deps rows
+ * @returns {number[]}
  */
-export function buildStepEditorRows({
-    pipelines,
-    steps,
-    stepRequirements,
-    stepDeps,
-    requirements,
-    features,
-    epics,
-    machines,
-} = {}) {
-    const allSteps = asArray(steps);
-    const pipelineById = new Map(asArray(pipelines).map((p) => [p.id, p]));
-
-    // Grouped in ENCOUNTER order so the grid's default (unsorted) order follows
-    // `sort=id:asc` from the read — the order the plan pages already see.
-    const byPipeline = new Map();
-    const unrenderedStepIds = [];
-    for (const step of allSteps) {
-        if (!step) continue;
-        const fk = step.pipeline_fk;
-        if (!Number.isInteger(fk)) {
-            if (step.id != null) unrenderedStepIds.push(step.id);
-            continue;
-        }
-        if (!byPipeline.has(fk)) byPipeline.set(fk, []);
-        byPipeline.get(fk).push(step);
+export function dropBlockers2(stepId, stepDeps) {
+    const blockers = new Set();
+    for (const dep of asArray(stepDeps)) {
+        if (!dep) continue;
+        if (dep.dep_step_fk == null || dep.dep_step_fk !== stepId) continue;
+        blockers.add(dep.step_fk);
     }
-
-    const rows = [];
-    for (const [fk, ownSteps] of byPipeline) {
-        const pipeline = pipelineById.get(fk) || null;
-        const planRows = buildPlanRows(buildPipelineModel({
-            // A synthetic row when the plan itself did not resolve — the engine
-            // only ever reads `pipeline.id`, and every other column it would want
-            // belongs to the pipelines page, not to a step.
-            pipeline: pipeline || { id: fk },
-            steps: ownSteps,
-            stepRequirements,
-            stepDeps,
-            requirements,
-            features,
-            epics,
-            machines,
-        }));
-        for (const planRow of planRows) {
-            rows.push({
-                ...planRow,
-                pipelineId: fk,
-                pipelineTitle: pipeline ? pipeline.title : null,
-                pipelineStatus: pipeline ? pipeline.pipeline_status : null,
-                // Design rule 1's input, through the SAME function the page's live
-                // pre-stamp re-read uses — so what the chip shows and what the
-                // write path enforces are one rule, not two that agree today.
-                gatingReqIds: gatingRequirementIds(planRow.reqIds, requirements),
-                blockerStepIds: dropBlockers(planRow.id, stepDeps),
-            });
-        }
-    }
-
-    return { rows, unrenderedStepIds };
+    return [...blockers].sort((a, b) => a - b);
 }
 
 /**
- * The grid's visible rows.
+ * Every step, decorated for the editor grid with its gating/tracking split
+ * and its delete-blocker preview. Pure CPU over rows already fetched — no
+ * per-step derivation, no gateway read of its own.
  *
- * `null` means "every value, including ones that do not exist yet" — the
- * ChipFilter contract (memory/chip-filter-pattern.md). An EMPTY array is a legal
- * selection meaning "show nothing" and is never auto-corrected back to all: a
- * user who deselects every chip gets an empty view, which is honest feedback that
- * the filter is doing something.
- *
- * `epicIds` (req #3373) — the plan visualizer's epic chip ↗ control lands here:
- * `row.epicId` is the SAME dominant-epic field the plan pages band by, so a
- * step spanning no epic (`epicId === null`) never matches a real filter value.
- * `StepsPage` keeps supplying `features` to the engine specifically so this
- * stays true (req #3357 code review) — a first cut of that retirement dropped
- * the read and left this filter, and the plan visualizer's already-shipped
- * epic chip that lands on it, permanently empty.
- *
- * @param {Object[]} rows
- * @param {{pipelineIds: ?number[], states: ?string[], epicIds: ?number[]}} filters
+ * @param {Object} args
+ * @param {Object[]} args.steps               pipeline_steps rows
+ * @param {Object[]} args.stepRequirements    pipeline_step_requirements rows
+ * @param {Object[]} args.stepDeps            pipeline_step_deps rows
+ * @param {Object[]} args.requirements        any superset (needs `id`, `tracking`)
+ * @param {Object[]} args.epics               epics rows (for the label/pipeline_fk dictionary)
  * @returns {Object[]}
  */
-export function filterStepRows(rows, { pipelineIds = null, states = null, epicIds = null } = {}) {
-    return asArray(rows).filter((row) => {
-        if (pipelineIds != null && !pipelineIds.includes(row.pipelineId)) return false;
-        if (states != null && !states.includes(row.state)) return false;
-        if (epicIds != null && !epicIds.includes(row.epicId)) return false;
-        return true;
-    });
-}
+export function buildStepRows({ steps, stepRequirements, stepDeps, requirements, epics } = {}) {
+    const epicById = new Map(asArray(epics).map((e) => [e.id, e]));
 
-/**
- * Complete / Running / Scheduled counts for the accounting line.
- *
- * Called on the FULL row set, never the filtered one (view-switchable-pages
- * § V7 — accounting describes the data, not the current view). The page prints
- * "N of M steps" beside it, which is where the filter's effect is stated.
- *
- * @param {Object[]} rows
- * @returns {{total: number, done: number, running: number, pending: number}}
- */
-export function stepsAccounting(rows) {
-    const out = { total: 0, done: 0, running: 0, pending: 0 };
-    for (const row of asArray(rows)) {
-        out.total += 1;
-        if (row.state === STEP_DONE) out.done += 1;
-        else if (row.state === STEP_RUNNING) out.running += 1;
-        else out.pending += 1;
+    const linksByStep = new Map();
+    for (const link of asArray(stepRequirements)) {
+        if (!link) continue;
+        if (!linksByStep.has(link.step_fk)) linksByStep.set(link.step_fk, []);
+        linksByStep.get(link.step_fk).push(link.requirement_fk);
     }
-    return out;
+
+    return asArray(steps).filter(Boolean).map((step) => {
+        const epic = epicById.get(step.epic_fk) || null;
+        const reqIds = (linksByStep.get(step.id) || []).slice().sort((a, b) => a - b);
+        const gatingReqIds = gatingRequirementIds2(reqIds, requirements);
+        const gatingSet = new Set(gatingReqIds);
+        const trackingReqIds = reqIds.filter((rid) => !gatingSet.has(rid));
+        return {
+            ...step,
+            epicTitle: epic ? epic.title : null,
+            pipelineFk: epic ? epic.pipeline_fk : null,
+            completedAt: step.completed_at || null,
+            reqIds,
+            gatingReqIds,
+            trackingReqIds,
+            blockerStepIds: dropBlockers2(step.id, stepDeps),
+            depIds: asArray(stepDeps)
+                .filter((d) => d && d.step_fk === step.id && d.dep_step_fk != null)
+                .map((d) => d.dep_step_fk)
+                .sort((a, b) => a - b),
+        };
+    });
 }
