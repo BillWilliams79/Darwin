@@ -12,7 +12,7 @@
 // `pipelineSummary`/`pipelineSummaries`/`pipelineRequirementCounts` (the 1.0
 // list page's per-plan rollups). All of it is gone with Pipeline 1.0: the
 // derivation now runs ONCE, server-side, in `pipeline2_derive.py`, and
-// `pipeline2Adapter.js` reshapes its output. Nothing in the browser composes an
+// `pipelineAdapter.js` reshapes its output. Nothing in the browser composes an
 // engine any more.
 //
 // What is left is the half that was never about the fetch — the formatters and
@@ -173,7 +173,7 @@ export function buildCostIndex({ requirementSessions, sessionCosts } = {}) {
  * Feature"). The engine exposes the id, so there is no reason to compare
  * display strings.
  *
- * @param {Object} plan  `adaptComposedPipeline2`'s return. req #3462 reverted
+ * @param {Object} plan  `adaptComposedPipeline`'s return. req #3462 reverted
  *   the composed-read path off the detail page after a production outage and
  *   `orderedPlan` was this function's only caller for a while; req #3356 deleted
  *   `orderedPlan` with Pipeline 1.0, leaving the composed path as the one
@@ -249,13 +249,13 @@ export function pipelinesEmptyMessage(hiddenStatusCounts) {
 // would be falsifying the user's own record to satisfy a styling rule. They
 // render verbatim.
 //
-// `pipeline2Adapter.js::machineLabelsFor` degrades an unresolvable machine id to
+// `pipelineAdapter.js::machineLabelsFor` degrades an unresolvable machine id to
 // the POC's `#<id>` form, so it is the one generated label that needs stripping.
 
 const stripHash = (s) => String(s).replace(/^#/, '');
 
 /**
- * Machine title for an id, matching `pipeline2Adapter.js::machineLabelsFor`'s
+ * Machine title for an id, matching `pipelineAdapter.js::machineLabelsFor`'s
  * vocabulary so a pipeline header and a plan row never disagree: NULL pin reads
  * "Any", an unknown id degrades to its own id rather than to a blank.
  */
@@ -335,7 +335,7 @@ const ELLIPSIS = /\s*(?:…|\.\.\.)\s*$/;
  * since; this pairs a title with its notes, which no cell does any more. Kept
  * rather than deleted because it is era-neutral (a `PlanRow` in, two strings
  * out) and because the ellipsis-completion rule it encodes is a real property of
- * the data — `pipeline2_steps.title` is VARCHAR(256) against a TEXT `notes`, so
+ * the data — `pipeline_steps.title` is VARCHAR(256) against a TEXT `notes`, so
  * a summary written to both still arrives truncated in one. Retiring it is a
  * separate call from retiring Pipeline 1.0.
  *

@@ -4,7 +4,7 @@
 // FOUR BOUNDED LIST READS, folded by `buildOrchestrationIndex` (pure, its own
 // module). It was three until req #3356 and the fourth is not an extra
 // question, it is the middle of the SAME one: a 2.0 step carries `epic_fk` and
-// no `pipeline_fk`, so `pipeline2_epics` is what turns a step into a plan.
+// no `pipeline_fk`, so `epics` is what turns a step into a plan.
 // Dropping it would not save a read, it would leave every step planless and the
 // box permanently reading "No pipeline".
 //
@@ -16,16 +16,16 @@
 //
 // All four are the EXACT hook calls the 2.0 plan pages already make — same hook,
 // same options, therefore the same TanStack cache entries — so a reader arriving
-// from `/swarm/pipeline2/:id`, `/swarm/steps2` or `/swarm/epics2` pays nothing
+// from `/swarm/pipeline/:id`, `/swarm/steps` or `/swarm/epics` pays nothing
 // extra, and a reader arriving cold warms those pages in return.
 
 import { useContext, useMemo } from 'react';
 import AuthContext from '../../Context/AuthContext';
 import {
-    useAllPipelines2,
-    useAllPipeline2Epics,
-    useAllPipeline2Steps,
-    useAllPipeline2StepRequirements,
+    useAllPipelines,
+    useAllEpics,
+    useAllPipelineSteps,
+    useAllPipelineStepRequirements,
 } from '../../hooks/useDataQueries';
 import { buildOrchestrationIndex } from './orchestrationIndex';
 
@@ -40,10 +40,10 @@ export function useOrchestrationIndex(creatorFk, { enabled = true } = {}) {
     const { idToken } = useContext(AuthContext);
     const active = enabled && !!creatorFk && !!idToken;
 
-    const pipelinesQ = useAllPipelines2(creatorFk, { enabled: active });
-    const epicsQ = useAllPipeline2Epics(creatorFk, { enabled: active });
-    const stepsQ = useAllPipeline2Steps(creatorFk, { enabled: active });
-    const linksQ = useAllPipeline2StepRequirements(creatorFk, { enabled: active });
+    const pipelinesQ = useAllPipelines(creatorFk, { enabled: active });
+    const epicsQ = useAllEpics(creatorFk, { enabled: active });
+    const stepsQ = useAllPipelineSteps(creatorFk, { enabled: active });
+    const linksQ = useAllPipelineStepRequirements(creatorFk, { enabled: active });
 
     const index = useMemo(() => buildOrchestrationIndex({
         pipelines: pipelinesQ.data,

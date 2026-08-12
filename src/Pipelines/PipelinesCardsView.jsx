@@ -1,10 +1,10 @@
-// Pipelines2CardsView.jsx — the Cards view of /swarm/pipelines2 (req #3393).
+// PipelinesCardsView.jsx — the Cards view of /swarm/pipelines (req #3393).
 //
 // Adapted from `Darwin/src/SwarmView/pipelines/PipelineCardsView.jsx`, not
 // imported: the two eras share no COMPONENT (PLAN.md's file-isolation rule),
 // but this one reuses several of that file's own dependencies directly —
 // `pipelineStatusChipProps`, `machineTitle`, `pipelinesEmptyMessage`,
-// `claimForPipeline2`/`holderView` — because those are pure, era-agnostic
+// `claimForPipeline`/`holderView` — because those are pure, era-agnostic
 // vocabulary functions, and req #3463 already established importing them
 // straight from the 1.0 files as the convention rather than duplicating them.
 //
@@ -12,7 +12,7 @@
 //   - execution_mode chip (parallel|serial, req #3388) — a field 1.0 cards
 //     never show, since it has no equivalent read anywhere else either.
 //   - The progress bar and mini-summary are TWO-STATE (done/open), not 1.0's
-//     three-state done/running/pending — see pipeline2ViewModel.js's header
+//     three-state done/running/pending — see pipelinesViewModel.js's header
 //     for why a third, unverified state is not fabricated here.
 
 import Box from '@mui/material/Box';
@@ -31,32 +31,32 @@ import {
     executionModeLabel,
 } from '../SwarmView/pipelines/pipelineChipStyles';
 import { machineTitle, pipelinesEmptyMessage } from '../SwarmView/pipelines/pipelineViewModel';
-import { claimForPipeline2, holderView } from '../SwarmView/pipelines/orchestrationHolder';
+import { claimForPipeline, holderView } from '../SwarmView/pipelines/orchestrationHolder';
 
 const EMPTY_SUMMARY = { total: 0, done: 0, open: 0 };
 
-export default function Pipelines2CardsView({ pipelines, summaries, reqCounts,
+export default function PipelinesCardsView({ pipelines, summaries, reqCounts,
     showReqCounts = false, machines, claims = [], onOpen, lastOpenedId = null,
     hiddenStatusCounts = [] }) {
     if (!pipelines.length) {
         return (
             <Typography variant="body2" color="text.secondary" sx={{ px: 1, py: 3 }}
-                        data-testid="pipelines2-cards-empty">
+                        data-testid="pipelines-cards-empty">
                 {pipelinesEmptyMessage(hiddenStatusCounts)}
             </Typography>
         );
     }
 
     return (
-        <Box className="card" data-testid="pipelines2-cards-view">
+        <Box className="card" data-testid="pipelines-cards-view">
             {pipelines.map((p) => {
                 const s = summaries.get(p.id) || EMPTY_SUMMARY;
                 const pct = s.total ? Math.round((s.done / s.total) * 100) : 0;
-                const holder = holderView(claimForPipeline2(claims, p.id), machines);
+                const holder = holderView(claimForPipeline(claims, p.id), machines);
                 const counts = showReqCounts ? reqCounts?.get(p.id) : null;
                 const lastViewed = p.id === lastOpenedId;
                 return (
-                    <Card key={p.id} variant="outlined" data-testid={`pipeline2-card-${p.id}`}
+                    <Card key={p.id} variant="outlined" data-testid={`pipelines-card-${p.id}`}
                           sx={lastViewed ? {
                               borderColor: 'primary.main',
                               boxShadow: (theme) => `0 0 0 1px ${theme.palette.primary.main}`,
@@ -73,7 +73,7 @@ export default function Pipelines2CardsView({ pipelines, summaries, reqCounts,
                                     {lastViewed && (
                                         <Chip size="small" color="primary" variant="outlined"
                                               label="Last viewed" sx={{ flexShrink: 0 }}
-                                              data-testid={`pipeline2-card-lastviewed-${p.id}`} />
+                                              data-testid={`pipelines-card-lastviewed-${p.id}`} />
                                     )}
                                     <Chip size="small" label={p.pipeline_status}
                                           {...pipelineStatusChipProps(p.pipeline_status)} />
@@ -109,7 +109,7 @@ export default function Pipelines2CardsView({ pipelines, summaries, reqCounts,
                                                   color={holder.stale ? 'warning' : 'success'}
                                                   variant={holder.stale ? 'outlined' : 'filled'}
                                                   label={holder.label}
-                                                  data-testid={`pipeline2-card-holder-${p.id}`} />
+                                                  data-testid={`pipelines-card-holder-${p.id}`} />
                                         </Tooltip>
                                     )}
                                 </Stack>
@@ -119,7 +119,7 @@ export default function Pipelines2CardsView({ pipelines, summaries, reqCounts,
                                 <LinearProgress variant="determinate" value={pct}
                                                 sx={{ height: 6, borderRadius: 3, mb: 1 }} />
                                 <Typography variant="caption" color="text.secondary"
-                                            data-testid={`pipeline2-card-summary-${p.id}`}>
+                                            data-testid={`pipelines-card-summary-${p.id}`}>
                                     {s.done} complete · {s.open} open
                                 </Typography>
                             </CardContent>

@@ -18,21 +18,21 @@
 //
 // ## The chain — TWO HOPS UNDER 2.0, NOT ONE (req #3356)
 //
-// Pipeline 1.0 is eradicated, so this index reads the `pipeline2_*` tables. A
+// Pipeline 1.0 is eradicated, so this index reads the plan-layer tables. A
 // 2.0 step has NO `pipeline_fk` AT ALL: its plan comes through its epic, which
-// is CONTAINMENT rather than a second pointer (`pipeline2_steps.epic_fk` is NOT
-// NULL, and `pipeline2_epics.pipeline_fk` names the plan). So the walk gained a
+// is CONTAINMENT rather than a second pointer (`pipeline_steps.epic_fk` is NOT
+// NULL, and `epics.pipeline_fk` names the plan). So the walk gained a
 // hop and this module gained an `epics` input:
 //
-//   pipeline2_step_requirements (requirement_fk) -> pipeline2_steps (step_fk)
-//     -> pipeline2_epics (epic_fk) -> pipeline2_pipelines (pipeline_fk)
+//   pipeline_step_requirements (requirement_fk) -> pipeline_steps (step_fk)
+//     -> epics (epic_fk) -> pipelines (pipeline_fk)
 //
 // A step whose epic is missing from the read resolves to NO plan, exactly as a
 // 1.0 step with a null `pipeline_fk` did — the seat is dropped rather than
 // invented, because a requirement pinned to a plan that was never read is worse
 // than a box that says "No pipeline".
 //
-// `pipeline2_pipelines.pipeline_status` uses the SAME vocabulary as 1.0's
+// `pipelines.pipeline_status` uses the SAME vocabulary as 1.0's
 // (`draft|active|paused|completed|aborted`, verified in `DarwinSQL/schema.sql`),
 // so `isOpenPipeline` and `rankPipeline` below are unchanged — not adapted, not
 // re-derived.
@@ -45,7 +45,7 @@
 // the same active-first-then-lowest-id rule over the 2.0 tables.
 //
 // UNDER 2.0 THE MULTI-SEAT CASE IS STRUCTURALLY IMPOSSIBLE:
-// `pipeline2_step_requirements` has `PRIMARY KEY (requirement_fk)` alone — one
+// `pipeline_step_requirements` has `PRIMARY KEY (requirement_fk)` alone — one
 // step per requirement, the req #3336 stage-2 gate ruling — so a requirement
 // cannot be seated twice and the tie-break can never fire on live data. It stays
 // as DEFENCE, not as a live case: this module folds whatever rows the wire hands
@@ -84,10 +84,10 @@ const toId = (value) => {
  * guards of their own or hand over values that came out of this index.
  *
  * @param {Object} args
- * @param {Object[]} args.pipelines         pipeline2_pipelines rows (id, title, pipeline_status)
- * @param {Object[]} args.epics             pipeline2_epics rows (id, pipeline_fk)
- * @param {Object[]} args.steps             pipeline2_steps rows (id, epic_fk)
- * @param {Object[]} args.stepRequirements  pipeline2_step_requirements rows
+ * @param {Object[]} args.pipelines         pipelines rows (id, title, pipeline_status)
+ * @param {Object[]} args.epics             epics rows (id, pipeline_fk)
+ * @param {Object[]} args.steps             pipeline_steps rows (id, epic_fk)
+ * @param {Object[]} args.stepRequirements  pipeline_step_requirements rows
  * @returns {Object} OrchestrationIndex
  */
 export function buildOrchestrationIndex({ pipelines, epics, steps, stepRequirements } = {}) {
@@ -111,7 +111,7 @@ export function buildOrchestrationIndex({ pipelines, epics, steps, stepRequireme
     }
 
     // step -> pipeline (THROUGH the epic), and the step rows themselves: the
-    // Step row of the Orchestration box names the step, and `pipeline2_steps`'
+    // Step row of the Orchestration box names the step, and `pipeline_steps`'
     // shared projection already carries `title`, so this costs nothing beyond
     // the Map. A step whose epic did not resolve gets no entry — see the header.
     const pipelineByStep = new Map();
@@ -204,7 +204,7 @@ export function emptyOrchestrationIndex() {
  *     control is dead exactly when it is needed. A step whose epic did not
  *     resolve is in NEITHER list: it belongs to no plan this read can name, so
  *     it can neither match a named plan nor be vouched for as open.
- *   * `completed_at` is NULL. `pipeline2_steps` carries that column exactly as
+ *   * `completed_at` is NULL. `pipeline_steps` carries that column exactly as
  *     `pipeline_steps` did, so this filter is unchanged. A finished step is not
  *     a place to put new work, and seating a requirement on one would contradict
  *     design rule 1 — a stamped `completed_at` is valid only with zero gating
@@ -216,7 +216,7 @@ export function emptyOrchestrationIndex() {
  *
  * ## Order
  *
- * Step id ascending — the canonical stored order (`pipeline2Steps.defaultSort`
+ * Step id ascending — the canonical stored order (`pipelineSteps.defaultSort`
  * is `id:asc`, for the same load-bearing reason 1.0's block gave: no sequence
  * column exists, so the auto-increment id IS canonical stored order). True
  * DISPLAY order is derived from the whole dependency graph and would mean loading

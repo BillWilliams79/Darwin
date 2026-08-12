@@ -44,15 +44,15 @@ vi.mock('../../../RestApi/RestApi', () => ({
 // chip has the same fact to draw from that the live page gives it.
 vi.mock('../../../hooks/useDataQueries', async (importOriginal) => {
     const actual = await importOriginal();
-    const { composedFixture } = await import('./pipeline2ComposedFixture');
+    const { composedFixture } = await import('./pipelineComposedFixture');
     const composed = composedFixture({ id: 2, title: 'Darwin', pipelineStatus: 'paused' });
     const empty = () => ({ data: [], isLoading: false, isError: false });
     return {
         ...actual,
-        useComposedPipeline2: (id) => ({
+        useComposedPipeline: (id) => ({
             data: Number(id) === 2 ? composed : null, isLoading: false,
         }),
-        useAllPipelines2: () => ({
+        useAllPipelines: () => ({
             data: [{ id: 2 }], isLoading: false, isError: false, isSuccess: true,
         }),
         useMachines: empty,
@@ -85,7 +85,7 @@ function mount(url) {
                         value={{ idToken: 'tok', profile: { userName: 'tester', timezone: 'UTC' } }}>
                         <MemoryRouter initialEntries={[url]}>
                             <Routes>
-                                <Route path="/swarm/pipeline2/:id" element={<PipelineDetail />} />
+                                <Route path="/swarm/pipeline/:id" element={<PipelineDetail />} />
                             </Routes>
                         </MemoryRouter>
                     </AuthContext.Provider>
@@ -107,7 +107,7 @@ describe('PipelineDetail — Paused chip colour (req #3475)', () => {
     });
 
     it('renders the header Paused chip with the pause colour, not MUI default grey', () => {
-        mount('/swarm/pipeline2/2');
+        mount('/swarm/pipeline/2');
         const chip = node('pipeline-detail-paused');
         expect(chip).not.toBeNull();
         // jsdom resolves emotion's injected <style> tags, so getComputedStyle
@@ -119,7 +119,7 @@ describe('PipelineDetail — Paused chip colour (req #3475)', () => {
     });
 
     it('still does not shrink in its flex row', () => {
-        mount('/swarm/pipeline2/2');
+        mount('/swarm/pipeline/2');
         const chip = node('pipeline-detail-paused');
         expect(getComputedStyle(chip).flexShrink).toBe('0');
     });

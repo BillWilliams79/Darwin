@@ -17,15 +17,14 @@ import {
     stepPlanLinkTo,
 } from '../pipelineStepLink';
 import { PLAN_LEVEL_BY_PREF } from '../pipelinePlanLayout';
-import { PLAN_ERA_1, PLAN_ERA_2 } from '../planEra';
 
 describe('stepLinkTo', () => {
     it('names the plan, the table mode and the step', () => {
-        expect(stepLinkTo(2, 47)).toBe('/swarm/pipeline2/2?mode=table&step=47');
+        expect(stepLinkTo(2, 47)).toBe('/swarm/pipeline/2?mode=table&step=47');
     });
 
     it('accepts numeric strings, because a grid row carries whatever the wire sent', () => {
-        expect(stepLinkTo('2', '47')).toBe('/swarm/pipeline2/2?mode=table&step=47');
+        expect(stepLinkTo('2', '47')).toBe('/swarm/pipeline/2?mode=table&step=47');
     });
 
     it('returns null rather than a link to /swarm/pipeline/undefined', () => {
@@ -81,22 +80,20 @@ describe('readFocusStepParam', () => {
         expect(stepLinkTo(1, 2)).toContain(`${FOCUS_STEP_PARAM}=2`);
     });
 
-    // req #3356 — the DEFAULT is 2.0 (the Orchestration box that produces these
-    // ids reads the `pipeline2_*` tables), and the parameter is what
-    // `Steps/StepsPage.jsx` — the 1.0 step editor — passes. Pinned because the
-    // default moving without the parameter surviving is req #3462 again.
-    it('defaults to the 2.0 route and honours an explicit era', () => {
-        expect(stepLinkTo(2, 47)).toBe(stepLinkTo(2, 47, PLAN_ERA_2));
-        expect(stepLinkTo(2, 47, PLAN_ERA_1)).toBe('/swarm/pipeline/2?mode=table&step=47');
-        expect(stepPlanLinkTo(2, 47, PLAN_ERA_1))
-            .toBe('/swarm/pipeline/2?mode=plan&step=47&level=2');
+    // req #3356 — the `era` PARAMETER IS GONE, not merely defaulted. It existed
+    // so a caller holding a 1.0 id could ask for the 1.0 route; there are no 1.0
+    // ids and no 1.0 route. A surviving parameter would be a way to ask for a
+    // page that does not exist, which is req #3462's shape.
+    it('takes no era argument — a stray one cannot redirect the link', () => {
+        expect(stepLinkTo(2, 47, 1)).toBe(stepLinkTo(2, 47));
+        expect(stepPlanLinkTo(2, 47, 1)).toBe(stepPlanLinkTo(2, 47));
     });
 });
 
 // ── Req #3253 — the same step, seen on the PLAN ─────────────────────────────
 describe('stepPlanLinkTo', () => {
     it('names the plan, the plan mode, the step and the level', () => {
-        expect(stepPlanLinkTo(2, 47)).toBe('/swarm/pipeline2/2?mode=plan&step=47&level=2');
+        expect(stepPlanLinkTo(2, 47)).toBe('/swarm/pipeline/2?mode=plan&step=47&level=2');
     });
 
     it('is the SAME step parameter as the table link, not a third landing mode', () => {

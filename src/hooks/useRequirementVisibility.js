@@ -30,7 +30,7 @@
 //
 // ── THE JUNCTION IS PIPELINE 2.0's NOW (req #3356) ──────────────────────────
 //
-// The one list read is `pipeline2_step_requirements`, not the 1.0
+// The one list read is `pipeline_step_requirements`, not the 1.0
 // `pipeline_step_requirements` this hook was built against. Pipeline 1.0 is
 // being eradicated, and a toggle still reading its junction would answer from a
 // table nothing writes any more — every requirement would read as unorchestrated
@@ -46,7 +46,7 @@
 
 import { useCallback, useMemo } from 'react';
 
-import { useAllPipeline2StepRequirements } from './useDataQueries';
+import { useAllPipelineStepRequirements } from './useDataQueries';
 import { useShowClosedStore } from '../stores/useShowClosedStore';
 import { effectiveHidePipelined } from '../utils/epicMembership';
 import {
@@ -96,7 +96,7 @@ export function useRequirementVisibility(creatorFk, { epicFilterActive = false }
     // Read unconditionally — hooks are not conditional, and gating this on the
     // toggle would mean the FIRST flip renders stale-empty for a round trip,
     // showing rows the user just asked to hide.
-    const { data: stepRequirements } = useAllPipeline2StepRequirements(creatorFk);
+    const { data: stepRequirements } = useAllPipelineStepRequirements(creatorFk);
 
     const pipelinedIds = useMemo(
         () => pipelinedRequirementIds(stepRequirements),

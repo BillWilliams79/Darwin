@@ -10,9 +10,9 @@
 // looks like a rendering glitch, not a filter bug.
 //
 // WHICH QUESTION THIS ANSWERS: EPIC association, derived through Pipeline 2.0's
-// CONTAINMENT chain — `pipeline2_steps.epic_fk` (NOT NULL: a step's epic is
+// CONTAINMENT chain — `pipeline_steps.epic_fk` (NOT NULL: a step's epic is
 // DIRECT, there is no intermediate tier to walk) and the
-// `pipeline2_step_requirements` junction (`PRIMARY KEY (requirement_fk)` alone,
+// `pipeline_step_requirements` junction (`PRIMARY KEY (requirement_fk)` alone,
 // so a requirement sits on at most one step anywhere). That is the "does this
 // belong to a body of work" question `pipelineMembership.js`' own header
 // explicitly says it is NOT answering (it answers STEP association — "is this
@@ -34,7 +34,7 @@
 // the moment either moves. Same rule the plan layer states as design rule 1.
 //
 // THE ID SPACE MOVED WITH THE CHAIN, and a reader chasing a stale link needs to
-// know it: `epicId` here is a `pipeline2_epics.id`, NOT the 1.0 `epics.id` this
+// know it: `epicId` here is a `epics.id`, NOT the 1.0 `epics.id` this
 // module took before #3356. The two tables are independent auto-increments, so
 // the same integer names different epics in each. Nothing writes a stale link
 // today — the 1.0 plan visualizer's epic chip derives its id through the very
@@ -54,7 +54,7 @@
  * Its guards are covered through `epicRequirementIds`, which is the only caller
  * there will be.
  *
- * @param {?Array<{id: number, epic_fk: number}>} steps rows from `useAllPipeline2Steps`
+ * @param {?Array<{id: number, epic_fk: number}>} steps rows from `useAllPipelineSteps`
  * @param {?number} epicId
  * @returns {Set<number>} empty when `epicId` is null or nothing matches
  */
@@ -103,9 +103,9 @@ const stepIdsForEpic = (steps, epicId) => {
  * `Set.has(Number(null))`, because `Number(null)` is 0 and a step with id 0 would
  * then sweep in every unseated requirement there is.
  *
- * @param {?Array<{id: number, epic_fk: number}>} steps rows from `useAllPipeline2Steps`
+ * @param {?Array<{id: number, epic_fk: number}>} steps rows from `useAllPipelineSteps`
  * @param {?Array<{step_fk: number, requirement_fk: number}>} stepRequirements rows
- *        from `useAllPipeline2StepRequirements` (the junction, whole-table read)
+ *        from `useAllPipelineStepRequirements` (the junction, whole-table read)
  * @param {?number} epicId
  * @returns {Set<number>}
  */

@@ -9,7 +9,7 @@
 // `launchBatches`, `deriveStepState`, `dominantLabels`, `machineLabels`,
 // `requirementCounts`, `pauseState`, `serialState` and their helpers. Pipeline
 // 2.0 derives a plan ONCE, server-side, in `pipeline2_derive.py`, and
-// `pipeline2Adapter.js` reshapes that output; nothing in the browser derives a
+// `pipelineAdapter.js` reshapes that output; nothing in the browser derives a
 // plan any more, so all of it went with Pipeline 1.0.
 //
 // The engine survives as TEST SCAFFOLDING ONLY, at
@@ -21,12 +21,12 @@
 // Three step-state strings, the pause string, the terminal-status set, and the
 // two cost functions. None of them derives anything: they are the words the plan
 // table, the plan visualizer and the chip-styles module all have to agree on,
-// plus arithmetic over a CostIndex that `pipeline2Adapter.js` calls directly.
+// plus arithmetic over a CostIndex that `pipelineAdapter.js` calls directly.
 // Cost is the one fact req #3345 did NOT move into the composed payload, so it
 // is still folded in the browser from two bounded reads (req #3117).
 //
 // ── The PlanRow contract ───────────────────────────────────────────────────
-// The shape below is what `pipeline2Adapter.js::buildPlan2Rows` emits and what
+// The shape below is what `pipelineAdapter.js::buildPlanRows` emits and what
 // every render surface consumes. It is documented here because this module is
 // where the state vocabulary lives; NOTHING here builds one.
 //
@@ -61,7 +61,7 @@
 // @property {?string} noLaunchReason    the human sentence for launchBlock
 // @property {number[]} depIds           step dependencies
 // @property {string[]} timeDeps         time gates (ISO-8601)
-// @property {?number} epicId            2.0 containment: `pipeline2_steps.epic_fk`
+// @property {?number} epicId            2.0 containment: `pipeline_steps.epic_fk`
 // @property {?string} epic
 // @property {?number} epicSortOrder     req #3430 — the epic's OWN
 //                                       `epics.sort_order`. NULL = unordered,

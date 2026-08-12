@@ -340,7 +340,7 @@ measured against the design rules in req #3080.
 | File | Tests | What it covers |
 |------|-------|----------------|
 | `pipelines.spec.ts` | PIPE-01…13 (14) | The browser surface, over a seeded plan |
-| `pipeline-mutations.spec.ts` | MUT-01…08 (9) | The eight recorded mutation classes, via the MCP tools |
+| `pipeline-mutations.spec.ts` | MUT-01…12 (12) | The twelve canonical mutation classes, via the MCP tools |
 
 **Fixture strategy — why it is not the req #3111 fixture**
 
@@ -393,9 +393,10 @@ the browser half; the two share a database and nothing else.
 
 ### MUT — the eight recorded mutation classes
 
-Each case asserts the tool's ECHO, the DERIVED state, and a `verifyOrder`-clean
+Each case asserts the tool's ECHO, the DERIVED state, and a violation-free
 order re-read from `darwin://pipeline/{id}` — after every mutation, not once at
-the end.
+the end. The order check reads the composed payload's own server-side `derived`
+block; there is no client-side model for this spec to build.
 
 | ID | Recorded case | Expected |
 |----|---------------|----------|
@@ -404,9 +405,13 @@ the end.
 | MUT-03 | Coordination flipped with an autonomy grant (#3075) | The flip and the note echo back; coordination is NOT a state input, so the derived state and the order are untouched |
 | MUT-04 | Step re-scoped after filing (B5 split) | Title and notes update; `notes` REPLACES on the second write; an unset field is left alone |
 | MUT-05 | Gate passed WITH EXCEPTIONS (s1.4) | The disposition is stored in the step notes and `completed_at` is stamped — valid only because the step links no requirements, and a later link attempt is refused |
-| MUT-06 | Dual-condition gate (s0.4) | Two dep rows on one step; eligibility stays false with either half unsatisfied and flips true only when BOTH hold |
+| MUT-06 | Dual-condition gate (s0.4) | ONE dep row plus the step's own `not_before` column — the time gate is no longer a dep row; eligibility stays false with either half unsatisfied and flips true only when BOTH hold |
 | MUT-07 | Two requirements, one step (s0.5) | Running while any is `development`; Scheduled in the honest middle; Complete only when all are terminal (`deferred` counts) |
 | MUT-08 | Step dropped without residue (#3065/#3074) | The drop is REFUSED while another step gates on it and the message names that step, with nothing deleted on the way; after the reference clears, the hard delete leaves no step, link or dep row |
+| MUT-09 | Step re-parented across epics | Legal within a plan — the step keeps its notes, completion stamp and dependency edges; REFUSED across plans, naming every crossing edge in both directions |
+| MUT-10 | Epic created and deleted | The delete is REFUSED while a step OUTSIDE the epic gates on a step inside it, with nothing deleted on the way; after the gate clears it leaves no epic, step or dep row |
+| MUT-11 | Epics re-ordered | `sort_order` echoes back, and both the derived epic order and the step display order the tree walk derives from it follow |
+| MUT-12 | Step widened while ALREADY eligible | The launch set grows with no false→true eligibility edge — the case commanded-requirement tracking exists to catch |
 
 ---
 

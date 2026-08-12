@@ -9,7 +9,7 @@
 // req #3355 dropped `features` and `requirements.feature_fk`, so there is no
 // intermediate hop between a requirement and its epic any more. What replaced
 // them is the two-table containment join below — a step names its epic directly
-// (`pipeline2_steps.epic_fk`, NOT NULL) and the junction seats the requirement on
+// (`pipeline_steps.epic_fk`, NOT NULL) and the junction seats the requirement on
 // the step.
 
 import { describe, it, expect } from 'vitest';
@@ -18,7 +18,7 @@ import {
     effectiveHidePipelined, firstProjectIndexWithEpicWork,
 } from '../epicMembership';
 
-// `pipeline2_steps` rows as `useAllPipeline2Steps(fields: 'id,epic_fk')` returns
+// `pipeline_steps` rows as `useAllPipelineSteps(fields: 'id,epic_fk')` returns
 // them. `epic_fk` is NOT NULL in the schema, so every real row names an epic.
 const STEPS = [
     { id: 501, epic_fk: 11 },
@@ -26,7 +26,7 @@ const STEPS = [
     { id: 510, epic_fk: 9 },
 ];
 
-// `pipeline2_step_requirements` — `PRIMARY KEY (requirement_fk)` alone, so a
+// `pipeline_step_requirements` — `PRIMARY KEY (requirement_fk)` alone, so a
 // requirement appears at most once here: one step per requirement, anywhere.
 const STEP_REQUIREMENTS = [
     { step_fk: 501, requirement_fk: 3428 },

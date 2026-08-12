@@ -19,7 +19,7 @@
 //
 // The two things asserted here:
 //
-//   1. The page reads `pipeline2_compose` and NOTHING from the 1.0 seven.
+//   1. The page reads `pipeline_compose` and NOTHING from the 1.0 seven.
 //   2. A MISS IS LOUD. req #3462's fifth why was that 80 identical 404s during
 //      verification rendered as a tidy "No pipeline with id 79" — so the alert
 //      must name the entity that answered and the ids it holds, and an EMPTY
@@ -92,25 +92,28 @@ vi.mock('../../../hooks/useDataQueries', async (importOriginal) => {
     };
     return {
         ...actual,
-        // The 1.0 hooks still EXIST in `useDataQueries` (other surfaces may
-        // read them); what req #3356 removed is any path from this page to
-        // them. Counted so "never read" is asserted rather than assumed.
-        useAllPipelines: count('pipelines'),
+        // The plan-layer LIST hooks all still EXIST (the editor pages read
+        // them); what must never happen is this page reaching for one, because
+        // the composed route already answered the whole render server-side.
+        // Counted so "never read" is asserted rather than assumed.
+        //
+        // `useAllPipelines` is NOT in this group — see the header. It is the
+        // index, it is read on the miss path, and it is stubbed below.
         useAllPipelineSteps: count('steps'),
         useAllPipelineStepRequirements: count('stepRequirements'),
         useAllPipelineStepDeps: count('stepDeps'),
         useAllRequirements: count('requirements'),
         useAllFeatures: count('features'),
         useAllEpics: count('epics'),
-        useComposedPipeline2: (id, opts = {}) => {
+        useComposedPipeline: (id, opts = {}) => {
             if (opts.enabled !== false) reads.composed = (reads.composed || 0) + 1;
             return {
                 data: opts.enabled === false ? undefined : composedAnswer,
                 isLoading: false,
             };
         },
-        useAllPipelines2: (creatorFk, opts = {}) => {
-            if (opts.enabled !== false) reads.pipeline2Index = (reads.pipeline2Index || 0) + 1;
+        useAllPipelines: (creatorFk, opts = {}) => {
+            if (opts.enabled !== false) reads.pipelineIndex = (reads.pipelineIndex || 0) + 1;
             return {
                 data: opts.enabled === false || !listSettled ? [] : known2,
                 isLoading: false, isError: !listSettled,
@@ -130,7 +133,7 @@ import AppContext from '../../../Context/AppContext';
 
 let roots = [];
 
-function mount(url, routePath = '/swarm/pipeline2/:id') {
+function mount(url, routePath = '/swarm/pipeline/:id') {
     const host = document.createElement('div');
     document.body.appendChild(host);
     const queryClient = new QueryClient({
@@ -176,26 +179,27 @@ describe('PipelineDetail — which table is read (req #3463, one era since #3356
     });
 
     it('reads the composed read and NEVER issues any 1.0 read', () => {
-        mount('/swarm/pipeline2/7');
+        mount('/swarm/pipeline/7');
 
         expect(reads.composed).toBeGreaterThan(0);
-        // req #3356 — UNCONDITIONAL now, where it used to be per-era. A plan
-        // page that also pulled the 1.0 tables would join 2.0 rows against 1.0
-        // labels, and after the schema half of this requirement those tables do
-        // not exist at all. Every one of the seven, by name: a blanket
-        // "no other read fired" would pass vacuously if a hook were renamed.
-        expect(reads.pipelines).toBeUndefined();
+        // Every one of the six, BY NAME: a blanket "no other read fired" would
+        // pass vacuously the moment a hook was renamed — which is precisely how
+        // this file lost an assertion during req #3356's rename.
         expect(reads.steps).toBeUndefined();
         expect(reads.stepRequirements).toBeUndefined();
         expect(reads.stepDeps).toBeUndefined();
         expect(reads.requirements).toBeUndefined();
         expect(reads.features).toBeUndefined();
         expect(reads.epics).toBeUndefined();
+        // The index is not read on the happy path either — asserted here as
+        // well as in its own case, because this is where a reader looks for the
+        // complete list of what the happy path costs.
+        expect(reads.pipelineIndex).toBeUndefined();
         expect(node('pipeline-not-found')).toBeNull();
     });
 
     it('renders the plan panel once the composed read resolves', () => {
-        mount('/swarm/pipeline2/7');
+        mount('/swarm/pipeline/7');
         expect(node('mode-table')).not.toBeNull();
     });
 });
@@ -221,35 +225,38 @@ describe('PipelineDetail — a miss is LOUD and names its source (req #3463 Guar
         // the second table it could have been confused with.
         composedAnswer = null;
         known2 = [{ id: 11 }];
-        mount('/swarm/pipeline2/7');
+        mount('/swarm/pipeline/7');
 
         const alert = text('pipeline-not-found');
-        expect(alert).toContain('2.0');
         expect(alert).toContain('7');
-        expect(text('pipeline-not-found-source')).toContain('pipeline2_pipelines');
+        // req #3356 — and it must NOT carry an era marker any more. The alert
+        // is the most-read sentence this module owns; a stale "2.0" here is a
+        // user-visible leftover.
+        expect(alert).not.toContain('2.0');
+        expect(text('pipeline-not-found-source')).toContain('pipelines');
     });
 
     it('says the table is EMPTY when it is empty — the #3462 verification hole', () => {
         // THE EXACT STATE #3381's DEV SERVER WAS IN, eighty times over: the
-        // composed read 404s because `pipeline2_pipelines` has no rows at all.
+        // composed read 404s because `pipelines` has no rows at all.
         // "No pipeline with id 79" was indistinguishable from a deleted plan;
         // this sentence is not.
         composedAnswer = null;
         known2 = [];
-        mount('/swarm/pipeline2/79');
+        mount('/swarm/pipeline/79');
 
         const source = text('pipeline-not-found-source');
-        expect(source).toContain('pipeline2_pipelines');
+        expect(source).toContain('pipelines');
         expect(source).toMatch(/NO plans at all|empty table/i);
         // And the index read is the one that establishes it — fired ONLY here,
         // on the miss path, never on the happy path (asserted above).
-        expect(reads.pipeline2Index).toBeGreaterThan(0);
+        expect(reads.pipelineIndex).toBeGreaterThan(0);
     });
 
     it('lists the ids the table DOES hold when it holds some', () => {
         composedAnswer = null;
         known2 = [{ id: 7 }, { id: 11 }];
-        mount('/swarm/pipeline2/79');
+        mount('/swarm/pipeline/79');
 
         const source = text('pipeline-not-found-source');
         expect(source).toContain('7');
@@ -270,7 +277,7 @@ describe('PipelineDetail — a miss is LOUD and names its source (req #3463 Guar
         composedAnswer = null;
         known2 = [];
         listSettled = false;
-        mount('/swarm/pipeline2/79');
+        mount('/swarm/pipeline/79');
 
         const source = text('pipeline-not-found-source');
         expect(source).toMatch(/did not load|unknown/i);
@@ -279,9 +286,9 @@ describe('PipelineDetail — a miss is LOUD and names its source (req #3463 Guar
     });
 
     it('does not fire the index read on the HAPPY path', () => {
-        mount('/swarm/pipeline2/7');
+        mount('/swarm/pipeline/7');
         // The extra read is the price of a good error message and is paid only
         // when there is an error message to write.
-        expect(reads.pipeline2Index).toBeUndefined();
+        expect(reads.pipelineIndex).toBeUndefined();
     });
 });

@@ -1,7 +1,7 @@
 import React, { useContext } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { useSession, useDevServersBySession, useAllSwarmStartSessions, useAllSwarmStarts, useAllSwarmCompleteSessions, useAllSwarmCompletes, useAllRequirements, useMachines, useAllPipelines2, useAllPipeline2Epics } from '../../hooks/useDataQueries';
+import { useSession, useDevServersBySession, useAllSwarmStartSessions, useAllSwarmStarts, useAllSwarmCompleteSessions, useAllSwarmCompletes, useAllRequirements, useMachines, useAllPipelines, useAllEpics } from '../../hooks/useDataQueries';
 import { sessionKeys } from '../../hooks/useQueryKeys';
 import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
@@ -14,7 +14,6 @@ import { aiModelChipProps, aiModelLabel } from '../modelChipStyles';
 import { effortChipProps, effortLabel } from '../effortChipStyles';
 import { terminalFocusState, TERMINAL_STATE, TERMINAL_VISIBLE } from '../terminalFocus';
 import { sessionPipelineLink } from '../sessionPipelineLink';
-import { PLAN_ERA_2 } from '../pipelines/planEra';
 import { PHASE_BUCKETS, GROUP_COLORS, bucketTokens, parsePhaseTokens, formatTokens } from '../sessionPhases';
 import { formatDuration } from '../../utils/formatDuration';
 import { trimMicroseconds } from '../../utils/dateFormat';
@@ -114,12 +113,12 @@ const SwarmSessionDetail = () => {
     // ONE ERA'S LISTS, since req #3356 eradicated Pipeline 1.0. `useAllPipelines`
     // and `useAllEpics` are gone from this page with the branches that consumed
     // them — two fewer list reads per session view.
-    const { data: pipelines2 = [] } = useAllPipelines2(profile?.userName);
-    const { data: epics2 = [] } = useAllPipeline2Epics(profile?.userName);
+    const { data: pipelines = [] } = useAllPipelines(profile?.userName);
+    const { data: epics = [] } = useAllEpics(profile?.userName);
 
     const planLink = React.useMemo(
-        () => sessionPipelineLink(session, pipelines2),
-        [session, pipelines2]);
+        () => sessionPipelineLink(session, pipelines),
+        [session, pipelines]);
 
     // req #3433 — `sessionPipelineLink` resolves the title into `planLink.label`;
     // before that fix a separate `pipelineTitle` memo here re-read the session's
@@ -130,7 +129,7 @@ const SwarmSessionDetail = () => {
     const pipelineTitle = planLink.state !== 'none' && planLink.label !== `#${planLink.planId}`
         ? planLink.label : null;
 
-    // THE EPIC ROW READS `epic2_fk` AND NOTHING ELSE (req #3356).
+    // THE EPIC ROW READS `epic_fk` AND NOTHING ELSE (req #3356).
     //
     // This used to branch on the era `planLink` picked, so the Pipeline and Epic
     // rows could never name two different plans for one session — a real hazard
@@ -144,14 +143,14 @@ const SwarmSessionDetail = () => {
     // epic and no pipeline is a partial stamp, and the epic is a fact worth
     // showing with no plan beside it.
     const epicAttribution = React.useMemo(
-        () => (session?.epic2_fk != null
-            ? { epicId: session.epic2_fk, era: PLAN_ERA_2 } : null),
-        [session?.epic2_fk]);
+        () => (session?.epic_fk != null
+            ? { epicId: session.epic_fk } : null),
+        [session?.epic_fk]);
 
     const epicTitle = React.useMemo(() => {
         if (!epicAttribution) return null;
-        return epics2.find(e => e.id === epicAttribution.epicId)?.title ?? null;
-    }, [epicAttribution, epics2]);
+        return epics.find(e => e.id === epicAttribution.epicId)?.title ?? null;
+    }, [epicAttribution, epics]);
 
     const hasHistory = location.key !== 'default';
     const handleBack = () => hasHistory ? navigate(-1) : navigate('/swarm/sessions');
@@ -344,9 +343,9 @@ const SwarmSessionDetail = () => {
                             {/* req #3463 — THE ID COMES FROM THE RESOLVER, and
                                  that survives req #3356 removing the second era.
                                  This JSX used to pick the column itself with
-                                 `state === 'link' ? pipeline2_fk : pipeline_fk`,
+                                 `state === 'link' ? pipeline_fk : pipeline_fk`,
                                  on the premise that /swarm/pipeline/:id read
-                                 pipeline2_compose — true only inside the req
+                                 pipeline_compose — true only inside the req
                                  #3381 window, and false again the moment #3462
                                  reverted it. A 1.0 session then took the 'link'
                                  branch and rendered `#undefined`. The lesson is

@@ -15,10 +15,10 @@
 // cannot import the daemon's code), and the shared constant below is what keeps
 // the two answers the same.
 //
-// A SCOPE IS (pipeline2_fk, epic2_fk) AND NOTHING ELSE. `epic2_fk` null means
+// A SCOPE IS (pipeline_fk, epic_fk) AND NOTHING ELSE. `epic_fk` null means
 // the WHOLE PLAN, which owns every step in it — so a plan with a whole-plan
 // reservation is orchestrated even though none of its epics carries one. Every
-// consumer asks through `claimForPipeline2` rather than filtering inline,
+// consumer asks through `claimForPipeline` rather than filtering inline,
 // because getting that null case wrong reads as "nobody is orchestrating this"
 // on the one surface built to answer the opposite.
 //
@@ -99,53 +99,60 @@ export function heldForSeconds(claim, now = new Date()) {
 }
 
 /**
- * The reservation covering a whole PLAN — `epic2_fk` null, `pipeline2_fk`
+ * The reservation covering a whole PLAN — `epic_fk` null, `pipeline_fk`
  * matching (req #3381).
  *
- * `pipeline2_fk`/`epic2_fk` are the SEPARATE columns a 2.0-scoped claim carries
- * (NULL on what used to be a 1.0 row, and vice versa — CLAUDE.md § Session
- * orchestration attribution's pairing pattern, reused here for claims). The `2`
- * in the name survives req #3356 deliberately: it names the COLUMN PAIR this
- * function matches on, and those columns keep their names until the schema-side
- * rename that requirement's item 4 owns. Renaming the function ahead of the
- * columns would make the code claim a schema change that has not happened.
- *
- * The 1.0 twin (`claimForPipeline`, matching `pipeline_fk`/`epic_fk`) went with
- * the 1.0 list page that was its last caller.
+ * There was a TWIN of this function until req #3356, because
+ * `orchestration_claims` carried two scope pairs: a 1.0 `pipeline_fk`/`epic_fk`
+ * and a 2.0 `pipeline2_fk`/`epic2_fk`, each NULL on the other era's rows. The
+ * migration dropped the 1.0 columns and renamed the 2.0 pair into their names,
+ * so there is one pair, one function, and no era to disambiguate.
  */
-export function claimForPipeline2(claims, pipeline2Id) {
-    if (pipeline2Id == null) return null;
+export function claimForPipeline(claims, pipelineId) {
+    if (pipelineId == null) return null;
     return asArray(claims).find(
-        (c) => c.pipeline2_fk === pipeline2Id && c.epic2_fk == null) || null;
+        (c) => c.pipeline_fk === pipelineId && c.epic_fk == null) || null;
 }
 
 // `claimsForEpic` — every reservation covering an EPIC's work, its own plus any
 // whole-plan reservation on a plan the epic sat in — was DELETED by req #3356
-// with its only caller, the 1.0 `/swarm/epics` page. It read the 1.0
-// `epic_fk`/`pipeline_fk` pair, so it could not have been carried forward as
-// written.
+// with its only caller, the 1.0 `/swarm/epics` page.
 //
-// THERE IS NO 2.0 REPLACEMENT, and that is a real feature-parity gap rather than
-// a tidy-up: `/swarm/epics2` shows no "who is orchestrating this epic" chip, so
-// an epic whose work is being launched right now — by an epic-scoped engine or
-// by a whole-plan one — reads on that page exactly like an idle epic. The plan
-// HEADER still names a whole-plan holder (`claimForPipeline2` above), so the
-// fact is not unreachable, only absent from the epic surface. Restoring it needs
-// the 2.0 shape of the same argument this docstring made: an epics page showing
-// only epic-scoped claims would report "not orchestrated" for an epic a
-// whole-plan engine owns, so the replacement must union both scopes.
+// NOTHING REPLACED IT, and that is a real feature-parity gap rather than a
+// tidy-up: `/swarm/epics` shows no "who is orchestrating this epic" chip, so an
+// epic whose work is being launched right now — by an epic-scoped engine or by
+// a whole-plan one — reads on that page exactly like an idle epic. The plan
+// HEADER still names a whole-plan holder (`claimForPipeline` above), so the
+// fact is not unreachable, only absent from the epic surface. Whatever restores
+// it must union BOTH scopes: an epics page showing only epic-scoped claims
+// would report "not orchestrated" for an epic a whole-plan engine owns.
 
-/** `pipeline:2` / `epic:7@2` for a 1.0 claim, `pipeline2:5` / `epic2:9@5` for
- * a 2.0 one — the same words the engine and its edges use, on whichever pair
- * of columns this claim actually carries (req #3381: `pipeline_fk` is NULL
- * on a 2.0 row, so testing it first would print `pipeline:null`). */
+/**
+ * `pipeline:2` for a whole-plan claim, `epic:7@2` for an epic-scoped one.
+ *
+ * THIS NO LONGER MATCHES WHAT THE ENGINE PRINTS, and the divergence is stated
+ * here rather than left to be discovered. The Python side still emits the
+ * era-suffixed form — `darwin-mcp/services/orchestration_claims.py`,
+ * `scripts/swarm/pipeline_reservation.py`, `scripts/swarm/pipeline2_engine.py`
+ * — and two of those PARSE the `pipeline2:` prefix, so it cannot be changed
+ * from this side. A reservation therefore reads `pipeline:6` in the browser and
+ * `pipeline2:6` in the heartbeat. Nothing breaks (the browser never feeds this
+ * label back), but the two halves disagree until the Python half drops the
+ * marker too. Do not "fix" this by restoring the suffix here: req #3356's whole
+ * point is that no UI string carries it.
+ *
+ * ONE BRANCH, because there is one column pair (req #3356). This had two, one
+ * per era, testing the 2.0 pair FIRST because `pipeline_fk` was NULL on a 2.0
+ * row and testing it first would have printed `pipeline:null`. After the
+ * migration renamed the 2.0 pair into the plain names, both branches tested the
+ * same column and the 2.0-labelled one always won — so every claim rendered as
+ * `pipeline2:` while the era-free branch below it was unreachable.
+ *
+ * A claim carrying NO pipeline at all returns '' rather than `pipeline:null`:
+ * the scope is the plan, so a claim without one is not a scope this can name.
+ */
 export function scopeLabel(claim) {
-    if (!claim) return '';
-    if (claim.pipeline2_fk != null) {
-        return claim.epic2_fk == null
-            ? `pipeline2:${claim.pipeline2_fk}`
-            : `epic2:${claim.epic2_fk}@${claim.pipeline2_fk}`;
-    }
+    if (!claim || claim.pipeline_fk == null) return '';
     return claim.epic_fk == null
         ? `pipeline:${claim.pipeline_fk}`
         : `epic:${claim.epic_fk}@${claim.pipeline_fk}`;

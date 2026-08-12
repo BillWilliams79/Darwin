@@ -1,4 +1,4 @@
-// /swarm/steps2 — the Pipeline 2.0 plan-layer steps editor (req #3393).
+// /swarm/steps — the plan-layer steps editor (req #3393).
 //
 // Stands BESIDE `/swarm/steps` (Darwin/src/Steps/StepsPage.jsx), never in
 // place of it, and shares no COMPONENT with it (structural copy). It DOES
@@ -21,14 +21,14 @@
 //   - `completed_at` renders a TWO-state Open/Complete chip, not 1.0's
 //     three-state Pending/Running/Done. Full state derivation needs the
 //     server-side `pipeline2_derive.py` this session cannot read to verify
-//     against — see `steps2Model.js`'s header for the full rationale. The
+//     against — see `stepsModel.js`'s header for the full rationale. The
 //     guard itself (design rule 1 — a step with any real linked requirement
 //     can never be hand-stamped) is ported faithfully, live re-read
 //     included.
 //   - Gate/link columns (`reqCount`, `gateCount`) are read-only counts with
 //     an id tooltip, exactly like 1.0 — no seat/dependency editor, matching
 //     the requirement's own deliberate-omissions list.
-//   - The Epic cell links to this step's plan at `/swarm/pipeline2/:id` (req
+//   - The Epic cell links to this step's plan at `/swarm/pipeline/:id` (req
 //     #3463/#3372's visualizer) via `planDetailPath` — PLAN.md's "no 2.0 plan
 //     detail page to deep-link into" gap is now closed. It links the PLAN,
 //     not a specific step within it: 2.0's `?step=` focus handshake (the
@@ -64,44 +64,43 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
 import {
-    useAllPipeline2Epics,
-    useAllPipeline2Steps,
-    useAllPipeline2StepRequirements,
-    useAllPipeline2StepDeps,
-    pipeline2StepKeys,
-    pipeline2StepRequirementKeys,
-    pipeline2StepDepKeys,
+    useAllEpics,
+    useAllPipelineSteps,
+    useAllPipelineStepRequirements,
+    useAllPipelineStepDeps,
+    pipelineStepKeys,
+    pipelineStepRequirementKeys,
+    pipelineStepDepKeys,
     useAllRequirements,
 } from '../hooks/useDataQueries';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import ChipFilter from '../Components/ChipFilter/ChipFilter';
 import { formatDateTime } from '../utils/dateFormat';
 import { runChipProps, runLabel } from '../SwarmView/pipelines/pipelineChipStyles';
-// req #3463 built the reachable 2.0 visualizer at planDetailPath(PLAN_ERA_2,
-// id) — the "no 2.0 plan detail page to deep-link into" gap this file used to
+// req #3463 built the reachable 2.0 visualizer at planDetailPath(// id) — the "no 2.0 plan detail page to deep-link into" gap this file used to
 // note is closed. The Epic column links there via the SAME builder the router
 // uses, never a literal string (planEra.js's own guard forbids one).
-import { PLAN_ERA_2, planDetailPath } from '../SwarmView/pipelines/planEra';
-import { buildStep2Rows, completionGuard2, gatingRequirementIds2 } from './steps2Model';
+import { planDetailPath } from '../SwarmView/pipelines/planEra';
+import { buildStepRows, completionGuard2, gatingRequirementIds2 } from './stepsModel';
 import {
     REST_NULL,
     VALID_RUN2_MODES,
-    completeStep2,
-    createStep2,
-    deleteStep2,
+    completeStep,
+    createStep,
+    deleteStep,
     fetchRequirement2Tracking,
-    fetchStep2RequirementIds,
+    fetchStepRequirementIds,
     isRestNullLiteral,
-    reopenStep2,
-    updateStep2,
-} from './steps2Api';
+    reopenStep,
+    updateStep,
+} from './stepsApi';
 
-// Only `id` and `tracking` are needed by the completion guard (steps2Model.js);
+// Only `id` and `tracking` are needed by the completion guard (stepsModel.js);
 // `title` rides along for the requirement-id tooltip. Deliberately NOT 1.0's
 // `PLAN_REQUIREMENT_FIELDS` (Darwin/src/SwarmView/pipelines/pipelineViewModel.js)
 // — a narrower, page-owned projection, same file-isolation rule as everywhere
 // else in this feature.
-const STEP2_REQUIREMENT_FIELDS = 'id,title,tracking';
+const STEP_REQUIREMENT_FIELDS = 'id,title,tracking';
 
 const TITLE_MAX = 256;
 
@@ -143,7 +142,7 @@ const gateSummary = (row, timezone) => ((row.depIds || []).length
 // HTML `<input type="datetime-local">` reads/writes local wall-clock time with
 // no timezone — `YYYY-MM-DDTHH:mm`. `not_before` is stored as a naive-UTC
 // string (`YYYY-MM-DD HH:mm:ss`, the same convention `sqlNow()` in
-// steps2Api.js writes and `formatDateTime` reads — see that file's header).
+// stepsApi.js writes and `formatDateTime` reads — see that file's header).
 // These two helpers are the one place that conversion happens.
 const notBeforeToInputValue = (naiveUtc) => {
     if (!naiveUtc) return '';
@@ -172,14 +171,14 @@ export default function StepsPage2() {
     const creatorFk = profile?.userName;
     const timezone = profile?.timezone;
 
-    const { data: epics = [], isLoading: epicsLoading } = useAllPipeline2Epics(creatorFk);
-    const { data: steps = [], isLoading: stepsLoading } = useAllPipeline2Steps(creatorFk);
+    const { data: epics = [], isLoading: epicsLoading } = useAllEpics(creatorFk);
+    const { data: steps = [], isLoading: stepsLoading } = useAllPipelineSteps(creatorFk);
     const { data: stepRequirements = [], isLoading: linksLoading, isError: linksError } =
-        useAllPipeline2StepRequirements(creatorFk);
+        useAllPipelineStepRequirements(creatorFk);
     const { data: stepDeps = [], isLoading: depsLoading, isError: depsError } =
-        useAllPipeline2StepDeps(creatorFk);
+        useAllPipelineStepDeps(creatorFk);
     const { data: requirements = [], isLoading: reqsLoading, isError: reqsError } =
-        useAllRequirements(creatorFk, { fields: STEP2_REQUIREMENT_FIELDS });
+        useAllRequirements(creatorFk, { fields: STEP_REQUIREMENT_FIELDS });
 
     const isLoading = epicsLoading || stepsLoading || linksLoading || depsLoading || reqsLoading;
 
@@ -221,7 +220,7 @@ export default function StepsPage2() {
     const [submitting, setSubmitting] = useState(false);
     const completingRef = useRef(new Set());
 
-    const allRows = useMemo(() => buildStep2Rows({
+    const allRows = useMemo(() => buildStepRows({
         steps, stepRequirements, stepDeps, requirements, epics,
     }), [steps, stepRequirements, stepDeps, requirements, epics]);
 
@@ -244,7 +243,7 @@ export default function StepsPage2() {
         e => ({ id: e.id, title: e.title })), [epics]);
 
     const invalidateSteps = () =>
-        queryClient.invalidateQueries({ queryKey: pipeline2StepKeys.all(creatorFk) });
+        queryClient.invalidateQueries({ queryKey: pipelineStepKeys.all(creatorFk) });
 
     const openCreate = () => {
         setEditTarget(null);
@@ -286,14 +285,14 @@ export default function StepsPage2() {
         setSubmitting(true);
         try {
             if (editTarget) {
-                await updateStep2(darwinUri, idToken, editTarget.id, {
+                await updateStep(darwinUri, idToken, editTarget.id, {
                     title,
                     notes: notes || REST_NULL,
                     run: formRun,
                     not_before: notBeforeValue || REST_NULL,
                 });
             } else {
-                await createStep2(darwinUri, idToken, {
+                await createStep(darwinUri, idToken, {
                     epic_fk: formEpicFk,
                     title,
                     notes: notes || null,
@@ -312,7 +311,7 @@ export default function StepsPage2() {
 
     const toggleRun = async (row) => {
         try {
-            await updateStep2(darwinUri, idToken, row.id,
+            await updateStep(darwinUri, idToken, row.id,
                 { run: row.run === 'manual' ? 'auto' : 'manual' });
             invalidateSteps();
         } catch (err) {
@@ -339,7 +338,7 @@ export default function StepsPage2() {
         let liveGating;
         let liveTracking;
         try {
-            const liveReqIds = await fetchStep2RequirementIds(darwinUri, idToken, row.id);
+            const liveReqIds = await fetchStepRequirementIds(darwinUri, idToken, row.id);
             liveGating = gatingRequirementIds2(liveReqIds, requirements);
             liveTracking = liveReqIds.filter((rid) => !liveGating.includes(rid));
             if (liveTracking.length) {
@@ -363,12 +362,12 @@ export default function StepsPage2() {
                 }).reason}`);
             invalidateSteps();
             queryClient.invalidateQueries({
-                queryKey: pipeline2StepRequirementKeys.all(creatorFk) });
+                queryKey: pipelineStepRequirementKeys.all(creatorFk) });
             return;
         }
 
         try {
-            await completeStep2(darwinUri, idToken, row.id);
+            await completeStep(darwinUri, idToken, row.id);
             invalidateSteps();
         } catch (err) {
             showError(err, 'Could not complete the step');
@@ -378,7 +377,7 @@ export default function StepsPage2() {
     const toggleComplete = async (row) => {
         if (row.completedAt) {
             try {
-                await reopenStep2(darwinUri, idToken, row.id);
+                await reopenStep(darwinUri, idToken, row.id);
                 invalidateSteps();
             } catch (err) {
                 showError(err, 'Could not reopen the step');
@@ -416,11 +415,11 @@ export default function StepsPage2() {
                     : '')
             + ' This cannot be undone.')) return;
         try {
-            await deleteStep2(darwinUri, idToken, row.id);
+            await deleteStep(darwinUri, idToken, row.id);
             invalidateSteps();
             queryClient.invalidateQueries({
-                queryKey: pipeline2StepRequirementKeys.all(creatorFk) });
-            queryClient.invalidateQueries({ queryKey: pipeline2StepDepKeys.all(creatorFk) });
+                queryKey: pipelineStepRequirementKeys.all(creatorFk) });
+            queryClient.invalidateQueries({ queryKey: pipelineStepDepKeys.all(creatorFk) });
         } catch (err) {
             showError(err, 'Could not delete step');
         }
@@ -433,7 +432,7 @@ export default function StepsPage2() {
             field: 'epicTitle', headerName: 'Epic', width: 160,
             renderCell: (params) => {
                 const label = params.value || `#${params.row.epic_fk}`;
-                const to = planDetailPath(PLAN_ERA_2, params.row.pipelineFk);
+                const to = planDetailPath(params.row.pipelineFk);
                 return (
                     <Box sx={{ display: 'flex', alignItems: 'center', height: '100%' }}>
                         <Tooltip title={to ? `Open this step's plan (2.0)` : label}>
@@ -559,7 +558,7 @@ export default function StepsPage2() {
 
     return (
         <Box sx={{ gridArea: 'content', p: 3, width: '100%', minWidth: 0, overflow: 'auto' }}
-             data-testid="steps2-page">
+             data-testid="steps-page">
             <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 2, flexWrap: 'wrap' }}
                    useFlexGap>
                 <Typography variant="h5">Steps 2.0</Typography>
@@ -575,7 +574,7 @@ export default function StepsPage2() {
                                     setSearchParams(next, { replace: true });
                                 }
                             }}
-                            data-testid="steps2-epic-filter">
+                            data-testid="steps-epic-filter">
                         <MenuItem value={ALL_EPICS}>All epics</MenuItem>
                         {epicOptions.map(e => (
                             <MenuItem key={e.id} value={e.id}>{e.title}</MenuItem>
@@ -587,12 +586,12 @@ export default function StepsPage2() {
                     options={COMPLETED_FILTER_OPTIONS}
                     selected={completedFilter}
                     onToggle={toggleCompletedFilter}
-                    testId="steps2-completed-filter"
-                    chipTestIdPrefix="steps2-completed-chip"
+                    testId="steps-completed-filter"
+                    chipTestIdPrefix="steps-completed-chip"
                 />
 
                 <Typography variant="caption" sx={{ color: 'text.secondary' }}
-                            data-testid="steps2-accounting">
+                            data-testid="steps-accounting">
                     {rows.length} of {accounting.total} step{accounting.total === 1 ? '' : 's'} —{' '}
                     {accounting.done} complete · {accounting.open} open
                 </Typography>
@@ -608,7 +607,7 @@ export default function StepsPage2() {
 
             {planDataError && (
                 <Box sx={{ mb: 2, p: 1.5, border: 1, borderColor: 'error.main', borderRadius: 1 }}
-                     data-testid="steps2-plan-data-error">
+                     data-testid="steps-plan-data-error">
                     The {failedReadsText} failed to load. Completing a step is disabled until
                     this read recovers; reopening one, and edits to title, notes and run mode,
                     are unaffected, and the database still refuses a delete that would break a
@@ -621,7 +620,7 @@ export default function StepsPage2() {
                     <CircularProgress />
                 </Box>
             ) : (
-                <Box sx={{ width: '100%' }} data-testid="steps2-datagrid">
+                <Box sx={{ width: '100%' }} data-testid="steps-datagrid">
                     <DataGrid
                         autoHeight
                         rows={rows}
@@ -633,7 +632,7 @@ export default function StepsPage2() {
                         initialState={{ pagination: { paginationModel: { pageSize: 25 } } }}
                         pageSizeOptions={[10, 25, 50, 100]}
                         disableRowSelectionOnClick
-                        data-testid="steps2-grid"
+                        data-testid="steps-grid"
                     />
                 </Box>
             )}

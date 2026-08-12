@@ -60,14 +60,14 @@ import PipelineDetail from './SwarmView/pipelines/PipelineDetail';
 // req #3463 — the route STRINGS come from the same module the link builders
 // use, so a matcher and a builder cannot disagree about what a plan URL is.
 import {
-    PLAN_ERA_2, planDetailRoutePath, planListRoutePath,
+    planDetailRoutePath, planListRoutePath,
 } from './SwarmView/pipelines/planEra';
-// Pipeline 2.0 plan-layer editors (req #3393) — stand BESIDE the 1.0 routes
-// above, never in place of them. Own routes, own data, no import edge into
-// any 1.0 module. See PLAN.md for the re-scope rationale.
-import PipelinesPage2 from './Pipelines2/PipelinesPage2';
-import EpicsPage2 from './Epics2/EpicsPage2';
-import StepsPage2 from './Steps2/StepsPage2';
+// The plan-layer editors (req #3393). They stood on their own `2`-suffixed
+// routes beside a parallel 1.0 era until req #3356 eradicated it; they now hold
+// the plain routes outright.
+import PipelinesPage from './Pipelines/PipelinesPage';
+import EpicsPage from './Epics/EpicsPage';
+import StepsPage from './Steps/StepsPage';
 import SystemsPage2 from './Systems/SystemsPage2';
 import BuildVisualizerPage from './BuildVisualizer/BuildVisualizerPage';
 import CustomersPage from './Customers/CustomersPage';
@@ -162,46 +162,39 @@ root.render(
 <Route path="swarm/session/:id" element= {<AuthenticatedRoute>
                                                              <SwarmSessionDetail />
                                                          </AuthenticatedRoute>} />
-                    {/* Swarm Orchestration pipelines (req #3114, Pipeline 2.0
-                        since req #3356). React Router v6 ranks by SPECIFICITY,
-                        so the literal "swarm/pipelines2" and the parameterised
-                        "swarm/pipeline2/:id" cannot shadow each other — the
-                        singular/plural split is deliberate and matches the
-                        requirement's route spec.
+                    {/* Swarm Orchestration plan routes (req #3114; the single
+                        surviving era since req #3356). React Router v6 ranks by
+                        SPECIFICITY, so the literal "swarm/pipelines" and the
+                        parameterised "swarm/pipeline/:id" cannot shadow each
+                        other — the singular/plural split is deliberate.
 
-                        req #3356 DELETED the Pipeline 1.0 pair that stood here
-                        (`swarm/pipelines` + `swarm/pipeline/:id`, rendering
-                        `PipelinesPage` and `PipelineDetail era={PLAN_ERA_1}`)
-                        along with the `swarm/epics` and `swarm/steps` 1.0
-                        editors. `PipelineDetail` no longer takes an `era` prop
-                        at all: with one era there is no choice for a route to
-                        make, and passing one would re-introduce the very
+                        req #3356 deleted the Pipeline 1.0 pair that stood on
+                        these exact paths and moved the surviving pages onto
+                        them, dropping the `2` suffixes the parallel era needed.
+                        `PipelineDetail` no longer takes an `era` prop at all:
+                        with one era there is no choice for a route to make, and
+                        passing one would re-introduce the very
                         two-facts-one-question shape `planEra.js` exists to
                         remove. The paths still come from `planEra.js` rather
                         than from literals, because that module remains the one
                         place a plan route is spelled and its own test fails the
                         build on a route literal anywhere else in `src/`. */}
-                    {/* req #3393 — the full-featured 2.0 plan editor supersedes
-                        #3463's deliberately-thin placeholder here (that file's
-                        own header said so: "either where they land or it is
-                        deleted in favour of the page that has them"). Same
-                        route, same era binding — only the component changed. */}
-                    <Route path={planListRoutePath(PLAN_ERA_2)} element= {<AuthenticatedRoute>
-                                                             <PipelinesPage2 />
+                    <Route path={planListRoutePath()} element= {<AuthenticatedRoute>
+                                                             <PipelinesPage />
                                                          </AuthenticatedRoute>} />
-                    <Route path={planDetailRoutePath(PLAN_ERA_2)} element= {<AuthenticatedRoute>
+                    <Route path={planDetailRoutePath()} element= {<AuthenticatedRoute>
                                                              <PipelineDetail />
                                                          </AuthenticatedRoute>} />
-                    {/* Pipeline 2.0 plan-layer editors, epic and step tiers
-                        (req #3393). The pipelines2 LIST route above already
-                        carries this era's list; these two are not "plan
-                        routes" in planEra.js's sense (they list epics/steps,
-                        not plans) so they stay literal here. */}
-                    <Route path="swarm/epics2" element= {<AuthenticatedRoute>
-                                                             <EpicsPage2 />
+                    {/* The plan-layer editors, epic and step tiers (req #3393).
+                        The pipelines LIST route above already carries the plans
+                        themselves; these two are not "plan routes" in
+                        planEra.js's sense (they list epics/steps, not plans) so
+                        they stay literal here. */}
+                    <Route path="swarm/epics" element= {<AuthenticatedRoute>
+                                                             <EpicsPage />
                                                          </AuthenticatedRoute>} />
-                    <Route path="swarm/steps2" element= {<AuthenticatedRoute>
-                                                             <StepsPage2 />
+                    <Route path="swarm/steps" element= {<AuthenticatedRoute>
+                                                             <StepsPage />
                                                          </AuthenticatedRoute>} />
                     <Route path="swarm/testcases" element= {<AuthenticatedRoute>
                                                              <TestCasesPage />

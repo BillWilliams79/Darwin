@@ -5,32 +5,26 @@
 // > when coming back, go straight that spot. a feature saved to local storage
 // > only."*
 //
-// ── THREE FACTS, ONE RECORD ────────────────────────────────────────────────
-// `{ at, era, pipelineId }`, and the split matters:
+// ── TWO FACTS, ONE RECORD ──────────────────────────────────────────────────
+// `{ at, pipelineId }`, and the split matters:
 //
 //   at          'plan' or 'list' — WHERE the reader was. This is the only field
 //               the resume gate consults, and it is why coming back after
 //               deliberately walking back out to the list shows the LIST. A
 //               reader whose last act was to leave a plan did not ask to be put
 //               back into it.
-//   era         WHICH plan surface (req #3463). An id ALONE is not an address:
-//               1.0 and 2.0 have disjoint id spaces and no translation between
-//               them, so a record naming plan 7 is a 2.0 address or a 1.0
-//               not-found depending entirely on this field. Without it this
-//               record is a channel that carries an id from one era's page to
-//               the other era's route — the #3462 outage, arriving by resume
-//               instead of by click.
 //   pipelineId  the last plan OPENED, which survives an `at: 'list'` visit.
 //               One record rather than two, because they are answers to one
 //               question asked at two grains — and because the list marks that
 //               row (req #3311's visible half) whether or not it would resume
 //               to it.
 //
-// ONE RECORD ACROSS BOTH ERAS, not one per era, and that is deliberate: the
-// question it answers is "where was the reader", and the reader was in one
-// place. A 1.0 list page therefore refuses to resume a 2.0 record — it is not
-// this record's job to decide that, so it reports its era and the caller
-// compares (`PipelinesPage.jsx`).
+// A THIRD FIELD, `era`, IS GONE (req #3356). req #3463 added it because 1.0 and
+// 2.0 had disjoint id spaces with no translation between them, so an id alone
+// was not an address — a record naming plan 7 was a 2.0 address or a 1.0
+// not-found depending entirely on that field, and without it the record was a
+// channel carrying an id from one era's page to the other era's route. Pipeline
+// 1.0 is eradicated, so there is one id space and an id IS an address again.
 //
 // ── THE PANEL IS DELIBERATELY NOT HERE (frontend-architect review) ─────────
 // A third field, `mode`, was in the first cut of this design and is gone. The
@@ -89,8 +83,7 @@
 
 import { SCROLL_STORAGE_PREFIX, VIEWPORT_STORAGE_PREFIX } from '../../utils/viewportMemory';
 import {
-    DEFAULT_PLAN_ERA, PLAN_ERAS, isPlanEra, planDetailPath, planDetailPathPattern,
-    planStorageNamespace,
+    planDetailPath, planDetailPathPattern, planStorageNamespace,
 } from './planEra';
 
 export const PIPELINE_PLACE_STORAGE_KEY = 'darwin-swarm-pipelines-place';
@@ -111,13 +104,12 @@ const RETIRED_LAST_OPENED_KEY = 'darwin-swarm-pipelines-last-opened';
 // (one list, one position) and matches none of these prefixes, which is what
 // keeps it out of the sweep.
 //
-// req #3463 — DERIVED PER ERA, and the sweep takes the era it is sweeping. The
-// 1.0 list judges liveness against the 1.0 read, which has never heard of a 2.0
-// plan id, so a shared prefix set would have it delete every 2.0 camera and
-// scroll offset on sight — "not in my list" and "does not exist" being the same
-// value again, one directory down from the outage this requirement answers.
-const perPlanPrefixes = (era) => {
-    const ns = planStorageNamespace(era);
+// req #3463 derived these PER ERA, so that a 1.0 list judging liveness against
+// the 1.0 read could not delete every 2.0 camera on sight ("not in my list" and
+// "does not exist" being the same value again). req #3356 collapsed that: one
+// era, one namespace, one prefix set.
+const perPlanPrefixes = () => {
+    const ns = planStorageNamespace();
     return [
         `${VIEWPORT_STORAGE_PREFIX}${ns}-`,
         `${SCROLL_STORAGE_PREFIX}${ns}-table-`,
@@ -130,22 +122,27 @@ const perPlanPrefixes = (era) => {
 // same reason: re-establishing this costs the reader one click on a plan they
 // were about to open anyway, and a migration branch for a convenience feature
 // lives forever.
-// Bumped to 2 by req #3463, which added `era`.
 //
-// V1 IS READ, NOT DROPPED, and this is the one migration branch this module
-// carries. The general rule above is right — a convenience feature does not earn
-// a migration — but it assumes the drop costs the reader nothing they can
-// perceive, and here it costs every existing reader their remembered plan. That
-// is Pipeline 1.0 paying for Pipeline 2.0's change, which the requirement's own
-// terms forbid outright.
+// v1 was the original two-field record; v2 (req #3463) added `era`. Both are
+// DROPPED at v3.
 //
-// The migration is PROVABLE rather than a guess, which is what makes it safe:
-// v1 could only have been written by a build that had no second era, so a v1
-// record is a 1.0 record with certainty, not by inference from context. That
-// distinction is the whole of why this is allowed and why `era: undefined` on a
-// v2 record still drops.
-const PIPELINE_PLACE_SCHEMA_VERSION_V1 = 1;
-export const PIPELINE_PLACE_SCHEMA_VERSION = 2;
+// ── WHY v2 IS DROPPED RATHER THAN MIGRATED (req #3356) ─────────────────────
+// A v2 record could be read: strip `era` and the remaining two fields are
+// exactly v3's. It is dropped anyway, and the reason is that migrating it is
+// not free of judgement — a v2 record carrying `era: 1` names a plan in an id
+// space that NO LONGER EXISTS, and its id may well collide with a live plan of
+// the surviving era. Reading it forward would resume the reader into a
+// DIFFERENT plan than the one they left, confidently. Telling the two apart
+// means keeping the era vocabulary alive inside a module that no longer has
+// eras, to serve a convenience feature, forever.
+//
+// THE COST IS NAMED because it is user-visible: on first load after this ships,
+// every reader's remembered plan is forgotten once and the Pipelines list opens
+// instead of the plan they last had up. It costs one click, on a plan they were
+// about to open anyway, and it happens exactly once. The per-plan cameras and
+// scroll offsets are orphaned in the same act (the storage namespace changed —
+// see `planEra.js`); `prunePipelineStorage` collects them.
+export const PIPELINE_PLACE_SCHEMA_VERSION = 3;
 
 const PLACES = ['plan', 'list'];
 
@@ -160,13 +157,10 @@ const PLACES = ['plan', 'list'];
  * defect in the data. The same discipline `readViewport` applies for the same
  * reason.
  *
- * `era` is validated against the era vocabulary itself and the record is
- * DROPPED when it does not match (req #3463) — not defaulted. A stored era of
- * `3`, or of the string `'2'`, would otherwise resolve to a route that either
- * does not exist or belongs to the wrong table, and this value is interpolated
- * into a path the caller navigates to.
+ * A record written by ANY older schema version is dropped — see the version
+ * block above for why v2 is not read forward.
  *
- * @returns {?{at: string, era: number, pipelineId: ?number}}
+ * @returns {?{at: string, pipelineId: ?number}}
  */
 export function readPipelinePlace() {
     try {
@@ -176,16 +170,9 @@ export function readPipelinePlace() {
         // `typeof null === 'object'`, and a stored `"7"` parses to a number —
         // both sail past a bare truthiness check straight into `rec.at`.
         if (!rec || typeof rec !== 'object' || Array.isArray(rec)) return null;
-        const isV1 = rec.v === PIPELINE_PLACE_SCHEMA_VERSION_V1;
-        if (rec.v !== PIPELINE_PLACE_SCHEMA_VERSION && !isV1) return null;
+        if (rec.v !== PIPELINE_PLACE_SCHEMA_VERSION) return null;
         if (!PLACES.includes(rec.at)) return null;
-        // A v1 record carries no `era` and needs none — see the version block:
-        // only a single-era build could have written one. A v2 record that is
-        // MISSING its era is a different thing entirely (a writer bug, or
-        // tampering) and is still dropped.
-        const era = isV1 ? DEFAULT_PLAN_ERA : rec.era;
-        if (!isPlanEra(era)) return null;
-        return { at: rec.at, era, pipelineId: normalizeId(rec.pipelineId) };
+        return { at: rec.at, pipelineId: normalizeId(rec.pipelineId) };
     } catch {
         // Storage unavailable (Safari private mode) or unparseable JSON. There
         // is no remembered place — the state a first-ever visit is already in.
@@ -201,22 +188,14 @@ export function readPipelinePlace() {
  * write, which is why callers merge rather than overwrite (see
  * `pipelinePlaceAtList`).
  *
- * An `era` that names no era this app serves is REFUSED outright rather than
- * defaulted (req #3463) — writing a record whose era is a guess is how the id
- * in it later reaches the wrong route, and the caller always knows its own era
- * because it is the era of the page doing the writing.
- *
- * @param {{at: string, era?: number, pipelineId?: ?number}} place
+ * @param {{at: string, pipelineId?: ?number}} place
  */
 export function writePipelinePlace(place) {
     if (!place || !PLACES.includes(place.at)) return;
-    const era = place.era ?? DEFAULT_PLAN_ERA;
-    if (!isPlanEra(era)) return;
     try {
         localStorage.setItem(PIPELINE_PLACE_STORAGE_KEY, JSON.stringify({
             v: PIPELINE_PLACE_SCHEMA_VERSION,
             at: place.at,
-            era,
             pipelineId: normalizeId(place.pipelineId),
         }));
     } catch {
@@ -245,18 +224,10 @@ export function clearPipelinePlace() {
  * silently un-mark the row the list is supposed to be marking. Two callers
  * would each have to remember that.
  *
- * `era` merges for the same reason `pipelineId` does, and the pair merges
- * TOGETHER (req #3463): an id kept without its era is an id pointed at whatever
- * era the list page happens to be. The caller's own era is the fallback when
- * there is no previous record, because a reader standing on a list with no
- * history has opened no plan of any era.
- *
- * @param {?{era?: number, pipelineId: ?number}} previous the record as read
- * @param {number} [listEra] the era of the list page doing the writing
+ * @param {?{pipelineId: ?number}} previous the record as read
  */
-export const pipelinePlaceAtList = (previous, listEra = DEFAULT_PLAN_ERA) => ({
+export const pipelinePlaceAtList = (previous) => ({
     at: 'list',
-    era: previous && isPlanEra(previous.era) ? previous.era : listEra,
     pipelineId: previous ? previous.pipelineId : null,
 });
 
@@ -271,18 +242,12 @@ export const pipelinePlaceAtList = (previous, listEra = DEFAULT_PLAN_ERA) => ({
  * stored mode preference, exactly as it does when they click a card, and a
  * `?mode=` here would be a link channel carrying standing state.
  *
- * THE ERA IS THE RECORD'S, never the caller's (req #3463). A resume is a
- * replay of where the reader WAS, and where they were includes which plan
- * surface — so this builds the path for `place.era` and it is the caller's job
- * to decide whether that is a place it is willing to send them (a 1.0 list must
- * not resume into a 2.0 plan; see `PipelinesPage.jsx`).
- *
- * @param {?{era: number, pipelineId: ?number}} place
+ * @param {?{pipelineId: ?number}} place
  * @returns {?string}
  */
 export function pipelinePlacePath(place) {
-    if (!place || !isPlanEra(place.era)) return null;
-    return planDetailPath(place.era, place.pipelineId);
+    if (!place) return null;
+    return planDetailPath(place.pipelineId);
 }
 
 // ── THE ROUTE, STATED ONCE — AND NOT HERE ANY MORE (req #3463) ─────────────
@@ -293,18 +258,11 @@ export function pipelinePlacePath(place) {
 // resume back on for a reader walking out to the list, and the list becomes
 // unreachable.
 //
-// req #3463 finished the argument this comment started. There are now TWO plan
-// routes, one per era, so "the route" is no longer a literal this file can own
-// at all — both the builder and the matcher come from `planEra.js`, which is
-// the single place either is spelled. `isPlanDetailPath` matches EITHER era's
-// route, because the question it answers ("is the reader on a plan page?") is
-// era-agnostic: a reader who navigated away from a 2.0 plan has left a plan
-// exactly as much as one who left a 1.0 plan.
-// DERIVED FROM `PLAN_ERAS`, not two hand-written calls (code review): a third
-// era added to the binding would otherwise silently fail to match here, and the
-// symptom — the resume gate stops recognising a plan page — is the one this
-// module's own comment calls catastrophic.
-const DETAIL_PATTERNS = PLAN_ERAS.map(planDetailPathPattern);
+// req #3463 finished the argument this comment started: both the builder and
+// the matcher come from `planEra.js`, which is the single place either route is
+// spelled. That survives req #3356's collapse to one era unchanged — the count
+// of eras was never what made the indirection worth having.
+const DETAIL_PATTERN = planDetailPathPattern();
 
 /**
  * Drop every stored position belonging to a plan that no longer exists.
@@ -333,7 +291,7 @@ const DETAIL_PATTERNS = PLAN_ERAS.map(planDetailPathPattern);
  *
  * @param {Iterable<number>} liveIds ids of the plans that currently exist
  */
-export function prunePipelineStorage(liveIds, era = DEFAULT_PLAN_ERA) {
+export function prunePipelineStorage(liveIds) {
     const live = new Set(liveIds ?? []);
     if (live.size === 0) return;
     try {
@@ -346,7 +304,7 @@ export function prunePipelineStorage(liveIds, era = DEFAULT_PLAN_ERA) {
         const doomed = [];
         for (let i = 0; i < localStorage.length; i += 1) {
             const key = localStorage.key(i);
-            const id = perPlanId(key, era);
+            const id = perPlanId(key);
             if (id != null && !live.has(id)) doomed.push(key);
         }
         // Collected first, deleted after: `localStorage.key(i)` indexes a list
@@ -366,9 +324,9 @@ export function prunePipelineStorage(liveIds, era = DEFAULT_PLAN_ERA) {
 // (`…-table-`), so testing in declaration order would read its id as `x-2`,
 // fail the integer test, and quietly exempt every horizontal offset from the
 // sweep forever.
-function perPlanId(key, era) {
+function perPlanId(key) {
     if (typeof key !== 'string') return null;
-    const prefix = perPlanPrefixes(era)
+    const prefix = perPlanPrefixes()
         .filter((p) => key.startsWith(p))
         .sort((a, b) => b.length - a.length)[0];
     if (!prefix) return null;
@@ -383,12 +341,10 @@ function perPlanId(key, era) {
  * asked for the list, and redirecting them back is the one way this feature can
  * make the page unreachable.
  *
- * EITHER ERA'S detail route counts (req #3463) — see `DETAIL_PATTERNS`.
- *
  * @param {?string} pathname
  */
 export const isPipelineDetailPath = (pathname) =>
-    typeof pathname === 'string' && DETAIL_PATTERNS.some((re) => re.test(pathname));
+    typeof pathname === 'string' && DETAIL_PATTERN.test(pathname);
 
 // NULLISH AND EMPTY ARE REJECTED BEFORE `Number` SEES THEM — `Number(null)` and
 // `Number('')` are both 0, and 0 is a perfectly good integer, so a record whose

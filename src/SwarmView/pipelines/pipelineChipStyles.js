@@ -158,7 +158,7 @@ export const pipelineStatusChipProps = (status) => {
 
 // ---------------------------------------------------------------------------
 // Pipeline 2.0 plan-layer editor chips (req #3393), added to this SHARED file
-// rather than a separate one — req #3463's `Pipelines2Page.jsx` already
+// rather than a separate one — req #3463's `PipelinesPage.jsx` already
 // imports `pipelineStatusChipProps` straight from here for the identical
 // `pipeline_status` vocabulary, which is the precedent this follows: the two
 // eras share a vocabulary, they share the one function that colors it.
@@ -168,7 +168,7 @@ export const pipelineStatusChipProps = (status) => {
 // control exists in 1.0 at all, only a derived bubble. Amber-for-paused,
 // matching `pipeline_status`'s own `paused` treatment above, so "paused" reads
 // as one color across every plan-layer surface, either era.
-const EPIC2_STATUS_CHIP = {
+const EPIC_STATUS_CHIP = {
     active: { bgcolor: '#1c3a52', color: '#8fd0ff' },
     paused: { bgcolor: '#ff9800', color: '#000' },
 };
@@ -176,7 +176,7 @@ const EPIC2_STATUS_CHIP = {
 export const epicStatus2Label = (status) => (status === 'paused' ? 'Paused' : 'Active');
 
 export const epicStatus2ChipProps = (status) => ({
-    sx: EPIC2_STATUS_CHIP[status] || EPIC2_STATUS_CHIP.active,
+    sx: EPIC_STATUS_CHIP[status] || EPIC_STATUS_CHIP.active,
 });
 
 // execution_mode — parallel|serial (req #3388/#3393). NEW: no UI anywhere

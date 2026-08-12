@@ -10,7 +10,7 @@
 //
 // req #3356 RE-BASED THE WHOLE INDEX ON PIPELINE 2.0, and the fixture below
 // carries the one structural difference: a 2.0 step has NO `pipeline_fk`. Its
-// plan comes through `epic_fk -> pipeline2_epics.pipeline_fk`, so there is an
+// plan comes through `epic_fk -> epics.pipeline_fk`, so there is an
 // EPICS fixture now and the join is two hops. Everything else — the open/closed
 // status vocabulary, `completed_at`, the id-ascending order — is unchanged,
 // which is why the assertions are.

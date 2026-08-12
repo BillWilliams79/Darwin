@@ -58,10 +58,10 @@ import CheckIcon from '@mui/icons-material/Check';
 import { useScrollMemory } from '../../hooks/useScrollMemory';
 import { scrollStorageKey } from '../../utils/viewportMemory';
 import { fmtCost, STEP_DONE, STEP_RUNNING, STEP_PENDING } from './pipelineModel';
-// req #3356 — the `era` PROP is gone (there is one era) but `planEra.js` stays
-// the ONE place a plan route, entity or storage namespace is spelled, so the
-// accessors are still called — with `PLAN_ERA_2` written out at the call site.
-import { PLAN_ERA_2, planStorageNamespace } from './planEra';
+// req #3356 — the `era` PROP and ARGUMENT are both gone (there is one era) but
+// `planEra.js` stays the ONE place a plan route, entity or storage namespace is
+// spelled, so the accessors are still called — now with no argument.
+import { planStorageNamespace } from './planEra';
 import {
     planRenderRows,
     rowMachineLabel,
@@ -279,7 +279,7 @@ function RequirementLinks({ row, pipelineId, statusOf }) {
                         // dead `/swarm/pipeline/<2.0 id>` — the exact #3462
                         // shape. It is a literal now rather than a prop.
                         state={pipelineId
-                            ? { from: 'pipeline', pipelineId, era: PLAN_ERA_2, mode: 'table' }
+                            ? { from: 'pipeline', pipelineId, mode: 'table' }
                             : undefined}
                         underline="hover"
                         sx={{
@@ -333,7 +333,7 @@ function GroupCell({ show, value, width, color, testid }) {
 }
 
 // req #3463 gave this panel an `era` prop naming WHICH plan surface it was
-// drawing; req #3356 removed it with Pipeline 1.0. The panel reads `PLAN_ERA_2`
+// drawing; req #3356 removed it with Pipeline 1.0. The panel reads the one era
 // directly for the two things it needs an era for — its scroll-storage
 // namespace and the requirement links' Back state.
 export default function PipelinePlanTable({ plan, model, pipeline, timezone, focusStepId,
@@ -381,7 +381,7 @@ export default function PipelinePlanTable({ plan, model, pipeline, timezone, foc
     // inheriting another's.
     const planScrollKey = pipeline?.id != null
         // req #3463 — era-qualified; see PipelinePlanVisualizer's camera key.
-        ? scrollStorageKey(`${planStorageNamespace(PLAN_ERA_2)}-table`, pipeline.id) : null;
+        ? scrollStorageKey(`${planStorageNamespace()}-table`, pipeline.id) : null;
     // A DEEP LINK OWNS THE SCROLL POSITION FOR ITS ONE LANDING. `?step=` scrolls
     // its row to centre in the effect above, and a restore racing that would put
     // the reader somewhere neither of them asked for. So the RESTORE is suppressed
@@ -408,7 +408,7 @@ export default function PipelinePlanTable({ plan, model, pipeline, timezone, foc
     // exactly as on the other axis.
     const [tableEl, setTableEl] = useState(null);
     useScrollMemory(pipeline?.id != null
-        ? scrollStorageKey(`${planStorageNamespace(PLAN_ERA_2)}-table-x`, pipeline.id) : null,
+        ? scrollStorageKey(`${planStorageNamespace()}-table-x`, pipeline.id) : null,
     tableEl, { restore: !linkOwnsScroll });
 
     if (!renderRows.length) {

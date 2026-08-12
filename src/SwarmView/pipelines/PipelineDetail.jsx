@@ -46,7 +46,7 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 
 import call_rest_api from '../../RestApi/RestApi';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
-import { pipeline2ComposeKeys, pipelineKeys } from '../../hooks/useQueryKeys';
+import { pipelineComposeKeys, pipelineKeys } from '../../hooks/useQueryKeys';
 import AppContext from '../../Context/AppContext';
 import AuthContext from '../../Context/AuthContext';
 import '../../CalendarFC/CalendarFC.css';
@@ -65,21 +65,20 @@ import {
     findPipelineDetailMode,
 } from './pipelineDetailModes';
 import { pipelineStatusChipProps, toolbarChipProps } from './pipelineChipStyles';
-import { claimForPipeline2, holderView } from './orchestrationHolder';
+import { claimForPipeline, holderView } from './orchestrationHolder';
 // req #3463 — the era↔route binding. This page never spells a plan route or an
 // entity name.
 //
-// req #3356 — THE `era` PROP IS GONE and every accessor below is called with
-// `PLAN_ERA_2` explicitly. Pipeline 1.0 is eradicated, so there is one era to
+// req #3356 — THE `era` PROP IS GONE and every accessor below is called with no
+// era argument at all. Pipeline 1.0 is eradicated, so there is one era to
 // read and no branch to take; the accessors stay because `planEra.js` is still
 // the ONE place a plan route or entity name is spelled (its `__tests__/planEra.test.js`
 // § THE GUARD fails the build on a route literal anywhere else in `src/`).
-// Collapsing `planEra.js` itself to a single era is a later phase — deliberately
-// not done here, so this change is a prop removal and not a route rewrite.
+// `planEra.js` itself was collapsed to a single binding in the same pass.
 import {
-    PLAN_ERA_2, planEntityName, planEraLabel, planListPath,
+    planEntityName, planListPath,
 } from './planEra';
-import { usePlan2Sources } from './usePlanSources';
+import { usePlanSources } from './usePlanSources';
 import { readFocusStepParam, readLevelParam } from './pipelineStepLink';
 import { readFocusEpicParam } from './pipelineEpicLink';
 import { writePipelinePlace } from './pipelinePlace';
@@ -199,7 +198,7 @@ function PipelineDescriptionDialog({ pipeline, open, onClose }) {
         // Already saved, or already on the wire — either way, nothing to send.
         if (value === (inFlightRef.current ?? savedRef.current)) return;
         inFlightRef.current = value;
-        call_rest_api(`${darwinUri}/${planEntityName(PLAN_ERA_2)}`, 'PUT',
+        call_rest_api(`${darwinUri}/${planEntityName()}`, 'PUT',
             [{ id: pipeline.id, description: value }], idToken)
             .then((result) => {
                 const code = result?.httpStatus?.httpStatus;
@@ -210,7 +209,7 @@ function PipelineDescriptionDialog({ pipeline, open, onClose }) {
                     // The description arrives inside the composed payload, which
                     // has its own per-plan key — so that is what re-reads it.
                     queryClient.invalidateQueries({
-                        queryKey: pipeline2ComposeKeys.byId(pipeline.id) });
+                        queryKey: pipelineComposeKeys.byId(pipeline.id) });
                 }
             })
             .catch((error) => showError(error, 'Unable to update the pipeline description'))
@@ -278,10 +277,10 @@ function PipelineDescriptionDialog({ pipeline, open, onClose }) {
  *
  * It carried an `era` PROP set by the route while 1.0 and 2.0 stood in parallel,
  * because the era can never be inferred from the id in the URL — that is the
- * whole lesson of req #3462: `/swarm/pipeline/79` and `/swarm/pipeline2/79` were
+ * whole lesson of req #3462: the 1.0 and 2.0 plan routes were
  * different plans on different tables and the number could not tell them apart.
  * With 1.0 eradicated there is one table, so the prop is gone and the page reads
- * `pipeline2_*` unconditionally. It takes NO props at all — a route that passed
+ * the plan-layer tables unconditionally. It takes NO props at all — a route that passed
  * one would be re-introducing a choice that no longer exists.
  */
 export default function PipelineDetail() {
@@ -320,7 +319,7 @@ export default function PipelineDetail() {
     const [descriptionOpen, setDescriptionOpen] = useState(false);
     // `era` was in this dep list while two routes rendered this same component
     // at the same tree position — React Router REUSED the instance, so
-    // `/swarm/pipeline/7 -> /swarm/pipeline2/7` changed neither `pipelineId` nor
+    // a move between the two eras' plan routes changed neither `pipelineId` nor
     // anything else the effect watched. One route now, so the id is the whole
     // trigger again.
     useEffect(() => { setDescriptionOpen(false); }, [pipelineId]);
@@ -551,7 +550,7 @@ export default function PipelineDetail() {
     // `machines` is a small WHOLE-APP dictionary, not a per-plan read, and it is
     // fetched here rather than in either head because both eras need it and
     // neither carries it: 1.0 hands it to `buildPipelineModel`, 2.0's composed
-    // payload has no `machines` table of its own (`pipeline2Adapter.js`'s
+    // payload has no `machines` table of its own (`pipelineAdapter.js`'s
     // header).
     const { data: machines = EMPTY, isLoading: machinesLoading, isError: machinesError } =
         useMachines(creatorFk);
@@ -593,7 +592,7 @@ export default function PipelineDetail() {
     const {
         pipeline, model, plan, diagnostic, isLoading: planLoading,
         dictionaryError: planDictionaryError, knownIds,
-    } = usePlan2Sources(pipelineId, creatorFk, { machines, costIndex });
+    } = usePlanSources(pipelineId, creatorFk, { machines, costIndex });
 
     const isLoading = planLoading || machinesLoading;
 
@@ -615,11 +614,11 @@ export default function PipelineDetail() {
     // epics page's answer, not this header's.
     //
     // req #3463 — WHICH COLUMN PAIR a claim carries WAS an era fact: a 2.0 claim
-    // has `pipeline2_fk`/`epic2_fk` and NULL `pipeline_fk`, so asking the 1.0
+    // has `pipeline_fk`/`epic_fk` and NULL `pipeline_fk`, so asking the 1.0
     // lookup about a 2.0 plan matched nothing and vice versa. `claimForPipeline`
     // (the 1.0 half) went with req #3356; this reads the 2.0 columns directly.
     const orchestrationHolder = useMemo(
-        () => holderView(claimForPipeline2(orchestrationClaims, pipeline?.id), machines),
+        () => holderView(claimForPipeline(orchestrationClaims, pipeline?.id), machines),
         [orchestrationClaims, pipeline?.id, machines]);
 
     // `planMachines` — the distinct machine set behind the header's machine chip
@@ -662,7 +661,7 @@ export default function PipelineDetail() {
         // owns the record's shape and req #3356 is a page change, not a storage
         // migration — a record written without it would read as era-less to a
         // reader that has not been collapsed yet.
-        writePipelinePlace({ at: 'plan', era: PLAN_ERA_2, pipelineId: placePipelineId });
+        writePipelinePlace({ at: 'plan', pipelineId: placePipelineId });
     }, [placePipelineId]);
 
     if (isLoading) {
@@ -677,7 +676,7 @@ export default function PipelineDetail() {
     // This alert used to read "No pipeline with id 79." and nothing else, and
     // that sentence is why req #3462's outage survived its own verification:
     // #3381's dev server issued the identical 404 EIGHTY TIMES against an empty
-    // `darwin_dev.pipeline2_pipelines`, and every one of them rendered as this
+    // `darwin_dev.pipelines`, and every one of them rendered as this
     // tidy warning. "This plan was deleted", "this table is empty", "you are
     // asking the wrong era" and "the read failed" were one indistinguishable
     // message.
@@ -690,13 +689,12 @@ export default function PipelineDetail() {
     //   knownIds is []      the table is EMPTY, which is a fact about the DATA
     //   knownIds has rows   the id is not among them, and they are printed
     if (!pipeline) {
-        const eraLabel = planEraLabel(PLAN_ERA_2);
-        const entity = planEntityName(PLAN_ERA_2);
+        const entity = planEntityName();
         return (
             <Box sx={{ p: 3 }}>
                 <Alert severity="warning" data-testid="pipeline-not-found">
                     <AlertTitle>
-                        No Pipeline {eraLabel} plan with id {pipelineId}
+                        No plan with id {pipelineId}
                     </AlertTitle>
                     <Typography variant="body2" component="div"
                                 data-testid="pipeline-not-found-source">
@@ -712,8 +710,8 @@ export default function PipelineDetail() {
                     </Typography>
                     <Typography variant="body2" component="div" sx={{ mt: 1 }}>
                         <Link component="button" variant="body2"
-                              onClick={() => navigate(planListPath(PLAN_ERA_2))}>
-                            Back to Pipeline {eraLabel} plans
+                              onClick={() => navigate(planListPath())}>
+                            Back to plans
                         </Link>
                     </Typography>
                 </Alert>

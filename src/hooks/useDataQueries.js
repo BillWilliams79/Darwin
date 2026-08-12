@@ -2,8 +2,8 @@ import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-quer
 import { useContext, useMemo } from 'react';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
-import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys, epicKeys, featureKeys, testCaseKeys, requirementTestCaseKeys, testPlanKeys, testPlanCaseKeys, testRunKeys, testResultKeys, customerKeys, buildProjectKeys, branchKeys, buildKeys, customerReleaseKeys, pipeline2ComposeKeys } from './useQueryKeys';
-import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, swarmCompletes, swarmCompleteSessions, machines, agents, instructions, architectureDocuments, agentDocuments, agentInstructions, agentTelemetryRuns, agentTelemetryRows, agentTelemetryRowDocs, orchestrationClaims, pipelines, pipelines2, pipeline2Epics, pipeline2Steps, pipeline2StepRequirements, pipeline2StepDeps, pipelineSteps, pipelineStepRequirements, pipelineStepDeps, requirementSessions, sessionCostRollups } from './factory/devopsQueries';
+import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys, featureKeys, testCaseKeys, requirementTestCaseKeys, testPlanKeys, testPlanCaseKeys, testRunKeys, testResultKeys, customerKeys, buildProjectKeys, branchKeys, buildKeys, customerReleaseKeys, pipelineComposeKeys } from './useQueryKeys';
+import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, swarmCompletes, swarmCompleteSessions, machines, agents, instructions, architectureDocuments, agentDocuments, agentInstructions, agentTelemetryRuns, agentTelemetryRows, agentTelemetryRowDocs, orchestrationClaims, pipelines, epics, pipelineSteps, pipelineStepRequirements, pipelineStepDeps, requirementSessions, sessionCostRollups } from './factory/devopsQueries';
 // `fetchEntity` is shared with the factory so both layers handle REST errors
 // identically (req #2593).
 import { fetchEntity } from './factory/createEntityQueries';
@@ -606,68 +606,32 @@ const TESTRESULT_FIELDS = 'id,test_run_fk,test_case_fk,result_status,actual,note
 // actually fetches. A string survives the hash and keeps them apart.
 export const ALL_ROWS = 'all';
 
-// ----- epics (req #3111 migration 076; hooks req #3114) -----
+// ----- epics: MOVED to factory/devopsQueries.js (req #3356) -----
 //
-// The top tier of Epic > Feature > Story. Hand-written here rather than as a
-// `createEntityQueries` block because this is the agile hierarchy's home — epics
-// sits directly above the features hooks below it and shares their conventions
-// (fields-in-key, sort_order:asc, an explicit `closed` filter). The four
-// EXECUTION tables of the same feature — pipelines, pipeline_steps and their two
-// link tables — ARE factory blocks, in factory/devopsQueries.js.
+// A hand-written `EPIC_DEFAULT_FIELDS` / `useAllEpics` / `useEpicById` trio read
+// this table here, because `epics` was the top tier of Epic > Feature > Story
+// and shared the features hooks' conventions below, while the plan EXECUTION
+// tables were factory blocks. Two things ended that:
 //
-// `closed` defaults to ALL_ROWS = fetch every epic, deliberately unlike the
-// features hooks. Epics here are read as a LABEL DICTIONARY (step -> dominant
-// epic, design rule 10), not as a browsable catalog: filtering closed rows out
+//   * req #3355 dropped `features` and `requirements.feature_fk`, so there is no
+//     hierarchy left for `epics` to sit at the top of.
+//   * req #3356 collapsed the plan layer to one era, which made `epics` a
+//     plan-layer table exactly like `pipelines` and `pipeline_steps` — and left
+//     TWO declarations reading it, this one and the (2.0) factory block, with
+//     different projections. That is the req #2213 collision `fieldsInKey`
+//     exists to prevent, so one of them had to go and this one had no consumer.
+//
+// `useAllEpics` and `epicKeys` still exist under those exact names, re-exported
+// from the factory block at the bottom of this file. What they no longer take is
+// a `closed` option: the factory block reads EVERY epic unconditionally, which
+// is what the sole surviving use needs — epics are a LABEL DICTIONARY (step ->
+// epic, design rule 10), not a browsable catalog, and filtering closed rows out
 // would blank the Epic column on plan rows whose epic has since been closed,
-// which reads as a data bug rather than as a filter.
-// `epic_status` (req #3223, migration 20260801125029) — suppression, not
-// lifecycle: whether this epic's scope may be swarm-started. Carried here so
-// every label-dictionary reader (the plan visualizer's pause bubble, req
-// #3226) gets it for free, the same way `closed` already rides along.
-//
-// `sort_order` was already here when req #3430 made it the AUTHORITATIVE epic
-// display order, and that is exactly why it is EXPORTED now: nothing asserted
-// it, so nothing would have noticed it leaving. A column absent from an
-// explicit field list is INVISIBLE to the browser (req #2213, hit again by req
-// #3390) — the same class of defect req #3430 fixed on the server's composed
-// read, where `sort_order` was simply not projected and every epic arrived
-// carrying None. `pipelineQueries.test.js` pins the two columns the plan
-// visualizer's epic ordering cannot work without.
-export const EPIC_DEFAULT_FIELDS =
-    'id,title,description,category_fk,closed,epic_status,sort_order,create_ts';
-
-export function useAllEpics(creatorFk,
-    { fields = EPIC_DEFAULT_FIELDS, closed = ALL_ROWS, enabled = true } = {}) {
-    const { darwinUri } = useContext(AppContext);
-    const { idToken } = useContext(AuthContext);
-    const closedParam = closed === ALL_ROWS ? '' : `closed=${closed}&`;
-    const uri = `${darwinUri}/epics?${closedParam}fields=${fields}&sort=sort_order:asc`;
-    // `closed` is always in the key and always a stringify-surviving value, so
-    // the filtered and unfiltered reads can never collide (see ALL_ROWS above).
-    const queryKey = [...epicKeys.all(creatorFk), { fields, closed }];
-    return useQuery({
-        queryKey,
-        queryFn: () => fetchEntity(uri, idToken),
-        enabled: enabled && !!creatorFk && !!idToken,
-    });
-}
-
-export function useEpicById(creatorFk, id, { enabled = true } = {}) {
-    const { darwinUri } = useContext(AppContext);
-    const { idToken } = useContext(AuthContext);
-    const uri = `${darwinUri}/epics?id=${id}&fields=${EPIC_DEFAULT_FIELDS}`;
-    const queryKey = epicKeys.byId(creatorFk, id);
-    return useQuery({
-        queryKey,
-        queryFn: () => fetchEntity(uri, idToken),
-        // `creatorFk` in the enabled gate matches every other hook in this file
-        // (code review, req #3234) — it is already in `queryKey`, so firing
-        // without it would cache a row under `['epics', undefined, {id}]`, a
-        // key the `epicKeys.all(creatorFk)` prefix invalidation used elsewhere
-        // can never reach.
-        enabled: enabled && !!creatorFk && !!id && !!idToken,
-    });
-}
+// which reads as a data bug rather than as a filter. `epic_status` (req #3223)
+// and `sort_order` (the AUTHORITATIVE epic display order since req #3430) are
+// both in that block's projection, and `pipelineQueries.test.js` still pins them
+// there — a column absent from an explicit field list is INVISIBLE to the
+// browser (req #2213, hit again by req #3390).
 
 // ----- features -----
 //
@@ -975,60 +939,62 @@ export const agentTelemetryRowDocKeys      = agentTelemetryRowDocs.keys;
 // (memory/detail-page-interlinking.md's composition rule) rather than opening a
 // second cache entry that is guaranteed to refetch on every navigation. A by-id
 // hook would be dead code that quietly invites that regression back.
+// The plan INDEX. req #3455 names a session's plan from it; req #3463 renders
+// `/swarm/pipelines` from it and reports its ids in the plan page's not-found
+// alert. Never the plan RENDER — that is `useComposedPipeline` below.
 export const useAllPipelines                = pipelines.useAll;
-// The Pipeline 2.0 plan INDEX. req #3455 names a session's 2.0 plan from it;
-// req #3463 renders `/swarm/pipelines2` from it and reports its ids in the plan
-// page's not-found alert. Never the plan RENDER — that is
-// `useComposedPipeline2` below.
-export const useAllPipelines2               = pipelines2.useAll;
-export const pipeline2Keys = pipelines2.keys;
-// req #3393 — the Pipeline 2.0 plan-layer EDITORS: epics, steps, and their two
-// junctions. Same `<entity>.useAll` / `<entity>Keys = <entity>.keys` pattern
-// as every other block on this page.
-export const useAllPipeline2Epics = pipeline2Epics.useAll;
-export const pipeline2EpicKeys = pipeline2Epics.keys;
-export const useAllPipeline2Steps = pipeline2Steps.useAll;
-export const pipeline2StepKeys = pipeline2Steps.keys;
-export const useAllPipeline2StepRequirements = pipeline2StepRequirements.useAll;
-export const pipeline2StepRequirementKeys = pipeline2StepRequirements.keys;
-export const useAllPipeline2StepDeps = pipeline2StepDeps.useAll;
-export const pipeline2StepDepKeys = pipeline2StepDeps.keys;
+export const pipelineKeys                   = pipelines.keys;
+// req #3393 — the plan-layer EDITORS: epics, steps, and their two junctions.
+// Same `<entity>.useAll` / `<entity>Keys = <entity>.keys` pattern as every
+// other block on this page.
+//
+// `useAllEpics` / `epicKeys` are these factory exports as of req #3356. A
+// hand-written `useAllEpics`/`useEpicById` pair read this same table until then
+// — see the note where they used to live, above the `features` block.
+export const useAllEpics                    = epics.useAll;
+export const epicKeys                       = epics.keys;
 export const useAllPipelineSteps            = pipelineSteps.useAll;
-// Req #3224 — live orchestration reservations: who is orchestrating what, from
-// where. ONE unfiltered list read per page, joined client-side by pipeline_fk /
-// epic_fk; the table holds one row per RESERVED SCOPE, so it is a handful of
-// rows and never grows with the size of a plan.
-export const useOrchestrationClaims         = orchestrationClaims.useAll;
+export const pipelineStepKeys               = pipelineSteps.keys;
 export const useAllPipelineStepRequirements = pipelineStepRequirements.useAll;
 // Req #3435 — the requirement editor's Step row WRITES this junction (seating a
 // requirement on a step), so it needs the invalidation prefix as well as the
 // read. Same `<entity>Keys = <entity>.keys` convention as the agent-telemetry
 // blocks above.
-export const pipelineStepRequirementKeys = pipelineStepRequirements.keys;
+export const pipelineStepRequirementKeys    = pipelineStepRequirements.keys;
 export const useAllPipelineStepDeps         = pipelineStepDeps.useAll;
+export const pipelineStepDepKeys            = pipelineStepDeps.keys;
+// Req #3224 — live orchestration reservations: who is orchestrating what, from
+// where. ONE unfiltered list read per page, joined client-side by pipeline_fk /
+// epic_fk; the table holds one row per RESERVED SCOPE, so it is a handful of
+// rows and never grows with the size of a plan.
+export const useOrchestrationClaims         = orchestrationClaims.useAll;
 
-// Req #3381 — the Pipeline 2.0 composed read. ONE non-generic Lambda-Rest
-// route (`pipeline2_compose`, req #3367) answers the whole plan render —
-// join AND derivation both already ran server-side — so this is a thin GET
-// over a single nested object, never a table read. `fetchEntity`'s
-// array-shaped / 404->`[]` contract does not fit a composed payload, so this
-// is hand-written rather than routed through the factory.
+// Req #3381 — the composed plan read. ONE non-generic Lambda-Rest route
+// (`pipeline_compose`, req #3367) answers the whole plan render — join AND
+// derivation both already ran server-side — so this is a thin GET over a single
+// nested object, never a table read. `fetchEntity`'s array-shaped / 404->`[]`
+// contract does not fit a composed payload, so this is hand-written rather than
+// routed through the factory.
+//
+// THE ROUTE NAME IS A RESERVED DISPATCH NAME IN Lambda-Rest, not a table, so it
+// does not move with a schema migration — req #3356 renamed it from
+// `pipeline_compose` here and in `handler.py` together.
 //
 // The THREE READ STATES a caller distinguishes: `undefined` (still loading),
 // `null` (no such plan — a 404), or the composed object (found). A caller
 // checking `payload.derived` for the four withheld/absent regimes
-// (`pipeline2Adapter.js::deriveDiagnostic`) only does so once `data` itself
+// (`pipelineAdapter.js::deriveDiagnostic`) only does so once `data` itself
 // is a real object — `null` and `undefined` are both "nothing to derive from
 // yet" at the fetch layer, same as `!pipeline` was for the 1.0 list lookup
 // this replaces.
-export function useComposedPipeline2(pipelineId, { enabled = true } = {}) {
+export function useComposedPipeline(pipelineId, { enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
     const validId = Number.isFinite(pipelineId);
-    const uri = `${darwinUri}/pipeline2_compose?id=${pipelineId}`;
+    const uri = `${darwinUri}/pipeline_compose?id=${pipelineId}`;
 
     return useQuery({
-        queryKey: pipeline2ComposeKeys.byId(pipelineId),
+        queryKey: pipelineComposeKeys.byId(pipelineId),
         queryFn: async () => {
             // `call_rest_api` THROWS on every non-2xx status (RestApi.jsx) —
             // it never returns control past a 404, so the 404 check has to
@@ -1075,8 +1041,8 @@ export function useComposedPipeline2(pipelineId, { enabled = true } = {}) {
 // `requirement.feature_fk -> feature.epic_fk`. Req #3355 dropped BOTH — the
 // `features` table and the `requirements.feature_fk` column — so the projection
 // named a column production no longer has and the walk had nothing to walk. The
-// 2.0 answer is CONTAINMENT and it is one join shorter: `pipeline2_steps.epic_fk`
-// is NOT NULL (a step's epic is direct) and `pipeline2_step_requirements` seats
+// 2.0 answer is CONTAINMENT and it is one join shorter: `pipeline_steps.epic_fk`
+// is NOT NULL (a step's epic is direct) and `pipeline_step_requirements` seats
 // the requirement on the step. The narrowing that follows — a requirement is in
 // an epic ONLY by being seated — is argued in `utils/epicMembership.js`.
 //
@@ -1094,9 +1060,9 @@ export function useComposedPipeline2(pipelineId, { enabled = true } = {}) {
 // filter is on and matches nothing, which is a different page).
 //
 // TWO PROJECTIONS, DECIDED OPPOSITE WAYS, and the asymmetry is deliberate.
-// `pipeline2_steps` gets its OWN narrow `id,epic_fk` entry rather than sharing
+// `pipeline_steps` gets its OWN narrow `id,epic_fk` entry rather than sharing
 // the editors' default: that default carries `notes`, prose this filter never
-// reads, on a whole-table read. `pipeline2_step_requirements` takes its default
+// reads, on a whole-table read. `pipeline_step_requirements` takes its default
 // BECAUSE that default (`step_fk,requirement_fk`) is already the narrowest
 // projection the junction has — there is nothing left to trim, so sharing the
 // cache entry is free, and on THIS page it is better than free:
@@ -1136,11 +1102,11 @@ const EPIC_MEMBERSHIP_STEP_FIELDS = 'id,epic_fk';
 // class of quiet wrongness the other two guard against.
 export function useEpicRequirementIds(creatorFk, epicId) {
     const active = epicId !== null && epicId !== undefined;
-    const { data: steps, isError: stepsError } = useAllPipeline2Steps(creatorFk, {
+    const { data: steps, isError: stepsError } = useAllPipelineSteps(creatorFk, {
         fields: EPIC_MEMBERSHIP_STEP_FIELDS, enabled: active,
     });
     const { data: stepRequirements, isError: stepRequirementsError } =
-        useAllPipeline2StepRequirements(creatorFk, { enabled: active });
+        useAllPipelineStepRequirements(creatorFk, { enabled: active });
     const { data: requirements, isError: requirementsError } = useAllRequirements(creatorFk, {
         fields: EPIC_MEMBERSHIP_REQUIREMENT_FIELDS, enabled: active,
     });

@@ -28,7 +28,7 @@
 // requirement into an epic without also seating it on a step) leaves the
 // frontend entirely, and re-deriving the same fact off a step's epic is not
 // possible for 1.0: no 1.0 `pipeline_steps` row carries an `epic_fk` — only
-// Pipeline 2.0's `pipeline2_steps` does, a disjoint id space unrelated to the
+// Pipeline 2.0's `pipeline_steps` does, a disjoint id space unrelated to the
 // live 1.0 "Darwin" plan this toggle filters. So `orchestratedRequirementIds`
 // COLLAPSES to `pipelinedRequirementIds` — every requirement this toggle can
 // still call "part of a plan" is one a step actually carries. The #3419 gap
@@ -58,7 +58,7 @@
  * Requirement ids at least one pipeline STEP carries.
  *
  * @param {Array<{requirement_fk: number}>} stepRequirements  rows from
- *        `useAllPipeline2StepRequirements` (the junction, whole-table read).
+ *        `useAllPipelineStepRequirements` (the junction, whole-table read).
  *        The 1.0 junction (`useAllPipelineStepRequirements`) fed this until
  *        req #3356; the ROW SHAPE is identical, so only the caller moved.
  * @returns {Set<number>}

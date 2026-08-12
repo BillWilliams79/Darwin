@@ -36,15 +36,15 @@ vi.mock('../../../RestApi/RestApi', () => ({ default: vi.fn(() => Promise.resolv
 // `derived` block the page hard-stops without.
 vi.mock('../../../hooks/useDataQueries', async (importOriginal) => {
     const actual = await importOriginal();
-    const { composedFixture } = await import('./pipeline2ComposedFixture');
+    const { composedFixture } = await import('./pipelineComposedFixture');
     const composed = composedFixture({ id: 2, title: 'Darwin' });
     const empty = () => ({ data: [], isLoading: false, isError: false });
     return {
         ...actual,
-        useComposedPipeline2: (id) => ({
+        useComposedPipeline: (id) => ({
             data: Number(id) === 2 ? composed : null, isLoading: false,
         }),
-        useAllPipelines2: () => ({
+        useAllPipelines: () => ({
             data: [{ id: 2 }], isLoading: false, isError: false, isSuccess: true,
         }),
         useMachines: empty,
@@ -75,7 +75,7 @@ function mount(url) {
                     <AuthContext.Provider value={{ idToken: 'tok', profile: { userName: 'tester', timezone: 'UTC' } }}>
                         <MemoryRouter initialEntries={[url]}>
                             <Routes>
-                                <Route path="/swarm/pipeline2/:id" element={<PipelineDetail />} />
+                                <Route path="/swarm/pipeline/:id" element={<PipelineDetail />} />
                             </Routes>
                         </MemoryRouter>
                     </AuthContext.Provider>
@@ -99,7 +99,7 @@ afterEach(() => {
 
 describe('PipelineDetail — mode toggle accessible name (req #3281)', () => {
     it('gives every icon-only mode button a non-empty accessible name', () => {
-        mount('/swarm/pipeline2/2');
+        mount('/swarm/pipeline/2');
         for (const { value, label } of PIPELINE_DETAIL_MODES) {
             const btn = node(`pipeline-mode-${value}`);
             expect(btn, `expected a rendered button for mode "${value}"`).not.toBeNull();
@@ -113,7 +113,7 @@ describe('PipelineDetail — mode toggle accessible name (req #3281)', () => {
     });
 
     it('never puts the Tooltip title on the icon instead of the button', () => {
-        mount('/swarm/pipeline2/2');
+        mount('/swarm/pipeline/2');
         for (const { value } of PIPELINE_DETAIL_MODES) {
             const btn = node(`pipeline-mode-${value}`);
             const icon = btn.querySelector('svg');

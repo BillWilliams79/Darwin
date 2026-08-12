@@ -10,14 +10,14 @@
 // as a direct consequence:
 //   - a 2.0 step carries `epic_fk`, NOT `pipeline_fk`, so the plan is reached in
 //     two hops and there is an EPICS fixture between the steps and the plans;
-//   - `pipeline2_step_requirements` has `PRIMARY KEY (requirement_fk)` alone
+//   - `pipeline_step_requirements` has `PRIMARY KEY (requirement_fk)` alone
 //     (one step per requirement, the req #3336 stage-2 gate ruling), so a MOVE
 //     is DELETE-then-POST. Insert-first cannot succeed while the old row exists,
 //     which is why the order assertion below is inverted from its 1.0 form and
 //     why the failure case is now a failed DELETE rather than a failed POST.
 //
 // The assertions that matter are the ones a regression would make invisible:
-//   - picking a step WRITES `pipeline2_step_requirements` — the junction that
+//   - picking a step WRITES `pipeline_step_requirements` — the junction that
 //     actually places a requirement on a plan, and the one StepsPage refuses to
 //     touch. A write to the wrong table or in the wrong order looks identical
 //     from the UI until the plan view disagrees;
@@ -97,10 +97,10 @@ vi.mock('../../../hooks/useDataQueries', async (importOriginal) => {
         ...actual,
         useMachines: () => q('machines', []),
         useAllCategories: () => q('categories', [{ id: 1, category_name: 'Swarm' }]),
-        useAllPipelines2: () => q('pipelines', PIPELINES),
-        useAllPipeline2Epics: () => q('epics', EPICS),
-        useAllPipeline2Steps: () => q('steps', STEPS),
-        useAllPipeline2StepRequirements: () => q('links', stepRequirements),
+        useAllPipelines: () => q('pipelines', PIPELINES),
+        useAllEpics: () => q('epics', EPICS),
+        useAllPipelineSteps: () => q('steps', STEPS),
+        useAllPipelineStepRequirements: () => q('links', stepRequirements),
     };
 });
 
@@ -115,13 +115,13 @@ let requirementRow;
 // untested and hide a `.catch(() => null)` that strips the status code.
 let putStatus = 200;
 const putBodies = [];
-// Every `pipeline2_step_requirements` write, in order — the seat is a junction
+// Every `pipeline_step_requirements` write, in order — the seat is a junction
 // row, not a column, so DELETE/POST ORDER is the thing under test.
 const seatCalls = [];
 let seatStatus = { POST: 200, DELETE: 200 };
 vi.mock('../../../RestApi/RestApi', () => ({
     default: vi.fn((uri, method, body) => {
-        if (uri.includes('/pipeline2_step_requirements') && method !== 'GET') {
+        if (uri.includes('/pipeline_step_requirements') && method !== 'GET') {
             seatCalls.push({ method, body });
             const st = seatStatus[method] ?? 200;
             return st >= 200 && st < 300
@@ -317,10 +317,12 @@ describe('RequirementDetail Orchestration box (req #3435)', { timeout: 30000 }, 
     it('links each button at its own level of the plan', async () => {
         const { container } = mount();
         await flush();
+        // `/swarm/pipeline/:id` — req #3356 collapsed the plan layer to one era
+        // and the surviving visualizer took the unsuffixed route.
         expect(testid(container, 'orchestration-pipeline-link').getAttribute('href'))
-            .toBe('/swarm/pipeline2/2?mode=plan');
+            .toBe('/swarm/pipeline/2?mode=plan');
         expect(testid(container, 'orchestration-step-link').getAttribute('href'))
-            .toBe('/swarm/pipeline2/2?mode=plan&step=100&level=2');
+            .toBe('/swarm/pipeline/2?mode=plan&step=100&level=2');
     });
 
     // SEATED-VS-UNSEATED IS STRUCTURAL. With no step carrying the requirement
@@ -388,9 +390,9 @@ describe('RequirementDetail Orchestration box (req #3435)', { timeout: 30000 }, 
     // ── The write ───────────────────────────────────────────────────────────
 
     // DELETE the old seat, THEN insert the new — req #3356. This is not a
-    // preference: `pipeline2_step_requirements` keys on `requirement_fk` ALONE,
+    // preference: `pipeline_step_requirements` keys on `requirement_fk` ALONE,
     // so the INSERT cannot succeed while the old row exists and insert-first
-    // would fail 100% of the time on a move. `link_pipeline2_step_requirement`
+    // would fail 100% of the time on a move. `link_step_requirement`
     // (darwin-mcp) says the same from the server side and names unlink-then-link
     // as the lawful move.
     it('re-seats by deleting the old link before inserting the new', async () => {

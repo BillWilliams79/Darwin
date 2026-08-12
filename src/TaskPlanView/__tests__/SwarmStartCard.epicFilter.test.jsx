@@ -71,7 +71,7 @@ vi.mock('../../hooks/useDataQueries', () => ({
     // `useRequirementVisibility` joins these three bounded reads and applies the
     // epic override itself, so the rule this file tests runs for real. Frozen at
     // module scope for the same reason `BY_STATUS` above is.
-    useAllPipeline2StepRequirements: () => ({ data: JUNCTION }),
+    useAllPipelineStepRequirements: () => ({ data: JUNCTION }),
     useAllFeatures: () => ({ data: FEATURES }),
     ALL_ROWS: 'all',
 }));

@@ -1,6 +1,6 @@
 import '../index.css';
 import AuthContext from '../Context/AuthContext';
-import { useSessions, useDevServers, useAllSwarmStartSessions, useMachines, useAllPipelines2 } from '../hooks/useDataQueries';
+import { useSessions, useDevServers, useAllSwarmStartSessions, useMachines, useAllPipelines } from '../hooks/useDataQueries';
 import { useShowClosedStore, ALL_SESSION_STATUSES } from '../stores/useShowClosedStore';
 import { useViewPreference } from '../hooks/useViewPreference';
 import { formatDate, formatHM12 } from '../utils/dateFormat';
@@ -234,7 +234,7 @@ const getSessionColumns = (navigate, timezone, showCompleted) => [
         },
     },
     {
-        // req #3186 — which pipeline this session was advancing. `pipeline2_fk`
+        // req #3186 — which pipeline this session was advancing. `pipeline_fk`
         // is a COLUMN on the session row, so this column costs the grid nothing;
         // the title is resolved client-side from the already-cached plan list.
         // NULL is a real answer (work outside any plan) → em-dash.
@@ -412,7 +412,7 @@ const SessionsView = () => {
     const { data: swarmStartSessions } = useAllSwarmStartSessions(profile?.userName);
     const { data: machinesData } = useMachines(profile?.userName);
     // req #3186 — pipeline id → title for the Pipeline column. ONE bounded list
-    // read for the whole grid, shared with the /swarm/pipelines2 pages via the
+    // read for the whole grid, shared with the /swarm/pipelines pages via the
     // same query cache; the per-row id is already on the session.
     //
     // req #3455 added this 2.0 list beside a 1.0 one so a 2.0-seated session was
@@ -420,7 +420,7 @@ const SessionsView = () => {
     // #3356 removed the 1.0 list: Pipeline 1.0 is eradicated, `useAllPipelines`
     // is not called here any more, and with it went the `pipelineTitleById` map
     // that only ever fed a dead grid field (see `pipeline_title` below).
-    const { data: pipelines2Data } = useAllPipelines2(profile?.userName);
+    const { data: pipelinesData } = useAllPipelines(profile?.userName);
 
     // req #2943 — machine id → friendly name for the Machine column.
     const machineNameById = useMemo(() => {
@@ -505,7 +505,7 @@ const SessionsView = () => {
             // column overrides the row value with a `valueGetter` reading
             // `row.pipeline.label`, and its `renderCell` reads `row.pipeline`.
             // The column keeps its `field` name; only the dead value is gone.
-            pipeline: sessionPipelineLink(s, pipelines2Data),
+            pipeline: sessionPipelineLink(s, pipelinesData),
             // req #3455 — computed here rather than in the column renderer
             // because it needs the machines list to answer "is this terminal on
             // the machine this browser is running on?", and a DataGrid renderCell
@@ -518,7 +518,7 @@ const SessionsView = () => {
             requirement_label: requirementLabel(s),
           })),
         [sessionsArray, devServerMap, swarmStartBySession, machineNameById,
-         machinesData, pipelines2Data]);
+         machinesData, pipelinesData]);
 
     // req #2992 — a session's machine filter key. Anything without a chip of its
     // own (NULL machine_fk, or an fk pointing at a closed/deleted machine) maps

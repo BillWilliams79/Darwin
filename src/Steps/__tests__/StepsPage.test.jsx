@@ -21,7 +21,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 vi.mock('@mui/x-data-grid', () => ({
     GridToolbar: () => null,
-    // `data-testid` forwarded from the real usage (`steps2-grid`), not
+    // `data-testid` forwarded from the real usage (`steps-grid`), not
     // hardcoded — see PipelinesPage2.test.jsx's identical fix for why a
     // hardcoded value here is a latent bug.
     DataGrid: ({ rows, columns, 'data-testid': testId = 'grid' }) => (
@@ -58,11 +58,11 @@ vi.mock('../../hooks/useDataQueries', async (importOriginal) => {
     const actual = await importOriginal();
     return {
         ...actual,
-        useAllPipeline2Epics: () => ({ data: epics, isLoading: loading.epics }),
-        useAllPipeline2Steps: () => ({ data: steps, isLoading: loading.steps }),
-        useAllPipeline2StepRequirements: () => ({
+        useAllEpics: () => ({ data: epics, isLoading: loading.epics }),
+        useAllPipelineSteps: () => ({ data: steps, isLoading: loading.steps }),
+        useAllPipelineStepRequirements: () => ({
             data: stepRequirements, isLoading: loading.links, isError: loading.linksError }),
-        useAllPipeline2StepDeps: () => ({
+        useAllPipelineStepDeps: () => ({
             data: stepDeps, isLoading: loading.deps, isError: loading.depsError }),
         useAllRequirements: () => ({
             data: requirements, isLoading: loading.requirements, isError: loading.requirementsError }),
@@ -70,8 +70,8 @@ vi.mock('../../hooks/useDataQueries', async (importOriginal) => {
 });
 
 // `fetchEntity` backs both the factory's list hooks (mocked above, so
-// irrelevant there) AND the live re-read helpers in steps2Api.js
-// (fetchStep2RequirementIds / fetchRequirement2Tracking), which call it
+// irrelevant there) AND the live re-read helpers in stepsApi.js
+// (fetchStepRequirementIds / fetchRequirement2Tracking), which call it
 // directly rather than through a hook. Mocking it here is what lets the
 // live-re-read tests control exactly what the "server" answers, independent
 // of the `stepRequirements`/`requirements` fixtures the cached grid reads.
@@ -82,7 +82,7 @@ vi.mock('../../hooks/factory/createEntityQueries', async (importOriginal) => {
     return {
         ...actual,
         fetchEntity: vi.fn((uri) => {
-            const linksMatch = uri.match(/pipeline2_step_requirements\?step_fk=(\d+)/);
+            const linksMatch = uri.match(/pipeline_step_requirements\?step_fk=(\d+)/);
             if (linksMatch) {
                 const stepId = Number(linksMatch[1]);
                 return Promise.resolve(
@@ -107,7 +107,7 @@ vi.mock('../../RestApi/RestApi', () => ({
     }),
 }));
 
-import StepsPage2 from '../StepsPage2';
+import StepsPage2 from '../StepsPage';
 import AuthContext from '../../Context/AuthContext';
 import AppContext from '../../Context/AppContext';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
@@ -115,7 +115,7 @@ import { useSnackBarStore } from '../../stores/useSnackBarStore';
 let mountedRoots = [];
 let queryClient;
 
-function mount(initialEntries = ['/swarm/steps2']) {
+function mount(initialEntries = ['/swarm/steps']) {
     const container = document.createElement('div');
     document.body.appendChild(container);
     queryClient = new QueryClient({
@@ -203,15 +203,15 @@ describe('StepsPage2 rows', () => {
     });
 
     it('pre-selects the epic filter from a ?epic= deep link', () => {
-        mount(['/swarm/steps2?epic=5']);
+        mount(['/swarm/steps?epic=5']);
         expect(node('grid-row-100')).toBeNull();
         expect(node('grid-row-102')).not.toBeNull();
     });
 
     it('accounts complete vs open across the WHOLE set, not the filtered view', () => {
-        mount(['/swarm/steps2?epic=5']);
-        expect(node('steps2-accounting').textContent).toContain('1 complete');
-        expect(node('steps2-accounting').textContent).toContain('3 open');
+        mount(['/swarm/steps?epic=5']);
+        expect(node('steps-accounting').textContent).toContain('1 complete');
+        expect(node('steps-accounting').textContent).toContain('3 open');
     });
 });
 
@@ -224,7 +224,7 @@ describe('StepsPage2 create', () => {
         await flush();
 
         expect(restCalls).toEqual([{
-            uri: 'http://test.local/darwin/pipeline2_steps',
+            uri: 'http://test.local/darwin/pipeline_steps',
             method: 'POST',
             body: {
                 epic_fk: 4, title: 'New Step', notes: null, run: 'auto',
@@ -287,7 +287,7 @@ describe('StepsPage2 run toggle', () => {
         click(node('step2-run-chip-100'));
         await flush();
         expect(restCalls).toEqual([{
-            uri: 'http://test.local/darwin/pipeline2_steps',
+            uri: 'http://test.local/darwin/pipeline_steps',
             method: 'PUT',
             body: [{ id: 100, run: 'manual' }],
         }]);
@@ -300,7 +300,7 @@ describe('StepsPage2 completed_at guard', () => {
         click(node('step2-completed-chip-100'));
         await flush();
         expect(restCalls).toEqual([{
-            uri: 'http://test.local/darwin/pipeline2_steps',
+            uri: 'http://test.local/darwin/pipeline_steps',
             method: 'PUT',
             body: [{ id: 100, completed_at: expect.any(String) }],
         }]);
@@ -338,7 +338,7 @@ describe('StepsPage2 completed_at guard', () => {
         click(node('step2-completed-chip-100'));
         await flush();
         expect(restCalls).toEqual([{
-            uri: 'http://test.local/darwin/pipeline2_steps',
+            uri: 'http://test.local/darwin/pipeline_steps',
             method: 'PUT',
             body: [{ id: 100, completed_at: expect.any(String) }],
         }]);
@@ -349,7 +349,7 @@ describe('StepsPage2 completed_at guard', () => {
         click(node('step2-completed-chip-102'));
         await flush();
         expect(restCalls).toEqual([{
-            uri: 'http://test.local/darwin/pipeline2_steps',
+            uri: 'http://test.local/darwin/pipeline_steps',
             method: 'PUT',
             body: [{ id: 102, completed_at: 'NULL' }],
         }]);
@@ -380,12 +380,12 @@ describe('StepsPage2 delete', () => {
         click(node('step2-delete-100'));
         await flush();
         expect(restCalls).toEqual([{
-            uri: 'http://test.local/darwin/pipeline2_steps',
+            uri: 'http://test.local/darwin/pipeline_steps',
             method: 'DELETE',
             body: { id: 100 },
         }]);
         const keys = queryClient.invalidateQueries.mock.calls.map(c => c[0].queryKey);
-        expect(keys.map(k => k[0])).toContain('pipeline2_step_requirements');
-        expect(keys.map(k => k[0])).toContain('pipeline2_step_deps');
+        expect(keys.map(k => k[0])).toContain('pipeline_step_requirements');
+        expect(keys.map(k => k[0])).toContain('pipeline_step_deps');
     });
 });

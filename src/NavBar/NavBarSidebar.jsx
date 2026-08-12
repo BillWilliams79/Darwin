@@ -163,7 +163,7 @@ const NavBarSidebar = () => {
         // Every other link matches itself OR a `/`-delimited sub-route of
         // itself (`/swarm/testruns/42` for the `/swarm/testruns` link) —
         // never a mere STRING prefix. A bare `startsWith` matched
-        // `/swarm/epics2` against the `/swarm/epics` link (code review, req
+        // `/swarm/epicsN` against the `/swarm/epics` link (code review, req
         // #3393): a plan-layer editor whose path happens to extend another
         // link's path by an unrelated suffix lit up both nav rows, and the
         // mobile bottom nav — which takes the FIRST match in flattened order

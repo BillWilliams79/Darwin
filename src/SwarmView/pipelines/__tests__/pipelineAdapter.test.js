@@ -1,4 +1,4 @@
-// pipeline2Adapter.test.js — req #3381. This module does not derive anything
+// pipelineAdapter.test.js — req #3381. This module does not derive anything
 // (the header says so); these tests hold it to that: every field a fixture
 // hands in comes back reshaped, never recomputed.
 
@@ -7,17 +7,17 @@ import { describe, it, expect } from 'vitest';
 import {
     deriveDiagnostic,
     rowsComplete,
-    buildPlan2Rows,
-    adaptComposedPipeline2,
-    buildPlan2Model,
+    buildPlanRows,
+    adaptComposedPipeline,
+    buildPlanModel,
     WITHHELD_DERIVATION_FAILED,
     WITHHELD_BUDGET_DERIVED_ONLY,
     WITHHELD_BUDGET_ROWS_TRUNCATED,
     WITHHELD_ABSENT,
     WITHHELD_UNSPECIFIED,
-} from '../pipeline2Adapter';
+} from '../pipelineAdapter';
 import { buildCostIndex } from '../pipelineViewModel';
-import { composedFixture } from './pipeline2ComposedFixture';
+import { composedFixture } from './pipelineComposedFixture';
 
 describe('deriveDiagnostic — the four regimes (req #3345 § 4.5 / #3367 deliverable 3)', () => {
     it('is null when derived is present and not withheld (regime A)', () => {
@@ -91,7 +91,7 @@ describe('deriveDiagnostic — the four regimes (req #3345 § 4.5 / #3367 delive
     });
 });
 
-describe('buildPlan2Rows — joining derived.rows[] back onto steps[]/epics[]/requirements[]', () => {
+describe('buildPlanRows — joining derived.rows[] back onto steps[]/epics[]/requirements[]', () => {
     const payload = composedFixture({
         id: 6,
         steps: [
@@ -133,7 +133,7 @@ describe('buildPlan2Rows — joining derived.rows[] back onto steps[]/epics[]/re
         },
     ];
     const machines = [{ id: 2, title: 'Mac mini' }];
-    const rows = buildPlan2Rows(payload, machines);
+    const rows = buildPlanRows(payload, machines);
 
     it('carries every derived.rows[] field through under its camelCase name', () => {
         const r = rows.find((x) => x.id === 71);
@@ -205,7 +205,7 @@ describe('buildPlan2Rows — joining derived.rows[] back onto steps[]/epics[]/re
             launch_block: 'not-ready', swarm_start_command: null, no_launch_reason: 'x',
             launch_suppressed: false, suppressed_by: [],
         }];
-        const r = buildPlan2Rows(payload2, [])[0];
+        const r = buildPlanRows(payload2, [])[0];
         expect(r.machineLabels).toEqual(['#999']);
     });
 
@@ -223,7 +223,7 @@ describe('buildPlan2Rows — joining derived.rows[] back onto steps[]/epics[]/re
             launch_block: 'not-ready', swarm_start_command: null, no_launch_reason: 'x',
             launch_suppressed: false, suppressed_by: [],
         }];
-        const r = buildPlan2Rows(payload2, [])[0];
+        const r = buildPlanRows(payload2, [])[0];
         expect(r.machineLabels).toEqual(['Any']);
     });
 
@@ -241,12 +241,12 @@ describe('buildPlan2Rows — joining derived.rows[] back onto steps[]/epics[]/re
                 launch_block: 'no-links', swarm_start_command: null, no_launch_reason: 'x',
                 launch_suppressed: false, suppressed_by: [] },
         ];
-        const r = buildPlan2Rows(reversedPayload, []);
+        const r = buildPlanRows(reversedPayload, []);
         expect(r.map((x) => x.id)).toEqual([2, 1]);
     });
 });
 
-describe('adaptComposedPipeline2 — the plan object', () => {
+describe('adaptComposedPipeline — the plan object', () => {
     const payload = composedFixture({
         steps: [{ id: 1, epic_fk: 9, title: 'S', run: 'auto', notes: null,
             completed_at: null, not_before: null }],
@@ -287,26 +287,26 @@ describe('adaptComposedPipeline2 — the plan object', () => {
     };
 
     it('never derives batches — 2.0 has none, drawn or otherwise', () => {
-        const plan = adaptComposedPipeline2(payload);
+        const plan = adaptComposedPipeline(payload);
         expect(plan.batches).toEqual([]);
         expect(plan.batchLetterByStepId.size).toBe(0);
     });
 
     it('reshapes eligible_step_ids into a Set', () => {
-        const plan = adaptComposedPipeline2(payload);
+        const plan = adaptComposedPipeline(payload);
         expect(plan.eligibleStepIds).toBeInstanceOf(Set);
         expect(plan.eligibleStepIds.has(1)).toBe(true);
     });
 
     it('reshapes violations — invariant/message kept, step_ids -> stepIds', () => {
-        const plan = adaptComposedPipeline2(payload);
+        const plan = adaptComposedPipeline(payload);
         expect(plan.violations).toEqual([
             { invariant: 'topology', message: 'x renders before y', stepIds: [1, 2] },
         ]);
     });
 
     it('reshapes requirement_counts -> requirementCounts, by_epic -> byEpic/epicId', () => {
-        const plan = adaptComposedPipeline2(payload);
+        const plan = adaptComposedPipeline(payload);
         expect(plan.requirementCounts).toEqual({
             overall: { met: 0, total: 1 },
             byEpic: [{ epicId: 9, met: 0, total: 1 }],
@@ -314,7 +314,7 @@ describe('adaptComposedPipeline2 — the plan object', () => {
     });
 
     it('reshapes pause verbatim under the camelCase field names the layout reads', () => {
-        const plan = adaptComposedPipeline2(payload);
+        const plan = adaptComposedPipeline(payload);
         expect(plan.pause).toEqual({
             pipelineStatus: 'active', pipelinePaused: false,
             pausedEpicIds: [], suppressedStepIds: [],
@@ -322,7 +322,7 @@ describe('adaptComposedPipeline2 — the plan object', () => {
     });
 
     it('reshapes serial verbatim', () => {
-        const plan = adaptComposedPipeline2(payload);
+        const plan = adaptComposedPipeline(payload);
         expect(plan.serial).toEqual({
             executionMode: 'serial', serial: true, epicOrder: [9],
             closedEpicIds: [], liveEpicId: 9, waitingEpicIds: [], heldStepIds: [],
@@ -334,29 +334,29 @@ describe('adaptComposedPipeline2 — the plan object', () => {
             requirementSessions: [{ requirement_fk: 100, session_fk: 1 }],
             sessionCosts: [{ id: 1, wall_secs_total: 600, output_tokens_total: 1000 }],
         });
-        const plan = adaptComposedPipeline2(payload, { costIndex });
+        const plan = adaptComposedPipeline(payload, { costIndex });
         expect(plan.rows[0].cost).toEqual({ wallSecs: 600, tokens: 1000 });
     });
 
     it('every row carries a cost object even with no cost data at all', () => {
-        const plan = adaptComposedPipeline2(payload);
+        const plan = adaptComposedPipeline(payload);
         expect(plan.rows[0].cost).toEqual({ wallSecs: 0, tokens: 0 });
     });
 
     it('still computes a client-side time axis — the payload carries no time_axis key', () => {
-        const plan = adaptComposedPipeline2(payload);
+        const plan = adaptComposedPipeline(payload);
         expect(plan.timeAxis).toBeDefined();
         expect(plan.timeAxis.stepStarts).toBeDefined();
     });
 });
 
-describe('buildPlan2Model — the narrow model PipelinePlanVisualizer.jsx still reads', () => {
+describe('buildPlanModel — the narrow model PipelinePlanVisualizer.jsx still reads', () => {
     it('carries pipeline/requirements/machines and nothing 2.0 does not have', () => {
         const payload = composedFixture({
             requirements: [{ id: 1, requirement_status: 'met' }],
         });
         const machines = [{ id: 1, title: 'Mac mini' }];
-        const model = buildPlan2Model(payload, machines);
+        const model = buildPlanModel(payload, machines);
         expect(model.pipeline).toBe(payload.pipeline);
         expect(model.requirements).toEqual(payload.requirements);
         expect(model.machines).toBe(machines);
@@ -364,6 +364,6 @@ describe('buildPlan2Model — the narrow model PipelinePlanVisualizer.jsx still 
     });
 
     it('tolerates a null payload', () => {
-        expect(buildPlan2Model(null)).toEqual({ pipeline: null, requirements: [], machines: [] });
+        expect(buildPlanModel(null)).toEqual({ pipeline: null, requirements: [], machines: [] });
     });
 });

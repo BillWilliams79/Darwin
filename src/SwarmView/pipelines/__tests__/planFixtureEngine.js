@@ -6,7 +6,7 @@
 // from `../pipelineModel.js` when req #3356 eradicated Pipeline 1.0 from the
 // front end. In production nothing derives a plan in the browser any more:
 // `pipeline2_derive.py` runs the derivation ONCE, server-side, and
-// `../pipeline2Adapter.js` reshapes its output into `PlanRow`s. That is the
+// `../pipelineAdapter.js` reshapes its output into `PlanRow`s. That is the
 // single-source-of-truth the requirement was after, and it is achieved — no
 // file under `src/` imports a line of this.
 //
@@ -36,8 +36,8 @@
 //
 // ── HOW TO FINISH THE JOB ──────────────────────────────────────────────────
 // The end state is that the two test files above carry their derived rows as
-// DATA, the way `pipeline2ComposedFixture.js` already does — a composed payload
-// with an explicit `derived.rows[]`, run through `adaptComposedPipeline2`. Then
+// DATA, the way `pipelineComposedFixture.js` already does — a composed payload
+// with an explicit `derived.rows[]`, run through `adaptComposedPipeline`. Then
 // this file is deleted in one commit and the last of Pipeline 1.0 goes with it.
 // The work is converting ~15 fixture call sites plus the fuzz generator, which
 // is why it is not folded into this change.

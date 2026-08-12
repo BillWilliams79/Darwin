@@ -94,7 +94,7 @@ const serve = (uri) => {
     // name so a hook still reading the 1.0 one gets `[]` here (an empty
     // orchestrated set, hiding nothing) and every cross-surface assertion below
     // fails loudly, which is the whole point of mocking only the wire.
-    if (table === 'pipeline2_step_requirements') return JUNCTION;
+    if (table === 'pipeline_step_requirements') return JUNCTION;
     if (table === 'categories') return CATEGORIES;
     return [];
 };
@@ -266,12 +266,14 @@ describe('req #3419 — one visibility rule, every surface (the single harness)'
             // the read happened at all.
             mount(<Probe />);
             await settle(() => probed.orchestratedIds.size === ORCHESTRATED.length);
-            // req #3356 — the 2.0 junction. Asserted on the EXACT table name and
-            // not a prefix: `/pipeline_step_requirements` is a substring of
-            // nothing here, but `/pipeline2_step_requirements` would match a
-            // loose `includes('/pipeline')` check that a 1.0 read also satisfies.
-            expect(restCalls.some(u => u.includes('/pipeline2_step_requirements'))).toBe(true);
-            expect(restCalls.some(u => /\/pipeline_step_requirements\b/.test(u))).toBe(false);
+            // req #3356 — asserted on the EXACT table name, anchored at a word
+            // boundary. This case used to carry a second, NEGATIVE assertion
+            // that the 1.0 junction was never read; the migration renamed the
+            // 2.0 table into the 1.0 name, so there is one table and the two
+            // assertions became a contradiction about it. What survives is the
+            // half that still means something: the read happened, against the
+            // junction, by name.
+            expect(restCalls.some(u => /\/pipeline_step_requirements\b/.test(u))).toBe(true);
         }, TIMEOUT);
 
         it('hides nothing while the reads are in flight', () => {

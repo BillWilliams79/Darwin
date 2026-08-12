@@ -9,7 +9,7 @@
 // sentinel; the Pipeline select is disabled once editing; the epic_status
 // pause chip toggles with a one-field PUT; the closed chip and closed filter;
 // delete names the step-cascade consequence; the step_count link navigates to
-// the epic-filtered steps2 view.
+// the epic-filtered steps view.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import React from 'react';
@@ -28,7 +28,7 @@ vi.mock('react-router-dom', async (importOriginal) => ({
 
 vi.mock('@mui/x-data-grid', () => ({
     GridToolbar: () => null,
-    // `data-testid` forwarded from the real usage (`epics2-grid`), not
+    // `data-testid` forwarded from the real usage (`epics-grid`), not
     // hardcoded — see PipelinesPage2.test.jsx's identical fix for why a
     // hardcoded value here is a latent bug (found via that file's view-toggle
     // test, the only one that queried a grid's own testid directly).
@@ -65,9 +65,9 @@ vi.mock('../../hooks/useDataQueries', async (importOriginal) => {
     const actual = await importOriginal();
     return {
         ...actual,
-        useAllPipelines2: () => ({ data: pipelines, isLoading: loading.pipelines }),
-        useAllPipeline2Epics: () => ({ data: epics, isLoading: loading.epics }),
-        useAllPipeline2Steps: () => ({ data: steps, isLoading: loading.steps }),
+        useAllPipelines: () => ({ data: pipelines, isLoading: loading.pipelines }),
+        useAllEpics: () => ({ data: epics, isLoading: loading.epics }),
+        useAllPipelineSteps: () => ({ data: steps, isLoading: loading.steps }),
         useAllCategories: () => ({ data: categories, isLoading: loading.categories }),
     };
 });
@@ -87,7 +87,7 @@ vi.mock('../../RestApi/RestApi', () => ({
     }),
 }));
 
-import EpicsPage2 from '../EpicsPage2';
+import EpicsPage2 from '../EpicsPage';
 import AuthContext from '../../Context/AuthContext';
 import AppContext from '../../Context/AppContext';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
@@ -95,7 +95,7 @@ import { useSnackBarStore } from '../../stores/useSnackBarStore';
 let mountedRoots = [];
 let queryClient;
 
-function mount(initialEntries = ['/swarm/epics2']) {
+function mount(initialEntries = ['/swarm/epics']) {
     const container = document.createElement('div');
     document.body.appendChild(container);
     queryClient = new QueryClient({
@@ -176,7 +176,7 @@ describe('EpicsPage2 rows', () => {
 
     it('adds closed epics when the Closed chip is toggled on', () => {
         mount();
-        click(node('epics2-closed-chip-closed'));
+        click(node('epics-closed-chip-closed'));
         expect(rowIds()).toEqual([4, 5, 6]);
     });
 
@@ -192,11 +192,11 @@ describe('EpicsPage2 rows', () => {
     });
 });
 
-describe('EpicsPage2 — connection to the steps2 view', () => {
-    it('navigates to the epic-filtered steps2 view from the Steps cell', () => {
+describe('EpicsPage — connection to the steps view', () => {
+    it('navigates to the epic-filtered steps view from the Steps cell', () => {
         mount();
         click(node('epic2-steps-link-4'));
-        expect(navigations).toEqual(['/swarm/steps2?epic=4']);
+        expect(navigations).toEqual(['/swarm/steps?epic=4']);
     });
 });
 
@@ -209,7 +209,7 @@ describe('EpicsPage2 create', () => {
         await flush();
 
         expect(restCalls).toEqual([{
-            uri: 'http://test.local/darwin/pipeline2_epics',
+            uri: 'http://test.local/darwin/epics',
             method: 'POST',
             body: {
                 pipeline_fk: 7, title: 'New Epic', description: null,
@@ -240,7 +240,7 @@ describe('EpicsPage2 edit', () => {
         await flush();
 
         expect(restCalls).toEqual([{
-            uri: 'http://test.local/darwin/pipeline2_epics',
+            uri: 'http://test.local/darwin/epics',
             method: 'PUT',
             body: [{
                 id: 4, title: 'Renamed', description: 'NULL',
@@ -265,7 +265,7 @@ describe('EpicsPage2 pause toggle', () => {
         click(node('epic2-pause-chip-4'));
         await flush();
         expect(restCalls).toEqual([{
-            uri: 'http://test.local/darwin/pipeline2_epics',
+            uri: 'http://test.local/darwin/epics',
             method: 'PUT',
             body: [{ id: 4, epic_status: 'paused' }],
         }]);
@@ -285,7 +285,7 @@ describe('EpicsPage2 closed toggle', () => {
         click(node('epic2-toggle-closed-4'));
         await flush();
         expect(restCalls).toEqual([{
-            uri: 'http://test.local/darwin/pipeline2_epics',
+            uri: 'http://test.local/darwin/epics',
             method: 'PUT',
             body: [{ id: 4, closed: 1 }],
         }]);
@@ -316,45 +316,45 @@ describe('EpicsPage2 delete', () => {
 
         // Two-phase delete (code review, req #3393): first reads this epic's
         // own step ids so any intra/cross-epic dependency edges can be sorted
-        // before the epic DELETE — see epics2Api.js's `deleteEpic2` header.
+        // before the epic DELETE — see epicsApi.js's `deleteEpic` header.
         // The mock returns an empty step list, so no dep-edge reads/clears
         // follow; that branch has its own coverage below.
         expect(restCalls).toEqual([{
-            uri: 'http://test.local/darwin/pipeline2_steps?epic_fk=4&fields=id',
+            uri: 'http://test.local/darwin/pipeline_steps?epic_fk=4&fields=id',
             method: 'GET',
             body: '',
         }, {
-            uri: 'http://test.local/darwin/pipeline2_epics',
+            uri: 'http://test.local/darwin/epics',
             method: 'DELETE',
             body: { id: 4 },
         }]);
         const keys = queryClient.invalidateQueries.mock.calls.map(c => c[0].queryKey);
-        expect(keys.map(k => k[0])).toContain('pipeline2_epics');
-        expect(keys.map(k => k[0])).toContain('pipeline2_steps');
+        expect(keys.map(k => k[0])).toContain('epics');
+        expect(keys.map(k => k[0])).toContain('pipeline_steps');
     });
 
     it('clears an intra-epic dependency edge, then deletes (two-phase delete)', async () => {
         vi.spyOn(window, 'confirm').mockReturnValue(true);
         // Epic 4 owns steps 100 and 101 (see the `steps` fixture above); 101
         // depends on 100, both inside epic 4 — the InnoDB RESTRICT-vs-cascade
-        // false refusal `deleteEpic2`'s header describes.
-        restGetResponses['http://test.local/darwin/pipeline2_steps?epic_fk=4&fields=id'] =
+        // false refusal `deleteEpic`'s header describes.
+        restGetResponses['http://test.local/darwin/pipeline_steps?epic_fk=4&fields=id'] =
             [{ id: 100 }, { id: 101 }];
-        restGetResponses['http://test.local/darwin/pipeline2_step_deps?dep_step_fk=(100,101)'
+        restGetResponses['http://test.local/darwin/pipeline_step_deps?dep_step_fk=(100,101)'
             + '&fields=id,step_fk,dep_step_fk'] = [{ id: 900, step_fk: 101, dep_step_fk: 100 }];
         mount();
         click(node('epic2-delete-4'));
         await flush();
 
         expect(restCalls.map(c => ({ uri: c.uri, method: c.method }))).toEqual([
-            { uri: 'http://test.local/darwin/pipeline2_steps?epic_fk=4&fields=id', method: 'GET' },
+            { uri: 'http://test.local/darwin/pipeline_steps?epic_fk=4&fields=id', method: 'GET' },
             {
-                uri: 'http://test.local/darwin/pipeline2_step_deps?dep_step_fk=(100,101)'
+                uri: 'http://test.local/darwin/pipeline_step_deps?dep_step_fk=(100,101)'
                     + '&fields=id,step_fk,dep_step_fk',
                 method: 'GET',
             },
-            { uri: 'http://test.local/darwin/pipeline2_step_deps', method: 'DELETE' },
-            { uri: 'http://test.local/darwin/pipeline2_epics', method: 'DELETE' },
+            { uri: 'http://test.local/darwin/pipeline_step_deps', method: 'DELETE' },
+            { uri: 'http://test.local/darwin/epics', method: 'DELETE' },
         ]);
         expect(restCalls[2].body).toEqual({ id: 900 });
         expect(restCalls[3].body).toEqual({ id: 4 });
@@ -366,9 +366,9 @@ describe('EpicsPage2 delete', () => {
         // Step 102 belongs to epic 5 (see the `steps` fixture above) and
         // depends on step 100, which belongs to epic 4 — a real cross-epic
         // edge, not the false-refusal case above.
-        restGetResponses['http://test.local/darwin/pipeline2_steps?epic_fk=4&fields=id'] =
+        restGetResponses['http://test.local/darwin/pipeline_steps?epic_fk=4&fields=id'] =
             [{ id: 100 }, { id: 101 }];
-        restGetResponses['http://test.local/darwin/pipeline2_step_deps?dep_step_fk=(100,101)'
+        restGetResponses['http://test.local/darwin/pipeline_step_deps?dep_step_fk=(100,101)'
             + '&fields=id,step_fk,dep_step_fk'] = [{ id: 901, step_fk: 102, dep_step_fk: 100 }];
         mount();
         click(node('epic2-delete-4'));

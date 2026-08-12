@@ -13,9 +13,9 @@
 //
 //   1.0  SEVEN bounded list reads (pipelines, steps, step requirements, step
 //        deps, requirements, features, epics) joined and derived IN THE BROWSER.
-//   2.0  ONE composed read (`pipeline2_compose`, req #3367) — the join AND the
+//   2.0  ONE composed read (`pipeline_compose`, req #3367) — the join AND the
 //        derivation both already ran server-side — reshaped by
-//        `pipeline2Adapter.js`.
+//        `pipelineAdapter.js`.
 //
 // ── WHAT req #3356 REMOVED, AND WHY THE DISPATCHER WENT WITH IT ────────────
 // Pipeline 1.0 is eradicated, so `usePlan1Sources` and its seven-hook fetch head
@@ -24,7 +24,7 @@
 // it called BOTH unconditionally (React's rules of hooks forbid calling one
 // conditionally) and disabled the inactive one at the query layer. With one head
 // left, that machinery is pure cost: `PipelineDetail.jsx` calls
-// `usePlan2Sources` directly.
+// `usePlanSources` directly.
 //
 // A one-line `usePlanSources` wrapper was considered and rejected — it would be
 // a second name for one function, and the next reader would have to establish
@@ -38,14 +38,14 @@
 import { useMemo } from 'react';
 
 import {
-    useAllPipelines2,
-    useComposedPipeline2,
+    useAllPipelines,
+    useComposedPipeline,
 } from '../../hooks/useDataQueries';
 import {
-    adaptComposedPipeline2,
-    buildPlan2Model,
+    adaptComposedPipeline,
+    buildPlanModel,
     deriveDiagnostic,
-} from './pipeline2Adapter';
+} from './pipelineAdapter';
 
 // A SHARED frozen empty array, for the same reason `PipelineDetail.jsx` keeps
 // one: a `= []` default literal mints a NEW array on every render, which is a
@@ -62,19 +62,19 @@ const EMPTY = Object.freeze([]);
  *            diagnostic: ?Object, isLoading: boolean, dictionaryError: boolean,
  *            knownIds: ?Array<number>}}
  */
-export function usePlan2Sources(pipelineId, creatorFk,
+export function usePlanSources(pipelineId, creatorFk,
     { enabled = true, machines = EMPTY, costIndex } = {}) {
     const { data: composed, isLoading: composedLoading } =
-        useComposedPipeline2(pipelineId, { enabled });
+        useComposedPipeline(pipelineId, { enabled });
 
     // req #3463 Guard B — the 2.0 plan INDEX, and it is fetched ONLY on the
     // miss path. This is the read that would have made req #3462 visible during
     // its own verification: #3381's dev server hit the composed route 80 times
-    // against an EMPTY `darwin_dev.pipeline2_pipelines` and every 404 rendered
+    // against an EMPTY `darwin_dev.pipelines` and every 404 rendered
     // as a tidy "No pipeline with id 79", indistinguishable from a plan that had
     // simply been deleted. With this, an empty table says so in as many words.
     //
-    // `composed === null` is precisely the 404 (`useComposedPipeline2` maps it);
+    // `composed === null` is precisely the 404 (`useComposedPipeline` maps it);
     // `undefined` is still loading and must not fire a second request.
     //
     // AND IT IS GATED ON `isSuccess` (code review), for the reason the alert
@@ -86,7 +86,7 @@ export function usePlan2Sources(pipelineId, creatorFk,
     // uninformative message this whole guard replaced.
     const missed = enabled && composed === null;
     const { data: known = EMPTY, isSuccess: knownSettled } =
-        useAllPipelines2(creatorFk, { enabled: missed });
+        useAllPipelines(creatorFk, { enabled: missed });
 
     const isLoading = enabled && composedLoading;
 
@@ -104,11 +104,11 @@ export function usePlan2Sources(pipelineId, creatorFk,
     const canBuild = !!pipeline && !diagnostic;
 
     const model = useMemo(
-        () => (canBuild ? buildPlan2Model(composed, machines) : null),
+        () => (canBuild ? buildPlanModel(composed, machines) : null),
         [canBuild, composed, machines]);
 
     const plan = useMemo(
-        () => (canBuild ? adaptComposedPipeline2(composed, { machines, costIndex }) : null),
+        () => (canBuild ? adaptComposedPipeline(composed, { machines, costIndex }) : null),
         [canBuild, composed, machines, costIndex]);
 
     const knownIds = useMemo(

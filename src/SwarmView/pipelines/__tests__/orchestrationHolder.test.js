@@ -11,7 +11,7 @@ import { describe, it, expect } from 'vitest';
 
 import {
     STALE_AFTER_SECONDS,
-    claimForPipeline2,
+    claimForPipeline,
     heartbeatAgeSeconds,
     heldForSeconds,
     holderView,
@@ -103,47 +103,68 @@ describe('heartbeat age', () => {
     });
 });
 
-// req #3356 — the 1.0 `describe('scope selection')` block went with
-// `claimForPipeline` and `claimsForEpic`, the two accessors it drove. Both read
-// the `pipeline_fk`/`epic_fk` column pair and both lost their last caller when
-// the 1.0 list page and the 1.0 epics page were deleted.
+// req #3356 — `orchestration_claims` CARRIED TWO SCOPE COLUMN PAIRS while the
+// two plan eras ran side by side. Migration 20260812184333 dropped the older
+// pair and renamed the survivor into `pipeline_fk`/`epic_fk`, so a claim row now
+// has exactly one pair and a scope is `(pipeline_fk, epic_fk)` and nothing else.
 //
-// `scopeLabel`'s 1.0 branch is NOT deleted and is still asserted below: the
-// `orchestration_claims` ROWS keep both column pairs until req #3356's own
-// schema half drops the 1.0 ones, so a row written before that must still print
-// `pipeline:2` rather than `pipeline:null`.
+// TWO CASES WERE DELETED FROM THE BLOCK BELOW, both era-arbitration:
+//
+//   * "claimForPipeline never matches a 1.0-only claim (pipeline_fk absent)"
+//     depended on a fixture that set ONE pair and left the other undefined. With
+//     one pair there is no such row — the claim it fed is now simply a
+//     whole-plan claim on plan 2, which `claimForPipeline` correctly FINDS, so
+//     the case asserted the opposite of the truth. What it really pinned (an id
+//     that matches nothing, and a null id, both answer null) is asserted
+//     directly in the first case below.
+//   * "scopeLabel still renders pipeline:/epic: for a 1.0 claim" drove the
+//     second of `scopeLabel`'s two era branches. Both branches ended up reading
+//     the same column after the rename, so one of them was unreachable and
+//     `scopeLabel` collapsed to a single branch — see the label case below.
+//
+// The two surviving fixtures were written as dual-era literals and the rename
+// collapsed each into DUPLICATE OBJECT KEYS (`{ pipeline_fk: null, …,
+// pipeline_fk: 6 }`), where JS silently keeps the last. They are written as the
+// single pair they now are.
 
-describe('scope selection — 2.0 (req #3381 code review)', () => {
-    // `pipeline2_fk`/`epic2_fk` are the SEPARATE columns a 2.0-scoped claim
-    // carries — NULL on a 1.0 row, and vice versa. `claim()`'s default
-    // fixture above never sets them, matching an un-widened
-    // `useOrchestrationClaims` read or a genuine 1.0 claim: both must read
-    // as `undefined`, not as a 2.0 scope of pipeline `undefined`.
+describe('scope selection', () => {
+    // A scope is (pipeline_fk, epic_fk): `epic_fk` null means the WHOLE PLAN,
+    // which owns every step in it.
     const claims = [
-        claim({ id: 10, pipeline_fk: null, epic_fk: null, pipeline2_fk: 6, epic2_fk: null }),
-        claim({ id: 11, pipeline_fk: null, epic_fk: null, pipeline2_fk: 6, epic2_fk: 9 }),
-        claim({ id: 12, pipeline_fk: 2, epic_fk: null }),   // a 1.0 claim, unchanged
+        claim({ id: 10, pipeline_fk: 6, epic_fk: null }),   // whole plan 6
+        claim({ id: 11, pipeline_fk: 6, epic_fk: 9 }),      // epic 9 of plan 6
+        claim({ id: 12, pipeline_fk: 2, epic_fk: null }),   // whole plan 2
     ];
 
-    it('claimForPipeline2 finds only the WHOLE-PLAN 2.0 reservation', () => {
-        expect(claimForPipeline2(claims, 6).id).toBe(10);
-        expect(claimForPipeline2(claims, 42)).toBeNull();
-        expect(claimForPipeline2(claims, null)).toBeNull();
+    it('claimForPipeline finds only the WHOLE-PLAN reservation', () => {
+        // An epic-scoped claim on the SAME plan (id 11) must not satisfy this:
+        // the plan header answers "who owns this whole plan", and an epic
+        // holder is a different, narrower answer.
+        expect(claimForPipeline(claims, 6).id).toBe(10);
+        expect(claimForPipeline(claims, 2).id).toBe(12);
+        expect(claimForPipeline(claims, 42)).toBeNull();
+        expect(claimForPipeline(claims, null)).toBeNull();
     });
 
-    it('claimForPipeline2 never matches a 1.0-only claim (pipeline2_fk absent)', () => {
-        // The bug this guards: `undefined === 6` is false, so a 1.0 claim
-        // must not accidentally satisfy a 2.0 lookup for the same numeric id.
-        expect(claimForPipeline2([claims[2]], 2)).toBeNull();
+    // ONE BRANCH, one spelling. `scopeLabel` had two — one per era — and the
+    // 2.0-labelled one tested `pipeline2_fk` FIRST because that column was NULL
+    // on a 1.0 row. Once the migration renamed `pipeline2_fk` into
+    // `pipeline_fk`, BOTH branches tested the same column, the suffixed one
+    // always won, and the era-free branch beneath it became unreachable — it
+    // could only ever have printed `pipeline:null`. These are the strings the
+    // surviving single branch emits.
+    it('scopeLabel names a whole-plan and an epic-scoped claim', () => {
+        expect(scopeLabel(claims[0])).toBe('pipeline:6');
+        expect(scopeLabel(claims[1])).toBe('epic:9@6');
     });
 
-    it('scopeLabel renders pipeline2:/epic2: for a 2.0 claim', () => {
-        expect(scopeLabel(claims[0])).toBe('pipeline2:6');
-        expect(scopeLabel(claims[1])).toBe('epic2:9@6');
-    });
-
-    it('scopeLabel still renders pipeline:/epic: for a 1.0 claim, unaffected', () => {
-        expect(scopeLabel(claims[2])).toBe('pipeline:2');
+    it('scopeLabel answers empty rather than naming a scope it cannot', () => {
+        // A scope IS the plan, so a claim carrying no plan is not a scope this
+        // can name — and `pipeline:null` in a tooltip reads as a real scope id.
+        expect(scopeLabel(null)).toBe('');
+        expect(scopeLabel(undefined)).toBe('');
+        expect(scopeLabel(claim({ pipeline_fk: null }))).toBe('');
+        expect(scopeLabel(claim({ pipeline_fk: null, epic_fk: 9 }))).toBe('');
     });
 });
 

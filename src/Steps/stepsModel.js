@@ -1,8 +1,8 @@
-// steps2Model.js — the pure completion-guard model behind /swarm/steps2 (req #3393).
+// stepsModel.js — the pure completion-guard model behind /swarm/steps (req #3393).
 //
 // PURE: plain rows in, plain rows out. No React, no MUI, no hooks, no clock —
 // same shape as `Darwin/src/Steps/stepsModel.js`, whose functions this ports a
-// SUBSET of rather than importing (see pipeline2ViewModel.js's header for why
+// SUBSET of rather than importing (see pipelinesViewModel.js's header for why
 // this file stays a structural copy rather than an import).
 //
 // ## Why this is a guard, not a state engine
@@ -15,7 +15,7 @@
 // step.
 //
 // Pipeline 2.0 moved its real derivation server-side
-// (`Lambda-Rest/pipeline2_compose.py` / `pipeline2_derive.py`, req #3367) —
+// (`Lambda-Rest/pipeline_compose.py` / `pipeline2_derive.py`, req #3367) —
 // but that repo is not checked out in this session, so its exact algorithm
 // cannot be read and verified here. Writing a THIRD, unverified JS port of it
 // against a guess would be exactly the failure mode design rule 13 ("nothing
@@ -60,7 +60,7 @@ export function isTrackingRequirement2(req) {
 
 /**
  * The GATING subset of a link set — the guard's input, in one place. Used by
- * `buildStep2Rows` for the grid and by the page's LIVE re-read before a
+ * `buildStepRows` for the grid and by the page's LIVE re-read before a
  * stamp, so the displayed guard and the enforced guard cannot be two
  * different rules.
  *
@@ -117,12 +117,12 @@ export function completionGuard2(row) {
 /**
  * The steps whose dependency row references `stepId` — a PREVIEW of the
  * database's ON DELETE RESTRICT answer, not the enforcement (see
- * `steps2Api.js`'s `deleteStep2`). No `time_at` branch to skip: 2.0's
- * `pipeline2_step_deps` carries no wall-clock rows — the one time gate lives
+ * `stepsApi.js`'s `deleteStep`). No `time_at` branch to skip: 2.0's
+ * `pipeline_step_deps` carries no wall-clock rows — the one time gate lives
  * on the step itself (`not_before`).
  *
  * @param {number} stepId
- * @param {Object[]} stepDeps  pipeline2_step_deps rows
+ * @param {Object[]} stepDeps  pipeline_step_deps rows
  * @returns {number[]}
  */
 export function dropBlockers2(stepId, stepDeps) {
@@ -141,14 +141,14 @@ export function dropBlockers2(stepId, stepDeps) {
  * per-step derivation, no gateway read of its own.
  *
  * @param {Object} args
- * @param {Object[]} args.steps               pipeline2_steps rows
- * @param {Object[]} args.stepRequirements    pipeline2_step_requirements rows
- * @param {Object[]} args.stepDeps            pipeline2_step_deps rows
+ * @param {Object[]} args.steps               pipeline_steps rows
+ * @param {Object[]} args.stepRequirements    pipeline_step_requirements rows
+ * @param {Object[]} args.stepDeps            pipeline_step_deps rows
  * @param {Object[]} args.requirements        any superset (needs `id`, `tracking`)
- * @param {Object[]} args.epics               pipeline2_epics rows (for the label/pipeline_fk dictionary)
+ * @param {Object[]} args.epics               epics rows (for the label/pipeline_fk dictionary)
  * @returns {Object[]}
  */
-export function buildStep2Rows({ steps, stepRequirements, stepDeps, requirements, epics } = {}) {
+export function buildStepRows({ steps, stepRequirements, stepDeps, requirements, epics } = {}) {
     const epicById = new Map(asArray(epics).map((e) => [e.id, e]));
 
     const linksByStep = new Map();

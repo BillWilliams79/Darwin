@@ -62,15 +62,15 @@ vi.mock('../../../RestApi/RestApi', () => ({ default: vi.fn(() => Promise.resolv
 // `derived` block the page hard-stops without.
 vi.mock('../../../hooks/useDataQueries', async (importOriginal) => {
     const actual = await importOriginal();
-    const { composedFixture } = await import('./pipeline2ComposedFixture');
+    const { composedFixture } = await import('./pipelineComposedFixture');
     const composed = composedFixture({ id: 2, title: 'Darwin' });
     const empty = () => ({ data: [], isLoading: false, isError: false });
     return {
         ...actual,
-        useComposedPipeline2: (id) => ({
+        useComposedPipeline: (id) => ({
             data: Number(id) === 2 ? composed : null, isLoading: false,
         }),
-        useAllPipelines2: () => ({
+        useAllPipelines: () => ({
             data: [{ id: 2 }], isLoading: false, isError: false, isSuccess: true,
         }),
         useMachines: empty,
@@ -100,7 +100,7 @@ function mount(url) {
                     <AuthContext.Provider value={{ idToken: 'tok', profile: { userName: 'tester', timezone: 'UTC' } }}>
                         <MemoryRouter initialEntries={[url]}>
                             <Routes>
-                                <Route path="/swarm/pipeline2/:id" element={<PipelineDetail />} />
+                                <Route path="/swarm/pipeline/:id" element={<PipelineDetail />} />
                             </Routes>
                         </MemoryRouter>
                     </AuthContext.Provider>
@@ -145,7 +145,7 @@ describe('PipelineDetail — ?step= (req #3140)', () => {
         // `useState(linkStepId)` rather than a `useState(null)` an effect corrects:
         // the table scrolls to the focused row in its own layout effect, and a
         // focus that arrives a paint later can miss that.
-        mount('/swarm/pipeline2/2?mode=table&step=47');
+        mount('/swarm/pipeline/2?mode=table&step=47');
         expect(focusOf('table')).toBe('47');
     });
 
@@ -155,7 +155,7 @@ describe('PipelineDetail — ?step= (req #3140)', () => {
     // visualizer now consumes it (it centres and zooms on the bead), so the
     // reason is gone and an explicit `?mode=plan` is honoured.
     it('honours ?mode=plan when the link explicitly asks for it', () => {
-        mount('/swarm/pipeline2/2?mode=plan&step=47');
+        mount('/swarm/pipeline/2?mode=plan&step=47');
         expect(node('mode-plan')).not.toBeNull();
         expect(node('mode-table')).toBeNull();
         expect(focusOf('plan')).toBe('47');
@@ -164,34 +164,34 @@ describe('PipelineDetail — ?step= (req #3140)', () => {
     it('still defaults a bare ?step= to the TABLE', () => {
         // The Steps editor's row link carries `mode=table` explicitly, but a
         // hand-typed or truncated URL must not silently change surface.
-        mount('/swarm/pipeline2/2?step=47');
+        mount('/swarm/pipeline/2?step=47');
         expect(node('mode-table')).not.toBeNull();
         expect(focusOf('table')).toBe('47');
     });
 
     it('forces the table over a STORED preference of plan', () => {
         storePreference('plan');
-        mount('/swarm/pipeline2/2?step=47');
+        mount('/swarm/pipeline/2?step=47');
         expect(node('mode-table')).not.toBeNull();
         expect(focusOf('table')).toBe('47');
     });
 
     it('leaves the stored preference in charge when there is no ?step=', () => {
         storePreference('plan');
-        mount('/swarm/pipeline2/2');
+        mount('/swarm/pipeline/2');
         expect(node('mode-plan')).not.toBeNull();
         expect(focusOf('plan')).toBe('');
     });
 
     it('carries no focus when the parameter is absent or unusable', () => {
-        mount('/swarm/pipeline2/2?mode=table');
+        mount('/swarm/pipeline/2?mode=table');
         expect(focusOf('table')).toBe('');
     });
 
     it('ignores a non-integer ?step=, rather than focusing NaN or 0', () => {
-        mount('/swarm/pipeline2/2?mode=table&step=12abc');
+        mount('/swarm/pipeline/2?mode=table&step=12abc');
         expect(focusOf('table')).toBe('');
-        mount('/swarm/pipeline2/2?mode=table&step=');
+        mount('/swarm/pipeline/2?mode=table&step=');
         expect(focusOf('table')).toBe('');
     });
 
@@ -199,7 +199,7 @@ describe('PipelineDetail — ?step= (req #3140)', () => {
     // see one thing once; picking a mode by hand must clear both the override and
     // the focus and must never be resurrected by a re-render.
     it('a manual mode pick clears the focus and survives re-render', () => {
-        mount('/swarm/pipeline2/2?mode=table&step=47');
+        mount('/swarm/pipeline/2?mode=table&step=47');
         expect(focusOf('table')).toBe('47');
         click(node('pipeline-mode-plan'));
         expect(node('mode-plan')).not.toBeNull();
@@ -213,7 +213,7 @@ describe('PipelineDetail — ?step= (req #3140)', () => {
     });
 
     it('a manual pick back to table does not resurrect the link focus', () => {
-        mount('/swarm/pipeline2/2?mode=table&step=47');
+        mount('/swarm/pipeline/2?mode=table&step=47');
         click(node('pipeline-mode-plan'));
         click(node('pipeline-mode-table'));
         expect(focusOf('table')).toBe('');
@@ -233,13 +233,13 @@ const storeLevel = (value) => {
 
 describe('PipelineDetail — ?level= (req #3253)', () => {
     it('pins the level the link names', () => {
-        mount('/swarm/pipeline2/2?mode=plan&step=47&level=2');
+        mount('/swarm/pipeline/2?mode=plan&step=47&level=2');
         expect(levelOf('plan')).toBe('2');
     });
 
     it('wins over the reader\'s stored level for this landing', () => {
         storeLevel('3');
-        mount('/swarm/pipeline2/2?mode=plan&step=47&level=2');
+        mount('/swarm/pipeline/2?mode=plan&step=47&level=2');
         expect(levelOf('plan')).toBe('2');
         // ...and never writes it. The stored value is what the reader gets back
         // the next time they open a plan by any other route.
@@ -248,7 +248,7 @@ describe('PipelineDetail — ?level= (req #3253)', () => {
 
     it('leaves the stored level in charge with no ?level=', () => {
         storeLevel('3');
-        mount('/swarm/pipeline2/2?mode=plan');
+        mount('/swarm/pipeline/2?mode=plan');
         expect(levelOf('plan')).toBe('3');
     });
 
@@ -257,17 +257,17 @@ describe('PipelineDetail — ?level= (req #3253)', () => {
         // DISCARD the reader's stored L3. Falling through to null is the same
         // rule `?mode=xyz` follows.
         storeLevel('3');
-        mount('/swarm/pipeline2/2?mode=plan&level=9');
+        mount('/swarm/pipeline/2?mode=plan&level=9');
         expect(levelOf('plan')).toBe('3');
-        mount('/swarm/pipeline2/2?mode=plan&level=constructor');
+        mount('/swarm/pipeline/2?mode=plan&level=constructor');
         expect(levelOf('plan')).toBe('3');
-        mount('/swarm/pipeline2/2?mode=plan&level=');
+        mount('/swarm/pipeline/2?mode=plan&level=');
         expect(levelOf('plan')).toBe('3');
     });
 
     it('a manual LEVEL pick clears the link pin and persists the choice', () => {
         storeLevel('3');
-        mount('/swarm/pipeline2/2?mode=plan&step=47&level=2');
+        mount('/swarm/pipeline/2?mode=plan&step=47&level=2');
         expect(levelOf('plan')).toBe('2');
         click(node('pipeline-viz-level-3'));
         expect(levelOf('plan')).toBe('3');
@@ -279,7 +279,7 @@ describe('PipelineDetail — ?level= (req #3253)', () => {
 
     it('a manual MODE pick clears the link pin too', () => {
         storeLevel('auto');
-        mount('/swarm/pipeline2/2?mode=plan&step=47&level=2');
+        mount('/swarm/pipeline/2?mode=plan&step=47&level=2');
         expect(levelOf('plan')).toBe('2');
         click(node('pipeline-mode-table'));
         click(node('pipeline-mode-plan'));
@@ -304,7 +304,7 @@ describe('PipelineDetail — ?level= (req #3253)', () => {
 describe('PipelineDetail — the level is fixed until Auto (req #3324)', () => {
     it('hands the canvas a ?level= link\'s pin', () => {
         storeLevel('3');
-        mount('/swarm/pipeline2/2?mode=plan&step=47&level=2');
+        mount('/swarm/pipeline/2?mode=plan&step=47&level=2');
         expect(levelOf('plan')).toBe('2');
         // …and does NOT write it to storage: a link asks to see one thing once
         // (req #3253), so the reader's own L3 is still there afterward.
@@ -313,13 +313,13 @@ describe('PipelineDetail — the level is fixed until Auto (req #3324)', () => {
 
     it('hands the canvas the reader\'s stored pin when no link asks', () => {
         storeLevel('3');
-        mount('/swarm/pipeline2/2?mode=plan');
+        mount('/swarm/pipeline/2?mode=plan');
         expect(levelOf('plan')).toBe('3');
     });
 
     it('a manual pick after a link wins, and persists', () => {
         storeLevel('auto');
-        mount('/swarm/pipeline2/2?mode=plan&step=47&level=2');
+        mount('/swarm/pipeline/2?mode=plan&step=47&level=2');
         expect(levelOf('plan')).toBe('2');
         click(node('pipeline-viz-level-3'));
         expect(levelOf('plan')).toBe('3');
@@ -335,7 +335,7 @@ describe('PipelineDetail — the level is fixed until Auto (req #3324)', () => {
     // says: the view. The reader's way back to Auto is the Auto chip.
     it('Reset restores the camera and leaves the pinned level alone', () => {
         storeLevel('3');
-        mount('/swarm/pipeline2/2?mode=plan');
+        mount('/swarm/pipeline/2?mode=plan');
         expect(levelOf('plan')).toBe('3');
         click(node('pipeline-viz-reset'));
         expect(levelOf('plan')).toBe('3');
@@ -347,7 +347,7 @@ describe('PipelineDetail — the level is fixed until Auto (req #3324)', () => {
 
     it('Reset leaves a LINK\'s pin alone too', () => {
         storeLevel('auto');
-        mount('/swarm/pipeline2/2?mode=plan&step=47&level=2');
+        mount('/swarm/pipeline/2?mode=plan&step=47&level=2');
         expect(levelOf('plan')).toBe('2');
         click(node('pipeline-viz-reset'));
         expect(levelOf('plan')).toBe('2');
@@ -355,7 +355,7 @@ describe('PipelineDetail — the level is fixed until Auto (req #3324)', () => {
 
     it('AUTO is the one control that clears a pin', () => {
         storeLevel('3');
-        mount('/swarm/pipeline2/2?mode=plan');
+        mount('/swarm/pipeline/2?mode=plan');
         click(node('pipeline-viz-level-auto'));
         expect(levelOf('plan')).toBe('auto');
         expect(storedLevel()).toBe('auto');

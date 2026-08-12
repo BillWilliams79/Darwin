@@ -103,8 +103,8 @@ import {
 import { fmtCost } from './pipelineModel';
 // req #3356 — the `era` PROP is gone (there is one era) but `planEra.js` stays
 // the ONE place a plan storage namespace or route is spelled, so the accessor is
-// still called — with `PLAN_ERA_2` written out at the call site.
-import { PLAN_ERA_2, planStorageNamespace } from './planEra';
+// still called — now with no era argument.
+import { planStorageNamespace } from './planEra';
 import { stepStateLabel, runLabel } from './pipelineChipStyles';
 // The autonomy / model / effort words the rest of the UI uses (req #3213 D5).
 // The card renders a requirement's execution settings through the SAME helpers
@@ -474,7 +474,7 @@ export default function PipelinePlanVisualizer({
     const viewportKey = pipeline?.id != null
         // req #3463 — era-qualified, so 1.0 plan 7 and 2.0 plan 7 did not share
         // one camera (and one is not pruned by the other list's liveness read).
-        ? viewportStorageKey(planStorageNamespace(PLAN_ERA_2), pipeline.id) : null;
+        ? viewportStorageKey(planStorageNamespace(), pipeline.id) : null;
     // SIGNATURE is the world the camera was taken over, DERIVED from the layout
     // rather than enumerated from the inputs that produce it. `computePlanLayout`
     // takes eight options and reads the whole plan; listing the ones that move
@@ -2152,7 +2152,7 @@ export default function PipelinePlanVisualizer({
                       onActivate={() => navigate(`/swarm/requirement/${label.reqId}`,
                           pipeline?.id
                               ? { state: { from: 'pipeline', pipelineId: pipeline.id,
-                                  era: PLAN_ERA_2, mode: 'plan' } }
+                                  mode: 'plan' } }
                               : undefined)} />);
         } else if (label.kind === 'title') {
             worldNodes.push(

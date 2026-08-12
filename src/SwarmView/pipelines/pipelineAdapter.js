@@ -1,10 +1,10 @@
-// pipeline2Adapter.js — the browser-side consumer of the Pipeline 2.0 composed
+// pipelineAdapter.js — the browser-side consumer of the Pipeline 2.0 composed
 // read (req #3381). PURE: plain payload in, plain render shapes out. No React,
 // no fetch, no clock.
 //
 // THIS MODULE DOES NOT DERIVE ANYTHING (design intent: "the visualizer
 // CONSUMES a derived block; it does not derive one" —
-// memory/pipeline-2-visualizer-design.md § 0). `pipeline2_compose` /
+// memory/pipeline-2-visualizer-design.md § 0). `pipeline_compose` /
 // `pipeline2_derive.py` (Lambda-Rest, req #3367) already ran display order,
 // state derivation, eligibility, pause and serial-turn suppression, and
 // requirement counts — server side, ONE producer, consumed identically by the
@@ -29,7 +29,7 @@
 //
 // WHAT DOES NOT EXIST IN 2.0, deliberately not synthesized:
 //   - `feature`/`featureId`/`featureLabels` — 2.0 has no Feature; every row's
-//     epic comes directly from containment (`pipeline2_steps.epic_fk`), never
+//     epic comes directly from containment (`pipeline_steps.epic_fk`), never
 //     a features->epic chain, so there is exactly one epic per step, not a
 //     dominant-label tally over several.
 //   - `batches`/`batchLetterByStepId` — Batch does not exist in 2.0 (req
@@ -149,12 +149,12 @@ function machineLabelsFor(reqIds, trackingReqIds, reqsById, machinesById) {
  * `pipelinePlanLayout.js` and `pipelineEpicZoom.js` cannot tell which engine
  * built the row they are drawing.
  *
- * @param {Object} payload    a composed `pipeline2_compose` read, derived present
+ * @param {Object} payload    a composed `pipeline_compose` read, derived present
  * @param {Object[]} [machines]  from `useMachines` — 2.0 carries no dictionary
  *                                of its own (module header)
  * @returns {Object[]} PlanRow[]
  */
-export function buildPlan2Rows(payload, machines = []) {
+export function buildPlanRows(payload, machines = []) {
     const derived = payload.derived || {};
     const stepsById = new Map(asArray(payload.steps).map((s) => [s.id, s]));
     const epicsById = new Map(asArray(payload.epics).map((e) => [e.id, e]));
@@ -211,7 +211,7 @@ export function buildPlan2Rows(payload, machines = []) {
  * counterpart of `pipelineViewModel.js::orderedPlan`, except every field
  * below is a RESHAPE of something `pipeline2_derive.py` already computed,
  * never a re-derivation. `costIndex` is the one exception: #3345 did not
- * move cost into the composed payload (verified against `pipeline2_compose.py`
+ * move cost into the composed payload (verified against `pipeline_compose.py`
  * — no session/cost table appears in its reads), so it is attached here
  * exactly as `orderedPlan` attached it, from the SAME `buildCostIndex` two
  * bounded reads (req #3117) — unrelated to the fetch this requirement
@@ -223,9 +223,9 @@ export function buildPlan2Rows(payload, machines = []) {
  * @param {?Object} [options.costIndex]
  * @returns {Object} plan
  */
-export function adaptComposedPipeline2(payload, { machines = [], costIndex = null } = {}) {
+export function adaptComposedPipeline(payload, { machines = [], costIndex = null } = {}) {
     const derived = payload.derived || {};
-    const rows = buildPlan2Rows(payload, machines);
+    const rows = buildPlanRows(payload, machines);
     for (const r of rows) r.cost = sumReqCost(r.reqIds, costIndex);
 
     const violations = asArray(derived.violations).map((v) => ({
@@ -273,7 +273,7 @@ export function adaptComposedPipeline2(payload, { machines = [], costIndex = nul
         // `planTimeAxis` reads per-requirement), collapsing the axis to two
         // dead slots on the real live payload — a visible regression of req
         // #3201, not graceful degradation. Fixed the same day by widening
-        // `_REQUIREMENT_COLUMNS` in `Lambda-Rest/pipeline2_compose.py` (two
+        // `_REQUIREMENT_COLUMNS` in `Lambda-Rest/pipeline_compose.py` (two
         // more DATETIME columns on a read already fetching every linked
         // requirement, zero extra gateway round trips) rather than deferring
         // it — the gap was shipping-a-known-regression, not a design choice
@@ -312,7 +312,7 @@ export function adaptComposedPipeline2(payload, { machines = [], costIndex = nul
  * @param {Object[]} [machines]
  * @returns {{pipeline: ?Object, requirements: Object[], machines: Object[]}}
  */
-export function buildPlan2Model(payload, machines = []) {
+export function buildPlanModel(payload, machines = []) {
     return {
         pipeline: (payload && payload.pipeline) || null,
         requirements: asArray(payload && payload.requirements),

@@ -17,7 +17,7 @@ import { EPIC_ZOOM_READS, EPIC_ZOOM_PIPELINE, EPIC_ZOOM_NOW } from './epicZoomFi
 // for why it exists and how it is retired). `../pipelinePlanLayout.js` is
 // era-neutral: it takes `PlanRow`s and returns geometry, so a fixture built by
 // the retired engine exercises it exactly as one built by
-// `adaptComposedPipeline2` would.
+// `adaptComposedPipeline` would.
 import { buildPipelineModel, orderedPlan } from './planFixtureEngine';
 import { semanticLevel, SEMANTIC_OUT_MAX } from '../../konvaSwarmModel';
 import {

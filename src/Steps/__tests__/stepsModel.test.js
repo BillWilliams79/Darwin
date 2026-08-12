@@ -1,6 +1,6 @@
 // @vitest-environment node
 //
-// req #3393 — the completion-guard model behind /swarm/steps2. Pure functions,
+// req #3393 — the completion-guard model behind /swarm/steps. Pure functions,
 // no DOM needed.
 
 import { describe, it, expect } from 'vitest';
@@ -9,8 +9,8 @@ import {
     gatingRequirementIds2,
     completionGuard2,
     dropBlockers2,
-    buildStep2Rows,
-} from '../steps2Model';
+    buildStepRows,
+} from '../stepsModel';
 
 describe('isTrackingRequirement2', () => {
     it('is false for a missing/null/empty tracking value', () => {
@@ -104,7 +104,7 @@ describe('dropBlockers2', () => {
     });
 });
 
-describe('buildStep2Rows', () => {
+describe('buildStepRows', () => {
     const steps = [
         { id: 100, epic_fk: 1, title: 'Gated', run: 'auto', completed_at: null, not_before: null },
         { id: 101, epic_fk: 1, title: 'Free', run: 'manual', completed_at: null, not_before: null },
@@ -127,7 +127,7 @@ describe('buildStep2Rows', () => {
     ];
 
     it('splits a step\'s links into gating and tracking', () => {
-        const rows = buildStep2Rows({ steps, stepRequirements, stepDeps, requirements, epics });
+        const rows = buildStepRows({ steps, stepRequirements, stepDeps, requirements, epics });
         const gated = rows.find(r => r.id === 100);
         expect(gated.gatingReqIds).toEqual([1]);
         expect(gated.trackingReqIds).toEqual([2]);
@@ -135,26 +135,26 @@ describe('buildStep2Rows', () => {
     });
 
     it('carries the epic label and pipeline_fk through', () => {
-        const rows = buildStep2Rows({ steps, stepRequirements, stepDeps, requirements, epics });
+        const rows = buildStepRows({ steps, stepRequirements, stepDeps, requirements, epics });
         const row = rows.find(r => r.id === 100);
         expect(row.epicTitle).toBe('Epic One');
         expect(row.pipelineFk).toBe(9);
     });
 
     it('reports blockerStepIds for a step something else depends on', () => {
-        const rows = buildStep2Rows({ steps, stepRequirements, stepDeps, requirements, epics });
+        const rows = buildStepRows({ steps, stepRequirements, stepDeps, requirements, epics });
         expect(rows.find(r => r.id === 100).blockerStepIds).toEqual([101]);
         expect(rows.find(r => r.id === 101).blockerStepIds).toEqual([]);
     });
 
     it('normalizes completedAt from completed_at', () => {
-        const rows = buildStep2Rows({ steps, stepRequirements, stepDeps, requirements, epics });
+        const rows = buildStepRows({ steps, stepRequirements, stepDeps, requirements, epics });
         expect(rows.find(r => r.id === 102).completedAt).toBe('2026-08-01 00:00:00');
         expect(rows.find(r => r.id === 100).completedAt).toBeNull();
     });
 
     it('handles an unresolved epic gracefully (no throw, null label)', () => {
-        const rows = buildStep2Rows({
+        const rows = buildStepRows({
             steps: [{ id: 200, epic_fk: 999, title: 'Orphan', run: 'auto', completed_at: null }],
             stepRequirements: [], stepDeps: [], requirements: [], epics,
         });

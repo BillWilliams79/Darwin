@@ -1,4 +1,4 @@
-// /swarm/epics2 — the Pipeline 2.0 plan-layer epics editor (req #3393).
+// /swarm/epics — the plan-layer epics editor (req #3393).
 //
 // Stands BESIDE `/swarm/epics` (Darwin/src/Epics/EpicsPage.jsx), never in
 // place of it, and shares no COMPONENT with it (structural copy). It DOES
@@ -12,7 +12,7 @@
 // schema-driven:
 //
 //   - The dialog gains a Pipeline select (`pipeline_fk`, required at create,
-//     DISABLED once editing — re-homing an epic is `move_pipeline2_epic`, an
+//     DISABLED once editing — re-homing an epic is `move_epic`, an
 //     MCP-only tool with cross-plan-edge checks this page does not
 //     reproduce, matching StepsPage.jsx's identical rule for its own
 //     `pipeline_fk` field).
@@ -21,7 +21,7 @@
 //     era, only a derived bubble.
 //   - No Features count column — 2.0 has no feature tier (containment goes
 //     straight epic -> step). A step_count column takes its place, linking to
-//     `/swarm/steps2?epic=<id>`.
+//     `/swarm/steps?epic=<id>`.
 //   - No orchestration-claim "orchestrated by" badge — not in the
 //     requirement's field matrix; left out deliberately rather than folded
 //     in silently.
@@ -57,17 +57,17 @@ import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
 import {
     useAllCategories,
-    useAllPipelines2,
-    useAllPipeline2Epics,
-    useAllPipeline2Steps,
-    pipeline2EpicKeys,
-    pipeline2StepKeys,
+    useAllPipelines,
+    useAllEpics,
+    useAllPipelineSteps,
+    epicKeys,
+    pipelineStepKeys,
 } from '../hooks/useDataQueries';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import ChipFilter from '../Components/ChipFilter/ChipFilter';
 import { formatDate } from '../utils/dateFormat';
 import { epicStatus2ChipProps, epicStatus2Label } from '../SwarmView/pipelines/pipelineChipStyles';
-import { createEpic2, updateEpic2, deleteEpic2, isRestNullLiteral, REST_NULL } from './epics2Api';
+import { createEpic, updateEpic, deleteEpic, isRestNullLiteral, REST_NULL } from './epicsApi';
 
 // Same projection 1.0's EpicsPage requests — a NAME DICTIONARY, no `closed`
 // filter (an epic filed under a since-closed category must still render it).
@@ -111,9 +111,9 @@ export default function EpicsPage2() {
     const creatorFk = profile?.userName;
     const timezone = profile?.timezone;
 
-    const { data: pipelines = [], isLoading: pipelinesLoading } = useAllPipelines2(creatorFk);
-    const { data: epics = [], isLoading: epicsLoading } = useAllPipeline2Epics(creatorFk);
-    const { data: steps = [], isLoading: stepsLoading } = useAllPipeline2Steps(creatorFk);
+    const { data: pipelines = [], isLoading: pipelinesLoading } = useAllPipelines(creatorFk);
+    const { data: epics = [], isLoading: epicsLoading } = useAllEpics(creatorFk);
+    const { data: steps = [], isLoading: stepsLoading } = useAllPipelineSteps(creatorFk);
     const { data: categories = [], isLoading: categoriesLoading } =
         useAllCategories(creatorFk, { fields: CATEGORY_FIELDS });
 
@@ -194,7 +194,7 @@ export default function EpicsPage2() {
     }, [epics, closedFilter, stepCountByEpic, pipelineById]);
 
     const invalidateEpics = () =>
-        queryClient.invalidateQueries({ queryKey: pipeline2EpicKeys.all(creatorFk) });
+        queryClient.invalidateQueries({ queryKey: epicKeys.all(creatorFk) });
 
     const openCreate = () => {
         setEditTarget(null);
@@ -270,7 +270,7 @@ export default function EpicsPage2() {
             if (editTarget) {
                 // `pipeline_fk` is deliberately never sent here — the field is
                 // disabled once editing (see this file's header).
-                await updateEpic2(darwinUri, idToken, editTarget.id, {
+                await updateEpic(darwinUri, idToken, editTarget.id, {
                     title,
                     description: description || REST_NULL,
                     category_fk: formCategoryFk,
@@ -278,7 +278,7 @@ export default function EpicsPage2() {
                     epic_status: formEpicStatus,
                 });
             } else {
-                await createEpic2(darwinUri, idToken, {
+                await createEpic(darwinUri, idToken, {
                     pipeline_fk: formPipelineFk,
                     title,
                     description: description || null,
@@ -298,7 +298,7 @@ export default function EpicsPage2() {
 
     const toggleClosed = async (row) => {
         try {
-            await updateEpic2(darwinUri, idToken, row.id, { closed: row.closed ? 0 : 1 });
+            await updateEpic(darwinUri, idToken, row.id, { closed: row.closed ? 0 : 1 });
             invalidateEpics();
         } catch (err) {
             showError(err, 'Could not change epic status');
@@ -307,7 +307,7 @@ export default function EpicsPage2() {
 
     const toggleEpicStatus = async (row) => {
         try {
-            await updateEpic2(darwinUri, idToken, row.id,
+            await updateEpic(darwinUri, idToken, row.id,
                 { epic_status: row.epic_status === 'paused' ? 'active' : 'paused' });
             invalidateEpics();
         } catch (err) {
@@ -323,13 +323,13 @@ export default function EpicsPage2() {
             : ' This cannot be undone.';
         if (!window.confirm(`Delete epic "${row.title}"?${consequence}`)) return;
         try {
-            await deleteEpic2(darwinUri, idToken, row.id);
+            await deleteEpic(darwinUri, idToken, row.id);
             invalidateEpics();
             // The epic's steps CASCADE away with it (when the delete succeeds),
             // so this page's own step_count read is stale until invalidated —
             // same rule StepsPage.jsx's handleDelete follows for its own
             // dependency/link caches after a cascading delete.
-            queryClient.invalidateQueries({ queryKey: pipeline2StepKeys.all(creatorFk) });
+            queryClient.invalidateQueries({ queryKey: pipelineStepKeys.all(creatorFk) });
         } catch (err) {
             showError(err, 'Could not delete epic — if another step outside it depends on one '
                 + 'of its steps, remove that dependency first');
@@ -370,12 +370,12 @@ export default function EpicsPage2() {
                     aria-label={`Open the steps filed under ${params.row.title}`}
                     onClick={(e) => {
                         e.stopPropagation();
-                        navigate(`/swarm/steps2?epic=${params.row.id}`);
+                        navigate(`/swarm/steps?epic=${params.row.id}`);
                     }}
                     onKeyDown={(e) => {
                         if (e.key !== 'Enter') return;
                         e.stopPropagation();
-                        navigate(`/swarm/steps2?epic=${params.row.id}`);
+                        navigate(`/swarm/steps?epic=${params.row.id}`);
                     }}
                     sx={{
                         cursor: 'pointer',
@@ -454,18 +454,18 @@ export default function EpicsPage2() {
 
     return (
         <Box sx={{ gridArea: 'content', p: 3, width: '100%', overflow: 'auto' }}
-             data-testid="epics2-page">
+             data-testid="epics-page">
             <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 2 }}>
                 <Typography variant="h5">Epics 2.0</Typography>
                 <ChipFilter
                     options={CLOSED_FILTER_OPTIONS}
                     selected={closedFilter}
                     onToggle={toggleClosedFilter}
-                    testId="epics2-closed-filter"
-                    chipTestIdPrefix="epics2-closed-chip"
+                    testId="epics-closed-filter"
+                    chipTestIdPrefix="epics-closed-chip"
                 />
                 <Typography variant="caption" sx={{ color: 'text.secondary' }}
-                            data-testid="epics2-accounting">
+                            data-testid="epics-accounting">
                     {rows.length} of {epics.length} epic{epics.length === 1 ? '' : 's'}
                 </Typography>
                 <Box sx={{ flexGrow: 1 }} />
@@ -481,7 +481,7 @@ export default function EpicsPage2() {
                     <CircularProgress />
                 </Box>
             ) : (
-                <Box sx={{ width: '100%' }} data-testid="epics2-datagrid">
+                <Box sx={{ width: '100%' }} data-testid="epics-datagrid">
                     <DataGrid
                         autoHeight
                         rows={rows}
@@ -493,7 +493,7 @@ export default function EpicsPage2() {
                         initialState={{ pagination: { paginationModel: { pageSize: 25 } } }}
                         pageSizeOptions={[10, 25, 50]}
                         disableRowSelectionOnClick
-                        data-testid="epics2-grid"
+                        data-testid="epics-grid"
                     />
                 </Box>
             )}
@@ -516,7 +516,7 @@ export default function EpicsPage2() {
                         {editTarget && (
                             <Typography variant="caption" sx={{ color: 'text.secondary', mt: -1 }}>
                                 An epic&apos;s plan membership is not editable from this dialog —
-                                use the move tool (MCP `move_pipeline2_epic`) to re-home it.
+                                use the move tool (MCP `move_epic`) to re-home it.
                             </Typography>
                         )}
                         <TextField

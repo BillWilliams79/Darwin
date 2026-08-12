@@ -54,11 +54,10 @@ describe('navConfig — Sessions sub-items', () => {
     it('leaves Sessions off the first-link position of the swarm group', () => {
         // HomePage redirects to the FIRST link of the first enabled group; if
         // Sessions ever became that link the redirect would land on a parent
-        // whose children are hidden. Pipelines holds the slot (req #3427), and
-        // since req #3356 its path is the 2.0 plan list — the 1.0 one it used to
-        // carry was deleted with the page behind it.
+        // whose children are hidden. Pipelines holds the slot (req #3427), at
+        // the one plan list there is since req #3356 collapsed the two eras.
         const firstSwarm = NAV_LINKS.find(l => l.group === 'swarm');
-        expect(firstSwarm.path).toBe('/swarm/pipelines2');
+        expect(firstSwarm.path).toBe('/swarm/pipelines');
     });
 });
 
@@ -69,23 +68,23 @@ describe('navConfig — Sessions sub-items', () => {
 // deleted. req #3357 retired the Features entry that once sat between them (the
 // Feature tier itself left the plan; a step belongs to its epic directly).
 //
-// req #3356 — the 1.0 entries are GONE. `/swarm/epics` and `/swarm/steps` had
-// their pages deleted, and the Pipelines PARENT moved from `/swarm/pipelines`
-// (also deleted) to the 2.0 plan list. The `Pipelines 2.0` CHILD went with the
-// move for a mechanical reason, not a cosmetic one: it would have held the same
-// path as its own parent, and `path` is this config's identity — the React key,
-// the expand/collapse key, the testid slug, and what `flattenNavLinks` feeds the
-// mobile bottom nav's active-item lookup. That is asserted below.
+// req #3356 — THERE IS ONE PLAN SURFACE NOW, so there is one nav entry per
+// level and none of them carries an era marker. The 1.0 pages were deleted and
+// the 2.0 pages took their routes (`/swarm/pipelines2` -> `/swarm/pipelines`,
+// `/swarm/epics2` -> `/swarm/epics`, `/swarm/steps2` -> `/swarm/steps`) and
+// their labels (`Epics 2.0` -> `Epics`, `Steps 2.0` -> `Steps`). The separate
+// `Pipelines 2.0` CHILD went at the same time for a mechanical reason, not a
+// cosmetic one: it would have held the same path as its own parent, and `path`
+// is this config's identity — the React key, the expand/collapse key, the
+// testid slug, and what `flattenNavLinks` feeds the mobile bottom nav's
+// active-item lookup. That is asserted below.
 describe('navConfig — the plan editors nest under Pipelines (req #3236)', () => {
-    const PIPELINES_PATH = '/swarm/pipelines2';
-    // req #3393 — the 2.0 plan-layer editors, in hierarchy order (Epic > Step).
+    const PIPELINES_PATH = '/swarm/pipelines';
+    // req #3393 — the plan-layer editors, in hierarchy order (Epic > Step).
     // NavBarSidebar renders exactly two levels (a
     // Pipelines-owns-Epics-owns-something L4 shape would be silently dropped),
     // so this array is the only place a plan-editor child can go.
-    const CHILD_PATHS = ['/swarm/epics2', '/swarm/steps2'];
-    // The 1.0 routes, pinned ABSENT rather than merely unlisted: a nav entry to
-    // a deleted page renders a link that 404s, which nothing else would catch.
-    const DELETED_1_0_PATHS = ['/swarm/pipelines', '/swarm/epics', '/swarm/steps'];
+    const CHILD_PATHS = ['/swarm/epics', '/swarm/steps'];
 
     const pipelines = NAV_LINKS.find(l => l.path === PIPELINES_PATH);
 
@@ -98,10 +97,10 @@ describe('navConfig — the plan editors nest under Pipelines (req #3236)', () =
     it('nests the plan editors under Pipelines, in hierarchy order', () => {
         // Epic > Step — not arrival order.
         expect(pipelines.children.map(c => c.path)).toEqual(CHILD_PATHS);
-        // The `2.0` suffixes survive req #3356 deliberately: dropping them is
-        // the nav-label rename, which is its own phase.
+        // Unsuffixed since req #3356 — with one era left, an `Epics 2.0` label
+        // would name a distinction the reader can no longer draw.
         expect(pipelines.children.map(c => c.label))
-            .toEqual(['Epics 2.0', 'Steps 2.0']);
+            .toEqual(['Epics', 'Steps']);
     });
 
     it('never gives a child the same path as its parent', () => {
@@ -126,9 +125,19 @@ describe('navConfig — the plan editors nest under Pipelines (req #3236)', () =
         CHILD_PATHS.forEach(p => expect(topLevel).not.toContain(p));
     });
 
-    it('lists no Pipeline 1.0 route anywhere in the tree (req #3356)', () => {
+    // THIS ASSERTION IS THE INVERSE OF ITS PRE-#3356 FORM, deliberately. It read
+    // "lists no Pipeline 1.0 route anywhere", pinning `/swarm/pipelines` ABSENT
+    // while the surviving plan list sat at `/swarm/pipelines2`. The eras
+    // collapsed the other way round — the 2.0 pages TOOK the plain routes — so
+    // the path it once forbade is now the only plan list there is, and the fact
+    // worth pinning is that there is exactly ONE of it.
+    it('lists exactly one plan-list route, and no era-suffixed route (req #3356)', () => {
         const flat = flattenNavLinks(NAV_LINKS).map(l => l.path);
-        DELETED_1_0_PATHS.forEach(p => expect(flat).not.toContain(p));
+        expect(flat.filter(p => p === '/swarm/pipelines')).toEqual(['/swarm/pipelines']);
+        // Pinned ABSENT rather than merely unlisted: a nav entry to a page that
+        // no longer exists renders a link that 404s, and nothing else catches it.
+        ['/swarm/pipelines2', '/swarm/epics2', '/swarm/steps2']
+            .forEach(p => expect(flat).not.toContain(p));
     });
 
     it('no longer lists a Features route anywhere in the tree (req #3357)', () => {
@@ -162,8 +171,8 @@ describe('navConfig — the plan editors nest under Pipelines (req #3236)', () =
 describe('navConfig — Machines nests under Requirements (req #3238)', () => {
     const REQUIREMENTS_PATH = '/swarm';
     const MACHINES_PATH = '/swarm/machines';
-    // req #3356 — Pipelines carries the 2.0 plan list now.
-    const PIPELINES_PATH = '/swarm/pipelines2';
+    // req #3356 — one plan list, at the unsuffixed route.
+    const PIPELINES_PATH = '/swarm/pipelines';
 
     const requirements = NAV_LINKS.find(l => l.path === REQUIREMENTS_PATH);
 
