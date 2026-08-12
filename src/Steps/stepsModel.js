@@ -265,6 +265,10 @@ export function buildStepEditorRows({
  * `epicIds` (req #3373) — the plan visualizer's epic chip ↗ control lands here:
  * `row.epicId` is the SAME dominant-epic field the plan pages band by, so a
  * step spanning no epic (`epicId === null`) never matches a real filter value.
+ * `StepsPage` keeps supplying `features` to the engine specifically so this
+ * stays true (req #3357 code review) — a first cut of that retirement dropped
+ * the read and left this filter, and the plan visualizer's already-shipped
+ * epic chip that lands on it, permanently empty.
  *
  * @param {Object[]} rows
  * @param {{pipelineIds: ?number[], states: ?string[], epicIds: ?number[]}} filters

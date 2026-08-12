@@ -1,5 +1,6 @@
 // /swarm/testcases — Test Cases page (req #2380 Phase 1).
-// Same exemplar pattern as FeaturesPage.
+// The exemplar pattern this once followed was FeaturesPage, retired by req
+// #3357 — test cases now link to Requirement (req #3352's junction) instead.
 
 import { useState, useMemo, useContext, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -7,15 +8,15 @@ import { useQueryClient } from '@tanstack/react-query';
 import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
 import {
-    useAllTestCases, useAllFeatures, useAllCategories, useFeatureTestCaseLinks,
+    useAllTestCases, useAllRequirements, useAllCategories, useAllRequirementTestCaseLinks,
 } from '../hooks/useDataQueries';
-import { testCaseKeys, featureTestCaseKeys } from '../hooks/useQueryKeys';
+import { testCaseKeys, requirementTestCaseKeys } from '../hooks/useQueryKeys';
 import { useViewPreference } from '../hooks/useViewPreference';
-import { useFeaturesFilterStore } from '../stores/useFeaturesFilterStore';
+import { useTestCatalogFilterStore } from '../stores/useTestCatalogFilterStore';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import {
     createTestCase, updateTestCase, deleteTestCase,
-    linkFeatureTestCase, unlinkFeatureTestCase,
+    linkRequirementTestCase, unlinkRequirementTestCase,
 } from './actions/validationApi';
 import { testTypeChipProps, TEST_TYPE_ORDER, makeStatusComparator } from './statusChipStyles';
 
@@ -40,8 +41,7 @@ import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
 import InputLabel from '@mui/material/InputLabel';
 import FormControl from '@mui/material/FormControl';
-import Checkbox from '@mui/material/Checkbox';
-import FormControlLabel from '@mui/material/FormControlLabel';
+import Autocomplete, { createFilterOptions } from '@mui/material/Autocomplete';
 import Alert from '@mui/material/Alert';
 import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 
@@ -55,6 +55,20 @@ const VIEW_KEY = 'darwin-swarm-testcases-view';
 const TABLE_WIDTH = 1100;
 const NO_CHANGE = '__no_change__';
 const formatDate = (v) => v ? new Date(v).toLocaleDateString() : '';
+// ONE stable reference for "no links yet" (code review finding). A `|| []`
+// literal at the dialog's call site mints a NEW array every render of this
+// page — including one triggered by something as unrelated as clicking a
+// category filter chip — and the dialog's edit-target effect used to depend
+// on that reference, so any such render reset every field the reader had
+// just typed. The dialog no longer depends on this prop's identity either
+// (see its own effect comment), but this stays as the honest empty value.
+const EMPTY_LINKS = [];
+// The requirements table runs to thousands of rows (code review finding).
+// MUI's default `filterOptions` scans every option on each keystroke and the
+// popper renders every match unvirtualized — capped here the same way a type-
+// ahead over an unbounded set always has to be: enough results to recognise
+// the one you want, never the whole table.
+const LINK_FILTER_OPTIONS = createFilterOptions({ limit: 50 });
 
 export default function TestCasesPage() {
     const { idToken, profile } = useContext(AuthContext);
@@ -66,22 +80,22 @@ export default function TestCasesPage() {
     const [dialogOpen, setDialogOpen] = useState(false);
     const [editTarget, setEditTarget] = useState(null);
 
-    const categoryFilter = useFeaturesFilterStore(s => s.categoryFilter);
-    const setCategoryFilter = useFeaturesFilterStore(s => s.setCategoryFilter);
+    const categoryFilter = useTestCatalogFilterStore(s => s.categoryFilter);
+    const setCategoryFilter = useTestCatalogFilterStore(s => s.setCategoryFilter);
 
     const creatorFk = profile?.userName;
     const { data: testCases = [], isLoading } = useAllTestCases(creatorFk, {
         fields: 'id,title,preconditions,steps,expected,test_type,tags,category_fk,closed,sort_order,create_ts',
     });
-    const { data: features = [] } = useAllFeatures(creatorFk, { fields: 'id,title,category_fk' });
+    const { data: requirements = [] } = useAllRequirements(creatorFk, { fields: 'id,title' });
     const { data: categories = [] } = useAllCategories(creatorFk, {
         fields: 'id,category_name,color,project_fk,closed', closed: 0,
     });
-    const { data: links = [] } = useFeatureTestCaseLinks(creatorFk);
+    const { data: links = [] } = useAllRequirementTestCaseLinks(creatorFk);
 
-    const featuresByTestCase = useMemo(() => {
+    const requirementsByTestCase = useMemo(() => {
         const map = {};
-        for (const l of links) (map[l.test_case_fk] = map[l.test_case_fk] || []).push(l.feature_fk);
+        for (const l of links) (map[l.test_case_fk] = map[l.test_case_fk] || []).push(l.requirement_fk);
         return map;
     }, [links]);
 
@@ -145,13 +159,13 @@ export default function TestCasesPage() {
 
     const invalidateAll = () => {
         queryClient.invalidateQueries({ queryKey: testCaseKeys.all(creatorFk) });
-        queryClient.invalidateQueries({ queryKey: featureTestCaseKeys.all(creatorFk) });
+        queryClient.invalidateQueries({ queryKey: requirementTestCaseKeys.all(creatorFk) });
     };
 
     const openAdd = () => { setEditTarget(null); setDialogOpen(true); };
     const openEdit = (tc) => { setEditTarget(tc); setDialogOpen(true); };
 
-    const handleSave = async (values, linkedFeatureIds) => {
+    const handleSave = async (values, linkedRequirementIds) => {
         try {
             let saved = editTarget;
             if (editTarget) await updateTestCase(darwinUri, idToken, editTarget.id, values);
@@ -161,13 +175,13 @@ export default function TestCasesPage() {
             }
             const caseId = saved?.id || editTarget?.id;
             if (caseId) {
-                const prev = new Set(featuresByTestCase[caseId] || []);
-                const next = new Set(linkedFeatureIds);
-                for (const fid of next) {
-                    if (!prev.has(fid)) await linkFeatureTestCase(darwinUri, idToken, fid, caseId);
+                const prev = new Set(requirementsByTestCase[caseId] || []);
+                const next = new Set(linkedRequirementIds);
+                for (const rid of next) {
+                    if (!prev.has(rid)) await linkRequirementTestCase(darwinUri, idToken, rid, caseId);
                 }
-                for (const fid of prev) {
-                    if (!next.has(fid)) await unlinkFeatureTestCase(darwinUri, idToken, fid, caseId);
+                for (const rid of prev) {
+                    if (!next.has(rid)) await unlinkRequirementTestCase(darwinUri, idToken, rid, caseId);
                 }
             }
             invalidateAll();
@@ -258,7 +272,7 @@ export default function TestCasesPage() {
                             )}
                             <TestCasesTableView
                                 testCases={filtered} categoryById={categoryById}
-                                featuresByTestCase={featuresByTestCase}
+                                requirementsByTestCase={requirementsByTestCase}
                                 onEdit={openEdit} onDelete={handleDelete}
                                 rowSelectionModel={rowSelectionModel}
                                 setRowSelectionModel={setRowSelectionModel} />
@@ -268,7 +282,7 @@ export default function TestCasesPage() {
                         <Box className="app-content-tabpanel" sx={{ p: 3 }}>
                             <TestCasesCardsView
                                 testCases={filtered} categoryById={categoryById}
-                                featuresByTestCase={featuresByTestCase}
+                                requirementsByTestCase={requirementsByTestCase}
                                 onEdit={openEdit} onDelete={handleDelete} />
                         </Box>
                     )
@@ -280,8 +294,8 @@ export default function TestCasesPage() {
                 onSave={handleSave}
                 initial={editTarget}
                 categories={categories}
-                features={features}
-                currentLinks={featuresByTestCase[editTarget?.id] || []} />
+                requirements={requirements}
+                currentLinks={requirementsByTestCase[editTarget?.id] || EMPTY_LINKS} />
 
             {/* Bulk edit + confirm */}
             <Dialog open={bulkDialogOpen} onClose={() => !savingBulk && setBulkDialogOpen(false)}
@@ -347,7 +361,7 @@ export default function TestCasesPage() {
     );
 }
 
-function TestCasesTableView({ testCases, categoryById, featuresByTestCase, onEdit, onDelete,
+function TestCasesTableView({ testCases, categoryById, requirementsByTestCase, onEdit, onDelete,
                                 rowSelectionModel, setRowSelectionModel }) {
     const columns = [
         { field: 'id', headerName: 'ID', width: 70, type: 'number' },
@@ -371,8 +385,8 @@ function TestCasesTableView({ testCases, categoryById, featuresByTestCase, onEdi
         },
         { field: 'tags', headerName: 'Tags', width: 180 },
         {
-            field: 'linked_features', headerName: 'Linked Features', width: 150, type: 'number',
-            valueGetter: (_v, row) => (featuresByTestCase[row.id] || []).length,
+            field: 'linked_requirements', headerName: 'Linked Requirements', width: 150, type: 'number',
+            valueGetter: (_v, row) => (requirementsByTestCase[row.id] || []).length,
         },
         { field: 'create_ts', headerName: 'Created', width: 105, valueFormatter: formatDate },
         {
@@ -414,7 +428,7 @@ function TestCasesTableView({ testCases, categoryById, featuresByTestCase, onEdi
     );
 }
 
-function TestCasesCardsView({ testCases, categoryById, featuresByTestCase, onEdit, onDelete }) {
+function TestCasesCardsView({ testCases, categoryById, requirementsByTestCase, onEdit, onDelete }) {
     const byCategory = useMemo(() => {
         const g = {};
         for (const tc of testCases) {
@@ -457,7 +471,7 @@ function TestCasesCardsView({ testCases, categoryById, featuresByTestCase, onEdi
                                                   sx={{ ...chipProps.sx, textTransform: 'capitalize' }} />
                                             <Typography variant="caption" sx={{ color: 'text.secondary',
                                                                                  minWidth: 90, textAlign: 'right' }}>
-                                                {(featuresByTestCase[tc.id] || []).length} feature(s)
+                                                {(requirementsByTestCase[tc.id] || []).length} requirement(s)
                                             </Typography>
                                             <IconButton size="small" aria-label="Edit test case" onClick={() => onEdit(tc)}><EditIcon fontSize="small" /></IconButton>
                                             <IconButton size="small" aria-label="Delete test case" onClick={() => onDelete(tc)}><DeleteIcon fontSize="small" /></IconButton>
@@ -473,7 +487,7 @@ function TestCasesCardsView({ testCases, categoryById, featuresByTestCase, onEdi
     );
 }
 
-function TestCaseEditDialog({ open, onClose, onSave, initial, categories, features, currentLinks }) {
+function TestCaseEditDialog({ open, onClose, onSave, initial, categories, requirements, currentLinks }) {
     const [title, setTitle] = useState('');
     const [preconditions, setPreconditions] = useState('');
     const [steps, setSteps] = useState('');
@@ -481,7 +495,8 @@ function TestCaseEditDialog({ open, onClose, onSave, initial, categories, featur
     const [test_type, setTestType] = useState('manual');
     const [tags, setTags] = useState('');
     const [category_fk, setCategoryFk] = useState('');
-    const [linkedFeatureIds, setLinkedFeatureIds] = useState([]);
+    const [linkedRequirementIds, setLinkedRequirementIds] = useState([]);
+    const [linkQuery, setLinkQuery] = useState('');
 
     useEffect(() => {
         if (!open) return;
@@ -492,8 +507,17 @@ function TestCaseEditDialog({ open, onClose, onSave, initial, categories, featur
         setTestType(initial?.test_type || 'manual');
         setTags(initial?.tags || '');
         setCategoryFk(initial?.category_fk || (categories[0]?.id ?? ''));
-        setLinkedFeatureIds(currentLinks || []);
-    }, [open, initial, categories, currentLinks]);
+        setLinkedRequirementIds(currentLinks || EMPTY_LINKS);
+        setLinkQuery('');
+        // Keyed on the row's OWN id, not the array/object references its
+        // fields arrive in — `categories` and `currentLinks` are read here for
+        // their VALUES, not to re-arm on every reference change. Re-opening
+        // (or re-running) this effect on every parent re-render — which a
+        // fresh `currentLinks` array literal at the call site used to force —
+        // silently reset every field the reader had just typed. See the
+        // caller's `EMPTY_LINKS` comment.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [open, initial?.id]);
 
     const submit = () => {
         if (!title || !steps || !expected || !category_fk) return;
@@ -501,10 +525,41 @@ function TestCaseEditDialog({ open, onClose, onSave, initial, categories, featur
             title, preconditions: preconditions || null,
             steps, expected, test_type,
             tags: tags || null, category_fk,
-        }, linkedFeatureIds);
+        }, linkedRequirementIds);
     };
-    const toggleFeature = (fid) =>
-        setLinkedFeatureIds(prev => prev.includes(fid) ? prev.filter(x => x !== fid) : [...prev, fid]);
+
+    // req #3357 item 9 — a checkbox-per-row list does not scale past a handful
+    // of options (34 features vs. 200+ live requirements, thousands in the
+    // table), so linking is SEARCH-AND-SELECT: a typeahead over `id - title`
+    // that adds a chip per selection, with the linked set as removable chips
+    // above it.
+    //
+    // Ids COERCED on both sides of every comparison — the wire makes no
+    // promise these stay JSON numbers, and the app's own convention elsewhere
+    // (`orchestrationIndex.js`'s `toId`, `pipelineMembership.js`) is never to
+    // trust it silently: a string/number mismatch here would leave an
+    // already-linked row still offered, or a saved link's chip simply missing.
+    const requirementById = useMemo(() => {
+        const m = new Map();
+        for (const r of requirements) m.set(Number(r.id), r);
+        return m;
+    }, [requirements]);
+    const linkedRequirements = useMemo(() => linkedRequirementIds.map(rid => {
+        const found = requirementById.get(Number(rid));
+        // A link to a requirement absent from the current read (still
+        // loading, or deleted) still renders — as its bare id — so it stays
+        // visible AND removable rather than disappearing from the chip row
+        // while `handleSave`'s diff still carries it.
+        return found || { id: rid, title: `#${rid}` };
+    }), [linkedRequirementIds, requirementById]);
+    const unlinkedOptions = useMemo(() => {
+        const linked = new Set(linkedRequirementIds.map(Number));
+        return requirements.filter(r => !linked.has(Number(r.id)));
+    }, [requirements, linkedRequirementIds]);
+    const addRequirement = (rid) =>
+        setLinkedRequirementIds(prev => (prev.map(Number).includes(Number(rid)) ? prev : [...prev, rid]));
+    const removeRequirement = (rid) =>
+        setLinkedRequirementIds(prev => prev.filter(x => Number(x) !== Number(rid)));
 
     return (
         <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth data-testid="test-case-edit-dialog">
@@ -547,19 +602,52 @@ function TestCaseEditDialog({ open, onClose, onSave, initial, categories, featur
                     <TextField label="Tags (comma-separated)" value={tags}
                                onChange={e => setTags(e.target.value)}
                                inputProps={{ 'data-testid': 'test-case-tags-input' }} />
-                    <Typography variant="subtitle2" sx={{ mt: 2 }}>Linked features</Typography>
-                    <Box sx={{ maxHeight: 200, overflow: 'auto', border: 1, borderColor: 'divider',
-                                 p: 1, borderRadius: 1 }} data-testid="feature-link-list">
-                        {features.map(f => (
-                            <FormControlLabel
-                                key={f.id}
-                                control={<Checkbox checked={linkedFeatureIds.includes(f.id)}
-                                                     onChange={() => toggleFeature(f.id)}
-                                                     data-testid={`link-feature-${f.id}`} />}
-                                label={f.title}
-                                sx={{ display: 'block' }}
-                            />
-                        ))}
+                    <Typography variant="subtitle2" sx={{ mt: 2 }}>Linked requirements</Typography>
+                    <Box data-testid="requirement-link-list">
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mb: linkedRequirements.length ? 1 : 0 }}>
+                            {linkedRequirements.map(r => (
+                                <Chip
+                                    key={r.id}
+                                    label={`${r.id} - ${r.title}`}
+                                    size="small"
+                                    onDelete={() => removeRequirement(r.id)}
+                                    data-testid={`link-requirement-${r.id}`}
+                                />
+                            ))}
+                        </Box>
+                        <Autocomplete
+                            options={unlinkedOptions}
+                            getOptionLabel={(r) => `${r.id} - ${r.title}`}
+                            filterOptions={LINK_FILTER_OPTIONS}
+                            value={null}
+                            // CONTROLLED input text, separately from `value`
+                            // (code review finding). MUI's own reset effect
+                            // only clears typed text on a `value` CHANGE — and
+                            // `value` here is permanently `null` (a link is an
+                            // ADD, not a selection the field should keep
+                            // showing) — so leaving `inputValue` uncontrolled
+                            // left the previous pick's label stuck in the
+                            // field, filtering `unlinkedOptions` (which no
+                            // longer contains it) down to nothing and showing
+                            // "No options" until the reader cleared it by hand.
+                            inputValue={linkQuery}
+                            onInputChange={(_e, value, reason) => {
+                                if (reason !== 'reset') setLinkQuery(value);
+                            }}
+                            onChange={(_e, value) => {
+                                if (!value) return;
+                                addRequirement(value.id);
+                                setLinkQuery('');
+                            }}
+                            isOptionEqualToValue={(a, b) => Number(a.id) === Number(b.id)}
+                            renderInput={(params) => (
+                                <TextField {...params} label="Link a requirement"
+                                           placeholder="Search by id or title"
+                                           inputProps={{ ...params.inputProps,
+                                               'data-testid': 'requirement-link-search' }} />
+                            )}
+                            data-testid="requirement-link-autocomplete"
+                        />
                     </Box>
                 </Stack>
             </DialogContent>

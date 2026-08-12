@@ -2,7 +2,7 @@ import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-quer
 import { useContext, useMemo } from 'react';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
-import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys, epicKeys, featureKeys, testCaseKeys, featureTestCaseKeys, testPlanKeys, testPlanCaseKeys, testRunKeys, testResultKeys, customerKeys, buildProjectKeys, branchKeys, buildKeys, customerReleaseKeys, pipeline2ComposeKeys } from './useQueryKeys';
+import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys, epicKeys, featureKeys, testCaseKeys, requirementTestCaseKeys, testPlanKeys, testPlanCaseKeys, testRunKeys, testResultKeys, customerKeys, buildProjectKeys, branchKeys, buildKeys, customerReleaseKeys, pipeline2ComposeKeys } from './useQueryKeys';
 import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, swarmCompletes, swarmCompleteSessions, machines, agents, instructions, architectureDocuments, agentDocuments, agentInstructions, agentTelemetryRuns, agentTelemetryRows, agentTelemetryRowDocs, orchestrationClaims, pipelines, pipelines2, pipeline2Epics, pipeline2Steps, pipeline2StepRequirements, pipeline2StepDeps, pipelineSteps, pipelineStepRequirements, pipelineStepDeps, requirementSessions, sessionCostRollups } from './factory/devopsQueries';
 // `fetchEntity` is shared with the factory so both layers handle REST errors
 // identically (req #2593).
@@ -189,13 +189,13 @@ export function useRequirementCounts(creatorFk, { enabled = true } = {}) {
     });
 }
 
-// `feature_fk` joined the projection with req #3114 (column added by #3111
-// migration 076). It is where the Epic > Feature > Story hierarchy attaches —
-// design rule 10 puts epic/feature labels on the REQUIREMENT and never on the
-// plan step, so any surface that wants to show them needs the column. A NULL-able
-// INT costs nothing on the wire, and this key already carries no `fields`, so
-// widening it cannot collide (the callers here all take the default).
-export function useRequirements(creatorFk, categoryId, { fields = 'id,title,requirement_status,category_fk,completed_at,deferred_at,started_at,coordination_type,ai_model,effort,machine_fk,feature_fk,sort_order', enabled = true } = {}) {
+// `feature_fk` carried this projection from req #3114 (column added by #3111
+// migration 076) through req #3357: its one caller (`CategoryCard.jsx`) never
+// read the column directly — the epic/orchestrated marking it fed came from
+// `useRequirementVisibility`'s own dedicated whole-table read, not this one —
+// so dropping it here loses nothing, and it is one fewer place a query has to
+// carry a Feature-tier column now that the tier itself is retired.
+export function useRequirements(creatorFk, categoryId, { fields = 'id,title,requirement_status,category_fk,completed_at,deferred_at,started_at,coordination_type,ai_model,effort,machine_fk,sort_order', enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
 
@@ -576,18 +576,19 @@ export function useMapRunPartners(creatorFk, { fields = 'id,map_run_fk,map_partn
 }
 
 // ---------------------------------------------------------------------------
-// Req #2380 — Swarm Features & Test Cases registry
+// Req #2380 — Swarm Test Cases registry (the Features half retired by req #3357;
+// `useAllFeatures` below survives ONLY as the label-dictionary read
+// `src/SwarmView/pipelines/usePlanSources.js` still depends on).
 // `fields` is included in every extended query key (req #2213 — avoids cache collisions
 // across callers with different projections).
 // ---------------------------------------------------------------------------
 
-// `epic_fk` (req #3111 migration 076) joined both projections with req #3114:
+// `epic_fk` (req #3111 migration 076) joined the projection with req #3114:
 // features are the middle tier of Epic > Feature > Story, and the plan table
 // walks requirement -> feature -> epic to derive a step's dominant label
-// (design rule 10). Both keys already carry `fields`, so widening them cannot
+// (design rule 10). The key already carries `fields`, so widening it cannot
 // collide with a narrower caller (req #2213).
 const FEATURE_DEFAULT_FIELDS = 'id,title,feature_status,epic_fk,category_fk,closed,sort_order,create_ts';
-const FEATURE_FULL_FIELDS    = 'id,title,description,feature_status,epic_fk,category_fk,creator_fk,closed,sort_order,create_ts,update_ts';
 const TESTCASE_DEFAULT_FIELDS = 'id,title,test_type,tags,category_fk,closed,sort_order,create_ts';
 const TESTCASE_FULL_FIELDS    = 'id,title,preconditions,steps,expected,test_type,tags,category_fk,creator_fk,closed,sort_order,create_ts,update_ts';
 const TESTPLAN_DEFAULT_FIELDS = 'id,title,description,category_fk,closed,sort_order,create_ts';
@@ -669,6 +670,12 @@ export function useEpicById(creatorFk, id, { enabled = true } = {}) {
 }
 
 // ----- features -----
+//
+// The Features browsable catalog (`FeaturesPage`, `useFeaturesByCategory`,
+// `useFeatureById`) was retired by req #3357. This hook survives as the ONE
+// remaining consumer's read: `src/SwarmView/pipelines/usePlanSources.js` feeds
+// it to the 1.0 plan derivation as a LABEL DICTIONARY (design rule 10) — that
+// derivation is untouched pending a separate single-source-of-truth choice.
 
 // `closed` defaults to 0 — the historical behavior every existing caller relies
 // on (a browsable catalog hides closed rows). Req #3114 added the option so the
@@ -692,31 +699,6 @@ export function useAllFeatures(creatorFk,
         queryKey,
         queryFn: () => fetchEntity(uri, idToken),
         enabled: enabled && !!creatorFk && !!idToken,
-    });
-}
-
-export function useFeaturesByCategory(creatorFk, categoryId, { fields = FEATURE_DEFAULT_FIELDS, enabled = true } = {}) {
-    const { darwinUri } = useContext(AppContext);
-    const { idToken } = useContext(AuthContext);
-    const uri = `${darwinUri}/features?category_fk=${categoryId}&closed=0&fields=${fields}&sort=sort_order:asc`;
-    const queryKey = [...featureKeys.byCategory(creatorFk, categoryId), { fields }];
-    return useQuery({
-        queryKey,
-        queryFn: () => fetchEntity(uri, idToken),
-        enabled: enabled && !!creatorFk && !!categoryId && !!idToken,
-    });
-}
-
-export function useFeatureById(creatorFk, id, { enabled = true } = {}) {
-    const { darwinUri } = useContext(AppContext);
-    const { idToken } = useContext(AuthContext);
-    const uri = `${darwinUri}/features?id=${id}&fields=${FEATURE_FULL_FIELDS}`;
-    const queryKey = featureKeys.byId(creatorFk, id);
-    return useQuery({
-        queryKey,
-        queryFn: () => fetchEntity(uri, idToken),
-        // See useEpicById's identical comment (code review, req #3234).
-        enabled: enabled && !!creatorFk && !!id && !!idToken,
     });
 }
 
@@ -746,13 +728,14 @@ export function useTestCaseById(creatorFk, id, { enabled = true } = {}) {
     });
 }
 
-// Full feature_test_cases link table. The callers (coverage indicator, link-check)
-// compute coverage client-side by joining against the features list.
-export function useFeatureTestCaseLinks(creatorFk, { enabled = true } = {}) {
+// Full requirement_test_cases link table (req #3352's junction; req #3357
+// re-points the frontend at it). The callers (coverage indicator, link-check)
+// compute coverage client-side by joining against the requirements list.
+export function useAllRequirementTestCaseLinks(creatorFk, { enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
-    const uri = `${darwinUri}/feature_test_cases?fields=feature_fk,test_case_fk`;
-    const queryKey = featureTestCaseKeys.all(creatorFk);
+    const uri = `${darwinUri}/requirement_test_cases?fields=requirement_fk,test_case_fk`;
+    const queryKey = requirementTestCaseKeys.all(creatorFk);
     return useQuery({
         queryKey,
         queryFn: () => fetchEntity(uri, idToken),

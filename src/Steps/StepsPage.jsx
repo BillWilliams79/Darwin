@@ -1,8 +1,8 @@
 // /swarm/steps — the Steps editor (req #3140).
 //
-// The third page of feature 37 "Plan Editors": formal editor pages for the plan's
-// own entities — epics (req #3139), features, and steps — reached as second-level
-// navigation under Pipelines, alongside the plan views that render them. It is an
+// The plan's own entities — epics (req #3139) and steps — reached as
+// second-level navigation under Pipelines, alongside the plan views that
+// render them. It is an
 // L2 SIBLING of Pipelines and Epics, never a child: req #3209's nesting is for
 // lifecycle records OF a thing (Starts are of a Session), and a step is a member
 // of a plan, not a record about one.
@@ -21,7 +21,8 @@
 // scroll to and highlight a `focusStepId` (the req #3115 bead-click handshake).
 // So the connection is the Pipeline cell: it deep-links to that plan FOCUSED ON
 // THIS STEP, via `pipelineStepLink.js`, which owns both halves of the URL
-// contract. Exactly the move req #3139 made with its Features count cell.
+// contract. Exactly the move req #3139 made with its (since-retired) Features
+// count cell.
 //
 // ## What this page edits, and what it deliberately does not
 //
@@ -35,7 +36,7 @@
 // polling that plan would race the launch decision with no error anywhere, and
 // `set_step_deps` has REPLACE semantics where a lost update is silent. Links and
 // dependencies render read-only, with their ids on hover. This is the same line
-// EpicsPage draws: it edits an epic's columns and never a feature's `epic_fk`.
+// EpicsPage draws: it edits an epic's own columns, never what points at it.
 //
 // NOT `pipeline_fk` on an existing step, either — the MCP's own rule: *a step's
 // plan membership is its identity; drop it and create it in the other plan, which
@@ -56,6 +57,23 @@
 // every row, but a machine is a LAUNCH parameter belonging to the plan view, and
 // this page shows no such column — so the read would cost a request to populate a
 // field nothing renders.
+//
+// `features` KEPT ALIVE (req #3357 code review). This page's Epic column and
+// its `?epic=<id>` filter (req #3373) both come from the SAME 1.0 derivation
+// engine `SwarmView/pipelines/` uses (`buildPipelineModel`, out of this
+// requirement's scope), which still needs `features` to derive a step's
+// dominant epic — there is no non-Feature source for that fact in 1.0. A
+// first cut of this requirement dropped the read on the theory that "retire
+// Feature from the frontend" meant every consumer, but that broke an
+// ALREADY-SHIPPED, tested feature: the plan visualizer's epic chip ↗
+// (req #3373) already links to this page's `?epic=` filter, and pulling the
+// data out from under it left that live link resolving to zero rows —
+// forever. `useAllFeatures` was already going to survive regardless (as the
+// same read `usePlanSources.js` makes for the excluded plan pages), so
+// keeping this page a second caller of it costs nothing and avoids the
+// regression. `EpicsPage`'s own feature-derived Features COUNT is still
+// gone — the requirement's mandate holds wherever it does not conflict with
+// something already shipped.
 
 import { useContext, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -241,7 +259,10 @@ export default function StepsPage() {
     const { data: requirements = [], isLoading: reqsLoading, isError: reqsError } =
         useAllRequirements(creatorFk, { fields: PLAN_REQUIREMENT_FIELDS });
     // Labels are a DICTIONARY here, not a catalog: a closed epic or feature must
-    // still resolve or the Epic column blanks for data it has.
+    // still resolve or the Epic column blanks for data it has. `features` is
+    // kept alive for the engine's dominant-epic derivation (design rule 10,
+    // requirement -> feature -> epic) — see the file header's "`features` KEPT
+    // ALIVE" note for why this page did not follow req #3357's usual retirement.
     const { data: features = [], isLoading: featuresLoading, isError: featuresError } =
         useAllFeatures(creatorFk, { closed: ALL_ROWS });
     const { data: epics = [], isLoading: epicsLoading, isError: epicsError } =
@@ -314,10 +335,9 @@ export default function StepsPage() {
     const [pipelineFilter, setPipelineFilter] = useState(ALL_PIPELINES);
 
     // Epic filter via ?epic=<id> (req #3373) — the plan visualizer epic chip's
-    // ↗ control lands here, the same `FeaturesPage.jsx` doctrine: a URL param,
-    // not persisted state, so the link IS the filter and dismissing the chip
-    // clears it without touching anything else. Integer ids only, matching
-    // `FeaturesPage`'s guard — `Number(' ')` is 0 and `Number('1.5')` is 1.5,
+    // ↗ control lands here: a URL param, not persisted state, so the link IS
+    // the filter and dismissing the chip clears it without touching anything
+    // else. Integer ids only — `Number(' ')` is 0 and `Number('1.5')` is 1.5,
     // either of which would filter every step out under a chip reading "Epic: 0".
     const [searchParams, setSearchParams] = useSearchParams();
     const epicParamRaw = searchParams.get('epic');
@@ -655,7 +675,7 @@ export default function StepsPage() {
         }
     };
 
-    // Deliberately NOT memoized (the EpicsPage / FeaturesPage shape). Every action
+    // Deliberately NOT memoized (the EpicsPage shape). Every action
     // cell closes over `idToken`, which is refreshed in place by AuthContext; a
     // memoized column array would keep firing REST calls with the token it
     // captured on first render long after that token expired.
@@ -867,9 +887,9 @@ export default function StepsPage() {
                 {epicFilter !== null && (
                     // The plan visualizer's epic chip ↗ landed here (req #3373).
                     // The ✕ clears the filter; the body carries no navigation of
-                    // its own — unlike FeaturesPage's identical chip, this page
-                    // IS the destination, so there is nowhere else for a click
-                    // on the body to usefully go.
+                    // its own — unlike FeaturesPage's identical (retired) chip,
+                    // this page IS the destination, so there is nowhere else
+                    // for a click on the body to usefully go.
                     <Chip size="small" color="secondary"
                           label={`Epic: ${epics.find(e => e.id === epicFilter)?.title
                               || epicFilter}`}

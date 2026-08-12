@@ -1013,7 +1013,7 @@ export default function PipelineDetail({ era = DEFAULT_PLAN_ERA }) {
                             size="small"
                             label="Paused"
                             {...pipelineStatusChipProps('paused')}
-                            sx={{ flexShrink: 0 }}
+                            sx={{ ...pipelineStatusChipProps('paused').sx, flexShrink: 0 }}
                             data-testid="pipeline-detail-paused"
                         />
                     </Tooltip>

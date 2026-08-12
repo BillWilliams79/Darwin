@@ -7,7 +7,7 @@
 // rides → N tracks on the card). The coordinates hook is mocked so each
 // state (loading / tracks / empty) can be exercised directly.
 //
-// Req #3174 — component-test coverage for feature #23. Adds the cap boundary
+// Req #3174 — component-test coverage for the Aggregator Card. Adds the cap boundary
 // (MAX_AGGREGATE_RUNS + the truncation notice, driven with 201 stub runs) and
 // the stats arithmetic over the string DECIMALs Lambda-Rest actually returns.
 //
@@ -207,7 +207,7 @@ describe('MapAggregatorCard (req #3158)', () => {
 });
 
 // Req #3174 criterion 3. The cap was exported by the pre-#3181 implementation,
-// lost in that revert, and rebuilt with this requirement; feature #23's linked
+// lost in that revert, and rebuilt with this requirement; req #3174's linked
 // test case 3 is the spec — capped set on the map, capped set in the header,
 // and the shortfall stated on screen. 201 runs is the boundary+1 named there.
 describe('MapAggregatorCard cap (req #3174)', () => {

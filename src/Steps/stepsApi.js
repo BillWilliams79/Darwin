@@ -87,7 +87,7 @@ export const REST_NULL = 'NULL';
 export const isRestNullLiteral = (value) => String(value ?? '').trim() === REST_NULL;
 
 // The MySQL naive-datetime form Darwin stores everywhere, in UTC — the same
-// expression Features/actions/validationApi.js uses for `completed_at`, and the
+// expression TestCatalog/actions/validationApi.js uses for `completed_at`, and the
 // browser's equivalent of the MCP's `sql_now()`. `toISOString()` is UTC by
 // definition, so a step completed from any timezone stamps the same instant.
 // The 'T' has to go: `dateFormat.formatDateTime` reads the space-separated form

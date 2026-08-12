@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// ── THE requirement-visibility harness — req #3419 ───────────────────────────
+// ── THE requirement-visibility harness — req #3419, narrowed by req #3357 ────
 //
 // The requirement that produced this file asked for one thing above all: *"if
 // there is only one place to calculate the query for this button then it will
@@ -22,11 +22,13 @@
 // computed in one place cannot fail that assertion, and a rule that quietly
 // grows a sixth copy will.
 //
-// THE FIXTURE ENCODES THE MEASURED DEFECT. Production, 2026-08-09: category 1
-// under the default chips held 27 requirements, 9 survived the toggle, and 4 of
-// those 9 were seated under an epic (#3304/#3314 -> feature 35 -> epic 4, #3385
-// -> feature 31 -> epic 7, #3433 -> feature 41 -> epic 9) with no pipeline step
-// carrying them. Row 102 below is that row.
+// req #3419's EPIC population (a requirement filed under an epic via
+// `feature_fk` with no step carrying it yet) is retired by req #3357: Feature
+// left the frontend, and it was the only mechanism that could produce that
+// population — see `utils/pipelineMembership.js`'s header. The fixture below
+// keeps its original row shape (so the surface-by-surface structure of this
+// harness stays intact) but every row's orchestration now turns on STEP
+// association alone.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import React from 'react';
@@ -48,24 +50,23 @@ vi.mock('react-router-dom', () => ({
 //
 // 100  unplanned                                    -> always visible
 // 101  carried by pipeline step 1                   -> STEP association
-// 102  seated under feature 900 -> epic 4, NO step  -> EPIC association (#3419)
-// 103  under feature 901, which names NO epic       -> NOT orchestrated
-// 104  seated under feature 900, status development -> EPIC, observation chip
+// 102  unplanned (the req #3419 epic population it once carried is retired)
+// 103  unplanned
+// 104  unplanned, status development
 const CATEGORY_ID = 5;
 const ROWS = [
-    { id: 100, title: 'Unplanned', requirement_status: 'authoring', category_fk: CATEGORY_ID, feature_fk: null, sort_order: 0, coordination_type: 'implemented', ai_model: 'opus', effort: 'high', machine_fk: null, started_at: null, completed_at: null, deferred_at: null },
-    { id: 101, title: 'On a plan step', requirement_status: 'authoring', category_fk: CATEGORY_ID, feature_fk: null, sort_order: 1, coordination_type: 'implemented', ai_model: 'opus', effort: 'high', machine_fk: null, started_at: null, completed_at: null, deferred_at: null },
-    { id: 102, title: 'In an epic, no step', requirement_status: 'authoring', category_fk: CATEGORY_ID, feature_fk: 900, sort_order: 2, coordination_type: 'implemented', ai_model: 'opus', effort: 'high', machine_fk: null, started_at: null, completed_at: null, deferred_at: null },
-    { id: 103, title: 'Feature with no epic', requirement_status: 'authoring', category_fk: CATEGORY_ID, feature_fk: 901, sort_order: 3, coordination_type: 'implemented', ai_model: 'opus', effort: 'high', machine_fk: null, started_at: null, completed_at: null, deferred_at: null },
-    { id: 104, title: 'In an epic, in flight', requirement_status: 'development', category_fk: CATEGORY_ID, feature_fk: 900, sort_order: 4, coordination_type: 'implemented', ai_model: 'opus', effort: 'high', machine_fk: null, started_at: '2026-08-01T00:00:00', completed_at: null, deferred_at: null },
+    { id: 100, title: 'Unplanned', requirement_status: 'authoring', category_fk: CATEGORY_ID, sort_order: 0, coordination_type: 'implemented', ai_model: 'opus', effort: 'high', machine_fk: null, started_at: null, completed_at: null, deferred_at: null },
+    { id: 101, title: 'On a plan step', requirement_status: 'authoring', category_fk: CATEGORY_ID, sort_order: 1, coordination_type: 'implemented', ai_model: 'opus', effort: 'high', machine_fk: null, started_at: null, completed_at: null, deferred_at: null },
+    { id: 102, title: 'Unplanned (formerly epic-seated)', requirement_status: 'authoring', category_fk: CATEGORY_ID, sort_order: 2, coordination_type: 'implemented', ai_model: 'opus', effort: 'high', machine_fk: null, started_at: null, completed_at: null, deferred_at: null },
+    { id: 103, title: 'Unplanned', requirement_status: 'authoring', category_fk: CATEGORY_ID, sort_order: 3, coordination_type: 'implemented', ai_model: 'opus', effort: 'high', machine_fk: null, started_at: null, completed_at: null, deferred_at: null },
+    { id: 104, title: 'Unplanned, in flight', requirement_status: 'development', category_fk: CATEGORY_ID, sort_order: 4, coordination_type: 'implemented', ai_model: 'opus', effort: 'high', machine_fk: null, started_at: '2026-08-01T00:00:00', completed_at: null, deferred_at: null },
 ];
-const FEATURES = [{ id: 900, epic_fk: 4 }, { id: 901, epic_fk: null }];
 const JUNCTION = [{ step_fk: 1, requirement_fk: 101 }];
 const CATEGORIES = [{ id: CATEGORY_ID, category_name: 'Harness', project_fk: 1, color: null, sort_mode: 'process' }];
 
 // The answer, stated once, independently of any component.
-const ORCHESTRATED = [101, 102, 104];
-const VISIBLE_WHEN_HIDING = [100, 103];
+const ORCHESTRATED = [101];
+const VISIBLE_WHEN_HIDING = [100, 102, 103, 104];
 
 // ── the ONE mock: the wire ───────────────────────────────────────────────────
 //
@@ -87,9 +88,8 @@ const serve = (uri) => {
         if (params.has('requirement_status')) {
             return ROWS.filter(r => r.requirement_status === params.get('requirement_status'));
         }
-        return ROWS;   // whole-table projections, incl. `fields=id,feature_fk`
+        return ROWS;
     }
-    if (table === 'features') return FEATURES;
     if (table === 'pipeline_step_requirements') return JUNCTION;
     if (table === 'categories') return CATEGORIES;
     return [];
@@ -234,38 +234,35 @@ describe('req #3419 — one visibility rule, every surface (the single harness)'
 
     // ── the answer itself ────────────────────────────────────────────────────
     describe('the shared hook', () => {
-        it('reads the three lists and answers step OR epic', async () => {
+        it('reads the junction and answers step association', async () => {
             mount(<Probe />);
             await settle(() => probed.orchestratedIds.size === ORCHESTRATED.length);
             expect([...probed.orchestratedIds].sort((a, b) => a - b)).toEqual(ORCHESTRATED);
         }, TIMEOUT);
 
-        it('keeps the STEP set narrow — launch eligibility is not widened', async () => {
-            // req #3180 stays intact: a requirement seated under an epic that no
-            // step carries IS launchable, and the aggregator must keep offering
-            // it. Collapsing these two Sets into one is the tempting
-            // simplification that would withhold real work.
+        it('the ORCHESTRATED and STEP sets are now the same set (req #3357)', async () => {
+            // req #3419's epic population is retired — see the module header —
+            // so `orchestratedIds` and `pipelinedIds` agree exactly.
             mount(<Probe />);
             await settle(() => probed.pipelinedIds.size === 1);
             expect([...probed.pipelinedIds]).toEqual([101]);
+            expect(probed.orchestratedIds).toEqual(probed.pipelinedIds);
         }, TIMEOUT);
 
         it('agrees with the pure function it is a memoized form of', async () => {
             mount(<Probe />);
             await settle(() => probed.orchestratedIds.size === ORCHESTRATED.length);
             expect(probed.orchestratedIds)
-                .toEqual(orchestratedRequirementIds(JUNCTION, ROWS, FEATURES));
+                .toEqual(orchestratedRequirementIds(JUNCTION));
         }, TIMEOUT);
 
-        it('actually issued the reads — an empty answer must not be silent', async () => {
+        it('actually issued the read — an empty answer must not be silent', async () => {
             // `fetchEntity` turns a 404 into `[]`, so a hook pointed at the wrong
             // URL produces "nothing is orchestrated" rather than an error. Assert
-            // the three reads happened at all.
+            // the read happened at all.
             mount(<Probe />);
             await settle(() => probed.orchestratedIds.size === ORCHESTRATED.length);
             expect(restCalls.some(u => u.includes('/pipeline_step_requirements'))).toBe(true);
-            expect(restCalls.some(u => u.includes('/features'))).toBe(true);
-            expect(restCalls.some(u => u.includes('fields=id,feature_fk'))).toBe(true);
         }, TIMEOUT);
 
         it('hides nothing while the reads are in flight', () => {
@@ -279,7 +276,7 @@ describe('req #3419 — one visibility rule, every surface (the single harness)'
 
     // ── surface by surface, through the REAL chain ───────────────────────────
     describe('the Cards view', () => {
-        it('hides step-carried AND epic-seated work with the toggle ON', async () => {
+        it('hides step-carried work with the toggle ON', async () => {
             const c = mount(<Card />);
             await settle(cardLoaded(c));
             await settle(() => renderedIds(c).length === VISIBLE_WHEN_HIDING.length);
@@ -323,14 +320,18 @@ describe('req #3419 — one visibility rule, every surface (the single harness)'
             await settle(() => renderedIds(c).length === 3);
             const ids = renderedIds(c);
             expect(ids).not.toContain(101);   // req #3180 — unconditional
-            expect(ids).toContain(102);       // ...but epic-seated work IS launchable
+            expect(ids).toEqual([100, 102, 103]);
         }, TIMEOUT);
 
-        it('withholds epic-seated work too once the toggle is ON', async () => {
+        it('the toggle changes nothing further on the aggregator (req #3357)', async () => {
+            // req #3419's epic population — the one thing the toggle could still
+            // withhold beyond the unconditional launch exclusion — is retired, so
+            // ON and OFF now render identically here. That collapse is itself the
+            // regression req #3357's report names.
             const c = mount(<SwarmStartCard />);
             await settle(aggregatorLoaded(c));
-            await settle(() => renderedIds(c).length === 2);
-            expect(renderedIds(c)).toEqual([100, 103]);
+            await settle(() => renderedIds(c).length === 3);
+            expect(renderedIds(c)).toEqual([100, 102, 103]);
         }, TIMEOUT);
 
         it('badges the chip with the number of rows it renders', async () => {
@@ -338,7 +339,7 @@ describe('req #3419 — one visibility rule, every surface (the single harness)'
             // asserts it by OUTCOME, so re-inlining either half fails here.
             const c = mount(<SwarmStartCard />);
             await settle(aggregatorLoaded(c));
-            await settle(() => renderedIds(c).length === 2);
+            await settle(() => renderedIds(c).length === 3);
             const badge = c.querySelector('[data-testid="swarm-start-chip-badge-authoring"] .MuiBadge-badge');
             expect(badge?.textContent).toBe(String(renderedIds(c).length));
         }, TIMEOUT);
@@ -372,15 +373,15 @@ describe('req #3419 — one visibility rule, every surface (the single harness)'
             expect(plain(c)).toEqual(VISIBLE_WHEN_HIDING);
         }, TIMEOUT);
 
-        it('marks step-carried AND epic-seated work, not just step-carried', async () => {
-            // 102 is epic-seated with no step. A mark built on the old step-only
-            // predicate would leave it plain.
+        it('marks step-carried work, and step-carried work alone (req #3357)', async () => {
+            // 102 was epic-seated under the retired req #3419 population; a mark
+            // still built against that dead predicate would leave it gold.
             useShowClosedStore.setState({ hidePipelinedRequirements: false });
             const c = mount(<Card />);
             await settle(cardLoaded(c));
             await settle(() => renderedIds(c).length === 5);
-            expect(marked(c)).toContain(101);   // step-carried
-            expect(marked(c)).toContain(102);   // epic-seated only
+            expect(marked(c)).toContain(101);      // step-carried
+            expect(marked(c)).not.toContain(102);  // no longer a population at all
         }, TIMEOUT);
 
         it('marks NOTHING that survives the toggle — mark and filter are one set', async () => {
@@ -409,8 +410,9 @@ describe('req #3419 — one visibility rule, every surface (the single harness)'
             const c = mount(<SwarmStartCard />);
             await settle(aggregatorLoaded(c));
             await settle(() => renderedIds(c).length === 3);
-            // 101 is withheld by the launch exclusion; 102 is offered AND marked.
-            expect(marked(c)).toEqual([102]);
+            // 101 is withheld by the launch exclusion, so it never reaches the
+            // aggregator to be marked — and nothing else is orchestrated now.
+            expect(marked(c)).toEqual([]);
         }, TIMEOUT);
     });
 
@@ -424,7 +426,7 @@ describe('req #3419 — one visibility rule, every surface (the single harness)'
                 .filter(n => !Number.isNaN(n))
                 .sort((a, b) => a - b);
 
-        it('hides step-carried AND epic-seated work with the toggle ON', async () => {
+        it('hides step-carried work with the toggle ON', async () => {
             const c = mount(<RequirementsTableView />);
             await settle(() => tableIds(c).length === VISIBLE_WHEN_HIDING.length);
             expect(tableIds(c)).toEqual(VISIBLE_WHEN_HIDING);
@@ -463,23 +465,23 @@ describe('req #3419 — one visibility rule, every surface (the single harness)'
             expect(elevatorIds(probed).ordered.map(r => r.id)).toEqual(renderedIds(c));
         }, TIMEOUT);
 
-        it('never sends Down to an epic-seated row the card hides', async () => {
+        it('sends Down to 102 now that no epic population hides it (req #3357)', async () => {
             mount(<Probe />);
             await settle(() => probed.orchestratedIds.size === ORCHESTRATED.length);
             const { nextId } = elevatorIds(probed);
-            expect(nextId).toBe(103);
-            expect(elevatorIds(probed).ordered.map(r => r.id)).not.toContain(102);
+            expect(nextId).toBe(102);
+            expect(elevatorIds(probed).ordered.map(r => r.id)).not.toContain(101);
         }, TIMEOUT);
 
         it('disables both arrows on a requirement the filter itself hides', async () => {
             mount(<Probe />);
             await settle(() => probed.orchestratedIds.size === ORCHESTRATED.length);
-            const at102 = siblingElevator(ROWS, {
-                sortMode: 'process', isVisible: probed.isVisible, currentId: 102,
+            const at101 = siblingElevator(ROWS, {
+                sortMode: 'process', isVisible: probed.isVisible, currentId: 101,
             });
-            expect(at102.currentIndex).toBe(-1);
-            expect(at102.prevId).toBeNull();
-            expect(at102.nextId).toBeNull();
+            expect(at101.currentIndex).toBe(-1);
+            expect(at101.prevId).toBeNull();
+            expect(at101.nextId).toBeNull();
         }, TIMEOUT);
     });
 
@@ -495,7 +497,10 @@ describe('req #3419 — one visibility rule, every surface (the single harness)'
 
         it.each([true, false])('card, aggregator and hook agree (hiding=%s)', async (hiding) => {
             useShowClosedStore.setState({ hidePipelinedRequirements: hiding });
-            const expected = hiding ? [100, 103] : [100, 102, 103];
+            // req #3357 — the epic population COMPARABLE used to be split by is
+            // gone, so both toggle states now agree on the same answer: nothing
+            // in COMPARABLE (101 already excluded) is ever hidden.
+            const expected = [100, 102, 103];
 
             const card = mount(<Card />);
             const agg = mount(<SwarmStartCard />);
@@ -503,7 +508,7 @@ describe('req #3419 — one visibility rule, every surface (the single harness)'
             await settle(cardLoaded(card));
             await settle(aggregatorLoaded(agg));
             await settle(() => probed.orchestratedIds.size === ORCHESTRATED.length
-                && renderedIds(card).length === (hiding ? 2 : 5));
+                && renderedIds(card).length === (hiding ? VISIBLE_WHEN_HIDING.length : 5));
 
             const fromCard = renderedIds(card).filter(id => COMPARABLE.includes(id));
             const fromAggregator = renderedIds(agg).filter(id => COMPARABLE.includes(id));

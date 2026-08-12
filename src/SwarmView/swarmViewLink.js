@@ -75,15 +75,16 @@ export const swarmViewLinkTo = (view) =>
 // this link's whole promise is the CARDS. It seeds the same TRANSIENT override,
 // so the reader's stored default is never rewritten.
 //
-// THE THIRD `?epic=` IN THIS CODEBASE, AND THAT IS FINE. `pipelineEpicLink.js`
+// NOT THE ONLY `?epic=` IN THIS CODEBASE, AND THAT IS FINE. `pipelineEpicLink.js`
 // owns `?epic=` on `/swarm/pipeline/<pid>`, where it means FOCUS THIS BAND;
-// `FeaturesPage.jsx` owns it on `/swarm/features`, where it means FILTER TO THIS
-// EPIC; this owns it on `/swarm` and means what the second one means. Three
-// ROUTES, one meaning each, so no reader ever has to work out which sense is in
-// play — and the key is the same word because the noun is the same, which is
-// what makes the address bar legible. The three deliberately do NOT share a
-// reader: merging them would couple three pages' query strings so that changing
-// one has to be argued on all three.
+// `StepsPage.jsx` owns it on `/swarm/steps` (req #3373), where it means FILTER
+// TO THIS EPIC — the target `FeaturesPage.jsx` used to own before req #3357
+// retired it; this owns it on `/swarm` and means what StepsPage's means.
+// Multiple ROUTES, one meaning each, so no reader ever has to work out which
+// sense is in play — and the key is the same word because the noun is the same,
+// which is what makes the address bar legible. They deliberately do NOT share a
+// reader: merging them would couple their query strings so that changing one
+// has to be argued on all of them.
 
 /** The query parameter. `epic`, because the filter names an EPIC. */
 export const SWARM_EPIC_PARAM = 'epic';
@@ -117,8 +118,8 @@ export const swarmEpicLinkTo = (epicId) => {
  * `Number('')` is 0 while `Number('1.5')` is 1.5, either of which would filter
  * every row away under a pill naming an epic that does not exist. An id that
  * names a REAL-SHAPED epic which simply has no row is not an error: the page
- * filters to an empty set and the pill falls back to the raw id, exactly as
- * `FeaturesPage.jsx` has behaved since req #3115.
+ * filters to an empty set and the pill falls back to the raw id — the same
+ * behavior `pipelineEpicLink.js`'s reader follows.
  *
  * @param {{get: function(string): ?string}} searchParams
  * @returns {?number}

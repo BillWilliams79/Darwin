@@ -1,13 +1,12 @@
 // /swarm/epics — the Epics editor (req #3139).
 //
-// Epics are the TOP tier of Epic > Feature > Story (req #3111, migration 076).
-// Every other tier already had a page: requirements at /swarm, features at
-// /swarm/features. Epics had none — req #3115 shipped the `?epic=<id>` filter on
-// the features view as "the minimal target the requirement asked for; dedicated
-// epic pages are deliberately deferred". This is that deferred page, and it sits
-// as an L2 nav entry directly under Pipelines because an epic is what a plan is
-// made OF (design rule 10 derives a step's label by walking requirement →
-// feature → epic).
+// Epics are the TOP tier of Epic > Step (req #3111, migration 076). Every
+// other tier already had a page: requirements at /swarm, steps at
+// /swarm/steps. Epics had none — req #3115 shipped the `?epic=<id>` filter on
+// the (since-retired) features view as "the minimal target the requirement
+// asked for; dedicated epic pages are deliberately deferred". This is that
+// deferred page, and it sits as an L2 nav entry directly under Pipelines
+// because an epic is what a plan is made OF.
 //
 // Shape follows MachinesView (/swarm/machines): one DataGrid, a click-to-toggle
 // closed chip, no cards/trends views. Create and Edit go through one dialog
@@ -17,13 +16,16 @@
 // Deliberately NOT a `ViewerHeader` page (memory/darwin-viewer-pages.md): that
 // contract is for a dataset shown through MORE THAN ONE presentation, and it
 // mandates a ToggleButtonGroup even at length 1 — a dead control on a page with
-// a single view. The siblings this page sits beside (Machines, Customers,
-// Features) all hand-roll the same header row. Adopting ViewerHeader is the
+// a single view. The siblings this page sits beside (Machines, Customers)
+// all hand-roll the same header row. Adopting ViewerHeader is the
 // right move the day this page grows a second view, not before.
 //
-// The connection to the existing epic surface is the Features count cell: it
-// navigates to /swarm/features?epic=<id>, the same target the plan visualizer's
-// epic chip ↗ uses (req #3119). The features view's epic chip links back here.
+// req #3357 — THE FEATURE TIER LEFT. The Features count cell that used to
+// navigate to /swarm/features?epic=<id> is gone; the column that replaces it
+// opens /swarm/steps?epic=<id> instead (the same target req #3373 repointed
+// the plan visualizer's epic chip ↗ at), because a step count would need the
+// same feature_fk chain walk this requirement retires. It carries no count —
+// deriving "how many steps under this epic" would cost the same chain walk.
 
 import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -50,10 +52,11 @@ import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
+import LinearScaleIcon from '@mui/icons-material/LinearScale';
 
 import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
-import { useAllEpics, useAllFeatures, useAllCategories, useMachines, useOrchestrationClaims, ALL_ROWS } from '../hooks/useDataQueries';
+import { useAllEpics, useAllCategories, useMachines, useOrchestrationClaims } from '../hooks/useDataQueries';
 import { claimsForEpic, holderView } from '../SwarmView/pipelines/orchestrationHolder';
 import { epicKeys, featureKeys, sessionKeys } from '../hooks/useQueryKeys';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
@@ -131,11 +134,6 @@ export default function EpicsPage() {
     const timezone = profile?.timezone;
 
     const { data: epics = [], isLoading: epicsLoading } = useAllEpics(creatorFk);
-    // ALL_ROWS: the count is "features filed under this epic", and a closed
-    // feature is still filed under it. Counting only open ones would report 0
-    // for a finished epic and read as a data bug.
-    const { data: features = [], isLoading: featuresLoading } =
-        useAllFeatures(creatorFk, { closed: ALL_ROWS });
     const { data: categories = [], isLoading: categoriesLoading } =
         useAllCategories(creatorFk, { fields: CATEGORY_FIELDS });
     // req #3224 — which epics are being orchestrated, from where. Deliberately
@@ -147,11 +145,8 @@ export default function EpicsPage() {
     const { data: machines = [] } = useMachines(creatorFk);
 
     // Every read that feeds a NUMBER OR A LABEL gates the spinner (the
-    // PipelinesPage rule). The three reads resolve independently: gating on
-    // epics alone paints a grey `0` in the Features column for every epic, and
-    // — worse — a delete confirmed in that window omits the "its N features
-    // will be unfiled" clause the confirmation exists to deliver.
-    const isLoading = epicsLoading || featuresLoading || categoriesLoading;
+    // PipelinesPage rule).
+    const isLoading = epicsLoading || categoriesLoading;
 
     // Plain state, deliberately: unlike PipelinesPage's persisted filter, this
     // page has no detail route to click into and come back from, so there is no
@@ -170,15 +165,6 @@ export default function EpicsPage() {
     const [formCategoryFk, setFormCategoryFk] = useState('');
     const [formSortOrder, setFormSortOrder] = useState('');
     const [submitting, setSubmitting] = useState(false);
-
-    const featureCountByEpic = useMemo(() => {
-        const m = {};
-        for (const f of features) {
-            if (f.epic_fk == null) continue;
-            m[f.epic_fk] = (m[f.epic_fk] || 0) + 1;
-        }
-        return m;
-    }, [features]);
 
     const categoryById = useMemo(() => {
         const m = {};
@@ -218,8 +204,8 @@ export default function EpicsPage() {
             .map(e => {
                 // THE EPIC'S OWN reservation only. A WHOLE-PLAN orchestrator
                 // also owns this epic's steps, but knowing which plans an epic
-                // is seated in means walking epic -> features -> requirements ->
-                // step links, and that is three more whole-table reads for a
+                // is seated in means walking epic -> steps -> requirements ->
+                // step links, and that is more whole-table reads for a
                 // badge. The plan surfaces answer the whole-plan case directly,
                 // so this page answers the question it can answer exactly —
                 // hence the empty `pipelineIds`.
@@ -227,7 +213,6 @@ export default function EpicsPage() {
                                           machines);
                 return {
                     ...e,
-                    feature_count: featureCountByEpic[e.id] || 0,
                     orchestrated_by: holder ? holder.label : '',
                     orchestrated_title: holder ? holder.title : '',
                     orchestrated_stale: holder ? holder.stale : false,
@@ -238,7 +223,7 @@ export default function EpicsPage() {
                 const bo = b.sort_order == null ? Infinity : b.sort_order;
                 return ao - bo || a.id - b.id;
             });
-    }, [epics, closedFilter, featureCountByEpic, orchestrationClaims, machines]);
+    }, [epics, closedFilter, orchestrationClaims, machines]);
 
     const invalidateEpics = () =>
         queryClient.invalidateQueries({ queryKey: epicKeys.all(creatorFk) });
@@ -247,7 +232,8 @@ export default function EpicsPage() {
         setEditTarget(null);
         setFormTitle('');
         setFormDescription('');
-        // Pre-select the first OPEN category (the FeatureEditDialog rule).
+        // Pre-select the first OPEN category (the house rule this page's own
+        // dialog, and the (retired) FeatureEditDialog, both followed).
         // category_fk is required by the API, so an empty default is a dead Save
         // button on a form that looks complete. `categoryOptions` was memoized
         // for the previous `editTarget` and may still carry that epic's closed
@@ -268,16 +254,16 @@ export default function EpicsPage() {
         setDialogOpen(true);
     };
 
-    // Deep-link via ?id=<id> (req #3234): the requirement detail page's Epic
-    // linkage box links here. A flat DataGrid has no per-row route to land on,
-    // so "click through to it" means open the same edit dialog the Edit icon
-    // opens — the page's own presentation of one epic's full detail (title,
-    // description, category) that a grid row cannot show. Mirrors the
-    // `?epic=<id>` param FeaturesPage already reads from this page's own
-    // Features-count link. Fires once per param (autoOpenedIdRef) and clears
-    // the param on success so reopening the dialog and hitting Back doesn't
-    // re-trigger it; an id with no matching row is silently ignored — the
-    // grid still renders normally rather than blocking on a bad link.
+    // Deep-link via ?id=<id> (req #3234): the requirement detail page's
+    // Orchestration box used to link here from its Epic row (retired, req
+    // #3357). A flat DataGrid has no per-row route to land on, so "click
+    // through to it" means open the same edit dialog the Edit icon opens —
+    // the page's own presentation of one epic's full detail (title,
+    // description, category) that a grid row cannot show. Fires once per
+    // param (autoOpenedIdRef) and clears the param on success so reopening
+    // the dialog and hitting Back doesn't re-trigger it; an id with no
+    // matching row is silently ignored — the grid still renders normally
+    // rather than blocking on a bad link.
     const autoOpenedIdRef = useRef(null);
     useEffect(() => {
         // Gated on the PAGE's loading flag, not `epicsLoading` alone (code review,
@@ -364,20 +350,20 @@ export default function EpicsPage() {
     };
 
     const handleDelete = async (row) => {
-        const count = row.feature_count;
-        const consequence = count
-            ? ` Its ${count} feature${count === 1 ? '' : 's'} will be unfiled (kept, but with no epic).`
-            : '';
-        if (!window.confirm(`Delete epic "${row.title}"?${consequence}`)) return;
+        if (!window.confirm(`Delete epic "${row.title}"?`)) return;
         try {
             await deleteEpic(darwinUri, idToken, row.id);
             invalidateEpics();
             // BOTH columns that point at an epic are ON DELETE SET NULL, so both
-            // caches are now stale: features.epic_fk (the count on this page) and
-            // swarm_sessions.epic_fk (req #3186's attribution row, which would
-            // otherwise keep rendering a bare `#<id>` chip for an epic that no
-            // longer exists — the title lookup fails once the epics list refetches).
-            // The session invalidation goes to the ENTITY ROOT deliberately; see
+            // caches are now stale (code review, req #3357): `features.epic_fk`
+            // — `useAllFeatures` is still live for `StepsPage`/`usePlanSources`,
+            // so a stale cache there would keep the plan visualizer's epic band
+            // and this page's own Steps filter resolving against a deleted
+            // epic for up to the hook's staleTime — and swarm_sessions.epic_fk
+            // (req #3186's attribution row, which would otherwise keep
+            // rendering a bare `#<id>` chip for an epic that no longer exists —
+            // the title lookup fails once the epics list refetches). The
+            // session invalidation goes to the ENTITY ROOT deliberately; see
             // SESSION_CACHE_ROOT above for why the list key cannot reach the row
             // that actually renders the column.
             queryClient.invalidateQueries({ queryKey: featureKeys.all(creatorFk) });
@@ -387,7 +373,7 @@ export default function EpicsPage() {
         }
     };
 
-    // Deliberately NOT memoized (the FeaturesPage / CustomersPage shape). Every
+    // Deliberately NOT memoized (the CustomersPage shape). Every
     // action cell closes over `idToken`, which is refreshed in place by
     // AuthContext; a memoized column array would keep firing REST calls with the
     // token it captured on first render long after that token expired.
@@ -412,32 +398,26 @@ export default function EpicsPage() {
             valueFormatter: (value) => value || '—',
         },
         {
-            field: 'feature_count', headerName: 'Features', width: 100, type: 'number',
-            // The connection to the existing epic surface (req #3139): the same
-            // epic-filtered features view the plan visualizer's ↗ opens.
+            // req #3357 — the Features count cell is retired with the Feature
+            // tier; this opens the same epic-filtered destination req #3373
+            // repointed the plan visualizer's epic chip ↗ at. No count: a step
+            // count would need the same feature_fk chain walk this requirement
+            // retires.
+            field: 'steps', headerName: 'Steps', width: 90, sortable: false,
+            filterable: false,
             renderCell: (params) => (
-                <Box
-                    component="span"
-                    role="link"
-                    tabIndex={0}
-                    aria-label={`Open the features filed under ${params.row.title}`}
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        navigate(`/swarm/features?epic=${params.row.id}`);
-                    }}
-                    onKeyDown={(e) => {
-                        if (e.key !== 'Enter') return;
-                        e.stopPropagation();
-                        navigate(`/swarm/features?epic=${params.row.id}`);
-                    }}
-                    sx={{
-                        cursor: 'pointer',
-                        textDecoration: params.value > 0 ? 'underline' : 'none',
-                        color: params.value > 0 ? 'primary.main' : 'text.secondary',
-                    }}
-                    data-testid={`epic-features-link-${params.row.id}`}
-                >
-                    {params.value}
+                <Box sx={{ display: 'flex', alignItems: 'center', height: '100%' }}>
+                    <Tooltip title={`Open the steps filed under ${params.row.title}`}>
+                        <IconButton size="small"
+                                    aria-label={`Open the steps filed under ${params.row.title}`}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        navigate(`/swarm/steps?epic=${params.row.id}`);
+                                    }}
+                                    data-testid={`epic-steps-link-${params.row.id}`}>
+                            <LinearScaleIcon fontSize="small" />
+                        </IconButton>
+                    </Tooltip>
                 </Box>
             ),
         },

@@ -1,5 +1,5 @@
 // Mutation utilities for the customers data type (req #2604).
-// Pattern mirrors src/Features/actions/validationApi.js — call_rest_api directly,
+// Pattern mirrors src/TestCatalog/actions/validationApi.js — call_rest_api directly,
 // callers handle TanStack Query cache invalidation via queryClient.invalidateQueries.
 
 import call_rest_api from '../RestApi/RestApi';

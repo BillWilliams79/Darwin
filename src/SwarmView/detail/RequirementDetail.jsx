@@ -10,15 +10,13 @@ import { useAllCategories, useMachines,
 // into the body cleanly, so only the import line collided with req #3435's.
 import { useRequirementVisibility } from '../../hooks/useRequirementVisibility';
 import { useOrchestrationIndex } from './useOrchestrationIndex';
-import {
-    epicForFeature, epicRowForFeature, stepOptions,
-} from './orchestrationIndex';
-import { epicLinkTo, planLinkTo } from '../pipelines/pipelineEpicLink';
+import { stepOptions } from './orchestrationIndex';
+import { planLinkTo } from '../pipelines/pipelineEpicLink';
 import { stepPlanLinkTo } from '../pipelines/pipelineStepLink';
 // req #3463 — the era↔route binding. This page never spells a plan route.
-// `useEpicPipelineLocation` / `useRequirementStepLocation` both walk the 1.0
-// tables, so the two plan links below are 1.0 by the era those hooks read from,
-// which is what `epicLinkTo`/`stepPlanLinkTo`'s default already means.
+// `useRequirementStepLocation` walks the 1.0 tables, so the plan link below is
+// 1.0 by the era that hook read from, which is what `planLinkTo`/
+// `stepPlanLinkTo`'s default already means.
 import { DEFAULT_PLAN_ERA, isPlanEra, planDetailPath } from '../pipelines/planEra';
 import { siblingElevator, readElevatorIds } from './requirementSort';
 import { coerceSortMode, DEFAULT_SORT_MODE } from '../processSort';
@@ -57,7 +55,6 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import NorthIcon from '@mui/icons-material/North';
 import SouthIcon from '@mui/icons-material/South';
-import LayersIcon from '@mui/icons-material/Layers';
 import LanIcon from '@mui/icons-material/Lan';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
 
@@ -103,12 +100,12 @@ const FIELDSET_LEFT_INSET = 13;
 const SETTINGS_LABEL_WIDTH = ID_PREFIX_WIDTH - CHIP_TEXT_INSET;
 const FIELDSET_LABEL_WIDTH = SETTINGS_LABEL_WIDTH - FIELDSET_LEFT_INSET;
 
-// Req #3435 — the Orchestration box's two selects, styled as the Category select
+// Req #3435 — the Orchestration box's Step select, styled as the Category select
 // is: standard variant with the underline suppressed until hover and no dropdown
 // arrow, so the value reads as text rather than as a form field. `minWidth` keeps
-// the box from resizing as the reader moves between a short plan name and a long
-// epic name; `maxWidth` keeps a long epic title from widening the whole row past
-// the AI Settings fieldset beside it, letting the label ellipsize instead.
+// the box from resizing as the reader moves between a short and a long step
+// title; `maxWidth` keeps a long one from widening the whole row past the AI
+// Settings fieldset beside it, letting the label ellipsize instead.
 const ORCH_SELECT_SX = {
     minWidth: 200,
     maxWidth: 320,
@@ -130,14 +127,14 @@ const ORCH_SELECT_SX = {
     }),
 };
 
-// Req #3435 — the two READ-ONLY rows. Same metrics as the select beside them so
-// all three values start at the same x and a long step title ellipsizes rather
-// than widening the fieldset past the AI Settings box next to it.
+// Req #3435 — the Pipeline row's label, sized the same as the Step row's so
+// both values start at the same x and a long value ellipsizes rather than
+// widening the fieldset past the AI Settings box next to it.
 // Fixed `width`, not content-sized — the same construction, and the same
 // constant, the Model/Effort rows use inside the AI Settings fieldset beside
 // this one (req #3327's alignment discipline). So a row name occupies a column of
 // exactly the width Autonomy gives its own label, and the icon after it starts at
-// one x on all three rows regardless of whether the word is "Pipeline" or "Epic" —
+// one x on both rows regardless of whether the word is "Pipeline" or "Step" —
 // which is the whole reason it is not content-sized.
 //
 // It is NOT trying to align with Autonomy's label on screen: the two fieldsets sit
@@ -359,118 +356,80 @@ const RequirementDetail = () => {
             }),
         [machinesData]
     );
-    // ── Req #3435 — the Orchestration box: WHICH PLAN, WHICH EPIC ───────────
-    // One index over six bounded list reads replaces the two targeted resolvers
-    // this box used to run (`useEpicPipelineLocation`, five serial hops for one
-    // epic; `useRequirementStepLocation`, three for one requirement). Those were
-    // right for a box that only REPORTED; this one OFFERS, and an epic dropdown
-    // asks "which plan is this epic in?" of every epic at once — the exact
-    // fan-out a per-row chain cannot serve. Five of the six reads are the same
-    // cache entries the plan pages hold. Detail in `useOrchestrationIndex.js`.
+    // ── Req #3435 — the Orchestration box: WHICH PLAN ────────────────────────
+    // One index over bounded list reads replaces the targeted resolver this box
+    // used to run (`useRequirementStepLocation`, three serial hops for one
+    // requirement) — right for a box that only REPORTED; this one OFFERS a step
+    // to seat the requirement on. Every read is the same cache entry the plan
+    // pages hold. Detail in `useOrchestrationIndex.js`.
+    //
+    // req #3357 RETIRED THE EPIC ROW this box once showed alongside Pipeline and
+    // Step. It was reached only through `requirements.feature_fk ->
+    // features.epic_fk`, and Feature leaving the frontend retires that path with
+    // no 1.0 replacement (no `pipeline_steps` row carries an `epic_fk` — see
+    // `orchestrationIndex.js`'s header). The box now shows the two levels the
+    // data still answers.
     const orchestration = useOrchestrationIndex(profile?.userName, { enabled: !isNew });
     const orchIndex = orchestration.index;
     const orchSettled = orchestration.isSettled;
-    // SPLIT, not one flag (code review). The epic assignment needs `epics` and
-    // `features` and nothing else; a transient failure on any of the four
-    // plan-side reads has nothing to do with the write, and folding them
-    // together let one of them disable assignment entirely. The predecessor
-    // degraded gracefully by design — req #3235's own comment said a failed
-    // plan-location lookup "just renders no second link" — and that property
-    // has to survive the consolidation.
-    const epicSideErrored = orchestration.errors.epics || orchestration.errors.features;
     const planSideErrored = orchestration.errors.plan;
-    // `errors.epicPlanMap` is deliberately NOT consumed here any more. It gated
-    // the epic list's narrowing; with the epic read-only, the only derived
-    // scoping left is the STEP list's, and a failed chained read empties
-    // `epicByStep` — which reads as "this step has no epic yet" and therefore
-    // WIDENS the list rather than narrowing it. Widening is the safe direction
-    // (the reader sees more steps, never fewer), so there is nothing to guard.
 
-    // ── THREE LEVELS, AND ONLY ONE OF THEM IS SETTABLE ──────────────────────
-    // Pipeline, Epic, Step — top to bottom, each with a button that opens the
-    // visualizer AT THAT LEVEL and a value beside it. The Epic is the only
-    // selector; Pipeline and Step are read-only text.
+    // ── TWO LEVELS, AND ONLY ONE OF THEM IS SETTABLE ─────────────────────────
+    // Pipeline, Step — each with a button that opens the visualizer AT THAT
+    // LEVEL and a value beside it. Step is the only selector; Pipeline is
+    // read-only text.
     //
     // That is not a shortcut, it is what the data allows. There is no
-    // `requirements.pipeline_fk` and no `requirements.step_fk`: a requirement
-    // reaches a plan only by being seated on a `pipeline_steps` row, which is a
-    // PLAN mutation the Primary AI owns (memory/swarm-orchestration-doctrine.md),
-    // not a field on a requirement. An earlier cut of this box shipped a pipeline
-    // SELECT anyway, as a display-plus-local-filter, and it was withdrawn: it was
+    // `requirements.pipeline_fk`: a requirement reaches a plan only by being
+    // seated on a `pipeline_steps` row, which is a PLAN mutation the Primary AI
+    // owns (memory/swarm-orchestration-doctrine.md), not a field on a
+    // requirement. An earlier cut of this box shipped a pipeline SELECT anyway,
+    // as a display-plus-local-filter, and it was withdrawn: it was
     // indistinguishable from the control beside it (identical styling, sitting
     // under a Category select that DOES save on change) while silently
     // discarding the reader's choice on navigation, and it carried two meanings
     // that disagree the moment a different plan is picked — "the plan this
     // requirement is on" and "the plan I am filtering by".
-    //
-    // Making the other two settable at all is req #3453 (authoring/discuss) —
-    // deliberately a design conversation, not a backlog item, because drag and
-    // drop onto the visualizer is as plausible an answer as two more selects.
-    //
-    // THE EPIC IS READ-ONLY TOO NOW. It is reached only through
-    // `requirements.feature_fk`, and which of an epic's features carries a
-    // requirement is an editorial choice — this page tried deriving it, was
-    // measured wrong on nine of eleven live epics, then offered it explicitly,
-    // and the user's call is that it does not belong here at all. Setting the
-    // epic (and the plan) from this page is req #3453.
 
     // The requirement's own seat: which step of which plan carries it. The Step
-    // row's value, and the narrowest of the three links — `?step=` lands the
-    // camera on one bead, where `?epic=` fits the whole band and on a large epic
-    // IS a zoomed-out view (req #3253).
+    // row's value, and the narrowest link — `?step=` lands the camera on one
+    // bead (req #3253).
     const requirementSeat = orchIndex.requirementSeat.get(Number(id)) || null;
     const seatStep = requirementSeat && requirementSeat.stepId != null
         ? (orchIndex.stepsById.get(requirementSeat.stepId) || { id: requirementSeat.stepId })
         : null;
 
-    // READ OFF THE LIVE ROW, not the index's requirements projection: this page
-    // holds the row it fetched and has just written to, while the projection is
-    // a cache that lags a PUT by one invalidation. The box therefore updates the
-    // instant an assignment lands rather than a refetch later.
-    //
-    // COERCED, unlike everything else read off the live row: it is a Map key
-    // (`epicByFeature`) and a `'46'` from the wire indexes as a different feature
-    // than 46. The index normalises every id it holds (`toId`); this is the one
-    // read that happens outside it.
-    const currentFeatureFk = (() => {
-        const raw = requirement?.feature_fk;
-        if (raw == null || raw === '') return null;
-        const n = Number(raw);
-        return Number.isInteger(n) ? n : null;
-    })();
-    const currentEpicId = epicForFeature(orchIndex, currentFeatureFk);
-    const currentEpicRow = epicRowForFeature(orchIndex, currentFeatureFk);
-
-    // WHICH PLAN. The seat's, when a step carries this requirement; otherwise the
-    // one its epic reaches (req #3235's fallback, kept). The two are DIFFERENT
-    // FACTS — seated-vs-unseated is what the sync report splits into
-    // UNSEATED-REQS and ORPHANS, and it decides whether a launch is the
-    // coordinator's to make — but they no longer need a parenthetical to tell
-    // apart: the Step row below says so structurally by reading "—".
-    const epicPipelineId = currentEpicId != null
-        ? (orchIndex.epicPrimaryPipeline.get(currentEpicId) ?? null) : null;
+    // WHICH PLAN. The seat's, when a step carries this requirement; otherwise
+    // none is known — a requirement no step carries has no plan the box can
+    // point at (the sync report's UNSEATED-REQS/ORPHANS is the thing that used
+    // to fill this gap via the epic's own plan; that fallback left with the
+    // Epic row).
     const seatPipelineId = requirementSeat ? requirementSeat.pipelineId : null;
-    const shownPipelineId = seatPipelineId ?? epicPipelineId;
+    const shownPipelineId = seatPipelineId;
     const shownPipelineRow = shownPipelineId != null
         ? orchIndex.pipelinesById.get(shownPipelineId) : null;
 
-    // ── The ONE settable level: which open step of this epic carries the work ─
-    // Scoped to the plan and epic already on screen, so picking here can never
-    // move the requirement to another epic — which is what keeps the three rows
-    // consistent without a second write. See `stepOptions`.
+    // ── The ONE settable level: which open step of this plan carries the work ─
+    // Scoped to the plan already on screen. See `stepOptions`.
+    //
+    // NO LONGER ALSO SCOPED TO AN EPIC (code review, req #3357). Before the
+    // Epic row left this box, the list additionally narrowed to the epic
+    // already shown, so a pick could never move the requirement to another
+    // epic. With no epic known here any more there is nothing left to scope
+    // by — offering every open step of the plan is the correct list for what
+    // the box now asks, not a narrower one this page could reconstruct
+    // without re-deriving the epic association item 7 retired.
     const stepChoices = stepOptions(orchIndex, {
         pipelineId: shownPipelineId,
-        epicId: currentEpicId,
         currentStepId: seatStep ? seatStep.id : null,
     });
 
-    // ── The three links, one per level ──────────────────────────────────────
+    // ── The two links, one per level ─────────────────────────────────────────
     // Every builder returns null for an unusable id, and `to={null}` handed to
     // react-router's Link throws at render — so each is null-guarded and its
     // button renders disabled rather than dead (the box's existing "omit rather
     // than render a dead link" rule, req #3235).
     const pipelineLink = planLinkTo(shownPipelineId);
-    const epicPlanLink = epicLinkTo(epicPipelineId, currentEpicId);
     const stepPlanLink = seatStep ? stepPlanLinkTo(seatPipelineId, seatStep.id) : null;
 
     // Filter chips now match DB status values directly
@@ -541,7 +500,7 @@ const RequirementDetail = () => {
         // Re-arm the loading gate on every id change (code review, req #3234): without
         // this, navigating from one requirement straight to another (duplicate, the
         // sessions grid's Source link, browser Back/Forward) left the OLD requirement's
-        // data — including its resolved Epic link — rendered and clickable throughout
+        // data — including its resolved Orchestration box links — rendered and clickable throughout
         // the new GET, since `loading` was already false from the previous mount.
         setLoading(true);
         const fetchData = async () => {
@@ -746,7 +705,7 @@ const RequirementDetail = () => {
             if (prevStepId != null) {
                 // Composite PK (step_fk, requirement_fk) — no surrogate id, so
                 // the DELETE body names both columns. Same shape as
-                // `unlinkFeatureTestCase` in Features/actions/validationApi.js.
+                // `unlinkRequirementTestCase` in TestCatalog/actions/validationApi.js.
                 await call_rest_api(uri, 'DELETE',
                     { step_fk: prevStepId, requirement_fk: reqId }, idToken);
             }
@@ -1172,7 +1131,7 @@ const RequirementDetail = () => {
                 const labelColor = isFaded ? 'text.disabled' : 'text.secondary';
 
                 return (
-                    // Row pairing AI Settings with the Epic linkage box (req #3234) — the
+                    // Row pairing AI Settings with the Orchestration box (req #3234) — the
                     // same flex-row idiom the Requirement/Session timings pair below uses.
                     <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start', flexWrap: 'wrap', mb: 2 }}>
                     {/* A real <fieldset>/<legend> pair so the "AI Settings" caption sits ON the
@@ -1251,26 +1210,26 @@ const RequirementDetail = () => {
                         </Box>
                     </Box>
 
-                    {/* ── Orchestration (req #3435) ──────────────────────────────
-                        WHICH PLAN and WHICH EPIC, in two rows and nothing else.
-                        Same fieldset/legend/border/radius as AI Settings so the
-                        two read as a pair.
+                    {/* ── Orchestration (req #3435, epic row retired req #3357) ──
+                        WHICH PLAN and, via the Step select below, which step —
+                        in two rows and nothing else. Same fieldset/legend/border/
+                        radius as AI Settings so the two read as a pair.
 
-                        Each row is one ICON BUTTON that navigates and one SELECT
-                        that names the thing — the Category select's idiom
-                        (standard variant, no dropdown arrow, the value rendered
-                        as text), so the box reads as prose until it is clicked.
+                        Each row is one ICON BUTTON that navigates and either a
+                        SELECT (Step) or plain text (Pipeline) that names the
+                        thing — the Category select's idiom (standard variant, no
+                        dropdown arrow, the value rendered as text), so the box
+                        reads as prose until it is clicked.
 
                         The pipeline row WRITES NOTHING: there is no
                         `requirements.pipeline_fk`, and a seat on a plan is a
                         `pipeline_steps` mutation the Primary AI owns. It displays
-                        the plan this requirement is on and filters the epic list.
-                        The epic row is the one that assigns.
+                        the plan the Step row's seat is on. The Step row is the
+                        one that assigns.
 
-                        No third line. The `via feature "…"` caption this box used
-                        to carry is deliberately gone: the feature tier is the
-                        SEAT that carries an epic label, not a fact the reader of
-                        a requirement needs. */}
+                        No epic row and no `via feature "…"` caption: Feature left
+                        the frontend (req #3357) and no replacement exists for
+                        1.0 — see `orchestrationIndex.js`'s header. */}
                     <Box
                         component="fieldset"
                         data-testid="requirement-orchestration-group"
@@ -1291,7 +1250,7 @@ const RequirementDetail = () => {
                             <Typography variant="body2" color="text.secondary" data-testid="orchestration-loading">
                                 Loading…
                             </Typography>
-                        ) : (epicSideErrored && planSideErrored) ? (
+                        ) : planSideErrored ? (
                             // Distinct from an empty selection — a failed read is
                             // not the same fact as a confirmed-absent link, and
                             // offering an assignment list built from rows that
@@ -1304,12 +1263,6 @@ const RequirementDetail = () => {
                                 {/* ── PIPELINE ── read-only. LanIcon matches the
                                     Pipelines nav entry's own icon — the app's
                                     existing iconography, not one invented here. */}
-                                {planSideErrored ? (
-                                    <Typography variant="body2" color="text.secondary"
-                                                data-testid="orchestration-pipeline-error">
-                                        Pipeline unavailable
-                                    </Typography>
-                                ) : (
                                 <Stack direction="row" spacing={1} alignItems="center"
                                        data-testid="orchestration-pipeline-row">
                                     <Typography variant="subtitle2" color="text.secondary"
@@ -1341,68 +1294,16 @@ const RequirementDetail = () => {
                                                 : 'No pipeline'}
                                     </Typography>
                                 </Stack>
-                                )}
-
-                                {/* ── EPIC ── read-only. An epic is reached only
-                                    through `requirements.feature_fk`, and which
-                                    feature carries it is an editorial choice this
-                                    page stopped guessing (req #3453 holds the
-                                    question of setting it from here at all).
-                                    LayersIcon matches the Epics nav entry. */}
-                                {epicSideErrored ? (
-                                    <Typography variant="body2" color="text.secondary"
-                                                data-testid="orchestration-epic-error">
-                                        Epic unavailable
-                                    </Typography>
-                                ) : (
-                                <Stack direction="row" spacing={1} alignItems="center"
-                                       data-testid="orchestration-epic-row">
-                                    <Typography variant="subtitle2" color="text.secondary"
-                                                sx={ORCH_ROW_LABEL_SX}
-                                                data-testid="orchestration-epic-label">
-                                        Epic
-                                    </Typography>
-                                    <Tooltip title="View this epic's location on the plan visualizer">
-                                        <span>
-                                            <IconButton
-                                                size="small"
-                                                disabled={!epicPlanLink}
-                                                // NAMES THE EPIC: a reader tabbing
-                                                // the box otherwise cannot tell
-                                                // which epic this opens.
-                                                aria-label={currentEpicRow
-                                                    ? `View epic ${currentEpicRow.title} on the plan visualizer`
-                                                    : "View this epic's location on the plan visualizer"}
-                                                data-testid="orchestration-epic-link"
-                                                {...(epicPlanLink
-                                                    ? { component: RouterLink, to: epicPlanLink } : {})}
-                                            >
-                                                <LayersIcon fontSize="small" />
-                                            </IconButton>
-                                        </span>
-                                    </Tooltip>
-                                    <Typography sx={ORCH_VALUE_SX} data-testid="orchestration-epic-value">
-                                        {currentEpicRow ? currentEpicRow.title
-                                            : currentFeatureFk != null ? `Feature ${currentFeatureFk}`
-                                                : 'No epic'}
-                                    </Typography>
-                                </Stack>
-                                )}
 
                                 {/* ── STEP ── THE ONE SETTABLE LEVEL. Picking here
                                     writes `pipeline_step_requirements` — see
                                     `handleStepChange` for why that crosses a line
                                     StepsPage draws, and on whose authority.
 
-                                    The list is scoped to this plan and this epic
-                                    (`stepOptions`), so a pick can never move the
-                                    requirement to another epic — which is what
-                                    keeps the three rows consistent without a
-                                    second write. An em-dash value IS "no step
-                                    sequences this requirement", the distinction
-                                    the sync report splits into UNSEATED-REQS and
-                                    ORPHANS. */}
-                                {planSideErrored ? null : (
+                                    The list is scoped to this plan (`stepOptions`).
+                                    An em-dash value IS "no step sequences this
+                                    requirement", the distinction the sync report
+                                    splits into UNSEATED-REQS and ORPHANS. */}
                                 <Stack direction="row" spacing={1} alignItems="center"
                                        data-testid="orchestration-step-row">
                                     <Typography variant="subtitle2" color="text.secondary"
@@ -1451,7 +1352,6 @@ const RequirementDetail = () => {
                                         ))}
                                     </Select>
                                 </Stack>
-                                )}
                             </>
                         )}
                     </Box>
