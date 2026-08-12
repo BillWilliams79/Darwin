@@ -102,7 +102,7 @@ import {
 // (the whole reason it was safe to ship) — a row here has to open it, or the
 // producer/consumer pair is only reachable by hand-typing a URL.
 import { planDetailPath } from '../SwarmView/pipelines/planEra';
-import { readPipelinePlace } from '../SwarmView/pipelines/pipelinePlace';
+import { readPipelinePlace, prunePipelineStorage } from '../SwarmView/pipelines/pipelinePlace';
 import { pipelineSummaries, pipelineRequirementCounts } from './pipelinesViewModel';
 import PipelinesCardsView from './PipelinesCardsView';
 import { updatePipeline } from './pipelinesApi';
@@ -288,6 +288,19 @@ export default function PipelinesPage() {
 
     const { data: pipelines = [], isLoading: pipelinesLoading } =
         useAllPipelines(creatorFk, { fields: PIPELINES_FIELDS });
+
+    // The orphan sweep for per-plan camera/scroll storage (viewportMemory.js
+    // keys keyed by plan id) had no caller anywhere in `src/` after the 1.0
+    // list page — its only caller — was deleted (code review, req #3356):
+    // every camera and scroll offset for every plan ever opened, including
+    // deleted ones, would otherwise accumulate in localStorage for the life
+    // of the browser profile. This page is the natural home — it already
+    // fetches the live id set on every mount, which is exactly what the
+    // prune needs to tell a live plan from an orphan.
+    useEffect(() => {
+        if (pipelinesLoading) return;
+        prunePipelineStorage(pipelines.map((p) => p.id));
+    }, [pipelinesLoading, pipelines]);
     const { data: machines = [], isLoading: machinesLoading } = useMachines(creatorFk);
     const { data: epics = [], isLoading: epicsLoading, isError: epicsError } =
         useAllEpics(creatorFk);
