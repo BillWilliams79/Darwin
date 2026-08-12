@@ -41,25 +41,25 @@ vi.mock('../pipelineDetailModes', () => {
 
 vi.mock('../../../RestApi/RestApi', () => ({ default: vi.fn(() => Promise.resolve({ httpStatus: { httpStatus: 200 }, data: [] })) }));
 
+// req #3356 — ONE composed read where the 1.0 seven used to be. The fixture
+// carries the SAME step 47 the 1.0 mock supplied, so every `?step=47` case
+// below still names a step the page can resolve; `composedFixture` builds the
+// `derived` block the page hard-stops without.
 vi.mock('../../../hooks/useDataQueries', async (importOriginal) => {
     const actual = await importOriginal();
+    const { composedFixture } = await import('./pipeline2ComposedFixture');
+    const composed = composedFixture({ id: 2, title: 'Darwin' });
     const empty = () => ({ data: [], isLoading: false, isError: false });
     return {
         ...actual,
-        useAllPipelines: () => ({
-            data: [{ id: 2, title: 'Darwin', pipeline_status: 'active', description: '' }],
-            isLoading: false,
+        useComposedPipeline2: (id) => ({
+            data: Number(id) === 2 ? composed : null, isLoading: false,
         }),
-        useAllPipelineSteps: () => ({
-            data: [{ id: 47, pipeline_fk: 2, title: 'Session Drain', run: 'auto', notes: null, completed_at: null }],
-            isLoading: false,
+        useAllPipelines2: () => ({
+            data: [{ id: 2 }], isLoading: false, isError: false, isSuccess: true,
         }),
-        useAllPipelineStepRequirements: empty,
-        useAllPipelineStepDeps: empty,
-        useAllRequirements: empty,
-        useAllFeatures: empty,
-        useAllEpics: empty,
         useMachines: empty,
+        useOrchestrationClaims: empty,
         useAllRequirementSessions: empty,
         useAllSessionCostRollups: empty,
     };
@@ -85,7 +85,7 @@ function mount(url) {
                     <AuthContext.Provider value={{ idToken: 'tok', profile: { userName: 'tester', timezone: 'UTC' } }}>
                         <MemoryRouter initialEntries={[url]}>
                             <Routes>
-                                <Route path="/swarm/pipeline/:id" element={<PipelineDetail />} />
+                                <Route path="/swarm/pipeline2/:id" element={<PipelineDetail />} />
                             </Routes>
                         </MemoryRouter>
                     </AuthContext.Provider>
@@ -121,7 +121,7 @@ afterEach(() => {
 
 describe('PipelineDetail — ?epic= (req #3235)', () => {
     it('forces the PLAN mode even when ?mode= names the table', () => {
-        mount('/swarm/pipeline/2?mode=table&epic=55');
+        mount('/swarm/pipeline2/2?mode=table&epic=55');
         expect(node('mode-plan')).not.toBeNull();
         expect(node('mode-table')).toBeNull();
         expect(focusEpicOf('plan')).toBe('55');
@@ -129,27 +129,27 @@ describe('PipelineDetail — ?epic= (req #3235)', () => {
 
     it('forces the plan over a STORED preference of table', () => {
         storePreference('table');
-        mount('/swarm/pipeline/2?epic=55');
+        mount('/swarm/pipeline2/2?epic=55');
         expect(node('mode-plan')).not.toBeNull();
         expect(focusEpicOf('plan')).toBe('55');
     });
 
     it('leaves the stored preference in charge when there is no ?epic=', () => {
         storePreference('plan');
-        mount('/swarm/pipeline/2');
+        mount('/swarm/pipeline2/2');
         expect(node('mode-plan')).not.toBeNull();
         expect(focusEpicOf('plan')).toBe('');
     });
 
     it('carries no epic focus when the parameter is absent or unusable', () => {
-        mount('/swarm/pipeline/2?mode=plan');
+        mount('/swarm/pipeline2/2?mode=plan');
         expect(focusEpicOf('plan')).toBe('');
-        mount('/swarm/pipeline/2?mode=plan&epic=12abc');
+        mount('/swarm/pipeline2/2?mode=plan&epic=12abc');
         expect(focusEpicOf('plan')).toBe('');
     });
 
     it('a named ?step= is more specific and wins over ?epic=', () => {
-        mount('/swarm/pipeline/2?step=47&epic=55');
+        mount('/swarm/pipeline2/2?step=47&epic=55');
         expect(node('mode-table')).not.toBeNull();
         expect(node('mode-plan')).toBeNull();
         expect(focusStepOf('table')).toBe('47');
@@ -163,7 +163,7 @@ describe('PipelineDetail — ?epic= (req #3235)', () => {
         // (unlike this stub, which exposes both props on both panels so the
         // wiring itself is verifiable). A test that only checked "mode-plan is
         // absent" would pass even if PipelineDetail silently dropped the prop.
-        mount('/swarm/pipeline/2?mode=table&step=47&epic=55');
+        mount('/swarm/pipeline2/2?mode=table&step=47&epic=55');
         expect(focusStepOf('table')).toBe('47');
         expect(focusEpicOf('table')).toBe('55');
         expect(node('mode-plan')).toBeNull();

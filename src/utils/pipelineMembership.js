@@ -58,7 +58,9 @@
  * Requirement ids at least one pipeline STEP carries.
  *
  * @param {Array<{requirement_fk: number}>} stepRequirements  rows from
- *        `useAllPipelineStepRequirements` (the junction, whole-table read).
+ *        `useAllPipeline2StepRequirements` (the junction, whole-table read).
+ *        The 1.0 junction (`useAllPipelineStepRequirements`) fed this until
+ *        req #3356; the ROW SHAPE is identical, so only the caller moved.
  * @returns {Set<number>}
  */
 export const pipelinedRequirementIds = (stepRequirements) => {

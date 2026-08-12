@@ -41,7 +41,7 @@ let scopeReadFails = false;
 
 vi.mock('../../hooks/useDataQueries', () => ({
     useProjects: () => ({ data: PROJECTS }),
-    useAllEpics: () => ({ data: EPICS }),
+    useAllPipeline2Epics: () => ({ data: EPICS }),
     useAllCategories: () => ({ data: CATEGORIES }),
     useEpicRequirementIds: (_creator, epicId) => {
         if (epicId == null) return { epicReqIds: null, isError: false, requirements: undefined };

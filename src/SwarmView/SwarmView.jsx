@@ -9,7 +9,7 @@ import { useShowClosedStore, ALL_REQUIREMENT_STATUSES } from '../stores/useShowC
 import { useSwarmStartCardStore } from '../stores/useSwarmStartCardStore';
 import { useModelEffortDisplayStore } from '../stores/useModelEffortDisplayStore';
 import { useRequirementDrillStore } from '../stores/useRequirementDrillStore';
-import { useProjects, useAllEpics, useAllCategories, useEpicRequirementIds } from '../hooks/useDataQueries';
+import { useProjects, useAllPipeline2Epics, useAllCategories, useEpicRequirementIds } from '../hooks/useDataQueries';
 import { projectKeys } from '../hooks/useQueryKeys';
 import { firstProjectIndexWithEpicWork } from '../utils/epicMembership';
 
@@ -148,7 +148,7 @@ const SwarmView = () => {
     const scopedEpicId = epicFilterApplies ? epicId : null;
     const { epicReqIds, isError: epicScopeError, requirements: epicScopeRequirements } =
         useEpicRequirementIds(profile?.userName, scopedEpicId);
-    const { data: epicRows = [] } = useAllEpics(profile?.userName, { enabled: epicFilterApplies });
+    const { data: epicRows = [] } = useAllPipeline2Epics(profile?.userName, { enabled: epicFilterApplies });
     const { data: allCategories = [] } = useAllCategories(profile?.userName, {
         fields: 'id,project_fk', closed: 0, enabled: epicFilterApplies,
     });
@@ -451,14 +451,20 @@ const SwarmView = () => {
                             The body opens the Epics editor and the ✕ clears the
                             filter — the other end of the same epic chip's two
                             links. MUI routes the delete icon's click to
-                            `onDelete` alone, so the two never fire together. */}
+                            `onDelete` alone, so the two never fire together.
+
+                            req #3356 — the target moved from `/swarm/epics` to
+                            `/swarm/epics2`. The 1.0 editor was DELETED with
+                            Pipeline 1.0, so the old target is not merely stale,
+                            it 404s; a chip whose whole affordance is "open the
+                            editor" landing on Error404 is worse than no chip. */}
                         {epicFilterApplies && (
                             <Chip size="small"
                                   color={epicFilterFailed ? 'error' : 'secondary'}
                                   label={epicFilterFailed
                                       ? `Epic filter unavailable — showing everything`
                                       : `Epic: ${epicTitle}`}
-                                  onClick={() => navigate('/swarm/epics')}
+                                  onClick={() => navigate('/swarm/epics2')}
                                   title={epicFilterFailed
                                       ? 'The epic membership read failed, so nothing is being filtered'
                                       : 'Open the Epics editor'}

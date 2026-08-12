@@ -11,9 +11,7 @@ import { describe, it, expect } from 'vitest';
 
 import {
     STALE_AFTER_SECONDS,
-    claimForPipeline,
     claimForPipeline2,
-    claimsForEpic,
     heartbeatAgeSeconds,
     heldForSeconds,
     holderView,
@@ -105,43 +103,15 @@ describe('heartbeat age', () => {
     });
 });
 
-describe('scope selection', () => {
-    const claims = [
-        claim({ id: 1, pipeline_fk: 2, epic_fk: null }),
-        claim({ id: 2, pipeline_fk: 2, epic_fk: 7 }),
-        claim({ id: 3, pipeline_fk: 9, epic_fk: null }),
-    ];
-
-    it('claimForPipeline finds only the WHOLE-PLAN reservation', () => {
-        // An epic-scoped claim is a different and weaker statement ("a slice of
-        // this plan is being orchestrated"); reporting it as the plan's holder
-        // would overstate what is running.
-        expect(claimForPipeline(claims, 2).id).toBe(1);
-        expect(claimForPipeline(claims, 9).id).toBe(3);
-        expect(claimForPipeline(claims, 42)).toBeNull();
-        expect(claimForPipeline(claims, null)).toBeNull();
-    });
-
-    it('claimsForEpic finds the epic\'s own reservation', () => {
-        expect(claimsForEpic(claims, 7).map(c => c.id)).toEqual([2]);
-        expect(claimsForEpic(claims, 8)).toEqual([]);
-    });
-
-    it('claimsForEpic ALSO finds a whole-plan reservation on a plan it is seated in', () => {
-        // A whole-plan scope owns EVERY step in its plan (design rule 10 gives a
-        // step exactly one dominant label), so an epic whose work is being
-        // launched right now by a whole-plan engine is orchestrated — reporting
-        // it as free is the confusion the shared reservation exists to remove.
-        expect(claimsForEpic(claims, 7, [2]).map(c => c.id).sort()).toEqual([1, 2]);
-        expect(claimsForEpic(claims, 8, [2]).map(c => c.id)).toEqual([1]);
-        expect(claimsForEpic(claims, 8, [42])).toEqual([]);
-    });
-
-    it('renders the same scope words the engine uses', () => {
-        expect(scopeLabel(claims[0])).toBe('pipeline:2');
-        expect(scopeLabel(claims[1])).toBe('epic:7@2');
-    });
-});
+// req #3356 — the 1.0 `describe('scope selection')` block went with
+// `claimForPipeline` and `claimsForEpic`, the two accessors it drove. Both read
+// the `pipeline_fk`/`epic_fk` column pair and both lost their last caller when
+// the 1.0 list page and the 1.0 epics page were deleted.
+//
+// `scopeLabel`'s 1.0 branch is NOT deleted and is still asserted below: the
+// `orchestration_claims` ROWS keep both column pairs until req #3356's own
+// schema half drops the 1.0 ones, so a row written before that must still print
+// `pipeline:2` rather than `pipeline:null`.
 
 describe('scope selection — 2.0 (req #3381 code review)', () => {
     // `pipeline2_fk`/`epic2_fk` are the SEPARATE columns a 2.0-scoped claim
@@ -165,10 +135,6 @@ describe('scope selection — 2.0 (req #3381 code review)', () => {
         // The bug this guards: `undefined === 6` is false, so a 1.0 claim
         // must not accidentally satisfy a 2.0 lookup for the same numeric id.
         expect(claimForPipeline2([claims[2]], 2)).toBeNull();
-    });
-
-    it('claimForPipeline never matches a 2.0-only claim (pipeline_fk absent)', () => {
-        expect(claimForPipeline([claims[0], claims[1]], 6)).toBeNull();
     });
 
     it('scopeLabel renders pipeline2:/epic2: for a 2.0 claim', () => {

@@ -53,30 +53,36 @@ vi.mock('../../../RestApi/RestApi', () => ({
     default: vi.fn(() => Promise.resolve({ httpStatus: { httpStatus: 200 }, data: [] })),
 }));
 
-const PIPELINES = [
-    { id: 2, title: 'Darwin', pipeline_status: 'active', description: '' },
-    { id: 5, title: 'Substrate', pipeline_status: 'completed', description: '' },
-];
-
 // Flipped per test to stage the sequence the real app ALWAYS goes through:
 // mount over a spinner, then the reads land.
 let loading = false;
 
+// req #3356 — ONE composed read where the 1.0 seven used to be. Two plans still,
+// because the in-place-switch case below needs a second one to move to; the
+// composed read is per-id, so the fixture is built once per plan and selected by
+// the id the hook is called with.
 vi.mock('../../../hooks/useDataQueries', async (importOriginal) => {
     const actual = await importOriginal();
+    const { composedFixture } = await import('./pipeline2ComposedFixture');
+    const COMPOSED = new Map([
+        [2, composedFixture({ id: 2, title: 'Darwin' })],
+        [5, composedFixture({ id: 5, title: 'Substrate', pipelineStatus: 'completed' })],
+    ]);
     const empty = () => ({ data: [], isLoading: false, isError: false });
     const gated = () => ({ data: [], isLoading: loading, isError: false });
     return {
         ...actual,
-        useAllPipelines: () => ({
-            data: loading ? [] : PIPELINES, isLoading: loading, isError: false,
+        useComposedPipeline2: (id) => ({
+            // `undefined` while loading is what the real hook answers in flight;
+            // `null` is its 404. The two must stay distinct here, because the
+            // "records when the reads land" case turns on the page sitting over
+            // a spinner rather than rendering the not-found alert.
+            data: loading ? undefined : (COMPOSED.get(Number(id)) ?? null),
+            isLoading: loading,
         }),
-        useAllPipelineSteps: gated,
-        useAllPipelineStepRequirements: gated,
-        useAllPipelineStepDeps: gated,
-        useAllRequirements: gated,
-        useAllFeatures: gated,
-        useAllEpics: gated,
+        useAllPipelines2: () => ({
+            data: [{ id: 2 }, { id: 5 }], isLoading: false, isError: false, isSuccess: true,
+        }),
         useMachines: gated,
         useOrchestrationClaims: empty,
         useAllRequirementSessions: empty,
@@ -86,7 +92,7 @@ vi.mock('../../../hooks/useDataQueries', async (importOriginal) => {
 
 import PipelineDetail from '../PipelineDetail';
 import { PIPELINE_PLACE_SCHEMA_VERSION, PIPELINE_PLACE_STORAGE_KEY } from '../pipelinePlace';
-import { PLAN_ERA_1 } from '../planEra';
+import { PLAN_ERA_2 } from '../planEra';
 import AuthContext from '../../../Context/AuthContext';
 import AppContext from '../../../Context/AppContext';
 
@@ -123,9 +129,9 @@ function mount(url) {
                 <AuthContext.Provider
                     value={{ idToken: 'tok', profile: { userName: 'tester', timezone: 'UTC' } }}>
                     <MemoryRouter initialEntries={[url]}>
-                        <GoTo to="/swarm/pipeline/5" testId="go-plan-5" />
+                        <GoTo to="/swarm/pipeline2/5" testId="go-plan-5" />
                         <Routes>
-                            <Route path="/swarm/pipeline/:id" element={<PipelineDetail />} />
+                            <Route path="/swarm/pipeline2/:id" element={<PipelineDetail />} />
                         </Routes>
                     </MemoryRouter>
                 </AuthContext.Provider>
@@ -163,8 +169,8 @@ describe('PipelineDetail — recording the remembered place (req #3431)', () => 
     // list page to resume to, and the reader sees the pre-#3431 behaviour with
     // no error anywhere to say so.
     it('records the plan the reader is looking at', () => {
-        mount('/swarm/pipeline/2');
-        expect(storedPlace()).toEqual({ v: PIPELINE_PLACE_SCHEMA_VERSION, at: 'plan', era: PLAN_ERA_1, pipelineId: 2 });
+        mount('/swarm/pipeline2/2');
+        expect(storedPlace()).toEqual({ v: PIPELINE_PLACE_SCHEMA_VERSION, at: 'plan', era: PLAN_ERA_2, pipelineId: 2 });
     });
 
     // THE FIELD SET IS THE CONTRACT, so it is asserted as a field set rather
@@ -176,27 +182,30 @@ describe('PipelineDetail — recording the remembered place (req #3431)', () => 
     // where it outranks the reader's own preference and then LIES in the
     // address bar the moment they pick a different panel.
     it('records exactly {v, at, era, pipelineId} — never the panel', () => {
-        mount('/swarm/pipeline/2');
+        mount('/swarm/pipeline2/2');
         // req #3463 added `era` and NOTHING ELSE. It is in the contract for the
         // same reason the panel is out of it: an id with no era is not an
-        // address, while a panel is already durable elsewhere.
+        // address, while a panel is already durable elsewhere. req #3356
+        // removed the page's `era` PROP but NOT this field — `pipelinePlace.js`
+        // owns the record's shape, and a record written without it would read
+        // as era-less to a reader that has not been collapsed yet.
         expect(Object.keys(storedPlace()).sort()).toEqual(['at', 'era', 'pipelineId', 'v']);
         click('pipeline-mode-plan');
         expect(node('mode-plan')).not.toBeNull();
-        expect(storedPlace()).toEqual({ v: PIPELINE_PLACE_SCHEMA_VERSION, at: 'plan', era: PLAN_ERA_1, pipelineId: 2 });
+        expect(storedPlace()).toEqual({ v: PIPELINE_PLACE_SCHEMA_VERSION, at: 'plan', era: PLAN_ERA_2, pipelineId: 2 });
     });
 
     // THE REASON THE WRITER MOVED HERE. Each of these is a route req #3311's
     // list-page click handler could not see, and each one is a plan the reader
     // would swear they had last selected.
     it.each([
-        ['a ?step= deep link', '/swarm/pipeline/2?mode=table&step=47'],
-        ['an ?epic= link from the requirement page', '/swarm/pipeline/2?epic=9'],
-        ['a ?mode= link', '/swarm/pipeline/2?mode=plan'],
-        ['a bare bookmark', '/swarm/pipeline/2'],
+        ['a ?step= deep link', '/swarm/pipeline2/2?mode=table&step=47'],
+        ['an ?epic= link from the requirement page', '/swarm/pipeline2/2?epic=9'],
+        ['a ?mode= link', '/swarm/pipeline2/2?mode=plan'],
+        ['a bare bookmark', '/swarm/pipeline2/2'],
     ])('records an arrival by %s', (_label, url) => {
         mount(url);
-        expect(storedPlace()).toEqual({ v: PIPELINE_PLACE_SCHEMA_VERSION, at: 'plan', era: PLAN_ERA_1, pipelineId: 2 });
+        expect(storedPlace()).toEqual({ v: PIPELINE_PLACE_SCHEMA_VERSION, at: 'plan', era: PLAN_ERA_2, pipelineId: 2 });
     });
 
     // GATED ON THE RESOLVED PLAN, not on the id in the URL. A hand-typed or
@@ -204,7 +213,7 @@ describe('PipelineDetail — recording the remembered place (req #3431)', () => 
     // list page would then navigate to a not-found alert on every visit, which
     // reads as a defect in the data rather than in the record.
     it('records nothing for a plan that does not exist', () => {
-        mount('/swarm/pipeline/999');
+        mount('/swarm/pipeline2/999');
         expect(node('pipeline-not-found')).not.toBeNull();
         expect(storedPlace()).toBeNull();
     });
@@ -215,9 +224,9 @@ describe('PipelineDetail — recording the remembered place (req #3431)', () => 
     // resume.
     it('leaves an existing record intact when the URL names no plan', () => {
         localStorage.setItem(PIPELINE_PLACE_STORAGE_KEY,
-            JSON.stringify({ v: PIPELINE_PLACE_SCHEMA_VERSION, at: 'plan', era: PLAN_ERA_1, pipelineId: 2 }));
-        mount('/swarm/pipeline/999');
-        expect(storedPlace()).toEqual({ v: PIPELINE_PLACE_SCHEMA_VERSION, at: 'plan', era: PLAN_ERA_1, pipelineId: 2 });
+            JSON.stringify({ v: PIPELINE_PLACE_SCHEMA_VERSION, at: 'plan', era: PLAN_ERA_2, pipelineId: 2 }));
+        mount('/swarm/pipeline2/999');
+        expect(storedPlace()).toEqual({ v: PIPELINE_PLACE_SCHEMA_VERSION, at: 'plan', era: PLAN_ERA_2, pipelineId: 2 });
     });
 
     // THE SEQUENCE THE REAL APP ALWAYS TAKES, which no other case here covers:
@@ -226,11 +235,11 @@ describe('PipelineDetail — recording the remembered place (req #3431)', () => 
     // production while every synchronous test above stayed green.
     it('records when the reads land, not before', () => {
         loading = true;
-        const h = mount('/swarm/pipeline/2');
+        const h = mount('/swarm/pipeline2/2');
         expect(storedPlace(), 'nothing is decided over a spinner').toBeNull();
         loading = false;
         h.rerender();
-        expect(storedPlace()).toEqual({ v: PIPELINE_PLACE_SCHEMA_VERSION, at: 'plan', era: PLAN_ERA_1, pipelineId: 2 });
+        expect(storedPlace()).toEqual({ v: PIPELINE_PLACE_SCHEMA_VERSION, at: 'plan', era: PLAN_ERA_2, pipelineId: 2 });
     });
 
     // This page survives an in-place switch from one plan to the next without
@@ -238,10 +247,10 @@ describe('PipelineDetail — recording the remembered place (req #3431)', () => 
     // follow the plan rather than the mount. Otherwise a reader who moved
     // between two plans by link is sent back to the first one.
     it('follows an in-place switch to another plan', () => {
-        mount('/swarm/pipeline/2');
+        mount('/swarm/pipeline2/2');
         expect(storedPlace().pipelineId).toBe(2);
         click('go-plan-5');
-        expect(storedPlace()).toEqual({ v: PIPELINE_PLACE_SCHEMA_VERSION, at: 'plan', era: PLAN_ERA_1, pipelineId: 5 });
+        expect(storedPlace()).toEqual({ v: PIPELINE_PLACE_SCHEMA_VERSION, at: 'plan', era: PLAN_ERA_2, pipelineId: 5 });
     });
 
     // localStorage BY NAME — "a feature saved to local storage only", and
@@ -249,7 +258,7 @@ describe('PipelineDetail — recording the remembered place (req #3431)', () => 
     // round-trips proves nothing about this: it round-trips through either
     // store equally well. What pins it is that the other store stays empty.
     it('writes the record to localStorage and not to sessionStorage', () => {
-        mount('/swarm/pipeline/2');
+        mount('/swarm/pipeline2/2');
         expect(localStorage.getItem(PIPELINE_PLACE_STORAGE_KEY)).not.toBeNull();
         expect(sessionStorage.getItem(PIPELINE_PLACE_STORAGE_KEY)).toBeNull();
     });

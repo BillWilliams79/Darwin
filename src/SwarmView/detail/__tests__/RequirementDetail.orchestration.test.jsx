@@ -1,14 +1,23 @@
 // @vitest-environment jsdom
 //
 // Req #3435 — the Orchestration box on the requirement detail page.
-// Narrowed by req #3357: the Epic row is retired (Feature left the frontend,
-// and no 1.0 replacement exists — see `orchestrationIndex.js`'s header). The
-// box now carries TWO rows — Pipeline, Step — top to bottom, each with a
-// button that opens the visualizer AT THAT LEVEL and a value beside it. Only
-// STEP is a selector; Pipeline is read-only text.
+// Narrowed by req #3357: the Epic row is retired. The box carries TWO rows —
+// Pipeline, Step — top to bottom, each with a button that opens the visualizer
+// AT THAT LEVEL and a value beside it. Only STEP is a selector; Pipeline is
+// read-only text.
+//
+// RE-BASED ON PIPELINE 2.0 BY REQ #3356, and two things about this fixture moved
+// as a direct consequence:
+//   - a 2.0 step carries `epic_fk`, NOT `pipeline_fk`, so the plan is reached in
+//     two hops and there is an EPICS fixture between the steps and the plans;
+//   - `pipeline2_step_requirements` has `PRIMARY KEY (requirement_fk)` alone
+//     (one step per requirement, the req #3336 stage-2 gate ruling), so a MOVE
+//     is DELETE-then-POST. Insert-first cannot succeed while the old row exists,
+//     which is why the order assertion below is inverted from its 1.0 form and
+//     why the failure case is now a failed DELETE rather than a failed POST.
 //
 // The assertions that matter are the ones a regression would make invisible:
-//   - picking a step WRITES `pipeline_step_requirements` — the junction that
+//   - picking a step WRITES `pipeline2_step_requirements` — the junction that
 //     actually places a requirement on a plan, and the one StepsPage refuses to
 //     touch. A write to the wrong table or in the wrong order looks identical
 //     from the UI until the plan view disagrees;
@@ -49,14 +58,19 @@ const PIPELINES = [
     { id: 2,  title: 'Darwin',        pipeline_status: 'active', create_ts: '2026-07-28T05:17:51' },
     { id: 79, title: 'Agent Harness', pipeline_status: 'active', create_ts: '2026-08-07T08:54:36' },
 ];
+// The MIDDLE HOP a 2.0 step's plan is reached through (req #3356).
+const EPICS = [
+    { id: 20, pipeline_fk: 2 },
+    { id: 90, pipeline_fk: 79 },
+];
 const STEPS = [
-    { id: 100, pipeline_fk: 2,  title: 'Orchestration Box', completed_at: null },
-    { id: 104, pipeline_fk: 2,  title: 'Polish Round 2',    completed_at: null },
-    { id: 105, pipeline_fk: 2,  title: 'Polish Shipped',
+    { id: 100, epic_fk: 20, title: 'Orchestration Box', completed_at: null },
+    { id: 104, epic_fk: 20, title: 'Polish Round 2',    completed_at: null },
+    { id: 105, epic_fk: 20, title: 'Polish Shipped',
       completed_at: '2026-08-01T00:00:00' },   // DONE — never offerable
-    { id: 101, pipeline_fk: 2,  title: 'Plan Layer',        completed_at: null },
-    { id: 200, pipeline_fk: 79, title: 'Agent Boot',        completed_at: null },
-    { id: 300, pipeline_fk: 2,  completed_at: null },   // no title, no reqs
+    { id: 101, epic_fk: 20, title: 'Plan Layer',        completed_at: null },
+    { id: 200, epic_fk: 90, title: 'Agent Boot',        completed_at: null },
+    { id: 300, epic_fk: 20, completed_at: null },   // no title, no reqs
 ];
 // MUTABLE: some cases need a requirement seated on NO step.
 let stepRequirements = [];
@@ -83,9 +97,10 @@ vi.mock('../../../hooks/useDataQueries', async (importOriginal) => {
         ...actual,
         useMachines: () => q('machines', []),
         useAllCategories: () => q('categories', [{ id: 1, category_name: 'Swarm' }]),
-        useAllPipelines: () => q('pipelines', PIPELINES),
-        useAllPipelineSteps: () => q('steps', STEPS),
-        useAllPipelineStepRequirements: () => q('links', stepRequirements),
+        useAllPipelines2: () => q('pipelines', PIPELINES),
+        useAllPipeline2Epics: () => q('epics', EPICS),
+        useAllPipeline2Steps: () => q('steps', STEPS),
+        useAllPipeline2StepRequirements: () => q('links', stepRequirements),
     };
 });
 
@@ -100,13 +115,13 @@ let requirementRow;
 // untested and hide a `.catch(() => null)` that strips the status code.
 let putStatus = 200;
 const putBodies = [];
-// Every `pipeline_step_requirements` write, in order — the seat is a junction
-// row, not a column, so POST/DELETE ORDER is the thing under test.
+// Every `pipeline2_step_requirements` write, in order — the seat is a junction
+// row, not a column, so DELETE/POST ORDER is the thing under test.
 const seatCalls = [];
 let seatStatus = { POST: 200, DELETE: 200 };
 vi.mock('../../../RestApi/RestApi', () => ({
     default: vi.fn((uri, method, body) => {
-        if (uri.includes('/pipeline_step_requirements') && method !== 'GET') {
+        if (uri.includes('/pipeline2_step_requirements') && method !== 'GET') {
             seatCalls.push({ method, body });
             const st = seatStatus[method] ?? 200;
             return st >= 200 && st < 300
@@ -303,9 +318,9 @@ describe('RequirementDetail Orchestration box (req #3435)', { timeout: 30000 }, 
         const { container } = mount();
         await flush();
         expect(testid(container, 'orchestration-pipeline-link').getAttribute('href'))
-            .toBe('/swarm/pipeline/2?mode=plan');
+            .toBe('/swarm/pipeline2/2?mode=plan');
         expect(testid(container, 'orchestration-step-link').getAttribute('href'))
-            .toBe('/swarm/pipeline/2?mode=plan&step=100&level=2');
+            .toBe('/swarm/pipeline2/2?mode=plan&step=100&level=2');
     });
 
     // SEATED-VS-UNSEATED IS STRUCTURAL. With no step carrying the requirement
@@ -372,16 +387,20 @@ describe('RequirementDetail Orchestration box (req #3435)', { timeout: 30000 }, 
 
     // ── The write ───────────────────────────────────────────────────────────
 
-    // INSERT the new link, THEN delete the old. The reverse leaves the
-    // requirement silently seated nowhere if the insert fails.
-    it('re-seats by inserting the new link before deleting the old', async () => {
+    // DELETE the old seat, THEN insert the new — req #3356. This is not a
+    // preference: `pipeline2_step_requirements` keys on `requirement_fk` ALONE,
+    // so the INSERT cannot succeed while the old row exists and insert-first
+    // would fail 100% of the time on a move. `link_pipeline2_step_requirement`
+    // (darwin-mcp) says the same from the server side and names unlink-then-link
+    // as the lawful move.
+    it('re-seats by deleting the old link before inserting the new', async () => {
         const { container } = mount();
         await flush();
 
         await chooseOption(container, 'orchestration-step-select', 'Polish Round 2');
         expect(seatCalls).toEqual([
-            { method: 'POST',   body: { step_fk: 104, requirement_fk: 3435 } },
             { method: 'DELETE', body: { step_fk: 100, requirement_fk: 3435 } },
+            { method: 'POST',   body: { step_fk: 104, requirement_fk: 3435 } },
         ]);
     });
 
@@ -415,15 +434,30 @@ describe('RequirementDetail Orchestration box (req #3435)', { timeout: 30000 }, 
         expect(seatCalls).toEqual([]);
     });
 
-    // A failed INSERT must not have deleted anything — that is the whole reason
-    // for the order.
-    it('leaves the old seat alone when the insert fails', async () => {
+    // A failed DELETE must not have inserted anything: with the old row still
+    // present the INSERT would violate the primary key anyway, and aborting
+    // leaves the requirement exactly where it was.
+    it('leaves the seat alone when the delete fails', async () => {
+        const { container } = mount();
+        await flush();
+
+        seatStatus = { POST: 200, DELETE: 500 };
+        await chooseOption(container, 'orchestration-step-select', 'Polish Round 2');
+        expect(seatCalls.map((c) => c.method)).toEqual(['DELETE']);
+        expect(snackMessages.join(' ')).toContain('Unable to update step 500');
+    });
+
+    // THE RESIDUAL THE KEY FORCES, pinned so it is a known state rather than a
+    // surprise: a POST that fails after a successful DELETE leaves the
+    // requirement seated NOWHERE. It is visible — the error is on screen and the
+    // box reads "No step" — and a person re-seats it in one pick.
+    it('leaves the requirement unseated when the insert fails after the delete', async () => {
         const { container } = mount();
         await flush();
 
         seatStatus = { POST: 500, DELETE: 200 };
         await chooseOption(container, 'orchestration-step-select', 'Polish Round 2');
-        expect(seatCalls.map((c) => c.method)).toEqual(['POST']);
+        expect(seatCalls.map((c) => c.method)).toEqual(['DELETE', 'POST']);
         expect(snackMessages.join(' ')).toContain('Unable to update step 500');
     });
 
@@ -453,6 +487,18 @@ describe('RequirementDetail Orchestration box (req #3435)', { timeout: 30000 }, 
         expect(testid(container, 'orchestration-error')).not.toBeNull();
         expect(testid(container, 'orchestration-pipeline-row')).toBeNull();
         expect(testid(container, 'orchestration-step-row')).toBeNull();
+    });
+
+    // THE EPICS READ IS A PLAN-SIDE READ (req #3356). It is only a JOIN HOP, but
+    // losing it makes every step planless — which renders identically to a
+    // requirement that is genuinely seated nowhere. Reporting the box
+    // unavailable is the honest answer; silently showing "No pipeline" is not.
+    it('reports the box unavailable when the EPICS read fails', async () => {
+        queryErrors = { epics: true };
+        const { container } = mount();
+        await flush();
+        expect(testid(container, 'orchestration-error')).not.toBeNull();
+        expect(testid(container, 'orchestration-pipeline-row')).toBeNull();
     });
 
     // The three icon buttons were given aria-labels; the one control that

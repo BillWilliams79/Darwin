@@ -13,6 +13,13 @@
 //     session
 //   - a stamped id whose title is not in the list still renders the row, falling
 //     back to the bare id rather than disappearing
+//
+// req #3356 — PIPELINE 1.0 IS ERADICATED, so the page reads `pipeline2_fk` /
+// `epic2_fk` and nothing else. The era-arbitration cases below (which were the
+// bulk of req #3433's coverage) invert rather than disappear: a 1.0-only stamp
+// is a HISTORICAL row whose plan has no page, and the page must show NOTHING
+// for it rather than bridging its id onto the 2.0 route — the id spaces are
+// disjoint, so that link opens a different plan (req #3462, measured).
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import React from 'react';
@@ -29,12 +36,10 @@ vi.mock('react-router-dom', () => ({
     useLocation: () => ({ key: 'default', state: {} }),
 }));
 
-const PIPELINES = [
-    { id: 2, title: 'Darwin', pipeline_status: 'active' },
-    { id: 3, title: 'Retired plan', pipeline_status: 'aborted' },
-];
+// ONE ERA'S LISTS. The 1.0 `PIPELINES`/`EPICS` fixtures went with the hooks
+// that served them (req #3356); ids 2/3/34 survive below only as 1.0 stamps the
+// page must now IGNORE.
 const PIPELINES2 = [{ id: 7, title: '2.0 plan' }];
-const EPICS = [{ id: 34, title: 'Swarm Orchestration' }];
 const EPICS2 = [{ id: 12, title: '2.0 Epic' }];
 
 let sessionRow;
@@ -51,9 +56,7 @@ vi.mock('../../../hooks/useDataQueries', async (importOriginal) => {
         useAllSwarmCompleteSessions: () => ({ data: [] }),
         useAllSwarmCompletes: () => ({ data: [] }),
         useAllRequirements: () => ({ data: [] }),
-        useAllPipelines: () => ({ data: PIPELINES }),
         useAllPipelines2: () => ({ data: PIPELINES2 }),
-        useAllEpics: () => ({ data: EPICS }),
         useAllPipeline2Epics: () => ({ data: EPICS2 }),
     };
 });
@@ -131,46 +134,6 @@ describe('SwarmSessionDetail orchestration attribution (req #3186)', () => {
     });
 
     it('renders both rows with titles resolved from the cached lists', () => {
-        sessionRow = baseSession({ pipeline_fk: 2, epic_fk: 34 });
-        const { container } = mount();
-
-        const pipeline = node(container, 'session-pipeline');
-        expect(pipeline).not.toBeNull();
-        expect(pipeline.textContent).toContain('#2');
-        expect(pipeline.textContent).toContain('Darwin');
-
-        const epic = node(container, 'session-epic');
-        expect(epic).not.toBeNull();
-        expect(epic.textContent).toContain('#34');
-        expect(epic.textContent).toContain('Swarm Orchestration');
-    });
-
-    it('navigates to the pipeline detail route when the chip is clicked', () => {
-        sessionRow = baseSession({ pipeline_fk: 3 });
-        const { container } = mount();
-        act(() => {
-            node(container, 'session-pipeline-chip').click();
-        });
-        expect(navigations).toContain('/swarm/pipeline/3');
-    });
-
-    it('still renders the row when the id is not in the cached list', () => {
-        // A pipeline closed/deleted since the stamp, or a list read that has not
-        // landed yet. The attribution is a fact on the row and must not vanish
-        // because a LABEL could not be resolved.
-        sessionRow = baseSession({ pipeline_fk: 99, epic_fk: 98 });
-        const { container } = mount();
-        expect(node(container, 'session-pipeline').textContent).toContain('#99');
-        expect(node(container, 'session-epic').textContent).toContain('#98');
-    });
-
-    // req #3433 — a session seated on a Pipeline 2.0 step stamps
-    // pipeline2_fk/epic2_fk with the 1.0 pair NULL. Before this fix the Epic
-    // row gated on `epic_fk` alone and went silently blank for these sessions,
-    // and even after fixing that gate the Pipeline row's own title text was
-    // still resolved against the 1.0 `pipelines` list only — a bare `#7` with
-    // no name (caught in code review). Both rows must carry a title.
-    it('renders both rows, with titles, for a 2.0-attributed session', () => {
         sessionRow = baseSession({ pipeline2_fk: 7, epic2_fk: 12 });
         const { container } = mount();
 
@@ -185,47 +148,76 @@ describe('SwarmSessionDetail orchestration attribution (req #3186)', () => {
         expect(epic.textContent).toContain('2.0 Epic');
     });
 
-    // Both columns stamped is a data defect (the two eras are supposed to be
-    // exclusive), but the two rows must still describe ONE plan rather than
-    // the Pipeline row picking 1.0 and an independently-resolved Epic row
-    // picking 2.0 for the same session.
-    it('picks one era for both rows when a row carries both eras', () => {
+    it('navigates to the pipeline detail route when the chip is clicked', () => {
+        sessionRow = baseSession({ pipeline2_fk: 7 });
+        const { container } = mount();
+        act(() => {
+            node(container, 'session-pipeline-chip').click();
+        });
+        expect(navigations).toContain('/swarm/pipeline2/7');
+    });
+
+    it('still renders the row when the id is not in the cached list', () => {
+        // A pipeline closed/deleted since the stamp, or a list read that has not
+        // landed yet. The attribution is a fact on the row and must not vanish
+        // because a LABEL could not be resolved.
+        sessionRow = baseSession({ pipeline2_fk: 99, epic2_fk: 98 });
+        const { container } = mount();
+        expect(node(container, 'session-pipeline').textContent).toContain('#99');
+        expect(node(container, 'session-epic').textContent).toContain('#98');
+    });
+
+    // req #3356 — A 1.0-ONLY STAMP RENDERS NOTHING, and the 1.0 id must not
+    // appear anywhere. This is the inverse of req #3433's case and it is the
+    // one that matters now: showing `#2` under a page that can only open 2.0
+    // plans, or bridging 2 onto `/swarm/pipeline2/2`, names a DIFFERENT plan.
+    it('renders neither row for a 1.0-only session, and leaks no 1.0 id', () => {
+        sessionRow = baseSession({ pipeline_fk: 2, epic_fk: 34 });
+        const { container } = mount();
+        expect(node(container, 'session-pipeline')).toBeNull();
+        expect(node(container, 'session-epic')).toBeNull();
+        expect(container.textContent).not.toContain('#2');
+        expect(container.textContent).not.toContain('#34');
+    });
+
+    // Both columns stamped is a data defect (the two eras were supposed to be
+    // exclusive). With one era left the arbitration is trivial, but the OUTCOME
+    // still has to be checked: the 1.0 ids must not surface beside the 2.0 ones.
+    it('takes the 2.0 columns when a defective row carries both eras', () => {
         sessionRow = baseSession({ pipeline_fk: 2, epic_fk: 34, pipeline2_fk: 7, epic2_fk: 12 });
         const { container } = mount();
 
-        expect(node(container, 'session-pipeline').textContent).toContain('Darwin');
-        const epic = node(container, 'session-epic');
-        expect(epic.textContent).toContain('#34');
-        expect(epic.textContent).toContain('Swarm Orchestration');
-        expect(epic.textContent).not.toContain('#12');
+        expect(node(container, 'session-pipeline').textContent).toContain('2.0 plan');
+        expect(node(container, 'session-epic').textContent).toContain('#12');
+        expect(container.textContent).not.toContain('#34');
     });
 
-    // A MIXED partial stamp — pipeline resolved to one era, epic column set
-    // only on the OTHER era — is the more likely real shape than a fully
-    // dual-stamped row (`update_swarm_session` corrects one column at a
-    // time). The Epic row must follow the Pipeline row's era rather than
-    // showing a stray epic from a different plan (caught in code review).
-    it('does not show a stray other-era epic when only the pipeline side is mixed', () => {
+    // A MIXED partial stamp — pipeline on one era, epic column set only on the
+    // OTHER — is the likelier real shape than a fully dual-stamped row
+    // (`update_swarm_session` corrects one column at a time). Neither half of a
+    // 1.0 stamp may render.
+    it('ignores a 1.0 epic beside a 2.0 pipeline', () => {
         sessionRow = baseSession({ pipeline2_fk: 7, epic_fk: 34 });
         const { container } = mount();
         expect(node(container, 'session-pipeline').textContent).toContain('2.0 plan');
         expect(node(container, 'session-epic')).toBeNull();
     });
 
-    it('does not show a stray other-era epic when only the epic side is mixed', () => {
+    it('ignores a 1.0 pipeline beside a 2.0 epic', () => {
         sessionRow = baseSession({ pipeline_fk: 2, epic2_fk: 12 });
         const { container } = mount();
-        expect(node(container, 'session-pipeline').textContent).toContain('Darwin');
-        expect(node(container, 'session-epic')).toBeNull();
+        expect(node(container, 'session-pipeline')).toBeNull();
+        expect(node(container, 'session-epic').textContent).toContain('#12');
     });
 
     // A session can carry an epic attribution with no pipeline (a manual
-    // correction via update_swarm_session, or a partial stamp) — that used to
-    // render before this requirement's fix and must keep rendering.
+    // correction via update_swarm_session, or a partial stamp). The Epic row is
+    // INDEPENDENT of the Pipeline row's presence and must keep rendering — that
+    // survived req #3356 unchanged, only the column it reads moved.
     it('still renders the Epic row when only the epic column is stamped', () => {
-        sessionRow = baseSession({ epic_fk: 34 });
+        sessionRow = baseSession({ epic2_fk: 12 });
         const { container } = mount();
         expect(node(container, 'session-pipeline')).toBeNull();
-        expect(node(container, 'session-epic').textContent).toContain('#34');
+        expect(node(container, 'session-epic').textContent).toContain('#12');
     });
 });

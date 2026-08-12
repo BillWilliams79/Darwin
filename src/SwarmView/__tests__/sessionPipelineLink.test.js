@@ -1,72 +1,75 @@
 // req #3455 — the plan chip must never offer a link it knows will 404.
 //
-// WHICH id navigates is a property of PipelineDetail, and it flipped once
-// during this requirement: that page briefly read the 2.0 composed endpoint
-// (measured: pipeline_fk=79 -> "No pipeline with id 79", same plan being 2.0
-// id 7) and now resolves against the 1.0 `pipelines` list again. These tests
-// pin the CURRENT contract; if the page moves back to pipeline2_*, they are
-// what should fail first.
+// WHICH id navigates was a property of PipelineDetail and it flipped twice
+// during #3455/#3462/#3463 (measured: `pipeline_fk=79` -> "No pipeline with id
+// 79", the same plan being 2.0 id 7). req #3463 settled it by giving each era
+// its own route; req #3356 settled it further by eradicating Pipeline 1.0, so
+// there is one attribution column left and one route it opens.
+//
+// THESE TESTS WERE STALE BEFORE THIS CHANGE. Three of them still asserted the
+// pre-#3463 contract — that a 2.0-seated session is `unlinked` because the plan
+// page "does not serve" 2.0 — and were failing on `main` (measured 2026-08-12,
+// 3 failed / 6 passed). They now pin the CURRENT contract; if the resolver ever
+// grows a second era back, they are what should fail first.
 
 import { describe, it, expect } from 'vitest';
 import { sessionPipelineLink } from '../sessionPipelineLink';
 
-const PIPELINES = [
-    { id: 79, title: 'FP Pipeline - Agent Harness' },
-    { id: 80, title: 'Phase 3' },
-];
 const PIPELINES2 = [{ id: 7, title: 'FP Pipeline - Agent Harness (2.0)' }];
 
 describe('sessionPipelineLink', () => {
-    it('links the 1.0 id, because that is what the plan page resolves', () => {
-        const r = sessionPipelineLink({ pipeline_fk: 79, pipeline2_fk: 7 }, PIPELINES, PIPELINES2);
+    it('links the 2.0 id at the 2.0 route', () => {
+        const r = sessionPipelineLink({ pipeline2_fk: 7 }, PIPELINES2);
         expect(r.state).toBe('link');
-        expect(r.href).toBe('/swarm/pipeline/79');
+        expect(r.href).toBe('/swarm/pipeline2/7');
+        expect(r.planId).toBe(7);
     });
 
-    it('NEVER puts a 2.0 id in the href while the page reads 1.0', () => {
-        const r = sessionPipelineLink({ pipeline_fk: null, pipeline2_fk: 7 }, PIPELINES, PIPELINES2);
-        expect(r.state).toBe('unlinked');
-        expect(r.href).toBeNull();
-    });
-
-    it('still names the plan when it cannot link to it', () => {
-        // The attribution is a fact worth showing even with nowhere to go, and
-        // a bare "#7" names a row no page in the app lists.
-        const r = sessionPipelineLink({ pipeline_fk: null, pipeline2_fk: 7 }, PIPELINES, PIPELINES2);
+    it('names the plan from the 2.0 list', () => {
+        const r = sessionPipelineLink({ pipeline2_fk: 7 }, PIPELINES2);
         expect(r.label).toBe('FP Pipeline - Agent Harness (2.0)');
-        expect(r.title).toMatch(/does not serve/i);
-    });
-
-    it('prefers the 1.0 title when both eras name the session', () => {
-        // The label must describe the plan the href actually opens.
-        const r = sessionPipelineLink({ pipeline_fk: 79, pipeline2_fk: 7 }, PIPELINES, PIPELINES2);
-        expect(r.label).toBe('FP Pipeline - Agent Harness');
+        expect(r.title).toMatch(/Open Pipeline 2\.0 plan/);
     });
 
     it('falls back to an id label when no title resolves', () => {
-        expect(sessionPipelineLink({ pipeline_fk: 999, pipeline2_fk: null }, PIPELINES).label)
-            .toBe('#999');
-        expect(sessionPipelineLink({ pipeline_fk: null, pipeline2_fk: 7 }, PIPELINES).label)
-            .toBe('#7');
+        expect(sessionPipelineLink({ pipeline2_fk: 999 }, PIPELINES2).label).toBe('#999');
     });
 
     it('renders nothing for a session outside any plan', () => {
-        const r = sessionPipelineLink({ pipeline_fk: null, pipeline2_fk: null }, PIPELINES);
+        const r = sessionPipelineLink({ pipeline2_fk: null }, PIPELINES2);
         expect(r.state).toBe('none');
         expect(r.label).toBeNull();
+        expect(r.href).toBeNull();
     });
 
-    it('does not bridge eras by title match', () => {
-        // Plan titles collide in live data; a wrong bridge opens a DIFFERENT
-        // plan, which is worse than opening nothing.
-        const r = sessionPipelineLink({ pipeline_fk: null, pipeline2_fk: 7 },
-                                      [{ id: 79, title: 'FP Pipeline - Agent Harness (2.0)' }],
-                                      PIPELINES2);
+    // req #3356 — a 1.0-only session is a HISTORICAL row whose plan no longer
+    // has a page. Reading `pipeline_fk` as a fallback would build a 2.0 link out
+    // of a 1.0 id, which is req #3462 exactly: the id spaces are disjoint, so
+    // that link opens a DIFFERENT plan. `none` is the honest answer.
+    it('ignores a 1.0-only attribution entirely — never bridges the id spaces', () => {
+        const r = sessionPipelineLink({ pipeline_fk: 79, pipeline2_fk: null }, PIPELINES2);
+        expect(r.state).toBe('none');
+        expect(r.href).toBeNull();
+        expect(r.planId).toBeNull();
+    });
+
+    // A row carrying BOTH is a data defect; the 2.0 column is the one that
+    // resolves, and the 1.0 id must not leak into the label or the href.
+    it('takes the 2.0 column when a defective row carries both', () => {
+        const r = sessionPipelineLink({ pipeline_fk: 79, pipeline2_fk: 7 }, PIPELINES2);
+        expect(r.planId).toBe(7);
+        expect(r.href).toBe('/swarm/pipeline2/7');
+    });
+
+    // Not the era question — a malformed id is unnavigable in any era.
+    it('reports an unusable id as unlinked rather than building a path', () => {
+        const r = sessionPipelineLink({ pipeline2_fk: '12abc' }, PIPELINES2);
+        expect(r.state).toBe('unlinked');
         expect(r.href).toBeNull();
     });
 
     it('tolerates a missing session or pipeline list', () => {
         expect(sessionPipelineLink(null, null).state).toBe('none');
-        expect(sessionPipelineLink({ pipeline_fk: 79 }, null).label).toBe('#79');
+        expect(sessionPipelineLink({ pipeline2_fk: 7 }, null).label).toBe('#7');
     });
 });

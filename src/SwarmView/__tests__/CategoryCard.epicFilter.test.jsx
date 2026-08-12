@@ -55,7 +55,7 @@ const FEATURES = [{ id: 46, epic_fk: 11 }, { id: 50, epic_fk: 12 }];
 vi.mock('../../hooks/useDataQueries', () => ({
     useRequirements: () => ({ data: reqData }),
     useSessions: () => ({ data: EMPTY_SESSIONS }),
-    useAllPipelineStepRequirements: () => ({ data: JUNCTION }),
+    useAllPipeline2StepRequirements: () => ({ data: JUNCTION }),
     useAllRequirements: () => ({ data: ALL_REQS }),
     useAllFeatures: () => ({ data: FEATURES }),
     ALL_ROWS: 'all',

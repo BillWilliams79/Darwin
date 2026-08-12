@@ -38,22 +38,23 @@ vi.mock('../../../RestApi/RestApi', () => ({
     default: vi.fn(() => Promise.resolve({ httpStatus: { httpStatus: 200 }, data: [] })),
 }));
 
-const PIPELINES = [
-    { id: 2, title: 'Darwin', pipeline_status: 'paused', description: '' },
-];
-
+// req #3356 — ONE composed read where the 1.0 seven used to be. The plan is
+// `paused`, which is the whole subject of this file: `composedFixture` puts that
+// status on both `pipeline.pipeline_status` and `derived.pause`, so the header
+// chip has the same fact to draw from that the live page gives it.
 vi.mock('../../../hooks/useDataQueries', async (importOriginal) => {
     const actual = await importOriginal();
+    const { composedFixture } = await import('./pipeline2ComposedFixture');
+    const composed = composedFixture({ id: 2, title: 'Darwin', pipelineStatus: 'paused' });
     const empty = () => ({ data: [], isLoading: false, isError: false });
     return {
         ...actual,
-        useAllPipelines: () => ({ data: PIPELINES, isLoading: false, isError: false }),
-        useAllPipelineSteps: empty,
-        useAllPipelineStepRequirements: empty,
-        useAllPipelineStepDeps: empty,
-        useAllRequirements: empty,
-        useAllFeatures: empty,
-        useAllEpics: empty,
+        useComposedPipeline2: (id) => ({
+            data: Number(id) === 2 ? composed : null, isLoading: false,
+        }),
+        useAllPipelines2: () => ({
+            data: [{ id: 2 }], isLoading: false, isError: false, isSuccess: true,
+        }),
         useMachines: empty,
         useOrchestrationClaims: empty,
         useAllRequirementSessions: empty,
@@ -84,7 +85,7 @@ function mount(url) {
                         value={{ idToken: 'tok', profile: { userName: 'tester', timezone: 'UTC' } }}>
                         <MemoryRouter initialEntries={[url]}>
                             <Routes>
-                                <Route path="/swarm/pipeline/:id" element={<PipelineDetail />} />
+                                <Route path="/swarm/pipeline2/:id" element={<PipelineDetail />} />
                             </Routes>
                         </MemoryRouter>
                     </AuthContext.Provider>
@@ -106,7 +107,7 @@ describe('PipelineDetail — Paused chip colour (req #3475)', () => {
     });
 
     it('renders the header Paused chip with the pause colour, not MUI default grey', () => {
-        mount('/swarm/pipeline/2');
+        mount('/swarm/pipeline2/2');
         const chip = node('pipeline-detail-paused');
         expect(chip).not.toBeNull();
         // jsdom resolves emotion's injected <style> tags, so getComputedStyle
@@ -118,7 +119,7 @@ describe('PipelineDetail — Paused chip colour (req #3475)', () => {
     });
 
     it('still does not shrink in its flex row', () => {
-        mount('/swarm/pipeline/2');
+        mount('/swarm/pipeline2/2');
         const chip = node('pipeline-detail-paused');
         expect(getComputedStyle(chip).flexShrink).toBe('0');
     });

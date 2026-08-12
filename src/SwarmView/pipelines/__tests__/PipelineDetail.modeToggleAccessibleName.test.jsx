@@ -30,25 +30,25 @@ vi.mock('../PipelinePlanVisualizer', () => ({ default: () => <div data-testid="m
 
 vi.mock('../../../RestApi/RestApi', () => ({ default: vi.fn(() => Promise.resolve({ httpStatus: { httpStatus: 200 }, data: [] })) }));
 
+// req #3356 — ONE composed read where the 1.0 seven used to be. The fixture
+// carries the SAME step 47 the 1.0 mock supplied, so every `?step=47` case
+// below still names a step the page can resolve; `composedFixture` builds the
+// `derived` block the page hard-stops without.
 vi.mock('../../../hooks/useDataQueries', async (importOriginal) => {
     const actual = await importOriginal();
+    const { composedFixture } = await import('./pipeline2ComposedFixture');
+    const composed = composedFixture({ id: 2, title: 'Darwin' });
     const empty = () => ({ data: [], isLoading: false, isError: false });
     return {
         ...actual,
-        useAllPipelines: () => ({
-            data: [{ id: 2, title: 'Darwin', pipeline_status: 'active', description: '' }],
-            isLoading: false,
+        useComposedPipeline2: (id) => ({
+            data: Number(id) === 2 ? composed : null, isLoading: false,
         }),
-        useAllPipelineSteps: () => ({
-            data: [{ id: 47, pipeline_fk: 2, title: 'Session Drain', run: 'auto', notes: null, completed_at: null }],
-            isLoading: false,
+        useAllPipelines2: () => ({
+            data: [{ id: 2 }], isLoading: false, isError: false, isSuccess: true,
         }),
-        useAllPipelineStepRequirements: empty,
-        useAllPipelineStepDeps: empty,
-        useAllRequirements: empty,
-        useAllFeatures: empty,
-        useAllEpics: empty,
         useMachines: empty,
+        useOrchestrationClaims: empty,
         useAllRequirementSessions: empty,
         useAllSessionCostRollups: empty,
     };
@@ -75,7 +75,7 @@ function mount(url) {
                     <AuthContext.Provider value={{ idToken: 'tok', profile: { userName: 'tester', timezone: 'UTC' } }}>
                         <MemoryRouter initialEntries={[url]}>
                             <Routes>
-                                <Route path="/swarm/pipeline/:id" element={<PipelineDetail />} />
+                                <Route path="/swarm/pipeline2/:id" element={<PipelineDetail />} />
                             </Routes>
                         </MemoryRouter>
                     </AuthContext.Provider>
@@ -99,7 +99,7 @@ afterEach(() => {
 
 describe('PipelineDetail — mode toggle accessible name (req #3281)', () => {
     it('gives every icon-only mode button a non-empty accessible name', () => {
-        mount('/swarm/pipeline/2');
+        mount('/swarm/pipeline2/2');
         for (const { value, label } of PIPELINE_DETAIL_MODES) {
             const btn = node(`pipeline-mode-${value}`);
             expect(btn, `expected a rendered button for mode "${value}"`).not.toBeNull();
@@ -113,7 +113,7 @@ describe('PipelineDetail — mode toggle accessible name (req #3281)', () => {
     });
 
     it('never puts the Tooltip title on the icon instead of the button', () => {
-        mount('/swarm/pipeline/2');
+        mount('/swarm/pipeline2/2');
         for (const { value } of PIPELINE_DETAIL_MODES) {
             const btn = node(`pipeline-mode-${value}`);
             const icon = btn.querySelector('svg');

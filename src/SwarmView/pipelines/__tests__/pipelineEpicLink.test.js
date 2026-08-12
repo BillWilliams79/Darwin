@@ -12,14 +12,15 @@ import {
     epicLinkTo,
     planLinkTo,
 } from '../pipelineEpicLink';
+import { PLAN_ERA_1, PLAN_ERA_2 } from '../planEra';
 
 describe('epicLinkTo', () => {
     it('names the plan, the plan mode and the epic', () => {
-        expect(epicLinkTo(2, 55)).toBe('/swarm/pipeline/2?mode=plan&epic=55');
+        expect(epicLinkTo(2, 55)).toBe('/swarm/pipeline2/2?mode=plan&epic=55');
     });
 
     it('accepts numeric strings', () => {
-        expect(epicLinkTo('2', '55')).toBe('/swarm/pipeline/2?mode=plan&epic=55');
+        expect(epicLinkTo('2', '55')).toBe('/swarm/pipeline2/2?mode=plan&epic=55');
     });
 
     it('returns null rather than a link to /swarm/pipeline/undefined', () => {
@@ -69,6 +70,15 @@ describe('readFocusEpicParam', () => {
         expect(FOCUS_EPIC_PARAM).toBe('epic');
         expect(epicLinkTo(1, 2)).toContain(`${FOCUS_EPIC_PARAM}=2`);
     });
+
+    // req #3356 — the DEFAULT is 2.0 (every producer of these ids is 2.0 now),
+    // and the parameter is what a caller holding a 1.0 id uses. Pinned because
+    // the default moving without the parameter surviving is req #3462 again.
+    it('defaults to the 2.0 route and honours an explicit era', () => {
+        expect(epicLinkTo(2, 55)).toBe(epicLinkTo(2, 55, PLAN_ERA_2));
+        expect(epicLinkTo(2, 55, PLAN_ERA_1)).toBe('/swarm/pipeline/2?mode=plan&epic=55');
+        expect(epicLinkTo(2, 55, PLAN_ERA_1)).not.toBe(epicLinkTo(2, 55, PLAN_ERA_2));
+    });
 });
 
 // Req #3435 — the Orchestration box's pipeline row needs a destination even
@@ -76,7 +86,7 @@ describe('readFocusEpicParam', () => {
 // this requirement is not seated in).
 describe('planLinkTo', () => {
     it('lands on the plan, in plan mode, with nothing focused', () => {
-        expect(planLinkTo(2)).toBe('/swarm/pipeline/2?mode=plan');
+        expect(planLinkTo(2)).toBe('/swarm/pipeline2/2?mode=plan');
     });
 
     it('carries the mode explicitly, so a stored table preference cannot win', () => {
@@ -92,11 +102,11 @@ describe('planLinkTo', () => {
         expect(planLinkTo('')).toBeNull();
         expect(planLinkTo('12abc')).toBeNull();
         expect(planLinkTo(1.5)).toBeNull();
-        expect(planLinkTo(0)).toBe('/swarm/pipeline/0?mode=plan');
+        expect(planLinkTo(0)).toBe('/swarm/pipeline2/0?mode=plan');
     });
 
     it('accepts a numeric string from the wire', () => {
-        expect(planLinkTo('2')).toBe('/swarm/pipeline/2?mode=plan');
+        expect(planLinkTo('2')).toBe('/swarm/pipeline2/2?mode=plan');
     });
 
     // It must NOT smuggle a focus parameter in — that is epicLinkTo's job, and

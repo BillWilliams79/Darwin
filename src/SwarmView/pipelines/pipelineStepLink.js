@@ -1,6 +1,8 @@
 // pipelineStepLink.js — the addressable-step contract (req #3140).
 //
-// ONE step of a plan, named by URL: `/swarm/pipeline/<pid>?mode=table&step=<sid>`.
+// ONE step of a plan, named by URL: `<plan detail route>?mode=table&step=<sid>`.
+// The route half comes from `planEra.js` (2.0 by default since req #3356);
+// this module owns the `?step=` / `?level=` half.
 //
 // WHY BOTH HALVES LIVE IN ONE MODULE. The writer is the Steps editor
 // (`src/Steps/StepsPage.jsx`) and the reader is the plan page
@@ -36,10 +38,25 @@
 import { isPlanLevelPref } from './pipelinePlanLayout';
 // TWO imports now (req #3463). The route itself is no longer this module's to
 // spell: `planEra.js` owns the era↔route binding, and a builder here that
-// interpolated `/swarm/pipeline/` directly is exactly what let a 2.0 id reach a
+// interpolated the plan route directly is exactly what let a 2.0 id reach a
 // 1.0 route in production. This module still owns the QUERY-STRING half of the
 // contract — which is what it was always for — and asks planEra for the path.
-import { DEFAULT_PLAN_ERA, planDetailPath } from './planEra';
+//
+// ── THIS MODULE'S DEFAULT IS NOT `DEFAULT_PLAN_ERA` ANY MORE (req #3356) ────
+// `planEra.js`'s module-level `DEFAULT_PLAN_ERA` is still `PLAN_ERA_1` and is
+// deliberately NOT what these builders use. That constant means "the era a
+// caller meant before there were two" — right for a legacy router state, wrong
+// for a NEW link, because the producer of the ids `stepPlanLinkTo` receives
+// (`useOrchestrationIndex`, the requirement page's Orchestration box) walks the
+// `pipeline2_*` tables now. Defaulting to 1.0 here would put a 2.0 id on a 1.0
+// route: req #3462, the outage `planEra.js` exists to prevent, arriving through
+// the one door it left open.
+//
+// The `era` PARAMETER stays, and it is load-bearing rather than vestigial:
+// `Steps/StepsPage.jsx` is the 1.0 step editor, genuinely holds 1.0 ids, and
+// passes `PLAN_ERA_1` explicitly. Retiring `DEFAULT_PLAN_ERA` and the 1.0
+// binding is a separate step — `planEra.js` is untouched here.
+import { PLAN_ERA_2, planDetailPath } from './planEra';
 
 export const FOCUS_STEP_PARAM = 'step';
 
@@ -69,10 +86,11 @@ export const STEP_PLAN_LINK_LEVEL = '2';
  *
  * @param {?number} pipelineId
  * @param {?number} stepId
- * @param {number} [era] the era `pipelineId` was READ from (req #3463)
+ * @param {number} [era] the era `pipelineId` was READ from (req #3463).
+ *        Defaults to 2.0 since req #3356 — see the module header.
  * @returns {?string}
  */
-export function stepPlanLinkTo(pipelineId, stepId, era = DEFAULT_PLAN_ERA) {
+export function stepPlanLinkTo(pipelineId, stepId, era = PLAN_ERA_2) {
     const sid = toId(stepId);
     if (sid == null) return null;
     return planDetailPath(era, pipelineId,
@@ -108,10 +126,11 @@ export function readLevelParam(searchParams) {
  *
  * @param {?number} pipelineId
  * @param {?number} stepId
- * @param {number} [era] the era `pipelineId` was READ from (req #3463)
+ * @param {number} [era] the era `pipelineId` was READ from (req #3463).
+ *        Defaults to 2.0 since req #3356 — see the module header.
  * @returns {?string}
  */
-export function stepLinkTo(pipelineId, stepId, era = DEFAULT_PLAN_ERA) {
+export function stepLinkTo(pipelineId, stepId, era = PLAN_ERA_2) {
     const sid = toId(stepId);
     if (sid == null) return null;
     return planDetailPath(era, pipelineId, `mode=table&${FOCUS_STEP_PARAM}=${sid}`);

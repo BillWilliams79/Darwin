@@ -10,11 +10,15 @@
 
 import { describe, it, expect } from 'vitest';
 
-// req #3462 (production outage) restored `orderedPlan` to pipelineViewModel.js
-// itself, so the req #3381 workaround this file used — importing
-// `buildTestOrderedPlan as orderedPlan` from the now-deleted `testOrderedPlan.js`
-// shim — is gone with it; import the real thing again.
-import { buildPipelineModel, orderedPlan } from '../pipelineViewModel';
+// req #3356 — the plan fixture is minted by `planFixtureEngine.js`, this
+// directory's TEST-ONLY copy of Pipeline 1.0's derivation engine. Pipeline 2.0
+// derives server-side (`pipeline2_derive.py`), so there is no JS derivation left
+// in `src/` for a layout test to run; that file's header carries the full
+// reasoning and how it is retired. The module under test
+// (`../pipelineEpicZoom.js`) is era-neutral — it reads `PlanRow`s and cares
+// nothing about who built them — so the fixture's provenance does not weaken
+// what these cases assert.
+import { buildPipelineModel, orderedPlan } from './planFixtureEngine';
 import { computePlanLayout, placeEpicChips } from '../pipelinePlanLayout';
 import {
     epicCycleKey, epicZoomStateKey, nextLaunchStep, nextEpicZoom,

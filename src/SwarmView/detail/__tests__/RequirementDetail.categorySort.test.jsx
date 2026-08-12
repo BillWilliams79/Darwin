@@ -43,9 +43,10 @@ const CATEGORIES = [
 function orchestrationStubs() {
     const empty = { data: [], isLoading: false, isError: false, isPending: false, isSuccess: true };
     return {
-        useAllPipelines: () => empty,
-        useAllPipelineSteps: () => empty,
-        useAllPipelineStepRequirements: () => empty,
+        useAllPipelines2: () => empty,
+        useAllPipeline2Epics: () => empty,
+        useAllPipeline2Steps: () => empty,
+        useAllPipeline2StepRequirements: () => empty,
         useAllEpics: () => empty,
         useAllFeatures: () => empty,
     };

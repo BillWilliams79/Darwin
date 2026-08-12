@@ -27,10 +27,26 @@
 // that could produce that population (see `utils/pipelineMembership.js`'s
 // header for the full reasoning), so this hook now reads ONE bounded list —
 // the step-requirement junction — instead of three.
+//
+// ── THE JUNCTION IS PIPELINE 2.0's NOW (req #3356) ──────────────────────────
+//
+// The one list read is `pipeline2_step_requirements`, not the 1.0
+// `pipeline_step_requirements` this hook was built against. Pipeline 1.0 is
+// being eradicated, and a toggle still reading its junction would answer from a
+// table nothing writes any more — every requirement would read as unorchestrated
+// and the control would silently do nothing.
+//
+// THE ROW SHAPE IS IDENTICAL (`step_fk`, `requirement_fk`), so
+// `pipelinedRequirementIds` / `orchestratedRequirementIds` need no adaptation:
+// only the source table moved. What DID change underneath is the junction's
+// primary key — 2.0 keys on `requirement_fk` ALONE (one step per requirement,
+// the req #3336 stage-2 gate ruling), so the id set this hook derives can no
+// longer contain a duplicate at all. Neither function ever relied on that, and
+// both stay set-valued rather than being "simplified" into a lookup.
 
 import { useCallback, useMemo } from 'react';
 
-import { useAllPipelineStepRequirements } from './useDataQueries';
+import { useAllPipeline2StepRequirements } from './useDataQueries';
 import { useShowClosedStore } from '../stores/useShowClosedStore';
 import { effectiveHidePipelined } from '../utils/epicMembership';
 import {
@@ -80,7 +96,7 @@ export function useRequirementVisibility(creatorFk, { epicFilterActive = false }
     // Read unconditionally — hooks are not conditional, and gating this on the
     // toggle would mean the FIRST flip renders stale-empty for a round trip,
     // showing rows the user just asked to hide.
-    const { data: stepRequirements } = useAllPipelineStepRequirements(creatorFk);
+    const { data: stepRequirements } = useAllPipeline2StepRequirements(creatorFk);
 
     const pipelinedIds = useMemo(
         () => pipelinedRequirementIds(stepRequirements),

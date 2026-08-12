@@ -15,12 +15,18 @@
 // cannot import the daemon's code), and the shared constant below is what keeps
 // the two answers the same.
 //
-// A SCOPE IS (pipeline_fk, epic_fk) AND NOTHING ELSE. `epic_fk` null means the
-// WHOLE PLAN, which owns every step in it — so a plan with a whole-plan
+// A SCOPE IS (pipeline2_fk, epic2_fk) AND NOTHING ELSE. `epic2_fk` null means
+// the WHOLE PLAN, which owns every step in it — so a plan with a whole-plan
 // reservation is orchestrated even though none of its epics carries one. Every
-// consumer asks through `claimForPipeline` / `claimForEpic` rather than filtering
-// inline, because getting that null case wrong reads as "nobody is orchestrating
-// this" on the one surface built to answer the opposite.
+// consumer asks through `claimForPipeline2` rather than filtering inline,
+// because getting that null case wrong reads as "nobody is orchestrating this"
+// on the one surface built to answer the opposite.
+//
+// req #3356 removed the 1.0 accessors (`claimForPipeline`, `claimsForEpic`) with
+// the pages that called them. `scopeLabel` below still reads BOTH column pairs:
+// the `orchestration_claims` rows themselves are not this requirement's to
+// change (its item 4 drops the 1.0 columns, schema-side), so a row written
+// before that drop must still print a label rather than `pipeline:null`.
 
 // Seconds after which a reservation whose holder has stopped heartbeating is
 // RECLAIMABLE. Must equal `STALE_AFTER_SECONDS` in
@@ -93,22 +99,19 @@ export function heldForSeconds(claim, now = new Date()) {
 }
 
 /**
- * The reservation covering a whole PLAN — `epic_fk` null, `pipeline_fk` matching.
- */
-export function claimForPipeline(claims, pipelineId) {
-    if (pipelineId == null) return null;
-    return asArray(claims).find(
-        (c) => c.pipeline_fk === pipelineId && c.epic_fk == null) || null;
-}
-
-/**
- * The 2.0 counterpart of `claimForPipeline` (req #3381) — `pipeline2_fk`/
- * `epic2_fk` are the SEPARATE columns a 2.0-scoped claim carries (NULL on a
- * 1.0 row, and vice versa — CLAUDE.md § Session orchestration attribution's
- * pairing pattern, reused here for claims). `claimForPipeline` itself is NOT
- * era-aware and must not become so: `PipelinesTableView.jsx`/
- * `PipelineCardsView.jsx` (the 1.0 list page) still call it against 1.0
- * pipeline ids and must keep matching on `pipeline_fk`.
+ * The reservation covering a whole PLAN — `epic2_fk` null, `pipeline2_fk`
+ * matching (req #3381).
+ *
+ * `pipeline2_fk`/`epic2_fk` are the SEPARATE columns a 2.0-scoped claim carries
+ * (NULL on what used to be a 1.0 row, and vice versa — CLAUDE.md § Session
+ * orchestration attribution's pairing pattern, reused here for claims). The `2`
+ * in the name survives req #3356 deliberately: it names the COLUMN PAIR this
+ * function matches on, and those columns keep their names until the schema-side
+ * rename that requirement's item 4 owns. Renaming the function ahead of the
+ * columns would make the code claim a schema change that has not happened.
+ *
+ * The 1.0 twin (`claimForPipeline`, matching `pipeline_fk`/`epic_fk`) went with
+ * the 1.0 list page that was its last caller.
  */
 export function claimForPipeline2(claims, pipeline2Id) {
     if (pipeline2Id == null) return null;
@@ -116,26 +119,21 @@ export function claimForPipeline2(claims, pipeline2Id) {
         (c) => c.pipeline2_fk === pipeline2Id && c.epic2_fk == null) || null;
 }
 
-/**
- * Every reservation covering an EPIC's work — its own, plus any whole-plan
- * reservation on a plan the epic is seated in.
- *
- * BOTH, because a whole-plan scope owns every step in its plan (design rule 10
- * gives a step exactly one dominant label, so step→orchestrator is a function).
- * An epics page that showed only epic-scoped claims would report "not
- * orchestrated" for an epic whose work is being launched right now by a
- * whole-plan engine — precisely the confusion the shared reservation exists to
- * remove.
- *
- * `pipelineIds` is the set of plans the epic appears in; pass an empty list when
- * that is not known and only the epic's own reservation is considered.
- */
-export function claimsForEpic(claims, epicId, pipelineIds = []) {
-    if (epicId == null) return [];
-    const plans = new Set(asArray(pipelineIds));
-    return asArray(claims).filter(
-        (c) => c.epic_fk === epicId || (c.epic_fk == null && plans.has(c.pipeline_fk)));
-}
+// `claimsForEpic` — every reservation covering an EPIC's work, its own plus any
+// whole-plan reservation on a plan the epic sat in — was DELETED by req #3356
+// with its only caller, the 1.0 `/swarm/epics` page. It read the 1.0
+// `epic_fk`/`pipeline_fk` pair, so it could not have been carried forward as
+// written.
+//
+// THERE IS NO 2.0 REPLACEMENT, and that is a real feature-parity gap rather than
+// a tidy-up: `/swarm/epics2` shows no "who is orchestrating this epic" chip, so
+// an epic whose work is being launched right now — by an epic-scoped engine or
+// by a whole-plan one — reads on that page exactly like an idle epic. The plan
+// HEADER still names a whole-plan holder (`claimForPipeline2` above), so the
+// fact is not unreachable, only absent from the epic surface. Restoring it needs
+// the 2.0 shape of the same argument this docstring made: an epics page showing
+// only epic-scoped claims would report "not orchestrated" for an epic a
+// whole-plan engine owns, so the replacement must union both scopes.
 
 /** `pipeline:2` / `epic:7@2` for a 1.0 claim, `pipeline2:5` / `epic2:9@5` for
  * a 2.0 one — the same words the engine and its edges use, on whichever pair

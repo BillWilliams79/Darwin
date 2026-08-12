@@ -1062,6 +1062,7 @@ export function useComposedPipeline2(pipelineId, { enabled = true } = {}) {
 
 // Req #3428 — the requirement ids one EPIC contains, as a Set, plus the narrow
 // requirement rows the page needs to decide WHERE that work lives.
+// Re-based on Pipeline 2.0 CONTAINMENT by req #3356.
 //
 // Modelled on `usePipelinedRequirementIds` above and for the same reason: four
 // surfaces need this answer (the Cards view's rows, the aggregator's rows, the
@@ -1069,55 +1070,86 @@ export function useComposedPipeline2(pipelineId, { enabled = true } = {}) {
 // consult ONE derivation or they will disagree with each other in ways nothing
 // fails on.
 //
-// AN ID SET RATHER THAN A WIDER PROJECTION. Three of those four consumers read
-// requirements through queries that do not carry `feature_fk`
-// (`useRequirementsByStatus`, `useRequirementsDone`, and the counts read), and
-// teaching all three about epics would put a column on the wire for every reader
-// of those shared cache entries, forever, to serve a filter that is off almost
-// all the time. One narrow read answers all four instead.
+// WHAT MOVED, AND WHY IT WAS NOT OPTIONAL. Until #3356 this read `useAllFeatures`
+// + `useAllRequirements(fields: 'id,feature_fk,category_fk')` and walked
+// `requirement.feature_fk -> feature.epic_fk`. Req #3355 dropped BOTH — the
+// `features` table and the `requirements.feature_fk` column — so the projection
+// named a column production no longer has and the walk had nothing to walk. The
+// 2.0 answer is CONTAINMENT and it is one join shorter: `pipeline2_steps.epic_fk`
+// is NOT NULL (a step's epic is direct) and `pipeline2_step_requirements` seats
+// the requirement on the step. The narrowing that follows — a requirement is in
+// an epic ONLY by being seated — is argued in `utils/epicMembership.js`.
 //
-// `epicId == null` DISABLES BOTH READS, so a page with no filter active pays
+// AN ID SET RATHER THAN A WIDER PROJECTION. Three of those four consumers read
+// requirements through queries that carry no plan columns at all
+// (`useRequirementsByStatus`, `useRequirementsDone`, and the counts read), and
+// teaching all three about epics would put columns on the wire for every reader
+// of those shared cache entries, forever, to serve a filter that is off almost
+// all the time. Two whole-table plan reads answer all four instead — the same
+// trade `useRequirementVisibility` makes for STEP association.
+//
+// `epicId == null` DISABLES ALL THREE READS, so a page with no filter active pays
 // nothing — not a fetch, not a parse. It returns `{ epicReqIds: null, … }`, and
 // `null` is what every consumer treats as "no filter" (an EMPTY SET means the
 // filter is on and matches nothing, which is a different page).
 //
-// `closed: ALL_ROWS` on the features read, matching the plan pages: a CLOSED
-// feature's requirements still belong to their epic, and dropping them here
-// would silently shrink the filter's population with no visible cause. It is
-// also the exact cache entry `PipelineDetail`/`StepsPage` already hold, so
-// arriving from the plan visualizer — which is how this filter is reached —
-// costs no features fetch at all.
+// TWO PROJECTIONS, DECIDED OPPOSITE WAYS, and the asymmetry is deliberate.
+// `pipeline2_steps` gets its OWN narrow `id,epic_fk` entry rather than sharing
+// the editors' default: that default carries `notes`, prose this filter never
+// reads, on a whole-table read. `pipeline2_step_requirements` takes its default
+// BECAUSE that default (`step_fk,requirement_fk`) is already the narrowest
+// projection the junction has — there is nothing left to trim, so sharing the
+// cache entry is free, and on THIS page it is better than free:
+// `useRequirementVisibility` reads the same junction with the same default on
+// every `/swarm` render (req #3356 moved it there too), unconditionally, so the
+// entry is already resolved before the epic filter asks for it. A narrowed
+// projection here would have opened a SECOND whole-table fetch beside a
+// warm one. `StepsPage2` / `PipelinesPage2` hold that same entry. Both blocks
+// set `fieldsInKey` (req #2213), so a narrow entry can neither serve nor be
+// served by a wider consumer's rows. Neither read filters by epic server-side:
+// no FK-scoped hook is declared for either table, and a whole-table read is what
+// the plan pages already take.
 //
-// The narrowest projection that answers both questions: membership needs
-// `feature_fk`, and "which project tab holds this epic's work" needs
-// `category_fk`. `useAllRequirements` puts `fields` in its cache key (req #2213),
-// so this gets its own entry and cannot serve — or be served by — a wider
-// consumer's rows.
-const EPIC_MEMBERSHIP_REQUIREMENT_FIELDS = 'id,feature_fk,category_fk';
+// The requirements read SURVIVES, narrowed. Membership no longer needs anything
+// off the requirement row, but "which project tab holds this epic's work" still
+// needs `category_fk` (`firstProjectIndexWithEpicWork`) — so the projection loses
+// the dead `feature_fk` and keeps the other two columns.
+const EPIC_MEMBERSHIP_REQUIREMENT_FIELDS = 'id,category_fk';
+// The narrowest projection that answers "which epic is this step under". `id`
+// is the junction's join key; `epic_fk` is the whole membership question.
+const EPIC_MEMBERSHIP_STEP_FIELDS = 'id,epic_fk';
 
 //
-// A FAILED READ IS NOT AN EMPTY EPIC. Both `isError`s are read, and on either one
-// the hook returns `epicReqIds: null` — the same value that means "no filter" —
-// plus `isError: true` so the caller can say why. Discarding the error instead
-// leaves `features`/`requirements` undefined forever, which derives an EMPTY SET,
-// which renders every card gone and every badge zero: a page indistinguishable
-// from "this epic has no work", permanently, with nothing surfaced anywhere (the
+// A FAILED READ IS NOT AN EMPTY EPIC. All three `isError`s are read, and on any
+// one of them the hook returns `epicReqIds: null` — the same value that means "no
+// filter" — plus `isError: true` so the caller can say why. Discarding the error
+// instead leaves the rows undefined forever, which derives an EMPTY SET, which
+// renders every card gone and every badge zero: a page indistinguishable from
+// "this epic has no work", permanently, with nothing surfaced anywhere (the
 // QueryClient has no error handler). `filterToEpic`'s in-flight direction is
 // deliberate and unchanged — an empty set while a read is IN FLIGHT is a brief,
 // self-correcting state; a failed read is neither, so it must not share it.
+//
+// The REQUIREMENTS read is in that `isError` set even though membership no
+// longer touches it: it still feeds `firstProjectIndexWithEpicWork`, and a
+// filter that silently landed the reader on the wrong project tab is the same
+// class of quiet wrongness the other two guard against.
 export function useEpicRequirementIds(creatorFk, epicId) {
     const active = epicId !== null && epicId !== undefined;
-    const { data: features, isError: featuresError } = useAllFeatures(creatorFk, {
-        closed: ALL_ROWS, enabled: active,
+    const { data: steps, isError: stepsError } = useAllPipeline2Steps(creatorFk, {
+        fields: EPIC_MEMBERSHIP_STEP_FIELDS, enabled: active,
     });
+    const { data: stepRequirements, isError: stepRequirementsError } =
+        useAllPipeline2StepRequirements(creatorFk, { enabled: active });
     const { data: requirements, isError: requirementsError } = useAllRequirements(creatorFk, {
         fields: EPIC_MEMBERSHIP_REQUIREMENT_FIELDS, enabled: active,
     });
-    const isError = active && (featuresError || requirementsError);
+    const isError = active && (stepsError || stepRequirementsError || requirementsError);
 
     const epicReqIds = useMemo(
-        () => ((active && !isError) ? epicRequirementIds(features, requirements, epicId) : null),
-        [active, isError, features, requirements, epicId]);
+        () => ((active && !isError)
+            ? epicRequirementIds(steps, stepRequirements, epicId) : null),
+        [active, isError, steps, stepRequirements, epicId]);
 
     return { epicReqIds, isError, requirements: active ? requirements : undefined };
 }

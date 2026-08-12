@@ -1,73 +1,30 @@
-// pipelineViewModel.js — the adapter between the four bounded list reads and the
-// pure engine (req #3114; engine = pipelineModel.js, req #3112).
+// pipelineViewModel.js — the plan pages' RENDER HELPERS (req #3114).
 //
-// PURE: plain rows in, plain render rows out. No React, no MUI, no hooks, no
-// clock — `now` is always caller-supplied, exactly as the engine requires. Its
-// own module so vitest can exercise it without a DOM and so the page components
-// stay in React Fast Refresh (the instructionSort.js lesson).
+// PURE: plain rows in, plain strings/shapes out. No React, no MUI, no hooks, no
+// clock. Its own module so vitest can exercise it without a DOM and so the page
+// components stay in React Fast Refresh (the instructionSort.js lesson).
 //
-// WHY AN ADAPTER AT ALL. The engine's contract is a `PipelineModel` scoped to ONE
-// pipeline, while the hooks return whole-table lists (the junction and dep tables
-// carry no pipeline_fk, so they cannot be fetched per-pipeline without an N+1 —
-// design rule 5's named failure). Everything below is the narrowing, in one
-// memoizable place, plus the render-shape assembly the table would otherwise do
-// inline where it could not be tested.
+// ── WHAT req #3356 TOOK OUT OF THIS FILE ───────────────────────────────────
+// It was ALSO the adapter between Pipeline 1.0's seven bounded list reads and
+// the browser-side derivation engine: `PLAN_REQUIREMENT_FIELDS` (that fetch's
+// requirement projection), `buildPipelineModel` (narrowing whole-table reads to
+// one plan), `orderedPlan` (running the engine end to end), and
+// `pipelineSummary`/`pipelineSummaries`/`pipelineRequirementCounts` (the 1.0
+// list page's per-plan rollups). All of it is gone with Pipeline 1.0: the
+// derivation now runs ONCE, server-side, in `pipeline2_derive.py`, and
+// `pipeline2Adapter.js` reshapes its output. Nothing in the browser composes an
+// engine any more.
+//
+// What is left is the half that was never about the fetch — the formatters and
+// small render shapes the plan TABLE, the plan VISUALIZER and the 2.0 list page
+// all read. They are era-neutral by nature: they take a `PlanRow` and return a
+// string, and a `PlanRow` is a `PlanRow` whoever built it.
 
 import { formatDateTime } from '../../utils/dateFormat';
-import {
-    aggregateRowCost,
-    buildPlanRows,
-    displayOrder,
-    verifyOrder,
-    launchBatches,
-    eligibility,
-    requirementCounts,
-    pauseState,
-    serialState,
-    STEP_DONE,
-    STEP_RUNNING,
-    STEP_PENDING,
-} from './pipelineModel';
-import { planTimeAxis } from './pipelinePlanTime';
+import { STEP_DONE, STEP_RUNNING, STEP_PENDING } from './pipelineModel';
 import { PIPELINE_STATUS_VALUES } from './pipelineChipStyles';
 
 const asArray = (v) => (Array.isArray(v) ? v : []);
-
-// The requirement projection the plan needs, SHARED by the list page and the
-// detail page. Bounded and explicit: `feature_fk` carries the Epic > Feature
-// label chain (design rule 10) that `dominantLabels`/`requirementCounts`
-// (pipelineModel.js) still resolve down to an EPIC — req #3373 stopped the
-// drawing files from reading the FEATURE half of that chain (the Feature
-// column, the datacard's feature line), but the fetch itself is unchanged:
-// this engine is the 1.0 one, confirmed live and byte-identical by req #3462's
-// same-day revert of req #3381's attempt to cut it over, so `epicId` still has
-// no other source. Dropping `feature_fk` here would silently null out every
-// band's epic. `machine_fk` the Machine column,
-// `requirement_status` the derived step state (design rule 1), `tracking` the
-// CONTAINER exemption to that derivation (req #3123 — without it a step linking
-// a tracking requirement derives Running forever), `title` the link tooltips.
-// Nothing about sessions (design rule 9).
-//
-// The sharing is the point, not tidiness: `useAllRequirements` puts `fields` in
-// its cache key, so two pages asking for different projections are two cache
-// entries and the second one refetches the whole requirements table. One
-// constant means list -> detail navigation reuses the read it already paid for.
-//
-// `started_at` / `completed_at` (req #3201) carry the plan's TIME AXIS. The
-// visualizer's horizontal position is a calendar proxy and its bands stack by
-// epic start, and there is no `epics.started_at` column to read — an epic's
-// start is DERIVED as a minimum over its requirements (design rule 1), so the
-// two stamps have to travel with the projection. They are two DATETIME columns
-// on rows already being read; the blob columns req #3078 keeps out of list
-// reads are a different thing entirely.
-// `ai_model` / `effort` (req #3213) answer HOW the work will be executed, which
-// is the half of a requirement the hover card could not answer at all. They join
-// `coordination_type`, which was already here, for the same reason `started_at`
-// did: two short enum columns on rows this projection is already reading, so the
-// card widens an existing whole-table read rather than adding a call.
-export const PLAN_REQUIREMENT_FIELDS =
-    'id,title,requirement_status,machine_fk,feature_fk,coordination_type,tracking,'
-    + 'ai_model,effort,started_at,completed_at';
 
 // ── The met/total counts preference (req #3225, defaulted ON by req #3241) ──
 // ONE key and ONE default, because TWO pages read this preference and only one of
@@ -101,65 +58,6 @@ export const PLAN_REQUIREMENT_FIELDS =
 // unchanged, so anyone who does want them off is one click from it.
 export const REQ_COUNTS_STORAGE_KEY = 'darwin-pipeline-req-counts-v2';
 export const DEFAULT_REQ_COUNTS = 'on';
-
-/**
- * Narrow the whole-table reads to ONE pipeline, in the shape req #3112 fixed.
- *
- * `requirements` is narrowed to the linked set on purpose: the engine rebuilds an
- * id index inside dominantLabels() and machineLabels() once PER STEP, so handing
- * it Darwin's entire requirement table would make label derivation O(steps ×
- * requirements) over thousands of irrelevant rows. Features, epics and machines
- * are small dictionaries and pass through whole.
- *
- * @param {Object} args
- * @param {?Object} args.pipeline            the pipelines row (already selected)
- * @param {Object[]} args.steps              ALL pipeline_steps rows
- * @param {Object[]} args.stepRequirements   ALL pipeline_step_requirements rows
- * @param {Object[]} args.stepDeps           ALL pipeline_step_deps rows
- * @param {Object[]} args.requirements       requirements (any superset)
- * @param {Object[]} args.features           features (any superset)
- * @param {Object[]} args.epics              epics (any superset)
- * @param {Object[]} args.machines           machines (any superset)
- * @returns {Object} PipelineModel
- */
-export function buildPipelineModel({
-    pipeline,
-    steps,
-    stepRequirements,
-    stepDeps,
-    requirements,
-    features,
-    epics,
-    machines,
-} = {}) {
-    const pipelineId = pipeline ? pipeline.id : null;
-    const ownSteps = pipelineId == null
-        ? []
-        : asArray(steps).filter((s) => s.pipeline_fk === pipelineId);
-    const stepIds = new Set(ownSteps.map((s) => s.id));
-
-    const ownStepRequirements = asArray(stepRequirements)
-        .filter((j) => stepIds.has(j.step_fk));
-    // Dep rows are scoped by their OWNING step only. A dep_step_fk pointing
-    // outside this pipeline cannot happen through the UI, and if it ever did,
-    // dropping the row here would hide it — verifyOrder's dangling-dependency
-    // check is what must surface it, loudly.
-    const ownStepDeps = asArray(stepDeps).filter((d) => stepIds.has(d.step_fk));
-
-    const linkedReqIds = new Set(ownStepRequirements.map((j) => j.requirement_fk));
-    const ownRequirements = asArray(requirements).filter((r) => linkedReqIds.has(r.id));
-
-    return {
-        pipeline: pipeline || null,
-        steps: ownSteps,
-        stepRequirements: ownStepRequirements,
-        stepDeps: ownStepDeps,
-        requirements: ownRequirements,
-        features: asArray(features),
-        epics: asArray(epics),
-        machines: asArray(machines),
-    };
-}
 
 /**
  * Fold the two cost reads into a CostIndex — req #3117's whole client-side
@@ -249,109 +147,6 @@ export function buildCostIndex({ requirementSessions, sessionCosts } = {}) {
 }
 
 /**
- * Run the engine end to end over a model: derive → order → SELF-CHECK → batch →
- * mark eligibility → attach cost → derive the time axis.
- *
- * The verifyOrder() call is on the RENDERED order, which is design rule 3's whole
- * point: the renderer checks its own output and the caller renders any violation
- * loudly. `violations` is the only green light — an empty array.
- *
- * Cost is attached HERE, onto `row.cost`, rather than computed in a cell
- * renderer: the plan table and the plan visualizer are two surfaces over one
- * plan, and a number they each derive independently is a number that can
- * disagree. It is attached AFTER ordering and verification and is never an
- * ordering input — cost must not be able to move a row.
- *
- * @param {Object} model         from buildPipelineModel
- * @param {Object} [options]
- * @param {(Date|number|string)} [options.now]  clock for time-gate eligibility
- * @param {?Object} [options.costIndex]          from buildCostIndex
- * @returns {Object} plan
- */
-export function orderedPlan(model, { now, costIndex = null } = {}) {
-    const planRows = buildPlanRows(model || {});
-    const { rows, cycleDetected, cycleStepIds, duplicateStepIds } = displayOrder(planRows);
-    const violations = verifyOrder(rows);
-    const batches = launchBatches(rows);
-
-    const batchLetterByStepId = new Map();
-    for (const b of batches) {
-        for (const id of b.stepIds) batchLetterByStepId.set(id, b.letter);
-    }
-
-    const byId = new Map(rows.map((r) => [r.id, r]));
-    const eligibleStepIds = new Set(
-        rows.filter((r) => eligibility(r, byId, now)).map((r) => r.id),
-    );
-
-    // Junction rows whose requirement is missing from the read. Design rule 5
-    // says the page renders from bounded reads; a bounded read that TRUNCATED
-    // would under-derive step state in total silence, so it is surfaced with the
-    // ordering violations rather than shrugged off.
-    const unresolvedReqIds = [];
-    for (const r of rows) {
-        for (const id of r.unresolvedReqIds || []) {
-            if (!unresolvedReqIds.includes(id)) unresolvedReqIds.push(id);
-        }
-    }
-
-    // req #3226 — pause suppression (req #3223's enforcement half, rendered
-    // here). Mutates each row with `launchSuppressed`/`suppressedBy`, the same
-    // "freshly built rows this call owns" discipline `row.cost` relies on
-    // below, so it runs first and the cost loop's own comment still describes
-    // every mutation these rows carry.
-    const pause = pauseState(model || {}, rows);
-
-    // req #3388 — serial turn-taking, IMMEDIATELY AFTER pause and before
-    // anything reads `suppressedBy`. It appends `turn` to the same list pause
-    // just wrote, so calling it later (or not at all) leaves the browser
-    // showing a step as launchable while the engine is holding it — the two
-    // surfaces disagreeing about the live plan, which is the exact failure the
-    // shared conformance corpus exists to prevent. The corpus pins
-    // `serialState` itself; THIS line is what puts it on the browser's path.
-    const serial = serialState(model || {}, rows);
-
-    // MUTATED IN PLACE deliberately: `rows` are the freshly built PlanRows this
-    // call owns (buildPlanRows returns new objects every time), never the caller's
-    // input, so there is nothing outside this function to surprise.
-    for (const r of rows) r.cost = aggregateRowCost(r, costIndex);
-
-    // The visualizer's TIME AXIS (req #3201). Derived here rather than in the
-    // canvas for the same reason cost is: the plan table and the plan
-    // visualizer are two surfaces over one plan, and a fact they each derive
-    // independently is a fact that can disagree. Like cost, and for the same
-    // reason, it is computed AFTER ordering and is never an ordering input —
-    // display order stays topological-then-state-banded (rule 3), and only the
-    // canvas's column origins and band stacking read this.
-    const timeAxis = planTimeAxis(rows, (model && model.requirements) || []);
-
-    return {
-        rows,
-        violations,
-        timeAxis,
-        batches,
-        batchLetterByStepId,
-        eligibleStepIds,
-        cycleDetected,
-        cycleStepIds,
-        duplicateStepIds,
-        unresolvedReqIds,
-        // req #3225 — pure CPU over `model.requirements`/`model.features`,
-        // both already in hand. No extra read, same as cost/timeAxis above.
-        requirementCounts: requirementCounts(model || {}),
-        // req #3226 — see the mutation above; carried here too so a consumer
-        // that only has `plan` (not the rows) can still read the plan-wide
-        // and epic-wide pause facts.
-        pause,
-        // req #3388 — the mode, the epic order, which epics are closed, whose
-        // turn it is and what that holds. Carried beside `pause` for the same
-        // reason: a consumer with only `plan` and not the rows still needs the
-        // plan-wide answer.
-        serial,
-    };
-}
-
-/**
  * The flat render list the plan table maps over: ONE ENTRY PER STEP ROW,
  * pre-decorated with everything the cell renderers need.
  *
@@ -378,11 +173,12 @@ export function orderedPlan(model, { now, costIndex = null } = {}) {
  * Feature"). The engine exposes the id, so there is no reason to compare
  * display strings.
  *
- * @param {Object} plan  `orderedPlan`'s return — req #3462 reverted the
- *   Pipeline 2.0 composed-read path (`adaptComposedPipeline2`) off the detail
- *   page after a production outage, so `orderedPlan` is this function's only
- *   caller again; the shape (`rows`, `eligibleStepIds`) is what's read, not
- *   the producer, so this keeps working unchanged if that path returns.
+ * @param {Object} plan  `adaptComposedPipeline2`'s return. req #3462 reverted
+ *   the composed-read path off the detail page after a production outage and
+ *   `orderedPlan` was this function's only caller for a while; req #3356 deleted
+ *   `orderedPlan` with Pipeline 1.0, leaving the composed path as the one
+ *   producer. Only the SHAPE (`rows`, `eligibleStepIds`) is read, never the
+ *   producer, which is why neither swap touched a line of this function.
  * @returns {Array<{row: Object, showEpic: boolean, eligible: boolean}>}
  */
 export function planRenderRows(plan) {
@@ -398,78 +194,6 @@ export function planRenderRows(plan) {
             eligible: eligibleStepIds.has(row.id),
         });
         prevEpic = epic;
-    }
-    return out;
-}
-
-/**
- * Done / Running / Scheduled counts for a set of plan rows — the list page's
- * mini-summary and the detail header's accounting line.
- *
- * @param {Object[]} rows  PlanRows in any order
- * @returns {{total: number, done: number, running: number, pending: number}}
- */
-export function pipelineSummary(rows) {
-    const summary = { total: 0, done: 0, running: 0, pending: 0 };
-    for (const r of asArray(rows)) {
-        summary.total += 1;
-        if (r.state === STEP_DONE) summary.done += 1;
-        else if (r.state === STEP_RUNNING) summary.running += 1;
-        else summary.pending += 1;
-    }
-    return summary;
-}
-
-/**
- * Per-pipeline summaries for the LIST page, in one pass over the whole-table
- * reads. Design rule 5 in miniature: N pipelines are summarized from the same
- * four lists the detail page uses, never from N per-pipeline fetches.
- *
- * @param {Object} args  same lists as buildPipelineModel, plus `pipelines`
- * @returns {Map<number, {total, done, running, pending}>}
- */
-export function pipelineSummaries({ pipelines, steps, stepRequirements, requirements } = {}) {
-    const out = new Map();
-    for (const p of asArray(pipelines)) {
-        const model = buildPipelineModel({
-            pipeline: p,
-            steps,
-            stepRequirements,
-            stepDeps: [],
-            requirements,
-            features: [],
-            epics: [],
-            machines: [],
-        });
-        out.set(p.id, pipelineSummary(buildPlanRows(model)));
-    }
-    return out;
-}
-
-/**
- * Per-pipeline requirement met/total counts for the LIST page (req #3225),
- * mirroring `pipelineSummaries` — one pass over the same shared reads, never a
- * per-pipeline fetch (design rule 5). Only the plan-wide `overall` bucket is
- * needed here: the list page names a PLAN, never an epic.
- *
- * @param {Object} args  same lists as buildPipelineModel, plus `pipelines`
- * @returns {Map<number, {met: number, total: number}>}
- */
-export function pipelineRequirementCounts({ pipelines, steps, stepRequirements,
-    requirements } = {}) {
-    const out = new Map();
-    for (const p of asArray(pipelines)) {
-        const model = buildPipelineModel({
-            pipeline: p,
-            steps,
-            stepRequirements,
-            stepDeps: [],
-            requirements,
-            features: [],
-            epics: [],
-            machines: [],
-        });
-        out.set(p.id, requirementCounts(model).overall);
     }
     return out;
 }
@@ -525,15 +249,15 @@ export function pipelinesEmptyMessage(hiddenStatusCounts) {
 // would be falsifying the user's own record to satisfy a styling rule. They
 // render verbatim.
 //
-// The engine's machineLabels() degrades an unresolvable machine id to the POC's
-// `#<id>` form, so it is the one generated label that needs stripping.
+// `pipeline2Adapter.js::machineLabelsFor` degrades an unresolvable machine id to
+// the POC's `#<id>` form, so it is the one generated label that needs stripping.
 
 const stripHash = (s) => String(s).replace(/^#/, '');
 
 /**
- * Machine title for an id, matching the engine's machineLabels() vocabulary so a
- * pipeline header and a plan row never disagree: NULL pin reads "Any", an
- * unknown id degrades to its own id rather than to a blank.
+ * Machine title for an id, matching `pipeline2Adapter.js::machineLabelsFor`'s
+ * vocabulary so a pipeline header and a plan row never disagree: NULL pin reads
+ * "Any", an unknown id degrades to its own id rather than to a blank.
  */
 export function machineTitle(machineFk, machines) {
     if (machineFk == null) return 'Any';
@@ -605,6 +329,15 @@ const ELLIPSIS = /\s*(?:…|\.\.\.)\s*$/;
  * to the title — but when it is merely the untruncated title, the honest render
  * is the complete sentence, once. Nothing is ever rewritten: this only chooses
  * which stored string to show.
+ *
+ * SUPERSEDED AND CURRENTLY UNCALLED. req #3119 gave the step NAME its own
+ * column, and `stepDescription` below is what the description cell has called
+ * since; this pairs a title with its notes, which no cell does any more. Kept
+ * rather than deleted because it is era-neutral (a `PlanRow` in, two strings
+ * out) and because the ellipsis-completion rule it encodes is a real property of
+ * the data — `pipeline2_steps.title` is VARCHAR(256) against a TEXT `notes`, so
+ * a summary written to both still arrives truncated in one. Retiring it is a
+ * separate call from retiring Pipeline 1.0.
  *
  * @param {Object} row  a PlanRow
  * @returns {{text: string, notes: ?string}}

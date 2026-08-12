@@ -4,7 +4,7 @@ import call_rest_api from '../../RestApi/RestApi';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
 import { useShowClosedStore, ALL_REQUIREMENT_STATUSES } from '../../stores/useShowClosedStore';
 import { useAllCategories, useMachines,
-    pipelineStepRequirementKeys } from '../../hooks/useDataQueries';
+    pipeline2StepRequirementKeys } from '../../hooks/useDataQueries';
 // Master replaced this page's `usePipelinedRequirementIds` + `hidePipelined` pair
 // with one `useRequirementVisibility().isVisible` predicate; that change merged
 // into the body cleanly, so only the import line collided with req #3435's.
@@ -14,9 +14,15 @@ import { stepOptions } from './orchestrationIndex';
 import { planLinkTo } from '../pipelines/pipelineEpicLink';
 import { stepPlanLinkTo } from '../pipelines/pipelineStepLink';
 // req #3463 — the era↔route binding. This page never spells a plan route.
-// `useRequirementStepLocation` walks the 1.0 tables, so the plan link below is
-// 1.0 by the era that hook read from, which is what `planLinkTo`/
-// `stepPlanLinkTo`'s default already means.
+// `useOrchestrationIndex` walks the PIPELINE 2.0 tables since req #3356, so the
+// plan and step links below are 2.0 — which is what `planLinkTo`/
+// `stepPlanLinkTo`'s default now means, flipped in the same change for exactly
+// this reason (see `pipelineEpicLink.js`'s note on the default).
+//
+// `DEFAULT_PLAN_ERA` is imported for a DIFFERENT job and still reads 1.0: it is
+// the fallback era for a "back to the plan" router state written by an older
+// build, which had only one plan page. Read the `fromPipelineEra` block below
+// before assuming the two uses want the same value — they do not.
 import { DEFAULT_PLAN_ERA, isPlanEra, planDetailPath } from '../pipelines/planEra';
 import { siblingElevator, readElevatorIds } from './requirementSort';
 import { coerceSortMode, DEFAULT_SORT_MODE } from '../processSort';
@@ -365,10 +371,19 @@ const RequirementDetail = () => {
     //
     // req #3357 RETIRED THE EPIC ROW this box once showed alongside Pipeline and
     // Step. It was reached only through `requirements.feature_fk ->
-    // features.epic_fk`, and Feature leaving the frontend retires that path with
-    // no 1.0 replacement (no `pipeline_steps` row carries an `epic_fk` — see
-    // `orchestrationIndex.js`'s header). The box now shows the two levels the
-    // data still answers.
+    // features.epic_fk`, and Feature leaving the frontend retired that path with
+    // no 1.0 replacement, because no `pipeline_steps` row carried an `epic_fk`.
+    //
+    // THAT SENTENCE IS NO LONGER THE STATE OF THE DATA (req #3356). The index
+    // reads Pipeline 2.0 now, and `pipeline2_steps.epic_fk` is NOT NULL — the
+    // step's epic is DIRECT, and this box already walks it to find the plan.
+    // So an Epic row is answerable again. It is deliberately NOT built here:
+    // that is a display decision with its own layout, link and test surface, and
+    // this requirement's job was the era swap. The reason the row is absent is
+    // now "not asked for", not "not derivable" — do not re-cite the retired
+    // 1.0 argument for it.
+    //
+    // The box shows the two levels it has always shown.
     const orchestration = useOrchestrationIndex(profile?.userName, { enabled: !isNew });
     const orchIndex = orchestration.index;
     const orchSettled = orchestration.isSettled;
@@ -381,8 +396,9 @@ const RequirementDetail = () => {
     //
     // That is not a shortcut, it is what the data allows. There is no
     // `requirements.pipeline_fk`: a requirement reaches a plan only by being
-    // seated on a `pipeline_steps` row, which is a PLAN mutation the Primary AI
-    // owns (memory/swarm-orchestration-doctrine.md), not a field on a
+    // seated on a `pipeline2_steps` row — and under 2.0 that step does not name
+    // a plan either, its EPIC does (containment) — which is a PLAN mutation the
+    // Primary AI owns (memory/swarm-orchestration-doctrine.md), not a field on a
     // requirement. An earlier cut of this box shipped a pipeline SELECT anyway,
     // as a display-plus-local-filter, and it was withdrawn: it was
     // indistinguishable from the control beside it (identical styling, sitting
@@ -415,10 +431,15 @@ const RequirementDetail = () => {
     // NO LONGER ALSO SCOPED TO AN EPIC (code review, req #3357). Before the
     // Epic row left this box, the list additionally narrowed to the epic
     // already shown, so a pick could never move the requirement to another
-    // epic. With no epic known here any more there is nothing left to scope
+    // epic. With no epic ON SCREEN here any more there is nothing to scope
     // by — offering every open step of the plan is the correct list for what
-    // the box now asks, not a narrower one this page could reconstruct
-    // without re-deriving the epic association item 7 retired.
+    // the box now asks, not a narrower one this page could reconstruct.
+    //
+    // Under 2.0 the epic IS derivable again (`pipeline2_steps.epic_fk`, req
+    // #3356) and re-narrowing to it would be a real choice, not a recovery of a
+    // lost fact. It is deliberately NOT taken: it would silently forbid moving a
+    // requirement between epics from the one control that can seat it, with no
+    // epic shown to explain the missing options.
     const stepChoices = stepOptions(orchIndex, {
         pipelineId: shownPipelineId,
         currentStepId: seatStep ? seatStep.id : null,
@@ -663,8 +684,10 @@ const RequirementDetail = () => {
     };
 
     // ── Req #3435 — seat this requirement on a step ─────────────────────────
-    // WRITES `pipeline_step_requirements`, the junction that actually places a
-    // requirement on a plan. There is no column on `requirements` that can do it.
+    // WRITES `pipeline2_step_requirements` (req #3356 — the 1.0 junction this
+    // was built against is being eradicated), the junction that actually places
+    // a requirement on a plan. There is no column on `requirements` that can do
+    // it.
     //
     // ## THIS CROSSES A LINE StepsPage DELIBERATELY DOES NOT, ON PURPOSE
     //
@@ -680,12 +703,28 @@ const RequirementDetail = () => {
     // KNOWN, ACCEPTED cost of editing a seat from here, not an oversight — do not
     // "fix" this by adding a silent refusal, and do not delete this note.
     //
-    // ## Order of operations
+    // ## Order of operations — DELETE THE OLD SEAT, THEN INSERT THE NEW
     //
-    // INSERT the new link, THEN delete the old. The reverse leaves the
-    // requirement silently seated nowhere if the insert fails; this way a failed
-    // delete leaves it on two steps, which the plan view shows and a person can
-    // undo. Neither is good — this one is at least visible.
+    // THE REVERSE ORDER CANNOT WORK, and this is a schema fact rather than a
+    // judgement call. `pipeline2_step_requirements` has `PRIMARY KEY
+    // (requirement_fk)` ALONE — one step per requirement, the req #3336 stage-2
+    // gate ruling, structural — so while the old row exists there is no key
+    // available for a second one and the INSERT fails 100% of the time on a MOVE.
+    // `link_pipeline2_step_requirement` (darwin-mcp/services/pipelines2.py) says
+    // the same thing from the server side: it REFUSES a requirement already
+    // linked to a different step and names unlink-then-link as the lawful move.
+    //
+    // This OVERRIDES the argument this comment used to carry. Under 1.0's
+    // composite `(step_fk, requirement_fk)` key, insert-first was right: both
+    // rows could coexist, so a failed insert left the old seat intact while a
+    // failed delete left a visible double-seat. Neither of those states is
+    // reachable now.
+    //
+    // THE RESIDUAL, STATED HONESTLY: a POST that fails after the DELETE
+    // succeeded leaves the requirement seated NOWHERE. That is a real loss and
+    // it is not hidden — the plan view shows the step short one requirement, the
+    // Orchestration box reads "No step", the error is on screen, and a person
+    // re-seats it in one pick. It is the only failure mode the key permits.
     const handleStepChange = async (event) => {
         if (isNew) return;   // draft — `id` is the literal 'new'.
         const raw = event.target.value;
@@ -695,19 +734,26 @@ const RequirementDetail = () => {
         const prevStepId = seatStep ? seatStep.id : null;
         if (nextStepId === prevStepId) return;
 
-        const uri = `${darwinUri}/pipeline_step_requirements`;
+        const uri = `${darwinUri}/pipeline2_step_requirements`;
         const reqId = parseInt(id);
         try {
+            if (prevStepId != null) {
+                // BOTH COLUMNS in the body even though `requirement_fk` alone is
+                // the PK. `rest_delete.py` ANDs every key it is given into the
+                // WHERE clause, so naming `step_fk` too is strictly more
+                // specific: it deletes the seat only if the row still says what
+                // this page last read, and a seat moved by somebody else in the
+                // meantime is left alone rather than silently removed. That
+                // narrowing also FAILS SAFE — `rest_delete` answers 404 on zero
+                // affected rows, `call_rest_api` throws, and the POST below
+                // never runs, so a stale read aborts the move instead of
+                // completing half of it.
+                await call_rest_api(uri, 'DELETE',
+                    { step_fk: prevStepId, requirement_fk: reqId }, idToken);
+            }
             if (nextStepId != null) {
                 await call_rest_api(uri, 'POST',
                     { step_fk: nextStepId, requirement_fk: reqId }, idToken);
-            }
-            if (prevStepId != null) {
-                // Composite PK (step_fk, requirement_fk) — no surrogate id, so
-                // the DELETE body names both columns. Same shape as
-                // `unlinkRequirementTestCase` in TestCatalog/actions/validationApi.js.
-                await call_rest_api(uri, 'DELETE',
-                    { step_fk: prevStepId, requirement_fk: reqId }, idToken);
             }
         } catch (error) {
             showError(error, 'Unable to update step');
@@ -715,11 +761,11 @@ const RequirementDetail = () => {
             // junction cache, not on the requirement row, and a half-applied
             // move is exactly the case a guessed rollback would get wrong.
             queryClient.invalidateQueries({
-                queryKey: pipelineStepRequirementKeys.all(profile.userName) });
+                queryKey: pipeline2StepRequirementKeys.all(profile.userName) });
             return;
         }
         queryClient.invalidateQueries({
-            queryKey: pipelineStepRequirementKeys.all(profile.userName) });
+            queryKey: pipeline2StepRequirementKeys.all(profile.userName) });
         queryClient.invalidateQueries({ queryKey: ['orchestration_index'] });
     };
 
@@ -1223,13 +1269,18 @@ const RequirementDetail = () => {
 
                         The pipeline row WRITES NOTHING: there is no
                         `requirements.pipeline_fk`, and a seat on a plan is a
-                        `pipeline_steps` mutation the Primary AI owns. It displays
-                        the plan the Step row's seat is on. The Step row is the
-                        one that assigns.
+                        `pipeline2_step_requirements` mutation the Primary AI
+                        owns. It displays the plan the Step row's seat is on —
+                        reached through that step's EPIC under 2.0, since the
+                        step names no plan of its own. The Step row is the one
+                        that assigns.
 
                         No epic row and no `via feature "…"` caption: Feature left
-                        the frontend (req #3357) and no replacement exists for
-                        1.0 — see `orchestrationIndex.js`'s header. */}
+                        the frontend (req #3357). The 2.0 re-base (req #3356)
+                        makes the epic derivable again through
+                        `pipeline2_steps.epic_fk`, so the row is absent because
+                        it was not asked for — NOT because the data cannot answer
+                        it. See the `orchestration` block above. */}
                     <Box
                         component="fieldset"
                         data-testid="requirement-orchestration-group"
@@ -1296,7 +1347,7 @@ const RequirementDetail = () => {
                                 </Stack>
 
                                 {/* ── STEP ── THE ONE SETTABLE LEVEL. Picking here
-                                    writes `pipeline_step_requirements` — see
+                                    writes `pipeline2_step_requirements` — see
                                     `handleStepChange` for why that crosses a line
                                     StepsPage draws, and on whose authority.
 

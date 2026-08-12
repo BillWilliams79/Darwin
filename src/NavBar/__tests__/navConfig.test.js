@@ -54,32 +54,38 @@ describe('navConfig — Sessions sub-items', () => {
     it('leaves Sessions off the first-link position of the swarm group', () => {
         // HomePage redirects to the FIRST link of the first enabled group; if
         // Sessions ever became that link the redirect would land on a parent
-        // whose children are hidden. Pipelines holds the slot (req #3427).
+        // whose children are hidden. Pipelines holds the slot (req #3427), and
+        // since req #3356 its path is the 2.0 plan list — the 1.0 one it used to
+        // carry was deleted with the page behind it.
         const firstSwarm = NAV_LINKS.find(l => l.group === 'swarm');
-        expect(firstSwarm.path).toBe('/swarm/pipelines');
+        expect(firstSwarm.path).toBe('/swarm/pipelines2');
     });
 });
 
-// Req #3236 — Epics and Steps nest as L3 children of Pipelines, reusing the
-// exact mechanism the Sessions block above pins. This SUPERSEDES #3139 and
-// #3140, each of which pinned "sibling, never a child of Pipelines" for one
-// of these two — the earlier assertions are inverted here on purpose, not
-// merely deleted. req #3357 retired the Features entry that once sat between
-// them (the Feature tier itself left the plan; a step belongs to its epic
-// directly).
-describe('navConfig — Epics/Steps nest under Pipelines (req #3236)', () => {
-    const PIPELINES_PATH = '/swarm/pipelines';
-    const CHILD_PATHS = ['/swarm/epics', '/swarm/steps'];
-    // req #3463 — the parallel 2.0 plan list, a third child that is NOT part of
-    // the Epic > Step hierarchy CHILD_PATHS names.
-    const PIPELINES2_PATH = '/swarm/pipelines2';
-    // req #3393 — the 2.0 plan-layer editors. They nest HERE, alongside
-    // Pipelines 2.0, rather than under it: NavBarSidebar renders exactly two
-    // levels (a Pipelines-2.0-owns-Epics-2.0-and-Steps-2.0 L4 shape would be
-    // silently dropped), so the only place a 2.0 child can go is this same
-    // array. Ordered after Pipelines 2.0 for the reason Epics/Steps follow
-    // Pipelines: the list before what it lists.
-    const PIPELINES2_CHILD_PATHS = ['/swarm/epics2', '/swarm/steps2'];
+// Req #3236 — the plan-layer editors nest as L3 children of Pipelines, reusing
+// the exact mechanism the Sessions block above pins. This SUPERSEDES #3139 and
+// #3140, each of which pinned "sibling, never a child of Pipelines" for one of
+// these two — the earlier assertions are inverted here on purpose, not merely
+// deleted. req #3357 retired the Features entry that once sat between them (the
+// Feature tier itself left the plan; a step belongs to its epic directly).
+//
+// req #3356 — the 1.0 entries are GONE. `/swarm/epics` and `/swarm/steps` had
+// their pages deleted, and the Pipelines PARENT moved from `/swarm/pipelines`
+// (also deleted) to the 2.0 plan list. The `Pipelines 2.0` CHILD went with the
+// move for a mechanical reason, not a cosmetic one: it would have held the same
+// path as its own parent, and `path` is this config's identity — the React key,
+// the expand/collapse key, the testid slug, and what `flattenNavLinks` feeds the
+// mobile bottom nav's active-item lookup. That is asserted below.
+describe('navConfig — the plan editors nest under Pipelines (req #3236)', () => {
+    const PIPELINES_PATH = '/swarm/pipelines2';
+    // req #3393 — the 2.0 plan-layer editors, in hierarchy order (Epic > Step).
+    // NavBarSidebar renders exactly two levels (a
+    // Pipelines-owns-Epics-owns-something L4 shape would be silently dropped),
+    // so this array is the only place a plan-editor child can go.
+    const CHILD_PATHS = ['/swarm/epics2', '/swarm/steps2'];
+    // The 1.0 routes, pinned ABSENT rather than merely unlisted: a nav entry to
+    // a deleted page renders a link that 404s, which nothing else would catch.
+    const DELETED_1_0_PATHS = ['/swarm/pipelines', '/swarm/epics', '/swarm/steps'];
 
     const pipelines = NAV_LINKS.find(l => l.path === PIPELINES_PATH);
 
@@ -89,16 +95,22 @@ describe('navConfig — Epics/Steps nest under Pipelines (req #3236)', () => {
         expect(pipelines.label).toBe('Pipelines');
     });
 
-    it('nests Epics / Steps under Pipelines, in hierarchy order', () => {
-        // Epic > Step — not arrival order (Epics shipped #3139, Steps #3140).
-        expect(pipelines.children.map(c => c.path))
-            .toEqual([...CHILD_PATHS, PIPELINES2_PATH, ...PIPELINES2_CHILD_PATHS]);
-        // req #3463 — Pipelines 2.0 nests here too, right after the two. It
-        // is not part of the Epic > Step hierarchy this test pins; it is the
-        // parallel plan surface standing up beside 1.0.
-        // req #3393 — Epics 2.0 / Steps 2.0 follow it, same reasoning.
+    it('nests the plan editors under Pipelines, in hierarchy order', () => {
+        // Epic > Step — not arrival order.
+        expect(pipelines.children.map(c => c.path)).toEqual(CHILD_PATHS);
+        // The `2.0` suffixes survive req #3356 deliberately: dropping them is
+        // the nav-label rename, which is its own phase.
         expect(pipelines.children.map(c => c.label))
-            .toEqual(['Epics', 'Steps', 'Pipelines 2.0', 'Epics 2.0', 'Steps 2.0']);
+            .toEqual(['Epics 2.0', 'Steps 2.0']);
+    });
+
+    it('never gives a child the same path as its parent', () => {
+        // `path` is the React key, the expand/collapse key and the bottom nav's
+        // active-item lookup, so a duplicate is a defect rather than a redundant
+        // label. This is why the `Pipelines 2.0` child was removed when the
+        // parent took its path (req #3356).
+        const paths = flattenNavLinks(NAV_LINKS).map(l => l.path);
+        expect(new Set(paths).size).toBe(paths.length);
     });
 
     it('every child carries an icon so the collapsed sidebar can render it', () => {
@@ -114,6 +126,11 @@ describe('navConfig — Epics/Steps nest under Pipelines (req #3236)', () => {
         CHILD_PATHS.forEach(p => expect(topLevel).not.toContain(p));
     });
 
+    it('lists no Pipeline 1.0 route anywhere in the tree (req #3356)', () => {
+        const flat = flattenNavLinks(NAV_LINKS).map(l => l.path);
+        DELETED_1_0_PATHS.forEach(p => expect(flat).not.toContain(p));
+    });
+
     it('no longer lists a Features route anywhere in the tree (req #3357)', () => {
         const occurrences = flattenNavLinks(NAV_LINKS)
             .filter(l => l.path === '/swarm/features').length;
@@ -126,12 +143,10 @@ describe('navConfig — Epics/Steps nest under Pipelines (req #3236)', () => {
         expect(NAV_GROUPS.map(g => g.id)).toContain('swarm-validate');
     });
 
-    it('exposes the new L3 routes in the flattened list', () => {
+    it('exposes the L3 routes in the flattened list', () => {
         const flat = flattenNavLinks(NAV_LINKS).map(l => l.path);
         CHILD_PATHS.forEach(p => expect(flat).toContain(p));
-        PIPELINES2_CHILD_PATHS.forEach(p => expect(flat).toContain(p));
         expect(flat).toContain(PIPELINES_PATH);
-        expect(flat).toContain(PIPELINES2_PATH);
     });
 
     it('holds the swarm group\'s first link (req #3427)', () => {
@@ -147,7 +162,8 @@ describe('navConfig — Epics/Steps nest under Pipelines (req #3236)', () => {
 describe('navConfig — Machines nests under Requirements (req #3238)', () => {
     const REQUIREMENTS_PATH = '/swarm';
     const MACHINES_PATH = '/swarm/machines';
-    const PIPELINES_PATH = '/swarm/pipelines';
+    // req #3356 — Pipelines carries the 2.0 plan list now.
+    const PIPELINES_PATH = '/swarm/pipelines2';
 
     const requirements = NAV_LINKS.find(l => l.path === REQUIREMENTS_PATH);
 

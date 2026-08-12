@@ -1,6 +1,6 @@
 // req #3463 — the plan LIST routes come from the era binding, so the nav
 // rail and the router cannot disagree about where a plan list lives.
-import { PLAN_ERA_1, PLAN_ERA_2, planListPath } from '../SwarmView/pipelines/planEra';
+import { PLAN_ERA_2, planListPath } from '../SwarmView/pipelines/planEra';
 import ViewKanbanIcon from '@mui/icons-material/ViewKanban';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import MapIcon from '@mui/icons-material/Map';
@@ -83,25 +83,30 @@ export const NAV_LINKS = [
     // from three L3 children to two.
     // Req #3427 — Pipelines leads the SWARM group, ahead of Requirements: the
     // plan is the entry point workers are launched from, so it reads first.
+    //
+    // ── Req #3356: THE 1.0 ENTRIES ARE GONE AND THE PARENT MOVED ────────────
+    // The `Epics` and `Steps` children pointed at `/swarm/epics` and
+    // `/swarm/steps`, whose pages were deleted; the PARENT pointed at
+    // `/swarm/pipelines`, the deleted 1.0 plan list. A nav entry to a deleted
+    // route renders a link that 404s, so the parent now carries the 2.0 list.
+    //
+    // THE `Pipelines 2.0` CHILD WENT WITH IT, and not as a label decision: it
+    // held the SAME path the parent now does, and `path` is this config's
+    // identity — `NavBarSidebar` uses it as the React `key`, as the
+    // expand/collapse key (`expandedItems[link.path]`) and as the testid slug,
+    // and `flattenNavLinks()` feeds the mobile bottom nav, which resolves the
+    // active item by `findIndex(l => isActive(l.path))`. Two entries sharing one
+    // path is a duplicate key and an ambiguous lookup, not a redundant label.
+    //
+    // The `2.0` SUFFIXES ON `Epics 2.0` / `Steps 2.0` ARE DELIBERATELY LEFT
+    // ALONE — dropping them is the nav-label rename, which is its own phase.
     {
-        path: planListPath(PLAN_ERA_1), label: 'Pipelines', icon: LanIcon, group: 'swarm',
+        path: planListPath(PLAN_ERA_2), label: 'Pipelines', icon: LanIcon, group: 'swarm',
         children: [
-            { path: '/swarm/epics', label: 'Epics', icon: LayersIcon, group: 'swarm' },
-            { path: '/swarm/steps', label: 'Steps', icon: LinearScaleIcon, group: 'swarm' },
-            // req #3463 — Pipeline 2.0's plan list, nested under 1.0's rather
-            // than standing beside it: 2.0 is standing up in parallel, not
-            // replacing anything yet, and an L2 sibling would read as two equal
-            // products. LABELLED BY ERA and not by anything softer ("New",
-            // "Beta"), because the one thing a reader must not do is take a
-            // plan id from one list to the other — the ids are disjoint.
-            { path: planListPath(PLAN_ERA_2), label: 'Pipelines 2.0', icon: LanIcon, group: 'swarm' },
-            // req #3393 — the 2.0 plan-layer editors, same nesting rule as
-            // #3463's Pipelines 2.0 entry directly above: children of the SAME
-            // Pipelines parent rather than a second top-level group, because
-            // NavBarSidebar renders only two levels (no L4), so an editor
-            // nested UNDER "Pipelines 2.0" is not renderable. Ordered after
-            // Pipelines 2.0 for the same reason Epics/Steps follow
-            // Pipelines: the list before the things it lists.
+            // req #3393 — the 2.0 plan-layer editors, children of the Pipelines
+            // parent rather than a second top-level group, because
+            // NavBarSidebar renders only two levels (no L4). Order is hierarchy
+            // order (Epic, then Step), the same rule the 1.0 pair followed.
             { path: '/swarm/epics2', label: 'Epics 2.0', icon: LayersIcon, group: 'swarm' },
             { path: '/swarm/steps2', label: 'Steps 2.0', icon: LinearScaleIcon, group: 'swarm' },
         ],

@@ -1,6 +1,6 @@
 import '../index.css';
 import AuthContext from '../Context/AuthContext';
-import { useSessions, useDevServers, useAllSwarmStartSessions, useMachines, useAllPipelines, useAllPipelines2 } from '../hooks/useDataQueries';
+import { useSessions, useDevServers, useAllSwarmStartSessions, useMachines, useAllPipelines2 } from '../hooks/useDataQueries';
 import { useShowClosedStore, ALL_SESSION_STATUSES } from '../stores/useShowClosedStore';
 import { useViewPreference } from '../hooks/useViewPreference';
 import { formatDate, formatHM12 } from '../utils/dateFormat';
@@ -234,10 +234,16 @@ const getSessionColumns = (navigate, timezone, showCompleted) => [
         },
     },
     {
-        // req #3186 — which pipeline this session was advancing. `pipeline_fk`
+        // req #3186 — which pipeline this session was advancing. `pipeline2_fk`
         // is a COLUMN on the session row, so this column costs the grid nothing;
-        // the title is resolved client-side from the already-cached pipelines
-        // list. NULL is a real answer (work outside any plan) → em-dash.
+        // the title is resolved client-side from the already-cached plan list.
+        // NULL is a real answer (work outside any plan) → em-dash.
+        //
+        // The `field` name is HISTORICAL — the row property it once named is
+        // gone (req #3356, see `enrichedSessions`) and both the `valueGetter`
+        // and the `renderCell` read `row.pipeline` instead. Renaming it would
+        // move the column's identity for column-visibility state and testids
+        // with nothing gained.
         field: 'pipeline_title',
         headerName: 'Pipeline',
         width: 170,
@@ -406,18 +412,15 @@ const SessionsView = () => {
     const { data: swarmStartSessions } = useAllSwarmStartSessions(profile?.userName);
     const { data: machinesData } = useMachines(profile?.userName);
     // req #3186 — pipeline id → title for the Pipeline column. ONE bounded list
-    // read for the whole grid, shared with the /swarm/pipelines pages via the
+    // read for the whole grid, shared with the /swarm/pipelines2 pages via the
     // same query cache; the per-row id is already on the session.
-    const { data: pipelinesData } = useAllPipelines(profile?.userName);
-    // req #3455 — the 2.0 plan list, so a 2.0-seated session is NAMED rather
-    // than rendered as a bare id nothing in the app lists.
+    //
+    // req #3455 added this 2.0 list beside a 1.0 one so a 2.0-seated session was
+    // NAMED rather than rendered as a bare id nothing in the app lists. req
+    // #3356 removed the 1.0 list: Pipeline 1.0 is eradicated, `useAllPipelines`
+    // is not called here any more, and with it went the `pipelineTitleById` map
+    // that only ever fed a dead grid field (see `pipeline_title` below).
     const { data: pipelines2Data } = useAllPipelines2(profile?.userName);
-
-    const pipelineTitleById = useMemo(() => {
-        const map = {};
-        (pipelinesData || []).forEach(p => { map[p.id] = p.title; });
-        return map;
-    }, [pipelinesData]);
 
     // req #2943 — machine id → friendly name for the Machine column.
     const machineNameById = useMemo(() => {
@@ -486,18 +489,23 @@ const SessionsView = () => {
     }, [swarmStartSessions]);
 
     // Memoised: `getRowHeight: 'auto'` makes MUI re-measure every row whenever
-    // `rows` changes identity, and each row now scans the machines list and
-    // two pipeline lists. A fresh array on every render paid all of that again.
+    // `rows` changes identity, and each row scans the machines list and the
+    // plan list. A fresh array on every render paid all of that again.
     const enrichedSessions = useMemo(() => !sessionsArray ? null
         : sessionsArray.map(s => ({
             ...s,
             dev_server_port: devServerMap[s.id] || null,
             swarm_start_fk: swarmStartBySession[s.id] || null,
             machine_name: s.machine_fk != null ? (machineNameById[s.machine_fk] ?? null) : null,
-            pipeline_title: s.pipeline_fk != null ? (pipelineTitleById[s.pipeline_fk] ?? null) : null,
-            // The plan chip: label from either era, link ONLY when a 2.0 id
-            // exists, because /swarm/pipeline/:id is a 2.0 route now.
-            pipeline: sessionPipelineLink(s, pipelinesData, pipelines2Data),
+            // The plan chip — label, tooltip, href and state, all from the one
+            // resolver. It is the SOLE source for this column: the row property
+            // `pipeline_title` that used to sit here read `s.pipeline_fk`
+            // against the 1.0 list, and req #3356 deleted it rather than
+            // re-pointing it because NOTHING CONSUMED IT — the `pipeline_title`
+            // column overrides the row value with a `valueGetter` reading
+            // `row.pipeline.label`, and its `renderCell` reads `row.pipeline`.
+            // The column keeps its `field` name; only the dead value is gone.
+            pipeline: sessionPipelineLink(s, pipelines2Data),
             // req #3455 — computed here rather than in the column renderer
             // because it needs the machines list to answer "is this terminal on
             // the machine this browser is running on?", and a DataGrid renderCell
@@ -510,7 +518,7 @@ const SessionsView = () => {
             requirement_label: requirementLabel(s),
           })),
         [sessionsArray, devServerMap, swarmStartBySession, machineNameById,
-         pipelineTitleById, machinesData, pipelinesData, pipelines2Data]);
+         machinesData, pipelines2Data]);
 
     // req #2992 — a session's machine filter key. Anything without a chip of its
     // own (NULL machine_fk, or an fk pointing at a closed/deleted machine) maps

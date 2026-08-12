@@ -90,7 +90,11 @@ const serve = (uri) => {
         }
         return ROWS;
     }
-    if (table === 'pipeline_step_requirements') return JUNCTION;
+    // req #3356 — the junction moved to Pipeline 2.0. Routed on the REAL table
+    // name so a hook still reading the 1.0 one gets `[]` here (an empty
+    // orchestrated set, hiding nothing) and every cross-surface assertion below
+    // fails loudly, which is the whole point of mocking only the wire.
+    if (table === 'pipeline2_step_requirements') return JUNCTION;
     if (table === 'categories') return CATEGORIES;
     return [];
 };
@@ -262,7 +266,12 @@ describe('req #3419 — one visibility rule, every surface (the single harness)'
             // the read happened at all.
             mount(<Probe />);
             await settle(() => probed.orchestratedIds.size === ORCHESTRATED.length);
-            expect(restCalls.some(u => u.includes('/pipeline_step_requirements'))).toBe(true);
+            // req #3356 — the 2.0 junction. Asserted on the EXACT table name and
+            // not a prefix: `/pipeline_step_requirements` is a substring of
+            // nothing here, but `/pipeline2_step_requirements` would match a
+            // loose `includes('/pipeline')` check that a 1.0 read also satisfies.
+            expect(restCalls.some(u => u.includes('/pipeline2_step_requirements'))).toBe(true);
+            expect(restCalls.some(u => /\/pipeline_step_requirements\b/.test(u))).toBe(false);
         }, TIMEOUT);
 
         it('hides nothing while the reads are in flight', () => {

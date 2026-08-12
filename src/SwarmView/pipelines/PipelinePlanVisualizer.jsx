@@ -101,7 +101,10 @@ import {
     formatTimeGates, rowMachineLabel, STEP_RUNNING, STEP_PENDING,
 } from './pipelineViewModel';
 import { fmtCost } from './pipelineModel';
-import { DEFAULT_PLAN_ERA, planStorageNamespace } from './planEra';
+// req #3356 — the `era` PROP is gone (there is one era) but `planEra.js` stays
+// the ONE place a plan storage namespace or route is spelled, so the accessor is
+// still called — with `PLAN_ERA_2` written out at the call site.
+import { PLAN_ERA_2, planStorageNamespace } from './planEra';
 import { stepStateLabel, runLabel } from './pipelineChipStyles';
 // The autonomy / model / effort words the rest of the UI uses (req #3213 D5).
 // The card renders a requirement's execution settings through the SAME helpers
@@ -269,10 +272,6 @@ function KeyGroup({ title, children, first = false }) {
 
 export default function PipelinePlanVisualizer({
     plan, model, pipeline, timezone, onStepFocus, focusEpicId,
-    // req #3463 — WHICH plan surface this canvas is drawing. See
-    // `PipelinePlanTable.jsx`'s identical prop: the page owns the era and the
-    // canvas needs it only to stamp a requirement link's Back state.
-    era = DEFAULT_PLAN_ERA,
     // Req #3253 — the deep link's OTHER target. This prop has always travelled
     // here (PipelineDetail hands the same page state to both panels); until now
     // the canvas ignored it, because a step was a ROW and only the table had one
@@ -473,9 +472,9 @@ export default function PipelinePlanVisualizer({
     // `pipeline?.id` being absent disables persistence rather than letting an
     // unidentified canvas read another one's position.
     const viewportKey = pipeline?.id != null
-        // req #3463 — era-qualified, so 1.0 plan 7 and 2.0 plan 7 do not share
+        // req #3463 — era-qualified, so 1.0 plan 7 and 2.0 plan 7 did not share
         // one camera (and one is not pruned by the other list's liveness read).
-        ? viewportStorageKey(planStorageNamespace(era), pipeline.id) : null;
+        ? viewportStorageKey(planStorageNamespace(PLAN_ERA_2), pipeline.id) : null;
     // SIGNATURE is the world the camera was taken over, DERIVED from the layout
     // rather than enumerated from the inputs that produce it. `computePlanLayout`
     // takes eight options and reads the whole plan; listing the ones that move
@@ -2146,9 +2145,14 @@ export default function PipelinePlanVisualizer({
                       // re-fits") — see the saved-viewport block near the top.
                       // req #3463 — `era` rides with the id, so Back can rebuild
                       // a plan route. An id with no era is not an address.
+                      // STILL SENT after req #3356 removed the prop:
+                      // `RequirementDetail.jsx` reads it and defaults an absent
+                      // one to 1.0, so dropping it would rebuild a dead
+                      // `/swarm/pipeline/<2.0 id>` — the exact #3462 shape.
                       onActivate={() => navigate(`/swarm/requirement/${label.reqId}`,
                           pipeline?.id
-                              ? { state: { from: 'pipeline', pipelineId: pipeline.id, era, mode: 'plan' } }
+                              ? { state: { from: 'pipeline', pipelineId: pipeline.id,
+                                  era: PLAN_ERA_2, mode: 'plan' } }
                               : undefined)} />);
         } else if (label.kind === 'title') {
             worldNodes.push(
