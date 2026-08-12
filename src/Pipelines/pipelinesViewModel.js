@@ -21,11 +21,11 @@
 // with no coupling to which table produced the row, and req #3463 already
 // established importing them straight from the 1.0 files as the convention
 // for exactly this kind of vocabulary (its own `PipelinesPage.jsx` imported
-// `pipelineStatusChipProps` the same way). `PipelinesPage2.jsx` imports them
+// `pipelineStatusChipProps` the same way). `PipelinesPage.jsx` imports them
 // directly from `pipelineViewModel.js` / `pipelineChipStyles.js`.
 //
-// THE RULE THIS FEATURE'S STRUCTURAL COPIES (PipelinesPage.jsx/EpicsPage2.jsx/
-// StepsPage2.jsx as pages, epicsApi.js/stepsApi.js/pipelinesApi.js as write
+// THE RULE THIS FEATURE'S STRUCTURAL COPIES (PipelinesPage.jsx/EpicsPage.jsx/
+// StepsPage.jsx as pages, epicsApi.js/stepsApi.js/pipelinesApi.js as write
 // paths, stepsModel.js as the derivation-adjacent guard) POINT AT, stated
 // once here rather than in each of them (code review, req #3393 — the
 // original pointer target, `devopsQueries2.js`, was deleted when the query

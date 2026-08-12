@@ -160,7 +160,7 @@ const inputValueToNotBefore = (localValue) => {
     return d.toISOString().slice(0, 19).replace('T', ' ');
 };
 
-export default function StepsPage2() {
+export default function StepsPage() {
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
     const queryClient = useQueryClient();
@@ -435,7 +435,7 @@ export default function StepsPage2() {
                 const to = planDetailPath(params.row.pipelineFk);
                 return (
                     <Box sx={{ display: 'flex', alignItems: 'center', height: '100%' }}>
-                        <Tooltip title={to ? `Open this step's plan (2.0)` : label}>
+                        <Tooltip title={to ? `Open this step's plan` : label}>
                             <Chip
                                 label={label}
                                 size="small"
@@ -561,7 +561,7 @@ export default function StepsPage2() {
              data-testid="steps-page">
             <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 2, flexWrap: 'wrap' }}
                    useFlexGap>
-                <Typography variant="h5">Steps 2.0</Typography>
+                <Typography variant="h5">Steps</Typography>
 
                 <FormControl size="small" sx={{ minWidth: 180 }}>
                     <InputLabel>Epic</InputLabel>

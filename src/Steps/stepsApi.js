@@ -12,7 +12,7 @@
 // requirements — tracking containers exempt) is unenforced on this path
 // unless it is reproduced here. It is: `stepsModel.js` holds the decision as
 // a pure tested function (`completionGuard`); `completeStep` below is the
-// only function that stamps the column, and it is the CALLER's job (StepsPage2's
+// only function that stamps the column, and it is the CALLER's job (StepsPage's
 // `completeFlow`) to have just re-read this step's live links before calling it
 // — the two functions below (`fetchStepRequirementIds`,
 // `fetchRequirement2Tracking`) exist for that re-read.
@@ -85,7 +85,7 @@ export async function updateStep(darwinUri, idToken, id, fields) {
 /**
  * Stamp `completed_at`. DESIGN RULE 1 IS THE CALLER'S PRECONDITION: call this
  * only for a step whose gating set was just confirmed EMPTY BY A LIVE READ
- * (StepsPage2's `completeFlow`, mirroring `Steps/StepsPage.jsx`'s identical
+ * (StepsPage's `completeFlow`, mirroring `Steps/StepsPage.jsx`'s identical
  * guard). The cached `completionGuard` alone is the fast path, not the rule.
  */
 export async function completeStep(darwinUri, idToken, id) {

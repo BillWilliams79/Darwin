@@ -100,7 +100,7 @@ const parseSortOrder = (raw) => {
     return { value: n };
 };
 
-export default function EpicsPage2() {
+export default function EpicsPage() {
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
     const queryClient = useQueryClient();
@@ -171,7 +171,7 @@ export default function EpicsPage2() {
         return open;
     }, [categories, categoryById, editTarget]);
 
-    // Plans in the same order PipelinesPage2 shows them (id:desc — newest first).
+    // Plans in the same order PipelinesPage shows them (id:desc — newest first).
     const pipelineOptions = useMemo(() => pipelines.map(
         p => ({ id: p.id, title: p.title })), [pipelines]);
 
@@ -247,7 +247,7 @@ export default function EpicsPage2() {
         // `title` is NOT NULL — a typed "NULL" is Lambda-Rest's clear-column
         // sentinel on BOTH POST and PUT, so it would otherwise reach the
         // gateway as SQL NULL and fail as an opaque 500 (code review, req
-        // #3393; matches StepsPage2's identical guard for its own title field).
+        // #3393; matches StepsPage's identical guard for its own title field).
         if (isRestNullLiteral(title)) {
             showError(`"${REST_NULL}" is the API's clear-this-column sentinel and cannot `
                 + 'be a title. Try "Null" or another wording.');
@@ -456,7 +456,7 @@ export default function EpicsPage2() {
         <Box sx={{ gridArea: 'content', p: 3, width: '100%', overflow: 'auto' }}
              data-testid="epics-page">
             <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 2 }}>
-                <Typography variant="h5">Epics 2.0</Typography>
+                <Typography variant="h5">Epics</Typography>
                 <ChipFilter
                     options={CLOSED_FILTER_OPTIONS}
                     selected={closedFilter}

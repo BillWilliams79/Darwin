@@ -247,7 +247,7 @@ function PipelineDescriptionDialog({ pipeline, open, onClose }) {
     );
 }
 
-export default function PipelinesPage2() {
+export default function PipelinesPage() {
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
     const queryClient = useQueryClient();
@@ -309,7 +309,7 @@ export default function PipelinesPage2() {
     // `pipeline_fk` column on pipeline_steps), so a failed epics OR steps
     // read does not just blank one column, it zeroes every card's step
     // count, progress bar and requirement tally — indistinguishable from a
-    // genuinely empty plan (code review, req #3393; StepsPage2.jsx draws the
+    // genuinely empty plan (code review, req #3393; StepsPage.jsx draws the
     // identical distinction for the same underlying reason).
     const planDataError = epicsError || stepsError;
     const failedReadsText = [epicsError && 'epics', stepsError && 'steps']
@@ -344,7 +344,7 @@ export default function PipelinesPage2() {
         {
             field: 'title', headerName: 'Pipeline', flex: 1, minWidth: 220,
             renderCell: (params) => (
-                <Tooltip title="Open this plan's visualizer (2.0)">
+                <Tooltip title="Open this plan's visualizer">
                     <Box
                         component="span"
                         role="link"
@@ -452,7 +452,7 @@ export default function PipelinesPage2() {
         <Box className="app-content-planpage" data-testid="pipelines-page">
             <Box className="app-content-view-toggle" sx={{ mt: 3, px: 3 }}>
                 <ViewerHeader
-                    title="Pipelines 2.0"
+                    title="Pipelines"
                     views={VIEWS}
                     view={activeView}
                     onViewChange={setView}

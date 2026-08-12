@@ -38,7 +38,7 @@ function assertOk(result, action) {
 // JSON null is not the sentinel it recognizes there. POST takes a real null.
 // NOT PUT-only — `rest_post.py` applies the identical substitution (the
 // Steps/stepsApi.js rule, ported to this module by code review, req #3393:
-// EpicsPage2 validated only that a trimmed title was non-empty, so a title of
+// EpicsPage validated only that a trimmed title was non-empty, so a title of
 // exactly "NULL" sailed through to a NOT NULL column and surfaced as an
 // opaque 500 instead of a readable refusal).
 export const REST_NULL = 'NULL';

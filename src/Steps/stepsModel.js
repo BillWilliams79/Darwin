@@ -33,7 +33,7 @@
 // is LINKED at all, never of its live status. That is a join over two small
 // junction/dictionary reads, not a derivation, and it is the identical
 // predicate 1.0's `gatingRequirementIds`/`completionGuard` implement (minus
-// the epic/feature/batch machinery 2.0's containment removed). `StepsPage2`
+// the epic/feature/batch machinery 2.0's containment removed). `StepsPage`
 // therefore renders `completed_at` as a two-state Open/Complete chip rather
 // than 1.0's three-state Pending/Running/Done — see PLAN.md for the full
 // scoping rationale. Full three-state rendering is the 2.0 visualizer's job,
@@ -83,7 +83,7 @@ export function gatingRequirementIds2(reqIds, requirements) {
  *
  * THIS FUNCTION IS THE FAST PATH, NOT THE ENFORCEMENT — it answers from
  * whatever link set the caller's row was built from, which is a ≤30s cache.
- * What actually decides is StepsPage2's `completeFlow`, which re-reads the
+ * What actually decides is StepsPage's `completeFlow`, which re-reads the
  * step's links live before any stamp and calls this again on the result.
  *
  * @param {Object} row  a step editor row carrying `gatingReqIds`/`trackingReqIds`/`completedAt`

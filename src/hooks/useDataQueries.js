@@ -1070,7 +1070,7 @@ export function useComposedPipeline(pipelineId, { enabled = true } = {}) {
 // every `/swarm` render (req #3356 moved it there too), unconditionally, so the
 // entry is already resolved before the epic filter asks for it. A narrowed
 // projection here would have opened a SECOND whole-table fetch beside a
-// warm one. `StepsPage2` / `PipelinesPage2` hold that same entry. Both blocks
+// warm one. `StepsPage` / `PipelinesPage` hold that same entry. Both blocks
 // set `fieldsInKey` (req #2213), so a narrow entry can neither serve nor be
 // served by a wider consumer's rows. Neither read filters by epic server-side:
 // no FK-scoped hook is declared for either table, and a whole-table read is what

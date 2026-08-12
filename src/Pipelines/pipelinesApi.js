@@ -4,7 +4,7 @@
 // already POSTs/PUTs to: `{darwinUri}/pipelines`. No new backend
 // surface exists or is needed. Pattern mirrors Epics/epicsApi.js.
 //
-// No `createPipeline`/`deletePipeline` here — PipelinesPage2 has no create
+// No `createPipeline`/`deletePipeline` here — PipelinesPage has no create
 // or delete affordance (pipelines are created via the MCP `create_pipeline`
 // tool by the Primary AI, matching 1.0's PipelinesPage.jsx, which carries no
 // create control of its own either). Only the two fields this page edits —
