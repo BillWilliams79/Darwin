@@ -29,6 +29,16 @@
 // keeps its original row shape (so the surface-by-surface structure of this
 // harness stays intact) but every row's orchestration now turns on STEP
 // association alone.
+//
+// req #3491 added requirement 105, carried by a second junction table (Pipeline
+// 2.0's own) while the first and second generation ran side by side — the
+// exact population the pre-fix code reported as unplanned. Req #3356 retired
+// that second table (renamed into the first's vacated name), so 105 is seeded
+// in the SAME junction as 101 now; it stays in the fixture as an ordinary
+// second step-carried row, seeded with the SAME `requirement_status` as 101 so
+// every assertion that already excludes 101 by construction (the aggregator's
+// unconditional launch exclusion, the COMPARABLE filter) needs only the same
+// treatment extended to 105, never a new branch of reasoning.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import React from 'react';
@@ -53,6 +63,7 @@ vi.mock('react-router-dom', () => ({
 // 102  unplanned (the req #3419 epic population it once carried is retired)
 // 103  unplanned
 // 104  unplanned, status development
+// 105  carried by pipeline step 304                 -> STEP association
 const CATEGORY_ID = 5;
 const ROWS = [
     { id: 100, title: 'Unplanned', requirement_status: 'authoring', category_fk: CATEGORY_ID, sort_order: 0, coordination_type: 'implemented', ai_model: 'opus', effort: 'high', machine_fk: null, started_at: null, completed_at: null, deferred_at: null },
@@ -60,12 +71,16 @@ const ROWS = [
     { id: 102, title: 'Unplanned (formerly epic-seated)', requirement_status: 'authoring', category_fk: CATEGORY_ID, sort_order: 2, coordination_type: 'implemented', ai_model: 'opus', effort: 'high', machine_fk: null, started_at: null, completed_at: null, deferred_at: null },
     { id: 103, title: 'Unplanned', requirement_status: 'authoring', category_fk: CATEGORY_ID, sort_order: 3, coordination_type: 'implemented', ai_model: 'opus', effort: 'high', machine_fk: null, started_at: null, completed_at: null, deferred_at: null },
     { id: 104, title: 'Unplanned, in flight', requirement_status: 'development', category_fk: CATEGORY_ID, sort_order: 4, coordination_type: 'implemented', ai_model: 'opus', effort: 'high', machine_fk: null, started_at: '2026-08-01T00:00:00', completed_at: null, deferred_at: null },
+    { id: 105, title: 'On a 2.0 plan step', requirement_status: 'authoring', category_fk: CATEGORY_ID, sort_order: 5, coordination_type: 'implemented', ai_model: 'opus', effort: 'high', machine_fk: null, started_at: null, completed_at: null, deferred_at: null },
 ];
-const JUNCTION = [{ step_fk: 1, requirement_fk: 101 }];
+const JUNCTION = [
+    { step_fk: 1, requirement_fk: 101 },
+    { step_fk: 304, requirement_fk: 105 },
+];
 const CATEGORIES = [{ id: CATEGORY_ID, category_name: 'Harness', project_fk: 1, color: null, sort_mode: 'process' }];
 
 // The answer, stated once, independently of any component.
-const ORCHESTRATED = [101];
+const ORCHESTRATED = [101, 105];
 const VISIBLE_WHEN_HIDING = [100, 102, 103, 104];
 
 // ── the ONE mock: the wire ───────────────────────────────────────────────────
@@ -248,8 +263,8 @@ describe('req #3419 — one visibility rule, every surface (the single harness)'
             // req #3419's epic population is retired — see the module header —
             // so `orchestratedIds` and `pipelinedIds` agree exactly.
             mount(<Probe />);
-            await settle(() => probed.pipelinedIds.size === 1);
-            expect([...probed.pipelinedIds]).toEqual([101]);
+            await settle(() => probed.pipelinedIds.size === ORCHESTRATED.length);
+            expect([...probed.pipelinedIds].sort((a, b) => a - b)).toEqual(ORCHESTRATED);
             expect(probed.orchestratedIds).toEqual(probed.pipelinedIds);
         }, TIMEOUT);
 
@@ -258,6 +273,14 @@ describe('req #3419 — one visibility rule, every surface (the single harness)'
             await settle(() => probed.orchestratedIds.size === ORCHESTRATED.length);
             expect(probed.orchestratedIds)
                 .toEqual(orchestratedRequirementIds(JUNCTION));
+        }, TIMEOUT);
+
+        it('sees every step-carried requirement, including one seated on a later step', async () => {
+            // 105 is seated on step 304, not step 1 — this pins that the read is a
+            // whole-table junction scan, not a lookup keyed to a specific step.
+            mount(<Probe />);
+            await settle(() => probed.orchestratedIds.size === ORCHESTRATED.length);
+            expect(probed.orchestratedIds.has(105)).toBe(true);
         }, TIMEOUT);
 
         it('actually issued the read — an empty answer must not be silent', async () => {
@@ -272,7 +295,10 @@ describe('req #3419 — one visibility rule, every surface (the single harness)'
             // 2.0 table into the 1.0 name, so there is one table and the two
             // assertions became a contradiction about it. What survives is the
             // half that still means something: the read happened, against the
-            // junction, by name.
+            // junction, by name. req #3491 later added a positive assertion for
+            // a SECOND read (`/pipeline2_step_requirements`, while both eras
+            // still ran side by side) — that table no longer exists, so neither
+            // does the read.
             expect(restCalls.some(u => /\/pipeline_step_requirements\b/.test(u))).toBe(true);
         }, TIMEOUT);
 
@@ -298,8 +324,8 @@ describe('req #3419 — one visibility rule, every surface (the single harness)'
             useShowClosedStore.setState({ hidePipelinedRequirements: false });
             const c = mount(<Card />);
             await settle(cardLoaded(c));
-            await settle(() => renderedIds(c).length === 5);
-            expect(renderedIds(c).sort((a, b) => a - b)).toEqual([100, 101, 102, 103, 104]);
+            await settle(() => renderedIds(c).length === 6);
+            expect(renderedIds(c).sort((a, b) => a - b)).toEqual([100, 101, 102, 103, 104, 105]);
         }, TIMEOUT);
 
         it('responds to the toggle live, without a remount', async () => {
@@ -310,8 +336,9 @@ describe('req #3419 — one visibility rule, every surface (the single harness)'
             await act(async () => {
                 useShowClosedStore.getState().toggleHidePipelinedRequirements();
             });
-            await settle(() => renderedIds(c).length === 5);
+            await settle(() => renderedIds(c).length === 6);
             expect(renderedIds(c)).toContain(102);
+            expect(renderedIds(c)).toContain(105);
         }, TIMEOUT);
 
         it('keeps the add-row template regardless of the toggle', async () => {
@@ -331,6 +358,7 @@ describe('req #3419 — one visibility rule, every surface (the single harness)'
             await settle(() => renderedIds(c).length === 3);
             const ids = renderedIds(c);
             expect(ids).not.toContain(101);   // req #3180 — unconditional
+            expect(ids).not.toContain(105);   // same rule, second step-carried row
             expect(ids).toEqual([100, 102, 103]);
         }, TIMEOUT);
 
@@ -379,7 +407,7 @@ describe('req #3419 — one visibility rule, every surface (the single harness)'
             useShowClosedStore.setState({ hidePipelinedRequirements: false });
             const c = mount(<Card />);
             await settle(cardLoaded(c));
-            await settle(() => renderedIds(c).length === 5);
+            await settle(() => renderedIds(c).length === 6);
             expect(marked(c)).toEqual(ORCHESTRATED);
             expect(plain(c)).toEqual(VISIBLE_WHEN_HIDING);
         }, TIMEOUT);
@@ -390,8 +418,9 @@ describe('req #3419 — one visibility rule, every surface (the single harness)'
             useShowClosedStore.setState({ hidePipelinedRequirements: false });
             const c = mount(<Card />);
             await settle(cardLoaded(c));
-            await settle(() => renderedIds(c).length === 5);
+            await settle(() => renderedIds(c).length === 6);
             expect(marked(c)).toContain(101);      // step-carried
+            expect(marked(c)).toContain(105);      // step-carried, second row
             expect(marked(c)).not.toContain(102);  // no longer a population at all
         }, TIMEOUT);
 
@@ -446,8 +475,8 @@ describe('req #3419 — one visibility rule, every surface (the single harness)'
         it('shows every row with the toggle OFF', async () => {
             useShowClosedStore.setState({ hidePipelinedRequirements: false });
             const c = mount(<RequirementsTableView />);
-            await settle(() => tableIds(c).length === 5);
-            expect(tableIds(c)).toEqual([100, 101, 102, 103, 104]);
+            await settle(() => tableIds(c).length === 6);
+            expect(tableIds(c)).toEqual([100, 101, 102, 103, 104, 105]);
         }, TIMEOUT);
 
         it('renders the same rows the Cards view does', async () => {
@@ -503,7 +532,7 @@ describe('req #3419 — one visibility rule, every surface (the single harness)'
         // both surfaces could show (authoring, minus the step-carried one the
         // launch rule removes), do they render the same set?
         const COMPARABLE = ROWS
-            .filter(r => r.requirement_status === 'authoring' && r.id !== 101)
+            .filter(r => r.requirement_status === 'authoring' && r.id !== 101 && r.id !== 105)
             .map(r => r.id);
 
         it.each([true, false])('card, aggregator and hook agree (hiding=%s)', async (hiding) => {
@@ -519,7 +548,7 @@ describe('req #3419 — one visibility rule, every surface (the single harness)'
             await settle(cardLoaded(card));
             await settle(aggregatorLoaded(agg));
             await settle(() => probed.orchestratedIds.size === ORCHESTRATED.length
-                && renderedIds(card).length === (hiding ? VISIBLE_WHEN_HIDING.length : 5));
+                && renderedIds(card).length === (hiding ? VISIBLE_WHEN_HIDING.length : 6));
 
             const fromCard = renderedIds(card).filter(id => COMPARABLE.includes(id));
             const fromAggregator = renderedIds(agg).filter(id => COMPARABLE.includes(id));

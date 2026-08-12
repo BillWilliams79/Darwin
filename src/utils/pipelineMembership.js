@@ -57,10 +57,21 @@
 /**
  * Requirement ids at least one pipeline STEP carries.
  *
+ * req #3491 widened this to also read a second, first-generation junction
+ * while both eras ran side by side; req #3356 retired that union along with
+ * the first generation itself — `useAllPipeline2StepRequirements` (the hook
+ * that fed the second argument) no longer exists in `useDataQueries.js`, so
+ * a caller still passing one would be reading `undefined`, harmlessly, but
+ * for the wrong reason. Collapsed back to one argument. Mirrors the backend's
+ * own single-junction read
+ * (`darwin-mcp/services/requirements.py::_pipelined_requirement_ids`), which
+ * this deliberately duplicates rather than shares: the browser reaches
+ * Lambda-Rest, the daemon reaches it from a localhost process.
+ *
  * @param {Array<{requirement_fk: number}>} stepRequirements  rows from
  *        `useAllPipelineStepRequirements` (the junction, whole-table read).
- *        The 1.0 junction (`useAllPipelineStepRequirements`) fed this until
- *        req #3356; the ROW SHAPE is identical, so only the caller moved.
+ *        The 1.0 junction fed this until req #3356; the ROW SHAPE is
+ *        identical, so only the caller moved.
  * @returns {Set<number>}
  */
 export const pipelinedRequirementIds = (stepRequirements) => {
@@ -80,10 +91,10 @@ export const pipelinedRequirementIds = (stepRequirements) => {
  * THE browse answer: a requirement is ORCHESTRATED when a pipeline step
  * carries it. Req #3357 retired the second population this used to union in
  * (epic-filed-but-unseated, via `requirements.feature_fk -> features.epic_fk`)
- * — see the module header. Kept as its own named export, distinct from
- * `pipelinedRequirementIds`, so a future population (Pipeline 2.0 step
- * membership, say) has a single place to widen the union again without every
- * call site changing what function it imports.
+ * — see the module header; req #3491's later, first-generation-junction union
+ * is retired the same way (see `pipelinedRequirementIds`). Kept as its own
+ * named export, distinct from `pipelinedRequirementIds`, so both stay one
+ * call site each even though they answer identically today.
  *
  * @param {Array} stepRequirements  the junction rows
  * @returns {Set<number>}

@@ -117,3 +117,12 @@ describe('orchestratedRequirementIds (req #3357)', () => {
         expect(orchestratedRequirementIds(undefined).size).toBe(0);
     });
 });
+
+// req #3491 gave both functions a second argument reading a first-generation
+// junction, unioned with the first, while the first and second generation ran
+// side by side. Req #3356 retired that union along with the first
+// generation's table: the second generation's junction was renamed onto the
+// vacated name, so a single argument is once again the whole answer, and the
+// describe blocks that lived here (testing the union, the de-duplication
+// across eras, and the independent-in-flight-read cases) were removed with
+// it — the single-junction cases above already cover the surviving behavior.
