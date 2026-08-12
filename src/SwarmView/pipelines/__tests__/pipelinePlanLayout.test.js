@@ -2542,8 +2542,11 @@ describe('the next-step halo survives Overview (req #3271)', () => {
     // quantities by DERIVATION — self-consistent with the constants they are
     // built from, but silent if every input constant drifted together and
     // landed on a different plateau. This test pins the CEILING and its
-    // downstream FLOOR by the VALUE pipeline-plan-visualizer.md's "with the
-    // box gone" row cites, so a retune that is internally consistent but
+    // downstream FLOOR by the VALUE the "with the box gone" rows cite —
+    // memory/pipeline-2-visualizer-design.md § 2.2, which tabulates both the
+    // ceiling and the derived floor (that section is where those figures live
+    // now; pipeline-plan-visualizer.md, which stated them first, was deleted
+    // at req #3356) — so a retune that is internally consistent but
     // lands away from the measured/documented numbers is still caught.
     // (Not a VIS-005 marker: this is the halo ceiling/floor cascade, unrelated
     // to the epic-scoped state-banding self-check VIS-005 names — see

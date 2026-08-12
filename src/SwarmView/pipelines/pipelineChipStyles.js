@@ -1,11 +1,23 @@
 // pipelineChipStyles.js — the plan-table chip vocabulary (req #3114).
 //
 // Values are carried VERBATIM from the archived POC stylesheet in req #3080 and
-// the groomed rules in memory/swarm-orchestration.md § "UI rules — plan table":
+// the plan-table UI rules groomed into the first generation's
+// memory/swarm-orchestration.md § "UI rules — plan table". That document was
+// deleted with the first generation (req #3356) and the chip vocabulary moved
+// to no successor, so the list below is its only surviving statement — keep it
+// complete:
 //
 //   Complete  dark-green + check      Running  amber (row tinted, amber left edge)
 //   Scheduled neutral                 Manual   magenta        Auto  blue
 //   Eligible  green left edge + tint + a "eligible" marker
+//
+// Two plan-table disciplines travelled with that list and have no other home
+// either, so they are stated here:
+//
+//   - NO DECORATIVE CONCEPTS beyond the vocabulary above — no gates, no glyph
+//     codes, nothing that has to be learned before the table can be read.
+//   - COMPLETED ROWS RENDER AT FULL BRIGHTNESS. No lowlighting, no fading. A
+//     finished step is part of the plan's record, not visual noise to recede.
 //
 // Every chip carries BOTH its own background and its own text color, so it reads
 // identically in Darwin's light and dark themes (ThemeWrapper supports both) —

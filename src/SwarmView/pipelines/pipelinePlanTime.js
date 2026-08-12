@@ -20,8 +20,11 @@
 // ── THERE IS NO STORED START ────────────────────────────────────────────────
 // `epics` has no `started_at` and never will (design rule 1 — derive, don't
 // store). `requirements.started_at` exists, so an epic's start is a MINIMUM
-// over its requirements. Two decisions the raw column forces, both recorded in
-// `memory/pipeline-plan-visualizer.md`:
+// over its requirements. Two decisions the raw column forces, both stated in
+// full below (the third — FUTURE and UNKNOWN are different answers — is on the
+// enum this file exports). `memory/pipeline-plan-visualizer.md` § "Deriving a
+// start" carried the same three and was deleted with the first generation
+// (req #3356), so THIS HEADER IS NOW THEIR SINGLE SOURCE:
 //
 // 1. **A requirement that completed without ever being stamped `started_at`
 //    COUNTS AS STARTED.** This is not a courtesy. Measured against the whole

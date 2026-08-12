@@ -428,9 +428,14 @@ asserts it, over what data, and what would have to break for the assertion to
 go quiet** — not just "there is a test".
 
 Read alongside `memory/pipeline-2-visualizer-design.md` (the stage-2 design
-record this plan was built against) and `memory/pipeline-plan-visualizer.md`
-(the surface's own design-intent document, which most of the invariants below
-trace back to).
+record this plan was built against; its § 10 also holds the five things the
+surface's own design-intent document held ALONE, including the crossing
+taxonomy and the renderer's transitive-reduction assumption) and
+`memory/pipeline-2-guide.md` ch. 7 (what the picture MEANS). Most of the
+invariants below trace back to `memory/pipeline-plan-visualizer.md`, which was
+deleted with the first generation (req #3356): the geometry constants, colour
+scales, text budgets and the deconfliction algorithm never lived there in the
+first place — `pipelinePlanLayout.js` and its suite are their single source.
 
 ### 1. The invariant table
 

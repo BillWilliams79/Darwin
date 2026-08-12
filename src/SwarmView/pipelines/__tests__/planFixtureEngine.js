@@ -1283,8 +1283,11 @@ export function launchBatches(orderedRows) {
 //      derived from it.
 //
 // So the group this key finds is NORMAL, CORRECT plan structure, and there is
-// nothing here to auto-resolve either. Full reasoning: memory/swarm-orchestration.md
-// § The launch unit — what a BATCH is.
+// nothing here to auto-resolve either. Full reasoning: memory/pipeline-2-guide.md
+// § 1.5 (the step IS the launch unit, and a wide step is the first choice) and
+// § A.3 (the four jobs a BATCH was doing, and what replaced each). The first
+// generation's memory/swarm-orchestration.md § The launch unit — what a BATCH
+// is, where this reasoning was written, was deleted at req #3356.
 
 // Sum a step's cost over its linked requirements. Rule 5: rollups are
 // precomputed server-side — this never fans out.

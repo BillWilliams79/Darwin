@@ -395,9 +395,9 @@ const RequirementDetail = () => {
     // `requirements.pipeline_fk`: a requirement reaches a plan only by being
     // seated on a `pipeline_steps` row — and under 2.0 that step does not name
     // a plan either, its EPIC does (containment) — which is a PLAN mutation the
-    // Primary AI owns (memory/swarm-orchestration-doctrine.md), not a field on a
-    // requirement. An earlier cut of this box shipped a pipeline SELECT anyway,
-    // as a display-plus-local-filter, and it was withdrawn: it was
+    // Primary AI owns (memory/pipeline-2-guide.md § 4.1, write authority), not
+    // a field on a requirement. An earlier cut of this box shipped a pipeline
+    // SELECT anyway, as a display-plus-local-filter, and it was withdrawn: it was
     // indistinguishable from the control beside it (identical styling, sitting
     // under a Category select that DOES save on change) while silently
     // discarding the reader's choice on navigation, and it carried two meanings

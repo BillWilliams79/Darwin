@@ -238,8 +238,12 @@ export function pipelinesEmptyMessage(hiddenStatusCounts) {
 
 // ── The no-'#' directive ────────────────────────────────────────────────────
 //
-// "NO '#' prefix on requirement ids anywhere" (req #3080 POC polish review,
-// carried by memory/swarm-orchestration.md § Production visualizer directives).
+// "NO '#' prefix on requirement ids anywhere" — a user directive from the
+// req #3080 POC polish review, 2026-07-26. It was recorded in the
+// first generation's memory/swarm-orchestration.md § Production visualizer
+// directives, which was deleted with that generation (req #3356) and has no
+// successor document: the directive survives here and in the code that obeys
+// it (pipelinePlanLayout.js, PipelinePlanTable.jsx, PipelinePlanVisualizer.jsx).
 //
 // SCOPE, stated precisely because it is easy to over-apply: it governs labels
 // this UI GENERATES — requirement id links, machine labels, step ids, gate and
