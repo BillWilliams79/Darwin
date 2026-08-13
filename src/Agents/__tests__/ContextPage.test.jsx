@@ -79,6 +79,18 @@ const ROW_WITHOUT_BREAKDOWN = {
     autoload_tokens: 5000, docs_loaded: 2, docs_expected: 2,
     start_work_context_tokens: 30000, footnote: null, sort_order: 2,
 };
+// req #3472 — a POST-SPLIT row: cc-2.1.226 reports MCP tools as 0 resident +
+// 40,200 deferred, so the resident 0 and the deferred figure must BOTH render.
+const ROW_WITH_DEFERRED = {
+    id: 12, agent_name: 'Zeta Architect', role: 'architect', session_kind: 'subagent',
+    boot_time_ms: 350, cc_base_tokens: 20000,
+    system_prompt_tokens: 3600, system_tools_tokens: 12700, mcp_tools_tokens: 0,
+    skills_tokens: 2500, custom_agents_tokens: 1700,
+    system_tools_deferred_tokens: 14400, mcp_tools_deferred_tokens: 40200,
+    claude_md_tokens: 35100, charter_stub_tokens: 642, boot_payload_tokens: 4000,
+    autoload_tokens: 5000, docs_loaded: 2, docs_expected: 2,
+    start_work_context_tokens: 64742, footnote: null, sort_order: 3,
+};
 
 let container;
 let root;
@@ -100,7 +112,7 @@ function mount() {
 
 beforeEach(() => {
     runsData = [RUN];
-    rowsData = [ROW_WITH_BREAKDOWN, ROW_WITHOUT_BREAKDOWN];
+    rowsData = [ROW_WITH_BREAKDOWN, ROW_WITHOUT_BREAKDOWN, ROW_WITH_DEFERRED];
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
@@ -174,6 +186,52 @@ describe('ContextPage — CC BASE BREAKDOWN columns (req #3095)', () => {
         for (const term of ['System Prompt', 'System Tools', 'MCP Tools', 'Skills', 'Custom Agents']) {
             expect(text).toContain(term);
         }
+    });
+});
+
+// ---------------------------------------------------------------------------
+// req #3472 — the DEFERRED halves of two split categories
+// ---------------------------------------------------------------------------
+// cc-2.1.226 reports `System tools` and `MCP tools` in two halves and excludes
+// the deferred half from the session total. A page that showed only the resident
+// half would render the measured MCP figure as 0 with no explanation — a
+// relocation looking exactly like a loss.
+describe('ContextPage — deferred breakdown columns (req #3472)', () => {
+    it('renders both deferred column headers with their data-testids', () => {
+        mount();
+        for (const field of ['system_tools_deferred_tokens', 'mcp_tools_deferred_tokens']) {
+            const th = container.querySelector(`[data-testid="agent-context-sort-${field}"]`);
+            expect(th, `missing header for ${field}`).not.toBeNull();
+        }
+    });
+
+    it('the CC BASE BREAKDOWN group header spans all seven breakdown columns', () => {
+        mount();
+        const grp = [...container.querySelectorAll('th.grp')]
+            .find(th => th.textContent === 'CC BASE BREAKDOWN');
+        expect(grp).not.toBeUndefined();
+        expect(grp.getAttribute('colspan')).toBe('7');
+    });
+
+    it('renders the deferred figures for a post-split row', () => {
+        mount();
+        const row = container.querySelector('[data-testid="agent-context-row-12"]');
+        expect(row).not.toBeNull();
+        const cells = [...row.querySelectorAll('td.num')].map(td => td.textContent);
+        expect(cells).toContain('14,400');
+        expect(cells).toContain('40,200');
+        // The resident MCP figure is genuinely 0 on this harness — it must render
+        // as 0, not n/a, or a real measurement reads as a missing one.
+        expect(cells).toContain('0');
+    });
+
+    it('the glossary explains what (deferred) means', () => {
+        mount();
+        act(() => {
+            container.querySelector('[data-testid="agent-context-glossary-btn"]')
+                .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        });
+        expect(document.body.textContent).toContain('(deferred)');
     });
 });
 

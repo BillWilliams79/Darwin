@@ -113,7 +113,8 @@ const GLOSSARY = [
     ['Claude Code', <>The Claude Code system prompt: harness instructions + tool schemas + skills listing + MCP listing. Equals Initial context minus CLAUDE.md and the charter stub.</>],
     ['System Prompt', <>Ground-truth breakdown (req #3095): the harness instructions piece of Claude Code, read directly from Claude Code's own <code>/context</code> command.</>],
     ['System Tools', <>Ground-truth breakdown: the built-in tool-schema piece of Claude Code (Read, Write, Bash, etc.), read directly from <code>/context</code>.</>],
-    ['MCP Tools', <>Ground-truth breakdown: the MCP tools/resources listing piece of Claude Code, read directly from <code>/context</code>.</>],
+    ['MCP Tools', <>Ground-truth breakdown: the MCP tools/resources listing piece of Claude Code, read directly from <code>/context</code>. Reads <strong>n/a</strong> when <code>/context</code> printed no resident row for it at all &mdash; which is what Claude Code 2.1.226 does once the whole category is deferred, so check <strong>MCP Tools (deferred)</strong> on the same row before reading it as an unprobed agent. The row&apos;s own footnote below the table says which case applies.</>],
+    ['(deferred)', <>Claude Code 2.1.226 split <strong>System Tools</strong> and <strong>MCP Tools</strong> into a resident half and a <strong>deferred</strong> half (req #3472). A deferred schema is an index the model expands on demand &mdash; it is <strong>not in the prompt and is not billed</strong>, and Claude Code excludes it from the session total, so it is never added to the resident figure. <strong>n/a</strong> in a deferred column means the capture predates the split, not zero.</>],
     ['Skills', <>Ground-truth breakdown: the available-skills listing piece of Claude Code, read directly from <code>/context</code>.</>],
     ['Custom Agents', <>Ground-truth breakdown: the other-custom-agent listing piece of Claude Code, read directly from <code>/context</code>.</>],
     ['CLAUDE.md', <>The project instruction file, loaded into every session.</>],
@@ -189,7 +190,11 @@ const AgentDocsDetail = ({ rowId }) => {
     return (
         <tr className="doc-detail" data-testid={`agent-context-docs-detail-${rowId}`}>
             <td className="agent" />
-            <td colSpan={8}>
+            {/* The table is 16 columns wide (1 Agent + 1 Boot + 3 fixed + 7 breakdown + 3 loaded
+                + 1 init). This panel must span every column after Agent or it stops short of the
+                right edge — it was already 7 short before req #3472 widened the breakdown group
+                from 5 to 7, so the number is derived here rather than nudged. */}
+            <td colSpan={15}>
                 {isLoading ? (
                     <CircularProgress size={14} />
                 ) : sorted.length === 0 ? (
@@ -755,7 +760,7 @@ const ContextPage = () => {
                                         Boot time<br />(ms){sortArrow('boot_time_ms')}
                                     </th>
                                     <th className="grp" colSpan={3}>FIXED OVERHEAD</th>
-                                    <th className="grp" colSpan={5}>CC BASE BREAKDOWN</th>
+                                    <th className="grp" colSpan={7}>CC BASE BREAKDOWN</th>
                                     <th className="grp" colSpan={3}>Loaded per-agent</th>
                                     <th className="num sortable" rowSpan={2}
                                         onClick={() => handleSort('start_work_context_tokens')}
@@ -784,9 +789,22 @@ const ContextPage = () => {
                                         data-testid="agent-context-sort-system_tools_tokens">
                                         System<br />Tools{sortArrow('system_tools_tokens')}
                                     </th>
+                                    {/* req #3472 — each DEFERRED column sits immediately after the
+                                        resident column it was split off from, so the pair reads as
+                                        one category in two halves rather than as two unrelated
+                                        figures. A deferred schema costs nothing until searched, so
+                                        the two must never be summed into one cell. */}
+                                    <th className="num sortable" onClick={() => handleSort('system_tools_deferred_tokens')}
+                                        data-testid="agent-context-sort-system_tools_deferred_tokens">
+                                        Sys Tools<br />(deferred){sortArrow('system_tools_deferred_tokens')}
+                                    </th>
                                     <th className="num sortable" onClick={() => handleSort('mcp_tools_tokens')}
                                         data-testid="agent-context-sort-mcp_tools_tokens">
                                         MCP<br />Tools{sortArrow('mcp_tools_tokens')}
+                                    </th>
+                                    <th className="num sortable" onClick={() => handleSort('mcp_tools_deferred_tokens')}
+                                        data-testid="agent-context-sort-mcp_tools_deferred_tokens">
+                                        MCP Tools<br />(deferred){sortArrow('mcp_tools_deferred_tokens')}
                                     </th>
                                     <th className="num sortable" onClick={() => handleSort('skills_tokens')}
                                         data-testid="agent-context-sort-skills_tokens">
@@ -813,7 +831,7 @@ const ContextPage = () => {
                             <tbody>
                                 {rowsLoading ? (
                                     <tr><td className="agent"><CircularProgress size={16} /></td>
-                                        <td colSpan={13} /></tr>
+                                        <td colSpan={15} /></tr>
                                 ) : rendered.list.map((r, idx) => {
                                     const c = computeCells(r, rendered.markerByText);
                                     // A cell string that equals the n/a sentinel renders muted.
@@ -853,7 +871,9 @@ const ContextPage = () => {
                                                 </td>
                                                 <td className="num">{cell(c.systemPrompt)}</td>
                                                 <td className="num">{cell(c.systemTools)}</td>
+                                                <td className="num">{cell(c.systemToolsDeferred)}</td>
                                                 <td className="num">{cell(c.mcpTools)}</td>
+                                                <td className="num">{cell(c.mcpToolsDeferred)}</td>
                                                 <td className="num">{cell(c.skills)}</td>
                                                 <td className="num">{cell(c.customAgents)}</td>
                                                 <td className="num">{cell(c.bootPayload)}</td>

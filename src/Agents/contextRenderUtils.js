@@ -25,6 +25,9 @@ const SORT_COLUMNS = {
     system_prompt_tokens: { type: 'number', get: (r) => r.system_prompt_tokens },
     system_tools_tokens: { type: 'number', get: (r) => r.system_tools_tokens },
     mcp_tools_tokens: { type: 'number', get: (r) => r.mcp_tools_tokens },
+    // req #3472 — deferred halves, sortable like every other breakdown column
+    system_tools_deferred_tokens: { type: 'number', get: (r) => r.system_tools_deferred_tokens },
+    mcp_tools_deferred_tokens: { type: 'number', get: (r) => r.mcp_tools_deferred_tokens },
     skills_tokens: { type: 'number', get: (r) => r.skills_tokens },
     custom_agents_tokens: { type: 'number', get: (r) => r.custom_agents_tokens },
     claude_md_tokens: { type: 'number', get: (r) => r.claude_md_tokens },
@@ -134,6 +137,12 @@ export function computeCells(row, markerByText) {
         systemPrompt: num(row.system_prompt_tokens),
         systemTools: num(row.system_tools_tokens),
         mcpTools: num(row.mcp_tools_tokens),
+        // req #3472 — the DEFERRED halves. "n/a" here means the capture predates
+        // cc-2.1.226's split (or ran on a harness that defers nothing), NOT that the
+        // figure is zero: a deferred schema costs nothing until it is searched, so 0
+        // and n/a are genuinely different answers and both must stay legible.
+        systemToolsDeferred: num(row.system_tools_deferred_tokens),
+        mcpToolsDeferred: num(row.mcp_tools_deferred_tokens),
         skills: num(row.skills_tokens),
         customAgents: num(row.custom_agents_tokens),
         claudeMd: num(row.claude_md_tokens),
