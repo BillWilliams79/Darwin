@@ -1,5 +1,5 @@
 // THE requirement-visibility answer for every browse surface — req #3419,
-// narrowed by req #3357.
+// narrowed by req #3357, made whole by req #3502.
 //
 // ── WHY THIS HOOK EXISTS (You Only Need One) ────────────────────────────────
 //
@@ -17,6 +17,18 @@
 // exactly how req #3419 became the SECOND requirement filed for one defect.
 // There is now one hook: every surface asks it, nobody re-derives it, and a
 // change to the rule is one edit that every surface inherits.
+//
+// ── AND ONE ANSWER, NOT ONE-AND-A-HALF (req #3502) ──────────────────────────
+//
+// req #3419 unified the five copies but left the aggregator card a SECOND rule
+// underneath this one: `aggregatorRowVisible`'s unconditional launch exclusion,
+// which dropped step-carried work from three of its five chips with no toggle.
+// So the control still had two answers — measured on production, 18 `authoring`
+// requirements that the Cards view, the Table view and the elevator showed on
+// request while the aggregator would not. That exclusion is deleted; its
+// rationale, and what replaced the protection it gave, are in
+// `TaskPlanView/swarmStartCardUtils.js`'s header. Nothing on a browse surface
+// filters by orchestration except this hook.
 //
 // ── WHY THE EPIC-FILED-BUT-UNSEATED POPULATION IS GONE (req #3357) ──────────
 //
@@ -51,7 +63,6 @@ import { useAllPipelineStepRequirements } from './useDataQueries';
 import { useShowClosedStore } from '../stores/useShowClosedStore';
 import { effectiveHidePipelined } from '../utils/epicMembership';
 import {
-    pipelinedRequirementIds,
     orchestratedRequirementIds,
     excludeByIds,
 } from '../utils/pipelineMembership';
@@ -71,7 +82,6 @@ import {
  *        epic pill restores exactly the toggle state the reader had.
  * @returns {{
  *   hideOrchestrated: boolean,
- *   pipelinedIds: Set<number>,
  *   orchestratedIds: Set<number>,
  *   isVisible: (row: {id: number|string}) => boolean,
  *   filterVisible: (rows: Array) => Array,
@@ -82,13 +92,20 @@ import {
  * req #3180 name so no persistence migration is needed; its MEANING is this
  * hook's, and every reader goes through here).
  *
- * `pipelinedIds` is STEP association only. It is exported for the one caller
- * that needs the narrow fact — the aggregator card's UNCONDITIONAL launch
- * exclusion (req #3180) — and must not be used to answer "is this on screen".
+ * `orchestratedIds` is the set the toggle hides by, exported so a row that IS
+ * on screen can be MARKED from it (the gold title box, req #3419). Marking and
+ * hiding must never become two answers to one question.
  *
- * `isVisible` / `filterVisible` are the browse answer. `filterVisible` returns
- * the SAME ARRAY REFERENCE when nothing is dropped, so it is safe in a
- * `useMemo`/`useEffect` dependency.
+ * `isVisible` / `filterVisible` are the browse answer — a predicate and its
+ * array form. `filterVisible` returns the SAME ARRAY REFERENCE when nothing is
+ * dropped, so it is safe in a `useMemo`/`useEffect` dependency.
+ *
+ * req #3502 REMOVED a third member, `pipelinedIds` (STEP association alone).
+ * Its only consumer was the aggregator's deleted launch exclusion, and the
+ * narrow fact has no other reader on a browse surface — a browse surface asks
+ * "is this on screen", and that is `isVisible`. The pure function still exists
+ * (`utils/pipelineMembership.js`) for anything that genuinely needs step
+ * association without the toggle.
  */
 export function useRequirementVisibility(creatorFk, { epicFilterActive = false } = {}) {
     const storedHideOrchestrated = useShowClosedStore(s => s.hidePipelinedRequirements);
@@ -102,10 +119,6 @@ export function useRequirementVisibility(creatorFk, { epicFilterActive = false }
     // exists in `useDataQueries.js`) along with the rest of the first
     // generation, so this is back to the one read it started as.
     const { data: stepRequirements } = useAllPipelineStepRequirements(creatorFk);
-
-    const pipelinedIds = useMemo(
-        () => pipelinedRequirementIds(stepRequirements),
-        [stepRequirements]);
 
     // orchestratedRequirementIds(...) === pipelinedRequirementIds(...) today
     // (req #3357 retired the epic-filed union) — computed through the named
@@ -122,13 +135,25 @@ export function useRequirementVisibility(creatorFk, { epicFilterActive = false }
         (rows) => excludeByIds(rows, orchestratedIds, hideOrchestrated),
         [orchestratedIds, hideOrchestrated]);
 
-    // REFERENTIALLY STABLE. Callers pass the whole object to memoized predicate
-    // factories (`aggregatorRowVisible`); a fresh object literal each render
-    // would make every one of those recompute, mint a new array, and re-seed the
-    // local state a `useEffect` holds — a render loop, not merely waste.
+    // REFERENTIALLY STABLE, AND THAT IS LOAD-BEARING. Callers read individual
+    // members into `useMemo` dependency arrays (`SwarmStartCard`'s
+    // `eligibleRequirements`/`eligibleMetRequirements`/`baseStatusCounts`,
+    // `CategoryCard`'s seeding effect), and those memos feed a `useEffect` that
+    // calls `setState`. A fresh identity per render therefore does not merely
+    // recompute: it re-seeds local state, re-renders, and loops SYNCHRONOUSLY —
+    // which pins the event loop, so it does not fail a test, it WEDGES the
+    // process (no per-test timeout can interrupt it; measured at 600s+).
+    //
+    // Guarded by `requirementVisibility.harness.test.jsx` § referential
+    // stability, which fails in milliseconds instead. Do not inline any of these
+    // into a bare arrow.
+    //
+    // (This comment used to name `aggregatorRowVisible` as the memoized factory
+    // callers passed the whole object to. req #3502 deleted that function; the
+    // requirement it describes is unchanged.)
     return useMemo(
-        () => ({ hideOrchestrated, pipelinedIds, orchestratedIds, isVisible, filterVisible }),
-        [hideOrchestrated, pipelinedIds, orchestratedIds, isVisible, filterVisible]);
+        () => ({ hideOrchestrated, orchestratedIds, isVisible, filterVisible }),
+        [hideOrchestrated, orchestratedIds, isVisible, filterVisible]);
 }
 
 export default useRequirementVisibility;

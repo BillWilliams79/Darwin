@@ -2,7 +2,9 @@
 //   • Header is a row of status chips (same styling as the requirements page filter chips).
 //   • Single-select: exactly one status is active at a time.
 //   • Card shows all requirements with the selected status across all categories,
-//     MINUS the ones a pipeline step carries (req #3180 — see below).
+//     under the ONE shared visibility rule (`useRequirementVisibility`) — the
+//     reader's orchestrated toggle and nothing else. req #3502 removed this
+//     card's own second rule; see `swarmStartCardUtils.js`'s header for why.
 //   • Template row at the bottom (req #2414): typing a title + Enter/blur navigates
 //     the user to the requirement editor in "new" mode — nothing is saved until the
 //     user picks a category in the editor (the aggregator has no default category).
@@ -21,9 +23,8 @@ import call_rest_api from '../RestApi/RestApi';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { useRequirementsByStatus, useRequirementsDone, useSessions, useCategoryColors, useAllRequirements } from '../hooks/useDataQueries';
 import { useRequirementVisibility } from '../hooks/useRequirementVisibility';
-import { filterKeepingIdentity } from '../utils/pipelineMembership';
 import { filterToEpic } from '../utils/epicMembership';
-import { aggregatorRowVisible, tallyRequirementStatuses } from './swarmStartCardUtils';
+import { tallyRequirementStatuses } from './swarmStartCardUtils';
 import { requirementKeys } from '../hooks/useQueryKeys';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
@@ -181,17 +182,15 @@ const SwarmStartCard = ({ epicReqIds = null }) => {
     // read the counts. Nothing here depends on which chip is selected, which is
     // what makes the move safe: `chipOffersLaunch` is the only count-adjacent
     // value that does, and it stays where it was.
-    // req #3428 — an epic filter forces the OBSERVATION chips' pipeline toggle
-    // off; the unconditional launch exclusion is untouched, because that one is
-    // correctness rather than a viewing preference.
+    // req #3428 — an epic filter forces the orchestrated toggle off, on every
+    // chip. Since req #3502 there is nothing else for it to override: this card
+    // has no second rule.
     const epicFilterActive = epicReqIds != null;
 
-    // req #3180 / #3419 / #3428 — this card OFFERS requirements for a direct
-    // swarm-start AND is a browse surface, and an epic filter overrides the
-    // browse half. All three rules meet in ONE object: the hook applies the epic
-    // override to the toggle, and `aggregatorRowVisible` layers the unconditional
-    // launch exclusion on top. The chip badges below consume the very same
-    // object, so a count can never disagree with the rows under it.
+    // req #3419 / #3428 / #3502 — THE visibility answer, identical on every
+    // browse surface (Cards view, Table view, the detail elevator). This card
+    // derives nothing of its own; `isVisible` filters the rows AND tallies the
+    // badges, so a count can never disagree with the rows under it.
     const visibility = useRequirementVisibility(profile?.userName, { epicFilterActive });
 
     // All requirements across categories — the per-status counts' source (req #2549).
@@ -205,8 +204,8 @@ const SwarmStartCard = ({ epicReqIds = null }) => {
     // which is the defect this file's own comments call load-bearing.
     const baseStatusCounts = React.useMemo(() => tallyRequirementStatuses(
         filterToEpic(allRequirementsForCounts, epicReqIds),
-        SWARM_START_STATUSES, visibility).counts,
-        [allRequirementsForCounts, epicReqIds, visibility]);
+        SWARM_START_STATUSES, visibility.isVisible).counts,
+        [allRequirementsForCounts, epicReqIds, visibility.isVisible]);
 
     // Persisted-store fallback — req #2584 retired 'deferred' from this card. Users
     // with a now-invalid persisted value get re-pointed at the default. `storedStatus`
@@ -223,10 +222,14 @@ const SwarmStartCard = ({ epicReqIds = null }) => {
     // MEASURED, not reasoned: every requirement under epic 11 on 2026-08-09 was
     // `development` AND plan-carried, while `selectedStatus` persists as
     // `swarm_ready` — so the aggregator this requirement asks to be turned ON
-    // opened with zero rows and a `0` badge. That is structural, not incidental:
-    // an epic reached FROM THE PLAN VISUALIZER is plan-carried by construction,
-    // and the three launch chips exclude plan-carried work unconditionally. Only
-    // `development` and `met` can ever show anything under an epic filter.
+    // opened with zero rows and a `0` badge.
+    //
+    // req #3502 removed one of the two causes: the three launch chips no longer
+    // exclude plan-carried work, so an epic's `authoring`/`approved`/
+    // `swarm_ready` work now shows here. The OTHER cause is untouched and is why
+    // this override stays — an epic simply may not have any work in the chip the
+    // reader last selected, and a filtered aggregator that opens blank fails the
+    // same acceptance wording either way.
     //
     // "The aggregator is on" is the requirement's acceptance wording, and an
     // aggregator that is on and blank does not meet it.
@@ -252,6 +255,23 @@ const SwarmStartCard = ({ epicReqIds = null }) => {
     // window) — so a plan that finished days ago still lands here. The rows and
     // badge for that landing are sourced without the 24h window too; see
     // `serverMetRequirementsAllTime` below.
+    //
+    // req #3502 CHANGED WHICH CHIP THE QUEUE SCAN LANDS ON, and left the rule
+    // alone. The rule is and was "the first queue chip in
+    // `SWARM_START_STATUSES` that has rows", scanned in vocabulary order. What
+    // moved is the DATA: the three launch chips used to be structurally
+    // near-empty under an epic filter — an epic's work is step-carried by
+    // construction and those chips excluded exactly that, unconditionally — so
+    // in practice `activeCandidate` could only ever resolve to `development`.
+    // Their counts are real now, so an epic holding both authoring and
+    // development work opens on `authoring` where it used to open on
+    // `development`. That also makes #3500's last-resort `met` branch the ONLY
+    // thing standing between a finished epic and a blank card, since the queue
+    // chips genuinely are empty there — the two changes compose rather than
+    // overlap. Left as a first-non-empty scan on purpose: an arrival-order
+    // preference ("a plan-visualizer arrival wants in-flight work") is a NEW
+    // rule nobody asked for, and inventing one here would put a second,
+    // undocumented ordering in a fallback the reader never sees chosen.
     const [chipPickedWhileFiltered, setChipPickedWhileFiltered] = useState(false);
     useEffect(() => { setChipPickedWhileFiltered(false); }, [epicFilterActive]);
     const epicChipOverride = React.useMemo(() => {
@@ -349,31 +369,32 @@ const SwarmStartCard = ({ epicReqIds = null }) => {
     // which calls `setRequirementsArray` — so an array that changes identity on
     // every render is not wasted work, it is a synchronous render loop. A bare
     // `.filter` does exactly that whenever anything upstream churns (a query
-    // hook handing back a fresh `[]`, say). `filterKeepingIdentity` returns the
-    // INPUT when it drops nothing, which is what absorbed that churn before req
-    // #3419 — see its docstring.
-    const rowVisible = React.useMemo(
-        () => aggregatorRowVisible(effectiveStatus, visibility),
-        [effectiveStatus, visibility]);
-
+    // hook handing back a fresh `[]`, say). `filterVisible` returns the INPUT
+    // when it drops nothing — see `excludeByIds`/`filterKeepingIdentity`.
+    //
+    // req #3502 — the chip's status is no longer an input to the rule, so both
+    // populations take the SAME pass. There is nothing left for `met` to be an
+    // exception to.
     const eligibleRequirements = React.useMemo(
-        () => filterKeepingIdentity(serverRequirements, rowVisible),
-        [serverRequirements, rowVisible]);
+        () => visibility.filterVisible(serverRequirements),
+        [serverRequirements, visibility.filterVisible]);
 
     // The Met chip's own population never goes through `eligibleRequirements`
     // (its query is `serverMetRequirements`, not `serverRequirements`) — so it
-    // needs its own pass, under the Met chip's own rule.
-    const metRowVisible = React.useMemo(
-        () => aggregatorRowVisible('met', visibility),
-        [visibility]);
-
+    // needs its own pass — under THE SAME RULE, since req #3502.
+    //
     // req #3500 — the SOURCE swaps under an epic filter (all-time, epic-scoped)
-    // but the visibility pass applied to it is unchanged.
+    // but the visibility pass applied to it is unchanged. req #3502 then made
+    // that pass the shared one: `met` had its own `aggregatorRowVisible('met',
+    // …)` predicate because the rule keyed on the chip's status, and it no
+    // longer does, so there is nothing left for `met` to be an exception to.
+    // The two changes are orthogonal — #3500 picks WHICH ROWS arrive here,
+    // #3502 decides which of them are visible.
     const metSourceRequirements = epicFilterActive ? serverMetRequirementsAllTime : serverMetRequirements;
 
     const eligibleMetRequirements = React.useMemo(
-        () => filterKeepingIdentity(metSourceRequirements, metRowVisible),
-        [metSourceRequirements, metRowVisible]);
+        () => visibility.filterVisible(metSourceRequirements),
+        [metSourceRequirements, visibility.filterVisible]);
 
     // The array that drives the card body for the currently selected chip.
     //
@@ -403,9 +424,10 @@ const SwarmStartCard = ({ epicReqIds = null }) => {
     // useAllRequirements doesn't carry completed_at and can't be filtered to the
     // 24-hour window here. Returns { authoring, approved, swarm_ready, development, met }.
     //
-    // req #3180 / #3419 — a chip's count applies the SAME rule as its list, from
-    // the SAME function (`aggregatorRowVisible`), so the header can never
-    // disagree with the rows beneath it.
+    // req #3419 / #3502 — a chip's count applies the SAME rule as its list, from
+    // the SAME predicate object (`visibility.isVisible`, which `filterVisible`
+    // is the array form of), so the header can never disagree with the rows
+    // beneath it.
     //
     // LOAD-BEARING: a chip's badge matches the rows beneath it only because both
     // sources are the same population — `useAllRequirements` here and
@@ -441,6 +463,14 @@ const SwarmStartCard = ({ epicReqIds = null }) => {
         // req #3428 — `baseStatusCounts` above IS the tally (computed once, under
         // the epic filter); this only overlays the trailing-24h `met` figure.
         const counts = { ...baseStatusCounts };
+        // req #3502 arrived here with the same dead
+        // `?? filterToEpic(serverMetRequirements, …).length` fallback removed
+        // for its own reason (it could never fire — the branch is already
+        // guarded on the array, and every pass in it returns an array). req
+        // #3500's narrowing subsumes that: skipping the overlay entirely under
+        // an epic filter leaves `filterToEpic` a guaranteed no-op here, so the
+        // expression is simpler still. Nothing of #3502's reasoning is lost —
+        // there is no second, unfiltered answer for this count either way.
         if (!epicFilterActive && Array.isArray(serverMetRequirements)) {
             counts.met = eligibleMetRequirements.length;
         }
@@ -800,9 +830,11 @@ const SwarmStartCard = ({ epicReqIds = null }) => {
                         sessionStatusMap,
                         categoryColorMap,
                         strikethroughMet: false, // req #2584 — recent-Met list, not crossed-off
-                        // req #3419 — the SAME set the toggle hides by, so a row
-                        // that survives this card's own launch exclusion is still
-                        // marked when it is plan work.
+                        // req #3419 — the SAME set the toggle hides by, so every
+                        // row on screen that is plan work is marked. Since req
+                        // #3502 that is the ONLY thing standing between the
+                        // reader and an orchestrated row here, which is what
+                        // makes the mark load-bearing rather than decorative.
                         orchestratedIds: visibility.orchestratedIds,
                     }}>
                         {/* req #3286 — THE CARD RENDERS NO MESSAGES. Two used to sit here:
@@ -818,8 +850,11 @@ const SwarmStartCard = ({ epicReqIds = null }) => {
                             direction, to revisit rather than drop it twice. This is that
                             revisit, and the answer is no message. The empty state is older
                             than both and was never in scope until now.
-                            The EXCLUSION ITSELF IS UNCHANGED: see `excludeFromThisChip` above.
-                            Do not reintroduce prose here to explain a filter. */}
+                            req #3502 removed the card's own launch exclusion entirely
+                            (the toggle is now the whole rule — see
+                            `swarmStartCardUtils.js`), so there is even less to narrate
+                            than there was. Do not reintroduce prose here to explain a
+                            filter. */}
                         {requirementsArray.map((requirement, requirementIndex) => (
                             <RequirementRow
                                 key={requirement.id}
