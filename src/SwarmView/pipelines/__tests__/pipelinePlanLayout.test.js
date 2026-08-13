@@ -1,11 +1,12 @@
 // pipelinePlanLayout.test.js — the Plan visualizer's pure geometry (req #3115)
 // against the engine's static Substrate Rebuild fixture (req #3112).
 //
-// The acceptance criterion is ZERO LABEL OVERLAP in both requirement-list
-// layouts and both step-label modes — four combinations, each asserted by rect
-// intersection over the label boxes the layout itself exports, not by eyeball.
-// Lane assignment, cross-column reservation, column-width containment and
-// lane assignment and column-width containment are the supporting invariants.
+// The acceptance criterion is ZERO LABEL OVERLAP plus CARD CONTAINMENT — every
+// piece of text inside the card that owns it — in both step-label modes, each
+// asserted by rect intersection over the boxes the layout itself exports, not by
+// eyeball. Since req #3498 that is TWO combinations, not four: `reqLayout` left
+// with the horizontal requirement row. Lane assignment, cross-column
+// reservation and arc/card clearance are the supporting invariants.
 
 import { describe, it, expect } from 'vitest';
 
@@ -23,15 +24,25 @@ import { semanticLevel, SEMANTIC_OUT_MAX } from '../../konvaSwarmModel';
 import {
     computePlanLayout, beadStyle, stepLabelText, BEAD_RADIUS, BEAD_HIT_RADIUS,
     PLAN_VIZ_PALETTE, placeEpicChips, EPIC_CHIP_OPEN_LINK_W, EPIC_CHIP_CARDS_LINK_W,
-    STEP_WIDTH_FACTORS, isStepWidth, K_READABLE, PLAN_VIZ_FONT, READABLE_MIN_PX,
-    STAGGER_REACH,
+    K_READABLE, PLAN_VIZ_FONT, READABLE_MIN_PX,
+    CARD_W, CARD_GAP_X, CARD_GAP_Y, CARD_PAD_X, CARD_PAD_Y, CARD_TEXT_W,
+    CARD_LINE_H, CARD_SUBTITLE_H, CARD_RULE_BAND, CARD_TITLE_CHARS, CARD_ID_CHARS,
+    CARD_FRAME_W, CARD_FRAME_X, CARD_STATE_BAR_W, CARD_BAR_GAP, CARD_COUNT_W,
+    STEPS_ACROSS_OPTIONS, STEPS_ACROSS_LOOSE_FILL, stepsAcrossScale,
+    zoomAboutViewportCentre, zoomAboutPoint, snapZoomScale, columnsAcross,
+    SNAP_COLUMNS_STEP,
+    CARD_TEXT_CHARS, CARD_SEP_CHARS, CARD_CHECK_W, CARD_COUNT_W,
+    REQ_MAX_LINES, wrapReqText, REQ_ROW_GAP, reqBlockHeight, REQ_TEXT_H,
+    CHW_LABEL, CHW_REQ, CHW_TITLE, CARD_TYPE_SCALE, NAME_MAX_LINES,
+    cardHeight, cardTitleH, cardChars, MIN_CARD_H,
     PLAN_PALETTES, PLAN_PALETTE_KEYS, DEFAULT_PLAN_PALETTE, planPalette,
     isPlanPalette,
     NEXT_HALO_RADIUS, NEXT_HALO_STROKE, NEXT_HALO_DASH, EPIC_CHIP_CHAR_W,
     NEXT_HALO_SCREEN_RADIUS, NEXT_HALO_MAX_OUTER, NEXT_HALO_MAX_MAGNIFY,
     NEXT_HALO_CLEARANCES, nextHaloMagnify, labelsLegible, drawsLabelKind,
     NEXT_MARK_MIN_STROKE_PX, NEXT_MARK_FLOOR_K, NEXT_MARK_SCREEN_RADIUS,
-    nextMarkIsDot, nextMarkDotRadius,
+    nextMarkIsDot, nextMarkDotRadius, clusterNextMarks,
+    NEXT_MARK_COUNT_FONT_PX,
     readableDefaultScale, BEAD_RING_W_EMPHASIS, BEAD_OUTER_RADIUS,
     EPIC_CHIP_FONT, EPIC_CHIP_H, EPIC_CHIP_MIN_H, EPIC_CHIP_MIN_CHARS,
     EPIC_CHIP_PAD_W, EPIC_CHIP_MIN_FONT,
@@ -43,15 +54,15 @@ import {
     REQ_COLOR_SCALES, REQ_COLOR_KEYS, reqColorScale, buildReqColorViews,
     DEFAULT_COLOR_KEY, isColorKey, normalizeColorKey,
     reqIdStyle, reqIdKeyEntries, PLAN_KEY_MAX_H,
-    LABEL_MAX_CHARS, reqLabelText, REQ_VIEWS, DEFAULT_REQ_VIEW, isReqView,
+    reqLabelText, REQ_VIEWS, DEFAULT_REQ_VIEW, isReqView,
     normalizeReqView, reqViewOptions, PLAN_LEVEL_BY_PREF, PLAN_LEVEL_NUMBER,
     DEFAULT_PLAN_LEVEL_PREF, isPlanLevelPref, normalizePlanLevelPref, pinnedLevelOf,
     planLevelFor,
     REQ_LINE_H,
     FOCUS_MAX_RATIO, FOCUS_MIN_RATIO, FOCUS_PAD, STEP_DONE, ZOOM_MAX_RATIO, ZOOM_MIN_RATIO, bandFitRect, epicFocusTransform,
     FOCUS_LABEL_H, epicFocusNeighbours,
-    stepFitRect, stepFocusTransform,
-    STEP_FOCUS_CONTEXT,
+    stepFitRect, stepFocusTransform, stepsFitRect, stepsFocusTransform,
+    STEP_FOCUS_CONTEXT, STEP_FOCUS_STEPS_ACROSS, placedStepCount, centreTransform,
     RULER_H, computeRuler, slotTickText, factoryDefaultScale,
     stickyRulerY, rulerScreenBottom, rulerScreenMag,
     EPIC_PALETTE,
@@ -63,11 +74,13 @@ import {
 const NOW = '2026-07-27T03:00:00Z';
 const plan = orderedPlan(SUBSTRATE_REBUILD_MODEL, { now: NOW });
 
+// req #3498 — TWO combinations, not four. `reqLayout` left with the horizontal
+// requirement row (a card stacks its requirements), so what remains is the two
+// things the card's TITLE AREA can say. `reqLabel` is swept separately where it
+// matters, because it changes the text in a row and never the geometry.
 const COMBOS = [
-    { reqLayout: 'horizontal', stepLabel: 'id' },
-    { reqLayout: 'horizontal', stepLabel: 'title' },
-    { reqLayout: 'vertical', stepLabel: 'id' },
-    { reqLayout: 'vertical', stepLabel: 'title' },
+    { stepLabel: 'id' },
+    { stepLabel: 'title' },
 ];
 
 const rectsOverlap = (a, b) =>
@@ -77,6 +90,15 @@ const beadRect = (n) => ({
     x: n.x - BEAD_RADIUS, y: n.y - BEAD_RADIUS,
     w: 2 * BEAD_RADIUS, h: 2 * BEAD_RADIUS,
 });
+
+// req #3498 — the step's mark at L2/L3. The layout hands the box out directly,
+// so this is a projection and never a second derivation of it.
+const cardRect = (n) => ({ x: n.left, y: n.top, w: n.w, h: n.h });
+
+// A title longer than any card can draw, on EVERY requirement — so the
+// truncation path is the one under test rather than an incidental short string.
+const REQ_TITLES = new Map(SUBSTRATE_REBUILD_MODEL.requirements.map(
+    (r) => [r.id, 'A requirement title far longer than the card can ever draw']));
 
 // The reservation invariant, checked from layout OUTPUT: a straight (same-lane)
 // arc may cross only beads that are part of its own chain — a transitive
@@ -294,157 +316,87 @@ describe('corridor-aware lanes and adaptive arc routing (epic #6 shape)', () => 
     });
 });
 
-describe('zero label overlap — all four layout/label combinations', () => {
+describe('zero label overlap — every layout/label combination', () => {
+    // The wide-outer-columns fixture: one chain (⇒ one lane) whose ends carry
+    // many requirements and whose middle carries one. It was built to expose a
+    // STAGGER failure — wide outer columns squeezing a narrow shared one — and it
+    // is kept now that columns are uniform, because it is still the shape that
+    // produces the tallest height difference between neighbouring cards in a
+    // lane, which is what the centre-alignment rule has to survive.
+    const wideChain = [5001, 5002, 5003, 5004, 5005].map((id, i) => ({
+        id,
+        title: 'A step title long enough to want the whole budget',
+        run: 'auto',
+        notes: null,
+        state: 'pending',
+        reqIds: (i === 0 || i === 4)
+            ? [3001, 3002, 3003, 3004, 3005] : [3001],
+        depIds: i === 0 ? [] : [5000 + i],
+        timeDeps: [],
+        epicId: 1,
+        epic: 'E',
+        featureId: 1,
+        feature: 'F',
+        epicLabels: [{ id: 1, title: 'E' }],
+        featureLabels: [{ id: 1, title: 'F' }],
+        machineLabels: [],
+        machineLabel: '',
+    }));
+
     for (const opts of COMBOS) {
-        const name = `${opts.reqLayout} reqs × ${opts.stepLabel} labels`;
+        const name = `${opts.stepLabel} labels`;
         it(`no two labels intersect (${name})`, () => {
-            const layout = computePlanLayout(plan.rows, opts);
-            assertNoLabelOverlap(layout, name);
+            assertNoLabelOverlap(computePlanLayout(plan.rows, opts), name);
+            assertNoLabelOverlap(computePlanLayout(wideChain, opts),
+                `wide-outer-columns (${name})`);
         });
 
-        it(`no label intersects any bead (${name})`, () => {
+        // ── THIS REPLACES "no label intersects any bead" (req #3498) ────────
+        // That test asserted the two marks never touched, because the bead was
+        // drawn at the CENTRE of a cluster of free-floating text and could
+        // collide with any of it. Neither half of that is true now: the labels
+        // are inside the card, and the bead is drawn only at L1 — the one level
+        // that draws no labels at all.
+        //
+        // What is still worth pinning is CONTAINMENT. The bead sits at the
+        // card's midpoint, so it must fit inside the box the card would occupy;
+        // a bead poking out of its own card would overlap a neighbour's arc
+        // leader at L1 and the band furniture at every level.
+        it(`the bead sits inside its own card (${name})`, () => {
             const layout = computePlanLayout(plan.rows, opts);
-            const beads = [...layout.nodes.values()].map(beadRect);
-            for (const label of layout.labels) {
-                for (const bead of beads) {
-                    expect(rectsOverlap(label, bead)).toBe(false);
-                }
+            for (const n of layout.nodes.values()) {
+                const bead = beadRect(n);
+                const card = cardRect(n);
+                expect(bead.x).toBeGreaterThanOrEqual(card.x);
+                expect(bead.x + bead.w).toBeLessThanOrEqual(card.x + card.w);
+                expect(bead.y).toBeGreaterThanOrEqual(card.y);
+                expect(bead.y + bead.h).toBeLessThanOrEqual(card.y + card.h);
             }
         });
 
-        // Column containment is now KIND-DEPENDENT (req #3119). Requirement ids
-        // still live strictly inside their column. The two STAGGERED kinds —
-        // the title slot, and the step label in title mode — are placed one line
-        // off on odd columns precisely so they may reach into their neighbours,
-        // which is what buys a readable title without a 5800px-wide world. Their
-        // guarantee is not "inside the slab" but "reaches no further than a
-        // bounded fraction of one neighbour", which combined with the parity
-        // offset is what makes the no-two-labels-intersect test above pass.
-        it(`req labels stay inside their column slab (${name})`, () => {
-            const layout = computePlanLayout(plan.rows, opts);
-            for (const label of layout.labels) {
-                if (label.stepId == null || label.kind !== 'req') continue;
-                const n = layout.nodes.get(label.stepId);
-                const left = layout.colX[n.depth] - layout.colW[n.depth] / 2;
-                const right = layout.colX[n.depth] + layout.colW[n.depth] / 2;
-                expect(label.x).toBeGreaterThanOrEqual(left - 0.01);
-                expect(label.x + label.w).toBeLessThanOrEqual(right + 0.01);
-            }
-        });
-
-        // Assert the PAIRWISE property the module actually promises, not the
-        // per-label budget it is derived from. The first version of this test
-        // asserted "each label fits its budget and is centred on its column",
-        // which is exactly the placement rule — so it agreed with a budget that
-        // admitted a 40px overlap and could never have contradicted it (found in
-        // review). A per-label invariant that implies nothing about pairs is not
-        // coverage for a pairwise guarantee.
-        it(`no two same-line staggered labels overlap, at any column width (${name})`, () => {
-            const check = (rows, label) => {
+        // ── THIS REPLACES "req labels stay inside their column slab" ────────
+        // The card is the containment boundary now, and it is STRICTLY TIGHTER
+        // than the column: a column is a card plus the gutter, so a label inside
+        // its card is inside its column too. It also covers EVERY kind rather
+        // than only `req` — the old test could not, because two kinds
+        // (the title slot, and the step label in title mode) deliberately
+        // overflowed their column under the stagger. Nothing overflows now.
+        it(`every label sits inside the card that owns it (${name})`, () => {
+            for (const rows of [plan.rows, wideChain]) {
                 const layout = computePlanLayout(rows, opts);
-                const staggered = layout.labels.filter((l) => l.stepId != null
-                    && (l.kind === 'title'
-                        || (l.kind === 'step' && opts.stepLabel === 'title')));
-                for (let i = 0; i < staggered.length; i++) {
-                    for (let j = i + 1; j < staggered.length; j++) {
-                        const a = staggered[i];
-                        const b = staggered[j];
-                        // Same line ⇒ same y. Different lines cannot collide.
-                        if (Math.abs(a.y - b.y) > 0.01) continue;
-                        const overlap = a.x < b.x + b.w && b.x < a.x + a.w;
-                        if (overlap) {
-                            throw new Error(`${label}: staggered labels overlap on one line — `
-                                + `${JSON.stringify(a)} vs ${JSON.stringify(b)}`);
-                        }
-                    }
-                }
-            };
-            check(plan.rows, `fixture (${name})`);
-            // The fixture's columns happen to be near-uniform. The failure mode
-            // needs WIDE outer columns around a NARROW shared one, so construct
-            // it: one chain (⇒ one lane, ⇒ same line for d and d+2) whose ends
-            // carry many requirement ids and whose middle carries one.
-            const wide = [5001, 5002, 5003, 5004, 5005].map((id, i) => ({
-                id,
-                title: 'A step title long enough to want the whole budget',
-                run: 'auto',
-                notes: null,
-                state: 'pending',
-                reqIds: (i === 0 || i === 4)
-                    ? [3001, 3002, 3003, 3004, 3005] : [3001],
-                depIds: i === 0 ? [] : [5000 + i],
-                timeDeps: [],
-                epicId: 1,
-                epic: 'E',
-                featureId: 1,
-                feature: 'F',
-                epicLabels: [{ id: 1, title: 'E' }],
-                featureLabels: [{ id: 1, title: 'F' }],
-                machineLabels: [],
-                machineLabel: '',
-            }));
-            check(wide, `wide-outer-columns (${name})`);
-        });
-
-        // ── The two invariants req #3213's hover regions RIDE ON ────────────
-        // The renderer draws a transparent hit Rect at each step/title
-        // label's own rect, pushed ABOVE the bead hit circles. Neither of the
-        // clearances that makes that
-        // safe was asserted anywhere (review finding): the sweep above checks
-        // labels against the BEAD at radius 10, but ownership is decided at the
-        // HIT circle's 15. Both were measured clean when they shipped; what
-        // these two tests buy is that they stay that way.
-        it(`no label rect reaches into another step's bead hit circle (${name})`, () => {
-            const layout = computePlanLayout(plan.rows, opts);
-            // Rect × CIRCLE, not rect × bbox: the corner of a bounding box is
-            // 4.4px outside the circle it encloses, which is the whole margin
-            // being asserted.
-            const hits = (label, n) => {
-                const cx = Math.max(label.x, Math.min(n.x, label.x + label.w));
-                const cy = Math.max(label.y, Math.min(n.y, label.y + label.h));
-                return Math.hypot(n.x - cx, n.y - cy) < BEAD_HIT_RADIUS;
-            };
-            for (const label of layout.labels) {
-                // Only the kinds that carry a hit region. A 'req' label is a
-                // listening Text and has always been drawn over its own column.
-                if (!['step', 'title'].includes(label.kind)) continue;
-                for (const [stepId, n] of layout.nodes) {
-                    // Its OWN bead may share a pixel of the ring — same step,
-                    // same card, so the reading cannot be wrong.
-                    if (label.stepId === stepId) continue;
-                    if (hits(label, n)) {
-                        throw new Error(`${name}: ${label.kind} label `
-                            + `${JSON.stringify(label)} intrudes on step ${stepId}'s `
-                            + `hit circle at (${n.x}, ${n.y})`);
-                    }
+                for (const label of layout.labels) {
+                    if (label.stepId == null) continue;
+                    const n = layout.nodes.get(label.stepId);
+                    expect(label.x).toBeGreaterThanOrEqual(n.left - 0.01);
+                    expect(label.x + label.w).toBeLessThanOrEqual(n.right + 0.01);
+                    expect(label.y).toBeGreaterThanOrEqual(n.top - 0.01);
+                    expect(label.y + label.h).toBeLessThanOrEqual(n.bottom + 0.01);
                 }
             }
         });
-
     }
-
-    it('emits one req label per linked requirement, none prefixed with #', () => {
-        const layout = computePlanLayout(plan.rows);
-        for (const r of plan.rows) {
-            const reqLabels = layout.labels
-                .filter((l) => l.kind === 'req' && l.stepId === r.id);
-            expect(reqLabels.map((l) => l.reqId)).toEqual(r.reqIds);
-        }
-        // The no-'#' directive governs GENERATED labels (step ids, req ids) —
-        // step TITLES are stored plan content and render verbatim.
-        for (const l of layout.labels) {
-            if (l.kind === 'title' || l.kind === 'epic') continue;
-            expect(l.text.includes('#')).toBe(false);
-        }
-    });
-
-    it('reserves the title slot only when the step label is not already the title', () => {
-        const withIds = computePlanLayout(plan.rows, { stepLabel: 'id' });
-        const withTitles = computePlanLayout(plan.rows, { stepLabel: 'title' });
-        expect(withIds.labels.some((l) => l.kind === 'title')).toBe(true);
-        expect(withTitles.labels.some((l) => l.kind === 'title')).toBe(false);
-    });
 });
+
 describe('bead vocabulary (POC roles)', () => {
     const rowById = new Map(plan.rows.map((r) => [r.id, r]));
 
@@ -508,8 +460,14 @@ describe('the removed second positional argument', () => {
         expect(() => computePlanLayout(plan.rows)).not.toThrow();
         expect(() => computePlanLayout(plan.rows, {})).not.toThrow();
         expect(() => computePlanLayout(plan.rows, undefined)).not.toThrow();
-        expect(computePlanLayout(plan.rows, { stepWidth: 'wide' }).stepWidth)
-            .toBe('wide');
+        // req #3498 — the layout used to echo `stepWidth` back on its result,
+        // and this asserted the round trip. The option is gone, so what is
+        // pinned instead is that the options bag still round-trips the two
+        // settings that ARE left.
+        expect(computePlanLayout(plan.rows, { stepLabel: 'title' }).stepLabel)
+            .toBe('title');
+        expect(computePlanLayout(plan.rows, { reqLabel: 'title' }).reqLabel)
+            .toBe('title');
     });
 });
 
@@ -524,86 +482,399 @@ describe('empty plan', () => {
 
 // ── req #3168 ──────────────────────────────────────────────────────────────
 
-describe('step width option (req #3168)', () => {
-    const WIDTHS = Object.keys(STEP_WIDTH_FACTORS);
-
-    it('compact is the IDENTITY — an unchanged reader gets the unchanged plan', () => {
+describe('the card is a fixed, uniform box (req #3498)', () => {
+    it('every column is exactly one card plus the gutter', () => {
         for (const opts of COMBOS) {
-            const before = computePlanLayout(plan.rows, opts);
-            const after = computePlanLayout(plan.rows,
-                { ...opts, stepWidth: 'compact' });
-            expect(after.colW).toEqual(before.colW);
-            expect(after.width).toBe(before.width);
+            const layout = computePlanLayout(plan.rows, opts);
+            for (const w of layout.colW) expect(w).toBe(CARD_W + CARD_GAP_X);
         }
     });
 
-    it('every wider setting widens EVERY column, monotonically', () => {
-        const at = (w) => computePlanLayout(plan.rows, { stepWidth: w }).colW;
-        const compact = at('compact');
-        const medium = at('medium');
-        const wide = at('wide');
-        expect(medium).toHaveLength(compact.length);
-        for (let d = 0; d < compact.length; d++) {
-            expect(medium[d]).toBeGreaterThan(compact[d]);
-            expect(wide[d]).toBeGreaterThan(medium[d]);
-            // RATIO against compact's own factor, not against 1. `compact` has
-            // not been the identity since the 2026-08-01 retune ("shift widths
-            // S/M/L all by 10% higher except L by 20%") — comparing a
-            // compact-relative ratio to an absolute factor only ever passed
-            // because the anchor happened to be 1.
-            expect(medium[d] / compact[d]).toBeCloseTo(
-                STEP_WIDTH_FACTORS.medium / STEP_WIDTH_FACTORS.compact, 6);
-            expect(wide[d] / compact[d]).toBeCloseTo(
-                STEP_WIDTH_FACTORS.wide / STEP_WIDTH_FACTORS.compact, 6);
+    it('the width is the LINE budget the user chose (the directive)', () => {
+        // The primary number moved from a 40-character TITLE to a 28-character
+        // LINE on 2026-08-13 — see `CARD_TEXT_CHARS` for the arithmetic that
+        // forced it (on-screen type is viewport / (columns x chars-per-line),
+        // and the world font cancels). The title budget is DERIVED from it now.
+        expect(CARD_TEXT_CHARS).toBe(28);
+        expect(CARD_TITLE_CHARS).toBe(CARD_TEXT_CHARS - CARD_ID_CHARS - CARD_SEP_CHARS);
+        // The prefix is what `reqLabelText` actually writes — a bare 4-digit id
+        // and the three-character " - ". No '#': ids render bare on this
+        // surface, so counting one cost the reader a title character.
+        expect(CARD_TITLE_CHARS).toBeGreaterThan(0);
+        expect(reqLabelText(3498, {
+            reqLabel: 'title',
+            reqTitles: new Map([[3498, 'x'.repeat(80)]]),
+        })).toBe(`3498 - ${'x'.repeat(CARD_TITLE_CHARS - 1)}\u2026`);
+        // The text column fits what the width was BOUGHT for, measured at the
+        // requirement row's own glyph width — `cardChars` is the function the
+        // layout truncates with, so a padding change that quietly ate the
+        // budget fails here rather than showing up as a shorter title.
+        expect(cardChars(CHW_REQ)).toBe(CARD_TEXT_CHARS);
+        // Every card metric moves by ONE factor — a half-applied type scale is
+        // what this pins, not the value 1.4 itself.
+        expect(CHW_REQ / CHW_LABEL).toBeCloseTo(8.4 / 10.05, 9);
+        expect(CHW_TITLE / CHW_REQ).toBeCloseTo(5.8 / 8.4, 9);
+        // The text column is the FRAME's, not the node box's: the state bar
+        // stands outside the frame (user directive, 2026-08-13) and the box
+        // spans both, so the bar costs the card width rather than the text.
+        expect(CARD_TEXT_W).toBe(CARD_FRAME_W - 2 * CARD_PAD_X);
+        expect(CARD_FRAME_W).toBe(CARD_W - CARD_STATE_BAR_W - CARD_BAR_GAP);
+        expect(CARD_FRAME_X).toBe(CARD_STATE_BAR_W + CARD_BAR_GAP);
+    });
+
+    it('every card in the plan is the same width, whatever it contains', () => {
+        const layout = computePlanLayout(plan.rows, { stepLabel: 'title' });
+        const widths = new Set([...layout.nodes.values()].map((n) => n.w));
+        expect([...widths]).toEqual([CARD_W]);
+    });
+
+    it('height is the title area, the rule and the requirement block — nothing else', () => {
+        const layout = computePlanLayout(plan.rows, { stepLabel: 'title' });
+        for (const row of plan.rows) {
+            const n = layout.nodes.get(row.id);
+            const rows = layout.labels.filter(
+                (l) => l.kind === 'req' && l.stepId === row.id);
+            const block = reqBlockHeight(rows.map((l) => l.lines));
+            const [name] = layout.labels.filter(
+                (l) => l.kind === 'step' && l.stepId === row.id);
+            expect(n.h, `step ${row.id}`)
+                .toBe(cardHeight(block, 'title', name.lines.length));
+            // The title area the renderer places the rule from is published on
+            // the node, because a wrapped name makes it vary per card.
+            expect(n.titleH, `step ${row.id}`)
+                .toBe(cardTitleH('title', name.lines.length));
+        }
+        // ONE MORE LINE costs `REQ_LINE_H`; ONE MORE ROW costs a line PLUS the
+        // between-rows gap. The two are different quantities since the user's
+        // 2026-08-13 directive — see REQ_ROW_GAP.
+        expect(reqBlockHeight([['a'], ['b'], ['c']])
+            - reqBlockHeight([['a'], ['b']])).toBeCloseTo(REQ_LINE_H + REQ_ROW_GAP, 6);
+        expect(reqBlockHeight([['a', 'b']]) - reqBlockHeight([['a']]))
+            .toBeCloseTo(REQ_LINE_H, 6);
+        // A step with NO requirements still gets a card — it is a step, it has a
+        // name, and its emptiness is a fact worth seeing.
+        expect(reqBlockHeight([])).toBe(0);
+        expect(cardHeight(0, 'title')).toBeGreaterThan(0);
+    });
+
+    it('doubles the air BETWEEN requirements without loosening a wrapped row', () => {
+        // The directive: *"double white space between requirement titles"*. A
+        // requirement row's text box is 14px, so the air between two ROWS goes
+        // 9.5 -> 19 while the air between the two LINES OF ONE ROW stays 9.5 —
+        // they are one sentence and must keep reading as one.
+        expect(REQ_ROW_GAP).toBeCloseTo(REQ_LINE_H - REQ_TEXT_H, 6);
+        const layout = computePlanLayout(plan.rows, {
+            ...reqViewOptions('titles'), stepLabel: 'title',
+            reqTitles: FIXTURE_TITLES,
+        });
+        const wrapped = layout.labels.filter(
+            (l) => l.kind === 'req' && l.lines.length === REQ_MAX_LINES);
+        expect(wrapped.length, 'the fixture has wrapped rows').toBeGreaterThan(0);
+        for (const row of plan.rows) {
+            const rows = layout.labels.filter(
+                (l) => l.kind === 'req' && l.stepId === row.id);
+            for (let i = 1; i < rows.length; i++) {
+                const airBetweenRows = rows[i].y - (rows[i - 1].y + rows[i - 1].h);
+                expect(airBetweenRows, `step ${row.id} row ${i}`)
+                    .toBeCloseTo(2 * (REQ_LINE_H - REQ_TEXT_H), 6);
+            }
         }
     });
 
-    // The load-bearing claim: the width option must not be able to break the
-    // zero-overlap contract the module exists to prove. It is a UNIFORM scale on
-    // the column widths, and both the label character budget and the stagger
-    // reach are linear in those, so the proof is scale-invariant — but "should
-    // be" is not a test, and a future factor below 1 would break it silently.
-    for (const stepWidth of WIDTHS) {
-        for (const opts of COMBOS) {
-            const name = `${opts.reqLayout} × ${opts.stepLabel} × ${stepWidth}`;
-            it(`holds zero label overlap, no label-on-bead and column containment (${name})`,
-                () => {
-                    const layout = computePlanLayout(plan.rows,
-                        { ...opts, stepWidth });
-                    assertNoLabelOverlap(layout, name);
-                    const beads = [...layout.nodes.values()].map(beadRect);
-                    for (const label of layout.labels) {
-                        for (const bead of beads) {
-                            expect(rectsOverlap(label, bead)).toBe(false);
-                        }
-                    }
-                    for (const label of layout.labels) {
-                        if (label.stepId == null || label.kind !== 'req') continue;
-                        const n = layout.nodes.get(label.stepId);
-                        const left = layout.colX[n.depth] - layout.colW[n.depth] / 2;
-                        const right = layout.colX[n.depth] + layout.colW[n.depth] / 2;
-                        expect(label.x).toBeGreaterThanOrEqual(left - 0.01);
-                        expect(label.x + label.w).toBeLessThanOrEqual(right + 0.01);
-                    }
-                    assertStraightArcsClear(layout, plan.rows);
-                });
-        }
-    }
+    it('reserves the L3 step-title line in ID mode and not in TITLE mode', () => {
+        // The one thing that keeps a LEVEL change a pure transform: the room for
+        // the L3 line is spent at every level, so nothing moves when it appears.
+        expect(cardTitleH('id') - cardTitleH('title')).toBeCloseTo(CARD_SUBTITLE_H, 6);
+        expect(cardTitleH('title')).toBeCloseTo(CARD_PAD_Y + CARD_LINE_H, 6);
+    });
 
-    it('an unknown width falls back to compact rather than producing NaN geometry', () => {
-        const compact = computePlanLayout(plan.rows, { stepWidth: 'compact' });
-        // Including the INHERITED Object.prototype keys. The setting is read from
-        // localStorage, so these are reachable strings, and a plain truthiness
-        // lookup returns the inherited FUNCTION — every column width becomes NaN
-        // and the canvas renders blank with no error (review finding).
-        for (const bogus of ['enormous', 'toString', 'constructor', 'valueOf',
-            '', null, undefined, 0]) {
-            const layout = computePlanLayout(plan.rows, { stepWidth: bogus });
-            expect(layout.colW, `stepWidth=${String(bogus)}`).toEqual(compact.colW);
-            expect(Number.isFinite(layout.width)).toBe(true);
+    it('the box is the same at every level — a level change never relayouts', () => {
+        // `computePlanLayout` takes no level at all, which is the structural
+        // form of that guarantee; this pins it so a future option cannot quietly
+        // introduce one.
+        const a = computePlanLayout(plan.rows, { stepLabel: 'title' });
+        const b = computePlanLayout(plan.rows, { stepLabel: 'title' });
+        expect([...b.nodes.values()].map(cardRect))
+            .toEqual([...a.nodes.values()].map(cardRect));
+        expect(b.height).toBe(a.height);
+    });
+
+    it('no two cards overlap, anywhere in the plan', () => {
+        for (const opts of COMBOS) {
+            const layout = computePlanLayout(plan.rows, opts);
+            const cards = [...layout.nodes.values()].map(cardRect);
+            for (let i = 0; i < cards.length; i++) {
+                for (let j = i + 1; j < cards.length; j++) {
+                    expect(rectsOverlap(cards[i], cards[j]),
+                        `cards overlap: ${JSON.stringify(cards[i])} vs `
+                        + `${JSON.stringify(cards[j])}`).toBe(false);
+                }
+            }
         }
-        expect(isStepWidth('toString')).toBe(false);
-        expect(isStepWidth('wide')).toBe(true);
+    });
+
+    it('every label sits INSIDE the card that owns it', () => {
+        // This REPLACES the old column-containment invariant. It is strictly
+        // stronger: a column is wider than a card by the gutter, so a label
+        // inside its card is inside its column too, and the card is the thing a
+        // reader sees the text clipped to.
+        for (const opts of COMBOS) {
+            for (const reqLabel of ['id', 'title']) {
+                const layout = computePlanLayout(plan.rows,
+                    { ...opts, reqLabel, reqTitles: REQ_TITLES });
+                for (const label of layout.labels) {
+                    if (label.stepId == null) continue;
+                    const n = layout.nodes.get(label.stepId);
+                    expect(label.x).toBeGreaterThanOrEqual(n.left - 0.01);
+                    expect(label.x + label.w).toBeLessThanOrEqual(n.right + 0.01);
+                    expect(label.y).toBeGreaterThanOrEqual(n.top - 0.01);
+                    expect(label.y + label.h).toBeLessThanOrEqual(n.bottom + 0.01);
+                }
+            }
+        }
+    });
+
+    it('cards in one lane share a midpoint, so a same-lane link is straight', () => {
+        const layout = computePlanLayout(plan.rows, { stepLabel: 'title' });
+        const byLane = new Map();
+        for (const n of layout.nodes.values()) {
+            const key = `${n.bandIndex}:${n.lane}`;
+            if (!byLane.has(key)) byLane.set(key, new Set());
+            byLane.get(key).add(n.y);
+        }
+        for (const [key, ys] of byLane) {
+            expect([...ys], `lane ${key} has more than one midpoint`).toHaveLength(1);
+        }
+    });
+
+    it('arcs leave and land on the cards\' edge midpoints (the directive)', () => {
+        const layout = computePlanLayout(plan.rows, { stepLabel: 'title' });
+        expect(layout.arcs.length).toBeGreaterThan(0);
+        for (const arc of layout.arcs) {
+            const a = layout.nodes.get(arc.fromId);
+            const b = layout.nodes.get(arc.toId);
+            expect(arc.x1).toBeCloseTo(a.right + 1, 6);
+            expect(arc.y1).toBeCloseTo(a.y, 6);
+            expect(arc.x2).toBeCloseTo(b.left - 1, 6);
+            expect(arc.y2).toBeCloseTo(b.y, 6);
+        }
+    });
+
+    it('leaves the gutter an arc needs to turn in', () => {
+        // The fan-out budget: a card fills its column, so `CARD_GAP_X` is the
+        // ENTIRE horizontal room a dependency arc has between two adjacent
+        // columns. Pinned because shrinking it for tidiness would silently turn
+        // every branch into a vertical kink.
+        const layout = computePlanLayout(plan.rows, { stepLabel: 'title' });
+        const adjacent = layout.arcs.filter((arc) => {
+            const a = layout.nodes.get(arc.fromId);
+            const b = layout.nodes.get(arc.toId);
+            return b.depth - a.depth === 1;
+        });
+        expect(adjacent.length).toBeGreaterThan(0);
+        for (const arc of adjacent) {
+            expect(arc.x2 - arc.x1).toBeCloseTo(CARD_GAP_X - 2, 6);
+        }
+    });
+
+    it('the state bar stands OUTSIDE the frame, and no text reaches it', () => {
+        // User directive, 2026-08-13: the colour bar renders outside the frame,
+        // on the LEFT, so it does not crowd the lettering. Three things have to
+        // hold together or it reads as a thick border instead of a mark:
+        // the frame is inset by the bar's strip, no label starts before the
+        // frame's padding, and the node's box still spans BOTH so the arcs and
+        // the columns are unaffected.
+        for (const opts of COMBOS) {
+            const layout = computePlanLayout(plan.rows, opts);
+            for (const n of layout.nodes.values()) {
+                // `toBeCloseTo`: `CARD_FRAME_W` is `CARD_W` less the bar and
+                // the gap, so re-adding them round-trips with float drift.
+                expect(n.w).toBeCloseTo(CARD_FRAME_X + CARD_FRAME_W, 6);
+            }
+            for (const label of layout.labels) {
+                if (label.stepId == null) continue;
+                const n = layout.nodes.get(label.stepId);
+                const frameLeft = n.left + CARD_FRAME_X;
+                const where = `${opts.stepLabel}: ${label.kind} of ${label.stepId}`;
+                // Clear of the bar AND of the frame's own padding.
+                expect(label.x, where)
+                    .toBeGreaterThanOrEqual(frameLeft + CARD_PAD_X - 0.01);
+                // …and inside the frame's right edge, not the box's.
+                expect(label.x + label.w, where)
+                    .toBeLessThanOrEqual(frameLeft + CARD_FRAME_W - CARD_PAD_X + 0.01);
+            }
+        }
+    });
+
+    it('publishes the FRAME box, and it is not the node box (req #3498)', () => {
+        // THE DEFECT THIS PINS, reported by eye: the next-step halo still drew
+        // around the whole node box after the state bar moved outside the frame,
+        // so a dashed "up next" outline sat a bar's width wider than the card it
+        // was marking. The hover and activate regions had the same bug — three
+        // consumers, each re-deriving the frame from `left`/`w`, each silently
+        // wrong the moment the frame stopped starting at `left`.
+        //
+        // The fix is ONE published answer, and this is what stops the next
+        // consumer re-deriving it: a test that would fail if `frameLeft` went
+        // back to meaning `left`.
+        for (const opts of COMBOS) {
+            const layout = computePlanLayout(plan.rows, opts);
+            for (const n of layout.nodes.values()) {
+                expect(n.frameLeft).toBeCloseTo(n.left + CARD_FRAME_X, 6);
+                expect(n.frameW).toBe(CARD_FRAME_W);
+                // The frame is strictly INSIDE the node box, on the left only —
+                // its right edge is the box's, because the bar is on the left.
+                expect(n.frameLeft).toBeGreaterThan(n.left);
+                expect(n.frameLeft + n.frameW).toBeCloseTo(n.right, 6);
+                // And the bar's strip is exactly what separates them.
+                expect(n.frameLeft - n.left)
+                    .toBeCloseTo(CARD_STATE_BAR_W + CARD_BAR_GAP, 6);
+            }
+        }
+    });
+
+    it('every label sits inside the FRAME, which is tighter than the box', () => {
+        // The containment that actually matters now. A label inside the node box
+        // could still be drawn over the state bar; inside the frame it cannot.
+        for (const opts of COMBOS) {
+            for (const reqLabel of ['id', 'title']) {
+                const layout = computePlanLayout(plan.rows,
+                    { ...opts, reqLabel, reqTitles: REQ_TITLES });
+                for (const label of layout.labels) {
+                    if (label.stepId == null) continue;
+                    const n = layout.nodes.get(label.stepId);
+                    const where = `${opts.stepLabel}/${reqLabel}: ${label.kind}`;
+                    expect(label.x, where).toBeGreaterThanOrEqual(n.frameLeft - 0.01);
+                    expect(label.x + label.w, where)
+                        .toBeLessThanOrEqual(n.frameLeft + n.frameW + 0.01);
+                }
+            }
+        }
+    });
+
+    it('the requirement count reads at the ROW size, not the caption size', () => {
+        // Reported by eye as "too small" at `CARD_FONT.title`. It is the row
+        // glyph now, and its reserve is sized for the widest count a step could
+        // carry rather than the widest this fixture happens to have.
+        expect(CARD_COUNT_W).toBe(5 * CHW_REQ);
+        const layout = computePlanLayout(plan.rows, { stepLabel: 'title' });
+        for (const l of layout.labels.filter((x) => x.kind === 'count')) {
+            expect(l.w).toBeCloseTo(l.text.length * CHW_REQ, 6);
+            expect(l.w).toBeLessThanOrEqual(CARD_COUNT_W);
+        }
+    });
+
+    it('no arc is drawn through a card that is not one of its endpoints', () => {
+        // ── THE REGRESSION THIS PINS (req #3498, review finding) ────────────
+        // The cross-lane bend was `colW * 0.9`, calibrated when a column was
+        // mostly air around a 20px bead. Against a 407px card that is 447px of
+        // descent into 90px of actual free space, so the curve finished its dive
+        // INSIDE the next column's card — which paints an opaque panel over it.
+        // Measured before the fix: 2 crossings became 9. The bend is
+        // `CARD_GAP_X` now, so the descent completes in the gutter.
+        //
+        // Sampled along each path rather than asserted from the control points:
+        // what matters is where the curve GOES, not what the string says.
+        const layout = computePlanLayout(plan.rows, { stepLabel: 'title' });
+        const cubic = (p0, p1, p2, p3, t) => {
+            const u = 1 - t;
+            return u * u * u * p0 + 3 * u * u * t * p1 + 3 * u * t * t * p2 + t * t * t * p3;
+        };
+        const nums = (d) => (d.match(/-?\d+(?:\.\d+)?/g) || []).map(Number);
+        const crossings = [];
+        for (const arc of layout.arcs) {
+            const pts = [];
+            if (arc.straight) {
+                for (let i = 0; i <= 40; i++) {
+                    const t = i / 40;
+                    pts.push([arc.x1 + (arc.x2 - arc.x1) * t, arc.y1]);
+                }
+            } else {
+                // M x,y [L x,y] C c1 c2 x,y [L x,y] — walk the emitted numbers.
+                const v = nums(arc.path);
+                const isLate = arc.route === 'late';
+                const [mx, my] = [v[0], v[1]];
+                const seg = isLate
+                    ? { a: [v[2], v[3]], c1: [v[4], v[5]], c2: [v[6], v[7]], b: [v[8], v[9]] }
+                    : { a: [mx, my], c1: [v[2], v[3]], c2: [v[4], v[5]], b: [v[6], v[7]] };
+                if (isLate) {
+                    for (let i = 0; i <= 20; i++) {
+                        pts.push([mx + (seg.a[0] - mx) * (i / 20), my]);
+                    }
+                }
+                for (let i = 0; i <= 40; i++) {
+                    const t = i / 40;
+                    pts.push([
+                        cubic(seg.a[0], seg.c1[0], seg.c2[0], seg.b[0], t),
+                        cubic(seg.a[1], seg.c1[1], seg.c2[1], seg.b[1], t),
+                    ]);
+                }
+                if (!isLate) {
+                    const tail = [v[8], v[9]];
+                    for (let i = 0; i <= 20; i++) {
+                        pts.push([seg.b[0] + (tail[0] - seg.b[0]) * (i / 20), tail[1]]);
+                    }
+                }
+            }
+            for (const n of layout.nodes.values()) {
+                if (n.id === arc.fromId || n.id === arc.toId) continue;
+                for (const [px, py] of pts) {
+                    if (px > n.left && px < n.right && py > n.top && py < n.bottom) {
+                        crossings.push(`${arc.fromId}->${arc.toId} (${arc.route}) `
+                            + `crosses card ${n.id}`);
+                        break;
+                    }
+                }
+            }
+        }
+        // TWO are LEGAL and are the same two `assertStraightArcsClear` permits:
+        // a straight same-lane arc may pass through a bead that is IN ITS OWN
+        // CHAIN (a transitive dependent of the tail and dependency of the head),
+        // because the chain reads as one line through its own members.
+        const rowById = new Map(plan.rows.map((r) => [r.id, r]));
+        const memo = new Map();
+        const reach = (id) => {
+            if (memo.has(id)) return memo.get(id);
+            const out = new Set();
+            memo.set(id, out);
+            for (const d of (rowById.get(id)?.depIds || [])) {
+                out.add(d);
+                for (const dd of reach(d)) out.add(dd);
+            }
+            return out;
+        };
+        const illegal = crossings.filter((c) => {
+            const m = c.match(/^(\d+)->(\d+) \(\w+\) crosses card (\d+)$/);
+            const [, from, to, mid] = m.map(Number);
+            return !(reach(mid).has(from) && reach(to).has(mid));
+        });
+        expect(illegal, illegal.join('\n')).toEqual([]);
+    });
+
+    it('a lane is its tallest card plus the respectful gap', () => {
+        const layout = computePlanLayout(plan.rows, { stepLabel: 'title' });
+        for (const band of layout.bands) {
+            for (let l = 0; l < band.sub; l++) {
+                const pitch = band.laneY[l + 1] - band.laneY[l];
+                expect(pitch).toBeCloseTo((band.laneCardH.get(l)
+                    || cardHeight(0, 'title')) + CARD_GAP_Y, 6);
+            }
+        }
+    });
+
+    it('takes no stepWidth and no reqLayout — both retired with their controls', () => {
+        // A stale caller passing either gets the SAME layout, not a different
+        // one: the options are ignored, so nothing silently renders a geometry
+        // that no control can produce.
+        const plainLayout = computePlanLayout(plan.rows, { stepLabel: 'title' });
+        for (const stale of [{ stepWidth: 'wide' }, { reqLayout: 'horizontal' },
+            { stepWidth: 'medium', reqLayout: 'horizontal' }]) {
+            const layout = computePlanLayout(plan.rows,
+                { stepLabel: 'title', ...stale });
+            expect(layout.colW).toEqual(plainLayout.colW);
+            expect(layout.width).toBe(plainLayout.width);
+            expect(layout.height).toBe(plainLayout.height);
+        }
     });
 });
 
@@ -1044,8 +1315,18 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
     it('clamps below the PINNED RULER at every zoom, reading req #3254\'s own '
         + 'rulerScreenBottom rather than a guessed offset', () => {
         const band = layout.bands.reduce((a, b) => (b.height > a.height ? b : a));
+        // ── THE PAN IS A FRACTION OF THE BAND, NOT 400px (req #3498) ────────
+        // A fixed 400 was only ever meaningful against a band tall enough to
+        // spare it. Lane RE-USE made the tallest band 675px (it was multiples of
+        // that), so 400 scrolls 59% of it off and the chip is then pushed above
+        // the ruler BY ITS OWN BAND'S BOTTOM — which is `placeEpicChips`' second
+        // clause working exactly as designed ("the name leaves WITH its band"),
+        // not the clamp failing. Panning a quarter of the way in keeps the case
+        // this test is about — band partly scrolled off, chip parked at the
+        // ruler — and cannot go false the next time the packing improves.
+        const panIn = band.height * 0.25;
         for (const k of [0.2, 0.5, 1, 2, 4]) {
-            const t = { x: 0, y: -(band.y * k) - 400 * k, k };
+            const t = { x: 0, y: -(band.y * k) - panIn * k, k };
             const inset = rulerScreenBottom(t);
             // The strip's screen height is `RULER_H · max(k, 1)` since req
             // #3365 gave its vertical axis to SCREEN space: world-scaled at and
@@ -1612,8 +1893,24 @@ describe('the epic name holds a legible minimum font (req #3272)', () => {
         // "any pixel on screen" is every band, and the criterion is exact.
         const kWhole = Math.min(kFit, VIEWPORT.h / layout.height);
         expect(kZoomFloor).toBeLessThan(kWhole);
+        // ── THE GUARANTEE HOLDS ALL THE WAY DOWN AGAIN (req #3498) ──────────
+        // It did not, briefly. The card made this fixture's world ~3x wider
+        // while its height barely moved, so fit-to-WIDTH — and with it the zoom
+        // floor — fell by the same factor, the whole plan came to 66 SCREEN
+        // PIXELS at `kZoomFloor`, and the shortest of four bands could not hold
+        // the floored chip (21.6px). `placeEpicChips` named 3 of 4, and this
+        // test was re-stated to start one sample above the floor with the gap
+        // pinned separately.
+        //
+        // LANE RE-USE gave it back. Packing branches into free lanes instead of
+        // opening a new one for each took the tallest band from 17 lanes to 12,
+        // and the plan's height with it, so every band now has room for its name
+        // at every zoom the reader can reach — including the floor. The loop
+        // starts AT `kZoomFloor` again, which is the stronger claim and the one
+        // req #3272 originally made.
+        const step = (kWhole - kZoomFloor) / 12;
         let checked = 0;
-        for (let k = kZoomFloor; k <= kWhole; k += (kWhole - kZoomFloor) / 12) {
+        for (let k = kZoomFloor; k <= kWhole; k += step) {
             const chips = chipsAt({ x: 0, y: 0, k });
             expect(chips.length,
                 `only ${chips.length} of ${layout.bands.length} epic names at `
@@ -1628,6 +1925,18 @@ describe('the epic name holds a legible minimum font (req #3272)', () => {
             checked++;
         }
         expect(checked).toBeGreaterThan(10);
+    });
+
+    it('names EVERY band at the absolute zoom floor too — the limitation that '
+        + 'briefly existed here is GONE (req #3498)', () => {
+        // Kept as its own case rather than folded into the sweep above, because
+        // the floor is the sample that failed while the card was widest and the
+        // packing loosest. If a future change re-opens that gap, this names the
+        // exact scale it re-opened at.
+        const chips = chipsAt({ x: 0, y: 0, k: kZoomFloor });
+        expect(chips.length).toBe(layout.bands.length);
+        const shortest = [...layout.bands].sort((a2, b2) => a2.height - b2.height)[0];
+        expect(chips.some((c) => c.band === shortest)).toBe(true);
     });
 
     it('draws the chip a lane can no longer hold instead of dropping it — the '
@@ -2134,16 +2443,22 @@ describe('epic band label counts, behind a toggle (req #3225)', () => {
         const WIDE_COUNTS = new Map(
             EPICS.map((e) => [e.id, { met: 99, total: 100 }]));
         for (const opts of COMBOS) {
-            const name = `${opts.reqLayout} reqs × ${opts.stepLabel} labels, counts on`;
+            const name = `${opts.stepLabel} labels, counts on`;
             it(`zero label overlap with long epic titles AND count suffixes (${name})`, () => {
                 const withCounts = computePlanLayout(plan.rows,
                     { ...opts, epicCounts: WIDE_COUNTS });
                 assertNoLabelOverlap(withCounts, name);
-                const beads = [...withCounts.nodes.values()].map(beadRect);
+                // req #3498 — was "no label touches any bead". The card is the
+                // containment boundary now, and it is the stronger claim: a
+                // count suffix that pushed text out of its own card would fail
+                // here, where a bead-clearance check could not see it.
                 for (const label of withCounts.labels) {
-                    for (const bead of beads) {
-                        expect(rectsOverlap(label, bead)).toBe(false);
-                    }
+                    if (label.stepId == null) continue;
+                    const n = withCounts.nodes.get(label.stepId);
+                    expect(label.x).toBeGreaterThanOrEqual(n.left - 0.01);
+                    expect(label.x + label.w).toBeLessThanOrEqual(n.right + 0.01);
+                    expect(label.y).toBeGreaterThanOrEqual(n.top - 0.01);
+                    expect(label.y + label.h).toBeLessThanOrEqual(n.bottom + 0.01);
                 }
             });
         }
@@ -2235,24 +2550,53 @@ describe('next-step highlight (req #3168)', () => {
         expect(beadStyle(rowById.get(1), false).next).toBe(false);
     });
 
-    // The halo is a MARK ON THE CANVAS, so it owes the same clearance every
-    // other mark does — and the bead-vs-label invariant above measures the BEAD's
-    // 10px radius, not the ring drawn outside it. The first version of this halo
-    // was BEAD_R + 7 with a 2.5px stroke (outer 18.25) and crossed both the step
-    // label's box and the first requirement id, with nothing to catch it (review
-    // finding). Asserted here so the radius can never be nudged back up in
-    // isolation.
-    it('clears every label box in all four layout combinations', () => {
+    // ── WHAT THIS TEST BECAME (req #3498) ───────────────────────────────────
+    // It used to assert the halo CIRCLE cleared every label box, because the
+    // halo was drawn around a bead sitting in the middle of a cluster of
+    // free-floating text — the first version (BEAD_R + 7, outer 18.25) crossed
+    // both the step label and the first requirement id, with nothing to catch
+    // it. That clearance is not available any more and does not need to be: the
+    // labels are INSIDE the card, the bead is at the card's midpoint, and the
+    // renderer draws the circle only where no card is painted (L1, which draws
+    // no labels either).
+    //
+    // The guarantee that replaces it is CONTAINMENT the other way round: where
+    // the card IS drawn, the halo is the card's own outline, so it encloses
+    // every label of its step instead of dodging them. Asserted from the same
+    // constants the renderer uses, so a radius nudged back up cannot silently
+    // re-introduce a mark that crosses text.
+    it('the circle halo fits inside its card, so it can never cross a label', () => {
         const outer = NEXT_HALO_RADIUS + NEXT_HALO_STROKE / 2;
+        for (const opts of COMBOS) {
+            const layout = computePlanLayout(plan.rows, opts);
+            for (const n of layout.nodes.values()) {
+                const halo = { x: n.x - outer, y: n.y - outer, w: 2 * outer, h: 2 * outer };
+                const where = `${opts.stepLabel}: halo of step ${n.id}`;
+                expect(halo.x, where).toBeGreaterThanOrEqual(n.left);
+                expect(halo.x + halo.w, where).toBeLessThanOrEqual(n.right);
+                expect(halo.y, where).toBeGreaterThanOrEqual(n.top);
+                expect(halo.y + halo.h, where).toBeLessThanOrEqual(n.bottom);
+            }
+        }
+    });
+
+    it('the card-shaped halo encloses every label of its own step', () => {
+        // The renderer inflates the card box by `NEXT_HALO_STROKE` on each side
+        // (see the `next-halo` Rect in PipelinePlanVisualizer.jsx). That box
+        // must contain the card's text, or the mark meant to say "this one runs
+        // next" would be cutting through the name of the step it points at.
         for (const opts of COMBOS) {
             const layout = computePlanLayout(plan.rows, opts);
             for (const label of layout.labels) {
                 if (label.stepId == null) continue;
                 const n = layout.nodes.get(label.stepId);
-                const halo = { x: n.x - outer, y: n.y - outer, w: 2 * outer, h: 2 * outer };
-                expect(rectsOverlap(label, halo),
-                    `${opts.reqLayout}/${opts.stepLabel}: halo on ${label.kind} `
-                    + `label of step ${label.stepId}`).toBe(false);
+                const where = `${opts.stepLabel}: ${label.kind} of step ${label.stepId}`;
+                expect(label.x, where).toBeGreaterThanOrEqual(n.left - NEXT_HALO_STROKE);
+                expect(label.x + label.w, where)
+                    .toBeLessThanOrEqual(n.right + NEXT_HALO_STROKE);
+                expect(label.y, where).toBeGreaterThanOrEqual(n.top - NEXT_HALO_STROKE);
+                expect(label.y + label.h, where)
+                    .toBeLessThanOrEqual(n.bottom + NEXT_HALO_STROKE);
             }
         }
     });
@@ -2294,6 +2638,67 @@ describe('next-step highlight (req #3168)', () => {
 // definition of 'out') a 2px stroke with 3px dashes rendered at 0.8px and 1.2px
 // — emitted, and invisible. These cases pin the SCREEN-side behaviour, which is
 // the half no world-unit assertion can reach.
+describe('one mark per cluster — the merged next-step dot (req #3498)', () => {
+    const at = (x, y, id, suppressed = false) => ({ id, x, y, suppressed });
+
+    it('merges marks whose dots would overlap, and leaves the rest alone', () => {
+        // Radius 10 ⇒ circles touch at 20 apart.
+        const out = clusterNextMarks([
+            at(0, 0, 1), at(0, 15, 2),        // 15 < 20 → one mark
+            at(0, 500, 3),                    // far away → its own
+        ], 10);
+        expect(out).toHaveLength(2);
+        expect(out[0].ids).toEqual([1, 2]);
+        expect(out[0].y).toBe(7.5);           // the plain mean, not a member
+        expect(out[1].ids).toEqual([3]);
+    });
+
+    it('is SINGLE-LINKAGE — a chain of near neighbours is one blob on screen', () => {
+        // A–B and B–C touch; A–C do not. On screen that is one shape, so it
+        // must be one mark. A pairwise rule would emit three overlapping ones.
+        const out = clusterNextMarks([at(0, 0, 1), at(0, 15, 2), at(0, 30, 3)], 10);
+        expect(out).toHaveLength(1);
+        expect(out[0].ids).toEqual([1, 2, 3]);
+    });
+
+    it('reads as HELD when any member is suppressed', () => {
+        const out = clusterNextMarks([at(0, 0, 1), at(0, 15, 2, true)], 10);
+        expect(out[0].suppressed).toBe(true);
+        expect(clusterNextMarks([at(0, 0, 1), at(0, 15, 2)], 10)[0].suppressed)
+            .toBe(false);
+    });
+
+    it('merges nothing when the mark has no extent, and survives junk input', () => {
+        expect(clusterNextMarks([at(0, 0, 1), at(0, 1, 2)], 0)).toHaveLength(2);
+        expect(clusterNextMarks([], 10)).toEqual([]);
+        expect(clusterNextMarks(null, 10)).toEqual([]);
+        expect(clusterNextMarks([at(NaN, 0, 1), at(0, 0, 2)], 10)).toHaveLength(1);
+    });
+
+    it('THE MEASURED CASE: six eligible steps 97.5px apart under a 112.6px dot', () => {
+        // The live defect, as a fixture. The dot's world radius at plan 7's
+        // landing scale exceeds the lane pitch, so every one of these overlaps
+        // its neighbour — six marks drew as one red capsule with no way to tell
+        // how many steps were under it.
+        const six = [0, 1, 2, 3, 4, 5].map((i) => at(9000, 3126 + i * 97.5, 120 + i));
+        const merged = clusterNextMarks(six, 112.6);
+        expect(merged).toHaveLength(1);
+        expect(merged[0].ids).toHaveLength(6);
+        // …and the renderer draws that 6 on it. The count is what makes the
+        // merge honest rather than a hidden truncation.
+        expect(merged[0].y).toBeCloseTo(3126 + 2.5 * 97.5, 6);
+    });
+
+    it('the count is sized in SCREEN px, like the dot it rides', () => {
+        // A world-sized glyph is a fraction of a pixel at exactly the scale this
+        // mark exists for, so the renderer divides by k — the same compensation
+        // `nextMarkDotRadius` already applies to the radius.
+        expect(NEXT_MARK_COUNT_FONT_PX).toBeGreaterThan(0);
+        expect(NEXT_MARK_COUNT_FONT_PX)
+            .toBeLessThan(2 * NEXT_MARK_SCREEN_RADIUS);
+    });
+});
+
 describe('the next-step halo survives Overview (req #3271)', () => {
     // A k sweep spanning everything the zoom behavior can reach: the scale
     // extent is [kFloor, kDefault × 8] and kDefault is at least K_READABLE.
@@ -2456,7 +2861,7 @@ describe('the next-step halo survives Overview (req #3271)', () => {
         // sweep over PLAN SHAPES rather than over one fixture's.
         const layouts = [
             ...COMBOS.map((opts) => ({
-                label: `${opts.reqLayout}/${opts.stepLabel}`,
+                label: `${opts.stepLabel}`,
                 layout: computePlanLayout(plan.rows, opts),
             })),
             // BOTH requirement layouts, still. They used to differ in the
@@ -2470,10 +2875,16 @@ describe('the next-step halo survives Overview (req #3271)', () => {
             // stay swept.
             ...[...timedFuzzCorpus()].flatMap(({ seed, reads }) => {
                 const p = orderedPlan(buildPipelineModel(reads), { now: FUZZ_NOW });
-                return ['horizontal', 'vertical'].map((reqLayout) => ({
-                    label: `fuzz seed ${seed} ${reqLayout}`,
+                // ONE configuration, not two (req #3498). This mapped over
+                // ['horizontal','vertical'] with a comment claiming the lane
+                // pitches and column widths still varied between them — both
+                // untrue now: columns are uniform and `lanePitch` never read
+                // `reqLayout`. It computed the 400-plan corpus twice with
+                // identical inputs while looking like coverage.
+                return [null].map(() => ({
+                    label: `fuzz seed ${seed}`,
                     layout: computePlanLayout(p.rows,
-                        { reqLayout, timeAxis: p.timeAxis }),
+                        { timeAxis: p.timeAxis }),
                 }));
             }),
         ];
@@ -2508,11 +2919,18 @@ describe('the next-step halo survives Overview (req #3271)', () => {
         // Non-vacuity, per FURNITURE KIND — a total says nothing about whether
         // each kind was actually compared against.
         // Thresholds sit just under the MEASURED counts, not orders of
-        // magnitude below them: a guard at 20 against an actual 1624 catches
+        // magnitude below them: a guard at 20 against an actual 812 catches
         // total collapse and nothing else.
-        expect(seen.bands, 'epic bands swept').toBeGreaterThan(1500);
+        //
+        // HALVED at req #3498, and the halving is the POINT: this sweep used to
+        // run the corpus twice with identical inputs (once per `reqLayout`, an
+        // option the layout no longer reads), so the counts it was calibrated
+        // against — 1624 bands, 6000+ lane-0 beads — were double-counting one
+        // configuration. The corpus, the plans and the furniture compared are
+        // unchanged; only the duplicate pass is gone.
+        expect(seen.bands, 'epic bands swept').toBeGreaterThan(750);
         expect(seen.laneZero, 'lane-0 beads compared to a chip strip')
-            .toBeGreaterThan(6000);
+            .toBeGreaterThan(3000);
     }, 20000);
 
     // Kept separate because it is O(beads²): the substrate fixture in all four
@@ -2528,7 +2946,7 @@ describe('the next-step halo survives Overview (req #3271)', () => {
                 for (let j = i + 1; j < pts.length; j += 1) {
                     pairs += 1;
                     const d = Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y);
-                    expect(d, `${opts.reqLayout}/${opts.stepLabel}: bead pair`)
+                    expect(d, `${opts.stepLabel}: bead pair`)
                         .toBeGreaterThan(worstOuter + BEAD_HIT_RADIUS);
                 }
             }
@@ -2571,7 +2989,7 @@ describe('the next-step halo survives Overview (req #3271)', () => {
     it('the raised ceiling and its downstream floor are MEASURED, not only '
         + 'self-consistent (req #3375, ONE ADDITION)', () => {
         // 33, not 30, since req #3365: `epicChipStrip` is the BINDING entry and
-        // it is `STEP_LABEL_RISE + BEAD_LANE_OFFSET`, which grew by 3 when the
+        // it is `MIN_CARD_H / 2` (it was `STEP_LABEL_RISE + BEAD_LANE_OFFSET` before req #3498 — the same 34, re-derived from the card), which grew by 3 when the
         // step label was lifted to clear a neighbour's bead hit circle. The
         // ceiling being DERIVED is the point — more room above a lane-0 bead is
         // more room the halo may use, without anyone re-tuning it.
@@ -3510,7 +3928,14 @@ describe('requirement mark stack order (req #3363)', () => {
         expect(marks.map((m) => m.reqId)).toEqual([30, 10, 20]);
     });
 
-    it('draws the "req" marks in the exact order reqIds arrives in — horizontal', () => {
+    // ── THE 'horizontal' TWIN IS GONE, AND ASSERTED IN ITS PLACE ────────────
+    // It passed `{ reqLayout: 'horizontal' }` — ignored since req #3498 — so it
+    // was byte-identical to the vertical test above, and it sorted by `.x` where
+    // every row now shares one `.x`, i.e. it passed only because `Array#sort` is
+    // stable. It asserted nothing. What is worth asserting instead is the
+    // property the card actually gives: the rows are one column, ordered
+    // top-to-bottom, and a retired option cannot change that.
+    it('stacks the rows in ONE left-aligned column, whatever a stale caller asks for', () => {
         const row = {
             id: 1, title: 's1', run: 'auto', state: 'pending',
             reqIds: [30, 10, 20], depIds: [], timeDeps: [],
@@ -3520,8 +3945,13 @@ describe('requirement mark stack order (req #3363)', () => {
         const layout = computePlanLayout([row], { reqLayout: 'horizontal' });
         const marks = layout.labels
             .filter((l) => l.kind === 'req' && l.stepId === 1)
-            .sort((a, b) => a.x - b.x);
+            .sort((a, b) => a.y - b.y);
         expect(marks.map((m) => m.reqId)).toEqual([30, 10, 20]);
+        expect(new Set(marks.map((m) => m.x)).size).toBe(1);
+        for (let i = 1; i < marks.length; i++) {
+            expect(marks[i].y - marks[i - 1].y)
+                .toBeCloseTo(REQ_LINE_H + REQ_ROW_GAP, 6);
+        }
     });
 });
 
@@ -4190,10 +4620,23 @@ describe("the KEY is a keep-out: what it costs the epic labels (req #3168, re-me
         const wellPast = costOf(300, 180);
         expect(atCap, 'the cap must not already be on the steep part of the curve')
             .toBeLessThan(wellPast);
+        // ── IT DRIFTED, AND THEN CAME BACK (req #3498) ──────────────────────
+        // Worth recording because the intermediate state was real and was very
+        // nearly shipped with the bound loosened to hide it. The card widened
+        // the world ~3x and made every band taller, and this ratio went from a
+        // comfortable **7/28 (a quarter)** to **27/51 (just past half)** — the
+        // cap was no longer on the flat part, and `PLAN_KEY_MAX_H` (derived at
+        // req #3374 P6) genuinely did not fit the new geometry.
+        //
+        // LANE RE-USE resolved it without anybody touching the key: packing
+        // branches into free lanes took the tallest band from 17 lanes to 12,
+        // so a bottom-anchored key of unchanged height once again overlaps few
+        // band tops across the pan sweep. The MINORITY bound is restored as the
+        // original claim, not as a relaxed one.
         expect(atCap - atFloor,
             'the cap\'s own cost over the real content height must be a MINORITY '
             + 'of what the steep segment past it costs, not merely less')
-            .toBeLessThan(0.5 * (wellPast - atFloor));
+            .toBeLessThanOrEqual(0.5 * (wellPast - atFloor));
     });
 
     it('the bottom-center move made the key far cheaper than the top-right one', () => {
@@ -4231,535 +4674,493 @@ const drawn = (opts) => {
     return { layout, step: pick('step'), req: pick('req') };
 };
 
-describe('the 35-character ceiling (req #3168, directive B)', () => {
-    it('never draws a step label longer than the ceiling, in any combination', () => {
+describe('the character budget IS the card (req #3498, was the 35-char ceiling)', () => {
+    // WHAT REPLACED WHAT. Directive B (2026-08-01) capped the drawn text at a
+    // ceiling and froze the geometry — *"if 35 is too much, pick a lower number.
+    // I do not want any other spacing to have to change for this"* — because the
+    // room a label had was assembled from its column and a bounded reach into the
+    // neighbours, and no cap could be derived from anything. The card gives every
+    // string ONE room, so the cap and the room are the same number and the table
+    // of measured per-mode/per-width lengths has no columns left to vary over.
+    it('never draws a label wider than the card can hold, in any combination', () => {
         for (const view of Object.keys(REQ_VIEWS)) {
-            for (const stepWidth of Object.keys(STEP_WIDTH_FACTORS)) {
-                const { step } = drawn({ ...reqViewOptions(view),
-                    stepLabel: 'title', stepWidth });
-                expect(Math.max(...step), `${view} x ${stepWidth}`)
-                    .toBeLessThanOrEqual(LABEL_MAX_CHARS);
+            for (const stepLabel of ['id', 'title']) {
+                const { layout } = drawn({ ...reqViewOptions(view), stepLabel });
+                for (const l of layout.labels) {
+                    if (l.stepId == null) continue;
+                    const n = layout.nodes.get(l.stepId);
+                    expect(l.w, `${view} x ${stepLabel} (${l.kind})`)
+                        .toBeLessThanOrEqual(n.w);
+                }
             }
         }
     });
 
-    // THE TABLE THE USER GETS TO PICK FROM. Pinned as exact numbers because the
-    // whole point of the directive was that the number is a measured fact rather
-    // than a promise — if a future edit moves any of these, the user is being
-    // given a different deal and should be told.
-    it('draws the MEASURED number of characters per mode and width', () => {
-        // [min, max] — req #3374 P7 review finding W1: this used to assert
-        // only the max, while the doc table it backs also claims a MIN
-        // column. A doc claiming pinned coverage a test does not actually
-        // provide is the exact failure P7 exists to remove.
-        const at = (view, stepWidth) => {
-            const { step } = drawn({ ...reqViewOptions(view),
-                stepLabel: 'title', stepWidth });
+    // THE DEAL THE USER GETS, still pinned as an exact number — the point of
+    // directive B was that the length is a measured fact and not a promise, and
+    // that survives the card. What changed is that there is now ONE number
+    // instead of a 3x3 table, because there is one width.
+    it('draws the MEASURED number of characters, and it is the same everywhere', () => {
+        const at = (view, stepLabel) => {
+            const { step } = drawn({ ...reqViewOptions(view), stepLabel });
             return [Math.min(...step), Math.max(...step)];
         };
-        // RE-MEASURED at req #3365, which raised `STAGGER_REACH` 0.4 → 0.85
-        // (+50% of budget) and `LABEL_MAX_CHARS` 40 → 60 so the extra budget is
-        // actually spendable. Both halves were needed: the reach alone left
-        // `vertical` pinned at the cap, drawing 27/29/36 to a budget that
-        // afforded 41/44/54.
-        //
-        // `horizontal` columns are sized by the requirement-id STRING, which is
-        // wide enough that the ceiling is still what binds the MAX.
-        expect([at('horizontal', 'compact'), at('horizontal', 'medium'),
-            at('horizontal', 'wide')]).toEqual([[24, 60], [25, 60], [28, 60]]);
-        // `vertical` columns are TITLE_COL_MIN, so the stagger budget binds and
-        // the ceiling is inert. **27 → 41, 29 → 44, 36 → 54: +52 / +52 / +50%**,
-        // which is the directive's own number.
-        expect([at('vertical', 'compact'), at('vertical', 'medium'),
-            at('vertical', 'wide')]).toEqual([[24, 41], [25, 44], [28, 54]]);
-        // Showing requirement TITLES costs the step label nothing.
-        expect([at('titles', 'compact'), at('titles', 'medium'),
-            at('titles', 'wide')]).toEqual([[24, 41], [25, 44], [28, 54]]);
-        // The MIN column gains less (19 → 24, +26%) at every width, and that is
-        // GEOMETRY rather than a shortfall: the first and last columns are
-        // bounded by the gutter, not by a neighbouring column, and `LEFT` /
-        // `RIGHT` did not move.
+        // The step name is drawn at `PLAN_VIZ_FONT.label` (16.5), which is wider
+        // per character than the requirement rows, so it fits fewer of them than
+        // the 46 the width was bought for.
+        // The ✓'s room AND the count's come off the step label's budget —
+        // both are drawn at the title area's right edge.
+        // The step NAME wraps too since 2026-08-13 — at a 28-character line it
+        // would otherwise truncate to nineteen — so what is pinned is the
+        // per-LINE budget, which is what a reader actually sees on one row.
+        const stepBudget = cardChars(CHW_LABEL, CARD_CHECK_W + CARD_COUNT_W);
+        for (const view of Object.keys(REQ_VIEWS)) {
+            const layout = computePlanLayout(plan.rows,
+                { ...reqViewOptions(view), stepLabel: 'title',
+                    reqTitles: FIXTURE_TITLES });
+            for (const l of layout.labels.filter((x) => x.kind === 'step')) {
+                for (const line of l.lines) {
+                    expect(line.length, `${view}: "${line}"`)
+                        .toBeLessThanOrEqual(stepBudget);
+                }
+                expect(l.lines.length).toBeLessThanOrEqual(NAME_MAX_LINES);
+            }
+        }
+        // Requirement rows get the full budget, at the row font — no ✓ on
+        // those lines, so nothing is reserved out of them.
+        expect(cardChars(CHW_REQ)).toBe(CARD_TEXT_CHARS);
+        // An ID label is the step id, whatever the budget — nothing to truncate.
+        expect(at('vertical', 'id')[1]).toBeLessThanOrEqual(String(
+            Math.max(...plan.rows.map((r) => r.id))).length);
     });
 
-    it('the ceiling did not move a single column', () => {
-        // The claim the user actually made ("I do not want any other spacing to
-        // have to change"): capping the TEXT must not touch the geometry. A
-        // layout with no title labels at all shares its columns with one that
-        // has them, at every width.
-        for (const stepWidth of Object.keys(STEP_WIDTH_FACTORS)) {
-            const ids = computePlanLayout(plan.rows,
-                { reqLayout: 'vertical', stepLabel: 'id', stepWidth });
-            const titled = computePlanLayout(plan.rows,
-                { reqLayout: 'vertical', stepLabel: 'id', stepWidth,
-                    reqTitles: FIXTURE_TITLES });
-            expect(titled.colW).toEqual(ids.colW);
-            expect(titled.width).toBe(ids.width);
-            expect(titled.height).toBe(ids.height);
-        }
+    it('the text budget did not move a single column', () => {
+        // The claim directive B actually made, and on the HORIZONTAL axis it is
+        // now true by CONSTRUCTION rather than by measurement: the columns are
+        // uniform and no text is consulted to size them.
+        //
+        // The VERTICAL axis is a different matter since the second line landed
+        // (req #3498, 2026-08-13) — see the row-wrapping suite. Width was the
+        // axis the directive was about; height is what the card spends to keep
+        // a title readable, and it is measured rather than assumed.
+        const ids = computePlanLayout(plan.rows, { stepLabel: 'id' });
+        const titled = computePlanLayout(plan.rows,
+            { stepLabel: 'id', reqLabel: 'title', reqTitles: FIXTURE_TITLES });
+        expect(titled.colW).toEqual(ids.colW);
+        expect(titled.width).toBe(ids.width);
+        expect(titled.height).toBeGreaterThan(ids.height);
     });
 });
 
-describe('requirement marks: id or TITLE (req #3168, directive E)', () => {
-    it('SHOWING TITLES COSTS NO WIDTH, EVER — HEIGHT GROWS WITH THE SWIM LANES', () => {
-        // The frozen-geometry directive stands on the HORIZONTAL axis: a title
-        // may never widen a column or the world, because that was the user's
-        // explicit refusal. That is untouched by req #3362.
+describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () => {
+    it('SHOWING TITLES COSTS NO WIDTH — and buys its height by the LINE', () => {
+        // The frozen-geometry directive stood on the HORIZONTAL axis, and there
+        // it is absolute: a title can never widen a column or the world.
         //
-        // The VERTICAL cost is no longer a flat one line per lane. Before req
-        // #3362 only a lone mark could stagger, and it cost exactly one line —
-        // pinned here as `lanes * REQ_LINE_H`. Now a stack of N marks can be
-        // pushed down to clear a busier neighbour's full extent, so a lane
-        // chaining several unequal-count columns costs MORE than one line, and a
-        // lane with no conflict at all still costs exactly one (the unconditional
-        // `+ REQ_LINE_H` `lanePitch` charges every lane in title mode). The
-        // total is therefore a MEASURED fact, not a formula derived from lane
-        // count alone — re-derive it from `pipelinePlanLayout.test.js` rather
-        // than trusting the number on this line if the fixture ever changes.
-        //
-        // It IS still independent of `stepWidth` and `stepLabel` (offsets come
-        // from requirement COUNTS, never from pixel width), so the same delta
-        // holds across every combination below.
-        // 450 → 506.25 at req #3365. The first-fit that replaced req #3362's
-        // count-priority sweep clears the previous TWO columns rather than one
-        // (`STAGGER_REACH` 0.85 makes every column overlap both of its nearest
-        // neighbours per side), so a run of stacks can be pushed down further
-        // before the window slides past and the offset recycles to line 0.
-        // THREE more lines across the whole fixture — the vertical price of the
-        // +50% width, paid once and measured rather than estimated. The figure
-        // then moved again with `REQ_LINE_H` 18.75 → 23.5 (the doubled stack
-        // whitespace): same 27 lines, taller lines.
-        const SWIM_LANE_HEIGHT_DELTA = 634.5; // 27 × REQ_LINE_H, measured on this fixture
+        // The VERTICAL story is the part that moved. It used to cost 634.5px on
+        // this fixture — 27 extra lines of swim-lane offset, room spent on
+        // CLEARANCE rather than on text. The card deleted all of that, and then
+        // the user's 2026-08-13 directive spent height back on something a
+        // reader gets to see: a SECOND LINE per row before the title truncates.
+        // So the cost is a row-count fact now, not a collision-avoidance one,
+        // and this asserts it as exactly that.
         for (const stepLabel of ['id', 'title']) {
-            for (const stepWidth of Object.keys(STEP_WIDTH_FACTORS)) {
-                const base = computePlanLayout(plan.rows,
-                    { ...reqViewOptions('vertical'), stepLabel, stepWidth,
-                        reqTitles: FIXTURE_TITLES });
-                const titled = computePlanLayout(plan.rows,
-                    { ...reqViewOptions('titles'), stepLabel, stepWidth,
-                        reqTitles: FIXTURE_TITLES });
-                const where = `${stepLabel} x ${stepWidth}`;
-                // Horizontal: untouched, to the pixel.
-                expect(titled.colW, where).toEqual(base.colW);
-                expect(titled.width, where).toBe(base.width);
-                expect([...titled.nodes.values()].map((n) => n.x), where)
-                    .toEqual([...base.nodes.values()].map((n) => n.x));
-                // Vertical: the measured swim-lane cost, and nothing else.
-                expect(titled.height - base.height, where).toBe(SWIM_LANE_HEIGHT_DELTA);
-                expect(titled.bands.map((b) => b.sub), where)
-                    .toEqual(base.bands.map((b) => b.sub));
+            const base = computePlanLayout(plan.rows,
+                { ...reqViewOptions('vertical'), stepLabel,
+                    reqTitles: FIXTURE_TITLES });
+            const titled = computePlanLayout(plan.rows,
+                { ...reqViewOptions('titles'), stepLabel,
+                    reqTitles: FIXTURE_TITLES });
+            expect(titled.colW, stepLabel).toEqual(base.colW);
+            expect(titled.width, stepLabel).toBe(base.width);
+            expect([...titled.nodes.values()].map((n) => n.w), stepLabel)
+                .toEqual([...base.nodes.values()].map((n) => n.w));
+            expect(titled.bands.map((b) => b.sub), stepLabel)
+                .toEqual(base.bands.map((b) => b.sub));
+            // Every extra pixel is a WHOLE LINE, on a card whose rows wrapped.
+            for (const r of plan.rows) {
+                const b = base.nodes.get(r.id);
+                const t = titled.nodes.get(r.id);
+                const extra = t.h - b.h;
+                // Whole LINES, and nothing else: the between-rows gaps are the
+                // same in both layouts (same row count), so every extra pixel
+                // is a second line somebody's title needed.
+                const inLines = extra / REQ_LINE_H;
+                expect(inLines - Math.round(inLines), `step ${r.id}`)
+                    .toBeCloseTo(0, 6);
+                // …and never more than one extra line per requirement.
+                expect(Math.round(inLines), `step ${r.id}`)
+                    .toBeLessThanOrEqual(
+                        (REQ_MAX_LINES - 1) * (r.reqIds || []).length);
             }
         }
     });
 
     // The number the user has to live with, measured rather than hoped for.
-    it('draws the MEASURED title length the frozen column affords', () => {
-        const at = (stepLabel, stepWidth) => {
-            const { req } = drawn({ ...reqViewOptions('titles'), stepLabel, stepWidth });
+    it('draws the MEASURED title length the card affords', () => {
+        const at = (stepLabel) => {
+            const { req } = drawn({ ...reqViewOptions('titles'), stepLabel });
             return [Math.min(...req), Math.max(...req)];
         };
-        // The swim-lane directive (2026-08-01) moved these numbers UP without
-        // widening a single column: a lone title inside a run of 1-req steps
-        // draws on its own line and may reach into its neighbours, so the MAX
-        // rose while the MIN — a mark still column-bound — did not.
-        //
-        // req #3362 generalized eligibility from "lone mark in a run of lone
-        // marks" to "every mark, cleared of its neighbours by the swim-lane
-        // offset sweep" — so a mark that used to be column-bound (the old MIN)
-        // may now also reach into a neighbour, and the MIN rises with it. The
-        // MAX is unchanged: it was already the ceiling (ID prefix included) and
-        // nothing widens past LABEL_MAX_CHARS.
-        //
-        // RE-MEASURED at req #3365 (`STAGGER_REACH` 0.4 → 0.85, and
-        // `LABEL_MAX_CHARS` 40 → 60 so the widened budget is spendable):
-        // **33 → 50, 35 → 54, 40 → 60 — +52 / +54 / +50%**, the directive's own
-        // number arriving on the requirement titles it was asked for. The MIN
-        // rises 23 → 29 (+26%) and no further, because the first and last
-        // columns are bounded by the GUTTER rather than by a neighbour.
-        //
-        // With `Step: Title` the column already carries TITLE_COL_MIN (144·f).
-        // With `Step: ID` the column is only as wide as the ids need, so both
-        // ends are lower — the two controls interact.
-        expect([at('title', 'compact'), at('title', 'medium'), at('title', 'wide')])
-            .toEqual([[29, 50], [30, 54], [34, 60]]);
-        // The `Step: ID` row gains PROPORTIONALLY MORE (20 → 31, 22 → 33,
-        // 26 → 40: +55 / +50 / +54%) precisely because its columns are narrow:
-        // the reach is a fraction of the NEIGHBOUR, so a narrow column's own
-        // slab is a smaller share of its total budget and the widened reach is
-        // a bigger one.
-        expect([at('id', 'compact'), at('id', 'medium'), at('id', 'wide')])
-            .toEqual([[19, 31], [20, 33], [22, 40]]);
+        // ONE PAIR OF NUMBERS, not the 3x3 table the width control used to
+        // produce, and the MAX is the card's own budget: *"req# plus 40 chars"*.
+        // The MIN is a title that ran out of TITLE before it ran out of card —
+        // every requirement in this fixture gets the same long string, so the
+        // two ends coincide and both are the budget.
+        // TWO lines of it now (req #3498, 2026-08-13). `label.text` joins the
+        // wrapped lines with a space, so the drawn length is the budget twice
+        // over, less the joint — which is exactly what the second line buys.
+        const budget = cardChars(CHW_REQ);
+        const [lo, hi] = at('title');
+        expect(hi).toBeGreaterThan(budget);
+        expect(hi).toBeLessThanOrEqual(budget * REQ_MAX_LINES);
+        expect(lo).toBe(hi);        // every fixture title is equally long
+        // Independent of what the TITLE AREA says, which is the whole point of
+        // a fixed width: the two controls no longer interact.
+        expect(at('id')).toEqual(at('title'));
     });
 
-    it('keeps every requirement mark inside its column slab — the frozen contract', () => {
-        // Every position the CONTROL offers, PLUS the one it withholds. The
-        // withheld combination is in this loop deliberately: the module's claim
-        // is that it renders `horizontal` + titles correctly rather than
-        // trusting callers not to ask, and an unasserted branch is where that
-        // claim went wrong once already — the per-mark budget divided the column
-        // by N and forgot the (N−1) mono separators `texts.join(' ')` draws, so
-        // a 3-requirement step's marks sat 14.4px outside their own slab while
-        // every individual truncation looked right.
-        const combos = [...Object.keys(REQ_VIEWS).map((v) => reqViewOptions(v)),
-            { reqLayout: 'horizontal', reqLabel: 'title' }];
-        for (const view of combos) {
+    it('keeps every requirement row inside its own card', () => {
+        for (const view of Object.keys(REQ_VIEWS)) {
             for (const stepLabel of ['id', 'title']) {
-                for (const stepWidth of Object.keys(STEP_WIDTH_FACTORS)) {
-                    const layout = computePlanLayout(plan.rows, {
-                        ...view, stepLabel, stepWidth,
-                        reqTitles: FIXTURE_TITLES,
-                    });
-                    // Since the swim-lane directive (2026-08-01, generalized by
-                    // req #3362) containment is KIND-DEPENDENT here, exactly as
-                    // it already was for step labels. A requirement title (any
-                    // stack size, not just a lone mark since req #3362) is
-                    // STAGGERED — the swim-lane offset sweep cleared it against
-                    // its same-lane neighbours — so it may reach a bounded
-                    // distance into them. Its guarantee is not "inside the
-                    // slab" but "no further than STAGGER_REACH of one
-                    // neighbour", and the pairwise property that follows from
-                    // it is asserted by the zero-overlap test below. Everything
-                    // else (id marks, and titles in `horizontal`, which the
-                    // CONTROL withholds) is still slab-contained.
-                    for (const label of layout.labels) {
-                        if (label.kind !== 'req') continue;
-                        const n = layout.nodes.get(label.stepId);
-                        const half = layout.colW[n.depth] / 2;
-                        const staggered = view.reqLabel === 'title'
-                            && view.reqLayout !== 'horizontal';
-                        // The reach a staggered mark is allowed, per side: the
-                        // same `STAGGER_REACH` of the NARROWER neighbour that
-                        // bounds a staggered step label. READ from the module,
-                        // not restated — req #3365 moved it 0.4 → 0.85 and a
-                        // literal here would have made this test agree with the
-                        // OLD budget while the layout drew the new one.
-                        const reach = staggered
-                            ? STAGGER_REACH * Math.min(
-                                n.depth > 0 ? layout.colW[n.depth - 1] : 66,
-                                n.depth < layout.colW.length - 1
-                                    ? layout.colW[n.depth + 1] : 54)
-                            : 0;
-                        const left = layout.colX[n.depth] - half - reach;
-                        const right = layout.colX[n.depth] + half + reach;
-                        const where = `${view.reqLayout}+${view.reqLabel}`
-                            + `/${stepLabel}/${stepWidth} step ${label.stepId}`;
-                        expect(label.x, where).toBeGreaterThanOrEqual(left - 0.01);
-                        expect(label.x + label.w, where).toBeLessThanOrEqual(right + 0.01);
-                    }
-                }
-            }
-        }
-    });
-
-    // req #3362 — a step with more than one requirement no longer stays
-    // column-bound just because it isn't a lone mark, and the fewer-requirement
-    // side of an adjacent pair draws in the "higher" (smaller-y) swim lane.
-    describe('requirement-count swim lanes (req #3362)', () => {
-        // Step 1 (5 requirements, depth 0, lane 0) sits directly left of step 3
-        // (1 requirement, depth 1, lane 0) on the live Substrate fixture — the
-        // exact "multi-req step next to a single-req step" shape #3362 is
-        // about. Before this requirement, step 3 could not stagger AT ALL
-        // (its left neighbour carried more than one requirement) and step 1's
-        // marks were bound to bare `colW`, never the 40-character ceiling.
-        it('adjacent stacks occupy DISJOINT line ranges, whatever their counts', () => {
-            // req #3362 gave the higher swim lane to whichever column had FEWER
-            // requirements, because at `STAGGER_REACH` 0.4 only one of a pair
-            // reached into the other and the answer to "who moves?" was the one
-            // that did not. req #3365 raised the reach to 0.85, where BOTH
-            // columns of every adjacent pair reach into each other and the
-            // question has no answer — so the ordering claim is gone and the
-            // guarantee it existed to serve is asserted directly instead:
-            // stacks within two columns of each other never share a line.
-            const layout = computePlanLayout(plan.rows,
-                { ...reqViewOptions('titles'), stepLabel: 'id', stepWidth: 'compact',
-                    reqTitles: FIXTURE_TITLES });
-            const marksOf = (stepId) => layout.labels
-                .filter((l) => l.kind === 'req' && l.stepId === stepId)
-                .sort((a, b) => a.y - b.y);
-            const step1 = marksOf(1); // 5 requirements
-            const step3 = marksOf(3); // 1 requirement
-            expect(step1, 'step 1 carries all 5 of its marks').toHaveLength(5);
-            expect(step3, 'step 3 carries its 1 mark').toHaveLength(1);
-            // Disjoint: every line of one stack clears every line of the other.
-            for (const a of step1) {
-                for (const b of step3) {
-                    expect(Math.abs(a.y - b.y),
-                        `step 1's ${a.text} vs step 3's ${b.text} share a line`)
-                        .toBeGreaterThanOrEqual(REQ_LINE_H - 0.01);
-                }
-            }
-            // …and BOTH of them spend the widened budget — the point of the
-            // whole scheme is that a stack is no longer column-bound, and that
-            // is now true of the busier side as well as the quieter one.
-            const colW = layout.colW;
-            for (const marks of [step1, step3]) {
-                const n = layout.nodes.get(marks[0].stepId);
-                expect(Math.max(...marks.map((m) => m.w)),
-                    `step ${marks[0].stepId} stayed inside its bare column`)
-                    .toBeGreaterThan(colW[n.depth] * 0.9);
-            }
-        });
-
-        it('a multi-requirement step now spends the stagger budget too, not just colW', () => {
-            // Width L (`wide`) is where the pre-#3362 MIN (a mark still
-            // column-bound inside a stack) measured 23 characters — see the
-            // MEASURED table above. Step 1 (5 requirements) was exactly that
-            // MIN case: column-bound at `colW`, never the wider stagger
-            // budget. Measured here at 30 — strictly past the old column-only
-            // bound — because `widened` no longer excludes it.
-            const layout = computePlanLayout(plan.rows,
-                { ...reqViewOptions('titles'), stepLabel: 'title', stepWidth: 'wide',
-                    reqTitles: FIXTURE_TITLES });
-            const step1Marks = layout.labels
-                .filter((l) => l.kind === 'req' && l.stepId === 1);
-            expect(step1Marks.length).toBe(5);
-            const OLD_COLUMN_BOUND_MIN = 23; // pre-#3362 pinned MIN at Width L
-            expect(Math.max(...step1Marks.map((l) => l.text.length)),
-                'a multi-requirement step must draw past the old column-only bound')
-                .toBeGreaterThan(OLD_COLUMN_BOUND_MIN);
-        });
-
-        it('a tied single-requirement pair still separates by one REQ_LINE_H, exactly as pre-#3362', () => {
-            // Steps 3 and 4 sit in a lane that also carries step 1 (5
-            // requirements) earlier — NOT a uniform run — but 3 and 4
-            // themselves are a tied pair (1 requirement each), which is the
-            // req #3119 case this change must leave untouched: a tie still
-            // resolves by column parity, using the same 'wide'-width,
-            // real-title fixture the req #3242 gap test already exercises.
-            const REAL_TITLES = new Map([
-                [3050, 'darwin-mcp rearchitecture: Lambda-Rest as single DB gateway (clean-sheet REST transport)'],
-                [3056, 'Views show autonomy'],
-                [3063, 'Instruction Edit In Place'],
-                [3064, 'Aggregator Card Polish'],
-            ]);
-            const layout = computePlanLayout(plan.rows,
-                { ...reqViewOptions('titles'), stepLabel: 'title', stepWidth: 'wide',
-                    reqTitles: REAL_TITLES });
-            // Steps 3 and 4 (both 1 requirement, adjacent columns, same lane)
-            // are the pair req #3242's breathing-room test already measures.
-            // Their vertical separation must still be the parity-driven
-            // REQ_LINE_H apart, not something a chained neighbour distorted.
-            const m3 = layout.labels.find((l) => l.kind === 'req' && l.stepId === 3);
-            const m4 = layout.labels.find((l) => l.kind === 'req' && l.stepId === 4);
-            expect(Math.abs(m3.y - m4.y)).toBe(REQ_LINE_H);
-        });
-
-        // Found in review: a TIE did not chain through the previous column's
-        // own offset the way a strictly-fewer neighbour does, so a sequence of
-        // equal-count columns (e.g. counts 1, 1, 2, 2 on one lane) could land
-        // two of them on the same absolute lines — this is a synthetic,
-        // minimal reproduction of that exact shape, independent of whether the
-        // Substrate fixture or the fuzz corpus happens to contain it today.
-        it('a chained tie sequence (1, 1, 2, 2 on one lane) draws with zero overlap', () => {
-            const rows = [
-                { id: 1, title: 'Alpha', reqIds: [101], depIds: [] },
-                { id: 2, title: 'Bravo', reqIds: [201], depIds: [1] },
-                { id: 3, title: 'Charlie', reqIds: [301, 302], depIds: [2] },
-                { id: 4, title: 'Delta', reqIds: [401, 402], depIds: [3] },
-            ];
-            const titles = new Map(
-                [101, 201, 301, 302, 401, 402].map((id) => [id, LONG_TITLE]));
-            const layout = computePlanLayout(rows,
-                { reqLayout: 'vertical', reqLabel: 'title', stepLabel: 'id', reqTitles: titles });
-            assertNoLabelOverlap(layout, '1,1,2,2 tie chain');
-            // And the offsets are genuinely CHAINED, not just non-overlapping
-            // by accident: step 4 (tied with step 3, itself already pushed
-            // down to clear step 1/2) must clear step 3's FULL two-line
-            // block, not merely step 3's raw count.
-            const m3 = layout.labels.filter((l) => l.kind === 'req' && l.stepId === 3)
-                .sort((a, b) => a.y - b.y);
-            const m4 = layout.labels.filter((l) => l.kind === 'req' && l.stepId === 4)
-                .sort((a, b) => a.y - b.y);
-            expect(m4[0].y).toBeGreaterThanOrEqual(m3[m3.length - 1].y + REQ_LINE_H - 0.01);
-        });
-    });
-
-    it('holds zero label overlap and no label-on-bead with titles showing', () => {
-        for (const stepLabel of ['id', 'title']) {
-            for (const stepWidth of Object.keys(STEP_WIDTH_FACTORS)) {
-                const name = `titles x ${stepLabel} x ${stepWidth}`;
                 const layout = computePlanLayout(plan.rows, {
-                    ...reqViewOptions('titles'), stepLabel, stepWidth,
+                    ...reqViewOptions(view), stepLabel,
                     reqTitles: FIXTURE_TITLES,
                 });
-                assertNoLabelOverlap(layout, name);
-                const beads = [...layout.nodes.values()].map(beadRect);
-                for (const label of layout.labels) {
-                    for (const bead of beads) {
-                        expect(rectsOverlap(label, bead), name).toBe(false);
-                    }
+                for (const l of layout.labels) {
+                    if (l.kind !== 'req') continue;
+                    const n = layout.nodes.get(l.stepId);
+                    const where = `${view} x ${stepLabel} (req ${l.reqId})`;
+                    expect(l.x, where).toBeGreaterThanOrEqual(n.left - 0.01);
+                    expect(l.x + l.w, where).toBeLessThanOrEqual(n.right + 0.01);
+                    expect(l.y, where).toBeGreaterThanOrEqual(n.top - 0.01);
+                    expect(l.y + l.h, where).toBeLessThanOrEqual(n.bottom + 0.01);
                 }
-                assertStraightArcsClear(layout, plan.rows);
             }
         }
     });
 
-    // req #3242 — zero overlap is not the same claim as legible. Reported
-    // against the LIVE plan (req #3242 user screenshot): step 1 "Session
-    // Drain" (5 requirements) chains into step 3 (1 requirement, staggers)
-    // chains into step 4 (1 requirement, also staggers) — this fixture's own
-    // steps 1/3/4, the historical Substrate rows this exact live chain grew
-    // out of. Both single-req steps are adjacent-column stagger candidates,
-    // and with REAL (non-uniform) title lengths — FIXTURE_TITLES's shared
-    // LONG_TITLE always hits the truncation ceiling and can never expose this
-    // — they landed on lines 1px apart while overlapping ~60px horizontally:
-    // inside the zero-overlap contract, unreadable regardless. The fix
-    // (REQ_LINE_H +25%, generic — not special-cased to this pair) is measured
-    // here against the real title strings, not asserted from the previous
-    // finding's own numbers.
-    it('leaves real breathing room between adjacent staggered marks, not just zero overlap', () => {
-        const REAL_TITLES = new Map([
-            [3050, 'darwin-mcp rearchitecture: Lambda-Rest as single DB gateway (clean-sheet REST transport)'],
-            [3056, 'Views show autonomy'],
-            [3063, 'Instruction Edit In Place'],
-            [3064, 'Aggregator Card Polish'],
-            [3068, 'Instructions need proper English titles, not kebab-case slugs'],
-            [3072, 'Swarm substrate Phase 0+1 — eliminate shared-clone git corruption class (de-symlink, Primary-only sync, remove worker-to-Primary writes, full git audit)'],
-            [3041, 'Make the DarwinAI-Config base clone handled commonly with all sub-repos: hygiene preconditions must be ff-only SYNC, never SAVE. No operation may commit/push the live base clone except the primary\'s own /save-primary-claude.'],
-        ]);
-        const gapBetween = (a, b) => {
-            const dx = Math.max(a.x, b.x) - Math.min(a.x + a.w, b.x + b.w);
-            const dy = Math.max(a.y, b.y) - Math.min(a.y + a.h, b.y + b.h);
-            return Math.max(dx, dy);
-        };
-        for (const stepWidth of Object.keys(STEP_WIDTH_FACTORS)) {
+    it('lists the rows top to bottom, IN ORDER, each one starting where the '
+        + 'one above it ended (the directive)', () => {
+        for (const view of ['vertical', 'titles']) {
             const layout = computePlanLayout(plan.rows, {
-                ...reqViewOptions('titles'), stepLabel: 'title', stepWidth,
-                reqTitles: REAL_TITLES,
+                ...reqViewOptions(view), stepLabel: 'title',
+                reqTitles: FIXTURE_TITLES,
             });
-            const chainLabels = layout.labels.filter(
-                (l) => l.kind === 'req' && [1, 3, 4].includes(l.stepId));
-            let minGap = Infinity;
-            for (let i = 0; i < chainLabels.length; i++) {
-                for (let j = i + 1; j < chainLabels.length; j++) {
-                    if (chainLabels[i].stepId === chainLabels[j].stepId) continue;
-                    minGap = Math.min(minGap, gapBetween(chainLabels[i], chainLabels[j]));
+            for (const row of plan.rows) {
+                const ids = row.reqIds || [];
+                if (ids.length < 2) continue;
+                const rows = layout.labels.filter(
+                    (l) => l.kind === 'req' && l.stepId === row.id);
+                // Emitted in the row's own `reqIds` order — this module never
+                // re-sorts them (that is `sortReqIdsByStatus`' job, and its
+                // caller's choice).
+                expect(rows.map((l) => l.reqId), view).toEqual(ids);
+                for (let i = 1; i < rows.length; i++) {
+                    // A row occupies as many lines as it wrapped to, and the
+                    // next one starts immediately below — no gaps, no overlaps,
+                    // whatever the mix of one- and two-line rows.
+                    const lines = rows[i - 1].lines.length;
+                    expect(rows[i].y - rows[i - 1].y, `${view} step ${row.id}`)
+                        .toBeCloseTo(lines * REQ_LINE_H + REQ_ROW_GAP, 6);
+                    expect(rows[i].x, view).toBe(rows[0].x);  // one left margin
                 }
+                // And they start BELOW the rule, never in the title area. The
+                // title area's height is the NODE's (`titleH`), because the step
+                // name may have wrapped onto a second line.
+                const ruleY = layout.nodes.get(row.id).top
+                    + layout.nodes.get(row.id).titleH + CARD_RULE_BAND;
+                expect(rows[0].y, view).toBeCloseTo(ruleY, 6);
+                // The card is tall enough for every line it reserved.
+                const last = rows[rows.length - 1];
+                expect(last.y + last.h, `${view} step ${row.id}`)
+                    .toBeLessThanOrEqual(layout.nodes.get(row.id).bottom);
             }
-            // MEASURED **9.5px** at every width after req #3365 doubled the
-            // stack's whitespace on the user's directive — `REQ_LINE_H` 18.75 →
-            // 23.5 against a 14px mark, so the gap goes 4.75 → 9.5 and this is
-            // the same number seen from the other side. It was 4.8 after req
-            // #3242's bump and 1.0px before it; the tightest pair is still step
-            // 3 vs step 4, whose offset is a REQ_LINE_H multiple and therefore
-            // independent of column width.
-            expect(minGap, `stepWidth=${stepWidth}`).toBeCloseTo(9.5, 1);
-            expect(minGap, `stepWidth=${stepWidth} — must never regress to the old 1px`)
-                .toBeGreaterThan(3);
+        }
+    });
+
+    it('wraps a row onto a SECOND line before it truncates (user directive)', () => {
+        const budget = cardChars(CHW_REQ);
+        // A title that overflows one line but fits two: no ellipsis anywhere,
+        // and the break lands on a word boundary rather than mid-word. SIZED
+        // FROM THE BUDGET, not from a word count — the budget moved from 47 to
+        // 28 and a hand-counted fixture silently became a three-line case.
+        const words = Math.floor((budget * 2) / 5) - 1;   // 'word ' is 5 chars
+        const fits = 'word '.repeat(words).trim();
+        const lines = wrapReqText(fits, budget);
+        expect(lines).toHaveLength(2);
+        expect(lines.join(' ')).toBe(fits);
+        expect(lines.some((l) => l.includes('\u2026'))).toBe(false);
+        for (const l of lines) expect(l.length).toBeLessThanOrEqual(budget);
+
+        // Short enough for one line: still one line, untouched.
+        expect(wrapReqText('short', budget)).toEqual(['short']);
+
+        // Longer than two lines: the LAST line is the only one that may carry
+        // the ellipsis, and it carries one because text really was dropped.
+        const long = 'word '.repeat(60).trim();
+        const cut = wrapReqText(long, budget);
+        expect(cut).toHaveLength(REQ_MAX_LINES);
+        expect(cut[0]).not.toContain('\u2026');
+        expect(cut[REQ_MAX_LINES - 1]).toContain('\u2026');
+
+        // An identifier longer than the line breaks HARD rather than being
+        // dropped — a requirement title contains things like
+        // `--dangerously-skip-permissions`, and refusing to break them would
+        // leave the line short and the text lost.
+        const ident = 'x'.repeat(budget + 12);
+        const hard = wrapReqText(ident, budget);
+        expect(hard[0].length).toBe(budget);
+        expect(hard).toHaveLength(2);
+    });
+
+    it('reserves the wrapped rows at EVERY level — the level never relayouts', () => {
+        // The layout takes no level at all, so the reserved second line is the
+        // same box whatever is drawn in it. This pins that the ROW BOX, not just
+        // the card, is level-independent: at L2 the renderer draws the bare id
+        // on the first of the reserved lines.
+        const layout = computePlanLayout(plan.rows, {
+            ...reqViewOptions('titles'), stepLabel: 'title',
+            reqTitles: FIXTURE_TITLES,
+        });
+        const two = layout.labels.filter(
+            (l) => l.kind === 'req' && l.lines.length === REQ_MAX_LINES);
+        expect(two.length, 'the fixture has wrapped rows').toBeGreaterThan(0);
+        for (const l of two) {
+            expect(l.h).toBeCloseTo(REQ_TEXT_H + (REQ_MAX_LINES - 1) * REQ_LINE_H, 6);
+            // The id the renderer draws at L2 fits the first line on its own.
+            expect(l.idW).toBeLessThanOrEqual(l.w);
+        }
+    });
+
+    it('puts the TOTAL requirement count in the title area (user directive)', () => {
+        const layout = computePlanLayout(plan.rows, { stepLabel: 'title' });
+        for (const row of plan.rows) {
+            const [count] = layout.labels.filter(
+                (l) => l.kind === 'count' && l.stepId === row.id);
+            expect(count, `step ${row.id} has a count`).toBeTruthy();
+            // TOTAL, not met/total — a step's progress is already on the card as
+            // coloured rows, and met/total is the EPIC chip's vocabulary.
+            expect(count.text).toBe(`(${(row.reqIds || []).length})`);
+            const n = layout.nodes.get(row.id);
+            // Right-aligned, clear of the ✓, inside the title area.
+            expect(count.x + count.w)
+                .toBeCloseTo(n.right - CARD_PAD_X - CARD_CHECK_W, 6);
+            expect(count.y + count.h).toBeLessThanOrEqual(n.top + cardTitleH('title'));
+        }
+        // It rides the CARD, so it draws where the card does and nowhere else.
+        expect(drawsLabelKind('count', 'out')).toBe(false);
+        expect(drawsLabelKind('count', 'mid')).toBe(true);
+        expect(drawsLabelKind('count', 'in')).toBe(true);
+    });
+
+    it('leaves real breathing room between rows, not just zero overlap', () => {
+        // `REQ_LINE_H` is a 14px box on a 23.5px line, so the whitespace between
+        // two rows is 9.5px. Pinned because "they do not overlap" was satisfied
+        // by a 1px gap once already (req #3242 finding) and read as broken.
+        const layout = computePlanLayout(plan.rows, {
+            ...reqViewOptions('titles'), stepLabel: 'title',
+            reqTitles: FIXTURE_TITLES,
+        });
+        const rows = layout.labels.filter((l) => l.kind === 'req');
+        for (const a of rows) {
+            for (const b of rows) {
+                if (a === b || a.stepId !== b.stepId) continue;
+                if (Math.abs(a.y - b.y) < 0.01) continue;
+                expect(Math.abs(a.y - b.y)).toBeGreaterThanOrEqual(REQ_LINE_H - 0.01);
+            }
         }
     });
 
     it('falls back to the ID when a title is missing, blank or unresolvable', () => {
-        expect(reqLabelText(3001, { reqLabel: 'id', reqTitles: FIXTURE_TITLES }))
-            .toBe('3001');
-        expect(reqLabelText(3001, { reqLabel: 'title' })).toBe('3001');
-        expect(reqLabelText(3001, { reqLabel: 'title', reqTitles: new Map() }))
-            .toBe('3001');
-        expect(reqLabelText(3001, { reqLabel: 'title', reqTitles: { 3001: '' } }))
-            .toBe('3001');
-        // A blank mark under a bead reads as a rendering fault; the id is always
-        // true, so it is the honest fallback.
-        expect(reqLabelText(3001, { reqLabel: 'title', reqTitles: { 3001: 'Bounded reads' } }))
-            .toBe('3001 - Bounded reads');
-        // Plain-object lookups go through Object.hasOwn — an inherited key must
-        // not resolve to a function whose source would be drawn on the canvas.
+        const titles = new Map([[1, ''], [2, null]]);
+        expect(reqLabelText(1, { reqLabel: 'title', reqTitles: titles })).toBe('1');
+        expect(reqLabelText(2, { reqLabel: 'title', reqTitles: titles })).toBe('2');
+        expect(reqLabelText(3, { reqLabel: 'title', reqTitles: titles })).toBe('3');
+        // A plain object whose key resolves to an INHERITED function is the
+        // localStorage-shaped hazard the house rule exists for: `String(fn)`
+        // would draw a function body onto the canvas.
         expect(reqLabelText('constructor', { reqLabel: 'title', reqTitles: {} }))
             .toBe('constructor');
-        expect(reqLabelText(1, { reqLabel: 'title', reqTitles: { 1: LONG_TITLE },
-            maxChars: 10 })).toHaveLength(10);
-        // Never past the ceiling, whatever room the caller claims to have.
-        expect(reqLabelText(1, { reqLabel: 'title', reqTitles: { 1: LONG_TITLE },
-            maxChars: 500 })).toHaveLength(LABEL_MAX_CHARS);
-    });
-
-    it('flags stored PROSE so the no-# audit keys on what a label IS', () => {
-        // PIPE-07 excludes stored plan content from its generated-label sweep. It
-        // used to infer that from `kind === 'title'`; a requirement mark that can
-        // be EITHER a generated id or a stored name breaks that inference, so the
-        // module states it.
-        const ids = computePlanLayout(plan.rows,
-            { ...reqViewOptions('vertical'), stepLabel: 'id', reqTitles: FIXTURE_TITLES });
-        for (const l of ids.labels.filter((x) => x.kind === 'req')) {
-            expect(l.prose).toBe(false);
-        }
-        const titled = computePlanLayout(plan.rows,
-            { ...reqViewOptions('titles'), stepLabel: 'title',
-                reqTitles: FIXTURE_TITLES });
-        for (const l of titled.labels.filter((x) => x.kind === 'req')) {
-            expect(l.prose).toBe(true);
-        }
-        // The step label is prose only when it IS the stored title.
-        expect(titled.labels.filter((l) => l.kind === 'step').every((l) => l.prose))
-            .toBe(true);
-        expect(ids.labels.filter((l) => l.kind === 'step').every((l) => l.prose))
-            .toBe(false);
-        // Every generated mark stays generated.
-        for (const l of titled.labels) {
-            if (l.kind === 'epic') expect(l.prose).toBeFalsy();
-        }
     });
 });
 
-describe('the requirement-view control (req #3168, directive E)', () => {
-    it('offers exactly three positions, and titles only in the vertical stack', () => {
-        expect(Object.keys(REQ_VIEWS)).toEqual(['horizontal', 'vertical', 'titles']);
-        expect(reqViewOptions('horizontal')).toMatchObject(
-            { reqLayout: 'horizontal', reqLabel: 'id' });
-        expect(reqViewOptions('vertical')).toMatchObject(
-            { reqLayout: 'vertical', reqLabel: 'id' });
-        // THE CONSTRAINT, not an accident: in `horizontal` N requirements share
-        // one line inside one frozen column, so a title would be a stub.
-        expect(reqViewOptions('titles')).toMatchObject(
-            { reqLayout: 'vertical', reqLabel: 'title' });
+describe('the requirement-view control (req #3168 directive E, req #3498)', () => {
+    it('offers exactly TWO positions — the row says the id, or the title', () => {
+        // It had three. `horizontal` — every requirement of a step on one line,
+        // sharing the column N ways — is gone, because a card lists its
+        // requirements top to bottom and there is no second arrangement left to
+        // choose between. `reqLayout` went with it: the remaining distinction is
+        // purely what the row SAYS.
+        expect(Object.keys(REQ_VIEWS)).toEqual(['vertical', 'titles']);
+        expect(reqViewOptions('vertical')).toMatchObject({ reqLabel: 'id' });
+        expect(reqViewOptions('titles')).toMatchObject({ reqLabel: 'title' });
         expect(Object.values(REQ_VIEWS).some(
-            (v) => v.reqLayout === 'horizontal' && v.reqLabel === 'title')).toBe(false);
+            (v) => 'reqLayout' in v), 'no view names a layout any more').toBe(false);
     });
 
-    it('measures the stub that justifies that constraint', () => {
-        // Not asserted from the rule — MEASURED from the layout, so the
-        // constraint is evidence rather than an opinion.
-        const layout = computePlanLayout(plan.rows, {
-            reqLayout: 'horizontal', reqLabel: 'title', stepLabel: 'title',
-            reqTitles: FIXTURE_TITLES,
-        });
-        const byStep = new Map();
-        for (const l of layout.labels.filter((x) => x.kind === 'req')) {
-            if (!byStep.has(l.stepId)) byStep.set(l.stepId, []);
-            byStep.get(l.stepId).push(l.text.length);
-        }
-        const multi = [...byStep.values()].filter((v) => v.length > 1);
-        expect(multi.length, 'the fixture has multi-requirement steps').toBeGreaterThan(0);
-        const worst = Math.min(...multi.map((v) => Math.min(...v)));
-        expect(worst, 'a title in horizontal mode collapses to a stub')
-            .toBeLessThanOrEqual(8);
-        // MEASURED at width S, by requirement count: 2 → 7 characters, 3+ → 4,
-        // which is `reqLabelText`'s own floor (three characters and an ellipsis)
-        // and the same length as the bare id it replaced. Pinned so the evidence
-        // behind the constraint is a number the suite defends, not a sentence.
-        const byN = new Map();
-        for (const v of byStep.values()) {
-            byN.set(v.length, Math.min(byN.get(v.length) ?? Infinity, ...v));
-        }
-        // The 2026-08-01 width retune (+10%/+10%/+20%) lifted these by a
-        // character or two; the POINT is unchanged and is what the numbers still
-        // show — a 3-or-more-requirement step gets a 4-to-5 character stub, i.e.
-        // no more than the bare id it would replace.
-        expect(byN.get(2), 'a 2-requirement step').toBe(8);
-        for (const n of [...byN.keys()].filter((k) => k >= 3)) {
-            expect(byN.get(n), `a ${n}-requirement step`).toBeLessThanOrEqual(5);
-        }
+    it('drops a stored `horizontal` to the default rather than rendering it', () => {
+        // THE ONE BEHAVIOURAL DIFFERENCE from the three-value control, and it is
+        // deliberate: a reader holding the retired value gets the default,
+        // because the alternative is rendering a layout that no longer exists.
+        expect(isReqView('horizontal')).toBe(false);
+        expect(normalizeReqView('horizontal')).toBe(DEFAULT_REQ_VIEW);
     });
 
     it('normalizes a legacy or hostile stored preference', () => {
         expect(DEFAULT_REQ_VIEW).toBe('vertical');
-        // The two values a browser may already hold must mean themselves.
-        expect(normalizeReqView('horizontal')).toBe('horizontal');
         expect(normalizeReqView('vertical')).toBe('vertical');
         expect(normalizeReqView('titles')).toBe('titles');
         for (const bogus of ['constructor', 'toString', '__proto__', 'valueOf',
-            'TITLES', '', null, undefined, 0, {}]) {
+            'TITLES', 'horizontal', '', null, undefined, 0, {}]) {
             expect(isReqView(bogus), `isReqView(${String(bogus)})`).toBe(false);
             expect(normalizeReqView(bogus)).toBe(DEFAULT_REQ_VIEW);
         }
+    });
+});
+
+describe('steps-across zoom (req #3498, user directive 2026-08-13)', () => {
+    const COL = CARD_W + CARD_GAP_X;
+
+    it('offers 10 through 2 on evens, widest first', () => {
+        expect(STEPS_ACROSS_OPTIONS).toEqual([10, 8, 6, 4, 2]);
+    });
+
+    it('fits exactly that many COLUMNS across, gutters included', () => {
+        // A step is a COLUMN, not a card: fitting `n` cards and forgetting the
+        // gutters lands every option one card too wide.
+        for (const n of [10, 8, 6, 4]) {
+            const k = stepsAcrossScale(n, 1730);
+            expect(n * COL * k, `${n} across`).toBeCloseTo(1730, 6);
+        }
+    });
+
+    it('leaves 2 loose — the exception the directive names', () => {
+        // *"with tight white space except when 2 is selected"*. Two columns
+        // filling a 1730px viewport puts one card at ~690px and its text at
+        // ~37px, which is past reading. 2 fits its pair into a fraction and
+        // leaves the rest as air.
+        const k = stepsAcrossScale(2, 1730);
+        expect(2 * COL * k).toBeCloseTo(1730 * STEPS_ACROSS_LOOSE_FILL, 6);
+        expect(2 * COL * k).toBeLessThan(1730);
+        // …and it is still the CLOSEST look the ladder offers.
+        expect(k).toBeGreaterThan(stepsAcrossScale(4, 1730));
+    });
+
+    it('every option is monotonic — more steps across is always further out', () => {
+        const ks = STEPS_ACROSS_OPTIONS.map((n) => stepsAcrossScale(n, 1730));
+        for (let i = 1; i < ks.length; i++) {
+            expect(ks[i], `${STEPS_ACROSS_OPTIONS[i]} vs ${STEPS_ACROSS_OPTIONS[i - 1]}`)
+                .toBeGreaterThan(ks[i - 1]);
+        }
+    });
+
+    it('refuses a viewport or a count that cannot produce a scale', () => {
+        for (const bad of [0, -1, null, undefined, NaN, 'x']) {
+            expect(stepsAcrossScale(bad, 1730), `n=${String(bad)}`).toBeNull();
+            expect(stepsAcrossScale(6, bad), `w=${String(bad)}`).toBeNull();
+        }
+    });
+
+    it('holds the viewport CENTRE still while it changes scale', () => {
+        const size = { w: 1730, h: 900 };
+        const t = { x: -4000, y: -700, k: 0.4 };
+        // The world point under the centre before the zoom…
+        const cx = (size.w / 2 - t.x) / t.k;
+        const cy = (size.h / 2 - t.y) / t.k;
+        for (const n of STEPS_ACROSS_OPTIONS) {
+            const next = zoomAboutViewportCentre(t, size, stepsAcrossScale(n, size.w));
+            // …is under the centre after it.
+            expect((size.w / 2 - next.x) / next.k, `${n} across, x`).toBeCloseTo(cx, 6);
+            expect((size.h / 2 - next.y) / next.k, `${n} across, y`).toBeCloseTo(cy, 6);
+        }
+    });
+
+    it('refuses a transform or a size it cannot anchor', () => {
+        const size = { w: 1730, h: 900 };
+        const t = { x: 0, y: 0, k: 1 };
+        expect(zoomAboutViewportCentre(null, size, 1)).toBeNull();
+        expect(zoomAboutViewportCentre(t, null, 1)).toBeNull();
+        expect(zoomAboutViewportCentre({ ...t, k: 0 }, size, 1)).toBeNull();
+        expect(zoomAboutViewportCentre(t, size, 0)).toBeNull();
+        expect(zoomAboutViewportCentre(t, { w: 0, h: 900 }, 1)).toBeNull();
+    });
+});
+
+describe('snap zoom — the wheel walks the same ladder (req #3498)', () => {
+    const VW = 1730;
+    const rung = (n) => stepsAcrossScale(n, VW);
+
+    it('steps by two, and lands on the BUTTONS\' own scales', () => {
+        // The point of the feature: wheeling to 8 across and pressing "8" give
+        // the same scale, not two that look alike.
+        expect(SNAP_COLUMNS_STEP).toBe(2);
+        expect(snapZoomScale(rung(8), VW, +1)).toBe(rung(10));
+        expect(snapZoomScale(rung(8), VW, -1)).toBe(rung(6));
+        expect(snapZoomScale(rung(6), VW, -1)).toBe(rung(4));
+    });
+
+    it('does not stick on the rung it is already standing on', () => {
+        // Landing exactly on a rung is the NORMAL case — it is where the last
+        // notch put you — so a naive floor/ceil would re-select it forever.
+        for (const n of [4, 6, 8, 10]) {
+            const inK = snapZoomScale(rung(n), VW, -1);
+            const outK = snapZoomScale(rung(n), VW, +1);
+            expect(inK, `in from ${n}`).not.toBe(rung(n));
+            expect(outK, `out from ${n}`).not.toBe(rung(n));
+            // …and it moved the RIGHT WAY: zooming in is a larger scale.
+            expect(inK, `in from ${n} is closer`).toBeGreaterThan(rung(n));
+            expect(outK, `out from ${n} is further`).toBeLessThan(rung(n));
+        }
+    });
+
+    it('continues PAST the buttons\' widest option', () => {
+        // The toolbar stops at 10 because a toolbar has to stop somewhere; the
+        // ladder does not. The zoom extent is what actually bounds it.
+        expect(snapZoomScale(rung(10), VW, +1)).toBe(rung(12));
+        expect(snapZoomScale(rung(12), VW, +1)).toBe(rung(14));
+    });
+
+    it('handles the LOOSE rung at 2 in both directions', () => {
+        // Rung 2 is not tight, so the column count there reads 2.5. Zooming out
+        // must still find 4, and zooming in must find the floor and report that
+        // there is nowhere left to go rather than returning the current scale.
+        expect(columnsAcross(rung(2), VW)).toBeCloseTo(2 / STEPS_ACROSS_LOOSE_FILL, 6);
+        expect(snapZoomScale(rung(2), VW, +1)).toBe(rung(4));
+        expect(snapZoomScale(rung(2), VW, -1)).toBeNull();
+    });
+
+    it('snaps a scale BETWEEN rungs to the next one in the direction asked', () => {
+        // The state after a smooth zoom, or after toggling snap on mid-view.
+        const between = rung(7);            // 7 across — not a rung
+        expect(snapZoomScale(between, VW, -1)).toBe(rung(6));
+        expect(snapZoomScale(between, VW, +1)).toBe(rung(8));
+    });
+
+    it('refuses junk rather than driving the camera to NaN', () => {
+        for (const bad of [0, -1, null, undefined, NaN]) {
+            expect(snapZoomScale(bad, VW, -1), `k=${String(bad)}`).toBeNull();
+            expect(snapZoomScale(rung(6), bad, -1), `w=${String(bad)}`).toBeNull();
+        }
+        // `dir` has its own list: -1 is the zoom-IN direction, not junk.
+        for (const bad of [0, null, undefined, NaN, 'up']) {
+            expect(snapZoomScale(rung(6), VW, bad), `dir=${String(bad)}`).toBeNull();
+        }
+        expect(columnsAcross(0, VW)).toBeNull();
+        expect(columnsAcross(1, 0)).toBeNull();
+    });
+
+    it('the wheel anchors on the POINTER, the buttons on the centre', () => {
+        const size = { w: VW, h: 900 };
+        const t = { x: -3000, y: -500, k: 0.4 };
+        const at = { x: 300, y: 120 };
+        const next = zoomAboutPoint(t, at, rung(6));
+        // The world point under the cursor is under the cursor afterwards.
+        expect((at.x - next.x) / next.k).toBeCloseTo((at.x - t.x) / t.k, 6);
+        expect((at.y - next.y) / next.k).toBeCloseTo((at.y - t.y) / t.k, 6);
+        // …and the centre helper is that same function at the centre pixel.
+        expect(zoomAboutViewportCentre(t, size, rung(6)))
+            .toEqual(zoomAboutPoint(t, { x: size.w / 2, y: size.h / 2 }, rung(6)));
     });
 });
 
@@ -5230,7 +5631,13 @@ describe('epic focus geometry', () => {
         // extent's minimum, so the floor takes over and the band overflows
         // vertically rather than the transform leaving the extent d3-zoom will
         // enforce on the next wheel event.
-        const size = { w: 1600, h: 150 };
+        // 6400, not 1600 (req #3498). The floor is `kBase x FOCUS_MIN_RATIO`
+        // and `kBase` is fit-to-WIDTH, so a world 2.3x wider — a card is 407px
+        // where a bead was 20 — lowers the floor by the same factor and the
+        // height fit stopped being the tighter of the two at this panel. A wider
+        // panel restores the case the test exists to cover: the floor engaging,
+        // not a particular pixel size.
+        const size = { w: 6400, h: 150 };
         const kBase = size.w / layout.width;
         const band = bandOf('Swarm Substrate Rebuild');
         const tr = epicFocusTransform(layout, band, size, kBase, kBase * FOCUS_MIN_RATIO);
@@ -5353,7 +5760,27 @@ describe('epic focus reserves room for the neighbours\' names (req #3274)', () =
         heights.forEach((h, i) => {
             const stepIds = [];
             for (let d = 0; d < cols; d++) {
-                nodes.set(id, { depth: d, x: colX[d], y: y + h / 2 });
+                // req #3498 — a node is a BOX. `stepFitRect` measures the
+                // card, so a synthetic node carrying only `{depth, x, y}`
+                // produces no rect at all and every focus transform built on it
+                // returns null. The fixture owes `computePlanLayout`'s shape.
+                //
+                // The card is sized to THIS FIXTURE'S column rather than to the
+                // real `CARD_W`: these bands are hand-measured against a 180px
+                // column, and a 407px card in it would put every box outside the
+                // world the focus transforms are computed against. What is
+                // reproduced is the RELATIONSHIP the layout guarantees — a card
+                // fills its column bar the gutter — which is what `stepFitRect`
+                // actually reads.
+                const cw = colWidth - CARD_GAP_X;
+                const top = y + h / 2 - MIN_CARD_H / 2;
+                nodes.set(id, {
+                    id, depth: d, lane: 0, bandIndex: i,
+                    x: colX[d], y: y + h / 2,
+                    w: cw, h: MIN_CARD_H,
+                    left: colX[d] - cw / 2, right: colX[d] + cw / 2,
+                    top, bottom: top + MIN_CARD_H,
+                });
                 stepIds.push(id);
                 id += 1;
             }
@@ -5834,13 +6261,37 @@ describe('epic focus reserves room for the neighbours\' names (req #3274)', () =
     };
 
     it('leaves STEP focus unchanged — it reserves nothing and never did', () => {
+        // A SET of steps, not one: req #3498 re-pointed the SINGLE-card case at
+        // a stated scale rather than a fit, so the fit this describe block is
+        // about is now only reachable with two or more. The claim is unchanged —
+        // a step target reserves no neighbour label strip — and the multi-step
+        // path is where it is still falsifiable.
         const layout = computePlanLayout(plan.rows,
             { reqLayout: 'vertical', stepLabel: 'title' });
         const size = { w: 1400, h: 800 };
         const kBase = size.w / layout.width;
-        for (const id of layout.nodes.keys()) {
-            sameTransform(stepFocusTransform(layout, id, size, kBase, kBase * FOCUS_MIN_RATIO),
-                unreservedTransform(stepFitRect(layout, id), size, kBase), `step ${id}`);
+        const ids = [...layout.nodes.keys()];
+        for (let i = 0; i + 1 < ids.length; i += 1) {
+            const pair = [ids[i], ids[i + 1]];
+            const rect = stepsFitRect(layout, pair);
+            const padX = rect.w * STEP_FOCUS_CONTEXT;
+            const padY = rect.h * STEP_FOCUS_CONTEXT;
+            sameTransform(
+                stepsFocusTransform(layout, pair, size, kBase, kBase * FOCUS_MIN_RATIO),
+                unreservedTransform({ x: rect.x - padX, y: rect.y - padY,
+                    w: rect.w + 2 * padX, h: rect.h + 2 * padY }, size, kBase),
+                `steps ${pair.join(',')}`);
+        }
+        // And the single card reserves nothing either — it is exactly centred
+        // on both axes, which is the same claim stated for the path that no
+        // longer goes through `fitTransform` at all.
+        for (const id of ids) {
+            const r = stepFitRect(layout, id);
+            const tr = stepFocusTransform(layout, id, size, kBase, kBase * FOCUS_MIN_RATIO);
+            expect(tr.x + r.x * tr.k + tr.x + (r.x + r.w) * tr.k, `step ${id} x`)
+                .toBeCloseTo(size.w, 6);
+            expect(tr.y + r.y * tr.k + tr.y + (r.y + r.h) * tr.k, `step ${id} y`)
+                .toBeCloseTo(size.h, 6);
         }
     });
 
@@ -5933,7 +6384,10 @@ describe('step focus geometry (req #3253)', () => {
         const bandTr = epicFocusTransform(layout, big, size, kBase, kBase * FOCUS_MIN_RATIO);
         const stepTr = stepFocusTransform(layout, big.stepIds[0], size, kBase, kBase * FOCUS_MIN_RATIO);
         expect(stepTr.k / bandTr.k).toBeGreaterThan(2);
-        expect(stepTr.k / kBase).toBeCloseTo(FOCUS_MAX_RATIO, 9);
+        // The ceiling used to be what a single card landed on; req #3498 states
+        // its scale instead. Pinned to the STATED number — five columns spanning
+        // the viewport — rather than to whatever the fit would have produced.
+        expect(stepTr.k).toBeCloseTo(stepsAcrossScale(STEP_FOCUS_STEPS_ACROSS, size.w), 9);
     });
 
     // STEP_FOCUS_CONTEXT (req #3297, re-pointed by req #3371) is applied
@@ -5950,9 +6404,11 @@ describe('step focus geometry (req #3253)', () => {
     // the constant's own comment calls out as making it inert — so kBase is
     // derived FROM the fit here rather than from the layout, specifically to
     // land in the fit-bound regime where the margin is observable at all.
+    // ON A SET OF TWO — req #3498 took the single card off this path entirely,
+    // so the constant is only observable where the fit still runs.
     it('inflates by STEP_FOCUS_CONTEXT when the fit — not the ceiling — binds', () => {
-        const id = stepIds[0];
-        const rect = stepFitRect(layout, id);
+        const pair = [stepIds[0], stepIds[1]];
+        const rect = stepsFitRect(layout, pair);
         const size = { w: 900, h: 640 };
         const availW = Math.max(size.w * 0.5, size.w - 2 * FOCUS_PAD);
         const availH = Math.max(size.h * 0.5, size.h - 2 * FOCUS_PAD);
@@ -5961,27 +6417,29 @@ describe('step focus geometry (req #3253)', () => {
         const kBase = kFitInflated / 2;
         const kFloor = kBase * 1e-9;
         expect(kBase * FOCUS_MAX_RATIO).toBeGreaterThan(kFitInflated);
-        const tr = stepFocusTransform(layout, id, size, kBase, kFloor);
+        const tr = stepsFocusTransform(layout, pair, size, kBase, kFloor);
         expect(tr).toBeTruthy();
         expect(tr.k).toBeCloseTo(kFitInflated, 6);
     });
 
-    it('centres the step and leaves at least FOCUS_PAD on all four sides', () => {
+    it('centres a SET of steps and leaves at least FOCUS_PAD on all four sides', () => {
         const size = { w: 1200, h: 700 };
         const kBase = size.w / layout.width;
-        for (const id of stepIds) {
-            const r = stepFitRect(layout, id);
-            const tr = stepFocusTransform(layout, id, size, kBase, kBase * FOCUS_MIN_RATIO);
+        for (let i = 0; i + 1 < stepIds.length; i += 1) {
+            const pair = [stepIds[i], stepIds[i + 1]];
+            const r = stepsFitRect(layout, pair);
+            const tr = stepsFocusTransform(layout, pair, size, kBase, kBase * FOCUS_MIN_RATIO);
             const left = tr.x + r.x * tr.k;
             const top = tr.y + r.y * tr.k;
             const right = tr.x + (r.x + r.w) * tr.k;
             const bottom = tr.y + (r.y + r.h) * tr.k;
+            const where = `steps ${pair.join(',')}`;
             expect(left + right).toBeCloseTo(size.w, 6);
             expect(top + bottom).toBeCloseTo(size.h, 6);
-            expect(left, `step ${id} left`).toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
-            expect(top, `step ${id} top`).toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
-            expect(size.w - right, `step ${id} right`).toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
-            expect(size.h - bottom, `step ${id} bottom`).toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
+            expect(left, `${where} left`).toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
+            expect(top, `${where} top`).toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
+            expect(size.w - right, `${where} right`).toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
+            expect(size.h - bottom, `${where} bottom`).toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
         }
     });
 
@@ -6004,15 +6462,27 @@ describe('step focus geometry (req #3253)', () => {
     });
 
     it('shares the epic focus\'s clamp rather than a second copy of it', () => {
-        // One clamp, or the two desync from `scaleExtent` independently. A step
-        // rect is always tighter than the ceiling on this fixture, so every step
-        // lands exactly on it — which is only true if both read FOCUS_MAX_RATIO.
+        // One clamp, or the two desync from `scaleExtent` independently. No pair
+        // may exceed the ceiling, and the TIGHT pairs — adjacent steps, whose
+        // rect is small enough for the fit to want more than the ceiling allows
+        // — must land exactly on it, which is only true if both read
+        // FOCUS_MAX_RATIO. A pair spanning distant columns is fit-bound instead
+        // and lands below; that is the ceiling not binding, not a second clamp.
+        // (The single card is off this path since req #3498 and has its own
+        // clamp test below.)
         const size = { w: 1200, h: 700 };
         const kBase = size.w / layout.width;
-        for (const id of stepIds) {
-            expect(stepFocusTransform(layout, id, size, kBase, kBase * FOCUS_MIN_RATIO).k / kBase)
-                .toBeCloseTo(FOCUS_MAX_RATIO, 9);
+        let onCeiling = 0;
+        for (let i = 0; i + 1 < stepIds.length; i += 1) {
+            const pair = [stepIds[i], stepIds[i + 1]];
+            const ratio = stepsFocusTransform(layout, pair, size, kBase,
+                kBase * FOCUS_MIN_RATIO).k / kBase;
+            expect(ratio, `steps ${pair.join(',')}`)
+                .toBeLessThanOrEqual(FOCUS_MAX_RATIO + 1e-9);
+            if (Math.abs(ratio - FOCUS_MAX_RATIO) < 1e-9) onCeiling += 1;
         }
+        // Non-vacuous: the ceiling really is what binds on most of them.
+        expect(onCeiling).toBeGreaterThan(stepIds.length / 2);
     });
 
     it('returns null rather than NaN geometry on degenerate input', () => {
@@ -6027,6 +6497,174 @@ describe('step focus geometry (req #3253)', () => {
         expect(stepFocusTransform(layout, id, { w: 0, h: 0 }, kBase, kBase * FOCUS_MIN_RATIO)).toBeNull();
         expect(stepFocusTransform(layout, id, undefined, kBase, kBase * FOCUS_MIN_RATIO)).toBeNull();
         expect(stepFocusTransform(layout, id, { w: 800, h: 600 }, 0, 0.1)).toBeNull();
+    });
+});
+
+// ── A SINGLE CARD IS FRAMED AT FIVE COLUMNS (req #3498) ─────────────────────
+// User directive, 2026-08-13: *"when zooming into a single step card ... the
+// viewport will center on the card vertically and horizontally and provide a
+// 5 card width viewport ... anytime we click and the zoom is to a single card"*.
+//
+// The rule sits in `stepsFocusTransform` rather than in the single-id wrapper,
+// so it must hold for BOTH ways of arriving at one card. That is what most of
+// this block is: the same three assertions from each entry point.
+describe('single-card focus (req #3498)', () => {
+    const layout = computePlanLayout(plan.rows,
+        { reqLayout: 'vertical', stepLabel: 'title' });
+    const stepIds = [...layout.nodes.keys()];
+    const SIZES = [{ w: 1730, h: 900 }, { w: 1200, h: 700 }, { w: 900, h: 1400 }];
+
+    // The card's own centre, read off the NODE rather than off `stepFitRect` —
+    // the directive is about the card, and a test that asked the fit rect where
+    // the card is could not catch the rect drifting off it.
+    const cardCentre = (id) => {
+        const n = layout.nodes.get(id);
+        return { x: n.x, y: (n.top + n.bottom) / 2 };
+    };
+
+    it('puts exactly five columns across the viewport', () => {
+        for (const size of SIZES) {
+            const kBase = size.w / layout.width;
+            const want = stepsAcrossScale(STEP_FOCUS_STEPS_ACROSS, size.w);
+            for (const id of stepIds) {
+                const tr = stepFocusTransform(layout, id, size, kBase, kBase * ZOOM_MIN_RATIO);
+                expect(tr, `step ${id} @ ${size.w}`).toBeTruthy();
+                expect(tr.k, `step ${id} @ ${size.w}`).toBeCloseTo(want, 9);
+                // Stated as the reader would check it: five column pitches span
+                // the panel. Independent of `stepsAcrossScale`'s own arithmetic.
+                expect(STEP_FOCUS_STEPS_ACROSS * (CARD_W + CARD_GAP_X) * tr.k,
+                    `${STEP_FOCUS_STEPS_ACROSS} columns @ ${size.w}`).toBeCloseTo(size.w, 6);
+            }
+        }
+    });
+
+    it('centres the CARD — not its label rect — on both axes', () => {
+        for (const size of SIZES) {
+            const kBase = size.w / layout.width;
+            for (const id of stepIds) {
+                const tr = stepFocusTransform(layout, id, size, kBase, kBase * ZOOM_MIN_RATIO);
+                const c = cardCentre(id);
+                expect(tr.x + c.x * tr.k, `step ${id} cx @ ${size.w}`)
+                    .toBeCloseTo(size.w / 2, 6);
+                expect(tr.y + c.y * tr.k, `step ${id} cy @ ${size.w}`)
+                    .toBeCloseTo(size.h / 2, 6);
+            }
+        }
+    });
+
+    it('the whole card is on screen at that scale', () => {
+        // Five columns across means one card occupies a fifth of the width, so
+        // horizontal containment is arithmetic. The VERTICAL side is the one
+        // worth asserting: a tall card in a short panel is the case a stated
+        // scale could get wrong where a fit could not.
+        for (const size of SIZES) {
+            const kBase = size.w / layout.width;
+            for (const id of stepIds) {
+                const n = layout.nodes.get(id);
+                const tr = stepFocusTransform(layout, id, size, kBase, kBase * ZOOM_MIN_RATIO);
+                const where = `step ${id} @ ${size.w}×${size.h}`;
+                expect(tr.x + n.left * tr.k, `${where} left`).toBeGreaterThan(0);
+                expect(tr.x + n.right * tr.k, `${where} right`).toBeLessThan(size.w);
+                expect(tr.y + n.top * tr.k, `${where} top`).toBeGreaterThan(0);
+                expect(tr.y + n.bottom * tr.k, `${where} bottom`).toBeLessThan(size.h);
+            }
+        }
+    });
+
+    it('BOTH entry points take the rule — the ?step= link and a one-step epic', () => {
+        // `stepFocusTransform` is the requirement editor's deep link;
+        // `stepsFocusTransform` with one id is an epic whose second click
+        // resolves to a single step. They must be the same camera, or the rule
+        // covers one road to the card and silently misses the other.
+        const size = { w: 1400, h: 800 };
+        const kBase = size.w / layout.width;
+        for (const id of stepIds) {
+            const a = stepFocusTransform(layout, id, size, kBase, kBase * ZOOM_MIN_RATIO);
+            const b = stepsFocusTransform(layout, [id], size, kBase, kBase * ZOOM_MIN_RATIO);
+            expect(b, `step ${id}`).toEqual(a);
+        }
+    });
+
+    it('counts PLACED steps, not ids — an unlaid sibling does not buy a fit', () => {
+        // `stepsFitRect` skips ids that resolve to nothing (req #3365), so a
+        // two-id set with one unlaid step frames exactly one card and must be
+        // framed as one. Counting the input would give that reader a fit, and
+        // the two differ for a reason invisible on screen.
+        const size = { w: 1400, h: 800 };
+        const kBase = size.w / layout.width;
+        const id = stepIds[0];
+        const solo = stepFocusTransform(layout, id, size, kBase, kBase * ZOOM_MIN_RATIO);
+        expect(placedStepCount(layout, [id, 999999])).toBe(1);
+        expect(stepsFocusTransform(layout, [id, 999999], size, kBase, kBase * ZOOM_MIN_RATIO))
+            .toEqual(solo);
+        // Duplicates collapse for the same reason — a set is a set.
+        expect(placedStepCount(layout, [id, id, id])).toBe(1);
+        expect(stepsFocusTransform(layout, [id, id], size, kBase, kBase * ZOOM_MIN_RATIO))
+            .toEqual(solo);
+        // Two REAL steps are two, and take the fit.
+        expect(placedStepCount(layout, [stepIds[0], stepIds[1]])).toBe(2);
+        expect(placedStepCount(layout, [])).toBe(0);
+        expect(placedStepCount(null, [id])).toBe(0);
+        expect(placedStepCount(layout, null)).toBe(0);
+    });
+
+    it('STEP_FOCUS_CONTEXT is INERT on one card — the scale is stated, not fitted', () => {
+        // The constant's own comment says a single step usually never sees it.
+        // Since #3498 that is not "usually" but "never", and the way to prove it
+        // is that a step with 1 requirement and a step with many — two very
+        // different rect heights — land on the SAME scale.
+        const size = { w: 1400, h: 800 };
+        const kBase = size.w / layout.width;
+        const heights = stepIds.map((id) => stepFitRect(layout, id).h);
+        expect(Math.max(...heights)).toBeGreaterThan(Math.min(...heights) * 1.2);
+        const ks = stepIds.map((id) =>
+            stepFocusTransform(layout, id, size, kBase, kBase * ZOOM_MIN_RATIO).k);
+        for (const k of ks) expect(k).toBeCloseTo(ks[0], 12);
+    });
+
+    it('never leaves d3-zoom\'s scaleExtent — the clamp is the hard one', () => {
+        // The aesthetic FOCUS_MAX_RATIO ceiling is deliberately NOT applied
+        // here, so the only thing standing between a stated scale and a first
+        // wheel event that snaps the camera is this clamp. Extreme viewports
+        // make it bind in both directions.
+        for (const size of [{ w: 1200, h: 700 }, { w: 420, h: 2000 },
+            { w: 3200, h: 900 }, { w: 200, h: 95 }, { w: 60, h: 40 }]) {
+            const kBase = size.w / layout.width;
+            for (const id of stepIds) {
+                const tr = stepFocusTransform(layout, id, size, kBase, kBase * ZOOM_MIN_RATIO);
+                const where = `step ${id} @ ${size.w}×${size.h}`;
+                expect(tr, where).toBeTruthy();
+                expect(tr.k, where).toBeGreaterThanOrEqual(kBase * ZOOM_MIN_RATIO - 1e-9);
+                expect(tr.k, where).toBeLessThanOrEqual(kBase * ZOOM_MAX_RATIO + 1e-9);
+                expect(Number.isFinite(tr.x) && Number.isFinite(tr.y), where).toBe(true);
+            }
+        }
+    });
+
+    it('centreTransform returns null rather than NaN geometry', () => {
+        const rect = { x: 0, y: 0, w: 100, h: 100 };
+        const size = { w: 800, h: 600 };
+        expect(centreTransform(null, size, 1, 1, 0.1)).toBeNull();
+        expect(centreTransform(rect, { w: 0, h: 600 }, 1, 1, 0.1)).toBeNull();
+        expect(centreTransform(rect, undefined, 1, 1, 0.1)).toBeNull();
+        expect(centreTransform(rect, size, 0, 1, 0.1)).toBeNull();
+        expect(centreTransform(rect, size, NaN, 1, 0.1)).toBeNull();
+        expect(centreTransform(rect, size, 1, 0, 0.1)).toBeNull();
+        expect(centreTransform(rect, size, 1, 1, 0)).toBeNull();
+        // And the ordinary case really does centre.
+        const tr = centreTransform(rect, size, 2, 4, 0.1);
+        expect(tr.k).toBe(2);
+        expect(tr.x + 50 * 2).toBeCloseTo(400, 9);
+        expect(tr.y + 50 * 2).toBeCloseTo(300, 9);
+    });
+
+    it('a card is still framed when the viewport is too small for a scale', () => {
+        // The fall-through. `stepsAcrossScale` needs a width; without one the
+        // single-card path produces nothing and the FIT must still run, so the
+        // reader gets a camera rather than a click that does nothing.
+        const kBase = 0.5;
+        expect(stepFocusTransform(layout, stepIds[0], { w: 0, h: 600 }, kBase, 0.1)).toBeNull();
+        expect(stepFocusTransform(layout, stepIds[0], { w: 800, h: 600 }, kBase, 0.1)).toBeTruthy();
     });
 });
 
@@ -6546,7 +7184,7 @@ describe('time axis — the zero-overlap contract still holds at plan scale', ()
     });
 
     for (const combo of COMBOS) {
-        const name = `${combo.reqLayout}/${combo.stepLabel}`;
+        const name = `${combo.stepLabel}`;
         const layout = computePlanLayout(timedSubstratePlan.rows,
             { ...combo, timeAxis: timedSubstratePlan.timeAxis });
 
@@ -6554,13 +7192,18 @@ describe('time axis — the zero-overlap contract still holds at plan scale', ()
             assertNoLabelOverlap(layout, name);
         });
 
-        it(`no label intersects any bead (${name})`, () => {
+        // req #3498 — was "no label intersects any bead". On a TIMED plan the
+        // columns are time slots, so this is where a card in a crowded day would
+        // show up as text escaping its own box.
+        it(`every label sits inside its own card (${name})`, () => {
             for (const label of layout.labels) {
-                for (const n of layout.nodes.values()) {
-                    if (rectsOverlap(label, beadRect(n))) {
-                        throw new Error(`label ${JSON.stringify(label)} overlaps bead ${n.id}`);
-                    }
-                }
+                if (label.stepId == null) continue;
+                const n = layout.nodes.get(label.stepId);
+                const where = `${label.kind} of step ${label.stepId}`;
+                expect(label.x, where).toBeGreaterThanOrEqual(n.left - 0.01);
+                expect(label.x + label.w, where).toBeLessThanOrEqual(n.right + 0.01);
+                expect(label.y, where).toBeGreaterThanOrEqual(n.top - 0.01);
+                expect(label.y + label.h, where).toBeLessThanOrEqual(n.bottom + 0.01);
             }
         });
 
@@ -6764,7 +7407,7 @@ describe('time ruler (req #3207)', () => {
         for (const opts of COMBOS) {
             const layout = computePlanLayout(timedPlan.rows,
                 { ...opts, timeAxis: timedPlan.timeAxis });
-            assertNoLabelOverlap(layout, `${opts.reqLayout} × ${opts.stepLabel} + ruler`);
+            assertNoLabelOverlap(layout, `${opts.stepLabel} + ruler`);
             for (const l of rulerLabels(layout)) {
                 // Above every band, by construction: the reservation is what
                 // the first band's y is offset by.

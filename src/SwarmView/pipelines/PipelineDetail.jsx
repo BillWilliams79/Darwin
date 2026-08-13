@@ -94,8 +94,8 @@ import PipelinePlanToolbar from './PipelinePlanToolbar';
 // of them — a dead `SemanticLevelControl` import was the visible trace req #3261
 // was filed from.
 import {
-    DEFAULT_COLOR_KEY, DEFAULT_PLAN_LEVEL_PREF, DEFAULT_STEP_WIDTH,
-    isStepWidth, normalizeColorKey, normalizePlanLevelPref,
+    DEFAULT_COLOR_KEY, DEFAULT_PLAN_LEVEL_PREF,
+    normalizeColorKey, normalizePlanLevelPref,
 } from './pipelinePlanLayout';
 import {
     // The two-read cost fold. It is not plan derivation — `pipeline2_derive.py`
@@ -333,19 +333,20 @@ export default function PipelineDetail() {
     // anything else the effect watched. One route now, so the id is the whole
     // trigger again.
     useEffect(() => { setDescriptionOpen(false); }, [pipelineId]);
-    // Defaults vertical + title (user directive 2026-07-31); a persisted
-    // preference still wins — useViewPreference only falls back to these.
+    // ── THE RETIRED VIEW PREFERENCES (no declaration follows — that is the
+    //    point). The `Reqs:` and `Step:` preferences went with their controls
+    //    (user directive 2026-08-01); the requirement LAYOUT stopped being a
+    //    value at all with req #3498, because a card stacks its requirements top
+    //    to bottom and there is no second arrangement left to name; and
+    //    `darwin-pipeline-viz-step-width` went with the S/M/L control in the
+    //    same pass, since every column is one card wide and a stored factor has
+    //    nothing to scale. `stepLabel` and `reqLabel` are the two survivors and
+    //    are declared as constants further down, beside the comment that
+    //    explains what they are pinned TO.
     //
-    // The `Reqs:` and `Step:` PREFERENCES went with their controls (user
-    // directive 2026-08-01). Requirement marks are always the vertical stack and
-    // the step label is always the title, so these are constants now — declared
-    // here, once, rather than threaded as literals through the render.
-    //
-    // The stored keys are deliberately NOT read any more: a reader who had
-    // `horizontal` pinned gets the vertical stack like everyone else, which is
-    // the point of removing the choice. Nothing writes them, so they simply go
-    // stale in localStorage.
-    const reqLayout = 'vertical';
+    //    None of the stored keys is read any more, and none is migrated: a value
+    //    with no meaning has nothing to migrate to. They go stale in
+    //    localStorage.
     // Req #3261 P4 — the title's type scale, the SAME query `ViewerHeader` owns
     // (`useMediaQuery('(max-width:899px)')`, i.e. MUI's `md` breakpoint minus
     // one). This page rendered `h6` unconditionally, which is the mobile size
@@ -354,11 +355,6 @@ export default function PipelineDetail() {
     const isMobile = useMediaQuery('(max-width:899px)');
     const [colorKeyPref, setColorKeyPref] = useViewPreference(
         'darwin-pipeline-viz-color-key', DEFAULT_COLOR_KEY);
-    // Req #3168 — the user's own control over column width. Defaults to
-    // `compact`, which is the identity factor: an existing reader's plan is
-    // pixel-for-pixel what it was until they ask for something wider.
-    const [stepWidthPref, setStepWidthPref] = useViewPreference(
-        'darwin-pipeline-viz-step-width', DEFAULT_STEP_WIDTH);
     // Req #3168 — the semantic-level selector, the Build Visualizer's control
     // (user directive: "show me the L1, L2, L3 and Auto selector used
     // elsewhere"). `auto` keeps the zoom-derived level; 1|2|3 pin one. Persisted
@@ -389,6 +385,20 @@ export default function PipelineDetail() {
     // effect inside the visualizer. 0 is the initial render, deliberately
     // never fired at.
     const [resetViewNonce, setResetViewNonce] = useState(0);
+    // req #3498 — the steps-across buttons reach the canvas the same way Reset
+    // does, and for the same reason: the control is in the page's header and the
+    // camera is inside the panel. A NONCE rides alongside the number so clicking
+    // the SAME button twice fires twice — after wheeling away from "8", asking
+    // for "8" again must bring you back, and a bare value would be unchanged
+    // state and do nothing.
+    const [stepsAcross, setStepsAcross] = useState({ n: null, nonce: 0 });
+    // req #3498 — snap the WHEEL to the same ladder the buttons jump to.
+    // PERSISTED, unlike the buttons: those are actions, this is how the canvas
+    // behaves, and a reader who wants stepped zoom wants it next time too.
+    // Stored as a string because `useViewPreference` is a string store.
+    const [snapZoomPref, setSnapZoomPref] = useViewPreference(
+        'darwin-pipeline-viz-snap-zoom', 'off');
+    const snapZoom = snapZoomPref === 'on';
     // The step label is always the TITLE, and the requirement marks always
     // reserve room for their TITLE — the renderer draws the id inside that box
     // at L1/L2 and the title itself at L3 (see the `idText` note in
@@ -400,18 +410,12 @@ export default function PipelineDetail() {
     // req #3168 (user directive 2026-08-01), extended by req #3422 — the
     // positions are `REQ_COLOR_KEYS`, so this page never names them and a scale
     // added to the registry needs no edit here. `normalizeColorKey` is
-    // `Object.hasOwn`-based
-    // for the same reason `isStepWidth` is: the value comes from localStorage, so
+    // `Object.hasOwn`-based because the value comes from localStorage, so
     // "constructor" is a reachable string that resolves to an inherited function,
     // and this one is handed to Konva as a text `fill`. A stored value written
     // before this change ('state' / 'machine') still normalizes to itself, so an
     // existing reader's plan opens exactly as it did.
     const colorKey = normalizeColorKey(colorKeyPref);
-    // `isStepWidth`, not a truthiness lookup: this value comes from
-    // localStorage, so `"constructor"` is a reachable string and it resolves to
-    // an inherited function — truthy, and a factor that turns every column width
-    // into NaN and the canvas blank with no error to see.
-    const stepWidth = isStepWidth(stepWidthPref) ? stepWidthPref : DEFAULT_STEP_WIDTH;
 
     // Req #3115 cross-mode handshake: a bead click in the Plan visualizer lands
     // the user on the SAME step in the table — the visualizer calls
@@ -458,12 +462,12 @@ export default function PipelineDetail() {
     // contract, same split as the step link.
     const linkEpicId = readFocusEpicParam(searchParams);
     // ── `?level=` PINS THE SEMANTIC LEVEL FOR ONE LANDING (req #3253) ────────
-    // The step-on-the-plan link carries `level=2`, because a one-step fit lands
-    // well past `SEMANTIC_IN_MIN` and the canvas would otherwise auto-derive L3
-    // and draw every requirement TITLE — a wall of prose at exactly the moment
-    // the reader wanted to find one bead. Validated against the level vocabulary
-    // and null on anything else, so an unrecognised value leaves the reader's
-    // stored preference in charge rather than pinning them to 'auto'.
+    // The step-on-the-plan link carries `level=3` (req #3498 — it was `2`, and
+    // the reason expired when the requirements moved INSIDE the card; the value
+    // and the argument both live on `STEP_PLAN_LINK_LEVEL`, not here, so this
+    // comment cannot drift from the link). Validated against the level
+    // vocabulary and null on anything else, so an unrecognised value leaves the
+    // reader's stored preference in charge rather than pinning them to 'auto'.
     const linkLevel = readLevelParam(searchParams);
     // A named step FORCES THE TABLE — unless the link explicitly asks for the
     // plan (req #3253).
@@ -1052,8 +1056,10 @@ export default function PipelineDetail() {
                     </Tooltip>
                 ) : (
                     <PipelinePlanToolbar
-                        stepWidth={stepWidth}
-                        onChangeStepWidth={setStepWidthPref}
+                        onStepsAcross={(n) => setStepsAcross(
+                            (prev) => ({ n, nonce: prev.nonce + 1 }))}
+                        snapZoom={snapZoom}
+                        onToggleSnapZoom={() => setSnapZoomPref(snapZoom ? 'off' : 'on')}
                         colorKey={colorKey}
                         onChangeColorKey={setColorKeyPref}
                         planLevelPref={activeLevelPref}
@@ -1279,8 +1285,8 @@ export default function PipelineDetail() {
                              costError={!!costError}
                              showCost={showCost}
                              showReqCounts={showReqCounts}
-                             reqLayout={reqLayout} stepLabel={stepLabel} colorKey={colorKey}
-                             stepWidth={stepWidth} reqLabel={reqLabel}
+                             stepLabel={stepLabel} colorKey={colorKey}
+                             reqLabel={reqLabel}
                              // `levelPref` still travels IN — the canvas needs to
                              // know which level is pinned to draw it. Only the
                              // SETTER left (req #3241): the control that called
@@ -1296,6 +1302,8 @@ export default function PipelineDetail() {
                              levelPref={activeLevelPref}
                              onEffectiveLevel={setEffectiveLevel}
                              resetViewNonce={resetViewNonce}
+                             stepsAcross={stepsAcross}
+                             snapZoom={snapZoom}
                              />
             )}
         </Box>

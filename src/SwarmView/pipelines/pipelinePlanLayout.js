@@ -211,7 +211,7 @@ export const pauseBubbleColor = (paused) => (paused ? PAUSE_PAUSED_COLOR : PAUSE
 // |------------------------|-------------------------------------------|-------------|
 // | bead FILL              | derived step state (rule 1)               | STEP        |
 // | bead RING              | run mode — magenta = manual               | STEP        |
-// | outer HALO (dashed)    | eligible now — "next up"                  | STEP        |
+// | outer HALO (dashed)    | eligible now — "Up Next"                  | STEP        |
 // | requirement-id TEXT    | the ACTIVE colour key: requirement status | REQUIREMENT |
 // |                        | · machine pin · nothing                    |             |
 //
@@ -251,27 +251,33 @@ export const pauseBubbleColor = (paused) => (paused ? PAUSE_PAUSED_COLOR : PAUSE
 //
 // ── What ANIMATES, and why only two things do ──────────────────────────────
 // Motion is the loudest channel on the surface, so it is spent on the two
-// questions a plan is opened to answer: what is running (the Running bead
-// PULSES) and what runs next (the halo BREATHES). They ride ONE Konva.Animation
+// questions a plan is opened to answer: what is running (the Running step
+// PULSES — the card at L2/L3, the bead at L1) and what runs next (the halo
+// BREATHES). They ride ONE Konva.Animation
 // on different curves — 0.45→1.0 at ~480ms, 0.25→1.0 at ~900ms — so a running
 // step and a next step never read as the same rhythm. Nothing else moves.
 //
 // ── What SIZE means: nothing ───────────────────────────────────────────────
-// Every bead is one radius. Column width is a reader's own control
-// (STEP_WIDTH_FACTORS), lane and band heights are content spacing, and the type
-// scale is a reading hierarchy (step label > requirement id > title slot).
-// **No mark is sized by data.** Stated because a key that covers colour and
-// motion but leaves size unexplained invites the reader to infer an encoding
-// that is not there.
+// Every card is one WIDTH and every bead one radius. A card's HEIGHT does vary
+// — it grows by one line per requirement (req #3498) — and that is a container
+// fitting its contents, the same way a paragraph is as tall as its text; it is
+// not a magnitude anybody should read a value off. Column width is uniform,
+// lane and band heights are content spacing, and the type scale is a reading
+// hierarchy (step name > requirement row > step title). **No mark is sized by
+// data.** Stated because a key that covers colour and motion but leaves size
+// unexplained invites the reader to infer an encoding that is not there.
 
 // The channel table above, as DATA (req #3374 P3). `PipelinePlanVisualizer`'s
 // two `KeyGroup`s read their titles from `KEY_GROUP_TITLES`, derived below
 // rather than hand-typed a second time, so the on-screen key cannot drift
 // from the set of channels marked `inKey`. `epic` is the one channel with
 // `inKey: false` — see the table comment above for why the key omits it.
+// req #3498 — the three STEP channels are named for the mark that carries them
+// at L2/L3, which is the CARD. They are the same three facts in the same three
+// colours; the bead still carries all three at L1, where no card is drawn.
 export const COLOR_CHANNELS = [
-    { channel: 'bead FILL', level: 'step', inKey: true },
-    { channel: 'bead RING', level: 'step', inKey: true },
+    { channel: 'card STATE BAR (bead fill at L1)', level: 'step', inKey: true },
+    { channel: 'card BORDER (bead ring at L1)', level: 'step', inKey: true },
     { channel: 'outer HALO (dashed)', level: 'step', inKey: true },
     { channel: 'requirement-id TEXT', level: 'requirement', inKey: true },
     { channel: 'epic BAND tint/stroke', level: 'epic', inKey: false },
@@ -1140,9 +1146,35 @@ const MIN_WORLD_W = 1180;       // POC viewBox floor
 // +25%, epic label +25% over the POC's font-11/12 base. Char-width metrics
 // scale linearly with font size (mono: ~0.609 px/pt per char) — they MUST move
 // with PLAN_VIZ_FONT or the zero-overlap contract silently rots.
-const CHW_LABEL = 10.05;        // px per mono char at font 16.5 (step label)
-const CHW_REQ = 8.4;            // px per mono char at font 13.75 (req ids)
-const CHW_TITLE = 5.8;          // px per mono char at font 9.5 (the title slot)
+// ── THE CARD'S TYPE SCALE (req #3498, user directive: "make the visualizer step
+//    card typeface 40% larger") ───────────────────────────────────────────────
+// ONE NUMBER, and everything the card draws is derived from it — the three glyph
+// widths below, the four font sizes in `CARD_FONT`, the line height, the
+// between-rows gap, the card's padding and the two reserved slots in its title
+// area. A 40% type change touching fourteen literals is fourteen chances for one
+// of them to be missed; this way the next retune is one edit and a test that
+// re-derives from it cannot agree with a half-applied change.
+//
+// WHAT IT COSTS, AND WHY THAT IS THE FAITHFUL READING. The card's width is
+// `CARD_TEXT_CHARS` glyphs wide, so scaling the glyph scales the card:
+// **407 -> 573 px**, and live plan 7's world **20,320 -> ~26,500** (+31%). The
+// alternative — hold the width and drop the character budget from 40 to 25 —
+// would silently undo a number the user set explicitly, and would undo it on the
+// axis they had just spent a SECOND LINE protecting. The width was the
+// provisional quantity from the start ("we will go from there"); the character
+// count and now the type size are the stated ones.
+//
+// IT IS THE CARD'S ALONE. `PLAN_VIZ_FONT.epic` (the band label) and `.slot` (the
+// date ruler) are NOT scaled — neither is on the card, and the epic chip is an
+// HTML overlay with its own screen-space sizing rules besides.
+export const CARD_TYPE_SCALE = 1.4;
+
+// EXPORTED (req #3498): a test that re-typed these as literals would agree with
+// a half-applied type scale, which is the one failure `CARD_TYPE_SCALE` exists
+// to make impossible.
+export const CHW_LABEL = 10.05 * CARD_TYPE_SCALE;   // px per mono char, step name
+export const CHW_REQ = 8.4 * CARD_TYPE_SCALE;       // px per mono char, req row
+export const CHW_TITLE = 5.8 * CARD_TYPE_SCALE;     // px per mono char, L3 + count
 export const CHW_EPIC = 9.15;   // px per mono char at font 15 (epic band label)
 const BEAD_R = 10;
 // ── The epic gets its OWN LANE (req #3168, user directive) ─────────────────
@@ -1240,63 +1272,56 @@ const BEAD_R = 10;
 //        / EPIC_LANE_CLEAR_K)
 //   = ceil(24 + (24·(11/15) + 4) / 0.2) = ceil(24 + 21.6/0.2) = 132
 //
-// 132, not 129, since req #3365 lifted the step label 3px (see
-// `STEP_LABEL_RISE`). The two move TOGETHER by construction — `epicLaneH` is
-// `BAND_HEADER − STEP_LABEL_RISE`, so holding the clear strip at 108 world px,
-// and with it `EPIC_LANE_CLEAR_K` at 0.2, means every pixel the label rises is
-// a pixel the header owes back. Raising one without the other is exactly the
-// off-by-a-reservation this block's own history is made of.
+// The lowest scale at which the epic chip's floored screen box is guaranteed to
+// fit inside the band header's clear strip. Everything about `BAND_HEADER` below
+// is derived FROM this number, which is why it is declared beside it.
 export const EPIC_LANE_CLEAR_K = 0.2;
-const BAND_HEADER = 132;
-// How far lane 0's step label reaches back up into the header: 34px above the
-// bead, less the 10px the bead sits below the header.
+// ── 132 → 108, BECAUSE NOTHING REACHES INTO THE HEADER ANY MORE (req #3498) ─
+// Every version of this constant above is one long argument about a single
+// subtraction: the header had to be `STEP_LABEL_RISE` TALLER than the strip it
+// was reserving, because a lane-0 step label floated ABOVE its bead and reached
+// back up into the header. `epicLaneH` was `BAND_HEADER − STEP_LABEL_RISE` for
+// that reason, and the paragraphs above are the record of getting that
+// off-by-a-reservation wrong twice.
 //
-// ── 31 → 34 (req #3365): A LABEL THAT CAN REACH A NEIGHBOUR'S BEAD MUST CLEAR
-//    ITS HIT CIRCLE ──────────────────────────────────────────────────────────
-// A step label's box is 17px tall, so at a rise of 31 its bottom sat at
-// `bead.y − 14` while the neighbouring bead's HIT circle starts at
-// `bead.y − BEAD_HIT_RADIUS` = `bead.y − 15`. **One pixel of overlap**, and it
-// had been there all along — harmless only because a label could not reach far
-// enough sideways to be over a neighbour's bead at all. `STAGGER_REACH` 0.85
-// can (that is the point of it), so the latent px became a real one: measured,
-// step 6's title took ownership of step 5's hit circle, which means hovering
-// that bead would have answered with the wrong step's card — the exact failure
-// `BEAD_HIT_RADIUS`'s own comment describes.
+// A card starts AT its lane's top and draws nothing above itself. There is no
+// overhang, so the clear strip IS the header and the subtraction is gone
+// (`epicLaneH === headerH`). The strip the derivation demands is unchanged at
+// 108 world px — the chip's floored screen box divided by `EPIC_LANE_CLEAR_K` —
+// so the header simply stops paying for an overhang that no longer exists.
+// Every band is **24px shorter in `id` mode and 60px shorter in `title` mode**,
+// which is the shipped one — the old header also carried `STAGGER_SPAN` (36)
+// whenever the step label staggered, and that term is gone with the stagger.
 //
-// 34 = 17 (the label box) + 15 (`BEAD_HIT_RADIUS`) + 2 of margin. It is checked
-// at the UNSTAGGERED phase deliberately: phases 1 and 2 lift the label further
-// and are never the binding case, so a scheme with more phases cannot quietly
-// rely on the stagger for a clearance the geometry should provide.
-const STEP_LABEL_RISE = 24;
-// Where a bead sits inside its lane, measured from the lane's top. Named
-// because the NEXT-STEP HALO's ceiling is derived from it (req #3271): the room
-// above a LANE-0 bead is the epic chip's strip, and the distance to it is
-// `STEP_LABEL_RISE + BEAD_LANE_OFFSET` — headerH cancels, so the bound holds for
-// staggered bands identically.
-export const BEAD_LANE_OFFSET = 10;
-// EVERY BAND NOW TAKES THE SAME HEADER (req #3371). A band hosting launchable
-// work used to take 16px more, reserving the launch-unit letter's fallback
-// strip and keeping a launch rectangle's top clear of the epic label. With no
-// rectangle and no letter there is nothing to reserve, so the plan is 16px
-// shorter per band that used to host one and `headerH` is a function of the
-// stagger alone.
+//   ceil((EPIC_CHIP_H·EPIC_CHIP_MIN_SCALE + 2·CHIP_MARGIN_Y) / EPIC_LANE_CLEAR_K)
+//   = ceil((24·(11/15) + 4) / 0.2) = ceil(21.6/0.2) = 108
+//
+// A LITERAL, PINNED BY A TEST — not the expression that derives it. Every term
+// of that expression (`EPIC_CHIP_H`, `EPIC_CHIP_MIN_SCALE`, `CHIP_MARGIN_Y`) is
+// declared ~2000 lines BELOW this one, so evaluating it here is a temporal dead
+// zone and throws at module load. The derivation lives in `EPIC_LANE_CLEAR_K`'s
+// own test instead, which recomputes it from those constants and fails if this
+// number stops matching.
+const BAND_HEADER = 108;
+// `STEP_LABEL_RISE`, `LANE_BASE_H` and `BEAD_LANE_OFFSET` left with req #3498.
+// The first was how far a floating step label reached above its bead, the second
+// the lane's height before the requirement stack was added, the third where the
+// bead sat inside its lane — all three describe a step whose parts were placed
+// individually, and `cardHeight` now answers for all of them at once. A consumer
+// that wants the height a lane is CONNECTED at reads `band.laneCardH` and takes
+// half of it: that is the midpoint the arcs anchor on.
 const BAND_GAP = 8;
-// +3 at req #3365, and the 3 is not free-floating: `STEP_LABEL_RISE` went 21 →
-// 24 in the same pass, and a lane's envelope starts at its step label. Lifting
-// the label without paying the lane back put the PREVIOUS lane's reserved title
-// slot 1.75px into this lane's label — measured, `vertical × id`, and caught by
-// the zero-overlap contract rather than by inspection. The two numbers move
-// together; the vertical-mode base below carries the identical +3.
-const LANE_BASE_H = 65;         // POC 56 + type-scale headroom, before the title slot
-// The content floor a column may never shrink below, per requirement layout.
-// Named rather than inlined at the `colW` sizing because the NEXT-STEP HALO's
-// magnification ceiling is derived from the smaller of the two (req #3271): the
-// halo may grow at Overview, and the tightest bead-to-bead pitch it must stop
-// short of is this number. Two copies that "only have to agree" is exactly the
-// desync this module has already taken review findings on.
-const COL_MIN_W_HORIZONTAL = 64;
-const COL_MIN_W_VERTICAL = 70;
-const TITLE_SLOT = 14;          // deviation 2 — reserved per-lane title line
+// ── THE COLUMN FLOORS AND THE TITLE SLOT ARE GONE (req #3498) ───────────────
+// `COL_MIN_W_HORIZONTAL` / `COL_MIN_W_VERTICAL` were the floor a CONTENT-SIZED
+// column could not shrink below. Columns are no longer content-sized — every
+// one of them is exactly `CARD_W + CARD_GAP_X` — so a floor has nothing to
+// floor, and the NEXT-STEP HALO's clearances (req #3271) read the card pitch
+// directly, which is the same "one copy, not two that only have to agree"
+// discipline the deleted comment was defending.
+//
+// `TITLE_SLOT` reserved a per-lane line BELOW the requirement stack for the
+// step's title. The title is inside the card now (`CARD_SUBTITLE_H`), so the
+// reservation moved into `cardHeight` with it.
 // One requirement mark per line at font 13.75. EXPORTED since the swim-lane
 // directive: it is the exact vertical cost a lane pays when titles stagger, and
 // a test that re-typed the number could agree with a changed layout by accident.
@@ -1324,137 +1349,379 @@ const TITLE_SLOT = 14;          // deviation 2 — reserved per-lane title line
 // pushed down to clear a neighbour moves in the new unit automatically and the
 // lane pitch (which multiplies it) reserves the extra room without a second
 // edit — the property this constant's history above is entirely about.
-export const REQ_LINE_H = 23.5;
-const STEP_LABEL_MAX = 60;      // hard ceiling on a title label above the bead
-// ── The 35-character CEILING (user directives 2026-08-01) ──────────────────
-// "let's go with all three levels of zoom showing 35 chars", then — decisively —
-// **"if 35 is too much, pick a lower number. I do not want any other spacing to
-// have to change for this."**
+// The requirement row's own text box, and the pitch one line sits on. Both
+// scale with the card's type — a 40% larger glyph on a 23.5px line would have
+// the rows touching.
+export const REQ_TEXT_H = 14 * CARD_TYPE_SCALE;
+export const REQ_LINE_H = 23.5 * CARD_TYPE_SCALE;
+
+// ── THE GAP BETWEEN ONE REQUIREMENT AND THE NEXT (req #3498, user directive:
+//    "double white space between requirement titles") ────────────────────────
+// SEPARATE FROM `REQ_LINE_H`, and that separation is the whole point. Until the
+// second line landed there was one kind of vertical gap on a card and
+// `REQ_LINE_H` was it — 14px of text on a 23.5px pitch, so 9.5px of air. Now a
+// row can be TWO lines of one sentence, and those two need to stay tight
+// together or the title stops reading as a title. Doubling `REQ_LINE_H` would
+// have pushed them apart exactly as far as it pushed two different
+// requirements, which is the opposite of what makes a wrapped row legible.
 //
-// So 35 is a CEILING and THE GEOMETRY IS FROZEN. The first reading of this
-// directive was that 35 is a target to solve the column floor for: the budget is
-// `colW[d] + 0.8 × min(neighbour widths)`, so 35 characters at `CHW_LABEL` 10.05
-// needs ~360px of budget, which on the uniform `vertical` columns works out at
-// `TITLE_COL_MIN` ≈ 200 against today's 144 — a ~47% wider world. **That is
-// exactly the spacing change the second directive refuses**, so `TITLE_COL_MIN`,
-// `staggerBudget`, `STAGGER_REACH`, `LEFT`/`RIGHT`, the lane pitches and the band
-// header are all UNTOUCHED, and the text is fitted to the room that already
-// exists.
+// So the doubling is spent HERE, between rows: 9.5px of extra air after each
+// requirement takes the gap between two of them from 9.5 to 19, while the gap
+// INSIDE a wrapped row stays at `REQ_LINE_H`'s own 9.5.
+export const REQ_ROW_GAP = 9.5 * CARD_TYPE_SCALE;
+
+// ── THE STEP IS A CARD (req #3498) ──────────────────────────────────────────
+// *"Make each step a card that contains the requirements inside. Use a round
+// rectangle card with the step name in the title area. Separate the step name
+// with a horizontal line, the requirements listed top to bottom inside the card
+// in the order."*
 //
-// What that yields is a measured fact, not a promise — see the assertions in
-// pipelinePlanLayout.test.js § "the 35-character ceiling (req #3168,
-// directive B)", which are now the only home of that measurement: the
-// per-layout character table lived in [[pipeline-plan-visualizer]], deleted
-// with the first generation (req #3356).
-// The ceiling BITES only where the existing budget already exceeded it (the
-// `horizontal` step label, which drew 42-50 characters), and is inert where the
-// budget is the binding constraint (`vertical`, 24-29).
+// This is the single change every other number in this section answers to. Until
+// now a step was a POINT — a bead — with its text scattered around it: the step
+// name floating above, the requirement ids stacked below, a reserved title slot
+// below those. None of that text belonged to anything, so none of it could be
+// bounded by anything, and the module grew an entire apparatus (the stagger: see
+// the constants this block REPLACES) whose only job was to stop free-floating
+// text from colliding with the free-floating text of the neighbouring column.
 //
-// ── 40 → 60 (req #3365), BECAUSE IT HAD BECOME THE BINDING CONSTRAINT ──────
-// The sentence above is what changed. `STAGGER_REACH` 0.85 raised the budget by
-// 50% exactly as that directive asked — and the extra was then thrown away at
-// the cap: `vertical` step labels went 27/29/36 characters to a budget that
-// afforded 41/44/54, and requirement titles 33/35/40 to a budget affording
-// 50/54/60. A widened column that draws the same text is not a widened column.
+// A card cannot collide with its neighbour's text, because its text is INSIDE
+// it and clipped to its width. That is why this change deletes more than it
+// adds.
 //
-// 60 is `STEP_LABEL_MAX`, the hard ceiling that stops a pathological title
-// running forever, so the two are now the same number and the BUDGET is the
-// only thing that decides a length — which is the state directive B wanted in
-// the first place ("if 35 is too much, pick a lower number"): a cap picked to
-// suit the room, in a world where the room was frozen. The room moved.
+// ── THE WIDTH IS FIXED AND UNIFORM, ON THE USER'S DIRECTIVE ─────────────────
+// *"Uniform, but not as wide as the widest requirement. We need a fixed width
+// and the requirement title can fit vertically. Make the card at req# plus 40
+// chars wide and we will go from there."*
 //
-// MEASURED after the move (the tables in pipelinePlanLayout.test.js are the
-// authority): `vertical` step labels 41/44/54, requirement titles 50/54/60 —
-// **+50 to +54% on every one**, which is the directive's number arriving where
-// a reader can see it. The MIN column gains less (+26%) and that is geometry,
-// not a shortfall: a label in the FIRST or LAST column is bounded by the
-// gutter, not by a neighbouring column, and the gutter did not grow.
-export const LABEL_MAX_CHARS = 60;
-// Staggering (req #3119, the Build Visualizer's version-label pattern —
-// `d3LayoutEngine.js` offsets every odd build by `versionLaneGap`). Odd columns
-// draw their long text one line further from the bead, so a label and its
-// left/right neighbours are never on the same line and each may overflow its own
-// column. Only the SAME-PARITY columns (d±2) share a line, and the budget below
-// keeps two of those from meeting.
-const STAGGER_GAP = 18;
-// ── HOW MANY LINES THE STAGGER CYCLES THROUGH (req #3365 user directive) ────
-// *"increase the width by 50% and at the same time allow adjacent one or two or
-// more steps to have defined swim lanes that don't overlap so we can read the
-// longer requirement titles without overlaps."*
+// So the width is NOT derived from content — deliberately, and that is the
+// reversal. Every column used to be sized to the widest thing drawn in it, and
+// `TITLE_COL_MIN`, the S/M/L width control and the whole stagger budget existed
+// to manage the consequences. One number replaces all of it, and a requirement
+// title too long for it is truncated into the room the card already has rather
+// than pushing the column wider.
 //
-// TWO was the whole scheme until now, and it is what CAPPED the width. With two
-// phases the columns that share a line are `d` and `d±2`; they intrude on the
-// shared column `d±1` from opposite sides, so their reaches must sum to less
-// than one column and neither may exceed HALF of it. `STAGGER_REACH` 0.4 was
-// that bound with a little margin, and no amount of retuning could pass 0.5 —
-// the ceiling was structural, not a chosen number.
+// IT COSTS WIDTH, AND A LOT OF IT — stated plainly because the sentence this
+// replaced read as though fixing the width SHRANK the world. Measured on the
+// 34-row Substrate fixture in the shipped configuration: **3288 -> 10060 px
+// wide**, a little over 3x, while the height fell 2258 -> 1773. A card is 407px
+// where a bead was 20, so the drawing is now as wide as its dependency chain is
+// long. That is the trade the directive buys: every requirement legible in
+// place, at the price of a plan you scroll sideways.
 //
-// THREE moves the shared-line pair to `d` and `d±3`, and the arithmetic opens
-// up completely: those two are separated by TWO whole columns, so `d` may reach
-// `R·colW[d+1]` right while `d+3` reaches `R·colW[d+2]` left, and the gap
-// between them is `colW[d+1] + colW[d+2]`. They cannot meet for ANY `R < 1`,
-// whatever the column widths — a stronger guarantee than the two-phase scheme
-// ever had, and one that does not depend on the columns being similar.
+// ── THE LINE BUDGET IS THE PRIMARY NUMBER NOW (req #3498, 2026-08-13) ───────
+// It started as *"req# plus 40 chars wide"* — a TITLE budget, with the width
+// falling out of it. The user's second measurement moved the primary number to
+// the LINE, and the reason is arithmetic worth writing down:
 //
-// The cost is vertical and it is charged honestly: the step label's offset now
-// runs 0, 1, 2 gaps instead of 0, 1, so the lane pitch and the band header each
-// reserve `(STAGGER_PHASES − 1) · STAGGER_GAP` rather than one gap, and a
-// requirement stack may be pushed down past TWO neighbours instead of one (see
-// the `reqOffsets` first-fit). Every one of those sites reads this constant, so
-// a fourth phase would be one edit here, not a hunt.
-const STAGGER_PHASES = 3;
-// The vertical room the deepest stagger phase needs. Reserved by the lane pitch
-// and by the band header alike — a label on the last phase is this far above
-// where an un-staggered one would sit.
-const STAGGER_SPAN = (STAGGER_PHASES - 1) * STAGGER_GAP;
-// The shortest a lane can ever be: `lanePitch()` adds a per-lane requirement
-// stack on top of this and never subtracts. Named because the next-step halo's
-// band-rectangle clearance is derived from it (req #3271).
-const MIN_LANE_PITCH = LANE_BASE_H + TITLE_SLOT + STAGGER_SPAN;
-// Fraction of a neighbouring column a staggered label may reach into, PER SIDE.
-// Labels are centred on their column, so the budget must bound the reach into
-// the NARROWER neighbour and then apply symmetrically — bounding the sum of both
-// neighbours does not work, because a wide left neighbour would buy half-width
-// that gets spent on the right. (That was the first version of this, and it
-// admits an overlap: with colW = [224, 64, 64, 64, 224] the labels at d=1 and
-// d=3 — the pair that shared a line under the two-phase stagger — overlapped by
-// ~40px. Found in review, with the dataset.)
+//   **On-screen type = viewport / (visible columns x characters per line).**
 //
-// ── 0.4 → 0.85, WHICH IS THE +50% (req #3365 user directive) ───────────────
-// The budget is `colW + 2·R·min(neighbours)`, so on uniform columns it goes
-// from `1.8 · colW` to `2.7 · colW` — **exactly the 50% more room the directive
-// asked for**, spent on the requirement titles AND on the step name above the
-// bead, which shares this budget and which the directive explicitly allowed to
-// grow with it ("the step name width can be as wide as the requirement").
+// The world font size CANCELS. A 40% larger glyph widens the card by 40%, so at
+// any fixed number of visible columns the text lands at exactly the same screen
+// size — which is why the type still read small after `CARD_TYPE_SCALE`. The
+// only lever that makes a card readable at six columns is FEWER CHARACTERS PER
+// LINE, and the title survives by wrapping onto more of them.
 //
-// It is not a retune of the old scheme; 0.85 is unreachable under it. Two-phase
-// put same-line labels two columns apart, sharing ONE column between them, so
-// `2R < 1` was a hard ceiling and 0.4 already had most of the available margin.
-// `STAGGER_PHASES` 3 puts them THREE columns apart with TWO columns between, and
-// the requirement drops to `R < 1` for any column widths at all — see that
-// constant. 0.85 keeps 15% of a column as margin for the mono-width ESTIMATE
-// (`CHW_*` are averages, not measurements of the actual glyphs), which is the
-// same kind of headroom 0.4 kept under the old bound.
+// MEASURED at six columns in a 1730px panel: 47 chars -> 8.3px of requirement
+// text; **28 -> 12.4px**; 20 -> 15.7px. 28 is the user's choice, with the wrap
+// raised to three lines so a long title still arrives whole.
 //
-// The reach is still bounded to the IMMEDIATE neighbour on each side — `R < 1`
-// means a label physically cannot cross a whole column — so nothing here starts
-// depending on `d±2`'s width, and the pairwise proof stays pairwise.
-export const STAGGER_REACH = 0.85;
-// Minimum column width when STEP TITLES are drawn (req #3119, user directive:
-// "increase the display of the step name by 50% more characters"). The binding
-// constraint on a step name was never STEP_LABEL_MAX — it was the stagger
-// budget, which is derived from the column, and a column sized to a 4-digit
-// requirement id is ~64px, i.e. ~16 characters after the reach is added. Giving
-// the column a floor raises the budget for every title at once; STEP_LABEL_MAX
-// is only the ceiling that stops a pathological title from running forever.
-// Exported (req #3242) so the header's Width control can show the reader the
-// actual pixel width each S/M/L option draws, rather than a bare letter —
-// `TITLE_COL_MIN * STEP_WIDTH_FACTORS[width]` is the representative column
-// width in vertical/title mode (the only mode the UI offers today), the same
-// arithmetic `colW` itself applies at line ~1176.
-export const TITLE_COL_MIN = 144;
+// Counted against WHAT THE ROW ACTUALLY DRAWS: `reqLabelText`'s
+// `${reqId} - ${title}`, so the prefix is a 4-digit id plus the three-character
+// " - " separator — SEVEN characters, and no '#' anywhere (ids render bare on
+// this surface, production directive).
+export const CARD_TEXT_CHARS = 28;
+export const CARD_ID_CHARS = 4;
+export const CARD_SEP_CHARS = 3;        // " - ", written by `reqLabelText`
+// What is left for the title on the FIRST line. Derived, not stated: the line is
+// the budget now, so a title budget written beside it would be a second number
+// to keep in step.
+export const CARD_TITLE_CHARS = CARD_TEXT_CHARS - CARD_ID_CHARS - CARD_SEP_CHARS;
+// ── WHERE THE BEAD'S FILL WENT (req #3498) ─────────────────────────────────
+// The bead carried four channels — FILL (step state), RING (run mode /
+// eligible), outer HALO (launchable next), and the ✓ — and it is not drawn at
+// L2/L3 any more, because a circle at the card's centre would sit on top of the
+// requirement rows the card exists to show.
+//
+// Every channel is kept, re-homed onto the card rather than dropped: the RING
+// becomes the card's border (same colour, same two weights), the HALO becomes a
+// dashed outline around the whole card, the ✓ moves into the title area, and
+// the FILL becomes this — a state bar down the card's leading edge.
+//
+// A BAR RATHER THAN A TINTED TITLE AREA, and that is a contrast decision, not a
+// taste one: `runningFill` is `#FFB300` and the label colour is `#d7e3f4`, so
+// filling the title area with the state colour would have put ~1.6:1 text on
+// the one card a reader most needs to read. A bar carries the same colour at
+// full saturation next to text that keeps its own contrast.
+//
+// ── OUTSIDE THE FRAME, ON THE LEFT (user directive, 2026-08-13) ────────────
+// It began flush INSIDE the card's left border, where it ate into the text
+// column and read as part of the lettering. It is now BESIDE the frame, still
+// on the left: the rounded rect starts `CARD_STATE_BAR_W + CARD_BAR_GAP` in,
+// and the bar stands free in the strip before it. The node's box still spans
+// both, so the bar costs the card its own width rather than the text's, and
+// nothing about the arcs, the lanes or the columns changes.
+export const CARD_STATE_BAR_W = 6 * CARD_TYPE_SCALE;
+// The air between the frame's right border and the bar. Without it the bar reads
+// as a thick edge on the rect rather than as a mark of its own.
+export const CARD_BAR_GAP = 6 * CARD_TYPE_SCALE;
+// Horizontal padding inside the card's rounded rect, per side.
+export const CARD_PAD_X = 10 * CARD_TYPE_SCALE;
+// Vertical padding at the card's top and bottom edges.
+export const CARD_PAD_Y = 8 * CARD_TYPE_SCALE;
+// THE number. `ceil`, not `round`, and that is the difference between the card
+// holding the width it was bought for and holding one character less: at
+// `round` the 406.4px ideal became 406, and `cardChars` — which floors — then
+// reported 45 characters for a card sized for 46. Rounding UP costs a
+// sub-pixel and makes the budget an ACTUAL guarantee rather than an
+// approximate one.
+export const CARD_W = Math.ceil(CARD_TEXT_CHARS * CHW_REQ + 2 * CARD_PAD_X
+    + CARD_STATE_BAR_W + CARD_BAR_GAP);
+// The card's drawn FRAME — the rounded rect — which is narrower than the node's
+// box by the state bar and its gap (req #3498, user directive: *"make the color
+// bar on the right edge of the step render outside the current frame of the
+// requirement, so it doesn't crowd the letter but rather sits a little wider"*).
+// The bar is beside the frame, not inside it; the node box still spans both, so
+// arcs, lanes and columns are unaffected.
+export const CARD_FRAME_W = CARD_W - CARD_STATE_BAR_W - CARD_BAR_GAP;
+// How far the frame starts in from the node's left edge — the strip the state
+// bar stands in. Every piece of card furniture is placed from `n.left + this`
+// rather than from `n.left`, so the bar's width lives in ONE expression.
+export const CARD_FRAME_X = CARD_STATE_BAR_W + CARD_BAR_GAP;
+// The text column inside the padding — what every string in the card is fitted
+// to. Read rather than re-derived, so a padding change cannot desync the two.
+export const CARD_TEXT_W = CARD_FRAME_W - 2 * CARD_PAD_X;
+// The gutter between one card and the next — and, because a card fills its
+// column edge to edge, THE ONLY ROOM A DEPENDENCY ARC HAS TO TURN IN.
+//
+// That is what sizes it, not the look of the whitespace. The user asked for the
+// steps to be *"linked from their midpoints and fan out nicely"*, and a fan-out
+// is a cubic whose horizontal run is comparable to its vertical drop. A bead
+// took ~20px of its column, so an arc between two adjacent columns had most of
+// a column to bend in; a card takes ALL of it, so whatever is left here is the
+// entire budget. At the old 26px a one-lane drop would have been drawn as a
+// near-vertical kink between two card edges.
+export const CARD_GAP_X = 90;
+// The gap BELOW a card, before the next lane's card starts. The user's
+// "respectful gap / white space", charged once per lane by `lanePitch`.
+export const CARD_GAP_Y = 22;
+// The title area: the step name on one line, and — when the step name is the ID
+// — the step's own TITLE on a second line below it. See `cardTitleH` for why the
+// second line is a property of the LAYOUT and never of the zoom level.
+export const CARD_LINE_H = 21 * CARD_TYPE_SCALE;      // the step-name line
+export const CARD_SUBTITLE_H = 14 * CARD_TYPE_SCALE;  // the step-title line
+// The horizontal rule under the title area, and the air either side of it.
+export const CARD_RULE_GAP = 7 * CARD_TYPE_SCALE;
+export const CARD_RULE_H = 1;
+export const CARD_RULE_BAND = 2 * CARD_RULE_GAP + CARD_RULE_H;
+export const CARD_RADIUS = 10 * CARD_TYPE_SCALE;
+
+
+/**
+ * The height of a card's title area.
+ *
+ * TWO LINES OR ONE IS A PROPERTY OF `stepLabel`, NOT OF THE LEVEL — and the
+ * distinction is the oldest invariant in this module. `stepLabel` is a user
+ * control ('Step: ID | Title'), so changing it may relayout; the semantic LEVEL
+ * (L1/L2/L3) may not, because it is also resolved from the zoom scale and a
+ * geometry that changed with zoom would make every card jump as the reader
+ * scrolled the wheel.
+ *
+ * So in ID mode the card reserves the step-title line at EVERY level and draws
+ * it only at L3 — the room is spent either way, exactly as the old reserved
+ * title slot spent it. In TITLE mode the step name already IS the title, so
+ * there is no second line to draw and none is reserved (the old code skipped
+ * the slot for the same reason).
+ */
+export const cardTitleH = (stepLabel, nameLines = 1) => CARD_PAD_Y
+    + Math.max(1, nameLines) * CARD_LINE_H
+    + (stepLabel === 'title' ? 0 : CARD_SUBTITLE_H);
+
+// ── THE STEP NAME WRAPS TOO (req #3498, 2026-08-13) ─────────────────────────
+// It has to, and the reason is the same arithmetic that narrowed the card: at a
+// 28-character line the name's own budget — the text column less the ✓ and the
+// count, at the LABEL glyph which is wider than the row glyph — is nineteen
+// characters. "Feature Eradication - MCP, Scripts, Frontend…" is the actual
+// data, and nineteen characters of it is "Feature Eradicati…".
+//
+// So the card's title area takes up to two lines by the same rule the rows do:
+// wrapped at layout time, RESERVED at every level, and per-step, so a card with
+// a short name stays short.
+export const NAME_MAX_LINES = 2;
+
+/**
+ * A card's full height: title area, rule, then one line per requirement.
+ *
+ * `reqBlockH` is the block's PIXEL height, from `reqBlockHeight` above — not a
+ * count. It was a requirement count, then a line count, and neither survived the
+ * gap becoming a second quantity; a pixel height is the one form that cannot go
+ * stale the next time the block gains a term.
+ *
+ * A step with NO requirements still gets a card — it is a step, it has a name,
+ * and its emptiness is a fact worth seeing — so the requirement block floors at
+ * zero lines rather than at one.
+ */
+/**
+ * The exact height of a card's requirement block, from the wrapped rows.
+ *
+ * LINES are charged at `REQ_LINE_H` and the GAPS BETWEEN ROWS at `REQ_ROW_GAP`
+ * — two different quantities since the user's 2026-08-13 directive, because a
+ * wrapped row's own two lines are one sentence and must not be pushed apart by
+ * the air that separates two different requirements. `n - 1` gaps, not `n`:
+ * the last row's air is `CARD_PAD_Y`, which the card already charges.
+ */
+export const reqBlockHeight = (rowLines) => {
+    const rows = rowLines || [];
+    if (rows.length === 0) return 0;
+    const lines = rows.reduce((t, l) => t + (l.length || 1), 0);
+    return lines * REQ_LINE_H + (rows.length - 1) * REQ_ROW_GAP;
+};
+
+export const cardHeight = (reqBlockH, stepLabel, nameLines = 1) =>
+    Math.max(CARD_MIN_H, cardTitleH(stepLabel, nameLines) + CARD_RULE_BAND
+        + Math.max(0, reqBlockH) + CARD_PAD_Y);
+
+// ── THE FLOOR, AND IT IS DERIVED (req #3498) ────────────────────────────────
+// It binds ONLY the requirement-less card: `cardHeight(0, 'title')` is 52px of
+// title area, rule and padding, and every card with even one requirement is
+// taller than this floor already.
+//
+// 68 = 2 x 34, and the 34 is not a taste: it is the clearance the NEXT-STEP HALO
+// needs above a LANE-0 bead before it reaches the epic chip's strip
+// (`NEXT_HALO_CLEARANCES.epicChipStrip`, which is HALF A CARD because the bead
+// sits at the card's midpoint and the card's top IS that strip's bottom). Under
+// the old geometry that room was `STEP_LABEL_RISE + BEAD_LANE_OFFSET` = 34, and
+// three requirements — #3271, #3280, #3299 — went into making the halo READ at
+// Overview inside exactly that budget. A squat empty card would have cut it to
+// 26 and shrunk the one mark that answers "what runs next?" at the zoom it is
+// most often asked at.
+//
+// So the floor is written where the number comes FROM. It also happens to be
+// the right look — a card with no rows still reads as a card rather than as a
+// label with a line under it — but that is the bonus, not the derivation.
+const CARD_MIN_H = 68 * CARD_TYPE_SCALE;
+
+// The room the DONE ✓ occupies at the title area's right edge — reserved out of
+// the step label's budget rather than drawn over it (req #3498 review finding).
+// Every one of the 34 step titles on the live fixture is longer than the card
+// can draw, so an unreserved glyph is not an edge case: it landed on the
+// truncated title's ellipsis on all 23 completed cards.
+export const CARD_CHECK_W = 13 * CARD_TYPE_SCALE;
+
+// ── THE TOTAL REQUIREMENT COUNT (req #3498, user directive: "Provide a count")
+// Right-aligned in the title area, left of the ✓. It is the TOTAL number of
+// requirements the step carries — not met/total, which is the EPIC chip's
+// vocabulary and answers a different question; a step's own progress is already
+// on the card as ten coloured rows, so restating it as a fraction would be the
+// same fact twice at the same level (the one-fact-one-channel rule above).
+// Reserved out of the step name's budget the same way the ✓ is, because the
+// alternative is a count drawn over a truncated title.
+// Five characters at the ROW glyph — "(999)" — because the count is drawn at
+// `CARD_FONT.req` since the user reported it *"too small"* at the title size.
+// Sized from the widest count a step could carry rather than from the widest
+// one this plan happens to have.
+export const CARD_COUNT_W = 5 * CHW_REQ;
+
+// How many characters of a given mono width fit the card's text column.
+// `reserve` is room to take off the right first (the ✓ and the count, both on
+// the title line).
+export const cardChars = (chw, reserve = 0) =>
+    Math.max(3, Math.floor((CARD_TEXT_W - reserve) / chw));
+
+// ── A REQUIREMENT ROW TAKES A SECOND LINE BEFORE IT TRUNCATES ───────────────
+// User directive, 2026-08-13, looking at the live card: *"Give the title a
+// second line before cutting off the length."* At 40 characters a real
+// requirement title is cut mid-word — *"3434 - Give requirements.ai_model and
+// effort a…"* — and the second line is what makes the row a sentence again.
+//
+// THREE LINES, NOT N. A row is a list item; a paragraph inside a card stops the
+// card being scannable, and the card's height is already the plan's vertical
+// budget. Past the limit the text truncates exactly as it did before.
+//
+// It was TWO while the line held 47 characters. The line is 28 now (see
+// `CARD_TEXT_CHARS`), so three lines carry 84 characters where two carried 94 —
+// close to the same title, at half again the on-screen size.
+export const REQ_MAX_LINES = 3;
+
+/**
+ * Break one row's text into at most `REQ_MAX_LINES` lines of `maxChars`.
+ *
+ * WORD BOUNDARIES WHERE THERE IS ONE, a hard break where there is not — a
+ * requirement title is prose but it contains identifiers (`requirements.ai_model`,
+ * `--dangerously-skip-permissions`) longer than the line, and refusing to break
+ * those would leave the line short and the text lost.
+ *
+ * The LAST line it produces is the only one that may carry an ellipsis, and it
+ * carries one only when text was actually dropped — `truncate`'s own rule.
+ */
+export function wrapReqText(text, maxChars, maxLines = REQ_MAX_LINES) {
+    const full = String(text == null ? '' : text);
+    if (full.length <= maxChars) return [full];
+    const lines = [];
+    let rest = full;
+    while (rest.length > 0 && lines.length < maxLines) {
+        if (lines.length === maxLines - 1) {
+            lines.push(truncate(rest, maxChars));
+            rest = '';
+            break;
+        }
+        if (rest.length <= maxChars) { lines.push(rest); rest = ''; break; }
+        // The last space that still fits, so the break lands between words.
+        const cut = rest.lastIndexOf(' ', maxChars);
+        const at = cut > 0 ? cut : maxChars;
+        lines.push(rest.slice(0, at));
+        rest = rest.slice(cut > 0 ? at + 1 : at);
+    }
+    return lines;
+}
+// ── THE CHARACTER CEILING IS THE CARD (req #3498) ──────────────────────────
+// `LABEL_MAX_CHARS` (60) and `STEP_LABEL_MAX` (60) were two names for one
+// number: the hard cap that stopped a pathological title running forever
+// through a world where the only other bound was a STAGGER BUDGET derived from
+// the neighbouring columns. Both are gone, and so is the budget, because the
+// card answers the question they were both approximating — how much text fits?
+// — exactly: `cardChars(chw)`, the card's own text column divided by the glyph
+// width. There is no cap to keep in step with the room any more, because the
+// room IS the cap.
+//
+// ── AND SO IS THE STAGGER (req #3498) ──────────────────────────────────────
+// `STAGGER_GAP`, `STAGGER_PHASES`, `STAGGER_SPAN`, `STAGGER_REACH`,
+// `TITLE_COL_MIN` and `MIN_LANE_PITCH` were ONE mechanism, built over req
+// #3119 / #3362 / #3365, and its entire purpose was to let text OVERFLOW its
+// own column into the neighbours without colliding: odd columns drew a line
+// lower, reaches were bounded to a fraction of the narrower neighbour, and a
+// per-band first-fit sweep pushed busier stacks down to clear the columns
+// within the phase window.
+//
+// A CARD CANNOT OVERFLOW ITS COLUMN. Its text is inside a rounded rect of fixed
+// width and is truncated to it, and the columns are uniform and gapped
+// (`CARD_GAP_X`), so no two cards can be closer than the gap and no string can
+// leave the card that owns it. Every proof the stagger existed to supply — the
+// pairwise reach bound, the phase window, the offset sweep, the extra line each
+// lane and band header reserved — is discharged by construction instead. The
+// mechanism is not retuned or disabled; it has no subject.
+//
+// What that DELETES, and it is the whole point of the change: two column-floor
+// constants, four stagger constants, `TITLE_SLOT`, `MIN_LANE_PITCH`,
+// `staggerBudget`, `staggerOf`, the `reqOffsets` first-fit sweep and its
+// `countAt` helper, the `staggerLabels`/`staggerReqs` flags and every
+// conditional that read them.
 export const PLAN_VIZ_FONT = {
     label: 16.5, req: 13.75, title: 9.5, epic: 15, check: 9, slot: 13,
+};
+
+// The CARD's own type, `PLAN_VIZ_FONT` through `CARD_TYPE_SCALE`. Derived rather
+// than written out, so the glyph widths above and the sizes drawn here cannot
+// scale by different factors — which is exactly how a fitted string starts
+// overflowing the box that was measured for it.
+//
+// `check` appears in BOTH: the card's ✓ scales with the card, and the BEAD's ✓
+// at L1 keeps `PLAN_VIZ_FONT.check`, because it is drawn inside a 10px bead that
+// did not grow.
+export const CARD_FONT = {
+    label: PLAN_VIZ_FONT.label * CARD_TYPE_SCALE,
+    req: PLAN_VIZ_FONT.req * CARD_TYPE_SCALE,
+    title: PLAN_VIZ_FONT.title * CARD_TYPE_SCALE,
+    check: PLAN_VIZ_FONT.check * CARD_TYPE_SCALE,
 };
 
 export const BEAD_RADIUS = BEAD_R;
@@ -1487,68 +1754,172 @@ export const BEAD_HIT_RADIUS = BEAD_R + 5;
 // `req labels stay inside their column slab` asserts. Only widening is offered,
 // and `compact` is the identity so the default plan is byte-identical to the
 // pre-#3168 geometry.
+// ── THE WIDTH CONTROL IS GONE (req #3498, user directive) ──────────────────
+// *"Remove the width UI option S/M/L as part of this, won't need it any more."*
 //
-// The stagger budget (`staggerBudget` below) is a linear function of the column
-// widths and the label character budget is derived from it, so a uniform scale
-// widens the text and the spacing by the SAME factor — the overlap proof is
-// scale-invariant, which is why one multiplier is enough and no metric here has
-// to move with it.
-// Retuned on the user's own arithmetic (2026-08-01), after seeing the first
-// scale on the live plan: S stays the anchor at 1.0, L becomes the previous M
-// × 0.85, and M adds 40% of what L adds over S. The first set (1 / 1.4 / 1.9)
-// spent width faster than the plan could use it.
-// Retuned twice by the user against the live plan. First (2026-08-01) from
-// 1 / 1.4 / 1.9 to S-as-anchor with L = old M × 0.85; then again, "shift widths
-// S/M/L all by 10% higher except L by 20%" — so S is no longer the identity and
-// the compact plan is deliberately a little airier than the pre-#3168 one.
-export const STEP_WIDTH_FACTORS = { compact: 1.1, medium: 1.1836, wide: 1.428 };
-// The narrowest world the user can ask for. Read by the next-step halo's
-// ceiling (req #3271), which measures against the TIGHTEST column any setting
-// can produce, never against the unmultiplied content floor.
-export const MIN_STEP_WIDTH_FACTOR = Math.min(...Object.values(STEP_WIDTH_FACTORS));
-export const DEFAULT_STEP_WIDTH = 'compact';
-// `Object.hasOwn`, not a truthiness test on the lookup (review finding). The
-// value arrives from localStorage, so `"toString"` and `"constructor"` are both
-// reachable — and both resolve to an inherited FUNCTION, which is truthy. That
-// factor multiplies every column width to NaN and the canvas renders blank with
-// no error anywhere.
-export const isStepWidth = (v) => Object.hasOwn(STEP_WIDTH_FACTORS, v);
-export const stepWidthFactor = (stepWidth) => (isStepWidth(stepWidth)
-    ? STEP_WIDTH_FACTORS[stepWidth] : STEP_WIDTH_FACTORS[DEFAULT_STEP_WIDTH]);
+// `STEP_WIDTH_FACTORS` multiplied every CONTENT-SIZED column by 1.1 / 1.1836 /
+// 1.428, and it existed because content sizing produced columns the reader kept
+// wanting more air in. Columns are not content-sized any more — every one of
+// them is `CARD_W + CARD_GAP_X` — so the multiplier has nothing to scale and the
+// question it answered ("how much room does this text need?") is answered once,
+// by the card, for the whole plan. `MIN_STEP_WIDTH_FACTOR` went with it: the
+// next-step halo's ceiling measured against the tightest column any SETTING
+// could produce, and there is now exactly one column width to measure.
 
-// ── The requirement-mark VIEW: one control, three positions (req #3168) ────
-// User directive 2026-08-01: "option to display the title of the requirement
-// (35 chars)". The natural shape is a sibling of `Step: ID | Title` — but the
-// header row is ALREADY carrying the mode switch, three labelled toggle groups,
-// the colour key and the level selector, and directive 4 has just merged the two
-// bars back into one. A fourth group is a row that wraps.
+// ── The requirement-mark VIEW: one control, TWO positions (req #3498) ──────
+// It had three, and the third was `horizontal` — every requirement of a step on
+// ONE line, sharing the column N ways and paying the (N−1) separators out of the
+// same room. The user's answer when asked what should happen to it:
 //
-// So it EXTENDS the existing `Reqs:` control instead of standing beside it, and
-// the reason that works is a containment fact rather than a layout convenience:
+// > *"Why was there still horizontal. You failed to deprecate properly. Remove."*
 //
-// > **Titles are offered in the VERTICAL stack only.** In `horizontal` every
-// > requirement of a step shares ONE line inside one column, so N marks split
-// > `colW` N ways and pay the (N−1) separators out of the same room — and the
-// > geometry is frozen, so the column cannot grow to help. MEASURED on the
-// > Substrate fixture at width S: a 2-requirement step gets 7 characters per
-// > title and a 3-or-more-requirement step gets 4, which is `reqLabelText`'s own
-// > floor (three characters and an ellipsis) and exactly the length of the bare
-// > id it would have replaced. That is not a title, it is a stub, and offering
-// > it would be shipping a combination that reads as broken.
+// The requirement says the card lists *"the requirements top to bottom inside the
+// card in the order"*, so a horizontal row is not a layout the card HAS. What is
+// left is the only distinction that still means anything — whether a row says the
+// requirement's ID or its TITLE — and `reqLayout` disappears with the option,
+// since there is nothing left for it to select.
 //
-// The three positions are therefore (layout × label) pairs, and the two legacy
-// values are two of them — a browser holding `horizontal` or `vertical` from
-// before this change normalizes to itself and that reader's plan is unchanged.
+// A READER HOLDING 'horizontal' IN localStorage normalizes to the default rather
+// than to itself. That is the one behavioural difference from the old three-value
+// control, and it is deliberate: the alternative is rendering a layout that no
+// longer exists.
 export const REQ_VIEWS = {
-    horizontal: { reqLayout: 'horizontal', reqLabel: 'id', label: 'Reqs: Horizontal' },
-    vertical: { reqLayout: 'vertical', reqLabel: 'id', label: 'Reqs: Vertical' },
-    titles: { reqLayout: 'vertical', reqLabel: 'title', label: 'Reqs: Titles' },
+    vertical: { reqLabel: 'id', label: 'Reqs: IDs' },
+    titles: { reqLabel: 'title', label: 'Reqs: Titles' },
 };
 export const DEFAULT_REQ_VIEW = 'vertical';
-// `Object.hasOwn` — the value is read from localStorage (the `isStepWidth` rule).
+// `Object.hasOwn`, not a truthiness test on the lookup (review finding, kept
+// with the rule it protects). The value arrives from localStorage, so
+// `"toString"` and `"constructor"` are both reachable — and both resolve to an
+// inherited FUNCTION, which is truthy, and would put a function body where a
+// label belongs.
 export const isReqView = (v) => Object.hasOwn(REQ_VIEWS, v);
 export const normalizeReqView = (v) => (isReqView(v) ? v : DEFAULT_REQ_VIEW);
 export const reqViewOptions = (v) => REQ_VIEWS[normalizeReqView(v)];
+
+// ── STEPS-ACROSS: ZOOM BY HOW MANY STEPS YOU WANT TO SEE (req #3498) ───────
+// User directive, 2026-08-13: buttons for 10 through 2 on evens, left of View,
+// numbers only. Each one takes the CENTRE of the viewport and zooms so that
+// many steps span it.
+//
+// It is the natural control for this canvas, and the measurements are why: a
+// card's on-screen size is `viewport / (columns x chars-per-line)`, so "how many
+// columns fit" is the quantity a reader is actually choosing when they zoom.
+// The semantic-level chips beside it pick WHAT IS DRAWN; these pick HOW MUCH.
+export const STEPS_ACROSS_OPTIONS = [10, 8, 6, 4, 2];
+
+// TWO IS THE EXCEPTION THE USER NAMED — *"fitting ... with tight white space
+// except when 2 is selected"*. Every other option fits its columns edge to
+// edge; two of them filling a 1730px viewport puts a single card at ~690px and
+// its text at ~37px, which is past reading and into filling. So 2 fits its pair
+// into a FRACTION of the viewport and leaves the rest as air: still the closest
+// look the control offers, without the canvas becoming a poster.
+export const STEPS_ACROSS_TIGHT_FROM = 4;
+export const STEPS_ACROSS_LOOSE_FILL = 0.8;
+
+/**
+ * The scale at which `n` steps span the viewport.
+ *
+ * A step is a COLUMN — `CARD_W + CARD_GAP_X` — because that is the pitch the
+ * plan actually repeats at; fitting `n` cards and forgetting the gutters would
+ * land every option one card too wide.
+ *
+ * Returns null on a viewport or an `n` that cannot produce a scale, so the
+ * caller does nothing rather than driving the camera to NaN.
+ */
+export function stepsAcrossScale(n, viewportW) {
+    if (!Number.isFinite(n) || n <= 0) return null;
+    if (!Number.isFinite(viewportW) || viewportW <= 0) return null;
+    const fill = n >= STEPS_ACROSS_TIGHT_FROM ? 1 : STEPS_ACROSS_LOOSE_FILL;
+    return (viewportW * fill) / (n * (CARD_W + CARD_GAP_X));
+}
+
+/**
+ * The transform that holds ONE SCREEN POINT still while changing scale.
+ *
+ * Pure arithmetic on the transform, so it is testable without a canvas: the
+ * world point under a screen pixel is `(px - x) / k`, and the new `x` is
+ * whatever puts that same world point back under the same pixel at `nextK`.
+ */
+export function zoomAboutPoint(t, point, nextK) {
+    if (!t || !point || !(t.k > 0) || !(nextK > 0)) return null;
+    if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return null;
+    const wx = (point.x - t.x) / t.k;
+    const wy = (point.y - t.y) / t.k;
+    return { k: nextK, x: point.x - wx * nextK, y: point.y - wy * nextK };
+}
+
+/**
+ * The transform that holds the viewport's CENTRE still while changing scale.
+ *
+ * THE CENTRE, not the origin, because that is what the steps-across directive
+ * asks for and because it is what a reader expects of a zoom BUTTON: the thing
+ * you were looking at stays where it is. Anchoring at the origin would fling the
+ * plan off-screen at every step of the ladder — the world is 18,000px wide.
+ *
+ * The WHEEL anchors on the pointer instead (`zoomAboutPoint` above), because
+ * that is what a wheel has always done here and snapping is not a reason to
+ * change it.
+ */
+export function zoomAboutViewportCentre(t, size, nextK) {
+    if (!size || !(size.w > 0) || !(size.h > 0)) return null;
+    return zoomAboutPoint(t, { x: size.w / 2, y: size.h / 2 }, nextK);
+}
+
+// ── SNAP THE WHEEL TO THE SAME LADDER THE BUTTONS USE (req #3498) ──────────
+// User directive, 2026-08-13: a toggle that makes the zoom *"go up/down in
+// jumps of two cards instead of smooth"*.
+//
+// THE LADDER IS THE BUTTONS' OWN — every rung is a `stepsAcrossScale`, so
+// wheeling to eight steps across and pressing "8" land on the SAME scale rather
+// than two that merely look alike. It extends past 10 as far as the zoom extent
+// allows: the buttons stop at 10 because a toolbar has to stop somewhere, the
+// ladder does not.
+export const SNAP_COLUMNS_STEP = 2;
+// The floor: `STEPS_ACROSS_OPTIONS`' own tightest rung.
+export const SNAP_COLUMNS_MIN = 2;
+
+/** How many columns currently span the viewport — the ladder's own unit. */
+export function columnsAcross(k, viewportW) {
+    if (!(k > 0) || !(viewportW > 0)) return null;
+    return viewportW / (k * (CARD_W + CARD_GAP_X));
+}
+
+/**
+ * The next rung, or null when there is nowhere to go.
+ *
+ * `dir` is the WHEEL's direction in the reader's terms: negative zooms IN
+ * (fewer steps across), positive zooms OUT (more).
+ *
+ * THE EPSILON IS WHAT MAKES IT STEP RATHER THAN STICK. Landing exactly on a
+ * rung is the normal case — it is where the last notch put you — so "the
+ * largest even below the current count" has to mean strictly below, or every
+ * further notch would re-select the rung the reader is already standing on.
+ *
+ * Rung 2 is LOOSE (`STEPS_ACROSS_LOOSE_FILL`), so the count there reads 2.5
+ * rather than 2. That is deliberate and it behaves: zooming out from it finds 4,
+ * and zooming in finds the floor and stays.
+ */
+export function snapZoomScale(k, viewportW, dir) {
+    const c = columnsAcross(k, viewportW);
+    if (c == null || !Number.isFinite(dir) || dir === 0) return null;
+    const S = SNAP_COLUMNS_STEP;
+    const EPS = 0.01;
+    let n;
+    if (dir < 0) {
+        n = Math.floor((c - EPS) / S) * S;
+        if (n >= c) n -= S;                  // never re-select the current rung
+        n = Math.max(SNAP_COLUMNS_MIN, n);
+    } else {
+        n = Math.ceil((c + EPS) / S) * S;
+        if (n <= c) n += S;
+        n = Math.max(SNAP_COLUMNS_MIN + S, n);
+    }
+    const next = stepsAcrossScale(n, viewportW);
+    // At the floor, zooming in further has nowhere to go — report that rather
+    // than handing back the scale the reader is already at.
+    return next === k ? null : next;
+}
 
 // ── The semantic-level selector (req #3168, user directive 2026-08-01) ─────
 // "in the option bar, show me the L1, L2, L3 and Auto selector used elsewhere" —
@@ -1759,7 +2130,9 @@ export function readableDefaultScale(kFit) {
  * unconditionally — so a kind going dark never moves anything else.
  */
 export function drawsLabelKind(kind, level) {
-    if (kind === 'step' || kind === 'req') return level !== 'out';
+    // `count` rides the CARD (req #3498) — it is drawn in the title area, so it
+    // appears exactly where the card does and never floats beside a bare bead.
+    if (kind === 'step' || kind === 'req' || kind === 'count') return level !== 'out';
     if (kind === 'title') return level === 'in';
     return true;
 }
@@ -2176,11 +2549,17 @@ const truncate = (s, n) => {
     return str.length > n ? `${str.slice(0, n - 1)}…` : str;
 };
 
-// The text drawn ABOVE a bead. NO '#' anywhere — ids render bare (production
+// The text drawn in the card's TITLE AREA (req #3498 — it was above the bead
+// until the step became a card). NO '#' anywhere — ids render bare (production
 // directive), titles render verbatim (stored plan content).
-export function stepLabelText(row, stepLabel, maxChars = STEP_LABEL_MAX) {
+//
+// The default ceiling is the CARD's own text column rather than a hand-set
+// `STEP_LABEL_MAX`: one width, measured where it is drawn, so there is no cap
+// left to drift out of step with the room.
+export function stepLabelText(row, stepLabel,
+    maxChars = cardChars(CHW_LABEL, CARD_CHECK_W + CARD_COUNT_W)) {
     return stepLabel === 'title'
-        ? truncate(row.title || `step ${row.id}`, Math.max(4, Math.min(STEP_LABEL_MAX, maxChars)))
+        ? truncate(row.title || `step ${row.id}`, Math.max(4, maxChars))
         : String(row.id);
 }
 
@@ -2218,7 +2597,7 @@ const titleLookup = (reqTitles, reqId) => {
  * always true.
  */
 export function reqLabelText(reqId, { reqLabel = 'id', reqTitles = null,
-    maxChars = LABEL_MAX_CHARS } = {}) {
+    maxChars = cardChars(CHW_REQ) } = {}) {
     if (reqLabel !== 'title') return String(reqId);
     const t = titleLookup(reqTitles, reqId);
     // The id rides ALONGSIDE the title, not instead of it (user directive) — an
@@ -2228,7 +2607,7 @@ export function reqLabelText(reqId, { reqLabel = 'id', reqTitles = null,
     // the bare id below, so the id survives the cut and the title is what
     // gives way on a tight column — the id is the one piece of this string a
     // reader can always resolve to the actual requirement.
-    return t ? truncate(`${reqId} - ${t}`, Math.max(4, Math.min(LABEL_MAX_CHARS, maxChars)))
+    return t ? truncate(`${reqId} - ${t}`, Math.max(4, maxChars))
         : String(reqId);
 }
 
@@ -2273,11 +2652,12 @@ function epicBandLabelText(epicId, epicName, epicCounts) {
  *                             between the two. A caller that still passes an
  *                             array here silently loses its options, so the
  *                             guard below refuses one loudly instead.
- * @param {('horizontal'|'vertical')} [opts.reqLayout]
- * @param {('id'|'title')} [opts.reqLabel]   what the marks UNDER a bead say
+ * @param {('id'|'title')} [opts.reqLabel]   what a requirement ROW inside the
+ *                             card says. `reqLayout` and `stepWidth` left with
+ *                             req #3498 — a card stacks its requirements and is
+ *                             a fixed width, so neither had anything to select.
  * @param {(Map|Object)} [opts.reqTitles]    requirement id -> title, for 'title'
- * @param {('id'|'title')} [opts.stepLabel]
- * @param {('compact'|'medium'|'wide')} [opts.stepWidth]
+ * @param {('id'|'title')} [opts.stepLabel]  what the card's TITLE AREA says
  * @param {?Object} [opts.timeAxis]  planTimeAxis() output (req #3201). Omitted,
  *                             the axis degenerates to pure dependency depth and
  *                             bands stack by `epics.sort_order` (req #3430),
@@ -2308,12 +2688,11 @@ export function computePlanLayout(rows, opts = {}) {
             + 'removed (req #3371). Drop the second argument from this call.');
     }
     const {
-        reqLayout = 'horizontal', stepLabel = 'id', stepWidth = DEFAULT_STEP_WIDTH,
+        stepLabel = 'id',
         reqLabel = 'id', reqTitles = null, timeAxis = null, epicCounts = null,
         pauseInfo = null,
     } = opts || {};
     const safeRows = Array.isArray(rows) ? rows : [];
-    const widthFactor = stepWidthFactor(stepWidth);
     if (safeRows.length === 0) {
         return {
             width: MIN_WORLD_W, height: 120, bands: [], nodes: new Map(),
@@ -2324,7 +2703,7 @@ export function computePlanLayout(rows, opts = {}) {
             // absent key here would be the one shape that makes the renderer
             // need a null check the other path never exercises.
             ruler: { h: RULER_H, slots: [], futureX: null },
-            reqLayout, stepLabel, stepWidth, reqLabel, empty: true,
+            stepLabel, reqLabel, empty: true,
         };
     }
 
@@ -2335,87 +2714,65 @@ export function computePlanLayout(rows, opts = {}) {
     const { colOf, maxCol, slotKeys, slotOf, origins: slotOrigins } =
         computeTimeColumns(safeRows, byId, depsOf, timeAxis);
 
-    // ── Column widths (the zero-overlap contract, half 1) ───────────────────
-    // A column is as wide as the widest thing DRAWN in it: the one-line req-id
-    // string (horizontal) or the widest single id (vertical), and the step
-    // label — id or truncated title — in either mode.
+    // ── EVERY ROW'S TEXT, WRAPPED, DERIVED ONCE (req #3498) ─────────────────
+    // The card's HEIGHT depends on how many LINES its requirements take, and the
+    // lane sweep, the node boxes and the label emission all need the same
+    // answer. Computing it three times from the same inputs is the shape that
+    // lets a card's box and its contents disagree, so it is computed here and
+    // read everywhere.
+    //
+    // IT IS RESERVED AT EVERY LEVEL AND DRAWN ONLY AT L3, which is the module's
+    // oldest invariant applied to the new line: the level also decides whether
+    // the card is painted at all, so a geometry that changed with it would move
+    // every card on the plan as the reader zoomed. At L2 the row shows the bare
+    // id on the first of its reserved lines and the second sits empty — the same
+    // trade the old reserved title slot made, for the same reason.
+    const reqRowMax = cardChars(CHW_REQ);
+    const rowLinesOf = new Map();      // step id -> [[line, line?], …]
+    for (const r of safeRows) {
+        const ids = r.reqIds || [];
+        rowLinesOf.set(r.id, ids.map((reqId) => wrapReqText(
+            reqLabelText(reqId, {
+                reqLabel, reqTitles, maxChars: reqRowMax * REQ_MAX_LINES,
+            }), reqRowMax)));
+    }
+    const reqBlockOf = (r) => reqBlockHeight(rowLinesOf.get(r.id) || []);
+    // The card's TITLE AREA, wrapped by the same rule and reserved the same way.
+    // `stepLabelText` is asked for the whole name (the budget times the line
+    // count) and `wrapReqText` breaks it; a short name still returns one line,
+    // so only the cards that need the room pay for it.
+    const nameBudget = cardChars(CHW_LABEL, CARD_CHECK_W + CARD_COUNT_W);
+    const nameLinesOf = new Map();
+    for (const r of safeRows) {
+        nameLinesOf.set(r.id, wrapReqText(
+            stepLabelText(r, stepLabel, nameBudget * NAME_MAX_LINES),
+            nameBudget, NAME_MAX_LINES));
+    }
+    const nameLineCount = (r) => (nameLinesOf.get(r.id) || ['']).length;
+
+    // ── Column widths: UNIFORM, AT THE CARD (req #3498) ─────────────────────
+    // Every column is one card wide plus the gutter, and that is the whole rule.
+    //
+    // It used to be "as wide as the widest thing DRAWN in it", which is why this
+    // block measured requirement-id strings and step labels and then multiplied
+    // the result by the S/M/L width factor. Content-sized columns are what made
+    // the world 5800px wide on the live plan, and they are what the stagger
+    // existed to claw room back from. The user's directive replaces the whole
+    // negotiation with a number — *"we need a fixed width... make the card at
+    // req# plus 40 chars wide"* — so a long requirement title now costs VERTICAL
+    // room inside its card instead of pushing every card in its column sideways.
+    //
+    // `colSteps` survives: the lane sweep below still needs to know which steps
+    // share a column, it just no longer asks them how wide they are.
     const colSteps = [];
     for (const r of safeRows) {
         const d = colOf.get(r.id);
         (colSteps[d] ||= []).push(r);
     }
-    // Title-mode step labels are STAGGERED, so a column no longer has to be as
-    // wide as its longest title — the label overflows into the neighbouring
-    // columns, which draw on the other line (req #3119). Sizing columns to full
-    // titles is what made the world 5800px wide on the live plan; the ids and
-    // the layout drive the width now, and the label is fitted to the room it
-    // actually has, below.
-    const staggerLabels = stepLabel === 'title';
+    const COL_W = CARD_W + CARD_GAP_X;
     const colW = [];
-    for (let d = 0; d <= maxCol; d++) {
-        const steps = colSteps[d] || [];
-        const labelW = staggerLabels ? TITLE_COL_MIN
-            : Math.max(0, ...steps.map((r) => stepLabelText(r, stepLabel).length * CHW_LABEL + 16));
-        let w;
-        if (reqLayout === 'horizontal') {
-            w = Math.max(COL_MIN_W_HORIZONTAL, labelW,
-                ...steps.map((r) => reqStr(r).length * CHW_REQ + 30));
-        } else {
-            w = Math.max(COL_MIN_W_VERTICAL, labelW,
-                ...steps.map((r) => Math.min(reqStr(r).length, 6) * CHW_REQ + 40));
-        }
-        // The user's width choice (req #3168) applies HERE, after the content
-        // minimum has been established — see STEP_WIDTH_FACTORS.
-        colW.push(w * widthFactor);
-    }
-    // How much horizontal room a STAGGERED label at depth d may occupy: its own
-    // column plus a bounded reach into each neighbour. Ends have one neighbour.
-    // At the ends there is no neighbouring column, but there IS margin: the
-    // left gutter the lane wires start after, and the right padding the world
-    // width already reserves. Bounding by those keeps a d=0 label out of the
-    // gutter instead of letting a wide colW[1] push it off the world.
-    const staggerBudget = (d) => {
-        const left = d > 0 ? colW[d - 1] : LEFT;
-        const right = d < maxCol ? colW[d + 1] : RIGHT + 40;
-        return colW[d] + 2 * STAGGER_REACH * Math.min(left, right);
-    };
-    const staggerOf = (d) => (d % STAGGER_PHASES) * STAGGER_GAP;
+    for (let d = 0; d <= maxCol; d++) colW.push(COL_W);
 
-    // ── Requirement titles get their own swim lane per column (user directive
-    //    2026-08-01, generalized to requirement COUNT req #3362) ────────────────
-    // A requirement TITLE is ~17 characters where an id was 4, and the column is
-    // frozen — so a title is boxed by its own slab and there is nothing left to
-    // give it. The step label above the bead solved exactly this problem in req
-    // #3119 and the answer is reusable: give a column its own line, so a mark and
-    // its left/right neighbours are never drawn at the same height, and each may
-    // then overflow its own column into the room beside it.
-    //
-    // req #3119 gave that line to ODD COLUMNS by pure parity, and restricted it
-    // to a run of LONE marks (nMarks === 1) — a stack of N occupies N consecutive
-    // lines, and a flat one-line offset only clears a neighbour that is itself
-    // one line tall. A step with more than one requirement stayed column-bound at
-    // whatever colW affords, never the 40-character ceiling a lone mark could
-    // reach (req #3362 finding).
-    //
-    // The fix is the same idea, sized to the actual neighbour instead of a flat
-    // line: which column owns line 0 (the "higher" swim lane) is now decided by
-    // WHO HAS FEWER REQUIREMENTS, not by parity — the fewer-marks column reaches
-    // into its busier neighbour unshifted, and the busier column is pushed down
-    // far enough to clear the whole of what reached into it. A tie (equal counts,
-    // the original run-of-1 case) still resolves by parity, so a uniform run is
-    // byte-identical to the pre-#3362 layout. See the per-band `reqOffsets` sweep
-    // (below, in the lane-assignment loop) for the derivation — it needs each
-    // lane's final occupant map, which does not exist yet at this point in the
-    // module, so the offset itself is band-local and read back through
-    // `band.reqOffsets` where the requirement marks are drawn.
-    //
-    // The reach itself is UNCHANGED: bounded to the immediate neighbour only
-    // (`staggerBudget`, `STAGGER_REACH` below), so the pairwise proof the step
-    // labels already carry still holds — only SAME-parity columns (d±2) share a
-    // line, they intrude on the shared column d±1 from opposite sides, and
-    // STAGGER_REACH 0.4 per side cannot meet. Only WHICH line a stack starts on
-    // changed, never how far sideways it may reach.
-    const staggerReqs = reqLabel === 'title' && reqLayout !== 'horizontal';
     const colX = [];
     {
         let acc = LEFT;
@@ -2754,10 +3111,48 @@ export function computePlanLayout(rows, opts = {}) {
                     .filter((v) => v !== undefined);
                 if (anchors.length > 0) {
                     const al = Math.min(...anchors);
-                    const below = [...lanesUsed]
-                        .filter((v) => v > al)
-                        .sort((p, q) => p - q)[0];
-                    lane = below === undefined ? al + 1 : (al + below) / 2;
+                    // ── RE-USE BEFORE YOU INSERT (req #3498) ────────────────
+                    // THIS IS THE VERTICAL COMPRESSION THE REQUIREMENT ASKED
+                    // FOR, and until now a branch never got it. A step that
+                    // could not inherit one of its dependencies' lanes went
+                    // straight to the insertion below and opened a BRAND NEW
+                    // lane — every time, whether or not a lane this band had
+                    // already opened was standing empty at that column.
+                    //
+                    // MEASURED on live plan 7's "First Principles Pipeline":
+                    // **17 lanes for work that never puts more than 5 steps in
+                    // one column**, six of those lanes holding a single card
+                    // and still taking their full height across all 40 columns.
+                    // The band was 2,827px tall.
+                    //
+                    // The requirement's own words are *"over time there is an
+                    // ability to re-use swim lanes making the parallel threads
+                    // of epics to have better vertical compression"* — a lane
+                    // whose chain has finished is free for a later one, exactly
+                    // as the Build Visualizer packs its branches.
+                    //
+                    // NEAREST TO THE PARENT FIRST, which is the other half of
+                    // the same sentence (*"produce branches into adjacent swim
+                    // lanes"*): a branch belongs beside the thread it came
+                    // from, so proximity to the anchor orders the search and
+                    // the lane's own value breaks ties. `laneOk` is the SAME
+                    // predicate the dep-less scan already trusts — cell free,
+                    // arc corridors clear, no shallower bead still owing an arc
+                    // past this column — so re-use cannot admit a placement
+                    // that path would refuse.
+                    const candidates = [...lanesUsed]
+                        .filter((v) => v !== al)
+                        .sort((p, q) => Math.abs(p - al) - Math.abs(q - al)
+                            || p - q);
+                    for (const cand of candidates) {
+                        if (laneOk(r, d, cand)) { lane = cand; break; }
+                    }
+                    if (lane === null) {
+                        const below = [...lanesUsed]
+                            .filter((v) => v > al)
+                            .sort((p, q) => p - q)[0];
+                        lane = below === undefined ? al + 1 : (al + below) / 2;
+                    }
                 } else {
                     lane = 0;
                     while (!laneOk(r, d, lane)) lane += 1;
@@ -2793,144 +3188,58 @@ export function computePlanLayout(rows, opts = {}) {
             used.set(dd, remapped);
         }
         const sub = Math.max(1, ...steps.map((r) => laneById.get(r.id) + 1));
-        const maxReqs = Math.max(1, ...steps.map((r) => (r.reqIds || []).length));
 
-        // ── Requirement-count swim lanes (req #3362) ────────────────────────
-        // TITLE mode only. Before this, only a LONE mark (nMarks === 1) ever
-        // spent the stagger budget, and only inside a run where both same-lane
-        // neighbours were themselves lone marks — a stack of N drew column-bound
-        // at whatever colW affords (as low as 18 characters on this fixture),
-        // never the 40-character ceiling every other combination can reach. The
-        // restriction existed because the OLD offset was a flat one line
-        // (`(d % 2) * REQ_LINE_H`): fine for separating two 1-line blocks, not
-        // enough to clear a taller neighbour's stack.
-        //
-        // Generalized: every occupied depth is given the number of lines its OWN
-        // stack must start on, so a stack of N clears a neighbour of any height
-        // rather than a flat one line clearing only a one-line neighbour.
-        //
-        // req #3362 did that with two heuristic sweeps keyed on WHO REACHES WHOM
-        // (fewer marks reaches, more marks does not) with parity breaking ties.
-        // req #3365 replaced them with a single greedy first-fit — see the sweep
-        // itself for why the reaching/not-reaching question stopped existing once
-        // `STAGGER_REACH` passed 0.5 and every column began overlapping its two
-        // nearest neighbours per side.
-        //
-        // Reach is symmetric and BOUNDED to the immediate neighbour (`R < 1`, so
-        // a label cannot physically cross a whole column) — this decides only
-        // WHICH line a stack starts on, never how far sideways it may reach.
-        // Raw count, deliberately NOT `Math.max(1, …)` (found in review) — a
-        // req-less step draws zero requirement marks (`laneReqs` below sizes
-        // it that way too), so it must read as zero lines to a neighbour's
-        // sweep as well, or a neighbour would be pushed down to clear a line
-        // this step never actually occupies.
-        const countAt = (lane, d) => {
-            const occ = used.get(d)?.get(lane);
-            if (occ === undefined || occ === RESERVED) return 0;
-            return (byId.get(occ)?.reqIds || []).length;
-        };
-        // ── ONE GREEDY FIRST-FIT, NOT TWO HEURISTIC SWEEPS (req #3365) ──────
-        // The two-sweep max above answered "which of US two reaches the other?"
-        // — a question that only exists while a column overlaps exactly ONE
-        // neighbour per side. At `STAGGER_REACH` 0.85 every column overlaps its
-        // TWO nearest neighbours per side (`d` and `d+2` both reach into `d+1`
-        // and, at 0.85 against 0.15 of the remaining slab, into each other), so
-        // the constraint is now flatly: any two columns within 2 of each other
-        // must occupy DISJOINT line ranges. There is no reaching/not-reaching
-        // asymmetry left to exploit and no tie to break by parity.
-        //
-        // Left to right, each column takes the LOWEST line range that clears the
-        // previous `STAGGER_PHASES − 1` columns. That is not a heuristic — it is
-        // exact for this constraint: the relation is symmetric and spans a fixed
-        // window, so every constrained pair is checked exactly once, when the
-        // later of the two is placed. It also RECYCLES: after a run of tall
-        // stacks the window slides past them and the next column drops back to
-        // line 0, so a wide band does not accumulate offset without bound the
-        // way a chained rule does. Worst case is `STAGGER_PHASES` stacks of
-        // vertical space in one lane, which `laneReqs` below then reserves.
-        //
-        // A zero-count column is SKIPPED, not placed at 0 (req #3362's review
-        // finding, still load-bearing): a step with no requirements draws no
-        // marks, so it occupies no lines and must not push a neighbour down.
-        const reqOffsets = new Map(); // depth -> Map(lane -> offset, in REQ_LINE_H units)
-        if (staggerReqs) {
-            for (const lane of new Set(steps.map((r) => laneById.get(r.id)))) {
-                // depth -> [start, end) in REQ_LINE_H units, for the window only
-                const placed = new Map();
-                for (let d = 0; d <= maxCol; d++) {
-                    const own = countAt(lane, d);
-                    if (own === 0) continue;
-                    const blockers = [];
-                    for (let j = 1; j < STAGGER_PHASES; j++) {
-                        const p = placed.get(d - j);
-                        if (p) blockers.push(p);
-                    }
-                    blockers.sort((a, b) => a[0] - b[0]);
-                    let start = 0;
-                    for (const [bs, be] of blockers) {
-                        // Ranges are half-open, so touching is not overlapping:
-                        // a stack ending on line 3 and one starting on line 3
-                        // are adjacent, which is what REQ_LINE_H's own spacing
-                        // is for.
-                        if (start + own <= bs) break;      // fits in the gap
-                        if (be > start) start = be;
-                    }
-                    placed.set(d, [start, start + own]);
-                    if (!reqOffsets.has(d)) reqOffsets.set(d, new Map());
-                    reqOffsets.get(d).set(lane, start);
-                }
-            }
-        }
+        // ── THE REQUIREMENT SWIM-LANE SWEEP IS GONE (req #3498) ─────────────
+        // `countAt` plus a greedy first-fit used to push a column's requirement
+        // stack down far enough to clear the stacks of the columns within the
+        // stagger window, because those stacks OVERFLOWED their columns and
+        // could otherwise land on each other. Requirement rows are inside a card
+        // now — clipped to `CARD_TEXT_W`, gapped from the next card by
+        // `CARD_GAP_X` — so two columns' rows cannot reach each other at any
+        // count, and there is nothing left to offset. `band.reqOffsets` goes
+        // with it; the marks are placed from the card's own top edge below.
 
-        // Lane pitch (zero-overlap contract, half 2): the vertical envelope of
-        // one lane — step label above, bead, req ids below, then the reserved
-        // title slot — never reaches the next lane's label.
+        // ── LANE PITCH IS THE TALLEST CARD IN THE LANE (req #3498) ──────────
+        // The zero-overlap contract's second half, and it got much simpler. A
+        // lane's envelope used to be assembled from parts that did not belong to
+        // each other — a step label floating above the bead, the bead, the
+        // requirement stack below it, a reserved title slot below that, plus a
+        // stagger line — and the pitch had to reserve the deepest of each. All
+        // of those are now ONE box whose height `cardHeight` already knows, so
+        // the pitch is that box plus the gap, and nothing else.
         //
-        // PER-LANE since req #3119. In 'vertical' mode a lane is as tall as ITS
-        // OWN deepest requirement stack, not as tall as the band's. One 5-req
-        // step used to set the pitch for every lane in its band: in the live
-        // Substrate plan that made all nine lanes of "Swarm Substrate Rebuild"
-        // 120px tall to accommodate step 1, when eight of them carry a single
-        // requirement and need 72 — ~380px of dead vertical space in one band,
-        // and the whole plan taller than the panel for no reason. 'horizontal'
-        // keeps a constant pitch because its req ids sit on ONE line whatever
-        // the count, so there is nothing lane-specific to measure.
+        // PER-LANE, exactly as req #3119 made it: a lane is as tall as ITS OWN
+        // tallest card, never as tall as the band's. That is what stops one
+        // five-requirement step setting the pitch for eight single-requirement
+        // lanes beneath it (~380px of dead space in one band on the live plan,
+        // which is the measurement that bought the per-lane rule in the first
+        // place).
         //
-        // Includes the swim-lane OFFSET (req #3362), not just the step's own
-        // count — a stack pushed down to clear a busier neighbour needs its
-        // lane to reserve the room it was pushed INTO, or it runs into the next
-        // lane down exactly the way an un-pushed 5-req stack used to.
-        const laneReqs = new Map();
+        // THE FALLBACK IS UNREACHABLE, AND IS KEPT AS A FLOOR RATHER THAN AS A
+        // CLAIM. The renumber above maps the set of OCCUPIED lane values onto
+        // `0..sub-1`, so every lane in that range has at least one card and this
+        // `||` never fires. (An earlier version of this comment said an empty
+        // lane was reachable through the fractional insert path; it is not —
+        // the insert is renumbered away in the same loop.) It stays because a
+        // zero pitch would stack two lanes on one y, and because `laneY` is
+        // built by iterating the range rather than the map. Any consumer
+        // reading `laneCardH` must use THIS fallback, not `|| 0`.
+        const laneCardH = new Map();
         for (const r of steps) {
             const lane = laneById.get(r.id);
-            const d = colOf.get(r.id);
-            const n = (r.reqIds || []).length + (reqOffsets.get(d)?.get(lane) || 0);
-            if (n > (laneReqs.get(lane) || 0)) laneReqs.set(lane, n);
+            const h = cardHeight(reqBlockOf(r), stepLabel, nameLineCount(r));
+            if (h > (laneCardH.get(lane) || 0)) laneCardH.set(lane, h);
         }
-        // The stagger costs one extra line per lane, and it is charged ONCE
-        // because the two staggered things are mutually exclusive: in 'title'
-        // mode the step label above the bead staggers and the title slot is not
-        // drawn at all; in 'id' mode the label is a 4-digit id that never needed
-        // the room and the title slot below staggers instead.
-        // One extra line when requirement titles stagger: odd columns push their
-        // whole block down by REQ_LINE_H, and the lane has to own that line or
-        // the deepest stack in an odd column runs into the lane below.
-        const lanePitch = (lane) => (reqLayout === 'vertical'
-            // 72 = 47 + REQ_LINE_H, and the 47 is what the reserved TITLE SLOT
-            // costs past the lane's last requirement line: the slot sits
-            // `laneN · REQ_LINE_H` below the bead while this pitch reserves
-            // `(laneN − 1) · REQ_LINE_H`, so the constant carries the missing
-            // line. It moved 67 → 72 when req #3365 doubled the stack's
-            // whitespace, for exactly that reason — measured first as the
-            // previous lane's slot landing 3.5px into the next lane's step
-            // label, caught by the zero-overlap contract.
-            ? 72 + (Math.max(1, laneReqs.get(lane) || 1) - 1) * REQ_LINE_H
-            : LANE_BASE_H) + TITLE_SLOT + STAGGER_SPAN
-            + (staggerReqs ? REQ_LINE_H : 0);
+        // THE RESPECTFUL GAP (user directive: *"there has to be a respectful gap
+        // / white space but otherwise we want the compression"*). It is charged
+        // once per lane, below the card, so two vertically adjacent cards are
+        // always `CARD_GAP_Y` apart whatever their heights.
+        const lanePitch = (lane) =>
+            (laneCardH.get(lane) || cardHeight(0, stepLabel, 1)) + CARD_GAP_Y;
         // Cumulative lane tops, so a lane's y is the SUM of the lanes above it
         // rather than index × a single pitch. `laneY` is exported on the band:
         // every consumer that draws per-lane furniture (the visualizer's lane
-        // wires) must use it or the wires detach from the beads.
+        // wires) must use it or the wires detach from the cards.
         const laneY = [];
         {
             let acc = 0;
@@ -2938,27 +3247,23 @@ export function computePlanLayout(rows, opts = {}) {
             laneY.push(acc); // sentinel: total lane height
         }
         // Retained for consumers that want a representative pitch; band height
-        // now comes from laneY, never from sub × pitch.
+        // comes from laneY, never from sub × pitch.
         const pitch = lanePitch(0);
-        // EVERY BAND TAKES THE SAME HEADER (req #3371). A band hosting launch-
-        // unit members used to take 16px more, reserving the letter's fallback
-        // strip and keeping a launch rectangle's top clear of the epic label — a
-        // collision found in review on long epic titles. No rectangle, no
-        // letter, no reservation, so a plan is 16px shorter per band that used
-        // to host one.
-        // The header still absorbs the stagger, and ONLY in title mode: lane 0's
-        // step label is what gets LIFTED on odd columns (req #3119), and without
-        // the extra line it rises into the epic label — a collision the overlap
-        // invariant caught. In id mode nothing above the bead moves (the title
-        // slot staggers DOWNWARD instead), so charging the header there would be
-        // 14px of dead space per band in the default view.
-        const headerH = BAND_HEADER + (staggerLabels ? STAGGER_SPAN : 0);
+        // EVERY BAND TAKES THE SAME HEADER, AND NOTHING REACHES INTO IT ANY MORE
+        // (req #3498). The header used to absorb the stagger in title mode, and
+        // `epicLaneH` had to subtract `STEP_LABEL_RISE` on top of that, because a
+        // lane-0 step label floated ABOVE its bead and reached back up into the
+        // header — the "off-by-a-reservation" this constant's own history is made
+        // of. A card starts AT its lane's top and nothing is drawn above it, so
+        // the header's clear strip is now the header itself.
+        const headerH = BAND_HEADER;
         // The EPIC'S OWN LANE: the part of the header no step content can reach.
-        // Derived, never assumed — see BAND_HEADER. Consumers that place the epic
-        // name (the visualizer's floating chip) clamp to THIS, not to headerH.
-        const epicLaneH = headerH - STEP_LABEL_RISE - (staggerLabels ? STAGGER_SPAN : 0);
-        bands.push({ ...band, steps, sub, maxReqs, pitch, laneY, laneReqs,
-            headerH, epicLaneH, reqOffsets });
+        // That is the whole header now — kept as a named field because the
+        // visualizer's floating epic chip clamps to THIS rather than re-deriving
+        // it, and the two must not drift apart again.
+        const epicLaneH = headerH;
+        bands.push({ ...band, steps, sub, pitch, laneY, laneCardH,
+            headerH, epicLaneH });
         bandUsed.push(used);
     }
     // The ruler's reservation, charged ONCE and unconditionally (see RULER_H).
@@ -2972,18 +3277,81 @@ export function computePlanLayout(rows, opts = {}) {
     }
     const totalH = y + 8;
 
-    // ── Node positions ──────────────────────────────────────────────────────
+    // ── Node positions: A NODE IS A BOX (req #3498) ─────────────────────────
+    // `x`/`y` remain the node's CENTRE, and that is deliberate rather than
+    // incidental: the user asked for the steps to be *"linked from their
+    // midpoints"*, so the centre is exactly what every arc, focus rect and hit
+    // test already wants, and keeping the two field names meaning what they
+    // always meant is what lets the arc routing below stay untouched.
+    //
+    // The box comes with it — `w`/`h` and the `left`/`top` corner — because a
+    // card is drawn from its corner while it is CONNECTED at its edge midpoints,
+    // and making every consumer re-derive one from the other is how two copies
+    // of a number start disagreeing.
+    //
+    // ── CARDS IN ONE LANE ARE CENTRE-ALIGNED, AND THAT IS LOAD-BEARING ──────
+    // A card's height grows with its requirement count, so cards in one lane are
+    // different heights. Top-aligning them reads well — the title areas line up
+    // across a lane — but it puts every card's MIDPOINT at a different y, and
+    // the midpoints are what the arcs connect. A one-requirement step feeding a
+    // three-requirement step in the SAME lane would stop being a straight line
+    // and become a cubic, so a chain running along its own lane — *"the primary
+    // threads of execution stay in the swim lane"* — would zigzag between every
+    // pair of cards for no reason a reader could see.
+    //
+    // Centred, every card in a lane shares one midpoint y: same-lane links are
+    // straight, the lane wire runs exactly through every card it passes, and a
+    // curve means what it should mean — a BRANCH into another lane.
     const nodes = new Map();
     bands.forEach((band, bandIndex) => {
         for (const r of band.steps) {
             const d = colOf.get(r.id);
+            const lane = laneById.get(r.id);
+            const h = cardHeight(reqBlockOf(r), stepLabel, nameLineCount(r));
+            const laneH = band.laneCardH.get(lane) || h;
+            // ── THE MIDPOINT IS COMPUTED FIRST, AND THE CORNER FROM IT ──────
+            // Algebraically `top + h/2` and `laneTop + laneH/2` are the same
+            // number; in floating point they are not. Deriving the centre from
+            // the card's own height gave two cards in one lane midpoints one ULP
+            // apart (measured after the type scale made the constants
+            // non-terminating: 1835.9499999999998 vs 1835.95), and the arc
+            // router tests `y1 === y2` EXACTLY to decide whether a link is
+            // straight — so a chain running along its own lane would have
+            // silently become a row of imperceptible S-curves.
+            //
+            // Computing the lane's centre once and hanging the corner off it
+            // makes every card in the lane share one `y` bit-for-bit, which is
+            // what the straight-link rule actually depends on.
+            const laneTop = band.y + band.headerH + band.laneY[lane];
+            const cy = laneTop + laneH / 2;
+            const top = cy - h / 2;
             nodes.set(r.id, {
                 id: r.id,
                 x: colX[d],
-                y: band.y + band.headerH + band.laneY[laneById.get(r.id)]
-                    + BEAD_LANE_OFFSET,
+                y: cy,
+                w: CARD_W,
+                h,
+                left: colX[d] - CARD_W / 2,
+                right: colX[d] + CARD_W / 2,
+                top,
+                bottom: top + h,
+                // The card's TITLE AREA height. Published because the step name
+                // may wrap (req #3498), so it varies per card and the renderer
+                // must not re-derive it — the rule under the title and the
+                // card's activate region are both placed from this number, and
+                // a second derivation is how a divider and the text it divides
+                // start disagreeing.
+                titleH: cardTitleH(stepLabel, nameLineCount(r)),
+                // ── THE FRAME'S OWN BOX (req #3498) ─────────────────────────
+                // The rounded rect does NOT start at `left`: the state bar owns
+                // the strip before it. Published so every consumer reads one
+                // answer — the halo, the hover region and the activate region
+                // each re-derived it from `left`/`w` and each was silently a
+                // bar's width too wide once the bar moved outside the frame.
+                frameLeft: colX[d] - CARD_W / 2 + CARD_FRAME_X,
+                frameW: CARD_FRAME_W,
                 depth: d,
-                lane: laneById.get(r.id),
+                lane,
                 bandIndex,
             });
         }
@@ -3018,9 +3386,15 @@ export function computePlanLayout(rows, opts = {}) {
             const a = nodes.get(dId);
             const b = nodes.get(r.id);
             if (!a || !b) continue;
-            const x1 = a.x + BEAD_R + 1;
+            // FROM THE MIDPOINTS (req #3498, user directive). `a.y`/`b.y` are
+            // the cards' vertical centres and `± w/2` their left and right
+            // edges, so an arc leaves one card's right-edge midpoint and lands
+            // on the next card's left-edge midpoint. The 1px is the same hair of
+            // clearance the bead radius carried, so the stroke starts beside the
+            // card's border rather than under it.
+            const x1 = a.x + a.w / 2 + 1;
             const y1 = a.y;
-            const x2 = b.x - BEAD_R - 1;
+            const x2 = b.x - b.w / 2 - 1;
             const y2 = b.y;
             if (y1 === y2) {
                 arcs.push({
@@ -3046,14 +3420,29 @@ export function computePlanLayout(rows, opts = {}) {
             // every arc of every layout, it was dead weight the moment the pass
             // was, so it goes with it rather than waiting to be rediscovered as
             // a field nobody reads.
+            // ── THE BEND IS THE GUTTER (req #3498, review finding) ─────────
+            // It was `colW * 0.9`, and that was right while a column was mostly
+            // air: a 158px column holding a 20px bead had ~140px of free run to
+            // turn in. A column is a CARD now, so `colW * 0.9` is 447px of
+            // descent against 90px of actual free space — the curve completed
+            // its dive INSIDE the next column's card, which paints over it.
+            // Measured on the 34-row fixture: 2 arc/card crossings before, 9
+            // after, all 7 new ones on this branch.
+            //
+            // `CARD_GAP_X` is the entire horizontal room an arc has between two
+            // cards, so the descent is bounded by it and completes in the gutter
+            // where nothing is drawn. On the adjacent-column case this is
+            // exactly what the old expression already produced by coincidence
+            // (`x2 - x1` bound it to 88), which is why those arcs crossed
+            // nothing and the distant ones did.
+            const gutter = Math.max(40, CARD_GAP_X - 2);
+            const bend = Math.min(gutter, Math.max(40, x2 - x1));
             let path;
             if (late) {
-                const bend = Math.min((colW[b.depth] || 110) * 0.9, Math.max(40, x2 - x1));
                 const xb = Math.max(x1, x2 - bend);
                 path = `M${x1},${y1} L${xb},${y1} C${xb + bend * 0.45},${y1} `
                     + `${xb + bend * 0.55},${y2} ${x2},${y2}`;
             } else {
-                const bend = Math.min((colW[a.depth] || 110) * 0.9, Math.max(40, x2 - x1));
                 path = `M${x1},${y1} C${x1 + bend * 0.45},${y1} ${x1 + bend * 0.55},${y2} `
                     + `${x1 + bend},${y2} L${Math.max(x2, x1 + bend)},${y2}`;
             }
@@ -3070,155 +3459,125 @@ export function computePlanLayout(rows, opts = {}) {
     const labels = [];
     for (const r of safeRows) {
         const n = nodes.get(r.id);
-        // A staggered title label is fitted to its budget (own column + a
-        // bounded reach into each neighbour) and lifted one line on odd columns.
-        // Fitted to the budget the FROZEN geometry provides, then capped at the
-        // 35-character ceiling. Both halves matter: the budget is what stops a
-        // label overrunning its neighbours (the zero-overlap proof), the ceiling
-        // is the user's number, and neither is allowed to move a column.
-        const labelMax = staggerLabels
-            ? Math.min(LABEL_MAX_CHARS,
-                Math.floor((staggerBudget(n.depth) - 8) / CHW_LABEL))
-            : STEP_LABEL_MAX;
-        const label = stepLabelText(r, stepLabel, labelMax);
-        const lw = label.length * CHW_LABEL;
+        // ── THE STEP NAME, IN THE CARD'S TITLE AREA (req #3498) ─────────────
+        // It floated 34px ABOVE the bead until now, fitted to a stagger budget
+        // assembled from the neighbouring columns. It sits inside the card's own
+        // title area instead, fitted to the card, LEFT-ALIGNED on the text
+        // column: a row of centred titles over left-aligned requirement rows
+        // reads as two different lists, and the title is the thing a reader scans
+        // down a lane.
+        // The ✓'s room AND the count's come off the top (CARD_CHECK_W,
+        // CARD_COUNT_W): both are drawn at the title area's right edge, so a
+        // budget that ignored them would put the step name under them.
+        const nameLines = nameLinesOf.get(r.id) || [''];
+        const label = nameLines.join(' ');
+        const lw = Math.max(...nameLines.map((l) => l.length)) * CHW_LABEL;
+        const textLeft = n.left + CARD_FRAME_X + CARD_PAD_X;
         labels.push({
             kind: 'step', stepId: r.id, text: label,
+            // The lines AS DRAWN, so the renderer never re-wraps — the same
+            // contract the requirement rows carry.
+            lines: nameLines,
             // In `title` mode this label IS the step's stored name.
-            prose: staggerLabels,
-            x: n.x - lw / 2,
-            // `STEP_LABEL_RISE + BEAD_LANE_OFFSET` — the 34 that constant
-            // derives from, read back rather than re-typed.
-            y: n.y - (STEP_LABEL_RISE + BEAD_LANE_OFFSET)
-                - (staggerLabels ? staggerOf(n.depth) : 0),
-            w: lw, h: 17,
+            prose: stepLabel === 'title',
+            x: textLeft,
+            y: n.top + CARD_PAD_Y,
+            w: lw, h: nameLines.length * CARD_LINE_H,
         });
         const ids = r.reqIds || [];
-        // THE COLUMN IS NOT RESIZED FOR A TITLE — the geometry is frozen (see
-        // LABEL_MAX_CHARS), so the room a requirement mark gets is whatever its
-        // column already has, and the text is truncated into it. That is also
-        // what keeps the `req labels stay inside their column slab` invariant
-        // true by construction rather than by luck. `- 6` is the same hair of
-        // margin the id path effectively had from its own `+ 30`/`+ 40` padding.
+        // ── THE REQUIREMENT ROWS, TOP TO BOTTOM, IN ORDER ───────────────────
+        // *"the requirements listed top to bottom inside the card in the order"*.
+        // `reqIds` order is the order — this module does not re-sort it (that is
+        // `sortReqIdsByStatus`' job, and its caller's choice).
         //
-        // In `horizontal` the whole requirement LIST shares one line, so N marks
-        // share the column and each gets 1/N of it. With titles that is unusable
-        // past a single requirement, which is why the CONTROL does not offer
-        // horizontal + titles (see REQ_VIEWS) — the module still handles the
-        // combination correctly rather than trusting every caller not to ask.
-        // …and the SEPARATORS are part of that room. In `horizontal` the marks
-        // are drawn as `texts.join(' ')`, so N marks also cost (N−1) mono
-        // spaces. Dividing the column by N alone budgets the text and forgets
-        // the glue: measured on the Substrate fixture, that put a 3-requirement
-        // step's title row 14.4px OUTSIDE its own column slab — the exact
-        // invariant this module asserts — while the truncation looked correct at
-        // every individual mark. The id path was never affected (a column is
-        // sized from `reqIds.join(' ')`, spaces included) and `vertical` has no
-        // separators at all, so this term is zero everywhere except the
-        // combination the CONTROL withholds — which is precisely the branch a
-        // "the module handles it anyway" claim has to be true for.
-        const nMarks = Math.max(1, ids.length);
-        const perReq = reqLayout === 'horizontal' ? nMarks : 1;
-        const gaps = reqLayout === 'horizontal' ? (nMarks - 1) * CHW_REQ : 0;
-        const band = bands[n.bandIndex];
-        // Every staggered title spends the stagger budget now — its own column
-        // plus a bounded reach into each neighbour — regardless of stack height
-        // (req #3362). Safe because `band.reqOffsets` (computed in the
-        // lane-assignment loop above) already placed this stack on the lines
-        // its neighbours cannot reach: a busier neighbour was pushed down far
-        // enough to clear us if we're the fewer side, or we were if it is.
-        const widened = staggerReqs;
-        const reqRoom = widened ? staggerBudget(n.depth) : colW[n.depth];
-        const reqMax = Math.max(1,
-            Math.floor((reqRoom - 6 - gaps) / (CHW_REQ * perReq)));
+        // There is ONE room now, and it is the card's text column. The old code
+        // had to compute a per-mark budget out of the column width, the stagger
+        // reach, the mark count and — in `horizontal` — the mono spaces gluing
+        // the marks together, which is the arithmetic that once put a 3-req
+        // step's row 14.4px outside its own column slab. A row is one line in a
+        // fixed-width box; there is nothing left to divide.
         const showTitles = reqLabel === 'title';
-        const reqDy = (band.reqOffsets.get(n.depth)?.get(n.lane) || 0) * REQ_LINE_H;
-        const texts = ids.map((reqId) => reqLabelText(reqId,
-            { reqLabel, reqTitles, maxChars: reqMax }));
-        if (reqLayout === 'horizontal') {
-            const totalReqW = (texts.join(' ').length) * CHW_REQ;
-            let rx = n.x - totalReqW / 2;
-            texts.forEach((t, i) => {
-                const w = t.length * CHW_REQ;
-                labels.push({
-                    kind: 'req', stepId: r.id, reqId: ids[i], text: t,
-                    // A TITLE is stored user content and renders verbatim; an id
-                    // is generated. The no-'#' audit keys on this flag rather
-                    // than on `kind`, so a mark that switched from generated to
-                    // prose cannot silently change which side of that line it is
-                    // on (PIPE-07).
-                    prose: showTitles,
-                    x: rx, y: n.y + 14, w, h: 14,
-                });
-                rx += w + CHW_REQ; // one mono space between marks
+        const rowsTop = n.top + cardTitleH(stepLabel, nameLines.length)
+            + CARD_RULE_BAND;
+        // The wrapped lines this step's rows occupy — derived once at the top of
+        // this function, so the box that was measured and the text drawn into it
+        // are the same answer.
+        const rowLines = rowLinesOf.get(r.id) || [];
+        let rowY = rowsTop;
+        rowLines.forEach((lines, i) => {
+            const w = Math.max(...lines.map((l) => l.length)) * CHW_REQ;
+            const t = lines.join(' ');
+            const thisY = rowY;
+            // The next row starts below THIS row's lines plus the between-rows
+            // gap — the two quantities `reqBlockHeight` charges, walked in the
+            // same order so the boxes and the block height cannot disagree.
+            rowY += lines.length * REQ_LINE_H + REQ_ROW_GAP;
+            labels.push({
+                kind: 'req', stepId: r.id, reqId: ids[i], text: t,
+                // The lines AS DRAWN, so the renderer never re-wraps. `text` is
+                // kept as the joined string because the overlap sweep, the
+                // no-'#' audit and the hover regions all read it.
+                lines,
+                // A TITLE is stored user content and renders verbatim; an id is
+                // generated. The no-'#' audit keys on this flag rather than on
+                // `kind`, so a mark that switched from generated to prose cannot
+                // silently change which side of that line it is on (PIPE-07).
+                prose: showTitles,
+                x: textLeft,
+                y: thisY,
+                // The box spans EVERY line the row occupies — the zero-overlap
+                // sweep and the hover region both have to cover the whole row,
+                // not just its first line.
+                w, h: REQ_TEXT_H + (lines.length - 1) * REQ_LINE_H,
+                // ── The id, alongside the title (user directive 2026-08-01:
+                //    "L3 can have the req titles on by default")
+                // The mark shows the ID at L1/L2 and the TITLE at L3, and the
+                // RENDERER picks — not the layout. Relayouting on a level change
+                // would break this module's oldest invariant, and now that the
+                // level also decides whether the card is drawn at all, breaking
+                // it would move every card on the plan as the reader zoomed.
+                // Both strings are left-anchored at the same x and the id is
+                // strictly narrower, so it cannot leave a box the title fits.
+                idText: String(ids[i]),
+                idW: String(ids[i]).length * CHW_REQ,
             });
-        } else {
-            texts.forEach((t, i) => {
-                const w = t.length * CHW_REQ;
-                labels.push({
-                    kind: 'req', stepId: r.id, reqId: ids[i], text: t,
-                    prose: showTitles,
-                    // Ids keep their historical left-anchored offset so an
-                    // existing reader's plan is byte-identical; a title is
-                    // CENTRED, because a 17-character mark hung off `n.x - 15`
-                    // would leave its own column slab on the right.
-                    x: showTitles ? n.x - w / 2 : n.x - 15,
-                    y: n.y + 14 + reqDy + i * REQ_LINE_H, w, h: 14,
-                    // ── The id, alongside the title (user directive
-                    //    2026-08-01: "L3 can have the req titles on by default")
-                    // The mark shows the ID at L1/L2 and the TITLE at L3, and
-                    // the renderer picks — NOT the layout. Relayouting on a zoom
-                    // change would break this module's oldest invariant (a level
-                    // change is a pure transform, never a new geometry), and it
-                    // would do it visibly: the staggered lane is one line taller
-                    // in title mode, so every bead below would jump as you
-                    // zoomed. Reserving the TITLE's box at every level and
-                    // drawing the shorter id inside it costs nothing — the id is
-                    // centred on the same point and is strictly narrower, so it
-                    // cannot leave a box the title already fits.
-                    idText: String(ids[i]),
-                    idW: String(ids[i]).length * CHW_REQ,
-                });
+        });
+        // ── THE TOTAL REQUIREMENT COUNT (user directive: "Provide a count") ──
+        // Right-aligned in the title area, in the room `CARD_COUNT_W` reserved
+        // out of the step name's budget. Emitted for EVERY card including the
+        // empty one — "(0)" is a fact about the step, and a count that
+        // disappears is a count a reader cannot rely on.
+        {
+            const countText = `(${ids.length})`;
+            const cw = countText.length * CHW_REQ;
+            labels.push({
+                kind: 'count', stepId: r.id, text: countText,
+                // Generated from a row count, never stored user content — so
+                // the no-'#' audit governs it (the `prose` note on req marks).
+                prose: false,
+                // Off the FRAME's right edge, which is not the node box's — the
+                // state bar owns the strip before the frame begins.
+                x: n.left + CARD_FRAME_X + CARD_FRAME_W
+                    - CARD_PAD_X - CARD_CHECK_W - cw,
+                // On the FIRST name line, whatever the name wrapped to — the
+                // count belongs to the card, not to the last line of its title.
+                y: n.top + CARD_PAD_Y + 2,
+                w: cw, h: REQ_TEXT_H,
             });
         }
-        // The reserved title slot (drawn at the 'in' zoom level, and skipped
-        // when the step label already IS the title — it would duplicate).
+        // ── THE STEP'S OWN TITLE, ON THE L3 LINE ────────────────────────────
+        // Skipped when the step label already IS the title — it would duplicate,
+        // which is why `cardTitleH` does not reserve the line in that mode
+        // either. The two agree by reading the same condition.
         if (stepLabel !== 'title') {
-            // Staggered too, and therefore budgeted the same way: the title may
-            // reach into its neighbours because they draw on the other line.
-            // Before req #3119 this was capped at the bare column width, which
-            // is what cut plan titles to a few characters in narrow columns.
-            const maxChars = Math.max(4, Math.floor((staggerBudget(n.depth) - 8) / CHW_TITLE));
-            const t = truncate(r.title || '', maxChars);
+            const t = truncate(r.title || '', cardChars(CHW_TITLE));
             if (t) {
-                // The slot clears THIS LANE's requirement stack — the same count
-                // that sized the lane (req #3119). It used to clear the BAND's
-                // deepest stack, which was equivalent only while every lane in a
-                // band shared one pitch; with per-lane heights a one-req lane in
-                // a five-req band had its title pushed 48px past its own lane
-                // and straight onto the next lane's bead. Caught by the
-                // label-vs-bead invariant, which is why that test exists.
-                const laneN = Math.max(1, band.laneReqs.get(n.lane) || 1);
-                // The slot clears the DEEPEST mark on this lane, not its own
-                // step's — `laneN` already includes the swim-lane offset (req
-                // #3362) of whichever column in this lane was pushed down
-                // furthest, never just this column's own.
-                //
-                // Using `reqDy` here is wrong and was measured wrong: an EVEN
-                // column's slot is unshifted while its ODD neighbour's marks are
-                // one line lower, and the two land on each other (step 5's slot
-                // at y 303–314 against step 6's mark at 301–315). The slot is not
-                // staggered against its neighbours the way the marks are, so it
-                // has to sit below all of them.
-                const slotDy = staggerReqs ? REQ_LINE_H : 0;
-                const slotY = (reqLayout === 'vertical'
-                    ? n.y + 14 + slotDy + laneN * REQ_LINE_H + 2
-                    : n.y + 30) + staggerOf(n.depth);
                 labels.push({
                     kind: 'title', stepId: r.id, text: t,
                     // Stored plan content — see the `prose` note on req marks.
                     prose: true,
-                    x: n.x - (t.length * CHW_TITLE) / 2, y: slotY,
+                    x: textLeft,
+                    y: n.top + CARD_PAD_Y + nameLines.length * CARD_LINE_H,
                     w: t.length * CHW_TITLE, h: 11,
                 });
             }
@@ -3285,10 +3644,8 @@ export function computePlanLayout(rows, opts = {}) {
         // the ticks and the future region, which are not text and therefore not
         // subject to the overlap contract.
         ruler,
-        reqLayout,
         reqLabel,
         stepLabel,
-        stepWidth,
         empty: false,
     };
 }
@@ -3431,7 +3788,14 @@ export const EPIC_CHIP_FONT = PLAN_VIZ_FONT.epic;
 // clear of some other floating chip — so 24 unmeasured px is 24 px of name that
 // can hang past the band's right edge or under the key, which is the exact
 // under-measurement bug this module's own header comment warns about.
-export const EPIC_CHIP_OPEN_LINK_W = 24;
+// ── BOTH CHIP LINKS GREW (req #3498, user directive: the steps link is "way
+//    too small") ─────────────────────────────────────────────────────────────
+// 24px reserved a 12px glyph at 70% opacity — a target under the 24x24 minimum
+// every accessibility guideline names, on the one control that leaves this page.
+// The glyph is the chip's own font size now (15) and the reservation grew with
+// it. BOTH links move together: they are siblings on one chip, and one of them
+// growing alone would read as an error rather than as emphasis.
+export const EPIC_CHIP_OPEN_LINK_W = 30;
 // The "open this epic's requirements as task cards" control (req #3428) — a
 // SECOND link control riding beside the ↗, and the SAME kind of flat, unscaled
 // screen-px reservation for the identical reason: a fixed `fontSize: 14` MUI
@@ -3444,7 +3808,7 @@ export const EPIC_CHIP_OPEN_LINK_W = 24;
 // keeps the name inside its own rectangle and clear of the key, not merely clear
 // of another floating chip. 24 px of unreserved glyph is 24 px of name over the
 // band's right edge.
-export const EPIC_CHIP_CARDS_LINK_W = 24;
+export const EPIC_CHIP_CARDS_LINK_W = 30;
 // The pause status bubble (req #3226) — a small filled circle immediately left
 // of the epic name, the SAME kind of flat, unscaled reservation as the ↗
 // control above and for the identical reason: it is a fixed-diameter dot plus
@@ -4088,37 +4452,58 @@ const NEXT_HALO_OUTER = NEXT_HALO_RADIUS + NEXT_HALO_STROKE / 2;
 // the layout's OUTPUT — chip strips, bead pairs — not against the constants
 // below, because measuring against the constants is exactly what let two wrong
 // ceilings through review.
+// THE SMALLEST CARD THIS LAYOUT CAN PRODUCE (req #3498): no requirements, and
+// `stepLabel: 'title'`, which is the mode that reserves no L3 title line. Every
+// clearance below is stated against it, because a clearance has to hold for the
+// TIGHTEST geometry, not the typical one.
+export const MIN_CARD_H = cardHeight(0, 'title');
 export const NEXT_HALO_CLEARANCES = {
-    // The epic chip's strip, above a LANE-0 bead — THE BINDING ENTRY since req
-    // #3371 removed the launch-unit box's three. `headerH` cancels out of the
-    // derivation, so one number covers staggered bands too.
+    // The epic chip's strip, above a LANE-0 bead — still the binding entry.
+    // A LANE's top is the band header's bottom (for lane 0), which is where the
+    // chip's strip ends, and every card is CENTRED in its lane — so a lane-0
+    // bead sits half a LANE below the strip, and the lane is at least one card
+    // tall. The room is therefore `laneCardH/2 >= MIN_CARD_H/2`, and `headerH`
+    // cancels, the same way it did when the room was the step label's rise (req
+    // #3498 — the label does not float above the bead any more, so that
+    // derivation went with it). NOT `h/2` of this card: a short card in a tall
+    // lane sits lower, never higher, so the minimum lane is the binding case.
     // It describes the chip's RESTING position: `placeEpicChips` pins a chip
     // down into the band body while its band is partly scrolled off, and in that
     // state the chip overlaps beads and halos alike. Pre-existing sticky
     // behaviour, not something a world clearance can promise about.
-    epicChipStrip: STEP_LABEL_RISE + BEAD_LANE_OFFSET,
+    epicChipStrip: MIN_CARD_H / 2,
     // The time axis's vertical slot rules, drawn at column LEFT EDGES — so half
-    // the tightest column, not the whole pitch. Non-binding (35.2 against the
-    // chip strip's 31) and listed because it is the next entry that would bind
-    // if this list ever loosened again.
-    slotRule: COL_MIN_W_HORIZONTAL * MIN_STEP_WIDTH_FACTOR / 2,
-    // The BAND rectangle, which is the last piece of world geometry a bead can
-    // reach. A lane-0 bead is `headerH + BEAD_LANE_OFFSET` >= 93 below the band
-    // top; the deepest lane's bead is `lanePitch - BEAD_LANE_OFFSET` >= 84 above
-    // the bottom. Non-binding by a wide margin, listed because a list that
-    // silently omits the outermost boundary is not the index it claims to be.
-    bandRect: MIN_LANE_PITCH - BEAD_LANE_OFFSET,
-    // The nearest other bead's own outer ring. The column pitch is the tightest
-    // bead-to-bead distance (the lane pitch is at least
-    // `LANE_BASE_H + TITLE_SLOT + STAGGER_GAP` = 94) and `widthFactor` only ever
-    // widens, so its floor is the horizontal column floor times the smallest
-    // width factor the user can choose.
-    neighbourBead: COL_MIN_W_HORIZONTAL * MIN_STEP_WIDTH_FACTOR
-        - BEAD_OUTER_RADIUS,
+    // the column pitch, which is now uniform. Non-binding by a long way (248.5
+    // against the chip strip's 34) and listed because a list that quietly drops
+    // an entry stops being the index it claims to be.
+    slotRule: (CARD_W + CARD_GAP_X) / 2,
+    // The BAND rectangle, the last piece of world geometry a bead can reach:
+    // the deepest lane's bead is half a card above its lane's bottom, plus the
+    // gap that lane reserves below it.
+    bandRect: MIN_CARD_H / 2 + CARD_GAP_Y,
+    // The nearest other bead's own outer ring. VERTICALLY that is two half-cards
+    // plus the lane gap; horizontally it is the whole column pitch, which is
+    // several times larger now that a column is a card wide — so the vertical
+    // neighbour is the one that binds, and the old horizontal derivation
+    // (a column floor times the smallest width factor) has no terms left.
+    neighbourBead: MIN_CARD_H + CARD_GAP_Y - BEAD_OUTER_RADIUS,
 };
+// ── THE MARK'S OWN SIZE IS A DESIGN LIMIT, NOT WHATEVER FITS (req #3498) ────
+// The clearances above say what the halo MAY NOT exceed; they have never said
+// what it should be. Three requirements — #3271, #3280, #3299 — tuned this mark
+// against what a reader needs to SEE at Overview, and they landed on 33.
+//
+// Growing the card by the type scale widened every clearance with it (the
+// binding one is half a card), which would have inflated the mark to 46.6 as a
+// side effect of a TYPEFACE change nobody connected to it. A mark that changes
+// size because an unrelated constant moved is exactly the drift this module's
+// derived-not-chosen discipline exists to prevent — so the derivation is now
+// `min(what fits, what was designed)` and the second term is stated.
+const NEXT_HALO_DESIGN_MAX = 33;
 // One world pixel of margin, so "clears it" is not "touches it".
-export const NEXT_HALO_MAX_OUTER =
-    Math.min(...Object.values(NEXT_HALO_CLEARANCES)) - 1;
+export const NEXT_HALO_MAX_OUTER = Math.min(
+    NEXT_HALO_DESIGN_MAX,
+    Math.min(...Object.values(NEXT_HALO_CLEARANCES)) - 1);
 export const NEXT_HALO_MAX_MAGNIFY = NEXT_HALO_MAX_OUTER / NEXT_HALO_OUTER;
 
 /**
@@ -4316,6 +4701,75 @@ export const NEXT_MARK_SCREEN_RADIUS = NEXT_HALO_MAX_OUTER * NEXT_MARK_FLOOR_K;
  *   explicitly for the pre-#3324 bare-`k` answer.
  * @returns {boolean}
  */
+// ── ONE MARK PER CLUSTER (req #3498, user directive) ────────────────────────
+// *"one mark per cluster"* — the answer to what the deep-zoom-out next-step DOT
+// does when several eligible steps sit close together.
+//
+// THE DEFECT IT FIXES, measured on live plan 7 at its landing scale (k = 0.072):
+// `nextMarkDotRadius` returns a WORLD radius chosen so the dot lands at a fixed
+// SCREEN size, and at that scale it is **112.6 world px** — a 225px circle —
+// while the six eligible Catch-Up cards are **97.5px apart** vertically. Six
+// marks drew as one red capsule. That is not a tuning problem: the whole point
+// of the fixed-screen-size dot is that it STOPS shrinking with the camera, so
+// the closer you zoom out the more certain the overlap becomes.
+//
+// Capping the dot was the alternative and it is worse: it re-introduces exactly
+// the sub-pixel mark req #3299 added the dot to escape. Merging keeps every
+// mark at its readable size and tells the truth about how many steps are under
+// it — which is the fact a reader zoomed this far out actually wants.
+//
+// SINGLE-LINKAGE, and deliberately so: A near B near C is ONE blob on screen
+// even when A and C do not touch, so it must be one mark. Union-find over
+// pairwise distance; the input is the ELIGIBLE steps only, which number in the
+// handful, so the O(n²) sweep is free.
+//
+// The centroid is the plain mean of the members. It is not any member's own
+// position, which is correct — the mark stands for the group, and putting it on
+// one member would claim that step in particular.
+export function clusterNextMarks(marks, radius) {
+    const list = (marks || []).filter((m) => m
+        && Number.isFinite(m.x) && Number.isFinite(m.y));
+    const n = list.length;
+    if (n === 0) return [];
+    const parent = list.map((_, i) => i);
+    const find = (i) => {
+        let r = i;
+        while (parent[r] !== r) r = parent[r];
+        while (parent[i] !== r) { const p = parent[i]; parent[i] = r; i = p; }
+        return r;
+    };
+    // Touching circles merge, so the threshold is the DIAMETER. A zero or
+    // negative radius merges nothing, which is the right answer for a mark with
+    // no extent rather than a reason to special-case the caller.
+    const reach = 2 * Math.max(0, radius);
+    for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) {
+            const dx = list[i].x - list[j].x;
+            const dy = list[i].y - list[j].y;
+            if (Math.hypot(dx, dy) < reach) {
+                const a = find(i);
+                const b = find(j);
+                if (a !== b) parent[a] = b;
+            }
+        }
+    }
+    const groups = new Map();
+    list.forEach((m, i) => {
+        const root = find(i);
+        if (!groups.has(root)) groups.set(root, []);
+        groups.get(root).push(m);
+    });
+    return [...groups.values()].map((members) => ({
+        x: members.reduce((t, m) => t + m.x, 0) / members.length,
+        y: members.reduce((t, m) => t + m.y, 0) / members.length,
+        ids: members.map((m) => m.id),
+        // The mark's own colour is the group's: a SUPPRESSED member makes the
+        // whole cluster read as held, because "some of these are held" is the
+        // more cautious of the two readings and the reader cannot see which.
+        suppressed: members.some((m) => m.suppressed),
+    })).sort((a, b) => a.ids[0] - b.ids[0]);
+}
+
 export function nextMarkIsDot(k, labelsDrawn) {
     if (typeof labelsDrawn !== 'boolean') {
         throw new Error('nextMarkIsDot: labelsDrawn is required (req #3374 P4) — '
@@ -4338,6 +4792,13 @@ export function nextMarkIsDot(k, labelsDrawn) {
  *   `k` is non-finite or non-positive (never reached under a real camera, but
  *   never a division by zero either)
  */
+// The merged mark's COUNT, in SCREEN px (req #3498). Screen rather than world
+// for the same reason the dot's radius is: this mark exists at scales where a
+// world-sized glyph is a fraction of a pixel. Sized to sit inside
+// `NEXT_MARK_SCREEN_RADIUS` with margin, so the digits never reach the dot's
+// edge — two digits is the realistic maximum and three still fits.
+export const NEXT_MARK_COUNT_FONT_PX = 9;
+
 export function nextMarkDotRadius(k) {
     return Number.isFinite(k) && k > 0 ? NEXT_MARK_SCREEN_RADIUS / k : NEXT_MARK_SCREEN_RADIUS;
 }
@@ -4532,10 +4993,12 @@ export function bandFitRect(layout, band) {
     for (const id of ids) {
         const n = layout.nodes.get(id);
         if (!n || !Number.isFinite(n.depth)) continue;
-        // The column, and the bead drawn in it.
+        // The column, and the CARD drawn in it (req #3498 — it was the bead's
+        // radius until the step became a box, and a card is wider than a bead
+        // by a factor of twenty).
         span(layout.colX[n.depth] - layout.colW[n.depth] / 2,
              layout.colX[n.depth] + layout.colW[n.depth] / 2);
-        span(n.x - BEAD_R, n.x + BEAD_R);
+        span(n.left, n.right);
     }
     if (right <= left) return null;
     // Every label this band's steps draw — step titles/ids, requirement ids and
@@ -4620,12 +5083,17 @@ export function stepFitRect(layout, stepId) {
         if (y0 < top) top = y0;
         if (y1 > bottom) bottom = y1;
     };
+    // req #3498 — the step's own extent is its CARD, and the card's box already
+    // contains every label that carries this `stepId`, so the label sweep below
+    // can no longer widen the rect. It is kept regardless: it is what makes this
+    // function's answer true BY MEASUREMENT rather than by an assumption about
+    // where the labels were put.
     const colW = layout.colW?.[n.depth];
     if (Number.isFinite(layout.colX[n.depth]) && Number.isFinite(colW)) {
         span(layout.colX[n.depth] - colW / 2, layout.colX[n.depth] + colW / 2,
-             n.y - BEAD_R, n.y + BEAD_R);
+             n.top, n.bottom);
     }
-    span(n.x - BEAD_R, n.x + BEAD_R, n.y - BEAD_R, n.y + BEAD_R);
+    span(n.left, n.right, n.top, n.bottom);
     for (const l of (layout.labels || [])) {
         if (l.stepId !== stepId) continue;
         span(l.x, l.x + (l.w || 0), l.y, l.y + (l.h || 0));
@@ -4685,14 +5153,57 @@ export function stepsFitRect(layout, stepIds) {
     return { x: left, y: top, w: right - left, h: bottom - top };
 }
 
+// ── A SINGLE CARD IS FRAMED BY THE STEPS-ACROSS CONTROL, NOT BY A FIT ──────
+// User directive, 2026-08-13: *"when zooming into a single step card ... the
+// viewport will center on the card vertically and horizontally and provide a
+// 5 card width viewport ... anytime we click and the zoom is to a single card"*.
+//
+// WHY A SCALE AND NOT A FIT. Every other focus target answers "how big is this
+// thing?" and derives `k` from it, which is right for a band — bands differ in
+// size, and the reader wants the whole of whichever one they picked. A CARD is
+// the one target on this canvas whose world size is FIXED and UNIFORM (req
+// #3498 made it so), so fitting to it re-derives, every time, a number that
+// could simply be stated. Stating it is also what makes the answer STABLE: a
+// step with two requirements and a step with ten are two different rect
+// heights, and a vertical fit would land them at two different magnifications
+// for no reason the reader can see. Five columns is five columns.
+//
+// It is the SAME quantity the toolbar's `10 8 6 4 2` buttons pick, through the
+// same `stepsAcrossScale`, so arriving at a card by link and arriving by button
+// put the canvas in states a reader can compare. 5 is deliberately NOT on that
+// ladder: the buttons are a coarse ladder for browsing, this is the one rung
+// that says "this card, in its context", and it sits between the ladder's 4 and
+// 6 rather than pretending to be either.
+//
+// `STEP_FOCUS_CONTEXT` is therefore INERT on the single-card path, and the
+// clamp is the zoom behaviour's own extent rather than `FOCUS_MAX_RATIO`. That
+// aesthetic ceiling exists to stop a fit magnifying a small target into a view
+// with no context; here the context is the request, so the only clamp that may
+// bind is the hard one — a `k` outside `scaleExtent` would look right until the
+// reader's first wheel event snapped it back.
+export const STEP_FOCUS_STEPS_ACROSS = 5;
+
 /**
  * The camera that frames a SET of steps, with the same context margin one step
  * gets. `stepFocusTransform` is this function with a single-element set, so the
  * one-step case cannot drift from the many-step one.
+ *
+ * ONE STEP IS THE EXCEPTION, AND IT IS HANDLED HERE rather than in
+ * `stepFocusTransform` so that BOTH ways of arriving at a single card take it —
+ * the `?step=` deep link from the requirement editor, and an epic whose second
+ * click resolves to one step. A rule that lived in the single-id wrapper would
+ * have covered the first and silently missed the second.
  */
 export function stepsFocusTransform(layout, stepIds, size, kBase, kFloor) {
     const rect = stepsFitRect(layout, stepIds);
     if (!rect) return null;
+    if (placedStepCount(layout, stepIds) === 1) {
+        const t = centreTransform(rect, size,
+            stepsAcrossScale(STEP_FOCUS_STEPS_ACROSS, size?.w), kBase, kFloor);
+        // Falls through to the fit when the scale could not be produced (no
+        // viewport yet), so a card is still framed rather than not moved at all.
+        if (t) return t;
+    }
     // The crop margin lives HERE rather than in `stepFitRect` (req #3371): the
     // rect answers "what does this step occupy", which nothing about framing
     // should change, and the inflation answers "how much plan do I want around
@@ -4738,6 +5249,53 @@ export function stepsFocusTransform(layout, stepIds, size, kBase, kFloor) {
 // of world px is a different fraction of every rect, and on the smallest rect —
 // the one that most wants air — it is the smallest fraction of all.
 export const STEP_FOCUS_CONTEXT = 0.25;
+
+/**
+ * How many of `stepIds` are actually PLACED on this layout (req #3498).
+ *
+ * The single-card rule turns on the number of steps the reader will SEE, which
+ * is not `stepIds.length`: `stepsFitRect` deliberately skips ids that resolve to
+ * nothing (req #3365), so a two-id set with one unlaid step frames exactly one
+ * card and must be framed as one. Counting the input instead would give that
+ * reader a fit, and the two would differ for a reason invisible on screen.
+ *
+ * Duplicate ids collapse — a set is a set — so the same id twice is one card.
+ */
+export function placedStepCount(layout, stepIds) {
+    const seen = new Set();
+    for (const id of (stepIds || [])) {
+        if (seen.has(id)) continue;
+        if (stepFitRect(layout, id)) seen.add(id);
+    }
+    return seen.size;
+}
+
+/**
+ * Put a rect's CENTRE at the viewport's centre, at a scale that is GIVEN rather
+ * than derived (req #3498).
+ *
+ * The counterpart to `fitTransform` for a target whose magnification is already
+ * decided. It reserves nothing for neighbouring band names and nothing for the
+ * pinned ruler, and that is correct for its one caller: the subject is at the
+ * viewport's middle, where neither can reach it.
+ *
+ * `kBase`/`kFloor` are here only for the clamp, which is the zoom behaviour's
+ * `scaleExtent` verbatim — see the block above `STEP_FOCUS_STEPS_ACROSS`.
+ *
+ * @returns {{x:number,y:number,k:number}|null} null on any input that cannot
+ *   produce a transform, so the caller does something else rather than driving
+ *   the camera to NaN.
+ */
+export function centreTransform(rect, size, k, kBase, kFloor) {
+    if (!rect) return null;
+    const w = size?.w || 0;
+    const h = size?.h || 0;
+    if (!(w > 0) || !(h > 0) || !(k > 0) || !(kBase > 0) || !(kFloor > 0)) return null;
+    const kc = Math.min(Math.max(k, kFloor), kBase * ZOOM_MAX_RATIO);
+    const cx = rect.x + rect.w / 2;
+    const cy = rect.y + rect.h / 2;
+    return { k: kc, x: w / 2 - cx * kc, y: h / 2 - cy * kc };
+}
 
 // The centring itself, shared by both focus targets (extracted req #3253).
 // A rect, a viewport and the base scale in; the transform d3-zoom is handed out.

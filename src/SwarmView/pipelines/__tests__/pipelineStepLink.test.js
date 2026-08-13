@@ -93,7 +93,7 @@ describe('readFocusStepParam', () => {
 // ── Req #3253 — the same step, seen on the PLAN ─────────────────────────────
 describe('stepPlanLinkTo', () => {
     it('names the plan, the plan mode, the step and the level', () => {
-        expect(stepPlanLinkTo(2, 47)).toBe('/swarm/pipeline/2?mode=plan&step=47&level=2');
+        expect(stepPlanLinkTo(2, 47)).toBe('/swarm/pipeline/2?mode=plan&step=47&level=3');
     });
 
     it('is the SAME step parameter as the table link, not a third landing mode', () => {
@@ -112,11 +112,18 @@ describe('stepPlanLinkTo', () => {
         expect(stepPlanLinkTo(2, 1.5)).toBeNull();
     });
 
-    it('pins a level the canvas vocabulary actually defines', () => {
+    it('pins L3 — the card, with all its detail (req #3498)', () => {
         // The string is interpolated into the URL and read back through
         // `isPlanLevelPref`; a value the map does not carry would round-trip to
-        // null and silently pin nothing.
-        expect(PLAN_LEVEL_BY_PREF[STEP_PLAN_LINK_LEVEL]).toBe('mid');
+        // null and silently pin nothing. So this asserts BOTH halves: the level
+        // the reader gets, and that the vocabulary defines it.
+        //
+        // It was 'mid' until req #3498. The link lands on ONE card now, framed
+        // at a fifth of the panel, and the requirement titles it draws are that
+        // card's own contents rather than prose floating over the plan — which
+        // is what made L3 a wall in req #3253 and no longer does.
+        expect(STEP_PLAN_LINK_LEVEL).toBe('3');
+        expect(PLAN_LEVEL_BY_PREF[STEP_PLAN_LINK_LEVEL]).toBe('in');
     });
 });
 

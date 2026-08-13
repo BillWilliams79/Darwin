@@ -37,7 +37,8 @@ import SemanticLevelControl from '../../Components/SemanticLevelControl';
 // `SemanticLevelControl` reads its own "Detail:" style from, so the three
 // captions on this row cannot drift into three voices.
 import { TOOLBAR_CAPTION_SX } from '../../Components/toolbarStyles';
-import { PLAN_LEVEL_NUMBER, REQ_COLOR_SCALES } from './pipelinePlanLayout';
+import { PLAN_LEVEL_NUMBER, REQ_COLOR_SCALES,
+    STEPS_ACROSS_OPTIONS, SNAP_COLUMNS_STEP } from './pipelinePlanLayout';
 import { toolbarChipProps } from './pipelineChipStyles';
 
 // Reset's wording, in ONE place: it is both the tooltip and the accessible name
@@ -46,25 +47,6 @@ import { toolbarChipProps } from './pipelineChipStyles';
 // level fixed until Auto is chosen, so Reset is about the camera and says so.
 export const RESET_LABEL = 'Reset — fully zoomed out, the whole plan\'s vertical '
     + 'extent visible';
-
-// Req #3168 — column width, the one piece of the plan's geometry a reader could
-// not influence. It only ever WIDENS (see STEP_WIDTH_FACTORS): a narrower column
-// than the content needs would push requirement marks out of their own slab,
-// which is the zero-overlap contract the layout module proves.
-// `name` is the ACCESSIBLE name and it starts with the VISIBLE one, which is
-// WCAG 2.5.3 "Label in Name" and not a style preference: MUI's Tooltip injects
-// its title as the child's `aria-label` unless the child sets its own, so these
-// chips would display "S" and announce "Column width — compact" — a speech user
-// asking for "S" would not reach the control they can see. MUI spreads the
-// child's props LAST, so an `aria-label` here wins over the injected one.
-const STEP_WIDTHS = [
-    { value: 'compact', label: 'S', tip: 'Column width — compact',
-        name: 'S — column width, compact' },
-    { value: 'medium', label: 'M', tip: 'Column width — medium',
-        name: 'M — column width, medium' },
-    { value: 'wide', label: 'L', tip: 'Column width — wide',
-        name: 'L — column width, wide' },
-];
 
 // THE COLOUR CHIPS ARE THE REGISTRY, not a copy of it (req #3422). This array
 // used to be written out here, which meant a scale's LABEL lived in the toolbar
@@ -76,16 +58,16 @@ const STEP_WIDTHS = [
 // ONE TOOLTIP PER CONTROL, never one over the group (P6 / S8), and the strings
 // travel with the scale for that rule's own reason: a tooltip has to say what
 // THAT chip does. A single Tooltip wrapped the pair before, so it could say what
-// they were FOR and could not say what either one DID — and the width group two
-// positions to its left already tooltipped per button, so the row contradicted
-// itself about its own rule. The deselect hint is on every chip, because
+// they were FOR and could not say what either one DID. The deselect hint is on
+// every chip, because
 // clicking the pressed one is how the neutral position is reached and that is
 // not discoverable from any one chip.
 
 /**
  * @param {Object} props
- * @param {string} props.stepWidth              'compact' | 'medium' | 'wide'
- * @param {function} props.onChangeStepWidth    receives the new width
+ * @param {function} props.onStepsAcross        receives the step count to fit
+ * @param {boolean} props.snapZoom               wheel snaps to the step ladder
+ * @param {function} props.onToggleSnapZoom      flips it
  * @param {string} props.colorKey               a REQ_COLOR_KEYS value
  * @param {function} props.onChangeColorKey     receives a REQ_COLOR_KEYS value
  * @param {string} props.planLevelPref          'auto' | '1' | '2' | '3'
@@ -94,8 +76,9 @@ const STEP_WIDTHS = [
  * @param {function} props.onResetView          the Reset click
  */
 export default function PipelinePlanToolbar({
-    stepWidth,
-    onChangeStepWidth,
+    onStepsAcross,
+    snapZoom,
+    onToggleSnapZoom,
     colorKey,
     onChangeColorKey,
     planLevelPref,
@@ -105,6 +88,57 @@ export default function PipelinePlanToolbar({
 }) {
     return (
         <>
+            {/* ── STEPS ACROSS — the zoom ladder, in the unit a reader thinks
+                in (req #3498, user directive 2026-08-13) ────────────────────
+                LEFT OF "View", numbers only, all one size — the directive is
+                specific and the reason it works is that the number IS the
+                label: "8" means eight steps across, and an explainer beside it
+                would say the same word twice.
+
+                NOT a toggle group and nothing is ever shown pressed. These are
+                ACTIONS, not a state: the reader can wheel-zoom away from any of
+                them, so a chip left pressed would go on claiming a scale the
+                canvas is no longer at. Reset is the same kind of control for the
+                same reason. */}
+            <Stack direction="row" spacing={0.5} useFlexGap alignItems="center"
+                   sx={{ flexShrink: 0 }}
+                   data-testid="pipeline-viz-steps-across">
+                {/* ── SNAP, LEFT OF THE LADDER (user directive 2026-08-13) ────
+                    The one control in this group that IS a state, so it is the
+                    one that shows pressed. It belongs beside the numbers rather
+                    than in the View group because it changes what those numbers
+                    mean for the WHEEL: with it on, wheeling walks the same rungs
+                    the buttons jump to. */}
+                <Tooltip title={snapZoom
+                    ? `Snap is ON — the wheel steps ${SNAP_COLUMNS_STEP} cards `
+                        + 'at a time. Click for smooth zoom.'
+                    : `Snap the wheel to ${SNAP_COLUMNS_STEP}-card jumps`}>
+                    <Chip
+                        label="Snap"
+                        aria-label={`Snap zoom to ${SNAP_COLUMNS_STEP}-card jumps`}
+                        aria-pressed={!!snapZoom}
+                        onClick={() => onToggleSnapZoom?.()}
+                        {...toolbarChipProps(!!snapZoom)}
+                        data-testid="pipeline-viz-snap-zoom"
+                    />
+                </Tooltip>
+                {STEPS_ACROSS_OPTIONS.map((n) => (
+                    <Tooltip key={n} title={`Fit ${n} steps across`}>
+                        <Chip
+                            label={String(n)}
+                            aria-label={`Fit ${n} steps across`}
+                            onClick={() => onStepsAcross?.(n)}
+                            {...toolbarChipProps(false)}
+                            sx={{ minWidth: 34 }}
+                            data-testid={`pipeline-viz-steps-across-${n}`}
+                        />
+                    </Tooltip>
+                ))}
+            </Stack>
+
+            <Divider orientation="vertical" flexItem
+                     sx={{ mx: 0.5, flexShrink: 0 }} />
+
             {/* ── VIEW GROUP — how much of the plan the reader is looking at ──
                 LEADS the control set, and the order is req #3242's user
                 directive, not a preference: Reset sits immediately LEFT of the
@@ -208,46 +242,19 @@ export default function PipelinePlanToolbar({
                      sx={{ mx: 0.5, flexShrink: 0 }} />
 
             {/* ── DISPLAY GROUP — what the plan DRAWS ─────────────────────────
-                P9 — "Width: S | M | L" put the group's NAME inside its first
-                option, so the control read as one named by its first value and
-                nothing else in Darwin does that. The name is a caption now, in
-                the same voice `SemanticLevelControl` uses for its own label, and
-                the three options are three equal chips. The GROUP keeps
-                `pipeline-viz-stepwidth-toggle` so every existing locator finds
-                it; the options gain ids of their own, which they needed anyway —
-                a chip has no `value` attribute for a test to click by, and
-                matching them by accessible name is what made
-                `getByRole('button', {name: 'L'})` also match "Column width —
-                compact".
+                THE WIDTH CONTROL WAS THE FIRST THING IN THIS GROUP, AND IT IS
+                GONE (req #3498, user directive: *"Remove the width UI option
+                S/M/L as part of this, won't need it any more."*).
 
-                Req #3168 — column width is the one piece of the plan's geometry
-                a reader could not influence. It only ever WIDENS (see
-                STEP_WIDTH_FACTORS): a narrower column than the content needs
-                would push requirement marks out of their own slab, which is the
-                zero-overlap contract the layout module proves.
+                It existed because columns were sized to their CONTENT, so a
+                reader looking at a cramped plan had no way to buy air; the three
+                chips multiplied every column by 1.1 / 1.1836 / 1.428. A step is
+                a card now and every column is exactly one card wide, so there is
+                no content negotiation left for a multiplier to tune — see
+                `CARD_W` in pipelinePlanLayout.js.
 
-                The labels stay PLAIN (req #3242 user correction) — a same-turn
-                attempt put the actual pixel widths in the button text and
-                enlarged the buttons 25%, and both were reverted. Moving the
-                group's name out to a caption makes them plainer still, which is
-                the same direction. */}
-            <Stack direction="row" spacing={0.5} useFlexGap alignItems="center"
-                   sx={{ flexShrink: 0 }}
-                   data-testid="pipeline-viz-stepwidth-toggle">
-                <Box component="span" sx={TOOLBAR_CAPTION_SX}>Width:</Box>
-                {STEP_WIDTHS.map(({ value, label, tip, name }) => (
-                    <Tooltip key={value} title={tip}>
-                        <Chip
-                            label={label}
-                            aria-label={name}
-                            onClick={() => onChangeStepWidth(value)}
-                            {...toolbarChipProps(stepWidth === value)}
-                            data-testid={`pipeline-viz-width-${value}`}
-                        />
-                    </Tooltip>
-                ))}
-            </Stack>
-
+                `pipeline-viz-stepwidth-toggle` and the three
+                `pipeline-viz-width-*` testids go with it. */}
             {/* The colour key for the REQUIREMENT MARKS, never the beads — the
                 bead's fill is derived STEP state and stays that (the
                 one-fact-one-channel-one-level rule in pipelinePlanLayout.js).
