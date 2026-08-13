@@ -43,7 +43,7 @@
 //     round trip is one call and its result is simply the chip going solid.
 
 // THE COMPACT VARIANT (req #3067). The table view needs this same control inside a
-// 92px grid row, where an inline palette of twelve ghost chips cannot fit. Rather
+// 77px grid row (req #3396), where an inline palette of twelve ghost chips cannot fit. Rather
 // than write a second membership control — which would be a second answer to the
 // question "what does one click do?" — `variant="compact"` keeps every behaviour and
 // changes only the assembly: bound chips on one non-wrapping line, and the palette

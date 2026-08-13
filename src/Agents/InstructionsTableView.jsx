@@ -20,11 +20,19 @@
 // dichotomy. That comment said a DataGrid "would either truncate it into
 // uselessness or need auto row height". There is a third option, and it is what
 // ships here: a FIXED row containing an INTERNALLY SCROLLABLE field. `multiline
-// maxRows={4}` caps the rendered height at four lines and hands the textarea
+// maxRows={3}` caps the rendered height at three lines and hands the textarea
 // `overflow: auto` past that, so the whole of a long instruction stays reachable
 // inside its own cell while the row height never moves. `getRowHeight={() =>
 // 'auto'}` stays forbidden (it mis-measures on re-sort — memory/table-design.md);
 // this makes it unnecessary rather than negotiating with it.
+//
+// req #3396 — long instructions were corrupting the Name/Instruction text columns.
+// The real cause was not row height at all: `ghostTextColumn` sets an explicit
+// `lineHeight` on the field now (see its own comment) to stop a wrapped line from
+// inheriting the DataGrid cell's `line-height: calc(var(--height) - 1px)`, which
+// rendered every line at nearly the full row height. `CONTENT_MAX_ROWS` dropping
+// from 4 to 3 is the requirement's own ask (limit the display, read the rest in
+// Cards) — a smaller number on top of a fixed row, not the fix for the overflow.
 //
 // The Cards view is still the place to COMPOSE long prose. The Table is for
 // scanning the catalog and correcting fields. Both write the same rows.
@@ -53,12 +61,26 @@ import { formatDate } from '../utils/dateFormat';
 
 // `rowHeight` is a PRE-DENSITY figure. `useGridDimensions` computes the real row
 // height as `Math.floor(rowHeight * densityFactor)`, and `density="compact"` is
-// 0.7 — so 132 lands at 92px, which is four lines of the grid's body2 cell type
-// (~20px each) plus its 2 × 6px vertical padding. Passing 92 here would give 64px
-// and clip the fourth line. The same trap applies to the `rowHeight={52}` figure
-// quoted elsewhere in the memory docs; it is likewise pre-density.
-const ROW_HEIGHT = 132;
-const CONTENT_MAX_ROWS = 4;
+// 0.7 — so 110 lands at 77px (measured; `110 * 0.7 === 77` exactly, no float
+// rounding to worry about). Three wrapped lines need 74px: `scrollHeight` measures
+// in whole pixels, so 3 × 20.02px (body2's `fontSize: 0.875rem` at its unmodified
+// MUI default `lineHeight: 1.43`, now that `ghostTextColumn` sets it explicitly
+// instead of inheriting the grid cell's own line height — see that file) rounds
+// down to 60px, +1px for the field's own `1px solid` bottom border, +13px of
+// fixed chrome (`GhostCell`'s `py: '2px'` twice, plus `InputBase`'s own
+// `padding: '4px 0 5px'` on a multiline root) = 74px. 77px leaves 3px of slack
+// over that minimum for cross-browser font-metric rounding — the previous figure
+// here had none, which is how req #3396 happened. The same trap applies to the
+// `rowHeight={52}` figure quoted elsewhere in the memory docs; it is likewise
+// pre-density.
+//
+// CONTENT_MAX_ROWS caps the "Instruction text" column at 3 wrapped lines rather
+// than showing the full body — the requirement's own ask, so the rest is read in
+// the Cards view (`InstructionsPage.jsx`). The internal scroll that `multiline
+// maxRows` gives the textarea (see § THE PROSE PROBLEM above) means nothing here
+// is lost, only collapsed behind a scrollbar.
+const ROW_HEIGHT = 110;
+const CONTENT_MAX_ROWS = 3;
 
 const InstructionsTableView = ({
     // Already filtered and sorted by the page — the table re-sorts through its own
