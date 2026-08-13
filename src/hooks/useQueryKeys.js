@@ -55,7 +55,16 @@ export const requirementKeys = {
     byCategoryWithClosed: (creatorFk, categoryId) => ['requirements', creatorFk, { categoryId, withClosed: true }],
     done: (creatorFk, dateRange) => ['requirements', creatorFk, { closed: 1, dateRange }],
     counts: (creatorFk) => ['requirements', creatorFk, 'counts'],
-    byStatus: (creatorFk, status) => ['requirements', creatorFk, { requirement_status: status }],
+    // `fields` in the key (req #3500) — the same hazard `done` and
+    // `useAllRequirements` already guard against (req #3029, stated there in
+    // full): two observers can now hit the SAME (creatorFk, status) with
+    // DIFFERENT projections (`SwarmStartCard`'s epic-scoped all-time `met`
+    // read beside its normal active-status read), and without `fields` in the
+    // key the narrower one silently wins the shared cache entry regardless of
+    // which observer actually wants the wider one. `requirementKeys.all`
+    // prefix invalidation is unaffected — it matches on the leading
+    // `['requirements', creatorFk]` segment, before this one.
+    byStatus: (creatorFk, status, fields) => ['requirements', creatorFk, { requirement_status: status }, { fields }],
     swarmReady: (creatorFk) => ['requirements', creatorFk, { requirement_status: 'swarm_ready' }],
 };
 
