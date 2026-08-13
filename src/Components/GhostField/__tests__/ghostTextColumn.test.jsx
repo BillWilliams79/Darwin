@@ -145,4 +145,33 @@ describe('ghostTextColumn — the rendered cell', () => {
         // which is the difference from the Maps editors' skip-and-forget.
         expect(el.value).toBe('taken');
     });
+
+    // req #3396 — a wrapped field left at `lineHeight: 'inherit'` (GhostTextField's
+    // card-mode default) inherits `.MuiDataGrid-cell`'s row-height line-height, so
+    // every wrapped line renders near the height of the whole row instead of a
+    // normal text line. This is the actual fix; capping `maxRows` alone does not
+    // touch it — see InstructionsTableView.jsx's header comment. Asserted against
+    // the `sx` prop actually handed to `GhostTextField` rather than a rendered
+    // `getComputedStyle`: jsdom does not resolve emotion's injected stylesheet
+    // rules, so a DOM-level assertion here would pass or fail on jsdom's CSS
+    // support rather than on this factory's merge logic.
+    it('sets an explicit lineHeight, so a wrapped field cannot inherit the row height', () => {
+        const col = ghostTextColumn(baseSpec({ multiline: true, maxRows: 3 }));
+        const fieldProps = col.renderCell({ row: ROW }).props.children.props;
+        expect(fieldProps.sx.lineHeight).toBe(1.43);
+        expect(fieldProps.sx['& .MuiInputBase-input'].lineHeight).toBe(1.43);
+    });
+
+    it('keeps that lineHeight even when a caller supplies its own nested input sx', () => {
+        // The nested `'& .MuiInputBase-input'` key must be MERGED, not replaced —
+        // a caller's own `sx` on that same key would otherwise win the whole object
+        // via the spread and silently drop `lineHeight`, reopening #3396.
+        const col = ghostTextColumn(baseSpec({
+            multiline: true,
+            maxRows: 3,
+            sx: { '& .MuiInputBase-input': { fontWeight: 600 } },
+        }));
+        const fieldProps = col.renderCell({ row: ROW }).props.children.props;
+        expect(fieldProps.sx['& .MuiInputBase-input']).toEqual({ lineHeight: 1.43, fontWeight: 600 });
+    });
 });

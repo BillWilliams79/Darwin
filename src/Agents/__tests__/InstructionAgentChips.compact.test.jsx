@@ -2,7 +2,7 @@
 //
 // Req #3067 — the compact (table-cell) variant of the membership control.
 //
-// The variant exists because a 92px grid row cannot hold an inline palette of
+// The variant exists because a 77px grid row (req #3396) cannot hold an inline palette of
 // twelve ghost chips. What must NOT change with it is anything behavioural: one
 // chip is still one write, the unbind is still only REQUESTED (the page confirms
 // it), and the drill-through still works.
