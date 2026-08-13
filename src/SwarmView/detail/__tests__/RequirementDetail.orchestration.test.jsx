@@ -326,9 +326,13 @@ describe('RequirementDetail Orchestration box (req #3435)', { timeout: 30000 }, 
         expect(testid(container, 'orchestration-step-select').textContent).toBe('Step 300');
     });
 
-    // EACH BUTTON LANDS AT ITS OWN LEVEL. `?step=` puts the camera on one bead
-    // and the bare plan link fits everything. Pointing both at the plan would
-    // make one of the buttons decoration.
+    // EACH BUTTON LANDS AT ITS OWN LEVEL. `?step=` puts the camera on one CARD
+    // (req #3498) and the bare plan link fits everything. Pointing both at the
+    // plan would make one of the buttons decoration.
+    //
+    // `level=3` since req #3498, on the user's directive — this is the "single
+    // step zoom" they named, and the card it lands on is meant to show all its
+    // detail. The value's own argument is on `STEP_PLAN_LINK_LEVEL`.
     it('links each button at its own level of the plan', async () => {
         const { container } = mount();
         await flush();
@@ -337,7 +341,7 @@ describe('RequirementDetail Orchestration box (req #3435)', { timeout: 30000 }, 
         expect(testid(container, 'orchestration-pipeline-link').getAttribute('href'))
             .toBe('/swarm/pipeline/2?mode=plan');
         expect(testid(container, 'orchestration-step-link').getAttribute('href'))
-            .toBe('/swarm/pipeline/2?mode=plan&step=100&level=2');
+            .toBe('/swarm/pipeline/2?mode=plan&step=100&level=3');
     });
 
     // SEATED-VS-UNSEATED IS STRUCTURAL. With no step carrying the requirement

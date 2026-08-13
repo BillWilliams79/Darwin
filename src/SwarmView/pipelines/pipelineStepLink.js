@@ -67,13 +67,24 @@ export const FOCUS_STEP_PARAM = 'step';
 // Both panels now consume `focusStepId`: the table scrolls to and highlights the
 // row, the visualizer centres and zooms the camera on the bead.
 export const FOCUS_LEVEL_PARAM = 'level';
-// L2 — `PLAN_LEVEL_BY_PREF['2'] === 'mid'`. Written as the PREF value the page
-// already speaks rather than the canvas's 'mid', because that is what the
+// L3 — `PLAN_LEVEL_BY_PREF['3'] === 'in'`. Written as the PREF value the page
+// already speaks rather than the canvas's 'in', because that is what the
 // receiving `levelPref` state holds and what `normalizePlanLevelPref` validates.
-// A step fit lands well past `SEMANTIC_IN_MIN`, so without the pin the canvas
-// would auto-derive L3 and draw every requirement TITLE — an unreadable wall of
-// prose at the exact moment the reader wanted to find one bead.
-export const STEP_PLAN_LINK_LEVEL = '2';
+//
+// IT WAS L2 UNTIL REQ #3498, AND THE REASON EXPIRED RATHER THAN BEING OVERRULED.
+// Req #3253 pinned L2 because L3 "would draw every requirement TITLE — an
+// unreadable wall of prose at the exact moment the reader wanted to find one
+// bead", and on that canvas it was true: a requirement title was a free-floating
+// label beside a bead, so N of them at once WAS a wall, with nothing to say which
+// title belonged to which step. #3498 put the requirements INSIDE the step's
+// card — bounded, wrapped, ruled off under the step's own name — which is the
+// entire feature. The titles are now the card's contents rather than prose over
+// the plan, and the link lands on the one card the reader asked for at a scale
+// where it fills a fifth of the panel (`STEP_FOCUS_STEPS_ACROSS`).
+//
+// User directive, 2026-08-13: *"requirement single step zoom should not be L2
+// and be L3 all the details"*.
+export const STEP_PLAN_LINK_LEVEL = '3';
 
 /**
  * The route a step's location ON THE PLAN links to (req #3253).

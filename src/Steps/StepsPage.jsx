@@ -36,13 +36,14 @@
 //     not this editor's.
 
 import { useContext, useMemo, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 
 import Box from '@mui/material/Box';
 import Stack from '@mui/material/Stack';
 import Chip from '@mui/material/Chip';
 import Button from '@mui/material/Button';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
@@ -167,6 +168,7 @@ export default function StepsPage() {
     const showError = useSnackBarStore(s => s.showError);
     const [searchParams, setSearchParams] = useSearchParams();
     const navigate = useNavigate();
+    const location = useLocation();
 
     const creatorFk = profile?.userName;
     const timezone = profile?.timezone;
@@ -556,11 +558,51 @@ export default function StepsPage() {
         },
     ];
 
+    // Where the reader came FROM, if anywhere. Same vocabulary the requirement
+    // page reads (req #3252): `from:'pipeline'` plus the plan's id and the panel
+    // they were looking at. `mode` is charset-checked rather than validated
+    // against the panel list, for the reason that page states — the receiving
+    // page owns that vocabulary and falls back to the stored preference on
+    // anything it does not recognise; all this end needs is that the value
+    // cannot corrupt the URL it is interpolated into.
+    const planOrigin = (() => {
+        if (location.state?.from !== 'pipeline') return null;
+        const id = Number(location.state?.pipelineId);
+        if (!Number.isFinite(id) || id <= 0) return null;
+        const raw = location.state?.mode;
+        return { id, mode: typeof raw === 'string' && /^[a-z]{1,16}$/.test(raw) ? raw : null };
+    })();
+
     return (
         <Box sx={{ gridArea: 'content', p: 3, width: '100%', minWidth: 0, overflow: 'auto' }}
              data-testid="steps-page">
             <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 2, flexWrap: 'wrap' }}
                    useFlexGap>
+                {/* ── BACK TO THE PLAN THAT SENT YOU (req #3498) ──────────────
+                    The plan visualizer's epic chip carries a steps-editor link,
+                    and until now following it was one-way: the reader landed
+                    here with the plan, its panel and the camera they had set all
+                    to be found again by hand.
+
+                    THE STATE IS THE ONE `RequirementDetail` ALREADY SPEAKS —
+                    `{from:'pipeline', pipelineId, mode}` (req #3252) — and the
+                    route is built by `planDetailPath`, not interpolated here, so
+                    this page never spells a plan route of its own. `mode=` is a
+                    TRANSIENT override on the receiving page and never rewrites
+                    the reader's stored panel preference.
+
+                    RENDERED ONLY WHEN THERE IS AN ORIGIN. Arriving from the nav
+                    bar shows no button, because there is nothing to go back
+                    TO — a Back that guesses is worse than none. */}
+                {planOrigin && (
+                    <Button size="small" variant="outlined"
+                            startIcon={<ArrowBackIcon />}
+                            onClick={() => navigate(planDetailPath(planOrigin.id,
+                                planOrigin.mode ? `mode=${planOrigin.mode}` : null))}
+                            data-testid="steps-back-to-plan">
+                        Back to Plan
+                    </Button>
+                )}
                 <Typography variant="h5">Steps</Typography>
 
                 <FormControl size="small" sx={{ minWidth: 180 }}>
