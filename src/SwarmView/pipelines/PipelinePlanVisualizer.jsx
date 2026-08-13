@@ -121,16 +121,25 @@ import {
     // req #3365 — the ruler's own thinning gap, re-applied at draw time
     // against the counter-scaled label widths.
     RULER_LABEL_GAP,
-    PLAN_VIZ_PALETTE as P, PLAN_VIZ_FONT as F, BEAD_RADIUS, BEAD_HIT_RADIUS,
-    CHW_EPIC, ZOOM_MIN_RATIO, ZOOM_MAX_RATIO,
-    readableDefaultScale, DEFAULT_STEP_WIDTH, EPIC_CHIP_BG_ALPHA,
+    PLAN_VIZ_PALETTE as P, PLAN_VIZ_FONT as F, CARD_FONT as CF,
+    BEAD_RADIUS, BEAD_HIT_RADIUS,
+    CHW_EPIC, EPIC_CHIP_FONT, ZOOM_MIN_RATIO, ZOOM_MAX_RATIO,
+    readableDefaultScale, EPIC_CHIP_BG_ALPHA,
     NEXT_HALO_RADIUS, NEXT_HALO_STROKE, NEXT_HALO_OPACITY, NEXT_HALO_DASH,
     nextHaloMagnify, nextMarkIsDot, nextMarkDotRadius,
-    planLevelFor, drawsLabelKind, BEAD_LANE_OFFSET,
+    clusterNextMarks, NEXT_MARK_COUNT_FONT_PX,
+    planLevelFor, drawsLabelKind, stepsAcrossScale, zoomAboutViewportCentre,
+    snapZoomScale, zoomAboutPoint,
+    // req #3498 — the step is a CARD. The renderer draws the box the layout
+    // measured; it never measures one of its own.
+    CARD_RADIUS, CARD_PAD_X, CARD_PAD_Y, CARD_LINE_H, CARD_RULE_GAP,
+    CARD_STATE_BAR_W, CARD_CHECK_W,
+    MIN_CARD_H, REQ_LINE_H,
     buildReqColorViews, REQ_COLOR_KEYS, reqIdStyle, reqIdKeyEntries, normalizeColorKey,
     DEFAULT_PLAN_PALETTE, isPlanPalette,
     DEFAULT_COLOR_KEY, PLAN_KEY_MAX_H, pinnedLevelOf, DEFAULT_PLAN_LEVEL_PREF,
     EPIC_PAUSE_BUBBLE_D, pauseBubbleColor, stickyRulerY, rulerScreenBottom,
+    PAUSE_PAUSED_COLOR,
     rulerScreenMag,
     KEY_GROUP_TITLES, sortReqIdsByStatus,
 } from './pipelinePlanLayout';
@@ -288,8 +297,10 @@ export default function PipelinePlanVisualizer({
     // Toolbar state is OWNED BY THE PAGE since req #3119 — the controls render in
     // the header row beside the pipeline name (the SwarmView/VisualizerToolbar
     // pattern, req #2407), so the panel is the canvas and nothing else.
-    reqLayout = 'vertical', stepLabel = 'title', colorKey = DEFAULT_COLOR_KEY,
-    stepWidth = DEFAULT_STEP_WIDTH, reqLabel = 'id', levelPref = DEFAULT_PLAN_LEVEL_PREF,
+    // `reqLayout` and `stepWidth` left with req #3498 — a card stacks its
+    // requirements and is a fixed width, so neither had anything left to select.
+    stepLabel = 'title', colorKey = DEFAULT_COLOR_KEY,
+    reqLabel = 'id', levelPref = DEFAULT_PLAN_LEVEL_PREF,
     // req #3365 — WHICH colours the epic bands and the two enum scales draw
     // from. Normalized below with the same discipline `colorKey` gets, and for
     // the same reason: it is a persisted preference crossing a component
@@ -314,6 +325,15 @@ export default function PipelinePlanVisualizer({
     // device for exactly this (`resetViewNonce`/`frame`): a number that only
     // ever increments, watched by an effect below. 0 is the initial render.
     resetViewNonce = 0,
+    // req #3498 — `{n, nonce}` from the header's steps-across buttons. Same
+    // handshake as `resetViewNonce`: the control lives on the page, the camera
+    // lives here, and the nonce is what makes a repeated click fire again.
+    stepsAcross = null,
+    // req #3498 — when true the WHEEL walks the steps-across ladder instead of
+    // scaling continuously. Read through a ref by the zoom filter below, so
+    // toggling it never rebuilds the zoom behaviour (which would drop the
+    // reader's camera).
+    snapZoom = false,
 }) {
     const navigate = useNavigate();
 
@@ -377,7 +397,7 @@ export default function PipelinePlanVisualizer({
     const activePalette = isPlanPalette(palette) ? palette : DEFAULT_PLAN_PALETTE;
     const layout = useMemo(
         () => computePlanLayout(rows, {
-            reqLayout, stepLabel, stepWidth, reqLabel, reqTitles,
+            stepLabel, reqLabel, reqTitles,
             palette: activePalette,
             timeAxis: plan.timeAxis || null, epicCounts,
             // req #3226 — `plan.pause` comes from the composed derivation (same
@@ -385,7 +405,7 @@ export default function PipelinePlanVisualizer({
             // derivation, read here rather than recomputed.
             pauseInfo: plan.pause || null,
         }),
-        [rows, plan.timeAxis, reqLayout, stepLabel, stepWidth,
+        [rows, plan.timeAxis, stepLabel,
             reqLabel, reqTitles, epicCounts, plan.pause, activePalette]);
 
     // ── The REQUIREMENT-ID channel (req #3119; #3168 neutral; #3422 registry) ─
@@ -840,7 +860,12 @@ export default function PipelinePlanVisualizer({
             // canvas, and excluding them from zoom too made a scroll with the
             // cursor over one do nothing at all, which reads as the page having
             // frozen (review finding).
-            .filter((ev) => (ev.type === 'wheel' ? true
+            // req #3498 — WITH SNAP ON, THE WHEEL IS NOT d3's. Rejecting it here
+            // is what lets the ladder handler below own the gesture; leaving
+            // d3 to scale continuously and then correcting it afterwards would
+            // fight its own inertia and emit a smooth zoom before every snap.
+            // Through a ref, so the toggle does not rebuild this behaviour.
+            .filter((ev) => (ev.type === 'wheel' ? !snapZoomRef.current
                 : (!ev.button && !ev.target?.closest?.(CHROME_SELECTOR))))
             // ONE number for "how far may a click move" (req #3297). d3 uses it
             // to decide whether to suppress the click; the epic name's cycle
@@ -963,9 +988,8 @@ export default function PipelinePlanVisualizer({
     //
     // Applied on first size and whenever a layout toggle changes the world
     // dimensions wholesale (the POC re-rendered from scratch on those
-    // toggles). `stepWidth` is on that list for the same reason the other two
-    // are: it rescales every column, so the previous pan lands somewhere
-    // unrelated on the new geometry.
+    // toggles): a toggle that rescales the world leaves the previous pan
+    // somewhere unrelated on the new geometry.
     const resetView = useCallback(() => {
         const el = containerEl;
         const zb = zoomRef.current;
@@ -1187,7 +1211,7 @@ export default function PipelinePlanVisualizer({
             committedFingerprintRef.current = viewportFingerprint;
             writeViewport(viewportKey, viewportFingerprint, live);
         }
-    // `reqLayout`/`stepLabel`/`stepWidth`/`reqLabel` are deliberately NOT on this
+    // `stepLabel`/`reqLabel` are deliberately NOT on this
     // list any more. They were here as a hand-maintained enumeration of "things
     // that rescale the world", and `landKey` is that same fact DERIVED — it
     // cannot go stale when a ninth layout option is added, and a list can.
@@ -1226,6 +1250,86 @@ export default function PipelinePlanVisualizer({
         if (!resetViewNonce) return;
         factoryResetRef.current();
     }, [resetViewNonce]);
+
+    // ── FIT N STEPS ACROSS, ABOUT THE VIEWPORT'S CENTRE (req #3498) ─────────
+    // The scale and the transform are both `pipelinePlanLayout`'s (see
+    // `stepsAcrossScale` / `zoomAboutViewportCentre`) — this effect only drives
+    // d3-zoom with the answer, so the arithmetic stays testable without a canvas
+    // and the "2 is the loose one" rule lives beside the option list rather than
+    // in a component.
+    //
+    // Through `zb.transform`, not by setting state: d3-zoom owns the gesture and
+    // a transform written behind its back is reverted by the next wheel event.
+    // It applies `scaleExtent` itself, so a request past either end of the zoom
+    // range is clamped rather than refused — asking for 2 across on a plan too
+    // small to need it lands at the ceiling, which is the honest answer.
+    //
+    // Keyed on the NONCE alone, read through a ref: `size` and the layout change
+    // on every resize and every toggle, and depending on them would re-fire a
+    // zoom the reader never asked for a second time.
+    const stepsAcrossRef = useRef(null);
+    stepsAcrossRef.current = () => {
+        const el = containerEl;
+        const zb = zoomRef.current;
+        if (!el || !zb || !(size.w > 0)) return;
+        const nextK = stepsAcrossScale(stepsAcross?.n, size.w);
+        if (!nextK) return;
+        const next = zoomAboutViewportCentre(t, size, nextK);
+        if (!next) return;
+        // The reader moved the camera deliberately, so a pending `?epic=` re-fit
+        // must not fight them for it — the same stand-down `factoryReset` does.
+        epicZoomRef.current = null;
+        userMovedCameraRef.current = true;
+        select(el).call(zb.transform,
+            zoomIdentity.translate(next.x, next.y).scale(next.k));
+    };
+    useEffect(() => {
+        if (!stepsAcross?.nonce) return;
+        stepsAcrossRef.current();
+    }, [stepsAcross?.nonce]);
+
+    // ── THE SNAPPING WHEEL (req #3498) ──────────────────────────────────────
+    // One notch = one rung of the steps-across ladder, so the wheel and the
+    // buttons land on the SAME scales rather than two sets that look alike.
+    //
+    // ANCHORED ON THE POINTER, not the viewport centre: that is what a wheel
+    // has always done on this canvas, and snapping is a change to the SIZE of
+    // the step, not to what the gesture means. The buttons anchor at the centre
+    // because a button has no pointer to speak of.
+    //
+    // `passive: false` and an explicit `preventDefault`, because the whole point
+    // is to stop the page scrolling under a gesture d3 is no longer taking.
+    const snapZoomRef = useRef(snapZoom);
+    snapZoomRef.current = snapZoom;
+    const snapWheelRef = useRef(null);
+    snapWheelRef.current = (ev) => {
+        const el = containerEl;
+        const zb = zoomRef.current;
+        if (!el || !zb || !(size.w > 0)) return;
+        // d3's own sign convention: deltaY > 0 is a zoom OUT.
+        const dir = ev.deltaY > 0 ? 1 : -1;
+        const nextK = snapZoomScale(t.k, size.w, dir);
+        if (!nextK) return;                     // already at the ladder's floor
+        const rect = el.getBoundingClientRect();
+        const next = zoomAboutPoint(t,
+            { x: ev.clientX - rect.left, y: ev.clientY - rect.top }, nextK);
+        if (!next) return;
+        epicZoomRef.current = null;
+        userMovedCameraRef.current = true;
+        select(el).call(zb.transform,
+            zoomIdentity.translate(next.x, next.y).scale(next.k));
+    };
+    useEffect(() => {
+        const el = containerEl;
+        if (!el) return undefined;
+        const onWheel = (ev) => {
+            if (!snapZoomRef.current) return;   // d3 has it; do nothing
+            ev.preventDefault();
+            snapWheelRef.current(ev);
+        };
+        el.addEventListener('wheel', onWheel, { passive: false });
+        return () => el.removeEventListener('wheel', onWheel);
+    }, [containerEl]);
 
     // Manual DOM click hit-test: d3-zoom owns the pointer gesture, so a
     // non-drag click is resolved against the stage and fired as the Konva
@@ -1910,12 +2014,28 @@ export default function PipelinePlanVisualizer({
                   stroke={band.color} strokeWidth={1} opacity={0.35} />);
         for (let l = 0; l < band.sub; l++) {
             // band.laneY, not l × pitch — lanes have individual heights since
-            // req #3119 and a constant-pitch wire would drift off its beads.
-            // BEAD_LANE_OFFSET, not a literal 10: this is the same offset the
-            // layout places the beads at, and the wire's whole job is to run
-            // through them (req #3271 hoist — two copies that "only have to
-            // agree" is what the naming exists to prevent).
-            const wy = band.y + band.headerH + band.laneY[l] + BEAD_LANE_OFFSET;
+            // req #3119 and a constant-pitch wire would drift off its cards.
+            //
+            // req #3498 — HALF THE LANE'S TALLEST CARD, not a fixed offset from
+            // the lane's top. The wire's whole job is to run through the things
+            // it connects, and what it connects are now boxes joined at their
+            // edge MIDPOINTS. `band.laneCardH` is the same map `lanePitch` sized
+            // the lane from, so the wire and the arcs read one number: a literal
+            // here is exactly the "two copies that only have to agree" the old
+            // `BEAD_LANE_OFFSET` naming existed to prevent.
+            //
+            // Cards in a lane are CENTRE-aligned (see the node block in
+            // pipelinePlanLayout.js), so this is every card's midpoint in the
+            // lane, not just the tallest one's — the wire runs through all of
+            // them and through every same-lane arc.
+            // `|| MIN_CARD_H` and NOT `|| 0`: the two fallbacks have to be the
+            // same one `lanePitch` used, or an unmapped lane would put its wire
+            // at the lane's TOP while the pitch reserved a card's height for it
+            // — the "two copies that only have to agree" failure this shared
+            // map exists to prevent. Unreachable in practice (the renumber
+            // leaves no empty lane), which is exactly why it must not be wrong.
+            const wy = band.y + band.headerH + band.laneY[l]
+                + (band.laneCardH?.get(l) ?? MIN_CARD_H) / 2;
             worldNodes.push(
                 <Line key={`wire-${band.key}-${l}`}
                       points={[36, wy, layout.width - 14, wy]}
@@ -2095,11 +2215,33 @@ export default function PipelinePlanVisualizer({
     // the same call the label loop below makes, so the mark and the labels cannot
     // disagree about whether there is room (req #3324).
     const labelsDrawn = drawsKind('step');
+    // req #3498 — WHETHER THE CARD IS PAINTED. The same predicate as the step
+    // label, deliberately: the card exists to hold that label and the
+    // requirement rows, so a level that draws the text and not its container,
+    // or the reverse, is not a level anyone asked for.
+    const drawsCard = labelsDrawn;
     const haloIsDot = nextMarkIsDot(curK, labelsDrawn);
     const haloM = haloIsDot ? 1 : nextHaloMagnify(curK, labelsDrawn);
     const haloDash = haloIsDot || haloM === 1 ? NEXT_HALO_DASH
         : NEXT_HALO_DASH.map((d) => d * haloM);
     const dotRadius = haloIsDot ? nextMarkDotRadius(curK) : 0;
+    // ── ONE MARK PER CLUSTER (req #3498, user directive) ────────────────────
+    // The deep-zoom-out dot holds a fixed SCREEN size, so at the scale this plan
+    // lands at its world radius is larger than the gap between two eligible
+    // cards and N marks drew as one blob. `clusterNextMarks` merges the ones
+    // that would overlap; the loop below skips their individual dots and the
+    // merged marks are pushed after it, each carrying how many steps it stands
+    // for. Only the DOT branch clusters — the ring and the card outline are
+    // both bound to geometry that cannot overlap a neighbour's.
+    const dotClusters = (!drawsCard && haloIsDot)
+        ? clusterNextMarks(rows.filter((r) => {
+            const n = layout.nodes.get(r.id);
+            return n && eligibleStepIds.has(r.id);
+        }).map((r) => {
+            const n = layout.nodes.get(r.id);
+            return { id: r.id, x: n.x, y: n.y, suppressed: r.launchSuppressed };
+        }), dotRadius)
+        : null;
 
     rows.forEach((row) => {
         const n = layout.nodes.get(row.id);
@@ -2136,10 +2278,28 @@ export default function PipelinePlanVisualizer({
             // geometry below the floor the ring itself cannot reach. The
             // bead's fill (state) and ring (run mode) below still draw at
             // their own — now sub-pixel — world size, untouched.
-            worldNodes.push(haloIsDot ? (
-                <Circle key={`next-${row.id}`} name="next-halo" x={n.x} y={n.y}
-                        radius={dotRadius} fill={style.haloColor}
-                        opacity={NEXT_HALO_OPACITY} listening={false} />
+            //
+            // req #3498 — WHERE THERE IS A CARD, THE HALO IS THE CARD'S OWN
+            // OUTLINE. A ring sized to a bead, drawn at the centre of a
+            // 406px-wide card, would mark the middle of the card's requirement
+            // rows rather than the card — so the mark follows the shape the
+            // level is actually drawing. It keeps the halo's colour, dash and
+            // opacity, which are what carry the meaning; only the geometry
+            // changes. The magnification is NOT applied to it: `haloM` exists
+            // to grow a bead-sized mark into the room the labels vacate, and
+            // at this level the labels are drawn and `haloM` is already 1.
+            worldNodes.push(drawsCard ? (
+                <Rect key={`next-${row.id}`} name="next-halo"
+                      x={n.frameLeft - NEXT_HALO_STROKE} y={n.top - NEXT_HALO_STROKE}
+                      width={n.frameW + 2 * NEXT_HALO_STROKE}
+                      height={n.h + 2 * NEXT_HALO_STROKE}
+                      cornerRadius={CARD_RADIUS + NEXT_HALO_STROKE}
+                      stroke={style.haloColor} strokeWidth={NEXT_HALO_STROKE}
+                      opacity={NEXT_HALO_OPACITY} dash={NEXT_HALO_DASH}
+                      listening={false} />
+            ) : haloIsDot ? (
+                // Drawn by the cluster pass after this loop — see `dotClusters`.
+                null
             ) : (
                 <Circle key={`next-${row.id}`} name="next-halo" x={n.x} y={n.y}
                         radius={NEXT_HALO_RADIUS * haloM} stroke={style.haloColor}
@@ -2147,27 +2307,164 @@ export default function PipelinePlanVisualizer({
                         dash={haloDash} listening={false} />
             ));
         }
-        worldNodes.push(
-            <Group key={`bead-${row.id}`} name={style.pulse ? 'pulse-bead' : undefined}>
-                <Circle x={n.x} y={n.y} radius={BEAD_RADIUS}
-                        fill={style.fill} stroke={style.ring}
-                        strokeWidth={style.ringWidth} />
-                {style.check && (
-                    <Text x={n.x - 4} y={n.y - 4.5} text="✓" fontSize={F.check}
-                          fill={P.doneCheck} listening={false} />
-                )}
-            </Group>);
-        // Hit target on top of the bead.
-        // Its radius is a LAYOUT constant since req #3213 — the label hit
-        // regions below are pushed above these circles, so the clearance
-        // between the two is an invariant the layout tests assert.
-        worldNodes.push(
-            <Circle key={`hit-${row.id}`} x={n.x} y={n.y} radius={BEAD_HIT_RADIUS}
-                    fill="transparent"
-                    onMouseEnter={(e) => { cursorPointer(e, true); showStepCard(row, e); }}
-                    onMouseLeave={(e) => { cursorPointer(e, false); hideCard(); }}
-                    onActivate={() => onStepFocus?.(row.id)} />);
+        // ── THE CARD, OR THE BEAD (req #3498) ───────────────────────────────
+        // L1 draws today's bead, unchanged, on the user's own directive. L2 and
+        // L3 draw the card, and the bead is not drawn at all there — a circle at
+        // the card's centre would sit squarely on the requirement rows the card
+        // exists to show.
+        //
+        // THE LAYOUT'S GEOMETRY IS THE SAME AT ALL THREE LEVELS: `n.left/top/w/h`
+        // is the card's box whether or not the card is painted, the arcs anchor
+        // on its edge midpoints either way, and nothing here measures a box of
+        // its own. So crossing a level changes WHAT IS DRAWN and never WHERE
+        // anything is — this module's oldest invariant, and the reason the bead
+        // may not simply move somewhere more convenient at L2.
+        if (drawsCard) {
+            worldNodes.push(
+                // ── WHAT PULSES IS THE STATE BAR, NOT THE CARD (req #3498) ──
+                // The Running pulse drives OPACITY 0.45 -> 1.0 twice a second.
+                // On the bead that animated a 314px² dot; on the Group it
+                // animated the card's whole 30,000px² body — the panel fill, the
+                // rule and the ✓ — while the step name and the requirement rows,
+                // which are pushed later in the label loop, stayed fully opaque.
+                // The result was a card whose BACKGROUND strobed, revealing the
+                // lane wire and any arc behind it, under motionless text. The
+                // bar is the card's state channel, so pulsing it says the same
+                // thing the bead's pulse said, in the same place the colour is.
+                <Group key={`card-${row.id}`}>
+                    <Rect x={n.frameLeft} y={n.top}
+                          width={n.frameW} height={n.h}
+                          cornerRadius={CARD_RADIUS}
+                          fill={P.panel} stroke={style.ring}
+                          strokeWidth={style.ringWidth} />
+                    {/* The bead's FILL channel — see CARD_STATE_BAR_W. It sits
+                        BESIDE the frame on the LEFT, in the strip `CARD_W`
+                        reserves for it, so it never crowds the lettering (user
+                        directive). Free-standing, it takes its own full-height
+                        rounded ends: there is no card border for a clamped
+                        corner radius to poke out of any more. */}
+                    <Rect name={style.pulse ? 'pulse-bead' : undefined}
+                          x={n.left} y={n.top}
+                          width={CARD_STATE_BAR_W} height={n.h}
+                          cornerRadius={CARD_STATE_BAR_W / 2}
+                          fill={style.fill} listening={false} />
+                    {/* *"Separate the step name with a horizontal line"* — the
+                        rule under the title area, inset to the text column so it
+                        reads as a divider and not as a second border. */}
+                    <Line points={[
+                        n.frameLeft + CARD_PAD_X,
+                        n.top + n.titleH + CARD_RULE_GAP,
+                        n.frameLeft + n.frameW - CARD_PAD_X,
+                        n.top + n.titleH + CARD_RULE_GAP,
+                    ]} stroke={P.line} strokeWidth={1} listening={false} />
+                    {/* The ✓ sits in `CARD_CHECK_W`, which `stepLabelText`'s
+                        budget takes off the top — so it never lands on the step
+                        name. Before that reserve existed it overlapped the
+                        title's ellipsis on 23 of the fixture's 34 cards. */}
+                    {style.check && (
+                        <Text x={n.frameLeft + n.frameW
+                                  - CARD_PAD_X - CARD_CHECK_W + 2}
+                              y={n.top + CARD_PAD_Y + 2} text="✓"
+                              fontSize={CF.check} fill={P.doneCheck}
+                              listening={false} />
+                    )}
+                </Group>);
+        } else {
+            worldNodes.push(
+                <Group key={`bead-${row.id}`} name={style.pulse ? 'pulse-bead' : undefined}>
+                    {/* THE LEADERS (req #3498). The arcs anchor on the CARD's
+                        edge midpoints at every level, and at L1 the card is not
+                        painted — so without these the wire would stop a half
+                        card short of the bead on each side and the plan would
+                        read as a field of disconnected dots. They are drawn in
+                        the arc's own colour, at the bead's own y, so bead,
+                        leader and arc are one continuous line. */}
+                    <Line points={[n.left, n.y, n.right, n.y]}
+                          stroke={P.arc} strokeWidth={1.4} listening={false} />
+                    <Circle x={n.x} y={n.y} radius={BEAD_RADIUS}
+                            fill={style.fill} stroke={style.ring}
+                            strokeWidth={style.ringWidth} />
+                    {style.check && (
+                        <Text x={n.x - 4} y={n.y - 4.5} text="✓" fontSize={F.check}
+                              fill={P.doneCheck} listening={false} />
+                    )}
+                </Group>);
+        }
+        // ── HOVER IS THE WHOLE CARD; ACTIVATE IS THE TITLE AREA ─────────────
+        // `onActivate` switches the page to Table mode, which unmounts the
+        // visualizer and discards the reader's pan and zoom — so how much of the
+        // world fires it is a real decision, and this file already has a ruling
+        // on it: req #3213 REFUSED to put `onActivate` on the step-name hit rect
+        // because it would grow the click-to-leave surface from 0.22% of the
+        // world to 1.25%. A whole-card target measures **7.0%**, five times the
+        // number that was rejected.
+        //
+        // So the two jobs are split. HOVER — which costs nothing and is what a
+        // card is for — takes the whole card. ACTIVATE takes the TITLE AREA: the
+        // step's own name, a deliberate target rather than 400px of open card,
+        // and it lands at **2.7%**. It also closes the hole the split would
+        // otherwise leave, because the step-label hit rect below sits ON TOP of
+        // this one and the manual hit test does not bubble — clicking the step's
+        // name would have done nothing while clicking 3px under it left the page.
+        // The requirement ROWS keep their own `onActivate` (navigate to the
+        // requirement), and they sit below the rule, outside this box.
+        //
+        // At L1 the bead's hit circle is unchanged. Its radius is a LAYOUT
+        // constant since req #3213 — the label hit regions below are pushed
+        // above these nodes, so the clearance between the two is an invariant
+        // the layout tests assert.
+        const stepHover = {
+            onMouseEnter: (e) => { cursorPointer(e, true); showStepCard(row, e); },
+            onMouseLeave: (e) => { cursorPointer(e, false); hideCard(); },
+        };
+        const stepActivate = { ...stepHover, onActivate: () => onStepFocus?.(row.id) };
+        if (drawsCard) {
+            // Both regions are the FRAME's, not the node box's: the strip the
+            // state bar stands in belongs to no control, and a hit rect drawn
+            // over it would put a rounded card's corner radius on a box that is
+            // a bar wider than the card.
+            worldNodes.push(
+                <Rect key={`hit-${row.id}`} x={n.frameLeft} y={n.top}
+                      width={n.frameW} height={n.h} cornerRadius={CARD_RADIUS}
+                      fill="transparent" {...stepHover} />,
+                <Rect key={`hitact-${row.id}`} x={n.frameLeft} y={n.top}
+                      width={n.frameW} height={n.titleH}
+                      fill="transparent" {...stepActivate} />);
+        } else {
+            worldNodes.push(
+                <Circle key={`hit-${row.id}`} x={n.x} y={n.y} radius={BEAD_HIT_RADIUS}
+                        fill="transparent" {...stepActivate} />);
+        }
     });
+
+    // ── The merged next-step marks (req #3498) ──────────────────────────────
+    // Pushed after the row loop so they sit above every bead, and counter-scaled
+    // the same way the dot itself is: `nextMarkDotRadius` already returns a
+    // world radius that lands at a fixed screen size, so the COUNT beside it
+    // divides by `curK` for the identical reason. A count drawn at a world font
+    // would be invisible at exactly the scale this mark exists for.
+    if (dotClusters) {
+        for (const c of dotClusters) {
+            const color = c.suppressed ? PAUSE_PAUSED_COLOR : P.eligibleRing;
+            worldNodes.push(
+                <Circle key={`next-c${c.ids[0]}`} name="next-halo"
+                        x={c.x} y={c.y} radius={dotRadius} fill={color}
+                        opacity={NEXT_HALO_OPACITY} listening={false} />);
+            if (c.ids.length > 1) {
+                // Inside the dot, centred — the mark is big by construction at
+                // this scale, so the number rides it rather than sitting beside
+                // it where it would collide with the next cluster.
+                const fs = NEXT_MARK_COUNT_FONT_PX / curK;
+                const text = String(c.ids.length);
+                worldNodes.push(
+                    <Text key={`nextn-c${c.ids[0]}`}
+                          x={c.x - (fs * 0.6 * text.length) / 2}
+                          y={c.y - fs / 2}
+                          text={text} fontSize={fs} fontFamily={MONO}
+                          fontStyle="bold" fill={P.bg} listening={false} />);
+            }
+        }
+    }
 
     // ── Hover regions on the TEXT (req #3213 D1/D2) ─────────────────────────
     // The words are the larger, more obvious target than the bead beside them,
@@ -2205,6 +2502,17 @@ export default function PipelinePlanVisualizer({
     // resulting edge, so three call sites now share one derivation. A literal
     // in any of them would let the plate and the type it backs disagree about
     // their own size, which is exactly the defect req #3365 fixed.
+    // ── LEAVING THIS PAGE CARRIES A WAY BACK (req #3498, user directive) ────
+    // The steps-editor link is the one control here that leaves the plan, and it
+    // left with no return: the reader landed in the Steps grid with the plan,
+    // its panel and the camera they had set all to be found again by hand. This
+    // is the SAME state the requirement links have carried since req #3252 —
+    // `from`/`pipelineId`/`mode` — read by the receiving page to render its own
+    // "Back to Plan". One vocabulary for every exit from this surface.
+    const stepsBackState = pipeline?.id
+        ? { state: { from: 'pipeline', pipelineId: pipeline.id, mode: 'plan' } }
+        : undefined;
+
     const rulerLabelMag = rulerScreenMag(t);
     // The layout's own greedy thinning rule (`pipelinePlanLayout.js`:
     // "labelX < lastRight + gap"), re-applied to the widths counter-scaling
@@ -2227,9 +2535,14 @@ export default function PipelinePlanVisualizer({
     layout.labels.forEach((label, i) => {
         if (!drawsKind(label.kind)) return;
         if (label.kind === 'step') {
+            // Wrapped at layout time (req #3498) — the step name takes a
+            // second line before it truncates, exactly as a requirement row
+            // does, because a 28-character line leaves it nineteen otherwise.
             worldNodes.push(
-                <Text key={`lbl-${i}`} x={label.x} y={label.y} text={label.text}
-                      fontSize={F.label} fontFamily={MONO} fill={P.text}
+                <Text key={`lbl-${i}`} x={label.x} y={label.y}
+                      text={(label.lines || [label.text]).join('\n')}
+                      fontSize={CF.label} fontFamily={MONO} fill={P.text}
+                      lineHeight={CARD_LINE_H / CF.label}
                       listening={false} />);
             // HOVER ONLY — deliberately NOT the bead's third handler (review
             // finding). The bead's hit circle also carries `onActivate`, which
@@ -2281,12 +2594,31 @@ export default function PipelinePlanVisualizer({
             // id is centred on the same point and strictly narrower, so it
             // cannot leave a box the title already fits.
             const showTitle = level === 'in' && label.idText != null;
-            const reqText = showTitle ? label.text : (label.idText ?? label.text);
-            const reqX = showTitle ? label.x
-                : label.x + (label.w - (label.idW ?? label.w)) / 2;
+            // ── THE SECOND LINE IS L3's (req #3498, user directive) ─────────
+            // The LAYOUT wrapped it and reserved the room at every level; this
+            // only decides what goes in that room. At L2 the row is the bare id
+            // on the first reserved line and the second sits empty — reserving
+            // it either way is what keeps a level change a pure transform.
+            // Joined with a newline and handed to ONE Konva.Text with an
+            // explicit `lineHeight`, so the two lines cannot drift apart from
+            // the box the overlap sweep measured.
+            const reqLines = showTitle && Array.isArray(label.lines)
+                ? label.lines : null;
+            const reqText = reqLines ? reqLines.join('\n')
+                : (showTitle ? label.text : (label.idText ?? label.text));
+            // ── LEFT-ANCHORED, NOT CENTRED IN THE TITLE'S BOX (req #3498) ───
+            // The id used to be centred inside the room the title reserved,
+            // because the layout centred the title on the node's x. A card's
+            // rows are LEFT-ALIGNED on one text column, so centring the id
+            // inside a box whose width varies per requirement scattered the ids
+            // across the card — measured, five ids at five different x inside
+            // one card at L2, under a left-aligned step name. It also made each
+            // id's click target a small box floating at that offset.
+            const reqX = label.x;
             worldNodes.push(
                 <Text key={`lbl-${i}`} x={reqX} y={label.y} text={reqText}
-                      fontSize={F.req} fontFamily={MONO}
+                      fontSize={CF.req} fontFamily={MONO}
+                      lineHeight={REQ_LINE_H / CF.req}
                       fill={rs.fill}
                       fontStyle={rs.bold ? 'bold' : 'normal'}
                       onMouseEnter={(e) => { cursorPointer(e, true); showReqCard(label.reqId, e); }}
@@ -2321,10 +2653,19 @@ export default function PipelinePlanVisualizer({
                               ? { state: { from: 'pipeline', pipelineId: pipeline.id,
                                   mode: 'plan' } }
                               : undefined)} />);
+        } else if (label.kind === 'count') {
+            // The step's total requirement count, right-aligned in the title
+            // area beside the ✓. Dim, because it is a fact ABOUT the list
+            // below it rather than a member of it — the same voice the
+            // reserved step-title line uses.
+            worldNodes.push(
+                <Text key={`lbl-${i}`} x={label.x} y={label.y} text={label.text}
+                      fontSize={CF.req} fontFamily={MONO} fill={P.dim}
+                      listening={false} />);
         } else if (label.kind === 'title') {
             worldNodes.push(
                 <Text key={`lbl-${i}`} x={label.x} y={label.y} text={label.text}
-                      fontSize={F.title} fontFamily={MONO} fill={P.dim}
+                      fontSize={CF.title} fontFamily={MONO} fill={P.dim}
                       listening={false} />);
             // The reserved title slot is the step's own name in a second place
             // (req #3213 D2): it answers with the step it belongs to, exactly
@@ -2766,7 +3107,8 @@ export default function PipelinePlanVisualizer({
                                     data-testid={`pipeline-viz-epic-open-${e.key}`}
                                     onClick={(ev) => {
                                         ev.stopPropagation();
-                                        navigate(`/swarm/steps?epic=${e.epicId}`);
+                                        navigate(`/swarm/steps?epic=${e.epicId}`,
+                                            stepsBackState);
                                     }}
                                     onKeyDown={(ev) => {
                                         if (ev.key !== 'Enter') return;
@@ -2775,11 +3117,13 @@ export default function PipelinePlanVisualizer({
                                         // user is navigating away from.
                                         ev.stopPropagation();
                                         ev.preventDefault();
-                                        navigate(`/swarm/steps?epic=${e.epicId}`);
+                                        navigate(`/swarm/steps?epic=${e.epicId}`,
+                                            stepsBackState);
                                     }}
                                     sx={{
-                                        fontSize: 12, fontWeight: 400, opacity: 0.7,
-                                        lineHeight: 1, px: '2px',
+                                        fontSize: EPIC_CHIP_FONT, fontWeight: 400,
+                                        opacity: 0.85,
+                                        lineHeight: 1, px: '3px',
                                         '&:hover': { opacity: 1 },
                                     }}
                                 >
@@ -2839,11 +3183,11 @@ export default function PipelinePlanVisualizer({
                                     }}
                                     sx={{
                                         display: 'inline-flex', alignItems: 'center',
-                                        lineHeight: 1, px: '2px', opacity: 0.7,
+                                        lineHeight: 1, px: '3px', opacity: 0.85,
                                         '&:hover': { opacity: 1 },
                                     }}
                                 >
-                                    <ViewModuleIcon sx={{ fontSize: 14 }} />
+                                    <ViewModuleIcon sx={{ fontSize: EPIC_CHIP_FONT + 2 }} />
                                 </Box>
                             )}
                         </Box>
@@ -3022,14 +3366,29 @@ export default function PipelinePlanVisualizer({
                             {/* THE STEP channel. Running and next-up carry live
                                 motion in the key itself, because naming a rhythm
                                 in words is not the same as showing it. */}
+                            {/* ── THE ORDER IS THE STEP'S OWN LIFECYCLE ──────
+                                User directive, 2026-08-13: read left to right,
+                                *"Manual Scheduled Running Complete Up Next"*.
+
+                                It used to run Complete first and Manual fourth,
+                                which is the order the marks were ADDED in over
+                                #3168/#3299 rather than an order that means
+                                anything. Left to right it now traces what
+                                happens to a step — held for a person, waiting
+                                its turn, in flight, done — with the launch
+                                marker last, because "Up Next" is not a state a
+                                step is IN; it is the plan pointing at what runs
+                                now. That also puts the two marks a reader
+                                compares most (Running and Complete) side by
+                                side. */}
                             <KeyGroup title={KEY_GROUP_TITLES[0]} first>
-                                <LegendDot fill={P.doneFill} label="Complete" />
-                                <LegendDot fill={P.runningFill} label="Running"
-                                           animated="pipeKeyPulse" />
+                                <LegendDot ring={P.manualRing} label="Manual" />
                                 <LegendDot fill={P.pendingFill} ring="#5b7293"
                                            label="Scheduled" />
-                                <LegendDot ring={P.manualRing} label="Manual" />
-                                {/* "next up" and not "eligible now" because the
+                                <LegendDot fill={P.runningFill} label="Running"
+                                           animated="pipeKeyPulse" />
+                                <LegendDot fill={P.doneFill} label="Complete" />
+                                {/* "Up Next" and not "eligible now" because the
                                     mark answers the question in the plan's own
                                     words: these are the steps that run next.
                                     Below k ≈ 0.3 the canvas swaps this dashed
@@ -3040,7 +3399,7 @@ export default function PipelinePlanVisualizer({
                                     zoom-out, the fact it marks does not
                                     change, so the key does not grow a second
                                     swatch for it. */}
-                                <LegendDot ring={P.eligibleRing} label="next up"
+                                <LegendDot ring={P.eligibleRing} label="Up Next"
                                            dashed animated="pipeKeyBreathe" />
                             </KeyGroup>
 

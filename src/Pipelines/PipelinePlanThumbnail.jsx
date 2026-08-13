@@ -237,19 +237,49 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
                                 is deliberately not drawn: it is a fixed-screen
                                 -size mark designed for a camera this frame does
                                 not have, and at this scale it would swamp the
-                                bead it points at. */}
+                                bead it points at.
+
+                                THE THUMBNAIL IS AN L1 VIEW (req #3498), so it
+                                draws the bead and never the card — a `CARD_W`
+                                card rendered into a frame this size is a grey
+                                rectangle with unreadable text in it. It
+                                therefore needs the plan page's LEADERS for the
+                                same reason: the arcs anchor on the card's edge
+                                midpoints, so without them every bead would float
+                                a half-card clear of the wire it sits on.
+
+                                WHAT THIS COSTS THE THUMBNAIL, measured: the
+                                world is ~3x wider, so `k` falls 0.075 -> 0.041
+                                and a bead draws at 0.83 screen px against 1.50
+                                before. The leaders help less than they look
+                                like they do — at 1.4 world px they render as a
+                                0.06px hairline. The frame still answers "how
+                                many epics, how much is green" from the BANDS,
+                                which are unaffected, but the beads are at the
+                                edge of visibility and a taller frame or a
+                                thumbnail-only floor is the honest next move if
+                                that stops being enough. */}
                             {view.rows.map((row) => {
                                 const n = view.layout.nodes.get(row.id);
                                 if (!n) return null;
                                 const style = beadStyle(
                                     row, view.eligible.has(row.id));
                                 return (
-                                    <Circle key={`bead-${row.id}`}
+                                    <Group key={`bead-${row.id}`}>
+                                        {/* Same weight and opacity as this
+                                            frame's own arcs above — a leader is
+                                            a continuation of the wire, not a
+                                            second kind of mark. */}
+                                        <Line points={[n.left, n.y, n.right, n.y]}
+                                              stroke={P.arc} strokeWidth={1.2}
+                                              opacity={0.85} />
+                                        <Circle
                                             x={n.x} y={n.y}
                                             radius={BEAD_RADIUS}
                                             fill={style.fill}
                                             stroke={style.ring}
                                             strokeWidth={style.ringWidth} />
+                                    </Group>
                                 );
                             })}
                         </Group>
