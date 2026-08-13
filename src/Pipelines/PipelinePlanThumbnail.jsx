@@ -76,6 +76,48 @@ import {
 // and the pill row do not get.
 export const THUMB_H = 132;
 
+// ── LINES ARE FLOORED AT A MINIMUM SCREEN WIDTH, NOT LEFT PURE WORLD (req
+//    #3501 user directive: "the visualizer... is also too dark. Try
+//    improving the visiblity... by making the lines brighter") ───────────
+// The full canvas draws its dependency arcs at a uniform 1.4 world-space
+// stroke (req #3365/#3366's own brightening pass) — this file drew the same
+// marks thinner, at 1.2. Both are FINE at the canvas's own scales, but this
+// frame reaches much further out: `k` here is the WHOLE PLAN fit into a
+// ~130px strip, measured at 0.041 on a live plan, well below anywhere the
+// canvas's own zoom behaviour lands it. At that k a 1.2 world-px stroke
+// drawn inside the scaled `<Group>` above collapses to 1.2 * 0.041 = 0.049
+// screen px and anti-aliases to almost nothing, REGARDLESS of how bright or
+// saturated its colour is. `P.arc` already measures 8.32:1 against the panel
+// at full size — the colour was never the problem, the WIDTH was, and no hex
+// value fixes a stroke that resolves to a twentieth of a pixel. (The full
+// canvas's own arcs are not immune to this at ITS zoom floor either — that
+// is a separate, undisclosed gap left for a canvas-scoped requirement; this
+// fix is deliberately scoped to the thumbnail, which is what was asked.)
+//
+// `Math.max(naturalWidth, floorScreenPx / view.k)` — never a pure division —
+// because the bead RADIUS drawn below is NOT given the same treatment (a
+// bead is a shape, not a line, and is outside this requirement's literal
+// ask), so it stays world-scaled and shrinks with `k` same as always. A pure
+// screen-constant line width would hold steady while the bead kept shrinking
+// underneath it — at this frame's measured k the bead's own screen diameter
+// is only 2 * BEAD_RADIUS * k = 0.82px, and a first attempt at this fix
+// pinned the line to 1.4 screen px unconditionally: 1.4 / 0.041 = 34.1 world
+// px, HALF of which (17.1) exceeds the bead's 10px world radius outright, so
+// the connector bar was wider than the bead sitting on it and swallowed the
+// status colour the frame exists to show (caught in review before merge).
+//
+// `THUMB_LINE_SCREEN_FLOOR` is chosen to stay under the bead's own screen
+// diameter (20k) down to k = 0.03 — comfortably below the measured live-plan
+// value of 0.041, so the arcs/leaders on that plan land at a real, visible
+// 0.6 screen px (12x the un-floored 0.049px) while staying narrower than the
+// 0.82px bead sitting on them. Below k = 0.03 the floor and the (unfloored)
+// bead cross again — a busier plan than the one measured could reach that,
+// and is the next thing to check if this needs the fine-tuning the
+// requirement's own text expects. `Math.max` means the floor only ever
+// ACTIVATES below k = floorScreenPx / naturalWidth (0.5 for the 1.2px arcs);
+// above that the line renders exactly as it did before this fix, unchanged.
+const THUMB_LINE_SCREEN_FLOOR = 0.6;
+
 export default function PipelinePlanThumbnail({ pipelineId, machines = [],
     enabled = true }) {
     const { data, isLoading, isError } = useComposedPipeline(pipelineId, {
@@ -203,7 +245,14 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
                             {/* Epic bands — the same two rects the full canvas
                                 draws, at the same opacities, so the epic
                                 colours a reader learns on the plan page are
-                                the ones they recognise here. */}
+                                the ones they recognise here. The outline is
+                                the only mark delineating one epic from the
+                                next (the fill alone does not read as a
+                                border), so it gets the same floored width as
+                                the arcs below (req #3501) — a plain
+                                `strokeWidth={1}` here collapsed to 0.041
+                                screen px on the live plan, fainter even than
+                                the arcs this requirement was filed about. */}
                             {view.layout.bands.map((band) => (
                                 <Group key={`band-${band.key}`}>
                                     <Rect x={2} y={band.y}
@@ -213,22 +262,32 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
                                     <Rect x={2} y={band.y}
                                           width={view.layout.width - 4}
                                           height={band.height}
-                                          stroke={band.color} strokeWidth={1}
+                                          stroke={band.color}
+                                          strokeWidth={Math.max(1,
+                                              THUMB_LINE_SCREEN_FLOOR / view.k)}
                                           opacity={0.35} />
                                 </Group>
                             ))}
 
                             {/* Dependency arcs, under the beads exactly as on
-                                the full canvas. */}
+                                the full canvas — but width-floored (req
+                                #3501, see THUMB_LINE_SCREEN_FLOOR above) and
+                                at full opacity, since a world-space stroke at
+                                this frame's k collapses to a sub-pixel
+                                hairline no colour can rescue. */}
                             {view.layout.arcs.map((arc, i) => (arc.straight ? (
                                 <Line key={`arc-${i}`}
                                       points={[arc.x1, arc.y1, arc.x2, arc.y2]}
-                                      stroke={P.arc} strokeWidth={1.2}
-                                      opacity={0.85} />
+                                      stroke={P.arc}
+                                      strokeWidth={Math.max(1.2,
+                                          THUMB_LINE_SCREEN_FLOOR / view.k)}
+                                      opacity={1} />
                             ) : (
                                 <Path key={`arc-${i}`} data={arc.path}
-                                      stroke={P.arc} strokeWidth={1.2}
-                                      opacity={0.85} />
+                                      stroke={P.arc}
+                                      strokeWidth={Math.max(1.2,
+                                          THUMB_LINE_SCREEN_FLOOR / view.k)}
+                                      opacity={1} />
                             )))}
 
                             {/* Beads. `beadStyle` is the shared function, so
@@ -248,17 +307,27 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
                                 midpoints, so without them every bead would float
                                 a half-card clear of the wire it sits on.
 
-                                WHAT THIS COSTS THE THUMBNAIL, measured: the
+                                WHAT THIS COST THE THUMBNAIL, measured: the
                                 world is ~3x wider, so `k` falls 0.075 -> 0.041
                                 and a bead draws at 0.83 screen px against 1.50
-                                before. The leaders help less than they look
-                                like they do — at 1.4 world px they render as a
-                                0.06px hairline. The frame still answers "how
-                                many epics, how much is green" from the BANDS,
-                                which are unaffected, but the beads are at the
-                                edge of visibility and a taller frame or a
-                                thumbnail-only floor is the honest next move if
-                                that stops being enough. */}
+                                before. The leaders used to help less than they
+                                looked like they did — at their own WORLD-space
+                                1.2px they rendered as a 0.049px hairline
+                                regardless of colour. req #3501 is the
+                                thumbnail-only floor this comment used to call
+                                the honest next move: the leaders below now
+                                draw at the same floored width as this frame's
+                                own arcs above (`THUMB_LINE_SCREEN_FLOOR`), so
+                                they hold a real, visible width at this plan's
+                                k — DELIBERATELY kept under the bead's own
+                                0.83px screen diameter, so the wire never
+                                outweighs the coloured dot riding on it (an
+                                unbounded floor did exactly that in review: a
+                                34px-world stroke swallowed a 10px-world
+                                bead). The bead RADIUS itself is still
+                                world-scaled and untouched — a bead is a shape
+                                at a scanned location, not a line, and is not
+                                what req #3501 asked to brighten. */}
                             {view.rows.map((row) => {
                                 const n = view.layout.nodes.get(row.id);
                                 if (!n) return null;
@@ -271,8 +340,10 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
                                             a continuation of the wire, not a
                                             second kind of mark. */}
                                         <Line points={[n.left, n.y, n.right, n.y]}
-                                              stroke={P.arc} strokeWidth={1.2}
-                                              opacity={0.85} />
+                                              stroke={P.arc}
+                                              strokeWidth={Math.max(1.2,
+                                                  THUMB_LINE_SCREEN_FLOOR / view.k)}
+                                              opacity={1} />
                                         <Circle
                                             x={n.x} y={n.y}
                                             radius={BEAD_RADIUS}
