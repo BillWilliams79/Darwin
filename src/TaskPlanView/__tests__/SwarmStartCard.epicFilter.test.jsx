@@ -9,10 +9,15 @@
 //      and a list narrowed by the same Set, or they drift silently.
 //   2. THE CARD DOES NOT OPEN BLANK. Measured on live Darwin 2026-08-09: every
 //      requirement under epic 11 was `development` AND plan-carried, while the
-//      persisted chip is `swarm_ready`, whose launch exclusion drops plan-carried
-//      work unconditionally. The requirement asks for the aggregator ON; on its
-//      own data it was on and empty. That is what the derived chip override
-//      fixes, and this fixture reproduces exactly that shape.
+//      persisted chip is `swarm_ready`. The requirement asks for the aggregator
+//      ON; on its own data it was on and empty. That is what the derived chip
+//      override fixes, and this fixture reproduces exactly that shape.
+//
+// req #3502 removed the aggregator's unconditional launch exclusion, so the
+// `swarm_ready` chip is empty here for ONE reason now instead of two: the epic
+// simply has no swarm_ready work. Requirement 900 is swarm_ready and outside the
+// epic, so "the chip is empty" remains a fact about the FILTER — which is what
+// this file exists to prove — rather than about the deleted rule.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import React from 'react';
@@ -158,18 +163,30 @@ describe('SwarmStartCard under an epic filter (req #3428)', () => {
         expect(rowIds(container)).toHaveLength(2);
     });
 
-    it('keeps the launch chips free of plan-carried work — that exclusion is '
-        + 'correctness, not a viewing preference', () => {
+    it('keeps another epic\'s swarm_ready work off the launch chip — the FILTER '
+        + 'is what empties it (req #3502)', () => {
+        // Requirement 900 is swarm_ready, plan-carried, and belongs to a
+        // different epic. Before req #3502 this chip was empty for two reasons
+        // at once; now the epic scope is the only one, which is what makes this
+        // an assertion about the filter.
         const { container } = mount(EPIC_SET);
         expect(badge(container, 'swarm_ready')).toBe(0);
     });
 
+    it('shows that same requirement once the filter is lifted', () => {
+        // The other half of the case above: with no epic scope, 900 is on the
+        // launch chip — plan-carried work is no longer withheld from it. This is
+        // the defect req #3502 was filed for, asserted at the aggregator.
+        useShowClosedStore.setState({ hidePipelinedRequirements: false });
+        const { container } = mount(null);
+        expect(badge(container, 'swarm_ready')).toBe(1);
+        expect(rowIds(container)).toEqual(['900']);
+    });
+
     it('excludes another epic\'s requirements from every count', () => {
         const { container } = mount(EPIC_SET);
-        // Requirement 900 is swarm_ready and outside the epic; without the filter
-        // it would still be pipeline-excluded, so assert on `development` where
-        // the epic's own rows live and the count is unambiguous.
         expect(badge(container, 'development')).toBe(2);
+        expect(badge(container, 'swarm_ready')).toBe(0);
     });
 
     it('suppresses the add-a-requirement row while filtered', () => {

@@ -493,9 +493,15 @@ const SwarmView = () => {
                             control now answers the question its label makes.
                             The tooltip names both halves for the same reason
                             #3180's named one: a reader must not have to guess
-                            which membership the icon means. LAUNCH ELIGIBILITY
-                            is unaffected and stays step-only — see
-                            `swarmStartCardUtils.aggregatorRowVisible`. */}
+                            which membership the icon means.
+
+                            req #3502 — THIS CONTROL NOW REACHES EVERY SURFACE
+                            ON THE PAGE, the aggregator card included. It used
+                            to stop short of three of that card's five chips,
+                            which held an unconditional exclusion of their own;
+                            measured on production, 18 `authoring` requirements
+                            that this control could not show. There is no
+                            surface left with a second answer. */}
                         {/* `!drill` for the same reason the status chips carry it:
                             a Trends drill-down bypasses both filters, so leaving
                             the control on screen would show an ON toggle that is

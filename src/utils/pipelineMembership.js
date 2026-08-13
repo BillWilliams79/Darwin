@@ -7,14 +7,22 @@
 //     A `pipeline_step_requirements` junction row exists — "is this SCHEDULED".
 //     This is LAUNCH ELIGIBILITY (req #3180): a step-carried requirement is not
 //     eligible for a direct swarm-start, because its launch is the coordinator's
-//     to make at the point the plan says so. It is therefore applied
-//     UNCONDITIONALLY on the surfaces that OFFER a launch, never as a
-//     preference, and it must stay NARROW. The daemon derives the same fact
+//     to make at the point the plan says so. The daemon derives the same fact
 //     server-side as `requirement.pipelined`
 //     (darwin-mcp/services/requirements.py); the two cannot share code — the
 //     browser reaches Lambda-Rest, the daemon reaches it from a localhost
 //     process — so they are deliberate duplicates of one rule, exactly like
 //     pipelineModel.js and pipeline_derive.py.
+//
+//     req #3502 — NO BROWSE SURFACE APPLIES THIS ANYMORE. It used to be applied
+//     unconditionally by the aggregator card, on the grounds that a card
+//     offering a row is an offer to launch it. It is not: the LAUNCHER is
+//     `/swarm-start`, its auto-discovery still excludes step-carried work, and
+//     that gate is where eligibility belongs. What the card's copy actually did
+//     was make the reader's orchestrated toggle mean two different things on two
+//     surfaces of one page. Nothing in `Darwin/src` reads this function today
+//     except `orchestratedRequirementIds` below; it stays a named export because
+//     the fact is real and the daemon-side duplicate is what it documents.
 //
 //   ORCHESTRATED (`orchestratedRequirementIds`) — THE answer the user-facing
 //     browse toggle asks for.
@@ -47,12 +55,13 @@
 //     swarm_ready  UNAFFECTED — no swarm_ready requirement was epic-seated
 //
 // Every id in that table was LEGAL to launch — no step carried it — which is
-// why req #3180's rule (`aggregatorRowVisible`'s `offersLaunch` branch) was
+// why req #3180's rule (the aggregator's deleted `offersLaunch` branch) was
 // always `pipelinedRequirementIds` alone and never the union: "offering a
 // launch the coordinator owns is a DEFECT" is about showing something the
 // reader must NOT act on, a narrower question than the browse toggle's
-// preference. That distinction is why the two stayed separate call sites even
-// while the browse toggle's own answer has now rejoined it.
+// preference. Req #3502 resolved that distinction the other way for the
+// BROWSER — a browse card showing a row is not an offer, and the launcher does
+// its own gating — so the two questions no longer have two call sites here.
 
 /**
  * Requirement ids at least one pipeline STEP carries.

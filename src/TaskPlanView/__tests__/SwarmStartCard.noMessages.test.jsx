@@ -26,9 +26,14 @@
 // "no message in the card's own DOM" — not "no text anywhere near the card".
 //
 // States exercised: every one of the five chips, each with rows and with none,
-// plus the fully-pipeline-excluded state (the guaranteed opening state on the
-// live plan: Swarm-Ready, every row hidden) which is what the removed note
-// described, the four-digit Met count, and first paint before any query resolves.
+// plus the fully-orchestration-hidden state (Swarm-Ready with the toggle ON and
+// every row plan-carried) which is what the removed note described, the
+// four-digit Met count, and first paint before any query resolves.
+//
+// req #3502 — those hidden states are now produced by the TOGGLE rather than by
+// the aggregator's own launch exclusion, which is deleted. The states themselves
+// are unchanged and still reachable, so this file keeps testing them; only how
+// the fixture arrives at them moved.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import React from 'react';
@@ -288,13 +293,16 @@ describe('SwarmStartCard renders no messages (req #3286)', () => {
     }
 
     // The state the removed req #3180 note described: every row on a launch chip
-    // excluded because a pipeline step carries it. The exclusion still happens —
-    // it is simply not narrated.
-    it('renders no text when the pipeline exclusion empties a launch chip', async () => {
+    // gone because a pipeline step carries it. Since req #3502 the TOGGLE is
+    // what produces it (the card's own unconditional exclusion is deleted), so
+    // the fixture turns the toggle on. The state still happens — it is simply
+    // not narrated.
+    it('renders no text when the orchestrated toggle empties a launch chip', async () => {
         const rows = [req(10, 'swarm_ready'), req(11, 'swarm_ready')];
         activeRows = rows;
         allRows = rows;
         setPipelined(new Set([10, 11]));
+        useShowClosedStore.setState({ hidePipelinedRequirements: true });
         useSwarmStartCardStore.setState({ selectedStatus: 'swarm_ready' });
         const { container } = mount();
         await flush();
@@ -307,20 +315,21 @@ describe('SwarmStartCard renders no messages (req #3286)', () => {
             '[data-testid="swarm-start-chip-badge-swarm_ready"] .MuiBadge-badge');
         expect(bubble.textContent).toBe('0');
         expect(bubble.className).toContain('MuiBadge-invisible');
-        expectNoMessages(container, 'launch chip fully excluded');
+        expectNoMessages(container, 'launch chip fully hidden');
     });
 
-    it('renders no text when the exclusion hides only some rows', async () => {
+    it('renders no text when the toggle hides only some rows', async () => {
         const rows = [req(10, 'swarm_ready'), req(11, 'swarm_ready'), req(12, 'swarm_ready')];
         activeRows = rows;
         allRows = rows;
         setPipelined(new Set([11]));
+        useShowClosedStore.setState({ hidePipelinedRequirements: true });
         useSwarmStartCardStore.setState({ selectedStatus: 'swarm_ready' });
         const { container } = mount();
         await flush();
         expect(container.querySelector('[data-testid="requirement-11"]')).toBeNull();
         expect(container.querySelector('[data-testid="requirement-10"]')).not.toBeNull();
-        expectNoMessages(container, 'launch chip partly excluded');
+        expectNoMessages(container, 'launch chip partly hidden');
     });
 
     // The live Met population is four digits (1041 rows, 2026-08-02), and
