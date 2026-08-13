@@ -116,8 +116,11 @@ import { effortLabel } from '../effortChipStyles';
 import { OrderViolationsAlert } from './PipelinePlanTable';
 import {
     computePlanLayout, beadStyle, placeEpicChips,
-    epicFocusTransform, stepFocusTransform,
+    epicFocusTransform, stepFocusTransform, stepsFocusTransform,
     factoryDefaultScale, clampPlanTransform,
+    // req #3365 — the ruler's own thinning gap, re-applied at draw time
+    // against the counter-scaled label widths.
+    RULER_LABEL_GAP,
     PLAN_VIZ_PALETTE as P, PLAN_VIZ_FONT as F, BEAD_RADIUS, BEAD_HIT_RADIUS,
     CHW_EPIC, ZOOM_MIN_RATIO, ZOOM_MAX_RATIO,
     readableDefaultScale, DEFAULT_STEP_WIDTH, EPIC_CHIP_BG_ALPHA,
@@ -125,12 +128,14 @@ import {
     nextHaloMagnify, nextMarkIsDot, nextMarkDotRadius,
     planLevelFor, drawsLabelKind, BEAD_LANE_OFFSET,
     buildReqColorViews, REQ_COLOR_KEYS, reqIdStyle, reqIdKeyEntries, normalizeColorKey,
+    DEFAULT_PLAN_PALETTE, isPlanPalette,
     DEFAULT_COLOR_KEY, PLAN_KEY_MAX_H, pinnedLevelOf, DEFAULT_PLAN_LEVEL_PREF,
     EPIC_PAUSE_BUBBLE_D, pauseBubbleColor, stickyRulerY, rulerScreenBottom,
+    rulerScreenMag,
     KEY_GROUP_TITLES, sortReqIdsByStatus,
 } from './pipelinePlanLayout';
 import {
-    epicCycleKey, epicZoomStateKey, nextLaunchStep, nextEpicZoom,
+    epicCycleKey, epicZoomStateKey, epicWorkStepIds, nextEpicZoom,
     epicZoomHint, epicZoomHintSuffix, epicSeatedHint, gestureMovedCamera,
     EPIC_ZOOM_CLICK_SLOP, EPIC_ZOOM_BAND, EPIC_ZOOM_STEP,
 } from './pipelineEpicZoom';
@@ -285,6 +290,11 @@ export default function PipelinePlanVisualizer({
     // pattern, req #2407), so the panel is the canvas and nothing else.
     reqLayout = 'vertical', stepLabel = 'title', colorKey = DEFAULT_COLOR_KEY,
     stepWidth = DEFAULT_STEP_WIDTH, reqLabel = 'id', levelPref = DEFAULT_PLAN_LEVEL_PREF,
+    // req #3365 — WHICH colours the epic bands and the two enum scales draw
+    // from. Normalized below with the same discipline `colorKey` gets, and for
+    // the same reason: it is a persisted preference crossing a component
+    // boundary on its way to a Konva `fill`.
+    palette = DEFAULT_PLAN_PALETTE,
     // A `levelPrefFromLink` flag rode beside `levelPref` between req #3310 and
     // req #3324, to tell a reader's own click from a `?level=` link for the sake
     // of the pin's camera correction. With no correction there is nothing that
@@ -363,9 +373,12 @@ export default function PipelinePlanVisualizer({
     // calendar and stacks the bands by epic start. It comes from `orderedPlan`
     // rather than being derived here for the same reason cost does: two
     // surfaces over one plan must not each derive the same fact.
+    // Normalized HERE as well as in the page, for `activeColorKey`'s reason.
+    const activePalette = isPlanPalette(palette) ? palette : DEFAULT_PLAN_PALETTE;
     const layout = useMemo(
         () => computePlanLayout(rows, {
             reqLayout, stepLabel, stepWidth, reqLabel, reqTitles,
+            palette: activePalette,
             timeAxis: plan.timeAxis || null, epicCounts,
             // req #3226 — `plan.pause` comes from the composed derivation (same
             // provenance as `requirementCounts`/`timeAxis` above): one
@@ -373,7 +386,7 @@ export default function PipelinePlanVisualizer({
             pauseInfo: plan.pause || null,
         }),
         [rows, plan.timeAxis, reqLayout, stepLabel, stepWidth,
-            reqLabel, reqTitles, epicCounts, plan.pause]);
+            reqLabel, reqTitles, epicCounts, plan.pause, activePalette]);
 
     // ── The REQUIREMENT-ID channel (req #3119; #3168 neutral; #3422 registry) ─
     // Whatever the key, it rides the requirement ids and never the bead: the
@@ -408,7 +421,8 @@ export default function PipelinePlanVisualizer({
     // second copy of it.
     const reqColorViews = useMemo(() => buildReqColorViews({
         requirements: model?.requirements, machines: model?.machines, presentReqIds,
-    }), [model, presentReqIds]);
+        palette: activePalette,
+    }), [model, presentReqIds, activePalette]);
     const reqKeyScales = useMemo(() => Object.fromEntries(
         REQ_KEY_SCALES.map((scale) => [scale, reqIdKeyEntries({
             colorKey: scale, views: reqColorViews,
@@ -1031,6 +1045,42 @@ export default function PipelinePlanVisualizer({
         const zb = zoomRef.current;
         if (!el || zb == null || size.w === 0) return;
         if (!sizeSettled()) return;
+        // ── …AND THE PANEL MUST BE AT ITS MEASURED HEIGHT (req #3365) ───────
+        // `sizeSettled()` asks whether `size` STATE has caught up with the last
+        // OBSERVATION, which is a different question from whether that
+        // observation was of the panel the reader ends up looking at — and the
+        // paragraph above already names the reason: the box is sized twice, and
+        // the first size comes from the `calc(100vh - 260px)` fallback in the
+        // JSX below. Both sides of `sizeSettled()` are written by the same two
+        // statements, so it is satisfied by the FALLBACK delivery, the landing
+        // runs there, and `landKey` (correctly) refuses to re-land on the
+        // resize that follows.
+        //
+        // MEASURED on plan 7 before this guard: the plan landed at k = 0.1666
+        // (= 738 / 4430, and 738px is that fallback minus the border) while the
+        // header's Reset gave 0.2077 — so the page opened ~20% smaller than its
+        // own Reset view, wasting a CONSTANT 184px of panel below the plan at
+        // every viewport and up to 548px to the right at 1920x1080. That
+        // constant is the signature: a ratio would vary with the window, a
+        // fixed-height fallback does not. It also broke #3312's stated contract
+        // in this same file — "the landing view and the header's Reset are one
+        // expression, not two numbers a test has to prove agree".
+        //
+        // THE FIX IS A WAIT, NOT A RE-LAND. Re-landing on a size change would
+        // undo req #3252/#3431's camera memory, which is exactly what `landKey`
+        // excludes the height to protect. Both conditions are needed: `availH`
+        // proves the measurement has HAPPENED, and the DOM comparison proves it
+        // has been APPLIED and observed — without the second, a landing can
+        // still slip through in the frame between the height being written and
+        // the ResizeObserver delivering it.
+        //
+        // Compared against `clientHeight`, not against arithmetic on `availH`
+        // and the border: that is the same property `setSize`'s own
+        // initialisation reads, so the two cannot disagree about what the box
+        // measures. 1px of tolerance for sub-pixel rounding — `contentRect` is
+        // fractional and is rounded on the way into `size`.
+        if (availH == null) return;
+        if (Math.abs(size.h - el.clientHeight) > 1) return;
         const kMax = kDefault * ZOOM_MAX_RATIO;
         // CLAMPED BEFORE IT IS APPLIED, k first and then the translation — the
         // pan bound is computed FROM k, so clamping position first would
@@ -1063,13 +1113,41 @@ export default function PipelinePlanVisualizer({
             // alike: what invalidates the level is the world changing under it,
             // not which of the two answers the camera got.
             epicZoomRef.current = null;
-            const saved = viewport.read();
-            // Clamp rather than refuse: a clamped camera is still near where the
-            // reader was, which is the whole ask. Refusing is reserved for one
-            // that cannot be trusted at all — a fingerprint mismatch or a
-            // non-finite number — and `viewport.read()` has already done that.
-            if (saved) apply(saved);
-            else resetView();
+            // ── THE LANDING IS THE RESET VIEW. ALWAYS. (req #3365 directive) ─
+            // *"Default load screen needs to equal View: Reset — we see the
+            // whole pipeline."*
+            //
+            // This branch used to read the stored camera first and fall back to
+            // `resetView()` — req #3252/#3431's "maintains last viewport". That
+            // is REVERSED here, deliberately and on the user's own instruction,
+            // and it is worth being plain about what it costs: returning to a
+            // plan no longer puts you back where you were reading. What it buys
+            // is that opening a plan always answers the question a plan is
+            // opened to answer — how big is it, and how far along — instead of
+            // dropping the reader inside a camera they set days ago and cannot
+            // tell from a broken fit. Measured before this change: a reader who
+            // had zoomed once landed at k = 0.4648 on every subsequent open,
+            // while Reset gave 0.1576, so "load" and "Reset" were two different
+            // views on a page whose own contract (req #3312) says they are one.
+            //
+            // THE RECORD IS STILL WRITTEN AND NOTHING READS IT. Stated plainly
+            // because the tempting version of this comment — "the deep-link
+            // doctrine and the storage pruner still need it" — is FALSE:
+            // `suppressSaveRef` guards the WRITE and never reads the record, and
+            // `pipelinePlace.js` prunes by key PREFIX. This canvas was
+            // `useSavedViewport`'s only consumer, so `record`/`commit`, the
+            // fingerprint that validates a restore, and the "world grew, re-stamp
+            // it" branch below are all now write-only.
+            //
+            // Retained rather than deleted, as ONE line to reverse: the
+            // directive changed what happens on LOAD, and a reader who later
+            // wants their camera back on some other trigger would otherwise be
+            // asking for a subsystem to be rebuilt rather than for a call site
+            // to be restored. The cost is one localStorage write per gesture,
+            // which is what it already was. If that trade is not wanted, the
+            // deletion is `useSavedViewport` and its four call sites, not a
+            // change to anything above.
+            resetView();
             return;
         }
 
@@ -1482,8 +1560,11 @@ export default function PipelinePlanVisualizer({
     // only ever reached by the reader clicking, so it always persists (item 5),
     // and a parameter whose one legal value is the default is a way to get it
     // wrong later.
-    const focusLaunchStep = useCallback((stepId) => applyFocus(
-        stepFocusTransform(layout, stepId, size, kDefault, kZoomFloor)),
+    // req #3365 — a SET of steps, not one. `stepsFocusTransform` is what
+    // `stepFocusTransform` is now built on, so a one-step epic frames exactly
+    // as the single-step focus always did.
+    const focusEpicWork = useCallback((stepIds) => applyFocus(
+        stepsFocusTransform(layout, stepIds, size, kDefault, kZoomFloor)),
     [applyFocus, layout, size, kDefault, kZoomFloor]);
 
     // Which STEP each band's SECOND click goes to — computed once per layout
@@ -1493,14 +1574,13 @@ export default function PipelinePlanVisualizer({
     // `null` for a band with no next launch step, which is what keeps that
     // band's clicks on the level-1 fit instead of reaching for a transform that
     // would come back null.
-    const nextLaunchByEpic = useMemo(() => {
+    const epicWorkByEpic = useMemo(() => {
         const m = new Map();
         for (const band of layout.bands) {
-            m.set(epicCycleKey(band),
-                nextLaunchStep(rows, layout, band, eligibleStepIds));
+            m.set(epicCycleKey(band), epicWorkStepIds(rows, layout, band));
         }
         return m;
-    }, [layout, rows, eligibleStepIds]);
+    }, [layout, rows]);
 
     // WHERE THE CYCLE LIVES: a ref, not state. Nothing on screen is a function
     // of it — the camera is moved by d3, the chip's label is a function of the
@@ -1522,8 +1602,8 @@ export default function PipelinePlanVisualizer({
     // copy that has to be kept in step.
     const activateEpicName = useCallback((band) => {
         const key = epicZoomStateKey(pipeline?.id, band);
-        const stepId = nextLaunchByEpic.get(epicCycleKey(band));
-        const next = nextEpicZoom(epicZoomRef.current, key, stepId != null);
+        const workIds = epicWorkByEpic.get(epicCycleKey(band)) || [];
+        const next = nextEpicZoom(epicZoomRef.current, key, workIds.length > 0);
         // THE STEP MOVE IS ATTEMPTED, THE BAND MOVE IS THE FLOOR (code review).
         // If the step fit comes back null — the two halves disagreeing, or a
         // container not ready — the level would never advance and every further
@@ -1532,13 +1612,13 @@ export default function PipelinePlanVisualizer({
         // self-healing: something always happens, and the cycle is never stuck
         // at a level the camera is not actually on.
         let level = next;
-        let moved = next === EPIC_ZOOM_STEP && focusLaunchStep(stepId);
+        let moved = next === EPIC_ZOOM_STEP && focusEpicWork(workIds);
         if (!moved) {
             level = EPIC_ZOOM_BAND;
             moved = focusEpic(band);
         }
         if (moved) epicZoomRef.current = { key, level };
-    }, [nextLaunchByEpic, focusLaunchStep, focusEpic, pipeline?.id]);
+    }, [epicWorkByEpic, focusEpicWork, focusEpic, pipeline?.id]);
 
     // ── WHERE THE CYCLE IS CLEARED, AND WHY IT IS THREE PLACES ──────────────
     // Level 2 is only the right answer to the NEXT click while the premise
@@ -1872,15 +1952,50 @@ export default function PipelinePlanVisualizer({
         // in `KonvaSwarmCanvas.jsx` (`background: C.axisBg`), the truer sibling
         // of this strip than the per-row day headers (which float with no
         // backing because they are never more than one line of text wide).
+        //
+        // ── AND IT IS AS TALL AS THE TYPE IT BACKS (req #3365 user directive:
+        //    "as the pipeline is moved to see the lower epics, the pipeline
+        //    visualized will scroll up and go below the time part which is
+        //    still transparent and this causes clutter") ────────────────────
+        // The plate did exist and it did not work, for a reason that only
+        // appeared when req #3365 pinned the date TYPE to a fixed screen size:
+        // the type stopped scaling with `t.k` and the plate did not. At the
+        // scale plan 7 opens in (k = 0.2077) the plate was `36 · k` = **7.5px**
+        // of screen height under **13px** of text, so two thirds of every date
+        // hung below its own backing, over live beads and arcs — the clutter
+        // the directive names, and worse than no plate at all because the plate
+        // made the top third look deliberate.
+        //
+        // `rulerScreenMag(t)` is the SAME counter-scale the type uses, applied
+        // to the strip's vertical geometry — the plate here, the baseline, the
+        // ticks, and the label `y` in the label sweep below. That makes the
+        // strip's vertical axis SCREEN space and its horizontal axis WORLD
+        // space, which is exactly what it should be: it is chrome downward and
+        // an axis sideways, so it keeps tracking the columns as the reader pans
+        // and zooms (the directive's "I like how/where it sits/scrolls so don't
+        // change that") while never again being thinner than its own contents.
+        //
+        // THE ONE COST, disclosed rather than discovered: at k < 1 the strip
+        // covers `RULER_H / k` WORLD px instead of `RULER_H`, and the layout
+        // reserves only `RULER_H` world px above the first band — so at low
+        // zoom the plate now hides the top of band 0's header where before it
+        // hid a sliver. What is in that region at those scales is nothing: step
+        // labels are below `K_READABLE` and undrawn, and the epic names are
+        // HTML chips already clamped below `rulerScreenBottom(t)`. At k ≥ 1,
+        // where that region does hold drawn text, `rulerScreenMag` is 1 and the
+        // geometry is bit-for-bit what it was.
+        const rulerMag = rulerScreenMag(t);
         stickyRulerNodes.push(
-            <Rect key="ruler-sticky-bg" x={0} y={0} width={layout.width} height={R.h}
+            <Rect key="ruler-sticky-bg" x={0} y={0} width={layout.width}
+                  height={R.h * rulerMag}
                   fill={P.panel} listening={false} />);
         // The strip's baseline — what makes the ticks read as one ruler rather
         // than as a row of unrelated marks. STICKY: part of the header itself.
         stickyRulerNodes.push(
             <Line key="ruler-baseline"
-                  points={[0, R.h - 2, layout.width, R.h - 2]}
-                  stroke={P.line} strokeWidth={1} opacity={0.7}
+                  points={[0, (R.h - 2) * rulerMag,
+                      layout.width, (R.h - 2) * rulerMag]}
+                  stroke={P.line} strokeWidth={rulerMag} opacity={0.7}
                   listening={false} />);
         R.slots.forEach((s, i) => {
             // A GAPPED boundary is DASHED and brighter. Slots are dense in
@@ -1904,11 +2019,16 @@ export default function PipelinePlanVisualizer({
             // The tick itself, in the strip, at every slot — including the ones
             // whose LABEL was thinned away. The tick is 1px of geometry and can
             // never collide, so a degraded ruler still shows every boundary it
-            // has; only the dates thin out. STICKY: part of the header strip.
+            // has; only the dates thin out. STICKY: part of the header strip,
+            // so its LENGTH and its WEIGHT are screen-sized with the rest of it
+            // (req #3365) while its `x` stays world — the tick has to keep
+            // landing on the column boundary it marks. A tick counter-scaled on
+            // both axes would drift off its own slot.
             stickyRulerNodes.push(
                 <Line key={`ruler-tick-${s.key}`}
-                      points={[s.x, R.h - 9, s.x, R.h - 2]}
-                      stroke={P.dim} strokeWidth={1} opacity={0.8}
+                      points={[s.x, (R.h - 9) * rulerMag,
+                          s.x, (R.h - 2) * rulerMag]}
+                      stroke={P.dim} strokeWidth={rulerMag} opacity={0.8}
                       listening={false} />);
         });
     }
@@ -1916,13 +2036,18 @@ export default function PipelinePlanVisualizer({
     layout.arcs.forEach((arc, i) => {
         if (arc.straight) {
             worldNodes.push(
+                // FULL OPACITY and a slightly heavier stroke (req #3365 user
+                // directive). `P.arc` carries the contrast half of that fix;
+                // this is the other half — an 8.3:1 colour drawn at 0.85 is a
+                // 6.9:1 line, and the arcs were already the faintest marks on a
+                // panel whose beads and bands are both brighter.
                 <Line key={`arc-${i}`} points={[arc.x1, arc.y1, arc.x2, arc.y2]}
-                      stroke={P.arc} strokeWidth={1.2} opacity={0.85}
+                      stroke={P.arc} strokeWidth={1.4}
                       listening={false} />);
         } else {
             worldNodes.push(
                 <Path key={`arc-${i}`} data={arc.path} stroke={P.arc}
-                      strokeWidth={1.2} opacity={0.85} listening={false} />);
+                      strokeWidth={1.4} listening={false} />);
         }
     });
 
@@ -2061,6 +2186,44 @@ export default function PipelinePlanVisualizer({
         <Rect key={key} x={label.x} y={label.y} width={label.w} height={label.h}
               fill="transparent" {...handlers} />);
 
+    // ── THE RULER'S TYPE IS SCREEN-SIZED (req #3365) ────────────────────────
+    // `t.k` cancels the sticky Group's own scale, so `F.slot * rulerLabelMag`
+    // lands at a constant `F.slot` PIXELS however far out the reader is zoomed.
+    // The date strip is the one text on this canvas that is not about a step:
+    // it is the axis every bead is read AGAINST, so it earns a fixed size where
+    // the step and requirement labels — which belong to marks that shrink —
+    // correctly do not.
+    //
+    // CLAMPED AT 1, so this only ever makes the type BIGGER. Past k = 1 the
+    // world scale already exceeds the screen size we want and dividing would
+    // start SHRINKING the labels below `F.slot` — the opposite of the
+    // directive, and a second extreme in place of the one being removed.
+    //
+    // It is `rulerScreenMag(t)` and no longer a private `max(1, 1/t.k)` here:
+    // the strip's plate, baseline and ticks are counter-scaled by the same
+    // factor (see `stickyRulerNodes` above) and `rulerScreenBottom` reports the
+    // resulting edge, so three call sites now share one derivation. A literal
+    // in any of them would let the plate and the type it backs disagree about
+    // their own size, which is exactly the defect req #3365 fixed.
+    const rulerLabelMag = rulerScreenMag(t);
+    // The layout's own greedy thinning rule (`pipelinePlanLayout.js`:
+    // "labelX < lastRight + gap"), re-applied to the widths counter-scaling
+    // actually produces. Cheap — one pass over the slots, which number in the
+    // handfuls — and deliberately a re-application rather than a second rule,
+    // so the strip cannot thin one way at layout time and another way here.
+    const visibleRulerLabels = new Set();
+    {
+        const R = layout.ruler || { slots: [] };
+        let lastRight = -Infinity;
+        for (const s of R.slots) {
+            if (!s.showLabel) continue;          // the layout already refused it
+            const w = (s.labelW || 0) * rulerLabelMag;
+            if (s.labelX < lastRight + RULER_LABEL_GAP * rulerLabelMag) continue;
+            visibleRulerLabels.add(s.key);
+            lastRight = s.labelX + w;
+        }
+    }
+
     layout.labels.forEach((label, i) => {
         if (!drawsKind(label.kind)) return;
         if (label.kind === 'step') {
@@ -2184,6 +2347,10 @@ export default function PipelinePlanVisualizer({
                 }));
             }
         } else if (label.kind === 'slot') {
+            // Dropped by the draw-time re-thin — see the counter-scale note
+            // below. `return`, not `continue`: this sweep is a `forEach`, so
+            // returning skips this label alone.
+            if (!visibleRulerLabels.has(label.slotKey)) return;
             // The FUTURE tick is the accent: it names the tinted REGION beside
             // it rather than a boundary, and it is the mark the plan is most
             // often opened to find. A DATE and an UNDATED tick are both dim —
@@ -2207,9 +2374,43 @@ export default function PipelinePlanVisualizer({
             // either — the layout has run no such pass, for any label kind,
             // since req #3257 — so this is the identical cost paid a second
             // time, not a special case carved out for slot labels.
+            // ── THE DATE LABEL IS SIZED ON SCREEN, NOT IN THE WORLD (req
+            //    #3365 user directive: "the Date information needs a larger
+            //    typeface … they are quite tiny when scrolled out [and] become
+            //    increasingly larger. possibly its a fixed typeface or one that
+            //    has lesser extremes") ─────────────────────────────────────────
+            // The strip is drawn inside a Group scaled by `t.k`, so a 13px world
+            // font rendered at **2.7px** at the scale the plan now opens in
+            // (k = 0.2077 on plan 7) and grew linearly from there — the two
+            // extremes the directive names. Dividing by `k` cancels the Group's
+            // scale, so the glyphs are a FIXED size on screen at every zoom,
+            // which is the "lesser extremes" end of what was asked for.
+            //
+            // NOTHING ABOUT WHERE IT SITS OR HOW IT SCROLLS CHANGES, which the
+            // directive was explicit about: `x`, `y` and the sticky
+            // `stickyRulerY(t)` Group are untouched, so the strip still pins to
+            // the viewport top and still pans and zooms horizontally with the
+            // columns. Only the glyph size is counter-scaled.
+            //
+            // AND THE THINNING IS RE-RUN, which is the half that is not
+            // optional. `showLabel` was decided at layout time against WORLD
+            // widths, and counter-scaling inflates a label's world width by
+            // exactly `rulerLabelMag` — so at low `k` labels that the layout
+            // spaced correctly would collide. `visibleRulerLabels` re-applies
+            // the layout's own greedy rule to the inflated widths, so a label
+            // is dropped rather than drawn on top of its neighbour. It can only
+            // ever REMOVE labels the layout allowed, never add one it refused.
+            //
+            // `y` is counter-scaled TOO, and that half arrived with the plate
+            // (req #3365, second pass). Sizing the glyphs on screen while
+            // leaving their baseline at a world `y` put the text at `12 · k` =
+            // 2.5px from the strip's top and 13px tall — most of it hanging out
+            // the bottom of a 7.5px plate. Screen size and screen POSITION are
+            // one decision; `x` stays world because the label names a column.
             stickyRulerNodes.push(
-                <Text key={`lbl-${i}`} x={label.x} y={label.y} text={label.text}
-                      fontSize={F.slot} fontFamily={MONO}
+                <Text key={`lbl-${i}`} x={label.x} y={label.y * rulerLabelMag}
+                      text={label.text}
+                      fontSize={F.slot * rulerLabelMag} fontFamily={MONO}
                       fill={accented ? P.accent : P.dim}
                       opacity={accented ? 0.9 : 0.95}
                       listening={false} />);
@@ -2413,10 +2614,10 @@ export default function PipelinePlanVisualizer({
                             // plausible things" defect this tooltip was written
                             // to close, arrived at from the other direction. So
                             // the second-stop clause is a function of
-                            // `nextLaunchByEpic` — the SAME lookup the click
+                            // `epicWorkByEpic` — the SAME lookup the click
                             // itself reads, so the promise and the behaviour
                             // cannot drift, down to naming the same step id.
-                            title={epicZoomHint(nextLaunchByEpic.get(e.key))
+                            title={epicZoomHint(epicWorkByEpic.get(e.key))
                                 + epicSeatedHint(!!(showReqCounts && e.epicId != null
                                     && epicCounts?.get(e.epicId)))}
                             // req #3226 — the pause bubble is colour-only
@@ -2433,7 +2634,7 @@ export default function PipelinePlanVisualizer({
                             // pause still reads as the last fact about the epic
                             // being named rather than a control of its own.
                             aria-label={`Zoom pipeline epic ${e.text}`
-                                + epicZoomHintSuffix(nextLaunchByEpic.get(e.key))
+                                + epicZoomHintSuffix(epicWorkByEpic.get(e.key))
                                 + (e.band?.paused ? ' — paused' : ' — active')}
                             data-testid={`pipeline-viz-epic-${e.key}`}
                             sx={{

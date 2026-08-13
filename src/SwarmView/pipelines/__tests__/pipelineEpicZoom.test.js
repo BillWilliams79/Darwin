@@ -21,7 +21,7 @@ import { describe, it, expect } from 'vitest';
 import { buildPipelineModel, orderedPlan } from './planFixtureEngine';
 import { computePlanLayout, placeEpicChips } from '../pipelinePlanLayout';
 import {
-    epicCycleKey, epicZoomStateKey, nextLaunchStep, nextEpicZoom,
+    epicCycleKey, epicZoomStateKey, epicWorkStepIds, nextEpicZoom,
     epicZoomHint, epicZoomHintSuffix, epicSeatedHint, gestureMovedCamera,
     EPIC_ZOOM_CLICK_SLOP, EPIC_ZOOM_BAND, EPIC_ZOOM_STEP,
 } from '../pipelineEpicZoom';
@@ -107,72 +107,58 @@ describe('epicZoomStateKey', () => {
     });
 });
 
-describe('nextLaunchStep — which step a second click goes to', () => {
-    // "Earliest in DISPLAY ORDER", never a re-sort and never the lowest id:
-    // `displayOrder` is design rule 3's output, so the first eligible row of a
-    // band IS the next thing that band launches.
-    it('is the eligible step earliest in display order within the band', () => {
-        const first = plan.rows.find((r) => LAUNCH_BAND.stepIds.includes(r.id)
-            && eligible.has(r.id));
-        expect(nextLaunchStep(plan.rows, layout, LAUNCH_BAND, eligible)).toBe(first.id);
+describe('epicWorkStepIds — what a second click frames (req #3365)', () => {
+    // ACTIVE AND PENDING: every step of the band the plan has not finished.
+    it('is every unfinished step of the band, in display order', () => {
+        const ids = epicWorkStepIds(plan.rows, layout, LAUNCH_BAND);
+        const expected = plan.rows
+            .filter((r) => LAUNCH_BAND.stepIds.includes(r.id) && r.state !== 'done')
+            .map((r) => r.id);
+        expect(ids).toEqual(expected);
+        expect(ids.length).toBeGreaterThan(1);
     });
 
-    // THE ORDERING IS THE POINT, and an id sort could pass the case above by
-    // luck. Feeding the same rows in a DIFFERENT order must move the answer.
-    it('reads the row order it is given, never a sort of the ids', () => {
+    // THE ORDERING IS THE ROWS', never a sort of the ids — the same property
+    // the deleted `nextLaunchStep` suite pinned, for the same reason: display
+    // order is design rule 3's output and this must not quietly re-derive it.
+    it('reads the row order it is given', () => {
         const reversed = [...plan.rows].reverse();
-        const forward = nextLaunchStep(plan.rows, layout, LAUNCH_BAND, eligible);
-        const backward = nextLaunchStep(reversed, layout, LAUNCH_BAND, eligible);
-        expect(backward).not.toBe(forward);
-        expect(LAUNCH_BAND.stepIds).toContain(backward);
+        const forward = epicWorkStepIds(plan.rows, layout, LAUNCH_BAND);
+        const backward = epicWorkStepIds(reversed, layout, LAUNCH_BAND);
+        expect(backward).toEqual([...forward].reverse());
     });
 
-    it('is the single step of a one-step band when that step is eligible', () => {
-        expect(nextLaunchStep(plan.rows, layout, SOLO_BAND, eligible))
-            .toBe(SOLO_BAND.stepIds[0]);
-    });
-
-    // Requirement item 6, first half: a band with nothing eligible has no
-    // second stop, and must say so rather than hand back a step whose fit would
-    // put the reader somewhere they did not ask to go.
-    it('is null for a band with no eligible step', () => {
-        expect(nextLaunchStep(plan.rows, layout, DONE_BAND, eligible)).toBeNull();
-    });
-
-    // req #3223 keeps "eligible" and "will actually launch" apart on purpose: a
-    // paused scope's steps stay eligible and are HELD. Naming a held step as
-    // the next launch would promise a launch the plan is holding.
-    it('skips a suppressed step and takes the next eligible one', () => {
-        const inBand = plan.rows.filter((r) => LAUNCH_BAND.stepIds.includes(r.id)
-            && eligible.has(r.id));
-        expect(inBand.length).toBeGreaterThan(1);
-        const held = plan.rows.map((r) => (r.id === inBand[0].id
-            ? { ...r, launchSuppressed: true } : r));
-        expect(nextLaunchStep(held, layout, LAUNCH_BAND, eligible)).toBe(inBand[1].id);
-    });
-
-    it('is null when every eligible step of the band is suppressed', () => {
+    // ELIGIBILITY IS NOT THE PREDICATE, and that is the whole change. A band
+    // whose work is blocked or already running has nothing eligible — which is
+    // why the old second click did nothing there — and still has work to frame.
+    it('frames work that is not eligible, and work that is suppressed', () => {
         const held = plan.rows.map((r) => ({ ...r, launchSuppressed: true }));
-        expect(nextLaunchStep(held, layout, LAUNCH_BAND, eligible)).toBeNull();
+        expect(epicWorkStepIds(held, layout, LAUNCH_BAND))
+            .toEqual(epicWorkStepIds(plan.rows, layout, LAUNCH_BAND));
     });
 
-    // A DRAWN BEAD is the gate: the thing being zoomed to is the bead, and a
-    // step absent from this layout has no rectangle to fit.
-    it('is null when the eligible step is not on this layout', () => {
+    it('is empty for a band with nothing left to do', () => {
+        expect(epicWorkStepIds(plan.rows, layout, DONE_BAND)).toEqual([]);
+    });
+
+    it('is the single step of a one-step band while that step is unfinished', () => {
+        const ids = epicWorkStepIds(plan.rows, layout, SOLO_BAND);
+        expect(ids).toEqual([SOLO_BAND.stepIds[0]]);
+    });
+
+    // A DRAWN BEAD is the gate: the thing being framed is the bead, and a step
+    // absent from this layout has no rectangle to fit.
+    it('skips a step that is not on this layout', () => {
         const empty = computePlanLayout([]);
-        expect(nextLaunchStep(plan.rows, empty, LAUNCH_BAND, eligible)).toBeNull();
+        expect(epicWorkStepIds(plan.rows, empty, LAUNCH_BAND)).toEqual([]);
     });
 
-    it('is null on empty or unusable input rather than throwing', () => {
-        expect(nextLaunchStep([], layout, LAUNCH_BAND, eligible)).toBeNull();
-        expect(nextLaunchStep(null, layout, LAUNCH_BAND, eligible)).toBeNull();
-        expect(nextLaunchStep(plan.rows, null, LAUNCH_BAND, eligible)).toBeNull();
-        expect(nextLaunchStep(plan.rows, layout, null, eligible)).toBeNull();
-        expect(nextLaunchStep(plan.rows, layout, { stepIds: [] }, eligible)).toBeNull();
-        // No eligibility set is not a licence to guess: nothing was read that
-        // said any of these steps can launch.
-        expect(nextLaunchStep(plan.rows, layout, LAUNCH_BAND, new Set())).toBeNull();
-        expect(nextLaunchStep(plan.rows, layout, LAUNCH_BAND, null)).toBeNull();
+    it('is empty on unusable input rather than throwing', () => {
+        expect(epicWorkStepIds([], layout, LAUNCH_BAND)).toEqual([]);
+        expect(epicWorkStepIds(null, layout, LAUNCH_BAND)).toEqual([]);
+        expect(epicWorkStepIds(plan.rows, null, LAUNCH_BAND)).toEqual([]);
+        expect(epicWorkStepIds(plan.rows, layout, null)).toEqual([]);
+        expect(epicWorkStepIds(plan.rows, layout, { stepIds: [] })).toEqual([]);
     });
 });
 
@@ -284,33 +270,45 @@ describe('gestureMovedCamera — the reader taking the camera, vs click jitter',
 });
 
 describe('what the control says it does (item 7)', () => {
-    it('names the second stop, and the step it will go to', () => {
-        expect(epicZoomHint(4)).toBe('Zoom pipeline epic — click again for launch step 4');
-        expect(epicZoomHintSuffix(71)).toBe(' — click again for launch step 71');
+    it('names the second stop, and how much work it will frame', () => {
+        // req #3365 re-pointed level 2 from ONE launch step to the epic's
+        // unfinished work, so the promise names the SUBJECT rather than a step
+        // id — a control that named one step while framing nine would be worse
+        // than one that names none.
+        expect(epicZoomHint([4, 5, 6]))
+            .toBe('Zoom pipeline epic — click again to frame its 3 unfinished steps');
+        expect(epicZoomHintSuffix([71]))
+            .toBe(' — click again to frame its 1 unfinished step');
     });
 
     it('promises no zoom that cannot happen', () => {
+        expect(epicZoomHint([])).toBe('Zoom pipeline epic');
         expect(epicZoomHint(null)).toBe('Zoom pipeline epic');
         expect(epicZoomHint(undefined)).toBe('Zoom pipeline epic');
         expect(epicZoomHintSuffix(null)).toBe('');
     });
 
-    // A step id of 0 is not a legal `pipeline_steps.id`, but `stepId ? …` would
-    // silently drop it and the suffix would promise nothing while the click
-    // still moved. Guarded on `!= null` for that reason, and pinned here so a
-    // "simplification" back to a truthiness check fails.
-    it('announces a falsy-but-real step id rather than swallowing it', () => {
-        expect(epicZoomHintSuffix(0)).toBe(' — click again for launch step 0');
+    // The falsy-id hazard the id-based suffix had is GONE with the id — what
+    // replaced it is a COUNT, where 0 legitimately means "nothing to frame".
+    // Pinned because the two look alike and the guard is the opposite one: an
+    // empty list must say nothing, and anything that is not a list must too.
+    it('says nothing for an empty or malformed work list', () => {
+        expect(epicZoomHintSuffix([])).toBe('');
+        expect(epicZoomHintSuffix(null)).toBe('');
+        expect(epicZoomHintSuffix(undefined)).toBe('');
+        expect(epicZoomHintSuffix(7)).toBe('');
     });
 
     // The promise and the behaviour read the SAME lookup, so a band that has a
     // second stop always announces one and a band that does not never can.
     it('agrees with the selector on every band of the plan', () => {
         for (const band of layout.bands) {
-            const stepId = nextLaunchStep(plan.rows, layout, band, eligible);
-            const announced = epicZoomHint(stepId).includes('click again');
-            expect(announced).toBe(stepId != null);
-            if (stepId != null) expect(epicZoomHint(stepId)).toContain(String(stepId));
+            const workIds = epicWorkStepIds(plan.rows, layout, band);
+            const announced = epicZoomHint(workIds).includes('click again');
+            expect(announced).toBe(workIds.length > 0);
+            if (workIds.length) {
+                expect(epicZoomHint(workIds)).toContain(String(workIds.length));
+            }
         }
     });
 });

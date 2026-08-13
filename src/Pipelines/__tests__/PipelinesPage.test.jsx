@@ -12,16 +12,25 @@
 // it from here.
 //
 // What is pinned: Cards is the default view and shows status/execution-mode/
-// step-count/orchestration-holder chips, a two-state done/open progress bar
-// and (when the shared met/total preference is on) the requirement count;
-// the status filter hides/shows pipelines and names what it hid when the
-// result is empty; the Table view carries the editor controls (execution_mode
-// toggle, description dialog) Cards deliberately does not; opening a plan —
-// from a card, from the table title, from the table's Open action, or from
-// clicking anywhere else in a table row — always navigates to the real 2.0
-// visualizer (`/swarm/pipeline/:id`, req #3463/#3372), and never fires a
-// mutation; every editor control stops propagation so it does not ALSO
-// navigate the row away.
+// step-count/orchestration-holder chips and a progress bar over REQUIREMENTS
+// MET; the status filter hides/shows pipelines and names what it hid when the
+// result is empty; the Table view carries the one editor control (the
+// execution_mode toggle) Cards deliberately does not; opening a plan — from a
+// card, from the table title, or from clicking anywhere else in a table row —
+// always navigates to the real 2.0 visualizer (`/swarm/pipeline/:id`, req
+// #3463/#3372), and never fires a mutation; every editor control stops
+// propagation so it does not ALSO navigate the row away.
+//
+// ── req #3365 CHANGED WHAT THIS FILE PINS, on user directive ───────────────
+// Three things this header used to describe are gone from the page and so
+// from these tests, and they are named here rather than silently dropped:
+//   · the two-state done/open STEP progress bar — completeness is measured on
+//     requirements now, because a step has no status column and the
+//     `completed_at` the bar counted is empty on essentially every step;
+//   · the requirement tally on the card TITLE — it moved to the accounting
+//     line under the bar that draws it;
+//   · the Table view's "Goal" description dialog and its trailing Open icon —
+//     both removed, and their absence is now itself asserted.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import React from 'react';
@@ -101,6 +110,24 @@ vi.mock('../../hooks/useDataQueries', async (importOriginal) => {
     };
 });
 
+// THE CARD THUMBNAIL IS STUBBED, for the same reason `PipelineDetail`'s own
+// tests stub `pipelineDetailModes` (req #3365): it renders a `react-konva`
+// Stage, and under jsdom `konva` resolves to its NODE build, which `require`s
+// the optional native `canvas` package. That package is not a dependency of
+// this repo, so importing it fails the whole SUITE at collection — not one
+// assertion, every test in the file — and the failure names `canvas` rather
+// than anything to do with this page.
+//
+// The stub keeps the thumbnail OBSERVABLE (same testid, same pipeline id) so
+// the card's composition can still be asserted; what it deliberately does not
+// try to do is prove the drawing, which needs a real canvas and belongs in a
+// browser test rather than in jsdom.
+vi.mock('../PipelinePlanThumbnail', () => ({
+    default: ({ pipelineId }) => (
+        <div data-testid={`pipelines-card-thumb-${pipelineId}`} />
+    ),
+}));
+
 vi.mock('../../SwarmView/pipelines/pipelinePlace', async (importOriginal) => {
     const actual = await importOriginal();
     return { ...actual, readPipelinePlace: () => null };
@@ -146,21 +173,9 @@ function mount() {
 }
 
 const node = (testId) => document.body.querySelector(`[data-testid="${testId}"]`);
-// A `data-testid` on a multiline MUI TextField lands on the outer
-// `.MuiFormControl-root`, not on either of its two <textarea> elements (a
-// visible one plus MUI's hidden auto-sizing shadow, which carries
-// `aria-hidden`) — so tests that need the field's `.value` query the visible
-// textarea within it directly.
-const textareaIn = (testId) =>
-    document.body.querySelector(`[data-testid="${testId}"] textarea:not([aria-hidden="true"])`);
 const click = (el) => act(() => { el.click(); });
-const type = (el, value) => act(() => {
-    const proto = el instanceof HTMLTextAreaElement
-        ? HTMLTextAreaElement.prototype
-        : HTMLInputElement.prototype;
-    Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, value);
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-});
+// `textareaIn`/`type` went with the description-dialog suite (req #3365) —
+// no remaining test types into a field on this page.
 // React's onBlur is implemented on the native 'focusout' event (which
 // bubbles) rather than 'blur' (which does not) — dispatching a bare 'blur'
 // never reaches React's synthetic handler.
@@ -221,15 +236,49 @@ describe('PipelinesPage2 — Cards view (default)', () => {
         expect(node('pipelines-card-8')).not.toBeNull();
     });
 
-    it('shows the done/open two-state summary, never a fabricated third state', () => {
+    // ── req #3365 — COMPLETENESS IS MEASURED ON REQUIREMENTS ────────────────
+    // These two assertions replace, rather than relax, the pair that stood
+    // here: "shows the done/open two-state summary" and "shows the met/total
+    // requirement count on the title". Both described behaviour the user
+    // directed away on 2026-08-12 — step state is not shown at all now, and
+    // the requirement tally moved off the title into the accounting line — so
+    // leaving them passing would have meant pinning a contract nobody holds.
+    it('accounts for completeness in REQUIREMENTS met, not in step state', () => {
         mount();
-        expect(node('pipelines-card-summary-7').textContent).toBe('1 complete · 1 open');
-        expect(node('pipelines-card-summary-8').textContent).toBe('0 complete · 1 open');
+        expect(node('pipelines-card-summary-7').textContent)
+            .toBe('1 of 2 requirements met');
+        // The old line counted steps and would have said "0 complete · 1 open"
+        // here; a step carries no status column, so that number was `completed_at`
+        // and nothing else.
+        expect(node('pipelines-card-summary-7').textContent).not.toContain('complete ·');
+        expect(node('pipelines-card-summary-7').textContent).not.toContain('open');
     });
 
-    it('shows the met/total requirement count on the title (default ON, req #3225 parity)', () => {
+    it('keeps the title to the plan NAME, with the tally in the accounting line', () => {
         mount();
-        expect(node('pipelines-card-7').textContent).toContain('Plan Seven 1/2');
+        expect(node('pipelines-card-7').textContent).toContain('Plan Seven');
+        // The tally used to be glued to the title as a bare " 1/2".
+        expect(node('pipelines-card-7').textContent).not.toContain('Plan Seven 1/2');
+        expect(node('pipelines-card-summary-7').textContent).toContain('1 of 2');
+    });
+
+    it('renders no last-viewed decoration at all (req #3365)', () => {
+        mount();
+        expect(node('pipelines-card-lastviewed-7')).toBeNull();
+        expect(node('pipelines-card-7').textContent).not.toContain('Last viewed');
+    });
+
+    it('renders a plan thumbnail on each card (req #3365)', () => {
+        mount();
+        expect(node('pipelines-card-thumb-7')).not.toBeNull();
+        expect(node('pipelines-card-thumb-8')).not.toBeNull();
+    });
+
+    it('puts the status chip in the pill row', () => {
+        mount();
+        const status = node('pipelines-card-status-7');
+        expect(status).not.toBeNull();
+        expect(status.textContent).toBe('active');
     });
 
     it('shows the orchestration holder only when a claim covers the plan', () => {
@@ -307,13 +356,6 @@ describe('PipelinesPage2 — opening the visualizer, Table view (req #3463/#3372
         expect(navigations).toEqual(['/swarm/pipeline/7']);
     });
 
-    it('navigates to the 2.0 visualizer from the Open action', () => {
-        mount();
-        switchToTable();
-        click(node('pipelines-open-8'));
-        expect(navigations).toEqual(['/swarm/pipeline/8']);
-    });
-
     it('navigates when any other part of the row is clicked', () => {
         mount();
         switchToTable();
@@ -337,13 +379,22 @@ describe('PipelinesPage2 — opening the visualizer, Table view (req #3463/#3372
         expect(navigations).toEqual([]);
     });
 
-    it('does NOT navigate away when the description button is clicked', () => {
+    // ── req #3365 — THE TWO REMOVED CONTROLS, PINNED AS ABSENT ─────────────
+    // Replaces 'navigates to the 2.0 visualizer from the Open action' and
+    // 'does NOT navigate away when the description button is clicked'. Both
+    // drove controls the user directed away; asserting their ABSENCE is what
+    // keeps the removal a decision rather than something a later edit undoes
+    // by accident. Row-click navigation is covered by the test above, which is
+    // the whole reason the Open icon was redundant.
+    it('renders neither the Goal button nor the trailing Open icon', () => {
         mount();
         switchToTable();
-        click(node('pipelines-description-btn-7'));
-        expect(navigations).toEqual([]);
-        // ...and the dialog it opens, not the visualizer.
-        expect(node('pipelines-description-dialog')).not.toBeNull();
+        expect(node('pipelines-description-btn-7')).toBeNull();
+        expect(node('pipelines-open-7')).toBeNull();
+        expect(node('pipelines-open-8')).toBeNull();
+        // The title link survives — it is one of the three ways in that made
+        // the fourth redundant.
+        expect(node('pipelines-open-title-7')).not.toBeNull();
     });
 });
 
@@ -381,59 +432,9 @@ describe('PipelinesPage2 status chip (Table view)', () => {
     });
 });
 
-describe('PipelinesPage2 description dialog (Table view)', () => {
-    it('opens pre-filled with the existing description', () => {
-        mount();
-        switchToTable();
-        click(node('pipelines-description-btn-7'));
-        expect(textareaIn('pipelines-goal').value).toBe('Existing goal.');
-    });
-
-    it('opens empty for a pipeline with no description', () => {
-        mount();
-        switchToTable();
-        click(node('pipelines-description-btn-8'));
-        expect(textareaIn('pipelines-goal').value).toBe('');
-    });
-
-    it('saves on blur', async () => {
-        mount();
-        switchToTable();
-        click(node('pipelines-description-btn-7'));
-        type(textareaIn('pipelines-goal'), 'New goal text');
-        blur(textareaIn('pipelines-goal'));
-        await flush();
-        expect(restCalls).toEqual([{
-            uri: 'http://test.local/darwin/pipelines',
-            method: 'PUT',
-            body: [{ id: 7, description: 'New goal text' }],
-        }]);
-    });
-
-    it('saves unsaved text on Close even without a prior blur', async () => {
-        mount();
-        switchToTable();
-        click(node('pipelines-description-btn-8'));
-        type(textareaIn('pipelines-goal'), 'Closed without blur');
-        // No blur() here on purpose — closeAndSave is the save path being tested.
-        click(document.body.querySelector('[data-testid="pipelines-description-dialog"] button'));
-        await flush();
-        expect(restCalls).toEqual([{
-            uri: 'http://test.local/darwin/pipelines',
-            method: 'PUT',
-            body: [{ id: 8, description: 'Closed without blur' }],
-        }]);
-    });
-
-    it('does not re-send an already-saved value on close', async () => {
-        mount();
-        switchToTable();
-        click(node('pipelines-description-btn-7'));
-        type(textareaIn('pipelines-goal'), 'Saved once');
-        blur(textareaIn('pipelines-goal'));
-        await flush();
-        click(document.body.querySelector('[data-testid="pipelines-description-dialog"] button'));
-        await flush();
-        expect(restCalls.length).toBe(1);
-    });
-});
+// THE 'description dialog (Table view)' SUITE IS GONE (req #3365). Its five
+// tests drove `pipelines-description-btn-*`, the Goal column the user removed,
+// and the dialog behind it — which this page no longer defines at all. They are
+// deleted rather than re-pointed: the equivalent dialog on `PipelineDetail.jsx`
+// is a SEPARATE component with its own tests, and pointing these at it would
+// make this file assert another page's behaviour.

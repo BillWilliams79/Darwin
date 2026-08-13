@@ -38,12 +38,16 @@
 // NOT ported: the "resume to the plan I was last reading" auto-redirect
 // PipelinesPage.jsx performs on mount. That is real complexity (four
 // conditions, a settle effect, a monotonic ref) built for a list a reader
-// returns to daily; the 2.0 list has a handful of rows today. This page DOES
-// read the shared last-viewed mark (`readPipelinePlace`) to highlight the
-// card, since `PipelineDetail.jsx` already writes it on arrival for both
-// eras — it just does not redirect on it.
+// returns to daily; the 2.0 list has a handful of rows today.
+//
+// It used to READ that mark to highlight the last-opened card; req #3365
+// removed the highlight on the user's directive ("Remove 'last viewed'
+// entirely"), so this page now neither reads the mark nor redirects on it.
+// `PipelineDetail.jsx` still WRITES it on arrival and this page still prunes
+// per-plan storage against the live id set — the record is alive, it simply
+// has no decoration on this surface any more.
 
-import { useContext, useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -51,23 +55,13 @@ import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Stack from '@mui/material/Stack';
 import Chip from '@mui/material/Chip';
-import Button from '@mui/material/Button';
-import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import CircularProgress from '@mui/material/CircularProgress';
-import Dialog from '@mui/material/Dialog';
-import DialogTitle from '@mui/material/DialogTitle';
-import DialogContent from '@mui/material/DialogContent';
-import DialogActions from '@mui/material/DialogActions';
-import TextField from '@mui/material/TextField';
 import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 import TableChartIcon from '@mui/icons-material/TableChart';
 import ViewModuleIcon from '@mui/icons-material/ViewModule';
-import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
-import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 
-import call_rest_api from '../RestApi/RestApi';
 import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
 import {
@@ -102,7 +96,11 @@ import {
 // (the whole reason it was safe to ship) — a row here has to open it, or the
 // producer/consumer pair is only reachable by hand-typing a URL.
 import { planDetailPath } from '../SwarmView/pipelines/planEra';
-import { readPipelinePlace, prunePipelineStorage } from '../SwarmView/pipelines/pipelinePlace';
+// `readPipelinePlace` went with the last-viewed decoration (req #3365) — this
+// page has no remaining reader of the mark. `prunePipelineStorage` stays: it is
+// the orphan sweep for per-plan camera/scroll keys and has nothing to do with
+// the mark.
+import { prunePipelineStorage } from '../SwarmView/pipelines/pipelinePlace';
 import { pipelineSummaries, pipelineRequirementCounts } from './pipelinesViewModel';
 import PipelinesCardsView from './PipelinesCardsView';
 import { updatePipeline } from './pipelinesApi';
@@ -163,89 +161,13 @@ function writeStoredStatusFilter(statuses) {
 }
 
 // ── Editable pipeline description ────────────────────────────────────────
-// Structural port of `PipelineDescriptionDialog`
-// (Darwin/src/SwarmView/pipelines/PipelineDetail.jsx:139-259) — local draft +
-// save-on-blur/close, the same `savedRef`/`inFlightRef` staleness guards —
-// writing to `pipelines` instead of `pipelines`. Copied rather than
-// imported/generalized: see pipelinesViewModel.js's header for why this stays
-// a structural copy rather than an import.
-function PipelineDescriptionDialog({ pipeline, open, onClose }) {
-    const { idToken, profile } = useContext(AuthContext);
-    const { darwinUri } = useContext(AppContext);
-    const queryClient = useQueryClient();
-    const showError = useSnackBarStore((s) => s.showError);
-    const incoming = pipeline.description || '';
-    const [draft, setDraft] = useState(incoming);
-    const savedRef = useRef(incoming);
-    const inFlightRef = useRef(null);
-
-    useEffect(() => {
-        if (incoming === savedRef.current) return;
-        if (draft !== savedRef.current) return;
-        savedRef.current = incoming;
-        setDraft(incoming);
-    }, [incoming, draft]);
-
-    const save = () => {
-        const value = draft;
-        if (value === (inFlightRef.current ?? savedRef.current)) return;
-        inFlightRef.current = value;
-        call_rest_api(`${darwinUri}/pipelines`, 'PUT',
-            [{ id: pipeline.id, description: value }], idToken)
-            .then((result) => {
-                const code = result?.httpStatus?.httpStatus;
-                if (code !== 200 && code !== 204) {
-                    showError(result, 'Unable to update the pipeline description');
-                } else {
-                    savedRef.current = value;
-                    queryClient.invalidateQueries({
-                        queryKey: pipelineKeys.all(profile?.userName) });
-                }
-            })
-            .catch((error) => showError(error, 'Unable to update the pipeline description'))
-            .finally(() => {
-                if (inFlightRef.current === value) inFlightRef.current = null;
-            });
-    };
-
-    const closeAndSave = () => {
-        save();
-        onClose();
-    };
-
-    return (
-        <Dialog
-            open={open}
-            onClose={closeAndSave}
-            maxWidth="md"
-            fullWidth
-            disableScrollLock
-            data-testid="pipelines-description-dialog"
-        >
-            <DialogTitle>Description — {pipeline.title}</DialogTitle>
-            <DialogContent dividers>
-                <TextField
-                    label="Description"
-                    variant="outlined"
-                    value={draft}
-                    onChange={(e) => setDraft(e.target.value)}
-                    onBlur={save}
-                    fullWidth
-                    multiline
-                    minRows={8}
-                    maxRows={24}
-                    autoComplete="off"
-                    autoFocus
-                    sx={{ mt: 1 }}
-                    data-testid="pipelines-goal"
-                />
-            </DialogContent>
-            <DialogActions>
-                <Button onClick={closeAndSave} variant="outlined">Close</Button>
-            </DialogActions>
-        </Dialog>
-    );
-}
+// THE PLAN-DESCRIPTION DIALOG LIVED HERE AND IS GONE (req #3365).
+// Its only opener was the Table view's "Goal" button column, which the user
+// directed away; a dialog no control can reach is dead code, and leaving it
+// would read as a feature somebody had merely forgotten to wire up. The plan's
+// goal text is authored on the plan itself — `PipelineDetail.jsx` carries its
+// own copy of this dialog behind the header's Description chip, which is
+// unaffected.
 
 export default function PipelinesPage() {
     const { idToken, profile } = useContext(AuthContext);
@@ -272,14 +194,15 @@ export default function PipelinesPage() {
         return next;
     });
 
-    // The remembered "last plan opened" mark — read ONCE, ONLY when it names
-    // a 2.0 plan (the record is shared with 1.0 and holds one era at a time;
-    // see this file's header and pipelinePlace.js's own doc on why a v1/wrong
-    // -era record is dropped rather than guessed at).
-    const [lastOpenedId] = useState(() => {
-        const place = readPipelinePlace();
-        return place?.pipelineId ?? null;
-    });
+    // THE "last plan opened" MARK IS GONE FROM THIS PAGE (req #3365 user
+    // directive — "Remove 'last viewed' entirely"). It was read once here and
+    // handed to the cards view, which drew a chip and a primary-coloured
+    // border with it.
+    //
+    // `pipelinePlace.js` ITSELF IS UNTOUCHED. `PipelineDetail.jsx` still writes
+    // the record on arrival and `prunePipelineStorage` (imported above) still
+    // sweeps per-plan storage against it. Only this page's decoration is gone;
+    // the record is a live fact that another surface may still act on.
 
     const open = (id) => {
         const to = planDetailPath(id);
@@ -328,8 +251,6 @@ export default function PipelinesPage() {
     const failedReadsText = [epicsError && 'epics', stepsError && 'steps']
         .filter(Boolean).join(' and ');
 
-    const [descriptionTarget, setDescriptionTarget] = useState(null);
-
     const machineById = new Map(machines.map((m) => [m.id, m]));
 
     const summaries = pipelineSummaries({ pipelines, steps, epics });
@@ -355,7 +276,15 @@ export default function PipelinesPage() {
     const columns = [
         { field: 'id', headerName: 'ID', width: 70 },
         {
-            field: 'title', headerName: 'Pipeline', flex: 1, minWidth: 220,
+            // 40% NARROWER (req #3365 user directive). It was `flex: 1,
+            // minWidth: 220`, which made it absorb every spare pixel — measured
+            // 460px at a 1600px viewport, more than a third of the grid, for a
+            // value that is one short line. A fixed width is what makes the
+            // reduction stick: leaving `flex` on and lowering `minWidth` would
+            // have changed nothing, because flex re-expands to fill whatever
+            // the columns removed below gave back. 276 = 460 x 0.6, taken from
+            // the measurement rather than picked.
+            field: 'title', headerName: 'Pipeline', width: 276,
             renderCell: (params) => (
                 <Tooltip title="Open this plan's visualizer">
                     <Box
@@ -418,39 +347,23 @@ export default function PipelinesPage() {
             field: 'completed_at', headerName: 'Completed', width: 150,
             valueFormatter: (value) => (value ? formatDateTime(value, timezone) : '—'),
         },
-        {
-            field: 'description', headerName: '', width: 90, sortable: false,
-            filterable: false, disableColumnMenu: true,
-            renderCell: (params) => {
-                const hasDescription = !!(params.row.description || '').trim();
-                return (
-                    <Tooltip title={hasDescription ? 'View / edit description' : 'Add a description'}>
-                        <Button
-                            size="small"
-                            variant={hasDescription ? 'contained' : 'outlined'}
-                            startIcon={<InfoOutlinedIcon fontSize="small" />}
-                            onClick={(e) => { e.stopPropagation(); setDescriptionTarget(params.row); }}
-                            data-testid={`pipelines-description-btn-${params.row.id}`}
-                        >
-                            Goal
-                        </Button>
-                    </Tooltip>
-                );
-            },
-        },
-        {
-            field: 'open', headerName: '', width: 60, sortable: false,
-            filterable: false, disableColumnMenu: true,
-            renderCell: (params) => (
-                <Tooltip title="Open plan">
-                    <IconButton size="small"
-                                onClick={(e) => { e.stopPropagation(); open(params.row.id); }}
-                                data-testid={`pipelines-open-${params.row.id}`}>
-                        <OpenInNewIcon fontSize="small" />
-                    </IconButton>
-                </Tooltip>
-            ),
-        },
+        // ── TWO COLUMNS REMOVED (req #3365 user directive) ──────────────────
+        //
+        // THE "Goal" BUTTON COLUMN is gone, and with it this page's whole
+        // description-editing surface (the dialog and its `descriptionTarget`
+        // state below). Stated plainly because it is a capability removal, not
+        // a tidy-up: a plan's goal text is still authored on the plan itself,
+        // `/swarm/pipeline/:id`, whose header carries the same dialog behind
+        // the Description chip. The list is an index; the plan is where its
+        // prose is written.
+        //
+        // THE TRAILING "open" ICON is gone as REDUNDANT, which is its own
+        // argument rather than a preference: this grid already navigates from
+        // THREE places — the title renders as a link, `onRowClick` opens the
+        // plan from anywhere in the row, and the row's own cursor says so. A
+        // fourth control doing exactly what clicking anywhere already does is
+        // chrome that teaches nothing, and it was costing the last 60px of a
+        // grid whose Pipeline column has just been cut to fit.
     ];
 
     if (isLoading) {
@@ -527,20 +440,11 @@ export default function PipelinesPage() {
                         machines={machines}
                         claims={orchestrationClaims}
                         onOpen={open}
-                        lastOpenedId={lastOpenedId}
                         hiddenStatusCounts={hiddenStatusCounts}
                     />
                 )}
             </Box>
 
-            {descriptionTarget && (
-                <PipelineDescriptionDialog
-                    key={descriptionTarget.id}
-                    pipeline={descriptionTarget}
-                    open={!!descriptionTarget}
-                    onClose={() => setDescriptionTarget(null)}
-                />
-            )}
         </Box>
     );
 }

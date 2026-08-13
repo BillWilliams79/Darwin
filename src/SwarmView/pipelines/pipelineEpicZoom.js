@@ -1,11 +1,13 @@
 // pipelineEpicZoom.js — the epic name's two-state zoom (req #3297, re-pointed
-// at the STEP by req #3371).
+// at the STEP by req #3371, and at the epic's UNFINISHED WORK by req #3365).
+
+import { STEP_DONE } from './pipelineModel';
 //
 // The epic name on the plan visualizer is a PROGRESSIVE-DISCLOSURE control, not
 // a one-shot fit. It answers two questions, in the order a reader asks them:
 //
 //   level 1 (req #3204)  "where is this epic?"        → the whole band
-//   level 2 (req #3297)  "what does it launch next?"  → its next launch STEP
+//   level 2 (req #3365)  "what is LEFT to do here?"   → its unfinished work
 //
 // and a third click returns to level 1, so the same input reverses the move and
 // there is no dead end. Everything here is the SELECTION half — which step, and
@@ -13,7 +15,25 @@
 // `stepFocusTransform` in pipelinePlanLayout.js, and the camera move itself is
 // `applyFocus` in PipelinePlanVisualizer.jsx, which exists exactly once.
 //
-// ── WHY THE STEP IS THE UNIT (req #3371) ────────────────────────────────────
+// ── AND WHY LEVEL 2 IS NOW THE WORK, NOT ONE STEP (req #3365) ──────────────
+// User directive: *"I'd like to have the zoom work again on second click but
+// have it frame the view port surrounding the active and pending work in the
+// one epic."*
+//
+// Two things were wrong with the next-launch-step answer, and the directive
+// fixes both. It OFTEN DID NOTHING: `nextLaunchStep` requires a non-empty
+// `eligibleStepIds` intersecting the band, so an epic whose work is all blocked
+// or all running returned null, level 2 fell through to the band fit, and a
+// second click visibly did nothing — which is what "have the zoom work again"
+// is describing. And when it did fire it answered a question about ONE step,
+// where the reader clicking an epic's name is asking about the epic.
+//
+// The unfinished work is a strictly better answer to the same "now show me
+// more" gesture: it is non-empty for every epic that is not finished, it is
+// the reader's actual subject, and on an epic with a single live step it
+// degrades to exactly the old framing.
+//
+// ── WHY THE STEP WAS THE UNIT (req #3371, superseded above) ────────────────
 // Req #3297 chose a multi-step launch grouping here and rejected the step in
 // these words: *"a STEP is a fragment of a launch: zooming to one member of a
 // group of four shows a reader part of a command and calls it the next thing to
@@ -114,23 +134,32 @@ export function epicZoomStateKey(pipelineId, band) {
  * @param {?Set} eligibleStepIds  `plan.eligibleStepIds`
  * @returns {?number} the step id, or null when this band has no next launch step
  */
-export function nextLaunchStep(rows, layout, band, eligibleStepIds) {
-    if (!Array.isArray(rows) || !rows.length) return null;
-    if (!layout || !layout.nodes || typeof layout.nodes.has !== 'function') return null;
-    if (!band) return null;
+export function epicWorkStepIds(rows, layout, band) {
+    if (!Array.isArray(rows) || !rows.length) return [];
+    if (!layout || !layout.nodes || typeof layout.nodes.has !== 'function') return [];
+    if (!band) return [];
     const ids = new Set(band.stepIds || []);
-    if (!ids.size) return null;
-    const eligible = eligibleStepIds instanceof Set ? eligibleStepIds : null;
-    if (!eligible || !eligible.size) return null;
+    if (!ids.size) return [];
+    const out = [];
     for (const row of rows) {
         if (!row || !ids.has(row.id)) continue;
-        if (!eligible.has(row.id)) continue;
-        if (row.launchSuppressed) continue;
+        // ACTIVE AND PENDING — everything this epic has not finished. Expressed
+        // as "not done" rather than as a list of the two live states so a state
+        // added later counts as work by default; the alternative silently drops
+        // it out of the frame, which is the failure mode that matters here.
+        if (row.state === STEP_DONE) continue;
         if (!layout.nodes.has(row.id)) continue;
-        return row.id;
+        out.push(row.id);
     }
-    return null;
+    return out;
 }
+
+// `nextLaunchStep` LIVED HERE and was deleted by req #3365, not deprecated.
+// It answered "which single step does this band launch next?" for the old level
+// 2, and nothing calls that question any more — an exported function with no
+// caller is a case no data can reach, which this module's own rules refuse to
+// keep. Its selection logic (eligible, not suppressed, earliest in DISPLAY
+// order) is not lost: it is `derived`'s, and the plan reads it from there.
 
 // ── CLICK OR DRAG? (code review round 2) ────────────────────────────────────
 // The px a gesture may move the camera and still be a CLICK rather than a pan.
@@ -262,20 +291,26 @@ const EPIC_ZOOM_HINT = 'Zoom pipeline epic';
 
 /**
  * The clause naming the second stop, or '' when there is not one.
- * @param {?number} stepId  `nextLaunchStep`'s answer for this band
+ * @param {number[]} workIds  `epicWorkStepIds`'s answer for this band
  */
-export function epicZoomHintSuffix(stepId) {
-    return stepId != null ? ` — click again for launch step ${stepId}` : '';
+export function epicZoomHintSuffix(workIds) {
+    const n = Array.isArray(workIds) ? workIds.length : 0;
+    if (!n) return '';
+    // NAMES THE SUBJECT, NOT A STEP ID (req #3365). It said "click again for
+    // launch step 3383" because level 2 was one step; it is now the epic's
+    // unfinished work, and a control that named one step while framing nine
+    // would be worse than one that names none.
+    return ` — click again to frame its ${n} unfinished step${n === 1 ? '' : 's'}`;
 }
 
 /**
  * The chip's `title`. The aria-label is NOT this string plus the epic name —
  * it interleaves the name and the pause clause — so the two are composed from
  * the shared suffix above rather than one being built out of the other.
- * @param {?number} stepId  `nextLaunchStep`'s answer for this band
+ * @param {number[]} workIds  `epicWorkStepIds`'s answer for this band
  */
-export function epicZoomHint(stepId) {
-    return EPIC_ZOOM_HINT + epicZoomHintSuffix(stepId);
+export function epicZoomHint(workIds) {
+    return EPIC_ZOOM_HINT + epicZoomHintSuffix(workIds);
 }
 
 // ── req #3373 — the met/total suffix's denominator, named on hover ──────────

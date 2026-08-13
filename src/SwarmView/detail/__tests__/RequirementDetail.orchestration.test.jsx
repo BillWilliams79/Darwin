@@ -263,22 +263,37 @@ describe('RequirementDetail Orchestration box (req #3435)', { timeout: 30000 }, 
         expect(container.querySelector('[data-testid="requirement-epic-linkage-group"]')).toBeNull();
     });
 
-    it('carries the two rows, in plan → step order, and no epic row or prose', async () => {
+    it('carries the THREE rows, in plan → epic → step order', async () => {
+        // Two rows until req #3365, which restored Epic on the user's directive
+        // ("Pipeline, Epic and Step (three rows)"). The row had been retired at
+        // req #3357 because 1.0 lost the derivation with Feature; #3356 gave it
+        // back through `pipeline_steps.epic_fk` and this restores the display.
         const { container } = mount();
         await flush();
         const box = group(container);
-        const rows = ['orchestration-pipeline-row', 'orchestration-step-row'];
+        const rows = ['orchestration-pipeline-row', 'orchestration-epic-row',
+            'orchestration-step-row'];
         for (const r of rows) expect(testid(container, r)).not.toBeNull();
-        // Order is the shape of the thing — a plan contains steps.
+        // Order is the shape of the thing — a plan contains epics, an epic
+        // contains steps. CONTAINMENT, which is the plan model's own word.
         const order = rows.map((r) => Array.prototype.indexOf.call(
             box.children, testid(container, r)));
         expect(order).toEqual([...order].sort((a, b) => a - b));
-        expect(testid(container, 'orchestration-epic-row')).toBeNull();
         // The removed captions, asserted by their own words rather than by a
-        // count of children.
+        // count of children. 'Epic' is no longer among them — it is a row name
+        // now — but the 1.0 prose that used to sit beside it still must not be.
         expect(box.textContent).not.toContain('via feature');
-        expect(box.textContent).not.toContain('Epic');
         expect(box.textContent).not.toContain('View on plan');
+    });
+
+    it('renders epic as read-only text, exactly as pipeline does', async () => {
+        // The directive's own split: "each the same format except that Step was
+        // the one configurable whereas the rest were read only".
+        const { container } = mount();
+        await flush();
+        const row = testid(container, 'orchestration-epic-row');
+        expect(row.querySelector('.MuiSelect-select')).toBeNull();
+        expect(row.querySelector('input')).toBeNull();
     });
 
     // Pipeline is TEXT. An earlier cut shipped it as a Select that wrote nothing

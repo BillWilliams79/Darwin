@@ -261,13 +261,20 @@ export default function PipelinePlanToolbar({
                 is why 'none' is stored as a string.
 
                 It gains a caption for the same reason Width did: bare chips
-                reading "State", "Machine" and "Autonomy" name their own VALUES
+                reading "State", "Autonomy" and "Machine" name their own VALUES
                 and leave the axis they select unstated, which is P9's defect
-                with no first option to hide the name in. */}
+                with no first option to hide the name in.
+
+                THE CAPTION IS "Color" (req #3365 user directive). Darwin's
+                prose is British throughout this module and stays that way —
+                this is the one string a USER reads, and it now matches the
+                rest of the product's UI spelling rather than the code's. The
+                chip ORDER is the user's too, and it lives in
+                `REQ_COLOR_SCALES`, not here — see its own comment. */}
             <Stack direction="row" spacing={0.5} useFlexGap alignItems="center"
                    sx={{ flexShrink: 0 }}
                    data-testid="pipeline-viz-colorkey-toggle">
-                <Box component="span" sx={TOOLBAR_CAPTION_SX}>Colour:</Box>
+                <Box component="span" sx={TOOLBAR_CAPTION_SX}>Color:</Box>
                 {REQ_COLOR_SCALES.map(({ key, chipLabel, chipTip, chipName }) => {
                     const on = colorKey === key;
                     return (

@@ -114,6 +114,16 @@ import {
 // error path the costError branch exists to handle.
 const EMPTY = Object.freeze([]);
 
+// The narrowest the plan's name may become (req #3365 polish). A FLOOR on the
+// header title's flex basis — see the title's own comment in the render for why
+// zero was wrong. 140px is about a dozen `h5` characters plus the ellipsis:
+// enough to tell two plans apart at a glance and enough of a box to hover for
+// the tooltip that carries the rest. It is deliberately NOT sized to fit any
+// particular plan's name — that would be a number that goes stale the first
+// time somebody names a plan verbosely, and S13's band already handles the
+// overflow.
+const TITLE_MIN_W = 140;
+
 // ── Editable pipeline description (req #3119, moved req #3179) ──────────────
 // The plan's goal text is the one field on this page a human authors, and it was
 // read-only prose. It is the house edit-in-place field: an outlined TextField
@@ -748,11 +758,31 @@ export default function PipelineDetail() {
     // `noWrap` with a tooltip needs the whole text as a VALUE: CSS
     // `text-overflow` needs a single inline flow to clip, and a tooltip that is
     // the recovery path for a clip has to carry exactly what was clipped.
-    const titleText = pipeline.title + (planReqCounts
-        ? ` ${planEpicCount} Epic${planEpicCount === 1 ? '' : 's'}, `
+    //
+    // THE COUNTS ARE A SEPARATE RUN OF TYPE, NOT MORE TITLE (req #3365 polish).
+    // Req #3242 folded the whole-plan counts INTO the title and removed the
+    // accounting line that used to carry them; that directive is about WHERE
+    // they live and this is about how they READ. Rendered at the title's own
+    // weight, size and colour they produced one undifferentiated string —
+    // "FP Pipeline - Agent Harness 4 Epics, 73/115 Requirements" — with nothing
+    // saying where the plan's name ends and the statistics begin, and at 1600px
+    // it was the STATISTIC that ellipsized, leaving a broken fraction ("73/115
+    // …") as the last thing on the row. Splitting the two lets the eye take the
+    // name in one jump and treat the counts as the annotation they are.
+    //
+    // STILL ONE INLINE FLOW, which is what the paragraph above requires: the
+    // counts are a `<span>`, so `text-overflow: ellipsis` still clips one line
+    // box. A second BLOCK is what would break it — do not turn this into a
+    // Stack or a second Typography.
+    const countsText = planReqCounts
+        ? `${planEpicCount} Epic${planEpicCount === 1 ? '' : 's'}, `
             + `${planReqCounts.met}/${planReqCounts.total} `
             + `Requirement${planReqCounts.total === 1 ? '' : 's'}`
-        : '');
+        : '';
+    // The tooltip's value, and the accessible text, stay the WHOLE line — it is
+    // the recovery path for a clip, so it has to carry everything that was on
+    // the row whether or not the two halves are styled alike.
+    const titleText = countsText ? `${pipeline.title} ${countsText}` : pipeline.title;
 
     // `minWidth: 0` is load-bearing, not tidiness (req #3119 polish pass). This
     // Box is an item of the `.app-layout` CSS grid, whose items default to
@@ -904,15 +934,74 @@ export default function PipelineDetail() {
                     control: it absorbs every pixel of slack while there is
                     slack, and nothing once there is not.
 
-                    `minWidth: 0` is what actually lets it give: a flex item's
-                    default `min-width: auto` means "never below your content",
-                    and `noWrap` alone would then widen the row instead of
-                    ellipsizing inside it. */}
+                    A FLOOR, NOT `minWidth: 0` (req #3365 polish). `min-width: 0`
+                    is what lets a flex item give at all — a flex item's default
+                    `min-width: auto` means "never below your content", and
+                    `noWrap` alone would widen the row instead of ellipsizing
+                    inside it — but ZERO lets it give EVERYTHING. Measured at a
+                    1024px viewport: the title's box was **0px** and the plan's
+                    name was not on the page at all, while the row's own S13 band
+                    scrolled the controls. Since req #3242 removed the breadcrumb
+                    this row IS the plan's only identity, and S13's own note says
+                    the title's tooltip is the only recovery path left when it
+                    ellipsizes — at zero width there is no text to ellipsize and
+                    no target to hover, so that path is gone too and the page
+                    silently stops saying which plan it is drawing.
+                    `TITLE_MIN_W` keeps a hoverable stub on the row at every
+                    width; the controls scroll in the band S13 built for exactly
+                    this, which is the trade S13 already chose over page
+                    overflow. It does not weaken S11 — the title is still the
+                    spacer and still takes every pixel of slack first. */}
                 <Tooltip title={titleText}>
                     <Typography variant={isMobile ? 'h6' : 'h5'} noWrap
-                                sx={{ flex: 1, minWidth: 0 }}
+                                sx={{ flex: 1, minWidth: TITLE_MIN_W }}
                                 data-testid="pipeline-title">
-                        {titleText}
+                        {pipeline.title}
+                        {/* A REAL SPACE, not just the margin below (measured —
+                            the first cut had only the margin and the row's
+                            `textContent` read "…Agent Harness4 Epics, 73/115…").
+                            The margin is what the eye sees; this is what a
+                            COPY-PASTE carries, and the two must not disagree.
+                            NOT an accessibility fix: MUI's Tooltip defaults to
+                            `describeChild={false}`, so it puts `titleText` on
+                            the child as an `aria-label`, and an aria-label
+                            OVERRIDES descendant text as the accessible name —
+                            a reader is announced the tooltip's string either
+                            way. Claiming otherwise here would be citing a
+                            benefit this line does not deliver. */}
+                        {countsText && ' '}
+                        {countsText && (
+                            <Box component="span"
+                                 data-testid="pipeline-title-counts"
+                                 sx={{
+                                     // `em`, so the counts stay in proportion
+                                     // through the `h6`/`h5` breakpoint swap
+                                     // instead of needing a second media query.
+                                     fontSize: '0.62em',
+                                     fontWeight: 400,
+                                     color: 'text.secondary',
+                                     // The gap is a margin rather than a space
+                                     // in the string so it does not collapse
+                                     // against the ellipsis when the line clips.
+                                     ml: 1,
+                                     // NO `whiteSpace` HERE, deliberately. The
+                                     // first cut set `nowrap` to stop a count
+                                     // breaking across the clip ("73/1…"), and
+                                     // that was two mistakes at once: the
+                                     // parent's `noWrap` already inherits down,
+                                     // so it was a no-op, and no `white-space`
+                                     // value could have done it anyway —
+                                     // `text-overflow: ellipsis` clips at the
+                                     // box edge without regard to word or token
+                                     // boundaries. What actually protects the
+                                     // numbers is ORDER: the counts come last,
+                                     // so the name is spent first and the clip
+                                     // reaches them only once the name is
+                                     // already gone.
+                                 }}>
+                                {countsText}
+                            </Box>
+                        )}
                     </Typography>
                 </Tooltip>
 

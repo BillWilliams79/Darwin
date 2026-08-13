@@ -75,7 +75,17 @@ export const PLAN_VIZ_PALETTE = {
     // The dependency-arc stroke connecting steps (req #3366) — brightened from
     // `#3d5a86`/0.65 (measured ~1.75:1 against `panel`, under the 3:1 WCAG AA
     // floor for graphical marks) to `#5c87c9`/0.85 (~3.80:1).
-    arc: '#5c87c9',
+    // ── THE DEPENDENCY ARCS READ AGAINST THE PANEL (req #3365 user directive:
+    //    "make sure the dependency lines are showing up better against the dark
+    //    background") ────────────────────────────────────────────────────────
+    // `#5c87c9` measured **4.74:1** on this panel and was drawn at 0.85 opacity
+    // on top of that, so the effective contrast of a 1.2px line was lower still
+    // — a wire a reader had to look for. `#8fb6f0` is **8.32:1**, the same hue
+    // family (it is still the blue the plan's wires are), and the renderer now
+    // draws it at full opacity: the arcs are the plan's actual SEQUENCE and had
+    // been the faintest thing on a surface whose beads and bands are both
+    // brighter than them.
+    arc: '#8fb6f0',
     text: '#d7e3f4',
     dim: '#6f83a0',
     accent: '#4ad9c8',
@@ -141,15 +151,38 @@ export const PLAN_VIZ_PALETTE = {
 // a future surface needs epic-X-is-always-blue, that is the point to add
 // stored colour; today it would be speculative machinery for a fact nothing
 // reads.
+// ── FOUR, AND THEY REPEAT (req #3365 user directive) ───────────────────────
+// *"Enjoyable as the multiple colors are for the epic title, they are too hard
+// to read some of them. let's pick a palette of four distinct color (they can
+// repeat from top to bottom) but that show up nicely in the visualizer as a
+// contrast against the background."*
+//
+// SEVEN was the count, and the count was the problem. The palette had to fill
+// seven slots that were mutually distinguishable, which forced entries down
+// into the dark end of the wheel where a hue can be told apart but not READ:
+// `#00897b` teal at 3.1:1 and `#c2185b` pink at 3.3:1 against this panel are
+// the ones the directive is about — they cleared the 2.7 general floor and
+// still made an epic's NAME (which is drawn in the band's colour) hard work.
+//
+// At four, every entry can sit in the bright band: the measured range is
+// **5.94:1 to 7.75:1**, minimum pairwise CIE76 ΔE **54.0**, and the four hues
+// are spread 188° / 22° / 264° / 334° around the wheel — a quarter-turn apart
+// or better, so a repeat is the only way two bands can share a colour.
+//
+// REPEATING IS THE POINT, not a compromise. `bandByKey.get(key).color =
+// EPIC_PALETTE[i % EPIC_PALETTE.length]` already cycled; with seven entries a
+// reader could believe colour identified an epic, which it never did (colour is
+// band POSITION — see the ONE FACT, ONE CHANNEL note above). Four makes the
+// cycle short enough to be obvious.
+//
+// None of the four collides with a STATE hue: the closest approach to Running
+// amber, Complete green or `deployed` green is ΔE 39.3 (orange vs amber), well
+// past the 25 the autonomy scale is held to.
 export const EPIC_PALETTE = [
-    '#7c4dff', // purple — kept, measured fine
-    '#00897b', // teal — kept, measured fine
-    '#c2185b', // pink — kept, measured fine
-    '#ff9152', // orange — replaces #f57c00 (6.39:1, warm-floor fail); 7.75:1
-    '#6979f8', // indigo — replaces #3949ab (2.23:1, "low separation"); 4.68:1
-    '#00b8d4', // cyan — replaces brown's slot; 7.25:1, distinct from teal
-    '#aa00ff', // magenta (hue 280°) — new 7th slot, closest neighbour ΔE 26.4
-               // from purple, entry 0
+    '#00b8d4', // cyan   — 7.25:1, hue 188°
+    '#ff9152', // orange — 7.75:1, hue 22°  (clears the raised WARM floor)
+    '#b07dff', // violet — 5.94:1, hue 264°
+    '#ff6fae', // rose   — 6.69:1, hue 334°
 ];
 
 // Named exports for the two pause colours — FROM the palette above, never a
@@ -261,15 +294,41 @@ export const KEY_GROUP_TITLES = [...new Set(
 // then names the scale on screen, and the scale really is a status. What was
 // wrong before was an unlabelled colour that read as the STEP's status.
 //
-// MEASURED against the panel (#111b2b), 2026-08-01: contrast 6.13:1 (the lowest,
-// `swarm_ready`) to 12.49:1; minimum pairwise CIE76 ΔE 25.9 (`approved` vs
-// `wontfix`). Both are asserted in pipelinePlanLayout.test.js, so a "nicer" hue
-// that collapses the scale fails rather than ships.
+// ── THE TWO PRE-QUEUE STATUSES BORROW THE AUTONOMY SCALE'S STOP HUES ───────
+// (req #3365 user directive: *"authoring and approved should be the colors like
+// Discuss and Planned. Keep swarm ready, dev and met as is."*)
+//
+// The SAME two hex values `AUTONOMY_COLORS.discuss` and `.planned` carry, not
+// approximations of them — the directive says "like Discuss and Planned", and a
+// near-miss would be a third red nobody chose. Reusing them across scales is
+// safe for the reason that block already records about its own neighbours: the
+// colour control is EXCLUSIVE, so State and Autonomy are never on screen
+// together, and the on-screen key names whichever scale is live.
+//
+// What it buys is a scale that agrees with itself about direction. Red and rose
+// already mean "a human has to act before this moves" on the autonomy scale,
+// and that is exactly what `authoring` and `approved` mean here — so the ramp
+// now reads STOP → nearly stop → GO (`swarm_ready`'s vivid blue) instead of
+// arriving at the actionable status from two cool hues that read as quieter
+// than it. It also vacates violet, which `authoring` (#c8a2ff) shared with
+// `AUTONOMY_COLORS.implemented` (#c58cff) closely enough to be the one real
+// cross-scale confusion in the pair.
+//
+// MEASURED against the panel (#111b2b), 2026-08-12: contrast 4.78:1 (the
+// lowest, `approved`) to 12.49:1 (`development`); minimum pairwise CIE76 ΔE
+// 37.8 (`development` vs `deferred`). The floors are unchanged and both are
+// asserted in pipelinePlanLayout.test.js, so a "nicer" hue that collapses the
+// scale fails rather than ships. The change SPENDS contrast (the old low was
+// 6.13:1) and BUYS separability (the old ΔE low was 25.9, `approved` vs
+// `wontfix`) — both still clear their floors, and the two numbers moving in
+// opposite directions is why both are recorded rather than just the one that
+// improved.
 export const REQ_STATUS_COLORS = {
-    // Cool ramp = waiting on a human, brightening toward launchable.
-    authoring: '#c8a2ff',      // violet — drafted, not agreed. NOT Darwin's
-                               // yellow: yellow is Running on this panel.
-    approved: '#93b7e0',       // pale blue — agreed, not queued
+    // Stop ramp = waiting on a human, releasing toward launchable.
+    authoring: '#ff3b30',      // signal red — drafted, not agreed. Shared with
+                               // AUTONOMY_COLORS.discuss, deliberately.
+    approved: '#db5795',       // wine rose — agreed, not queued. Shared with
+                               // AUTONOMY_COLORS.planned, deliberately.
     swarm_ready: '#4d9bff',    // vivid blue — queued; the actionable one
     // Agreement with the panel's own state hues (see the rule above).
     development: '#ffd769',    // the Running amber — in flight
@@ -490,6 +549,12 @@ export function buildMachineColorView({ requirements = [], machines = [] } = {})
 // control is exclusive, so the two are never on screen together; the second is a
 // different MARK (a bead's ring, not type). Recorded because they are the
 // closest this scale comes to anything outside it.
+//
+// SINCE req #3365 THE FIRST TWO ARE ALSO THE STATE SCALE'S `authoring` and
+// `approved` — deliberately, by the user's directive, and by IDENTITY rather
+// than resemblance (see REQ_STATUS_COLORS). Editing either value therefore
+// moves both scales; the test that pins them is what makes that impossible to
+// do by accident.
 export const AUTONOMY_COLORS = {
     discuss: '#ff3b30',       // signal red — STOP; a human speaks first
     planned: '#db5795',       // wine rose — nearly stop; plans, then waits
@@ -512,6 +577,147 @@ export const AUTONOMY_UNKNOWN_COLOR = REQ_STATUS_UNKNOWN_COLOR;
 // FUNCTION paints nothing and reports nothing.
 export const autonomyColor = (ct) => (Object.hasOwn(AUTONOMY_COLORS, ct)
     ? AUTONOMY_COLORS[ct] : AUTONOMY_UNKNOWN_COLOR);
+
+// ════════════════════════════════════════════════════════════════════════════
+// PALETTE THEMES (req #3365 user directive)
+// ════════════════════════════════════════════════════════════════════════════
+//
+// *"Give me a UI option to show the current palette and: Status and Autonomy
+// color palettes (2) from requirement inside pipeline visualizer. These are
+// just colors so stoplight is not necessary. maybe propose a more boring
+// business version or two. and anything you think is modern."*
+//
+// ONE THEME OVER ALL THREE SCALES, not three settings. The epic bands, the
+// requirement STATUS scale and the AUTONOMY scale are read together on one
+// panel, so a per-scale choice would let someone assemble a combination nobody
+// chose and nobody measured. A theme is a complete set, and EVERY theme is held
+// to the same measured floors: `pipelinePlanLayout.test.js` sweeps all three
+// rather than the chosen one only.
+//
+// ── THERE IS NO CONTROL, AND THAT IS THE POINT (req #3365, second directive) ─
+// A `Palette:` chip group shipped in the plan toolbar for exactly as long as it
+// took the user to see the three themes side by side and say *"Remove UI option
+// / Select Aurora"*. So the choice was made ONCE, in code, and the toolbar went
+// back to the controls that answer questions about the DATA. The registry stays
+// because it is what makes the choice reviewable — three measured alternatives
+// and the numbers that separate them — and because changing it is one line
+// rather than a colour hunt through a 4700-line module.
+//
+// ── WHAT "BORING" TURNED OUT TO MEAN, MEASURED ──────────────────────────────
+// The first cut of `slate` was a single blue-grey RAMP per scale, on the
+// reasoning that the directive's "stoplight is not necessary" frees a scale to
+// carry its ladder in lightness alone. **That does not fit on this panel and the
+// numbers say so plainly**: seven entries pairwise ΔE 20 apart along one hue
+// needs a lightness range of roughly 120 L*, which does not exist at all, and
+// what does not have to be measured twice is that every entry must ALSO clear
+// 4.5:1 against `#111b2b`, which floors the dark end around L* 55. The first cut
+// measured a minimum ΔE of **8.9** — two statuses that read as the same colour,
+// which is the exact defect the four-entry epic palette above was cut down to
+// fix.
+//
+// So restraint is carried by SATURATION, not by collapsing the hues. Measured
+// mean HSL saturation across all three scales: **Signal 0.836, Slate 0.350,
+// Aurora 0.828** — Slate is under half the default's chroma and keeps its hue
+// separation, which is what makes it legible AND calm. `aurora` is deliberately
+// as saturated as the default: "modern" is a different axis from "restrained",
+// and offering two calm themes would be one theme with two names. Every scale
+// in every theme clears contrast 4.78:1 and pairwise ΔE 20.4, asserted over the
+// REGISTRY so a fourth theme is covered the day it is added.
+//
+// `stoplight` is assembled FROM `EPIC_PALETTE`/`REQ_STATUS_COLORS`/
+// `AUTONOMY_COLORS` rather than restating them, so there is exactly one copy of
+// those values and the entry cannot drift from the constants this module
+// documents at length above. It is no longer what the canvas draws — see
+// `DEFAULT_PLAN_PALETTE` — but those constants are still what
+// `reqStatusColor`/`autonomyColor` answer for every caller OUTSIDE this canvas,
+// which is why they stay where they are rather than moving into the registry.
+export const PLAN_PALETTES = [
+    {
+        key: 'stoplight',
+        label: 'Signal',
+        tip: 'Signal — hue carries meaning: amber is Running, green is Complete, '
+            + 'red is "a human speaks first".',
+        epic: EPIC_PALETTE,
+        status: REQ_STATUS_COLORS,
+        autonomy: AUTONOMY_COLORS,
+    },
+    {
+        key: 'slate',
+        label: 'Slate',
+        tip: 'Slate — a restrained business palette: the same hue separation at '
+            + 'a little over half the chroma. No stoplight.',
+        epic: ['#7f9fc4', '#c4a37f', '#a98cc4', '#7fc4a8'],
+        // Ordered by the LIFECYCLE, and the hues walk violet → blue → teal →
+        // gold → green so the ladder is legible without any of them shouting.
+        // `deferred` and `wontfix` sit off that walk deliberately: they are the
+        // two statuses that mean the work is not going to happen, and putting
+        // them on the same axis as "nearly done" would make them read as a
+        // later stage of it.
+        status: {
+            authoring:   '#ab84c4',
+            approved:    '#6f8fbe',
+            swarm_ready: '#6fd0c4',
+            development: '#d4b35c',
+            met:         '#8fbf7a',
+            deferred:    '#cf8050',
+            wontfix:     '#909090',
+        },
+        autonomy: {
+            discuss:     '#b08a8a',
+            planned:     '#a98cc4',
+            implemented: '#8c9fc4',
+            deployed:    '#7fb08c',
+        },
+    },
+    {
+        key: 'aurora',
+        label: 'Aurora',
+        tip: 'Aurora — a modern dark-UI palette: teal through indigo and violet, '
+            + 'with the status scale a cool-to-warm walk rather than a stoplight.',
+        epic: ['#5eead4', '#818cf8', '#f0abfc', '#fcd34d'],
+        // COOL TO WARM as the work advances, so the scale reads as heat rather
+        // than as a set of labels — the "not a stoplight" the directive asked
+        // for, arrived at by ordering rather than by muting. `deferred` and
+        // `wontfix` leave the walk for Slate's reason.
+        status: {
+            authoring:   '#818cf8',
+            approved:    '#38bdf8',
+            swarm_ready: '#22d3ee',
+            development: '#5eead4',
+            met:         '#a3e635',
+            deferred:    '#fcd34d',
+            wontfix:     '#94a3b8',
+        },
+        autonomy: {
+            discuss:     '#f472b6',
+            planned:     '#c4b5fd',
+            implemented: '#7dd3fc',
+            deployed:    '#4ade80',
+        },
+    },
+];
+
+export const PLAN_PALETTE_KEYS = PLAN_PALETTES.map((p) => p.key);
+// AURORA, on the user's own directive after seeing all three on the live plan.
+// Named EXPLICITLY rather than by taking `PLAN_PALETTE_KEYS[0]`: the registry's
+// order is a narrative — the default first, then calmer, then more modern — and
+// reordering it to move the default would make one array carry two meanings and
+// silently repaint the plan on the next person's tidy-up.
+export const DEFAULT_PLAN_PALETTE = 'aurora';
+export const isPlanPalette = (v) => PLAN_PALETTE_KEYS.includes(v);
+
+/**
+ * The palette a key names, or the default.
+ *
+ * A miss resolves to the DEFAULT rather than to null: the value arrives from
+ * localStorage, where a stale or hostile string is ordinary input, and a canvas
+ * with no palette at all draws nothing. Same discipline `normalizeColorKey` and
+ * `isStepWidth` apply to their own stored values.
+ */
+export function planPalette(key) {
+    return PLAN_PALETTES.find((p) => p.key === key) || PLAN_PALETTES[0];
+}
+
 
 // ── The colour key is N SCALES PLUS NONE (req #3168; third scale req #3422) ─
 // `state` · `machine` · `autonomy` · `none`. It was TRI-STATE when req #3168
@@ -745,8 +951,17 @@ function buildEnumColorView({
     };
 }
 
-// The registry. ORDER IS THE TOOLBAR'S ORDER — the existing two first, so a
-// reader's muscle memory for the chip positions survives the addition.
+// The registry. ORDER IS THE TOOLBAR'S ORDER, and it is STATE, AUTONOMY,
+// MACHINE (req #3365 user directive). It was state, machine, autonomy — the
+// two original scales first so a reader's muscle memory for the chip positions
+// survived autonomy's arrival at req #3422. That reason has expired: the chips
+// have moved, so the muscle memory being protected is the memory of an order
+// nobody will see again, and what the order buys now is that the two scales
+// describing the REQUIREMENT (its status, then how autonomously it runs) sit
+// together, with the one describing the MACHINE that ran it last.
+//
+// This array is the single place the order is stated. The toolbar maps it, the
+// on-screen key maps it, and neither carries a sort of its own.
 export const REQ_COLOR_SCALES = [
     {
         key: 'state',
@@ -755,16 +970,37 @@ export const REQ_COLOR_SCALES = [
             + 'click again for none',
         chipName: 'State — colour the requirement marks by requirement status',
         keyTitle: 'Requirement id = status',
-        build: ({ requirements, presentReqIds }) => buildEnumColorView({
+        // `pal` is the resolved theme (req #3365). The ORDER and the unknown
+        // swatch are the scale's, never the theme's: a theme chooses hues, it
+        // does not get to re-order a lifecycle or invent a member.
+        build: ({ requirements, presentReqIds, pal = planPalette() }) => buildEnumColorView({
             requirements,
             presentReqIds,
             field: 'requirement_status',
-            colors: REQ_STATUS_COLORS,
+            colors: pal.status,
             order: REQ_STATUS_ORDER,
-            paint: reqStatusColor,
+            paint: (v) => (Object.hasOwn(pal.status, v)
+                ? pal.status[v] : REQ_STATUS_UNKNOWN_COLOR),
             // 'swarm_ready' reads as two words on the key and as one in the
             // database. The key is for a person.
             labelOf: (v) => v.replace('_', '-'),
+        }),
+    },
+    {
+        key: 'autonomy',
+        chipLabel: 'Autonomy',
+        chipTip: 'Colour the requirement marks by AUTONOMY — the coordination '
+            + 'type, discuss through deployed — click again for none',
+        chipName: 'Autonomy — colour the requirement marks by coordination type',
+        keyTitle: 'Requirement id = autonomy',
+        build: ({ requirements, presentReqIds, pal = planPalette() }) => buildEnumColorView({
+            requirements,
+            presentReqIds,
+            field: 'coordination_type',
+            colors: pal.autonomy,
+            order: AUTONOMY_ORDER,
+            paint: (v) => (Object.hasOwn(pal.autonomy, v)
+                ? pal.autonomy[v] : AUTONOMY_UNKNOWN_COLOR),
         }),
     },
     {
@@ -788,22 +1024,6 @@ export const REQ_COLOR_SCALES = [
         // reason was written here first, and a false premise invites the very
         // change the true one forbids.
         build: ({ requirements, machines }) => buildMachineColorView({ requirements, machines }),
-    },
-    {
-        key: 'autonomy',
-        chipLabel: 'Autonomy',
-        chipTip: 'Colour the requirement marks by AUTONOMY — the coordination '
-            + 'type, discuss through deployed — click again for none',
-        chipName: 'Autonomy — colour the requirement marks by coordination type',
-        keyTitle: 'Requirement id = autonomy',
-        build: ({ requirements, presentReqIds }) => buildEnumColorView({
-            requirements,
-            presentReqIds,
-            field: 'coordination_type',
-            colors: AUTONOMY_COLORS,
-            order: AUTONOMY_ORDER,
-            paint: autonomyColor,
-        }),
     },
 ];
 
@@ -844,9 +1064,11 @@ export const normalizeColorKey = (v) => (isColorKey(v) ? v : DEFAULT_COLOR_KEY);
  * @param {?Set<number>} [args.presentReqIds] ids the plan draws; null = all
  * @returns {Object<string, {colorOf: function, legend: Object[]}>}
  */
-export function buildReqColorViews({ requirements, machines, presentReqIds = null } = {}) {
+export function buildReqColorViews({ requirements, machines, presentReqIds = null,
+    palette = DEFAULT_PLAN_PALETTE } = {}) {
+    const pal = planPalette(palette);
     return Object.fromEntries(REQ_COLOR_SCALES.map((s) => [
-        s.key, s.build({ requirements, machines, presentReqIds }),
+        s.key, s.build({ requirements, machines, presentReqIds, pal }),
     ]));
 }
 
@@ -977,10 +1199,75 @@ const BEAD_R = 10;
 // off-by-a-reservation the 46px version made. 83 leaves a genuine 62 — one full
 // lane — clear in BOTH label modes; `band.epicLaneH` carries the derived value
 // so no consumer has to re-derive it and get it wrong.
-const BAND_HEADER = 83;
-// How far lane 0's step label reaches back up into the header: 31px above the
+// ── THE RESERVATION IS TALLER, ON THE USER'S DIRECTIVE (req #3365) ──────────
+// *"Epic title does a better job of staying the right size, but it needs to
+// have a separate swim lane so it doesn't overlap steps/requirements."*
+//
+// The paragraphs above name this exact trade and name its remedy: the lane is
+// WORLD px against a SCREEN-height chip, so it held only while
+// `k >= (EPIC_CHIP_MIN_H + 2·CHIP_MARGIN_Y) / epicLaneH` = 21.6/62 = **0.348**,
+// and below that the floored chip was drawn over lane 0's step labels. Plan 7
+// LANDS at k = 0.2077 — comfortably under it — so on the plan this surface is
+// most often opened on, the overlap was not an edge case reachable by wheel, it
+// was the default view. That comment ends "if that trade is ever revisited, the
+// fix is a taller reservation or an obstacle entry"; this is the taller
+// reservation.
+//
+// DERIVED FROM THE SCALE IT MUST HOLD AT, not chosen. `EPIC_LANE_CLEAR_K` is
+// the lowest scale the clear strip is guaranteed at, and the clear strip
+// (`headerH − STEP_LABEL_RISE`, the same subtraction the 83 above got right)
+// must be at least the floored chip's screen box converted into world px at
+// that scale. Editing the chip's font or its margins therefore moves this
+// automatically, which is the property the previous hand-set 83 did not have.
+//
+// WHAT IT COSTS, measured on plan 7: the header goes 83 → 125 world px, so each
+// of the 4 bands is 42px taller and the world grows 4430 → ~4598, about 3.8%.
+// At the landing scale that is ~35 screen px of extra plan height, and it buys
+// a name that never sits on a step label at any scale the reader can land on.
+// It does NOT hold all the way to the zoom floor (0.11) — a world-px lane
+// against a screen-px chip cannot, by construction — so the guarantee is stated
+// as a scale, not as an absolute.
+// A LITERAL, PINNED BY A TEST — not the expression that derives it. Every term
+// of that expression (`EPIC_CHIP_H`, `EPIC_CHIP_MIN_SCALE`, `CHIP_MARGIN_Y`) is
+// declared ~2000 lines BELOW this one, so evaluating it here is a temporal dead
+// zone and throws at module load. Reordering a 4,400-line module to satisfy one
+// constant is the larger risk, so the derivation lives in `EPIC_LANE_CLEAR_K`'s
+// own test instead — `pipelinePlanLayout.test.js` recomputes it from those four
+// constants and fails if this number stops matching, which is the same
+// protection with none of the load-order hazard.
+//
+//   ceil(STEP_LABEL_RISE + (EPIC_CHIP_H·EPIC_CHIP_MIN_SCALE + 2·CHIP_MARGIN_Y)
+//        / EPIC_LANE_CLEAR_K)
+//   = ceil(24 + (24·(11/15) + 4) / 0.2) = ceil(24 + 21.6/0.2) = 132
+//
+// 132, not 129, since req #3365 lifted the step label 3px (see
+// `STEP_LABEL_RISE`). The two move TOGETHER by construction — `epicLaneH` is
+// `BAND_HEADER − STEP_LABEL_RISE`, so holding the clear strip at 108 world px,
+// and with it `EPIC_LANE_CLEAR_K` at 0.2, means every pixel the label rises is
+// a pixel the header owes back. Raising one without the other is exactly the
+// off-by-a-reservation this block's own history is made of.
+export const EPIC_LANE_CLEAR_K = 0.2;
+const BAND_HEADER = 132;
+// How far lane 0's step label reaches back up into the header: 34px above the
 // bead, less the 10px the bead sits below the header.
-const STEP_LABEL_RISE = 21;
+//
+// ── 31 → 34 (req #3365): A LABEL THAT CAN REACH A NEIGHBOUR'S BEAD MUST CLEAR
+//    ITS HIT CIRCLE ──────────────────────────────────────────────────────────
+// A step label's box is 17px tall, so at a rise of 31 its bottom sat at
+// `bead.y − 14` while the neighbouring bead's HIT circle starts at
+// `bead.y − BEAD_HIT_RADIUS` = `bead.y − 15`. **One pixel of overlap**, and it
+// had been there all along — harmless only because a label could not reach far
+// enough sideways to be over a neighbour's bead at all. `STAGGER_REACH` 0.85
+// can (that is the point of it), so the latent px became a real one: measured,
+// step 6's title took ownership of step 5's hit circle, which means hovering
+// that bead would have answered with the wrong step's card — the exact failure
+// `BEAD_HIT_RADIUS`'s own comment describes.
+//
+// 34 = 17 (the label box) + 15 (`BEAD_HIT_RADIUS`) + 2 of margin. It is checked
+// at the UNSTAGGERED phase deliberately: phases 1 and 2 lift the label further
+// and are never the binding case, so a scheme with more phases cannot quietly
+// rely on the stagger for a clearance the geometry should provide.
+const STEP_LABEL_RISE = 24;
 // Where a bead sits inside its lane, measured from the lane's top. Named
 // because the NEXT-STEP HALO's ceiling is derived from it (req #3271): the room
 // above a LANE-0 bead is the epic chip's strip, and the distance to it is
@@ -994,7 +1281,13 @@ export const BEAD_LANE_OFFSET = 10;
 // shorter per band that used to host one and `headerH` is a function of the
 // stagger alone.
 const BAND_GAP = 8;
-const LANE_BASE_H = 62;         // POC 56 + type-scale headroom, before the title slot
+// +3 at req #3365, and the 3 is not free-floating: `STEP_LABEL_RISE` went 21 →
+// 24 in the same pass, and a lane's envelope starts at its step label. Lifting
+// the label without paying the lane back put the PREVIOUS lane's reserved title
+// slot 1.75px into this lane's label — measured, `vertical × id`, and caught by
+// the zero-overlap contract rather than by inspection. The two numbers move
+// together; the vertical-mode base below carries the identical +3.
+const LANE_BASE_H = 65;         // POC 56 + type-scale headroom, before the title slot
 // The content floor a column may never shrink below, per requirement layout.
 // Named rather than inlined at the `colW` sizing because the NEXT-STEP HALO's
 // magnification ceiling is derived from the smaller of the two (req #3271): the
@@ -1019,7 +1312,19 @@ const TITLE_SLOT = 14;          // deviation 2 — reserved per-lane title line
 // with no visual breathing room at all. One shared constant, so the fix is
 // generic rather than a special case for that pair: every lane, every
 // staggered pair, gets the same extra room.
-export const REQ_LINE_H = 18.75;
+// ── THE GAP IS DOUBLED (req #3365 user directive: "double the whitespace
+//    between a step's requirement stacks, vertically in the visualizer") ──────
+// A requirement mark's own box is 14px tall, so at 18.75 the WHITESPACE between
+// two marks in a stack was 4.75px — the number the directive doubles, giving
+// 9.5 and a line height of 23.5. It is the gap that doubles, not the pitch:
+// doubling 18.75 outright would have put 23px of air between two lines of text
+// and made a 5-requirement stack taller than its own lane.
+//
+// It is the same constant the swim-lane offsets are counted in, so every stack
+// pushed down to clear a neighbour moves in the new unit automatically and the
+// lane pitch (which multiplies it) reserves the extra room without a second
+// edit — the property this constant's history above is entirely about.
+export const REQ_LINE_H = 23.5;
 const STEP_LABEL_MAX = 60;      // hard ceiling on a title label above the bead
 // ── The 35-character CEILING (user directives 2026-08-01) ──────────────────
 // "let's go with all three levels of zoom showing 35 chars", then — decisively —
@@ -1044,7 +1349,27 @@ const STEP_LABEL_MAX = 60;      // hard ceiling on a title label above the bead
 // The ceiling BITES only where the existing budget already exceeded it (the
 // `horizontal` step label, which drew 42-50 characters), and is inert where the
 // budget is the binding constraint (`vertical`, 24-29).
-export const LABEL_MAX_CHARS = 40;
+//
+// ── 40 → 60 (req #3365), BECAUSE IT HAD BECOME THE BINDING CONSTRAINT ──────
+// The sentence above is what changed. `STAGGER_REACH` 0.85 raised the budget by
+// 50% exactly as that directive asked — and the extra was then thrown away at
+// the cap: `vertical` step labels went 27/29/36 characters to a budget that
+// afforded 41/44/54, and requirement titles 33/35/40 to a budget affording
+// 50/54/60. A widened column that draws the same text is not a widened column.
+//
+// 60 is `STEP_LABEL_MAX`, the hard ceiling that stops a pathological title
+// running forever, so the two are now the same number and the BUDGET is the
+// only thing that decides a length — which is the state directive B wanted in
+// the first place ("if 35 is too much, pick a lower number"): a cap picked to
+// suit the room, in a world where the room was frozen. The room moved.
+//
+// MEASURED after the move (the tables in pipelinePlanLayout.test.js are the
+// authority): `vertical` step labels 41/44/54, requirement titles 50/54/60 —
+// **+50 to +54% on every one**, which is the directive's number arriving where
+// a reader can see it. The MIN column gains less (+26%) and that is geometry,
+// not a shortfall: a label in the FIRST or LAST column is bounded by the
+// gutter, not by a neighbouring column, and the gutter did not grow.
+export const LABEL_MAX_CHARS = 60;
 // Staggering (req #3119, the Build Visualizer's version-label pattern —
 // `d3LayoutEngine.js` offsets every odd build by `versionLaneGap`). Odd columns
 // draw their long text one line further from the bead, so a label and its
@@ -1052,21 +1377,69 @@ export const LABEL_MAX_CHARS = 40;
 // column. Only the SAME-PARITY columns (d±2) share a line, and the budget below
 // keeps two of those from meeting.
 const STAGGER_GAP = 18;
+// ── HOW MANY LINES THE STAGGER CYCLES THROUGH (req #3365 user directive) ────
+// *"increase the width by 50% and at the same time allow adjacent one or two or
+// more steps to have defined swim lanes that don't overlap so we can read the
+// longer requirement titles without overlaps."*
+//
+// TWO was the whole scheme until now, and it is what CAPPED the width. With two
+// phases the columns that share a line are `d` and `d±2`; they intrude on the
+// shared column `d±1` from opposite sides, so their reaches must sum to less
+// than one column and neither may exceed HALF of it. `STAGGER_REACH` 0.4 was
+// that bound with a little margin, and no amount of retuning could pass 0.5 —
+// the ceiling was structural, not a chosen number.
+//
+// THREE moves the shared-line pair to `d` and `d±3`, and the arithmetic opens
+// up completely: those two are separated by TWO whole columns, so `d` may reach
+// `R·colW[d+1]` right while `d+3` reaches `R·colW[d+2]` left, and the gap
+// between them is `colW[d+1] + colW[d+2]`. They cannot meet for ANY `R < 1`,
+// whatever the column widths — a stronger guarantee than the two-phase scheme
+// ever had, and one that does not depend on the columns being similar.
+//
+// The cost is vertical and it is charged honestly: the step label's offset now
+// runs 0, 1, 2 gaps instead of 0, 1, so the lane pitch and the band header each
+// reserve `(STAGGER_PHASES − 1) · STAGGER_GAP` rather than one gap, and a
+// requirement stack may be pushed down past TWO neighbours instead of one (see
+// the `reqOffsets` first-fit). Every one of those sites reads this constant, so
+// a fourth phase would be one edit here, not a hunt.
+const STAGGER_PHASES = 3;
+// The vertical room the deepest stagger phase needs. Reserved by the lane pitch
+// and by the band header alike — a label on the last phase is this far above
+// where an un-staggered one would sit.
+const STAGGER_SPAN = (STAGGER_PHASES - 1) * STAGGER_GAP;
 // The shortest a lane can ever be: `lanePitch()` adds a per-lane requirement
 // stack on top of this and never subtracts. Named because the next-step halo's
 // band-rectangle clearance is derived from it (req #3271).
-const MIN_LANE_PITCH = LANE_BASE_H + TITLE_SLOT + STAGGER_GAP;
+const MIN_LANE_PITCH = LANE_BASE_H + TITLE_SLOT + STAGGER_SPAN;
 // Fraction of a neighbouring column a staggered label may reach into, PER SIDE.
 // Labels are centred on their column, so the budget must bound the reach into
 // the NARROWER neighbour and then apply symmetrically — bounding the sum of both
 // neighbours does not work, because a wide left neighbour would buy half-width
 // that gets spent on the right. (That was the first version of this, and it
 // admits an overlap: with colW = [224, 64, 64, 64, 224] the labels at d=1 and
-// d=3 — the only pair that shares a line — overlapped by ~40px. Found in review,
-// with the dataset.) Two same-line labels intrude on the shared column d±1 from
-// opposite sides, so anything under 0.5 per side cannot meet; 0.4 leaves margin
-// for the mono-width estimate itself.
-const STAGGER_REACH = 0.4;
+// d=3 — the pair that shared a line under the two-phase stagger — overlapped by
+// ~40px. Found in review, with the dataset.)
+//
+// ── 0.4 → 0.85, WHICH IS THE +50% (req #3365 user directive) ───────────────
+// The budget is `colW + 2·R·min(neighbours)`, so on uniform columns it goes
+// from `1.8 · colW` to `2.7 · colW` — **exactly the 50% more room the directive
+// asked for**, spent on the requirement titles AND on the step name above the
+// bead, which shares this budget and which the directive explicitly allowed to
+// grow with it ("the step name width can be as wide as the requirement").
+//
+// It is not a retune of the old scheme; 0.85 is unreachable under it. Two-phase
+// put same-line labels two columns apart, sharing ONE column between them, so
+// `2R < 1` was a hard ceiling and 0.4 already had most of the available margin.
+// `STAGGER_PHASES` 3 puts them THREE columns apart with TWO columns between, and
+// the requirement drops to `R < 1` for any column widths at all — see that
+// constant. 0.85 keeps 15% of a column as margin for the mono-width ESTIMATE
+// (`CHW_*` are averages, not measurements of the actual glyphs), which is the
+// same kind of headroom 0.4 kept under the old bound.
+//
+// The reach is still bounded to the IMMEDIATE neighbour on each side — `R < 1`
+// means a label physically cannot cross a whole column — so nothing here starts
+// depending on `d±2`'s width, and the pairwise proof stays pairwise.
+export const STAGGER_REACH = 0.85;
 // Minimum column width when STEP TITLES are drawn (req #3119, user directive:
 // "increase the display of the step name by 50% more characters"). The binding
 // constraint on a step name was never STEP_LABEL_MAX — it was the stagger
@@ -1606,7 +1979,13 @@ const RULER_LABEL_H = 15;
 const CHW_SLOT = 7.93;
 // The clear gap two consecutive ruler labels must leave. Drives the degradation
 // pass below; a plan with more slots than room simply draws fewer labels.
-const RULER_LABEL_GAP = 10;
+// EXPORTED since req #3365: the renderer counter-scales the ruler's type to a
+// fixed SCREEN size, which inflates each label's world width, so it has to
+// re-apply this same thinning rule against the inflated widths. Exporting the
+// constant is what stops that becoming a second copy of the number — the two
+// passes are one rule applied to two widths, and a literal `10` in the
+// component would drift from this one silently.
+export const RULER_LABEL_GAP = 10;
 const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -1756,16 +2135,40 @@ export function stickyRulerY(t) {
     return Math.max(0, ty);
 }
 
+// ── THE STRIP IS SCREEN-SIZED VERTICALLY (req #3365) ───────────────────────
+// The counter-scale the renderer applies to the strip's own geometry, and the
+// ONE place the number is derived. `rulerLabelMag` in the visualizer was the
+// first user of it (the date TYPE, which req #3365 pinned to a fixed screen
+// size); this is now also what the strip's PLATE, baseline and ticks are
+// multiplied by, so the whole strip is one object at one size instead of type
+// floating over a plate a fifth of its height.
+//
+// CLAMPED AT 1, so it only ever makes the strip BIGGER than the world would.
+// Past k = 1 the world scale already exceeds the screen size wanted and
+// dividing would start SHRINKING the strip below `RULER_H` — the opposite of
+// the point, and a second extreme in place of the one being removed. So the
+// strip's SCREEN height is `RULER_H · max(k, 1)`: constant below k = 1, and
+// identical to the old world-scaled behaviour at and above it.
+export function rulerScreenMag(t) {
+    const k = (t && typeof t.k === 'number' && t.k > 0) ? t.k : 1;
+    return Math.max(1, 1 / k);
+}
+
 // The pinned strip's bottom edge in SCREEN space — req #3254's contract with
 // req #3257 (the concurrent epic-name work): "the date header owns the
 // topmost strip and the epic names stop just below it" needs ONE readable
-// number, not a guessed pixel offset. Scales with zoom because the strip's
-// own ticks and text do (deviation 2 — zoom is a pure transform on this
-// surface), so a caller reading the SAME transform gets the exact edge the
-// ruler is drawn at, pinned or not.
+// number, not a guessed pixel offset. A caller reading the SAME transform gets
+// the exact edge the ruler is drawn at, pinned or not.
+//
+// It used to be `stickyRulerY(t) + rulerH · k` — the strip as pure world
+// content, growing and shrinking with zoom (deviation 2). Since req #3365 the
+// strip's vertical axis is SCREEN space, so the `· k` is multiplied by
+// `rulerScreenMag(t)` and collapses to `max(k, 1)`. Above k = 1 nothing about
+// this number changed; below it, it stops reporting a 7px strip that is
+// actually 36px tall and letting the epic names park inside it.
 export function rulerScreenBottom(t, rulerH = RULER_H) {
     const k = (t && typeof t.k === 'number' && t.k > 0) ? t.k : 1;
-    return stickyRulerY(t) + rulerH * k;
+    return stickyRulerY(t) + rulerH * k * rulerScreenMag(t);
 }
 
 const truncate = (s, n) => {
@@ -1976,7 +2379,7 @@ export function computePlanLayout(rows, opts = {}) {
         const right = d < maxCol ? colW[d + 1] : RIGHT + 40;
         return colW[d] + 2 * STAGGER_REACH * Math.min(left, right);
     };
-    const staggerOf = (d) => (d % 2) * STAGGER_GAP;
+    const staggerOf = (d) => (d % STAGGER_PHASES) * STAGGER_GAP;
 
     // ── Requirement titles get their own swim lane per column (user directive
     //    2026-08-01, generalized to requirement COUNT req #3362) ────────────────
@@ -2156,8 +2559,12 @@ export function computePlanLayout(rows, opts = {}) {
     // Colour AFTER the sort: the palette cycles on the band's position in the
     // stack, so assigning at discovery time would hand two adjacent bands the
     // same hue once the order stopped being discovery order.
+    // THE PALETTE IS THE THEME'S (req #3365). `planPalette` resolves an unknown
+    // or absent key to the default, so a caller that passes nothing gets exactly
+    // the colours this module documented before themes existed.
+    const epicPalette = planPalette(opts.palette).epic;
     bandKeys.forEach((key, i) => {
-        bandByKey.get(key).color = EPIC_PALETTE[i % EPIC_PALETTE.length];
+        bandByKey.get(key).color = epicPalette[i % epicPalette.length];
     });
 
     // ── Chain-aware lanes with cross-column reservation ─────────────────────
@@ -2398,25 +2805,20 @@ export function computePlanLayout(rows, opts = {}) {
         // (`(d % 2) * REQ_LINE_H`): fine for separating two 1-line blocks, not
         // enough to clear a taller neighbour's stack.
         //
-        // Generalized: TWO SWEEPS per lane (left-to-right, right-to-left) give
-        // every occupied depth the number of lines its OWN stack must start on.
-        // A same-lane neighbour with FEWER marks is the one that reaches — it
-        // stays unshifted (offset 0, the "higher" swim lane) — while a neighbour
-        // with MORE marks costs nothing (it never reaches, so nothing to clear).
-        // A tie (equal counts — the run-of-1 case req #3119 already handled)
-        // resolves by column parity, exactly as before, so a uniform run is
-        // BYTE-IDENTICAL to the old flat scheme. Chained through the previous
-        // column's OWN offset (`offL.get(d - 1)`) so a monotonic run (1, 2, 3…)
-        // clears every predecessor's full extent, not just its immediate
-        // neighbour's raw count — the counterexample that breaks a one-hop-only
-        // rule is a 3/2/1 chain, where the middle column is busier than its
-        // right neighbour and fewer than its left: a one-hop rule gives it two
-        // contradictory offsets, the chained one resolves them consistently.
+        // Generalized: every occupied depth is given the number of lines its OWN
+        // stack must start on, so a stack of N clears a neighbour of any height
+        // rather than a flat one line clearing only a one-line neighbour.
         //
-        // Reach is symmetric and BOUNDED to the immediate neighbour exactly as
-        // before (`staggerBudget`, `STAGGER_REACH`) — this only changes WHICH
-        // line a stack starts on, never how far sideways it may reach, so the
-        // zero-overlap proof for distant (d±2) same-parity columns is untouched.
+        // req #3362 did that with two heuristic sweeps keyed on WHO REACHES WHOM
+        // (fewer marks reaches, more marks does not) with parity breaking ties.
+        // req #3365 replaced them with a single greedy first-fit — see the sweep
+        // itself for why the reaching/not-reaching question stopped existing once
+        // `STAGGER_REACH` passed 0.5 and every column began overlapping its two
+        // nearest neighbours per side.
+        //
+        // Reach is symmetric and BOUNDED to the immediate neighbour (`R < 1`, so
+        // a label cannot physically cross a whole column) — this decides only
+        // WHICH line a stack starts on, never how far sideways it may reach.
         // Raw count, deliberately NOT `Math.max(1, …)` (found in review) — a
         // req-less step draws zero requirement marks (`laneReqs` below sizes
         // it that way too), so it must read as zero lines to a neighbour's
@@ -2427,44 +2829,55 @@ export function computePlanLayout(rows, opts = {}) {
             if (occ === undefined || occ === RESERVED) return 0;
             return (byId.get(occ)?.reqIds || []).length;
         };
+        // ── ONE GREEDY FIRST-FIT, NOT TWO HEURISTIC SWEEPS (req #3365) ──────
+        // The two-sweep max above answered "which of US two reaches the other?"
+        // — a question that only exists while a column overlaps exactly ONE
+        // neighbour per side. At `STAGGER_REACH` 0.85 every column overlaps its
+        // TWO nearest neighbours per side (`d` and `d+2` both reach into `d+1`
+        // and, at 0.85 against 0.15 of the remaining slab, into each other), so
+        // the constraint is now flatly: any two columns within 2 of each other
+        // must occupy DISJOINT line ranges. There is no reaching/not-reaching
+        // asymmetry left to exploit and no tie to break by parity.
+        //
+        // Left to right, each column takes the LOWEST line range that clears the
+        // previous `STAGGER_PHASES − 1` columns. That is not a heuristic — it is
+        // exact for this constraint: the relation is symmetric and spans a fixed
+        // window, so every constrained pair is checked exactly once, when the
+        // later of the two is placed. It also RECYCLES: after a run of tall
+        // stacks the window slides past them and the next column drops back to
+        // line 0, so a wide band does not accumulate offset without bound the
+        // way a chained rule does. Worst case is `STAGGER_PHASES` stacks of
+        // vertical space in one lane, which `laneReqs` below then reserves.
+        //
+        // A zero-count column is SKIPPED, not placed at 0 (req #3362's review
+        // finding, still load-bearing): a step with no requirements draws no
+        // marks, so it occupies no lines and must not push a neighbour down.
         const reqOffsets = new Map(); // depth -> Map(lane -> offset, in REQ_LINE_H units)
         if (staggerReqs) {
             for (const lane of new Set(steps.map((r) => laneById.get(r.id)))) {
-                const offL = new Map();
+                // depth -> [start, end) in REQ_LINE_H units, for the window only
+                const placed = new Map();
                 for (let d = 0; d <= maxCol; d++) {
                     const own = countAt(lane, d);
                     if (own === 0) continue;
-                    const left = countAt(lane, d - 1);
-                    if (left === 0) offL.set(d, 0);
-                    else if (left < own) offL.set(d, (offL.get(d - 1) || 0) + left);
-                    else if (left > own) offL.set(d, 0);
-                    // A TIE still needs to CHAIN like the strictly-fewer case
-                    // (found in review, req #3362): parity only decides WHICH
-                    // side goes lower, it does not by itself clear a neighbour
-                    // that was ITSELF pushed down by a tie further back. A
-                    // sequence of equal counts (e.g. 1, 1, 2, 2) needs offsets
-                    // 0, 1, 2, 4 — not 0, 1, 0, 2 — or the d=2/d=3 pair (same
-                    // count, same un-chained parity value) lands on the same
-                    // lines. d and d+1 in a tie have opposite parity, so
-                    // exactly one of `offL.get(d - 1)` / this column's own
-                    // odd-branch chain is ever non-zero, which is what keeps a
-                    // uniform run byte-identical to the pre-#3362 0,1,0,1.
-                    else offL.set(d, (d % 2 === 1) ? (offL.get(d - 1) || 0) + left : 0);
-                }
-                const offR = new Map();
-                for (let d = maxCol; d >= 0; d--) {
-                    const own = countAt(lane, d);
-                    if (own === 0) continue;
-                    const right = countAt(lane, d + 1);
-                    if (right === 0) offR.set(d, 0);
-                    else if (right < own) offR.set(d, (offR.get(d + 1) || 0) + right);
-                    else if (right > own) offR.set(d, 0);
-                    else offR.set(d, (d % 2 === 1) ? (offR.get(d + 1) || 0) + right : 0);
-                }
-                for (let d = 0; d <= maxCol; d++) {
-                    if (countAt(lane, d) === 0) continue;
+                    const blockers = [];
+                    for (let j = 1; j < STAGGER_PHASES; j++) {
+                        const p = placed.get(d - j);
+                        if (p) blockers.push(p);
+                    }
+                    blockers.sort((a, b) => a[0] - b[0]);
+                    let start = 0;
+                    for (const [bs, be] of blockers) {
+                        // Ranges are half-open, so touching is not overlapping:
+                        // a stack ending on line 3 and one starting on line 3
+                        // are adjacent, which is what REQ_LINE_H's own spacing
+                        // is for.
+                        if (start + own <= bs) break;      // fits in the gap
+                        if (be > start) start = be;
+                    }
+                    placed.set(d, [start, start + own]);
                     if (!reqOffsets.has(d)) reqOffsets.set(d, new Map());
-                    reqOffsets.get(d).set(lane, Math.max(offL.get(d) || 0, offR.get(d) || 0));
+                    reqOffsets.get(d).set(lane, start);
                 }
             }
         }
@@ -2503,8 +2916,16 @@ export function computePlanLayout(rows, opts = {}) {
         // whole block down by REQ_LINE_H, and the lane has to own that line or
         // the deepest stack in an odd column runs into the lane below.
         const lanePitch = (lane) => (reqLayout === 'vertical'
-            ? 64 + (Math.max(1, laneReqs.get(lane) || 1) - 1) * REQ_LINE_H
-            : LANE_BASE_H) + TITLE_SLOT + STAGGER_GAP
+            // 72 = 47 + REQ_LINE_H, and the 47 is what the reserved TITLE SLOT
+            // costs past the lane's last requirement line: the slot sits
+            // `laneN · REQ_LINE_H` below the bead while this pitch reserves
+            // `(laneN − 1) · REQ_LINE_H`, so the constant carries the missing
+            // line. It moved 67 → 72 when req #3365 doubled the stack's
+            // whitespace, for exactly that reason — measured first as the
+            // previous lane's slot landing 3.5px into the next lane's step
+            // label, caught by the zero-overlap contract.
+            ? 72 + (Math.max(1, laneReqs.get(lane) || 1) - 1) * REQ_LINE_H
+            : LANE_BASE_H) + TITLE_SLOT + STAGGER_SPAN
             + (staggerReqs ? REQ_LINE_H : 0);
         // Cumulative lane tops, so a lane's y is the SUM of the lanes above it
         // rather than index × a single pitch. `laneY` is exported on the band:
@@ -2531,11 +2952,11 @@ export function computePlanLayout(rows, opts = {}) {
         // invariant caught. In id mode nothing above the bead moves (the title
         // slot staggers DOWNWARD instead), so charging the header there would be
         // 14px of dead space per band in the default view.
-        const headerH = BAND_HEADER + (staggerLabels ? STAGGER_GAP : 0);
+        const headerH = BAND_HEADER + (staggerLabels ? STAGGER_SPAN : 0);
         // The EPIC'S OWN LANE: the part of the header no step content can reach.
         // Derived, never assumed — see BAND_HEADER. Consumers that place the epic
         // name (the visualizer's floating chip) clamp to THIS, not to headerH.
-        const epicLaneH = headerH - STEP_LABEL_RISE - (staggerLabels ? STAGGER_GAP : 0);
+        const epicLaneH = headerH - STEP_LABEL_RISE - (staggerLabels ? STAGGER_SPAN : 0);
         bands.push({ ...band, steps, sub, maxReqs, pitch, laneY, laneReqs,
             headerH, epicLaneH, reqOffsets });
         bandUsed.push(used);
@@ -2666,7 +3087,10 @@ export function computePlanLayout(rows, opts = {}) {
             // In `title` mode this label IS the step's stored name.
             prose: staggerLabels,
             x: n.x - lw / 2,
-            y: n.y - 31 - (staggerLabels ? staggerOf(n.depth) : 0),
+            // `STEP_LABEL_RISE + BEAD_LANE_OFFSET` — the 34 that constant
+            // derives from, read back rather than re-typed.
+            y: n.y - (STEP_LABEL_RISE + BEAD_LANE_OFFSET)
+                - (staggerLabels ? staggerOf(n.depth) : 0),
             w: lw, h: 17,
         });
         const ids = r.reqIds || [];
@@ -4228,7 +4652,46 @@ export function stepFitRect(layout, stepId) {
  *   layout, there is no viewport yet, or no floor was handed in.
  */
 export function stepFocusTransform(layout, stepId, size, kBase, kFloor) {
-    const rect = stepFitRect(layout, stepId);
+    return stepsFocusTransform(layout, [stepId], size, kBase, kFloor);
+}
+
+/**
+ * The rect a SET of steps occupies — the union of their own fit rects.
+ *
+ * Added at req #3365, when the epic name's second click was re-pointed from
+ * "the next launch step" to "the active and pending work in this epic" (user
+ * directive). Ids that resolve to nothing are SKIPPED rather than failing the
+ * whole union: a set is a request to frame what exists, and one unlaid step
+ * must not cost the reader the other nine.
+ *
+ * @param {Object} layout
+ * @param {Iterable<number>} stepIds
+ * @returns {?{x:number,y:number,w:number,h:number}}
+ */
+export function stepsFitRect(layout, stepIds) {
+    let left = Infinity;
+    let right = -Infinity;
+    let top = Infinity;
+    let bottom = -Infinity;
+    for (const id of (stepIds || [])) {
+        const r = stepFitRect(layout, id);
+        if (!r) continue;
+        if (r.x < left) left = r.x;
+        if (r.x + r.w > right) right = r.x + r.w;
+        if (r.y < top) top = r.y;
+        if (r.y + r.h > bottom) bottom = r.y + r.h;
+    }
+    if (!(right > left) || !(bottom > top)) return null;
+    return { x: left, y: top, w: right - left, h: bottom - top };
+}
+
+/**
+ * The camera that frames a SET of steps, with the same context margin one step
+ * gets. `stepFocusTransform` is this function with a single-element set, so the
+ * one-step case cannot drift from the many-step one.
+ */
+export function stepsFocusTransform(layout, stepIds, size, kBase, kFloor) {
+    const rect = stepsFitRect(layout, stepIds);
     if (!rect) return null;
     // The crop margin lives HERE rather than in `stepFitRect` (req #3371): the
     // rect answers "what does this step occupy", which nothing about framing
@@ -4317,12 +4780,30 @@ function fitTransform(rect, size, kBase, neighbours, kFloor) {
     // which on live pipeline 2 is band 0 alone — and band 0 has no band above
     // it, so the branch is not taken there at all.
     //
-    // Its height is `RULER_H · k` — a WORLD height, so unlike the two pads
-    // above it moves with the scale this function is solving for. That is
-    // circular only if you iterate: `rect.h · k ≤ h − padTop(k) − padBottom`
-    // with `padTop(k) = FOCUS_PAD + labelTop + RULER_H · k` is linear in k, and
-    // rearranges to the closed form below — the ruler simply joins the rect on
-    // the fitted side of the inequality.
+    // Its height is `RULER_H · max(k, 1)` — see `rulerScreenMag`. It used to be
+    // `RULER_H · k`, a pure WORLD height, and the closed form below was derived
+    // from exactly that: `rect.h · k ≤ h − padTop(k) − padBottom` with
+    // `padTop(k) = FOCUS_PAD + labelTop + RULER_H · k` is LINEAR in k, so the
+    // ruler simply joined the rect on the fitted side of the inequality.
+    //
+    // req #3365 made the strip screen-sized below k = 1, so that reserve is now
+    // PIECEWISE-LINEAR and the single closed form is wrong on one side of the
+    // hinge — it under-reserved by the whole difference (7px charged against a
+    // 36px strip at the scale this plan opens in), which is precisely the
+    // "neighbour's name parked underneath the ruler" this block exists to
+    // prevent. Both pieces still have closed forms and they SELECT rather than
+    // combine, because each is valid on one side of k = 1:
+    //
+    //   k ≤ 1: the strip is a CONSTANT `RULER_H` screen px, so it belongs with
+    //          the two pads — `k ≤ (availH − RULER_H) / rect.h`.
+    //   k ≥ 1: the strip is `RULER_H · k`, the old world charge — `k ≤ availH /
+    //          (rect.h + RULER_H)`, unchanged.
+    //
+    // The two agree at k = 1 and the choice between them is not a guess: the
+    // low-branch answer is ≤ 1 exactly when the high-branch answer is, since
+    // both reduce to `availH ≤ rect.h + RULER_H`. So solving the low branch and
+    // asking whether its answer lands in its own domain decides it outright,
+    // with no iteration and no discontinuity at the hinge.
     const rulerTop = neighbours?.above ? RULER_H : 0;
     // A viewport narrower than twice the pad has no room for the margin at all.
     // `max(half, minus-the-pads)` rather than a conditional: the conditional has
@@ -4334,12 +4815,19 @@ function fitTransform(rect, size, kBase, neighbours, kFloor) {
     // constant, and the guard is the same shape over the new value.
     const availW = Math.max(w * 0.5, w - 2 * FOCUS_PAD);
     const availH = Math.max(h * 0.5, h - 2 * FOCUS_PAD - labelTop - labelBottom);
-    const kFit = Math.min(availW / rect.w, availH / (rect.h + rulerTop));
+    // The vertical fit, on whichever side of the hinge its own answer lives.
+    // With no ruler charged, both branches collapse to `availH / rect.h`.
+    const kFitLow = (availH - rulerTop) / rect.h;
+    const kFitH = kFitLow <= 1 ? kFitLow : availH / (rect.h + rulerTop);
+    const kFit = Math.min(availW / rect.w, kFitH);
     const k = Math.min(Math.max(kFit, kFloor), kBase * FOCUS_MAX_RATIO);
     // The reserve at the scale actually chosen. `k` may be well below `kFit`
     // (the width bound), or above it (the FOCUS_MIN_RATIO floor), so these are
     // re-read from `k` rather than assumed to be what the fit solved for.
-    const padTop = FOCUS_PAD + labelTop + rulerTop * k;
+    // `max(k, 1)` for the same reason the fit above branches — the strip's
+    // screen height, read at the scale actually chosen rather than at the one
+    // the fit solved for.
+    const padTop = FOCUS_PAD + labelTop + rulerTop * Math.max(k, 1);
     const padBottom = FOCUS_PAD + labelBottom;
     const padSum = padTop + padBottom;
     // The rect sits inside the window `[padTop, h − padBottom]`, centred in it —
