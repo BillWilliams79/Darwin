@@ -225,6 +225,42 @@ describe('computeCells — ground-truth breakdown (req #3095)', () => {
     });
 });
 
+describe('computeCells — deferred breakdown halves (req #3472)', () => {
+    it('formats the deferred cells beside their resident halves, never summed', () => {
+        // The measured cc-2.1.226 shape: MCP tools 0 resident + 40,200 deferred.
+        const row = architect({
+            system_tools_tokens: 12700, mcp_tools_tokens: 0,
+            system_tools_deferred_tokens: 14400, mcp_tools_deferred_tokens: 40200,
+        });
+        const c = computeCells(row, new Map());
+        expect(c.systemTools).toBe('12,700');
+        expect(c.systemToolsDeferred).toBe('14,400');
+        // A resident 0 is a MEASUREMENT ("all of it was deferred"), not an absence —
+        // it must render as 0, never as n/a, or the page reads as a lost capture.
+        expect(c.mcpTools).toBe('0');
+        expect(c.mcpToolsDeferred).toBe('40,200');
+    });
+    it('renders n/a on a pre-deferral row — that null is the definition marker', () => {
+        const c = computeCells(architect({ mcp_tools_tokens: 25900 }), new Map());
+        expect(c.mcpTools).toBe('25,900');
+        expect(c.systemToolsDeferred).toBe(NA);
+        expect(c.mcpToolsDeferred).toBe(NA);
+    });
+    it('sorts by a deferred column, NULLs last', () => {
+        const rows = [
+            architect({ id: 1, mcp_tools_deferred_tokens: 40200 }),
+            architect({ id: 2, mcp_tools_deferred_tokens: null }),
+            architect({ id: 3, mcp_tools_deferred_tokens: 14400 }),
+        ];
+        expect(sortByColumn(rows, 'mcp_tools_deferred_tokens', 'desc').map(r => r.id))
+            .toEqual([1, 3, 2]);
+    });
+    it('a deferred column starts descending, like every other token count', () => {
+        expect(naturalSortDir('mcp_tools_deferred_tokens')).toBe('desc');
+        expect(naturalSortDir('system_tools_deferred_tokens')).toBe('desc');
+    });
+});
+
 describe('computeCells — docsIncomplete edge cases', () => {
     const m = new Map();
     it('0/0 is not incomplete — nothing was owed', () => {

@@ -355,6 +355,12 @@ export const agentTelemetryRows = createEntityQueries({
         'id,run_fk,agent_name,role,session_kind,boot_time_ms,cc_base_tokens,' +
         'system_prompt_tokens,system_tools_tokens,mcp_tools_tokens,skills_tokens,' +
         'custom_agents_tokens,' +
+        // req #3472 — the DEFERRED halves cc-2.1.226 split off System tools and MCP
+        // tools. Named here or the page cannot read them at all: on that harness
+        // `mcp_tools_tokens` is legitimately 0 and the whole 40,200-token figure
+        // lives in the deferred column, so omitting it would render the breakdown
+        // as a loss rather than a relocation.
+        'system_tools_deferred_tokens,mcp_tools_deferred_tokens,' +
         'claude_md_tokens,charter_stub_tokens,boot_payload_tokens,autoload_tokens,' +
         'docs_loaded,docs_expected,start_work_context_tokens,footnote,sort_order,' +
         'creator_fk',
