@@ -100,12 +100,14 @@ export const siblingElevator = (siblings, {
 // ── The ELEVATOR LINK — one contract, both halves (req #3302) ────────────────
 //
 // A category card and the SwarmStartCard aggregator show DIFFERENT LISTS of the
-// same requirements: the card is one category under the status chips and the
-// pipelined toggle; the aggregator is EVERY category under ONE status, with
-// pipelined work excluded unconditionally and its own sort. Rebuilding either
-// from `category_fk` gets the aggregator wrong in all three dimensions at once
-// — scope, filter and order — which is what "the aggregator ignores top, bottom
-// and sort order" was.
+// same requirements: the card is one category under the status chips; the
+// aggregator is EVERY category under ONE status, with its own sort. Both apply
+// the SAME orchestrated toggle — since req #3502 the aggregator has no rule of
+// its own (it used to exclude step-carried work from three chips
+// unconditionally, which is what that requirement fixed), so scope and order are
+// what still differ. Rebuilding either list from `category_fk` gets the
+// aggregator wrong in both of those at once, which is what "the aggregator
+// ignores top, bottom and sort order" was.
 //
 // So the surface that opened the detail page HANDS OVER the ordered ids it
 // actually rendered, and the elevator walks those. There is no second
