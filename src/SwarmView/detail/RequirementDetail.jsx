@@ -11,7 +11,7 @@ import { useAllCategories, useMachines,
 import { useRequirementVisibility } from '../../hooks/useRequirementVisibility';
 import { useOrchestrationIndex } from './useOrchestrationIndex';
 import { stepOptions } from './orchestrationIndex';
-import { planLinkTo } from '../pipelines/pipelineEpicLink';
+import { planLinkTo, epicLinkTo } from '../pipelines/pipelineEpicLink';
 import { stepPlanLinkTo } from '../pipelines/pipelineStepLink';
 // req #3463 — the era↔route binding. This page never spells a plan route.
 // `useOrchestrationIndex` walks the PIPELINE 2.0 tables since req #3356, so the
@@ -63,6 +63,10 @@ import NorthIcon from '@mui/icons-material/North';
 import SouthIcon from '@mui/icons-material/South';
 import LanIcon from '@mui/icons-material/Lan';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
+// req #3365 — the Epic row's icon. `ViewTimeline` is the horizontal
+// swim-lane glyph, which is what an epic IS on the visualizer: one band
+// running across the plan's calendar.
+import ViewTimelineIcon from '@mui/icons-material/ViewTimeline';
 
 // Soft limit for requirement titles — the swarm terminal, status line, and iTerm tab title
 // all cap at 35 chars (see ~/.claude/statusline.sh and scripts/swarm/iterm-launch.sh). Req #2410.
@@ -374,13 +378,23 @@ const RequirementDetail = () => {
     // THAT SENTENCE IS NO LONGER THE STATE OF THE DATA (req #3356). The index
     // reads Pipeline 2.0 now, and `pipeline_steps.epic_fk` is NOT NULL — the
     // step's epic is DIRECT, and this box already walks it to find the plan.
-    // So an Epic row is answerable again. It is deliberately NOT built here:
-    // that is a display decision with its own layout, link and test surface, and
-    // this requirement's job was the era swap. The reason the row is absent is
-    // now "not asked for", not "not derivable" — do not re-cite the retired
-    // 1.0 argument for it.
     //
-    // The box shows the two levels it has always shown.
+    // ── AND THE ROW IS BACK (req #3365 user directive) ──────────────────────
+    // *"we defined the 'orchestration' area to include Pipeline, Epic and Step
+    // (three rows) each the same format except that Step was the one
+    // configurable whereas the rest were read only … not sure why this was
+    // dropped."* The why is above: 1.0 lost the derivation with Feature, and
+    // #3356 restored it without restoring the row.
+    //
+    // It costs NO NEW READ. The epic hop is already made — `epicByStep` in
+    // `buildOrchestrationIndex` — and the epic id now rides on the seat itself,
+    // so the Epic row and the Step row can never name different places. The
+    // epic's own row (for its title) comes from `epicsById`, populated from the
+    // `epics` list this index already fetches for the plan hop.
+    //
+    // READ-ONLY, like Pipeline: the directive says Step is "the one
+    // configurable". Moving a requirement between epics is what changing its
+    // STEP does, which is the control immediately below.
     const orchestration = useOrchestrationIndex(profile?.userName, { enabled: !isNew });
     const orchIndex = orchestration.index;
     const orchSettled = orchestration.isSettled;
@@ -449,6 +463,17 @@ const RequirementDetail = () => {
     // than render a dead link" rule, req #3235).
     const pipelineLink = planLinkTo(shownPipelineId);
     const stepPlanLink = seatStep ? stepPlanLinkTo(seatPipelineId, seatStep.id) : null;
+
+    // ── WHICH EPIC (req #3365) ───────────────────────────────────────────────
+    // Straight off the seat, so it is the epic of the step the Step row shows —
+    // never a second resolution that could disagree with it. `epicLinkTo`
+    // carries `?epic=`, the addressable-epic contract req #3235 defined and
+    // `PipelineDetail` reads, so the button frames the band rather than the
+    // whole plan.
+    const seatEpicId = requirementSeat ? (requirementSeat.epicId ?? null) : null;
+    const seatEpicRow = seatEpicId != null
+        ? (orchIndex.epicsById.get(seatEpicId) || null) : null;
+    const epicLink = epicLinkTo(shownPipelineId, seatEpicId);
 
     // Filter chips now match DB status values directly
     const siblingStatuses = [...requirementStatusFilter];
@@ -1340,6 +1365,42 @@ const RequirementDetail = () => {
                                         {shownPipelineRow ? shownPipelineRow.title
                                             : shownPipelineId != null ? `Pipeline ${shownPipelineId}`
                                                 : 'No pipeline'}
+                                    </Typography>
+                                </Stack>
+
+                                {/* ── EPIC ── read-only, same format as
+                                    Pipeline (req #3365 user directive). It sits
+                                    BETWEEN the two because that is the
+                                    containment order the plan model has:
+                                    pipeline holds epics, an epic holds steps. */}
+                                <Stack direction="row" spacing={1} alignItems="center"
+                                       data-testid="orchestration-epic-row">
+                                    <Typography variant="subtitle2" color="text.secondary"
+                                                sx={ORCH_ROW_LABEL_SX}
+                                                data-testid="orchestration-epic-label">
+                                        Epic
+                                    </Typography>
+                                    <Tooltip title="View this epic on the plan visualizer">
+                                        {/* Same span wrapper and same reason as
+                                            the Pipeline row's: a disabled MUI
+                                            button fires no events, so a Tooltip
+                                            anchored to it never opens. */}
+                                        <span>
+                                            <IconButton
+                                                size="small"
+                                                disabled={!epicLink}
+                                                aria-label="View this epic on the plan visualizer"
+                                                data-testid="orchestration-epic-link"
+                                                {...(epicLink ? { component: RouterLink, to: epicLink } : {})}
+                                            >
+                                                <ViewTimelineIcon fontSize="small" />
+                                            </IconButton>
+                                        </span>
+                                    </Tooltip>
+                                    <Typography sx={ORCH_VALUE_SX} data-testid="orchestration-epic-value">
+                                        {seatEpicRow ? seatEpicRow.title
+                                            : seatEpicId != null ? `Epic ${seatEpicId}`
+                                                : 'No epic'}
                                     </Typography>
                                 </Stack>
 

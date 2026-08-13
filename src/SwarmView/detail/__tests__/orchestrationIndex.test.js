@@ -83,8 +83,35 @@ describe('isOpenPipeline', () => {
 });
 
 describe('buildOrchestrationIndex — requirement seat', () => {
-    it('names the step and the plan carrying a requirement', () => {
-        expect(build().requirementSeat.get(3435)).toEqual({ pipelineId: 2, stepId: 100 });
+    it('names the step, the epic and the plan carrying a requirement', () => {
+        // `epicId` joined the seat at req #3365, when the Orchestration box's
+        // Epic row came back. It is read from the CHOSEN step, so the Epic row
+        // and the Step row can never name different places.
+        expect(build().requirementSeat.get(3435))
+            .toEqual({ pipelineId: 2, stepId: 100, epicId: 20 });
+    });
+
+    it('carries the epic ROWS, not just the epic → plan hop', () => {
+        // The Epic row renders a TITLE, so the index keeps the rows now. It
+        // costs no read: `epics` is already fetched for the plan hop.
+        const idx = buildOrchestrationIndex({
+            pipelines: PIPELINES,
+            epics: [{ id: 20, pipeline_fk: 2, title: 'First Principles' }],
+            steps: STEPS,
+            stepRequirements: STEP_REQUIREMENTS,
+        });
+        expect(idx.epicsById.get(20).title).toBe('First Principles');
+    });
+
+    it('drops the seat entirely when the epic rows are absent — one hop answers both', () => {
+        // Same silence the PLAN gets in that case, and for the same reason: one
+        // hop answers both, so an unresolvable epic must not surface as an id
+        // pointing at a row nobody read. Here the epic resolves for the plan
+        // but its row is absent from `epicsById` — impossible from one read,
+        // asserted because the two maps are populated by one loop and a future
+        // split could separate them.
+        const idx = build({ epics: [] });
+        expect(idx.requirementSeat.has(3435)).toBe(false);
     });
 
     it('has no seat for an unseated requirement', () => {
@@ -102,7 +129,8 @@ describe('buildOrchestrationIndex — requirement seat', () => {
                 { step_fk: 100, requirement_fk: 3435 },   // active plan 2, lower id
             ],
         });
-        expect(idx.requirementSeat.get(3435)).toEqual({ pipelineId: 2, stepId: 100 });
+        expect(idx.requirementSeat.get(3435))
+            .toEqual({ pipelineId: 2, stepId: 100, epicId: 20 });
     });
 
     // Nothing in the gateway promises these stay JSON numbers, and a string id
@@ -115,7 +143,8 @@ describe('buildOrchestrationIndex — requirement seat', () => {
             epics: [{ id: '20', pipeline_fk: '2' }],
             pipelines: [{ id: '2', title: 'Darwin', pipeline_status: 'active' }],
         });
-        expect(idx.requirementSeat.get(3435)).toEqual({ pipelineId: 2, stepId: 100 });
+        expect(idx.requirementSeat.get(3435))
+            .toEqual({ pipelineId: 2, stepId: 100, epicId: 20 });
     });
 
     // THE EPIC IS THE ONLY ROUTE FROM A STEP TO A PLAN under 2.0. A step whose

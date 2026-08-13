@@ -24,6 +24,9 @@ import {
     computePlanLayout, beadStyle, stepLabelText, BEAD_RADIUS, BEAD_HIT_RADIUS,
     PLAN_VIZ_PALETTE, placeEpicChips, EPIC_CHIP_OPEN_LINK_W, EPIC_CHIP_CARDS_LINK_W,
     STEP_WIDTH_FACTORS, isStepWidth, K_READABLE, PLAN_VIZ_FONT, READABLE_MIN_PX,
+    STAGGER_REACH,
+    PLAN_PALETTES, PLAN_PALETTE_KEYS, DEFAULT_PLAN_PALETTE, planPalette,
+    isPlanPalette,
     NEXT_HALO_RADIUS, NEXT_HALO_STROKE, NEXT_HALO_DASH, EPIC_CHIP_CHAR_W,
     NEXT_HALO_SCREEN_RADIUS, NEXT_HALO_MAX_OUTER, NEXT_HALO_MAX_MAGNIFY,
     NEXT_HALO_CLEARANCES, nextHaloMagnify, labelsLegible, drawsLabelKind,
@@ -32,6 +35,7 @@ import {
     readableDefaultScale, BEAD_RING_W_EMPHASIS, BEAD_OUTER_RADIUS,
     EPIC_CHIP_FONT, EPIC_CHIP_H, EPIC_CHIP_MIN_H, EPIC_CHIP_MIN_CHARS,
     EPIC_CHIP_PAD_W, EPIC_CHIP_MIN_FONT,
+    EPIC_LANE_CLEAR_K,
     REQ_STATUS_COLORS, REQ_STATUS_ORDER, REQ_STATUS_UNKNOWN_COLOR, reqStatusColor,
     MACHINE_MAC_COLOR, MACHINE_WINDOWS_COLOR, MACHINE_ANY_COLOR,
     MACHINE_FALLBACK_PALETTE, machineEcosystem, buildMachineColorView,
@@ -49,7 +53,7 @@ import {
     stepFitRect, stepFocusTransform,
     STEP_FOCUS_CONTEXT,
     RULER_H, computeRuler, slotTickText, factoryDefaultScale,
-    stickyRulerY, rulerScreenBottom,
+    stickyRulerY, rulerScreenBottom, rulerScreenMag,
     EPIC_PALETTE,
     PAUSE_ACTIVE_COLOR, PAUSE_PAUSED_COLOR, pauseBubbleColor, EPIC_PAUSE_BUBBLE_W,
     COLOR_CHANNELS, KEY_GROUP_TITLES,
@@ -1035,17 +1039,20 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
     // the time ruler to the viewport top and exposes `rulerScreenBottom(t)` as
     // the ONE number this one clamps below; the component passes it as
     // `topInset`. Read from the SAME transform, so the two cannot disagree —
-    // and it scales with zoom, which is why a constant offset would be wrong at
-    // every zoom but one.
+    // and it moves with zoom, which is why a hand-picked offset would be wrong
+    // at every zoom but one.
     it('clamps below the PINNED RULER at every zoom, reading req #3254\'s own '
         + 'rulerScreenBottom rather than a guessed offset', () => {
         const band = layout.bands.reduce((a, b) => (b.height > a.height ? b : a));
-        for (const k of [0.5, 1, 2, 4]) {
+        for (const k of [0.2, 0.5, 1, 2, 4]) {
             const t = { x: 0, y: -(band.y * k) - 400 * k, k };
             const inset = rulerScreenBottom(t);
-            // The strip is pinned, so its bottom edge is a function of zoom —
-            // the premise that makes a hand-picked constant wrong.
-            expect(inset).toBeCloseTo(RULER_H * k, 6);
+            // The strip's screen height is `RULER_H · max(k, 1)` since req
+            // #3365 gave its vertical axis to SCREEN space: world-scaled at and
+            // above k = 1, constant below it. k = 0.2 is in the range the plan
+            // actually opens in (0.2077 on plan 7), and it is the case the old
+            // `RULER_H · k` got wrong — 7.5px reported for a 36px strip.
+            expect(inset).toBeCloseTo(RULER_H * Math.max(k, 1), 6);
             const chip = chipsAt(t, null, { topInset: inset })
                 .find((c) => c.band === band);
             expect(chip, `no name below the ruler at k=${k}`).toBeTruthy();
@@ -1307,12 +1314,22 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
     // tests above are THAT. DERIVED, not chosen — the same discipline
     // `NEXT_MARK_FLOOR_K` follows a few hundred lines below.
     it('pins the exact k where the floored chip starts escaping its own epic '
-        + 'lane (~0.348) — the boundary the sibling tests prove overlaps content',
+        + 'lane (0.2 since req #3365) — the boundary the sibling tests prove overlaps content',
         () => {
             const epicLaneH = layout.bands[0].epicLaneH ?? layout.bands[0].headerH;
             const kBoundary = (EPIC_CHIP_MIN_H + 2 * MY) / epicLaneH;
             // MEASURED 2026-08-10: 21.6 / 62 = 0.34838709...
-            expect(kBoundary).toBeCloseTo(0.348387, 6);
+            // MOVED BY req #3365, which is this test working as designed — its
+            // own comment above promises a change to the lane's height "moves
+            // this number rather than silently invalidating it". The lane went
+            // 62 -> 108 world px (BAND_HEADER 83 -> 129) because the old
+            // boundary sat ABOVE the scale the live plan lands in (k = 0.2077),
+            // so the epic name was drawn over lane 0's step labels in the
+            // DEFAULT view rather than only at an extreme zoom-out — reported
+            // by the user as "it needs to have a separate swim lane so it
+            // doesn't overlap steps/requirements".
+            // 21.6 / 108 = 0.2 exactly, which is `EPIC_LANE_CLEAR_K`.
+            expect(kBoundary).toBeCloseTo(EPIC_LANE_CLEAR_K, 6);
             for (const band of layout.bands) {
                 expect(band.epicLaneH ?? band.headerH, `band ${band.key}'s own lane`)
                     .toBe(epicLaneH);
@@ -2553,13 +2570,20 @@ describe('the next-step halo survives Overview (req #3271)', () => {
     // TEST_PLAN.md for why VIS-005 is registered untestable, not covered here.)
     it('the raised ceiling and its downstream floor are MEASURED, not only '
         + 'self-consistent (req #3375, ONE ADDITION)', () => {
-        expect(NEXT_HALO_MAX_OUTER).toBeCloseTo(30, 6);
-        expect(NEXT_HALO_MAX_MAGNIFY).toBeCloseTo(20 / 9, 10); // 2.222...x
-        expect(NEXT_MARK_FLOOR_K).toBeCloseTo(0.27, 6);
-        // The flat-band lower edge (K_READABLE / M) — moved 0.400 -> 0.360
-        // downstream of the same ceiling change, per the design record's
-        // table, and had no assertion of its own VALUE anywhere in this file.
-        expect(K_READABLE / NEXT_HALO_MAX_MAGNIFY).toBeCloseTo(0.36, 6);
+        // 33, not 30, since req #3365: `epicChipStrip` is the BINDING entry and
+        // it is `STEP_LABEL_RISE + BEAD_LANE_OFFSET`, which grew by 3 when the
+        // step label was lifted to clear a neighbour's bead hit circle. The
+        // ceiling being DERIVED is the point — more room above a lane-0 bead is
+        // more room the halo may use, without anyone re-tuning it.
+        expect(NEXT_HALO_MAX_OUTER).toBeCloseTo(33, 6);
+        expect(NEXT_HALO_MAX_MAGNIFY).toBeCloseTo(33 / 13.5, 10); // 2.444...x
+        // `NEXT_MARK_SCREEN_RADIUS / NEXT_HALO_MAX_OUTER` — the two terms that
+        // cancel in the invariant asserted below, which is exactly why a moving
+        // ceiling moves this floor and leaves the SCREEN radius alone.
+        expect(NEXT_MARK_FLOOR_K).toBeCloseTo(8.1 / 33, 6);
+        // The flat-band lower edge (K_READABLE / M) — moves down with the same
+        // ceiling, so the ring holds its full size over a wider range.
+        expect(K_READABLE / NEXT_HALO_MAX_MAGNIFY).toBeCloseTo(0.8 / (33 / 13.5), 6);
         // NEXT_MARK_SCREEN_RADIUS is invariant across the ceiling move (the
         // OUTER and FLOOR_K terms cancel) — pinned here at the value the
         // design record calls out as the reason this is a note and not a
@@ -2970,8 +2994,12 @@ describe('the next-step halo survives the level CROSSINGS (req #3280)', () => {
         // window is deliberately still narrow — a WIDE window would pass
         // whatever the ceiling became, which is the opposite of pinning it.
         expect(Math.max(...fails)).toBeLessThan(Math.min(...holds));
-        expect(Math.min(...holds)).toBeGreaterThan(0.26);
-        expect(Math.min(...holds)).toBeLessThan(0.28);
+        // RE-PINNED at req #3365: the ceiling rose again (30 -> 33, the step
+        // label's lift) and the split fell with it, k ~ 0.27 -> ~ 0.245. Same
+        // mechanism, same narrow window — the window tracks the derivation
+        // rather than replacing it.
+        expect(Math.min(...holds)).toBeGreaterThan(0.24);
+        expect(Math.min(...holds)).toBeLessThan(0.26);
         // THE PROOF that no ceiling under NEXT_HALO_MAX_OUTER could have closed
         // it: at the zoom floor the halo's ENTIRE outer edge is under three
         // screen px, so the ring is smaller than the stroke it would need. This
@@ -2980,8 +3008,14 @@ describe('the next-step halo survives the level CROSSINGS (req #3280)', () => {
         expect(NEXT_HALO_MAX_OUTER * LIVE_ZOOM_FLOOR,
             'the halo\'s entire outer edge, in screen px, at the zoom floor')
             .toBeLessThan(3);
+        // 0.405 at req #3365's ceiling, up from 0.365 — a tenth of a screen
+        // pixel more of a stroke that is hopeless either way, which is the
+        // claim. Loosened to 0.5 rather than re-pinned tight: this assertion is
+        // about the ring being UNUSABLE down there, and a window narrow enough
+        // to track the ceiling would fail for a reason that has nothing to do
+        // with what it is testing.
         expect(strokePx(LIVE_ZOOM_FLOOR), 'stroke px at the zoom floor')
-            .toBeLessThan(0.4);
+            .toBeLessThan(0.5);
         // Unchanged by this requirement, not regressed by it: below the ceiling
         // the mark was `4k` before and is `4k` now.
         for (const k of [LIVE_ZOOM_FLOOR, 0.15, 0.2, 0.25]) {
@@ -3012,11 +3046,12 @@ describe('the next-step halo survives the level CROSSINGS (req #3280)', () => {
         it('is derived from the ring\'s own acceptance floor, not chosen', () => {
             expect(NEXT_MARK_FLOOR_K).toBeCloseTo(
                 NEXT_MARK_MIN_STROKE_PX / (NEXT_HALO_STROKE * NEXT_HALO_MAX_MAGNIFY), 10);
-            // 0.27 since req #3371 raised the magnification ceiling — see the
-            // sibling case above for why the number moved and why the window
-            // stays tight around whatever the derivation currently yields.
-            expect(NEXT_MARK_FLOOR_K).toBeGreaterThan(0.26);
-            expect(NEXT_MARK_FLOOR_K).toBeLessThan(0.28);
+            // ~0.245 since req #3365 raised the magnification ceiling again
+            // (30 -> 33) — see the sibling case above for why the number moved
+            // and why the window stays tight around whatever the derivation
+            // currently yields.
+            expect(NEXT_MARK_FLOOR_K).toBeGreaterThan(0.24);
+            expect(NEXT_MARK_FLOOR_K).toBeLessThan(0.26);
             // The formula only means what it claims to on the CAPPED branch
             // (`strokePx(k) = STROKE × MAX_MAGNIFY × k` there) — true only
             // while the floor itself sits below where the magnification caps
@@ -3328,9 +3363,13 @@ describe('requirement-status colour scale (req #3168, directive 1)', () => {
     });
 
     it('is legible on the panel — every swatch clears 4.5:1', () => {
-        // MEASURED 2026-08-01: 6.13:1 (swarm_ready, the lowest) to 12.49:1
+        // MEASURED 2026-08-12: 4.78:1 (approved, the lowest) to 12.49:1
         // (development). The floor is WCAG AA for normal text; the ids render at
-        // 13.75px, which is normal text.
+        // 13.75px, which is normal text. The low moved down from 6.13:1
+        // (swarm_ready) when req #3365 gave `authoring` and `approved` the
+        // autonomy scale's stop hues — those two now sit at 4.87 and 4.78, the
+        // tightest margin on this scale and the reason this test is the one
+        // that would catch a further darkening of either.
         for (const status of REQ_STATUS_ORDER) {
             const ratio = contrast(REQ_STATUS_COLORS[status], PANEL);
             expect(ratio, `${status} (${REQ_STATUS_COLORS[status]}) on ${PANEL}`)
@@ -3340,9 +3379,11 @@ describe('requirement-status colour scale (req #3168, directive 1)', () => {
     });
 
     it('is separable — no two statuses read as the same colour', () => {
-        // MEASURED minimum 25.9 (approved vs wontfix). The floor is set at 20:
-        // low enough not to fail on a nudge, high enough that a scale collapsing
-        // two statuses into one hue cannot pass.
+        // MEASURED minimum 37.8 (development vs deferred), 2026-08-12 — up
+        // from 25.9 (approved vs wontfix) because req #3365 moved `approved`
+        // off the pale blue that was its nearest neighbour. The floor stays at
+        // 20: low enough not to fail on a nudge, high enough that a scale
+        // collapsing two statuses into one hue cannot pass.
         let worst = { pair: null, d: Infinity };
         for (let i = 0; i < REQ_STATUS_ORDER.length; i++) {
             for (let j = i + 1; j < REQ_STATUS_ORDER.length; j++) {
@@ -3372,6 +3413,23 @@ describe('requirement-status colour scale (req #3168, directive 1)', () => {
             expect(reserved, `${status} must not borrow a state hue`)
                 .not.toContain(REQ_STATUS_COLORS[status]);
         }
+    });
+
+    it('SHARES the autonomy scale\'s stop hues for the two pre-queue statuses', () => {
+        // req #3365 user directive: "authoring and approved should be the
+        // colors like Discuss and Planned". Asserted as IDENTITY, not as
+        // proximity, because the whole point is that they are the same two
+        // values rather than a second red and a second rose that drift apart
+        // the next time either scale is touched.
+        expect(REQ_STATUS_COLORS.authoring).toBe(AUTONOMY_COLORS.discuss);
+        expect(REQ_STATUS_COLORS.approved).toBe(AUTONOMY_COLORS.planned);
+        // Sharing is safe ONLY because the colour control is exclusive — one
+        // scale paints the ids at a time and the on-screen key names it. The
+        // three statuses the directive kept are unchanged, pinned here so the
+        // change cannot creep past the two it authorised.
+        expect(REQ_STATUS_COLORS.swarm_ready).toBe('#4d9bff');
+        expect(REQ_STATUS_COLORS.development).toBe('#ffd769');
+        expect(REQ_STATUS_COLORS.met).toBe('#7ee08a');
     });
 
     it('falls back to the dim unknown swatch, INCLUDING inherited keys', () => {
@@ -3640,8 +3698,12 @@ describe('the SCALE REGISTRY (req #3422)', () => {
         // toolbar, the canvas and the key need. A scale added with a field
         // missing renders a blank chip or an untitled key, which is exactly the
         // failure this asserts away.
+        // ORDER IS THE TOOLBAR'S ORDER and it is the user's (req #3365):
+        // State, Autonomy, Machine. Asserted here rather than in a component
+        // test because the registry is the ONE place it is stated — the
+        // toolbar and the on-screen key both map this array and neither sorts.
         expect(REQ_COLOR_SCALES.map((s) => s.key))
-            .toEqual(['state', 'machine', 'autonomy']);
+            .toEqual(['state', 'autonomy', 'machine']);
         for (const s of REQ_COLOR_SCALES) {
             for (const field of ['key', 'chipLabel', 'chipTip', 'chipName', 'keyTitle']) {
                 expect(typeof s[field], `${s.key}.${field}`).toBe('string');
@@ -3664,7 +3726,7 @@ describe('the SCALE REGISTRY (req #3422)', () => {
     });
 
     it('is the SOURCE of the key positions, not a parallel copy', () => {
-        expect(REQ_COLOR_KEYS).toEqual(['state', 'machine', 'autonomy', 'none']);
+        expect(REQ_COLOR_KEYS).toEqual(['state', 'autonomy', 'machine', 'none']);
         // The stored preference's whole vocabulary is the registry plus `none` —
         // there is no second list to keep in step (the `COLOR_KEY_LABELS` object
         // that used to be one is gone; nothing rendered it).
@@ -3688,18 +3750,26 @@ describe('the SCALE REGISTRY (req #3422)', () => {
         const views = buildReqColorViews({
             requirements, machines, presentReqIds: new Set([1, 2]),
         });
-        expect(Object.keys(views)).toEqual(['state', 'machine', 'autonomy']);
-        expect(views.state.colorOf(1)).toBe(REQ_STATUS_COLORS.met);
-        expect(views.state.colorOf(3)).toBe(REQ_STATUS_COLORS.wontfix);
+        // Read from the ACTIVE theme, never from the Signal constants: the
+        // default moved to Aurora at req #3365 and a test naming those constants
+        // would be asserting a palette the canvas no longer draws.
+        const PAL = planPalette(DEFAULT_PLAN_PALETTE);
+        expect(Object.keys(views)).toEqual(['state', 'autonomy', 'machine']);
+        expect(views.state.colorOf(1)).toBe(PAL.status.met);
+        expect(views.state.colorOf(3)).toBe(PAL.status.wontfix);
         expect(views.state.legend.map((e) => e.key)).toEqual(['development', 'met']);
+        // The MACHINE scale is NOT themed — its colours are keyed on a machine's
+        // PLATFORM and named from the machine record, which is a fact about the
+        // fleet rather than an aesthetic. Asserted here so a future theme cannot
+        // quietly absorb it.
         expect(views.machine.colorOf(1)).toBe(MACHINE_MAC_COLOR);
         expect(views.machine.colorOf(2)).toBe(MACHINE_ANY_COLOR);
-        expect(views.autonomy.colorOf(1)).toBe(AUTONOMY_COLORS.deployed);
-        expect(views.autonomy.colorOf(2)).toBe(AUTONOMY_COLORS.discuss);
+        expect(views.autonomy.colorOf(1)).toBe(PAL.autonomy.deployed);
+        expect(views.autonomy.colorOf(2)).toBe(PAL.autonomy.discuss);
         // LADDER ORDER, not the order the requirements arrived in.
         expect(views.autonomy.legend.map((e) => e.key)).toEqual(['discuss', 'deployed']);
         expect(views.autonomy.legend.map((e) => e.color))
-            .toEqual([AUTONOMY_COLORS.discuss, AUTONOMY_COLORS.deployed]);
+            .toEqual([PAL.autonomy.discuss, PAL.autonomy.deployed]);
     });
 
     it('names a value it does not know, and a requirement it never received', () => {
@@ -3743,6 +3813,10 @@ describe('the SCALE REGISTRY (req #3422)', () => {
 });
 
 describe('the colour key — N scales plus NONE (req #3168 directive 3, req #3422)', () => {
+    // The key renders what the CANVAS draws, so it is asserted against the
+    // ACTIVE theme rather than against the module constants (req #3365 moved
+    // the default off them).
+    const ACTIVE = planPalette(DEFAULT_PLAN_PALETTE);
     const views = buildReqColorViews({
         requirements: [
             { id: 1, requirement_status: 'development', machine_fk: 2,
@@ -3786,11 +3860,11 @@ describe('the colour key — N scales plus NONE (req #3168 directive 3, req #342
 
     it('resolves the id style per key — and NEUTRAL is near-white, not black', () => {
         expect(reqIdStyle({ colorKey: 'state', views, reqId: 1 }))
-            .toEqual({ fill: REQ_STATUS_COLORS.development, bold: true });
+            .toEqual({ fill: ACTIVE.status.development, bold: true });
         expect(reqIdStyle({ colorKey: 'machine', views, reqId: 1 }))
             .toEqual({ fill: MACHINE_MAC_COLOR, bold: true });
         expect(reqIdStyle({ colorKey: 'autonomy', views, reqId: 2 }))
-            .toEqual({ fill: AUTONOMY_COLORS.deployed, bold: true });
+            .toEqual({ fill: ACTIVE.autonomy.deployed, bold: true });
         // THE LIGHT-MODE FINDING, pinned rather than commented: this panel is a
         // FIXED dark surface in both app themes (PLAN_VIZ_PALETTE is not
         // theme-derived and the container paints `panel` unconditionally), so
@@ -3801,7 +3875,7 @@ describe('the colour key — N scales plus NONE (req #3168 directive 3, req #342
             .toBeGreaterThan(luminance(PLAN_VIZ_PALETTE.panel));
         // A hostile key falls to the default rather than painting nothing.
         expect(reqIdStyle({ colorKey: 'constructor', views, reqId: 2 }).fill)
-            .toBe(REQ_STATUS_COLORS.met);
+            .toBe(ACTIVE.status.met);
         // …and so does a call with no views at all: an undefined `fill` is
         // painted by Konva as nothing, with no error anywhere.
         expect(reqIdStyle().fill).toBe(REQ_STATUS_UNKNOWN_COLOR);
@@ -3816,9 +3890,9 @@ describe('the colour key — N scales plus NONE (req #3168 directive 3, req #342
         expect(state.entries.map((e) => e.label))
             .toEqual(['swarm-ready', 'development', 'met']);
         expect(state.entries.map((e) => e.color)).toEqual([
-            REQ_STATUS_COLORS.swarm_ready,
-            REQ_STATUS_COLORS.development,
-            REQ_STATUS_COLORS.met,
+            ACTIVE.status.swarm_ready,
+            ACTIVE.status.development,
+            ACTIVE.status.met,
         ]);
     });
 
@@ -3963,6 +4037,26 @@ describe("the KEY is a keep-out: what it costs the epic labels (req #3168, re-me
     //   at h=30:    w  90   300   420   470   600   900  1100
     //               dropped   9    21    30    33    39    57    69
     //
+    // RE-MEASURED 2026-08-12 (req #3365). Two things moved and only one of them
+    // is the key: every band gained 46px of header so the epic name could have
+    // its own lane, AND the pan sweep above stopped being four hard-coded
+    // offsets and became a function of the world's height. The second is why
+    // these numbers are not comparable to the rows above — a denser sweep over
+    // a taller world visits more (k, y) pairs — so the table is REPLACED rather
+    // than appended to, and what carries forward is the SHAPE, not the counts:
+    //
+    //   at w=470:   h  30    60   100   140   180
+    //               dropped  11    11    55    66   110
+    //
+    //   at h=30:    w  90   300   420   470   600   900  1100
+    //               dropped   3     7    10    11    13    19    23
+    //
+    // Height is still the steeper axis by a wide margin — 99 dropped across the
+    // 150px height range against 8 across the 810px width range from the same
+    // base, which is ~67x steeper per pixel (it was ~5x under the old sweep).
+    // `PLAN_KEY_MAX_H` still caps the steeper axis, which is the decision these
+    // three tests exist to protect.
+    //
     // The absolute counts moved from the 2026-08-02 table (11→33, 23→69 — a
     // different fixture shape, a shorter key) but the SLOPE — what "steeper
     // axis" actually means — still favours height: 44 dropped over the 150px
@@ -3971,17 +4065,53 @@ describe("the KEY is a keep-out: what it costs the epic labels (req #3168, re-me
     // `PLAN_KEY_MAX_W`) caps that steeper axis now; width is deliberately
     // uncapped. Full derivation of the cap's own value in
     // `pipelinePlanLayout.js` above `PLAN_KEY_MAX_H`.
-    const costOf = (w, h) => {
+    // ONE sweep, two key positions. `topRight` below used to run its own
+    // hand-written pan list while `costOf` ran a derived one, so the
+    // comparison between them measured the two SWEEPS as much as the two
+    // key placements — and it broke the moment req #3365 changed one of
+    // them. The keep-out rect is the only thing that varies now.
+    const sweepDrops = (keepOutOf) => {
         let dropped = 0;
         for (const k of [0.2, 0.35, 0.5, 0.8, 1.2, 1.5, 2]) {
-            for (const y of [0, -150, -500, -900]) {
-                for (let x = 0; x <= 1400; x += 50) {
+            // ── THE PAN SWEEP IS DERIVED FROM THE WORLD (req #3365) ─────────
+            // It was the fixed list [0, -150, -500, -900]. That list is only
+            // meaningful relative to the world's HEIGHT, and req #3365 made
+            // every band 46px taller to give the epic name its own lane — which
+            // moved the band tops out from under the key at every sampled pan
+            // and took this whole sweep to ZERO drops. A cost curve that reads
+            // zero everywhere is not a cheaper key, it is a sweep that stopped
+            // looking, and all three assertions below would have "passed" as
+            // vacuous had they not been written as strict inequalities.
+            // Sampling the world's own extent keeps the measurement pinned to
+            // the geometry rather than to four numbers that were true of one
+            // fixture on one day.
+            // …and then, at req #3365 again, from the BAND TOPS rather than
+            // from a uniform grid over that extent. Deriving the STEP was still
+            // deriving a grid: this pass made every band taller a second time
+            // (`REQ_LINE_H` 18.75 → 23.5 and the lane pitch with it), the grid
+            // stepped over the band boundaries, and the sweep went to zero
+            // drops AGAIN. The key sits at the viewport BOTTOM, so what this
+            // measurement is actually about is a band top landing down there —
+            // so that is what the pan list now produces, directly: each band's
+            // top placed at a handful of screen heights, the lowest of them
+            // inside the key's own strip. It cannot go vacuous on a geometry
+            // change, because it is stated in terms of the two things whose
+            // collision it counts.
+            // Spanning the WHOLE viewport height, not just the bottom strip.
+            // A list biased toward where the key currently sits would make the
+            // sibling test below (bottom-center vs top-right) a comparison of
+            // the sweep rather than of the two key positions.
+            const spots = [VIEWPORT.h - 30, VIEWPORT.h - 90, VIEWPORT.h * 0.7,
+                VIEWPORT.h * 0.5, VIEWPORT.h * 0.25, 30];
+            const pans = layout.bands.flatMap(
+                (band) => spots.map((spot) => Math.round(spot - band.y * k)));
+            for (const y of pans) {
+                for (let x = 0; x <= 1400; x += 100) {
                     const args = { bands: layout.bands, transform: { x, y, k },
                         viewport: VIEWPORT, worldWidth: layout.width };
                     const bare = placeEpicChips(args);
                     const withKey = placeEpicChips({ ...args,
-                        keepOut: { x: (VIEWPORT.w - w) / 2,
-                            y: VIEWPORT.h - 12 - h, w, h } });
+                        keepOut: keepOutOf() });
                     dropped += bare.filter(
                         (c) => !withKey.some((d) => d.key === c.key)).length;
                 }
@@ -3989,6 +4119,10 @@ describe("the KEY is a keep-out: what it costs the epic labels (req #3168, re-me
         }
         return dropped;
     };
+    // The key where it actually sits (req #3255): bottom-centre, 12px up.
+    const costOf = (w, h) => sweepDrops(() => ({
+        x: (VIEWPORT.w - w) / 2, y: VIEWPORT.h - 12 - h, w, h,
+    }));
 
     it('costs epic names in BOTH dimensions, monotonically — the pre-#3257 '
         + '"height is free" invariant no longer holds', () => {
@@ -4066,23 +4200,9 @@ describe("the KEY is a keep-out: what it costs the epic labels (req #3168, re-me
         // The #3255 move is worth a number, not just a note. Asserted as an
         // order of magnitude so it tracks the finding rather than a specific
         // fixture count that will drift as the fixture does.
-        const topRight = (() => {
-            let dropped = 0;
-            for (const k of [0.2, 0.35, 0.5, 0.8, 1.2, 1.5, 2]) {
-                for (const y of [0, -150, -500, -900]) {
-                    for (let x = 0; x <= 1400; x += 50) {
-                        const args = { bands: layout.bands, transform: { x, y, k },
-                            viewport: VIEWPORT, worldWidth: layout.width };
-                        const bare = placeEpicChips(args);
-                        const withKey = placeEpicChips({ ...args,
-                            keepOut: { x: VIEWPORT.w - 10 - 470, y: 8, w: 470, h: 30 } });
-                        dropped += bare.filter(
-                            (c) => !withKey.some((d) => d.key === c.key)).length;
-                    }
-                }
-            }
-            return dropped;
-        })();
+        // SAME sweep as `costOf` — see `sweepDrops`. Only the rect differs.
+        const topRight = sweepDrops(
+            () => ({ x: VIEWPORT.w - 10 - 470, y: 8, w: 470, h: 30 }));
         expect(topRight, 'the old top-right key cost real names').toBeGreaterThan(50);
         expect(costOf(470, 30) * 3,
             'the bottom-center key must be far cheaper than the top-right one')
@@ -4137,21 +4257,28 @@ describe('the 35-character ceiling (req #3168, directive B)', () => {
                 stepLabel: 'title', stepWidth });
             return [Math.min(...step), Math.max(...step)];
         };
+        // RE-MEASURED at req #3365, which raised `STAGGER_REACH` 0.4 → 0.85
+        // (+50% of budget) and `LABEL_MAX_CHARS` 40 → 60 so the extra budget is
+        // actually spendable. Both halves were needed: the reach alone left
+        // `vertical` pinned at the cap, drawing 27/29/36 to a budget that
+        // afforded 41/44/54.
+        //
         // `horizontal` columns are sized by the requirement-id STRING, which is
-        // wide enough that the ceiling is what binds the MAX — it drew 42 / 45
-        // / 50 before the cap (35, then 40 after the req #3242 bump).
+        // wide enough that the ceiling is still what binds the MAX.
         expect([at('horizontal', 'compact'), at('horizontal', 'medium'),
-            at('horizontal', 'wide')]).toEqual([[19, 40], [20, 40], [23, 40]]);
+            at('horizontal', 'wide')]).toEqual([[24, 60], [25, 60], [28, 60]]);
         // `vertical` columns are TITLE_COL_MIN, so the stagger budget binds and
-        // the ceiling is inert below Width L. These are the numbers the geometry
-        // gives after the 2026-08-01 width retune (+10% / +10% / +20%). Width L
-        // was ALSO ceiling-bound at the old 35 (its true budget is 36) — raising
-        // the ceiling to 40 (req #3242) let that one extra character through.
+        // the ceiling is inert. **27 → 41, 29 → 44, 36 → 54: +52 / +52 / +50%**,
+        // which is the directive's own number.
         expect([at('vertical', 'compact'), at('vertical', 'medium'),
-            at('vertical', 'wide')]).toEqual([[19, 27], [20, 29], [23, 36]]);
+            at('vertical', 'wide')]).toEqual([[24, 41], [25, 44], [28, 54]]);
         // Showing requirement TITLES costs the step label nothing.
         expect([at('titles', 'compact'), at('titles', 'medium'),
-            at('titles', 'wide')]).toEqual([[19, 27], [20, 29], [23, 36]]);
+            at('titles', 'wide')]).toEqual([[24, 41], [25, 44], [28, 54]]);
+        // The MIN column gains less (19 → 24, +26%) at every width, and that is
+        // GEOMETRY rather than a shortfall: the first and last columns are
+        // bounded by the gutter, not by a neighbouring column, and `LEFT` /
+        // `RIGHT` did not move.
     });
 
     it('the ceiling did not move a single column', () => {
@@ -4192,7 +4319,16 @@ describe('requirement marks: id or TITLE (req #3168, directive E)', () => {
         // It IS still independent of `stepWidth` and `stepLabel` (offsets come
         // from requirement COUNTS, never from pixel width), so the same delta
         // holds across every combination below.
-        const SWIM_LANE_HEIGHT_DELTA = 450; // 24 × REQ_LINE_H, measured on this fixture
+        // 450 → 506.25 at req #3365. The first-fit that replaced req #3362's
+        // count-priority sweep clears the previous TWO columns rather than one
+        // (`STAGGER_REACH` 0.85 makes every column overlap both of its nearest
+        // neighbours per side), so a run of stacks can be pushed down further
+        // before the window slides past and the offset recycles to line 0.
+        // THREE more lines across the whole fixture — the vertical price of the
+        // +50% width, paid once and measured rather than estimated. The figure
+        // then moved again with `REQ_LINE_H` 18.75 → 23.5 (the doubled stack
+        // whitespace): same 27 lines, taller lines.
+        const SWIM_LANE_HEIGHT_DELTA = 634.5; // 27 × REQ_LINE_H, measured on this fixture
         for (const stepLabel of ['id', 'title']) {
             for (const stepWidth of Object.keys(STEP_WIDTH_FACTORS)) {
                 const base = computePlanLayout(plan.rows,
@@ -4233,14 +4369,25 @@ describe('requirement marks: id or TITLE (req #3168, directive E)', () => {
         // MAX is unchanged: it was already the ceiling (ID prefix included) and
         // nothing widens past LABEL_MAX_CHARS.
         //
-        // With `Step: Title` the column already carries TITLE_COL_MIN (144·f),
-        // and a widened mark reaches the ceiling at Width L — 40 characters
-        // (req #3242). With `Step: ID` the column is only as wide as the ids
-        // need, so both ends are lower — the two controls interact.
+        // RE-MEASURED at req #3365 (`STAGGER_REACH` 0.4 → 0.85, and
+        // `LABEL_MAX_CHARS` 40 → 60 so the widened budget is spendable):
+        // **33 → 50, 35 → 54, 40 → 60 — +52 / +54 / +50%**, the directive's own
+        // number arriving on the requirement titles it was asked for. The MIN
+        // rises 23 → 29 (+26%) and no further, because the first and last
+        // columns are bounded by the GUTTER rather than by a neighbour.
+        //
+        // With `Step: Title` the column already carries TITLE_COL_MIN (144·f).
+        // With `Step: ID` the column is only as wide as the ids need, so both
+        // ends are lower — the two controls interact.
         expect([at('title', 'compact'), at('title', 'medium'), at('title', 'wide')])
-            .toEqual([[23, 33], [24, 35], [28, 40]]);
+            .toEqual([[29, 50], [30, 54], [34, 60]]);
+        // The `Step: ID` row gains PROPORTIONALLY MORE (20 → 31, 22 → 33,
+        // 26 → 40: +55 / +50 / +54%) precisely because its columns are narrow:
+        // the reach is a fraction of the NEIGHBOUR, so a narrow column's own
+        // slab is a smaller share of its total budget and the widened reach is
+        // a bigger one.
         expect([at('id', 'compact'), at('id', 'medium'), at('id', 'wide')])
-            .toEqual([[14, 20], [14, 22], [16, 26]]);
+            .toEqual([[19, 31], [20, 33], [22, 40]]);
     });
 
     it('keeps every requirement mark inside its column slab — the frozen contract', () => {
@@ -4280,10 +4427,13 @@ describe('requirement marks: id or TITLE (req #3168, directive E)', () => {
                         const staggered = view.reqLabel === 'title'
                             && view.reqLayout !== 'horizontal';
                         // The reach a staggered mark is allowed, per side: the
-                        // same STAGGER_REACH 0.4 of the NARROWER neighbour that
-                        // bounds a staggered step label.
+                        // same `STAGGER_REACH` of the NARROWER neighbour that
+                        // bounds a staggered step label. READ from the module,
+                        // not restated — req #3365 moved it 0.4 → 0.85 and a
+                        // literal here would have made this test agree with the
+                        // OLD budget while the layout drew the new one.
                         const reach = staggered
-                            ? 0.4 * Math.min(
+                            ? STAGGER_REACH * Math.min(
                                 n.depth > 0 ? layout.colW[n.depth - 1] : 66,
                                 n.depth < layout.colW.length - 1
                                     ? layout.colW[n.depth + 1] : 54)
@@ -4310,32 +4460,43 @@ describe('requirement marks: id or TITLE (req #3168, directive E)', () => {
         // about. Before this requirement, step 3 could not stagger AT ALL
         // (its left neighbour carried more than one requirement) and step 1's
         // marks were bound to bare `colW`, never the 40-character ceiling.
-        it('the fewer-requirement step draws ABOVE the busier one it reaches into', () => {
+        it('adjacent stacks occupy DISJOINT line ranges, whatever their counts', () => {
+            // req #3362 gave the higher swim lane to whichever column had FEWER
+            // requirements, because at `STAGGER_REACH` 0.4 only one of a pair
+            // reached into the other and the answer to "who moves?" was the one
+            // that did not. req #3365 raised the reach to 0.85, where BOTH
+            // columns of every adjacent pair reach into each other and the
+            // question has no answer — so the ordering claim is gone and the
+            // guarantee it existed to serve is asserted directly instead:
+            // stacks within two columns of each other never share a line.
             const layout = computePlanLayout(plan.rows,
                 { ...reqViewOptions('titles'), stepLabel: 'id', stepWidth: 'compact',
                     reqTitles: FIXTURE_TITLES });
             const marksOf = (stepId) => layout.labels
                 .filter((l) => l.kind === 'req' && l.stepId === stepId)
                 .sort((a, b) => a.y - b.y);
-            const step1 = marksOf(1); // 5 requirements — the busier side
-            const step3 = marksOf(3); // 1 requirement — the fewer side
+            const step1 = marksOf(1); // 5 requirements
+            const step3 = marksOf(3); // 1 requirement
             expect(step1, 'step 1 carries all 5 of its marks').toHaveLength(5);
             expect(step3, 'step 3 carries its 1 mark').toHaveLength(1);
-            // "Fewer requirements → higher swim lane": step 3's single line
-            // sits strictly above (smaller y than) every one of step 1's five
-            // lines. This is a RELATIVE claim, not "step 3 sits at offset 0" —
-            // step 3 ties with ITS OWN right neighbour (step 4) and so carries
-            // a one-line offset of its own (see the tie-chain test below); it
-            // is simply pushed down far LESS than the busier step 1 is.
-            for (const mark of step1) {
-                expect(step3[0].y, `step 3's mark vs step 1's ${mark.text}`)
-                    .toBeLessThan(mark.y);
+            // Disjoint: every line of one stack clears every line of the other.
+            for (const a of step1) {
+                for (const b of step3) {
+                    expect(Math.abs(a.y - b.y),
+                        `step 1's ${a.text} vs step 3's ${b.text} share a line`)
+                        .toBeGreaterThanOrEqual(REQ_LINE_H - 0.01);
+                }
             }
-            // And step 1 (the busier side) is the one pushed down — its first
-            // line is not the lane's top line (y increases downward, so
-            // "pushed down" is a larger y than an unshifted lone mark would
-            // draw at).
-            expect(step1[0].y).toBeGreaterThan(step3[0].y);
+            // …and BOTH of them spend the widened budget — the point of the
+            // whole scheme is that a stack is no longer column-bound, and that
+            // is now true of the busier side as well as the quieter one.
+            const colW = layout.colW;
+            for (const marks of [step1, step3]) {
+                const n = layout.nodes.get(marks[0].stepId);
+                expect(Math.max(...marks.map((m) => m.w)),
+                    `step ${marks[0].stepId} stayed inside its bare column`)
+                    .toBeGreaterThan(colW[n.depth] * 0.9);
+            }
         });
 
         it('a multi-requirement step now spends the stagger budget too, not just colW', () => {
@@ -4474,13 +4635,14 @@ describe('requirement marks: id or TITLE (req #3168, directive E)', () => {
                     minGap = Math.min(minGap, gapBetween(chainLabels[i], chainLabels[j]));
                 }
             }
-            // MEASURED after the req #3242 REQ_LINE_H bump: 4.8px at every
-            // width (the tightest pair is always step 3 vs step 4, whose
-            // stagger offset is a fixed REQ_LINE_H-derived constant,
-            // independent of column width). Was 1.0px before the bump — this
-            // is the regression guard: a future change that quietly narrows
-            // the stagger offset again fails here rather than shipping.
-            expect(minGap, `stepWidth=${stepWidth}`).toBeCloseTo(4.8, 1);
+            // MEASURED **9.5px** at every width after req #3365 doubled the
+            // stack's whitespace on the user's directive — `REQ_LINE_H` 18.75 →
+            // 23.5 against a 14px mark, so the gap goes 4.75 → 9.5 and this is
+            // the same number seen from the other side. It was 4.8 after req
+            // #3242's bump and 1.0px before it; the tightest pair is still step
+            // 3 vs step 4, whose offset is a REQ_LINE_H multiple and therefore
+            // independent of column width.
+            expect(minGap, `stepWidth=${stepWidth}`).toBeCloseTo(9.5, 1);
             expect(minGap, `stepWidth=${stepWidth} — must never regress to the old 1px`)
                 .toBeGreaterThan(3);
         }
@@ -4864,7 +5026,10 @@ describe('epic focus geometry', () => {
     const reserve = (band, tr) => {
         const n = epicFocusNeighbours(layout, band);
         return {
-            top: FOCUS_PAD + (n.above ? FOCUS_LABEL_H + RULER_H * tr.k : 0),
+            // `max(k, 1)`: the strip is screen-sized below k = 1 since req
+            // #3365, so the reserve it costs no longer shrinks with zoom.
+            top: FOCUS_PAD + (n.above
+                ? FOCUS_LABEL_H + RULER_H * Math.max(tr.k, 1) : 0),
             bottom: FOCUS_PAD + (n.below ? FOCUS_LABEL_H : 0),
         };
     };
@@ -5420,8 +5585,22 @@ describe('epic focus reserves room for the neighbours\' names (req #3274)', () =
     // chip itself reports rather than against a hard-coded 2 (review finding:
     // the LARGE-epic case fits at k = 0.14, where every chip is already floored
     // and the assertion had ~10px of slack).
+    //
+    // ── AND AT A SCALE WHERE THE NEIGHBOUR'S BAND CLEARS THE RULER ──────────
+    // The fixture narrowed and shortened at req #3365 (from `[130, 1276, 400]`
+    // over 12 columns) for a reason that is a real property of the surface, not
+    // a test convenience. The strip is screen-sized below k = 1, so it covers
+    // `RULER_H / k` WORLD px while the layout reserves a fixed `8 + RULER_H`
+    // above the first band — meaning below **k = 36/44 ≈ 0.818** the top band's
+    // own top edge is behind the strip, and its name anchors on the strip's
+    // bottom (the `topInset` clamp) instead of on its band. That is the clamp
+    // doing its job and the name stays FULLY VISIBLE — the next test pins that
+    // case directly — but it is not the case THIS test is about, and the old
+    // fixture fitted at k = 0.486. NOTHING here can be reserved to change it:
+    // `padTop` moves the world and the strip together, so the gap between the
+    // band's top and the strip's bottom is invariant under the reserve.
     it('reserves enough for a FULL-SIZE neighbour chip, margins included', () => {
-        const lay = synth([130, 1276, 400], 12);
+        const lay = synth([130, 300, 400], 6);
         const mid = lay.bands[1];
         const size = { w: 1400, h: 800 };
         const kBase = size.w / lay.width;
@@ -5443,6 +5622,36 @@ describe('epic focus reserves room for the neighbours\' names (req #3274)', () =
         // The whole box the name occupies inside its band fits the reserve.
         // A reserve derived from EPIC_CHIP_MIN_H (21.6) fails this by 6.4px.
         expect(chip.h + 2 * marginY).toBeLessThanOrEqual(FOCUS_LABEL_H + 1e-6);
+    });
+
+    it('below k ≈ 0.818 the top band goes BEHIND the strip and its name clamps '
+        + 'to the strip instead — still fully visible (req #3365)', () => {
+        // The regime the test above deliberately steps out of, pinned here so
+        // it is a KNOWN outcome rather than an untested corner. req #3274's
+        // guarantee is that the neighbour's name is visible and unobstructed;
+        // it never promised the name sits inside its own band's top corner at
+        // every zoom, and with a screen-sized ruler it cannot.
+        const lay = synth([130, 1276, 400], 12);
+        const mid = lay.bands[1];
+        const size = { w: 1400, h: 800 };
+        const kBase = size.w / lay.width;
+        const tr = epicFocusTransform(lay, mid, size, kBase, kBase * FOCUS_MIN_RATIO);
+        // 44 = the layout's own reservation above the first band, `8 + ruler.h`
+        // (module-private; the bands' `y` is what publishes it — `lay.bands[0].y`
+        // IS that number, so this reads it rather than restating it).
+        expect(tr.k).toBeLessThan(RULER_H / lay.bands[0].y);
+        const above = lay.bands[0];
+        const aboveTop = tr.y + above.y * tr.k;
+        const inset = rulerScreenBottom(tr);
+        // The band's top really is behind the strip — the premise.
+        expect(aboveTop).toBeLessThan(inset);
+        const chip = chipOf(chipsAt(lay, tr, size), 'Epic 1');
+        expect(chip).toBeTruthy();
+        // …and the name is nonetheless whole, below the strip, inside the panel.
+        // `chipsAt` passes `rulerScreenBottom(tr)` as `topInset` itself — the
+        // same number the component passes — so this is the real clamp.
+        expect(chip.y).toBeGreaterThanOrEqual(inset);
+        expect(chip.y + chip.h).toBeLessThanOrEqual(size.h);
     });
 
     // ── THE CASE THE OLD FIT ACTUALLY LOST ──────────────────────────────────
@@ -5575,7 +5784,8 @@ describe('epic focus reserves room for the neighbours\' names (req #3274)', () =
             // every assertion above still held. So the apportionment itself is
             // re-derived here, independently of the module.
             const nb = epicFocusNeighbours(lay, mid);
-            const padTop = FOCUS_PAD + (nb.above ? FOCUS_LABEL_H + RULER_H * tr.k : 0);
+            const padTop = FOCUS_PAD + (nb.above
+                ? FOCUS_LABEL_H + RULER_H * Math.max(tr.k, 1) : 0);
             const padBottom = FOCUS_PAD + (nb.below ? FOCUS_LABEL_H : 0);
             const availY = Math.max(h * 0.5, h - padTop - padBottom);
             expect(top, `${where} placement`).toBeCloseTo(
@@ -6653,6 +6863,81 @@ describe('sticky ruler pin (req #3254)', () => {
     });
 });
 
+// ── The strip's vertical axis is SCREEN space (req #3365) ──────────────────
+//
+// The user directive: *"as the pipeline is moved to see the lower epics, the
+// pipeline visualized will scroll up and go below the time part which is still
+// transparent and this causes clutter."* The strip HAD an opaque plate; what it
+// did not have was a plate as tall as its own type, because req #3365's first
+// pass pinned the date glyphs to a fixed screen size and left every other mark
+// in the strip scaling with `t.k`. `rulerScreenMag` is the one counter-scale
+// they now all share.
+describe('screen-sized ruler strip (req #3365)', () => {
+    it('magnifies below k = 1 and never shrinks the strip above it', () => {
+        expect(rulerScreenMag({ x: 0, y: 0, k: 0.2 })).toBeCloseTo(5, 9);
+        expect(rulerScreenMag({ x: 0, y: 0, k: 0.5 })).toBeCloseTo(2, 9);
+        // CLAMPED AT 1. Past k = 1 the world scale already exceeds the screen
+        // size wanted, and dividing would start shrinking the strip below
+        // RULER_H — a second extreme in place of the one being removed.
+        expect(rulerScreenMag({ x: 0, y: 0, k: 1 })).toBe(1);
+        expect(rulerScreenMag({ x: 0, y: 0, k: 4 })).toBe(1);
+    });
+
+    it('degrades safely on a missing or zero/negative k', () => {
+        for (const t of [null, undefined, {}, { k: 0 }, { k: -3 }, { k: NaN }]) {
+            expect(rulerScreenMag(t), String(JSON.stringify(t))).toBe(1);
+        }
+    });
+
+    it('holds the strip at a CONSTANT screen height across every zoom-out', () => {
+        // The defect stated as an invariant: the plate the renderer draws is
+        // `RULER_H · rulerScreenMag(t)` in the `t.k`-scaled sticky Group, so its
+        // rendered height is that product times `k`. Below k = 1 it must not
+        // move at all — a strip that thins with zoom is a strip its own text
+        // outgrows, which is what let plan content show through it.
+        for (const k of [0.1, 0.15, 0.2077, 0.5, 0.99]) {
+            const t = { x: 0, y: -900, k };
+            const screenH = RULER_H * rulerScreenMag(t) * k;
+            expect(screenH, `k=${k}`).toBeCloseTo(RULER_H, 9);
+        }
+        // And above it, the old world-scaled behaviour is untouched.
+        for (const k of [1, 2, 4]) {
+            const t = { x: 0, y: -900, k };
+            expect(RULER_H * rulerScreenMag(t) * k, `k=${k}`)
+                .toBeCloseTo(RULER_H * k, 9);
+        }
+    });
+
+    it('never reports a strip SHORTER than the type it backs', () => {
+        // The actual failure, measured: at plan 7's landing scale the plate was
+        // `RULER_H · k` = 7.48px of screen under `PLAN_VIZ_FONT.slot` = 13px of
+        // text, so two thirds of every date hung over live beads. The label's
+        // own baseline sits `RULER_LABEL_Y` into the strip, and both are now
+        // counter-scaled, so the whole line clears the plate at every zoom.
+        const RULER_LABEL_Y = 12;   // module-private; the renderer reads it via
+                                    // `label.y`, which is what this stands in for
+        for (const k of [0.1, 0.2077, 0.5, 1, 3]) {
+            const t = { x: 0, y: -900, k };
+            const mag = rulerScreenMag(t);
+            const plateBottom = RULER_H * mag * k;
+            const textBottom = (RULER_LABEL_Y * mag + PLAN_VIZ_FONT.slot * mag) * k;
+            expect(textBottom, `type escaped the plate at k=${k}`)
+                .toBeLessThanOrEqual(plateBottom + 1e-9);
+        }
+    });
+
+    it('is the SAME number rulerScreenBottom reports, not a parallel copy', () => {
+        // Three call sites share this derivation (plate, type, and the inset
+        // req #3257 clamps epic names below). A literal in any of them would
+        // let the strip and its own reported edge disagree.
+        for (const k of [0.2, 1, 2.5]) {
+            const t = { x: 0, y: -750, k };
+            expect(rulerScreenBottom(t))
+                .toBeCloseTo(stickyRulerY(t) + RULER_H * rulerScreenMag(t) * k, 9);
+        }
+    });
+});
+
 // ── The epic band palette (req #3219, "no brown, no muddy tones on dark") ───
 //
 // DIRT NEVER COMES BACK. Two dimensions, per the requirement: every entry must
@@ -6709,6 +6994,165 @@ function epicPaletteViolation(hex, label) {
     return `${label} ${hex}: ${tag}, ${fails.join(', ')}`;
 }
 
+// ── EVERY THEME IS HELD TO THE SAME FLOORS (req #3365) ─────────────────────
+//
+// The point of sweeping the REGISTRY rather than the default is that a theme is
+// a way for a colour to reach the panel WITHOUT passing the assertions written
+// for the constants above. `PLAN_PALETTES` is the loop's subject, so a fourth
+// theme is covered the day it is added and cannot ship a swatch nobody measured.
+describe('palette themes (req #3365)', () => {
+    const PANEL = PLAN_VIZ_PALETTE.panel;
+
+    it('offers the three themes, default first and unchanged', () => {
+        // The ORDER is a narrative — the original, then calmer, then more
+        // modern — and it is deliberately NOT where the default comes from.
+        expect(PLAN_PALETTE_KEYS).toEqual(['stoplight', 'slate', 'aurora']);
+        // AURORA, chosen by the user after seeing all three on the live plan
+        // (req #3365). Named explicitly in the module, so reordering the
+        // registry cannot repaint the plan as a side effect.
+        expect(DEFAULT_PLAN_PALETTE).toBe('aurora');
+        expect(planPalette(DEFAULT_PLAN_PALETTE).key).toBe('aurora');
+        // `stoplight` is still the module's own constants BY IDENTITY — not a
+        // copy that could drift from the values documented beside them — even
+        // though it is no longer what the canvas draws.
+        const signal = planPalette('stoplight');
+        expect(signal.epic).toBe(EPIC_PALETTE);
+        expect(signal.status).toBe(REQ_STATUS_COLORS);
+        expect(signal.autonomy).toBe(AUTONOMY_COLORS);
+    });
+
+    it('resolves an unknown, stale or hostile key to the default', () => {
+        // It comes from localStorage. Same discipline as `normalizeColorKey`.
+        for (const bogus of ['', 'nope', null, undefined, 0, 'constructor',
+            'toString', 'STOPLIGHT']) {
+            expect(planPalette(bogus), String(bogus)).toBe(PLAN_PALETTES[0]);
+        }
+        for (const k of PLAN_PALETTE_KEYS) expect(isPlanPalette(k)).toBe(true);
+        expect(isPlanPalette('nope')).toBe(false);
+    });
+
+    it('describes every theme completely — no consumer knows one by name', () => {
+        for (const p of PLAN_PALETTES) {
+            for (const f of ['key', 'label', 'tip']) {
+                expect(typeof p[f], `${p.key}.${f}`).toBe('string');
+                expect(p[f].length, `${p.key}.${f}`).toBeGreaterThan(0);
+            }
+            expect(p.epic, `${p.key}.epic`).toHaveLength(4);
+            // A theme picks HUES; it never re-opens a domain. Missing a member
+            // would paint a real status with the unknown swatch and look like a
+            // data problem.
+            expect(Object.keys(p.status).sort()).toEqual([...REQ_STATUS_ORDER].sort());
+            expect(Object.keys(p.autonomy).sort()).toEqual([...AUTONOMY_ORDER].sort());
+        }
+    });
+
+    it('is legible on the panel in every theme — every swatch clears 4.5:1', () => {
+        // MEASURED minimum 4.78:1 (Signal's `approved`, the tightest swatch on
+        // the surface and unchanged by this requirement).
+        for (const p of PLAN_PALETTES) {
+            for (const [scale, hexes] of Object.entries({
+                epic: p.epic,
+                status: Object.values(p.status),
+                autonomy: Object.values(p.autonomy),
+            })) {
+                for (const hex of hexes) {
+                    expect(contrast(hex, PANEL), `${p.key}.${scale} ${hex}`)
+                        .toBeGreaterThanOrEqual(4.5);
+                }
+            }
+        }
+    });
+
+    it('is separable in every theme — no two entries of a scale read alike', () => {
+        // The SAME floor of 20 the default scales are held to, and it is what
+        // killed the first cut of `slate`: a single-hue lightness ramp measured
+        // 8.9 across seven statuses, because ΔE 20 × 6 gaps does not fit in the
+        // lightness a dark panel leaves above the contrast floor. MEASURED
+        // minimum across all three themes: 20.4 (Slate autonomy).
+        for (const p of PLAN_PALETTES) {
+            for (const [scale, hexes] of Object.entries({
+                epic: p.epic,
+                status: Object.values(p.status),
+                autonomy: Object.values(p.autonomy),
+            })) {
+                let worst = { pair: null, d: Infinity };
+                for (let i = 0; i < hexes.length; i++) {
+                    for (let j = i + 1; j < hexes.length; j++) {
+                        const d = deltaE(hexes[i], hexes[j]);
+                        if (d < worst.d) worst = { pair: `${hexes[i]}/${hexes[j]}`, d };
+                    }
+                }
+                expect(worst.d, `${p.key}.${scale} closest pair ${worst.pair}`)
+                    .toBeGreaterThanOrEqual(20);
+            }
+        }
+    });
+
+    it('makes Slate the RESTRAINED one, measured rather than asserted', () => {
+        // The directive asked for "a more boring business version". Boring is
+        // CHROMA here, not hue count — see the registry's own note on why a
+        // single-hue ramp does not fit on a dark panel. Measured with THIS
+        // file's own `hueSat` (HSL), the same metric the epic-palette guard
+        // below uses, so the two cannot disagree about what saturation means:
+        // Signal 0.836, Slate 0.350, Aurora 0.828.
+        const meanSat = (p) => {
+            const all = [...p.epic, ...Object.values(p.status),
+                ...Object.values(p.autonomy)];
+            return all.reduce((a, h) => a + hueSat(h).s, 0) / all.length;
+        };
+        const slate = meanSat(planPalette('slate'));
+        const signal = meanSat(planPalette('stoplight'));
+        expect(slate, 'Slate must be calmer than the default').toBeLessThan(signal);
+        expect(slate).toBeCloseTo(0.35, 2);
+        expect(signal).toBeCloseTo(0.84, 2);
+        // Aurora is NOT the restrained one and must not quietly become it —
+        // "modern" here means light and vivid, which is a different axis.
+        expect(meanSat(planPalette('aurora')))
+            .toBeGreaterThan(meanSat(planPalette('slate')) * 2);
+    });
+
+    it('repaints the epic bands, and nothing else about the geometry', () => {
+        // A theme is INK. If it moved a column or a band the plan would reflow
+        // on a colour change, which is the one thing a palette must never do.
+        const base = computePlanLayout(plan.rows, { palette: 'stoplight' });
+        for (const key of PLAN_PALETTE_KEYS) {
+            const themed = computePlanLayout(plan.rows, { palette: key });
+            expect(themed.colW, key).toEqual(base.colW);
+            expect(themed.width, key).toBe(base.width);
+            expect(themed.height, key).toBe(base.height);
+            expect(themed.bands.map((b) => b.y), key)
+                .toEqual(base.bands.map((b) => b.y));
+            // …and it DOES repaint, or the control would be inert.
+            const pal = planPalette(key);
+            expect(themed.bands.map((b) => b.color), key)
+                .toEqual(base.bands.map((b, i) => pal.epic[i % pal.epic.length]));
+        }
+    });
+
+    it('paints the requirement scales from the theme, not from the constants', () => {
+        const requirements = [
+            { id: 1, requirement_status: 'met', coordination_type: 'deployed' },
+            { id: 2, requirement_status: 'development', coordination_type: 'discuss' },
+        ];
+        for (const key of PLAN_PALETTE_KEYS) {
+            const pal = planPalette(key);
+            const views = buildReqColorViews({
+                requirements, machines: [], presentReqIds: new Set([1, 2]), palette: key,
+            });
+            expect(views.state.colorOf(1), key).toBe(pal.status.met);
+            expect(views.autonomy.colorOf(2), key).toBe(pal.autonomy.discuss);
+        }
+        // No palette named at all resolves to the DEFAULT — which since req
+        // #3365 is Aurora, not the module constants. Pinned because "the
+        // default" and "the constants above" stopped being the same thing, and
+        // a caller that omits the option must get what the canvas draws.
+        const bare = buildReqColorViews({
+            requirements, machines: [], presentReqIds: new Set([1, 2]),
+        });
+        expect(bare.state.colorOf(1)).toBe(planPalette(DEFAULT_PLAN_PALETTE).status.met);
+    });
+});
+
 describe('epic band palette — no brown, no muddy tones (req #3219)', () => {
     it('has no browns and no muddy tones — every entry clears the two-dimensional guard, '
         + 'at whatever length the palette ends up', () => {
@@ -6732,13 +7176,23 @@ describe('epic band palette — no brown, no muddy tones (req #3219)', () => {
         expect(worst.d, `closest pair ${worst.pair}`).toBeGreaterThanOrEqual(20);
     });
 
-    it('covers the live epic count with no positional wraparound collision', () => {
-        // MEASURED 2026-08-01: pipeline 2 ("Darwin", the live plan) carries 7
-        // active epics. The palette must be at least that long, or the
-        // positional cycle (see below) hands two on-screen bands the same
-        // colour — the exact regression this requirement was filed over (six
-        // entries against seven epics, two sharing a hue).
-        expect(EPIC_PALETTE.length).toBeGreaterThanOrEqual(7);
+    it('is FOUR entries that repeat, and the repeat is deliberate', () => {
+        // This assertion used to be `length >= 7`, on the reasoning that the
+        // palette must cover the live epic count so no two on-screen bands ever
+        // share a hue. req #3365 REVERSED that trade on the user's directive:
+        // seven mutually-distinguishable entries forced two of them into the
+        // dark end of the wheel, where an epic's NAME — drawn in its band's
+        // colour — was hard to read. Four bright entries that repeat beat seven
+        // where two are unreadable.
+        //
+        // It is safe to repeat because colour on this surface is BAND POSITION,
+        // never epic identity (the ONE FACT, ONE CHANNEL rule) — an epic gets
+        // `EPIC_PALETTE[i % length]` for its position `i` in the sorted band
+        // list, and nothing anywhere looks a colour up to find an epic.
+        expect(EPIC_PALETTE).toHaveLength(4);
+        // The cycle, asserted directly rather than inferred from the modulo:
+        // band 4 wears band 0's colour and that is the intended behaviour.
+        expect(EPIC_PALETTE[4 % EPIC_PALETTE.length]).toBe(EPIC_PALETTE[0]);
     });
 
     it('rejects the specific values this requirement removed, proving the guard has teeth',
@@ -6957,5 +7411,35 @@ describe('cell invariant over a timed fuzz corpus (req #3229)', () => {
                     timeAxis: plan.timeAxis, reqTitles });
             assertNoLabelOverlap(layout, `seed ${seed}`);
         }
+    });
+});
+
+// ── req #3365 — THE EPIC LANE IS A DERIVED RESERVATION ──────────────────────
+// `BAND_HEADER` is a literal inside the module (its own comment gives the
+// temporal-dead-zone reason it cannot be the expression), so the derivation
+// lives HERE. This fails if anyone edits the chip's font, its floor scale or
+// its margin without re-deriving the lane that has to hold it — the exact
+// silent desync the previous hand-set 83 allowed, and which put the epic name
+// on top of lane 0's step labels at every scale plan 7 actually opens in.
+describe('epic lane reservation (req #3365)', () => {
+    const CHIP_MARGIN_Y = 2;   // module-private; the only literal this needs
+
+    // The boundary itself is pinned by 'pins the exact k where the floored chip
+    // starts escaping its own epic lane' above, which was already written to
+    // move with the lane — this suite adds the SYMPTOM the user reported,
+    // which that test does not speak to: the scale the live plan opens in.
+    it('holds at the scale plan 7 lands in, which the old 62px lane did not', () => {
+        const plan = orderedPlan(buildPipelineModel(SUBSTRATE_REBUILD_MODEL));
+        const layout = computePlanLayout(plan.rows);
+        const chipBox = EPIC_CHIP_MIN_H + 2 * CHIP_MARGIN_Y;
+        // Measured landing scale on the live 71-step plan.
+        const LANDING_K = 0.2077;
+        for (const band of layout.bands) {
+            expect(chipBox).toBeLessThanOrEqual(band.epicLaneH * LANDING_K);
+        }
+        // And the old reservation genuinely failed there — so this pair of
+        // assertions is not vacuous.
+        const OLD_EPIC_LANE_H = 62;
+        expect(chipBox).toBeGreaterThan(OLD_EPIC_LANE_H * LANDING_K);
     });
 });

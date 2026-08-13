@@ -319,7 +319,39 @@ function RequirementLinks({ row, pipelineId, statusOf }) {
 //
 // `width` only, no maxWidth/ellipsis: `max-width` is not honoured on a table cell
 // under the default `table-layout: auto`, so an ellipsis rule there expresses an
-// intent the browser will not deliver. The TableContainer scrolls instead.
+// intent the browser will not deliver.
+//
+// IT WRAPS, WHICH HALVES THE TABLE'S OVERFLOW RATHER THAN REMOVING IT (req
+// #3365 polish). This cell was `nowrap`, and the paragraph above used to end
+// "The TableContainer scrolls instead" — which it does, at a measured cost: on
+// plan 7 the epic label "Primary AI/Swarm Session adopt Agent Harness" forced
+// this column to **344px** against its declared 190, taking the table to 1665px
+// inside a 1372px container and pushing the LAST column ("Depends on")
+// off-screen at a 1600px viewport. So the price of not wrapping one label was
+// that a reader could not see a step's dependencies without a horizontal scroll
+// they had no reason to suspect.
+//
+// BE PRECISE ABOUT WHAT THIS BOUGHT: measured after, the table is 1511px and
+// the container still scrolls **141px** (it was 293px). Recovering this column's
+// 154px of excess is a little over half of it; the rest is the other columns'
+// own content and is not this cell's to give. An earlier draft of this comment
+// was headed "IT WRAPS RATHER THAN SCROLLING THE TABLE", which claims a scroll
+// that still happens.
+//
+// Wrapping is the option neither of the other two was: `max-width` is what the
+// browser ignores here, `nowrap` is what costs the scroll, and `white-space` is
+// honoured on a table cell.
+//
+// THE ROW-HEIGHT COST IS AN OBSERVATION ABOUT THIS PLAN, NOT A PROPERTY. An
+// earlier draft argued it "costs no row height, because a group label renders
+// once per contiguous RUN and a run is many rows tall" — the reasoning is
+// structurally wrong: this is a plain `<td>` on EVERY row with no `rowSpan`, so
+// the wrapped second line lands entirely inside the FIRST row of the run and
+// makes that one row taller unless its other cells are already as tall. On plan
+// 7 they are (requirement ids plus the launch line, and three lines of clamped
+// notes), and the tallest epic cell measures 73px against a 73px row — but that
+// is this data, so `memory/table-design.md`'s "vertical scroll caused by wrap is
+// never acceptable" is satisfied here by measurement rather than by construction.
 //
 // SINGLE VALUE ONLY (req #3373) — no dominant-plus-full-set tooltip. The Feature
 // column this once shared a signature with is gone, and the engine's own
@@ -328,7 +360,24 @@ function RequirementLinks({ row, pipelineId, statusOf }) {
 function GroupCell({ show, value, width, color, testid }) {
     const text = show ? (value || '—') : '';
     return (
-        <TableCell sx={{ ...NOWRAP, width, color, fontWeight: 600 }}
+        <TableCell sx={{ width, minWidth: width, color, fontWeight: 600,
+                          // `minWidth` AS WELL AS `width`, and it is the one
+                          // doing the work (measured). Under `table-layout:
+                          // auto` a cell's `width` is a HINT the browser is
+                          // free to ignore, and the moment the label could wrap
+                          // it did: the column collapsed to its longest single
+                          // word — 97px — and "Primary AI/Swarm Session adopt
+                          // Agent Harness" came out as a six-line ribbon, which
+                          // trades one bad reading for another. `min-width` IS
+                          // honoured, because it feeds the min-content width
+                          // the algorithm is not allowed to go below.
+                          whiteSpace: 'normal',
+                          // `break-word` breaks INSIDE a word only when one
+                          // word alone cannot fit, so a mid-word break — the
+                          // thing that makes a proper noun read as a different
+                          // name — stays a last resort. `anywhere` would make
+                          // it the normal case.
+                          overflowWrap: 'break-word' }}
                    data-testid={testid}>
             {text}
         </TableCell>
@@ -452,7 +501,22 @@ export default function PipelinePlanTable({ plan, model, pipeline, timezone, foc
             </Box>
 
             <TableContainer component={Paper} variant="outlined" ref={setTableEl}>
-                <Table size="small" data-testid="pipeline-plan-table">
+                {/* TOP-ALIGNED BODY CELLS (req #3365 polish). A table cell's
+                    default `vertical-align: middle` centres every cell in the
+                    tallest one, so on this table — whose rows are as tall as
+                    their prose column, three clamped lines now and up to 654px
+                    before that — a row's id, name, state chip and machine each
+                    floated in the middle of their own empty column with nothing
+                    beside them. Top alignment puts a row's identity level with
+                    the FIRST line of the prose it describes, which is where the
+                    eye looks for it, and it is what makes the clamp above read
+                    as a paragraph rather than as a band of text drifting inside
+                    a taller row.
+
+                    The head keeps its own alignment: a header is a label for a
+                    column, not a value in a row. */}
+                <Table size="small" data-testid="pipeline-plan-table"
+                       sx={{ '& tbody td': { verticalAlign: 'top' } }}>
                     <TableHead>
                         <TableRow>
                             <TableCell sx={{ ...NOWRAP, width: COL.step }}>Step</TableCell>
@@ -616,11 +680,76 @@ export default function PipelinePlanTable({ plan, model, pipeline, timezone, foc
                                             ARE the command's arguments. */}
                                         <StepLaunchLine row={row} />
                                     </TableCell>
+                                    {/* CLAMPED, WITH THE WHOLE TEXT ON HOVER
+                                        (req #3365 polish). This cell rendered
+                                        `notes` unbounded, and a step's notes are
+                                        full design prose — measured on plan 7's
+                                        71 rows: median row 173px, 90th
+                                        percentile 233px, tallest **654px**, and
+                                        a table 12,882px long. At that height a
+                                        row's own identity (its id, name, state,
+                                        machine) sits in a column of whitespace
+                                        several screens from the prose it belongs
+                                        to, and scanning the plan — the one thing
+                                        this table is for — costs a dozen
+                                        scrolls.
+
+                                        The recipe is the house one, from
+                                        `memory/table-design.md` § *Fixed row
+                                        height is a MECHANISM*: **prose CLAMPS,
+                                        and the clamp hides nothing** because the
+                                        full string is the cell's Tooltip. This
+                                        table is a plain MUI `<Table>` and so is
+                                        outside `dataGridRowHeight.test.js`'s
+                                        reach, but the rule is about reading a
+                                        table, not about which component draws
+                                        it.
+
+                                        TWO ELEMENTS, NOT ONE, and that is
+                                        required rather than tidy: `-webkit-box`
+                                        cannot go on the `<td>` without
+                                        destroying its `display: table-cell`, so
+                                        the clamp goes on an inner block.
+
+                                        THREE lines, where `RequirementsTableView`'s
+                                        `CLAMP_CELL_SX` spends TWO. Not the same
+                                        budget — a correction to this comment's
+                                        first draft, which cited that cell as the
+                                        precedent for the number. It is the
+                                        precedent for the RECIPE (clamp on an
+                                        inner block, full text on a Tooltip,
+                                        break long tokens); the count differs
+                                        because this column is 340px of design
+                                        prose against that one's title.
+
+                                        `overflowWrap` IS part of the recipe and
+                                        was missing from the first cut. Without
+                                        it one unbreakable token longer than the
+                                        column raises the cell's MIN-CONTENT
+                                        width, which under `table-layout: auto`
+                                        widens the whole table — re-creating on
+                                        this column the horizontal scroll this
+                                        same change removes from the epic one —
+                                        and `overflow: hidden` would clip it mid
+                                        token with no ellipsis to say so.
+                                        Latent rather than live: plan 7's
+                                        longest unbreakable token is 17
+                                        characters. */}
                                     <TableCell sx={{ minWidth: 340 }}>
-                                        <Typography variant="body2"
-                                                    data-testid={`pipeline-notes-${row.id}`}>
-                                            {description}
-                                        </Typography>
+                                        <Tooltip title={description}>
+                                            <Typography variant="body2"
+                                                        data-testid={`pipeline-notes-${row.id}`}
+                                                        sx={{
+                                                            display: '-webkit-box',
+                                                            WebkitBoxOrient: 'vertical',
+                                                            WebkitLineClamp: 3,
+                                                            overflow: 'hidden',
+                                                            overflowWrap: 'break-word',
+                                                            lineHeight: 1.4,
+                                                        }}>
+                                                {description}
+                                            </Typography>
+                                        </Tooltip>
                                     </TableCell>
                                     <TableCell sx={{ ...NOWRAP, width: COL.deps,
                                                       color: 'text.secondary' }}

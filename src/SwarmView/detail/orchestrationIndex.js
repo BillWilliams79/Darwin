@@ -97,17 +97,23 @@ export function buildOrchestrationIndex({ pipelines, epics, steps, stepRequireme
         if (id != null) pipelinesById.set(id, { ...p, id });
     }
 
-    // epic -> pipeline. THE MIDDLE HOP, and the only reason this input exists: a
-    // 2.0 step names an epic, never a plan (containment), so without this map a
-    // step's plan is unknowable. Kept as a bare id->id Map rather than an
-    // `epicsById` of whole rows because nothing here renders an epic — the
-    // Orchestration box shows Pipeline and Step, and req #3357 retired its Epic
-    // row for reasons this requirement does not reopen.
+    // epic -> pipeline. THE MIDDLE HOP: a 2.0 step names an epic, never a plan
+    // (containment), so without this map a step's plan is unknowable.
+    //
+    // …AND the epic ROWS, since req #3365 restored the Epic row to the
+    // Orchestration box on the user's directive. This used to be a bare id->id
+    // Map on the stated grounds that "nothing here renders an epic"; that is no
+    // longer true, and the rows cost nothing — the read is already made for the
+    // hop, and `epics`' shared projection already carries `title`, exactly as
+    // `stepsById` reasons about `pipeline_steps`.
     const pipelineByEpic = new Map();
+    const epicsById = new Map();
     for (const e of asArray(epics)) {
         const eid = toId(e?.id);
         const pid = toId(e?.pipeline_fk);
-        if (eid != null && pid != null) pipelineByEpic.set(eid, pid);
+        if (eid == null) continue;
+        epicsById.set(eid, { ...e, id: eid });
+        if (pid != null) pipelineByEpic.set(eid, pid);
     }
 
     // step -> pipeline (THROUGH the epic), and the step rows themselves: the
@@ -115,12 +121,18 @@ export function buildOrchestrationIndex({ pipelines, epics, steps, stepRequireme
     // shared projection already carries `title`, so this costs nothing beyond
     // the Map. A step whose epic did not resolve gets no entry — see the header.
     const pipelineByStep = new Map();
+    const epicByStep = new Map();
     const stepsById = new Map();
     for (const s of asArray(steps)) {
         const sid = toId(s?.id);
         const eid = toId(s?.epic_fk);
         if (sid == null) continue;
         stepsById.set(sid, { ...s, id: sid });
+        // The step's epic, kept separately from its plan (req #3365). A step
+        // whose epic is missing from the read has NO plan either — one hop, two
+        // answers — so an unresolvable epic is the same silence the plan gets
+        // rather than an epic id pointing at a row nobody read.
+        if (eid != null && epicsById.has(eid)) epicByStep.set(sid, eid);
         const pid = eid != null ? pipelineByEpic.get(eid) : null;
         if (pid != null) pipelineByStep.set(sid, pid);
     }
@@ -169,11 +181,20 @@ export function buildOrchestrationIndex({ pipelines, epics, steps, stepRequireme
         if (pid == null) continue;
         const stepIds = seats.filter((s) => s.pipelineId === pid)
             .map((s) => s.stepId).sort((a, b) => a - b);
-        requirementSeat.set(rid, { pipelineId: pid, stepId: stepIds[0] ?? null });
+        const stepId = stepIds[0] ?? null;
+        // The epic comes from the CHOSEN step, never resolved a second way:
+        // whatever step this seat names is the step whose epic the box shows,
+        // so the two rows can never disagree about where the requirement sits.
+        requirementSeat.set(rid, {
+            pipelineId: pid,
+            stepId,
+            epicId: stepId != null ? (epicByStep.get(stepId) ?? null) : null,
+        });
     }
 
     return {
         pipelinesById,
+        epicsById,
         stepsById,
         // EXPORTED because `stepOptions` needs it (req #3356). Under 1.0 that
         // function read `step.pipeline_fk` straight off the row; a 2.0 step has
