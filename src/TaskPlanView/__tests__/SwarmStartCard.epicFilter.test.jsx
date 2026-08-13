@@ -61,12 +61,23 @@ const FEATURES = [];
 const BY_STATUS = {};
 for (const r of ALL_ROWS) (BY_STATUS[r.requirement_status] ??= []).push(r);
 
-let activeStatusAsked = null;
+// req #3500 — a SET, not a single "last call wins" value: the card now runs a
+// second `useRequirementsByStatus('met', …)` while an epic filter is engaged
+// AND `met` is the active chip (see `SwarmStartCard.jsx`'s
+// `serverMetRequirementsAllTime`), so more than one status can legitimately be
+// enabled in the same render. A disabled call must not be recorded as
+// "asked" — the previous unconditional version didn't model that distinction
+// because only one call ever existed to need it. (Real `useQuery` with
+// `enabled: false` can still surface a cached value from another observer on
+// the same key; this double doesn't model that — it only needs to say whether
+// a fetch was actually requested, which is all these tests check.)
+let statusesAsked = new Set();
 const EMPTY = [];
 vi.mock('../../hooks/useDataQueries', () => ({
-    useRequirementsByStatus: (_c, status) => {
-        activeStatusAsked = status;
-        return { data: BY_STATUS[status] ?? EMPTY };
+    useRequirementsByStatus: (_c, status, opts) => {
+        const enabled = opts?.enabled ?? true;
+        if (enabled) statusesAsked.add(status);
+        return { data: enabled ? (BY_STATUS[status] ?? EMPTY) : undefined };
     },
     useRequirementsDone: () => ({ data: EMPTY }),
     useSessions: () => ({ data: EMPTY }),
@@ -129,7 +140,7 @@ const badge = (container, status) => {
 describe('SwarmStartCard under an epic filter (req #3428)', () => {
     beforeEach(() => {
         roots = [];
-        activeStatusAsked = null;
+        statusesAsked = new Set();
         useSwarmStartCardStore.setState({ selectedStatus: 'swarm_ready', show: true });
         useShowClosedStore.setState({ hidePipelinedRequirements: true });
     });
@@ -143,7 +154,12 @@ describe('SwarmStartCard under an epic filter (req #3428)', () => {
     it('DOES NOT OPEN BLANK: the persisted swarm_ready chip has none of the epic, '
         + 'so the card opens on one that does', () => {
         const { container } = mount(EPIC_SET);
-        expect(activeStatusAsked).toBe('development');
+        // req #3500 — `development` has the epic's work, so the override lands
+        // there and the epic-scoped all-time `met` read stays OFF: it is gated
+        // on `isMet`, not merely on the epic filter being active, precisely so a
+        // development-carrying epic never pays for a `met` fetch it will not
+        // render.
+        expect(statusesAsked).toEqual(new Set(['development']));
         expect(rowIds(container).sort()).toEqual(['3428', '3430']);
     });
 
@@ -197,7 +213,66 @@ describe('SwarmStartCard under an epic filter (req #3428)', () => {
     it('with NO filter (null) it behaves exactly as before: the stored chip is '
         + 'honoured and the template row is back', () => {
         const { container } = mount(null);
-        expect(activeStatusAsked).toBe('swarm_ready');
+        // req #3500 — with no epic filter, the epic-scoped all-time `met` read
+        // must stay OFF: exactly one status is asked, unchanged from before.
+        expect(statusesAsked).toEqual(new Set(['swarm_ready']));
         expect(container.querySelector('[data-testid="requirement-template"]')).not.toBeNull();
+    });
+
+    // req #3500 — three tests share one setup/teardown: add a fully-`met`
+    // "done epic" (7001, 7002) to the module-scope fixtures, run the assertion,
+    // always restore. All mutation AND restoration live inside try/finally so a
+    // throw mid-setup can't leave a later test looking at a dirty fixture.
+    const withDoneEpicRows = (run) => {
+        const priorAll = ALL_ROWS.slice();
+        const priorByStatus = { ...BY_STATUS };
+        try {
+            const doneRows = [
+                { id: 7001, title: 'Done A', requirement_status: 'met', category_fk: 1 },
+                { id: 7002, title: 'Done B', requirement_status: 'met', category_fk: 1 },
+            ];
+            ALL_ROWS.push(...doneRows);
+            BY_STATUS.met = [...(BY_STATUS.met ?? []), ...doneRows];
+            run();
+        } finally {
+            ALL_ROWS.length = 0; ALL_ROWS.push(...priorAll);
+            for (const k of Object.keys(BY_STATUS)) delete BY_STATUS[k];
+            Object.assign(BY_STATUS, priorByStatus);
+        }
+    };
+
+    it('req #3500 — a fully-`met` epic (a completed plan) opens on Met instead '
+        + 'of sitting blank on the persisted swarm_ready chip', () => {
+        withDoneEpicRows(() => {
+            const { container } = mount(new Set([7001, 7002]));
+            // The primary active-status query is disabled once the card lands on
+            // `met` (`enabled: !isMet`) — only the epic-scoped all-time read asks.
+            expect(statusesAsked).toEqual(new Set(['met']));
+            expect(rowIds(container).sort()).toEqual(['7001', '7002']);
+            expect(badge(container, 'met')).toBe(2);
+        });
+    });
+
+    it('req #3500 — `met` is a LAST-RESORT candidate: an epic with BOTH queue '
+        + 'work and completed work opens on the queue chip, not Met', () => {
+        // EPIC_SET's own two `development` rows plus the done epic's two `met`
+        // rows, scoped together — pins the ORDERING rule the fix depends on,
+        // not merely that `met` is a candidate at all.
+        withDoneEpicRows(() => {
+            const { container } = mount(new Set([3428, 3430, 7001, 7002]));
+            expect(statusesAsked).toEqual(new Set(['development']));
+            expect(rowIds(container).sort()).toEqual(['3428', '3430']);
+            expect(badge(container, 'met')).toBe(2);
+        });
+    });
+
+    it('req #3500 — a fully-`met` epic still shows its work when the reader\'s '
+        + 'persisted chip is ALREADY `met` (no override fires at all)', () => {
+        useSwarmStartCardStore.setState({ selectedStatus: 'met', show: true });
+        withDoneEpicRows(() => {
+            const { container } = mount(new Set([7001, 7002]));
+            expect(rowIds(container).sort()).toEqual(['7001', '7002']);
+            expect(badge(container, 'met')).toBe(2);
+        });
     });
 });

@@ -240,32 +240,47 @@ const SwarmStartCard = ({ epicReqIds = null }) => {
     // have not picked one during this filtered visit (`chipPickedWhileFiltered`),
     // so a deliberate click onto an empty chip is respected rather than undone.
     //
-    // `met` IS NOT A CANDIDATE: its badge is the trailing-24h overlay below, not
-    // the tally above, so auto-selecting it here could land on another empty chip
-    // — precisely the failure being fixed. If nothing else has rows, the reader's
-    // own chip stands.
+    // `met` IS A LAST-RESORT CANDIDATE ONLY (req #3500). It is skipped while any
+    // of the four "queue" statuses has epic work, for the reason the original
+    // req #3428 comment gave: its badge is normally the trailing-24h overlay
+    // below, not the all-time tally here, so auto-selecting it FIRST could land
+    // on another empty chip. But measured against real completed plans (pipeline
+    // 8's six epics, 2026-08-13), EVERY requirement under EVERY one of them is
+    // `met` — a finished epic has nothing left in authoring/approved/swarm_ready/
+    // development by construction, so "if nothing else has rows, the reader's
+    // own chip stands" left the aggregator this requirement asks to be turned ON
+    // blank for exactly the epics a reader is likeliest to click into from a
+    // completed pipeline. `met` is checked LAST, against `baseStatusCounts.met`
+    // — the ALL-TIME, epic-scoped tally (`useAllRequirements`, not the trailing
+    // window) — so a plan that finished days ago still lands here. The rows and
+    // badge for that landing are sourced without the 24h window too; see
+    // `serverMetRequirementsAllTime` below.
     //
-    // req #3502 CHANGED WHICH CHIP THIS LANDS ON, and the rule is deliberately
-    // unchanged. The rule is and was "the first chip in `SWARM_START_STATUSES`
-    // that has rows", scanned in vocabulary order. What moved is the DATA: the
-    // three launch chips used to be structurally near-empty under an epic filter
-    // (an epic's work is step-carried by construction and they excluded exactly
-    // that), so in practice this could only ever resolve to `development`. Their
-    // counts are real now, so an epic holding both authoring and development work
-    // opens on `authoring` where it used to open on `development`.
-    //
-    // Left as the first-non-empty scan on purpose: an arrival-order preference
-    // ("a plan-visualizer arrival wants in-flight work") is a NEW rule nobody has
-    // asked for, and inventing one here would put a second, undocumented ordering
-    // in a fallback the reader never sees chosen. Whichever chip it picks is
-    // guaranteed non-empty, which is the whole acceptance criterion.
+    // req #3502 CHANGED WHICH CHIP THE QUEUE SCAN LANDS ON, and left the rule
+    // alone. The rule is and was "the first queue chip in
+    // `SWARM_START_STATUSES` that has rows", scanned in vocabulary order. What
+    // moved is the DATA: the three launch chips used to be structurally
+    // near-empty under an epic filter — an epic's work is step-carried by
+    // construction and those chips excluded exactly that, unconditionally — so
+    // in practice `activeCandidate` could only ever resolve to `development`.
+    // Their counts are real now, so an epic holding both authoring and
+    // development work opens on `authoring` where it used to open on
+    // `development`. That also makes #3500's last-resort `met` branch the ONLY
+    // thing standing between a finished epic and a blank card, since the queue
+    // chips genuinely are empty there — the two changes compose rather than
+    // overlap. Left as a first-non-empty scan on purpose: an arrival-order
+    // preference ("a plan-visualizer arrival wants in-flight work") is a NEW
+    // rule nobody asked for, and inventing one here would put a second,
+    // undocumented ordering in a fallback the reader never sees chosen.
     const [chipPickedWhileFiltered, setChipPickedWhileFiltered] = useState(false);
     useEffect(() => { setChipPickedWhileFiltered(false); }, [epicFilterActive]);
     const epicChipOverride = React.useMemo(() => {
         if (!epicFilterActive || chipPickedWhileFiltered) return null;
         if (baseStatusCounts[storedStatus] > 0) return null;
-        return SWARM_START_STATUSES.find(
-            s => s !== 'met' && baseStatusCounts[s] > 0) ?? null;
+        const activeCandidate = SWARM_START_STATUSES.find(
+            s => s !== 'met' && baseStatusCounts[s] > 0);
+        if (activeCandidate) return activeCandidate;
+        return baseStatusCounts.met > 0 ? 'met' : null;
     }, [epicFilterActive, chipPickedWhileFiltered, baseStatusCounts, storedStatus]);
 
     const effectiveStatus = epicChipOverride ?? storedStatus;
@@ -326,6 +341,29 @@ const SwarmStartCard = ({ epicReqIds = null }) => {
         { fields: 'id,title,requirement_status,coordination_type,ai_model,effort,category_fk,completed_at' },
     );
 
+    // req #3500 — under an epic filter, "met" means the EPIC's completed work,
+    // not the whole account's last 24 hours: an epic reached from the plan
+    // visualizer is routinely already finished, and the trailing window empties
+    // the moment the plan is more than a day old, wrongly reading as "nothing to
+    // show" for real, completed work. Same shape as the queue-status query
+    // above (`useRequirementsByStatus`, unwindowed, whole-account) rather than a
+    // new fetch pattern — only its STATUS differs.
+    //
+    // `enabled: epicFilterActive && isMet`, NOT `epicFilterActive` alone.
+    // MEASURED: 1188 of 1367 requirements in this account are `met`, so an
+    // unconditional whole-account fetch on every epic-filtered visit would pull
+    // that population even in the common case — an epic with queue work, where
+    // `epicChipOverride` lands on `development` and not one `met` row is ever
+    // rendered. `isMet` is derived from `epicChipOverride` in this SAME render
+    // pass (both are plain `const`s computed top-to-bottom in this function
+    // body, not state that lags a render), so gating on it costs no extra
+    // round trip when the override does land on `met` — the query enables in
+    // the exact render that happens.
+    const { data: serverMetRequirementsAllTime } = useRequirementsByStatus(profile?.userName, 'met', {
+        fields: 'id,title,requirement_status,coordination_type,ai_model,effort,category_fk,completed_at',
+        enabled: epicFilterActive && isMet,
+    });
+
     // Memoized AND identity-preserving, and both halves are load-bearing.
     // `eligibleRequirements` is a dependency of the seeding `useEffect` below,
     // which calls `setRequirementsArray` — so an array that changes identity on
@@ -343,10 +381,20 @@ const SwarmStartCard = ({ epicReqIds = null }) => {
 
     // The Met chip's own population never goes through `eligibleRequirements`
     // (its query is `serverMetRequirements`, not `serverRequirements`) — so it
-    // needs its own pass, under the same rule.
+    // needs its own pass — under THE SAME RULE, since req #3502.
+    //
+    // req #3500 — the SOURCE swaps under an epic filter (all-time, epic-scoped)
+    // but the visibility pass applied to it is unchanged. req #3502 then made
+    // that pass the shared one: `met` had its own `aggregatorRowVisible('met',
+    // …)` predicate because the rule keyed on the chip's status, and it no
+    // longer does, so there is nothing left for `met` to be an exception to.
+    // The two changes are orthogonal — #3500 picks WHICH ROWS arrive here,
+    // #3502 decides which of them are visible.
+    const metSourceRequirements = epicFilterActive ? serverMetRequirementsAllTime : serverMetRequirements;
+
     const eligibleMetRequirements = React.useMemo(
-        () => visibility.filterVisible(serverMetRequirements),
-        [serverMetRequirements, visibility.filterVisible]);
+        () => visibility.filterVisible(metSourceRequirements),
+        [metSourceRequirements, visibility.filterVisible]);
 
     // The array that drives the card body for the currently selected chip.
     //
@@ -400,23 +448,34 @@ const SwarmStartCard = ({ epicReqIds = null }) => {
     // array is the one the rows are NOT taken from directly (`currentRequirements`
     // filters it), so leaving the overlay alone would print an unfiltered met
     // count over a filtered met list.
+    //
+    // req #3500 — UNDER AN EPIC FILTER THE OVERLAY IS SKIPPED ENTIRELY.
+    // `baseStatusCounts.met` is already the right number: it comes from
+    // `useAllRequirements`, all-time, run through the SAME `filterToEpic` +
+    // `tallyRequirementStatuses` pass as the other four statuses. Overlaying the
+    // trailing-24h figure on top of it would put the global-card window back on
+    // an epic-scoped badge — the exact mismatch this requirement reports. The
+    // branch below therefore only ever runs while `epicFilterActive` is false,
+    // which makes `epicReqIds` null there by that flag's own definition — so
+    // `filterToEpic` is a guaranteed no-op and reads straight off
+    // `eligibleMetRequirements`, no fallback needed.
     const statusCountMap = React.useMemo(() => {
         // req #3428 — `baseStatusCounts` above IS the tally (computed once, under
         // the epic filter); this only overlays the trailing-24h `met` figure.
         const counts = { ...baseStatusCounts };
-        if (Array.isArray(serverMetRequirements)) {
-            // ONE expression, not two. This carried a
-            // `?? filterToEpic(serverMetRequirements, epicReqIds).length`
-            // fallback that could never run: the branch is already guarded on
-            // `serverMetRequirements` being an array, and both `filterVisible`
-            // and `filterToEpic` return an array for an array — so `?.length`
-            // was always a number and the `??` was dead. A fallback that cannot
-            // fire is worse than none: it reads as a second, unfiltered answer
-            // for this count, which is exactly what must not exist here.
-            counts.met = filterToEpic(eligibleMetRequirements, epicReqIds).length;
+        // req #3502 arrived here with the same dead
+        // `?? filterToEpic(serverMetRequirements, …).length` fallback removed
+        // for its own reason (it could never fire — the branch is already
+        // guarded on the array, and every pass in it returns an array). req
+        // #3500's narrowing subsumes that: skipping the overlay entirely under
+        // an epic filter leaves `filterToEpic` a guaranteed no-op here, so the
+        // expression is simpler still. Nothing of #3502's reasoning is lost —
+        // there is no second, unfiltered answer for this count either way.
+        if (!epicFilterActive && Array.isArray(serverMetRequirements)) {
+            counts.met = eligibleMetRequirements.length;
         }
         return counts;
-    }, [baseStatusCounts, serverMetRequirements, eligibleMetRequirements, epicReqIds]);
+    }, [baseStatusCounts, serverMetRequirements, eligibleMetRequirements, epicFilterActive]);
 
     // Comparators are module-level — see `aggregatorSort` above.
 
