@@ -74,7 +74,32 @@ export const ghostTextColumn = ({
                 hideMessage
                 testId={testId(params.row)}
                 inputProps={inputProps}
-                sx={{ width: '100%', ...sx }}
+                // `GhostTextField`'s `ghostBase` sets `lineHeight: 'inherit'` — right
+                // for a card, where it picks up the surrounding prose's line height.
+                // Inside a DataGrid cell it inherits `.MuiDataGrid-cell`'s own
+                // `line-height: calc(var(--height) - 1px)` instead (a DataGrid rule
+                // that exists to vertically-center a SINGLE line within the row), so
+                // every wrapped line rendered near the full row height rather than a
+                // normal text line — the actual cause of req #3396's corrupted
+                // columns; capping `maxRows` alone does not fix it. `GhostCell`
+                // already centers vertically via flexbox, so this cell owes the grid
+                // nothing here and can set its own line height back to the DataGrid's
+                // body2 typography (`fontSize: 0.875rem` / `lineHeight: 1.43` — MUI's
+                // default, unmodified by `Theme/ThemeWrapper.jsx`).
+                //
+                // The nested key is merged, not replaced, so a future caller
+                // passing its own `'& .MuiInputBase-input'` sx cannot silently drop
+                // this and reopen #3396 — `...sx` alone would win the whole nested
+                // object and take `lineHeight` with it.
+                sx={{
+                    width: '100%',
+                    lineHeight: 1.43,
+                    ...sx,
+                    '& .MuiInputBase-input': {
+                        lineHeight: 1.43,
+                        ...(sx?.['& .MuiInputBase-input'] || {}),
+                    },
+                }}
             />
         </GhostCell>
     ),
