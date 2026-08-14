@@ -9,9 +9,10 @@
 // requirement on a plan; the pipeline follows from the step.
 //
 // req #3357 RETIRED THE EPIC ROW. This module used to answer a third question
-// — "which epic does this requirement's feature name" — by walking
-// `requirements.feature_fk -> features.epic_fk`. Feature left the frontend and
-// no replacement existed for 1.0: no `pipeline_steps` row carried an `epic_fk`.
+// — "which epic does this requirement's retired middle tier name" — by
+// walking the requirement's reference to it and then that tier's own
+// reference to the epic. That tier left the frontend and no replacement
+// existed for 1.0: no `pipeline_steps` row carried an `epic_fk`.
 // The epic derivation went rather than being re-pointed — an accepted, visible
 // reduction, not a defect. See `utils/pipelineMembership.js`'s header for the
 // identical reasoning applied to the browse toggle.

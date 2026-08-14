@@ -371,9 +371,10 @@ const RequirementDetail = () => {
     // pages hold. Detail in `useOrchestrationIndex.js`.
     //
     // req #3357 RETIRED THE EPIC ROW this box once showed alongside Pipeline and
-    // Step. It was reached only through `requirements.feature_fk ->
-    // features.epic_fk`, and Feature leaving the frontend retired that path with
-    // no 1.0 replacement, because no `pipeline_steps` row carried an `epic_fk`.
+    // Step. It was reached only through the requirement's reference to the
+    // retired middle tier and that tier's own reference to the epic, and that
+    // tier leaving the frontend retired the path with no 1.0 replacement,
+    // because no `pipeline_steps` row carried an `epic_fk`.
     //
     // THAT SENTENCE IS NO LONGER THE STATE OF THE DATA (req #3356). The index
     // reads Pipeline 2.0 now, and `pipeline_steps.epic_fk` is NOT NULL — the

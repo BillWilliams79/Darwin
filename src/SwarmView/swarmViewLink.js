@@ -78,8 +78,9 @@ export const swarmViewLinkTo = (view) =>
 // NOT THE ONLY `?epic=` IN THIS CODEBASE, AND THAT IS FINE. `pipelineEpicLink.js`
 // owns `?epic=` on `/swarm/pipeline/<pid>`, where it means FOCUS THIS BAND;
 // `StepsPage.jsx` owns it on `/swarm/steps` (req #3373), where it means FILTER
-// TO THIS EPIC — the target `FeaturesPage.jsx` used to own before req #3357
-// retired it; this owns it on `/swarm` and means what StepsPage's means.
+// TO THIS EPIC — the target its now-retired browsable-catalog predecessor
+// used to own before req #3357 retired it; this owns it on `/swarm` and means
+// what StepsPage's means.
 // Multiple ROUTES, one meaning each, so no reader ever has to work out which
 // sense is in play — and the key is the same word because the noun is the same,
 // which is what makes the address bar legible. They deliberately do NOT share a
