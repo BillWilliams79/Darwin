@@ -2,9 +2,10 @@
 //
 // TestCasesPage.jsx — req #3357 (code review coverage gap).
 //
-// The junction re-point (feature_test_cases -> requirement_test_cases) and the
-// rebuilt link picker (a checkbox-per-feature list replaced by a search-and-
-// select Autocomplete, item 9) shipped with no test file at all. Two real bugs
+// The junction re-point (the retired middle tier's junction table ->
+// requirement_test_cases) and the rebuilt link picker (a checkbox-per-row list
+// replaced by a search-and-select Autocomplete, item 9) shipped with no test
+// file at all. Two real bugs
 // reached review as a result:
 //
 //   1. The Autocomplete's typed text never cleared after a selection, so a

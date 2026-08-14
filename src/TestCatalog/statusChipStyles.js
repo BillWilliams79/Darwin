@@ -1,5 +1,6 @@
 // Centralised chip style props for the req #2380 status / type / result enums
-// (the feature_status enum retired with FeaturesPage by req #3357). Mirrors
+// (the retired middle tier's own status enum retired with its browsable
+// catalog page by req #3357). Mirrors
 // the exemplar `SwarmView/statusChipStyles.js` pattern so these three pages
 // render enums consistently (color + capitalized label) and a future theme
 // change lives in one place.

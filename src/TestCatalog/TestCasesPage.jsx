@@ -1,6 +1,7 @@
 // /swarm/testcases — Test Cases page (req #2380 Phase 1).
-// The exemplar pattern this once followed was FeaturesPage, retired by req
-// #3357 — test cases now link to Requirement (req #3352's junction) instead.
+// The exemplar pattern this once followed was the retired middle tier's own
+// browsable catalog page, retired by req #3357 — test cases now link to
+// Requirement (req #3352's junction) instead.
 
 import { useState, useMemo, useContext, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -529,8 +530,9 @@ function TestCaseEditDialog({ open, onClose, onSave, initial, categories, requir
     };
 
     // req #3357 item 9 — a checkbox-per-row list does not scale past a handful
-    // of options (34 features vs. 200+ live requirements, thousands in the
-    // table), so linking is SEARCH-AND-SELECT: a typeahead over `id - title`
+    // of options (34 rows in the retired middle tier's catalog vs. 200+ live
+    // requirements, thousands in the table), so linking is SEARCH-AND-SELECT:
+    // a typeahead over `id - title`
     // that adds a chip per selection, with the linked set as removable chips
     // above it.
     //
