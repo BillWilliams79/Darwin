@@ -205,9 +205,9 @@ describe('PipelineDetail — ?step= (req #3140)', () => {
         expect(node('mode-plan')).not.toBeNull();
         expect(focusOf('plan')).toBe('');
         // Re-render via an unrelated state change on the same page — the
-        // description dialog. The URL is untouched, so the seeding effect must
+        // colour-key toggle. The URL is untouched, so the seeding effect must
         // not fire again and drag the reader back to the table.
-        click(node('pipeline-description-btn'));
+        click(node('pipeline-viz-colorkey-state'));
         expect(node('mode-plan')).not.toBeNull();
         expect(focusOf('plan')).toBe('');
     });
@@ -273,7 +273,7 @@ describe('PipelineDetail — ?level= (req #3253)', () => {
         expect(levelOf('plan')).toBe('3');
         expect(localStorage.getItem('darwin-pipeline-viz-level')).toBe('3');
         // Re-render via an unrelated state change — the pin must not come back.
-        click(node('pipeline-description-btn'));
+        click(node('pipeline-viz-colorkey-state'));
         expect(levelOf('plan')).toBe('3');
     });
 
@@ -341,7 +341,7 @@ describe('PipelineDetail — the level is fixed until Auto (req #3324)', () => {
         expect(levelOf('plan')).toBe('3');
         expect(storedLevel()).toBe('3');
         // Re-render via an unrelated state change — still L3.
-        click(node('pipeline-description-btn'));
+        click(node('pipeline-viz-colorkey-state'));
         expect(levelOf('plan')).toBe('3');
     });
 

@@ -82,7 +82,7 @@ import {
     // coincidental reds.
     PAUSE_PAUSED_COLOR,
 } from './pipelineChipStyles';
-import { sortReqIdsByStatus } from './pipelinePlanLayout';
+import { sortReqIdsByColorKey } from './pipelinePlanLayout';
 
 const NOWRAP = { whiteSpace: 'nowrap' };
 
@@ -246,15 +246,21 @@ function StepLaunchLine({ row }) {
 // to check it. Kept to a style + tooltip on the existing link deliberately: no
 // second chip, no new column, no new view.
 //
-// Sorted met-first, deferred/wontfix-last (req #3363), the same ladder the
-// Plan visualizer stacks its requirement marks with — `statusOf` is the
-// table's own status lookup, so Table and Plan modes agree on the order for
-// the same step. `row.reqIds` ITSELF is untouched (junction order — the
-// engine's contract); only the array handed to `.map` here is reordered.
-function RequirementLinks({ row, pipelineId, statusOf }) {
+// Sorted by whichever colour key is ACTIVE (req #3363, generalized req
+// #3503) — the SAME ladder `sortReqIdsByColorKey` stacks the Plan
+// visualizer's requirement marks with, so Table and Plan modes always agree
+// on the order for the same step even though only the Plan toolbar shows the
+// State/Autonomy/Machine control (`colorKey` is the persisted preference,
+// carried into this panel whichever mode last set it — Table mode reads it,
+// it just does not render the picker). `statusOf`/`autonomyOf`/`machineOf`
+// are this table's own lookups. `row.reqIds` ITSELF is untouched (junction
+// order — the engine's contract); only the array handed to `.map` here is
+// reordered.
+function RequirementLinks({ row, pipelineId, colorKey, statusOf, autonomyOf, machineOf }) {
     if (!row.reqIds.length) return <span>—</span>;
     const tracking = new Set(row.trackingReqIds || []);
-    const sortedIds = sortReqIdsByStatus(row.reqIds, statusOf);
+    const sortedIds = sortReqIdsByColorKey(row.reqIds,
+        { colorKey, statusOf, autonomyOf, machineOf });
     return (
         <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
             {sortedIds.map((id) => {
@@ -389,13 +395,22 @@ function GroupCell({ show, value, width, color, testid }) {
 // directly for the two things it needs an era for — its scroll-storage
 // namespace and the requirement links' Back state.
 export default function PipelinePlanTable({ plan, model, pipeline, timezone, focusStepId,
-    costError = false, showCost = false }) {
-    // req #3363 — id -> requirement_status, for `RequirementLinks`' sort. The
-    // SAME light projection the page already read (`model.requirements`); no
-    // extra fetch.
-    const reqStatusById = useMemo(
-        () => new Map((model?.requirements || []).map((r) => [r.id, r.requirement_status])),
+    costError = false, showCost = false, colorKey }) {
+    // req #3363, generalized req #3503 — id -> {status, coordination, machineFk},
+    // for `RequirementLinks`' sort, whichever colour key is active. The SAME
+    // light projection the page already read (`model.requirements`); no extra
+    // fetch. One map rather than three: the three accessor closures below all
+    // read the same row, and a step's requirement list is never long enough for
+    // three separate `Map.get` calls per id to matter.
+    const reqInfoById = useMemo(
+        () => new Map((model?.requirements || []).map((r) => [r.id, {
+            status: r.requirement_status, coordination: r.coordination_type,
+            machineFk: r.machine_fk,
+        }])),
         [model]);
+    const statusOf = (id) => reqInfoById.get(id)?.status;
+    const autonomyOf = (id) => reqInfoById.get(id)?.coordination;
+    const machineOf = (id) => reqInfoById.get(id)?.machineFk;
     // `showCost` is OWNED BY THE PAGE since req #3119 — the Time / Tokens control
     // renders in the header row beside the pipeline name, with the visualizer's
     // toggles, so both modes put their controls in one place.
@@ -673,7 +688,10 @@ export default function PipelinePlanTable({ plan, model, pipeline, timezone, foc
                                                testid={`pipeline-epic-${row.id}`} />
                                     <TableCell sx={{ width: COL.reqs }}>
                                         <RequirementLinks row={row} pipelineId={pipeline?.id}
-                                                          statusOf={(id) => reqStatusById.get(id)} />
+                                                          colorKey={colorKey}
+                                                          statusOf={statusOf}
+                                                          autonomyOf={autonomyOf}
+                                                          machineOf={machineOf} />
                                         {/* Design rule 8's own artifact, on the
                                             row that owns it — see StepLaunchLine.
                                             Directly under the ids because they

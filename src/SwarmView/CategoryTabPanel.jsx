@@ -24,7 +24,10 @@ import Box from '@mui/material/Box';
 // filter is active. This panel neither reads the URL nor derives membership: the
 // host owns the filter, and one derivation upstairs is what stops the aggregator
 // and the category cards from disagreeing about what the epic contains.
-const CategoryTabPanel = ( { project, projectIndex, activeTab, showClosed, showSwarmStartCard, epicReqIds = null } ) => {
+// req #3503 — `stepReqIds` is the STEP filter's scope, the sibling of the above
+// and threaded the same way. Independent of it: both may be non-null at once and
+// the cards apply them in series.
+const CategoryTabPanel = ( { project, projectIndex, activeTab, showClosed, showSwarmStartCard, epicReqIds = null, stepReqIds = null } ) => {
 
     const clearDragTabSwitch = useSwarmTabStore(s => s.clearDragTabSwitch);
 
@@ -401,7 +404,7 @@ const CategoryTabPanel = ( { project, projectIndex, activeTab, showClosed, showS
             >
                 { categoriesArray &&
                     <Box className="card swarm-card" ref={panelDrop}>
-                        {showSwarmStartCard && <SwarmStartCard epicReqIds={epicReqIds} />}
+                        {showSwarmStartCard && <SwarmStartCard epicReqIds={epicReqIds} stepReqIds={stepReqIds} />}
                         { categoriesArray.map((category, categoryIndex) => (
                             <CategoryCard {...{key: category.id,
                                            category,
@@ -417,7 +420,8 @@ const CategoryTabPanel = ( { project, projectIndex, activeTab, showClosed, showS
                                            removeCategory,
                                            isTemplate: category.id === '',
                                            showClosed,
-                                           epicReqIds,}}/>
+                                           epicReqIds,
+                                           stepReqIds,}}/>
                         ))}
                     </Box>
                 }

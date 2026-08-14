@@ -38,7 +38,7 @@ import SemanticLevelControl from '../../Components/SemanticLevelControl';
 // captions on this row cannot drift into three voices.
 import { TOOLBAR_CAPTION_SX } from '../../Components/toolbarStyles';
 import { PLAN_LEVEL_NUMBER, REQ_COLOR_SCALES,
-    STEPS_ACROSS_OPTIONS, SNAP_COLUMNS_STEP } from './pipelinePlanLayout';
+    STEPS_ACROSS_OPTIONS, STEP_WIDTH_SCALES } from './pipelinePlanLayout';
 import { toolbarChipProps } from './pipelineChipStyles';
 
 // Reset's wording, in ONE place: it is both the tooltip and the accessible name
@@ -66,8 +66,8 @@ export const RESET_LABEL = 'Reset — fully zoomed out, the whole plan\'s vertic
 /**
  * @param {Object} props
  * @param {function} props.onStepsAcross        receives the step count to fit
- * @param {boolean} props.snapZoom               wheel snaps to the step ladder
- * @param {function} props.onToggleSnapZoom      flips it
+ * @param {number} props.stepWidthLevel         1-4, a STEP_WIDTH_SCALES index+1
+ * @param {function} props.onChangeStepWidthLevel receives the level as a string
  * @param {string} props.colorKey               a REQ_COLOR_KEYS value
  * @param {function} props.onChangeColorKey     receives a REQ_COLOR_KEYS value
  * @param {string} props.planLevelPref          'auto' | '1' | '2' | '3'
@@ -77,8 +77,8 @@ export const RESET_LABEL = 'Reset — fully zoomed out, the whole plan\'s vertic
  */
 export default function PipelinePlanToolbar({
     onStepsAcross,
-    snapZoom,
-    onToggleSnapZoom,
+    stepWidthLevel,
+    onChangeStepWidthLevel,
     colorKey,
     onChangeColorKey,
     planLevelPref,
@@ -103,25 +103,6 @@ export default function PipelinePlanToolbar({
             <Stack direction="row" spacing={0.5} useFlexGap alignItems="center"
                    sx={{ flexShrink: 0 }}
                    data-testid="pipeline-viz-steps-across">
-                {/* ── SNAP, LEFT OF THE LADDER (user directive 2026-08-13) ────
-                    The one control in this group that IS a state, so it is the
-                    one that shows pressed. It belongs beside the numbers rather
-                    than in the View group because it changes what those numbers
-                    mean for the WHEEL: with it on, wheeling walks the same rungs
-                    the buttons jump to. */}
-                <Tooltip title={snapZoom
-                    ? `Snap is ON — the wheel steps ${SNAP_COLUMNS_STEP} cards `
-                        + 'at a time. Click for smooth zoom.'
-                    : `Snap the wheel to ${SNAP_COLUMNS_STEP}-card jumps`}>
-                    <Chip
-                        label="Snap"
-                        aria-label={`Snap zoom to ${SNAP_COLUMNS_STEP}-card jumps`}
-                        aria-pressed={!!snapZoom}
-                        onClick={() => onToggleSnapZoom?.()}
-                        {...toolbarChipProps(!!snapZoom)}
-                        data-testid="pipeline-viz-snap-zoom"
-                    />
-                </Tooltip>
                 {STEPS_ACROSS_OPTIONS.map((n) => (
                     <Tooltip key={n} title={`Fit ${n} steps across`}>
                         <Chip
@@ -242,19 +223,58 @@ export default function PipelinePlanToolbar({
                      sx={{ mx: 0.5, flexShrink: 0 }} />
 
             {/* ── DISPLAY GROUP — what the plan DRAWS ─────────────────────────
-                THE WIDTH CONTROL WAS THE FIRST THING IN THIS GROUP, AND IT IS
-                GONE (req #3498, user directive: *"Remove the width UI option
-                S/M/L as part of this, won't need it any more."*).
+                THE OLD WIDTH CONTROL WAS REMOVED (req #3498, user directive:
+                *"Remove the width UI option S/M/L as part of this, won't need
+                it any more."*) because it multiplied a COLUMN sized to its own
+                CONTENT — a per-column negotiation that stopped existing the
+                moment a step became a fixed-width card (every column exactly
+                one card wide, `CARD_W`). That reasoning does not un-happen; it
+                answers a DIFFERENT question than the one below. */}
+            {/* ── STEP WIDTH, BACK BY A DIFFERENT ROUTE (req #3503) ───────────
+                Not the S/M/L multiplier above: this scales the CARD ITSELF —
+                `cardGeometryFor` in pipelinePlanLayout.js, four rungs
+                (`STEP_WIDTH_SCALES`), 1 the size every existing plan already
+                assumes, 2-4 each 25% more TEXT room. Reuses the retired
+                control's own testid PREFIX (`pipeline-viz-stepwidth-*`) —
+                same axis, same place in the row, a later requirement's answer
+                to it rather than an unrelated new one.
 
-                It existed because columns were sized to their CONTENT, so a
-                reader looking at a cramped plan had no way to buy air; the three
-                chips multiplied every column by 1.1 / 1.1836 / 1.428. A step is
-                a card now and every column is exactly one card wide, so there is
-                no content negotiation left for a multiplier to tune — see
-                `CARD_W` in pipelinePlanLayout.js.
+                A RELAYOUT, DELIBERATELY NOT AN ACTION (req #3503 user
+                directive: *"this will cause a re-layout so it is a
+                [deliberate,] required UI option"*): every OTHER control on
+                this row is a pure camera transform, so this one is the single
+                exception, and it shows PRESSED like Colour and View do — a
+                STATE the plan is currently laid out at, not a button that
+                fired and forgot. */}
+            <Stack direction="row" spacing={0.5} useFlexGap alignItems="center"
+                   sx={{ flexShrink: 0 }}
+                   data-testid="pipeline-viz-stepwidth-toggle">
+                <Box component="span" sx={TOOLBAR_CAPTION_SX}>Width:</Box>
+                {STEP_WIDTH_SCALES.map((scale, i) => {
+                    const level = i + 1;
+                    const on = stepWidthLevel === level;
+                    const label = level === 1
+                        ? 'Step Width 1 — the plan\'s normal card width'
+                        : `Step Width ${level} — ${Math.round((scale - 1) * 100)}% `
+                            + 'more room for titles and requirement text';
+                    return (
+                        <Tooltip key={level} title={label}>
+                            <Chip
+                                label={String(level)}
+                                aria-label={label}
+                                onClick={() => onChangeStepWidthLevel?.(String(level))}
+                                {...toolbarChipProps(on)}
+                                sx={{ minWidth: 28 }}
+                                data-testid={`pipeline-viz-stepwidth-${level}`}
+                            />
+                        </Tooltip>
+                    );
+                })}
+            </Stack>
 
-                `pipeline-viz-stepwidth-toggle` and the three
-                `pipeline-viz-width-*` testids go with it. */}
+            <Divider orientation="vertical" flexItem
+                     sx={{ mx: 0.5, flexShrink: 0 }} />
+
             {/* The colour key for the REQUIREMENT MARKS, never the beads — the
                 bead's fill is derived STEP state and stays that (the
                 one-fact-one-channel-one-level rule in pipelinePlanLayout.js).

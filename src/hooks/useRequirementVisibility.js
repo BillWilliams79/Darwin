@@ -69,6 +69,13 @@ import {
  *        being written five times — so the override belongs in the one place
  *        that answers the question. The store is never WRITTEN: dismissing the
  *        epic pill restores exactly the toggle state the reader had.
+ * @param {boolean} [opts.stepFilterActive=false]  req #3503 — the STEP filter,
+ *        and the identical override for a stronger version of the same reason: a
+ *        step's requirements are on a step BY DEFINITION, so with the toggle left
+ *        in charge a step-filtered page is empty ALWAYS, not merely usually. A
+ *        separate flag rather than a caller OR-ing into `epicFilterActive`,
+ *        because a parameter named for the epic filter silently answering for the
+ *        step one is how the next reader mis-reads this hook.
  * @returns {{
  *   hideOrchestrated: boolean,
  *   pipelinedIds: Set<number>,
@@ -90,9 +97,16 @@ import {
  * the SAME ARRAY REFERENCE when nothing is dropped, so it is safe in a
  * `useMemo`/`useEffect` dependency.
  */
-export function useRequirementVisibility(creatorFk, { epicFilterActive = false } = {}) {
+export function useRequirementVisibility(
+    creatorFk, { epicFilterActive = false, stepFilterActive = false } = {}) {
     const storedHideOrchestrated = useShowClosedStore(s => s.hidePipelinedRequirements);
-    const hideOrchestrated = effectiveHidePipelined(storedHideOrchestrated, epicFilterActive);
+    // req #3503 — EITHER membership filter forces the toggle off, through the one
+    // predicate. `effectiveHidePipelined`'s parameter keeps its epic name: it has
+    // only ever asked "is a membership scope in force", and widening the CALL is
+    // what keeps this override in the single place req #3419 put it rather than
+    // spawning a second predicate that could disagree with the first.
+    const hideOrchestrated = effectiveHidePipelined(
+        storedHideOrchestrated, epicFilterActive || stepFilterActive);
 
     // Read unconditionally — hooks are not conditional, and gating this on the
     // toggle would mean the FIRST flip renders stale-empty for a round trip,
