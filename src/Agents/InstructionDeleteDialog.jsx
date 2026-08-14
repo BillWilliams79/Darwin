@@ -1,7 +1,8 @@
 // Retire or delete one instruction (req #3049).
 //
 // A dedicated dialog rather than window.confirm — a deliberate departure from the
-// Features exemplar — because `agent_instructions` CASCADEs on both foreign keys.
+// `TestCatalog/actions/validationApi.js` exemplar — because `agent_instructions`
+// CASCADEs on both foreign keys.
 // A hard delete silently strips the instruction from every agent that bound it,
 // and window.confirm cannot render WHICH agents those are. Seeing the list is the
 // whole guardrail.

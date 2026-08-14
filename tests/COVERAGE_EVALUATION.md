@@ -107,7 +107,7 @@ These 13 tests were added in sessions after the original TEST_PLAN.md was writte
 
 **Note**: TASK-09 and TASK-10 exist in both task-p1.spec.ts and sort-order.spec.ts/TEST_PLAN.md with different meanings. The task-p1.spec.ts versions test race conditions; the plan/sort-order versions test sort ordering.
 
-## Untested Features — Prioritized Gap List
+## Untested Areas — Prioritized Gap List
 
 ### High Priority Gaps
 
