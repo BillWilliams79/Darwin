@@ -104,24 +104,38 @@ const cardRect = (n) => ({ x: n.left, y: n.top, w: n.w, h: n.h });
 const REQ_TITLES = new Map(SUBSTRATE_REBUILD_MODEL.requirements.map(
     (r) => [r.id, 'A requirement title far longer than the card can ever draw']));
 
-// The reservation invariant, checked from layout OUTPUT: a straight (same-lane)
-// arc may cross only beads that are part of its own chain — a transitive
-// dependent of the tail AND dependency of the head (e.g. 13 on the 12→14 arc,
-// where 14 gates on both). Anything else on the wire is the failure the
-// cross-column reservation exists to prevent.
-function assertStraightArcsClear(layout, rows) {
+// The transitive dependency closure over a row set, memoized — the test-side
+// mirror of the layout module's own `reach`, and the ONLY copy in this file
+// (req #3512 review). THREE byte-identical closures had accumulated — two
+// already here, plus one req #3512's own first draft pasted in — and a
+// predicate that decides what counts as "in chain" is exactly the thing that
+// must not be able to drift between the assertions that share it — they answer
+// the same question for straight arcs, for arc/card crossings and for the
+// corpus ratchet, so three of them silently disagreeing is the failure mode.
+// If you need it again, call this; do not paste a fourth.
+function mkReach(rows) {
     const rowById = new Map(rows.map((r) => [r.id, r]));
-    const reachMemo = new Map();
+    const memo = new Map();
     const reach = (id) => {
-        if (reachMemo.has(id)) return reachMemo.get(id);
+        if (memo.has(id)) return memo.get(id);
         const out = new Set();
-        reachMemo.set(id, out); // cycle guard
+        memo.set(id, out); // cycle guard
         for (const d of (rowById.get(id)?.depIds || [])) {
             out.add(d);
             for (const dd of reach(d)) out.add(dd);
         }
         return out;
     };
+    return reach;
+}
+
+// The reservation invariant, checked from layout OUTPUT: a straight (same-lane)
+// arc may cross only beads that are part of its own chain — a transitive
+// dependent of the tail AND dependency of the head (e.g. 13 on the 12→14 arc,
+// where 14 gates on both). Anything else on the wire is the failure the
+// cross-column reservation exists to prevent.
+function assertStraightArcsClear(layout, rows) {
+    const reach = mkReach(rows);
     for (const arc of layout.arcs.filter((a) => a.straight)) {
         const a = layout.nodes.get(arc.fromId);
         const b = layout.nodes.get(arc.toId);
@@ -138,6 +152,57 @@ function assertStraightArcsClear(layout, rows) {
             }
         }
     }
+}
+
+// ── ARC HORIZONTAL RUNS OVER AN UNRELATED BEAD (req #3512) ─────────────────
+// The same question `assertStraightArcsClear` asks, widened to EVERY route and
+// answered with a COUNT rather than a throw — because the answer is not zero
+// today and pretending otherwise would make the sweep below unrunnable. An arc
+// whose source-lane corridor is blocked falls back to an early bend onto a
+// destination lane whose corridor nothing checks; that hole predates req #3512.
+//
+// Returns `{ crossings, arcs, onRun }`. `onRun` counts every bead sitting on
+// some arc's horizontal run INCLUDING the legitimate in-chain ones, so it stays
+// positive even if crossings reach zero — which is what makes it usable as a
+// wiring check that does not fail the day the metric is fixed.
+//
+// TWO DELIBERATE APPROXIMATIONS, both conservative:
+//  · the run is taken as the whole span `x1 < x < x2` for every route, while a
+//    late arc's horizontal actually ends at `x2 - bend` and an early arc's
+//    begins at `x1 + bend`. This OVER-counts and never under-counts, so a
+//    ceiling asserted against it cannot be satisfied by a real crossing hiding
+//    in the bend.
+//  · a cross-band arc scores zero because the scan is restricted to the SOURCE
+//    band — NOT because it has no horizontal run. It does: `sameBand` is false,
+//    so it always takes the early shape, whose trailing `L` runs at `y2`, the
+//    DESTINATION node's y, inside the DESTINATION band's lanes. Nothing here
+//    looks there. Measured on this corpus: 782 such overdraws (779 before req
+//    #3512, so 3 are attributable to it, against 20 → 14 in-band). A
+//    PRE-EXISTING GAP IN THE METRIC, ~56x larger than the class it counts —
+//    read the ceilings below as "in-band crossings", never as "all of them".
+function arcCrossings(layout, rows) {
+    const reach = mkReach(rows);
+    let crossings = 0;
+    let onRun = 0;
+    for (const arc of layout.arcs) {
+        // Where the arc actually RUNS horizontally: its source lane when
+        // straight or late-bending, its destination lane when early.
+        const hy = arc.straight || arc.route === 'late' ? arc.y1 : arc.y2;
+        const from = layout.nodes.get(arc.fromId);
+        for (const node of layout.nodes.values()) {
+            if (node.id === arc.fromId || node.id === arc.toId) continue;
+            if (node.bandIndex !== from.bandIndex) continue;
+            if (node.y !== hy) continue;
+            if (!(node.x > arc.x1 && node.x < arc.x2)) continue;
+            onRun += 1;
+            // In-chain beads are legitimate — the run reads as one line through
+            // its own members (the 12→14 arc over 13).
+            if (reach(node.id).has(arc.fromId)
+                && reach(arc.toId).has(node.id)) continue;
+            crossings += 1;
+        }
+    }
+    return { crossings, arcs: layout.arcs.length, onRun };
 }
 
 function assertNoLabelOverlap(layout, name) {
@@ -316,6 +381,106 @@ describe('corridor-aware lanes and adaptive arc routing (epic #6 shape)', () => 
                 const onRun = node.x > arc.x1 && node.x < arc.x2;
                 expect(onRun).toBe(false);
             }
+        }
+    });
+});
+
+// ── A CHAIN DOES NOT FRAGMENT AROUND AN UNRELATED SIBLING (req #3512) ───────
+// The live shape, reproduced from the composed read of pipeline 7's "Technical
+// Debt" epic on 2026-08-14 and rebuilt here with the same seven columns:
+//
+//     root ──┬── p1 ── p2 ── p3 ── p4          one linear chain
+//            └────────────────── w1 ── w2      one unrelated parallel chain
+//
+// THE TIME AXIS IS THE TRIGGER AND THE FIXTURE CARRIES ONE. `w1`'s only
+// dependency is `root`, so topology alone would seat it at column 1 — a date
+// moves it to column 4, which puts the `root → w1` arc across column 2, where
+// `p2` wants to sit. Without an axis the defect does not reproduce at all
+// (measured: two lanes both before and after the fix), so a fixture without one
+// would assert the right thing about the wrong configuration — and an axis is
+// what the page always renders with.
+//
+// BEFORE the fix: `p2`/`p3`/`p4` were refused lane 0 and pushed onto a THIRD
+// lane below the `w1` chain, disconnected from `p1` directly above them.
+describe('a dependent step stays in its chain\'s lane (req #3512)', () => {
+    const DAY = ['2026-08-10', '2026-08-11', '2026-08-12', '2026-08-13',
+        '2026-08-14', '2026-08-15'];
+    const mk = (id, depIds) => ({
+        id, title: `s${id}`, run: 'auto', state: 'pending', reqIds: [],
+        depIds, timeDeps: [], epicId: 21, epic: 'Technical Debt',
+        epicLabels: [], featureLabels: [], machineLabels: [], machineLabel: '—',
+    });
+    //         root  p1  p2  p3  p4        w1  w2
+    const rows = [mk(1, []), mk(2, [1]), mk(3, [2]), mk(4, [3]), mk(5, [4]),
+        mk(6, [1]), mk(7, [6])];
+    // One dated day per column, so `w1` (6) lands in the same slot as `p4` (5).
+    const timeAxis = {
+        stepStarts: new Map([
+            [1, { at: DAY[0], kind: 'dated' }], [2, { at: DAY[1], kind: 'dated' }],
+            [3, { at: DAY[2], kind: 'dated' }], [4, { at: DAY[3], kind: 'dated' }],
+            [5, { at: DAY[4], kind: 'dated' }], [6, { at: DAY[4], kind: 'dated' }],
+            [7, { at: DAY[5], kind: 'dated' }],
+        ]),
+        bandStarts: new Map(),
+        bandKinds: new Map(),
+    };
+    const layout = computePlanLayout(rows, { timeAxis });
+    const n = (id) => layout.nodes.get(id);
+
+    it('puts the unrelated chain in a column the shared root must arc past', () => {
+        // The precondition, asserted rather than assumed: if the axis ever
+        // stopped pushing `w1` right, every assertion below would still pass
+        // while testing nothing. `w1` at column 4 is what makes the `root → w1`
+        // arc cross `p2`'s column at all.
+        expect([1, 2, 3, 4, 5, 6, 7].map((id) => n(id).depth))
+            .toEqual([0, 1, 2, 3, 4, 4, 5]);
+    });
+
+    it('renders the linear chain as ONE continuous lane', () => {
+        for (const id of [2, 3, 4, 5]) {
+            expect(n(id).lane, `step ${id} left the chain's lane`).toBe(n(1).lane);
+            expect(n(id).y, `step ${id} left the chain's line`).toBe(n(1).y);
+        }
+    });
+
+    it('takes TWO lanes for two chains, not three', () => {
+        const band = layout.bands[n(1).bandIndex];
+        expect(band.sub).toBe(2);
+        expect(n(6).lane).toBe(1);
+        expect(n(7).lane).toBe(1);
+    });
+
+    it('still keeps every arc off an unrelated bead', () => {
+        assertStraightArcsClear(layout, rows);
+        // The full-route count, not just the straight ones: the whole point of
+        // granting p2 lane 0 is that the root's arc to w1 now has to get past
+        // it, so this shape is where a relaxation would show up as spaghetti.
+        expect(arcCrossings(layout, rows).crossings).toBe(0);
+        // NON-VACUITY, and `onRun > 0` is the WRONG guard here — measured: it
+        // is 0 on this fixture, because every straight arc joins ADJACENT
+        // columns and no bead can sit strictly inside one. What proves the
+        // predicate had something to find is the root → w1 arc: it spans three
+        // columns and its x-range CONTAINS p2 and p3, so if it ran at the
+        // chain's y (early bend onto lane 0, or a straight arc) both would be
+        // counted. It clears them by height, not by falling outside the span.
+        const rootToW1 = layout.arcs.find((a) => a.fromId === 1 && a.toId === 6);
+        expect(rootToW1, 'the root → w1 arc is missing').toBeTruthy();
+        for (const id of [3, 4]) {
+            expect(n(id).x > rootToW1.x1 && n(id).x < rootToW1.x2,
+                `step ${id} is not inside the root → w1 arc's span`).toBe(true);
+        }
+        const hy = rootToW1.straight || rootToW1.route === 'late'
+            ? rootToW1.y1 : rootToW1.y2;
+        expect(hy, 'the root → w1 run is at the chain\'s own height')
+            .not.toBe(n(3).y);
+    });
+
+    it('never stacks two beads on one cell', () => {
+        const seen = new Set();
+        for (const node of layout.nodes.values()) {
+            const cell = `${node.bandIndex}|${node.depth}|${node.lane}`;
+            expect(seen.has(cell), `cell ${cell} taken twice`).toBe(false);
+            seen.add(cell);
         }
     });
 });
@@ -866,18 +1031,7 @@ describe('the card is a fixed, uniform box (req #3498)', () => {
         // a straight same-lane arc may pass through a bead that is IN ITS OWN
         // CHAIN (a transitive dependent of the tail and dependency of the head),
         // because the chain reads as one line through its own members.
-        const rowById = new Map(plan.rows.map((r) => [r.id, r]));
-        const memo = new Map();
-        const reach = (id) => {
-            if (memo.has(id)) return memo.get(id);
-            const out = new Set();
-            memo.set(id, out);
-            for (const d of (rowById.get(id)?.depIds || [])) {
-                out.add(d);
-                for (const dd of reach(d)) out.add(dd);
-            }
-            return out;
-        };
+        const reach = mkReach(plan.rows);
         const illegal = crossings.filter((c) => {
             const m = c.match(/^(\d+)->(\d+) \(\w+\) crosses card (\d+)$/);
             const [, from, to, mid] = m.map(Number);
@@ -8408,6 +8562,90 @@ describe('cell invariant over a timed fuzz corpus (req #3229)', () => {
         }
         expect(failures).toEqual([]);
     });
+
+    // ── THE RATCHET ON LANES AND SPAGHETTI (req #3512) ──────────────────────
+    // Lane assignment and arc cleanliness trade against each other: any rule
+    // that hands a step a lane it would otherwise have been refused risks
+    // putting its bead on somebody's horizontal run, and any rule that refuses
+    // more lanes buys cleanliness with vertical sprawl. The epic #6 case above
+    // pins the arc side on ONE eight-step shape; nothing swept either side
+    // across the corpus, so req #3512 could relax a lane rule with no
+    // mechanical evidence about what it cost.
+    //
+    // EVERY NUMBER IS A CEILING AT THE MEASURED VALUE, not an aspiration. The
+    // crossing count is NOT zero today and this test does not pretend it is —
+    // an arc whose source-lane corridor is blocked falls back to an early bend
+    // onto the destination lane, whose corridor nothing checks. That hole is
+    // pre-existing and out of req #3512's scope; what matters is that it cannot
+    // grow silently.
+    //
+    // A SUM IS NOT ENOUGH, and this is the review finding that put the second
+    // pair of assertions here. Totals hide `+3 on one plan, −9 on another`, and
+    // that is exactly the shape this change has: on a 24,000-plan adversarial
+    // sweep the aggregate fell 5,938 → 5,659 while 600 plans GAINED a crossing
+    // and 746 lost one. On the shipped corpus below no plan gained one — but
+    // only a per-plan bound can keep saying so. So the distribution is pinned
+    // as well as the mass.
+    //
+    // MEASURED over the shipped 400 plans, before → after req #3512:
+    //   total lanes        1897 → 1877 (with axis)   2122 → 2122 (without)
+    //   arc crossings        17 →   11 (with axis)      3 →    3 (without)
+    //   worst single plan     3 →    3 (with axis)      1 →    1 (without)
+    // The worst plan is FLAT while the total fell — which is the distribution
+    // saying what the aggregate cannot: the eleven remaining crossings did not
+    // pile onto one plan, and the six that went away came off several. A change
+    // that improves any figure should LOWER these constants in the same commit;
+    // a change that raises one has to say why in review.
+    it('packs no more lanes, and draws no more spaghetti, than the measured ceiling', () => {
+        const tally = {
+            bands: 0, lanesAxis: 0, lanesPlain: 0,
+            crossAxis: 0, crossPlain: 0, worstAxis: 0, worstPlain: 0,
+            arcs: 0, onRun: 0,
+        };
+        for (const { reads } of corpus) {
+            const plan = orderedPlan(buildPipelineModel(reads), { now: FUZZ_NOW });
+            const withAxis = computePlanLayout(plan.rows, { timeAxis: plan.timeAxis });
+            const plain = computePlanLayout(plan.rows);
+            for (const band of withAxis.bands) {
+                tally.lanesAxis += band.sub;
+                tally.bands += 1;
+            }
+            for (const band of plain.bands) tally.lanesPlain += band.sub;
+            const a = arcCrossings(withAxis, plan.rows);
+            const p = arcCrossings(plain, plan.rows);
+            tally.crossAxis += a.crossings;
+            tally.crossPlain += p.crossings;
+            tally.worstAxis = Math.max(tally.worstAxis, a.crossings);
+            tally.worstPlain = Math.max(tally.worstPlain, p.crossings);
+            tally.arcs += a.arcs + p.arcs;
+            tally.onRun += a.onRun + p.onRun;
+        }
+        // NON-VACUITY, and deliberately NOT "crossings > 0". Driving crossings
+        // to zero is a legitimate goal this comment invites, and a wiring guard
+        // that fails on success would point at the wrong cause on the day
+        // somebody achieves it. `arcs` proves the sweep reached the arc list;
+        // `onRun` proves the geometry predicate matched real beads — it counts
+        // the LEGITIMATE in-chain runs too, so it stays positive at zero
+        // crossings.
+        expect(tally.bands, 'bands swept').toBe(804);
+        expect(tally.lanesAxis, 'lanes swept with an axis').toBeGreaterThan(1000);
+        expect(tally.arcs, 'arcs swept — is the corpus still producing edges?')
+            .toBeGreaterThan(5000);
+        expect(tally.onRun,
+            'no bead sat on any arc run — is the geometry predicate still wired up?')
+            .toBeGreaterThan(100);
+
+        expect(tally.lanesAxis, 'total lanes, with a time axis').toBeLessThanOrEqual(1877);
+        expect(tally.lanesPlain, 'total lanes, no time axis').toBeLessThanOrEqual(2122);
+        expect(tally.crossAxis, 'arc runs over an unrelated bead, with a time axis')
+            .toBeLessThanOrEqual(11);
+        expect(tally.crossPlain, 'arc runs over an unrelated bead, no time axis')
+            .toBeLessThanOrEqual(3);
+        expect(tally.worstAxis, 'worst single plan, with a time axis')
+            .toBeLessThanOrEqual(3);
+        expect(tally.worstPlain, 'worst single plan, no time axis')
+            .toBeLessThanOrEqual(1);
+    }, 60000);
 
     // The user-visible consequence of a shared cell, asserted independently of
     // the cell arithmetic: two coincident beads and two labels drawn on top of
