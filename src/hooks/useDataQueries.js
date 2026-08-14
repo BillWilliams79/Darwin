@@ -252,7 +252,7 @@ export function useRequirementsByStatus(creatorFk, status, { fields = 'id,title,
     const { idToken } = useContext(AuthContext);
 
     const uri = `${darwinUri}/requirements?requirement_status=${status}&fields=${fields}`;
-    const queryKey = requirementKeys.byStatus(creatorFk, status);
+    const queryKey = requirementKeys.byStatus(creatorFk, status, fields);
 
     return useQuery({
         queryKey,

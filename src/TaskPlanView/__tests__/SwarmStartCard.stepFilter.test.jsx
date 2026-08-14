@@ -53,12 +53,20 @@ const FEATURES = [];
 const BY_STATUS = {};
 for (const r of ALL_ROWS) (BY_STATUS[r.requirement_status] ??= []).push(r);
 
-let activeStatusAsked = null;
+// req #3503 review — A SET, NOT A SINGLE "LAST CALL WINS" VALUE. The card runs
+// a SECOND `useRequirementsByStatus('met', …)` unconditionally
+// (`serverMetRequirementsAllTime`), and a mock that does not model `enabled`
+// records whichever of the two calls happens to execute last in render order
+// — not necessarily the one that matters. Mirrors the identical fix already
+// applied to `SwarmStartCard.epicFilter.test.jsx`'s own mock for the same
+// reason; see that file's comment for the full history.
+let statusesAsked = new Set();
 const EMPTY = [];
 vi.mock('../../hooks/useDataQueries', () => ({
-    useRequirementsByStatus: (_c, status) => {
-        activeStatusAsked = status;
-        return { data: BY_STATUS[status] ?? EMPTY };
+    useRequirementsByStatus: (_c, status, opts) => {
+        const enabled = opts?.enabled ?? true;
+        if (enabled) statusesAsked.add(status);
+        return { data: enabled ? (BY_STATUS[status] ?? EMPTY) : undefined };
     },
     useRequirementsDone: () => ({ data: EMPTY }),
     useSessions: () => ({ data: EMPTY }),
@@ -116,7 +124,7 @@ const badge = (container, status) => {
 describe('SwarmStartCard under a step filter (req #3503)', () => {
     beforeEach(() => {
         roots = [];
-        activeStatusAsked = null;
+        statusesAsked = new Set();
         useSwarmStartCardStore.setState({ selectedStatus: 'swarm_ready', show: true });
         useShowClosedStore.setState({ hidePipelinedRequirements: true });
     });
@@ -130,7 +138,7 @@ describe('SwarmStartCard under a step filter (req #3503)', () => {
     it('DOES NOT OPEN BLANK: the persisted swarm_ready chip has none of the step, '
         + 'so the card opens on one that does', () => {
         const { container } = mount({ stepReqIds: STEP_SET });
-        expect(activeStatusAsked).toBe('development');
+        expect(statusesAsked).toEqual(new Set(['development']));
         expect(rowIds(container).sort()).toEqual(['3503', '3504']);
     });
 
@@ -169,7 +177,7 @@ describe('SwarmStartCard under a step filter (req #3503)', () => {
     it('with NO filter (null) it behaves exactly as before: the stored chip is '
         + 'honoured and the template row is back', () => {
         const { container } = mount();
-        expect(activeStatusAsked).toBe('swarm_ready');
+        expect(statusesAsked).toEqual(new Set(['swarm_ready']));
         expect(container.querySelector('[data-testid="requirement-template"]')).not.toBeNull();
     });
 
