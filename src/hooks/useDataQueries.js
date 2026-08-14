@@ -19,6 +19,9 @@ import { epicRequirementIds } from '../utils/epicMembership';
 // `useStepRequirementIds` below. The sibling import of the line above, from the
 // module whose stated domain step association is.
 import { stepRequirementIds } from '../utils/pipelineMembership';
+// req #3506 — the Tasks page's "Closed" window, resolved to `filter_ts` bounds
+// by `useTasksClosed` below.
+import { closedWindowRange, isClosedWindow, closedWindowRefetchInterval } from '../TaskPlanView/closedTasks';
 
 export function useDomains(creatorFk, { closed, fields = 'id,domain_name,sort_order', enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
@@ -79,6 +82,64 @@ export function useTasks(creatorFk, areaId, { done = 0, fields = 'id,priority,do
         queryKey,
         queryFn: () => fetchEntity(uri, idToken),
         enabled: enabled && !!creatorFk && !!areaId && !!idToken,
+    });
+}
+
+// req #3506 — the closed (done) tasks an area card shows under the Tasks page's
+// "Closed" title option. Sibling of `useTasks` above, which fetches `done=0`
+// only and is why a closed task otherwise disappears from its card for good.
+//
+// The window BOUNDS are resolved inside `queryFn`, not in the URI or the key.
+// "Closed in the last hour" has to mean the hour before the fetch, and a key
+// carrying a live timestamp would change identity on every render and refetch
+// forever. The key holds the window NAME; TanStack's own refetch triggers
+// (mount, invalidation after a done/undone PUT, window focus) are what move the
+// boundary forward.
+//
+// `closedWindow === null` (the default OFF state) disables the query outright,
+// so the option costs no request until it is switched on.
+export function useTasksClosed(creatorFk, areaId, closedWindow, { fields = 'id,priority,done,description,area_fk,sort_order,done_ts', enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+
+    const queryKey = taskKeys.byAreaClosed(creatorFk, areaId, closedWindow);
+
+    return useQuery({
+        queryKey,
+        queryFn: () => {
+            const range = closedWindowRange(closedWindow);
+            const rangeParam = range ? `&filter_ts=(done_ts,${range.start},${range.end})` : '';
+            const uri = `${darwinUri}/tasks?done=1&area_fk=${areaId}&fields=${fields}${rangeParam}`;
+            return fetchEntity(uri, idToken);
+        },
+        enabled: enabled && isClosedWindow(closedWindow) && !!creatorFk && !!areaId && !!idToken,
+        // A bounded window's lower edge moves with the clock; nothing else in
+        // this app would re-ask the question on a focused idle tab, so the
+        // boundary would freeze at whatever moment the button was pressed.
+        refetchInterval: closedWindowRefetchInterval(closedWindow),
+    });
+}
+
+// req #3506 — the same window over the Priority card's population: priority
+// tasks across a domain's areas. The requirement asks for closed tasks in ANY
+// task list on this page, and the Priority card is the other one.
+export function usePriorityTasksClosed(creatorFk, domainId, areaIds, closedWindow, { fields = 'id,priority,done,description,area_fk,sort_order,done_ts', enabled = true } = {}) {
+    const { darwinUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+
+    const queryKey = taskKeys.priorityClosedByDomain(creatorFk, domainId, areaIds, closedWindow);
+
+    return useQuery({
+        queryKey,
+        queryFn: () => {
+            const range = closedWindowRange(closedWindow);
+            const rangeParam = range ? `&filter_ts=(done_ts,${range.start},${range.end})` : '';
+            const uri = `${darwinUri}/tasks?priority=1&done=1&area_fk=(${areaIds.join(',')})&fields=${fields}${rangeParam}`;
+            return fetchEntity(uri, idToken);
+        },
+        enabled: enabled && isClosedWindow(closedWindow) && !!creatorFk && !!domainId
+                 && Array.isArray(areaIds) && areaIds.length > 0 && !!idToken,
+        refetchInterval: closedWindowRefetchInterval(closedWindow),
     });
 }
 

@@ -6,7 +6,9 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useDrop } from 'react-dnd';
 import call_rest_api from '../RestApi/RestApi';
 import { useOptionalCardStore } from '../stores/useOptionalCardStore';
-import { usePriorityTasks, usePriorityCardOrder } from '../hooks/useDataQueries';
+import { usePriorityTasks, usePriorityTasksClosed, usePriorityCardOrder } from '../hooks/useDataQueries';
+import { useClosedTasksStore } from '../stores/useClosedTasksStore';
+import { buildClosedRows, mergeClosedRows, isClosedHistory, clearClosedHistory, taskGroupRank } from './closedTasks';
 import { taskKeys, priorityCardOrderKeys } from '../hooks/useQueryKeys';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
@@ -33,6 +35,14 @@ import SwapVertIcon from '@mui/icons-material/SwapVert';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import { CircularProgress } from '@mui/material';
 
+// req #3506 — the live rows and the closed history, kept apart. Only the live
+// rows are hand-ordered, persisted to `priority_card_order` or re-sorted; the
+// history is appended back unchanged, below them.
+const splitLiveAndClosed = (tasks) => ({
+    live: (tasks || []).filter(t => !isClosedHistory(t)),
+    closed: (tasks || []).filter(isClosedHistory),
+});
+
 const sortByHandOrder = (tasks, orderRecs) => {
     if (!orderRecs || orderRecs.length === 0) {
         return [...tasks].sort((a, b) => a.id - b.id);
@@ -46,7 +56,7 @@ const sortByHandOrder = (tasks, orderRecs) => {
     return [...withOrder, ...withoutOrder];
 };
 
-const PriorityCard = ({ domainId, areaIds }) => {
+const PriorityCard = ({ domainId, areaIds, domainActive = true }) => {
 
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
@@ -75,15 +85,52 @@ const PriorityCard = ({ domainId, areaIds }) => {
     });
     const { data: serverCardOrder } = usePriorityCardOrder(profile?.userName, domainId);
 
-    // Seed tasksArray from server data
+    // req #3506 — the page-wide "Closed" window applies here too: the
+    // requirement asks for closed tasks in any task list on this page, and this
+    // is the other one. Same OFF default, same active-domain gate as the area
+    // cards.
+    const closedWindow = useClosedTasksStore(s => s.closedWindow);
+    const { data: serverClosedTasks, isError: closedError, error: closedErrorObj } =
+        usePriorityTasksClosed(profile?.userName, domainId, areaIds, closedWindow, {
+            enabled: areaIds.length > 0 && domainActive,
+        });
+
+    useEffect(() => {
+        if (closedError) showError(closedErrorObj, 'Unable to load closed priority tasks');
+    }, [closedError]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Which server references the LIVE half of the array was last built from.
+    // The closed window polls on its own 60s cadence while a bounded window is
+    // selected; rebuilding the live rows on that cadence would throw away
+    // in-progress typing and any reorder `priority_card_order` has not answered
+    // for yet, once a minute.
+    const seededFromRef = useRef({ tasks: null, order: null });
+
+    // Seed tasksArray from server data. Closed history is appended below the
+    // live rows — this card has no template row, so the group rank puts it last
+    // either way.
     useEffect(() => {
         if (!serverTasks) return;
-        if (sortMode === 'hand' && serverCardOrder && serverCardOrder.length > 0) {
-            setTasksArray(sortByHandOrder([...serverTasks], serverCardOrder));
-        } else {
-            setTasksArray([...serverTasks].sort((a, b) => a.id - b.id));
+        const closedRows = closedWindow
+            ? buildClosedRows(serverClosedTasks, serverTasks.map(t => t.id))
+            : [];
+
+        // Only the closed window moved: swap the history and leave the live rows
+        // exactly as they are. `mergeClosedRows` also keeps a row the user has
+        // just re-opened live, rather than letting the still-stale closed query
+        // put it back struck through.
+        if (seededFromRef.current.tasks === serverTasks
+            && seededFromRef.current.order === serverCardOrder) {
+            setTasksArray(prev => prev ? mergeClosedRows(prev, closedRows) : prev);
+            return;
         }
-    }, [serverTasks, serverCardOrder]); // eslint-disable-line react-hooks/exhaustive-deps
+        seededFromRef.current = { tasks: serverTasks, order: serverCardOrder };
+
+        const live = sortMode === 'hand' && serverCardOrder && serverCardOrder.length > 0
+            ? sortByHandOrder([...serverTasks], serverCardOrder)
+            : [...serverTasks].sort((a, b) => a.id - b.id);
+        setTasksArray([...live, ...closedRows]);
+    }, [serverTasks, serverCardOrder, serverClosedTasks, closedWindow]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Seed cardOrderArray
     useEffect(() => {
@@ -131,11 +178,15 @@ const PriorityCard = ({ domainId, areaIds }) => {
         setSortModeInStore(domainId, newMode);
         if (!tasksArray) return;
 
+        // req #3506 — hand order is a fact about live work; the history rides
+        // along below it and is never given an order record.
+        const { live, closed } = splitLiveAndClosed(tasksArray);
+
         if (newMode === 'hand') {
             const currentCardOrder = serverCardOrder || [];
-            if (currentCardOrder.length === 0 && tasksArray.length > 0) {
+            if (currentCardOrder.length === 0 && live.length > 0) {
                 // No order records yet — POST all tasks to establish initial hand-sort order
-                const sortedById = [...tasksArray].sort((a, b) => a.id - b.id);
+                const sortedById = [...live].sort((a, b) => a.id - b.id);
                 const posts = sortedById.map((task, idx) =>
                     call_rest_api(`${darwinUri}/priority_card_order`, 'POST',
                         { domain_id: domainId, task_id: task.id, sort_order: idx }, idToken)
@@ -149,15 +200,15 @@ const PriorityCard = ({ domainId, areaIds }) => {
                     queryClient.invalidateQueries({
                         queryKey: priorityCardOrderKeys.byDomain(profile.userName, domainId)
                     });
-                    setTasksArray(sortByHandOrder([...tasksArray], newRecords));
+                    setTasksArray([...sortByHandOrder([...live], newRecords), ...closed]);
                 } catch (e) {
                     showError(e, 'Unable to initialize priority sort order');
                 }
             } else {
-                setTasksArray(sortByHandOrder([...tasksArray], currentCardOrder));
+                setTasksArray([...sortByHandOrder([...live], currentCardOrder), ...closed]);
             }
         } else {
-            setTasksArray([...tasksArray].sort((a, b) => a.id - b.id));
+            setTasksArray([...[...live].sort((a, b) => a.id - b.id), ...closed]);
         }
     };
 
@@ -187,7 +238,9 @@ const PriorityCard = ({ domainId, areaIds }) => {
                             const [moved] = updated.splice(draggedIdx, 1);
                             updated.splice(adjustedIndex, 0, moved);
                             setTasksArray(updated);
-                            persistHandSort(updated);
+                            // req #3506 — persist the LIVE order only. A history
+                            // row must never acquire a priority_card_order record.
+                            persistHandSort(splitLiveAndClosed(updated).live);
                         }
                     }
                 }
@@ -240,16 +293,32 @@ const PriorityCard = ({ domainId, areaIds }) => {
         setCardOrderArray(prev => prev.filter(r => r.task_id !== taskId));
     };
 
-    // Task action: done toggle — mark done in local state (stays with strikethrough until re-fetch)
+    // Task action: done toggle — mark done in local state (stays with strikethrough until re-fetch).
+    // req #3506 made this a real TOGGLE: before the "Closed" option this card
+    // could only ever show live rows, so un-checking was unreachable and the
+    // handler hard-coded done=1. A history row on the card makes it reachable,
+    // and un-checking it has to re-open the task rather than re-close it.
     const doneClick = (taskIndex, taskId) => {
+        const current = tasksArray?.[taskIndex];
+        if (!current) return;
+        const nextDone = current.done ? 0 : 1;
+
         setTasksArray(prev => {
             if (!prev) return prev;
             const updated = [...prev];
-            updated[taskIndex] = { ...updated[taskIndex], done: 1 };
+            updated[taskIndex] = { ...updated[taskIndex], done: nextDone };
+            if (nextDone === 0) {
+                // Re-opened: live work again, so it leaves the history group and
+                // rejoins the live rows above in the same act.
+                updated[taskIndex] = clearClosedHistory(updated[taskIndex]);
+                updated.sort((a, b) => taskGroupRank(a) - taskGroupRank(b));
+            }
             return updated;
         });
+
         call_rest_api(`${darwinUri}/tasks`, 'PUT',
-            [{ id: taskId, done: 1, done_ts: new Date().toISOString() }], idToken)
+            [{ id: taskId, done: nextDone,
+               ...(nextDone === 1 ? { done_ts: new Date().toISOString() } : { done_ts: 'NULL' }) }], idToken)
             .then(result => {
                 if (result.httpStatus.httpStatus > 204) {
                     showError(result, "Unable to mark task completed");
@@ -258,10 +327,13 @@ const PriorityCard = ({ domainId, areaIds }) => {
                     queryClient.invalidateQueries({ queryKey: taskKeys.all(profile.userName) });
                 }
             }).catch(e => showError(e, "Unable to mark task completed"));
-        // Clean up priority_card_order — task will disappear on next re-fetch
-        call_rest_api(`${darwinUri}/priority_card_order`, 'DELETE',
-            { domain_id: domainId, task_id: taskId }, idToken);
-        setCardOrderArray(prev => prev.filter(r => r.task_id !== taskId));
+
+        if (nextDone === 1) {
+            // Clean up priority_card_order — task will disappear on next re-fetch
+            call_rest_api(`${darwinUri}/priority_card_order`, 'DELETE',
+                { domain_id: domainId, task_id: taskId }, idToken);
+            setCardOrderArray(prev => prev.filter(r => r.task_id !== taskId));
+        }
     };
 
     const deleteClick = (event, taskId) => {
@@ -350,7 +422,7 @@ const PriorityCard = ({ domainId, areaIds }) => {
                         {tasksArray.map((task, taskIndex) => (
                             <TaskEdit
                                 key={task.id}
-                                supportDrag={true}
+                                supportDrag={!isClosedHistory(task)}
                                 dragType="priorityTask"
                                 task={task}
                                 taskIndex={taskIndex}

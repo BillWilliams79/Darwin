@@ -7,6 +7,7 @@ import { useDrag, useDrop, useDragLayer } from "react-dnd";
 import { getEmptyImage } from "react-dnd-html5-backend";
 import { useDragTabStore } from '../../stores/useDragTabStore';
 import { useTaskActions } from '../../hooks/useTaskActions';
+import { isClosedHistory } from '../../TaskPlanView/closedTasks';
 
 import Box from '@mui/material/Box';
 import TextField from '@mui/material/TextField';
@@ -33,6 +34,9 @@ const TaskEdit = ({ supportDrag, dragType = "taskPlan", task, taskIndex, areaId,
         descriptionOnBlur, deleteClick, tasksArray, setTasksArray,
         sortMode, setCrossCardInsertIndex, disableStrikethrough } = useTaskActions();
     const [insertIndicator, setInsertIndicator] = useState(null); // 'above' | 'below' | null
+    // req #3506 — a value, not a call, so it reads like its neighbours in the
+    // dependency array below.
+    const isHistoryRow = isClosedHistory(task);
     const isDraggingAny = useDragLayer(monitor => monitor.isDragging());
     const revertDragTabSwitch = useDragTabStore(s => s.revertDragTabSwitch);
     const clearDragTabSwitch = useDragTabStore(s => s.clearDragTabSwitch);
@@ -69,6 +73,12 @@ const TaskEdit = ({ supportDrag, dragType = "taskPlan", task, taskIndex, areaId,
         hover: (dragItem, monitor) => {
             if (sortMode !== 'hand') return;
             if (task.id === '') return; // skip template
+            // req #3506 — a history row is parked below the template and is
+            // excluded from sort_order renumbering. Letting it set an insertion
+            // index would aim a drop past the end of the live list. The flag,
+            // not `done`: a row the user has just ticked is still live work in
+            // its card's index space until the refetch lands.
+            if (isHistoryRow) return;
 
             // Unified blue-line insertion for both same-area and cross-card
             if (dragItem.area_fk === task.area_fk && dragItem.taskIndex === taskIndex) return;
@@ -91,7 +101,7 @@ const TaskEdit = ({ supportDrag, dragType = "taskPlan", task, taskIndex, areaId,
         collect: (monitor) => ({
             isTaskOver: monitor.isOver(),
         }),
-    }), [sortMode, task.id, task.area_fk, taskIndex, setCrossCardInsertIndex, dragType]);
+    }), [sortMode, task.id, isHistoryRow, task.area_fk, taskIndex, setCrossCardInsertIndex, dragType]);
 
     // Clear insertion indicator when drag leaves this task
     useEffect(() => {
