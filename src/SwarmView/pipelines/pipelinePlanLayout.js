@@ -3241,10 +3241,8 @@ export function computePlanLayout(rows, opts = {}) {
         // corridor-aware rule (user directive, epic #6 plan) — no shallower
         // bead already on the lane still owes an arc PAST this column to a
         // deeper same-band dependent: parking here would sit this bead on that
-        // arc's horizontal run (the 50-under-49 spaghetti). Exempt when the
-        // shallower bead is one of r's own deps (r continues that chain — the
-        // arc anchors elsewhere or reroutes) or when r is in-chain between the
-        // two ends.
+        // arc's horizontal run (the 50-under-49 spaghetti). Exempt when r
+        // CONTINUES the shallower bead's chain — see req #3512 below.
         //
         // A FOURTH CHECK LEFT WITH THE LAUNCH GROUPING (req #3371): a lane
         // strictly inside ANOTHER launch unit's contiguous lane run was refused,
@@ -3272,13 +3270,138 @@ export function computePlanLayout(rows, opts = {}) {
                     return false;
                 }
             }
-            const rDeps = new Set(depsOf(r));
+            // ── THE EXEMPTION IS THE WHOLE CHAIN, NOT THE FIRST LINK (#3512) ─
+            // This read `new Set(depsOf(r)).has(sid)` — r's DIRECT dependencies
+            // — while the sentence it implements says *r continues that chain*.
+            // A grandchild continues a chain exactly as a child does, so the
+            // direct/transitive distinction refused lanes for no stated reason.
+            //
+            // MEASURED 2026-08-14 on the live composed read of pipeline 7,
+            // "Technical Debt" (the requirement's own repro). 310
+            // Beautifucation is the root; 306 Priority 1 → 307 Priority 2 → 311
+            // Priority 3 → 312 Priority 4 is one chain off it, 308 Windows
+            // Swarm Primary Cutover → 309 Windows Priority 1 the other. The
+            // TIME AXIS is what exposes it: it moves 308 from column 1 to
+            // column 4, so 310's arc to 308 now spans columns 0→4 and passes
+            // over column 2, where Priority 2 wants to sit. `sid` is 310 and
+            // `r` is 307 — 306 sits between them, the direct-dep exemption
+            // missed, lane 0 was refused, and 307 fell through to dep-adjacent
+            // insertion and opened a THIRD lane under a chain that needs two.
+            // Priority 2/3/4 rendered on their own line, visually disconnected
+            // from Priority 1 directly above them.
+            //
+            // WHAT THIS PREDICATE IS AND IS NOT. It is a GUESS about a
+            // placement that has not happened yet — `tid` has no lane when this
+            // runs — so it was never what holds the drawing invariants. Those
+            // are held at the arc's other end, on stored placements, and they
+            // are unaffected by widening the exemption:
+            //   · when `tid` later tries this lane, its own `corridorOk(sid,
+            //     tid, lane)` sees r in the corridor and admits it only if
+            //     `reach(tid).has(r)` — i.e. only in the legitimate in-chain
+            //     case `sid → r → tid` (the 12→14-over-13 shape). Otherwise the
+            //     corridor is blocked and `tid` cannot inherit the lane. Two
+            //     cases, both correct; the exemption itself says nothing about
+            //     `reach(tid).has(r)` either way.
+            //   · check (1), *no two beads on one `(band, column, lane)` cell*,
+            //     never enters into it: it is `free(d, lane)` above, untouched.
+            //
+            // WHAT IT CAN MOVE, HONESTLY (code review finding, 2026-08-14). An
+            // arc bends LATE only when its SOURCE-lane corridor is clear; when
+            // that fails, EARLY is the unconditional fallback and NOTHING
+            // checks the destination-lane corridor it then runs along (see the
+            // `late` computation at the arc loop, and its own comment: *"if
+            // neither is clear, early is the fallback"*). That hole predates
+            // this requirement and is out of its scope — but it means granting
+            // r a lane here CAN relocate a crossing onto an early arc. It is a
+            // trade, not a free win, and the measurements say which way it goes:
+            //
+            //   400-plan timed fuzz corpus (804 bands), before → after
+            //     total lanes        1897 → 1877 (with axis)  2122 → 2122 (without)
+            //     arc crossings        17 →   11 (with axis)     3 →    3 (without)
+            //     worst single plan     3 →    3 (with axis)     1 →    1 (without)
+            //     per-plan            no plan gained a crossing; 5 plans lost
+            //                         6 between them (seeds 9, 149, 223, 243,
+            //                         309 — the last losing two)
+            //   24,000-plan adversarial sweep (5-14 steps, 1-3 epics, dep
+            //   densities 0.15-0.40, both axis modes — 48,000 layout pairs)
+            //     total lanes    219,919 → 217,822 (-0.95%)
+            //     arc crossings    5,938 →   5,659 (-4.7%)
+            //     per-plan       600 plans gained one, 746 lost one — DOWN in
+            //                    aggregate, NOT monotone per plan
+            //     cell collisions, coincident beads, straight/late-arc
+            //     violations: 0 before, 0 after
+            //   live plan 7's "Technical Debt", 2026-08-14T19:00Z: 3 lanes → 2,
+            //     with the Priority 1-4 chain whole on lane 0
+            //
+            // NO OTHER LIVE LANE COUNT IS QUOTED HERE, deliberately (design
+            // rule 11). The first draft of this comment also carried "First
+            // Principles 11 → 10" and it was WRONG within half an hour: a
+            // review re-measured 12 → 10. Between the two reads the plan's
+            // `steps`, `step_deps`, `step_requirements` and `epics` were
+            // byte-identical and EXACTLY ONE requirement stamp moved — 3446
+            // reaching `met` at 19:32:54Z — and that stamp provably changes
+            // nothing: `stepStart` takes the MINIMUM `requirementStart` over a
+            // step's linked requirements, and 3447 on the same step carries an
+            // `started_at` 41 minutes earlier, so 3446's is never the minimum.
+            // (Nulling both of 3446's stamps and re-laying out confirms it: the
+            // count does not move. Its step is in Technical Debt anyway.)
+            //
+            // So THE CAUSE WAS NEVER PINNED — and that is a RESULT, not a gap
+            // in the investigation. A requirement's `started_at`/`completed_at`
+            // feeds `planTimeAxis` (the STAMPS — `requirement_status` is
+            // consulted only via `isNotYetStarted`, when no stamp exists),
+            // which feeds the columns, which feed the lanes. Sweeping every
+            // stamped requirement on the plan under the shipped predicate, FIVE
+            // move the First Principles count (3338, 3477, 3486, 3490, 3491),
+            // every one of them seated in First Principles, none of them the
+            // one that actually changed. A per-epic count on an orchestrated
+            // plan moves while nobody edits the plan, and no test can ever
+            // re-check it.
+            //
+            // The Technical Debt line above survives that because its DURABLE
+            // half is not the count: the Priority 1-4 chain is whole on lane 0
+            // with the axis AND without it, so the fix holds that chain
+            // together whatever the axis does with the columns. The figures
+            // with a ratchet behind them are the corpus ones.
+            //
+            // So: fewer lanes and fewer crossings overall, every hard invariant
+            // intact, and a per-plan distribution that moves both ways. The
+            // corpus ratchet in `pipelinePlanLayout.test.js` pins totals AND
+            // the worst single plan, because a sum alone cannot see that.
+            //
+            // THE CHAIN MAY LEAVE THE BAND. `reach` is band-agnostic, so
+            // `rReach.has(sid)` is satisfiable by a path that detours through
+            // another epic and draws no arc in this band at all — measured,
+            // 43% of the 7,949 firings on the shipped corpus. That is
+            // DELIBERATE and consistent: `corridorOk`, `corridorClear` and the
+            // test suite's own `assertStraightArcsClear` all use the identical
+            // band-agnostic predicate, so narrowing it here alone would make
+            // this check disagree with the three that consume its result.
+            //
+            // TWO GUARDS WENT WITH THE OLD PREDICATE, both strictly subsumed by
+            // this one and both removed rather than left dead: the inner
+            // `reach(r.id).has(sid) && reach(tid).has(r.id)` clause (its first
+            // conjunct IS this exemption), and `if (tid === r.id) continue`
+            // (`dependentsInBand` holds only DIRECT dependents of `sid`, so
+            // `tid === r.id` implies `sid ∈ depsOf(r) ⊆ reach(r.id)` and the
+            // outer `continue` already fired). The second was measured dead
+            // before deletion: 0 hits in 47,492 iterations of the `tid` loop
+            // across the shipped corpus plus 24,000 fuzz plans.
+            //
+            // AND IT IS DEAD FOR A SECOND, STRONGER REASON (review), which is
+            // the one to lean on: the argument above rests on `byId.get(r.id)
+            // === r`, and `byId` does not dedupe, so a duplicate-id input could
+            // make the two `depsOf` disagree. The NEXT LINE closes that
+            // unconditionally — all three `laneOk` call sites pass
+            // `d = colOf.get(r.id)`, so `tid === r.id` gives
+            // `colOf.get(tid) === d`, and `colOf.get(tid) <= d` continues. No
+            // reachability, no `byId`, no `reach` involved: had the guard ever
+            // been reachable, the line below would have handled it identically.
+            const rReach = reach(r.id);
             for (const { id: sid, d: ds } of laneBeads.get(lane) || []) {
-                if (ds >= d || rDeps.has(sid)) continue;
+                if (ds >= d || rReach.has(sid)) continue;
                 for (const tid of dependentsInBand.get(sid) || []) {
-                    if (tid === r.id) continue;
                     if (colOf.get(tid) <= d) continue;
-                    if (reach(r.id).has(sid) && reach(tid).has(r.id)) continue;
                     return false;
                 }
             }
