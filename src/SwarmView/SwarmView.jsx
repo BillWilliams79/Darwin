@@ -8,6 +8,7 @@ import { useWorkingProjectStore } from '../stores/useWorkingProjectStore';
 import { useShowClosedStore, ALL_REQUIREMENT_STATUSES } from '../stores/useShowClosedStore';
 import { useSwarmStartCardStore } from '../stores/useSwarmStartCardStore';
 import { useModelEffortDisplayStore } from '../stores/useModelEffortDisplayStore';
+import { useCategoryCountDisplayStore } from '../stores/useCategoryCountDisplayStore';
 import { useRequirementDrillStore } from '../stores/useRequirementDrillStore';
 import { useProjects, useAllEpics, useAllCategories, useEpicRequirementIds, useAllPipelineSteps, useStepRequirementIds } from '../hooks/useDataQueries';
 import { projectKeys } from '../hooks/useQueryKeys';
@@ -116,6 +117,11 @@ const SwarmView = () => {
     // aggregator card is now always the usual width, same as every other card).
     const meShowOnAllCards = useModelEffortDisplayStore(s => s.showOnAllCards);
     const meToggleShowOnAllCards = useModelEffortDisplayStore(s => s.toggleShowOnAllCards);
+    // req #3505 — per-category-card requirement count preference, e.g. "Swarm
+    // (17)". Surfaced in the same gear Settings menu, Cards view only (the
+    // count renders on CategoryCard, which only exists in Cards view).
+    const showCategoryCount = useCategoryCountDisplayStore(s => s.showCount);
+    const toggleShowCategoryCount = useCategoryCountDisplayStore(s => s.toggleShowCount);
     // req #2850 — a Trends drill-down is active; in Table view the status-filter
     // chips are replaced by the drill pill (the chips don't apply while drilled).
     const drill = useRequirementDrillStore(s => s.drill);
@@ -446,6 +452,12 @@ const SwarmView = () => {
             checked: meShowOnAllCards,
             onToggle: meToggleShowOnAllCards,
             testId: 'model-effort-show-all-cards',
+        },
+        {
+            label: 'Show requirement count on category cards',
+            checked: showCategoryCount,
+            onToggle: toggleShowCategoryCount,
+            testId: 'category-count-show',
         },
     ] : [];
 

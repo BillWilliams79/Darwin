@@ -13,6 +13,7 @@ import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { useSwarmTabStore } from '../stores/useSwarmTabStore';
 import { useShowClosedStore } from '../stores/useShowClosedStore';
+import { useCategoryCountDisplayStore } from '../stores/useCategoryCountDisplayStore';
 import { RequirementActionsContext } from '../hooks/useRequirementActions';
 import { requirementStatusTimestampFields, requirementStatusTimestampState } from '../utils/requirementStatusTimestamps';
 import { filterToEpic } from '../utils/epicMembership';
@@ -25,6 +26,7 @@ import AppContext from '../Context/AppContext';
 import { useDrop, useDrag } from "react-dnd";
 
 import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
 import TextField from '@mui/material/TextField';
 import IconButton from '@mui/material/IconButton';
 import Check from '@mui/icons-material/Check';
@@ -62,6 +64,8 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
     const sortModeMutationRef = useRef(0);
 
     const requirementStatusFilter = useShowClosedStore(s => s.requirementStatusFilter);
+    // req #3505 — per-category-card requirement count preference, e.g. "Swarm (17)".
+    const showCategoryCount = useCategoryCountDisplayStore(s => s.showCount);
     // req #3428 — is the epic filter on? Used for the drag guard and the
     // suppressed add-row below, and handed to `useRequirementVisibility` so the
     // filter can force the orchestrated toggle off.
@@ -766,6 +770,11 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
     // One implementation now, called by every path that orders this card.
     const activeSort = (a, b) => requirementActiveSort(sortMode, a, b);
 
+    // req #3505 — real requirement count, excluding the local-only template
+    // add-row (`id === ''`). Shared by the optional " (N)" title suffix below
+    // and the delete-category confirmation, which used to compute this itself.
+    const requirementCount = requirementsArray ? requirementsArray.filter(t => t.id !== '').length : 0;
+
     // req #3428 — "only the categories that have requirements from the epic".
     // The card that has none renders NOTHING, decided here because this component
     // already owns that category's requirement list; asking the panel above would
@@ -816,6 +825,24 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                                 }}
                                 key={`category-${category.id}`}
                      />
+                    {/* req #3505 — optional requirement count suffix, e.g. "(17)". A
+                        sibling of the TextField, never inside its `value`, so it can
+                        never be typed into or saved as part of the category name.
+                        Suppressed on the template "Add new category" card, which
+                        holds no requirements. The aggregator (Swarm-Start) card is a
+                        different component and is never touched here. Gated on
+                        `requirementsArray` (not just `category.id !== ''`) so the
+                        count never flashes "(0)" while the requirements query is
+                        still in flight — that would be indistinguishable from a
+                        genuinely empty category, which is a real, distinct value. */}
+                    {category.id !== '' && showCategoryCount && requirementsArray && (
+                        <Typography
+                            data-testid={`category-count-${category.id}`}
+                            sx={{ fontSize: 24, color: 'text.secondary', whiteSpace: 'nowrap' }}
+                        >
+                            ({requirementCount})
+                        </Typography>
+                    )}
                     {category.id !== '' && (
                         <>
                             <IconButton
@@ -876,7 +903,6 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                                 <MenuItem
                                     onClick={(event) => {
                                         handleMenuClose();
-                                        const requirementCount = requirementsArray ? requirementsArray.filter(t => t.id !== '').length : 0;
                                         clickCardDelete(event, category.category_name, category.id, requirementCount);
                                     }}
                                     data-testid={`menu-delete-category-${category.id}`}
