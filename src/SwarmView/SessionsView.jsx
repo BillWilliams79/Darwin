@@ -62,20 +62,42 @@ const sessionStatusOptions = ALL_SESSION_STATUSES.map(status => ({
 
 // The merged `NNNN - <title>` label, and the id behind it.
 //
-// The title is shown IN FULL — no character cap. It was clipped to one line's
-// worth, then two, and each cap was a guess at how much of a title matters. The
-// cell wraps and the row grows instead, so the answer is always "all of it".
-// Wrap freely — no line clamp. `getRowHeight: 'auto'` on the grid lets the row
-// grow to whatever the title needs.
-const WRAP_FULL = {
-    whiteSpace: 'normal',
-    overflowWrap: 'anywhere',
-    lineHeight: 1.4,
-    // Breathing room above and below. With `getRowHeight: 'auto'` the row grows
-    // to match, so a wrapped title no longer sits flush against the row divider.
-    py: 1.25,
-    display: 'block',
+// The title is shown IN FULL on hover — no character cap; it was clipped to
+// one line's worth, then two, and each cap was a guess at how much of a title
+// matters. `getRowHeight: 'auto'` used to let the row grow to fit it, but that grid
+// setting is banned (§ D rule 2 of `memory/view-switchable-pages.md`): the row
+// virtualizer mis-measures after a re-sort, and this grid has exactly the
+// shape (two `sortComparator`s, a sortable header on every other column) that
+// makes it likely to hit that. So the row is FIXED height and the cell CLAMPS
+// instead — full title recovered via the `Tooltip` on hover. Recipe from
+// `RequirementsTableView.jsx` (req #3302/#3316); doc'd in `memory/table-design.md`
+// § *Fixed row height is a MECHANISM*.
+const CLAMP_WRAP_SX = {
+    display: 'flex',
+    alignItems: 'center',
+    height: '100%',
+    width: '100%',
 };
+
+// 3 lines, not RequirementsTableView's 2 — this column's own design intent
+// (see `field: 'requirement_label'` below) was "a three-line title is
+// readable", and the clamp preserves that as closely as a fixed row allows.
+const CLAMP_CELL_SX = {
+    display: '-webkit-box',
+    WebkitBoxOrient: 'vertical',
+    WebkitLineClamp: 3,
+    overflow: 'hidden',
+    whiteSpace: 'normal',
+    wordBreak: 'break-word',
+    lineHeight: 1.3,
+    width: '100%',
+};
+
+// Pre-density figure would matter only under `density="compact"` (0.7×); this
+// grid sets no `density` prop, so it runs at the default `"standard"` (1×) and
+// the pixel value applies directly. 76px = 3 clamped lines at `lineHeight: 1.3`
+// / 0.875rem (~54.6px) plus the cell's vertical padding.
+const ROW_HEIGHT = 76;
 
 export const reqIdOf = (sourceRef) => {
     const m = String(sourceRef || '').match(/^(?:priority|requirement):(\d+)$/);
@@ -210,26 +232,34 @@ const getSessionColumns = (navigate, timezone, showCompleted) => [
         field: 'requirement_label',
         headerName: 'Requirement',
         width: 330,
-        // Wraps to as many lines as the full title needs; the row grows with it
-        // (`getRowHeight: 'auto'` below).
+        // Clamps to 3 lines; the row is fixed height (`ROW_HEIGHT` below). The
+        // clamp hides nothing — the full title is the cell's `Tooltip`, so a
+        // truncated row stays readable without leaving the page.
         renderCell: (params) => {
             const reqId = params.row.requirement_id;
             if (!params.value) return '—';
             // White, not blue: no requirement to link to (an issue-sourced or
             // direct session). Colour here means 'this goes somewhere'.
-            if (!reqId) return <Box component="span" sx={WRAP_FULL}>{params.value}</Box>;
+            if (!reqId) return (
+                <Tooltip title={params.value} enterDelay={600} enterNextDelay={300}>
+                    <Box sx={CLAMP_WRAP_SX}>
+                        <Box sx={CLAMP_CELL_SX}>{params.value}</Box>
+                    </Box>
+                </Tooltip>
+            );
             return (
-                <Box component="span"
-                     onClick={(e) => { e.stopPropagation(); navigate(`/swarm/requirement/${reqId}`); }}
-                     // NOT blue. Every row in this column is a requirement, so
-                     // colouring the linked ones split one column into two
-                     // visual kinds for no information gain. The hover
-                     // underline still says it is clickable.
-                     sx={{ cursor: 'pointer', ...WRAP_FULL,
-                           '&:hover': { textDecoration: 'underline' } }}
-                     data-testid={`session-requirement-${reqId}`}>
-                    {params.value}
-                </Box>
+                <Tooltip title={params.value} enterDelay={600} enterNextDelay={300}>
+                    <Box onClick={(e) => { e.stopPropagation(); navigate(`/swarm/requirement/${reqId}`); }}
+                         // NOT blue. Every row in this column is a requirement, so
+                         // colouring the linked ones split one column into two
+                         // visual kinds for no information gain. The hover
+                         // underline still says it is clickable.
+                         sx={{ cursor: 'pointer', ...CLAMP_WRAP_SX,
+                               '&:hover > div': { textDecoration: 'underline' } }}
+                         data-testid={`session-requirement-${reqId}`}>
+                        <Box sx={CLAMP_CELL_SX}>{params.value}</Box>
+                    </Box>
+                </Tooltip>
             );
         },
     },
@@ -488,9 +518,10 @@ const SessionsView = () => {
         return map;
     }, [swarmStartSessions]);
 
-    // Memoised: `getRowHeight: 'auto'` makes MUI re-measure every row whenever
-    // `rows` changes identity, and each row scans the machines list and the
-    // plan list. A fresh array on every render paid all of that again.
+    // Memoised: each row scans the machines list and the plan list to resolve
+    // its display fields, and a fresh array on every render paid all of that
+    // again for no reason — `rows` identity only needs to change when an input
+    // actually does.
     const enrichedSessions = useMemo(() => !sessionsArray ? null
         : sessionsArray.map(s => ({
             ...s,
@@ -607,10 +638,11 @@ const SessionsView = () => {
                         autoHeight
                         rows={sortedSessions}
                         columns={getSessionColumns(navigate, profile?.timezone, showCompleted)}
-                        // AUTO, not fixed: the Requirement cell now shows the whole
-                        // title, so row height is content-dependent and a fixed
-                        // value would clip exactly the titles worth reading.
-                        getRowHeight={() => 'auto'}
+                        // FIXED, not auto — § D rule 2 bans `getRowHeight: 'auto'` (row
+                        // virtualizer mis-measures after a re-sort). The Requirement
+                        // cell clamps to 3 lines instead of growing the row; see
+                        // `ROW_HEIGHT` / `CLAMP_CELL_SX` above.
+                        rowHeight={ROW_HEIGHT}
                         slots={{ toolbar: GridToolbar }}
                         slotProps={{
                             toolbar: {
@@ -644,10 +676,9 @@ const SessionsView = () => {
                             // text and the stacked timestamps alike. Needed because
                             // MUI's default `.MuiDataGrid-cell` is `display: block`
                             // (flex is opt-in per column via `display: 'flex'`), so
-                            // with `getRowHeight: 'auto'` a three-line title left
-                            // every pill floating at the top of a tall row.
+                            // without this every pill sat flush against the top of
+                            // the fixed-height row instead of centred in it.
                             '& .MuiDataGrid-cell': {
-                                minHeight: 58,
                                 display: 'flex',
                                 alignItems: 'center',
                             },
