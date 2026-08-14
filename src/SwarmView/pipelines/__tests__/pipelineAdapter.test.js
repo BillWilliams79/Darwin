@@ -99,15 +99,27 @@ describe('buildPlanRows — joining derived.rows[] back onto steps[]/epics[]/req
                 notes: 'evidence', completed_at: null, not_before: '2026-08-01 00:00:00' },
             { id: 72, epic_fk: 5, title: 'Clone Core', run: 'manual',
                 notes: null, completed_at: '2026-08-02 00:00:00', not_before: null },
+            // req #3507 — the RUNNING step, joined to real step/requirement
+            // rows like its neighbours. A derived row with no entry in
+            // `payload.steps` and requirement ids absent from
+            // `payload.requirements` is a shape a composed read cannot
+            // produce, and it would silently weaken the "both survive the
+            // reshape" claim for every JOINED field (title, machineLabels).
+            { id: 73, epic_fk: 5, title: 'Topped Up', run: 'auto',
+                notes: null, completed_at: null, not_before: null },
         ],
         epics: [{ id: 5, title: 'Swarm Cloned Git', sort_order: 3 }],
         requirements: [
             { id: 3001, requirement_status: 'swarm_ready', machine_fk: 2, tracking: 0 },
             { id: 3002, requirement_status: 'met', machine_fk: null, tracking: 1 },
+            { id: 3003, requirement_status: 'development', machine_fk: 2, tracking: 0 },
+            { id: 3004, requirement_status: 'swarm_ready', machine_fk: 2, tracking: 0 },
         ],
         stepRequirements: [
             { step_fk: 71, requirement_fk: 3001 },
             { step_fk: 71, requirement_fk: 3002 },
+            { step_fk: 73, requirement_fk: 3003 },
+            { step_fk: 73, requirement_fk: 3004 },
         ],
         stepDeps: [{ id: 1, step_fk: 72, dep_step_fk: 71 }],
     });
@@ -131,6 +143,18 @@ describe('buildPlanRows — joining derived.rows[] back onto steps[]/epics[]/req
             no_launch_reason: 'no linked requirements — nothing to launch',
             launch_suppressed: true, suppressed_by: ['pipeline'],
         },
+        // req #3507 — a RUNNING step still carrying launch-ready work. Its
+        // `eligible` is False (it cannot begin; it already has) and its
+        // `top_up_eligible` is True, and both must survive the reshape.
+        {
+            id: 73, state: 'running', run: 'auto', eligible: false,
+            top_up_eligible: true, epic_id: 5,
+            dep_ids: [], out_of_scope_dep_ids: [], req_ids: [3003, 3004],
+            tracking_req_ids: [], unresolved_req_ids: [], launch_req_ids: [3004],
+            launch_excluded: [], launch_block: null,
+            swarm_start_command: '/swarm-start 3004', no_launch_reason: null,
+            launch_suppressed: false, suppressed_by: [],
+        },
     ];
     const machines = [{ id: 2, title: 'Mac mini' }];
     const rows = buildPlanRows(payload, machines);
@@ -146,6 +170,23 @@ describe('buildPlanRows — joining derived.rows[] back onto steps[]/epics[]/req
         expect(r.launchExcluded).toEqual(['3002 tracking container']);
         expect(r.swarmStartCommand).toBe('/swarm-start 3001');
         expect(r.depIds).toEqual([]);
+        expect(r.topUpEligible).toBe(false);
+    });
+
+    // req #3507 — the two booleans are DISJOINT, and a reader of either alone
+    // gets one honest answer: 71 may begin, 73 has begun and can still gain.
+    it('carries top_up_eligible without ever folding it into eligible', () => {
+        const running = rows.find((x) => x.id === 73);
+        expect(running.state).toBe('running');
+        expect(running.eligible).toBe(false);
+        expect(running.topUpEligible).toBe(true);
+        expect(running.launchReqIds).toEqual([3004]);
+        expect(running.swarmStartCommand).toBe('/swarm-start 3004');
+        // The JOINED fields resolve too, which is what makes "both survive the
+        // reshape" a real claim rather than one about two booleans.
+        expect(running.title).toBe('Topped Up');
+        expect(running.epic).toBe('Swarm Cloned Git');
+        expect(running.machineLabels).toEqual(['Mac mini']);
     });
 
     it('joins the step dictionary for title/notes/completedAt', () => {
@@ -296,6 +337,28 @@ describe('adaptComposedPipeline — the plan object', () => {
         const plan = adaptComposedPipeline(payload);
         expect(plan.eligibleStepIds).toBeInstanceOf(Set);
         expect(plan.eligibleStepIds.has(1)).toBe(true);
+    });
+
+    // req #3507 — the launch picture has two halves and the browser must be
+    // able to see both. A payload from a Lambda that predates the field reads
+    // as an EMPTY set, never as "everything is a top-up".
+    it('reshapes top_up_step_ids into its own Set, defaulting to empty', () => {
+        expect(adaptComposedPipeline(payload).topUpStepIds).toEqual(new Set());
+        // THE ID IS ABSENT FROM `eligible_step_ids` ON PURPOSE. Using step 1 —
+        // which IS eligible in this fixture — made the leak assertion below
+        // vacuous: `eligibleStepIds.has(1)` is true whatever the adapter does
+        // with top-ups, so it would have passed unchanged if the two Sets were
+        // unioned. Step 2 is in neither set, so the assertion can fail.
+        const withTopUp = {
+            ...payload,
+            derived: { ...payload.derived, top_up_step_ids: [2] },
+        };
+        const plan = adaptComposedPipeline(withTopUp);
+        expect(plan.topUpStepIds).toBeInstanceOf(Set);
+        expect(plan.topUpStepIds.has(2)).toBe(true);
+        // ...and it never leaks into the set the eligible-now ring reads.
+        expect(plan.eligibleStepIds.has(2)).toBe(false);
+        expect(plan.eligibleStepIds).toEqual(new Set([1]));
     });
 
     it('reshapes violations — invariant/message kept, step_ids -> stepIds', () => {
