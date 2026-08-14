@@ -437,15 +437,20 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
     // Real area IDs (exclude template row) for PriorityCard
     const realAreaIds = areasArray ? areasArray.filter(a => a.id !== '').map(a => a.id) : [];
 
+    // req #3506 — an inactive panel is HIDDEN, not unmounted, so its cards keep
+    // running their queries. The closed-task reads are gated on this so the
+    // "Closed" option fetches one domain's history rather than the account's.
+    const domainActive = String(activeTab) === String(domainIndex);
+
     return (
-            <Box key={domainIndex} role="tabpanel" hidden={String(activeTab) !== String(domainIndex)}
+            <Box key={domainIndex} role="tabpanel" hidden={!domainActive}
                  className="app-content-tabpanel"
                  sx={{ p: 3 }}
             >
                 { areasArray &&
                     <Box className="card" ref={panelDrop}>
                         {showPriorityCard && realAreaIds.length > 0 && (
-                            <PriorityCard domainId={domain.id} areaIds={realAreaIds} />
+                            <PriorityCard domainId={domain.id} areaIds={realAreaIds} domainActive={domainActive} />
                         )}
                         { areasArray.map((area, areaIndex) => (
                             <TaskCard key={area.id} {...{
@@ -460,6 +465,7 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
                                            moveCard,
                                            persistAreaOrder,
                                            removeArea,
+                                           domainActive,
                                            isTemplate: area.id === '',
                                            autoFocusTemplate: newlyCreatedAreaId !== null && area.id === newlyCreatedAreaId,
                                            clearAutoFocusTemplate: () => setNewlyCreatedAreaId(null),}}/>

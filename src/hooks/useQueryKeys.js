@@ -25,9 +25,24 @@ export const taskKeys = {
     all: (creatorFk) => ['tasks', creatorFk],
     byArea: (creatorFk, areaId) => ['tasks', creatorFk, { areaId }],
     byAreaOpen: (creatorFk, areaId) => ['tasks', creatorFk, { areaId, done: 0 }],
+    // req #3506 — the Tasks page's "Closed" option, one key per area per window.
+    // Under the ['tasks', creatorFk] prefix so the existing
+    // invalidateQueries(taskKeys.all(...)) calls that follow a done/undone PUT
+    // already refresh it; the window NAME is the key, never resolved bounds,
+    // which is what keeps "the last hour" from churning the key every render.
+    byAreaClosed: (creatorFk, areaId, window) => ['tasks', creatorFk, { areaId, done: 1, window }],
     done: (creatorFk, dateRange) => ['tasks', creatorFk, { done: 1, dateRange }],
     counts: (creatorFk) => ['tasks', creatorFk, 'counts'],
     priorityByDomain: (creatorFk, domainId, areaIds) => ['tasks', creatorFk, { priorityByDomain: domainId, areaIds }],
+    // req #3506 — the Priority card's own closed history, same prefix, same
+    // invalidation story as byAreaClosed above.
+    //
+    // A DISTINCT DISCRIMINATOR (`priorityClosedByDomain`, not `priorityByDomain`
+    // plus extra keys), because TanStack matches object keys PARTIALLY: reusing
+    // the live card's discriminator would make its key a strict subset of this
+    // one, so anyone reaching for the narrower `priorityByDomain` to invalidate
+    // just the live card would silently take the history down with it.
+    priorityClosedByDomain: (creatorFk, domainId, areaIds, window) => ['tasks', creatorFk, { priorityClosedByDomain: domainId, areaIds, done: 1, window }],
 };
 
 export const priorityCardOrderKeys = {

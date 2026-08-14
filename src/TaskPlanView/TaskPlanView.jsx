@@ -28,6 +28,7 @@ import Tooltip from '@mui/material/Tooltip';
 import IconButton from '@mui/material/IconButton';
 import FlagIcon from '@mui/icons-material/Flag';
 import DroppableTab from './DroppableTab';
+import ClosedTasksControl from './ClosedTasksControl';
 import { useOptionalCardStore } from '../stores/useOptionalCardStore';
 import SettingsMenu from '../Components/SettingsMenu/SettingsMenu';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
@@ -277,6 +278,10 @@ const TaskPlanView = () => {
                                 />
                             </Tabs>
                         </Box>
+                        {/* req #3506 — "Closed" window, global to the page rather
+                            than per-domain, so it sits outside the active-domain
+                            block below. */}
+                        <ClosedTasksControl />
                         {domainsArray[parseInt(activeTab)] && (() => {
                             const activeDomainId = domainsArray[parseInt(activeTab)].id;
                             return (
