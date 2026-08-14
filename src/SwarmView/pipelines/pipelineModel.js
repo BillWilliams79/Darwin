@@ -56,6 +56,22 @@
 // @property {?string} launchBlock       WHY there is no command, as an enum to
 //                                       branch on: 'no-links' | 'containers' |
 //                                       'not-ready' | null
+// @property {boolean} eligible          may this step BEGIN — every dependency
+//                                       done and its own time gate passed, and
+//                                       PENDING-ONLY. The eligible-now ring is
+//                                       drawn from this and nothing else
+// @property {boolean} topUpEligible     req #3507 — may NEW work be commanded
+//                                       onto a step that has ALREADY started?
+//                                       True only for a RUNNING step carrying
+//                                       launch-ready ids. DISJOINT from
+//                                       `eligible` by construction: a step
+//                                       either may begin or has begun, never
+//                                       both. The engine announces a LAUNCH for
+//                                       one of these exactly as it does for an
+//                                       eligible step, which is what closes req
+//                                       #3195's other half — work seated onto a
+//                                       step after it started used to be
+//                                       unreachable by any auto-launch
 // @property {?string} swarmStartCommand '/swarm-start <ids>', null when nothing on
 //                                       this row is launchable
 // @property {?string} noLaunchReason    the human sentence for launchBlock
