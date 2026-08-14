@@ -158,6 +158,11 @@ vi.mock('../../../stores/useSnackBarStore', () => ({
 import RequirementDetail from '../RequirementDetail';
 import AuthContext from '../../../Context/AuthContext';
 import AppContext from '../../../Context/AppContext';
+// UNMOCKED — the real card/toggle predicate (req #3493). `pipelineMembership.js`
+// is never mocked in this file at all (only `hooks/useDataQueries` is, and only
+// by overriding individual named exports), so this import resolves to the
+// genuine function the browse toggle actually calls.
+import { orchestratedRequirementIds } from '../../../utils/pipelineMembership';
 
 let mountedRoots = [];
 
@@ -356,6 +361,49 @@ describe('RequirementDetail Orchestration box (req #3435)', { timeout: 30000 }, 
         expect(testid(container, 'orchestration-step-select').textContent).toBe('No step');
         expect(testid(container, 'orchestration-step-link').disabled).toBe(true);
         expect(testid(container, 'orchestration-pipeline-link').disabled).toBe(true);
+        // req #3493 — the card/toggle predicate agrees: nothing to mark.
+        expect(orchestratedRequirementIds(stepRequirements).has(3435)).toBe(false);
+    });
+
+    // req #3493 — THE CROSS-SURFACE AGREEMENT PROOF, fully seated. Exact values
+    // (not `.not.toBe('No pipeline')`) — the box has fallback branches
+    // (`Pipeline ${id}`, `Step ${id}`, the wrong plan on a tie-break) that would
+    // pass a negative assertion while still being wrong. `orchestratedRequirementIds`
+    // is the REAL, unmocked card/toggle predicate, fed the exact same
+    // `stepRequirements` array the box's `useAllPipelineStepRequirements` mock
+    // returns — one fixture, two independently-written readers, asserted to agree.
+    it('agrees with the card/toggle predicate when fully seated', async () => {
+        expect(orchestratedRequirementIds(stepRequirements).has(3435)).toBe(true);
+        const { container } = mount();
+        await flush();
+        expect(testid(container, 'orchestration-pipeline-value').textContent).toBe('Darwin');
+        expect(testid(container, 'orchestration-step-select').textContent).toBe('Orchestration Box');
+    });
+
+    // req #3493 — THE KNOWN RESIDUAL, PINNED RATHER THAN LEFT UNSTATED. The two
+    // readers do NOT compute the same function: the predicate only ever looks at
+    // `requirement_fk`, while the box additionally walks
+    // `step_fk -> pipeline_steps -> epics -> pipelines` and drops the seat
+    // entirely when that walk fails to resolve (`orchestrationIndex.js`'s
+    // `pipelineByStep.get(sid) == null` branch — already covered on its own at
+    // the `buildOrchestrationIndex` unit level by
+    // `orchestrationIndex.test.js`'s "drops a seat whose step names an epic the
+    // read does not carry"). A junction row naming a step this plan-side read
+    // does not carry — a dangling FK, or a step dropped by the 3 MB bounded-list
+    // truncation (`memory/mcp-server.md` § Bounded list reads) rather than a
+    // failed read `planSideErrored` would catch — is EXACTLY that case, and it
+    // reproduces the card-says-orchestrated / box-says-nothing contradiction
+    // #3493 was filed over, on a narrower trigger than the retired 1.0/2.0 split.
+    // Pinned here as an ACCEPTED, documented residual — not a regression this
+    // session introduced or is scoped to close — so a future change to either
+    // reader is honest about what it is changing.
+    it('diverges from the card/toggle predicate when a seat names a step the plan-side read does not carry', async () => {
+        stepRequirements = [{ step_fk: 99999, requirement_fk: 3435 }];
+        expect(orchestratedRequirementIds(stepRequirements).has(3435)).toBe(true);
+        const { container } = mount();
+        await flush();
+        expect(testid(container, 'orchestration-pipeline-value').textContent).toBe('No pipeline');
+        expect(testid(container, 'orchestration-step-select').textContent).toBe('No step');
     });
 
     it('disables every button — never a dead link — when nothing is linked', async () => {
