@@ -77,9 +77,9 @@ export const NAV_LINKS = [
     // hierarchy order (Epic, then Step). LayersIcon/LinearScaleIcon are
     // unchanged: the entries moved, not the pages, so each keeps the icon it
     // always carried.
-    // Req #3357 — the Feature tier (and its Features entry here, between Epics
-    // and Steps) was retired: a step now belongs to its epic directly rather
-    // than through an intermediate Feature row, so the plan-editor cluster went
+    // Req #3357 — the retired middle tier (and its nav entry here, between
+    // Epics and Steps) was removed: a step now belongs to its epic directly
+    // rather than through an intermediate row, so the plan-editor cluster went
     // from three L3 children to two.
     // Req #3427 — Pipelines leads the SWARM group, ahead of Requirements: the
     // plan is the entry point workers are launched from, so it reads first.

@@ -5,9 +5,10 @@
 // most are the "0 is a perfectly good integer" class of bug that renders as a
 // plausible-looking page rather than as an error.
 //
-// `featureIdsForEpic` and its four cases are GONE with the tier they tested:
-// req #3355 dropped `features` and `requirements.feature_fk`, so there is no
-// intermediate hop between a requirement and its epic any more. What replaced
+// The old per-epic id-lookup helper and its four test cases are GONE with the
+// tier they tested: req #3355 dropped the tier's table and the requirement's
+// reference to it, so there is no intermediate hop between a requirement and
+// its epic any more. What replaced
 // them is the two-table containment join below — a step names its epic directly
 // (`pipeline_steps.epic_fk`, NOT NULL) and the junction seats the requirement on
 // the step.
@@ -60,8 +61,8 @@ describe('epicRequirementIds', () => {
     });
 
     it('a requirement on NO step is in no epic — the accepted containment narrowing', () => {
-        // 1.0 also counted requirements FILED under an epic (`feature_fk`) that
-        // no step carried. 2.0 has no such mechanism, so that population does not
+        // 1.0 also counted requirements FILED under an epic (via the retired
+        // middle tier) that no step carried. 2.0 has no such mechanism, so that population does not
         // exist; req #3357 accepted the same narrowing for the pipelined browse
         // toggle. 3600 is in REQUIREMENTS and in no junction row.
         const ids = epicRequirementIds(STEPS, STEP_REQUIREMENTS, 11);

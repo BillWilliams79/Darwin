@@ -65,8 +65,8 @@ describe('navConfig — Sessions sub-items', () => {
 // the exact mechanism the Sessions block above pins. This SUPERSEDES #3139 and
 // #3140, each of which pinned "sibling, never a child of Pipelines" for one of
 // these two — the earlier assertions are inverted here on purpose, not merely
-// deleted. req #3357 retired the Features entry that once sat between them (the
-// Feature tier itself left the plan; a step belongs to its epic directly).
+// deleted. req #3357 retired the nav entry that once sat between them (the
+// retired middle tier itself left the plan; a step belongs to its epic directly).
 //
 // req #3356 — THERE IS ONE PLAN SURFACE NOW, so there is one nav entry per
 // level and none of them carries an era marker. The 1.0 pages were deleted and
@@ -138,12 +138,6 @@ describe('navConfig — the plan editors nest under Pipelines (req #3236)', () =
         // no longer exists renders a link that 404s, and nothing else catches it.
         ['/swarm/pipelines2', '/swarm/epics2', '/swarm/steps2']
             .forEach(p => expect(flat).not.toContain(p));
-    });
-
-    it('no longer lists a Features route anywhere in the tree (req #3357)', () => {
-        const occurrences = flattenNavLinks(NAV_LINKS)
-            .filter(l => l.path === '/swarm/features').length;
-        expect(occurrences).toBe(0);
     });
 
     it('leaves the swarm-validate group intact', () => {

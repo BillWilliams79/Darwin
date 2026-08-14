@@ -4,7 +4,7 @@
 //
 // The pure rules are pinned in `utils/__tests__/epicMembership.test.js`; this
 // suite exists for the three things only a mounted card can show, and all three
-// are places where the feature silently fails rather than errors:
+// are places where the behavior silently fails rather than errors:
 //   1. the forced pipeline override — without it this page renders EMPTY, because
 //      `hidePipelinedRequirements` defaults to ON and an epic's requirements are
 //      seated in pipeline steps by construction;
@@ -35,8 +35,8 @@ vi.mock('react-router-dom', () => ({ useNavigate: () => () => {} }));
 // 10 is in the epic, 11 is not — and BOTH are pipelined, which is the ordinary
 // state of an epic's work and the state that makes rule 1 above load-bearing.
 const reqData = [
-    { id: 10, title: 'In the epic', requirement_status: 'authoring', category_fk: 5, feature_fk: 46, sort_order: 0 },
-    { id: 11, title: 'Another epic', requirement_status: 'authoring', category_fk: 5, feature_fk: 50, sort_order: 1 },
+    { id: 10, title: 'In the epic', requirement_status: 'authoring', category_fk: 5, sort_order: 0 },
+    { id: 11, title: 'Another epic', requirement_status: 'authoring', category_fk: 5, sort_order: 1 },
 ];
 const EMPTY_SESSIONS = [];
 let pipelinedIds = new Set([10, 11]);
@@ -50,14 +50,12 @@ let pipelinedIds = new Set([10, 11]);
 // churns the hook's memoized Sets and re-runs the card's seeding effect, which
 // is a synchronous render loop rather than a failing assertion.
 const JUNCTION = [...pipelinedIds].map((id) => ({ step_fk: 1, requirement_fk: id }));
-const ALL_REQS = reqData.map(({ id, feature_fk }) => ({ id, feature_fk }));
-const FEATURES = [{ id: 46, epic_fk: 11 }, { id: 50, epic_fk: 12 }];
+const ALL_REQS = reqData.map(({ id }) => ({ id }));
 vi.mock('../../hooks/useDataQueries', () => ({
     useRequirements: () => ({ data: reqData }),
     useSessions: () => ({ data: EMPTY_SESSIONS }),
     useAllPipelineStepRequirements: () => ({ data: JUNCTION }),
     useAllRequirements: () => ({ data: ALL_REQS }),
-    useAllFeatures: () => ({ data: FEATURES }),
     ALL_ROWS: 'all',
 }));
 

@@ -19,12 +19,13 @@
 // scheduled"). The two populations differ, both are legitimate, and they are
 // deliberately two modules so no caller reaches the wrong one by autocomplete.
 //
-// WHAT REPLACED WHAT, AND WHY IT HAD TO. Until req #3356 the chain was
-// `requirement.feature_fk -> feature.epic_fk`, and `featureIdsForEpic` walked
-// the middle tier. Req #3355 DROPPED both halves of it from production — the
-// `features` table and the `requirements.feature_fk` column — so that walk had
-// no data left to walk and the read behind it (`fields=id,feature_fk,…`) named a
-// column the gateway no longer has. This is not a redesign of a working filter;
+// WHAT REPLACED WHAT, AND WHY IT HAD TO. Until req #3356 the chain went
+// through the requirement's own reference to the retired middle tier, and
+// this module's now-deleted per-epic id-lookup helper walked it. Req #3355
+// DROPPED both halves of it from
+// production — the tier's table and the requirement's reference to it — so
+// that walk had no data left to walk and the read behind it named a column
+// the gateway no longer has. This is not a redesign of a working filter;
 // it is the same question re-derived from the only structure that still answers
 // it.
 //
@@ -38,7 +39,7 @@
 // module took before #3356. The two tables are independent auto-increments, so
 // the same integer names different epics in each. Nothing writes a stale link
 // today — the 1.0 plan visualizer's epic chip derives its id through the very
-// `feature_fk` chain #3355 dropped, so `PlanRow.epicId` is permanently null and
+// chain #3355 dropped, so `PlanRow.epicId` is permanently null and
 // its `?epic=` control does not render at all (`pipelineModel.js`
 // `dominantLabels`). The `?epic=` reader is therefore ahead of its writer, on
 // purpose: the 2.0 surface that revives the link is the one whose ids these are.
@@ -89,8 +90,9 @@ const stepIdsForEpic = (steps, epicId) => {
  *
  * CONTAINMENT IS THE WHOLE POPULATION NOW, AND THAT IS A DELIBERATE NARROWING.
  * 1.0's epic membership also included requirements FILED UNDER an epic that no
- * step carried — `feature_fk` could place a requirement in an epic without
- * scheduling it. 2.0 has no such mechanism and no such population: a requirement
+ * step carried — the requirement's own reference to the retired middle tier
+ * could place it in an epic without scheduling it. 2.0 has no such mechanism
+ * and no such population: a requirement
  * is in an epic ONLY by being seated on one of that epic's steps. This is the
  * SAME narrowing req #3357 already accepted for the separate "pipelined" browse
  * toggle (see `pipelineMembership.js`' header), accepted here for consistency

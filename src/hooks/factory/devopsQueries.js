@@ -384,9 +384,8 @@ export const agentTelemetryRowDocs = createEntityQueries({
 
 // ---------------------------------------------------------------------------
 // Swarm Orchestration — pipelines-as-data (req #3114, schema from req #3111
-// migration 076). The four EXECUTION tables behind /swarm/pipelines; the agile
-// hierarchy above them (epics / features.epic_fk / requirements.feature_fk)
-// lives in useDataQueries.js beside the existing features hooks.
+// migration 076). The four EXECUTION tables behind /swarm/pipelines; `epics`,
+// the one surviving tier above them, lives in useDataQueries.js.
 //
 // Routes through the default `darwinUri` (dev/prod split, req #2683). NOT `ops`
 // tables: a pipeline is durable plan CONTENT the user and the Primary AI curate,

@@ -35,7 +35,7 @@ const PROJECTS = [
 ];
 const EPICS = [{ id: 11, title: "Bill's Polish #1" }];
 const CATEGORIES = [{ id: 5, project_fk: 1 }];
-const SCOPE_REQUIREMENTS = [{ id: 10, feature_fk: 46, category_fk: 5 }];
+const SCOPE_REQUIREMENTS = [{ id: 10, category_fk: 5 }];
 let epicReqIdsFromHook = new Set([10]);
 // MODULE-LEVEL, never an inline `[]`: a fresh array per render churns every memo
 // downstream of it.

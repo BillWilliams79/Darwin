@@ -4,7 +4,7 @@
 //
 // The pure rules are pinned in `utils/__tests__/pipelineMembership.test.js`; this
 // suite exists for the four things only a mounted card can show, and all four are
-// places where the feature silently fails rather than errors:
+// places where the behavior silently fails rather than errors:
 //   1. the forced pipeline override — without it this page renders EMPTY, and
 //      unlike the epic case it renders empty ALWAYS: `hidePipelinedRequirements`
 //      defaults to ON and a step's requirements are on a step BY DEFINITION;
@@ -46,13 +46,11 @@ const JUNCTION = [
     { step_fk: 187, requirement_fk: 11 },
 ];
 const ALL_REQS = reqData.map(({ id }) => ({ id }));
-const FEATURES = [];
 vi.mock('../../hooks/useDataQueries', () => ({
     useRequirements: () => ({ data: reqData }),
     useSessions: () => ({ data: EMPTY_SESSIONS }),
     useAllPipelineStepRequirements: () => ({ data: JUNCTION }),
     useAllRequirements: () => ({ data: ALL_REQS }),
-    useAllFeatures: () => ({ data: FEATURES }),
     ALL_ROWS: 'all',
 }));
 

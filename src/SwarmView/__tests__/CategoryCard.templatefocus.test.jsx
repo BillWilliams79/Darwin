@@ -29,7 +29,6 @@ const EMPTY_SESSIONS = [];
 // SYNCHRONOUS render loop that no per-test timeout can interrupt. Measured in
 // review: it wedged the worker rather than failing a test.
 const EMPTY_JUNCTION = [];
-const EMPTY_FEATURES = [];
 const EMPTY_ALL_REQS = [];
 
 vi.mock('../../hooks/useDataQueries', () => ({
@@ -41,9 +40,8 @@ vi.mock('../../hooks/useDataQueries', () => ({
     // The REAL hook runs here rather than a double: it owns the memoization the
     // aggregator's `useMemo` chain depends on, and a stand-in that got that
     // wrong would loop rather than fail. `ALL_ROWS` is re-exported because the
-    // hook passes it (a closed feature still seats its requirements).
+    // hook passes it (a closed epic still seats its requirements).
     useAllPipelineStepRequirements: () => ({ data: EMPTY_JUNCTION }),
-    useAllFeatures: () => ({ data: EMPTY_FEATURES }),
     ALL_ROWS: 'all',
 }));
 

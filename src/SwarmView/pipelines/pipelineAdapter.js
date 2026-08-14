@@ -28,10 +28,10 @@
 // table, same pattern `buildCostIndex`'s two reads already use for cost).
 //
 // WHAT DOES NOT EXIST IN 2.0, deliberately not synthesized:
-//   - `feature`/`featureId`/`featureLabels` — 2.0 has no Feature; every row's
-//     epic comes directly from containment (`pipeline_steps.epic_fk`), never
-//     a features->epic chain, so there is exactly one epic per step, not a
-//     dominant-label tally over several.
+//   - the retired middle-tier label fields on a row — 2.0 has no such tier;
+//     every row's epic comes directly from containment
+//     (`pipeline_steps.epic_fk`), never a chained lookup through it, so there
+//     is exactly one epic per step, not a dominant-label tally over several.
 //   - `batches`/`batchLetterByStepId` — Batch does not exist in 2.0 (req
 //     #3371 owns removing the drawing machinery; this module never builds one
 //     to remove).
@@ -190,10 +190,7 @@ export function buildPlanRows(payload, machines = []) {
             epicId: dr.epic_id != null ? dr.epic_id : null,
             epic: epic ? epic.title : null,
             epicSortOrder: epicSortOrderOf(epic),
-            featureId: null,
-            feature: null,
             epicLabels: epic ? [{ id: epic.id, title: epic.title }] : [],
-            featureLabels: [],
             labelInherited: false,
             machineLabels: labels,
             machineLabel: labels.length ? labels.join(' / ') : '—',
@@ -315,8 +312,8 @@ export function adaptComposedPipeline(payload, { machines = [], costIndex = null
  * (`model.requirements` for the autonomy/model/effort hover card,
  * `model.machines` for by-machine colouring) — narrower than 1.0's
  * `PipelineModel`, because 2.0's composed payload carries nothing else `model`
- * was ever asked for (no `features`, and `steps`/`epics`/`stepRequirements`/
- * `stepDeps` are already folded into `plan.rows` above).
+ * was ever asked for (no retired middle tier, and `steps`/`epics`/
+ * `stepRequirements`/`stepDeps` are already folded into `plan.rows` above).
  *
  * @param {Object} payload
  * @param {Object[]} [machines]

@@ -9,8 +9,9 @@
 // box permanently reading "No pipeline".
 //
 // (For the record of what it was: req #3357 retired the Epic ROW and with it the
-// `epics`/`features` reads and the chained `requirements?feature_fk=(...)` query
-// that fed it — six reads down to three. This epic read is a different one: it
+// `epics` read, the retired middle tier's own read, and the chained
+// requirement-scoped query that fed it — six reads down to three. This epic
+// read is a different one: it
 // is a JOIN HOP, not a displayed row, and `buildOrchestrationIndex` keeps no
 // epic in its output.)
 //

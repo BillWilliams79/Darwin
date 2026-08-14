@@ -2,7 +2,7 @@ import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-quer
 import { useContext, useMemo } from 'react';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
-import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys, featureKeys, testCaseKeys, requirementTestCaseKeys, testPlanKeys, testPlanCaseKeys, testRunKeys, testResultKeys, customerKeys, buildProjectKeys, branchKeys, buildKeys, customerReleaseKeys, pipelineComposeKeys } from './useQueryKeys';
+import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys, testCaseKeys, requirementTestCaseKeys, testPlanKeys, testPlanCaseKeys, testRunKeys, testResultKeys, customerKeys, buildProjectKeys, branchKeys, buildKeys, customerReleaseKeys, pipelineComposeKeys } from './useQueryKeys';
 import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, swarmCompletes, swarmCompleteSessions, machines, agents, instructions, architectureDocuments, agentDocuments, agentInstructions, agentTelemetryRuns, agentTelemetryRows, agentTelemetryRowDocs, orchestrationClaims, pipelines, epics, pipelineSteps, pipelineStepRequirements, pipelineStepDeps, requirementSessions, sessionCostRollups } from './factory/devopsQueries';
 // `fetchEntity` is shared with the factory so both layers handle REST errors
 // identically (req #2593).
@@ -254,12 +254,13 @@ export function useRequirementCounts(creatorFk, { enabled = true } = {}) {
     });
 }
 
-// `feature_fk` carried this projection from req #3114 (column added by #3111
-// migration 076) through req #3357: its one caller (`CategoryCard.jsx`) never
-// read the column directly — the epic/orchestrated marking it fed came from
-// `useRequirementVisibility`'s own dedicated whole-table read, not this one —
-// so dropping it here loses nothing, and it is one fewer place a query has to
-// carry a Feature-tier column now that the tier itself is retired.
+// The Feature-tier reference this projection once carried (added by req #3111
+// migration 076, widened by req #3114) was dropped through req #3357: its one
+// caller (`CategoryCard.jsx`) never read the column directly — the
+// epic/orchestrated marking it fed came from `useRequirementVisibility`'s own
+// dedicated whole-table read, not this one — so dropping it here loses
+// nothing, and it is one fewer place a query has to carry a column from a
+// tier that no longer exists.
 export function useRequirements(creatorFk, categoryId, { fields = 'id,title,requirement_status,category_fk,completed_at,deferred_at,started_at,coordination_type,ai_model,effort,machine_fk,sort_order', enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
@@ -641,19 +642,12 @@ export function useMapRunPartners(creatorFk, { fields = 'id,map_run_fk,map_partn
 }
 
 // ---------------------------------------------------------------------------
-// Req #2380 — Swarm Test Cases registry (the Features half retired by req #3357;
-// `useAllFeatures` below survives ONLY as the label-dictionary read
-// `src/SwarmView/pipelines/usePlanSources.js` still depends on).
+// Req #2380 — Swarm Test Cases registry (its sibling browsable catalog was
+// retired by req #3357).
 // `fields` is included in every extended query key (req #2213 — avoids cache collisions
 // across callers with different projections).
 // ---------------------------------------------------------------------------
 
-// `epic_fk` (req #3111 migration 076) joined the projection with req #3114:
-// features are the middle tier of Epic > Feature > Story, and the plan table
-// walks requirement -> feature -> epic to derive a step's dominant label
-// (design rule 10). The key already carries `fields`, so widening it cannot
-// collide with a narrower caller (req #2213).
-const FEATURE_DEFAULT_FIELDS = 'id,title,feature_status,epic_fk,category_fk,closed,sort_order,create_ts';
 const TESTCASE_DEFAULT_FIELDS = 'id,title,test_type,tags,category_fk,closed,sort_order,create_ts';
 const TESTCASE_FULL_FIELDS    = 'id,title,preconditions,steps,expected,test_type,tags,category_fk,creator_fk,closed,sort_order,create_ts,update_ts';
 const TESTPLAN_DEFAULT_FIELDS = 'id,title,description,category_fk,closed,sort_order,create_ts';
@@ -674,12 +668,12 @@ export const ALL_ROWS = 'all';
 // ----- epics: MOVED to factory/devopsQueries.js (req #3356) -----
 //
 // A hand-written `EPIC_DEFAULT_FIELDS` / `useAllEpics` / `useEpicById` trio read
-// this table here, because `epics` was the top tier of Epic > Feature > Story
-// and shared the features hooks' conventions below, while the plan EXECUTION
-// tables were factory blocks. Two things ended that:
+// this table here, because `epics` was the top tier of the retired 1.0
+// hierarchy and shared that hierarchy's other hooks' conventions below, while
+// the plan EXECUTION tables were factory blocks. Two things ended that:
 //
-//   * req #3355 dropped `features` and `requirements.feature_fk`, so there is no
-//     hierarchy left for `epics` to sit at the top of.
+//   * req #3355 dropped the middle tier and the requirement's reference to it,
+//     so there is no hierarchy left for `epics` to sit at the top of.
 //   * req #3356 collapsed the plan layer to one era, which made `epics` a
 //     plan-layer table exactly like `pipelines` and `pipeline_steps` — and left
 //     TWO declarations reading it, this one and the (2.0) factory block, with
@@ -697,39 +691,6 @@ export const ALL_ROWS = 'all';
 // both in that block's projection, and `pipelineQueries.test.js` still pins them
 // there — a column absent from an explicit field list is INVISIBLE to the
 // browser (req #2213, hit again by req #3390).
-
-// ----- features -----
-//
-// The Features browsable catalog (`FeaturesPage`, `useFeaturesByCategory`,
-// `useFeatureById`) was retired by req #3357. This hook survives as the ONE
-// remaining consumer's read: `src/SwarmView/pipelines/usePlanSources.js` feeds
-// it to the 1.0 plan derivation as a LABEL DICTIONARY (design rule 10) — that
-// derivation is untouched pending a separate single-source-of-truth choice.
-
-// `closed` defaults to 0 — the historical behavior every existing caller relies
-// on (a browsable catalog hides closed rows). Req #3114 added the option so the
-// plan table can pass ALL_ROWS and read features as a LABEL DICTIONARY, for the
-// same reason spelled out on useAllEpics above.
-//
-// `closed` is ALWAYS in the cache key. That does change the key for existing
-// callers (from `{fields}` to `{fields, closed: 0}`), which is safe because both
-// of them invalidate by the `featureKeys.all` PREFIX and nothing reconstructs the
-// full key — and it is the only shape that cannot collide: a key that omits the
-// filter for one value and includes it for another is one JSON.stringify quirk
-// away from serving the wrong rows.
-export function useAllFeatures(creatorFk,
-    { fields = FEATURE_DEFAULT_FIELDS, closed = 0, enabled = true } = {}) {
-    const { darwinUri } = useContext(AppContext);
-    const { idToken } = useContext(AuthContext);
-    const closedParam = closed === ALL_ROWS ? '' : `closed=${closed}&`;
-    const uri = `${darwinUri}/features?${closedParam}fields=${fields}&sort=sort_order:asc`;
-    const queryKey = [...featureKeys.all(creatorFk), { fields, closed }];
-    return useQuery({
-        queryKey,
-        queryFn: () => fetchEntity(uri, idToken),
-        enabled: enabled && !!creatorFk && !!idToken,
-    });
-}
 
 // ----- test_cases -----
 
@@ -1015,7 +976,7 @@ export const pipelineKeys                   = pipelines.keys;
 //
 // `useAllEpics` / `epicKeys` are these factory exports as of req #3356. A
 // hand-written `useAllEpics`/`useEpicById` pair read this same table until then
-// — see the note where they used to live, above the `features` block.
+// — see the "epics: MOVED" note above where they used to live.
 export const useAllEpics                    = epics.useAll;
 export const epicKeys                       = epics.keys;
 export const useAllPipelineSteps            = pipelineSteps.useAll;
@@ -1101,12 +1062,12 @@ export function useComposedPipeline(pipelineId, { enabled = true } = {}) {
 // consult ONE derivation or they will disagree with each other in ways nothing
 // fails on.
 //
-// WHAT MOVED, AND WHY IT WAS NOT OPTIONAL. Until #3356 this read `useAllFeatures`
-// + `useAllRequirements(fields: 'id,feature_fk,category_fk')` and walked
-// `requirement.feature_fk -> feature.epic_fk`. Req #3355 dropped BOTH — the
-// `features` table and the `requirements.feature_fk` column — so the projection
-// named a column production no longer has and the walk had nothing to walk. The
-// 2.0 answer is CONTAINMENT and it is one join shorter: `pipeline_steps.epic_fk`
+// WHAT MOVED, AND WHY IT WAS NOT OPTIONAL. Until #3356 this read the
+// 1.0-era label-dictionary hook plus a wider requirement projection and
+// walked the requirement's own middle-tier reference to its epic. Req #3355
+// dropped that whole tier and the requirement's reference to it — so the
+// projection named a column production no longer has and the walk had
+// nothing to walk. The 2.0 answer is CONTAINMENT and it is one join shorter: `pipeline_steps.epic_fk`
 // is NOT NULL (a step's epic is direct) and `pipeline_step_requirements` seats
 // the requirement on the step. The narrowing that follows — a requirement is in
 // an epic ONLY by being seated — is argued in `utils/epicMembership.js`.
@@ -1144,7 +1105,7 @@ export function useComposedPipeline(pipelineId, { enabled = true } = {}) {
 // The requirements read SURVIVES, narrowed. Membership no longer needs anything
 // off the requirement row, but "which project tab holds this epic's work" still
 // needs `category_fk` (`firstProjectIndexWithEpicWork`) — so the projection loses
-// the dead `feature_fk` and keeps the other two columns.
+// the retired middle-tier reference and keeps the other two columns.
 const EPIC_MEMBERSHIP_REQUIREMENT_FIELDS = 'id,category_fk';
 // The narrowest projection that answers "which epic is this step under". `id`
 // is the junction's join key; `epic_fk` is the whole membership question.

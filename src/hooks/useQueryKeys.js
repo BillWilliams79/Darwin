@@ -156,7 +156,7 @@ export const mapRunPartnerKeys = {
     all: (creatorFk) => ['map_run_partners', creatorFk],
 };
 
-// Req #2380 — Swarm Features & Test Cases registry. `fields` must appear in the
+// Req #2380 — Swarm Test Cases registry. `fields` must appear in the
 // extended key (req #2213) so two callers with different projections don't collide.
 
 // `epicKeys` MOVED to the factory re-export block above (req #3356). It was
@@ -165,25 +165,15 @@ export const mapRunPartnerKeys = {
 // plan-layer table like the other four, so its key comes from the same
 // declaration its hooks do rather than being stated a second time here.
 
-// Trimmed to `.all` by req #3357 — the Features route, its by-id/by-category
-// pages and their hooks are retired; `useAllFeatures` (the LABEL DICTIONARY
-// read `src/SwarmView/pipelines/usePlanSources.js` still depends on) is the
-// one surviving consumer.
-export const featureKeys = {
-    all: (creatorFk) => ['features', creatorFk],
-};
-
 export const testCaseKeys = {
     all: (creatorFk) => ['test_cases', creatorFk],
     byId: (creatorFk, id) => ['test_cases', creatorFk, { id }],
     byCategory: (creatorFk, categoryId) => ['test_cases', creatorFk, { categoryId }],
-    byFeature: (creatorFk, featureId) => ['test_cases', creatorFk, { featureId }],
 };
 
-// Req #3357 — feature_test_cases re-homed onto the requirement (req #3352's
-// junction). feature_test_cases the TABLE survives as a Feature concern the
-// SCHEMA still carries (eradication phase E6, req #3355) but the frontend no
-// longer reads it.
+// Req #3357 — the test-case catalog re-homed onto the requirement (req #3352's
+// junction). Its predecessor junction was dropped from the schema entirely by
+// req #3355's eradication cutover (migration 20260811033413).
 export const requirementTestCaseKeys = {
     all: (creatorFk) => ['requirement_test_cases', creatorFk],
 };

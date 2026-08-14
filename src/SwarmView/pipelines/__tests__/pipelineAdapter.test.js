@@ -212,14 +212,6 @@ describe('buildPlanRows — joining derived.rows[] back onto steps[]/epics[]/req
         expect(r.epicLabels).toEqual([{ id: 5, title: 'Swarm Cloned Git' }]);
     });
 
-    it('never synthesizes a Feature — 2.0 has none', () => {
-        for (const r of rows) {
-            expect(r.featureId).toBeNull();
-            expect(r.feature).toBeNull();
-            expect(r.featureLabels).toEqual([]);
-        }
-    });
-
     it('never marks a row label-inherited — 2.0 containment gives every step its own epic', () => {
         expect(rows.every((r) => r.labelInherited === false)).toBe(true);
     });

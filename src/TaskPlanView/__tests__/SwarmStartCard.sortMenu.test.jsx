@@ -33,7 +33,6 @@ const EMPTY = [];
 // SYNCHRONOUS render loop that no per-test timeout can interrupt. Measured in
 // review: it wedged the worker rather than failing a test.
 const EMPTY_JUNCTION = [];
-const EMPTY_FEATURES = [];
 const EMPTY_ALL_REQS = [];
 
 vi.mock('../../hooks/useDataQueries', () => ({
@@ -49,7 +48,6 @@ vi.mock('../../hooks/useDataQueries', () => ({
     // wrong would loop rather than fail. `ALL_ROWS` is re-exported because the
     // hook passes it (a closed feature still seats its requirements).
     useAllPipelineStepRequirements: () => ({ data: EMPTY_JUNCTION }),
-    useAllFeatures: () => ({ data: EMPTY_FEATURES }),
     ALL_ROWS: 'all',
 }));
 

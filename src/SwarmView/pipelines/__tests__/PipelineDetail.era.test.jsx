@@ -103,7 +103,6 @@ vi.mock('../../../hooks/useDataQueries', async (importOriginal) => {
         useAllPipelineStepRequirements: count('stepRequirements'),
         useAllPipelineStepDeps: count('stepDeps'),
         useAllRequirements: count('requirements'),
-        useAllFeatures: count('features'),
         useAllEpics: count('epics'),
         useComposedPipeline: (id, opts = {}) => {
             if (opts.enabled !== false) reads.composed = (reads.composed || 0) + 1;
@@ -182,14 +181,13 @@ describe('PipelineDetail — which table is read (req #3463, one era since #3356
         mount('/swarm/pipeline/7');
 
         expect(reads.composed).toBeGreaterThan(0);
-        // Every one of the six, BY NAME: a blanket "no other read fired" would
+        // Every one of the five, BY NAME: a blanket "no other read fired" would
         // pass vacuously the moment a hook was renamed — which is precisely how
         // this file lost an assertion during req #3356's rename.
         expect(reads.steps).toBeUndefined();
         expect(reads.stepRequirements).toBeUndefined();
         expect(reads.stepDeps).toBeUndefined();
         expect(reads.requirements).toBeUndefined();
-        expect(reads.features).toBeUndefined();
         expect(reads.epics).toBeUndefined();
         // The index is not read on the happy path either — asserted here as
         // well as in its own case, because this is where a reader looks for the

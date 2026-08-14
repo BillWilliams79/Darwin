@@ -277,7 +277,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
 
             sortedRequirementsArray.sort((a, b) => activeSort(a, b));
             // THE ADD-A-REQUIREMENT ROW IS SUPPRESSED WHILE FILTERED. A row saved
-            // there carries no `feature_fk`, so it belongs to no epic and would
+            // there starts seated on no step, so it belongs to no epic and would
             // vanish from this card the instant it saved — a control whose result
             // the reader cannot see. It comes back with the filter's dismissal.
             setRequirementsArray(prev => membershipFilterActive

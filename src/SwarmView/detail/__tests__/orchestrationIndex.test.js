@@ -3,10 +3,10 @@
 // The Orchestration box's whole derivation, exercised without a DOM: which plan
 // and step carry a requirement, and what the Step dropdown offers.
 //
-// req #3357 retired the Epic row and its derivation (`epicByFeature`,
-// `epicByStep`, `epicPrimaryPipeline`, `epicForFeature`, `epicRowForFeature`,
-// and `stepOptions`'s `epicId` scoping) — Feature left the frontend and no
-// replacement existed for 1.0. See `orchestrationIndex.js`'s header.
+// req #3357 retired the Epic row and its whole derivation chain, down to
+// `stepOptions`'s `epicId` scoping — the retired middle tier left the
+// frontend and no replacement existed for 1.0. See `orchestrationIndex.js`'s
+// header.
 //
 // req #3356 RE-BASED THE WHOLE INDEX ON PIPELINE 2.0, and the fixture below
 // carries the one structural difference: a 2.0 step has NO `pipeline_fk`. Its

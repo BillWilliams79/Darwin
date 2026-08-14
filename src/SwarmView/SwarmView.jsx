@@ -640,8 +640,9 @@ const SwarmView = () => {
                             />
                         )}
                         {/* req #3419 — ORCHESTRATED now means BOTH: a pipeline
-                            step carries it, OR an epic seats it (requirement ->
-                            feature -> epic). req #3180 answered step
+                            step carries it, OR an epic seats it (through the
+                            retired middle tier, in the era this shipped). req
+                            #3180 answered step
                             association alone and called the gap "what the
                             filter exists to expose"; measured on production,
                             what the reader saw was a control asked to hide

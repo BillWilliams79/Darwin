@@ -36,9 +36,10 @@ import call_rest_api from '../../RestApi/RestApi';
 const isOk = (status) => status === 200 || status === 201 || status === 204;
 
 /**
- * Deliberately duplicated from validationApi rather than imported: that module
- * is Features-scoped, and coupling two unrelated registries through a ten-line
- * helper is worse than the duplication. validationApi is itself self-contained.
+ * Deliberately duplicated from `TestCatalog/actions/validationApi.js` rather
+ * than imported: that module is scoped to its own page, and coupling two
+ * unrelated registries through a ten-line helper is worse than the
+ * duplication. validationApi is itself self-contained.
  *
  * The thrown error CARRIES `httpStatus`. call_rest_api rejects with a bare
  * `{data, httpStatus}` object for any non-2xx, but it RETURNS (does not throw) a

@@ -419,8 +419,8 @@ const SwarmStartCard = ({ epicReqIds = null, stepReqIds = null }) => {
     //
     // req #3428 — the epic filter is the LAST pass, after both pipeline
     // exclusions, and it is an ID-SET test: none of this card's three
-    // projections carries `feature_fk`, and none of them needs to. That is the
-    // whole reason the scope arrives as ids.
+    // projections carries an epic reference of its own, and none of them
+    // needs to. That is the whole reason the scope arrives as ids.
     const currentRequirements = React.useMemo(
         () => filterToStepReqIds(
             filterToEpic(isMet ? eligibleMetRequirements : eligibleRequirements, epicReqIds),

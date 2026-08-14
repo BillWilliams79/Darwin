@@ -19,8 +19,9 @@
 //   - `epic_status` (active|paused) gets a click-to-toggle chip — genuinely
 //     new UI: there is no pause/unpause control anywhere today, in either
 //     era, only a derived bubble.
-//   - No Features count column — 2.0 has no feature tier (containment goes
-//     straight epic -> step). A step_count column takes its place, linking to
+//   - No count column for the retired middle tier — 2.0 has no such tier
+//     (containment goes straight epic -> step). A step_count column takes
+//     its place, linking to
 //     `/swarm/steps?epic=<id>`.
 //   - No orchestration-claim "orchestrated by" badge — not in the
 //     requirement's field matrix; left out deliberately rather than folded
