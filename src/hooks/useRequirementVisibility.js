@@ -32,11 +32,11 @@
 //
 // ── WHY THE EPIC-FILED-BUT-UNSEATED POPULATION IS GONE (req #3357) ──────────
 //
-// req #3419 unioned in a second population — requirements epic-filed via
-// `requirements.feature_fk -> features.epic_fk` but not yet carried by any
-// step — because the toggle otherwise still showed work that was plainly
-// part of a plan. Feature leaving the frontend retires the ONLY mechanism
-// that could produce that population (see `utils/pipelineMembership.js`'s
+// req #3419 unioned in a second population — requirements epic-filed through
+// the retired middle tier but not yet carried by any step — because the
+// toggle otherwise still showed work that was plainly part of a plan. That
+// tier leaving the frontend retires the ONLY mechanism that could produce
+// that population (see `utils/pipelineMembership.js`'s
 // header for the full reasoning), so this hook now reads ONE bounded list —
 // the step-requirement junction — instead of three.
 //

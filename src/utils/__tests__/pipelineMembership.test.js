@@ -96,9 +96,10 @@ describe('excludeByIds', () => {
 
 // ── req #3419's epic-filed union, retired by req #3357 ─────────────────────
 //
-// req #3419 unioned in requirements epic-filed via `feature_fk -> epic_fk`
-// but not step-carried. Feature leaving the frontend retired the only
-// mechanism that could produce that population — see pipelineMembership.js's
+// req #3419 unioned in requirements epic-filed through the retired middle
+// tier's own reference to the epic, but not step-carried. That tier leaving
+// the frontend retired the only mechanism that could produce that population
+// — see pipelineMembership.js's
 // header for the full reasoning — so `orchestratedRequirementIds` is now the
 // step answer alone.
 

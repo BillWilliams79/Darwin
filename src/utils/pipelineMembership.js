@@ -28,8 +28,8 @@
 //     browse toggle asks for.
 //
 // req #3419 ADDED a second population — requirements "filed under a BODY OF
-// WORK" via `requirements.feature_fk -> features.epic_fk`, true of plenty of
-// requirements no step carried yet — and unioned it with the step set so the
+// WORK" through the retired middle tier's own reference to the epic, true of
+// plenty of requirements no step carried yet — and unioned it with the step set so the
 // toggle would not miss epic-filed-but-unseated work.
 //
 // req #3357 RETIRES IT, because Feature (the only mechanism that could file a
@@ -170,8 +170,8 @@ export const filterToStepReqIds = (rows, stepReqIds) => {
 /**
  * THE browse answer: a requirement is ORCHESTRATED when a pipeline step
  * carries it. Req #3357 retired the second population this used to union in
- * (epic-filed-but-unseated, via `requirements.feature_fk -> features.epic_fk`)
- * — see the module header; req #3491's later, first-generation-junction union
+ * (epic-filed-but-unseated, through the retired middle tier's own reference
+ * to the epic) — see the module header; req #3491's later, first-generation-junction union
  * is retired the same way (see `pipelinedRequirementIds`). Kept as its own
  * named export, distinct from `pipelinedRequirementIds`, so both stay one
  * call site each even though they answer identically today.

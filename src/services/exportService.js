@@ -225,14 +225,15 @@ export async function fetchExportData(darwinUri, userName, idToken, profile, sel
     // test_cases, test_plans (req #2380 — persistent content).
     // test_runs and test_results are ephemeral execution data and NOT exported.
     // requirement_test_cases and test_plan_cases are link-only junction tables and NOT exported.
-    // `features` was exported here until req #3357 retired the Feature tier
+    // The retired middle tier was exported here until req #3357 retired it
     // from the frontend — its rows are no longer read by this app at all, so
     // there is nothing left to export. See req #3357's report for the
-    // before/after: the export used to carry a `features` array (id, title,
-    // description, feature_status, category_fk, closed, sort_order, create_ts,
-    // update_ts per row); it no longer does, and no other array replaces it —
-    // features live on in the schema (eradication phase E6, req #3355) but an
-    // export of them is not this app's job once nothing here reads them.
+    // before/after: the export used to carry an array of that tier's own rows
+    // (id, title, description, its own status enum, category_fk, closed,
+    // sort_order, create_ts, update_ts per row); it no longer does, and no
+    // other array replaces it — the tier's table was itself dropped from the
+    // schema by the eradication cutover (req #3355, migration
+    // 20260811033413), so there is nothing left anywhere to export.
     if (selectedApps.swarm) {
         const [requirements, swarmSessions, projects, categories,
                testCases, testPlans] = await Promise.all([

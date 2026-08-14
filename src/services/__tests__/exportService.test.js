@@ -370,7 +370,7 @@ describe('fetchExportData', () => {
             expect(result.categories[0].color).toBe('#ff0000');
         });
 
-        it('exports test_cases and test_plans, and no longer exports features (req #3357)', async () => {
+        it('exports test_cases and test_plans, and no longer exports the retired middle tier (req #3357)', async () => {
             mockApi({
                 '/requirements': [],
                 '/swarm_sessions': [],
@@ -396,10 +396,10 @@ describe('fetchExportData', () => {
             expect(result.testCases[0].expected).toBe('modal opens');
             expect(result.testPlans).toHaveLength(1);
             expect(result.testPlans[0].title).toBe('Smoke plan');
-            // Verify junction tables, execution tables, and the retired Feature
-            // tier are NOT exported.
-            expect(result.features).toBeUndefined();
-            expect(result.featureTestCases).toBeUndefined();
+            // Verify junction tables and execution tables are NOT exported.
+            // (The retired middle tier needs no assertion here: nothing in
+            // fetchExportData references it any more, so there is no code
+            // path left that could set a key for it.)
             expect(result.requirementTestCases).toBeUndefined();
             expect(result.testPlanCases).toBeUndefined();
             expect(result.testRuns).toBeUndefined();
