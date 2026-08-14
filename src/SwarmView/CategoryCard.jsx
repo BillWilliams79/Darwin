@@ -16,6 +16,9 @@ import { useShowClosedStore } from '../stores/useShowClosedStore';
 import { RequirementActionsContext } from '../hooks/useRequirementActions';
 import { requirementStatusTimestampFields, requirementStatusTimestampState } from '../utils/requirementStatusTimestamps';
 import { filterToEpic } from '../utils/epicMembership';
+// req #3503 — the STEP filter's row predicate. Its own module because step
+// association is `pipelineMembership.js`' stated domain, not the epic module's.
+import { filterToStepReqIds } from '../utils/pipelineMembership';
 
 import AuthContext from '../Context/AuthContext'
 import AppContext from '../Context/AppContext';
@@ -41,7 +44,7 @@ import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import { CircularProgress } from '@mui/material';
 
-const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categoryKeyDown, categoryOnBlur, clickCardClosed, clickCardDelete, moveCard, persistCategoryOrder, removeCategory, isTemplate, showClosed, epicReqIds = null }) => {
+const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categoryKeyDown, categoryOnBlur, clickCardClosed, clickCardDelete, moveCard, persistCategoryOrder, removeCategory, isTemplate, showClosed, epicReqIds = null, stepReqIds = null }) => {
 
     const revertDragTabSwitch = useSwarmTabStore(s => s.revertDragTabSwitch);
 
@@ -69,6 +72,14 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
     // screen" for every surface — keeping the override here would have restored
     // exactly the per-surface copy req #3419 removed, one requirement later.
     const epicFilterActive = epicReqIds != null;
+    // req #3503 — the same three questions for the step filter. `membershipFilterActive`
+    // is what every SCOPE-SHAPED behaviour below reads (the forced toggle, the
+    // suppressed add-row, the drag guard, the hide-when-empty rule): each of those
+    // is true of "a membership scope is narrowing this card", not of the epic
+    // filter specifically. Epic behaviour is bit-identical — `x` becomes
+    // `x || false` whenever no step filter is active.
+    const stepFilterActive = stepReqIds != null;
+    const membershipFilterActive = epicFilterActive || stepFilterActive;
 
     const showError = useSnackBarStore(s => s.showError);
 
@@ -214,7 +225,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
     // req #3419) when the toggle is showing them. Marking and hiding must never
     // become two answers to one question.
     const { filterVisible, orchestratedIds } = useRequirementVisibility(
-        profile?.userName, { epicFilterActive });
+        profile?.userName, { epicFilterActive, stepFilterActive });
 
     // Seed local state from query data (hybrid pattern — local state owns template row).
     //
@@ -253,18 +264,25 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
             // `epicReqIds` is null, same as the two above when they are off.
             sortedRequirementsArray = filterToEpic(sortedRequirementsArray, epicReqIds);
 
+            // req #3503 — the STEP filter, applied in series after the epic's. A
+            // no-op (same array reference) when `stepReqIds` is null, so an
+            // epic-filtered or unfiltered card pays nothing; when both are on,
+            // the survivors are the intersection, which is what two independent
+            // filters on one page must mean.
+            sortedRequirementsArray = filterToStepReqIds(sortedRequirementsArray, stepReqIds);
+
             sortedRequirementsArray.sort((a, b) => activeSort(a, b));
             // THE ADD-A-REQUIREMENT ROW IS SUPPRESSED WHILE FILTERED. A row saved
             // there carries no `feature_fk`, so it belongs to no epic and would
             // vanish from this card the instant it saved — a control whose result
             // the reader cannot see. It comes back with the filter's dismissal.
-            setRequirementsArray(prev => epicFilterActive
+            setRequirementsArray(prev => membershipFilterActive
                 ? sortedRequirementsArray
                 : [...sortedRequirementsArray, buildTemplate(prev)]);
         } else if (serverRequirements && serverRequirements.length === 0) {
-            setRequirementsArray(prev => epicFilterActive ? [] : [buildTemplate(prev)]);
+            setRequirementsArray(prev => membershipFilterActive ? [] : [buildTemplate(prev)]);
         }
-    }, [serverRequirements, requirementStatusFilter, filterVisible, epicReqIds, epicFilterActive]);
+    }, [serverRequirements, requirementStatusFilter, filterVisible, epicReqIds, stepReqIds, membershipFilterActive]);
 
     // Build session status map from query data
     useEffect(() => {
@@ -519,7 +537,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
         // subset of the cards — so a drag here writes positions computed against
         // neighbours they cannot see. Same reasoning req #3258 gave for hiding
         // orchestrated rows: the ordering is not this view's to set right now.
-        canDrag: () => !isTemplate && !epicFilterActive,
+        canDrag: () => !isTemplate && !membershipFilterActive,
         collect: (monitor) => ({
             isDragging: monitor.isDragging(),
         }),
@@ -534,7 +552,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                 revertDragTabSwitch();
             }
         },
-    }), [category, categoryIndex, projectId, isTemplate, persistCategoryOrder, removeCategory, revertDragTabSwitch, epicFilterActive]);
+    }), [category, categoryIndex, projectId, isTemplate, persistCategoryOrder, removeCategory, revertDragTabSwitch, membershipFilterActive]);
 
     const cardRef = useRef(null);
     const mergedRef = useCallback((node) => {
@@ -761,7 +779,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
     // The "add new category" template card needs no rule of its own — it holds no
     // requirements at all, so this removes it, which is the tell that the rule is
     // the right one.
-    if (epicFilterActive && (!requirementsArray || requirementsArray.length === 0)) return null;
+    if (membershipFilterActive && (!requirementsArray || requirementsArray.length === 0)) return null;
 
     return (
         <Card key={categoryIndex} raised={true} ref={mergedRef}
@@ -875,7 +893,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                     <RequirementActionsContext.Provider value={{ statusClick, coordinationClick,
                         titleChange, titleKeyDown, titleOnBlur, deleteClick, requirementsArray, setRequirementsArray,
                         sessionStatusMap, sortMode, setCrossCardInsertIndex, orchestratedIds,
-                        dragDisabled: epicFilterActive }}>
+                        dragDisabled: membershipFilterActive }}>
                         {requirementsArray.map((requirement, requirementIndex) => (
                             <RequirementRow {...{key: requirement.id, requirement, requirementIndex,
                                 categoryId: category.id, categoryName: category.category_name }}

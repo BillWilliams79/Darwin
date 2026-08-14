@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { pipelinedRequirementIds, orchestratedRequirementIds, excludeByIds } from '../pipelineMembership';
+import {
+    pipelinedRequirementIds, orchestratedRequirementIds, excludeByIds,
+    stepRequirementIds, filterToStepReqIds,
+} from '../pipelineMembership';
 
 // req #3180. This module is the browser's ONE answer to "does a pipeline step
 // carry this requirement" — both the SwarmStartCard aggregator and the
@@ -126,3 +129,119 @@ describe('orchestratedRequirementIds (req #3357)', () => {
 // describe blocks that lived here (testing the union, the de-duplication
 // across eras, and the independent-in-flight-read cases) were removed with
 // it — the single-junction cases above already cover the surviving behavior.
+
+// ── req #3503 — the SAME module, narrowed to ONE step ──────────────────────
+//
+// `pipelinedRequirementIds` above answers "is this on ANY step"; these answer
+// "is this on step X". Same junction, one hop, no `pipeline_steps` read — which
+// is the whole difference from the epic answer in `epicMembership.js`.
+
+describe('stepRequirementIds', () => {
+    // The junction as `useAllPipelineStepRequirements` returns it.
+    // `PRIMARY KEY (requirement_fk)` alone, so a requirement appears at most once.
+    const JUNCTION = [
+        { step_fk: 186, requirement_fk: 3503 },
+        { step_fk: 186, requirement_fk: 3504 },
+        { step_fk: 187, requirement_fk: 3505 },
+    ];
+
+    it('collects only the named step\'s requirements', () => {
+        expect(stepRequirementIds(JUNCTION, 186)).toEqual(new Set([3503, 3504]));
+        expect(stepRequirementIds(JUNCTION, 187)).toEqual(new Set([3505]));
+    });
+
+    it('normalizes string ids so a REST payload matches a numeric row id', () => {
+        // Lambda-Rest can hand back either, on either column.
+        expect(stepRequirementIds([{ step_fk: '186', requirement_fk: '3503' }], 186))
+            .toEqual(new Set([3503]));
+        expect(stepRequirementIds(JUNCTION, '186')).toEqual(new Set([3503, 3504]));
+    });
+
+    it('is empty for a step nothing is seated on — not an error', () => {
+        expect(stepRequirementIds(JUNCTION, 99999).size).toBe(0);
+    });
+
+    it('is EMPTY, never everything, when no step is named', () => {
+        // "No filter" is `null` passed to `filterToStepReqIds`, not an unresolved
+        // id here. Conflating them would make an in-flight id read as the whole
+        // table.
+        expect(stepRequirementIds(JUNCTION, null).size).toBe(0);
+        expect(stepRequirementIds(JUNCTION, undefined).size).toBe(0);
+        expect(stepRequirementIds(JUNCTION, '').size).toBe(0);
+    });
+
+    it('never matches a row with no step_fk against a step id of 0', () => {
+        // `Number(null)` is 0 — a perfectly good integer and a perfectly bad
+        // step id. Both columns are guarded before Number sees them.
+        expect(stepRequirementIds([
+            { step_fk: null, requirement_fk: 1 },
+            { step_fk: '', requirement_fk: 2 },
+            { requirement_fk: 3 },
+        ], 0).size).toBe(0);
+    });
+
+    it('never seeds the set from a row with no requirement_fk', () => {
+        expect(stepRequirementIds([
+            { step_fk: 186, requirement_fk: null },
+            { step_fk: 186 },
+            null,
+            { step_fk: 186, requirement_fk: 3503 },
+        ], 186)).toEqual(new Set([3503]));
+    });
+
+    it('returns an empty set for a missing or non-array read', () => {
+        expect(stepRequirementIds(undefined, 186).size).toBe(0);
+        expect(stepRequirementIds(null, 186).size).toBe(0);
+        expect(stepRequirementIds({}, 186).size).toBe(0);
+    });
+});
+
+describe('filterToStepReqIds', () => {
+    const rows = [{ id: 3503 }, { id: 3504 }, { id: 3505 }];
+
+    it('keeps only rows in the set, matching on id alone', () => {
+        // ID-ONLY IS THE POINT: none of the consuming projections carries a plan
+        // column, and this is what lets them be filtered anyway.
+        expect(filterToStepReqIds(rows, new Set([3503, 3505])).map(r => r.id))
+            .toEqual([3503, 3505]);
+    });
+
+    it('returns the input UNCHANGED, by reference, when no filter is active', () => {
+        expect(filterToStepReqIds(rows, null)).toBe(rows);
+        expect(filterToStepReqIds(rows, undefined)).toBe(rows);
+    });
+
+    it('an EMPTY SET is a real answer and yields no rows — not "no filter"', () => {
+        // The in-flight direction, and the OPPOSITE of `excludeByIds` above:
+        // that one DROPS the ids it is given, so unknown must mean "keep"; this
+        // one SELECTS them, so unknown must mean "none yet". Showing everything
+        // until the junction lands renders the unfiltered page under a pill
+        // claiming it is filtered.
+        expect(filterToStepReqIds(rows, new Set())).toEqual([]);
+    });
+
+    it('drops the template row, whose id is the empty string', () => {
+        expect(filterToStepReqIds([{ id: '' }, { id: 3503 }], new Set([3503])).map(r => r.id))
+            .toEqual([3503]);
+    });
+
+    it('matches a numeric set against string row ids', () => {
+        expect(filterToStepReqIds([{ id: '3503' }, { id: '3504' }], new Set([3503])).map(r => r.id))
+            .toEqual(['3503']);
+    });
+
+    it('passes a non-array through untouched', () => {
+        expect(filterToStepReqIds(undefined, new Set([3503]))).toBe(undefined);
+    });
+
+    it('composes with filterToEpic as an INTERSECTION, in either order', () => {
+        // Both filters can be engaged at once, and the cards apply them in
+        // series. Neither is a mode of the other, so the survivors must be the
+        // rows both sets hold.
+        const epicSet = new Set([3503, 3504]);
+        const stepSet = new Set([3504, 3505]);
+        const kept = filterToStepReqIds(
+            rows.filter(r => epicSet.has(r.id)), stepSet);
+        expect(kept.map(r => r.id)).toEqual([3504]);
+    });
+});

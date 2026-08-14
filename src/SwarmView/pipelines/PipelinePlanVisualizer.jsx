@@ -133,15 +133,16 @@ import {
     // req #3498 — the step is a CARD. The renderer draws the box the layout
     // measured; it never measures one of its own.
     CARD_RADIUS, CARD_PAD_X, CARD_PAD_Y, CARD_LINE_H, CARD_RULE_GAP,
-    CARD_STATE_BAR_W, CARD_CHECK_W,
+    CARD_STATE_BAR_W, CARD_CHECK_W, CARD_BADGE_FONT,
     MIN_CARD_H, REQ_LINE_H,
     buildReqColorViews, REQ_COLOR_KEYS, reqIdStyle, reqIdKeyEntries, normalizeColorKey,
     DEFAULT_PLAN_PALETTE, isPlanPalette,
     DEFAULT_COLOR_KEY, PLAN_KEY_MAX_H, pinnedLevelOf, DEFAULT_PLAN_LEVEL_PREF,
+    DEFAULT_STEP_WIDTH_LEVEL,
     EPIC_PAUSE_BUBBLE_D, pauseBubbleColor, stickyRulerY, rulerScreenBottom,
     PAUSE_PAUSED_COLOR,
     rulerScreenMag,
-    KEY_GROUP_TITLES, sortReqIdsByStatus,
+    KEY_GROUP_TITLES, sortReqIdsByColorKey,
 } from './pipelinePlanLayout';
 import {
     epicCycleKey, epicZoomStateKey, epicWorkStepIds, nextEpicZoom,
@@ -150,7 +151,7 @@ import {
 } from './pipelineEpicZoom';
 // req #3428 — the epic chip's second destination. The URL contract lives with
 // the rest of `/swarm`'s query string, so this file names no query key itself.
-import { swarmEpicLinkTo } from '../swarmViewLink';
+import { swarmEpicLinkTo, swarmStepLinkTo } from '../swarmViewLink';
 import { useSavedViewport } from '../../hooks/useSavedViewport';
 import { viewportStorageKey, writeViewport } from '../../utils/viewportMemory';
 import '../../CalendarFC/swarmVisualizer.css';
@@ -297,8 +298,11 @@ export default function PipelinePlanVisualizer({
     // Toolbar state is OWNED BY THE PAGE since req #3119 — the controls render in
     // the header row beside the pipeline name (the SwarmView/VisualizerToolbar
     // pattern, req #2407), so the panel is the canvas and nothing else.
-    // `reqLayout` and `stepWidth` left with req #3498 — a card stacks its
-    // requirements and is a fixed width, so neither had anything left to select.
+    // `reqLayout` left with req #3498 — a card stacks its requirements, so it
+    // had nothing left to select. `stepWidth` (the S/M/L content multiplier)
+    // left with it for the same reason; `stepWidthLevel` below is its
+    // req #3503 successor, scaling the CARD itself rather than a per-column
+    // content negotiation that no longer exists — see `cardGeometryFor`.
     stepLabel = 'title', colorKey = DEFAULT_COLOR_KEY,
     reqLabel = 'id', levelPref = DEFAULT_PLAN_LEVEL_PREF,
     // req #3365 — WHICH colours the epic bands and the two enum scales draw
@@ -334,6 +338,12 @@ export default function PipelinePlanVisualizer({
     // toggling it never rebuilds the zoom behaviour (which would drop the
     // reader's camera).
     snapZoom = false,
+    // req #3503 — "Step Width". 1-4, `STEP_WIDTH_SCALES`' own index+1. The ONE
+    // toolbar control that RELAYOUTS rather than just moving the camera —
+    // every column, every card, every wrap point in `layout` below depends on
+    // it, so it rides in `computePlanLayout`'s own options rather than being
+    // applied as a post-hoc transform the way every other control here is.
+    stepWidthLevel = DEFAULT_STEP_WIDTH_LEVEL,
 }) {
     const navigate = useNavigate();
 
@@ -350,24 +360,29 @@ export default function PipelinePlanVisualizer({
             .map((r) => [r.id, {
                 title: r.title, status: r.requirement_status,
                 coordination: r.coordination_type, model: r.ai_model, effort: r.effort,
+                machineFk: r.machine_fk,
             }])),
         [model]);
-    // req #3363 — the requirement marks stacked under a step sort met-first,
-    // deferred/wontfix last (`sortReqIdsByStatus`'s own ladder). Only the ORDER
-    // of each row's `reqIds` changes here; the ROW ARRAY keeps the engine's own
-    // order (bead z-stacking, column/lane placement all key off it), and every
-    // other field on a row — `launchReqIds`, `trackingReqIds`,
-    // `swarmStartCommand` — is the engine's answer, computed before this runs
-    // and left untouched, so re-ordering the display never touches what
-    // `/swarm-start` launches.
+    // req #3363, generalized req #3503 — the requirement marks stacked under a
+    // step sort by whichever colour key is ACTIVE (`sortReqIdsByColorKey`'s own
+    // ladder: State Authoring→Met, Autonomy Discuss→Deployed, Machine its own
+    // order), not by a fixed met-first ladder any more. Only the ORDER of each
+    // row's `reqIds` changes here; the ROW ARRAY keeps the engine's own order
+    // (bead z-stacking, column/lane placement all key off it), and every other
+    // field on a row — `launchReqIds`, `trackingReqIds`, `swarmStartCommand` —
+    // is the engine's answer, computed before this runs and left untouched, so
+    // re-ordering the display never touches what `/swarm-start` launches.
     const rows = useMemo(() => {
         const base = plan.rows || [];
         if (!base.length) return base;
         const statusOf = (id) => reqInfo.get(id)?.status;
+        const autonomyOf = (id) => reqInfo.get(id)?.coordination;
+        const machineOf = (id) => reqInfo.get(id)?.machineFk;
         return base.map((r) => ((r.reqIds || []).length > 1
-            ? { ...r, reqIds: sortReqIdsByStatus(r.reqIds, statusOf) }
+            ? { ...r, reqIds: sortReqIdsByColorKey(r.reqIds,
+                { colorKey, statusOf, autonomyOf, machineOf }) }
             : r));
-    }, [plan.rows, reqInfo]);
+    }, [plan.rows, reqInfo, colorKey]);
     const rowById = useMemo(() => new Map(rows.map((r) => [r.id, r])), [rows]);
     const eligibleStepIds = plan.eligibleStepIds || new Set();
     // The requirement TITLE lookup, when that mark is showing (req #3168). Built
@@ -404,9 +419,10 @@ export default function PipelinePlanVisualizer({
             // provenance as `requirementCounts`/`timeAxis` above): one
             // derivation, read here rather than recomputed.
             pauseInfo: plan.pause || null,
+            stepWidthLevel,
         }),
         [rows, plan.timeAxis, stepLabel,
-            reqLabel, reqTitles, epicCounts, plan.pause, activePalette]);
+            reqLabel, reqTitles, epicCounts, plan.pause, activePalette, stepWidthLevel]);
 
     // ── The REQUIREMENT-ID channel (req #3119; #3168 neutral; #3422 registry) ─
     // Whatever the key, it rides the requirement ids and never the bead: the
@@ -1272,7 +1288,11 @@ export default function PipelinePlanVisualizer({
         const el = containerEl;
         const zb = zoomRef.current;
         if (!el || !zb || !(size.w > 0)) return;
-        const nextK = stepsAcrossScale(stepsAcross?.n, size.w);
+        // `layout.colPitch` — req #3503 review: the fixed scale-1 pitch
+        // under-counted every rung above Step Width 1 (measured "5 across"
+        // landing at 3.27 columns at rung 4). NOT `layout.colW`, the
+        // per-column array this scalar was built from.
+        const nextK = stepsAcrossScale(stepsAcross?.n, size.w, layout.colPitch);
         if (!nextK) return;
         const next = zoomAboutViewportCentre(t, size, nextK);
         if (!next) return;
@@ -1308,7 +1328,7 @@ export default function PipelinePlanVisualizer({
         if (!el || !zb || !(size.w > 0)) return;
         // d3's own sign convention: deltaY > 0 is a zoom OUT.
         const dir = ev.deltaY > 0 ? 1 : -1;
-        const nextK = snapZoomScale(t.k, size.w, dir);
+        const nextK = snapZoomScale(t.k, size.w, dir, layout.colPitch);
         if (!nextK) return;                     // already at the ladder's floor
         const rect = el.getBoundingClientRect();
         const next = zoomAboutPoint(t,
@@ -1483,7 +1503,8 @@ export default function PipelinePlanVisualizer({
     // in no dependency array — so the wrapper only read as if it memoised
     // something.
     const drawsKind = (kind) => drawsLabelKind(kind, level);
-    const drawnKinds = ['step', 'req', 'title'].filter(drawsKind).join(',');
+    const drawnKinds = ['step', 'req', 'title', 'badge', 'step-link']
+        .filter(drawsKind).join(',');
 
     // Report the level being rendered so the toolbar's selector can softly mark
     // it while on Auto — BuildVisualizerPage's `onEffectiveLevel` handshake. In
@@ -1654,9 +1675,11 @@ export default function PipelinePlanVisualizer({
     // NO NEW GEOMETRY FUNCTION. This used to call a third fit of its own,
     // framing the dashed launch-unit rectangle; req #3371 made the STEP the
     // launch unit, so the second stop re-points at `stepFocusTransform` — req
-    // #3253's, already here for the `?step=` deep link, already carrying the
-    // crop margin (`STEP_FOCUS_CONTEXT`) that keeps a single bead from filling
-    // the panel. Two focus functions now, not three.
+    // #3253's, already here for the `?step=` deep link. A single step is
+    // framed by a STATED scale (`STEP_FOCUS_STEPS_ACROSS`); a SET of two or
+    // more is a TIGHT fit — `FOCUS_PAD` screen px on whichever axis binds,
+    // nothing proportional (req #3503) — with no third function needed for
+    // either.
     //
     // Written to look identical to the band caller on purpose — the flag
     // discipline in `applyFocus` took two review findings to get right and must
@@ -1990,6 +2013,36 @@ export default function PipelinePlanVisualizer({
     const epicOverlayTopInset = rulerScreenBottom(t);
 
     const chipBg = rgba(P.panel, EPIC_CHIP_BG_ALPHA);
+
+    // ── THE REQUIREMENT-COUNT BADGE, AS AN HTML OVERLAY (req #3503, round 4)
+    // ─────────────────────────────────────────────────────────────────────
+    // Three rounds of Konva `<Text>` — hand-fighting canvas's `textBaseline:
+    // 'middle'`, which centres the font's own em box rather than the glyph's
+    // ink — never converged on true centring, because canvas has no real
+    // vertical-centring primitive. CSS flexbox does, and this file already
+    // reaches for it for exactly this reason: `floatingEpics` above is the
+    // SAME move for the epic chip's own controls. Screen position is a plain
+    // world→screen projection through `t` (`x*t.k + t.x`), no placement pass
+    // needed — unlike the epic chip there is no lane-fit, no clamp, no
+    // collision to resolve, because a badge answers for exactly one card and
+    // never competes with a neighbour for room.
+    const floatingBadges = layout.labels
+        .filter((l) => l.kind === 'badge' && drawsKind('badge'))
+        .map((l) => ({
+            key: `badge-${l.stepId}`,
+            // req #3503 — the STEP'S OWN id, carried on the label the layout
+            // already emits (`pipelinePlanLayout.js` sets `stepId: r.id` on every
+            // badge). No lookup is invented here: the badge counts one step's
+            // requirements, so the step it answers for is the one whose id it
+            // already had to know to be positioned at all.
+            stepId: l.stepId,
+            left: l.x * t.k + t.x,
+            top: l.y * t.k + t.y,
+            width: l.w * t.k,
+            height: l.h * t.k,
+            fontSize: CARD_BADGE_FONT * t.k,
+            text: l.text,
+        }));
 
     // ── World-space nodes ───────────────────────────────────────────────────
     const worldNodes = [];
@@ -2615,8 +2668,25 @@ export default function PipelinePlanVisualizer({
             // one card at L2, under a left-aligned step name. It also made each
             // id's click target a small box floating at that offset.
             const reqX = label.x;
+            // ── PACKED TIGHT AT L1/L2, NOT SPREAD ACROSS THE TITLE'S ROOM
+            // (req #3503 review: "bring all the numbers into a nice vertical
+            // line up with no white space") ──────────────────────────────────
+            // `label.y` is the TITLE-wrapped position — sized for what THIS row
+            // would need at L3, which is 1-2 lines depending on the actual
+            // title text — and using it for the bare id left the id sitting at
+            // the top of a slot mostly empty below it, repeated down the card:
+            // exactly the sparse, big-gapped list the review is about.
+            // `label.idY` is the alternative the layout computes ALONGSIDE it
+            // (never instead — see its own comment there): every row packed at
+            // one line's pitch, regardless of what the corresponding title
+            // would have wrapped to. The card's own height is UNCHANGED either
+            // way — it is still sized off the title-wrapped total, so this
+            // never resizes the card or moves a neighbour when the reader
+            // crosses the L2/L3 line, only where the ids sit inside a box that
+            // was always this tall.
+            const reqY = showTitle ? label.y : label.idY;
             worldNodes.push(
-                <Text key={`lbl-${i}`} x={reqX} y={label.y} text={reqText}
+                <Text key={`lbl-${i}`} x={reqX} y={reqY} text={reqText}
                       fontSize={CF.req} fontFamily={MONO}
                       lineHeight={REQ_LINE_H / CF.req}
                       fill={rs.fill}
@@ -2653,15 +2723,51 @@ export default function PipelinePlanVisualizer({
                               ? { state: { from: 'pipeline', pipelineId: pipeline.id,
                                   mode: 'plan' } }
                               : undefined)} />);
-        } else if (label.kind === 'count') {
-            // The step's total requirement count, right-aligned in the title
-            // area beside the ✓. Dim, because it is a fact ABOUT the list
-            // below it rather than a member of it — the same voice the
-            // reserved step-title line uses.
+        } else if (label.kind === 'badge') {
+            // req #3503, round 4 — drawn as an HTML overlay now (`floatingBadges`
+            // below), not in Konva at all. Three rounds of hand-fighting canvas's
+            // `textBaseline: 'middle'` (font-box centring, not glyph-ink centring
+            // — see the git history on this branch for the measurement-based
+            // nudge that used to live here) never converged, because canvas has
+            // no real vertical-centring primitive and CSS flexbox does — the
+            // same reason the epic chip's own controls are HTML, not Konva. This
+            // branch is kept, EMPTY, so a `badge` label is a deliberate no-op
+            // here rather than an unhandled kind silently falling through the
+            // chain below to whatever the next `else if` happens to match.
+        } else if (label.kind === 'step-link') {
+            // The visible "view in table, highlighted" button (req #3503) —
+            // the epic chip's ↗ pattern, given to the SAME action the title
+            // area's hit rect has carried since req #3213 (`onStepFocus`).
+            // A real click target rather than dim decoration, so it is
+            // `CF.label`-sized (a shade larger than the row glyphs around it)
+            // and `P.text` rather than `P.dim` — the same "this is live"
+            // brightness the epic chip's own control carries at full opacity
+            // on hover. The reserved box IS the hit region (Konva hit-tests a
+            // `Text` node's given `width`/`height`, not its glyph ink), so no
+            // separate transparent Rect is needed — the same shortcut the
+            // requirement rows above already take.
+            //
+            // HOVER SHOWS THE STEP CARD, same as `hitact-`'s own hover
+            // (review finding): this button is pushed AFTER — and so draws
+            // ON TOP OF — the whole-title-area hit rect, and Konva resolves
+            // mouseenter/mouseleave to the topmost shape. Without its own
+            // `showStepCard`, moving the pointer from the title onto this
+            // glyph fired the rect's `mouseleave` (→ `hideCard()`) with
+            // nothing here to replace it — the one listening node in the
+            // card that blanked the tooltip instead of swapping it, exactly
+            // the failure the requirement-row hover below already avoids.
+            const linkRow = rowById.get(label.stepId);
             worldNodes.push(
-                <Text key={`lbl-${i}`} x={label.x} y={label.y} text={label.text}
-                      fontSize={CF.req} fontFamily={MONO} fill={P.dim}
-                      listening={false} />);
+                <Text key={`lbl-${i}`} x={label.x} y={label.y}
+                      width={label.w} height={label.h}
+                      text={label.text} align="center" verticalAlign="middle"
+                      fontSize={CF.label} fontFamily={MONO} fill={P.text}
+                      onMouseEnter={(e) => {
+                          cursorPointer(e, true);
+                          if (linkRow) showStepCard(linkRow, e);
+                      }}
+                      onMouseLeave={(e) => { cursorPointer(e, false); hideCard(); }}
+                      onActivate={() => onStepFocus?.(label.stepId)} />);
         } else if (label.kind === 'title') {
             worldNodes.push(
                 <Text key={`lbl-${i}`} x={label.x} y={label.y} text={label.text}
@@ -3190,6 +3296,99 @@ export default function PipelinePlanVisualizer({
                                     <ViewModuleIcon sx={{ fontSize: EPIC_CHIP_FONT + 2 }} />
                                 </Box>
                             )}
+                        </Box>
+                    ))}
+                </Box>
+
+                {/* ── THE REQUIREMENT-COUNT BADGE LAYER (req #3503, round 4;
+                    ruler inset added on review) ────────────────────────────
+                    See `floatingBadges`' own comment above for why this is HTML
+                    rather than Konva. INSET LIKE THE EPIC LAYER (req #3503
+                    review) — a badge lives on its own card, but that card
+                    scrolls under the pinned ruler exactly like an epic band
+                    does, and this layer is HTML drawn unconditionally above
+                    the whole canvas (Konva paints the ruler Group after the
+                    world Group, but that ordering means nothing to a sibling
+                    DOM layer). Without the inset a panned-down badge drew OVER
+                    the ruler; `top: epicOverlayTopInset` + `overflow: 'hidden'`
+                    is the epic layer's own fix for the identical defect
+                    (req #3374 P1), reused rather than re-derived.
+
+                    THE LAYER STAYS `pointerEvents: 'none'` AND THE BADGE TURNS
+                    IT BACK ON (req #3503). The layer is a full-viewport div: any
+                    pointer state on IT swallows every click on the canvas
+                    beneath, which is the card's own `onStepFocus` hit rect (req
+                    #3213). Only the badge itself — a ~20px pill sitting on its
+                    own card — takes `pointerEvents: 'auto'`, the same one-clickable-
+                    thing-inside-a-transparent-container override the epic layer
+                    above uses for its chips.
+
+                    THE BADGE IS NO LONGER DECORATION. It counts one step's
+                    requirements, so the obvious question it raises is "which
+                    ones?", and the answer is a page that already exists: the
+                    epic chip's ↗-adjacent Cards link, scoped to a STEP instead
+                    of an epic. `stopPropagation` on BOTH handlers for that
+                    control's reason — without it the card's own handler fires
+                    too and focuses the step the reader is navigating away from. */}
+                <Box sx={{ position: 'absolute', top: epicOverlayTopInset, left: 0,
+                            right: 0, bottom: 0, pointerEvents: 'none',
+                            overflow: 'hidden' }}
+                     data-testid="pipeline-viz-badge-layer">
+                    {floatingBadges.map((b) => (
+                        <Box key={b.key}
+                             role="link"
+                             tabIndex={0}
+                             aria-label={`Open step ${b.stepId}'s ${b.text} requirements in the Task Cards view`}
+                             title={`Open this step's requirements in the Task Cards view`}
+                             data-testid={`pipeline-viz-badge-open-${b.stepId}`}
+                             onClick={(ev) => {
+                                 ev.stopPropagation();
+                                 const to = swarmStepLinkTo(b.stepId);
+                                 if (to) navigate(to);
+                             }}
+                             onKeyDown={(ev) => {
+                                 if (ev.key !== 'Enter') return;
+                                 ev.stopPropagation();
+                                 ev.preventDefault();
+                                 const to = swarmStepLinkTo(b.stepId);
+                                 if (to) navigate(to);
+                             }}
+                             // GEOMETRY IN `style`, NOT `sx` (req #3503 review
+                             // — performance). `transform` is React state, so
+                             // every pan/zoom frame re-renders this component,
+                             // and `floatingBadges` is one entry per step on
+                             // the WHOLE plan (unculled) — up to ~100 on a
+                             // live plan. `sx` re-serializes through Emotion
+                             // and inserts a stylesheet rule on every value
+                             // change; a plain `style` object is a DOM
+                             // property write, no CSS-in-JS involved. The
+                             // static chrome below — colour, font, shape —
+                             // never changes per frame and stays in `sx`.
+                             style={{
+                                 left: b.left,
+                                 // Charged back against the container's own
+                                 // inset — the epic chip's identical note
+                                 // applies verbatim: without it every badge
+                                 // sits `epicOverlayTopInset` px lower than
+                                 // `floatingBadges` placed it.
+                                 top: b.top - epicOverlayTopInset,
+                                 width: b.width, height: b.height,
+                                 fontSize: b.fontSize,
+                             }}
+                             sx={{
+                                 position: 'absolute',
+                                 pointerEvents: 'auto',
+                                 cursor: 'pointer',
+                                 display: 'flex', alignItems: 'center',
+                                 justifyContent: 'center',
+                                 borderRadius: '999px',
+                                 bgcolor: P.badgeFill,
+                                 color: P.badgeText,
+                                 fontFamily: MONO, fontWeight: 700,
+                                 lineHeight: 1,
+                             }}
+                        >
+                            {b.text}
                         </Box>
                     ))}
                 </Box>

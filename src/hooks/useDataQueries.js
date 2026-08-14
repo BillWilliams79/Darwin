@@ -15,6 +15,10 @@ import { fetchCoordinatesForRuns, buildRunTrackUri, COORD_TRACK_FIELDS } from '.
 // answers STEP association; req #3419 moved the "is this row on screen" question
 // out of this module entirely, into `hooks/useRequirementVisibility.js`.
 import { epicRequirementIds } from '../utils/epicMembership';
+// req #3503 — STEP association narrowed to ONE step, consumed by
+// `useStepRequirementIds` below. The sibling import of the line above, from the
+// module whose stated domain step association is.
+import { stepRequirementIds } from '../utils/pipelineMembership';
 
 export function useDomains(creatorFk, { closed, fields = 'id,domain_name,sort_order', enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
@@ -1118,6 +1122,49 @@ export function useEpicRequirementIds(creatorFk, epicId) {
         [active, isError, steps, stepRequirements, epicId]);
 
     return { epicReqIds, isError, requirements: active ? requirements : undefined };
+}
+
+// ── ONE STEP'S REQUIREMENTS (req #3503) ─────────────────────────────────────
+//
+// `useEpicRequirementIds`' sibling, and deliberately CHEAPER by one whole-table
+// read: step scoping needs no `pipeline_steps` lookup at all, because a junction
+// row carries `step_fk` directly. Two reads instead of three, and the one that is
+// dropped is the one the epic hook needs only to resolve `epic_fk -> step id`.
+//
+// The junction takes its DEFAULT projection for the reason the epic block above
+// states at length: `step_fk,requirement_fk` is already the narrowest projection
+// that table has, and `useRequirementVisibility` reads the same entry on every
+// `/swarm` render, so it is warm before this hook asks for it. Narrowing it here
+// would open a SECOND whole-table fetch beside a resolved one.
+//
+// `EPIC_MEMBERSHIP_REQUIREMENT_FIELDS` is REUSED rather than re-declared under a
+// step-shaped name. It is `id,category_fk` — generic despite the constant's name,
+// and it is here for exactly the same job in both hooks: `firstProjectIndexWithEpicWork`
+// needs `category_fk` to answer "which project tab holds this scope's work", and
+// that function takes the id Set as an argument and never asks how it was derived.
+// A second constant with the same value would open a second cache entry for
+// identical rows (`fieldsInKey`, req #2213).
+//
+// A FAILED READ IS NOT AN EMPTY STEP — the epic hook's rule, unchanged. Both
+// `isError`s are read and either one returns `stepReqIds: null`, the same value
+// that means "no filter", plus `isError: true` so the caller can say why.
+// Discarding the error leaves the rows undefined forever, which derives an EMPTY
+// SET, which renders every card gone: a page indistinguishable from "this step
+// has no work", permanently, with nothing surfaced anywhere.
+export function useStepRequirementIds(creatorFk, stepId) {
+    const active = stepId !== null && stepId !== undefined;
+    const { data: stepRequirements, isError: stepRequirementsError } =
+        useAllPipelineStepRequirements(creatorFk, { enabled: active });
+    const { data: requirements, isError: requirementsError } = useAllRequirements(creatorFk, {
+        fields: EPIC_MEMBERSHIP_REQUIREMENT_FIELDS, enabled: active,
+    });
+    const isError = active && (stepRequirementsError || requirementsError);
+
+    const stepReqIds = useMemo(
+        () => ((active && !isError) ? stepRequirementIds(stepRequirements, stepId) : null),
+        [active, isError, stepRequirements, stepId]);
+
+    return { stepReqIds, isError, requirements: active ? requirements : undefined };
 }
 
 // Req #3117 — the plan page's Cost column. TWO more bounded list reads, never a

@@ -112,6 +112,19 @@ export const PLAN_VIZ_PALETTE = {
     // colours" means every colour this surface draws lives HERE.
     pauseActive: '#2ecc71',
     pausePaused: '#ff5252',
+    // The step card's requirement-count badge (req #3503, user directive:
+    // "that ridiculous green count badge we had before"). `badgeFill` is
+    // `KonvaSwarmCanvas.jsx`'s day-header pill VERBATIM (`.ts-bead-day-count-
+    // inline`'s light-mode fill — this canvas has no light/dark split of its
+    // own to pick a variant from). `badgeText` DEVIATES from that source's
+    // white: measured, white-on-`badgeFill` is 2.80:1, under even the 3:1
+    // floor for large/graphical text, because the copied CSS was never put
+    // through this file's own contrast discipline. `bg` (this canvas's own
+    // near-black) measures **6.60:1** against it — comfortably past WCAG AA
+    // (4.5:1) — and reads as the badge cut out of the panel rather than as an
+    // unrelated colour landing on top of it.
+    badgeFill: '#6fa86f',
+    badgeText: '#0d1420',
 };
 
 // Epic band palette (POC EPAL) — band index cycles through it.
@@ -300,45 +313,44 @@ export const KEY_GROUP_TITLES = [...new Set(
 // then names the scale on screen, and the scale really is a status. What was
 // wrong before was an unlabelled colour that read as the STEP's status.
 //
-// ── THE TWO PRE-QUEUE STATUSES BORROW THE AUTONOMY SCALE'S STOP HUES ───────
-// (req #3365 user directive: *"authoring and approved should be the colors like
-// Discuss and Planned. Keep swarm ready, dev and met as is."*)
+// ── FOUR OF SEVEN ARE CROSS-SCALE REFERENCES, NOT COPIES (req #3365, extended
+// req #3503) ────────────────────────────────────────────────────────────
+// `authoring`/`approved` TRACK `AUTONOMY_COLORS.discuss`/`.planned` (req #3365
+// user directive: *"authoring and approved should be the colors like Discuss
+// and Planned"*). `met` TRACKS `AUTONOMY_COLORS.deployed` (req #3503 user
+// directive — a LATER ruling than req #3365's own "keep... met as is", which
+// this supersedes rather than restates). `development` TRACKS
+// `PLAN_VIZ_PALETTE.runningRing` (req #3503 review: "same for authoring and
+// approved, they should track too" — extended here to the state-hue agreement
+// this scale already made by VALUE, now made by REFERENCE).
 //
-// The SAME two hex values `AUTONOMY_COLORS.discuss` and `.planned` carry, not
-// approximations of them — the directive says "like Discuss and Planned", and a
-// near-miss would be a third red nobody chose. Reusing them across scales is
-// safe for the reason that block already records about its own neighbours: the
-// colour control is EXCLUSIVE, so State and Autonomy are never on screen
-// together, and the on-screen key names whichever scale is live.
+// ASSIGNED AS A PATCH, BELOW, RIGHT AFTER `AUTONOMY_COLORS` — not written
+// inline here — because `AUTONOMY_COLORS` and `PLAN_VIZ_PALETTE` are declared
+// AFTER this object in the file (`PLAN_VIZ_PALETTE` above; `AUTONOMY_COLORS`
+// far below, beside the autonomy scale's own colour discipline), and a
+// forward reference inside an object literal is a TDZ crash, not a lint nit
+// — the same reason `CARD_BADGE_FONT` mirrors `CARD_FONT.label` BY VALUE
+// elsewhere in this file rather than importing it. The difference here is
+// that a `const` object's OWN properties may still be assigned after
+// declaration (only the binding itself is frozen), so a four-line patch
+// achieves a TRUE reference — these four values cannot drift from the
+// scale they track — without reordering the two colour blocks or copying a
+// hex string that silently goes stale.
 //
-// What it buys is a scale that agrees with itself about direction. Red and rose
-// already mean "a human has to act before this moves" on the autonomy scale,
-// and that is exactly what `authoring` and `approved` mean here — so the ramp
-// now reads STOP → nearly stop → GO (`swarm_ready`'s vivid blue) instead of
-// arriving at the actionable status from two cool hues that read as quieter
-// than it. It also vacates violet, which `authoring` (#c8a2ff) shared with
-// `AUTONOMY_COLORS.implemented` (#c58cff) closely enough to be the one real
-// cross-scale confusion in the pair.
+// WHY TRACKING MATTERS: a copied hex is exactly the STEP_FOCUS_CONTEXT
+// failure mode this codebase has already paid for once (see that constant's
+// own history) — a value two call sites agree on today and silently
+// disagree on the day only one of them is edited. `pipelinePlanLayout.test.js`
+// asserts these four by IDENTITY (`toBe`, not proximity) for the same reason.
 //
-// MEASURED against the panel (#111b2b), 2026-08-12: contrast 4.78:1 (the
-// lowest, `approved`) to 12.49:1 (`development`); minimum pairwise CIE76 ΔE
-// 37.8 (`development` vs `deferred`). The floors are unchanged and both are
-// asserted in pipelinePlanLayout.test.js, so a "nicer" hue that collapses the
-// scale fails rather than ships. The change SPENDS contrast (the old low was
-// 6.13:1) and BUYS separability (the old ΔE low was 25.9, `approved` vs
-// `wontfix`) — both still clear their floors, and the two numbers moving in
-// opposite directions is why both are recorded rather than just the one that
-// improved.
+// SWARM_READY, DEFERRED, WONTFIX STAY LITERAL — the three req #3365 named as
+// unchanged, and req #3503 named no reason to touch: they answer questions
+// (queued; postponed; never) that no OTHER scale on this canvas asks.
 export const REQ_STATUS_COLORS = {
     // Stop ramp = waiting on a human, releasing toward launchable.
-    authoring: '#ff3b30',      // signal red — drafted, not agreed. Shared with
-                               // AUTONOMY_COLORS.discuss, deliberately.
-    approved: '#db5795',       // wine rose — agreed, not queued. Shared with
-                               // AUTONOMY_COLORS.planned, deliberately.
+    // `authoring`/`approved` assigned below — see the block comment above.
     swarm_ready: '#4d9bff',    // vivid blue — queued; the actionable one
-    // Agreement with the panel's own state hues (see the rule above).
-    development: '#ffd769',    // the Running amber — in flight
-    met: '#7ee08a',            // the Complete green — done
+    // `development`/`met` assigned below too — see the block comment above.
     // Terminal, but the work never happened.
     deferred: '#ff9800',       // orange — postponed
     wontfix: '#9e9e9e',        // grey — never
@@ -363,43 +375,90 @@ export const REQ_STATUS_UNKNOWN_COLOR = PLAN_VIZ_PALETTE.dim;
 export const reqStatusColor = (status) => (Object.hasOwn(REQ_STATUS_COLORS, status)
     ? REQ_STATUS_COLORS[status] : REQ_STATUS_UNKNOWN_COLOR);
 
-// ── Requirement marks: STACK order under a step (req #3363) ────────────────
-// A different ladder from `REQ_STATUS_ORDER` above on purpose — that one is the
-// legend's reading order (the pipeline, authoring to wontfix); this is what a
-// reader scanning DOWN a step's own requirement stack wants first. `met` leads
-// because "is this step actually finished" is the question a multi-requirement
-// step exists to answer, and the two statuses nobody returns to (`deferred`,
-// `wontfix`) sink to the bottom in the order the user named them — everything
-// still in flight runs in ladder order between the two, closest-to-done first.
-export const REQ_STEP_SORT_ORDER = {
-    met: 0, development: 1, swarm_ready: 2, approved: 3, authoring: 4,
-    deferred: 5, wontfix: 6,
-};
-
-// One past the last known rank — a status this build does not know (an
-// unresolved id, or an enum value shipped ahead of the UI) sinks below every
-// recognised one rather than guessing where it belongs.
-const REQ_STEP_SORT_UNKNOWN = Object.keys(REQ_STEP_SORT_ORDER).length;
+// ── Requirement marks: STACK order under a step, DRIVEN BY THE ACTIVE COLOUR
+// KEY (req #3503, supersedes req #3363's fixed ladder) ─────────────────────
+// Until req #3503 this stack sorted ONE fixed way regardless of what the
+// on-screen key showed — met first, then the ladder, deferred/wontfix last —
+// so a reader who turned the Autonomy key on saw ids ordered by a status
+// ladder the key was not even naming. The user's directive: sort the stack
+// "purple to green" for WHICHEVER key is on screen, so the visual ORDER
+// always agrees with the visual MEANING it is reading off the same canvas.
+//
+//   State (the default):  Authoring → Met     — `REQ_STATUS_ORDER` itself,
+//                                                the legend's own reading order.
+//   Autonomy:              Discuss → Deployed  — `AUTONOMY_ORDER` itself.
+//   Machine:                its own order       — ascending `machine_fk`, the
+//                                                same ascending-id order
+//                                                `buildMachineColorView` legends
+//                                                the used machines in; a
+//                                                requirement with no machine
+//                                                pinned sinks last.
+//   none (the key off):    falls back to State's ladder — there is no colour
+//                          to sort by, and State is this scale's own default.
+//
+// A status/coordination_type this build does not resolve sinks below every
+// recognised member of ITS ladder — the same discipline the retired fixed
+// sort used. `UNPINNED_MACHINE_RANK` is `Number.MAX_SAFE_INTEGER`, not
+// `Infinity`: two unpinned ids would both rank `Infinity`, and
+// `Infinity - Infinity` is `NaN` — a sort comparator returning `NaN` is
+// unspecified across engines, where the sentinel subtracts to a clean `0`.
+function rankInOrder(order, value) {
+    const i = order.indexOf(value);
+    return i === -1 ? order.length : i;
+}
+const UNPINNED_MACHINE_RANK = Number.MAX_SAFE_INTEGER;
 
 /**
- * Sort a step's linked requirement ids by status for on-canvas display (req
- * #3363). Stable: two requirements sharing a status keep the order the
- * caller gave them, rather than the sort tie-breaking on id or anything else.
+ * Rank a requirement id for the mark stack under its step (or the plan
+ * table's own id list) by the ladder the ACTIVE colour key names (req
+ * #3503). `AUTONOMY_ORDER` is declared further down this file — safe to
+ * reference here because this is a function BODY, evaluated only when
+ * called, never at module-eval time the way an object literal's own
+ * properties are (see `REQ_STATUS_COLORS`' own note on that hazard).
+ *
+ * @param {number} reqId
+ * @param {Object} args
+ * @param {string} [args.colorKey]                    a REQ_COLOR_KEYS value
+ * @param {(id: number) => ?string} [args.statusOf]    id -> requirement_status
+ * @param {(id: number) => ?string} [args.autonomyOf]  id -> coordination_type
+ * @param {(id: number) => ?number} [args.machineOf]   id -> machine_fk
+ * @returns {number}
+ */
+export function reqSortRank(reqId, { colorKey, statusOf, autonomyOf, machineOf } = {}) {
+    const key = normalizeColorKey(colorKey);
+    if (key === 'autonomy') return rankInOrder(AUTONOMY_ORDER, autonomyOf?.(reqId));
+    if (key === 'machine') {
+        const m = machineOf?.(reqId);
+        if (m == null) return UNPINNED_MACHINE_RANK;
+        // Coerced, not trusted raw (review finding): a blank/non-numeric
+        // `machine_fk` is not `null`, but it is not a rank either, and
+        // sorting it as `NaN` (or as a string via `<`) reads as "before
+        // every real machine" rather than sinking last like every other
+        // unresolved value here does.
+        const n = Number(m);
+        return Number.isFinite(n) ? n : UNPINNED_MACHINE_RANK;
+    }
+    // 'state' and 'none' both read the status ladder — 'none' because there
+    // is no colour to sort by and State is this scale's own default.
+    return rankInOrder(REQ_STATUS_ORDER, statusOf?.(reqId));
+}
+
+/**
+ * Sort a step's linked requirement ids for on-canvas / on-table display (req
+ * #3363, generalized to the active colour key by req #3503). Stable: ids
+ * sharing a rank keep the order the caller gave them, rather than the sort
+ * tie-breaking on id or anything else.
  *
  * @param {number[]} reqIds
- * @param {(id: number) => ?string} statusOf  requirement id -> requirement_status
+ * @param {Object} [args]  see `reqSortRank`
  * @returns {number[]}
  */
-export function sortReqIdsByStatus(reqIds, statusOf) {
+export function sortReqIdsByColorKey(reqIds, args = {}) {
     const ids = Array.isArray(reqIds) ? reqIds : [];
-    const rank = (id) => {
-        const status = typeof statusOf === 'function' ? statusOf(id) : null;
-        return Object.hasOwn(REQ_STEP_SORT_ORDER, status)
-            ? REQ_STEP_SORT_ORDER[status] : REQ_STEP_SORT_UNKNOWN;
-    };
     return ids
         .map((id, i) => [id, i])
-        .sort(([aId, aI], [bId, bI]) => (rank(aId) - rank(bId)) || (aI - bI))
+        .sort(([aId, aI], [bId, bI]) =>
+            (reqSortRank(aId, args) - reqSortRank(bId, args)) || (aI - bI))
         .map(([id]) => id);
 }
 
@@ -488,82 +547,53 @@ export function buildMachineColorView({ requirements = [], machines = [] } = {})
 // spoken to) → `planned` (build a plan, wait for approval) → `implemented`
 // (build it, stop for review) → `deployed` (build, merge and ship).
 //
-// IT IS AN ORDINAL LADDER, so the palette is a RAMP and not four labels.
+// IT IS AN ORDINAL LADDER, so the palette is a RAMP and not four labels. A
+// STOPLIGHT, on the user's original directive (2026-08-09): the ends carry
+// the metaphor — `discuss` STOPS (a human speaks first) and `deployed` GOES
+// (green, full delegation). Amber, the obvious stoplight middle, is already
+// Running on this panel, so the two interior rungs are told apart by hue
+// instead — a warm STOP-family colour for `discuss`, a cooler one leaning
+// toward `implemented`'s violet for `planned`. `implemented` and `deployed`
+// are UNCHANGED by everything below.
 //
-// A STOPLIGHT, on the user's directive (2026-08-09): the ends carry the
-// metaphor — `discuss` STOPS (signal red, a human speaks first) and `deployed`
-// GOES (green, full delegation). The obvious stoplight middle is AMBER, and
-// amber is Running on this panel, so the two interior rungs are told apart by
-// hue instead: a wine red that reads as "nearly stop", then a violet.
+// ── REQ #3503: DISCUSS AND PLANNED MOVED TO REDDISH-PURPLE (user directive:
+// "shift discuss and planned to be much more reddish purple, distinguishable
+// from Implemented") ─────────────────────────────────────────────────────
+// The prior pair — `discuss` a plain signal red (#ff3b30), `planned` a wine
+// rose (#db5795) nudged toward violet by one channel (req #3365's own
+// history, kept below for the record) — read as "red, then a duller red" to
+// the eye this directive is about, not as a family distinct from
+// `implemented`'s violet. Both rungs now sit in the MAGENTA band — warmer
+// and more saturated than `implemented`, cooler than a pure stop-sign red —
+// with `discuss` the hotter/brighter of the two (STOP) and `planned` rotated
+// further toward violet (NEARLY STOP), preserving the ramp's original
+// direction.
 //
-// THE RAMP SHIFTED DOWN ONE on a second directive the same day: the periwinkle
-// blue that held `implemented` was no good on this panel, so every rung moved
-// one step toward Go — the old `planned` violet became `implemented`, the old
-// `discuss` wine became `planned` — and a NEW, properly RED red took the
-// vacated STOP end. The blue is gone from this scale entirely. Two consequences
-// worth naming, because neither is a mistake: the ramp is no longer monotonic
-// in lightness (`discuss` #ff3b30 is brighter than the wine below it), and
-// `discuss`/`planned` sit in the same half of the wheel.
+// MEASURED against the panel (#111b2b), 2026-08-14: contrast 5.00:1
+// (`discuss`) and 4.65:1 (`planned`, the new lowest — the same "no rung of
+// this scale can be a true burgundy" constraint req #3365 already measured:
+// WCAG AA 4.5:1 is the floor, and the darkest magenta this panel can show at
+// 13.75px type lives at ~4.6:1, same as the wine it replaces). Minimum
+// pairwise CIE76 ΔE across all four rungs 38.5 (`planned`/`implemented` —
+// UP from the prior scale's 45.9 low, still clear of the 20 floor by a wide
+// margin); `discuss`/`planned` themselves 44.6. Nearest RESERVED state hue
+// (`runningFill`/`runningRing`/`doneFill`/`doneRing`) 89.1, against a 25
+// floor — this pair reads nothing like a step's own running or done colour.
+// `deployed` is untouched, so its own history (green chosen ΔE 26.4 from
+// `doneRing`, the widest separation any recognisable green achieves here)
+// still stands and is not repeated.
 //
-// `planned` WAS THEN NUDGED TOWARD THE VIOLET END (third directive, same day —
-// "a bit less the same color as Discuss… nothing dramatic"). #db5771 -> #db5795
-// is one channel: the red and green stay put and the blue rises 0x71 -> 0x95,
-// which rotates the hue 348° -> 332° without touching the family. It buys a lot
-// for that: separation from `discuss` goes 43.8 -> 61.4 ΔE, and because the move
-// is TOWARD the violet it also smooths the step into `implemented` rather than
-// trading one collision for another. Contrast improves as a side effect
-// (4.62 -> 4.78).
-//
-// TWO DELIBERATE COSTS, both measured rather than assumed:
-//
-//   1. NO RUNG OF THIS SCALE CAN BE A TRUE BURGUNDY, which is the constraint
-//      that shaped `planned` and still binds it. A burgundy is a
-//      dark-ink-on-white colour: #800020 measures 1.59:1 against this panel —
-//      not "dim", but invisible — and #9b1b3a is 2.15:1. The floor for 13.75px
-//      type is WCAG AA 4.5:1, so the darkest wine available here is the ~4.6:1
-//      band, and `planned` lives in it (4.78:1 — still the LOWEST swatch in the
-//      scale). It reads as a wine rose rather than a burgundy, and that is a
-//      property of a light mark on a dark panel, not a preference.
-//
-//   2. `deployed` IS GREEN ON A PANEL WHERE GREEN MEANS COMPLETE. That rule is
-//      real and it is why Darwin's own chip palette is not carried wholesale
-//      (`CalendarFC/timeSeriesSizes.js` COORDINATION_COLORS also paints
-//      `implemented` YELLOW, which would read as Running — that half is still
-//      refused). The stoplight was asked for with the collision named, so the
-//      green is chosen to sit as far from the Complete green as a green can:
-//      #39d353 against `doneRing` #7ee08a is ΔE 26.4, the largest separation
-//      any recognisable green achieves here (#00c853 reaches 25.9, every other
-//      candidate measured 9-19). The ids are also a DIFFERENT MARK from the
-//      beads — monospace type, not a filled circle — and the key names the
-//      scale on screen whenever it is on.
-//
-// MEASURED against the panel (#111b2b), 2026-08-09: contrast 4.78:1 (`planned`,
-// the lowest) to 8.73:1 (`deployed`); minimum pairwise CIE76 ΔE 45.9
-// (`planned`/`implemented`); nearest RESERVED state hue 26.4 (`deployed` vs
-// `doneRing`, above). All three are asserted in pipelinePlanLayout.test.js, so
-// a "nicer" hue that collapses the scale — or a greener green — fails rather
-// than ships.
-//
-// THE RAMP'S OWN STEPS, which is what a reader actually walks: 61.4 (discuss ->
-// planned), 45.9 (planned -> implemented), 147.6 (implemented -> deployed). The
-// first two are deliberately close in size — that is the "nice flow" the third
-// directive asked to preserve — and the last is large because it crosses the
-// wheel to Go.
-//
-// `discuss` sits ΔE 19.2 from MACHINE_MAC_COLOR (#FF5F56) and `planned` 31.2
-// from PLAN_VIZ_PALETTE.manualRing. The first is a different SCALE and the
-// control is exclusive, so the two are never on screen together; the second is a
-// different MARK (a bead's ring, not type). Recorded because they are the
-// closest this scale comes to anything outside it.
-//
-// SINCE req #3365 THE FIRST TWO ARE ALSO THE STATE SCALE'S `authoring` and
-// `approved` — deliberately, by the user's directive, and by IDENTITY rather
-// than resemblance (see REQ_STATUS_COLORS). Editing either value therefore
-// moves both scales; the test that pins them is what makes that impossible to
+// SINCE req #3365, EXTENDED req #3503: `discuss`/`planned` are ALSO the
+// state scale's `authoring`/`approved`, and `deployed` is ALSO `met` —
+// by REFERENCE now, not by a copied hex (see REQ_STATUS_COLORS' own
+// comment for why the assignment lives in a patch just below this object,
+// and why a reference is the fix a repeated by-value copy earned). Editing
+// any of `discuss`/`planned`/`deployed` here moves both scales; the tests
+// that pin the shared values by identity are what make that impossible to
 // do by accident.
 export const AUTONOMY_COLORS = {
-    discuss: '#ff3b30',       // signal red — STOP; a human speaks first
-    planned: '#db5795',       // wine rose — nearly stop; plans, then waits
+    discuss: '#ff3388',       // hot magenta — STOP; a human speaks first
+    planned: '#e236ce',       // violet-leaning magenta — nearly stop
     implemented: '#c58cff',   // violet — builds, then stops for review
     deployed: '#39d353',      // green — GO; full delegation, merges and ships
 };
@@ -571,6 +601,18 @@ export const AUTONOMY_COLORS = {
 // Key order: the ladder, not the alphabet — same rule as REQ_STATUS_ORDER, and
 // for the same reason (the on-screen key renders in this order).
 export const AUTONOMY_ORDER = ['discuss', 'planned', 'implemented', 'deployed'];
+
+// ── THE FOUR REQ_STATUS_COLORS PATCH (req #3365, extended req #3503) ──────
+// See REQ_STATUS_COLORS' own comment for the full why. `authoring`/`approved`
+// track the stop ramp just above; `met` tracks `deployed` (req #3503 — a
+// LATER ruling than req #3365's "keep... met as is", which this supersedes);
+// `development` tracks `PLAN_VIZ_PALETTE.runningRing`, the "same fact at two
+// levels" agreement this scale already made by value and now makes by
+// reference too.
+REQ_STATUS_COLORS.authoring = AUTONOMY_COLORS.discuss;
+REQ_STATUS_COLORS.approved = AUTONOMY_COLORS.planned;
+REQ_STATUS_COLORS.met = AUTONOMY_COLORS.deployed;
+REQ_STATUS_COLORS.development = PLAN_VIZ_PALETTE.runningRing;
 
 // A coordination type this build does not know. The column is NOT NULL with a
 // default, so in practice this is a value added to the enum server-side before
@@ -702,6 +744,39 @@ export const PLAN_PALETTES = [
         },
     },
 ];
+
+// ── THE AURORA STATUS PATCH (req #3503 — THE LIVE THEME) ───────────────────
+// `DEFAULT_PLAN_PALETTE` is 'aurora' and NOTHING ANYWHERE EVER SUPPLIES A
+// DIFFERENT ONE: `PipelinePlanVisualizer.jsx`'s `palette` prop has no writer
+// in this codebase — no toolbar control, no persisted preference, nothing —
+// so `activePalette` resolves to 'aurora' on every render, unconditionally.
+// 'stoplight' (Signal), the theme `REQ_STATUS_COLORS`/`AUTONOMY_COLORS`
+// above belong to, is UNREACHABLE.
+//
+// THIS IS WHY SEVERAL ROUNDS OF THIS SAME USER DIRECTIVE — "authoring/
+// approved should track discuss/planned", "met should be the green used for
+// Deployed" — kept landing on `REQ_STATUS_COLORS` and shipping invisible: the
+// edits were correct and the target was wrong. Caught only when the user,
+// looking at the one theme that actually renders, reported the identical
+// mismatch a second time. This incident is CLAUDE.md's Reasoned Non-Delivery
+// exemplar list's own req #3503 entry — read it there before repeating the
+// shape of this mistake on a future colour directive.
+//
+// Same tracking discipline as the Signal patch above, applied to the theme
+// that is actually seen: `authoring`/`approved` track aurora's OWN
+// `discuss`/`planned` (the user confirmed these two are already correct);
+// `met` tracks aurora's OWN `deployed` (the user's own call: autonomy's
+// green reads better than status's previous `#a3e635`). `development` is
+// DELIBERATELY NOT patched to `PLAN_VIZ_PALETTE.runningRing` here — doing so
+// collides with aurora's own `deferred` (`#fcd34d` vs `#ffd769`, measured ΔE
+// 10.4, under the 20 floor this file holds every scale to) and the user has
+// not been asked which of the two should move. `swarm_ready`/`deferred`/
+// `wontfix` stay aurora's own literal values, matching Signal's identical
+// exemption.
+const auroraPalette = PLAN_PALETTES.find((p) => p.key === 'aurora');
+auroraPalette.status.authoring = auroraPalette.autonomy.discuss;
+auroraPalette.status.approved = auroraPalette.autonomy.planned;
+auroraPalette.status.met = auroraPalette.autonomy.deployed;
 
 export const PLAN_PALETTE_KEYS = PLAN_PALETTES.map((p) => p.key);
 // AURORA, on the user's own directive after seeing all three on the live plan.
@@ -1174,7 +1249,7 @@ export const CARD_TYPE_SCALE = 1.4;
 // to make impossible.
 export const CHW_LABEL = 10.05 * CARD_TYPE_SCALE;   // px per mono char, step name
 export const CHW_REQ = 8.4 * CARD_TYPE_SCALE;       // px per mono char, req row
-export const CHW_TITLE = 5.8 * CARD_TYPE_SCALE;     // px per mono char, L3 + count
+export const CHW_TITLE = 5.8 * CARD_TYPE_SCALE;     // px per mono char, the L3 own-title line
 export const CHW_EPIC = 9.15;   // px per mono char at font 15 (epic band label)
 const BEAD_R = 10;
 // ── The epic gets its OWN LANE (req #3168, user directive) ─────────────────
@@ -1468,28 +1543,57 @@ export const CARD_BAR_GAP = 6 * CARD_TYPE_SCALE;
 export const CARD_PAD_X = 10 * CARD_TYPE_SCALE;
 // Vertical padding at the card's top and bottom edges.
 export const CARD_PAD_Y = 8 * CARD_TYPE_SCALE;
-// THE number. `ceil`, not `round`, and that is the difference between the card
-// holding the width it was bought for and holding one character less: at
-// `round` the 406.4px ideal became 406, and `cardChars` — which floors — then
-// reported 45 characters for a card sized for 46. Rounding UP costs a
-// sub-pixel and makes the budget an ACTUAL guarantee rather than an
-// approximate one.
-export const CARD_W = Math.ceil(CARD_TEXT_CHARS * CHW_REQ + 2 * CARD_PAD_X
-    + CARD_STATE_BAR_W + CARD_BAR_GAP);
+// ── CARD WIDTH IS A SCALE, NOT JUST A NUMBER (req #3503, "Step Width") ─────
+// The four ladder rungs the toolbar control offers — 1 the card every
+// existing pixel-exact test in this suite already assumes, 2 through 4 each
+// 25% more TEXT room than the last. Linear, not compounding: rung 4 is 1.75x
+// the base, not 1.25^3 — a reader picking "4" is asking for "generous", not
+// doing exponent arithmetic in their head.
+export const STEP_WIDTH_SCALES = [1, 1.25, 1.5, 1.75];
+export const DEFAULT_STEP_WIDTH_LEVEL = 1;
+
+/**
+ * The card's own width geometry, AS A FUNCTION of the text-room scale.
+ *
+ * `CARD_W`/`CARD_FRAME_W`/`CARD_TEXT_W` below are this at scale 1 — the
+ * ORIGINAL, fixed-forever size every existing caller already assumes — so
+ * nothing that reads those three constants directly has to change: they are
+ * this function evaluated once, at the default rung.
+ *
+ * ONLY THE TEXT ROOM SCALES. `CARD_TEXT_CHARS` is the one term multiplied;
+ * the padding, the state bar and its gap are fixed chrome, at every rung,
+ * exactly the way `CARD_CHECK_W`/`CARD_STEP_LINK_W`/`CARD_BADGE_W` already
+ * are — "wider" is a promise about how much of a title or a requirement
+ * fits on one line, not about how thick the card's own furniture gets.
+ *
+ * `ceil`, not `round`, for the same reason the scale-1 number always was: at
+ * `round` the ideal width can land one character short of what `cardChars`
+ * — which floors — then reports, so the budget stops being a guarantee.
+ */
+export function cardGeometryFor(widthScale = 1) {
+    const cardW = Math.ceil(CARD_TEXT_CHARS * widthScale * CHW_REQ + 2 * CARD_PAD_X
+        + CARD_STATE_BAR_W + CARD_BAR_GAP);
+    const cardFrameW = cardW - CARD_STATE_BAR_W - CARD_BAR_GAP;
+    const cardTextW = cardFrameW - 2 * CARD_PAD_X;
+    return { cardW, cardFrameW, cardTextW };
+}
+
+const BASE_CARD_GEOMETRY = cardGeometryFor(1);
+export const CARD_W = BASE_CARD_GEOMETRY.cardW;
 // The card's drawn FRAME — the rounded rect — which is narrower than the node's
 // box by the state bar and its gap (req #3498, user directive: *"make the color
 // bar on the right edge of the step render outside the current frame of the
 // requirement, so it doesn't crowd the letter but rather sits a little wider"*).
 // The bar is beside the frame, not inside it; the node box still spans both, so
 // arcs, lanes and columns are unaffected.
-export const CARD_FRAME_W = CARD_W - CARD_STATE_BAR_W - CARD_BAR_GAP;
+export const CARD_FRAME_W = BASE_CARD_GEOMETRY.cardFrameW;
 // How far the frame starts in from the node's left edge — the strip the state
 // bar stands in. Every piece of card furniture is placed from `n.left + this`
 // rather than from `n.left`, so the bar's width lives in ONE expression.
 export const CARD_FRAME_X = CARD_STATE_BAR_W + CARD_BAR_GAP;
 // The text column inside the padding — what every string in the card is fitted
 // to. Read rather than re-derived, so a padding change cannot desync the two.
-export const CARD_TEXT_W = CARD_FRAME_W - 2 * CARD_PAD_X;
+export const CARD_TEXT_W = BASE_CARD_GEOMETRY.cardTextW;
 // The gutter between one card and the next — and, because a card fills its
 // column edge to edge, THE ONLY ROOM A DEPENDENCY ARC HAS TO TURN IN.
 //
@@ -1538,10 +1642,13 @@ export const cardTitleH = (stepLabel, nameLines = 1) => CARD_PAD_Y
 
 // ── THE STEP NAME WRAPS TOO (req #3498, 2026-08-13) ─────────────────────────
 // It has to, and the reason is the same arithmetic that narrowed the card: at a
-// 28-character line the name's own budget — the text column less the ✓ and the
-// count, at the LABEL glyph which is wider than the row glyph — is nineteen
-// characters. "Feature Eradication - MCP, Scripts, Frontend…" is the actual
-// data, and nineteen characters of it is "Feature Eradicati…".
+// 28-character line the name's own budget — the text column less the four
+// title-row reserves (req #3503: the ✓, the link button, the badge and its
+// gap), at the LABEL glyph which is wider than the row glyph — is seventeen
+// characters (measured — see `cardChars(CHW_LABEL, CARD_CHECK_W +
+// CARD_STEP_LINK_W + CARD_BADGE_W + CARD_BADGE_GAP)`). "Feature Eradication
+// - MCP, Scripts, Frontend…" is the actual data, and it truncates well short
+// of one line at that budget.
 //
 // So the card's title area takes up to two lines by the same rule the rows do:
 // wrapped at layout time, RESERVED at every level, and per-step, so a card with
@@ -1607,25 +1714,120 @@ const CARD_MIN_H = 68 * CARD_TYPE_SCALE;
 // truncated title's ellipsis on all 23 completed cards.
 export const CARD_CHECK_W = 13 * CARD_TYPE_SCALE;
 
-// ── THE TOTAL REQUIREMENT COUNT (req #3498, user directive: "Provide a count")
-// Right-aligned in the title area, left of the ✓. It is the TOTAL number of
-// requirements the step carries — not met/total, which is the EPIC chip's
-// vocabulary and answers a different question; a step's own progress is already
-// on the card as ten coloured rows, so restating it as a fraction would be the
-// same fact twice at the same level (the one-fact-one-channel rule above).
-// Reserved out of the step name's budget the same way the ✓ is, because the
-// alternative is a count drawn over a truncated title.
-// Five characters at the ROW glyph — "(999)" — because the count is drawn at
-// `CARD_FONT.req` since the user reported it *"too small"* at the title size.
-// Sized from the widest count a step could carry rather than from the widest
-// one this plan happens to have.
-export const CARD_COUNT_W = 5 * CHW_REQ;
+// ── "VIEW IN TABLE, HIGHLIGHTED" — A VISIBLE BUTTON, NOT JUST A HIDDEN HIT
+// RECT (req #3503, user directive: "place a proper sized button for the
+// requirements link — use same button as epic's requirement link, that is the
+// pattern") ──────────────────────────────────────────────────────────────
+// The card's title area has carried this action since req #3213
+// (`onStepFocus`, wired to an invisible hit rect over the step name) — this
+// only gives it a glyph a reader can actually SEE and aim at, the same way
+// the epic chip's own ↗ does for "open this epic's steps". Same glyph, same
+// idea: click here to jump to this row, filtered and highlighted, elsewhere.
+// Reserved out of the step name's budget the same way the ✓ is, so it never
+// draws over a truncated title.
+//
+// SIZED LIKE THE ✓ IT SITS BESIDE (req #3503 review — "align further to the
+// right edge to give the step title more room"), not like the epic chip's
+// own 30 SCREEN px: that reservation is a fixed screen-px HTML overlay
+// control, unscaled by zoom, while this one is WORLD px on a card that is
+// itself fixed-width — the two numbers are not the same unit and comparing
+// them literally over-reserved this. A glyph the size of the ✓ needs a
+// target the size of the ✓'s own reserve, not a larger one, and every world
+// px given back here is a world px the title gets to keep.
+export const CARD_STEP_LINK_W = CARD_CHECK_W;
+
+// ── THE TOTAL REQUIREMENT COUNT, AS A BADGE LEFT OF THE TITLE (req #3503,
+// user directive: "add a count badge to the left of the title — use that
+// green count badge we had before") ─────────────────────────────────────
+// Moved here from the title area's RIGHT edge (where it drew as dim, dead
+// "(N)" text — see the removed `CARD_COUNT_W` block this replaces) to a
+// pill reusing `KonvaSwarmCanvas.jsx`'s day-header "requirements met" badge
+// (`.ts-bead-day-count-inline`)'s FILL verbatim — its text colour does not
+// carry over; see the `badgeFill`/`badgeText` entries in `PLAN_VIZ_PALETTE`
+// for why. A count of what's already visible below is a fact worth a
+// reader's eye going TO, so it earns the more prominent position and the
+// brighter mark.
+// It is still the TOTAL requirement count, not met/total — that is the epic
+// chip's vocabulary and answers a different question; a step's own progress
+// is already on the card as its coloured rows, so restating it as a
+// fraction would be the same fact twice at the same level.
+// Reserved out of the step name's budget the same way the ✓ and the link
+// button are, so a long title starts AFTER the badge rather than under it.
+// No parens: a pill's own shape is what used to say "this is a count", so
+// the two characters spent on `()` are room the badge doesn't need back.
+export const CARD_BADGE_GAP = CHW_REQ;
+// The pill's own height, and — for a one-digit count — its WIDTH too, so it
+// draws as a CIRCLE rather than a stretched capsule (req #3503 review, round
+// 1: the first cut always drew the full RESERVED width regardless of digit
+// count, stretching a single digit into an oval; round 2, a SECOND review —
+// the digit didn't even FIT the circle: `REQ_TEXT_H`, this used to be pinned
+// to, is 19.6 world px, and the badge's own font (below) draws at 23.1 —
+// larger than the box meant to hold it). Pinned to `CARD_LINE_H` instead —
+// the title's own line height, since the badge sits IN that line and is
+// meant to fill it the way the title's own type does, not the shallower
+// single-text-row metric `REQ_TEXT_H` measures. `− 4` leaves 2 world px of
+// margin top and bottom so the pill's round cap clears the line box.
+export const CARD_BADGE_H = CARD_LINE_H - 4;
+// The digit's own font size — the TITLE's size, not the row glyph's (round
+// 1's choice, and part of why round 2 was needed): the badge sits beside
+// the title on its own line, not among the requirement rows below, and
+// reads as a peer of the title's own type rather than a caption.
+//
+// `16.5` IS `PLAN_VIZ_FONT.label` — MIRRORED BY VALUE, not imported, because
+// `PLAN_VIZ_FONT` (and `CARD_FONT`, its derived form) are both declared
+// FURTHER DOWN this file: referencing either here would be a forward
+// reference to a `const` that has not initialised yet, a TDZ crash rather
+// than a lint nit. `pipelinePlanLayout.test.js` asserts
+// `CARD_BADGE_FONT === CARD_FONT.label` so the two cannot quietly drift
+// apart the way `STEP_FOCUS_CONTEXT`'s history (req #3503, elsewhere in
+// this file) shows a copied-by-value constant can.
+export const CARD_BADGE_FONT = 16.5 * CARD_TYPE_SCALE;
+// Breathing room around the digits ONCE they are wider than the circle
+// itself — i.e. two digits or more. A single digit needs none: centring it
+// inside `CARD_BADGE_H` already leaves (`CARD_BADGE_H` − one glyph) / 2 of
+// air on each side, which is what makes it read as a circle rather than a
+// digit touching a ring.
+export const CARD_BADGE_PAD_X = 4 * CARD_TYPE_SCALE;
+/**
+ * The badge's own drawn width for a count of `charCount` digits — a CIRCLE
+ * up to whatever fits inside `CARD_BADGE_H` at zero pad, a STADIUM beyond
+ * that. `CHW_LABEL`, matching `CARD_BADGE_FONT` — the same char-width-per-
+ * font-size pairing every other measurement in this module keeps (`CHW_REQ`
+ * with `CF.req`, `CHW_TITLE` with the L3 line). ONE formula, used both for a
+ * real row's actual width (fewer digits, usually a circle) and for
+ * `CARD_BADGE_W` below (the worst case, always a stadium) — so the two can
+ * never quietly disagree about what "a count this wide" measures.
+ */
+export const badgeWidthFor = (charCount) =>
+    Math.max(CARD_BADGE_H, charCount * CHW_LABEL + CARD_BADGE_PAD_X);
+// The RESERVED width — used for the title's own indent and its character-
+// wrap budget, so both stay CONSTANT across every card on the plan
+// regardless of what any one step's count happens to be.
+//
+// SIZED FOR TWO DIGITS, NOT THREE (req #3503 review, round 2: "lost space to
+// the left of the badge"). A step's OWN linked-requirement count — not a
+// plan-wide total — is the quantity here, and double digits already covers
+// every count this file's own fixtures exercise; reserving a third digit
+// bought room a card is realistically never going to spend, and every world
+// px of that room was the exact "lost space" the review measured. The DRAWN
+// badge is still almost always narrower than even this (see `badgeWidthFor`
+// above, called again per-row with the row's real digit count) and sits
+// flush against the reserve's own right edge — against the gap before the
+// title — so freeing width only ever opens air on the badge's OWN left,
+// never moves the title. A step that somehow carries 100+ requirements
+// would draw a badge wider than the reserve rather than clip — see
+// `badgeWidthFor`'s own uncapped formula — encroaching on the gap before
+// the title rather than the title itself.
+export const CARD_BADGE_W = badgeWidthFor(2);
 
 // How many characters of a given mono width fit the card's text column.
-// `reserve` is room to take off the right first (the ✓ and the count, both on
-// the title line).
-export const cardChars = (chw, reserve = 0) =>
-    Math.max(3, Math.floor((CARD_TEXT_W - reserve) / chw));
+// `reserve` is total room taken off the column, from either edge — the ✓,
+// the link button and the badge, whichever of them the caller's own budget
+// is for. `textW` defaults to the scale-1 column (`CARD_TEXT_W`) but takes
+// any `cardGeometryFor(scale).cardTextW` too — the SAME formula at whatever
+// rung "Step Width" is on, never a second one.
+export const cardChars = (chw, reserve = 0, textW = CARD_TEXT_W) =>
+    Math.max(3, Math.floor((textW - reserve) / chw));
 
 // ── A REQUIREMENT ROW TAKES A SECOND LINE BEFORE IT TRUNCATES ───────────────
 // User directive, 2026-08-13, looking at the live card: *"Give the title a
@@ -1820,18 +2022,31 @@ export const STEPS_ACROSS_LOOSE_FILL = 0.8;
 /**
  * The scale at which `n` steps span the viewport.
  *
- * A step is a COLUMN — `CARD_W + CARD_GAP_X` — because that is the pitch the
- * plan actually repeats at; fitting `n` cards and forgetting the gutters would
- * land every option one card too wide.
+ * A step is a COLUMN — `colW` — because that is the pitch the plan actually
+ * repeats at; fitting `n` cards and forgetting the gutters would land every
+ * option one card too wide.
+ *
+ * `colW` DEFAULTS TO THE SCALE-1 PITCH (`CARD_W + CARD_GAP_X`) but a caller
+ * holding a live `layout` MUST pass `layout.colPitch` instead (req #3503
+ * review — NOT `layout.colW`, which is the PER-COLUMN array `colPitch` was
+ * built from; `Number.isFinite` on that array silently fails rather than
+ * throwing, so a wrong pick here does not announce itself). Step Width
+ * scales the card, not the gap, so `layout.colPitch` already carries
+ * whichever rung is active — the default here exists only for a caller with
+ * no layout in hand (a fixed-geometry test, or code that predates Step
+ * Width), and using it where a layout DOES exist under-counts every rung
+ * above 1: measured, "fit 5 across" landed 5.00 / 4.25 / 3.70 / 3.27 columns
+ * at rungs 1-4 while claiming 5 at all of them.
  *
  * Returns null on a viewport or an `n` that cannot produce a scale, so the
  * caller does nothing rather than driving the camera to NaN.
  */
-export function stepsAcrossScale(n, viewportW) {
+export function stepsAcrossScale(n, viewportW, colW = CARD_W + CARD_GAP_X) {
     if (!Number.isFinite(n) || n <= 0) return null;
     if (!Number.isFinite(viewportW) || viewportW <= 0) return null;
+    if (!Number.isFinite(colW) || colW <= 0) return null;
     const fill = n >= STEPS_ACROSS_TIGHT_FROM ? 1 : STEPS_ACROSS_LOOSE_FILL;
-    return (viewportW * fill) / (n * (CARD_W + CARD_GAP_X));
+    return (viewportW * fill) / (n * colW);
 }
 
 /**
@@ -1879,10 +2094,16 @@ export const SNAP_COLUMNS_STEP = 2;
 // The floor: `STEPS_ACROSS_OPTIONS`' own tightest rung.
 export const SNAP_COLUMNS_MIN = 2;
 
-/** How many columns currently span the viewport — the ladder's own unit. */
-export function columnsAcross(k, viewportW) {
-    if (!(k > 0) || !(viewportW > 0)) return null;
-    return viewportW / (k * (CARD_W + CARD_GAP_X));
+/**
+ * How many columns currently span the viewport — the ladder's own unit.
+ *
+ * `colW` defaults to the scale-1 pitch for a caller with no layout in hand —
+ * see `stepsAcrossScale`'s own note on why a live `layout.colPitch` must be
+ * passed instead wherever one exists.
+ */
+export function columnsAcross(k, viewportW, colW = CARD_W + CARD_GAP_X) {
+    if (!(k > 0) || !(viewportW > 0) || !(colW > 0)) return null;
+    return viewportW / (k * colW);
 }
 
 /**
@@ -1900,8 +2121,8 @@ export function columnsAcross(k, viewportW) {
  * rather than 2. That is deliberate and it behaves: zooming out from it finds 4,
  * and zooming in finds the floor and stays.
  */
-export function snapZoomScale(k, viewportW, dir) {
-    const c = columnsAcross(k, viewportW);
+export function snapZoomScale(k, viewportW, dir, colW = CARD_W + CARD_GAP_X) {
+    const c = columnsAcross(k, viewportW, colW);
     if (c == null || !Number.isFinite(dir) || dir === 0) return null;
     const S = SNAP_COLUMNS_STEP;
     const EPS = 0.01;
@@ -1915,7 +2136,7 @@ export function snapZoomScale(k, viewportW, dir) {
         if (n <= c) n += S;
         n = Math.max(SNAP_COLUMNS_MIN + S, n);
     }
-    const next = stepsAcrossScale(n, viewportW);
+    const next = stepsAcrossScale(n, viewportW, colW);
     // At the floor, zooming in further has nowhere to go — report that rather
     // than handing back the scale the reader is already at.
     return next === k ? null : next;
@@ -2130,9 +2351,12 @@ export function readableDefaultScale(kFit) {
  * unconditionally — so a kind going dark never moves anything else.
  */
 export function drawsLabelKind(kind, level) {
-    // `count` rides the CARD (req #3498) — it is drawn in the title area, so it
-    // appears exactly where the card does and never floats beside a bare bead.
-    if (kind === 'step' || kind === 'req' || kind === 'count') return level !== 'out';
+    // `badge` and `step-link` ride the CARD (req #3498, extended req #3503) —
+    // both are drawn in the title area, so they appear exactly where the card
+    // does and never float beside a bare bead.
+    if (kind === 'step' || kind === 'req' || kind === 'badge' || kind === 'step-link') {
+        return level !== 'out';
+    }
     if (kind === 'title') return level === 'in';
     return true;
 }
@@ -2557,7 +2781,7 @@ const truncate = (s, n) => {
 // `STEP_LABEL_MAX`: one width, measured where it is drawn, so there is no cap
 // left to drift out of step with the room.
 export function stepLabelText(row, stepLabel,
-    maxChars = cardChars(CHW_LABEL, CARD_CHECK_W + CARD_COUNT_W)) {
+    maxChars = cardChars(CHW_LABEL, CARD_CHECK_W + CARD_STEP_LINK_W + CARD_BADGE_W + CARD_BADGE_GAP)) {
     return stepLabel === 'title'
         ? truncate(row.title || `step ${row.id}`, Math.max(4, maxChars))
         : String(row.id);
@@ -2691,7 +2915,14 @@ export function computePlanLayout(rows, opts = {}) {
         stepLabel = 'id',
         reqLabel = 'id', reqTitles = null, timeAxis = null, epicCounts = null,
         pauseInfo = null,
+        // req #3503 — "Step Width". A relayout, deliberately: the ladder's own
+        // four rungs (`STEP_WIDTH_SCALES`) are the only legal values, and the
+        // caller is what turns an out-of-range number into the default rather
+        // than this module guessing which rung was meant.
+        stepWidthLevel = DEFAULT_STEP_WIDTH_LEVEL,
     } = opts || {};
+    const widthScale = STEP_WIDTH_SCALES[stepWidthLevel - 1] ?? 1;
+    const { cardW, cardFrameW, cardTextW } = cardGeometryFor(widthScale);
     const safeRows = Array.isArray(rows) ? rows : [];
     if (safeRows.length === 0) {
         return {
@@ -2727,7 +2958,7 @@ export function computePlanLayout(rows, opts = {}) {
     // every card on the plan as the reader zoomed. At L2 the row shows the bare
     // id on the first of its reserved lines and the second sits empty — the same
     // trade the old reserved title slot made, for the same reason.
-    const reqRowMax = cardChars(CHW_REQ);
+    const reqRowMax = cardChars(CHW_REQ, 0, cardTextW);
     const rowLinesOf = new Map();      // step id -> [[line, line?], …]
     for (const r of safeRows) {
         const ids = r.reqIds || [];
@@ -2741,7 +2972,8 @@ export function computePlanLayout(rows, opts = {}) {
     // `stepLabelText` is asked for the whole name (the budget times the line
     // count) and `wrapReqText` breaks it; a short name still returns one line,
     // so only the cards that need the room pay for it.
-    const nameBudget = cardChars(CHW_LABEL, CARD_CHECK_W + CARD_COUNT_W);
+    const nameBudget = cardChars(CHW_LABEL,
+        CARD_CHECK_W + CARD_STEP_LINK_W + CARD_BADGE_W + CARD_BADGE_GAP, cardTextW);
     const nameLinesOf = new Map();
     for (const r of safeRows) {
         nameLinesOf.set(r.id, wrapReqText(
@@ -2769,7 +3001,7 @@ export function computePlanLayout(rows, opts = {}) {
         const d = colOf.get(r.id);
         (colSteps[d] ||= []).push(r);
     }
-    const COL_W = CARD_W + CARD_GAP_X;
+    const COL_W = cardW + CARD_GAP_X;
     const colW = [];
     for (let d = 0; d <= maxCol; d++) colW.push(COL_W);
 
@@ -3329,10 +3561,10 @@ export function computePlanLayout(rows, opts = {}) {
                 id: r.id,
                 x: colX[d],
                 y: cy,
-                w: CARD_W,
+                w: cardW,
                 h,
-                left: colX[d] - CARD_W / 2,
-                right: colX[d] + CARD_W / 2,
+                left: colX[d] - cardW / 2,
+                right: colX[d] + cardW / 2,
                 top,
                 bottom: top + h,
                 // The card's TITLE AREA height. Published because the step name
@@ -3348,8 +3580,8 @@ export function computePlanLayout(rows, opts = {}) {
                 // answer — the halo, the hover region and the activate region
                 // each re-derived it from `left`/`w` and each was silently a
                 // bar's width too wide once the bar moved outside the frame.
-                frameLeft: colX[d] - CARD_W / 2 + CARD_FRAME_X,
-                frameW: CARD_FRAME_W,
+                frameLeft: colX[d] - cardW / 2 + CARD_FRAME_X,
+                frameW: cardFrameW,
                 depth: d,
                 lane,
                 bandIndex,
@@ -3462,17 +3694,27 @@ export function computePlanLayout(rows, opts = {}) {
         // ── THE STEP NAME, IN THE CARD'S TITLE AREA (req #3498) ─────────────
         // It floated 34px ABOVE the bead until now, fitted to a stagger budget
         // assembled from the neighbouring columns. It sits inside the card's own
-        // title area instead, fitted to the card, LEFT-ALIGNED on the text
-        // column: a row of centred titles over left-aligned requirement rows
-        // reads as two different lists, and the title is the thing a reader scans
-        // down a lane.
-        // The ✓'s room AND the count's come off the top (CARD_CHECK_W,
-        // CARD_COUNT_W): both are drawn at the title area's right edge, so a
-        // budget that ignored them would put the step name under them.
+        // title area instead, fitted to the card, LEFT-ALIGNED rather than
+        // centred: a row of centred titles over left-aligned requirement rows
+        // reads as two different lists, and the title is the thing a reader
+        // scans down a lane. NOT on the requirement rows' own `textLeft` since
+        // req #3503, though — see `titleTextLeft` below for why the title's
+        // line alone is indented past the badge.
+        // The ✓'s room and the link button's come off the right (CARD_CHECK_W,
+        // CARD_STEP_LINK_W); the badge's comes off the left (CARD_BADGE_W,
+        // CARD_BADGE_GAP) — all four drawn on the title area's own line, so a
+        // budget that ignored any of them would put the step name under one.
         const nameLines = nameLinesOf.get(r.id) || [''];
         const label = nameLines.join(' ');
         const lw = Math.max(...nameLines.map((l) => l.length)) * CHW_LABEL;
         const textLeft = n.left + CARD_FRAME_X + CARD_PAD_X;
+        // ONLY the title's own line moves for the badge — the requirement rows
+        // below it, and the reserved L3 title-duplicate line, still start at
+        // the column's own `textLeft`. The badge answers for the title's row
+        // alone (the day-header pill it is copied from sits beside ONE date,
+        // not an indented list under it), and shifting rows that never draw
+        // beside it would cost every card width for no reason on any of them.
+        const titleTextLeft = textLeft + CARD_BADGE_W + CARD_BADGE_GAP;
         labels.push({
             kind: 'step', stepId: r.id, text: label,
             // The lines AS DRAWN, so the renderer never re-wraps — the same
@@ -3480,7 +3722,7 @@ export function computePlanLayout(rows, opts = {}) {
             lines: nameLines,
             // In `title` mode this label IS the step's stored name.
             prose: stepLabel === 'title',
-            x: textLeft,
+            x: titleTextLeft,
             y: n.top + CARD_PAD_Y,
             w: lw, h: nameLines.length * CARD_LINE_H,
         });
@@ -3504,14 +3746,39 @@ export function computePlanLayout(rows, opts = {}) {
         // are the same answer.
         const rowLines = rowLinesOf.get(r.id) || [];
         let rowY = rowsTop;
+        // ── THE ID-ONLY PACKING, ALONGSIDE THE TITLE ONE (req #3503 review:
+        //    "bring all the numbers into a nice vertical line up with no white
+        //    space") ────────────────────────────────────────────────────────
+        // `rowY` above spends every row the TITLE-WRAPPED height it may need
+        // (1-2 lines, since `reqLabel` is pinned to `'title'` — see the block
+        // this one sits beside) so the card's own height, and every OTHER
+        // row's y, stay a pure function of the level exactly as the comment
+        // below still promises: a level change moves no box. But at L1/L2 the
+        // RENDERER draws the bare id, one line, in that same reserved (often
+        // taller) slot — which is exactly what "sparse, big gaps between
+        // consecutive ids" is a report of. `idY` is the id-only alternative:
+        // packed at a FIXED one-line-plus-gap pitch from the same `rowsTop`,
+        // walked in lockstep with `rowY` so it never has to re-derive
+        // anything the wrapped counter already computed.
+        //
+        // PROVABLY NEVER BELOW ITS OWN `y` (and so never a NEW overlap the
+        // zero-overlap sweep has not already cleared): `idY` accumulates
+        // `REQ_LINE_H + REQ_ROW_GAP` per row while `rowY` accumulates AT
+        // LEAST that much (`lines.length >= 1`), so `idY <= y` at every row —
+        // asserted directly in `pipelinePlanLayout.test.js` rather than
+        // re-run as a second full pairwise sweep over a geometry that is a
+        // strict subset of space the first sweep already proved empty.
+        let idRowY = rowsTop;
         rowLines.forEach((lines, i) => {
             const w = Math.max(...lines.map((l) => l.length)) * CHW_REQ;
             const t = lines.join(' ');
             const thisY = rowY;
+            const thisIdY = idRowY;
             // The next row starts below THIS row's lines plus the between-rows
             // gap — the two quantities `reqBlockHeight` charges, walked in the
             // same order so the boxes and the block height cannot disagree.
             rowY += lines.length * REQ_LINE_H + REQ_ROW_GAP;
+            idRowY += REQ_LINE_H + REQ_ROW_GAP;
             labels.push({
                 kind: 'req', stepId: r.id, reqId: ids[i], text: t,
                 // The lines AS DRAWN, so the renderer never re-wraps. `text` is
@@ -3540,29 +3807,61 @@ export function computePlanLayout(rows, opts = {}) {
                 // strictly narrower, so it cannot leave a box the title fits.
                 idText: String(ids[i]),
                 idW: String(ids[i]).length * CHW_REQ,
+                // The RENDERER picks this instead of `y` at L1/L2 (`!showTitle`)
+                // — see the block comment above `idRowY`.
+                idY: thisIdY,
             });
         });
-        // ── THE TOTAL REQUIREMENT COUNT (user directive: "Provide a count") ──
-        // Right-aligned in the title area, in the room `CARD_COUNT_W` reserved
-        // out of the step name's budget. Emitted for EVERY card including the
-        // empty one — "(0)" is a fact about the step, and a count that
-        // disappears is a count a reader cannot rely on.
+        // ── THE TOTAL REQUIREMENT COUNT, AS A BADGE (req #3503; originally
+        // req #3498, "Provide a count") ──────────────────────────────────
+        // LEFT of the title now, in the room `CARD_BADGE_W` + `CARD_BADGE_GAP`
+        // reserved out of the step name's budget — see `CARD_BADGE_W`'s own
+        // comment for why the pill replaced the dim "(N)" text this used to
+        // draw at the title's right edge. Emitted for EVERY card including the
+        // empty one — 0 is a fact about the step, and a count that disappears
+        // is a count a reader cannot rely on.
         {
-            const countText = `(${ids.length})`;
-            const cw = countText.length * CHW_REQ;
+            const countText = String(ids.length);
+            // The DRAWN width, not the reserve: `badgeWidthFor` (per-row,
+            // real digit count) is almost always narrower than `CARD_BADGE_W`
+            // (worst case), and RIGHT-aligning it against the reserve's own
+            // right edge is what makes a one-digit badge a circle rather
+            // than the reserve's full width stretched into a capsule.
+            const badgeW = badgeWidthFor(countText.length);
             labels.push({
-                kind: 'count', stepId: r.id, text: countText,
+                kind: 'badge', stepId: r.id, text: countText,
                 // Generated from a row count, never stored user content — so
                 // the no-'#' audit governs it (the `prose` note on req marks).
                 prose: false,
-                // Off the FRAME's right edge, which is not the node box's — the
-                // state bar owns the strip before the frame begins.
-                x: n.left + CARD_FRAME_X + CARD_FRAME_W
-                    - CARD_PAD_X - CARD_CHECK_W - cw,
+                x: textLeft + CARD_BADGE_W - badgeW,
                 // On the FIRST name line, whatever the name wrapped to — the
                 // count belongs to the card, not to the last line of its title.
-                y: n.top + CARD_PAD_Y + 2,
-                w: cw, h: REQ_TEXT_H,
+                y: n.top + CARD_PAD_Y + 1,
+                w: badgeW, h: CARD_BADGE_H,
+            });
+        }
+        // ── "VIEW IN TABLE" LINK BUTTON (req #3503) ──────────────────────────
+        // Right of the title, in the room `CARD_STEP_LINK_W` reserved out of
+        // the step name's budget, left of the ✓ — see `CARD_STEP_LINK_W`'s own
+        // comment. `onStepFocus` already exists (req #3213) as a hit rect over
+        // the whole title area; this is that SAME action, given a mark a
+        // reader can see and aim at, so it draws for every card exactly where
+        // the ✓ and the reserve agree it will, whether or not the step is done.
+        {
+            labels.push({
+                kind: 'step-link', stepId: r.id, text: '↗',
+                prose: false,
+                // Off the FRAME's right edge — which, unlike its LEFT edge, IS
+                // the node box's: the state bar owns a strip before the frame
+                // only on the left, so `n.right` already is that edge, at
+                // whatever `cardW` this plan's Step Width rung resolved to
+                // (req #3503 review — this line named `CARD_FRAME_W`, the
+                // fixed scale-1 constant, and stayed put while the frame it
+                // was meant to track widened around it). Left of the ✓'s own
+                // reserve, the same order the old count/✓ pair drew in.
+                x: n.right - CARD_PAD_X - CARD_CHECK_W - CARD_STEP_LINK_W,
+                y: n.top + CARD_PAD_Y,
+                w: CARD_STEP_LINK_W, h: REQ_TEXT_H,
             });
         }
         // ── THE STEP'S OWN TITLE, ON THE L3 LINE ────────────────────────────
@@ -3630,6 +3929,16 @@ export function computePlanLayout(rows, opts = {}) {
         arcs,
         labels,
         colW,
+        // The column pitch as ONE NUMBER (req #3503 review) — `colW` above is
+        // per-column (an array, uniform today but shaped for a future that
+        // is not), so a caller that wants "the" pitch — `stepsAcrossScale`'s
+        // `colW` parameter, at every call site that holds a live layout —
+        // needs the scalar `COL_W` this was built from, not `colW[0]` typed
+        // as a number by accident. `Number.isFinite` on the array silently
+        // fails this check without ever calling it wrong (JS coerces an
+        // array to NaN on arithmetic, never throws), which is exactly the
+        // failure this field exists to make impossible to reach for again.
+        colPitch: COL_W,
         colX,
         // The time axis as GEOMETRY (req #3201): the ordered slots and the
         // column each one starts at. Exported so the axis is assertable from
@@ -5057,10 +5366,12 @@ export function epicFocusTransform(layout, band, size, kBase, kFloor) {
  * step whose label happens to be short from being magnified past its neighbours
  * into a view with no context. The `FOCUS_MAX_RATIO` clamp handles the rest.
  *
- * THE RECT IS THE STEP'S OWN EXTENT AND NOTHING MORE — the crop margin that
- * keeps a single bead from filling the panel is applied by
- * `stepFocusTransform`, not baked in here, because it is a property of the FIT
- * rather than of what the step occupies.
+ * THE RECT IS THE STEP'S OWN EXTENT AND NOTHING MORE — what keeps a single
+ * bead from filling the panel is `stepFocusTransform`'s own framing choice
+ * (a stated "N across" scale for one step, req #3498; `FOCUS_PAD`'s fixed
+ * screen margin for a set, req #3503), not anything baked in here. This rect
+ * answers "what does the step occupy", full stop; nothing about framing
+ * belongs in it.
  *
  * @returns {{x:number,y:number,w:number,h:number}|null} null when the step is
  *   not placed on this layout — the caller must not fit.
@@ -5175,80 +5486,69 @@ export function stepsFitRect(layout, stepIds) {
 // that says "this card, in its context", and it sits between the ladder's 4 and
 // 6 rather than pretending to be either.
 //
-// `STEP_FOCUS_CONTEXT` is therefore INERT on the single-card path, and the
-// clamp is the zoom behaviour's own extent rather than `FOCUS_MAX_RATIO`. That
-// aesthetic ceiling exists to stop a fit magnifying a small target into a view
-// with no context; here the context is the request, so the only clamp that may
-// bind is the hard one — a `k` outside `scaleExtent` would look right until the
+// This scale, and its clamp, are therefore the WHOLE of the single-card
+// path — no `fitTransform` margin ever runs on it (the multi-step case is a
+// tight fit; see `stepsFocusTransform`), and the clamp is the zoom
+// behaviour's own extent rather than `FOCUS_MAX_RATIO`. That aesthetic
+// ceiling exists to stop a fit magnifying a small target into a view with no
+// context; here the context is the request, so the only clamp that may bind
+// is the hard one — a `k` outside `scaleExtent` would look right until the
 // reader's first wheel event snapped it back.
 export const STEP_FOCUS_STEPS_ACROSS = 5;
 
 /**
- * The camera that frames a SET of steps, with the same context margin one step
- * gets. `stepFocusTransform` is this function with a single-element set, so the
- * one-step case cannot drift from the many-step one.
+ * The camera that frames a SET of steps.
  *
  * ONE STEP IS THE EXCEPTION, AND IT IS HANDLED HERE rather than in
  * `stepFocusTransform` so that BOTH ways of arriving at a single card take it —
  * the `?step=` deep link from the requirement editor, and an epic whose second
  * click resolves to one step. A rule that lived in the single-id wrapper would
  * have covered the first and silently missed the second.
+ *
+ * TWO OR MORE STEPS GET A TIGHT FIT, NOT A PADDED ONE (req #3503). This used
+ * to inflate the raw rect by a proportional margin (`STEP_FOCUS_CONTEXT`,
+ * inherited from the single-launch-rectangle framing req #3297 drew, then
+ * carried across two more subjects it was never re-derived for — see the
+ * removed constant's git history) before fitting. Retuning that fraction
+ * fixed a fixture in isolation but not the general case: measured on the
+ * reported epic (9 open steps in a single-row sequence, no vertical binding),
+ * `k ∝ 1/(1 + 2·C)` regardless of C's value, so ANY proportional-of-content
+ * margin scales with the very thing the reader asked to see tightly — 9
+ * columns rendered at ~12 card widths at the old 0.25, and would still have
+ * rendered at ~11.25 retuned to 0.125. A margin that is a FRACTION OF THE
+ * CONTENT cannot converge on "as tight as the viewport allows"; only a margin
+ * that is a fraction of the VIEWPORT can.
+ *
+ * So this is now `fitTransform` on the RAW rect, with no inflation at all —
+ * exactly `epicFocusTransform`'s own arithmetic, reused rather than
+ * reinvented. `fitTransform` already reserves `FOCUS_PAD` fixed screen px on
+ * every side and picks whichever axis — width or height — actually needs the
+ * tighter scale, so a SET of steps is framed by the same "identify the
+ * horizontal and vertical extent, fit both at a small fixed screen margin"
+ * rule the whole-epic view already uses, just over a smaller rect. Measured
+ * on the reported epic (9 open steps, single row): a fixed 44px edge on
+ * whatever scale the fit chooses, not a fraction of 9 that grows or shrinks
+ * with it — 9.28 columns of viewport on a 1730px panel, a little more on a
+ * narrower one, in contrast to the retired proportional margin's 11.6–13.9.
  */
 export function stepsFocusTransform(layout, stepIds, size, kBase, kFloor) {
     const rect = stepsFitRect(layout, stepIds);
     if (!rect) return null;
     if (placedStepCount(layout, stepIds) === 1) {
+        // `layout.colPitch` — req #3503 review: without it this framed a step
+        // at the scale-1 pitch regardless of the active Step Width rung, so
+        // "5 across" measured 3.27 at rung 4.
         const t = centreTransform(rect, size,
-            stepsAcrossScale(STEP_FOCUS_STEPS_ACROSS, size?.w), kBase, kFloor);
-        // Falls through to the fit when the scale could not be produced (no
-        // viewport yet), so a card is still framed rather than not moved at all.
+            stepsAcrossScale(STEP_FOCUS_STEPS_ACROSS, size?.w, layout?.colPitch), kBase, kFloor);
+        // Falls through to the fit only when `size.w` is non-finite (e.g.
+        // `Infinity`) — the one input where `stepsAcrossScale` nulls but
+        // `fitTransform`'s own `w > 0` guard does not. Not reachable with a
+        // real viewport; kept so a degenerate one still gets a transform
+        // rather than none at all.
         if (t) return t;
     }
-    // The crop margin lives HERE rather than in `stepFitRect` (req #3371): the
-    // rect answers "what does this step occupy", which nothing about framing
-    // should change, and the inflation answers "how much plan do I want around
-    // it". Symmetric, so the centre — and therefore which point lands in the
-    // middle of the viewport — is untouched.
-    const padX = rect.w * STEP_FOCUS_CONTEXT;
-    const padY = rect.h * STEP_FOCUS_CONTEXT;
-    return fitTransform(
-        { x: rect.x - padX, y: rect.y - padY,
-          w: rect.w + 2 * padX, h: rect.h + 2 * padY },
-        size, kBase, null, kFloor);
+    return fitTransform(rect, size, kBase, null, kFloor);
 }
-
-// ── THE STEP FIT'S CONTEXT MARGIN (req #3297, re-pointed by req #3371) ─────
-// The fraction of the step rect's OWN width and height added on each side
-// before the fit. It is the difference between "one bead fills the panel" and
-// the framing req #3297 asked for — the launch unit comfortably readable with
-// the plan still visible around it.
-//
-// KEPT BY VALUE (0.25) WHEN ITS SUBJECT CHANGED (req #3371). It used to inflate
-// the dashed multi-step launch rectangle; in 2.0 the STEP is the launch unit,
-// so the constant follows the unit rather than dying with the drawing. The
-// framing argument is identical whatever the unit: "read it IN its plan, not
-// extracted from it".
-//
-// Proportional, and symmetric, for two reasons that are worth keeping straight:
-//
-//   · SYMMETRIC means it cannot change WHICH POINT ends up at the centre of the
-//     viewport. The inflated rect has the same centre as the bare one, so the
-//     step stays framed on exactly the same spot whatever this number is. The
-//     only thing it can change is `k` — and then, necessarily, the translation
-//     that carries that centre at the new scale; the claim is about the framing,
-//     not about the two numbers. And it changes `k` only when the fit — rather
-//     than the `FOCUS_MAX_RATIO` ceiling — is what binds.
-//   · ON A SINGLE STEP THE CEILING USUALLY BINDS AND THIS CONSTANT IS INERT.
-//     The generous whitespace around a one-bead fit is `FOCUS_MAX_RATIO`,
-//     exactly as it is for a one-step epic, and NOT this number. Do not tune
-//     this expecting the ordinary case to move; it will not. That ceiling is
-//     why a step small enough to want k=8 still lands at 2.6 x the readable
-//     default.
-//
-// A world-space constant would have been wrong on both counts: a fixed number
-// of world px is a different fraction of every rect, and on the smallest rect —
-// the one that most wants air — it is the smallest fraction of all.
-export const STEP_FOCUS_CONTEXT = 0.25;
 
 /**
  * How many of `stepIds` are actually PLACED on this layout (req #3498).

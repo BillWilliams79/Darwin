@@ -151,3 +151,106 @@ const toEpicId = (value) => {
     const n = Number(String(value).trim());
     return Number.isInteger(n) && n > 0 ? n : null;
 };
+
+// ── `?step=` — ONE step's work, seen as task cards (req #3503) ──────────────
+//
+// `/swarm?view=cards&step=<sid>`. A PARALLEL, INDEPENDENT sibling of the `?epic=`
+// block above, not a generalisation of it. The writer is the plan visualizer's
+// requirement-count badge (`PipelinePlanVisualizer.jsx`) and the readers are the
+// same five files, which is why it lives here for the same reason: this module
+// owns `/swarm`'s query string, and a second owner is how a writer and a reader
+// start disagreeing about a key with nothing failing when they do.
+//
+// WHY A SECOND PARAMETER RATHER THAN A SCOPE-KIND ONE (`?scope=step:12`). The two
+// filters are read INDEPENDENTLY and can both be in the address bar at once; a
+// single encoded parameter would have to be parsed into a kind and an id by every
+// reader, and would make dismissing one pill a rewrite of the other's value. Two
+// keys, two readers, two `without…Param` functions — nothing shared, nothing to
+// disentangle.
+//
+// THE DERIVATION UNDERNEATH IS ONE HOP, WHICH IS THE WHOLE DIFFERENCE. An epic
+// needs `pipeline_steps.epic_fk` walked before the junction can be read; a step
+// IS the junction's own `step_fk`. Same query-string shape, much cheaper answer —
+// see `utils/pipelineMembership.js` § `stepRequirementIds`.
+//
+// `view=cards` IS CARRIED EXPLICITLY for the reason `swarmViewLinkTo` gives:
+// `/swarm` alone opens whichever panel this reader last chose, and this link's
+// whole promise is the CARDS. It seeds the same TRANSIENT override, so the
+// reader's stored default is never rewritten.
+//
+// NOT THE ONLY `?step=` IN THIS CODEBASE, AND THAT IS FINE. `pipelineStepLink.js`
+// owns `?step=` on the plan detail route, where it means FOCUS THIS STEP (a row
+// to scroll to, or a bead to zoom on); this owns it on `/swarm` and means FILTER
+// TO THIS STEP'S REQUIREMENTS. One route, one meaning each — the same arrangement
+// `?epic=` already has across three routes, and the reason both keep the plain
+// noun: the address bar stays legible because the word names the same THING even
+// where the verb differs.
+
+/** The query parameter. `step`, because the filter names a plan STEP. */
+export const SWARM_STEP_PARAM = 'step';
+
+/** The view a step link lands on. Named so the writer and this file agree. */
+export const SWARM_STEP_VIEW = 'cards';
+
+/**
+ * The route one step's task cards live at.
+ *
+ * Returns null when the id is unusable, so a caller renders no control at all
+ * rather than one that navigates to `/swarm?step=undefined` and filters every
+ * requirement away under a pill reading "Step: undefined" — the same
+ * omit-rather-than-render-a-dead-link rule `swarmEpicLinkTo` applies. A badge
+ * drawn for a step the layout could not resolve is exactly this case.
+ *
+ * @param {?number} stepId
+ * @returns {?string}
+ */
+export const swarmStepLinkTo = (stepId) => {
+    const sid = toStepId(stepId);
+    if (sid == null) return null;
+    return `/swarm?${SWARM_VIEW_PARAM}=${SWARM_STEP_VIEW}&${SWARM_STEP_PARAM}=${sid}`;
+};
+
+/**
+ * The step id a `?step=` parameter names, or null.
+ *
+ * VALIDATED, NEVER TRUSTED — `readEpicParam`'s rule, with the same stake: this
+ * value decides which requirements a page shows, and `Number('')` is 0 while
+ * `Number('1.5')` is 1.5, either of which would filter every row away under a
+ * pill naming a step that does not exist. An id that names a REAL-SHAPED step
+ * which simply has no row is not an error: the page filters to an empty set and
+ * the pill falls back to the raw id.
+ *
+ * @param {{get: function(string): ?string}} searchParams
+ * @returns {?number}
+ */
+export const readStepParam = (searchParams) =>
+    toStepId(searchParams?.get?.(SWARM_STEP_PARAM));
+
+/**
+ * The same params with the step filter removed — where dismissing the pill goes.
+ *
+ * A NEW `URLSearchParams` rather than a mutation of the caller's, for
+ * `withoutEpicParam`'s reason: React Router hands back a live object, and
+ * mutating it in place changes the current location's params while re-rendering
+ * nothing. It touches `step` ALONE, so dismissing this pill leaves an epic
+ * filter — or any other parameter — exactly where it was.
+ *
+ * @param {URLSearchParams} searchParams
+ * @returns {URLSearchParams}
+ */
+export const withoutStepParam = (searchParams) => {
+    const next = new URLSearchParams(searchParams || undefined);
+    next.delete(SWARM_STEP_PARAM);
+    return next;
+};
+
+// Deliberately its own guard rather than a shared `toPositiveId`, matching
+// `toEpicId` line for line. The two validate different NOUNS, and a shared
+// helper would make relaxing one (a step id that could legitimately be 0, say)
+// silently relax the other — which is the whole failure mode this module's
+// one-owner-per-contract design exists to avoid.
+const toStepId = (value) => {
+    if (value == null || String(value).trim() === '') return null;
+    const n = Number(String(value).trim());
+    return Number.isInteger(n) && n > 0 ? n : null;
+};

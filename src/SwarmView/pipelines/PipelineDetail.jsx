@@ -22,12 +22,10 @@
 
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { useQueryClient } from '@tanstack/react-query';
 
 import Alert from '@mui/material/Alert';
 import AlertTitle from '@mui/material/AlertTitle';
 import Box from '@mui/material/Box';
-import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
 import Dialog from '@mui/material/Dialog';
@@ -42,11 +40,9 @@ import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import useMediaQuery from '@mui/material/useMediaQuery';
-import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 
 import call_rest_api from '../../RestApi/RestApi';
-import { useSnackBarStore } from '../../stores/useSnackBarStore';
-import { pipelineComposeKeys, pipelineKeys } from '../../hooks/useQueryKeys';
+import { pipelineKeys } from '../../hooks/useQueryKeys';
 import AppContext from '../../Context/AppContext';
 import AuthContext from '../../Context/AuthContext';
 import '../../CalendarFC/CalendarFC.css';
@@ -96,6 +92,7 @@ import PipelinePlanToolbar from './PipelinePlanToolbar';
 import {
     DEFAULT_COLOR_KEY, DEFAULT_PLAN_LEVEL_PREF,
     normalizeColorKey, normalizePlanLevelPref,
+    STEP_WIDTH_SCALES, DEFAULT_STEP_WIDTH_LEVEL,
 } from './pipelinePlanLayout';
 import {
     // The two-read cost fold. It is not plan derivation — `pipeline2_derive.py`
@@ -123,164 +120,6 @@ const EMPTY = Object.freeze([]);
 // time somebody names a plan verbosely, and S13's band already handles the
 // overflow.
 const TITLE_MIN_W = 140;
-
-// ── Editable pipeline description (req #3119, moved req #3179) ──────────────
-// The plan's goal text is the one field on this page a human authors, and it was
-// read-only prose. It is the house edit-in-place field: an outlined TextField
-// whose notched "Description" label sits on the top-left border, saved on blur,
-// exactly like the requirement description.
-//
-// SINCE REQ #3179 IT LIVES IN A DIALOG behind an info button at the right end of
-// the header row — the Telemetry page's Glossary affordance (ContextPage.jsx).
-// Inline, it was prose the reader had already read charging the plan 40–110px of
-// viewport on every visit, in BOTH modes. The visualizer measures its own top
-// (see PipelinePlanVisualizer's `availH`), so every pixel this stops occupying
-// becomes canvas. The dialog is also the better AUTHORING surface: the inline
-// field capped at four rows and scrolled a long goal internally.
-//
-// Local draft + save-on-blur rather than a controlled write per keystroke: the
-// query cache is the source of truth and re-rendering the whole plan on every
-// character would re-run the ordering engine.
-//
-// The draft ADOPTS a server value that arrives or changes later, but only while
-// the field is clean. Seeding state once at mount is the standard version of
-// this component and it has a data-loss shape: if the row is rendered before its
-// description is in hand, the draft is '' forever, and the next edit-and-blur
-// writes that '' over real text. `savedRef` doubles as the clean/dirty marker —
-// equal to `draft` means untouched since the last known-good value.
-//
-// The component stays MOUNTED while the dialog is shut (only MUI's <Dialog>
-// children unmount), so `draft` and `savedRef` survive a close — which is what
-// lets the close handler save text the field never got to blur on.
-// req #3463 — WHICH TABLE THIS DIALOG WRITES, and which cache entry it then
-// invalidates, used to be era facts: a hard-coded `/pipelines` PUT would have
-// written the 1.0 table using a 2.0 row's id, silently, into a real row
-// belonging to a different plan. req #3356 removed the 1.0 table, so there is
-// one answer — but the entity name still comes from `planEntityName` rather than
-// a literal, because `planEra.js` remains the one place it is spelled.
-function PipelineDescriptionDialog({ pipeline, open, onClose }) {
-    const { idToken, profile } = useContext(AuthContext);
-    const { darwinUri } = useContext(AppContext);
-    const queryClient = useQueryClient();
-    const showError = useSnackBarStore((s) => s.showError);
-    const incoming = pipeline.description || '';
-    const [draft, setDraft] = useState(incoming);
-    const savedRef = useRef(incoming);
-    // The value currently on the wire, if any. Two exits can fire in one gesture
-    // (blur then click), and since req #3179's fix below `savedRef` no longer
-    // advances until the server answers — so without this the second exit would
-    // re-send the same text while the first was still in flight.
-    const inFlightRef = useRef(null);
-
-    useEffect(() => {
-        if (incoming === savedRef.current) return;   // nothing new from the server
-        if (draft !== savedRef.current) return;      // user is mid-edit — never clobber
-        savedRef.current = incoming;
-        setDraft(incoming);
-    }, [incoming, draft]);
-
-    // `savedRef` advances ONLY on a confirmed write (req #3179 review). Marking
-    // it saved optimistically made a failed PUT unrecoverable AND silent: the
-    // next blur saw `value === savedRef` and wrote nothing, so the user could not
-    // retry, and the next refetch delivered the old server text into a field the
-    // adoption effect above considered clean — quietly reverting the edit. Both
-    // were survivable while the field was on the page; behind a button the
-    // reversion happens off-screen, with nothing on the page to notice it by.
-    //
-    // Leaving `savedRef` at the last CONFIRMED value on failure is what makes the
-    // retry work: `draft !== savedRef` keeps the adoption effect off (it reads as
-    // mid-edit, which is exactly right — the text is unsaved), and the next blur
-    // or close re-sends.
-    //
-    // THE COMPARISON IS AGAINST `inFlightRef ?? savedRef`, and getting that wrong
-    // costs an edit (review follow-up). Once `savedRef` lags the wire rather than
-    // leading it, a bare `value === savedRef` no longer means "already saved" —
-    // it means "matches what the server had BEFORE the write now in flight". Undo
-    // an edit while its PUT is outstanding (type NEW, blur, Ctrl+Z back to OLD,
-    // Close) and that guard reads OLD === OLD and sends nothing, so NEW lands and
-    // the user's actual final text never does. The value at or heading to the
-    // server is what a save has to be new against.
-    //
-    // `??` and not `||`: '' is a legitimate in-flight value — the user clearing
-    // the description — and `||` would fall through to `savedRef` and re-send it.
-    const save = () => {
-        const value = draft;
-        // Already saved, or already on the wire — either way, nothing to send.
-        if (value === (inFlightRef.current ?? savedRef.current)) return;
-        inFlightRef.current = value;
-        call_rest_api(`${darwinUri}/${planEntityName()}`, 'PUT',
-            [{ id: pipeline.id, description: value }], idToken)
-            .then((result) => {
-                const code = result?.httpStatus?.httpStatus;
-                if (code !== 200 && code !== 204) {
-                    showError(result, 'Unable to update the pipeline description');
-                } else {
-                    savedRef.current = value;
-                    // The description arrives inside the composed payload, which
-                    // has its own per-plan key — so that is what re-reads it.
-                    queryClient.invalidateQueries({
-                        queryKey: pipelineComposeKeys.byId(pipeline.id) });
-                }
-            })
-            .catch((error) => showError(error, 'Unable to update the pipeline description'))
-            // `call_rest_api` is `async`, so this exists on every path — including
-            // the transport failure, which RESOLVES with a synthetic 503 rather
-            // than throwing (every real non-2xx status throws and lands in the
-            // catch above). The one state that leaks is a promise that never
-            // settles: no timeout is set, so a hung connection pins this string
-            // for the component's life. Bounded and recoverable — `savedRef` is
-            // unadvanced too, so the text is never reverted, and only re-sending
-            // that EXACT string is blocked; any further edit saves normally.
-            .finally(() => {
-                if (inFlightRef.current === value) inFlightRef.current = null;
-            });
-    };
-
-    // Every exit from the dialog saves: the Close button, the backdrop, and
-    // Escape all land here. Without it, closing by backdrop/Escape unmounts the
-    // field without ever blurring it and the edit is silently lost. `save()` is
-    // idempotent against `savedRef`, so the blur-then-click path writes once.
-    const closeAndSave = () => {
-        save();
-        onClose();
-    };
-
-    return (
-        <Dialog
-            open={open}
-            onClose={closeAndSave}
-            maxWidth="md"
-            fullWidth
-            disableScrollLock
-            data-testid="pipeline-description-dialog"
-        >
-            <DialogTitle>Description — {pipeline.title}</DialogTitle>
-            <DialogContent dividers>
-                <TextField
-                    label="Description"
-                    variant="outlined"
-                    value={draft}
-                    onChange={(e) => setDraft(e.target.value)}
-                    onBlur={save}
-                    fullWidth
-                    multiline
-                    // The dialog is the authoring surface the inline field could
-                    // not be: 8 rows before it scrolls instead of 4, and no
-                    // upper bound short of the dialog's own max height.
-                    minRows={8}
-                    maxRows={24}
-                    autoComplete="off"
-                    autoFocus
-                    sx={{ mt: 1 }}
-                    data-testid="pipeline-goal"
-                />
-            </DialogContent>
-            <DialogActions>
-                <Button onClick={closeAndSave} variant="outlined">Close</Button>
-            </DialogActions>
-        </Dialog>
-    );
-}
 
 /**
  * The plan page (req #3356 — one era).
@@ -322,17 +161,6 @@ export default function PipelineDetail() {
     // every epic band label, not a preference. No storage key, no setter: there
     // is nothing left to persist.
     const showReqCounts = true;
-    // Req #3179 — the goal text is behind the header's info button now. Shut it
-    // when the route changes plans: this component is re-rendered, not remounted,
-    // on an :id change, so an open dialog would otherwise stay open and re-title
-    // itself to a plan the user never asked to edit.
-    const [descriptionOpen, setDescriptionOpen] = useState(false);
-    // `era` was in this dep list while two routes rendered this same component
-    // at the same tree position — React Router REUSED the instance, so
-    // a move between the two eras' plan routes changed neither `pipelineId` nor
-    // anything else the effect watched. One route now, so the id is the whole
-    // trigger again.
-    useEffect(() => { setDescriptionOpen(false); }, [pipelineId]);
     // ── THE RETIRED VIEW PREFERENCES (no declaration follows — that is the
     //    point). The `Reqs:` and `Step:` preferences went with their controls
     //    (user directive 2026-08-01); the requirement LAYOUT stopped being a
@@ -355,6 +183,20 @@ export default function PipelineDetail() {
     const isMobile = useMediaQuery('(max-width:899px)');
     const [colorKeyPref, setColorKeyPref] = useViewPreference(
         'darwin-pipeline-viz-color-key', DEFAULT_COLOR_KEY);
+    // req #3503 — "Step Width": four rungs, 1 the card every existing plan is
+    // already sized for, 2-4 each 25% more text room. PERSISTED like every
+    // other view preference — a reader who widens the card wants it wide next
+    // time too — and, unlike Reset or the steps-across buttons, this ONE
+    // relayouts the plan (every column, every card, every wrap point) rather
+    // than just moving the camera, which is exactly why it is a deliberate,
+    // explicit choice and never an automatic one.
+    const [stepWidthLevelPref, setStepWidthLevelPref] = useViewPreference(
+        'darwin-pipeline-viz-step-width', String(DEFAULT_STEP_WIDTH_LEVEL));
+    // `Number.isFinite` on the LOOKED-UP SCALE, not a truthiness test on it
+    // (review finding): correct today only because no rung is `0` or another
+    // falsy-but-valid number — this says what is actually meant regardless.
+    const stepWidthLevel = Number.isFinite(STEP_WIDTH_SCALES[Number(stepWidthLevelPref) - 1])
+        ? Number(stepWidthLevelPref) : DEFAULT_STEP_WIDTH_LEVEL;
     // Req #3168 — the semantic-level selector, the Build Visualizer's control
     // (user directive: "show me the L1, L2, L3 and Auto selector used
     // elsewhere"). `auto` keeps the zoom-derived level; 1|2|3 pin one. Persisted
@@ -392,13 +234,6 @@ export default function PipelineDetail() {
     // for "8" again must bring you back, and a bare value would be unchanged
     // state and do nothing.
     const [stepsAcross, setStepsAcross] = useState({ n: null, nonce: 0 });
-    // req #3498 — snap the WHEEL to the same ladder the buttons jump to.
-    // PERSISTED, unlike the buttons: those are actions, this is how the canvas
-    // behaves, and a reader who wants stepped zoom wants it next time too.
-    // Stored as a string because `useViewPreference` is a string store.
-    const [snapZoomPref, setSnapZoomPref] = useViewPreference(
-        'darwin-pipeline-viz-snap-zoom', 'off');
-    const snapZoom = snapZoomPref === 'on';
     // The step label is always the TITLE, and the requirement marks always
     // reserve room for their TITLE — the renderer draws the id inside that box
     // at L1/L2 and the title itself at L3 (see the `idText` note in
@@ -736,14 +571,6 @@ export default function PipelineDetail() {
     const ActiveComponent = (findPipelineDetailMode(activeMode)
         || PIPELINE_DETAIL_MODES[0]).Component;
 
-    // Whitespace-only prose is not a description — a goal of three newlines
-    // would otherwise light the header button up as though the plan were
-    // documented.
-    const hasDescription = !!(pipeline.description || '').trim();
-    const descriptionLabel = hasDescription
-        ? 'Description — the plan\'s goal'
-        : 'Description — none yet; click to write one';
-
     // req #3261 P2 — the status group's separator renders only when the group
     // does. Both chips are live-ops conditionals, so this is false on the
     // ordinary row and the row is byte-identical to one with no status slot.
@@ -1058,8 +885,8 @@ export default function PipelineDetail() {
                     <PipelinePlanToolbar
                         onStepsAcross={(n) => setStepsAcross(
                             (prev) => ({ n, nonce: prev.nonce + 1 }))}
-                        snapZoom={snapZoom}
-                        onToggleSnapZoom={() => setSnapZoomPref(snapZoom ? 'off' : 'on')}
+                        stepWidthLevel={stepWidthLevel}
+                        onChangeStepWidthLevel={setStepWidthLevelPref}
                         colorKey={colorKey}
                         onChangeColorKey={setColorKeyPref}
                         planLevelPref={activeLevelPref}
@@ -1074,7 +901,9 @@ export default function PipelineDetail() {
                     Pipelines list this page is reached from, and the machine
                     spread is on every step's hover card; on the title row they
                     were two more things between the plan's name and the reader.
-                    The description button is what remains, and it is last. */}
+                    Snap (req #3503) and the description button (req #3503) are
+                    both gone too — this row's own last child now is whichever
+                    of Time/Tokens or PipelinePlanToolbar the active mode drew. */}
 
                 {/* ── STATUS GROUP (req #3261 P2) ─────────────────────────────
                     CONDITIONAL ON ITS OWN CONTENTS, not rendered unconditionally
@@ -1155,87 +984,7 @@ export default function PipelineDetail() {
                     </Tooltip>
                 )}
 
-                <Divider orientation="vertical" flexItem
-                         sx={{ mx: 0.5, flexShrink: 0 }} />
-
-                {/* Req #3179 — the description, at the RIGHT END of the row,
-                    exactly where the Telemetry page keeps its Glossary
-                    (ContextPage.jsx). It reports whether there is anything
-                    behind it: filled when the plan has a goal, outlined when it
-                    does not, so an empty description is visible without opening
-                    the dialog and the control never reads as a dead one.
-
-                    A CHIP LIKE EVERYTHING ELSE (req #3261 P1, S6). It was the
-                    row's sixth widget vocabulary as a lone `IconButton`, and the
-                    Build Visualizer's own dialog-opener — "Merge Rules" — is
-                    exactly this: a chip that carries a label. The icon stays as
-                    the chip's `icon`, so the affordance a reader already knows
-                    is unchanged and it gains the word it never had.
-
-                    `pressed: false`: the fill answers "is there prose behind
-                    this", a fact about the PLAN, not a state the button is held
-                    in. `aria-pressed` here would tell a screen reader the control
-                    has an on position, which is exactly what it does not. */}
-                <Tooltip title={descriptionLabel}>
-                    <Chip
-                        icon={<InfoOutlinedIcon fontSize="small" />}
-                        label="Description"
-                        onClick={() => setDescriptionOpen(true)}
-                        // The SAME string the tooltip carries, because the
-                        // outlined chip is the only other place "there is
-                        // nothing behind this button" is said and a screen
-                        // reader cannot see it. MUI's Tooltip spreads the
-                        // child's own props last, so an aria-label here wins
-                        // over the one it would inject.
-                        aria-label={descriptionLabel}
-                        {...toolbarChipProps(hasDescription, {
-                            pressed: false,
-                            sx: {
-                                flexShrink: 0,
-                                // MUI gives `.MuiChip-icon` its own colour
-                                // (`grey[700]` / `grey[300]` by theme mode —
-                                // Chip.js's `iconColor === color` variant),
-                                // which does NOT follow the root's — so on the
-                                // filled chip the icon would stay dark grey on
-                                // the primary fill. `inherit` is what makes the
-                                // two states read as one control changing,
-                                // rather than a chip whose icon failed to
-                                // change with it.
-                                '& .MuiChip-icon': { color: 'inherit' },
-                            },
-                        })}
-                        data-testid="pipeline-description-btn"
-                    />
-                </Tooltip>
             </Box>
-
-            {/* A MUI Dialog is a portal — it renders into document.body and
-                contributes NO box to this column at any time, open or shut. It
-                therefore costs the plan nothing here and does not disturb the
-                "canvas is the last child" invariant asserted below.
-                `disableScrollLock`: MUI's scroll lock pads `document.body` by the
-                scrollbar width when the body overflows, which would narrow this
-                grid column, change the canvas's measured width and re-fit the
-                plan behind the dialog — and again on close.
-
-                `key={pipeline.id}` is a DATA-SAFETY guard, not a re-render hint
-                (req #3179 review). React Router re-renders this page on an :id
-                change rather than remounting it, and every list query is already
-                warm, so `isLoading` never flips and nothing below remounts on its
-                own. Without the key, a draft typed against plan B survives a
-                back-navigation to plan A — the adoption effect reads it as
-                mid-edit and refuses to touch it, exactly as designed — and the
-                next close writes B's text over A's description.
-
-                The keyed remount runs no save, so an unsaved draft is DISCARDED
-                on a plan switch rather than written to the wrong plan. That is
-                the deliberate trade and it matches what the inline field did on
-                unmount; saving it instead is possible (the unmounting instance
-                still holds B's `pipeline` prop) but would make a navigation
-                commit text the user never confirmed. */}
-            <PipelineDescriptionDialog key={pipeline.id} pipeline={pipeline}
-                                       open={descriptionOpen}
-                                       onClose={() => setDescriptionOpen(false)} />
 
             {dictionaryError && (
                 <Alert severity="error" variant="outlined" sx={{ mb: 2 }}
@@ -1303,7 +1052,7 @@ export default function PipelineDetail() {
                              onEffectiveLevel={setEffectiveLevel}
                              resetViewNonce={resetViewNonce}
                              stepsAcross={stepsAcross}
-                             snapZoom={snapZoom}
+                             stepWidthLevel={stepWidthLevel}
                              />
             )}
         </Box>

@@ -9,7 +9,7 @@ import { useShowClosedStore, ALL_REQUIREMENT_STATUSES } from '../stores/useShowC
 import { useSwarmStartCardStore } from '../stores/useSwarmStartCardStore';
 import { useModelEffortDisplayStore } from '../stores/useModelEffortDisplayStore';
 import { useRequirementDrillStore } from '../stores/useRequirementDrillStore';
-import { useProjects, useAllEpics, useAllCategories, useEpicRequirementIds } from '../hooks/useDataQueries';
+import { useProjects, useAllEpics, useAllCategories, useEpicRequirementIds, useAllPipelineSteps, useStepRequirementIds } from '../hooks/useDataQueries';
 import { projectKeys } from '../hooks/useQueryKeys';
 import { firstProjectIndexWithEpicWork } from '../utils/epicMembership';
 
@@ -49,7 +49,7 @@ import CategoryIcon from '@mui/icons-material/Category';
 import { requirementStatusChipProps, requirementStatusLabel } from './statusChipStyles';
 import Chip from '@mui/material/Chip';
 import ChipFilter from '../Components/ChipFilter';
-import { SWARM_VIEWS, readEpicParam, withoutEpicParam } from './swarmViewLink';
+import { SWARM_VIEWS, readEpicParam, withoutEpicParam, readStepParam, withoutStepParam } from './swarmViewLink';
 import { useSwarmViewSelection } from './useSwarmViewSelection';
 
 // req #2992 — fixed vocabulary, so options are module-level. Colors come from
@@ -138,6 +138,20 @@ const SwarmView = () => {
     // In the other panels the parameter sleeps: it is still in the address bar,
     // nothing is filtered, and nothing claims to be.
     const epicFilterApplies = epicFilterActive && view === 'cards';
+    // ── `?step=` — the plan visualizer's requirement-count badge lands here
+    // (req #3503) ───────────────────────────────────────────────────────────
+    // A PARALLEL, INDEPENDENT filter, not a mode of the epic one: same doctrine
+    // (the LINK IS THE FILTER), same cards-view gate, its own parameter, its own
+    // pill, its own scope prop. Both may be in the address bar at once and each
+    // narrows the rows the other left, which is why nothing below is written as
+    // an either/or.
+    //
+    // READ UP HERE, beside the epic's, because the shared `allCategories` read a
+    // few lines down is enabled by EITHER filter and needs both answers before
+    // it. Its own hooks and derivations sit in one block after the epic's.
+    const stepId = readStepParam(searchParams);
+    const stepFilterActive = stepId !== null;
+    const stepFilterApplies = stepFilterActive && view === 'cards';
     // ONE derivation of "which requirements does this epic contain", shared with
     // every card and the aggregator — see the hook for why it is an id Set and
     // not a wider projection.
@@ -149,8 +163,12 @@ const SwarmView = () => {
     const { epicReqIds, isError: epicScopeError, requirements: epicScopeRequirements } =
         useEpicRequirementIds(profile?.userName, scopedEpicId);
     const { data: epicRows = [] } = useAllEpics(profile?.userName, { enabled: epicFilterApplies });
+    // req #3503 — ONE read for BOTH filters' tab seeds. `firstProjectIndexWithEpicWork`
+    // is era- and scope-independent (it takes an id Set and never asks how it was
+    // derived), so both seeds consume the same category rows; a second hook with
+    // a step-shaped name would fetch identical rows into a second cache entry.
     const { data: allCategories = [] } = useAllCategories(profile?.userName, {
-        fields: 'id,project_fk', closed: 0, enabled: epicFilterApplies,
+        fields: 'id,project_fk', closed: 0, enabled: epicFilterApplies || stepFilterApplies,
     });
     const epicTitle = epicFilterActive
         ? (epicRows.find(e => Number(e.id) === epicId)?.title ?? String(epicId))
@@ -168,7 +186,71 @@ const SwarmView = () => {
     // rows — the same rule from the other side: a control is off screen only
     // while something else is deciding for it.
     const epicFilterEngaged = epicFilterApplies && epicReqIds != null;
-    const clearEpicFilter = () => setSearchParams(withoutEpicParam(searchParams), { replace: true });
+    // DISMISSING A FILTER RETURNS TO THE READER'S OWN WORKING PROJECT, not
+    // wherever the filter's own tab-seed effect left `activeTab` standing
+    // (user report: closing the step pill "goes somewhere random"). The seed
+    // effect MOVES `activeTab`, but the "persist to localStorage" effect
+    // (below) stands down for as long as a filter is engaged, so the STORED
+    // value is still the reader's own the whole time — this re-reads it
+    // rather than leaving the seeded tab in place once the filter that
+    // justified it is gone. Same lookup the initial-mount effect uses,
+    // reused rather than re-derived.
+    const restoreWorkingProjectTab = () => {
+        if (!projectsArray || projectsArray.length === 0) return;
+        const storedId = getWorkingProject();
+        const idx = storedId ? projectsArray.findIndex((p) => String(p.id) === storedId) : -1;
+        setActiveTab(idx >= 0 ? idx : 0);
+    };
+    const clearEpicFilter = () => {
+        setSearchParams(withoutEpicParam(searchParams), { replace: true });
+        restoreWorkingProjectTab();
+    };
+
+    // ── The `?step=` filter's own derivations (req #3503) ───────────────────
+    // Line for line the epic block above, over a ONE-HOP membership answer.
+    //
+    // DECLARED BEFORE THE EPIC TAB-SEED EFFECT BELOW (req #3503 review), even
+    // though it reads as the epic block's sibling rather than its prerequisite:
+    // that effect's dependency array reads `stepFilterEngaged` (see its own
+    // comment on why), and a dependency array is evaluated the moment
+    // `useEffect(...)` is CALLED — synchronously, during render — not deferred
+    // the way the effect BODY is. A `const` declared later in this same
+    // function is still in the temporal dead zone at that point, so the
+    // ordering here is load-bearing, not stylistic.
+    //
+    // KEYED ON `stepFilterApplies`, NOT `stepFilterActive`, for the epic block's
+    // reason: with `?step=` in the address bar and the reader on
+    // Table/Visualizer/Trends the filter is asleep, and reads nothing consumes
+    // are pure cost.
+    const scopedStepId = stepFilterApplies ? stepId : null;
+    const { stepReqIds, isError: stepScopeError, requirements: stepScopeRequirements } =
+        useStepRequirementIds(profile?.userName, scopedStepId);
+    // THE PILL'S NAME. `id,title` is the narrowest projection that answers "what
+    // is this step called" — the same shape and the same conditional enablement
+    // as `useEpicRequirementIds`' own `id,epic_fk` steps read, so this is the
+    // established cost for a plan-table lookup on this page rather than a new
+    // one. It is a SEPARATE cache entry from that one (`fieldsInKey`, req #2213),
+    // which is correct: the two projections share no column beyond `id`, and only
+    // ever one of the two filters is paying for a `pipeline_steps` read at a time.
+    const { data: stepRows = [] } = useAllPipelineSteps(profile?.userName, {
+        fields: 'id,title', enabled: stepFilterApplies,
+    });
+    const stepTitle = stepFilterActive
+        ? (stepRows.find(s => Number(s.id) === stepId)?.title || String(stepId))
+        : null;
+    // `||` rather than `??` on the title, unlike `epicTitle`'s: `pipeline_steps.title`
+    // is a NOT NULL column that is routinely the empty string (a step named by its
+    // requirements alone), and `Step: ` with nothing after it names nothing. An
+    // absent row and a blank title both fall back to the raw id.
+    //
+    // A FAILED MEMBERSHIP READ SHOWS EVERYTHING AND SAYS SO — the epic block's
+    // rule, and it must never render as "this step has no work".
+    const stepFilterFailed = stepFilterApplies && stepScopeError;
+    const stepFilterEngaged = stepFilterApplies && stepReqIds != null;
+    const clearStepFilter = () => {
+        setSearchParams(withoutStepParam(searchParams), { replace: true });
+        restoreWorkingProjectTab();
+    };
 
     // WHERE THE EPIC'S WORK ACTUALLY LIVES, so the link does not land on an
     // empty tab. An epic's requirements sit in categories and categories sit in
@@ -189,6 +271,16 @@ const SwarmView = () => {
     const epicTabSeededFor = useRef(null);
     useEffect(() => {
         if (!epicFilterEngaged) { epicTabSeededFor.current = null; return; }
+        // req #3503 review — WITH BOTH FILTERS ENGAGED, THE STEP SEED EFFECT
+        // BELOW OWNS THIS. Each effect only guards against re-seeding ITS OWN
+        // scope's tab, so two engaged at once raced on whichever membership
+        // read resolved second, sometimes landing on the epic's tab under a
+        // pill claiming the (narrower) step — an empty intersection nobody
+        // asked to see. Standing down here rather than in the step effect
+        // is the deliberate half: a step scope is a subset of at most one
+        // epic's work, so it is always the narrower, more specific claim, and
+        // the more specific link is the one the reader actually followed.
+        if (stepFilterEngaged) { epicTabSeededFor.current = null; return; }
         if (epicTabSeededFor.current === epicId) return;
         const index = firstProjectIndexWithEpicWork(
             projectsArray, allCategories, epicScopeRequirements, epicReqIds);
@@ -198,7 +290,27 @@ const SwarmView = () => {
         if (index === null) return;
         epicTabSeededFor.current = epicId;
         setActiveTab(index);
-    }, [epicFilterEngaged, epicId, projectsArray, allCategories, epicScopeRequirements, epicReqIds]);
+    }, [epicFilterEngaged, stepFilterEngaged, epicId, projectsArray, allCategories,
+        epicScopeRequirements, epicReqIds]);
+
+    // WHERE THE STEP'S WORK ACTUALLY LIVES — the epic seed's twin, calling the
+    // SAME `firstProjectIndexWithEpicWork`. That function is generic over any id
+    // Set (see its own JSDoc: "era-independent, it takes the id Set as an argument
+    // and never asks how it was derived"), so a step-shaped copy would be a second
+    // implementation of one rule with nothing making them agree.
+    //
+    // SEEDED ONCE PER `stepId`, and it does NOT redefine the reader's working
+    // project — the effect below stands down for this filter as well as the epic's.
+    const stepTabSeededFor = useRef(null);
+    useEffect(() => {
+        if (!stepFilterEngaged) { stepTabSeededFor.current = null; return; }
+        if (stepTabSeededFor.current === stepId) return;
+        const index = firstProjectIndexWithEpicWork(
+            projectsArray, allCategories, stepScopeRequirements, stepReqIds);
+        if (index === null) return;
+        stepTabSeededFor.current = stepId;
+        setActiveTab(index);
+    }, [stepFilterEngaged, stepId, projectsArray, allCategories, stepScopeRequirements, stepReqIds]);
 
     // TanStack Query — fetch projects (open only or with closed based on chip filter)
     const { data: serverProjects } = useProjects(profile?.userName, {
@@ -287,15 +399,19 @@ const SwarmView = () => {
     // would mean glancing at one epic silently re-homed bare `/swarm`, which is
     // the same class of defect as the filter writing the view preference or the
     // aggregator toggle, and this is where it would have leaked in.
+    //
+    // req #3503 — and NOT WHILE A STEP FILTER IS ENGAGED EITHER, identically. A
+    // step scope is narrower than an epic one, so its seeded tab is even less a
+    // statement about where this reader works.
     useEffect(() => {
-        if (epicFilterEngaged) return;
+        if (epicFilterEngaged || stepFilterEngaged) return;
         if (projectsArray && projectsArray.length > 0) {
             const tabIndex = parseInt(activeTab);
             if (tabIndex >= 0 && tabIndex < projectsArray.length) {
                 setWorkingProject(projectsArray[tabIndex].id);
             }
         }
-    }, [activeTab, projectsArray, epicFilterEngaged]);
+    }, [activeTab, projectsArray, epicFilterEngaged, stepFilterEngaged]);
 
     const changeActiveTab = (event, newValue) => {
         if (newValue === 9999)
@@ -474,6 +590,35 @@ const SwarmView = () => {
                                   sx={{ flexShrink: 0, cursor: 'pointer' }}
                                   data-testid="swarm-epic-filter-chip" />
                         )}
+                        {/* req #3503 — the step filter's pill, the epic pill's
+                            twin and rendered INDEPENDENTLY of it. Both can be on
+                            screen at once: they are two conditions, not two
+                            values of one, and a reader who arrived by one link
+                            and then followed the other should see both scopes
+                            named rather than one silently replacing the other.
+
+                            RENDERED EXACTLY WHEN IT IS APPLYING — `view ===
+                            'cards'`, the same gate the row filter turns on.
+
+                            The body opens the Steps editor (`/swarm/steps`), the
+                            same relationship the epic pill has to the Epics
+                            editor; the ✕ clears `?step=` and touches nothing
+                            else, so dismissing one pill leaves the other's
+                            parameter exactly where it was. */}
+                        {stepFilterApplies && (
+                            <Chip size="small"
+                                  color={stepFilterFailed ? 'error' : 'secondary'}
+                                  label={stepFilterFailed
+                                      ? `Step filter unavailable — showing everything`
+                                      : `Step: ${stepTitle}`}
+                                  onClick={() => navigate('/swarm/steps')}
+                                  title={stepFilterFailed
+                                      ? 'The step membership read failed, so nothing is being filtered'
+                                      : 'Open the Steps editor'}
+                                  onDelete={clearStepFilter}
+                                  sx={{ flexShrink: 0, cursor: 'pointer' }}
+                                  data-testid="swarm-step-filter-chip" />
+                        )}
                         {(view === 'cards' || (view === 'table' && !drill)) && (
                             <ChipFilter
                                 options={requirementStatusOptions}
@@ -524,7 +669,11 @@ const SwarmView = () => {
                             leaving it on screen would show a control that is not
                             applying — and, worse, an ON toggle whose stored value
                             says the exact opposite of what the reader sees. */}
-                        {(view === 'cards' || (view === 'table' && !drill)) && !epicFilterEngaged && (
+                        {/* req #3503 — `!stepFilterEngaged` joins it for the
+                            identical reason: a step filter forces this toggle OFF
+                            too (`useRequirementVisibility`), so leaving it on
+                            screen would show a control that is not applying. */}
+                        {(view === 'cards' || (view === 'table' && !drill)) && !epicFilterEngaged && !stepFilterEngaged && (
                             <Tooltip title={hidePipelined
                                 ? 'Hiding orchestrated requirements (on a plan step or in an epic)'
                                 : 'Showing orchestrated requirements (on a plan step or in an epic)'}>
@@ -548,7 +697,7 @@ const SwarmView = () => {
                             "you get the aggregator on"), so this toggle would
                             flip a stored preference and change nothing on
                             screen. */}
-                        {view === 'cards' && !epicFilterEngaged && (
+                        {view === 'cards' && !epicFilterEngaged && !stepFilterEngaged && (
                             <Tooltip title={showSwarmStartCard ? 'Hide Swarm-Start Card' : 'Show Swarm-Start Card'}>
                                 <IconButton
                                     size="small"
@@ -598,7 +747,8 @@ const SwarmView = () => {
                                           activeTab = {activeTab}
                                           showClosed = {showClosed}
                                           epicReqIds = {epicFilterEngaged ? epicReqIds : null}
-                                          showSwarmStartCard = {showSwarmStartCard || epicFilterEngaged}>
+                                          stepReqIds = {stepFilterEngaged ? stepReqIds : null}
+                                          showSwarmStartCard = {showSwarmStartCard || epicFilterEngaged || stepFilterEngaged}>
                         </CategoryTabPanel>
                     )}
 

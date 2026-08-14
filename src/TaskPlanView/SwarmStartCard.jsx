@@ -24,6 +24,11 @@ import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { useRequirementsByStatus, useRequirementsDone, useSessions, useCategoryColors, useAllRequirements } from '../hooks/useDataQueries';
 import { useRequirementVisibility } from '../hooks/useRequirementVisibility';
 import { filterToEpic } from '../utils/epicMembership';
+// req #3503 — the STEP filter's row predicate, from the module whose stated
+// domain step association is.
+import { filterToStepReqIds } from '../utils/pipelineMembership';
+// `aggregatorRowVisible` is GONE (req #3502 — the aggregator has no rule of
+// its own any more; see `swarmStartCardUtils.js`'s own header).
 import { tallyRequirementStatuses } from './swarmStartCardUtils';
 import { requirementKeys } from '../hooks/useQueryKeys';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
@@ -152,7 +157,12 @@ const computeMetWindow = () => {
 // from the grid beneath it, which is the defect the pattern's own tests exist to
 // catch. Applied to the ROWS and to the CHIP BADGES from the same Set, for the
 // same reason the pipeline exclusion is.
-const SwarmStartCard = ({ epicReqIds = null }) => {
+// req #3503 — `stepReqIds` is the STEP filter's SCOPE, handed down the same way
+// and applied in series after the epic's. Two independent scopes, so the rows
+// that survive both are the intersection — and the BADGES are narrowed by the
+// same two passes as the LIST, because a count and a list that disagree is this
+// card's own load-bearing invariant.
+const SwarmStartCard = ({ epicReqIds = null, stepReqIds = null }) => {
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
     const queryClient = useQueryClient();
@@ -186,12 +196,21 @@ const SwarmStartCard = ({ epicReqIds = null }) => {
     // chip. Since req #3502 there is nothing else for it to override: this card
     // has no second rule.
     const epicFilterActive = epicReqIds != null;
+    // req #3503 — the step filter asks the same question of the same machinery.
+    // `membershipFilterActive` is what the SCOPE-SHAPED behaviours read (the
+    // suppressed add-row, the frozen hand-sort, the drag guard, the empty-chip
+    // override): all of them are true of "a membership scope is narrowing this
+    // card", not of the epic filter specifically.
+    const stepFilterActive = stepReqIds != null;
+    const membershipFilterActive = epicFilterActive || stepFilterActive;
 
-    // req #3419 / #3428 / #3502 — THE visibility answer, identical on every
-    // browse surface (Cards view, Table view, the detail elevator). This card
-    // derives nothing of its own; `isVisible` filters the rows AND tallies the
-    // badges, so a count can never disagree with the rows under it.
-    const visibility = useRequirementVisibility(profile?.userName, { epicFilterActive });
+    // req #3419 / #3428 / #3502 / #3503 — THE visibility answer, identical on
+    // every browse surface (Cards view, Table view, the detail elevator). This
+    // card derives nothing of its own; `isVisible` filters the rows AND
+    // tallies the badges, so a count can never disagree with the rows under
+    // it. Both membership scopes (epic, step) force the toggle off through
+    // the same hook — see its own JSDoc.
+    const visibility = useRequirementVisibility(profile?.userName, { epicFilterActive, stepFilterActive });
 
     // All requirements across categories — the per-status counts' source (req #2549).
     const { data: allRequirementsForCounts } = useAllRequirements(profile?.userName, {
@@ -203,9 +222,9 @@ const SwarmStartCard = ({ epicReqIds = null }) => {
     // computations of one number is how a badge and a list start disagreeing,
     // which is the defect this file's own comments call load-bearing.
     const baseStatusCounts = React.useMemo(() => tallyRequirementStatuses(
-        filterToEpic(allRequirementsForCounts, epicReqIds),
+        filterToStepReqIds(filterToEpic(allRequirementsForCounts, epicReqIds), stepReqIds),
         SWARM_START_STATUSES, visibility.isVisible).counts,
-        [allRequirementsForCounts, epicReqIds, visibility.isVisible]);
+        [allRequirementsForCounts, epicReqIds, stepReqIds, visibility.isVisible]);
 
     // Persisted-store fallback — req #2584 retired 'deferred' from this card. Users
     // with a now-invalid persisted value get re-pointed at the default. `storedStatus`
@@ -273,15 +292,15 @@ const SwarmStartCard = ({ epicReqIds = null }) => {
     // rule nobody asked for, and inventing one here would put a second,
     // undocumented ordering in a fallback the reader never sees chosen.
     const [chipPickedWhileFiltered, setChipPickedWhileFiltered] = useState(false);
-    useEffect(() => { setChipPickedWhileFiltered(false); }, [epicFilterActive]);
+    useEffect(() => { setChipPickedWhileFiltered(false); }, [membershipFilterActive]);
     const epicChipOverride = React.useMemo(() => {
-        if (!epicFilterActive || chipPickedWhileFiltered) return null;
+        if (!membershipFilterActive || chipPickedWhileFiltered) return null;
         if (baseStatusCounts[storedStatus] > 0) return null;
         const activeCandidate = SWARM_START_STATUSES.find(
             s => s !== 'met' && baseStatusCounts[s] > 0);
         if (activeCandidate) return activeCandidate;
         return baseStatusCounts.met > 0 ? 'met' : null;
-    }, [epicFilterActive, chipPickedWhileFiltered, baseStatusCounts, storedStatus]);
+    }, [membershipFilterActive, chipPickedWhileFiltered, baseStatusCounts, storedStatus]);
 
     const effectiveStatus = epicChipOverride ?? storedStatus;
 
@@ -403,8 +422,10 @@ const SwarmStartCard = ({ epicReqIds = null }) => {
     // projections carries `feature_fk`, and none of them needs to. That is the
     // whole reason the scope arrives as ids.
     const currentRequirements = React.useMemo(
-        () => filterToEpic(isMet ? eligibleMetRequirements : eligibleRequirements, epicReqIds),
-        [isMet, eligibleMetRequirements, eligibleRequirements, epicReqIds]);
+        () => filterToStepReqIds(
+            filterToEpic(isMet ? eligibleMetRequirements : eligibleRequirements, epicReqIds),
+            stepReqIds),
+        [isMet, eligibleMetRequirements, eligibleRequirements, epicReqIds, stepReqIds]);
 
     // Fetch sessions for status badges (same as CategoryCard)
     const { data: serverSessions } = useSessions(profile?.userName);
@@ -463,19 +484,24 @@ const SwarmStartCard = ({ epicReqIds = null }) => {
         // req #3428 — `baseStatusCounts` above IS the tally (computed once, under
         // the epic filter); this only overlays the trailing-24h `met` figure.
         const counts = { ...baseStatusCounts };
-        // req #3502 arrived here with the same dead
-        // `?? filterToEpic(serverMetRequirements, …).length` fallback removed
-        // for its own reason (it could never fire — the branch is already
+        // req #3502 removed a dead `?? filterToEpic(serverMetRequirements,
+        // …).length` fallback (it could never fire — the branch is already
         // guarded on the array, and every pass in it returns an array). req
         // #3500's narrowing subsumes that: skipping the overlay entirely under
-        // an epic filter leaves `filterToEpic` a guaranteed no-op here, so the
-        // expression is simpler still. Nothing of #3502's reasoning is lost —
-        // there is no second, unfiltered answer for this count either way.
-        if (!epicFilterActive && Array.isArray(serverMetRequirements)) {
+        // a membership filter leaves `filterToEpic`/`filterToStepReqIds`
+        // guaranteed no-ops here, so the expression is simpler still.
+        //
+        // req #3503 widens the skip from `epicFilterActive` to
+        // `membershipFilterActive`: a step filter's `baseStatusCounts.met` is
+        // exactly as correctly-scoped as an epic filter's (both already ran
+        // through `filterToEpic` + `filterToStepReqIds` above), so overlaying
+        // the unscoped trailing-24h figure over it would be the identical
+        // mismatch req #3500 fixed for epics, on the step filter's own scope.
+        if (!membershipFilterActive && Array.isArray(serverMetRequirements)) {
             counts.met = eligibleMetRequirements.length;
         }
         return counts;
-    }, [baseStatusCounts, serverMetRequirements, eligibleMetRequirements, epicFilterActive]);
+    }, [baseStatusCounts, serverMetRequirements, eligibleMetRequirements, membershipFilterActive]);
 
     // Comparators are module-level — see `aggregatorSort` above.
 
@@ -504,12 +530,12 @@ const SwarmStartCard = ({ epicReqIds = null }) => {
         // feature, so it belongs to no epic and would not appear on the page that
         // offered the control.
         setRequirementsArray(prev => {
-            if (epicFilterActive) return sorted;
+            if (membershipFilterActive) return sorted;
             const prevTemplate = prev && prev.find(r => r.id === '');
             return [...sorted, prevTemplate
                 ?? { id: '', title: '', requirement_status: 'authoring', category_fk: null }];
         });
-    }, [currentRequirements, effectiveSortMode, epicFilterActive]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [currentRequirements, effectiveSortMode, membershipFilterActive]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Build session status map (same logic as CategoryCard)
     useEffect(() => {
@@ -552,7 +578,8 @@ const SwarmStartCard = ({ epicReqIds = null }) => {
         if (status === effectiveStatus) return;
         // req #3428 — the reader has now chosen, so the epic override stands down
         // for the rest of this filtered visit. Recorded even outside a filter: it
-        // is reset whenever `epicFilterActive` changes, so it can only ever mean
+        // is reset whenever `membershipFilterActive` changes (req #3503 widened it
+        // from `epicFilterActive`), so it can only ever mean
         // "picked during the current filter state".
         setChipPickedWhileFiltered(true);
         setSelectedStatus(status);
@@ -826,7 +853,7 @@ const SwarmStartCard = ({ epicReqIds = null }) => {
                         // aggregator either. Its rows land on a CategoryCard,
                         // whose drop handler rebuilds `sort_order` from positions
                         // in a list the reader is seeing a subset of.
-                        dragDisabled: epicFilterActive,
+                        dragDisabled: membershipFilterActive,
                         sessionStatusMap,
                         categoryColorMap,
                         strikethroughMet: false, // req #2584 — recent-Met list, not crossed-off
