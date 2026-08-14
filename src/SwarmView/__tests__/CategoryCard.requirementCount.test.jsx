@@ -26,7 +26,6 @@ let reqData = [
 ];
 const EMPTY_SESSIONS = [];
 const EMPTY_JUNCTION = [];
-const EMPTY_FEATURES = [];
 const EMPTY_ALL_REQS = [];
 
 vi.mock('../../hooks/useDataQueries', () => ({
@@ -34,7 +33,6 @@ vi.mock('../../hooks/useDataQueries', () => ({
     useSessions: () => ({ data: EMPTY_SESSIONS }),
     useAllRequirements: () => ({ data: EMPTY_ALL_REQS }),
     useAllPipelineStepRequirements: () => ({ data: EMPTY_JUNCTION }),
-    useAllFeatures: () => ({ data: EMPTY_FEATURES }),
     ALL_ROWS: 'all',
 }));
 
