@@ -195,6 +195,13 @@ export function buildPlanRows(payload, machines = []) {
             machineLabels: labels,
             machineLabel: labels.length ? labels.join(' / ') : '—',
             eligible: Boolean(dr.eligible),
+            // req #3507. `eligible` still means "may BEGIN" — it is what the
+            // visualizer's eligible-now ring is drawn from, and a running step
+            // does not get one. This is the other half of the launch picture:
+            // the step has already started and still carries launch-ready work
+            // the engine will command. Never merged with `eligible`; the two
+            // are disjoint server-side and answer different questions.
+            topUpEligible: Boolean(dr.top_up_eligible),
             launchSuppressed: Boolean(dr.launch_suppressed),
             suppressedBy: dr.suppressed_by || [],
             swarmStartCommand: dr.swarm_start_command != null ? dr.swarm_start_command : null,
@@ -286,6 +293,9 @@ export function adaptComposedPipeline(payload, { machines = [], costIndex = null
         batches: [],
         batchLetterByStepId: new Map(),
         eligibleStepIds: new Set(derived.eligible_step_ids || []),
+        // req #3507 — the plan-level companion, kept as its own Set for the
+        // same reason the row field is kept as its own boolean.
+        topUpStepIds: new Set(derived.top_up_step_ids || []),
         cycleDetected: Boolean(derived.cycle_detected),
         cycleStepIds: derived.cycle_step_ids || [],
         duplicateStepIds: derived.duplicate_step_ids || [],
