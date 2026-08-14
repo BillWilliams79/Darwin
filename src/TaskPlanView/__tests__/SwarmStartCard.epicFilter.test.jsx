@@ -48,10 +48,9 @@ const PIPELINED = new Set([3428, 3430, 900]);
 // The junction rows behind PIPELINED, in the wire shape the real hook reads.
 const JUNCTION = [...PIPELINED].map((id) => ({ step_fk: 1, requirement_fk: id }));
 // `useAllRequirements` here serves BOTH the counts projection and the hook's
-// `id,feature_fk` one, so the rows carry no feature_fk and no row is epic-seated
-// by that route — leaving PIPELINED as the sole source of orchestrated-ness,
-// which is what this fixture intends.
-const FEATURES = [];
+// narrow id-only one, so no row is epic-seated by that route — leaving
+// PIPELINED as the sole source of orchestrated-ness, which is what this
+// fixture intends.
 
 // PRE-BUCKETED AND FROZEN AT MODULE SCOPE. A mock that builds its array inside
 // the hook mints a new reference on every render, which re-seeds the card's local
@@ -88,7 +87,6 @@ vi.mock('../../hooks/useDataQueries', () => ({
     // epic override itself, so the rule this file tests runs for real. Frozen at
     // module scope for the same reason `BY_STATUS` above is.
     useAllPipelineStepRequirements: () => ({ data: JUNCTION }),
-    useAllFeatures: () => ({ data: FEATURES }),
     ALL_ROWS: 'all',
 }));
 

@@ -75,7 +75,6 @@ vi.mock('../../hooks/useDataQueries', () => ({
     // wrong would loop rather than fail. `ALL_ROWS` is re-exported because the
     // hook passes it (a closed feature still seats its requirements).
     useAllPipelineStepRequirements: () => ({ data: junctionRows }),
-    useAllFeatures: () => ({ data: [] }),
     ALL_ROWS: 'all',
 }));
 

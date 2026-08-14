@@ -50,8 +50,8 @@ const PLAN = {
             completedAt: null, state: 'running',
             reqIds: [3324], trackingReqIds: [], unresolvedReqIds: [],
             depIds: [], timeDeps: [],
-            epicId: 4, epic: 'Orchestration', featureId: 9, feature: 'Engine',
-            epicLabels: ['Orchestration'], featureLabels: ['Engine'],
+            epicId: 4, epic: 'Orchestration',
+            epicLabels: ['Orchestration'],
             machines: [], cost: 1.23,
         },
         {
@@ -60,8 +60,8 @@ const PLAN = {
             reqIds: [3223, 3224], trackingReqIds: [], unresolvedReqIds: [],
             // A step dependency AND a time gate, so `formatTimeGates` runs too.
             depIds: [47], timeDeps: [{ at: '2026-08-04T12:00:00Z' }],
-            epicId: 4, epic: 'Orchestration', featureId: 9, feature: 'Engine',
-            epicLabels: ['Orchestration'], featureLabels: ['Engine'],
+            epicId: 4, epic: 'Orchestration',
+            epicLabels: ['Orchestration'],
             machines: [], cost: null,
             // req #3371 — design rule 8's artifact, now a property of the row.
             // A PARTIAL exclusion too, which is the common case: two linked

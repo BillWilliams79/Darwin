@@ -60,9 +60,10 @@
 // (production directives): requirement id → /swarm/requirement/:id; bead →
 // Table mode scrolled/highlighted to the row (onStepFocus); epic band label →
 // FOCUS the band (req #3204), with /swarm/steps?epic=<id> — the req #3119
-// directive, re-pointed by req #3373 when the Features route it used to open
-// was retired — moved onto the chip's own ↗ control so it stays a visible
-// affordance rather than being deleted or buried under a modifier key.
+// directive, re-pointed by req #3373 when the browsable-catalog route it used
+// to open was retired (req #3357) — moved onto the chip's own ↗ control so it
+// stays a visible affordance rather than being deleted or buried under a
+// modifier key.
 //
 // ── Epic focus (req #3204) ─────────────────────────────────────────────────
 // Clicking an epic's name fits that band to the viewport. THIS IS NOT A MODE:
@@ -3190,7 +3191,7 @@ export default function PipelinePlanVisualizer({
                                 {e.text}
                             </Box>
                             {/* The req #3119 target, RE-POINTED by req #3373: the
-                                Features route it used to open is being retired
+                                browsable-catalog route it used to open was retired
                                 (req #3357), and `/swarm/steps?epic=<id>` is the
                                 only remaining destination that answers the
                                 question this control always asked — "show me

@@ -44,7 +44,6 @@ const JUNCTION = [
     { step_fk: 186, requirement_fk: 3504 },
     { step_fk: 187, requirement_fk: 900 },
 ];
-const FEATURES = [];
 
 // PRE-BUCKETED AND FROZEN AT MODULE SCOPE. A mock that builds its array inside
 // the hook mints a new reference on every render, which re-seeds the card's local
@@ -73,7 +72,6 @@ vi.mock('../../hooks/useDataQueries', () => ({
     useCategoryColors: () => ({ data: EMPTY }),
     useAllRequirements: () => ({ data: ALL_ROWS }),
     useAllPipelineStepRequirements: () => ({ data: JUNCTION }),
-    useAllFeatures: () => ({ data: FEATURES }),
     ALL_ROWS: 'all',
 }));
 

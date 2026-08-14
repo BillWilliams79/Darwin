@@ -4083,7 +4083,7 @@ export const EPIC_CHIP_H = 24;      // the HTML chip's own height, in SCREEN px
 export const EPIC_CHIP_CHAR_W = CHW_EPIC;
 export const EPIC_CHIP_PAD_W = 18;  // px + border, both sides
 export const EPIC_CHIP_FONT = PLAN_VIZ_FONT.epic;
-// The "open in features view" ↗ control's own footprint (req #3204) — a
+// The epic band's own "open" ↗ control footprint (req #3204) — a
 // FLAT, unscaled screen-px reservation, not part of `EPIC_CHIP_PAD_W`
 // (review finding, req #3210): the control is a fixed `fontSize: 12` glyph
 // plus its own padding and the chip's `gap`, none of which shrinks when the
@@ -4315,7 +4315,7 @@ export function placeEpicChips({
         // it.
         const bandText = band.epicLabel || band.epic;
         // The FLAT, unscaled reservations: the two link controls — the ↗ to the
-        // features view and the cards control to the epic's requirements (req
+        // epic's steps and the cards control to the epic's requirements (req
         // #3428) — which render only when there is an epic to open, and the
         // pause bubble, which renders on every band, "No epic" included. None of
         // them shrinks with the chip, and all are in the measured box before

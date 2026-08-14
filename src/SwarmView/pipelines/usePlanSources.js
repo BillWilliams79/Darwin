@@ -12,7 +12,8 @@
 // difference was the whole of this file:
 //
 //   1.0  SEVEN bounded list reads (pipelines, steps, step requirements, step
-//        deps, requirements, features, epics) joined and derived IN THE BROWSER.
+//        deps, requirements, the retired middle tier, epics) joined and
+//        derived IN THE BROWSER.
 //   2.0  ONE composed read (`pipeline_compose`, req #3367) — the join AND the
 //        derivation both already ran server-side — reshaped by
 //        `pipelineAdapter.js`.
