@@ -39,6 +39,7 @@
 
 import { hierarchy } from 'd3-hierarchy';
 import { formatVersion, fromModelBuild } from './versionEngine';
+import { formatBuiltAt } from './buildDateTime';
 import { isGapId } from './semanticModel';
 
 export const REGISTRY = {
@@ -128,6 +129,17 @@ export const DEFAULT_OPTS = {
     // so the close/far version lanes keep their vertical separation.
     versionLaneGap: 14.4,
     versionLanes: true,
+    // req #3515 — a build's date line ("Sep 14 7:00 AM") renders BELOW its
+    // version, so a dated row's label block is two lines deep and its odd-build
+    // stagger drop doubles. `laneGap` (70) was sized for a one-line label, so the
+    // gap BELOW a dated row must grow or its date lines land on the next row's
+    // dots and name label (measured: 10 px into the dots, 11 px into the name).
+    // Sized as the extra stagger lane + the date line's own offset and height
+    // (14.4 + 12.96 + 10.8 ≈ 38), rounded down to 34 — enough to clear the next
+    // row's name label, which sits 16 px above its dots. Applied ONLY to the gap
+    // after a row that carries dates, so undated layouts are byte-for-byte
+    // unchanged, exactly like `releaseClearance`.
+    dateClearance: 34,
     hiddenBranchIds: null,
     canvasPadTop: 40,
     canvasPadBottom: 70,
@@ -377,6 +389,17 @@ export function computeLayout(model, opts = {}) {
         );
     const mainBearsRelease = branchBearsRelease(main);
 
+    // req #3515 — a branch "carries dates" when any of its builds has a built_at.
+    // Its labels are two lines deep (version + date), which drives BOTH the
+    // doubled stagger drop in step 7 and the `dateClearance` below its row.
+    const branchHasDates = (b) =>
+        (b.buildIds || []).some(bid => !!buildsMap[bid]?.builtAt);
+    const laneBearsDates = (stratumId, lane) =>
+        (branchesByStratum.get(stratumId) || []).some(
+            b => (laneByBranch.get(b.id) || 0) === lane && branchHasDates(b)
+        );
+    const mainBearsDates = branchHasDates(main);
+
     // req #2633 — AT visibility (master + Build AT sub-toggle).
     const showATs = o.showAcceptanceTests !== false;
     const showBuildAtEff = showATs && o.showBuildAt !== false;
@@ -430,13 +453,14 @@ export function computeLayout(model, opts = {}) {
                 : o.laneGap;
             rows.push({ key: keyOf(s.id, lane), gapAbove,
                 bearsRelease: laneBearsRelease(s.id, lane),
+                bearsDates: laneBearsDates(s.id, lane),
                 atNames: laneMaxAtNames(s.id, lane) });
         }
     });
     // Main — a sideGap below the closest above stratum (and a sideGap below
     // canvasPadTop when there are no above strata, matching the prior layout).
     rows.push({ main: true, gapAbove: o.sideGap, bearsRelease: mainBearsRelease,
-        atNames: mainAtNames });
+        bearsDates: mainBearsDates, atNames: mainAtNames });
     // Dev strata top-to-bottom: lane 0 (nearest main) first, growing downward.
     devNonEmpty.forEach((s, di) => {
         const lanes = laneCountByStratum.get(s.id);
@@ -446,6 +470,7 @@ export function computeLayout(model, opts = {}) {
                 : o.laneGap;
             rows.push({ key: keyOf(s.id, lane), gapAbove,
                 bearsRelease: laneBearsRelease(s.id, lane),
+                bearsDates: laneBearsDates(s.id, lane),
                 atNames: laneMaxAtNames(s.id, lane) });
         }
     });
@@ -459,14 +484,22 @@ export function computeLayout(model, opts = {}) {
     // per-build Build AT column, so no blanket per-row reservation is added.
     const laneY = new Map();
     let mainY = o.canvasPadTop;
+    // req #3515 — set by the walk: does the BOTTOM row carry dates? Its date
+    // line hangs below the last dots, so the bottom pad has to clear it too.
+    let lowestRowBearsDates = false;
     {
         let cursor = o.canvasPadTop;
+        let prevBearsDates = false;
         for (const row of rows) {
+            // req #3515 — the PREVIOUS row's date line hangs into this gap.
             cursor += row.gapAbove + (row.bearsRelease ? o.releaseClearance : 0)
+                + (prevBearsDates ? o.dateClearance : 0)
                 + branchAtRoom(row.atNames || 0);
+            prevBearsDates = !!row.bearsDates;
             if (row.main) mainY = cursor;
             else laneY.set(row.key, cursor);
         }
+        lowestRowBearsDates = prevBearsDates;
     }
 
     // Map each branch to its row Y.
@@ -649,6 +682,13 @@ export function computeLayout(model, opts = {}) {
         // flipped below-main (dev) labels ABOVE the dot to keep the version
         // stack growing toward main; that produced incorrectly-placed dev
         // build numbers and has been reverted.
+        // req #3515 — a dated build's label is TWO lines (version, then the
+        // built_at date), so the stagger drop for odd builds doubles on a branch
+        // carrying any date, keeping the staggered label clear of its neighbour's
+        // date line. Dates also FORCE the stagger on that branch: a date label is
+        // ~82 px wide against a 52 px column, so un-staggered neighbours overlap
+        // by ~30 px. The toolbar toggle still governs undated branches.
+        const hasDates = branchHasDates(b);
         (b.buildIds || []).forEach((bid, i) => {
             const pos = positions[bid];
             if (isGapId(bid)) {
@@ -657,7 +697,9 @@ export function computeLayout(model, opts = {}) {
             }
             const data = buildsMap[bid];
             if (!pos || !data) return;
-            const laneOffset = (o.versionLanes && i % 2 === 1) ? o.versionLaneGap : 0;
+            const laneOffset = ((o.versionLanes || hasDates) && i % 2 === 1)
+                ? o.versionLaneGap * (hasDates ? 2 : 1)
+                : 0;
             const versionY = pos.y + r + o.versionCloseOffset + laneOffset;
             buildRecords.push({
                 id: bid,
@@ -669,6 +711,9 @@ export function computeLayout(model, opts = {}) {
                 dotColor: data.dotColor || null,
                 approvedForRelease: !!data.approvedForRelease,
                 version: formatVersion(fromModelBuild(data)),
+                // req #3515 — built_at rendered one line below the version
+                // ("Sep 14 7:00 AM", Pacific). '' when NULL → no date line.
+                dateLabel: formatBuiltAt(data.builtAt),
                 versionX: pos.x,
                 versionY,
                 releaseCustomers: releaseEvents[bid] || [],
@@ -857,7 +902,8 @@ export function computeLayout(model, opts = {}) {
     // req #2890 — AT name stacks now rise ABOVE their build (reserved in each
     // row's gapAbove during the walk), so the bottom pad no longer needs extra
     // room for a name stack hanging below the last row.
-    const totalHeight = Math.ceil(lowestY + o.canvasPadBottom);
+    const totalHeight = Math.ceil(
+        lowestY + o.canvasPadBottom + (lowestRowBearsDates ? o.dateClearance : 0));
 
     // Cleanup transient markers.
     for (const b of branches) { delete b._modelOrder; }

@@ -24,6 +24,7 @@ import AuthContext from '../Context/AuthContext';
 import call_rest_api from '../RestApi/RestApi';
 import { fetchEntity } from '../hooks/factory/createEntityQueries';
 import { firstMainBuildVersion, toBuildRow } from './versionEngine';
+import { nowUtcSql } from './buildDateTime';
 
 const ACTIVE_ID_STORAGE_KEY = 'darwin.buildVisualizer.activeProjectId.v1';
 
@@ -166,6 +167,9 @@ export function useBuildPatterns() {
             const newProjectId = Array.isArray(proj) ? proj[0]?.id : proj?.id;
             if (!newProjectId) throw new Error('build_projects POST returned no id');
 
+            // req #3515 — the trunk is cut and its first build runs now.
+            const eventAt = nowUtcSql();
+
             // POST trunk branch. Stamp main's current M.m (= the declared M.m).
             // external_id='main' marks the trunk.
             const branchRes = await call_rest_api(
@@ -178,6 +182,7 @@ export function useBuildPatterns() {
                     minor: v.minor,
                     external_id: 'main',
                     side: 'center',
+                    branched_at: eventAt,
                 },
                 idToken,
             );
@@ -200,6 +205,7 @@ export function useBuildPatterns() {
                     position: 0,
                     ...toBuildRow(v),
                     external_id: 'm1',
+                    built_at: eventAt,
                 },
                 idToken,
             );

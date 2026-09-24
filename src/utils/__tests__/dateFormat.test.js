@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatCardDateTime, formatDateTime, formatDate, formatHM12, formatHHMM, getTimeOfDayFraction, periodDateRange, shiftPeriod, currentPeriodStart, formatPeriodLabel, toDateTimeLocalValue, fromDateTimeLocalValue, trimMicroseconds } from '../dateFormat';
+import { formatCardDateTime, formatDateTime, formatDate, formatHM12, formatHHMM, getTimeOfDayFraction, periodDateRange, shiftPeriod, currentPeriodStart, formatPeriodLabel, toDateTimeLocalValue, fromDateTimeLocalValue, trimMicroseconds, formatSimpleDateTime } from '../dateFormat';
 
 describe('trimMicroseconds', () => {
     it('strips the microsecond tail from a MySQL DATETIME(6) string', () => {
@@ -327,5 +327,46 @@ describe('formatPeriodLabel', () => {
 
     it('week: cross-year range', () => {
         expect(formatPeriodLabel('2025-12-28', 'week')).toBe('Dec 28, 2025 – Jan 3, 2026');
+    });
+});
+
+// ── formatSimpleDateTime (req #3515) ────────────────────────────────────────
+// The compact "Sep 14 7:00 AM" label the Build Visualizer puts under a build's
+// version. Its callers render the result VERBATIM ("blank when NULL"), so the
+// empty string on a missing value is part of the contract, not a fallback.
+describe('formatSimpleDateTime', () => {
+    const tz = 'America/Los_Angeles';
+
+    it('renders month, unpadded day, 12-hour time and an upper-case period', () => {
+        expect(formatSimpleDateTime('2026-09-14 14:00:00', tz)).toBe('Sep 14 7:00 AM');
+        expect(formatSimpleDateTime('2026-09-02 02:05:00', tz)).toBe('Sep 1 7:05 PM');
+    });
+
+    it('treats a naive value as UTC in every spelling, and honours Z/offsets', () => {
+        for (const v of ['2026-09-14 14:00:00', '2026-09-14T14:00:00', '2026-09-14 14:00:00.000000',
+            '2026-09-14T14:00:00Z', '2026-09-14T07:00:00-07:00']) {
+            expect(formatSimpleDateTime(v, tz)).toBe('Sep 14 7:00 AM');
+        }
+    });
+
+    it('accepts a Date', () => {
+        expect(formatSimpleDateTime(new Date('2026-09-14T14:00:00Z'), tz)).toBe('Sep 14 7:00 AM');
+    });
+
+    it('noon and midnight read 12, not 0', () => {
+        expect(formatSimpleDateTime('2026-09-14 19:00:00', tz)).toBe('Sep 14 12:00 PM');
+        expect(formatSimpleDateTime('2026-09-14 07:00:00', tz)).toBe('Sep 14 12:00 AM');
+    });
+
+    it('returns an empty string — not the em-dash — for null, empty and garbage', () => {
+        for (const v of [null, undefined, '', 'not a date']) {
+            expect(formatSimpleDateTime(v, tz)).toBe('');
+        }
+    });
+
+    it('without a zone, formats in the runtime\'s own zone', () => {
+        const local = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        expect(formatSimpleDateTime('2026-09-14 14:00:00')).toBe(
+            formatSimpleDateTime('2026-09-14 14:00:00', local));
     });
 });

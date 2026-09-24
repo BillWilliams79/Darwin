@@ -1044,3 +1044,110 @@ describe('req #2896 — branch name alignment (collision-gated AT reservation su
         expect(A.labelX).toBe(m2.x - 2);
     });
 });
+
+// ---------------------------------------------------------------------------
+// BUILD DATE LINE (req #3515) — every build record carries the built_at date
+// label rendered one line under its version; blank when NULL. A dated label is
+// two lines, so the stagger drop doubles on a branch carrying any date.
+// ---------------------------------------------------------------------------
+describe('build date line — built_at (req #3515)', () => {
+    const { versionCloseOffset, versionLaneGap } = DEFAULT_OPTS;
+
+    function datedModel4(subBranches) {
+        const model = makeModel({ mainBuilds: 4, subBranches });
+        for (let i = 1; i <= 4; i++) {
+            model.builds[`m${i}`].builtAt = '2026-09-14 14:00:00';
+        }
+        return model;
+    }
+
+    function datedModel(dates) {
+        const model = makeModel({ mainBuilds: dates.length });
+        dates.forEach((d, i) => { model.builds[`m${i + 1}`].builtAt = d; });
+        return model;
+    }
+
+    it('emits the Pacific simple date/time per build', () => {
+        const layout = computeLayout(datedModel(['2026-09-14 14:00:00', '2026-09-16 02:00:00']));
+        const m1 = layout.builds.find(b => b.id === 'm1');
+        const m2 = layout.builds.find(b => b.id === 'm2');
+        expect(m1.dateLabel).toBe('Sep 14 7:00 AM');
+        expect(m2.dateLabel).toBe('Sep 15 7:00 PM');
+    });
+
+    it('is blank for a build with NULL built_at (Exemplar 6.2.1.0)', () => {
+        const layout = computeLayout(datedModel([null, '2026-09-14 14:00:00']));
+        const m1 = layout.builds.find(b => b.id === 'm1');
+        expect(m1.dateLabel).toBe('');
+    });
+
+    it('an undated model is byte-identical in version geometry', () => {
+        const layout = computeLayout(makeModel({ mainBuilds: 3 }), { versionLanes: true });
+        const m2 = layout.builds.find(b => b.id === 'm2');
+        expect(m2.versionY).toBe(m2.y + m2.radius + versionCloseOffset + versionLaneGap);
+        expect(layout.builds.every(b => b.dateLabel === '')).toBe(true);
+    });
+
+    it('doubles the stagger drop on a branch that carries any date', () => {
+        const layout = computeLayout(
+            datedModel([null, null, '2026-09-14 14:00:00']),
+            { versionLanes: true },
+        );
+        const m1 = layout.builds.find(b => b.id === 'm1');
+        const m2 = layout.builds.find(b => b.id === 'm2');
+        expect(m1.versionY).toBe(m1.y + m1.radius + versionCloseOffset);
+        expect(m2.versionY).toBe(m2.y + m2.radius + versionCloseOffset + 2 * versionLaneGap);
+    });
+
+    // Code review (req #3515): with the toolbar stagger OFF, two-line labels on
+    // adjacent builds overlapped by ~30 px — a date label is ~82 px wide against a
+    // 52 px column. Dates therefore FORCE the stagger on their own branch.
+    it('stagger off: a dated branch staggers anyway; an undated one does not', () => {
+        const dated = computeLayout(
+            datedModel(['2026-09-14 14:00:00', '2026-09-16 02:00:00']),
+            { versionLanes: false },
+        );
+        const m2 = dated.builds.find(b => b.id === 'm2');
+        expect(m2.versionY).toBe(m2.y + m2.radius + versionCloseOffset + 2 * versionLaneGap);
+
+        const undated = computeLayout(makeModel({ mainBuilds: 2 }), { versionLanes: false });
+        const u2 = undated.builds.find(b => b.id === 'm2');
+        expect(u2.versionY).toBe(u2.y + u2.radius + versionCloseOffset);
+    });
+
+    // Code review (req #3515): a dated row's date line landed on the NEXT row's
+    // dots (10 px in) and its name label (11 px in), because laneGap was sized for
+    // a one-line label. The gap AFTER a dated row now carries `dateClearance`.
+    it('reserves dateClearance in the gap below a dated row', () => {
+        const { dateClearance } = DEFAULT_OPTS;
+        const sub = [{ id: 'dev1', type: 'development', parentBuildId: 'm2', buildCount: 2 }];
+        const undated = computeLayout(makeModel({ mainBuilds: 4, subBranches: sub }));
+        const dated = computeLayout(datedModel4(sub));
+
+        const devUndated = undated.branches.find(b => b.id === 'dev1');
+        const devDated = dated.branches.find(b => b.id === 'dev1');
+        // Main carries the dates, so the dev row below it drops by exactly the
+        // clearance — relative to main, which itself has not moved.
+        expect(devDated.y - dated.mainY).toBe(devUndated.y - undated.mainY + dateClearance);
+    });
+
+    it('clears the lowest dated row in the bottom pad', () => {
+        const { dateClearance } = DEFAULT_OPTS;
+        const undated = computeLayout(makeModel({ mainBuilds: 3 }));
+        const dated = computeLayout(datedModel(['2026-09-14 14:00:00', null, null]));
+        expect(dated.height).toBe(undated.height + dateClearance);
+    });
+
+    it('an undated layout keeps its exact prior height (no new whitespace)', () => {
+        const layout = computeLayout(makeModel({
+            mainBuilds: 4,
+            subBranches: [{ id: 'dev1', type: 'development', parentBuildId: 'm2', buildCount: 2 }],
+        }));
+        const same = computeLayout(makeModel({
+            mainBuilds: 4,
+            subBranches: [{ id: 'dev1', type: 'development', parentBuildId: 'm2', buildCount: 2 }],
+        }));
+        expect(layout.height).toBe(same.height);
+        expect(layout.builds.every(b => b.dateLabel === '')).toBe(true);
+    });
+});

@@ -23,6 +23,7 @@ import {
     updateCustomerRelease,
     deleteCustomerRelease,
 } from './customerReleasesApi';
+import { builtAtToDate, formatBuiltAt } from '../BuildVisualizer/buildDateTime';
 
 import Box from '@mui/material/Box';
 import Stack from '@mui/material/Stack';
@@ -83,6 +84,10 @@ export default function CustomerReleasesPage() {
             ...r,
             customer_name: customerById[r.customer_fk]?.customer_name || `id:${r.customer_fk}`,
             build_label: buildLabel(buildById[r.build_fk]),
+            // req #3515 — the build's RAW built_at. The column formats it for
+            // display and sorts on the parsed Date: a formatted string sorts
+            // "Oct 1 7:00 AM" before "Sep 9 7:00 AM".
+            build_built_at: buildById[r.build_fk]?.built_at || null,
         }));
         return hasCustomerFilter
             ? enriched.filter(r => r.customer_fk === customerFkFilter)
@@ -165,6 +170,14 @@ export default function CustomerReleasesPage() {
         { field: 'id', headerName: 'ID', width: 70 },
         { field: 'customer_name', headerName: 'Customer', flex: 1, minWidth: 160 },
         { field: 'build_label', headerName: 'Build', width: 110 },
+        {
+            field: 'build_built_at',
+            headerName: 'Built',
+            width: 140,
+            type: 'dateTime',
+            valueGetter: (value) => builtAtToDate(value),
+            valueFormatter: (value) => formatBuiltAt(value),
+        },
         { field: 'release_notes', headerName: 'Notes', flex: 2, minWidth: 220 },
         { field: 'create_ts', headerName: 'Created', width: 130, valueFormatter: formatDate },
         {
@@ -272,11 +285,28 @@ export default function CustomerReleasesPage() {
                                 label="Build"
                                 value={formBuild}
                                 onChange={(e) => setFormBuild(e.target.value)}
+                                // req #3515 — without this the CLOSED select renders
+                                // the chosen item's two-line body (label + date) and
+                                // the input grows to two lines.
+                                renderValue={(v) => {
+                                    const b = buildById[Number(v)];
+                                    return b ? `${buildLabel(b)} (id ${b.id})` : '';
+                                }}
                                 data-testid="release-build-select"
                             >
                                 {builds.map(b => (
                                     <MenuItem key={b.id} value={String(b.id)}>
-                                        {buildLabel(b)} (id {b.id})
+                                        <Box>
+                                            <Box>{buildLabel(b)} (id {b.id})</Box>
+                                            {b.built_at && (
+                                                <Box
+                                                    sx={{ fontSize: '0.75rem', color: 'text.secondary' }}
+                                                    data-testid={`release-build-built-at-${b.id}`}
+                                                >
+                                                    {formatBuiltAt(b.built_at)}
+                                                </Box>
+                                            )}
+                                        </Box>
                                     </MenuItem>
                                 ))}
                             </Select>
