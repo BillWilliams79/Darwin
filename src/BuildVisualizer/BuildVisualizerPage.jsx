@@ -29,6 +29,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import BuildVisualizerControls from './BuildVisualizerControls';
 import BuildVisualizerCanvas from './BuildVisualizerCanvas';
 import HoldCountButton from './HoldCountButton';
+import BuiltAtField from './BuiltAtField';
+import { BUILD_TIMEZONE, formatBuiltAt, nowUtcSql } from './buildDateTime';
+import { formatDate, formatDateTime } from '../utils/dateFormat';
 import { useBuildPatterns } from './useBuildPatterns';
 import { useBuildVisualizerData } from './useBuildVisualizerData';
 import { shouldShowCanvasSpinner } from './canvasSpinnerGate';
@@ -69,14 +72,15 @@ import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import call_rest_api from '../RestApi/RestApi';
 import { fetchEntity } from '../hooks/factory/createEntityQueries';
+import { useSnackBarStore } from '../stores/useSnackBarStore';
 
 // Release-date formatter for the release datacard (req #2883 — moved here from
 // the Konva canvas when the release card became a page-owned click pop-up).
-const formatReleaseDate = (d) => {
-    if (!d) return '';
-    const dt = new Date(d);
-    return Number.isNaN(dt.getTime()) ? '' : dt.toLocaleDateString();
-};
+// req #3515 (code review) — a zone-less gateway timestamp is UTC. `new Date(d)`
+// read it as LOCAL and showed the wrong DAY for anything before 07:00 UTC, two
+// lines under the new, correct Pacific build date. `formatDate` parses it as UTC
+// and renders it in the build zone.
+const formatReleaseDate = (d) => (d ? formatDate(d, BUILD_TIMEZONE) : '');
 
 // Press-and-hold tuning (req #2737, retimed req #2741). Builds cap at 14,
 // branch-create (hotfix/bootleg/development only) at 5. The TIMING is shared.
@@ -169,6 +173,7 @@ const BuildVisualizerPage = () => {
     const { darwinBuildVizUri: darwinUri } = useContext(AppContext);
     const { idToken, profile } = useContext(AuthContext);
     const queryClient = useQueryClient();
+    const showError = useSnackBarStore(s => s.showError);
 
     // Customers — for the Perform-Release-Event Dialog.
     const customersQuery = useQuery({
@@ -177,6 +182,10 @@ const BuildVisualizerPage = () => {
         enabled: !!idToken && !!profile?.id && !!darwinUri,
     });
     const [releaseDialog, setReleaseDialog] = useState(null);
+    // req #3515 — date line for the build the release dialog is about.
+    const releaseDialogBuiltAtLabel = releaseDialog
+        ? formatBuiltAt(model?.builds?.[releaseDialog.buildId]?.builtAt)
+        : '';
     const [selectedCustomerIds, setSelectedCustomerIds] = useState([]);
 
     // Delete confirmation dialog (req #2742). A single dialog driven by a state
@@ -185,7 +194,7 @@ const BuildVisualizerPage = () => {
     // popover/editor can close immediately. The preview box mirrors TaskDeleteDialog:
     // generic prompt + bordered preview rendering the item with context.
     const [deleteConfirm, setDeleteConfirm] = useState(null);
-    // shape (build): { kind:'build', sqlId, version, branchName, releaseEventCount, approvedForRelease }
+    // shape (build): { kind:'build', sqlId, version, dateLabel, branchName, releaseEventCount, approvedForRelease }
     // shape (branch): { kind:'branch', sqlId, branchName, typeLabel, buildCount, releaseEventCount }
 
     // Branch-type chip rail.
@@ -388,6 +397,13 @@ const BuildVisualizerPage = () => {
     // True when the dot menu is open in empty-anchor mode (no builds on branch).
     const isEmptyAnchorMenu = !!dotMenu?.emptyBranchId;
 
+    // req #3515 — the clicked build's built_at, read from the LIVE model so an
+    // edit made on the open card shows once the refetch lands.
+    const dotMenuBuiltAt = dotMenu?.buildRecord
+        ? (model?.builds?.[dotMenu.buildRecord.id]?.builtAt || null)
+        : null;
+    const dotMenuBuiltAtLabel = formatBuiltAt(dotMenuBuiltAt);
+
     // Resolve the SQL branch id for the clicked build's branch. We need this
     // for POST /builds (adding a build) and POST /branches (creating a branch).
     const branchSqlIdRef = useRef(new Map());
@@ -580,6 +596,7 @@ const BuildVisualizerPage = () => {
         let lastBuild = fromModelBuild(lastBuildId ? model.builds[lastBuildId] : null);
 
         const posts = [];
+        const builtAt = nowUtcSql();
         for (let i = 0; i < n; i++) {
             const v = nextBuildVersion({ branchType: dotMenuBranch.type, lastBuild, branchMm });
             const pos = nextPosition + i;
@@ -590,6 +607,7 @@ const BuildVisualizerPage = () => {
                     position: pos,
                     ...toBuildRow(v),
                     external_id: `${dotMenuBranch.id}-b${pos + 1}`,
+                    built_at: builtAt,   // req #3515 — the build runs now
                 },
                 idToken,
             ));
@@ -682,6 +700,7 @@ const BuildVisualizerPage = () => {
 
         // Build the POST chain: first build uses firstVersion, subsequent walk.
         const posts = [];
+        const builtAt = nowUtcSql();   // req #3515 — the builds run now
         let lastBuild = firstVersion;
         const branchMm = { major: firstVersion.major, minor: firstVersion.minor };
         for (let i = 0; i < n; i++) {
@@ -697,6 +716,7 @@ const BuildVisualizerPage = () => {
                     position: i,
                     ...toBuildRow(v),
                     external_id: `${branch.id}-b${i + 1}`,
+                    built_at: builtAt,
                 },
                 idToken,
             ));
@@ -724,6 +744,8 @@ const BuildVisualizerPage = () => {
     }) => {
         const label = REGISTRY[type]?.label || type;
         const stamp = Date.now();
+        // req #3515 — the branch is cut and its first build runs now.
+        const eventAt = nowUtcSql(new Date(stamp));
         const mainSqlId = branchSqlIdRef.current.get('main');
         const doHandoff = takesMainMm(type) && mainSqlId;
 
@@ -746,6 +768,7 @@ const BuildVisualizerPage = () => {
                     parent_build_fk: Number(parentBuildSqlId),
                     external_id: slug,
                     side: REGISTRY[type]?.defaultSide || 'above',
+                    branched_at: eventAt,
                 },
                 idToken,
             );
@@ -759,6 +782,7 @@ const BuildVisualizerPage = () => {
                         position: 0,
                         ...toBuildRow(v),
                         external_id: `${slug}-b1`,
+                        built_at: eventAt,
                     },
                     idToken,
                 );
@@ -889,6 +913,7 @@ const BuildVisualizerPage = () => {
                         position: 0,
                         ...toBuildRow(v),
                         external_id: `${emptyBranchExtId}-b1`,
+                        built_at: nowUtcSql(),   // req #3515
                     },
                     idToken,
                 );
@@ -936,6 +961,32 @@ const BuildVisualizerPage = () => {
         }
     }, [dotMenu, darwinUri, idToken, invalidateBuildData]);
 
+    // req #3515 — edit the clicked build's built_at from the build card. The
+    // card reads the date from the LIVE model (not the click-time buildRecord
+    // snapshot), so the refetch after this PUT updates the card in place and the
+    // popover stays open. null clears the column via the gateway's "NULL" sentinel.
+    const handleCommitBuiltAt = useCallback(async (utcOrNull) => {
+        if (!dotMenu?.buildRecord) return;
+        const buildSqlRow = buildSqlIdRef.current.get(dotMenu.buildRecord.id);
+        if (!buildSqlRow) return;
+        const sqlId = buildSqlRow.id || buildSqlRow;
+        try {
+            await call_rest_api(
+                `${darwinUri}/builds`, 'PUT',
+                [{ id: Number(sqlId), built_at: utcOrNull || 'NULL' }],
+                idToken,
+            );
+            invalidateBuildData();
+        } catch (err) {
+            // A silent console line would leave the field showing a date the
+            // database never took (code review, req #3515). Tell the user, and
+            // re-throw so BuiltAtField reverts to the stored value.
+            console.error('[BuildVisualizer] Set built_at failed:', err);
+            showError(err, 'Could not save the build date —');
+            throw err;
+        }
+    }, [dotMenu, darwinUri, idToken, invalidateBuildData, showError]);
+
     // Declare / clear a day-zero merge requirement on the clicked build (req
     // #2603). Toggles the build's extId in the per-project localStorage set;
     // the canvas fans red arrows out to all release/hotfix/CSR branches.
@@ -976,6 +1027,7 @@ const BuildVisualizerPage = () => {
             kind: 'build',
             sqlId: Number(sqlId),
             version,
+            dateLabel: formatBuiltAt(model?.builds?.[buildExtId]?.builtAt),   // req #3515
             branchName,
             releaseEventCount,
             approvedForRelease: !!dotMenu.buildRecord.approvedForRelease,
@@ -1077,10 +1129,11 @@ const BuildVisualizerPage = () => {
             const builds = buildsRes?.data || [];
             const sqlBuild = builds.find(b => b.external_id === buildExtId);
             if (!sqlBuild) throw new Error(`Build ${buildExtId} not found in SQL`);
+            const releasedAt = nowUtcSql();   // req #3515 — the build ships now
             for (const cust of selectedCustomers) {
                 await call_rest_api(
                     `${darwinUri}/customer_releases`, 'POST',
-                    { customer_fk: cust.id, build_fk: sqlBuild.id },
+                    { customer_fk: cust.id, build_fk: sqlBuild.id, released_at: releasedAt },
                     idToken,
                 );
             }
@@ -1220,13 +1273,29 @@ const BuildVisualizerPage = () => {
                             <Typography variant="subtitle2" fontWeight={700}>
                                 Build {dotMenu?.buildRecord?.version}
                             </Typography>
+                            {/* req #3515 — the build's date/time (built_at, Pacific),
+                                one line below the version; blank when NULL. */}
+                            {dotMenuBuiltAtLabel && (
+                                <Typography
+                                    variant="caption"
+                                    display="block"
+                                    data-testid="bv-build-built-at"
+                                >
+                                    {dotMenuBuiltAtLabel}
+                                </Typography>
+                            )}
                             <Typography variant="caption" color="text.secondary" display="block">
                                 {dotMenuBranch ? String(dotMenuBranch.name).replace(/\n/g, ' / ') : ''}
                             </Typography>
                             <Typography variant="caption" color="text.secondary" display="block">
                                 {(() => {
+                                    // req #3515 — formatDateTime reads a zone-less
+                                    // gateway timestamp as UTC and renders Pacific;
+                                    // `new Date(ts).toLocaleString()` read it as LOCAL
+                                    // and was 7 hours out, two lines under a correct
+                                    // Pacific build time.
                                     const ts = dotMenu && model?.builds?.[dotMenu.buildRecord?.id]?.createdAt;
-                                    return ts ? new Date(ts).toLocaleString() : '—';
+                                    return ts ? `Record created ${formatDateTime(ts, BUILD_TIMEZONE)}` : '—';
                                 })()}
                             </Typography>
                             {/* Branch location (req #2753) — informational, not a link.
@@ -1245,6 +1314,14 @@ const BuildVisualizerPage = () => {
                                     branchFirstBuildVersion(dotMenuBranch),
                                 )}
                             </Typography>
+                        </Box>
+                        {/* req #3515 — built_at is editable here, the build's only
+                            editing surface. */}
+                        <Box sx={{ px: 2, pb: 1 }}>
+                            <BuiltAtField
+                                value={dotMenuBuiltAt}
+                                onCommit={handleCommitBuiltAt}
+                            />
                         </Box>
                         <Divider />
 
@@ -1432,6 +1509,11 @@ const BuildVisualizerPage = () => {
                             <Typography variant="subtitle2" fontWeight={700}>
                                 {releaseType ? `${releaseType} release` : 'Released'} — Build {build.version}
                             </Typography>
+                            {build.dateLabel ? (
+                                <Typography variant="caption" display="block" data-testid="bv-release-card-built-at">
+                                    {build.dateLabel}
+                                </Typography>
+                            ) : null}
                             {branchName ? (
                                 <Typography variant="caption" color="text.secondary" display="block">
                                     {String(branchName).replace(/\n/g, ' / ')}
@@ -1461,6 +1543,14 @@ const BuildVisualizerPage = () => {
                         <Box sx={{ mb: 1, fontSize: '0.9rem', color: 'text.secondary' }}>
                             Build: {releaseDialog?.buildId} — pick the customers receiving this build.
                         </Box>
+                        {releaseDialogBuiltAtLabel && (
+                            <Box
+                                sx={{ mb: 1, mt: -0.5, fontSize: '0.8rem', color: 'text.secondary' }}
+                                data-testid="bv-release-event-built-at"
+                            >
+                                {releaseDialogBuiltAtLabel}
+                            </Box>
+                        )}
                         {(customersQuery.data || []).map(c => (
                             <FormControlLabel
                                 key={c.id}
@@ -1784,6 +1874,15 @@ const BuildVisualizerPage = () => {
                                     >
                                         {deleteConfirm.version}
                                     </Typography>
+                                    {deleteConfirm.dateLabel && (
+                                        <Typography
+                                            variant="body2"
+                                            color="text.secondary"
+                                            data-testid="bv-delete-built-at"
+                                        >
+                                            {deleteConfirm.dateLabel}
+                                        </Typography>
+                                    )}
                                     <Typography variant="body2" color="text.secondary">
                                         {deleteConfirm.branchName}
                                     </Typography>

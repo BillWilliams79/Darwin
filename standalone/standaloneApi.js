@@ -194,6 +194,19 @@ function cascadeDeleteProject(projectId) {
 
 // ─── Public API (drop-in for call_rest_api + fetchEntity) ────────────────────
 
+// Lambda-Rest maps the literal string "NULL" in a POST/PUT body to SQL NULL
+// (rest_post.py / rest_put.py). This adapter has to do the same or the sentinel
+// is STORED as the five-character string: `built_at: "NULL"` would then read
+// back as a truthy non-date, which is blank in the date line but still counts as
+// "this branch has dates" in the layout engine, and lands in exported data
+// (req #3515).
+const clearSentinels = (body) => {
+    if (!body || typeof body !== 'object') return body;
+    const out = {};
+    for (const [k, v] of Object.entries(body)) out[k] = (v === 'NULL' ? null : v);
+    return out;
+};
+
 const call_rest_api = async (url, method, body, _idToken) => {
     await ensureSeeded();
     const { table, filters } = parseUrl(url);
@@ -209,7 +222,7 @@ const call_rest_api = async (url, method, body, _idToken) => {
         const id = getNextId();
         setNextId(id + 1);
         const now = nowIso();
-        const newRow = { ...(body || {}), id, create_ts: (body && body.create_ts) || now, update_ts: now };
+        const newRow = { ...clearSentinels(body || {}), id, create_ts: (body && body.create_ts) || now, update_ts: now };
         rows.push(newRow);
         lsSet(table, rows);
         // Lambda-Rest POST reads back the inserted row; callers read data[0].id.
@@ -224,7 +237,7 @@ const call_rest_api = async (url, method, body, _idToken) => {
             if (!patch || patch.id == null) continue;
             const idx = rows.findIndex(r => String(r.id) === String(patch.id));
             if (idx >= 0) {
-                rows[idx] = { ...rows[idx], ...patch, update_ts: now };
+                rows[idx] = { ...rows[idx], ...clearSentinels(patch), update_ts: now };
                 updated.push(rows[idx]);
             }
         }

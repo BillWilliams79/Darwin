@@ -113,7 +113,8 @@ export function useBuildVisualizerData(projectId) {
     //   branches: array of {id (extId), type, name, parentBuildId, parentBranchId,
     //                       side, rowOrder, major, minor, labelEnd, buildIds[]}
     //   builds:   object keyed by extId of {id, branchId, position, build, branchNum,
-    //                                       dotColor, approvedForRelease}
+    //                                       dotColor, approvedForRelease,
+    //                                       createdAt, builtAt}
     //   releaseEvents: object keyed by build extId of [customer name, …]
     //
     // External IDs (slugs) are the canonical join keys the D3 layout engine
@@ -165,6 +166,9 @@ export function useBuildVisualizerData(projectId) {
                 major: b.major != null ? Number(b.major) : 1,
                 minor: b.minor != null ? Number(b.minor) : 0,
                 createdAt: b.create_ts || null,
+                // req #3515 — when the build RAN (UTC DATETIME, NULL = not
+                // recorded). Distinct from createdAt, the row-write audit time.
+                builtAt: b.built_at || null,
             };
         }
 

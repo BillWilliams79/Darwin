@@ -149,3 +149,27 @@ describe('DELETE cascade', () => {
         expect(table('customer_releases')).toHaveLength(0);
     });
 });
+
+// req #3515 — the build card clears built_at by PUTting the gateway's "NULL"
+// sentinel. Lambda-Rest maps that literal to SQL NULL; the standalone adapter
+// must too, or the five-character string is STORED: it reads back truthy, so
+// the layout engine still counts the branch as dated (doubled stagger) and the
+// exported data carries "NULL" as a date.
+describe('"NULL" clear sentinel (req #3515)', () => {
+    it('PUT built_at "NULL" stores null; a real value is stored verbatim', async () => {
+        const { default: call_rest_api, fetchEntity } = await loadApi();
+        await call_rest_api('local/builds', 'PUT', [{ id: 100, built_at: '2026-09-14 14:00:00' }]);
+        expect((await fetchEntity('local/builds?id=100'))[0].built_at).toBe('2026-09-14 14:00:00');
+        await call_rest_api('local/builds', 'PUT', [{ id: 100, built_at: 'NULL' }]);
+        const [row] = await fetchEntity('local/builds?id=100');
+        expect(row.built_at).toBeNull();
+        expect(table('builds').find(b => b.id === 100).built_at).toBeNull();
+    });
+
+    it('POST with a "NULL" value stores null, leaving other fields intact', async () => {
+        const { default: call_rest_api } = await loadApi();
+        const res = await call_rest_api('local/builds', 'POST',
+            { branch_fk: 10, position: 1, built_at: 'NULL', external_id: 'b9' });
+        expect(res.data[0]).toMatchObject({ branch_fk: 10, position: 1, built_at: null, external_id: 'b9' });
+    });
+});

@@ -70,6 +70,28 @@ export function formatCardDateTime(dateStr, timezone) {
     return `${datePart} @ ${hour}:${minute}${period}`;
 }
 
+// Parse a stored timestamp into a Date, reading a zone-less value as UTC (the
+// shape every Darwin wire format uses). null when absent or unparseable — use it
+// wherever a real Date is needed for ORDERING rather than display (req #3515).
+export function toUtcDate(dateStr) {
+    const d = toDate(dateStr);
+    return (d && !isNaN(d)) ? d : null;
+}
+
+// Simple month/day/time — "Sep 14 7:00 AM" — for compact single-line labels
+// (req #3515, Build Visualizer build dates). Empty string (not the em-dash) on a
+// missing/invalid value, so a caller can render "blank when NULL" verbatim.
+export function formatSimpleDateTime(dateStr, timezone) {
+    const d = toDate(dateStr);
+    if (!d || isNaN(d)) return '';
+    const parts = new Intl.DateTimeFormat('en-US', {
+        month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true,
+        ...(timezone && { timeZone: timezone }),
+    }).formatToParts(d);
+    const get = (type) => parts.find(p => p.type === type)?.value || '';
+    return `${get('month')} ${get('day')} ${get('hour')}:${get('minute')} ${get('dayPeriod').toUpperCase()}`;
+}
+
 export function formatDateWithOptions(dateStr, timezone, extraOptions) {
     const d = toDate(dateStr);
     if (!d || isNaN(d)) return '—';

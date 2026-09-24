@@ -855,7 +855,7 @@ export function useCustomerById(creatorFk, id, { enabled = true } = {}) {
 
 const BUILD_PROJECT_DEFAULT_FIELDS = 'id,title,description,project_status,trunk_branch_fk,category_fk,creator_fk,create_ts';
 const BRANCH_DEFAULT_FIELDS        = 'id,project_fk,branch_type,name,major,minor,parent_build_fk,side,row_order,label_end,sort_order,creator_fk';
-const BUILD_DEFAULT_FIELDS         = 'id,branch_fk,position,build_number,branch_number,dot_color,approved_for_release,creator_fk';
+const BUILD_DEFAULT_FIELDS         = 'id,branch_fk,position,build_number,branch_number,dot_color,approved_for_release,built_at,creator_fk';
 const CUSTOMER_RELEASE_DEFAULT_FIELDS = 'id,customer_fk,build_fk,release_notes,creator_fk,create_ts,update_ts';
 
 export function useAllBuildProjects(creatorFk, { fields = BUILD_PROJECT_DEFAULT_FIELDS, enabled = true } = {}) {

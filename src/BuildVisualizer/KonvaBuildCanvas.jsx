@@ -48,6 +48,10 @@ import { DEFAULT_DARK_VARIANT, LIGHT_TRANSPORT_VARIANT } from './themeVariants';
 const LINE_W = 1.4;
 const STAR_OUTER = 7;
 const VERSION_FONT = 10.8;   // req #2891 — 1.2× the original 9 for legibility
+// req #3515 — the build's date line ("Sep 14 7:00 AM") sits one line below the
+// version, a touch smaller so the version stays the primary label.
+const DATE_FONT = VERSION_FONT * 0.9;
+const DATE_LINE_GAP = VERSION_FONT * 1.2;
 const LABEL_FONT = 14;
 const TOKEN_FONT = 16;
 // req #2876 — branch-level AT name labels render at 80% of the branch-name font
@@ -657,6 +661,14 @@ const KonvaBuildCanvas = ({
                           text={b.version} fontSize={VERSION_FONT * inv} fontFamily={palette.versionFont}
                           offsetX={(String(b.version).length * VERSION_FONT * inv * 0.6) / 2}
                           fill={palette.version} listening={false} />,
+                    // req #3515 — built_at date line directly under the version,
+                    // same no-wrap monospace centering; omitted when NULL.
+                    ...(b.dateLabel ? [
+                        <Text key={`date-${b.id}`} x={b.versionX} y={b.versionY + DATE_LINE_GAP * inv}
+                              text={b.dateLabel} fontSize={DATE_FONT * inv} fontFamily={palette.versionFont}
+                              offsetX={(String(b.dateLabel).length * DATE_FONT * inv * 0.6) / 2}
+                              fill={palette.version} opacity={0.85} listening={false} />,
+                    ] : []),
                 ] : []),
                 <Circle key={`hit-${b.id}`} x={b.x} y={b.y} radius={Math.max(r + 4 * inv, 10 * inv)}
                         fill="transparent"
