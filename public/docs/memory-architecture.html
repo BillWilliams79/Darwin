@@ -192,8 +192,8 @@
 
     <figure>
       <div class="figbox">
-        <svg width="880" height="270" viewBox="0 0 880 270" role="img"
-             aria-label="Storage map: GitHub DarwinAI-Config repo syncs to the local clone's memory directory; a symlink wires it into Claude Code's auto-memory load path; worker worktrees carry the same files on feature branches.">
+        <svg width="880" height="290" viewBox="0 0 880 290" role="img"
+             aria-label="Storage map: GitHub DarwinAI-Config repo syncs to the local clone's memory directory; a symlink wires it into Claude Code's auto-memory load path; each worker session carries the same files on its feature branch, in its own clone provisioned from the local mirror, and its PR merges back to GitHub at swarm-complete.">
           <defs>
             <marker id="ah" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto">
               <path d="M0,0 L8,4 L0,8 Z" fill="#8ecae6"/>
@@ -238,15 +238,19 @@
           <path class="lk" d="M520,110 C560,100 570,75 605,66" marker-end="url(#ah)"/>
           <text class="lbl" x="566" y="55" text-anchor="middle" fill="#ffd166">symlink (recreated at restore)</text>
 
-          <!-- Worker worktrees -->
+          <!-- Worker sessions -->
           <rect class="bx2" x="610" y="160" width="240" height="72" rx="10"/>
-          <text class="t" x="730" y="185" text-anchor="middle">Worker worktrees</text>
-          <text class="m" x="730" y="203" text-anchor="middle">wt-*/memory/*.md</text>
+          <text class="t" x="730" y="185" text-anchor="middle">Worker sessions</text>
+          <text class="m" x="730" y="203" text-anchor="middle">sessions/*/memory/*.md</text>
           <text class="d" x="730" y="219" text-anchor="middle">same files on feature/&lt;req&gt; branches</text>
 
-          <!-- worktree flow -->
-          <path class="fl" d="M520,150 C560,160 570,185 605,193" marker-end="url(#ah)"/>
-          <text class="lbl" x="566" y="215" text-anchor="middle">git worktree</text>
+          <!-- session clone flow: GitHub → local mirror → session clone (never the primary clone) -->
+          <path class="fl" d="M120,167 C120,215 400,222 605,205" marker-end="url(#ah)"/>
+          <text class="lbl" x="380" y="238" text-anchor="middle">own clone, via the local mirror</text>
+
+          <!-- worker PR merges straight from the session clone back to GitHub -->
+          <path class="fl" d="M730,232 C730,282 70,282 70,172" marker-end="url(#ah)"/>
+          <text class="lbl" x="400" y="284" text-anchor="middle">PR merge at /swarm-complete</text>
         </svg>
       </div>
       <figcaption>The one storage home and its two consumers. The <span class="mono">~/.claude</span> symlink is
@@ -378,7 +382,7 @@
     <div class="cols">
       <div class="card">
         <h3>Durable knowledge — rides the PR</h3>
-        <p>A worker edits <span class="mono">&lt;worktree&gt;/memory/&lt;topic&gt;.md</span> with the Edit
+        <p>A worker edits <span class="mono">&lt;session&gt;/memory/&lt;topic&gt;.md</span> with the Edit
         tool. That lands as a normal commit on <span class="mono">feature/&lt;reqId&gt;-&lt;task&gt;</span>;
         <span class="mono">/swarm-complete</span> merges DarwinAI-Config like any other repo, and every other
         session picks the knowledge up at its next start-pull.</p>

@@ -176,7 +176,7 @@
     <figure>
       <div class="figbox">
         <svg width="880" height="210" viewBox="0 0 880 210" role="img"
-             aria-label="Flow: swarm-start invokes hygiene checkout per repo; each checkout saves the primary clone, adds a worktree on the feature branch, opens a draft PR, and records the repo in the session manifest.">
+             aria-label="Flow: swarm-start invokes hygiene checkout per repo; each checkout refreshes the local bare mirror, clones from it with --no-hardlinks onto the feature branch, opens a draft PR, and records the repo in the session manifest. The primary clone is never touched.">
           <defs>
             <marker id="fa" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto">
               <path d="M0,0 L8,4 L0,8 Z" fill="#8ecae6"/>
@@ -195,14 +195,14 @@
           <text class="d" x="85" y="117" text-anchor="middle">per affected repo →</text>
 
           <rect class="st" x="190" y="75" width="150" height="60" rx="10"/>
-          <text class="t" x="265" y="96" text-anchor="middle">save primary clone</text>
-          <text class="d" x="265" y="112" text-anchor="middle">commit dirty · pull-merge</text>
-          <text class="d" x="265" y="126" text-anchor="middle">push — origin is fresh</text>
+          <text class="t" x="265" y="96" text-anchor="middle">refresh mirror</text>
+          <text class="d" x="265" y="112" text-anchor="middle">one writer · per machine</text>
+          <text class="d" x="265" y="126" text-anchor="middle">primary clone untouched</text>
 
           <rect class="st" x="380" y="75" width="150" height="60" rx="10"/>
           <text class="t" x="455" y="96" text-anchor="middle">provision clone</text>
           <text class="m" x="455" y="113" text-anchor="middle">-b feature/&lt;req&gt;-&lt;task&gt;</text>
-          <text class="d" x="455" y="127" text-anchor="middle">real checkout, no symlinks</text>
+          <text class="d" x="455" y="127" text-anchor="middle">--no-hardlinks · own .git</text>
 
           <rect class="st" x="570" y="75" width="130" height="60" rx="10"/>
           <text class="t" x="635" y="96" text-anchor="middle">draft PR</text>
@@ -247,7 +247,7 @@
           <li><strong>Root = DarwinAI-Config clone</strong> — CLAUDE.md, SWARM.md, <span class="mono">memory/</span>, <span class="mono">scripts/</span>, all checked out on the feature branch.</li>
           <li><span class="mono">Darwin/</span>, <span class="mono">Lambda-*/</span>, <span class="mono">DarwinSQL/</span> — independent sub-repo clones, <em>only if affected</em>.</li>
           <li><span class="mono">.swarm-manifest.json</span> — gitignored session state: IDs, branch, PRs, coordination type, provisioning mode.</li>
-          <li><strong>Own <span class="mono">.git/</span>, one writer.</strong> Objects are hardlinked from a per-machine bare mirror, so provisioning costs seconds and almost no marginal disk for history — but nothing is shared. <span class="mono">rm -rf</span> on this directory is safe <em>and complete</em>.</li>
+          <li><strong>Own <span class="mono">.git/</span>, one writer.</strong> Cloned from a per-machine bare mirror with <span class="mono">git clone --no-hardlinks</span>, so provisioning costs seconds instead of a full GitHub fetch — the session pays for its own copy of the object store, and nothing is shared (no hardlinks, no alternates). <span class="mono">rm -rf</span> on this directory is safe <em>and complete</em>.</li>
         </ul>
       </div>
       <div class="card">
@@ -287,9 +287,10 @@
 
   <!-- 4 · Branch lifecycle -->
   <section>
-    <div class="sec-head"><span class="sec-num">04</span><h2>Branch lifecycle — four exits</h2></div>
+    <div class="sec-head"><span class="sec-num">04</span><h2>Branch lifecycle — three exits</h2></div>
     <p class="sub">A feature branch is born at <span class="mono">/swarm-start</span> and dies through
-      exactly one of four user-initiated doors.</p>
+      exactly one of three doors — all user-initiated, except that a <span class="mono">deployed</span>
+      worker runs <span class="mono">/swarm-complete</span> itself.</p>
 
     <figure>
       <div class="figbox">
@@ -339,10 +340,10 @@
     <table>
       <thead><tr><th>Exit</th><th>Branch fate</th><th>What survives</th></tr></thead>
       <tbody>
-        <tr><td><span class="mono">/swarm-complete</span></td><td>Merged into the default branch per repo (<span class="mono">/hygiene merge</span>: freshen from origin, push, PR ready, merge), then deploy runs <strong>after</strong> the merge under a lock — every deploy is a superset of prior deploys</td><td>Everything — plus archived transcript, notes, git-ops log</td></tr>
-        <tr><td><span class="mono">/swarm-pause</span></td><td>Committed, pushed, PR tagged <span class="mono">[PAUSED]</span>; local session directory removed</td><td>Branch + PR on GitHub; Darwin session row is the source of truth for resuming</td></tr>
-        <tr><td><span class="mono">/swarm-undo</span></td><td>PR closed unmerged; remote + local branches deleted</td><td>A <span class="mono">swarm_undos</span> audit row (reason, snapshot) that outlives the session record</td></tr>
-        <tr><td><span class="mono">/swarm-resume</span> / <span class="mono">/swarm-restart</span></td><td>Not an exit — re-provisions from the mirror and checks out the paused branch (the same code path as start), or relaunches a killed terminal for a still-live session</td><td>—</td></tr>
+        <tr><td><span class="mono">/swarm-complete</span></td><td>Closeout gate (pre-merge) first; then merged into the default branch per repo (<span class="mono">/hygiene merge</span>: freshen from origin, push, PR ready, merge), then deploy runs <strong>after</strong> the merge under a lock — every deploy is a superset of prior deploys; then the requirement is closed <span class="mono">met</span> and the post-close gate re-reads it before the session directory is removed</td><td>Everything — plus archived transcript, notes, git-ops log</td></tr>
+        <tr><td><span class="mono">/swarm-pause</span></td><td>Committed, pushed, PR tagged <span class="mono">[PAUSED]</span>; session <span class="mono">paused</span>, requirement back to <span class="mono">approved</span>; local session directory removed</td><td>Branch + PR on GitHub; Darwin session row is the source of truth for resuming</td></tr>
+        <tr><td><span class="mono">/swarm-undo</span></td><td>PR closed unmerged; remote + local branches deleted; session row deleted; requirement set to the status the user picks (<span class="mono">approved</span> by default, or <span class="mono">swarm_ready</span> / <span class="mono">deferred</span> / <span class="mono">wontfix</span>)</td><td>A <span class="mono">swarm_undos</span> audit row (reason, snapshot) that outlives the session record</td></tr>
+        <tr><td><span class="mono">/swarm-resume</span> / <span class="mono">/swarm-restart</span></td><td>Not an exit — resume re-provisions from the mirror and checks out the paused branch (the same code path as start), un-pauses the PR, returns the requirement to <span class="mono">development</span> and the session to its pre-pause status; restart only relaunches a killed terminal for a still-live session</td><td>—</td></tr>
       </tbody>
     </table>
     </div>
