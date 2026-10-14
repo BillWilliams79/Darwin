@@ -44,6 +44,7 @@ export const GROUP_PROFILE_KEY = {
     tasks: 'app_tasks',
     maps: 'app_maps',
     swarm: 'app_swarm',
+    agents: 'app_swarm', // req #3553 — Agents is part of the Swarm feature
     'swarm-validate': 'app_swarm_validate',
 };
 
