@@ -4,9 +4,10 @@ import { useDevServers, useSessions, useAllRequirements, useMachines } from '../
 import { formatDateTime, formatDate } from '../utils/dateFormat';
 import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 
-import React, { useContext, useMemo } from 'react';
+import React, { useContext, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import Badge from '@mui/material/Badge';
 import Box from '@mui/material/Box';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
@@ -14,6 +15,11 @@ import Chip from '@mui/material/Chip';
 import Stack from '@mui/material/Stack';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { CircularProgress, Link, Typography } from '@mui/material';
+import { filterChipProps } from '../Components/ChipFilter/filterPalette';
+import { machineChipProps } from '../SwarmView/machineChipStyles';
+import {
+    buildMachineOptions, effectiveSelection, toggleSelection, filterServersByMachine,
+} from './devServerMachineFilter';
 
 const getDevServerColumns = (navigate, timezone) => [
     { field: 'id',             headerName: 'ID',        width: 70 },
@@ -203,20 +209,77 @@ const DevServersView = () => {
         machine_name: s.machine_fk != null ? (machineNameById[s.machine_fk] ?? null) : null,
     })), [devServersArray, sessionToRequirementId, requirementMap, machineNameById]);
 
-    const sortedServers = enrichedServers
-        ? [...enrichedServers].sort((a, b) => b.id - a.id)
+    // req #3556 — per-machine pill selector. `machineSelection === null` means
+    // the user has not chosen; it resolves to THIS browser's machine only (all
+    // machines when the browser cannot tell which one it is).
+    const [machineSelection, setMachineSelection] = useState(null);
+    const machineOptions = useMemo(
+        () => buildMachineOptions(machinesData, devServersArray),
+        [machinesData, devServersArray]);
+    const optionValues = useMemo(() => machineOptions.map(o => o.value), [machineOptions]);
+    const openMachineIds = useMemo(
+        () => (machinesData || []).filter(m => !m.closed).map(m => m.id),
+        [machinesData]);
+    const selection = useMemo(
+        () => effectiveSelection(machineSelection, machinesData, optionValues),
+        [machineSelection, machinesData, optionValues]);
+    const visibleServers = useMemo(
+        () => (enrichedServers && machinesData)
+            ? filterServersByMachine(enrichedServers, selection, openMachineIds)
+            : enrichedServers,
+        [enrichedServers, machinesData, selection, openMachineIds]);
+
+    const sortedServers = visibleServers
+        ? [...visibleServers].sort((a, b) => b.id - a.id)
         : null;
 
     return (
         <Box sx={{ gridArea: 'content', p: isMobile ? 1 : 3 }}>
-            <Typography variant={isMobile ? 'h6' : 'h5'} sx={{ mb: 1 }}>Dev Servers</Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 2, mb: 1 }}>
+                <Typography variant={isMobile ? 'h6' : 'h5'}>Dev Servers</Typography>
+                <Stack direction="row" spacing={1.75} flexWrap="wrap" useFlexGap
+                       data-testid="dev-server-machine-filter">
+                    {(machinesData ? machineOptions : []).map(({ value, label, count }) => {
+                        const isSelected = selection.includes(value);
+                        const props = machineChipProps(value) || filterChipProps(value);
+                        return (
+                            <Badge
+                                key={String(value)}
+                                badgeContent={count}
+                                showZero
+                                overlap="rectangular"
+                                data-testid={`dev-server-machine-badge-${value}`}
+                                sx={{
+                                    '& .MuiBadge-badge': {
+                                        fontSize: 10, height: 16, minWidth: 16, padding: '0 4px',
+                                        bgcolor: '#241773', color: '#ffffff',
+                                    },
+                                }}
+                            >
+                                <Chip
+                                    label={label}
+                                    size="small"
+                                    onClick={() => setMachineSelection(toggleSelection(selection, value))}
+                                    {...(isSelected ? props : { variant: 'outlined' })}
+                                    sx={{
+                                        ...(isSelected ? props.sx : {}),
+                                        ...(!isSelected && { opacity: 0.5 }),
+                                        cursor: 'pointer',
+                                    }}
+                                    data-testid={`dev-server-machine-chip-${value}`}
+                                />
+                            </Badge>
+                        );
+                    })}
+                </Stack>
+            </Box>
 
             {!devServersArray ? (
                 <CircularProgress />
             ) : isMobile ? (
                 <Box data-testid="dev-servers-datagrid">
                     {sortedServers.length === 0 ? (
-                        <Typography color="text.secondary" sx={{ p: 2 }}>No dev servers</Typography>
+                        <Typography color="text.secondary" sx={{ p: 2 }}>No dev servers on the selected machines</Typography>
                     ) : (
                         sortedServers.map(server => (
                             <DevServerCard key={server.id} server={server} navigate={navigate} timezone={profile?.timezone} />
@@ -227,7 +290,7 @@ const DevServersView = () => {
                 <Box sx={{ width: 'fit-content' }} data-testid="dev-servers-datagrid">
                     <DataGrid
                         autoHeight
-                        rows={enrichedServers ?? []}
+                        rows={visibleServers ?? []}
                         columns={getDevServerColumns(navigate, profile?.timezone)}
                         slots={{ toolbar: GridToolbar }}
                         slotProps={{

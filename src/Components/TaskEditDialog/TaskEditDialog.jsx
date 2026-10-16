@@ -20,9 +20,16 @@ const TaskEditDialog = ({ taskEditDialogOpen,
                           onClose, }
                         ) => {
 
-    const { deleteDialogOpen, setDeleteDialogOpen, setDeleteId, setDeleteConfirmed } = useTaskActions();
+    const { deleteDialogOpen, setDeleteDialogOpen, setDeleteId, setDeleteConfirmed, tasksArray } = useTaskActions();
 
-    var {task, taskIndex} = taskEditInfo;
+    // taskEditInfo.task is a snapshot taken when the dialog opened. Field edits update
+    // tasksArray immutably (useCrudCallbacks), so the snapshot goes stale and the
+    // controlled description input would snap back on every keystroke (req #3525).
+    // Resolve the live row by id. If the row has left tasksArray (e.g. a refetch
+    // dropped it) render nothing: the saved index would point at a different row.
+    const snapshot = taskEditInfo.task;
+    const taskIndex = snapshot && tasksArray ? tasksArray.findIndex(t => t.id === snapshot.id) : -1;
+    const task = taskIndex !== -1 ? tasksArray[taskIndex] : undefined;
 
     const closeDialog = () => {
         // on dialog close, trigger data re-read in case items are no longer a priority
