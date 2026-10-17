@@ -5,6 +5,7 @@ import {
     buildModelContext, buildDayModel, recenterDecision, startGlyphPlacement,
     durationDashed,
 } from '../konvaSwarmModel';
+import { toLocaleDateString, getTimeOfDayFraction } from '../../utils/dateFormat';
 
 const TZ = 'UTC';
 
@@ -357,5 +358,70 @@ describe('durationDashed — dashed === inter-day only (req #2885)', () => {
         expect(durationDashed(null)).toBe(false);
         expect(durationDashed(undefined)).toBe(false);
         expect(durationDashed({})).toBe(false);
+    });
+});
+
+// req #3571 — hoursFromRowMidnight memoizes the expensive ts → (local day,
+// time-of-day) half per (timezone, ts). The memo must be invisible: every
+// answer equals a fresh, uncached computation, whatever was asked before it.
+describe('hoursFromRowMidnight memoization (req #3571)', () => {
+    const uncached = (ts, tz, rowDate) => {
+        const tsDay = toLocaleDateString(ts, tz);
+        const frac = getTimeOfDayFraction(ts, tz);
+        if (tsDay === null || frac === null) return NaN;
+        const off = Math.round((new Date(tsDay + 'T12:00:00') - new Date(rowDate + 'T12:00:00')) / 86400000);
+        return off * 24 + frac * 24;
+    };
+
+    it('same ts in two timezones never shares a cache entry', () => {
+        const ts = '2026-06-11 03:30:00';   // UTC → June 10 20:30 in Los Angeles
+        const la = hoursFromRowMidnight(ts, 'America/Los_Angeles', '2026-06-10');
+        const utc = hoursFromRowMidnight(ts, 'UTC', '2026-06-10');
+        expect(la).toBeCloseTo(20.5, 5);
+        expect(utc).toBeCloseTo(27.5, 5);
+        // asked again in the opposite order — still distinct and still right
+        expect(hoursFromRowMidnight(ts, 'UTC', '2026-06-10')).toBeCloseTo(27.5, 5);
+        expect(hoursFromRowMidnight(ts, 'America/Los_Angeles', '2026-06-10')).toBeCloseTo(20.5, 5);
+    });
+
+    it('one cached ts answers correctly for every row it is asked about', () => {
+        const ts = '2026-06-10 14:00:00';
+        expect(hoursFromRowMidnight(ts, TZ, '2026-06-10')).toBeCloseTo(14, 5);
+        expect(hoursFromRowMidnight(ts, TZ, '2026-06-09')).toBeCloseTo(38, 5);
+        expect(hoursFromRowMidnight(ts, TZ, '2026-06-11')).toBeCloseTo(-10, 5);
+    });
+
+    it('matches the uncached computation across DST transitions', () => {
+        const tz = 'America/Los_Angeles';
+        const cases = [
+            ['2026-03-08 09:59:00', '2026-03-08'], ['2026-03-08 10:01:00', '2026-03-08'],
+            ['2026-11-01 08:30:00', '2026-11-01'], ['2026-11-01 09:30:00', '2026-10-31'],
+            ['2026-03-09 06:00:00', '2026-03-07'],
+        ];
+        for (const [ts, row] of cases) {
+            const first = hoursFromRowMidnight(ts, tz, row);
+            expect(first).toBeCloseTo(uncached(ts, tz, row), 9);
+            expect(hoursFromRowMidnight(ts, tz, row)).toBe(first); // cached path
+        }
+    });
+
+    it('unparseable input stays NaN on repeat calls', () => {
+        expect(hoursFromRowMidnight('not a date', TZ, '2026-06-10')).toBeNaN();
+        expect(hoursFromRowMidnight('not a date', TZ, '2026-06-10')).toBeNaN();
+        expect(hoursFromRowMidnight(null, TZ, '2026-06-10')).toBeNaN();
+    });
+
+    it('undefined, null and empty timezone all mean the browser default', () => {
+        const ts = '2026-06-10 21:45:00';
+        const ref = uncached(ts, undefined, '2026-06-10');
+        for (const tz of [undefined, null, '', undefined]) {
+            expect(hoursFromRowMidnight(ts, tz, '2026-06-10')).toBeCloseTo(ref, 9);
+        }
+    });
+
+    it('a Date argument (uncached path) agrees with its ISO string', () => {
+        const iso = '2026-06-10T18:15:00.000Z';
+        expect(hoursFromRowMidnight(new Date(iso), TZ, '2026-06-10'))
+            .toBeCloseTo(hoursFromRowMidnight(iso, TZ, '2026-06-10'), 9);
     });
 });

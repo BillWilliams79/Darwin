@@ -132,3 +132,59 @@ export async function fetchRequirement2Tracking(darwinUri, idToken, requirementI
         `${darwinUri}/requirements?id=${requirementId}&fields=id,tracking`, idToken);
     return (Array.isArray(rows) && rows.length) ? rows[0] : null;
 }
+
+/**
+ * Move a requirement's seat from one step to another — the ONE implementation
+ * of a seat edit in the browser (req #3435 wrote it inline in RequirementDetail;
+ * req #3581's plan-visualizer drag-and-drop is its second caller, so it lives
+ * here rather than in two copies that could disagree about the order below).
+ * Either side may be null: `fromStepId` null seats an unseated requirement,
+ * `toStepId` null unseats it.
+ *
+ * Seating is the junction Primary/MCP owns on the orchestration side; the
+ * browser write is a KNOWN, ACCEPTED race with a polling engine (user ruling
+ * 2026-08-10, recorded at RequirementDetail's step picker) — do not add a
+ * silent refusal here.
+ *
+ * ## Order of operations — DELETE THE OLD SEAT, THEN INSERT THE NEW
+ *
+ * THE REVERSE ORDER CANNOT WORK, and this is a schema fact rather than a
+ * judgement call. `pipeline_step_requirements` has `PRIMARY KEY
+ * (requirement_fk)` ALONE — one step per requirement, the req #3336 stage-2
+ * gate ruling — so while the old row exists there is no key for a second one
+ * and the INSERT fails 100% of the time on a MOVE. `link_step_requirement`
+ * (darwin-mcp) says the same from the server side.
+ *
+ * BOTH COLUMNS go in the DELETE body even though `requirement_fk` alone is the
+ * PK: `rest_delete.py` ANDs every key into the WHERE clause, so the seat is
+ * removed only if the row still says what the caller last read. A seat moved by
+ * somebody else meanwhile answers 404, `call_rest_api` throws, and the POST
+ * never runs — a stale read aborts the move instead of completing half of it.
+ *
+ * THE RESIDUAL: a POST that fails after the DELETE succeeded leaves the
+ * requirement seated NOWHERE. It is the only failure mode the key permits; the
+ * caller surfaces the error and re-reads rather than guessing a rollback.
+ */
+export async function moveStepRequirement(darwinUri, idToken,
+    { requirementId, fromStepId = null, toStepId = null }) {
+    if (fromStepId === toStepId) return;
+    const uri = `${darwinUri}/pipeline_step_requirements`;
+    // Every failure is tagged with the half that failed — `'unseat'` (nothing
+    // changed) or `'seat'` (the old seat is already gone) — so a caller can
+    // tell the harmless failure from the residual above.
+    const write = async (seatStage, method, body) => {
+        try {
+            return assertOk(await call_rest_api(uri, method, body, idToken),
+                seatStage === 'seat' ? 'seatRequirement' : 'unseatRequirement');
+        } catch (error) {
+            if (error && typeof error === 'object') error.seatStage = seatStage;
+            throw error;
+        }
+    };
+    if (fromStepId != null) {
+        await write('unseat', 'DELETE', { step_fk: fromStepId, requirement_fk: requirementId });
+    }
+    if (toStepId != null) {
+        await write('seat', 'POST', { step_fk: toStepId, requirement_fk: requirementId });
+    }
+}

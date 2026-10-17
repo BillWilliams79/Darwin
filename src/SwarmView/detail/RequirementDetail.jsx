@@ -11,6 +11,7 @@ import { useAllCategories, useMachines,
 import { useRequirementVisibility } from '../../hooks/useRequirementVisibility';
 import { useOrchestrationIndex } from './useOrchestrationIndex';
 import { stepOptions } from './orchestrationIndex';
+import { moveStepRequirement } from '../../Steps/stepsApi';
 import { planLinkTo, epicLinkTo } from '../pipelines/pipelineEpicLink';
 import { stepPlanLinkTo } from '../pipelines/pipelineStepLink';
 // req #3463 — the era↔route binding. This page never spells a plan route.
@@ -45,6 +46,7 @@ import { swarmStatusChipProps, swarmStatusLabel } from '../swarmStatusChipProps'
 import { COORDINATION_COLOR } from '../coordinationChipStyles';
 import { AI_MODEL_COLOR, AI_MODELS, aiModelLabel } from '../modelChipStyles';
 import { EFFORT_COLOR, EFFORTS, effortLabel } from '../effortChipStyles';
+import { DEFAULT_REQUIREMENT_SPEC, specCode, parseSpecCode, specLabel } from '../requirementSpec';
 import { terminalFocusState } from '../terminalFocus';
 import TerminalChip from '../TerminalChip';
 import { formatDuration } from '../../utils/formatDuration';
@@ -109,6 +111,11 @@ const CHIP_TEXT_INSET = 8;
 const FIELDSET_LEFT_INSET = 13;
 const SETTINGS_LABEL_WIDTH = ID_PREFIX_WIDTH - CHIP_TEXT_INSET;
 const FIELDSET_LABEL_WIDTH = SETTINGS_LABEL_WIDTH - FIELDSET_LEFT_INSET;
+
+// Req #3573 — statuses a typed spec code may set, and the statuses in which the
+// Spec field is editable at all: the same pre-launch set that gates Autonomy and
+// AI Settings.
+const SPEC_EDITABLE_STATUSES = ['authoring', 'approved', 'swarm_ready'];
 
 // Req #3435 — the Orchestration box's Step select, styled as the Category select
 // is: standard variant with the underline suppressed until hover and no dropdown
@@ -278,10 +285,7 @@ const RequirementDetail = () => {
         title: location.state?.title || '',
         description: '',
         category_fk: null,
-        requirement_status: 'authoring',
-        coordination_type: 'implemented',
-        ai_model: 'opus',
-        effort: 'high',
+        ...DEFAULT_REQUIREMENT_SPEC,   // req #3573 — every requirement is born SRIOH
         machine_fk: null,   // req #2978 — every requirement is born "Any machine"
         started_at: null,
         completed_at: null,
@@ -504,8 +508,8 @@ const RequirementDetail = () => {
 
     // Requirement Duplicator (req #2808): clone the opened requirement into a NEW
     // requirement that shares ONLY the title, description and category. Status and
-    // coordination fall back to defaults (status 'authoring'; coordination_type
-    // omitted so the server applies its NOT NULL default). The title gets a
+    // coordination fall back to the SRIOH defaults (req #3573 — status
+    // 'swarm_ready', coordination 'implemented'). The title gets a
     // "COPY of {origin id}" suffix. Nothing else is copied — dates, sessions,
     // sort_order and project_fk are deliberately left off the POST body.
     const handleDuplicate = async () => {
@@ -518,12 +522,13 @@ const RequirementDetail = () => {
             title: `${baseTitle}${suffix}`,
             description: requirement.description || '',
             category_fk: requirement.category_fk,
-            requirement_status: 'authoring',
-            // req #3007: ai_model + effort have NO database default — copy the
-            // source requirement's values (fall back to opus / high) so the
-            // POST never omits them and the DB never stores an invalid ''.
-            ai_model: requirement.ai_model || 'opus',
-            effort: requirement.effort || 'high',
+            requirement_status: DEFAULT_REQUIREMENT_SPEC.requirement_status,
+            coordination_type: DEFAULT_REQUIREMENT_SPEC.coordination_type,
+            // ai_model + effort: copy the source requirement's values (fall back
+            // to the SRIOH opus / high). Both columns have carried a DEFAULT since
+            // req #3434; sending them keeps the POST explicit, never reliant on it.
+            ai_model: requirement.ai_model || DEFAULT_REQUIREMENT_SPEC.ai_model,
+            effort: requirement.effort || DEFAULT_REQUIREMENT_SPEC.effort,
         };
         const postResult = await call_rest_api(`${darwinUri}/requirements`, 'POST', draft, idToken)
             .catch(() => null);
@@ -698,6 +703,55 @@ const RequirementDetail = () => {
         saveField('effort', newVal);
     };
 
+    // ── Req #3573 — the Spec code field ─────────────────────────────────────
+    // Shows the requirement's five-letter spec code (SRIOH = Swarm-Ready ·
+    // Implemented · Opus · High — see ../requirementSpec.js) and, while the
+    // requirement is still pre-launch, accepts a typed code that sets all four
+    // fields in ONE PUT. Only pre-launch statuses (AU/AP/SR) may be typed: the
+    // code is a way to SPEC work, not a back door into development/met.
+    const [specDraft, setSpecDraft] = useState(null);   // null = show the live code
+    const [specError, setSpecError] = useState('');
+    // prev/next keeps this component mounted — a draft belongs to ONE requirement.
+    // A status change made by another control likewise retires a stale draft.
+    useEffect(() => { setSpecDraft(null); setSpecError(''); }, [id, requirement?.requirement_status]);
+
+    const applySpecDraft = () => {
+        if (isNew || specDraft === null) return;   // draft — nothing is saved until category is picked
+        const typed = specDraft.trim();
+        if (typed === '' || typed.toUpperCase() === specCode(requirement)) {
+            setSpecDraft(null); setSpecError('');
+            return;
+        }
+        const spec = parseSpecCode(typed);
+        if (!spec) { setSpecError('Not a spec code, e.g. SRIOH'); return; }
+        if (!SPEC_EDITABLE_STATUSES.includes(spec.requirement_status)) {
+            setSpecError('Status must be AU, AP or SR');
+            return;
+        }
+        const now = new Date().toISOString();
+        const changed = Object.fromEntries(
+            Object.entries(spec).filter(([k, v]) => requirement[k] !== v));
+        const statusChanged = 'requirement_status' in changed;
+        setRequirement(prev => ({
+            ...prev, ...changed,
+            ...(statusChanged && requirementStatusTimestampState(spec.requirement_status, now)),
+        }));
+        setSpecDraft(null); setSpecError('');
+        call_rest_api(`${darwinUri}/requirements`, 'PUT', [{
+            id: parseInt(id), ...changed,
+            ...(statusChanged && requirementStatusTimestampFields(spec.requirement_status, now)),
+        }], idToken)
+            .then(result => {
+                if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
+                    showError(result, 'Unable to update spec');
+                } else {
+                    queryClient.invalidateQueries({ queryKey: requirementKeys.all(profile.userName) });
+                }
+            }).catch(error => {
+                showError(error, 'Unable to update spec');
+            });
+    };
+
     const handleMachineChange = (newVal) => {
         // Req #2978 — unlike autonomy/model/effort, NULL is a REAL value here:
         // it means "Any machine". newVal is either a machines.id or null (Any).
@@ -726,28 +780,14 @@ const RequirementDetail = () => {
     // KNOWN, ACCEPTED cost of editing a seat from here, not an oversight — do not
     // "fix" this by adding a silent refusal, and do not delete this note.
     //
-    // ## Order of operations — DELETE THE OLD SEAT, THEN INSERT THE NEW
+    // ## The write itself lives in `Steps/stepsApi.js::moveStepRequirement`
     //
-    // THE REVERSE ORDER CANNOT WORK, and this is a schema fact rather than a
-    // judgement call. `pipeline_step_requirements` has `PRIMARY KEY
-    // (requirement_fk)` ALONE — one step per requirement, the req #3336 stage-2
-    // gate ruling, structural — so while the old row exists there is no key
-    // available for a second one and the INSERT fails 100% of the time on a MOVE.
-    // `link_step_requirement` (darwin-mcp/services/pipelines2.py) says
-    // the same thing from the server side: it REFUSES a requirement already
-    // linked to a different step and names unlink-then-link as the lawful move.
-    //
-    // This OVERRIDES the argument this comment used to carry. Under 1.0's
-    // composite `(step_fk, requirement_fk)` key, insert-first was right: both
-    // rows could coexist, so a failed insert left the old seat intact while a
-    // failed delete left a visible double-seat. Neither of those states is
-    // reachable now.
-    //
-    // THE RESIDUAL, STATED HONESTLY: a POST that fails after the DELETE
-    // succeeded leaves the requirement seated NOWHERE. That is a real loss and
-    // it is not hidden — the plan view shows the step short one requirement, the
-    // Orchestration box reads "No step", the error is on screen, and a person
-    // re-seats it in one pick. It is the only failure mode the key permits.
+    // Since req #3581 the plan visualizer's drag-and-drop seats requirements
+    // too, so the delete-old-then-insert-new order — forced by the junction's
+    // `PRIMARY KEY (requirement_fk)` — and its one honest residual (a POST that
+    // fails after the DELETE leaves the requirement seated nowhere) are stated
+    // ONCE, beside the only implementation. A failed move is surfaced and the
+    // junction re-read below, never guessed back.
     const handleStepChange = async (event) => {
         if (isNew) return;   // draft — `id` is the literal 'new'.
         const raw = event.target.value;
@@ -757,27 +797,10 @@ const RequirementDetail = () => {
         const prevStepId = seatStep ? seatStep.id : null;
         if (nextStepId === prevStepId) return;
 
-        const uri = `${darwinUri}/pipeline_step_requirements`;
-        const reqId = parseInt(id);
         try {
-            if (prevStepId != null) {
-                // BOTH COLUMNS in the body even though `requirement_fk` alone is
-                // the PK. `rest_delete.py` ANDs every key it is given into the
-                // WHERE clause, so naming `step_fk` too is strictly more
-                // specific: it deletes the seat only if the row still says what
-                // this page last read, and a seat moved by somebody else in the
-                // meantime is left alone rather than silently removed. That
-                // narrowing also FAILS SAFE — `rest_delete` answers 404 on zero
-                // affected rows, `call_rest_api` throws, and the POST below
-                // never runs, so a stale read aborts the move instead of
-                // completing half of it.
-                await call_rest_api(uri, 'DELETE',
-                    { step_fk: prevStepId, requirement_fk: reqId }, idToken);
-            }
-            if (nextStepId != null) {
-                await call_rest_api(uri, 'POST',
-                    { step_fk: nextStepId, requirement_fk: reqId }, idToken);
-            }
+            await moveStepRequirement(darwinUri, idToken, {
+                requirementId: parseInt(id), fromStepId: prevStepId, toStepId: nextStepId,
+            });
         } catch (error) {
             showError(error, 'Unable to update step');
             // Re-read rather than patch local state: the seat lives in the
@@ -804,17 +827,17 @@ const RequirementDetail = () => {
         // New-mode (req #2414): picking a category is the first save. POST creates
         // the requirement, then we navigate to the canonical detail URL.
         if (isNew) {
-            // req #3007: ai_model + effort have NO database default — the caller
-            // MUST send them, or the DB stores an invalid ''. Send the draft's
-            // values (defaults: opus / high) explicitly.
+            // Send all four launch fields explicitly — the draft's values,
+            // which start as the SRIOH default (req #3573).
             const draft = {
                 title: requirement?.title || '',
                 description: requirement?.description || '',
-                requirement_status: requirement?.requirement_status || 'authoring',
+                requirement_status: requirement?.requirement_status || DEFAULT_REQUIREMENT_SPEC.requirement_status,
                 category_fk: newCategoryFk,
                 project_fk: null,
-                ai_model: requirement?.ai_model || 'opus',
-                effort: requirement?.effort || 'high',
+                coordination_type: requirement?.coordination_type || DEFAULT_REQUIREMENT_SPEC.coordination_type,
+                ai_model: requirement?.ai_model || DEFAULT_REQUIREMENT_SPEC.ai_model,
+                effort: requirement?.effort || DEFAULT_REQUIREMENT_SPEC.effort,
             };
             const postResult = await call_rest_api(`${darwinUri}/requirements`, 'POST', draft, idToken)
                 .catch(() => null);
@@ -1088,6 +1111,49 @@ const RequirementDetail = () => {
                     </Tooltip>
                 </Stack>
             </Box>
+
+            {/* Spec code (req #3573) — the four launch fields as one five-letter code.
+                Same new-mode and label-width rules as the Status row below. */}
+            {(() => {
+                const isEditable = SPEC_EDITABLE_STATUSES.includes(currentStatus);
+                const shown = specDraft ?? specCode(requirement);
+                const reading = specLabel(parseSpecCode(shown)) || specLabel(requirement);
+                return (
+                    <Box sx={{
+                        display: 'flex', gap: 1, mb: 2, alignItems: 'center', flexWrap: 'wrap', ...NARROW,
+                        ...(isNew && { visibility: 'hidden', pointerEvents: 'none' }),
+                    }}>
+                        <Typography variant="subtitle2" color={isEditable ? 'text.secondary' : 'text.disabled'}
+                                    sx={{ width: SETTINGS_LABEL_WIDTH, flexShrink: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            Spec
+                        </Typography>
+                        <Tooltip enterDelay={400} title={
+                            'Status (AU AP SR) · Autonomy (C P I D) · Model (H S O F) · '
+                            + 'Effort (L M H X U) — e.g. SRIOH, SRISM'}>
+                            <TextField
+                                size="small"
+                                value={shown}
+                                disabled={!isEditable}
+                                error={!!specError}
+                                onChange={(e) => { setSpecDraft(e.target.value); setSpecError(''); }}
+                                onBlur={applySpecDraft}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') { e.preventDefault(); applySpecDraft(); }
+                                    if (e.key === 'Escape') { setSpecDraft(null); setSpecError(''); }
+                                }}
+                                slotProps={{ htmlInput: { maxLength: 5, 'data-testid': 'requirement-spec-input',
+                                    'aria-label': 'Spec code',
+                                    style: { fontFamily: 'monospace', fontWeight: 600, letterSpacing: 2,
+                                             textTransform: 'uppercase', width: '7ch', padding: '2px 8px' } } }}
+                            />
+                        </Tooltip>
+                        <Typography variant="body2" data-testid="requirement-spec-reading"
+                                    color={specError ? 'error' : 'text.secondary'}>
+                            {specError || reading}
+                        </Typography>
+                    </Box>
+                );
+            })()}
 
             {/* New-mode (req #2424): keep this row in the layout but invisible so
                 Description below doesn't shift when the requirement is saved

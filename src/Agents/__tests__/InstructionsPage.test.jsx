@@ -920,6 +920,15 @@ describe('InstructionsPage — the drill-through from an agent page', () => {
 
         expect(Element.prototype.scrollIntoView).toHaveBeenCalledTimes(1);
     });
+
+    it('opens the target card EXPANDED; every other card stays collapsed (req #3572)', async () => {
+        setHash('#instruction-11');
+        mount();
+        await flush();
+
+        expect(byTestId('instruction-content-input-11-toggle').textContent).toBe('Show less');
+        expect(byTestId('instruction-content-input-10-toggle').textContent).toBe('Show more');
+    });
 });
 
 describe('InstructionsPage — a write invalidates exactly what it changed', () => {
