@@ -60,9 +60,12 @@ export const VALID_RUN2_MODES = ['auto', 'manual'];
 
 /**
  * Create a step under an epic. `completed_at` is never set here — a step is
- * born incomplete. Requirement links and dependency rows are not created
- * either: seating is MCP/Primary-only (see this module's header and
- * `Darwin/src/Steps/StepsPage.jsx`'s identical rule for 1.0).
+ * born incomplete. Requirement links are not created either: seating is
+ * MCP/Primary-only (see this module's header). Dependency rows are written
+ * only by the plan visualizer's add-step actions below (`branchStepFrom`,
+ * `insertStepOnEdge`, req #3586) — a browser write racing a Primary
+ * `set_step_deps` on the same step, the same KNOWN, ACCEPTED race
+ * `moveStepRequirement` records for seats.
  */
 export async function createStep(darwinUri, idToken,
     { epic_fk, title, run = 'auto', notes = null, not_before = null }) {
@@ -187,4 +190,121 @@ export async function moveStepRequirement(darwinUri, idToken,
     if (toStepId != null) {
         await write('seat', 'POST', { step_fk: toStepId, requirement_fk: requirementId });
     }
+}
+
+/**
+ * Add one dependency edge: step `stepId` waits on step `depStepId`. A single
+ * `pipeline_step_deps` row; the gateway derives ownership from `step_fk` and
+ * verifies `dep_step_fk` (Lambda-Rest JUNCTION_OWNERSHIP).
+ */
+export async function createStepDep(darwinUri, idToken, stepId, depStepId) {
+    const r = await call_rest_api(`${darwinUri}/pipeline_step_deps`, 'POST',
+        { step_fk: stepId, dep_step_fk: depStepId }, idToken);
+    return assertOk(r, 'createStepDep');
+}
+
+/** Remove one dependency edge, addressed by both columns (the UNIQUE key). */
+export async function deleteStepDep(darwinUri, idToken, stepId, depStepId) {
+    const r = await call_rest_api(`${darwinUri}/pipeline_step_deps`, 'DELETE',
+        { step_fk: stepId, dep_step_fk: depStepId }, idToken);
+    return assertOk(r, 'deleteStepDep');
+}
+
+// The new row's id out of a POST response. The gateway reads the row back as a
+// one-element ARRAY; a 201 with no body (its read-back failed after the INSERT
+// committed) carries none, and the caller must say so rather than guess.
+export const createdRowOf = (data) => (Array.isArray(data) ? data[0] : data) || null;
+
+function requireCreatedId(data) {
+    const row = createdRowOf(data);
+    if (row?.id == null) {
+        const error = new Error('The step was created but its id could not be read back, '
+            + 'so its dependencies were not written — wire it from the plan.');
+        // The row EXISTS; a retry would create a second one.
+        error.orphanStep = true;
+        throw error;
+    }
+    return row;
+}
+
+// Best-effort undo of the writes already made when a later one fails. A
+// failure here is logged and swallowed: the caller reports the ORIGINAL error,
+// and the refetch shows whatever the plan really holds.
+async function undoAll(undos) {
+    for (const undo of undos.reverse()) {
+        try {
+            await undo();
+        } catch (e) {
+            console.error('step insert rollback failed', e);
+        }
+    }
+}
+
+/**
+ * Create a step and gate it on `fromStepId` — the canvas's BRANCH "+"
+ * (req #3586): a new step that depends on that one step alone. Neither write
+ * can introduce a cycle (the new step has no dependents), and both steps are
+ * in the same plan by construction. A failed edge deletes the new step. (The
+ * one exception is a create whose id cannot be read back — flagged
+ * `orphanStep`, because nothing can address the row to delete it.)
+ *
+ * @returns {Promise<Object>} the created step row
+ */
+export async function branchStepFrom(darwinUri, idToken, { fromStepId, epic_fk, title }) {
+    const created = requireCreatedId(await createStep(darwinUri, idToken, { epic_fk, title }));
+    const stepId = created.id;
+    try {
+        await createStepDep(darwinUri, idToken, stepId, fromStepId);
+    } catch (error) {
+        await undoAll([() => deleteStep(darwinUri, idToken, stepId)]);
+        throw error;
+    }
+    return created;
+}
+
+/**
+ * SPLIT the edge `toStepId` → `fromStepId` with a new step — the canvas's
+ * EDGE "+" (req #3586): A → B becomes A → N → B.
+ *
+ * ## Order of operations — B IS NEVER UNDER-GATED
+ *
+ * 1. create N            2. N waits on A
+ * 3. B waits on N        4. B stops waiting on A
+ *
+ * B gains its new gate BEFORE it loses the old one, so at no instant can a
+ * polling engine see B eligible early. A failure at 2 or 3 undoes what was
+ * written — and a failure at 3 deletes B → N regardless, because a write
+ * reported as failed may still have landed (a dropped response), and N cannot
+ * be deleted while B waits on it. A failure at 4 leaves B waiting on both A
+ * and N — which gates exactly as A → N → B does (N already waits on A), so it
+ * is reported (`redundantEdge`) but not undone; a 404 there means the edge
+ * was already gone, which is success. No cycle is possible: N's only
+ * dependency is A and its only dependent is B, and A → B already existed
+ * acyclically.
+ *
+ * @returns {Promise<Object>} the created step row
+ */
+export async function insertStepOnEdge(darwinUri, idToken,
+    { fromStepId, toStepId, epic_fk, title }) {
+    const created = requireCreatedId(await createStep(darwinUri, idToken, { epic_fk, title }));
+    const stepId = created.id;
+    // Deleting N cascades its own N → A row, so the undo list never names it.
+    const undos = [() => deleteStep(darwinUri, idToken, stepId)];
+    try {
+        await createStepDep(darwinUri, idToken, stepId, fromStepId);
+        undos.push(() => deleteStepDep(darwinUri, idToken, toStepId, stepId));
+        await createStepDep(darwinUri, idToken, toStepId, stepId);
+    } catch (error) {
+        await undoAll(undos);
+        throw error;
+    }
+    try {
+        await deleteStepDep(darwinUri, idToken, toStepId, fromStepId);
+    } catch (error) {
+        if (error?.httpStatus?.httpStatus !== 404) {
+            error.redundantEdge = true;
+            throw error;
+        }
+    }
+    return created;
 }
