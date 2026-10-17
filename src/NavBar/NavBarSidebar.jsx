@@ -4,12 +4,13 @@ import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
 import { useDevServers } from '../hooks/useDataQueries';
 import {
-    NAV_GROUPS, NAV_LINKS, PROFILE_LINK, flattenNavLinks,
+    NAV_GROUPS, NAV_LINKS, PROFILE_LINK, flattenNavLinks, DEV_HOME_ROUTE,
     SIDEBAR_WIDTH, SIDEBAR_COLLAPSED_WIDTH, GROUP_PROFILE_KEY, GROUP_PROFILE_DEFAULT,
 } from './navConfig';
 import {
     loadCollapsedGroups, persistCollapsedGroups, toggleGroupCollapsed,
     loadExpandedItems, persistExpandedItems, toggleItemExpanded,
+    devCollapsedGroupsKey, defaultCollapsedGroups,
 } from './navCollapse';
 import ProfileDialog from './ProfileDialog';
 import { prodRequirementUrl } from '../utils/prodUrl';
@@ -50,6 +51,9 @@ const isDev = import.meta.env.MODE === 'development';
 const DEV_BORDER = isDev ? `4px solid ${DEV_ORANGE}` : 'none';
 const DEV_REQ_ID = isDev ? (import.meta.env.VITE_DEV_REQ_ID || '') : '';
 const DEV_REQ_TITLE = isDev ? (import.meta.env.VITE_DEV_REQ_TITLE || '') : '';
+// Req #3589 — a dev server keeps its group map under a per-session key (see
+// navCollapse.js) and seeds it collapsed-except-the-working-area.
+const COLLAPSED_GROUPS_STORAGE_KEY = isDev ? devCollapsedGroupsKey(DEV_REQ_ID, DEV_HOME_ROUTE) : undefined;
 
 const NavBarSidebar = () => {
     const { idToken, profile } = useContext(AuthContext);
@@ -64,11 +68,17 @@ const NavBarSidebar = () => {
     // Per-group collapsed state (req #2869). Clicking a group header hides/shows
     // its child links — purely visual, routes are unaffected. Seeded from and
     // persisted to localStorage so the choice survives reloads.
-    const [collapsedGroups, setCollapsedGroups] = useState(loadCollapsedGroups);
+    // A dev server with nothing stored starts with every group collapsed except
+    // the one(s) owning its working area and the route this tab opened on
+    // (req #3589); production keeps the all-open default.
+    const [collapsedGroups, setCollapsedGroups] = useState(() => loadCollapsedGroups(
+        COLLAPSED_GROUPS_STORAGE_KEY,
+        isDev ? defaultCollapsedGroups(NAV_GROUPS, NAV_LINKS, [DEV_HOME_ROUTE, location.pathname]) : {},
+    ));
     // Persist outside the reducer so the localStorage write stays a clean
     // side effect (and doesn't double-fire under StrictMode's reducer replay).
     useEffect(() => {
-        persistCollapsedGroups(collapsedGroups);
+        persistCollapsedGroups(collapsedGroups, COLLAPSED_GROUPS_STORAGE_KEY);
     }, [collapsedGroups]);
     const toggleGroup = (id) => {
         setCollapsedGroups((prev) => toggleGroupCollapsed(prev, id));

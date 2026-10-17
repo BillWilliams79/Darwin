@@ -45,6 +45,7 @@ import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import { CircularProgress } from '@mui/material';
+import { DEFAULT_REQUIREMENT_SPEC } from './requirementSpec';
 
 const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categoryKeyDown, categoryOnBlur, clickCardClosed, clickCardDelete, moveCard, persistCategoryOrder, removeCategory, isTemplate, showClosed, epicReqIds = null, stepReqIds = null }) => {
 
@@ -245,7 +246,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
             const prevTemplate = prev && prev.find(r => r.id === '');
             return prevTemplate
                 ? { ...prevTemplate, category_fk: parseInt(category.id) }
-                : { id: '', title: '', requirement_status: 'authoring', category_fk: parseInt(category.id) };
+                : { id: '', title: '', ...DEFAULT_REQUIREMENT_SPEC, category_fk: parseInt(category.id) };
         };
         if (serverRequirements && serverRequirements.length > 0) {
             let sortedRequirementsArray = [...serverRequirements];
@@ -736,7 +737,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                     }
 
                     newRequirementsArray.sort((a, b) => activeSort(a, b));
-                    newRequirementsArray.push({'id':'', 'title':'', 'requirement_status': 'authoring', 'category_fk': category.id });
+                    newRequirementsArray.push({'id':'', 'title':'', ...DEFAULT_REQUIREMENT_SPEC, 'category_fk': category.id });
                     setRequirementsArray(newRequirementsArray);
                     queryClient.invalidateQueries({ queryKey: requirementKeys.all(profile.userName) });
                     navigate(`/swarm/requirement/${result.data[0].id}`);

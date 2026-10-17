@@ -47,6 +47,7 @@ import LinkOffIcon from '@mui/icons-material/LinkOff';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 
 import AppContext from '../Context/AppContext';
+import CollapsibleText from '../Components/Collapsible/CollapsibleText';
 import AuthContext from '../Context/AuthContext';
 import call_rest_api from '../RestApi/RestApi';
 import {
@@ -438,9 +439,11 @@ const AgentDetail = () => {
                                             </Tooltip>
                                         </Box>
                                     </Box>
-                                    <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
-                                        {row.content}
-                                    </Typography>
+                                    {/* Collapsed to four lines (req #3572) so the load
+                                        order — the thing this list is FOR — stays
+                                        scannable; click to read the whole duty. */}
+                                    <CollapsibleText text={row.content} lines={4}
+                                                     testId={`agent-instruction-content-${row.id}`} />
                                 </Paper>
                             );
                         })}
@@ -540,9 +543,16 @@ const AgentDetail = () => {
                                                   clickable />
                                         </TableCell>
                                         <TableCell sx={{ maxWidth: 380 }}>
-                                            <Typography variant="caption" color="text.secondary">
-                                                {link.notes || '—'}
-                                            </Typography>
+                                            {/* No note is a dash, not a field — a
+                                                collapse toggle over "—" has nothing
+                                                to show or hide. */}
+                                            {link.notes ? (
+                                                <CollapsibleText text={link.notes} lines={2}
+                                                                 variant="caption" color="text.secondary"
+                                                                 testId={`agent-doc-notes-${row.id}`} />
+                                            ) : (
+                                                <Typography variant="caption" color="text.secondary">—</Typography>
+                                            )}
                                         </TableCell>
                                     </TableRow>
                                 );
