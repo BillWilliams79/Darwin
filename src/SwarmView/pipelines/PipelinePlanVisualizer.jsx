@@ -233,7 +233,8 @@ const REQ_PILL_STROKE = 1.25;
 const REQ_PILL_H_EM = 1.3;                  // pill height, in req font sizes
 const REQ_PILL_FONT_EM = 0.78;              // label size, in req font sizes
 const REQ_PILL_FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif';
-// Inside the two-space gap `REQ_PILL_SEP` leaves, so neighbours keep clear air.
+// Inside the gap before each token (`REQ_PILL_SEP` between pills, the id
+// column's own separator before the first), so neighbours keep clear air.
 // The CEILING on a pill's reach — see `REQ_PILL_LABEL_PAD_EM` for its width.
 const REQ_PILL_PAD_X = CHW_REQ * 0.3;
 // THE PILL HUGS ITS LABEL (user review, 2026-10-17: "the bubble around
@@ -3812,7 +3813,7 @@ export default function PipelinePlanVisualizer({
             if (pillsHere.length) {
                 const rowLines = reqText.split('\n');
                 const firstLine = rowLines[0];
-                pillBoxes = pillsHere.map((pl) => {
+                pillBoxes = pillsHere.map((pl, j) => {
                     const h = CF.req * REQ_PILL_H_EM;
                     const lead = pl.start === 0 ? 0
                         : measureReqText(firstLine.slice(0, pl.start), CF.req, rs.bold);
@@ -3833,7 +3834,11 @@ export default function PipelinePlanVisualizer({
                         ...pl,
                         text,
                         measured: labelW != null && lead != null && span != null,
-                        x: slotX + spanW / 2 - w / 2,
+                        // The first pill's slot starts ON the title column, so
+                        // it never centres out past that edge into the id's
+                        // (req #3601) — the unmeasured path included.
+                        x: j === 0 ? Math.max(slotX, slotX + spanW / 2 - w / 2)
+                            : slotX + spanW / 2 - w / 2,
                         y: reqY + REQ_LINE_H / 2 - h / 2,
                         w,
                         h,
@@ -3848,8 +3853,10 @@ export default function PipelinePlanVisualizer({
                 // layout reserves the label's MONO width, so a pill centred in its
                 // slot left the slack beside it — between the last pill and the
                 // title's dash most visibly. So when every width is measurable the
-                // pills are laid one after another, ONE SPACE of air from the id,
-                // from each other and from the title, and the first line's tail
+                // pills are laid one after another — the first with its left edge
+                // ON THE TITLE COLUMN the layout put its range on (req #3601: never
+                // inside the id's column), then ONE SPACE of air from each other
+                // and from the title — and the first line's tail
                 // (` - Title…`, which starts with its own space) is redrawn flush
                 // after the last pill. The row Text keeps the layout's characters
                 // (tail blanked) and so stays the hover/click/drag target over the
@@ -3863,12 +3870,28 @@ export default function PipelinePlanVisualizer({
                     pl.start > 0 && pillBoxes[j].measured);
                 if (measured) {
                     let x = reqX + measureReqText(firstLine.slice(0, pillsHere[0].start),
-                        CF.req, rs.bold) - spaceW;
+                        CF.req, rs.bold);
                     pillBoxes = pillBoxes.map((b) => {
                         const placed = { ...b, x };
                         x += b.w + spaceW;
                         return placed;
                     });
+                    // The upper bound is ENFORCED, not assumed: a 4-digit port's
+                    // label plus its air is a little wider than the four
+                    // characters reserved for it, and with the first pill no
+                    // longer stepping back a space into the id column (req #3601)
+                    // nothing else absorbs that. The last pill gives up the
+                    // excess from its own air, so the line ends where the layout's
+                    // characters do.
+                    const reservedW = measureReqText(firstLine.slice(0, tailStart),
+                        CF.req, rs.bold);
+                    const reservedEnd = reservedW == null ? null : reqX + reservedW;
+                    const lastPacked = pillBoxes[pillBoxes.length - 1];
+                    if (reservedEnd != null && lastPacked.x + lastPacked.w > reservedEnd) {
+                        pillBoxes[pillBoxes.length - 1] = {
+                            ...lastPacked, w: reservedEnd - lastPacked.x,
+                        };
+                    }
                     const lastBox = pillBoxes[pillBoxes.length - 1];
                     if (tailText.trim()) {
                         rowTail = { x: lastBox.x + lastBox.w, text: tailText };

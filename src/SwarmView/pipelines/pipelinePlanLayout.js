@@ -3066,7 +3066,12 @@ export function reqLabelText(reqId, { reqLabel = 'id', reqTitles = null,
 // module proves about a row's box has to be re-proved for them.
 //
 // TWO SPACES between tokens, so a pill's padding (drawn by the renderer, inside
-// the gap) leaves clear air between neighbours. A NO-BREAK SPACE inside
+// the gap) leaves clear air between neighbours. The gap AFTER THE ID is the id
+// column's own (`CARD_SEP_CHARS`, the width of " - "), so the first pill begins
+// on the title column every row's title and wrapped lines start on (req #3575's
+// hanging indent) and never inside the room reserved for the id (req #3601,
+// user: "Terminal intrudes into the space when added and should never do so").
+// A NO-BREAK SPACE inside
 // "Terminal 2", because `wrapReqText` breaks on ' ' and a pill split across two
 // lines is not a pill.
 //
@@ -3102,7 +3107,7 @@ export function reqPillPrefix(reqId, reqPills) {
     let text = String(reqId);
     const pills = [];
     for (const t of tokens) {
-        text += REQ_PILL_SEP;
+        text += pills.length ? REQ_PILL_SEP : ' '.repeat(CARD_SEP_CHARS);
         pills.push({ kind: t.kind, start: text.length, len: t.text.length });
         text += t.text;
     }
@@ -4196,7 +4201,7 @@ export function computePlanLayout(rows, opts = {}) {
         let idRowY = rowsTop;
         rowLines.forEach((lines, i) => {
             // A prefix too long for the first line (never at a real card
-            // width — `id  Terminal NN  PORT` is 23 characters against a 28
+            // width — `id   Terminal NN  PORT` is 24 characters against a 28
             // character line) degrades to the bare id rather than drawing an
             // id string wider than the box the overlap sweep measured.
             const fullPrefix = reqPillPrefix(ids[i], reqPills);
