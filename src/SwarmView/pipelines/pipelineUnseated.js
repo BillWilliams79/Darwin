@@ -1,0 +1,136 @@
+// pipelineUnseated.js — the pure half of the Plan visualizer's "swarm-ready,
+// not orchestrated" box (req #3583).
+//
+// The box lists every requirement that is READY TO RUN but sits on no step of
+// any plan, so the reader can drag it onto a step card and seat it there. It is
+// the source end of the visualizer's drag-and-drop (req #3581 moves a
+// requirement BETWEEN steps; this puts one ON a step for the first time).
+//
+// What lives here is every DECISION that gesture makes — which rows the box
+// lists, which step a point lands on, whether that step may take new work, and
+// where a step's card sits on screen — so a test can reach them. The DOM side
+// (native HTML5 drag, the highlight overlay, the write) is in
+// `PipelinePlanVisualizer.jsx` and `UnorchestratedReqBox.jsx`.
+//
+// ── "NOT ORCHESTRATED" IS THE JUNCTION, NOTHING ELSE ───────────────────────
+// A requirement is orchestrated exactly when a `pipeline_step_requirements`
+// row names it — the SAME read `useRequirementVisibility` hides by and the
+// requirement page's Orchestration box reads. The junction keys on
+// `requirement_fk` alone (one step per requirement, req #3336), so a requirement
+// absent from it is seated NOWHERE and seating it is a plain INSERT — no
+// unseat, no move.
+
+import { CARD_FONT } from './pipelinePlanLayout';
+
+/** The box's type size bounds, screen px (user ruling: "match, within 9–16px"). */
+export const UNSEATED_FONT_MIN = 9;
+export const UNSEATED_FONT_MAX = 16;
+
+/**
+ * The box's type size at zoom `k`: the requirement ids' own on-screen size —
+ * the card font `CARD_FONT.req` (world px) through the zoom — clamped so the
+ * box stays legible zoomed far out and never swallows the canvas zoomed in.
+ * Between the bounds it tracks the ids exactly.
+ *
+ * @param {number} k  the live zoom scale
+ */
+export function unseatedBoxFontPx(k) {
+    const px = CARD_FONT.req * (Number.isFinite(k) && k > 0 ? k : 1);
+    return Math.min(UNSEATED_FONT_MAX, Math.max(UNSEATED_FONT_MIN, px));
+}
+
+/** The `dataTransfer` type a box row carries. Custom, so a text or file drag
+ *  from anywhere else on the page is never mistaken for a requirement. */
+export const UNSEATED_REQ_MIME = 'application/x-darwin-requirement';
+
+/**
+ * Swarm-ready requirements with no step seat, ascending by id.
+ *
+ * Filters on `requirement_status` itself rather than trusting the read's query
+ * string, so a cache entry shared with a wider projection can never leak a
+ * non-swarm-ready row into the box.
+ *
+ * @param {Object[]} requirements   requirement rows (`id`, `requirement_status`, …)
+ * @param {Object[]} stepRequirements  `pipeline_step_requirements` rows
+ * @returns {Object[]}
+ */
+export function unorchestratedSwarmReady(requirements, stepRequirements) {
+    if (!Array.isArray(requirements) || !requirements.length) return [];
+    const seated = new Set((Array.isArray(stepRequirements) ? stepRequirements : [])
+        .map((r) => Number(r.requirement_fk)));
+    return requirements
+        .filter((r) => r && r.requirement_status === 'swarm_ready'
+            && !seated.has(Number(r.id)))
+        .sort((a, b) => Number(a.id) - Number(b.id));
+}
+
+/**
+ * May this step take a NEW requirement? A step with a stamped `completed_at`
+ * may not: design rule 1 makes the stamp valid only with zero gating
+ * requirements, and `link_step_requirement` refuses the same write server-side.
+ * Mirrors the requirement page's own step picker (`orchestrationIndex.js`).
+ *
+ * @param {?Object} row  the step's plan row
+ */
+export function stepAcceptsNewWork(row) {
+    return !!row && row.completedAt == null;
+}
+
+/**
+ * The step whose CARD FRAME contains a world point, and whether it may take the
+ * requirement. The frame is the layout's own box — the one the card is painted
+ * into — and it exists at every semantic level, so a drop resolves the same
+ * way whether the card is drawn or only its bead is.
+ *
+ * @param {Map<number, Object>} nodes   `computePlanLayout(...).nodes`
+ * @param {Map<number, Object>} rowById plan rows by step id
+ * @param {{x: number, y: number}} p    world coordinates
+ * @returns {?{stepId: number, ok: boolean}}
+ */
+export function seatTargetAt(nodes, rowById, p) {
+    if (!nodes || !p) return null;
+    for (const [stepId, n] of nodes) {
+        if (p.x >= n.frameLeft && p.x <= n.frameLeft + n.frameW
+            && p.y >= n.top && p.y <= n.top + n.h) {
+            return { stepId, ok: stepAcceptsNewWork(rowById?.get(stepId)) };
+        }
+    }
+    return null;
+}
+
+/**
+ * Where a drop at a panel-relative screen point lands — the whole decision,
+ * so it is testable without a DOM. A point over CHROME (the box, the key, an
+ * epic chip) or over the sticky time ruler lands nowhere: those overlays hide
+ * the card beneath them, and seating a step the reader cannot see is wrong.
+ *
+ * @param {Object} args
+ * @param {{x: number, y: number}} args.point  panel-relative screen point
+ * @param {boolean} [args.overChrome]  the event target sits inside chrome
+ * @param {number} [args.rulerBottom]  screen y of the sticky ruler's bottom edge
+ * @param {{x: number, y: number, k: number}} args.t  the live transform
+ * @param {Map} args.nodes
+ * @param {Map} args.rowById
+ * @returns {?{stepId: number, ok: boolean}}
+ */
+export function resolveSeatDrop({ point, overChrome = false, rulerBottom = 0, t, nodes, rowById }) {
+    if (overChrome || !point || point.y < rulerBottom) return null;
+    return seatTargetAt(nodes, rowById, screenToWorld(point, t));
+}
+
+/** A panel-relative screen point to world coordinates through the transform. */
+export function screenToWorld(pt, t) {
+    if (!pt || !t || !(t.k > 0)) return null;
+    return { x: (pt.x - t.x) / t.k, y: (pt.y - t.y) / t.k };
+}
+
+/** A layout node's card frame in panel-relative screen pixels. */
+export function screenRectOf(n, t) {
+    if (!n || !t) return null;
+    return {
+        left: n.frameLeft * t.k + t.x,
+        top: n.top * t.k + t.y,
+        width: n.frameW * t.k,
+        height: n.h * t.k,
+    };
+}

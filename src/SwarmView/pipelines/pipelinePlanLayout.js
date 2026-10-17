@@ -99,6 +99,14 @@ export const PLAN_VIZ_PALETTE = {
     pendingRing: '#5b729355',
     manualRing: '#ff9bf5',
     eligibleRing: '#7ee08a',
+    // The run-mode pill (req #3580, user directive: "green auto and blue
+    // manual"). Its own entries — a control's colours, not the bead's — and
+    // deliberately NOT `eligibleRing` or `badgeFill`: the eligible ring means
+    // "may launch now" and the count badge sits on the same line, so either
+    // green reused would make the pill read as one of those. Dark panel text
+    // on both (8.9:1 and 6.2:1).
+    runAuto: '#4ade80',
+    runManual: '#4d9bff',
     // The pause status bubble's two colours (req #3226) — a NEW channel
     // (SCOPE: is this band's launch suppressed?), so neither reuses an
     // existing entry outright even where a hue is nearby, to avoid the bubble
@@ -1772,11 +1780,12 @@ export const cardTitleH = (stepLabel, nameLines = 1) => CARD_PAD_Y
 // It has to, and the reason is the same arithmetic that narrowed the card: at a
 // 28-character line the name's own budget — the text column less the
 // title-row reserves (req #3503: the ✓, the link button, the badge and its
-// gap; req #3582: the "+"), at the LABEL glyph which is wider than the row
-// glyph — is thirteen characters (measured — see `cardChars(CHW_LABEL,
-// CARD_CHECK_W + CARD_STEP_LINK_W + CARD_STEP_ADD_W + CARD_BADGE_W +
-// CARD_BADGE_GAP)`; seventeen before req #3582 added the "+" and made both
-// buttons full-size). "Feature Eradication
+// gap; req #3580: the run pill; req #3582: the "+"), at the LABEL glyph which
+// is wider than the row glyph — is EIGHT characters (measured — see
+// `cardChars(CHW_LABEL, CARD_CHECK_W + CARD_STEP_LINK_W + CARD_STEP_ADD_W +
+// CARD_RUN_W + CARD_BADGE_W + CARD_BADGE_GAP)`; seventeen before #3580 and
+// #3582, eleven with the run pill alone, thirteen with the "+" alone — the user
+// saw the combination and accepted it, 2026-10-17). "Feature Eradication
 // - MCP, Scripts, Frontend…" is the actual data, and it truncates well short
 // of one line at that budget.
 //
@@ -1897,6 +1906,7 @@ export const CARD_STEP_LINK_W = CARD_TITLE_BTN + CARD_TITLE_BTN_GAP;
 // button plus the gap between it and the ↗ (sizes above, req #3582).
 export const CARD_STEP_ADD_W = CARD_TITLE_BTN + CARD_TITLE_BTN_GAP;
 
+
 // ── THE TOTAL REQUIREMENT COUNT, AS A BADGE LEFT OF THE TITLE (req #3503,
 // user directive: "add a count badge to the left of the title — use that
 // green count badge we had before") ─────────────────────────────────────
@@ -1929,6 +1939,29 @@ export const CARD_BADGE_GAP = CHW_REQ;
 // single-text-row metric `REQ_TEXT_H` measures. `− 4` leaves 2 world px of
 // margin top and bottom so the pill's round cap clears the line box.
 export const CARD_BADGE_H = CARD_LINE_H - 4;
+
+// ── THE RUN-MODE PILL (req #3580, user directives: "have a display circle for
+// step's manual vs auto and let that be a configurable button in the UI", then
+// "make it say auto or manual and be green auto and blue manual") ──────────
+// Left of the ↗, reserved out of the step name's budget exactly the way the ✓
+// and the link button are, so a long title never draws under it. It carries the
+// WORD, so it is sized for the longer of the two — one fixed width, so the pill
+// does not change size (and the title's room does not move) when it is toggled.
+// The same height as the count badge on the other end of the line, so the two
+// pills read as one row.
+//
+// THE COST, stated: the word takes about three more characters of each title
+// line than the bare A/M circle it replaced.
+// The word is set at 80% of the requirement-row type (`CARD_RUN_FONT`, below
+// `CARD_FONT`), so its glyph width is that same fraction of the row's.
+const CARD_RUN_TYPE_RATIO = 0.8;
+export const CARD_RUN_WORDS = { auto: 'auto', manual: 'manual' };
+const CHW_RUN = CHW_REQ * CARD_RUN_TYPE_RATIO;
+const CARD_RUN_PAD_X = 5 * CARD_TYPE_SCALE;
+export const CARD_RUN_W = Math.ceil(
+    Math.max(...Object.values(CARD_RUN_WORDS).map((w) => w.length)) * CHW_RUN
+    + 2 * CARD_RUN_PAD_X);
+export const CARD_RUN_H = CARD_BADGE_H;
 // The digit's own font size — the TITLE's size, not the row glyph's (round
 // 1's choice, and part of why round 2 was needed): the badge sits beside
 // the title on its own line, not among the requirement rows below, and
@@ -2003,7 +2036,14 @@ export const cardChars = (chw, reserve = 0, textW = CARD_TEXT_W) =>
 // It was TWO while the line held 47 characters. The line is 28 now (see
 // `CARD_TEXT_CHARS`), so three lines carry 84 characters where two carried 94 —
 // close to the same title, at half again the on-screen size.
+//
+// Since req #3575 the second and third lines HANG past the id column, so a row
+// with a 4-digit id carries 28 + 21 + 21 = 70 characters, not 84 — the price of
+// a left edge holding nothing but ids.
 export const REQ_MAX_LINES = 3;
+
+// The narrowest continuation line a hanging indent may leave (req #3575).
+export const REQ_MIN_HANG_CHARS = 8;
 
 /**
  * Break one row's text into at most `REQ_MAX_LINES` lines of `maxChars`.
@@ -2015,23 +2055,36 @@ export const REQ_MAX_LINES = 3;
  *
  * The LAST line it produces is the only one that may carry an ellipsis, and it
  * carries one only when text was actually dropped — `truncate`'s own rule.
+ *
+ * `indent` is a HANGING INDENT (req #3575, user directive: *"a clear column at
+ * the left edge occupied only by the requirement number and the titles will
+ * wrap but stay out of the column"*). Every line after the first starts with
+ * that many spaces and is budgeted at `maxChars - indent`, so the whole line
+ * still fits the same column. The font is mono, so spaces ARE the column. An
+ * indent that would leave a continuation line too narrow to carry a word is
+ * dropped rather than honoured — a column of ids is not worth a title broken
+ * one character per line (`REQ_MIN_HANG_CHARS`).
  */
-export function wrapReqText(text, maxChars, maxLines = REQ_MAX_LINES) {
+export function wrapReqText(text, maxChars, maxLines = REQ_MAX_LINES, indent = 0) {
     const full = String(text == null ? '' : text);
     if (full.length <= maxChars) return [full];
+    const hang = maxChars - indent >= REQ_MIN_HANG_CHARS ? Math.max(0, indent) : 0;
+    const pad = ' '.repeat(hang);
     const lines = [];
     let rest = full;
     while (rest.length > 0 && lines.length < maxLines) {
+        const room = lines.length === 0 ? maxChars : maxChars - hang;
+        const lead = lines.length === 0 ? '' : pad;
         if (lines.length === maxLines - 1) {
-            lines.push(truncate(rest, maxChars));
+            lines.push(lead + truncate(rest, room));
             rest = '';
             break;
         }
-        if (rest.length <= maxChars) { lines.push(rest); rest = ''; break; }
+        if (rest.length <= room) { lines.push(lead + rest); rest = ''; break; }
         // The last space that still fits, so the break lands between words.
-        const cut = rest.lastIndexOf(' ', maxChars);
-        const at = cut > 0 ? cut : maxChars;
-        lines.push(rest.slice(0, at));
+        const cut = rest.lastIndexOf(' ', room);
+        const at = cut > 0 ? cut : room;
+        lines.push(lead + rest.slice(0, at));
         rest = rest.slice(cut > 0 ? at + 1 : at);
     }
     return lines;
@@ -2086,6 +2139,8 @@ export const CARD_FONT = {
     title: PLAN_VIZ_FONT.title * CARD_TYPE_SCALE,
     check: PLAN_VIZ_FONT.check * CARD_TYPE_SCALE,
 };
+// req #3580 — the run pill's word; see `CARD_RUN_W`.
+export const CARD_RUN_FONT = CARD_FONT.req * CARD_RUN_TYPE_RATIO;
 
 export const BEAD_RADIUS = BEAD_R;
 
@@ -2515,9 +2570,10 @@ export function drawsLabelKind(kind, level) {
     // `badge` and `step-link` ride the CARD (req #3498, extended req #3503) —
     // both are drawn in the title area, so they appear exactly where the card
     // does and never float beside a bare bead.
-    // `step-add` (req #3582) is the third title-area control and rides it too.
+    // `run` (req #3580) and `step-add` (req #3582) are title-area controls
+    // too and ride the card the same way.
     if (kind === 'step' || kind === 'req' || kind === 'badge' || kind === 'step-link'
-        || kind === 'step-add') {
+        || kind === 'run' || kind === 'step-add') {
         return level !== 'out';
     }
     if (kind === 'title') return level === 'in';
@@ -2944,7 +3000,8 @@ const truncate = (s, n) => {
 // `STEP_LABEL_MAX`: one width, measured where it is drawn, so there is no cap
 // left to drift out of step with the room.
 export function stepLabelText(row, stepLabel,
-    maxChars = cardChars(CHW_LABEL, CARD_CHECK_W + CARD_STEP_LINK_W + CARD_STEP_ADD_W + CARD_BADGE_W + CARD_BADGE_GAP)) {
+    maxChars = cardChars(CHW_LABEL, CARD_CHECK_W + CARD_STEP_LINK_W + CARD_STEP_ADD_W
+        + CARD_RUN_W + CARD_BADGE_W + CARD_BADGE_GAP)) {
     return stepLabel === 'title'
         ? truncate(row.title || `step ${row.id}`, Math.max(4, maxChars))
         : String(row.id);
@@ -3076,11 +3133,20 @@ const reqStr = (row) => (row.reqIds || []).join(' ');
 //                                    to leave every band's plain name alone
 // @returns {string}
 function epicBandLabelText(epicId, epicName, epicCounts) {
-    if (!epicCounts || epicId == null) return epicName;
+    const countText = epicBandCountText(epicId, epicCounts);
+    return countText ? `${epicName} ${countText}` : epicName;
+}
+
+// req #3580 — the SAME suffix on its own, so the chip can draw the closure
+// count as its own element (it is a zoom control; the name beside it is an
+// in-place editor). `epicBandLabelText` above is built FROM this, so the
+// measured label and the two drawn pieces can never disagree.
+function epicBandCountText(epicId, epicCounts) {
+    if (!epicCounts || epicId == null) return null;
     const counts = typeof epicCounts.get === 'function'
         ? epicCounts.get(epicId)
         : (Object.hasOwn(epicCounts, epicId) ? epicCounts[epicId] : null);
-    return counts ? `${epicName} ${counts.met}/${counts.total}` : epicName;
+    return counts ? `${counts.met}/${counts.total}` : null;
 }
 
 /**
@@ -3185,10 +3251,15 @@ export function computePlanLayout(rows, opts = {}) {
     const rowLinesOf = new Map();      // step id -> [[line, line?], …]
     for (const r of safeRows) {
         const ids = r.reqIds || [];
+        // The HANGING INDENT (req #3575): a wrapped title's continuation lines
+        // start where `${id} - ` ends, so the left edge holds the ids alone. It
+        // is the BARE id's width even on a row carrying pills — hanging under a
+        // pill row's title start would leave three characters a line — so every
+        // row's continuations line up on the one title column.
         rowLinesOf.set(r.id, ids.map((reqId) => wrapReqText(
             reqLabelText(reqId, {
                 reqLabel, reqTitles, reqPills, maxChars: reqRowMax * REQ_MAX_LINES,
-            }), reqRowMax)));
+            }), reqRowMax, REQ_MAX_LINES, String(reqId).length + CARD_SEP_CHARS)));
     }
     const reqBlockOf = (r) => reqBlockHeight(rowLinesOf.get(r.id) || []);
     // The card's TITLE AREA, wrapped by the same rule and reserved the same way.
@@ -3196,7 +3267,8 @@ export function computePlanLayout(rows, opts = {}) {
     // count) and `wrapReqText` breaks it; a short name still returns one line,
     // so only the cards that need the room pay for it.
     const nameBudget = cardChars(CHW_LABEL,
-        CARD_CHECK_W + CARD_STEP_LINK_W + CARD_STEP_ADD_W + CARD_BADGE_W + CARD_BADGE_GAP, cardTextW);
+        CARD_CHECK_W + CARD_STEP_LINK_W + CARD_STEP_ADD_W + CARD_RUN_W + CARD_BADGE_W
+        + CARD_BADGE_GAP, cardTextW);
     const nameLinesOf = new Map();
     for (const r of safeRows) {
         nameLinesOf.set(r.id, wrapReqText(
@@ -3335,6 +3407,7 @@ export function computePlanLayout(rows, opts = {}) {
                 // req #3225 — the SAME string measures the zero-overlap label
                 // rect and the floating chip; see the helper's own comment.
                 epicLabel: epicBandLabelText(key, epic, epicCounts),
+                epicCountText: epicBandCountText(key, epicCounts),
                 paused: bandPausedOf(key),
                 steps: [],
             });
@@ -4071,6 +4144,12 @@ export function computePlanLayout(rows, opts = {}) {
             x: titleTextLeft,
             y: n.top + CARD_PAD_Y,
             w: lw, h: nameLines.length * CARD_LINE_H,
+            // req #3580 — the WHOLE room the name may occupy (up to the run
+            // pill's reserve), which is where the in-place editor is drawn.
+            // Not `w`: that is the drawn text's own width, and an editor sized
+            // to a short name would have no room to type a longer one.
+            editW: n.right - CARD_PAD_X - CARD_CHECK_W - CARD_STEP_LINK_W
+                - CARD_STEP_ADD_W - CARD_RUN_W - titleTextLeft,
         });
         const ids = r.reqIds || [];
         // ── THE REQUIREMENT ROWS, TOP TO BOTTOM, IN ORDER ───────────────────
@@ -4124,7 +4203,9 @@ export function computePlanLayout(rows, opts = {}) {
             const prefix = fullPrefix.text.length <= lines[0].length
                 ? fullPrefix : { text: String(ids[i]), pills: [] };
             const w = Math.max(...lines.map((l) => l.length)) * CHW_REQ;
-            const t = lines.join(' ');
+            // Joined WITHOUT the hanging indent's padding (req #3575) — the
+            // indent is how the row is drawn, not part of what it says.
+            const t = lines.map((l, k) => (k ? l.trimStart() : l)).join(' ');
             const thisY = rowY;
             const thisIdY = idRowY;
             // The next row starts below THIS row's lines plus the between-rows
@@ -4227,7 +4308,7 @@ export function computePlanLayout(rows, opts = {}) {
             });
         }
         // ── "+" — FILE A REQUIREMENT INTO THIS STEP (req #3582) ───────────────
-        // Left of the ↗, in the room `CARD_STEP_ADD_W` reserved out of the step
+        // Left of the ↗ and right of the run pill (req #3580), in the room `CARD_STEP_ADD_W` reserved out of the step
         // name's budget — see that constant's own comment. NOT on a step with a
         // stamped `completed_at` (`canFileIntoStep` — design rule 1); its
         // reserve stays empty so the title budget is one number for every card.
@@ -4241,6 +4322,28 @@ export function computePlanLayout(rows, opts = {}) {
                     - CARD_TITLE_BTN,
                 y: n.top + CARD_PAD_Y,
                 w: CARD_TITLE_BTN, h: CARD_TITLE_BTN,
+            });
+        }
+        // ── THE RUN-MODE PILL (req #3580) ────────────────────────────────────
+        // Left of the "+" (req #3582 — which sits between it and the ↗), in
+        // the room `CARD_RUN_W` reserved out of the step name's budget. The
+        // "+" reserve is subtracted whether or not a "+" draws (a stamped step
+        // has none), so the pill does not move when a step is completed.
+        // Emitted for every card: run mode is a fact about every
+        // step, and the pill is also the control that changes it. The text is
+        // the word drawn inside; the renderer draws it as an HTML overlay, the
+        // badge's own move, because it is a button.
+        {
+            labels.push({
+                kind: 'run', stepId: r.id,
+                text: CARD_RUN_WORDS[r.run === 'manual' ? 'manual' : 'auto'],
+                run: r.run === 'manual' ? 'manual' : 'auto',
+                prose: false,
+                x: n.right - CARD_PAD_X - CARD_CHECK_W - CARD_STEP_LINK_W - CARD_STEP_ADD_W
+                    - CARD_RUN_W,
+                // The count badge's own y — the two pills share the line.
+                y: n.top + CARD_PAD_Y + 1,
+                w: CARD_RUN_W, h: CARD_RUN_H,
             });
         }
         // ── THE STEP'S OWN TITLE, ON THE L3 LINE ────────────────────────────
@@ -4895,6 +4998,11 @@ export function placeEpicChips({
             key: band.key == null ? 'none' : band.key,
             epicId: band.epicId,
             text: bandText,
+            // req #3580 — `text` split into its two drawn pieces: the NAME (an
+            // in-place editor) and the closure COUNT (a zoom control), each its
+            // own element. `text` stays the measured whole.
+            name: band.epic,
+            countText: band.epicCountText ?? null,
             color: band.color,
             // The band itself, so a click can fit it (req #3204). Carried rather
             // than re-looked-up by key: `band.key` is null for the "No epic"

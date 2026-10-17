@@ -148,7 +148,8 @@ describe('buildPlanRows — joining derived.rows[] back onto steps[]/epics[]/req
         // `top_up_eligible` is True, and both must survive the reshape.
         {
             id: 73, state: 'running', run: 'auto', eligible: false,
-            top_up_eligible: true, epic_id: 5,
+            top_up_eligible: true, gate_open: true, launch_candidate: true,
+            checkpoint_blocked_by: [70], epic_id: 5,
             dep_ids: [], out_of_scope_dep_ids: [], req_ids: [3003, 3004],
             tracking_req_ids: [], unresolved_req_ids: [], launch_req_ids: [3004],
             launch_excluded: [], launch_block: null,
@@ -187,6 +188,19 @@ describe('buildPlanRows — joining derived.rows[] back onto steps[]/epics[]/req
         expect(running.title).toBe('Topped Up');
         expect(running.epic).toBe('Swarm Cloned Git');
         expect(running.machineLabels).toEqual(['Mac mini']);
+    });
+
+    // req #3597 — the gate is REPORTED and candidacy is carried beside it; a
+    // payload without the fields reads as gate closed / not a candidate.
+    it('carries gate_open and launch_candidate, defaulting to false when absent', () => {
+        const running = rows.find((x) => x.id === 73);
+        expect(running.gateOpen).toBe(true);
+        expect(running.launchCandidate).toBe(true);
+        const legacy = rows.find((x) => x.id === 71);
+        expect(legacy.gateOpen).toBe(false);
+        expect(legacy.launchCandidate).toBe(false);
+        expect(running.checkpointBlockedBy).toEqual([70]);
+        expect(legacy.checkpointBlockedBy).toEqual([]);
     });
 
     it('joins the step dictionary for title/notes/completedAt', () => {
@@ -353,6 +367,17 @@ describe('adaptComposedPipeline — the plan object', () => {
         expect(plan.eligibleStepIds).toEqual(new Set([1]));
     });
 
+    // req #3597 — PRIORITY order is the fact, so it stays an ordered array.
+    it('carries launch_candidate_step_ids in its own order, defaulting to empty', () => {
+        expect(adaptComposedPipeline(payload).launchCandidateStepIds).toEqual([]);
+        const withCandidates = {
+            ...payload,
+            derived: { ...payload.derived, launch_candidate_step_ids: [2, 1] },
+        };
+        expect(adaptComposedPipeline(withCandidates).launchCandidateStepIds)
+            .toEqual([2, 1]);
+    });
+
     it('reshapes violations — invariant/message kept, step_ids -> stepIds', () => {
         const plan = adaptComposedPipeline(payload);
         expect(plan.violations).toEqual([
@@ -416,10 +441,12 @@ describe('buildPlanModel — the narrow model PipelinePlanVisualizer.jsx still r
         expect(model.requirements).toEqual(payload.requirements);
         expect(model.machines).toBe(machines);
         expect(model.features).toBeUndefined();
+        // req #3586 — the add-step dialog's epic picker.
+        expect(model.epics).toEqual(payload.epics);
     });
 
     it('tolerates a null payload', () => {
-        expect(buildPlanModel(null)).toEqual({ pipeline: null, requirements: [], machines: [] });
+        expect(buildPlanModel(null)).toEqual({ pipeline: null, requirements: [], machines: [], epics: [] });
     });
 
     it('attaches session_status from the index, no_session for a requirement it does not name (req #3584)', () => {

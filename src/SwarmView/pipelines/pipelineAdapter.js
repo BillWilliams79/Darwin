@@ -202,6 +202,16 @@ export function buildPlanRows(payload, machines = []) {
             // the engine will command. Never merged with `eligible`; the two
             // are disjoint server-side and answer different questions.
             topUpEligible: Boolean(dr.top_up_eligible),
+            // req #3597 — the gate REPORTED (every dependency done, time gate
+            // passed), and whether this step's work may be announced for launch,
+            // which no longer requires the gate: a dependency is a launch
+            // PRIORITY, not a gate. A payload from a Lambda that predates the
+            // fields reads as gate closed / not a candidate — never the reverse.
+            gateOpen: Boolean(dr.gate_open),
+            launchCandidate: Boolean(dr.launch_candidate),
+            // The user's amendment: open hand-closed checkpoints upstream that
+            // HOLD this step. Empty = nothing hand-closed blocks it.
+            checkpointBlockedBy: dr.checkpoint_blocked_by || [],
             launchSuppressed: Boolean(dr.launch_suppressed),
             suppressedBy: dr.suppressed_by || [],
             swarmStartCommand: dr.swarm_start_command != null ? dr.swarm_start_command : null,
@@ -296,6 +306,9 @@ export function adaptComposedPipeline(payload, { machines = [], costIndex = null
         // req #3507 — the plan-level companion, kept as its own Set for the
         // same reason the row field is kept as its own boolean.
         topUpStepIds: new Set(derived.top_up_step_ids || []),
+        // req #3597 — every launch candidate, in launch PRIORITY order (gate-open
+        // first, then display order). An array, not a Set: the order IS the fact.
+        launchCandidateStepIds: derived.launch_candidate_step_ids || [],
         cycleDetected: Boolean(derived.cycle_detected),
         cycleStepIds: derived.cycle_step_ids || [],
         duplicateStepIds: derived.duplicate_step_ids || [],
@@ -318,7 +331,7 @@ export function adaptComposedPipeline(payload, { machines = [], costIndex = null
  * @param {Object} payload
  * @param {Object[]} [machines]
  * @param {?Map<number, string>} [sessionStatus]  buildSessionStatusIndex output
- * @returns {{pipeline: ?Object, requirements: Object[], machines: Object[]}}
+ * @returns {{pipeline: ?Object, requirements: Object[], machines: Object[], epics: Object[]}}
  */
 export function buildPlanModel(payload, machines = [], sessionStatus = null) {
     const requirements = asArray(payload && payload.requirements);
@@ -334,5 +347,8 @@ export function buildPlanModel(payload, machines = [], sessionStatus = null) {
             }))
             : requirements,
         machines: asArray(machines),
+        // req #3586 — the epic picker of the visualizer's add-step dialog. The
+        // payload's own `epics[]`, so an epic with no steps yet is offered too.
+        epics: asArray(payload && payload.epics),
     };
 }
