@@ -140,7 +140,10 @@ describe('SwarmStartCard under an epic filter (req #3428)', () => {
         roots = [];
         statusesAsked = new Set();
         useSwarmStartCardStore.setState({ selectedStatus: 'swarm_ready', show: true });
-        useShowClosedStore.setState({ hidePipelinedRequirements: true });
+        // req #3598 — the stored toggle APPLIES under a scope now, and every row
+        // here is plan-carried, so the scope's own behaviour is asserted with it
+        // OFF; the test that turns it ON pins that it is no longer overridden.
+        useShowClosedStore.setState({ hidePipelinedRequirements: false });
     });
     afterEach(() => {
         act(() => { roots.forEach((r) => r.unmount()); });
@@ -171,8 +174,15 @@ describe('SwarmStartCard under an epic filter (req #3428)', () => {
         expect(badge(container, 'development')).toBe(rowIds(container).length);
     });
 
-    it('shows the epic\'s development rows even though every one is plan-carried '
-        + 'and the pipeline toggle is ON', () => {
+    it('the orchestrated toggle APPLIES under an epic filter: stored ON hides '
+        + 'its plan-carried rows from the rows AND the badge (req #3598)', () => {
+        useShowClosedStore.setState({ hidePipelinedRequirements: true });
+        const { container } = mount(EPIC_SET);
+        expect(rowIds(container)).toHaveLength(0);
+        expect(badge(container, 'development')).toBe(0);
+    });
+
+    it('with the toggle OFF, shows the epic\'s rows', () => {
         const { container } = mount(EPIC_SET);
         expect(rowIds(container)).toHaveLength(2);
     });
@@ -203,9 +213,9 @@ describe('SwarmStartCard under an epic filter (req #3428)', () => {
         expect(badge(container, 'swarm_ready')).toBe(0);
     });
 
-    it('suppresses the add-a-requirement row while filtered', () => {
+    it('keeps the add-a-requirement row while filtered (req #3598)', () => {
         const { container } = mount(EPIC_SET);
-        expect(container.querySelector('[data-testid="requirement-template"]')).toBeNull();
+        expect(container.querySelector('[data-testid="requirement-template"]')).not.toBeNull();
     });
 
     it('with NO filter (null) it behaves exactly as before: the stored chip is '

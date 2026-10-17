@@ -139,8 +139,8 @@ const SwarmView = () => {
     const [searchParams, setSearchParams] = useSearchParams();
     const epicId = readEpicParam(searchParams);
     const epicFilterActive = epicId !== null;
-    // THE FILTER IS THE CARDS VIEW'S — one expression, so the pill, the two
-    // suppressed controls and the row predicate can only ever turn on together.
+    // THE FILTER IS THE CARDS VIEW'S — one expression, so the pill and the row
+    // predicate can only ever turn on together.
     // In the other panels the parameter sleeps: it is still in the address bar,
     // nothing is filtered, and nothing claims to be.
     const epicFilterApplies = epicFilterActive && view === 'cards';
@@ -186,11 +186,9 @@ const SwarmView = () => {
     // corrects itself. Filtering is a claim, and a claim that cannot be checked
     // must not be made silently.
     const epicFilterFailed = epicFilterApplies && epicScopeError;
-    // IS A SCOPE ACTUALLY IN FORCE? Everything the filter OVERRIDES hangs off
-    // this rather than off `epicFilterApplies`, so a failed read restores the two
-    // suppressed controls and the aggregator's own preference along with the
-    // rows — the same rule from the other side: a control is off screen only
-    // while something else is deciding for it.
+    // IS A SCOPE ACTUALLY IN FORCE? The rows handed to the cards and the tab
+    // seed hang off this rather than off `epicFilterApplies`, so a failed read
+    // restores every row. Since req #3598 the scope overrides no control.
     const epicFilterEngaged = epicFilterApplies && epicReqIds != null;
     // DISMISSING A FILTER RETURNS TO THE READER'S OWN WORKING PROJECT, not
     // wherever the filter's own tab-seed effect left `activeTab` standing
@@ -631,6 +629,9 @@ const SwarmView = () => {
                                   sx={{ flexShrink: 0, cursor: 'pointer' }}
                                   data-testid="swarm-step-filter-chip" />
                         )}
+                        {/* req #3598 — the status chips stay on screen and keep
+                            applying under an epic/step scope: a scope restricts
+                            the rows and changes no control (user ruling). */}
                         {(view === 'cards' || (view === 'table' && !drill)) && (
                             <ChipFilter
                                 options={requirementStatusOptions}
@@ -676,17 +677,11 @@ const SwarmView = () => {
                             `hidePipelined` used to light up blue to announce
                             the filter it applies; now the icon announces what
                             is CURRENTLY VISIBLE, not which control is active. */}
-                        {/* req #3428 — `!epicFilterApplies` joins `!drill` for
-                            the reason stated three comments up: an epic filter
-                            forces this toggle OFF (`effectiveHidePipelined`), so
-                            leaving it on screen would show a control that is not
-                            applying — and, worse, an ON toggle whose stored value
-                            says the exact opposite of what the reader sees. */}
-                        {/* req #3503 — `!stepFilterEngaged` joins it for the
-                            identical reason: a step filter forces this toggle OFF
-                            too (`useRequirementVisibility`), so leaving it on
-                            screen would show a control that is not applying. */}
-                        {(view === 'cards' || (view === 'table' && !drill)) && !epicFilterEngaged && !stepFilterEngaged && (
+                        {/* req #3598 — no longer hidden under an epic/step
+                            scope: req #3428/#3503 forced this toggle OFF there
+                            and hid it; a scope now restricts the rows and the
+                            toggle applies as it does everywhere else. */}
+                        {(view === 'cards' || (view === 'table' && !drill)) && (
                             <Tooltip title={hidePipelined
                                 ? 'Hiding orchestrated requirements (on a plan step or in an epic)'
                                 : 'Showing orchestrated requirements (on a plan step or in an epic)'}>
@@ -705,12 +700,7 @@ const SwarmView = () => {
                                 </IconButton>
                             </Tooltip>
                         )}
-                        {/* Hidden under an epic filter for the same reason: the
-                            aggregator is forced visible there (the requirement's
-                            "you get the aggregator on"), so this toggle would
-                            flip a stored preference and change nothing on
-                            screen. */}
-                        {view === 'cards' && !epicFilterEngaged && !stepFilterEngaged && (
+                        {view === 'cards' && (
                             <Tooltip title={showSwarmStartCard ? 'Hide Swarm-Start Card' : 'Show Swarm-Start Card'}>
                                 <IconButton
                                     size="small"
@@ -738,15 +728,9 @@ const SwarmView = () => {
                     )}
 
                     {/* Content — cards view */}
-                    {/* req #3428 — TWO derived overrides, neither of which
-                        writes a store.
-
-                        The aggregator is FORCED VISIBLE under an epic filter
-                        (the requirement's "you get the aggregator on") by OR-ing
-                        the host's own boolean, never by calling `toggle()`: an
-                        external condition must not overwrite uncommitted user
-                        intent, so dismissing the pill restores exactly the
-                        aggregator state the reader had.
+                    {/* req #3428 — the SCOPE is threaded down; nothing else is
+                        overridden (req #3598 retired the forced-visible
+                        aggregator: its own toggle decides, as on any page).
 
                         `epicReqIds` is the SCOPE, threaded down as a prop
                         because the HOST owns the filter — an aggregator never
@@ -761,7 +745,7 @@ const SwarmView = () => {
                                           showClosed = {showClosed}
                                           epicReqIds = {epicFilterEngaged ? epicReqIds : null}
                                           stepReqIds = {stepFilterEngaged ? stepReqIds : null}
-                                          showSwarmStartCard = {showSwarmStartCard || epicFilterEngaged || stepFilterEngaged}>
+                                          showSwarmStartCard = {showSwarmStartCard}>
                         </CategoryTabPanel>
                     )}
 

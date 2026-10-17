@@ -6,9 +6,9 @@
 // The pure rules are pinned in `swarmViewLink.stepParam.test.js` and
 // `utils/__tests__/pipelineMembership.test.js`. What no pure suite can catch is
 // the page assembling this wrongly: a pill rendered in a view the filter is not
-// applying to, a scope that never reaches the cards, a toggle left on screen
-// that no longer does anything — each of which renders a plausible page and
-// reports nothing.
+// applying to, a scope that never reaches the cards, or — since req #3598 — a
+// control the scope still hides or overrides — each of which renders a
+// plausible page and reports nothing.
 //
 // The last describe is the one that exists ONLY because there are two filters:
 // they are independent, so neither may suppress or rewrite the other.
@@ -139,9 +139,9 @@ describe('SwarmView under ?step= (req #3503)', () => {
         expect(getByTestId('swarm-step-filter-chip').textContent).toContain('187');
     });
 
-    it('forces the aggregator visible without touching its stored preference', () => {
+    it('leaves the aggregator to its own stored preference (req #3598)', () => {
         mount('/swarm?view=cards&step=186');
-        expect(lastPanelProps().showSwarmStartCard).toBe(true);
+        expect(lastPanelProps().showSwarmStartCard).toBe(false);
         expect(useSwarmStartCardStore.getState().show).toBe(false);
     });
 
@@ -150,18 +150,14 @@ describe('SwarmView under ?step= (req #3503)', () => {
         expect(lastPanelProps().stepReqIds).toBe(stepReqIdsFromHook);
     });
 
-    it('removes the pipeline toggle and the aggregator toggle, because neither '
-        + 'would be applying', () => {
-        // The pipeline toggle is FORCED OFF under this filter (a step's
-        // requirements are on a step by definition), so leaving it on screen
-        // would show an ON control whose stored value says the opposite of what
-        // the reader sees.
+    it('keeps the pipeline toggle and the aggregator toggle on screen — a scope '
+        + 'restricts the rows and overrides no control (req #3598)', () => {
         const { queryByTestId } = mount('/swarm?view=cards&step=186');
-        expect(queryByTestId('hide-pipelined-toggle')).toBeNull();
-        expect(queryByTestId('swarm-start-card-toggle')).toBeNull();
+        expect(queryByTestId('hide-pipelined-toggle')).not.toBeNull();
+        expect(queryByTestId('swarm-start-card-toggle')).not.toBeNull();
     });
 
-    it('keeps the status chips, which are orthogonal to step membership', () => {
+    it('keeps the status chips on screen (req #3598)', () => {
         const { queryByTestId } = mount('/swarm?view=cards&step=186');
         expect(queryByTestId('requirement-status-filter')).not.toBeNull();
     });
@@ -172,6 +168,7 @@ describe('SwarmView under ?step= (req #3503)', () => {
         expect(queryByTestId('swarm-step-filter-chip')).toBeNull();
         expect(queryByTestId('hide-pipelined-toggle')).not.toBeNull();
         expect(queryByTestId('swarm-start-card-toggle')).not.toBeNull();
+        expect(queryByTestId('requirement-status-filter')).not.toBeNull();
         expect(lastPanelProps().stepReqIds).toBeNull();
         expect(lastPanelProps().showSwarmStartCard).toBe(false);
     });
@@ -200,6 +197,8 @@ describe('SwarmView under ?step= (req #3503)', () => {
         expect(queryByTestId('table-view')).not.toBeNull();
         expect(queryByTestId('swarm-step-filter-chip')).toBeNull();
         expect(queryByTestId('hide-pipelined-toggle')).not.toBeNull();
+        // Table view never takes the scope, so its status chips stay (req #3598).
+        expect(queryByTestId('requirement-status-filter')).not.toBeNull();
     });
 
     it('with no ?step= at all, nothing about the page changes', () => {
@@ -236,6 +235,8 @@ describe('SwarmView under ?step= (req #3503)', () => {
         expect(lastPanelProps().showSwarmStartCard).toBe(false);
         expect(queryByTestId('hide-pipelined-toggle')).not.toBeNull();
         expect(queryByTestId('swarm-start-card-toggle')).not.toBeNull();
+        // Not engaged, so the status chips stay on screen AND keep filtering.
+        expect(queryByTestId('requirement-status-filter')).not.toBeNull();
     });
 });
 
@@ -293,6 +294,15 @@ describe('both filters engaged at once seed ONE tab deterministically (req #3503
         cleanup();
         localStorage.clear();
         epicReqIdsFromHook = null;   // back to every other describe block's default
+    });
+
+    it('with both scopes engaged every control is still on screen (req #3598)', () => {
+        const { queryByTestId } = mount('/swarm?view=cards&epic=11&step=186');
+        expect(lastPanelProps().epicReqIds).toBe(epicReqIdsFromHook);
+        expect(lastPanelProps().stepReqIds).toBe(stepReqIdsFromHook);
+        expect(queryByTestId('requirement-status-filter')).not.toBeNull();
+        expect(queryByTestId('hide-pipelined-toggle')).not.toBeNull();
+        expect(queryByTestId('swarm-start-card-toggle')).not.toBeNull();
     });
 
     it('the STEP scope wins — the narrower, more specific link', () => {

@@ -61,7 +61,6 @@ import { useCallback, useMemo } from 'react';
 
 import { useAllPipelineStepRequirements } from './useDataQueries';
 import { useShowClosedStore } from '../stores/useShowClosedStore';
-import { effectiveHidePipelined } from '../utils/epicMembership';
 import {
     orchestratedRequirementIds,
     excludeByIds,
@@ -69,24 +68,11 @@ import {
 
 /**
  * @param {string} creatorFk  the profile userName; falsy disables every read.
- * @param {object} [opts]
- * @param {boolean} [opts.epicFilterActive=false]  req #3428 — an epic filter
- *        FORCES the orchestrated toggle off, because an epic's requirements are
- *        seated in pipeline steps by construction and the toggle defaults ON
- *        (req #3242), so an epic page would otherwise arrive empty. Applied
- *        HERE, through `effectiveHidePipelined`, rather than by each caller:
- *        req #3428 introduced that predicate to stop the header control and the
- *        row filter disagreeing, and req #3419 exists to stop the row filter
- *        being written five times — so the override belongs in the one place
- *        that answers the question. The store is never WRITTEN: dismissing the
- *        epic pill restores exactly the toggle state the reader had.
- * @param {boolean} [opts.stepFilterActive=false]  req #3503 — the STEP filter,
- *        and the identical override for a stronger version of the same reason: a
- *        step's requirements are on a step BY DEFINITION, so with the toggle left
- *        in charge a step-filtered page is empty ALWAYS, not merely usually. A
- *        separate flag rather than a caller OR-ing into `epicFilterActive`,
- *        because a parameter named for the epic filter silently answering for the
- *        step one is how the next reader mis-reads this hook.
+ *
+ * req #3598 RETIRED the `{ epicFilterActive, stepFilterActive }` options, which
+ * forced the toggle off under an epic/step scope. A scope now restricts the rows
+ * and nothing else (user ruling, 2026-10-17), so the stored toggle applies on a
+ * filtered page exactly as on an unfiltered one.
  * @returns {{
  *   hideOrchestrated: boolean,
  *   orchestratedIds: Set<number>,
@@ -114,16 +100,8 @@ import {
  * (`utils/pipelineMembership.js`) for anything that genuinely needs step
  * association without the toggle.
  */
-export function useRequirementVisibility(
-    creatorFk, { epicFilterActive = false, stepFilterActive = false } = {}) {
-    const storedHideOrchestrated = useShowClosedStore(s => s.hidePipelinedRequirements);
-    // req #3503 — EITHER membership filter forces the toggle off, through the one
-    // predicate. `effectiveHidePipelined`'s parameter keeps its epic name: it has
-    // only ever asked "is a membership scope in force", and widening the CALL is
-    // what keeps this override in the single place req #3419 put it rather than
-    // spawning a second predicate that could disagree with the first.
-    const hideOrchestrated = effectiveHidePipelined(
-        storedHideOrchestrated, epicFilterActive || stepFilterActive);
+export function useRequirementVisibility(creatorFk) {
+    const hideOrchestrated = !!useShowClosedStore(s => s.hidePipelinedRequirements);
 
     // Read unconditionally — hooks are not conditional, and gating this on the
     // toggle would mean the FIRST flip renders stale-empty for a round trip,

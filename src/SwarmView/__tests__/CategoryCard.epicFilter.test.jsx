@@ -2,16 +2,12 @@
 //
 // Req #3428 — the epic filter as the CategoryCard actually applies it.
 //
-// The pure rules are pinned in `utils/__tests__/epicMembership.test.js`; this
-// suite exists for the three things only a mounted card can show, and all three
-// are places where the behavior silently fails rather than errors:
-//   1. the forced pipeline override — without it this page renders EMPTY, because
-//      `hidePipelinedRequirements` defaults to ON and an epic's requirements are
-//      seated in pipeline steps by construction;
-//   2. a card with none of the epic's work renders NOTHING, which is the
-//      requirement's "only those categories that have requirements from the epic";
-//   3. the add-a-requirement row stands down, because a row saved there would
-//      belong to no epic and vanish on save.
+// The pure rules are pinned in `utils/__tests__/epicMembership.test.js`. Since
+// req #3598 a scope RESTRICTS THE ROWS AND CHANGES NOTHING ELSE (user ruling,
+// 2026-10-17), so this suite pins that req #3428's three overrides are gone:
+//   1. the orchestrated toggle applies as stored (no forced override);
+//   2. a card with none of the epic's work still renders;
+//   3. the add-a-requirement row stays.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import React from 'react';
@@ -124,30 +120,30 @@ describe('CategoryCard under an epic filter (req #3428)', () => {
         useShowClosedStore.setState({ hidePipelinedRequirements: false });
     });
 
-    it('shows the epic\'s row even though it is pipelined and the toggle is ON', () => {
-        // The defect this closes: with `hidePipelined` left in charge, the page
-        // the epic link opens is blank, and nothing anywhere reports an error.
+    it('the orchestrated toggle APPLIES under an epic filter: stored ON hides the '
+        + 'epic\'s pipelined row (req #3598)', () => {
         const { container } = mount(new Set([10]));
-        expect(rowPresent(container, 10)).toBe(true);
+        expect(rowPresent(container, 10)).toBe(false);
     });
 
-    it('shows ONLY the epic\'s rows', () => {
+    it('with the toggle OFF, shows ONLY the epic\'s rows', () => {
+        useShowClosedStore.setState({ hidePipelinedRequirements: false });
         const { container } = mount(new Set([10]));
+        expect(rowPresent(container, 10)).toBe(true);
         expect(rowPresent(container, 11)).toBe(false);
     });
 
-    it('renders no card at all when this category holds none of the epic', () => {
+    it('still renders the card when this category holds none of the epic', () => {
         const { container } = mount(new Set([9999]));
-        expect(cardPresent(container)).toBe(false);
+        expect(cardPresent(container)).toBe(true);
     });
 
-    it('suppresses the add-a-requirement row while filtered', () => {
+    it('keeps the add-a-requirement row while filtered', () => {
         const { container } = mount(new Set([10]));
-        expect(container.querySelector('[data-testid="requirement-template"]')).toBeNull();
+        expect(container.querySelector('[data-testid="requirement-template"]')).not.toBeNull();
     });
 
-    it('with NO filter (null), behaves exactly as before — both the toggle and '
-        + 'the template row are back in charge', () => {
+    it('with NO filter (null), behaves exactly as before', () => {
         const { container } = mount(null);
         // The stored toggle is ON and both rows are pipelined, so the unfiltered
         // card is empty of rows but still RENDERS, template and all.
@@ -157,7 +153,7 @@ describe('CategoryCard under an epic filter (req #3428)', () => {
         expect(container.querySelector('[data-testid="requirement-template"]')).not.toBeNull();
     });
 
-    it('never writes the store — dismissing the filter restores what the reader had', () => {
+    it('never writes the store', () => {
         mount(new Set([10]));
         expect(useShowClosedStore.getState().hidePipelinedRequirements).toBe(true);
     });
