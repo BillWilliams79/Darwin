@@ -16,7 +16,7 @@ import {
     WITHHELD_ABSENT,
     WITHHELD_UNSPECIFIED,
 } from '../pipelineAdapter';
-import { buildCostIndex } from '../pipelineViewModel';
+import { buildCostIndex, buildSessionStatusIndex } from '../pipelineViewModel';
 import { composedFixture } from './pipelineComposedFixture';
 
 describe('deriveDiagnostic — the four regimes (req #3345 § 4.5 / #3367 deliverable 3)', () => {
@@ -420,5 +420,48 @@ describe('buildPlanModel — the narrow model PipelinePlanVisualizer.jsx still r
 
     it('tolerates a null payload', () => {
         expect(buildPlanModel(null)).toEqual({ pipeline: null, requirements: [], machines: [] });
+    });
+
+    it('attaches session_status from the index, no_session for a requirement it does not name (req #3584)', () => {
+        const payload = composedFixture({
+            requirements: [{ id: 1, requirement_status: 'met' },
+                { id: 2, requirement_status: 'swarm_ready' }],
+        });
+        const model = buildPlanModel(payload, [], new Map([[1, 'review']]));
+        expect(model.requirements.map((r) => r.session_status)).toEqual(['review', 'no_session']);
+        // The payload's own rows are not mutated.
+        expect(payload.requirements[0].session_status).toBeUndefined();
+    });
+
+    it('leaves rows untouched when there is no index — unknown, never "no session"', () => {
+        const payload = composedFixture({ requirements: [{ id: 1 }] });
+        expect(buildPlanModel(payload, [], null).requirements).toEqual(payload.requirements);
+    });
+});
+
+describe('buildSessionStatusIndex (req #3584)', () => {
+    it('reports each requirement\'s LATEST session — the highest session id', () => {
+        const index = buildSessionStatusIndex({
+            requirementSessions: [
+                { requirement_fk: 1, session_fk: 10 },
+                { requirement_fk: 1, session_fk: 12 },
+                { requirement_fk: 2, session_fk: '11' },
+                // A link to a session the read did not return contributes nothing.
+                { requirement_fk: 3, session_fk: 99 },
+            ],
+            sessions: [
+                { id: 10, swarm_status: 'completed' },
+                { id: 11, swarm_status: 'paused' },
+                { id: 12, swarm_status: 'active' },
+            ],
+        });
+        expect(index.get(1)).toBe('active');
+        expect(index.get(2)).toBe('paused');
+        expect(index.has(3)).toBe(false);
+    });
+
+    it('is null until both reads have settled', () => {
+        expect(buildSessionStatusIndex({ ready: false })).toBeNull();
+        expect(buildSessionStatusIndex({}).size).toBe(0);
     });
 });
