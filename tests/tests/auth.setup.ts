@@ -70,6 +70,20 @@ setup('authenticate', async ({ page }) => {
   await page.goto('/taskcards');
   await expect(page).toHaveURL(/\/taskcards/, { timeout: 10000 });
 
+  // Req #3589 — a dev server seeds its navbar with every group collapsed except
+  // its working area, under a per-session key (`darwin-navbar-collapsed-groups:dev:<reqId>:<route>`,
+  // see src/NavBar/navCollapse.js). Specs click sidebar links across every group,
+  // so hand them the all-open map the production default gives. The key is read
+  // back from storage after the sidebar has written it rather than rebuilt here,
+  // because the req id is resolved by vite.config.js, not by this process.
+  // No dev key (a production BASE_URL) makes this a no-op.
+  await expect(page.locator('.app-navbar')).toBeVisible({ timeout: 10000 });
+  await page.evaluate(() => {
+    for (const key of Object.keys(localStorage)) {
+      if (key.startsWith('darwin-navbar-collapsed-groups:dev:')) localStorage.setItem(key, '{}');
+    }
+  });
+
   // Save authenticated state for other tests
   await page.context().storageState({ path: STORAGE_STATE });
 });

@@ -58,13 +58,14 @@ const EMPTY = Object.freeze([]);
  *
  * @param {?number} pipelineId
  * @param {?string} creatorFk
- * @param {{enabled?: boolean, machines?: Array, costIndex?: Object}} options
+ * @param {{enabled?: boolean, machines?: Array, costIndex?: Object,
+ *          sessionStatus?: ?Map<number, string>}} options
  * @returns {{pipeline: ?Object, model: ?Object, plan: ?Object,
  *            diagnostic: ?Object, isLoading: boolean, dictionaryError: boolean,
  *            knownIds: ?Array<number>}}
  */
 export function usePlanSources(pipelineId, creatorFk,
-    { enabled = true, machines = EMPTY, costIndex } = {}) {
+    { enabled = true, machines = EMPTY, costIndex, sessionStatus = null } = {}) {
     const { data: composed, isLoading: composedLoading } =
         useComposedPipeline(pipelineId, { enabled });
 
@@ -105,8 +106,8 @@ export function usePlanSources(pipelineId, creatorFk,
     const canBuild = !!pipeline && !diagnostic;
 
     const model = useMemo(
-        () => (canBuild ? buildPlanModel(composed, machines) : null),
-        [canBuild, composed, machines]);
+        () => (canBuild ? buildPlanModel(composed, machines, sessionStatus) : null),
+        [canBuild, composed, machines, sessionStatus]);
 
     const plan = useMemo(
         () => (canBuild ? adaptComposedPipeline(composed, { machines, costIndex }) : null),

@@ -54,6 +54,7 @@ import {
     MACHINE_MAC_COLOR, MACHINE_WINDOWS_COLOR, MACHINE_ANY_COLOR,
     MACHINE_FALLBACK_PALETTE, machineEcosystem, buildMachineColorView,
     AUTONOMY_COLORS, AUTONOMY_ORDER, AUTONOMY_UNKNOWN_COLOR, autonomyColor,
+    SESSION_STATUS_COLORS, SESSION_STATUS_ORDER, SESSION_UNKNOWN_COLOR,
     REQ_COLOR_SCALES, REQ_COLOR_KEYS, reqColorScale, buildReqColorViews,
     DEFAULT_COLOR_KEY, isColorKey, normalizeColorKey,
     reqIdStyle, reqIdKeyEntries, PLAN_KEY_MAX_H,
@@ -4218,6 +4219,13 @@ describe('requirement mark stack order (req #3363, driven by the colour key req 
             .toEqual([1, 2, 3, 4, 5, 6, 7]);
     });
 
+    it('Session sorts no session→completed — SESSION_STATUS_ORDER itself (req #3584)', () => {
+        const session = { 1: 'completed', 2: 'review', 3: 'active', 4: 'no_session', 5: 'bogus' };
+        expect(sortReqIdsByColorKey([1, 2, 3, 4, 5],
+            { colorKey: 'session', sessionOf: (id) => session[id] }))
+            .toEqual([4, 3, 2, 1, 5]);
+    });
+
     it('Autonomy sorts Discuss→Deployed — AUTONOMY_ORDER itself', () => {
         const autonomy = { 1: 'deployed', 2: 'implemented', 3: 'planned', 4: 'discuss' };
         const ids = [1, 2, 3, 4];
@@ -4505,11 +4513,12 @@ describe('the SCALE REGISTRY (req #3422)', () => {
         // missing renders a blank chip or an untitled key, which is exactly the
         // failure this asserts away.
         // ORDER IS THE TOOLBAR'S ORDER and it is the user's (req #3365):
-        // State, Autonomy, Machine. Asserted here rather than in a component
-        // test because the registry is the ONE place it is stated — the
-        // toolbar and the on-screen key both map this array and neither sorts.
+        // State, Session (second, req #3584), Autonomy, Machine. Asserted here
+        // rather than in a component test because the registry is the ONE
+        // place it is stated — the toolbar and the on-screen key both map this
+        // array and neither sorts.
         expect(REQ_COLOR_SCALES.map((s) => s.key))
-            .toEqual(['state', 'autonomy', 'machine']);
+            .toEqual(['state', 'session', 'autonomy', 'machine']);
         for (const s of REQ_COLOR_SCALES) {
             for (const field of ['key', 'chipLabel', 'chipTip', 'chipName', 'keyTitle']) {
                 expect(typeof s[field], `${s.key}.${field}`).toBe('string');
@@ -4532,7 +4541,7 @@ describe('the SCALE REGISTRY (req #3422)', () => {
     });
 
     it('is the SOURCE of the key positions, not a parallel copy', () => {
-        expect(REQ_COLOR_KEYS).toEqual(['state', 'autonomy', 'machine', 'none']);
+        expect(REQ_COLOR_KEYS).toEqual(['state', 'session', 'autonomy', 'machine', 'none']);
         // The stored preference's whole vocabulary is the registry plus `none` —
         // there is no second list to keep in step (the `COLOR_KEY_LABELS` object
         // that used to be one is gone; nothing rendered it).
@@ -4560,7 +4569,7 @@ describe('the SCALE REGISTRY (req #3422)', () => {
         // default moved to Aurora at req #3365 and a test naming those constants
         // would be asserting a palette the canvas no longer draws.
         const PAL = planPalette(DEFAULT_PLAN_PALETTE);
-        expect(Object.keys(views)).toEqual(['state', 'autonomy', 'machine']);
+        expect(Object.keys(views)).toEqual(['state', 'session', 'autonomy', 'machine']);
         expect(views.state.colorOf(1)).toBe(PAL.status.met);
         expect(views.state.colorOf(3)).toBe(PAL.status.wontfix);
         expect(views.state.legend.map((e) => e.key)).toEqual(['development', 'met']);
@@ -4576,6 +4585,53 @@ describe('the SCALE REGISTRY (req #3422)', () => {
         expect(views.autonomy.legend.map((e) => e.key)).toEqual(['discuss', 'deployed']);
         expect(views.autonomy.legend.map((e) => e.color))
             .toEqual([PAL.autonomy.discuss, PAL.autonomy.deployed]);
+    });
+
+    it('builds the SESSION scale from `session_status`, second after State (req #3584)', () => {
+        const PAL = planPalette(DEFAULT_PLAN_PALETTE);
+        const views = buildReqColorViews({
+            requirements: [
+                { id: 1, session_status: 'completed' },
+                { id: 2, session_status: 'review' },
+                { id: 3, session_status: 'no_session' },
+                // No `session_status` at all: the session reads have not
+                // settled, so it is UNKNOWN — never "no session".
+                { id: 4 },
+            ],
+        });
+        expect(views.session.colorOf(1)).toBe(PAL.session.completed);
+        expect(views.session.colorOf(3)).toBe(PAL.session.no_session);
+        expect(views.session.colorOf(4)).toBe(SESSION_UNKNOWN_COLOR);
+        // LIFECYCLE order, with human-readable labels.
+        expect(views.session.legend.map((e) => e.key))
+            .toEqual(['no_session', 'review', 'completed', 'unknown']);
+        expect(views.session.legend[0].label).toBe('no session');
+        expect(reqColorScale('session').keyTitle).toBe('Requirement id = session');
+        expect(reqIdStyle({ colorKey: 'session', views, reqId: 2 }))
+            .toEqual({ fill: PAL.session.review, bold: true });
+    });
+
+    it('never lets a session member read as the unknown swatch, in any theme', () => {
+        // Unknown is what EVERY mark wears while the session reads load, so a
+        // member near it would make "not loaded yet" read as that member.
+        for (const p of PLAN_PALETTES) {
+            for (const [k, hex] of Object.entries(p.session)) {
+                expect(deltaE(hex, SESSION_UNKNOWN_COLOR), `${p.key}.session.${k}`)
+                    .toBeGreaterThanOrEqual(20);
+            }
+        }
+    });
+
+    it('makes the live session scale TRACK the colours that already mean the same thing', () => {
+        // By identity, for REQ_STATUS_COLORS' reason: a copied hex drifts.
+        const aurora = planPalette('aurora');
+        expect(aurora.session.waiting).toBe(aurora.autonomy.discuss);
+        expect(aurora.session.active).toBe(aurora.status.development);
+        expect(aurora.session.completed).toBe(aurora.autonomy.deployed);
+        expect(SESSION_STATUS_COLORS.waiting).toBe(AUTONOMY_COLORS.discuss);
+        expect(SESSION_STATUS_COLORS.active).toBe(PLAN_VIZ_PALETTE.runningRing);
+        expect(SESSION_STATUS_COLORS.completed).toBe(AUTONOMY_COLORS.deployed);
+        expect(planPalette('stoplight').session).toBe(SESSION_STATUS_COLORS);
     });
 
     it('names a value it does not know, and a requirement it never received', () => {
@@ -4638,7 +4694,7 @@ describe('the colour key — N scales plus NONE (req #3168 directive 3, req #342
 
     it('has one position per registered scale plus none, and defaults to state', () => {
         expect([...REQ_COLOR_KEYS].sort())
-            .toEqual(['autonomy', 'machine', 'none', 'state']);
+            .toEqual(['autonomy', 'machine', 'none', 'session', 'state']);
         expect(DEFAULT_COLOR_KEY).toBe('state');
         for (const v of REQ_COLOR_KEYS) expect(isColorKey(v)).toBe(true);
     });
@@ -4746,13 +4802,13 @@ describe("the KEY is a keep-out: what it costs the epic labels (req #3168, re-me
 
     // The complete key (directive 2) is capped on HEIGHT, not width, since req
     // #3374 P6 — see `PLAN_KEY_MAX_H`. These sizes bracket what it can actually
-    // be: collapsed (just the toggle button — the default state since req
-    // #3309, and the panel's own `minWidth`/`minHeight` floor), the ordinary
-    // expanded key, at the height cap with a typical width, and the worst case
+    // be: collapsed (just the toggle button — the panel's own
+    // `minWidth`/`minHeight` floor), the ordinary expanded key (the default
+    // state since req #3585), at the height cap with a typical width, and the worst case
     // (a machine key on a many-machine plan — WIDE, since #3371/#3373 left the
     // key's two groups with no way to grow taller than the cap, only wider).
     const KEY_SIZES = [
-        { w: 32, h: 28, label: 'collapsed (default since req #3309)' },
+        { w: 32, h: 28, label: 'collapsed (toggle only)' },
         { w: 300, h: 76, label: 'expanded, state key' },
         { w: 300, h: PLAN_KEY_MAX_H, label: 'expanded, at the height cap' },
         { w: 900, h: PLAN_KEY_MAX_H, label: 'worst case — many machines, wide, at the height cap' },
@@ -8238,6 +8294,7 @@ describe('palette themes (req #3365)', () => {
             // data problem.
             expect(Object.keys(p.status).sort()).toEqual([...REQ_STATUS_ORDER].sort());
             expect(Object.keys(p.autonomy).sort()).toEqual([...AUTONOMY_ORDER].sort());
+            expect(Object.keys(p.session).sort()).toEqual([...SESSION_STATUS_ORDER].sort());
         }
     });
 
@@ -8249,6 +8306,7 @@ describe('palette themes (req #3365)', () => {
                 epic: p.epic,
                 status: Object.values(p.status),
                 autonomy: Object.values(p.autonomy),
+                session: Object.values(p.session),
             })) {
                 for (const hex of hexes) {
                     expect(contrast(hex, PANEL), `${p.key}.${scale} ${hex}`)
@@ -8269,6 +8327,7 @@ describe('palette themes (req #3365)', () => {
                 epic: p.epic,
                 status: Object.values(p.status),
                 autonomy: Object.values(p.autonomy),
+                session: Object.values(p.session),
             })) {
                 let worst = { pair: null, d: Infinity };
                 for (let i = 0; i < hexes.length; i++) {

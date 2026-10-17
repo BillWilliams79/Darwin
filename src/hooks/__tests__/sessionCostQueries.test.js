@@ -9,9 +9,10 @@
 //      the full row — one of them then renders blank columns depending on mount
 //      order. The keys must differ; the PREFIX must still match, so existing
 //      session invalidations refresh the cost numbers too.
-//   2. The light projection stays THREE columns. Widening it back toward the
-//      full row re-imports the req #3078 payload problem that this projection
-//      exists to sidestep.
+//   2. The light projection stays FOUR fixed-width columns — the id, the two
+//      rollups, and (req #3584) `swarm_status`, a short enum the plan
+//      visualizer's Session colour key reads. Widening it toward the full row
+//      re-imports the req #3078 payload problem this projection sidesteps.
 //   3. Neither read is per-requirement or per-session. That is design rule 5,
 //      and the POC's disabled Cost column is the named failure.
 
@@ -20,7 +21,7 @@ import { sessions, requirementSessions, sessionCostRollups } from '../factory/de
 import { sessionKeys, requirementSessionKeys, sessionCostRollupKeys } from '../useQueryKeys';
 import { useAllRequirementSessions, useAllSessionCostRollups } from '../useDataQueries';
 
-const LIGHT_FIELDS = 'id,wall_secs_total,output_tokens_total';
+const LIGHT_FIELDS = 'id,wall_secs_total,output_tokens_total,swarm_status';
 
 describe('cost read key shapes', () => {
     it('requirementSessionKeys.all(creator) → ["requirement_sessions", creator]', () => {
@@ -47,7 +48,7 @@ describe('cost read key shapes', () => {
 });
 
 describe('cost read projection contracts', () => {
-    it('the session cost read projects exactly id + the two rollup columns', () => {
+    it('the session cost read projects exactly id + the two rollup columns + swarm_status', () => {
         expect(sessionCostRollups.config.defaultFields).toBe(LIGHT_FIELDS);
     });
 

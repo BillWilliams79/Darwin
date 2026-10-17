@@ -361,13 +361,14 @@ export default function PipelinePlanVisualizer({
             .map((r) => [r.id, {
                 title: r.title, status: r.requirement_status,
                 coordination: r.coordination_type, model: r.ai_model, effort: r.effort,
-                machineFk: r.machine_fk,
+                machineFk: r.machine_fk, session: r.session_status,
             }])),
         [model]);
     // req #3363, generalized req #3503 — the requirement marks stacked under a
     // step sort by whichever colour key is ACTIVE (`sortReqIdsByColorKey`'s own
-    // ladder: State Authoring→Met, Autonomy Discuss→Deployed, Machine its own
-    // order), not by a fixed met-first ladder any more. Only the ORDER of each
+    // ladder: State Authoring→Met, Session no session→completed, Autonomy
+    // Discuss→Deployed, Machine its own order), not by a fixed met-first
+    // ladder any more. Only the ORDER of each
     // row's `reqIds` changes here; the ROW ARRAY keeps the engine's own order
     // (bead z-stacking, column/lane placement all key off it), and every other
     // field on a row — `launchReqIds`, `trackingReqIds`, `swarmStartCommand` —
@@ -377,11 +378,12 @@ export default function PipelinePlanVisualizer({
         const base = plan.rows || [];
         if (!base.length) return base;
         const statusOf = (id) => reqInfo.get(id)?.status;
+        const sessionOf = (id) => reqInfo.get(id)?.session;
         const autonomyOf = (id) => reqInfo.get(id)?.coordination;
         const machineOf = (id) => reqInfo.get(id)?.machineFk;
         return base.map((r) => ((r.reqIds || []).length > 1
             ? { ...r, reqIds: sortReqIdsByColorKey(r.reqIds,
-                { colorKey, statusOf, autonomyOf, machineOf }) }
+                { colorKey, statusOf, sessionOf, autonomyOf, machineOf }) }
             : r));
     }, [plan.rows, reqInfo, colorKey]);
     const rowById = useMemo(() => new Map(rows.map((r) => [r.id, r])), [rows]);
@@ -464,10 +466,10 @@ export default function PipelinePlanVisualizer({
         REQ_KEY_SCALES.map((scale) => [scale, reqIdKeyEntries({
             colorKey: scale, views: reqColorViews,
         }).entries])), [reqColorViews]);
-    // Collapsed by default (req #3309 — the key covered too much of the plan
-    // on first view) — see the key's own comment below for why this is
-    // component state and not a persisted preference.
-    const [keyOpen, setKeyOpen] = useState(false);
+    // Expanded by default (req #3585, reversing req #3309's collapsed
+    // default) — see the key's own comment below for why this is component
+    // state and not a persisted preference.
+    const [keyOpen, setKeyOpen] = useState(true);
 
     // The container is tracked as STATE, not a bare ref: with an empty plan the
     // component returns the empty panel and no container exists — if the first
@@ -3436,7 +3438,7 @@ export default function PipelinePlanVisualizer({
                     Collapse is LOCAL STATE, not a persisted preference: a stored
                     one would need seeding in the E2E fixture and could arrive
                     shown from another session. Every visit opens with the key
-                    collapsed (req #3309).
+                    expanded (req #3585; req #3309 had it collapsed).
 
                     PARKED AT VIEWPORT MIDDLE BOTTOM (req #3255), not the
                     top-right corner: that corner sat in the typical down-and-
@@ -3498,10 +3500,10 @@ export default function PipelinePlanVisualizer({
                         element on the canvas, just no longer the one you have to
                         hunt for.
 
-                        THE '+' READS BRIGHTER THAN THE '−' (req #3309): with the
-                        key now collapsed by default, '+' is what a reader sees
-                        first and it is the one glyph that has to say "there is
-                        more here" with no key content around it to draw the eye.
+                        THE '+' READS BRIGHTER THAN THE '−' (req #3309): once the
+                        reader collapses the key, '+' is the one glyph that has
+                        to say "there is more here" with no key content around
+                        it to draw the eye.
                         Full resting opacity does that; the hover state (opacity
                         1, `P.accent`) is unchanged and still the stronger of the
                         two cues. */}
@@ -3725,6 +3727,8 @@ function PlanDataCard({ card, timezone, level, containerW, containerH }) {
                 <div className="ts-datacard-title">{info.title || '(untitled)'}</div>
                 {rowEl('Requirement', card.reqId)}
                 {rowEl('Status', info.status || 'unknown')}
+                {/* req #3584 — the Session colour key's value, in words. */}
+                {rowEl('Session', info.session ? info.session.replace('_', ' ') : 'unknown')}
                 {/* ONE missing-value policy across the three (review finding).
                     `aiModelLabel`/`effortLabel` fall back to Opus/High on
                     unknown input, and their own comments justify that by the

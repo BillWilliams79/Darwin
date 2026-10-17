@@ -20,6 +20,25 @@ function toDate(dateStr) {
     return new Date(dateStr);
 }
 
+// Constructing an Intl.DateTimeFormat costs far more than formatting with one,
+// and the swarm visualizer formats tens of thousands of timestamps per render —
+// building a fresh formatter per call was ~2.5 s of every visualizer mount
+// (req #3571). Formatters are immutable, so one per (locale, options) is reused.
+// The key set is tiny: a handful of option shapes × the user's timezone.
+// A call with NO timezone caches the browser zone in effect at first use; if the
+// OS zone changes with the tab open, those calls keep the old zone until reload.
+// Only users without a profile timezone are exposed, and only until a reload.
+const formatterCache = new Map();
+function cachedFormatter(locale, options) {
+    const key = `${locale}|${JSON.stringify(options)}`;
+    let fmt = formatterCache.get(key);
+    if (!fmt) {
+        fmt = new Intl.DateTimeFormat(locale, options);
+        formatterCache.set(key, fmt);
+    }
+    return fmt;
+}
+
 // Strip the fractional-seconds (microseconds) tail from a MySQL DATETIME(6)
 // string for display: "2026-06-12 17:14:08.000000" → "2026-06-12 17:14:08".
 // Already-trimmed values and ISO 'T' strings pass through unchanged; null/empty
@@ -59,7 +78,7 @@ export function formatCardDateTime(dateStr, timezone) {
         weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
         ...(timezone && { timeZone: timezone }),
     });
-    const timeFmt = new Intl.DateTimeFormat('en-US', {
+    const timeFmt = cachedFormatter('en-US', {
         hour: 'numeric', minute: '2-digit', hour12: true,
         ...(timezone && { timeZone: timezone }),
     });
@@ -84,7 +103,7 @@ export function toUtcDate(dateStr) {
 export function formatSimpleDateTime(dateStr, timezone) {
     const d = toDate(dateStr);
     if (!d || isNaN(d)) return '';
-    const parts = new Intl.DateTimeFormat('en-US', {
+    const parts = cachedFormatter('en-US', {
         month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true,
         ...(timezone && { timeZone: timezone }),
     }).formatToParts(d);
@@ -111,7 +130,7 @@ export function toLocaleDateString(dateStr, timezone) {
         ...(timezone && { timeZone: timezone }),
     };
     // Intl gives locale-formatted; use formatToParts for reliable YYYY-MM-DD
-    const parts = new Intl.DateTimeFormat('en-CA', options).formatToParts(d);
+    const parts = cachedFormatter('en-CA', options).formatToParts(d);
     const get = (type) => parts.find(p => p.type === type)?.value;
     return `${get('year')}-${get('month')}-${get('day')}`;
 }
@@ -131,7 +150,7 @@ export function localDateStr(d = new Date()) {
 export function formatHM12(dateStr, timezone) {
     const d = toDate(dateStr);
     if (!d || isNaN(d)) return '';
-    const parts = new Intl.DateTimeFormat('en-US', {
+    const parts = cachedFormatter('en-US', {
         hour: 'numeric', minute: '2-digit', hour12: true,
         ...(timezone && { timeZone: timezone }),
     }).formatToParts(d);
@@ -144,7 +163,7 @@ export function formatHM12(dateStr, timezone) {
 export function formatHHMM(dateStr, timezone) {
     const d = toDate(dateStr);
     if (!d || isNaN(d)) return '';
-    const parts = new Intl.DateTimeFormat('en-US', {
+    const parts = cachedFormatter('en-US', {
         hour: '2-digit', minute: '2-digit', hour12: false,
         ...(timezone && { timeZone: timezone }),
     }).formatToParts(d);
@@ -160,7 +179,7 @@ export function formatHHMM(dateStr, timezone) {
 export function getTimeOfDayFraction(dateStr, timezone) {
     const d = toDate(dateStr);
     if (!d || isNaN(d)) return null;
-    const parts = new Intl.DateTimeFormat('en-US', {
+    const parts = cachedFormatter('en-US', {
         hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
         ...(timezone && { timeZone: timezone }),
     }).formatToParts(d);
@@ -179,7 +198,7 @@ export function getTimeOfDayFraction(dateStr, timezone) {
 export function toDateTimeLocalValue(dateStr, timezone) {
     const d = toDate(dateStr);
     if (!d || isNaN(d)) return '';
-    const parts = new Intl.DateTimeFormat('en-CA', {
+    const parts = cachedFormatter('en-CA', {
         timeZone: timezone || undefined,
         year: 'numeric', month: '2-digit', day: '2-digit',
         hour: '2-digit', minute: '2-digit', hour12: false,
@@ -198,7 +217,7 @@ export function fromDateTimeLocalValue(localStr, timezone) {
 
     const getOffsetMs = (refDate) => {
         if (!timezone) return -refDate.getTimezoneOffset() * 60000;
-        const str = new Intl.DateTimeFormat('en-US', {
+        const str = cachedFormatter('en-US', {
             timeZone: timezone, timeZoneName: 'shortOffset',
         }).formatToParts(refDate)
           .find(p => p.type === 'timeZoneName')?.value || '';

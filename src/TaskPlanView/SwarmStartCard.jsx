@@ -134,6 +134,7 @@ import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import { CircularProgress } from '@mui/material';
+import { DEFAULT_REQUIREMENT_SPEC } from '../SwarmView/requirementSpec';
 
 // Quantize `now` to the nearest prior MET_REFRESH_INTERVAL_MS boundary, then
 // derive the trailing-24h window from that. Two calls within the same quantum
@@ -533,7 +534,7 @@ const SwarmStartCard = ({ epicReqIds = null, stepReqIds = null }) => {
             if (membershipFilterActive) return sorted;
             const prevTemplate = prev && prev.find(r => r.id === '');
             return [...sorted, prevTemplate
-                ?? { id: '', title: '', requirement_status: 'authoring', category_fk: null }];
+                ?? { id: '', title: '', ...DEFAULT_REQUIREMENT_SPEC, category_fk: null }];
         });
     }, [currentRequirements, effectiveSortMode, membershipFilterActive]); // eslint-disable-line react-hooks/exhaustive-deps
 
