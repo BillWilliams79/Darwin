@@ -10,7 +10,7 @@ import { useAllCategories, useMachines,
 // into the body cleanly, so only the import line collided with req #3435's.
 import { useRequirementVisibility } from '../../hooks/useRequirementVisibility';
 import { useOrchestrationIndex } from './useOrchestrationIndex';
-import { stepOptions } from './orchestrationIndex';
+import { stepOptions, pipelineOptions, epicOptions } from './orchestrationIndex';
 import { moveStepRequirement } from '../../Steps/stepsApi';
 import { planLinkTo, epicLinkTo } from '../pipelines/pipelineEpicLink';
 import { stepPlanLinkTo } from '../pipelines/pipelineStepLink';
@@ -156,17 +156,6 @@ const ORCH_SELECT_SX = {
 const ORCH_ROW_LABEL_SX = {
     width: FIELDSET_LABEL_WIDTH,
     flexShrink: 0,
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-};
-
-const ORCH_VALUE_SX = {
-    minWidth: 200,
-    maxWidth: 320,
-    fontSize: '0.95rem',
-    fontWeight: 500,
-    color: 'text.secondary',
     whiteSpace: 'nowrap',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
@@ -392,88 +381,101 @@ const RequirementDetail = () => {
     // epic's own row (for its title) comes from `epicsById`, populated from the
     // `epics` list this index already fetches for the plan hop.
     //
-    // READ-ONLY, like Pipeline: the directive says Step is "the one
-    // configurable". Moving a requirement between epics is what changing its
-    // STEP does, which is the control immediately below.
+    // ── AND IT IS A CASCADE NOW (req #3579 user directive) ──────────────────
+    // *"currently … you can use the orchestration area to set the requirement
+    // into a step. which is backwards. you should start with the pipeline
+    // selection active only and then enabled epic and step setting. if you set
+    // an epic, you will get only those steps"*. So Pipeline and Epic are
+    // SELECTS, read top-down, and Step is still the one that WRITES.
     const orchestration = useOrchestrationIndex(profile?.userName, { enabled: !isNew });
     const orchIndex = orchestration.index;
     const orchSettled = orchestration.isSettled;
     const planSideErrored = orchestration.errors.plan;
 
-    // ── TWO LEVELS, AND ONLY ONE OF THEM IS SETTABLE ─────────────────────────
-    // Pipeline, Step — each with a button that opens the visualizer AT THAT
-    // LEVEL and a value beside it. Step is the only selector; Pipeline is
-    // read-only text.
+    // ── THREE LEVELS, AND ONLY STEP WRITES ───────────────────────────────────
+    // There is no `requirements.pipeline_fk`: a requirement reaches a plan only
+    // by being seated on a `pipeline_steps` row, whose EPIC names the plan
+    // (containment). So Pipeline and Epic hold a local SCOPE — which plan, and
+    // optionally which epic of it, the Step list is drawn from — and picking a
+    // step is the one act that saves.
     //
-    // That is not a shortcut, it is what the data allows. There is no
-    // `requirements.pipeline_fk`: a requirement reaches a plan only by being
-    // seated on a `pipeline_steps` row — and under 2.0 that step does not name
-    // a plan either, its EPIC does (containment) — which is a PLAN mutation the
-    // Primary AI owns (memory/pipeline-2-guide.md § 4.1, write authority), not
-    // a field on a requirement. An earlier cut of this box shipped a pipeline
-    // SELECT anyway, as a display-plus-local-filter, and it was withdrawn: it was
-    // indistinguishable from the control beside it (identical styling, sitting
-    // under a Category select that DOES save on change) while silently
-    // discarding the reader's choice on navigation, and it carried two meanings
-    // that disagree the moment a different plan is picked — "the plan this
-    // requirement is on" and "the plan I am filtering by".
+    // An earlier cut (req #3435) shipped a pipeline select as a display-plus-
+    // filter and withdrew it: it carried two meanings ("the plan this
+    // requirement is on" / "the plan I am filtering by") that disagree the
+    // moment another plan is picked, and it silently discarded the choice. The
+    // cascade answers both rather than avoiding them:
+    //   * the scope FOLLOWS THE SEAT until the reader picks — on load, after a
+    //     save, and on navigating to another requirement — so at rest the two
+    //     meanings are one;
+    //   * when they DO disagree (a plan or epic is picked that does not hold the
+    //     seat), the Step row says so in place of a value — "Select a step" —
+    //     instead of showing the old step under a plan it is not on;
+    //   * "No pipeline" on a requirement whose seat is on screen UNSEATS it:
+    //     with no plan there is no step, so the only honest reading of that
+    //     pick is removal. Scoped elsewhere, it just returns to the seat.
 
-    // The requirement's own seat: which step of which plan carries it. The Step
-    // row's value, and the narrowest link — `?step=` lands the camera on one
-    // bead (req #3253).
+    // The requirement's own seat: which step of which plan carries it — the
+    // narrowest link, `?step=` lands the camera on one bead (req #3253).
     const requirementSeat = orchIndex.requirementSeat.get(Number(id)) || null;
     const seatStep = requirementSeat && requirementSeat.stepId != null
         ? (orchIndex.stepsById.get(requirementSeat.stepId) || { id: requirementSeat.stepId })
         : null;
-
-    // WHICH PLAN. The seat's, when a step carries this requirement; otherwise
-    // none is known — a requirement no step carries has no plan the box can
-    // point at (the sync report's UNSEATED-REQS/ORPHANS is the thing that used
-    // to fill this gap via the epic's own plan; that fallback left with the
-    // Epic row).
     const seatPipelineId = requirementSeat ? requirementSeat.pipelineId : null;
-    const shownPipelineId = seatPipelineId;
-    const shownPipelineRow = shownPipelineId != null
-        ? orchIndex.pipelinesById.get(shownPipelineId) : null;
+    // Straight off the seat (req #3365), so it is the epic of the seat's step —
+    // never a second resolution that could disagree with it.
+    const seatEpicId = requirementSeat ? (requirementSeat.epicId ?? null) : null;
 
-    // ── The ONE settable level: which open step of this plan carries the work ─
-    // Scoped to the plan already on screen. See `stepOptions`.
+    // `null` = follow the seat. Otherwise `{ pipelineId, epicId }` the reader
+    // picked; `epicId: null` there means "every epic of this plan".
     //
-    // NO LONGER ALSO SCOPED TO AN EPIC (code review, req #3357). Before the
-    // Epic row left this box, the list additionally narrowed to the epic
-    // already shown, so a pick could never move the requirement to another
-    // epic. With no epic ON SCREEN here any more there is nothing to scope
-    // by — offering every open step of the plan is the correct list for what
-    // the box now asks, not a narrower one this page could reconstruct.
-    //
-    // Under 2.0 the epic IS derivable again (`pipeline_steps.epic_fk`, req
-    // #3356) and re-narrowing to it would be a real choice, not a recovery of a
-    // lost fact. It is deliberately NOT taken: it would silently forbid moving a
-    // requirement between epics from the one control that can seat it, with no
-    // epic shown to explain the missing options.
-    const stepChoices = stepOptions(orchIndex, {
-        pipelineId: shownPipelineId,
-        currentStepId: seatStep ? seatStep.id : null,
+    // KEYED BY REQUIREMENT ID, so Up/Down navigation drops it in the same
+    // render (no frame where B's seat is judged against A's scope), and a move
+    // still in flight for A can only clear A's scope, never B's.
+    const [orchScopeState, setOrchScopeState] = useState({ id, scope: null });
+    const orchScope = orchScopeState.id === id ? orchScopeState.scope : null;
+    const setOrchScope = (scope) => setOrchScopeState({ id, scope });
+    // True while a seat write and its re-read are in flight: every select in
+    // the box is disabled, so a second pick cannot be computed from a seat
+    // that is already gone.
+    const [seatSaving, setSeatSaving] = useState(false);
+    const selPipelineId = orchScope ? orchScope.pipelineId : seatPipelineId;
+    const selEpicId = orchScope ? orchScope.epicId : seatEpicId;
+
+    // Is the seat inside what the selects name? Only then is it the Step row's
+    // value and the target of its link.
+    const seatInScope = !!seatStep && selPipelineId != null
+        && seatPipelineId === selPipelineId
+        && (selEpicId == null || seatEpicId === selEpicId);
+
+    const shownPipelineRow = selPipelineId != null
+        ? orchIndex.pipelinesById.get(selPipelineId) : null;
+    const shownEpicRow = selEpicId != null
+        ? (orchIndex.epicsById.get(selEpicId) || null) : null;
+
+    // The seat's own plan and epic are always offered, closed or not, so a
+    // reader who scopes away can always pick their way back.
+    const pipelineChoices = pipelineOptions(orchIndex, {
+        keepIds: [selPipelineId, seatPipelineId] });
+    const epicChoices = epicOptions(orchIndex, {
+        pipelineId: selPipelineId,
+        keepIds: [selEpicId, seatEpicId],
+        currentEpicId: selEpicId,
+    });
+    // No plan selected → no list at all; the Step select is disabled. The seat
+    // is offered only when it is in scope — out of scope it belongs to a plan
+    // or epic the reader has moved away from.
+    const stepChoices = selPipelineId == null ? [] : stepOptions(orchIndex, {
+        pipelineId: selPipelineId,
+        epicId: selEpicId,
+        currentStepId: seatInScope ? seatStep.id : null,
     });
 
-    // ── The two links, one per level ─────────────────────────────────────────
-    // Every builder returns null for an unusable id, and `to={null}` handed to
-    // react-router's Link throws at render — so each is null-guarded and its
-    // button renders disabled rather than dead (the box's existing "omit rather
-    // than render a dead link" rule, req #3235).
-    const pipelineLink = planLinkTo(shownPipelineId);
-    const stepPlanLink = seatStep ? stepPlanLinkTo(seatPipelineId, seatStep.id) : null;
-
-    // ── WHICH EPIC (req #3365) ───────────────────────────────────────────────
-    // Straight off the seat, so it is the epic of the step the Step row shows —
-    // never a second resolution that could disagree with it. `epicLinkTo`
-    // carries `?epic=`, the addressable-epic contract req #3235 defined and
-    // `PipelineDetail` reads, so the button frames the band rather than the
-    // whole plan.
-    const seatEpicId = requirementSeat ? (requirementSeat.epicId ?? null) : null;
-    const seatEpicRow = seatEpicId != null
-        ? (orchIndex.epicsById.get(seatEpicId) || null) : null;
-    const epicLink = epicLinkTo(shownPipelineId, seatEpicId);
+    // Each button lands at ITS OWN level of what the selects name. `?epic=` is
+    // the addressable-epic contract req #3235 defined, so the Epic button frames
+    // the band rather than the whole plan.
+    const pipelineLink = selPipelineId != null ? planLinkTo(selPipelineId) : null;
+    const epicLink = epicLinkTo(selPipelineId, selEpicId);
+    const stepPlanLink = seatInScope ? stepPlanLinkTo(seatPipelineId, seatStep.id) : null;
 
     // Filter chips now match DB status values directly
     const siblingStatuses = [...requirementStatusFilter];
@@ -734,31 +736,77 @@ const RequirementDetail = () => {
     // fails after the DELETE leaves the requirement seated nowhere) are stated
     // ONCE, beside the only implementation. A failed move is surfaced and the
     // junction re-read below, never guessed back.
-    const handleStepChange = async (event) => {
-        if (isNew) return;   // draft — `id` is the literal 'new'.
-        const raw = event.target.value;
-        const clearing = raw === '';
-        const nextStepId = clearing ? null : Number(raw);
-        if (!clearing && !Number.isInteger(nextStepId)) return;
+    //
+    // The scope the reader picked (req #3579) is dropped once the write lands
+    // and the junction is re-read, so the selects follow the NEW seat — which
+    // is inside that scope by construction. Awaited, so the box never flashes
+    // the old seat in between.
+    const moveSeat = async (nextStepId) => {
+        if (isNew || seatSaving) return;   // draft — `id` is the literal 'new'.
         const prevStepId = seatStep ? seatStep.id : null;
         if (nextStepId === prevStepId) return;
+        const movedId = id;
 
+        setSeatSaving(true);
         try {
             await moveStepRequirement(darwinUri, idToken, {
-                requirementId: parseInt(id), fromStepId: prevStepId, toStepId: nextStepId,
+                requirementId: parseInt(movedId), fromStepId: prevStepId, toStepId: nextStepId,
             });
         } catch (error) {
             showError(error, 'Unable to update step');
             // Re-read rather than patch local state: the seat lives in the
             // junction cache, not on the requirement row, and a half-applied
             // move is exactly the case a guessed rollback would get wrong.
-            queryClient.invalidateQueries({
+            await queryClient.invalidateQueries({
                 queryKey: pipelineStepRequirementKeys.all(profile.userName) });
+            setSeatSaving(false);
             return;
         }
-        queryClient.invalidateQueries({
-            queryKey: pipelineStepRequirementKeys.all(profile.userName) });
-        queryClient.invalidateQueries({ queryKey: ['orchestration_index'] });
+        await Promise.all([
+            queryClient.invalidateQueries({
+                queryKey: pipelineStepRequirementKeys.all(profile.userName) }),
+            queryClient.invalidateQueries({ queryKey: ['orchestration_index'] }),
+        ]);
+        // Only the moved requirement's scope — the reader may have navigated on.
+        setOrchScopeState((prev) => (prev.id === movedId ? { id: movedId, scope: null } : prev));
+        setSeatSaving(false);
+    };
+
+    const handleStepChange = (event) => {
+        const raw = event.target.value;
+        const clearing = raw === '';
+        const nextStepId = clearing ? null : Number(raw);
+        if (!clearing && !Number.isInteger(nextStepId)) return;
+        return moveSeat(nextStepId);
+    };
+
+    // ── Req #3579 — the Pipeline and Epic selects SCOPE the Step list ────────
+    // Neither writes, with one exception: "No pipeline" on a requirement whose
+    // seat is ON SCREEN is removal (see the `orchestration` block above). Picked
+    // while the selects name somewhere else, it only drops that scope and
+    // returns to the seat — the same rule that hides "No step" out of scope:
+    // never unseat from a plan the reader is not looking at. Re-picking the
+    // seat's own plan (or plan + epic) likewise returns to following the seat.
+    const handlePipelineChange = (event) => {
+        const raw = event.target.value;
+        if (raw === '') {
+            if (seatInScope) return moveSeat(null);
+            setOrchScope(null);
+            return;
+        }
+        const nextPipelineId = Number(raw);
+        if (!Number.isInteger(nextPipelineId) || nextPipelineId === selPipelineId) return;
+        setOrchScope(nextPipelineId === seatPipelineId ? null
+            : { pipelineId: nextPipelineId, epicId: null });
+    };
+
+    const handleEpicChange = (event) => {
+        const raw = event.target.value;
+        const nextEpicId = raw === '' ? null : Number(raw);
+        if (nextEpicId != null && !Number.isInteger(nextEpicId)) return;
+        if (selPipelineId == null) return;
+        setOrchScope(selPipelineId === seatPipelineId && nextEpicId === seatEpicId ? null
+            : { pipelineId: selPipelineId, epicId: nextEpicId });
     };
 
     const handleCategoryChange = async (event) => {
@@ -1248,31 +1296,21 @@ const RequirementDetail = () => {
                         </Box>
                     </Box>
 
-                    {/* ── Orchestration (req #3435, epic row retired req #3357) ──
-                        WHICH PLAN and, via the Step select below, which step —
-                        in two rows and nothing else. Same fieldset/legend/border/
-                        radius as AI Settings so the two read as a pair.
+                    {/* ── Orchestration (req #3435; cascade req #3579) ──
+                        Pipeline → Epic → Step, read top-down. Same fieldset/
+                        legend/border/radius as AI Settings so the two read as a
+                        pair.
 
-                        Each row is one ICON BUTTON that navigates and either a
-                        SELECT (Step) or plain text (Pipeline) that names the
-                        thing — the Category select's idiom (standard variant, no
-                        dropdown arrow, the value rendered as text), so the box
-                        reads as prose until it is clicked.
+                        Each row is one ICON BUTTON that navigates and a SELECT
+                        that names the thing — the Category select's idiom
+                        (standard variant, no dropdown arrow, the value rendered
+                        as text), so the box reads as prose until it is clicked.
 
-                        The pipeline row WRITES NOTHING: there is no
-                        `requirements.pipeline_fk`, and a seat on a plan is a
-                        `pipeline_step_requirements` mutation the Primary AI
-                        owns. It displays the plan the Step row's seat is on —
-                        reached through that step's EPIC under 2.0, since the
-                        step names no plan of its own. The Step row is the one
-                        that assigns.
-
-                        No epic row and no `via feature "…"` caption: Feature left
-                        the frontend (req #3357). The 2.0 re-base (req #3356)
-                        makes the epic derivable again through
-                        `pipeline_steps.epic_fk`, so the row is absent because
-                        it was not asked for — NOT because the data cannot answer
-                        it. See the `orchestration` block above. */}
+                        Pipeline is the one row active from the start; Epic and
+                        Step enable once a plan is chosen, and an epic narrows
+                        the Step list to its own steps. Pipeline and Epic SCOPE;
+                        Step is the one that writes `pipeline_step_requirements`.
+                        See the `orchestration` block above. */}
                     <Box
                         component="fieldset"
                         data-testid="requirement-orchestration-group"
@@ -1303,7 +1341,7 @@ const RequirementDetail = () => {
                             </Typography>
                         ) : (
                             <>
-                                {/* ── PIPELINE ── read-only. LanIcon matches the
+                                {/* ── PIPELINE ── LanIcon matches the
                                     Pipelines nav entry's own icon — the app's
                                     existing iconography, not one invented here. */}
                                 <Stack direction="row" spacing={1} alignItems="center"
@@ -1331,16 +1369,37 @@ const RequirementDetail = () => {
                                             </IconButton>
                                         </span>
                                     </Tooltip>
-                                    <Typography sx={ORCH_VALUE_SX} data-testid="orchestration-pipeline-value">
-                                        {shownPipelineRow ? shownPipelineRow.title
-                                            : shownPipelineId != null ? `Pipeline ${shownPipelineId}`
-                                                : 'No pipeline'}
-                                    </Typography>
+                                    {/* ── PIPELINE ── the FIRST choice and the
+                                        only one live from the start. Scopes;
+                                        writes nothing except removal ("No
+                                        pipeline" on a seated requirement). */}
+                                    <Select
+                                        value={selPipelineId ?? ''}
+                                        onChange={handlePipelineChange}
+                                        disabled={seatSaving}
+                                        displayEmpty
+                                        renderValue={(selected) => {
+                                            if (selected === '' || selected == null) return 'No pipeline';
+                                            return shownPipelineRow?.title || `Pipeline ${selected}`;
+                                        }}
+                                        variant="standard"
+                                        IconComponent={() => null}
+                                        data-testid="orchestration-pipeline-select"
+                                        inputProps={{ 'aria-label': 'Pipeline' }}
+                                        sx={ORCH_SELECT_SX}
+                                    >
+                                        <MenuItem value="">No pipeline</MenuItem>
+                                        {pipelineChoices.map(entry => (
+                                            <MenuItem key={entry.pipeline.id} value={entry.pipeline.id}>
+                                                {entry.label}
+                                            </MenuItem>
+                                        ))}
+                                    </Select>
                                 </Stack>
 
-                                {/* ── EPIC ── read-only, same format as
-                                    Pipeline (req #3365 user directive). It sits
-                                    BETWEEN the two because that is the
+                                {/* ── EPIC ── restored by req #3365, a select
+                                    since req #3579. It sits BETWEEN the two
+                                    because that is the
                                     containment order the plan model has:
                                     pipeline holds epics, an epic holds steps. */}
                                 <Stack direction="row" spacing={1} alignItems="center"
@@ -1367,11 +1426,32 @@ const RequirementDetail = () => {
                                             </IconButton>
                                         </span>
                                     </Tooltip>
-                                    <Typography sx={ORCH_VALUE_SX} data-testid="orchestration-epic-value">
-                                        {seatEpicRow ? seatEpicRow.title
-                                            : seatEpicId != null ? `Epic ${seatEpicId}`
-                                                : 'No epic'}
-                                    </Typography>
+                                    {/* Disabled until a plan is chosen — an
+                                        epic only exists inside one. Empty value
+                                        = every epic of the plan. */}
+                                    <Select
+                                        value={selEpicId ?? ''}
+                                        onChange={handleEpicChange}
+                                        disabled={selPipelineId == null || seatSaving}
+                                        displayEmpty
+                                        renderValue={(selected) => {
+                                            if (selPipelineId == null) return 'No epic';
+                                            if (selected === '' || selected == null) return 'All epics';
+                                            return shownEpicRow?.title || `Epic ${selected}`;
+                                        }}
+                                        variant="standard"
+                                        IconComponent={() => null}
+                                        data-testid="orchestration-epic-select"
+                                        inputProps={{ 'aria-label': 'Epic' }}
+                                        sx={ORCH_SELECT_SX}
+                                    >
+                                        <MenuItem value="">All epics</MenuItem>
+                                        {epicChoices.map(entry => (
+                                            <MenuItem key={entry.epic.id} value={entry.epic.id}>
+                                                {entry.label}
+                                            </MenuItem>
+                                        ))}
+                                    </Select>
                                 </Stack>
 
                                 {/* ── STEP ── THE ONE SETTABLE LEVEL. Picking here
@@ -1379,10 +1459,10 @@ const RequirementDetail = () => {
                                     `handleStepChange` for why that crosses a line
                                     StepsPage draws, and on whose authority.
 
-                                    The list is scoped to this plan (`stepOptions`).
-                                    An em-dash value IS "no step sequences this
-                                    requirement", the distinction the sync report
-                                    splits into UNSEATED-REQS and ORPHANS. */}
+                                    The list is scoped to the selected plan and,
+                                    when one is picked, epic (`stepOptions`);
+                                    disabled until a plan is chosen. "No step" IS
+                                    "no step sequences this requirement". */}
                                 <Stack direction="row" spacing={1} alignItems="center"
                                        data-testid="orchestration-step-row">
                                     <Typography variant="subtitle2" color="text.secondary"
@@ -1404,11 +1484,24 @@ const RequirementDetail = () => {
                                         </span>
                                     </Tooltip>
                                     <Select
-                                        value={seatStep ? seatStep.id : ''}
+                                        value={seatInScope ? seatStep.id : ''}
                                         onChange={handleStepChange}
+                                        // Also disabled when the menu would be
+                                        // EMPTY: scoped away from the seat (no
+                                        // "No step") onto an epic with no open
+                                        // steps.
+                                        disabled={selPipelineId == null || seatSaving
+                                            || (stepChoices.length === 0 && !!seatStep && !seatInScope)}
                                         displayEmpty
                                         renderValue={(selected) => {
-                                            if (selected === '' || selected == null) return 'No step';
+                                            if (selected === '' || selected == null) {
+                                                // Seated, but not under what the
+                                                // selects above name: the pick
+                                                // is still to be made.
+                                                return seatStep && selPipelineId != null
+                                                    ? <Box component="span" sx={{ fontStyle: 'italic' }}>Select a step</Box>
+                                                    : 'No step';
+                                            }
                                             const st = orchIndex.stepsById.get(Number(selected));
                                             return (st && st.title) ? st.title : `Step ${selected}`;
                                         }}
@@ -1423,7 +1516,12 @@ const RequirementDetail = () => {
                                         inputProps={{ 'aria-label': 'Step' }}
                                         sx={ORCH_SELECT_SX}
                                     >
-                                        <MenuItem value="">No step</MenuItem>
+                                        {/* Unseating from a scope the seat is
+                                            not in would remove it from a plan
+                                            the reader is not looking at. */}
+                                        {(!seatStep || seatInScope) && (
+                                            <MenuItem value="">No step</MenuItem>
+                                        )}
                                         {stepChoices.map(entry => (
                                             <MenuItem key={entry.step.id} value={entry.step.id}>
                                                 {entry.label}
