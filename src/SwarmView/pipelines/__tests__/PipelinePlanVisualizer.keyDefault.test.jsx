@@ -11,6 +11,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
 import { MemoryRouter } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 vi.mock('react-konva', () => {
     const Stub = ({ children }) => <div>{typeof children === 'function' ? null : children}</div>;
@@ -45,10 +46,13 @@ function render() {
     root = createRoot(container);
     act(() => {
         root.render(
-            <MemoryRouter>
-                <PipelinePlanVisualizer plan={plan} model={model}
-                                        pipeline={payload.pipeline} timezone="UTC" />
-            </MemoryRouter>
+            // The visualizer calls `useQueryClient` (req #3581) — mount it inside one.
+            <QueryClientProvider client={new QueryClient()}>
+                <MemoryRouter>
+                    <PipelinePlanVisualizer plan={plan} model={model}
+                                            pipeline={payload.pipeline} timezone="UTC" />
+                </MemoryRouter>
+            </QueryClientProvider>
         );
     });
 }
