@@ -4,9 +4,11 @@
 // its own module so vitest can exercise every derivation without a DOM and so
 // `useOrchestrationIndex.js` stays a thin wrapper over the list reads.
 //
-// The box shows two levels — Pipeline, Step — and exactly ONE of them is
-// settable. Seating work on a step is the act that actually places a
-// requirement on a plan; the pipeline follows from the step.
+// The box shows three levels — Pipeline, Epic, Step — and exactly ONE of them
+// WRITES. Seating work on a step is the act that actually places a requirement
+// on a plan. Since req #3579 the reader reaches that step top-down: Pipeline
+// and Epic are selects that SCOPE the Step list (`pipelineOptions`,
+// `epicOptions`, `stepOptions`'s `epicId`), never a write of their own.
 //
 // req #3357 RETIRED THE EPIC ROW. This module used to answer a third question
 // — "which epic does this requirement's retired middle tier name" — by
@@ -203,6 +205,10 @@ export function buildOrchestrationIndex({ pipelines, epics, steps, stepRequireme
         // a second copy of the join this function already ran — the drift shape
         // this module exists to avoid.
         pipelineByStep,
+        // EXPORTED for the same reason, since req #3579: the Step list narrows
+        // to the epic the reader picked, and this map is that epic hop already
+        // made — re-reading `step.epic_fk` would be the second copy of a join.
+        epicByStep,
         requirementSeat,
     };
 }
@@ -245,20 +251,36 @@ export function emptyOrchestrationIndex() {
  * the entire plan to order one dropdown, which is the fan-out design rule 5
  * forbids.
  *
+ * ## Epic (req #3579)
+ *
+ * `epicId`, when given, narrows the list to that epic's steps — the reader picks
+ * a plan, optionally an epic, then a step. A step whose epic hop did not resolve
+ * matches no epic. With no `epicId`, steps of a CLOSED epic are left out, the
+ * same epics `epicOptions` leaves out.
+ *
  * @param {Object} index
- * @param {{pipelineId?: ?number, currentStepId?: ?number}} [options]
+ * @param {{pipelineId?: ?number, epicId?: ?number, currentStepId?: ?number}} [options]
  * @returns {Array<{step: Object, label: string}>}
  */
-export function stepOptions(index, { pipelineId = null, currentStepId = null } = {}) {
+export function stepOptions(index, { pipelineId = null, epicId = null, currentStepId = null } = {}) {
     const { stepsById = new Map(), pipelinesById = new Map(),
-        pipelineByStep = new Map() } = index || {};
+        pipelineByStep = new Map(), epicByStep = new Map(),
+        epicsById = new Map() } = index || {};
     const pid = toId(pipelineId);
+    const eid = toId(epicId);
     const curStep = toId(currentStepId);
 
     const out = [];
     for (const step of stepsById.values()) {
         if (step.id === curStep) continue;          // appended unconditionally below
         if (step.completed_at) continue;            // open steps only
+        if (eid != null) {
+            if (epicByStep.get(step.id) !== eid) continue;
+        } else if (epicsById.get(epicByStep.get(step.id))?.closed) {
+            // "All epics" means every epic the Epic select OFFERS — a closed
+            // epic is not offered there, so its steps are not offered here.
+            continue;
+        }
         // The step's plan, already joined through its epic by
         // `buildOrchestrationIndex`. `undefined` here means the epic hop failed,
         // which both branches below treat as "not offerable".
@@ -279,4 +301,66 @@ export function stepOptions(index, { pipelineId = null, currentStepId = null } =
         out.unshift(stepsById.get(curStep) || { id: curStep });
     }
     return out.map((step) => ({ step, label: step.title || `Step ${step.id}` }));
+}
+
+// ── Req #3579 — the Pipeline and Epic selects ─────────────────────────────
+// The box is a CASCADE now: pick a plan, optionally narrow to one of its
+// epics, then pick the step that seats the requirement. Pipeline and Epic
+// write nothing — they SCOPE the Step list — so these two only answer "what
+// may the reader choose from". Both always include the current value, on the
+// rule `stepOptions` states: a select whose own list denies its value renders
+// blank, which reads as a data bug rather than as a filter.
+
+/**
+ * The plans the Pipeline select may offer: every OPEN plan (`isOpenPipeline`),
+ * plus every id in `keepIds` whatever its status — the select's current value
+ * AND the seat's plan, so a reader who scopes away from a closed seat plan can
+ * still pick their way back to it. Ordered by title, then id — a reader finds a
+ * plan by its name.
+ *
+ * @param {Object} index
+ * @param {{keepIds?: Array<?number>}} [options]
+ * @returns {Array<{pipeline: Object, label: string}>}
+ */
+export function pipelineOptions(index, { keepIds = [] } = {}) {
+    const { pipelinesById = new Map() } = index || {};
+    const keep = new Set(keepIds.map(toId).filter((v) => v != null));
+    const out = [];
+    for (const p of pipelinesById.values()) {
+        if (keep.has(p.id) || isOpenPipeline(p)) out.push(p);
+    }
+    for (const k of keep) if (!pipelinesById.has(k)) out.push({ id: k });
+    const label = (p) => p.title || `Pipeline ${p.id}`;
+    out.sort((a, b) => label(a).localeCompare(label(b)) || a.id - b.id);
+    return out.map((pipeline) => ({ pipeline, label: label(pipeline) }));
+}
+
+/**
+ * The epics the Epic select may offer: the open (`closed` falsy) epics of
+ * `pipelineId`, plus every epic of that plan in `keepIds` whatever its state —
+ * the select's current value and the seat's epic, as `pipelineOptions` keeps
+ * its own. A kept id missing from the read gets a placeholder row (only for the
+ * select's own value, which has to be in its list). Empty with no plan — an
+ * epic is only meaningful inside one. Ordered by `sort_order` (the
+ * authoritative epic display order since req #3430), then id.
+ *
+ * @param {Object} index
+ * @param {{pipelineId?: ?number, keepIds?: Array<?number>, currentEpicId?: ?number}} [options]
+ * @returns {Array<{epic: Object, label: string}>}
+ */
+export function epicOptions(index, { pipelineId = null, keepIds = [], currentEpicId = null } = {}) {
+    const { epicsById = new Map() } = index || {};
+    const pid = toId(pipelineId);
+    if (pid == null) return [];
+    const keep = new Set(keepIds.map(toId).filter((v) => v != null));
+    const out = [];
+    for (const e of epicsById.values()) {
+        if (toId(e.pipeline_fk) !== pid) continue;
+        if (keep.has(e.id) || !e.closed) out.push(e);
+    }
+    const cur = toId(currentEpicId);
+    if (cur != null && !epicsById.has(cur)) out.push({ id: cur });
+    const rank = (e) => (e.sort_order == null ? Infinity : Number(e.sort_order));
+    out.sort((a, b) => (rank(a) - rank(b)) || a.id - b.id);
+    return out.map((epic) => ({ epic, label: epic.title || `Epic ${epic.id}` }));
 }

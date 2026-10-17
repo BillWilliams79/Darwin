@@ -5,8 +5,10 @@
 //
 // req #3357 retired the Epic row and its whole derivation chain, down to
 // `stepOptions`'s `epicId` scoping — the retired middle tier left the
-// frontend and no replacement existed for 1.0. See `orchestrationIndex.js`'s
-// header.
+// frontend and no replacement existed for 1.0. Req #3579 brought the epic
+// scoping back on the 2.0 hop (`pipeline_steps.epic_fk`), together with the
+// Pipeline and Epic selects' own option lists (`pipelineOptions`,
+// `epicOptions`) — the box is a Pipeline → Epic → Step cascade now.
 //
 // req #3356 RE-BASED THE WHOLE INDEX ON PIPELINE 2.0, and the fixture below
 // carries the one structural difference: a 2.0 step has NO `pipeline_fk`. Its
@@ -25,6 +27,8 @@ import {
     emptyOrchestrationIndex,
     isOpenPipeline,
     stepOptions,
+    pipelineOptions,
+    epicOptions,
 } from '../orchestrationIndex';
 
 const PIPELINES = [
@@ -246,5 +250,102 @@ describe('emptyOrchestrationIndex', () => {
         expect(idx.stepsById.get(1)).toBeUndefined();
         expect(idx.pipelineByStep.get(1)).toBeUndefined();
         expect(stepOptions(idx)).toEqual([]);
+    });
+});
+
+// ── Req #3579 — the cascade's option lists ──────────────────────────────────
+
+describe('stepOptions epic scoping', () => {
+    const epics = [...EPICS, { id: 21, pipeline_fk: 2, title: 'Second' }];
+    const steps = [...STEPS, { id: 104, epic_fk: 21, title: 'Second A', completed_at: null }];
+
+    it('narrows to the given epic', () => {
+        const idx = build({ epics, steps });
+        expect(stepIds(stepOptions(idx, { pipelineId: 2, epicId: 21 }))).toEqual([104]);
+        expect(stepIds(stepOptions(idx, { pipelineId: 2, epicId: 20 }))).toEqual([100, 101, 103]);
+    });
+
+    it('offers every epic of the plan when no epic is given', () => {
+        const idx = build({ epics, steps });
+        expect(stepIds(stepOptions(idx, { pipelineId: 2 }))).toEqual([100, 101, 103, 104]);
+    });
+
+    // "All epics" means the epics the Epic select OFFERS, and it does not offer
+    // a closed one.
+    it('leaves out steps of a CLOSED epic when no epic is given', () => {
+        const idx = build({ epics: [...EPICS, { id: 21, pipeline_fk: 2, closed: 1 }], steps });
+        expect(stepIds(stepOptions(idx, { pipelineId: 2 }))).toEqual([100, 101, 103]);
+        // Picked explicitly, its steps are still offered.
+        expect(stepIds(stepOptions(idx, { pipelineId: 2, epicId: 21 }))).toEqual([104]);
+    });
+
+    it('exports the epic hop it narrows by', () => {
+        const idx = build({ epics, steps });
+        expect(idx.epicByStep.get(104)).toBe(21);
+    });
+});
+
+describe('pipelineOptions', () => {
+    const pipelineIds = (entries) => entries.map((e) => e.pipeline.id);
+
+    it('offers every open plan, by title', () => {
+        // 'Retired plan' (5) is completed; 'paused' is still open.
+        expect(labels(pipelineOptions(build()))).toEqual(['Agent Harness', 'Darwin']);
+    });
+
+    // `keepIds` carries the select's value AND the seat's plan, so a reader
+    // who scopes away from a closed seat plan can pick their way back.
+    it('always offers a kept plan, even a closed one', () => {
+        expect(pipelineIds(pipelineOptions(build(), { keepIds: [5] })))
+            .toEqual([79, 2, 5]);
+        expect(pipelineIds(pipelineOptions(build(), { keepIds: [79, 5, null] })))
+            .toEqual([79, 2, 5]);
+    });
+
+    it('invents a row for a kept plan missing from the read', () => {
+        const entries = pipelineOptions(build(), { keepIds: [999] });
+        expect(entries.find((e) => e.pipeline.id === 999).label).toBe('Pipeline 999');
+    });
+
+    it('is empty over an empty index', () => {
+        expect(pipelineOptions(emptyOrchestrationIndex())).toEqual([]);
+    });
+});
+
+describe('epicOptions', () => {
+    const epics = [
+        { id: 20, pipeline_fk: 2, title: 'B', sort_order: 2 },
+        { id: 21, pipeline_fk: 2, title: 'A', sort_order: 1 },
+        { id: 22, pipeline_fk: 2, title: 'Closed', sort_order: 0, closed: 1 },
+        { id: 23, pipeline_fk: 2, title: 'Unordered' },
+        { id: 790, pipeline_fk: 79, title: 'Other plan', sort_order: 0 },
+    ];
+    const epicIds = (entries) => entries.map((e) => e.epic.id);
+
+    it('offers the plan\u2019s open epics by sort_order, unordered last', () => {
+        expect(epicIds(epicOptions(build({ epics }), { pipelineId: 2 }))).toEqual([21, 20, 23]);
+    });
+
+    it('offers nothing without a plan', () => {
+        expect(epicOptions(build({ epics }), {})).toEqual([]);
+    });
+
+    it('always offers a kept epic of the plan, even a closed one', () => {
+        expect(epicIds(epicOptions(build({ epics }), { pipelineId: 2, keepIds: [22] })))
+            .toEqual([22, 21, 20, 23]);
+        // ...but never a kept epic of ANOTHER plan.
+        expect(epicIds(epicOptions(build({ epics }), { pipelineId: 2, keepIds: [790] })))
+            .toEqual([21, 20, 23]);
+    });
+
+    // The select's own value has to be in its list, or MUI renders blank and
+    // warns — e.g. an epic deleted elsewhere while the reader was scoped to it.
+    it('invents a row for a current epic missing from the read', () => {
+        const entries = epicOptions(build({ epics }), { pipelineId: 2, currentEpicId: 999 });
+        expect(entries.find((e) => e.epic.id === 999).label).toBe('Epic 999');
+    });
+
+    it('falls back to the epic id for an untitled epic', () => {
+        expect(labels(epicOptions(build(), { pipelineId: 2 }))).toEqual(['Epic 20']);
     });
 });
