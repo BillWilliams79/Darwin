@@ -23,8 +23,8 @@
 //      and therefore COMMITS the half-typed value on its way out.
 //   3. Tab traverses grid cells rather than fields.
 //
-// Tab is stopped deliberately rather than reluctantly: native tab order (name →
-// content → next row) is the right traversal for an edit-in-place table, and each
+// Tab is stopped deliberately rather than reluctantly: native tab order (field →
+// next field → next row) is the right traversal for an edit-in-place table, and each
 // hop blurs and commits exactly as a click away would.
 //
 // Enter and Escape are NOT intercepted by the grid — they are not navigation keys,
