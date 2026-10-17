@@ -719,7 +719,7 @@ export const SESSION_UNKNOWN_COLOR = REQ_STATUS_UNKNOWN_COLOR;
 //
 // So restraint is carried by SATURATION, not by collapsing the hues. Measured
 // mean HSL saturation across all three scales: **Signal 0.836, Slate 0.350,
-// Aurora 0.828** — Slate is under half the default's chroma and keeps its hue
+// Aurora 0.821** — Slate is under half the default's chroma and keeps its hue
 // separation, which is what makes it legible AND calm. `aurora` is deliberately
 // as saturated as the default: "modern" is a different axis from "restrained",
 // and offering two calm themes would be one theme with two names. Every scale
@@ -789,17 +789,30 @@ export const PLAN_PALETTES = [
         key: 'aurora',
         label: 'Aurora',
         tip: 'Aurora — a modern dark-UI palette: teal through indigo and violet, '
-            + 'with the status scale a cool-to-warm walk rather than a stoplight.',
+            + 'with in-progress work in yellow-green, on the way to green.',
         epic: ['#5eead4', '#818cf8', '#f0abfc', '#fcd34d'],
-        // COOL TO WARM as the work advances, so the scale reads as heat rather
-        // than as a set of labels — the "not a stoplight" the directive asked
-        // for, arrived at by ordering rather than by muting. `deferred` and
-        // `wontfix` leave the walk for Slate's reason.
+        // Not a stoplight — the directive's ask, met by hue choice rather than
+        // by muting. `deferred` and `wontfix` sit off the lifecycle for
+        // Slate's reason.
+        //
+        // `development` is YELLOW-GREEN (req #3588 user directive: *"the
+        // difference between swarm-start and dev in the visualizer should be
+        // more obvious. currently it is swarm ready blue and dev light blue.
+        // its too subtle"*, then *"swarm-ready is blue and met is green"* →
+        // *"try yellow green"* → *"make it more yellow"*). The old teal `#5eead4` was the blue-to-green
+        // midpoint, inside `swarm_ready`'s own cyan family — ΔE 27.7, clearing
+        // the floor of 20 while reading as one colour at a glance. Lime
+        // approaches green from the WARM side instead, so it reads as "on the
+        // way to green" without touching the blue. Hue 68° — pushed yellower
+        // than lime's 83° on the user's call, and held there because the next
+        // step toward yellow closes on `deferred` (`#fcd34d`, 45°). MEASURED
+        // ΔE 30.2 from `deferred` (its nearest neighbour), 52.6 from `met`,
+        // contrast 12.36:1.
         status: {
             authoring:   '#818cf8',
             approved:    '#38bdf8',
             swarm_ready: '#22d3ee',
-            development: '#5eead4',
+            development: '#cfe635',
             met:         '#a3e635',
             deferred:    '#fcd34d',
             wontfix:     '#94a3b8',
@@ -812,12 +825,14 @@ export const PLAN_PALETTES = [
         },
         // req #3584 — THE LIVE session scale. `waiting`/`active`/`completed`
         // are assigned in the aurora patch below (tracking, for Signal's
-        // reason). Attention states (`review`, `paused`) are the warm ones;
-        // working states stay cool. MEASURED minimum ΔE 27.0
+        // reason). MEASURED minimum ΔE 27.0
         // (`starting`/`planning`), minimum contrast 5.79:1. `no_session` is a
         // LIGHT neutral, not aurora's mid slate: it must not read as the
         // unknown swatch every mark wears while the session reads load (every
-        // member ≥ 32.2 ΔE from it).
+        // member ≥ 32.2 ΔE from it). Since req #3588 `active` (tracking
+        // `status.development`) is yellow-green, the one working state on the
+        // warm side — it is "on the way to" `completed`'s green, ΔE 52.6, and
+        // ΔE 30.2 from `review`'s yellow.
         session: {
             no_session:  '#cbd5e1',
             starting:    '#818cf8',
@@ -854,7 +869,8 @@ export const PLAN_PALETTES = [
 // DELIBERATELY NOT patched to `PLAN_VIZ_PALETTE.runningRing` here — doing so
 // collides with aurora's own `deferred` (`#fcd34d` vs `#ffd769`, measured ΔE
 // 10.4, under the 20 floor this file holds every scale to) and the user has
-// not been asked which of the two should move. `swarm_ready`/`deferred`/
+// not been asked which of the two should move; it is aurora's own literal
+// yellow-green instead (req #3588, see the registry entry). `swarm_ready`/`deferred`/
 // `wontfix` stay aurora's own literal values, matching Signal's identical
 // exemption.
 const auroraPalette = PLAN_PALETTES.find((p) => p.key === 'aurora');
