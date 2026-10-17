@@ -11,6 +11,7 @@ import { useAllCategories, useMachines,
 import { useRequirementVisibility } from '../../hooks/useRequirementVisibility';
 import { useOrchestrationIndex } from './useOrchestrationIndex';
 import { stepOptions } from './orchestrationIndex';
+import { moveStepRequirement } from '../../Steps/stepsApi';
 import { planLinkTo, epicLinkTo } from '../pipelines/pipelineEpicLink';
 import { stepPlanLinkTo } from '../pipelines/pipelineStepLink';
 // req #3463 — the era↔route binding. This page never spells a plan route.
@@ -779,28 +780,14 @@ const RequirementDetail = () => {
     // KNOWN, ACCEPTED cost of editing a seat from here, not an oversight — do not
     // "fix" this by adding a silent refusal, and do not delete this note.
     //
-    // ## Order of operations — DELETE THE OLD SEAT, THEN INSERT THE NEW
+    // ## The write itself lives in `Steps/stepsApi.js::moveStepRequirement`
     //
-    // THE REVERSE ORDER CANNOT WORK, and this is a schema fact rather than a
-    // judgement call. `pipeline_step_requirements` has `PRIMARY KEY
-    // (requirement_fk)` ALONE — one step per requirement, the req #3336 stage-2
-    // gate ruling, structural — so while the old row exists there is no key
-    // available for a second one and the INSERT fails 100% of the time on a MOVE.
-    // `link_step_requirement` (darwin-mcp/services/pipelines2.py) says
-    // the same thing from the server side: it REFUSES a requirement already
-    // linked to a different step and names unlink-then-link as the lawful move.
-    //
-    // This OVERRIDES the argument this comment used to carry. Under 1.0's
-    // composite `(step_fk, requirement_fk)` key, insert-first was right: both
-    // rows could coexist, so a failed insert left the old seat intact while a
-    // failed delete left a visible double-seat. Neither of those states is
-    // reachable now.
-    //
-    // THE RESIDUAL, STATED HONESTLY: a POST that fails after the DELETE
-    // succeeded leaves the requirement seated NOWHERE. That is a real loss and
-    // it is not hidden — the plan view shows the step short one requirement, the
-    // Orchestration box reads "No step", the error is on screen, and a person
-    // re-seats it in one pick. It is the only failure mode the key permits.
+    // Since req #3581 the plan visualizer's drag-and-drop seats requirements
+    // too, so the delete-old-then-insert-new order — forced by the junction's
+    // `PRIMARY KEY (requirement_fk)` — and its one honest residual (a POST that
+    // fails after the DELETE leaves the requirement seated nowhere) are stated
+    // ONCE, beside the only implementation. A failed move is surfaced and the
+    // junction re-read below, never guessed back.
     const handleStepChange = async (event) => {
         if (isNew) return;   // draft — `id` is the literal 'new'.
         const raw = event.target.value;
@@ -810,27 +797,10 @@ const RequirementDetail = () => {
         const prevStepId = seatStep ? seatStep.id : null;
         if (nextStepId === prevStepId) return;
 
-        const uri = `${darwinUri}/pipeline_step_requirements`;
-        const reqId = parseInt(id);
         try {
-            if (prevStepId != null) {
-                // BOTH COLUMNS in the body even though `requirement_fk` alone is
-                // the PK. `rest_delete.py` ANDs every key it is given into the
-                // WHERE clause, so naming `step_fk` too is strictly more
-                // specific: it deletes the seat only if the row still says what
-                // this page last read, and a seat moved by somebody else in the
-                // meantime is left alone rather than silently removed. That
-                // narrowing also FAILS SAFE — `rest_delete` answers 404 on zero
-                // affected rows, `call_rest_api` throws, and the POST below
-                // never runs, so a stale read aborts the move instead of
-                // completing half of it.
-                await call_rest_api(uri, 'DELETE',
-                    { step_fk: prevStepId, requirement_fk: reqId }, idToken);
-            }
-            if (nextStepId != null) {
-                await call_rest_api(uri, 'POST',
-                    { step_fk: nextStepId, requirement_fk: reqId }, idToken);
-            }
+            await moveStepRequirement(darwinUri, idToken, {
+                requirementId: parseInt(id), fromStepId: prevStepId, toStepId: nextStepId,
+            });
         } catch (error) {
             showError(error, 'Unable to update step');
             // Re-read rather than patch local state: the seat lives in the

@@ -76,8 +76,11 @@
 // and the next wheel or drag would snap back — the classic integration bug.
 // The geometry itself is pure and lives in pipelinePlanLayout.js.
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+    useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState,
+} from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useIsFetching, useQueryClient } from '@tanstack/react-query';
 import { Stage, Layer, Group, Rect, Circle, Line, Text, Path } from 'react-konva';
 import Konva from 'konva';
 import { select } from 'd3-selection';
@@ -154,6 +157,17 @@ import {
 // the rest of `/swarm`'s query string, so this file names no query key itself.
 import { swarmEpicLinkTo, swarmStepLinkTo } from '../swarmViewLink';
 import { useSavedViewport } from '../../hooks/useSavedViewport';
+// req #3581 — dragging a requirement between steps writes its seat.
+import AppContext from '../../Context/AppContext';
+import AuthContext from '../../Context/AuthContext';
+import { pipelineComposeKeys } from '../../hooks/useQueryKeys';
+import { pipelineStepRequirementKeys } from '../../hooks/useDataQueries';
+import { useSnackBarStore } from '../../stores/useSnackBarStore';
+import { moveStepRequirement } from '../../Steps/stepsApi';
+import {
+    REQ_DRAG_SLOP, passedDragSlop, dropTargetAt, canDropOn, applyReqMoves,
+    edgePanVelocity,
+} from './pipelineReqDrag';
 import { viewportStorageKey, writeViewport } from '../../utils/viewportMemory';
 import '../../CalendarFC/swarmVisualizer.css';
 
@@ -347,6 +361,18 @@ export default function PipelinePlanVisualizer({
     stepWidthLevel = DEFAULT_STEP_WIDTH_LEVEL,
 }) {
     const navigate = useNavigate();
+    const queryClient = useQueryClient();
+    const { darwinUri } = useContext(AppContext);
+    const { idToken, profile } = useContext(AuthContext);
+    const showError = useSnackBarStore((st) => st.showError);
+
+    // ── Requirement drag-and-drop: the moves in flight (req #3581) ──────────
+    // A dropped requirement is drawn on its NEW step from the instant of the
+    // drop, and stays there through the write and the refetch — see
+    // `applyReqMoves` for why that is one redraw rather than two. Each entry
+    // leaves this list once the refetch it triggered has landed (or the write
+    // failed, in which case the refetched server rows ARE the revert).
+    const [pendingMoves, setPendingMoves] = useState([]);
 
     // Requirement name + status for the hover tooltip (req #3119). The canvas
     // keeps drawing bare IDS — a plan title is many times the width of the
@@ -375,7 +401,7 @@ export default function PipelinePlanVisualizer({
     // is the engine's answer, computed before this runs and left untouched, so
     // re-ordering the display never touches what `/swarm-start` launches.
     const rows = useMemo(() => {
-        const base = plan.rows || [];
+        const base = applyReqMoves(plan.rows || [], pendingMoves);
         if (!base.length) return base;
         const statusOf = (id) => reqInfo.get(id)?.status;
         const sessionOf = (id) => reqInfo.get(id)?.session;
@@ -385,7 +411,7 @@ export default function PipelinePlanVisualizer({
             ? { ...r, reqIds: sortReqIdsByColorKey(r.reqIds,
                 { colorKey, statusOf, sessionOf, autonomyOf, machineOf }) }
             : r));
-    }, [plan.rows, reqInfo, colorKey]);
+    }, [plan.rows, pendingMoves, reqInfo, colorKey]);
     const rowById = useMemo(() => new Map(rows.map((r) => [r.id, r])), [rows]);
     const eligibleStepIds = plan.eligibleStepIds || new Set();
     // The requirement TITLE lookup, when that mark is showing (req #3168). Built
@@ -496,6 +522,30 @@ export default function PipelinePlanVisualizer({
     const zoomRef = useRef(null);
     const downRef = useRef(null);
     const draggingRef = useRef(false);
+    // ── The REQUIREMENT drag (req #3581) — not to be confused with the pan ──
+    // `draggingRef` above is d3's camera gesture. This one moves a requirement
+    // to another step, and the two never coexist: the zoom filter refuses any
+    // press that lands on a requirement mark (`reqHitRef`), so a press there
+    // belongs to the requirement — a click navigates, a drag moves it.
+    //
+    // `reqDragRef` is the gesture's live state (`{phase: 'press' | 'drag', …}`),
+    // read by native listeners at pointer rate, so a ref. `reqDrag` is the slice
+    // the RENDER needs — which mark to grey, the preview image — and is set only
+    // at drag start and drag end, so a drag in progress re-renders the canvas
+    // only when the target step under the pointer changes (`dropStepId`), never
+    // per pointermove. `reqHitRef` holds the current hit test so the zoom
+    // behaviour, built once, sees the current stage without being rebuilt.
+    const reqDragRef = useRef(null);
+    const reqHitRef = useRef(null);
+    // Re-aims the drop outline after the camera moves under a still pointer —
+    // a wheel zoom or an edge auto-pan mid-drag. Called from the zoom
+    // behaviour's own 'zoom' handler, the one place every camera move passes
+    // through (d3's wheel listener stops every other listener on the element).
+    const reqRetargetRef = useRef(null);
+    const reqClickGuardRef = useRef(false);
+    const dragPreviewRef = useRef(null);
+    const [reqDrag, setReqDrag] = useState(null);
+    const [dropStepId, setDropStepId] = useState(null);
     // True only while a focus transition is in flight (req #3204). See the
     // world-click hit-test for why. `focusSeqRef` stamps each transition so a
     // SUPERSEDED one cannot clear the flag out from under its successor: d3
@@ -884,8 +934,15 @@ export default function PipelinePlanVisualizer({
             // d3 to scale continuously and then correcting it afterwards would
             // fight its own inertia and emit a smooth zoom before every snap.
             // Through a ref, so the toggle does not rebuild this behaviour.
+            //
+            // req #3581 — A PRESS ON A REQUIREMENT MARK IS NOT A PAN. It is the
+            // requirement's own gesture (click to open it, drag to re-seat it),
+            // and no handle exists to tell the two apart: the mark itself is
+            // the handle. Refused HERE for the same reason the key is — d3's
+            // listener fires first, so nothing downstream could take it back.
             .filter((ev) => (ev.type === 'wheel' ? !snapZoomRef.current
-                : (!ev.button && !ev.target?.closest?.(CHROME_SELECTOR))))
+                : (!ev.button && !ev.target?.closest?.(CHROME_SELECTOR)
+                    && !(ev.type === 'mousedown' && reqHitRef.current?.(ev)))))
             // ONE number for "how far may a click move" (req #3297). d3 uses it
             // to decide whether to suppress the click; the epic name's cycle
             // uses it to decide whether that same gesture was the reader taking
@@ -900,6 +957,7 @@ export default function PipelinePlanVisualizer({
                 // req #3252 — one ref assignment per pointermove, no render and
                 // no write. The write happens once, on 'end' below.
                 liveTransformRef.current = { x: tr.x, y: tr.y, k: tr.k };
+                reqRetargetRef.current?.();          // req #3581, see the ref
                 if (!suppressSaveRef.current) viewport.record(liveTransformRef.current);
                 // `sourceEvent` is non-null only for a USER gesture — a drag or
                 // a wheel — and null for every programmatic transform. Once the
@@ -1366,8 +1424,14 @@ export default function PipelinePlanVisualizer({
             // canvas, and resolving a click through it would fire whichever
             // bead it happens to be lying on top of.
             if (e.target?.closest?.(CHROME_SELECTOR)) return;
+            // req #3581 — the click that ends a requirement DRAG is not a click
+            // on the requirement, even when the drop lands back within the slop
+            // of where it was picked up (a drag that wandered and came home).
+            if (reqClickGuardRef.current) return;
             const d = downRef.current;
-            if (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 4) return;
+            // `REQ_DRAG_SLOP` — the requirement drag starts at exactly the
+            // distance this stops calling a gesture a click (req #3581).
+            if (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) > REQ_DRAG_SLOP) return;
             // Only a click that landed on the CANVAS ITSELF is a world click
             // (req #3204). This listener is native and sits on the container,
             // so it also sees clicks bubbling up from the HTML overlays —
@@ -1402,6 +1466,322 @@ export default function PipelinePlanVisualizer({
         return () => {
             el.removeEventListener('mousedown', onDown);
             el.removeEventListener('click', onClick);
+        };
+    }, [containerEl]);
+
+    // ── DRAG A REQUIREMENT TO ANOTHER STEP (req #3581) ─────────────────────
+    // "Clean sweet and beautiful drag and drop for requirements between the
+    // steps shown on the screen" — no drag handle: the requirement mark itself
+    // is what you pick up. While it is in the air the mark it left is greyed
+    // out, a full-size copy of it (a snapshot of the very Konva node, at the
+    // current zoom and in its current colour) rides the cursor, the card it
+    // would land on is outlined, and NOTHING ELSE MOVES — the plan is laid out
+    // again exactly once, on the drop (`applyReqMoves`).
+    //
+    // A press that never passes `REQ_DRAG_SLOP` is still a click and still opens
+    // the requirement; the manual click hit-test above uses the same number.
+    // Pressing near the panel edge mid-drag auto-pans (bounded by the same
+    // clamp the zoom behaviour uses), so a step off-screen is still reachable;
+    // the wheel keeps zooming throughout. Escape, or the window losing focus,
+    // puts the requirement back.
+    //
+    // The listeners read everything that changes through `dragWorldRef`, so the
+    // effect binds once per container and never tears a gesture down mid-drag
+    // because a refetch re-rendered the page.
+    // The server's own rows, as of the last commit — what a written move is
+    // stamped with, so the settle effect below can tell a read that landed
+    // AFTER the write from the one already on screen.
+    const serverRowsRef = useRef(plan.rows);
+    const commitReqMove = useCallback(async (move) => {
+        setPendingMoves((ms) => [...ms, move]);
+        let failed = false;
+        try {
+            await moveStepRequirement(darwinUri, idToken, {
+                requirementId: move.reqId,
+                fromStepId: move.fromStepId,
+                toStepId: move.toStepId,
+            });
+        } catch (error) {
+            failed = true;
+            // THE RESIDUAL THE JUNCTION'S KEY PERMITS (see `moveStepRequirement`):
+            // the old seat was deleted and the new one refused. On this surface
+            // that would make the requirement vanish from the plan with nothing
+            // left to click, so it is put back where the DELETE just proved it
+            // was — a known prior state, not a guessed rollback.
+            let stranded = false;
+            if (error?.seatStage === 'seat' && move.fromStepId != null) {
+                try {
+                    await moveStepRequirement(darwinUri, idToken, {
+                        requirementId: move.reqId, toStepId: move.fromStepId,
+                    });
+                } catch {
+                    stranded = true;
+                }
+            }
+            showError(error, stranded
+                ? `Requirement ${move.reqId} could not be moved and is now on no step `
+                  + '— re-seat it from its requirement page'
+                : `Unable to move requirement ${move.reqId}`);
+        }
+        if (failed) {
+            // The server's rows ARE the revert, and they are already on screen
+            // under the local move — so it goes now, not when a refetch lands.
+            setPendingMoves((ms) => ms.filter((m) => m !== move));
+        } else {
+            // Written. It stays drawn until a read that LANDED AFTER the write
+            // says so — see the settle effect below for why a promise cannot
+            // be what clears it.
+            move.writtenRows = serverRowsRef.current;
+            setPendingMoves((ms) => [...ms]);
+        }
+        if (pipeline?.id != null) {
+            queryClient.invalidateQueries({ queryKey: pipelineComposeKeys.byId(pipeline.id) });
+        }
+        queryClient.invalidateQueries({
+            queryKey: pipelineStepRequirementKeys.all(profile?.userName) });
+        queryClient.invalidateQueries({ queryKey: ['orchestration_index'] });
+    }, [darwinUri, idToken, profile?.userName, pipeline?.id, queryClient, showError]);
+
+    // ── A WRITTEN MOVE IS DROPPED BY THE DATA, NEVER BY A PROMISE ───────────
+    // `invalidateQueries` cancels a refetch already in flight, and a cancelled
+    // (or paused, or failed) refetch still RESOLVES its caller's await — so
+    // clearing on that await let a second quick drop snap the first one back to
+    // its old step for a round trip (code review). Instead a written move stays
+    // until the server's rows put it on its target, or until a read that landed
+    // after the write, with nothing further in flight, says otherwise (somebody
+    // else moved it meanwhile — the server wins). A refetch that fails leaves
+    // it standing, which is right: the write succeeded.
+    const composeFetching = useIsFetching({
+        queryKey: pipelineComposeKeys.byId(pipeline?.id ?? null) });
+    useEffect(() => {
+        serverRowsRef.current = plan.rows;
+        const server = plan.rows || [];
+        const settled = pendingMoves.filter((m) => m.writtenRows !== undefined && (
+            server.some((r) => r.id === m.toStepId && (r.reqIds || []).includes(m.reqId))
+            || (server !== m.writtenRows && composeFetching === 0)));
+        if (settled.length) setPendingMoves((ms) => ms.filter((m) => !settled.includes(m)));
+    }, [plan.rows, pendingMoves, composeFetching]);
+
+    const dragWorldRef = useRef(null);
+    useLayoutEffect(() => {
+        dragWorldRef.current = {
+            layout, rowById, size, pendingMoves, commit: commitReqMove,
+            t: liveTransformRef.current || transform || { x: 0, y: 0, k: kFactoryDefault },
+        };
+    });
+
+    useEffect(() => {
+        const el = containerEl;
+        if (!el) return undefined;
+        // Screen padding around the snapshot inside the floating copy — the
+        // grab offset accounts for it, so the lifted text starts exactly where
+        // the mark it was copied from is drawn.
+        const PAD_X = 6;
+        const PAD_Y = 3;
+        let raf = 0;
+        let lastPoint = null;           // panel-relative, last pointer position
+        let guardTimer = 0;
+
+        const world = () => dragWorldRef.current;
+        const panelPoint = (e) => {
+            const r = el.getBoundingClientRect();
+            return { x: e.clientX - r.left, y: e.clientY - r.top };
+        };
+        // The live camera first: an auto-pan step emits its zoom event
+        // synchronously, so the ref is current before the next retarget reads
+        // it, while the render-time copy in `dragWorldRef` lags one commit.
+        const camera = () => liveTransformRef.current || world().t;
+        const toWorld = (p) => {
+            const t = camera();
+            return { x: (p.x - t.x) / t.k, y: (p.y - t.y) / t.k };
+        };
+        const setCursor = (c) => {
+            const sc = stageRef.current?.container();
+            if (sc) sc.style.cursor = c;
+        };
+        // The requirement mark under a pointer event, or null — also the zoom
+        // filter's test. Not one whose previous move is still being written:
+        // its DELETE would name a seat the server does not have yet.
+        const hit = (e) => {
+            const stage = stageRef.current;
+            if (!stage || focusingRef.current) return null;
+            if (!(e.target instanceof HTMLCanvasElement)) return null;
+            const node = stage.getIntersection(panelPoint(e));
+            const reqId = node?.getAttr?.('dragReqId');
+            if (reqId == null) return null;
+            if (world().pendingMoves.some((m) => m.reqId === reqId)) return null;
+            return node;
+        };
+        reqHitRef.current = hit;
+
+        const retarget = () => {
+            const d = reqDragRef.current;
+            if (d?.phase !== 'drag' || !lastPoint) return;
+            const w = world();
+            // ONLY INSIDE THE PANEL (code review C1). The move listeners are on
+            // `window`, so a pointer over the page header or past the panel
+            // edge still maps to a world point — onto a card clipped out of
+            // sight, which would take the drop with nobody having seen it lit.
+            const inside = lastPoint.x >= 0 && lastPoint.y >= 0
+                && lastPoint.x <= w.size.w && lastPoint.y <= w.size.h;
+            const stepId = inside ? dropTargetAt(w.layout.nodes, toWorld(lastPoint)) : null;
+            const ok = canDropOn(w.rowById.get(stepId), d.fromStepId);
+            const next = ok ? stepId : null;
+            if (d.target !== next) {
+                d.target = next;
+                setDropStepId(next);
+            }
+            // A card that refuses the requirement (a stamped step) says so; its
+            // own home card and open canvas just keep the grab.
+            setCursor(stepId != null && stepId !== d.fromStepId && !ok
+                ? 'no-drop' : 'grabbing');
+        };
+        const placePreview = () => {
+            const d = reqDragRef.current;
+            const box = dragPreviewRef.current;
+            if (!d || !box || !lastPoint) return;
+            box.style.transform =
+                `translate(${lastPoint.x - d.offX}px, ${lastPoint.y - d.offY}px)`;
+        };
+        // Edge auto-pan, one step per frame while the pointer sits in the edge
+        // band. Clamped BEFORE it is applied, with the zoom behaviour's own
+        // bound, so a plan already at its edge costs no transform (and no
+        // re-render) per frame.
+        const tick = () => {
+            raf = 0;
+            const d = reqDragRef.current;
+            const zb = zoomRef.current;
+            if (d?.phase !== 'drag' || !lastPoint || !zb) return;
+            const w = world();
+            const { vx, vy } = edgePanVelocity(lastPoint, w.size);
+            if (!vx && !vy) return;
+            const t = camera();
+            const c = clampPlanTransform(
+                { x: t.x - vx, y: t.y - vy, k: t.k }, w.size, w.layout, t.k, t.k);
+            if (c.x !== t.x || c.y !== t.y) {
+                // The reader moving the camera, by reaching for the edge — so
+                // it counts as theirs exactly as a pan does (see the zoom
+                // handler for both flags).
+                userMovedCameraRef.current = true;
+                epicZoomRef.current = null;
+                // Retargets through the zoom handler (`reqRetargetRef`).
+                select(el).call(zb.transform, zoomIdentity.translate(c.x, c.y).scale(t.k));
+            }
+            raf = requestAnimationFrame(tick);
+        };
+
+        const start = (d) => {
+            if (!d.node.getStage()) return false;       // redrawn away mid-press
+            let src;
+            try {
+                src = d.node.toDataURL({ pixelRatio: window.devicePixelRatio || 1 });
+            } catch {
+                return false;
+            }
+            const r = d.node.getClientRect();
+            const p0 = panelPoint({ clientX: d.down.x, clientY: d.down.y });
+            d.offX = p0.x - r.x + PAD_X;
+            d.offY = p0.y - r.y + PAD_Y;
+            d.phase = 'drag';
+            d.target = null;
+            setCard(null);
+            setReqDrag({
+                reqId: d.reqId, fromStepId: d.fromStepId, src,
+                w: r.width, h: r.height, padX: PAD_X, padY: PAD_Y,
+                x: lastPoint.x - d.offX, y: lastPoint.y - d.offY,
+            });
+            setCursor('grabbing');
+            return true;
+        };
+        const finish = () => {
+            reqDragRef.current = null;
+            if (raf) cancelAnimationFrame(raf);
+            raf = 0;
+            lastPoint = null;
+            setReqDrag(null);
+            setDropStepId(null);
+            setCursor('grab');
+        };
+        // The click that ends a drag is the drag's, not the requirement's —
+        // held for exactly the task that delivers it.
+        const guardClick = () => {
+            reqClickGuardRef.current = true;
+            clearTimeout(guardTimer);
+            guardTimer = setTimeout(() => { reqClickGuardRef.current = false; }, 0);
+        };
+
+        const onDown = (e) => {
+            if (e.button !== 0 || e.target?.closest?.(CHROME_SELECTOR)) return;
+            const node = hit(e);
+            if (!node) return;
+            e.preventDefault();          // no text selection, no native drag
+            reqDragRef.current = {
+                phase: 'press', node,
+                reqId: node.getAttr('dragReqId'),
+                fromStepId: node.getAttr('dragStepId'),
+                down: { x: e.clientX, y: e.clientY },
+            };
+        };
+        const onMove = (e) => {
+            const d = reqDragRef.current;
+            if (!d || d.phase === 'cancelled') return;
+            // The button is up but no mouseup reached us (something swallowed
+            // it): a release we never saw is not a drop — put it back.
+            if (!(e.buttons & 1)) {        // eslint-disable-line no-bitwise
+                if (d.phase === 'drag') finish(); else reqDragRef.current = null;
+                return;
+            }
+            lastPoint = panelPoint(e);
+            if (d.phase === 'press') {
+                if (!passedDragSlop(d.down, e.clientX, e.clientY)) return;
+                if (!start(d)) { reqDragRef.current = null; return; }
+            }
+            placePreview();
+            retarget();
+            if (!raf) raf = requestAnimationFrame(tick);
+        };
+        const onUp = (e) => {
+            const d = reqDragRef.current;
+            if (!d || e.button !== 0) return;      // only the button that lifted it
+            if (d.phase === 'press') { reqDragRef.current = null; return; }
+            guardClick();
+            if (d.phase === 'cancelled') { reqDragRef.current = null; return; }
+            lastPoint = panelPoint(e);
+            retarget();
+            const toStepId = d.target;
+            finish();
+            if (toStepId != null) {
+                world().commit({ reqId: d.reqId, fromStepId: d.fromStepId, toStepId });
+            }
+        };
+        // Escape puts it back. The press stays recorded as CANCELLED until the
+        // button comes up, so the release is neither a drop nor a click.
+        const onKey = (e) => {
+            if (e.key !== 'Escape' || reqDragRef.current?.phase !== 'drag') return;
+            e.preventDefault();
+            finish();
+            reqDragRef.current = { phase: 'cancelled' };
+        };
+        const onBlur = () => { if (reqDragRef.current) finish(); };
+        reqRetargetRef.current = retarget;
+
+        el.addEventListener('mousedown', onDown);
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+        window.addEventListener('keydown', onKey);
+        window.addEventListener('blur', onBlur);
+        return () => {
+            el.removeEventListener('mousedown', onDown);
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+            window.removeEventListener('keydown', onKey);
+            window.removeEventListener('blur', onBlur);
+            if (raf) cancelAnimationFrame(raf);
+            clearTimeout(guardTimer);
+            reqHitRef.current = null;
+            reqRetargetRef.current = null;
+            reqDragRef.current = null;
+            reqClickGuardRef.current = false;
         };
     }, [containerEl]);
 
@@ -1531,15 +1911,19 @@ export default function PipelinePlanVisualizer({
 
     const cursorPointer = useCallback((e, on) => {
         const stage = e?.target?.getStage?.();
-        if (!stage || draggingRef.current) return;
+        if (!stage || draggingRef.current || reqDragRef.current?.phase === 'drag') return;
         stage.container().style.cursor = on ? 'pointer' : 'grab';
     }, []);
 
+    // No datacard while a requirement is in the air (req #3581) — the cursor is
+    // carrying one, and a card popping up under it would cover the drop target.
     const showStepCard = useCallback((row, e) => {
+        if (reqDragRef.current?.phase === 'drag') return;
         const p = e?.target?.getStage?.()?.getPointerPosition?.();
         if (p) setCard({ x: p.x, y: p.y, kind: 'step', row });
     }, []);
     const showReqCard = useCallback((reqId, e) => {
+        if (reqDragRef.current?.phase === 'drag') return;
         const p = e?.target?.getStage?.()?.getPointerPosition?.();
         if (p) setCard({ x: p.x, y: p.y, kind: 'req', reqId, info: reqInfo.get(reqId) });
     }, [reqInfo]);
@@ -2493,6 +2877,27 @@ export default function PipelinePlanVisualizer({
         }
     });
 
+    // ── THE DROP TARGET (req #3581) ─────────────────────────────────────────
+    // The card a dragged requirement would land on, outlined in the panel's
+    // accent and faintly washed — pushed after every card and before the label
+    // loop, so the rows read through the wash. Its outline is screen-constant
+    // (divided by `curK`), since a world-scaled stroke would vanish exactly when
+    // the reader has zoomed out to reach a distant step. The box is the layout's
+    // own frame, the same one `dropTargetAt` tests, so what lights up is what
+    // the drop will hit — at every level, including Overview where the card
+    // itself is not painted.
+    const dropNode = dropStepId != null ? layout.nodes.get(dropStepId) : null;
+    if (dropNode) {
+        const sw = 2.5 / curK;
+        worldNodes.push(
+            <Rect key="req-drop-target" x={dropNode.frameLeft - sw} y={dropNode.top - sw}
+                  width={dropNode.frameW + 2 * sw} height={dropNode.h + 2 * sw}
+                  cornerRadius={CARD_RADIUS + sw}
+                  fill={rgba(P.accent, 0.08)} stroke={P.accent} strokeWidth={sw}
+                  shadowColor={P.accent} shadowBlur={14 / curK} shadowOpacity={0.55}
+                  listening={false} />);
+    }
+
     // ── The merged next-step marks (req #3498) ──────────────────────────────
     // Pushed after the row loop so they sit above every bead, and counter-scaled
     // the same way the dot itself is: `nextMarkDotRadius` already returns a
@@ -2688,12 +3093,21 @@ export default function PipelinePlanVisualizer({
             // crosses the L2/L3 line, only where the ids sit inside a box that
             // was always this tall.
             const reqY = showTitle ? label.y : label.idY;
+            // req #3581 — the mark the reader has picked up stays where it was,
+            // GREYED OUT, until the drop: the copy riding the cursor is the
+            // requirement in flight, and this is the hole it left.
+            const lifted = reqDrag?.reqId === label.reqId;
             worldNodes.push(
                 <Text key={`lbl-${i}`} x={reqX} y={reqY} text={reqText}
                       fontSize={CF.req} fontFamily={MONO}
                       lineHeight={REQ_LINE_H / CF.req}
-                      fill={rs.fill}
+                      fill={lifted ? P.dim : rs.fill}
+                      opacity={lifted ? 0.4 : 1}
                       fontStyle={rs.bold ? 'bold' : 'normal'}
+                      // What the drag hit test reads off the node it lands on
+                      // (req #3581): the mark IS the handle.
+                      dragReqId={label.reqId}
+                      dragStepId={label.stepId}
                       onMouseEnter={(e) => { cursorPointer(e, true); showReqCard(label.reqId, e); }}
                       onMouseLeave={(e) => { cursorPointer(e, false); hideCard(); }}
                       // Carry the plan's identity so the requirement page's Back
@@ -2949,6 +3363,11 @@ export default function PipelinePlanVisualizer({
                  // read as L1 on the chips.
                  data-level={level}
                  data-drawn={drawnKinds}
+                 // req #3581 — the requirement in flight and the step it would
+                 // land on, for the same reason as `data-transform`: a canvas
+                 // drag is otherwise observable only as changed pixels.
+                 data-req-drag={reqDrag ? reqDrag.reqId : ''}
+                 data-drop-step={dropStepId ?? ''}
                  // Full-page canvas (req #3119), the KonvaSwarmCanvas figure
                  // verbatim. The height is MEASURED (`availH` above) rather than
                  // subtracted from a list of known chrome, which is what lets the
@@ -2988,6 +3407,38 @@ export default function PipelinePlanVisualizer({
                             </Group>
                         </Layer>
                     </Stage>
+                )}
+
+                {/* req #3581 — the requirement in flight: a FULL-SIZE copy of the
+                    mark, snapshotted from its own Konva node at drag start, so
+                    it is the requirement exactly as the canvas draws it — same
+                    zoom, same colour key, id or title per level. Lifted onto a
+                    panel-coloured plate with a soft shadow so it reads as
+                    picked up. Positioned by `transform` written straight to
+                    the DOM per pointermove (see the drag effect); React sets
+                    it once and never again, so dragging re-renders nothing.
+                    `pointerEvents: none` — it must never be what the drop
+                    lands on. */}
+                {reqDrag && (
+                    <Box ref={dragPreviewRef}
+                         data-testid="pipeline-viz-req-drag-preview"
+                         data-req-id={reqDrag.reqId}
+                         style={{ transform: `translate(${reqDrag.x}px, ${reqDrag.y}px)` }}
+                         sx={{ position: 'absolute', left: 0, top: 0, zIndex: 30,
+                                pointerEvents: 'none', willChange: 'transform',
+                                px: `${reqDrag.padX}px`, py: `${reqDrag.padY}px`,
+                                borderRadius: '6px',
+                                background: rgba(P.panel, 0.94),
+                                // OUTLINE, not border: it takes no layout space, so
+                                // the snapshot sits exactly `pad` in from the box
+                                // edge the grab offset was computed against.
+                                outline: `1px solid ${P.accent}`,
+                                boxShadow: `0 10px 28px rgba(0, 0, 0, 0.55), 0 0 0 3px ${rgba(P.accent, 0.12)}`,
+                                cursor: 'grabbing' }}>
+                        <img src={reqDrag.src} alt="" draggable={false}
+                             width={reqDrag.w} height={reqDrag.h}
+                             style={{ display: 'block' }} />
+                    </Box>
                 )}
 
                 {/* Floating epic labels — each at the top-left corner of its own
