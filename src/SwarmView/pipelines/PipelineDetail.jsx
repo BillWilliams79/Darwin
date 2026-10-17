@@ -101,6 +101,7 @@ import {
     // owns that, server side — and req #3345 did not move cost into the composed
     // payload, so the plan page still folds it here from two bounded reads.
     buildCostIndex,
+    buildSessionStatusIndex,
 } from './pipelineViewModel';
 import { buildReqPills } from './planReqPills';
 
@@ -424,10 +425,17 @@ export default function PipelineDetail() {
     // first paint for a slower one. They also do not gate because they are
     // OPT-IN at the UI: the Cost column is hidden until the user asks for it.
     // (The junction now gates anyway, as a pill input — req #3587, below.)
+    const requirementSessionsQuery = useAllRequirementSessions(creatorFk);
+    const sessionCostsQuery = useAllSessionCostRollups(creatorFk);
     const { data: requirementSessions = EMPTY, isError: requirementSessionsError,
-        isLoading: requirementSessionsLoading } = useAllRequirementSessions(creatorFk);
-    const { data: sessionCosts = EMPTY, isError: sessionCostsError } =
-        useAllSessionCostRollups(creatorFk);
+        isLoading: requirementSessionsLoading } = requirementSessionsQuery;
+    const { data: sessionCosts = EMPTY, isError: sessionCostsError } = sessionCostsQuery;
+    // Req #3584 — "has data", not `isSuccess`: a failed background refetch
+    // clears `isSuccess` while TanStack keeps the last good rows, and the cost
+    // fold keeps rendering those same rows — the Session key must not blank the
+    // whole plan to unknown over a refetch the Cost column shrugs off.
+    const sessionReadsReady = requirementSessionsQuery.data !== undefined
+        && sessionCostsQuery.data !== undefined;
     // A failed cost read must not render as a column of em-dashes — that is
     // indistinguishable from "this plan has no recorded cost", which is a claim
     // about the data rather than about the fetch. The table says which it is.
@@ -436,6 +444,15 @@ export default function PipelineDetail() {
     const costIndex = useMemo(
         () => buildCostIndex({ requirementSessions, sessionCosts }),
         [requirementSessions, sessionCosts]);
+
+    // Req #3584 — the visualizer's Session colour key, from the SAME two reads
+    // (the session read carries `swarm_status`). Null until both have data, so
+    // a slow or failed first read paints "unknown" rather than "no session".
+    const sessionStatus = useMemo(
+        () => buildSessionStatusIndex({
+            requirementSessions, sessions: sessionCosts, ready: sessionReadsReady,
+        }),
+        [requirementSessions, sessionCosts, sessionReadsReady]);
 
     // Req #3587 — the visualizer's Terminal and Dev Server pills. Two more
     // bounded list reads (a light session projection and `dev_servers`, the
@@ -471,7 +488,7 @@ export default function PipelineDetail() {
     const {
         pipeline, model, plan, diagnostic, isLoading: planLoading,
         dictionaryError: planDictionaryError, knownIds,
-    } = usePlanSources(pipelineId, creatorFk, { machines, costIndex });
+    } = usePlanSources(pipelineId, creatorFk, { machines, costIndex, sessionStatus });
 
     const isLoading = planLoading || machinesLoading || pillsLoading;
 

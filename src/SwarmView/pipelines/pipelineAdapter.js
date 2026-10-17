@@ -317,12 +317,22 @@ export function adaptComposedPipeline(payload, { machines = [], costIndex = null
  *
  * @param {Object} payload
  * @param {Object[]} [machines]
+ * @param {?Map<number, string>} [sessionStatus]  buildSessionStatusIndex output
  * @returns {{pipeline: ?Object, requirements: Object[], machines: Object[]}}
  */
-export function buildPlanModel(payload, machines = []) {
+export function buildPlanModel(payload, machines = [], sessionStatus = null) {
+    const requirements = asArray(payload && payload.requirements);
     return {
         pipeline: (payload && payload.pipeline) || null,
-        requirements: asArray(payload && payload.requirements),
+        // req #3584 — `session_status` for the Session colour key. Attached only
+        // when the index exists (both session reads settled): a requirement it
+        // does not name then has genuinely never had a session. With no index
+        // the rows pass through untouched and the scale paints unknown.
+        requirements: sessionStatus
+            ? requirements.map((r) => ({
+                ...r, session_status: sessionStatus.get(Number(r.id)) ?? 'no_session',
+            }))
+            : requirements,
         machines: asArray(machines),
     };
 }
