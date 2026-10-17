@@ -147,6 +147,46 @@ export function buildCostIndex({ requirementSessions, sessionCosts } = {}) {
 }
 
 /**
+ * Each requirement's LATEST session status, for the visualizer's Session colour
+ * key (req #3584). From the same two reads `buildCostIndex` folds, so it costs
+ * no fetch: the junction maps requirement -> sessions, the projected session
+ * read carries `swarm_status`.
+ *
+ * LATEST = the highest session id. Ids are allocated in launch order, so a
+ * requirement that was launched, undone and relaunched reports the session
+ * working it now rather than the one that was abandoned.
+ *
+ * A requirement no session reaches is ABSENT from the map; the caller decides
+ * what absence means, and it can only mean "no session" once both reads have
+ * settled — which is why this returns null when `ready` is false rather than
+ * an empty map that would read as "nothing ran anywhere".
+ *
+ * @param {Object} args
+ * @param {Object[]} args.requirementSessions  requirement_sessions junction rows
+ * @param {Object[]} args.sessions             swarm_sessions {id, swarm_status}
+ * @param {boolean} [args.ready=true]          both reads settled successfully
+ * @returns {?Map<number, string>}             requirement id -> swarm_status
+ */
+export function buildSessionStatusIndex({ requirementSessions, sessions, ready = true } = {}) {
+    if (!ready) return null;
+    const statusById = new Map();
+    for (const s of asArray(sessions)) {
+        if (s == null || s.id == null) continue;
+        const sid = Number(s.id);
+        if (Number.isFinite(sid)) statusById.set(sid, s.swarm_status);
+    }
+    const latest = new Map();   // requirement id -> highest linked session id
+    for (const link of asArray(requirementSessions)) {
+        if (link == null) continue;
+        const rid = Number(link.requirement_fk);
+        const sid = Number(link.session_fk);
+        if (!Number.isFinite(rid) || !statusById.has(sid)) continue;
+        if (!latest.has(rid) || sid > latest.get(rid)) latest.set(rid, sid);
+    }
+    return new Map([...latest].map(([rid, sid]) => [rid, statusById.get(sid)]));
+}
+
+/**
  * The flat render list the plan table maps over: ONE ENTRY PER STEP ROW,
  * pre-decorated with everything the cell renderers need.
  *

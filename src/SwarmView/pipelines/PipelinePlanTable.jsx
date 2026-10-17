@@ -250,17 +250,18 @@ function StepLaunchLine({ row }) {
 // #3503) — the SAME ladder `sortReqIdsByColorKey` stacks the Plan
 // visualizer's requirement marks with, so Table and Plan modes always agree
 // on the order for the same step even though only the Plan toolbar shows the
-// State/Autonomy/Machine control (`colorKey` is the persisted preference,
+// State/Session/Autonomy/Machine control (`colorKey` is the persisted preference,
 // carried into this panel whichever mode last set it — Table mode reads it,
-// it just does not render the picker). `statusOf`/`autonomyOf`/`machineOf`
-// are this table's own lookups. `row.reqIds` ITSELF is untouched (junction
+// it just does not render the picker). `statusOf`/`sessionOf`/`autonomyOf`/
+// `machineOf` are this table's own lookups. `row.reqIds` ITSELF is untouched (junction
 // order — the engine's contract); only the array handed to `.map` here is
 // reordered.
-function RequirementLinks({ row, pipelineId, colorKey, statusOf, autonomyOf, machineOf }) {
+function RequirementLinks({ row, pipelineId, colorKey, statusOf, sessionOf, autonomyOf,
+    machineOf }) {
     if (!row.reqIds.length) return <span>—</span>;
     const tracking = new Set(row.trackingReqIds || []);
     const sortedIds = sortReqIdsByColorKey(row.reqIds,
-        { colorKey, statusOf, autonomyOf, machineOf });
+        { colorKey, statusOf, sessionOf, autonomyOf, machineOf });
     return (
         <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
             {sortedIds.map((id) => {
@@ -405,10 +406,11 @@ export default function PipelinePlanTable({ plan, model, pipeline, timezone, foc
     const reqInfoById = useMemo(
         () => new Map((model?.requirements || []).map((r) => [r.id, {
             status: r.requirement_status, coordination: r.coordination_type,
-            machineFk: r.machine_fk,
+            machineFk: r.machine_fk, session: r.session_status,
         }])),
         [model]);
     const statusOf = (id) => reqInfoById.get(id)?.status;
+    const sessionOf = (id) => reqInfoById.get(id)?.session;
     const autonomyOf = (id) => reqInfoById.get(id)?.coordination;
     const machineOf = (id) => reqInfoById.get(id)?.machineFk;
     // `showCost` is OWNED BY THE PAGE since req #3119 — the Time / Tokens control
@@ -690,6 +692,7 @@ export default function PipelinePlanTable({ plan, model, pipeline, timezone, foc
                                         <RequirementLinks row={row} pipelineId={pipeline?.id}
                                                           colorKey={colorKey}
                                                           statusOf={statusOf}
+                                                          sessionOf={sessionOf}
                                                           autonomyOf={autonomyOf}
                                                           machineOf={machineOf} />
                                         {/* Design rule 8's own artifact, on the

@@ -572,16 +572,18 @@ export const requirementSessions = createEntityQueries({
     fieldsInKey: true,
 });
 
-// swarm_sessions projected to THREE columns — the id and migration 077's two
-// flat rollups. Nothing else: the plan page is requirement-centric and carries
-// no session data (design rule 9); these totals are cost facts that happen to be
-// stored on the session row.
+// swarm_sessions projected to FOUR columns — the id, migration 077's two flat
+// rollups, and `swarm_status` (req #3584). Cost facts that happen to be stored
+// on the session row, plus one status per session that the plan visualizer's
+// Session colour key reduces to one value per REQUIREMENT — no session rows,
+// identity or phase reach the plan page (design rule 9, see SESSION_STATUS_ORDER
+// in pipelinePlanLayout.js).
 //
 // A SEPARATE BLOCK over the same table as `sessions` above, not an options
 // override on it, and the distinction is load-bearing. `sessions` has
 // `fieldsInKey: false`, so its cache key is exactly `['swarm_sessions',
 // creator]` — passing a custom `fields` to `sessions.useAll` would write this
-// 3-column payload into the entry every session page reads as the full row, and
+// light payload into the entry every session page reads as the full row, and
 // whichever observer mounted first would decide what a refetch actually fetched.
 // `fieldsInKey: true` here appends `{fields}` to the key, so the two can never
 // be equal, while both still sit under the `['swarm_sessions', creator]` prefix
@@ -591,10 +593,23 @@ export const requirementSessions = createEntityQueries({
 // MEASURED, not estimated — the estimate is what went wrong on the MCP side of
 // this same requirement (see HEAVY_COLUMNS in darwin-mcp/services/common.py):
 // 58,803 bytes across production's 891 sessions, 66 B/row, versus ~0.56 MB for
-// the full projection. It is immune to the req #3078 payload problem by
-// construction: none of the three columns can grow.
+// the full projection (measured before req #3584's `swarm_status`, a short enum
+// that adds a few bytes a row). It is immune to the req #3078 payload problem
+// by construction: none of the four columns can grow.
 export const sessionCostRollups = createEntityQueries({
     entity: 'swarm_sessions',
-    defaultFields: 'id,wall_secs_total,output_tokens_total',
+    defaultFields: 'id,wall_secs_total,output_tokens_total,swarm_status',
+    fieldsInKey: true,
+});
+
+// swarm_sessions projected to what a requirement's TERMINAL pill needs on the
+// plan visualizer (req #3587): liveness, the window number and handle, the
+// machine (is that window on THIS machine?), and the label the focus URL
+// carries. A separate block for `sessionCostRollups`' reason above —
+// `fieldsInKey: true` keeps this payload out of the full-row cache entry. Every
+// column is short and bounded, so like the cost read it cannot grow per row.
+export const sessionTerminals = createEntityQueries({
+    entity: 'swarm_sessions',
+    defaultFields: 'id,swarm_status,terminal_number,terminal_window_id,machine_fk,title,task_name',
     fieldsInKey: true,
 });

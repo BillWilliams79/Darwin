@@ -16,26 +16,22 @@
 // red instead of being discarded). Running both would give the cell two answers to
 // "what is in you".
 //
-// THE PROSE PROBLEM, and why the old header comment on InstructionsPage was a false
-// dichotomy. That comment said a DataGrid "would either truncate it into
-// uselessness or need auto row height". There is a third option, and it is what
-// ships here: a FIXED row containing an INTERNALLY SCROLLABLE field. `multiline
-// maxRows={3}` caps the rendered height at three lines and hands the textarea
-// `overflow: auto` past that, so the whole of a long instruction stays reachable
-// inside its own cell while the row height never moves. `getRowHeight={() =>
-// 'auto'}` stays forbidden (it mis-measures on re-sort — memory/table-design.md);
-// this makes it unnecessary rather than negotiating with it.
+// NO INSTRUCTION TEXT IN THE TABLE (req #3577). The body is prose — often several
+// paragraphs — and a grid row is the wrong shape for it: req #3067 shipped it as a
+// three-line internally-scrolling cell, req #3396 fought that cell's line height,
+// and the result was still a column of clipped paragraphs dominating the table.
+// The Table is for scanning the catalog — names, blast radius, state — and the
+// Cards view is where instruction text is read and written. Both write the same
+// rows. The one exception is the template row below the grid: a new instruction
+// cannot exist without its text, so creating one from this view still asks for it.
 //
-// req #3396 — long instructions were corrupting the Name/Instruction text columns.
-// The real cause was not row height at all: `ghostTextColumn` sets an explicit
-// `lineHeight` on the field now (see its own comment) to stop a wrapped line from
-// inheriting the DataGrid cell's `line-height: calc(var(--height) - 1px)`, which
-// rendered every line at nearly the full row height. `CONTENT_MAX_ROWS` dropping
-// from 4 to 3 is the requirement's own ask (limit the display, read the rest in
-// Cards) — a smaller number on top of a fixed row, not the fix for the overflow.
+// `getRowHeight={() => 'auto'}` stays forbidden (it mis-measures on re-sort —
+// memory/table-design.md); the row height is fixed and sized to NAME_MAX_ROWS.
 //
-// The Cards view is still the place to COMPOSE long prose. The Table is for
-// scanning the catalog and correcting fields. Both write the same rows.
+// req #3396's real fix still matters to the Name column: `ghostTextColumn` sets an
+// explicit `lineHeight` on the field (see its own comment) so a wrapped line does
+// not inherit the DataGrid cell's `line-height: calc(var(--height) - 1px)`, which
+// rendered every line at nearly the full row height.
 
 import { useMemo, useRef } from 'react';
 
@@ -61,26 +57,25 @@ import { formatDate } from '../utils/dateFormat';
 
 // `rowHeight` is a PRE-DENSITY figure. `useGridDimensions` computes the real row
 // height as `Math.floor(rowHeight * densityFactor)`, and `density="compact"` is
-// 0.7 — so 110 lands at 77px (measured; `110 * 0.7 === 77` exactly, no float
-// rounding to worry about). Three wrapped lines need 74px: `scrollHeight` measures
-// in whole pixels, so 3 × 20.02px (body2's `fontSize: 0.875rem` at its unmodified
-// MUI default `lineHeight: 1.43`, now that `ghostTextColumn` sets it explicitly
-// instead of inheriting the grid cell's own line height — see that file) rounds
-// down to 60px, +1px for the field's own `1px solid` bottom border, +13px of
-// fixed chrome (`GhostCell`'s `py: '2px'` twice, plus `InputBase`'s own
-// `padding: '4px 0 5px'` on a multiline root) = 74px. 77px leaves 3px of slack
-// over that minimum for cross-browser font-metric rounding — the previous figure
-// here had none, which is how req #3396 happened. The same trap applies to the
-// `rowHeight={52}` figure quoted elsewhere in the memory docs; it is likewise
-// pre-density.
+// 0.7 — so 82 lands at 57px (`82 * 0.7 = 57.4`, floored). NAME_MAX_ROWS wrapped
+// lines need 54px: `scrollHeight` measures in whole pixels, so 2 × 20.02px
+// (body2's `fontSize: 0.875rem` at its unmodified MUI default `lineHeight: 1.43`,
+// now that `ghostTextColumn` sets it explicitly instead of inheriting the grid
+// cell's own line height — see that file) rounds down to 40px, +1px for the
+// field's own `1px solid` bottom border, +13px of fixed chrome (`GhostCell`'s
+// `py: '2px'` twice, plus `InputBase`'s own `padding: '4px 0 5px'` on a multiline
+// root) = 54px. Every DataGrid cell spends 1px of its height on a top border
+// (`box-sizing: border-box`, transparent on the first row but still there), so
+// 57px is 56px usable — 2px of slack over that minimum for cross-browser
+// font-metric rounding. A figure with none is how req #3396 happened. The same
+// trap applies to the `rowHeight={52}` figure quoted elsewhere in the memory
+// docs; it is likewise pre-density.
 //
-// CONTENT_MAX_ROWS caps the "Instruction text" column at 3 wrapped lines rather
-// than showing the full body — the requirement's own ask, so the rest is read in
-// the Cards view (`InstructionsPage.jsx`). The internal scroll that `multiline
-// maxRows` gives the textarea (see § THE PROSE PROBLEM above) means nothing here
-// is lost, only collapsed behind a scrollbar.
-const ROW_HEIGHT = 110;
-const CONTENT_MAX_ROWS = 3;
+// Two lines, because Name is now the column that absorbs the slack: at that width
+// a name wraps rarely, and the field scrolls internally past two lines rather than
+// growing the row. Raising NAME_MAX_ROWS means re-deriving ROW_HEIGHT above.
+const ROW_HEIGHT = 82;
+const NAME_MAX_ROWS = 2;
 
 const InstructionsTableView = ({
     // Already filtered and sorted by the page — the table re-sorts through its own
@@ -139,7 +134,7 @@ const InstructionsTableView = ({
     // hit, and `columns` is a fresh array each time. DataGrid's `useGridColumns`
     // effect only short-circuits on `props.columns === lastColumnsProp`, so a fresh
     // array rebuilds the column state, and `resolveProps` lets the colDef's literal
-    // `width: 260` win over the width the user dragged to. Opening any row menu,
+    // `width: 300` win over the width the user dragged to. Opening any row menu,
     // binding an agent or typing a character that crosses a validity boundary would
     // snap every resized column back.
     //
@@ -209,14 +204,16 @@ const InstructionsTableView = ({
         ghostTextColumn({
             field: 'name',
             headerName: 'Name',
-            width: 260,
+            // The single column that absorbs the slack, per table-design.md.
+            flex: 1,
+            minWidth: 260,
             required: true,
             // WRAPS but does not accept newlines — `commitOnEnter` defaults to
             // `!multiline`, so adding `multiline` without keeping this explicit
             // would silently turn Enter into a newline inside a name.
             multiline: true,
             commitOnEnter: true,
-            maxRows: 3,
+            maxRows: NAME_MAX_ROWS,
             // MySQL 8's collation is NO PAD, so "  x  " and "x" are DIFFERENT rows
             // under the unique key — a padded name would block the clean one as a
             // collision the user cannot see. Collapses newlines too, so a pasted
@@ -227,20 +224,6 @@ const InstructionsTableView = ({
             onErrorChange: (row) => live.current.noteFieldError(row.id, 'name'),
             inputProps: { maxLength: INSTRUCTION_NAME_MAX },
             testId: (row) => `instruction-name-input-${row.id}`,
-        }),
-        ghostTextColumn({
-            field: 'content',
-            headerName: 'Instruction text',
-            // The single column that absorbs the slack, per table-design.md.
-            flex: 1,
-            minWidth: 420,
-            required: true,
-            multiline: true,
-            maxRows: CONTENT_MAX_ROWS,
-            validate: (text) => instructionContentError(text),
-            onCommit: (row) => live.current.commitField(row, 'content', 'instruction content'),
-            onErrorChange: (row) => live.current.noteFieldError(row.id, 'content'),
-            testId: (row) => `instruction-content-input-${row.id}`,
         }),
         {
             // What makes the gear's "Agent Count" mode reachable as a column sort,
