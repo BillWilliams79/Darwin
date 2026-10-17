@@ -15,6 +15,9 @@ import {
     readLevelParam,
     stepLinkTo,
     stepPlanLinkTo,
+    newRequirementSeatState,
+    readNewRequirementSeat,
+    backToStepPath,
 } from '../pipelineStepLink';
 import { PLAN_LEVEL_BY_PREF } from '../pipelinePlanLayout';
 
@@ -173,5 +176,45 @@ describe('readLevelParam', () => {
     it('exports the key both halves agree on', () => {
         expect(FOCUS_LEVEL_PARAM).toBe('level');
         expect(stepPlanLinkTo(1, 2)).toContain(`${FOCUS_LEVEL_PARAM}=`);
+    });
+});
+
+describe('newRequirementSeatState / readNewRequirementSeat (req #3582)', () => {
+    it('round-trips the step a "+" files into, with plan provenance', () => {
+        const state = newRequirementSeatState(7, 'plan', { id: 412, title: 'Seat UI' });
+        expect(state).toEqual({ seatStepId: 412, seatStepName: 'Seat UI',
+            from: 'pipeline', pipelineId: 7, mode: 'plan', backStepId: 412 });
+        expect(readNewRequirementSeat(state)).toEqual({ stepId: 412, stepName: 'Seat UI' });
+    });
+
+    it('omits provenance without a plan and a blank name', () => {
+        expect(newRequirementSeatState(null, 'table', { id: 5, title: '  ' }))
+            .toEqual({ seatStepId: 5, seatStepName: null });
+    });
+
+    it('names no step for a missing or non-id step', () => {
+        expect(newRequirementSeatState(7, 'plan', null)).toBeUndefined();
+        expect(newRequirementSeatState(7, 'plan', { id: 'x' })).toBeUndefined();
+        for (const bad of [undefined, null, {}, { seatStepId: 0 }, { seatStepId: 'abc' },
+            { seatStepId: 1.5 }]) {
+            expect(readNewRequirementSeat(bad)).toBeNull();
+        }
+    });
+});
+
+describe('backToStepPath (req #3582)', () => {
+    it('returns to the step on the panel the reader left', () => {
+        expect(backToStepPath({ pipelineId: 7, mode: 'plan', backStepId: 412 }))
+            .toBe(stepPlanLinkTo(7, 412));
+        expect(backToStepPath({ pipelineId: 7, mode: 'table', backStepId: 412 }))
+            .toBe(stepLinkTo(7, 412));
+    });
+
+    it('is null without a usable step or plan, so the caller keeps plain Back', () => {
+        for (const bad of [undefined, null, {}, { pipelineId: 7 },
+            { pipelineId: 7, backStepId: 'x' }, { pipelineId: 7, backStepId: 0 },
+            { pipelineId: null, backStepId: 412 }]) {
+            expect(backToStepPath(bad)).toBeNull();
+        }
     });
 });
