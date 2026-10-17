@@ -81,7 +81,8 @@ import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
 
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
-import GhostTextField from '../Components/GhostField/GhostTextField';
+import CollapsibleGhostField from '../Components/GhostField/CollapsibleGhostField';
+import CollapsibleText from '../Components/Collapsible/CollapsibleText';
 import { formatDateTime } from '../utils/dateFormat';
 import {
     useAgentTelemetryRuns, useAgentTelemetryRowsByRun, useAgentTelemetryRowDocsByRow,
@@ -698,12 +699,11 @@ const ContextPage = () => {
                                                     sx={{ fontWeight: 'bold', fontSize: '1.25rem' }}>
                                             Prompt
                                         </Typography>
-                                        <Typography variant="body2"
-                                                    sx={{ whiteSpace: 'pre-wrap',
-                                                          wordBreak: 'break-word' }}
-                                                    data-testid="agent-context-prompt">
-                                            {prompt.text}
-                                        </Typography>
+                                        {/* Collapsed (req #3572): the stored prefix runs
+                                            to thousands of characters and would push the
+                                            table — the page's subject — off the screen. */}
+                                        <CollapsibleText text={prompt.text} lines={4}
+                                                         testId="agent-context-prompt" />
                                         {/* The stored text is a bounded prefix. Say so
                                             explicitly rather than letting a reader take a
                                             clipped prompt for the whole one. */}
@@ -729,8 +729,12 @@ const ContextPage = () => {
                         Always rendered (not gated on source_note being non-empty)
                         so a capture with no description yet can have one typed in;
                         the placeholder carries that invitation when it's blank. */}
-                    <GhostTextField
+                    {/* Collapsed to four rows (req #3572): live descriptions run
+                        to ~9,000 characters, which put the table a full screen
+                        below the picker. Clicking in expands it for editing. */}
+                    <CollapsibleGhostField
                         key={activeRun.id}
+                        collapsedRows={4}
                         value={activeRun.source_note}
                         outlined
                         label="Description"
