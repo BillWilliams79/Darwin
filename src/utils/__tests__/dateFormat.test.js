@@ -370,3 +370,22 @@ describe('formatSimpleDateTime', () => {
             formatSimpleDateTime('2026-09-14 14:00:00', local));
     });
 });
+
+// req #3571 — formatters are cached per (locale, options). The cache key must
+// carry the timezone, or the first zone asked would answer for every later one.
+describe('formatter cache (req #3571)', () => {
+    it('alternating timezones each get their own answer', () => {
+        const ts = '2026-06-11 03:30:00';
+        for (let i = 0; i < 3; i++) {
+            expect(formatHHMM(ts, 'UTC')).toBe('03:30');
+            expect(formatHHMM(ts, 'America/Los_Angeles')).toBe('20:30');
+            expect(getTimeOfDayFraction(ts, 'Asia/Tokyo')).toBeCloseTo((12 * 3600 + 30 * 60) / 86400, 9);
+            expect(formatHM12(ts, 'America/New_York')).toBe('11:30p');
+        }
+    });
+
+    it('an invalid timezone still throws on every call (never cached)', () => {
+        expect(() => formatHHMM('2026-06-11 03:30:00', 'Not/AZone')).toThrow(RangeError);
+        expect(() => formatHHMM('2026-06-11 03:30:00', 'Not/AZone')).toThrow(RangeError);
+    });
+});

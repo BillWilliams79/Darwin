@@ -1,5 +1,5 @@
 import AuthContext from '../Context/AuthContext';
-import { NAV_GROUPS, NAV_LINKS, GROUP_PROFILE_KEY, GROUP_PROFILE_DEFAULT } from '../NavBar/navConfig';
+import { NAV_GROUPS, NAV_LINKS, GROUP_PROFILE_KEY, GROUP_PROFILE_DEFAULT, DEV_HOME_ROUTE } from '../NavBar/navConfig';
 
 import React, { useContext, useMemo } from 'react';
 import { Navigate } from 'react-router-dom';
@@ -18,7 +18,7 @@ const HomePage = () => {
             // this session's dev server opens to the surface it's about
             // rather than the hardcoded /systems2 fallback below — every
             // other worktree's dev server, and production, are unaffected.
-            return import.meta.env.VITE_DEV_DEFAULT_ROUTE || '/systems2';
+            return DEV_HOME_ROUTE;
         }
         // Find first link of first enabled group. Per-key default lives in
         // GROUP_PROFILE_DEFAULT (req #2611) — must match NavBarSidebar so a

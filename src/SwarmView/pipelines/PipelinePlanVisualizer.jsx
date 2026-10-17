@@ -361,13 +361,14 @@ export default function PipelinePlanVisualizer({
             .map((r) => [r.id, {
                 title: r.title, status: r.requirement_status,
                 coordination: r.coordination_type, model: r.ai_model, effort: r.effort,
-                machineFk: r.machine_fk,
+                machineFk: r.machine_fk, session: r.session_status,
             }])),
         [model]);
     // req #3363, generalized req #3503 — the requirement marks stacked under a
     // step sort by whichever colour key is ACTIVE (`sortReqIdsByColorKey`'s own
-    // ladder: State Authoring→Met, Autonomy Discuss→Deployed, Machine its own
-    // order), not by a fixed met-first ladder any more. Only the ORDER of each
+    // ladder: State Authoring→Met, Session no session→completed, Autonomy
+    // Discuss→Deployed, Machine its own order), not by a fixed met-first
+    // ladder any more. Only the ORDER of each
     // row's `reqIds` changes here; the ROW ARRAY keeps the engine's own order
     // (bead z-stacking, column/lane placement all key off it), and every other
     // field on a row — `launchReqIds`, `trackingReqIds`, `swarmStartCommand` —
@@ -377,11 +378,12 @@ export default function PipelinePlanVisualizer({
         const base = plan.rows || [];
         if (!base.length) return base;
         const statusOf = (id) => reqInfo.get(id)?.status;
+        const sessionOf = (id) => reqInfo.get(id)?.session;
         const autonomyOf = (id) => reqInfo.get(id)?.coordination;
         const machineOf = (id) => reqInfo.get(id)?.machineFk;
         return base.map((r) => ((r.reqIds || []).length > 1
             ? { ...r, reqIds: sortReqIdsByColorKey(r.reqIds,
-                { colorKey, statusOf, autonomyOf, machineOf }) }
+                { colorKey, statusOf, sessionOf, autonomyOf, machineOf }) }
             : r));
     }, [plan.rows, reqInfo, colorKey]);
     const rowById = useMemo(() => new Map(rows.map((r) => [r.id, r])), [rows]);
@@ -3725,6 +3727,8 @@ function PlanDataCard({ card, timezone, level, containerW, containerH }) {
                 <div className="ts-datacard-title">{info.title || '(untitled)'}</div>
                 {rowEl('Requirement', card.reqId)}
                 {rowEl('Status', info.status || 'unknown')}
+                {/* req #3584 — the Session colour key's value, in words. */}
+                {rowEl('Session', info.session ? info.session.replace('_', ' ') : 'unknown')}
                 {/* ONE missing-value policy across the three (review finding).
                     `aiModelLabel`/`effortLabel` fall back to Opus/High on
                     unknown input, and their own comments justify that by the
