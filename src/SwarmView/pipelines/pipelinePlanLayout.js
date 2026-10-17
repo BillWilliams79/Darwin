@@ -2933,8 +2933,9 @@ const titleLookup = (reqTitles, reqId) => {
  * always true.
  */
 export function reqLabelText(reqId, { reqLabel = 'id', reqTitles = null,
-    maxChars = cardChars(CHW_REQ) } = {}) {
-    if (reqLabel !== 'title') return String(reqId);
+    reqPills = null, maxChars = cardChars(CHW_REQ) } = {}) {
+    const prefix = reqPillPrefix(reqId, reqPills).text;
+    if (reqLabel !== 'title') return prefix;
     const t = titleLookup(reqTitles, reqId);
     // The id rides ALONGSIDE the title, not instead of it (user directive) — an
     // id-only mark reading "3242" gives no hint what's under it without a
@@ -2943,8 +2944,61 @@ export function reqLabelText(reqId, { reqLabel = 'id', reqTitles = null,
     // the bare id below, so the id survives the cut and the title is what
     // gives way on a tight column — the id is the one piece of this string a
     // reader can always resolve to the actual requirement.
-    return t ? truncate(`${reqId} - ${t}`, Math.max(4, maxChars))
-        : String(reqId);
+    return t ? truncate(`${prefix} - ${t}`, Math.max(4, maxChars))
+        : prefix;
+}
+
+// ── THE TERMINAL AND DEV-SERVER PILLS (req #3587) ───────────────────────────
+// *"If a requirement has a dev server or terminal show those pills in the
+// visualizer so: 3572 Terminal 2 3002 - Title"*. The two tokens are part of the
+// row's TEXT, between the id and the title, and the renderer draws a pill
+// behind each one. That is the whole design, and it is why the pills need no
+// geometry of their own: the wrap, the card height, the zero-overlap sweep and
+// the hover box all measure them as the characters they are, so nothing this
+// module proves about a row's box has to be re-proved for them.
+//
+// TWO SPACES between tokens, so a pill's padding (drawn by the renderer, inside
+// the gap) leaves clear air between neighbours. A NO-BREAK SPACE inside
+// "Terminal 2", because `wrapReqText` breaks on ' ' and a pill split across two
+// lines is not a pill.
+//
+// The lookup is an ARGUMENT, never a row field — `reqTitles`' reasoning above:
+// session state is display data the engine's PlanRows must not carry. Entries
+// are `{terminal: {label}, devServer: {port}}` (`planReqPills.js` builds them);
+// the layout reads only those two strings.
+export const REQ_PILL_SEP = '  ';
+const NBSP = '\u00a0';
+const pillLookup = (reqPills, reqId) => {
+    if (!reqPills) return null;
+    if (typeof reqPills.get === 'function') return reqPills.get(reqId) || null;
+    return Object.hasOwn(reqPills, reqId) ? reqPills[reqId] : null;
+};
+
+/**
+ * The id plus its pill tokens, and WHERE each token sits in that string.
+ *
+ * @returns {{text: string, pills: Array<{kind: ('terminal'|'devserver'),
+ *            start: number, len: number}>}}  `start`/`len` are character
+ *            offsets into `text` — and so into the row's first line, which
+ *            always begins with this prefix.
+ */
+export function reqPillPrefix(reqId, reqPills) {
+    const p = pillLookup(reqPills, reqId);
+    const tokens = [];
+    if (p?.terminal?.label) {
+        tokens.push({ kind: 'terminal', text: String(p.terminal.label).replace(/ /g, NBSP) });
+    }
+    if (p?.devServer?.port != null && p.devServer.port !== '') {
+        tokens.push({ kind: 'devserver', text: String(p.devServer.port) });
+    }
+    let text = String(reqId);
+    const pills = [];
+    for (const t of tokens) {
+        text += REQ_PILL_SEP;
+        pills.push({ kind: t.kind, start: text.length, len: t.text.length });
+        text += t.text;
+    }
+    return { text, pills };
 }
 
 const reqStr = (row) => (row.reqIds || []).join(' ');
@@ -2993,6 +3047,9 @@ function epicBandLabelText(epicId, epicName, epicCounts) {
  *                             req #3498 — a card stacks its requirements and is
  *                             a fixed width, so neither had anything to select.
  * @param {(Map|Object)} [opts.reqTitles]    requirement id -> title, for 'title'
+ * @param {(Map|Object)} [opts.reqPills]     req #3587 — requirement id ->
+ *                             `{terminal: {label}, devServer: {port}}`, drawn as
+ *                             pills between the id and the title
  * @param {('id'|'title')} [opts.stepLabel]  what the card's TITLE AREA says
  * @param {?Object} [opts.timeAxis]  planTimeAxis() output (req #3201). Omitted,
  *                             the axis degenerates to pure dependency depth and
@@ -3027,6 +3084,9 @@ export function computePlanLayout(rows, opts = {}) {
         stepLabel = 'id',
         reqLabel = 'id', reqTitles = null, timeAxis = null, epicCounts = null,
         pauseInfo = null,
+        // req #3587 — requirement id -> {terminal, devServer}; see
+        // `reqPillPrefix`. Null leaves every row reading exactly as before.
+        reqPills = null,
         // req #3503 — "Step Width". A relayout, deliberately: the ladder's own
         // four rungs (`STEP_WIDTH_SCALES`) are the only legal values, and the
         // caller is what turns an out-of-range number into the default rather
@@ -3076,7 +3136,7 @@ export function computePlanLayout(rows, opts = {}) {
         const ids = r.reqIds || [];
         rowLinesOf.set(r.id, ids.map((reqId) => wrapReqText(
             reqLabelText(reqId, {
-                reqLabel, reqTitles, maxChars: reqRowMax * REQ_MAX_LINES,
+                reqLabel, reqTitles, reqPills, maxChars: reqRowMax * REQ_MAX_LINES,
             }), reqRowMax)));
     }
     const reqBlockOf = (r) => reqBlockHeight(rowLinesOf.get(r.id) || []);
@@ -4005,6 +4065,13 @@ export function computePlanLayout(rows, opts = {}) {
         // strict subset of space the first sweep already proved empty.
         let idRowY = rowsTop;
         rowLines.forEach((lines, i) => {
+            // A prefix too long for the first line (never at a real card
+            // width — `id  Terminal NN  PORT` is 23 characters against a 28
+            // character line) degrades to the bare id rather than drawing an
+            // id string wider than the box the overlap sweep measured.
+            const fullPrefix = reqPillPrefix(ids[i], reqPills);
+            const prefix = fullPrefix.text.length <= lines[0].length
+                ? fullPrefix : { text: String(ids[i]), pills: [] };
             const w = Math.max(...lines.map((l) => l.length)) * CHW_REQ;
             const t = lines.join(' ');
             const thisY = rowY;
@@ -4040,8 +4107,14 @@ export function computePlanLayout(rows, opts = {}) {
                 // it would move every card on the plan as the reader zoomed.
                 // Both strings are left-anchored at the same x and the id is
                 // strictly narrower, so it cannot leave a box the title fits.
-                idText: String(ids[i]),
-                idW: String(ids[i]).length * CHW_REQ,
+                // req #3587 — the id CARRIES its pill tokens at L1/L2 too, so a
+                // live terminal or dev server is visible at every level the
+                // card is drawn, not only once the reader has zoomed to L3.
+                idText: prefix.text,
+                idW: prefix.text.length * CHW_REQ,
+                // The pills' character ranges on the FIRST line, which both
+                // texts above begin with (guaranteed by the fallback above).
+                pills: prefix.pills,
                 // The RENDERER picks this instead of `y` at L1/L2 (`!showTitle`)
                 // — see the block comment above `idRowY`.
                 idY: thisIdY,

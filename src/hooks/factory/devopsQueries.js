@@ -601,3 +601,15 @@ export const sessionCostRollups = createEntityQueries({
     defaultFields: 'id,wall_secs_total,output_tokens_total,swarm_status',
     fieldsInKey: true,
 });
+
+// swarm_sessions projected to what a requirement's TERMINAL pill needs on the
+// plan visualizer (req #3587): liveness, the window number and handle, the
+// machine (is that window on THIS machine?), and the label the focus URL
+// carries. A separate block for `sessionCostRollups`' reason above —
+// `fieldsInKey: true` keeps this payload out of the full-row cache entry. Every
+// column is short and bounded, so like the cost read it cannot grow per row.
+export const sessionTerminals = createEntityQueries({
+    entity: 'swarm_sessions',
+    defaultFields: 'id,swarm_status,terminal_number,terminal_window_id,machine_fk,title,task_name',
+    fieldsInKey: true,
+});
