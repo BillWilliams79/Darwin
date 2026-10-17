@@ -1970,7 +1970,14 @@ export const cardChars = (chw, reserve = 0, textW = CARD_TEXT_W) =>
 // It was TWO while the line held 47 characters. The line is 28 now (see
 // `CARD_TEXT_CHARS`), so three lines carry 84 characters where two carried 94 —
 // close to the same title, at half again the on-screen size.
+//
+// Since req #3575 the second and third lines HANG past the id column, so a row
+// with a 4-digit id carries 28 + 21 + 21 = 70 characters, not 84 — the price of
+// a left edge holding nothing but ids.
 export const REQ_MAX_LINES = 3;
+
+// The narrowest continuation line a hanging indent may leave (req #3575).
+export const REQ_MIN_HANG_CHARS = 8;
 
 /**
  * Break one row's text into at most `REQ_MAX_LINES` lines of `maxChars`.
@@ -1982,23 +1989,36 @@ export const REQ_MAX_LINES = 3;
  *
  * The LAST line it produces is the only one that may carry an ellipsis, and it
  * carries one only when text was actually dropped — `truncate`'s own rule.
+ *
+ * `indent` is a HANGING INDENT (req #3575, user directive: *"a clear column at
+ * the left edge occupied only by the requirement number and the titles will
+ * wrap but stay out of the column"*). Every line after the first starts with
+ * that many spaces and is budgeted at `maxChars - indent`, so the whole line
+ * still fits the same column. The font is mono, so spaces ARE the column. An
+ * indent that would leave a continuation line too narrow to carry a word is
+ * dropped rather than honoured — a column of ids is not worth a title broken
+ * one character per line (`REQ_MIN_HANG_CHARS`).
  */
-export function wrapReqText(text, maxChars, maxLines = REQ_MAX_LINES) {
+export function wrapReqText(text, maxChars, maxLines = REQ_MAX_LINES, indent = 0) {
     const full = String(text == null ? '' : text);
     if (full.length <= maxChars) return [full];
+    const hang = maxChars - indent >= REQ_MIN_HANG_CHARS ? Math.max(0, indent) : 0;
+    const pad = ' '.repeat(hang);
     const lines = [];
     let rest = full;
     while (rest.length > 0 && lines.length < maxLines) {
+        const room = lines.length === 0 ? maxChars : maxChars - hang;
+        const lead = lines.length === 0 ? '' : pad;
         if (lines.length === maxLines - 1) {
-            lines.push(truncate(rest, maxChars));
+            lines.push(lead + truncate(rest, room));
             rest = '';
             break;
         }
-        if (rest.length <= maxChars) { lines.push(rest); rest = ''; break; }
+        if (rest.length <= room) { lines.push(lead + rest); rest = ''; break; }
         // The last space that still fits, so the break lands between words.
-        const cut = rest.lastIndexOf(' ', maxChars);
-        const at = cut > 0 ? cut : maxChars;
-        lines.push(rest.slice(0, at));
+        const cut = rest.lastIndexOf(' ', room);
+        const at = cut > 0 ? cut : room;
+        lines.push(lead + rest.slice(0, at));
         rest = rest.slice(cut > 0 ? at + 1 : at);
     }
     return lines;
@@ -3150,10 +3170,15 @@ export function computePlanLayout(rows, opts = {}) {
     const rowLinesOf = new Map();      // step id -> [[line, line?], …]
     for (const r of safeRows) {
         const ids = r.reqIds || [];
+        // The HANGING INDENT (req #3575): a wrapped title's continuation lines
+        // start where `${id} - ` ends, so the left edge holds the ids alone. It
+        // is the BARE id's width even on a row carrying pills — hanging under a
+        // pill row's title start would leave three characters a line — so every
+        // row's continuations line up on the one title column.
         rowLinesOf.set(r.id, ids.map((reqId) => wrapReqText(
             reqLabelText(reqId, {
                 reqLabel, reqTitles, reqPills, maxChars: reqRowMax * REQ_MAX_LINES,
-            }), reqRowMax)));
+            }), reqRowMax, REQ_MAX_LINES, String(reqId).length + CARD_SEP_CHARS)));
     }
     const reqBlockOf = (r) => reqBlockHeight(rowLinesOf.get(r.id) || []);
     // The card's TITLE AREA, wrapped by the same rule and reserved the same way.
@@ -4089,7 +4114,9 @@ export function computePlanLayout(rows, opts = {}) {
             const prefix = fullPrefix.text.length <= lines[0].length
                 ? fullPrefix : { text: String(ids[i]), pills: [] };
             const w = Math.max(...lines.map((l) => l.length)) * CHW_REQ;
-            const t = lines.join(' ');
+            // Joined WITHOUT the hanging indent's padding (req #3575) — the
+            // indent is how the row is drawn, not part of what it says.
+            const t = lines.map((l, k) => (k ? l.trimStart() : l)).join(' ');
             const thisY = rowY;
             const thisIdY = idRowY;
             // The next row starts below THIS row's lines plus the between-rows
