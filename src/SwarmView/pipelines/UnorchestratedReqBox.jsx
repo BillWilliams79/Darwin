@@ -267,7 +267,6 @@ export default function UnorchestratedReqBox({
                             <Box key={id}
                                  draggable
                                  data-testid={`pipeline-viz-unseated-item-${id}`}
-                                 title={`${id} ${r.title || ''}\nDrag onto a step to seat it · click to open`}
                                  onDragStart={(e) => {
                                      e.dataTransfer.setData(UNSEATED_REQ_MIME, String(id));
                                      e.dataTransfer.effectAllowed = 'move';

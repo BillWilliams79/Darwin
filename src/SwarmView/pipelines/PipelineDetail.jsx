@@ -946,7 +946,7 @@ export default function PipelineDetail() {
                 {/* The status chip and the machine chip were REMOVED on the
                     user's directive (2026-08-01). Plan status is already on the
                     Pipelines list this page is reached from, and the machine
-                    spread is on every step's hover card; on the title row they
+                    spread is in the plan table; on the title row they
                     were two more things between the plan's name and the reader.
                     Snap (req #3503) and the description button (req #3503) are
                     both gone too — this row's own last child now is whichever
