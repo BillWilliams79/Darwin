@@ -159,7 +159,6 @@ describe('InstructionsTableView — it really is the table', () => {
         // per view, no test could ever prove the two views commit identically.
         await mount();
         expect(one('instruction-name-input-10')).toBeTruthy();
-        expect(one('instruction-content-input-10')).toBeTruthy();
         expect(one('instruction-name-input-template')).toBeTruthy();
         expect(one('instruction-content-input-template')).toBeTruthy();
     });
@@ -167,7 +166,17 @@ describe('InstructionsTableView — it really is the table', () => {
     it('renders each row field exactly once', async () => {
         await mount();
         expect(all('instruction-name-input-10')).toHaveLength(1);
-        expect(all('instruction-content-input-10')).toHaveLength(1);
+    });
+
+    it('shows NO instruction text on a row — that is the Cards view\'s job (req #3577)', async () => {
+        // The template row below the grid keeps its text field (a row cannot be
+        // created without it); no EXISTING row may render one, nor a header for it.
+        await mount();
+        expect(one('instruction-content-input-10')).toBeFalsy();
+        expect(one('instruction-content-input-11')).toBeFalsy();
+        // The positive half keeps the header check from passing vacuously.
+        expect(container.querySelector('[role="columnheader"][data-field="name"]')).toBeTruthy();
+        expect(container.querySelector('[role="columnheader"][data-field="content"]')).toBeFalsy();
     });
 });
 
@@ -183,15 +192,6 @@ describe('InstructionsTableView — one PUT per field', () => {
         // body down with it.
         expect(Object.keys(body)).toEqual(['name']);
         expect(body.name).toBe('renamed-rule');
-    });
-
-    it('writes only the content column when the content cell commits', async () => {
-        await mount();
-        await editField('instruction-content-input-10', 'Rewritten body.');
-
-        expect(api.updateInstruction).toHaveBeenCalledTimes(1);
-        const [, , , body] = api.updateInstruction.mock.calls[0];
-        expect(Object.keys(body)).toEqual(['content']);
     });
 
     it('normalizes a name before storing it — NO PAD collation makes padding real', async () => {

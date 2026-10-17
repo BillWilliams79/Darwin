@@ -17,11 +17,12 @@
 // used to make. It said a DataGrid "would either truncate `content` into uselessness
 // or need auto row height", and that was a false dichotomy: a FIXED row height
 // containing an internally-scrollable field is the third option, and it is what
-// InstructionsTableView ships (capped at three wrapped lines, not four — req #3396).
-// What survives is the softer and truer claim — the CARD is where long prose is
-// composed, because a few lines is enough to read an instruction and not enough to
-// write one. The Table is for scanning the catalog and correcting fields. Both views
-// write the same rows through the same component.
+// InstructionsTableView shipped for the body until req #3577 took the instruction
+// text out of the table altogether: a column of clipped paragraphs served neither
+// reading nor writing. The CARD is where instruction text lives — read and
+// composed. The Table is for scanning the catalog (names, blast radius, state) and
+// correcting those fields. Both views write the same rows through the same
+// component.
 //
 // The two views share ONE of everything that can disagree: one `fieldErrors` map,
 // one serialized membership queue, one set of graduated close/delete handlers, one
@@ -690,10 +691,9 @@ const InstructionsPage = () => {
             ) : (
             /* Card grid, matching the /agents index. `alignItems: start` so a card
                with long content grows on its own instead of stretching every card in
-               its row to match. Cards remain the place to COMPOSE long prose: the
-               Table view fits three lines per row (req #3396) and scrolls the rest
-               inside the cell, which is right for scanning and correcting but not
-               for writing. One column on small screens keeps the cards readable. */
+               its row to match. Cards are the only view that shows instruction
+               text — the Table view carries none (req #3577). One column on small
+               screens keeps the cards readable. */
             <Box
                 data-testid="instructions-registry"
                 sx={{

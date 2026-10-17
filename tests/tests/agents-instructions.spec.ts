@@ -31,8 +31,8 @@
 // are written to assert exactly that: they reuse the card tests' per-field
 // data-testids and distinguish the views by SCOPING to `instructions-datagrid`
 // versus `instructions-registry` (see `viewRoot`). A per-view testid scheme would
-// have made the central claim untestable. AGENT-13 deliberately mirrors AGENT-02
-// assertion for assertion.
+// have made the central claim untestable. AGENT-13 mirrors AGENT-02's name half
+// assertion for assertion; the table carries no instruction text (req #3577).
 //
 // PORTALS ARE THE EXCEPTION TO THE SCOPING. MUI renders `Menu`, `Popover` and every
 // dialog outside the grid, so the roster palette, the per-row options menu and the
@@ -968,14 +968,14 @@ test.describe.serial('Instruction registry (/agents/instructions)', () => {
   // -------------------------------------------------------------------------
   // AGENT-13 — EDIT IN PLACE IN THE TABLE, one PUT per field.
   //
-  // The load-bearing requirement of #3067. This is AGENT-02 run against the other
-  // view, deliberately asserting the same contract with the same testids: that is
-  // what "one implementation, two presentations" has to mean to be worth claiming.
+  // The load-bearing requirement of #3067. This is AGENT-02's name half run against
+  // the other view, deliberately asserting the same contract with the same testids:
+  // that is what "one implementation, two presentations" has to mean to be worth
+  // claiming. The content half has no table counterpart since req #3577.
   // -------------------------------------------------------------------------
-  test('AGENT-13: table cells commit on blur, one PUT per field, and survive a reload', async ({ page }) => {
+  test('AGENT-13: a table cell commits on blur, one PUT per field, and shows no instruction text', async ({ page }) => {
     const rowId = instrIds['j-table-edit'];
     const newName = `${nm('j-table-edit')}-renamed`;
-    const newContent = 'Rewritten from the TABLE view — only the content column may move.';
 
     const writes = captureWrites(page);
     await gotoTable(page);
@@ -1004,29 +1004,19 @@ test.describe.serial('Instruction registry (/agents/instructions)', () => {
     // sees 1, so on its own it asserts "reached one PUT", not "issued exactly one".
     expect(writesTo(writes, 'PUT', 'instructions')).toHaveLength(1);
 
-    // --- content ---
-    const contentField = root.getByTestId(`instruction-content-input-${rowId}`);
-    await contentField.fill(newContent);
-    await contentField.blur();
+    // --- no instruction text in the table (req #3577) ---
+    // The body is read and written in the Cards view only; a table row carries no
+    // content cell at all, so there is nothing here to edit or to clip.
+    await expect(root.getByTestId(`instruction-content-input-${rowId}`)).toHaveCount(0);
 
-    await expect.poll(() => writesTo(writes, 'PUT', 'instructions').length,
-      { timeout: 20000 }).toBe(2);
-    const contentPut = writesTo(writes, 'PUT', 'instructions')[1].body as Array<Record<string, unknown>>;
-    expect(Object.keys(contentPut[0]).sort()).toEqual(['content', 'id']);
-    expect(contentPut[0].content).toBe(newContent);
-
-    await expectStored(rowId, 'content', newContent, idToken);
-    expect((await fetchInstruction(rowId, idToken)).name).toBe(newName);
-    expect(writesTo(writes, 'PUT', 'instructions')).toHaveLength(2);
-
-    // THE CROSS-VIEW ASSERTION. The edits were made in the Table and are read back
-    // in the Cards view through the SAME testids — which is only possible because
-    // both views render one component against one query.
+    // THE CROSS-VIEW ASSERTION. The edit was made in the Table and is read back in
+    // the Cards view through the SAME testid — which is only possible because both
+    // views render one component against one query. The untouched body is there.
     await useView(page, 'cards');
     await gotoRegistry(page);
     const cards = viewRoot(page, 'cards');
     await expect(cards.getByTestId(`instruction-name-input-${rowId}`)).toHaveValue(newName);
-    await expect(cards.getByTestId(`instruction-content-input-${rowId}`)).toHaveValue(newContent);
+    await expect(cards.getByTestId(`instruction-content-input-${rowId}`)).toHaveValue(SEED_CONTENT);
   });
 
   // -------------------------------------------------------------------------
@@ -1081,28 +1071,32 @@ test.describe.serial('Instruction registry (/agents/instructions)', () => {
   // -------------------------------------------------------------------------
   test('AGENT-15: typing a space into a table cell inserts a space, it does not move the grid', async ({ page }) => {
     const rowId = instrIds['k-table-bind'];
-    const typed = 'two words';
+    // Keeps the E2E prefix, so `cleanupStaleData` still reclaims the row by name.
+    const base = nm('k-table-bind');
+    const typed = `${base} two words`;
 
     await gotoTable(page);
-    const contentField = viewRoot(page, 'table').getByTestId(`instruction-content-input-${rowId}`);
+    // The Name cell — the only free-text cell a table row has since req #3577.
+    const nameField = viewRoot(page, 'table').getByTestId(`instruction-name-input-${rowId}`);
 
-    await contentField.click();
-    await contentField.fill('');
-    await contentField.pressSequentially(typed, { delay: 20 });
-    // If the grid had swallowed the space this would read 'twowords'.
-    await expect(contentField).toHaveValue(typed);
+    await nameField.click();
+    await nameField.fill(base);
+    await nameField.press('End');
+    await nameField.pressSequentially(' two words', { delay: 20 });
+    // If the grid had swallowed the spaces this would read '<base>twowords'.
+    await expect(nameField).toHaveValue(typed);
 
-    await contentField.blur();
-    await expectStored(rowId, 'content', typed, idToken);
+    await nameField.blur();
+    await expectStored(rowId, 'name', typed, idToken);
 
     // Arrow keys move the caret, not the grid focus. If they reached the grid the
     // field would blur — and a blur COMMITS, so the edit below would be written
     // half-typed. Asserting the field still holds focus is asserting that did not
     // happen.
-    await contentField.click();
-    await contentField.press('ArrowLeft');
-    await contentField.press('ArrowRight');
-    await expect(contentField).toBeFocused();
+    await nameField.click();
+    await nameField.press('ArrowLeft');
+    await nameField.press('ArrowRight');
+    await expect(nameField).toBeFocused();
   });
 
   // -------------------------------------------------------------------------
@@ -1149,6 +1143,12 @@ test.describe.serial('Instruction registry (/agents/instructions)', () => {
     // makes blast radius legible at a glance in the table.
     await expect(root.getByTestId(`instruction-agent-count-${rowId}`))
       .toHaveText(String(links.length));
+
+    // The palette stays open after a bind while other agents remain bindable (it
+    // closes itself only when nothing is left), and its backdrop takes the next
+    // click. Dismiss it the way a user would before drilling through.
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId(`instruction-${rowId}-agent-palette`)).toHaveCount(0);
 
     // Drill-through survives the variant.
     await root.getByTestId(`instruction-${rowId}-agent-${agentIds.a3}`).click();
@@ -1250,10 +1250,14 @@ test.describe.serial('Instruction registry (/agents/instructions)', () => {
     const created = (await fetchMyInstructions(idToken)).find(r => r.name === name);
     createdInstructionIds.push(created!.id);
 
-    // The new row appears in the grid, unbound, with its content intact.
-    await expect(viewRoot(page, 'table')
-      .getByTestId(`instruction-content-input-${created!.id}`))
-      .toHaveValue(content, { timeout: 20000 });
+    // The new row appears in the grid, unbound, with its content stored. The table
+    // shows no instruction text (req #3577), so the content is read back from the
+    // stored row rather than from a cell.
+    const root = viewRoot(page, 'table');
+    await expect(root.getByTestId(`instruction-name-input-${created!.id}`))
+      .toHaveValue(name, { timeout: 20000 });
+    await expect(root.getByTestId(`instruction-content-input-${created!.id}`)).toHaveCount(0);
+    expect((await fetchInstruction(created!.id, idToken)).content).toBe(content);
     expect(await fetchLinksForInstruction(created!.id, idToken)).toHaveLength(0);
 
     // THE REGRESSION: both template fields come back blank, so the next row
