@@ -27,6 +27,12 @@ import RuleIcon from '@mui/icons-material/Rule';
 import DescriptionIcon from '@mui/icons-material/Description';
 import DataUsageIcon from '@mui/icons-material/DataUsage';
 
+// The dev server's working area (req #3589): the route its session deep-links
+// to (req #3242 — devserver-start.sh writes VITE_DEV_DEFAULT_ROUTE into the
+// session's own .env.development.local), else the long-standing /systems2.
+// HomePage lands on it; NavBarSidebar opens the group that owns it.
+export const DEV_HOME_ROUTE = import.meta.env.VITE_DEV_DEFAULT_ROUTE || '/systems2';
+
 export const NAV_GROUPS = [
     { id: 'calendar', label: '' },
     { id: 'tasks', label: 'TASKS' },
