@@ -99,6 +99,14 @@ export const PLAN_VIZ_PALETTE = {
     pendingRing: '#5b729355',
     manualRing: '#ff9bf5',
     eligibleRing: '#7ee08a',
+    // The run-mode pill (req #3580, user directive: "green auto and blue
+    // manual"). Its own entries — a control's colours, not the bead's — and
+    // deliberately NOT `eligibleRing` or `badgeFill`: the eligible ring means
+    // "may launch now" and the count badge sits on the same line, so either
+    // green reused would make the pill read as one of those. Dark panel text
+    // on both (8.9:1 and 6.2:1).
+    runAuto: '#4ade80',
+    runManual: '#4d9bff',
     // The pause status bubble's two colours (req #3226) — a NEW channel
     // (SCOPE: is this band's launch suppressed?), so neither reuses an
     // existing entry outright even where a hue is nearby, to avoid the bubble
@@ -1736,6 +1744,7 @@ export const CARD_CHECK_W = 13 * CARD_TYPE_SCALE;
 // px given back here is a world px the title gets to keep.
 export const CARD_STEP_LINK_W = CARD_CHECK_W;
 
+
 // ── THE TOTAL REQUIREMENT COUNT, AS A BADGE LEFT OF THE TITLE (req #3503,
 // user directive: "add a count badge to the left of the title — use that
 // green count badge we had before") ─────────────────────────────────────
@@ -1768,6 +1777,29 @@ export const CARD_BADGE_GAP = CHW_REQ;
 // single-text-row metric `REQ_TEXT_H` measures. `− 4` leaves 2 world px of
 // margin top and bottom so the pill's round cap clears the line box.
 export const CARD_BADGE_H = CARD_LINE_H - 4;
+
+// ── THE RUN-MODE PILL (req #3580, user directives: "have a display circle for
+// step's manual vs auto and let that be a configurable button in the UI", then
+// "make it say auto or manual and be green auto and blue manual") ──────────
+// Left of the ↗, reserved out of the step name's budget exactly the way the ✓
+// and the link button are, so a long title never draws under it. It carries the
+// WORD, so it is sized for the longer of the two — one fixed width, so the pill
+// does not change size (and the title's room does not move) when it is toggled.
+// The same height as the count badge on the other end of the line, so the two
+// pills read as one row.
+//
+// THE COST, stated: the word takes about three more characters of each title
+// line than the bare A/M circle it replaced.
+// The word is set at 80% of the requirement-row type (`CARD_RUN_FONT`, below
+// `CARD_FONT`), so its glyph width is that same fraction of the row's.
+const CARD_RUN_TYPE_RATIO = 0.8;
+export const CARD_RUN_WORDS = { auto: 'auto', manual: 'manual' };
+const CHW_RUN = CHW_REQ * CARD_RUN_TYPE_RATIO;
+const CARD_RUN_PAD_X = 5 * CARD_TYPE_SCALE;
+export const CARD_RUN_W = Math.ceil(
+    Math.max(...Object.values(CARD_RUN_WORDS).map((w) => w.length)) * CHW_RUN
+    + 2 * CARD_RUN_PAD_X);
+export const CARD_RUN_H = CARD_BADGE_H;
 // The digit's own font size — the TITLE's size, not the row glyph's (round
 // 1's choice, and part of why round 2 was needed): the badge sits beside
 // the title on its own line, not among the requirement rows below, and
@@ -1925,6 +1957,8 @@ export const CARD_FONT = {
     title: PLAN_VIZ_FONT.title * CARD_TYPE_SCALE,
     check: PLAN_VIZ_FONT.check * CARD_TYPE_SCALE,
 };
+// req #3580 — the run pill's word; see `CARD_RUN_W`.
+export const CARD_RUN_FONT = CARD_FONT.req * CARD_RUN_TYPE_RATIO;
 
 export const BEAD_RADIUS = BEAD_R;
 
@@ -2354,7 +2388,9 @@ export function drawsLabelKind(kind, level) {
     // `badge` and `step-link` ride the CARD (req #3498, extended req #3503) —
     // both are drawn in the title area, so they appear exactly where the card
     // does and never float beside a bare bead.
-    if (kind === 'step' || kind === 'req' || kind === 'badge' || kind === 'step-link') {
+    // `run` (req #3580) is the third title-area control and rides the card too.
+    if (kind === 'step' || kind === 'req' || kind === 'badge' || kind === 'step-link'
+        || kind === 'run') {
         return level !== 'out';
     }
     if (kind === 'title') return level === 'in';
@@ -2781,7 +2817,8 @@ const truncate = (s, n) => {
 // `STEP_LABEL_MAX`: one width, measured where it is drawn, so there is no cap
 // left to drift out of step with the room.
 export function stepLabelText(row, stepLabel,
-    maxChars = cardChars(CHW_LABEL, CARD_CHECK_W + CARD_STEP_LINK_W + CARD_BADGE_W + CARD_BADGE_GAP)) {
+    maxChars = cardChars(CHW_LABEL, CARD_CHECK_W + CARD_STEP_LINK_W + CARD_RUN_W
+        + CARD_BADGE_W + CARD_BADGE_GAP)) {
     return stepLabel === 'title'
         ? truncate(row.title || `step ${row.id}`, Math.max(4, maxChars))
         : String(row.id);
@@ -2859,11 +2896,20 @@ const reqStr = (row) => (row.reqIds || []).join(' ');
 //                                    to leave every band's plain name alone
 // @returns {string}
 function epicBandLabelText(epicId, epicName, epicCounts) {
-    if (!epicCounts || epicId == null) return epicName;
+    const countText = epicBandCountText(epicId, epicCounts);
+    return countText ? `${epicName} ${countText}` : epicName;
+}
+
+// req #3580 — the SAME suffix on its own, so the chip can draw the closure
+// count as its own element (it is a zoom control; the name beside it is an
+// in-place editor). `epicBandLabelText` above is built FROM this, so the
+// measured label and the two drawn pieces can never disagree.
+function epicBandCountText(epicId, epicCounts) {
+    if (!epicCounts || epicId == null) return null;
     const counts = typeof epicCounts.get === 'function'
         ? epicCounts.get(epicId)
         : (Object.hasOwn(epicCounts, epicId) ? epicCounts[epicId] : null);
-    return counts ? `${epicName} ${counts.met}/${counts.total}` : epicName;
+    return counts ? `${counts.met}/${counts.total}` : null;
 }
 
 /**
@@ -2973,7 +3019,8 @@ export function computePlanLayout(rows, opts = {}) {
     // count) and `wrapReqText` breaks it; a short name still returns one line,
     // so only the cards that need the room pay for it.
     const nameBudget = cardChars(CHW_LABEL,
-        CARD_CHECK_W + CARD_STEP_LINK_W + CARD_BADGE_W + CARD_BADGE_GAP, cardTextW);
+        CARD_CHECK_W + CARD_STEP_LINK_W + CARD_RUN_W + CARD_BADGE_W + CARD_BADGE_GAP,
+        cardTextW);
     const nameLinesOf = new Map();
     for (const r of safeRows) {
         nameLinesOf.set(r.id, wrapReqText(
@@ -3112,6 +3159,7 @@ export function computePlanLayout(rows, opts = {}) {
                 // req #3225 — the SAME string measures the zero-overlap label
                 // rect and the floating chip; see the helper's own comment.
                 epicLabel: epicBandLabelText(key, epic, epicCounts),
+                epicCountText: epicBandCountText(key, epicCounts),
                 paused: bandPausedOf(key),
                 steps: [],
             });
@@ -3848,6 +3896,12 @@ export function computePlanLayout(rows, opts = {}) {
             x: titleTextLeft,
             y: n.top + CARD_PAD_Y,
             w: lw, h: nameLines.length * CARD_LINE_H,
+            // req #3580 — the WHOLE room the name may occupy (up to the run
+            // pill's reserve), which is where the in-place editor is drawn.
+            // Not `w`: that is the drawn text's own width, and an editor sized
+            // to a short name would have no room to type a longer one.
+            editW: n.right - CARD_PAD_X - CARD_CHECK_W - CARD_STEP_LINK_W
+                - CARD_RUN_W - titleTextLeft,
         });
         const ids = r.reqIds || [];
         // ── THE REQUIREMENT ROWS, TOP TO BOTTOM, IN ORDER ───────────────────
@@ -3985,6 +4039,24 @@ export function computePlanLayout(rows, opts = {}) {
                 x: n.right - CARD_PAD_X - CARD_CHECK_W - CARD_STEP_LINK_W,
                 y: n.top + CARD_PAD_Y,
                 w: CARD_STEP_LINK_W, h: REQ_TEXT_H,
+            });
+        }
+        // ── THE RUN-MODE PILL (req #3580) ────────────────────────────────────
+        // Left of the ↗, in the room `CARD_RUN_W` reserved out of the step
+        // name's budget. Emitted for every card: run mode is a fact about every
+        // step, and the pill is also the control that changes it. The text is
+        // the word drawn inside; the renderer draws it as an HTML overlay, the
+        // badge's own move, because it is a button.
+        {
+            labels.push({
+                kind: 'run', stepId: r.id,
+                text: CARD_RUN_WORDS[r.run === 'manual' ? 'manual' : 'auto'],
+                run: r.run === 'manual' ? 'manual' : 'auto',
+                prose: false,
+                x: n.right - CARD_PAD_X - CARD_CHECK_W - CARD_STEP_LINK_W - CARD_RUN_W,
+                // The count badge's own y — the two pills share the line.
+                y: n.top + CARD_PAD_Y + 1,
+                w: CARD_RUN_W, h: CARD_RUN_H,
             });
         }
         // ── THE STEP'S OWN TITLE, ON THE L3 LINE ────────────────────────────
@@ -4639,6 +4711,11 @@ export function placeEpicChips({
             key: band.key == null ? 'none' : band.key,
             epicId: band.epicId,
             text: bandText,
+            // req #3580 — `text` split into its two drawn pieces: the NAME (an
+            // in-place editor) and the closure COUNT (a zoom control), each its
+            // own element. `text` stays the measured whole.
+            name: band.epic,
+            countText: band.epicCountText ?? null,
             color: band.color,
             // The band itself, so a click can fit it (req #3204). Carried rather
             // than re-looked-up by key: `band.key` is null for the "No epic"
