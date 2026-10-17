@@ -49,14 +49,52 @@ export const CLOSE_THRESHOLD_PCT = 1.5;
 // between ts's local day and rowDate (noon-anchored to dodge DST), plus the
 // fractional time-of-day. A ts on rowDate at 14:00 → 14; on rowDate+1 at 02:00
 // → 26. Returns NaN when ts is unparseable.
+//
+// req #3571 — buildDayModel calls this for every timestamp on every visible row
+// (~60 rows × every swarm-start/undo/met requirement), so the same few thousand
+// timestamps were each re-converted ~60 times: ~3 s of main-thread work on every
+// switch into the Visualizer. Only `ts → (local-day anchor, time-of-day)` is
+// expensive and it does not depend on the row, so it is memoized per
+// (timezone, ts); the row part is plain arithmetic. String keys only — a Date
+// argument is computed directly. Bounded: cleared wholesale past the cap.
+const TS_PARTS_CACHE_MAX = 50000;
+const tsPartsCache = new Map();
+const anchorMsCache = new Map();
+
+// Anchored at UTC noon, not local noon: whole days are then exactly 86400000 ms
+// apart (no DST), and a cached anchor never depends on the browser's zone — so
+// an OS timezone change mid-session cannot mix anchors from two offsets.
+function dayAnchorMs(dayStr) {
+    let ms = anchorMsCache.get(dayStr);
+    if (ms === undefined) {
+        ms = new Date(dayStr + 'T12:00:00Z').getTime();
+        if (anchorMsCache.size >= TS_PARTS_CACHE_MAX) anchorMsCache.clear();
+        anchorMsCache.set(dayStr, ms);
+    }
+    return ms;
+}
+
+function tsParts(ts, timezone) {
+    const compute = () => {
+        const tsDay  = toLocaleDateString(ts, timezone);
+        const tsFrac = getTimeOfDayFraction(ts, timezone);
+        if (tsDay === null || tsFrac === null) return null;
+        return { anchorMs: dayAnchorMs(tsDay), frac: tsFrac };
+    };
+    if (typeof ts !== 'string') return compute();
+    const key = `${timezone || ''}|${ts}`;
+    if (tsPartsCache.has(key)) return tsPartsCache.get(key);
+    const parts = compute();
+    if (tsPartsCache.size >= TS_PARTS_CACHE_MAX) tsPartsCache.clear();
+    tsPartsCache.set(key, parts);
+    return parts;
+}
+
 export function hoursFromRowMidnight(ts, timezone, rowDate) {
-    const tsDay  = toLocaleDateString(ts, timezone);
-    const tsFrac = getTimeOfDayFraction(ts, timezone);
-    if (tsDay === null || tsFrac === null) return NaN;
-    const rowAnchor = new Date(rowDate + 'T12:00:00');
-    const tsAnchor  = new Date(tsDay + 'T12:00:00');
-    const dayOffset = Math.round((tsAnchor - rowAnchor) / 86400000);
-    return dayOffset * 24 + tsFrac * 24;
+    const parts = tsParts(ts, timezone);
+    if (parts === null) return NaN;
+    const dayOffset = Math.round((parts.anchorMs - dayAnchorMs(rowDate)) / 86400000);
+    return dayOffset * 24 + parts.frac * 24;
 }
 
 // x% (0..100) of `ts` across a row's [0, DAY_HOURS] (24h) axis, or null when ts
