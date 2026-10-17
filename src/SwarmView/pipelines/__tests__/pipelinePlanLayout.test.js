@@ -4802,13 +4802,13 @@ describe("the KEY is a keep-out: what it costs the epic labels (req #3168, re-me
 
     // The complete key (directive 2) is capped on HEIGHT, not width, since req
     // #3374 P6 — see `PLAN_KEY_MAX_H`. These sizes bracket what it can actually
-    // be: collapsed (just the toggle button — the default state since req
-    // #3309, and the panel's own `minWidth`/`minHeight` floor), the ordinary
-    // expanded key, at the height cap with a typical width, and the worst case
+    // be: collapsed (just the toggle button — the panel's own
+    // `minWidth`/`minHeight` floor), the ordinary expanded key (the default
+    // state since req #3585), at the height cap with a typical width, and the worst case
     // (a machine key on a many-machine plan — WIDE, since #3371/#3373 left the
     // key's two groups with no way to grow taller than the cap, only wider).
     const KEY_SIZES = [
-        { w: 32, h: 28, label: 'collapsed (default since req #3309)' },
+        { w: 32, h: 28, label: 'collapsed (toggle only)' },
         { w: 300, h: 76, label: 'expanded, state key' },
         { w: 300, h: PLAN_KEY_MAX_H, label: 'expanded, at the height cap' },
         { w: 900, h: PLAN_KEY_MAX_H, label: 'worst case — many machines, wide, at the height cap' },

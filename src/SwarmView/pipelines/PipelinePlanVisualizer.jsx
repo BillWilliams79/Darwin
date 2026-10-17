@@ -466,10 +466,10 @@ export default function PipelinePlanVisualizer({
         REQ_KEY_SCALES.map((scale) => [scale, reqIdKeyEntries({
             colorKey: scale, views: reqColorViews,
         }).entries])), [reqColorViews]);
-    // Collapsed by default (req #3309 — the key covered too much of the plan
-    // on first view) — see the key's own comment below for why this is
-    // component state and not a persisted preference.
-    const [keyOpen, setKeyOpen] = useState(false);
+    // Expanded by default (req #3585, reversing req #3309's collapsed
+    // default) — see the key's own comment below for why this is component
+    // state and not a persisted preference.
+    const [keyOpen, setKeyOpen] = useState(true);
 
     // The container is tracked as STATE, not a bare ref: with an empty plan the
     // component returns the empty panel and no container exists — if the first
@@ -3438,7 +3438,7 @@ export default function PipelinePlanVisualizer({
                     Collapse is LOCAL STATE, not a persisted preference: a stored
                     one would need seeding in the E2E fixture and could arrive
                     shown from another session. Every visit opens with the key
-                    collapsed (req #3309).
+                    expanded (req #3585; req #3309 had it collapsed).
 
                     PARKED AT VIEWPORT MIDDLE BOTTOM (req #3255), not the
                     top-right corner: that corner sat in the typical down-and-
@@ -3500,10 +3500,10 @@ export default function PipelinePlanVisualizer({
                         element on the canvas, just no longer the one you have to
                         hunt for.
 
-                        THE '+' READS BRIGHTER THAN THE '−' (req #3309): with the
-                        key now collapsed by default, '+' is what a reader sees
-                        first and it is the one glyph that has to say "there is
-                        more here" with no key content around it to draw the eye.
+                        THE '+' READS BRIGHTER THAN THE '−' (req #3309): once the
+                        reader collapses the key, '+' is the one glyph that has
+                        to say "there is more here" with no key content around
+                        it to draw the eye.
                         Full resting opacity does that; the hover state (opacity
                         1, `P.accent`) is unchanged and still the stronger of the
                         two cues. */}
