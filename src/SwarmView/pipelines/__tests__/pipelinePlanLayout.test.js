@@ -29,7 +29,7 @@ import {
     CARD_LINE_H, CARD_SUBTITLE_H, CARD_RULE_BAND, CARD_TITLE_CHARS, CARD_ID_CHARS,
     CARD_FRAME_W, CARD_FRAME_X, CARD_STATE_BAR_W, CARD_BAR_GAP,
     CARD_BADGE_W, CARD_BADGE_GAP, CARD_BADGE_H, CARD_BADGE_FONT, badgeWidthFor,
-    CARD_STEP_LINK_W, CARD_FONT,
+    CARD_STEP_LINK_W, CARD_STEP_ADD_W, CARD_TITLE_BTN, CARD_TITLE_BTN_GAP, CARD_FONT,
     STEP_WIDTH_SCALES, cardGeometryFor,
     STEPS_ACROSS_OPTIONS, STEPS_ACROSS_LOOSE_FILL, stepsAcrossScale,
     zoomAboutViewportCentre, zoomAboutPoint, snapZoomScale, columnsAcross,
@@ -5147,7 +5147,7 @@ describe('the character budget IS the card (req #3498, was the 35-char ceiling)'
         // would otherwise truncate to nineteen — so what is pinned is the
         // per-LINE budget, which is what a reader actually sees on one row.
         const stepBudget = cardChars(CHW_LABEL,
-            CARD_CHECK_W + CARD_STEP_LINK_W + CARD_BADGE_W + CARD_BADGE_GAP);
+            CARD_CHECK_W + CARD_STEP_LINK_W + CARD_STEP_ADD_W + CARD_BADGE_W + CARD_BADGE_GAP);
         for (const view of Object.keys(REQ_VIEWS)) {
             const layout = computePlanLayout(plan.rows,
                 { ...reqViewOptions(view), stepLabel: 'title',
@@ -5438,12 +5438,53 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
             // Right-aligned, clear of the ✓, inside the title area.
             expect(link.x + link.w)
                 .toBeCloseTo(n.right - CARD_PAD_X - CARD_CHECK_W, 6);
-            expect(link.y + link.h).toBeLessThanOrEqual(n.top + cardTitleH('title'));
+            // Flush with the title area's bottom since req #3582 — float slack only.
+            expect(link.y + link.h).toBeLessThanOrEqual(n.top + cardTitleH('title') + 1e-6);
         }
         // It rides the CARD too, same rule as the badge.
         expect(drawsLabelKind('step-link', 'out')).toBe(false);
         expect(drawsLabelKind('step-link', 'mid')).toBe(true);
         expect(drawsLabelKind('step-link', 'in')).toBe(true);
+    });
+
+    it('puts a "+" (file a requirement into this step) LEFT of the link button (req #3582)', () => {
+        for (let level = 1; level <= STEP_WIDTH_SCALES.length; level += 1) {
+            const layout = computePlanLayout(plan.rows,
+                { stepLabel: 'title', stepWidthLevel: level });
+            for (const row of plan.rows) {
+                const where = `level ${level} step ${row.id}`;
+                const [add] = layout.labels.filter(
+                    (l) => l.kind === 'step-add' && l.stepId === row.id);
+                const [link] = layout.labels.filter(
+                    (l) => l.kind === 'step-link' && l.stepId === row.id);
+                // Design rule 1: a stamped step takes no new work, so no "+".
+                if (row.completedAt != null) { expect(add, where).toBeUndefined(); continue; }
+                expect(add, where).toBeTruthy();
+                expect(add.text).toBe('+');
+                // Same-size square buttons, a real gap apart (req #3582 polish:
+                // "way too small and close together").
+                expect(add.w).toBe(CARD_TITLE_BTN);
+                expect(add.h).toBe(CARD_TITLE_BTN);
+                expect(link.w).toBe(CARD_TITLE_BTN);
+                expect(link.h).toBe(CARD_TITLE_BTN);
+                expect(CARD_TITLE_BTN_GAP).toBeGreaterThan(0);
+                expect(add.x + add.w + CARD_TITLE_BTN_GAP, where).toBeCloseTo(link.x, 6);
+                expect(add.y, where).toBe(link.y);
+                const n = layout.nodes.get(row.id);
+                expect(add.y + add.h, where).toBeLessThanOrEqual(n.top + cardTitleH('title') + 1e-6);
+            }
+        }
+        // A stamped step specifically — the fixture may carry none.
+        const stamped = plan.rows.map((r, i) => (i === 0
+            ? { ...r, completedAt: '2026-10-17 00:00:00' } : r));
+        const sLayout = computePlanLayout(stamped, { stepLabel: 'title' });
+        expect(sLayout.labels.filter(
+            (l) => l.kind === 'step-add' && l.stepId === stamped[0].id)).toEqual([]);
+        expect(sLayout.labels.filter(
+            (l) => l.kind === 'step-add' && l.stepId === stamped[1].id)).toHaveLength(1);
+        expect(drawsLabelKind('step-add', 'out')).toBe(false);
+        expect(drawsLabelKind('step-add', 'mid')).toBe(true);
+        expect(drawsLabelKind('step-add', 'in')).toBe(true);
     });
 
     it('ONLY the title line shifts for the badge — req rows and the L3 line do not (req #3503)', () => {
@@ -5488,16 +5529,19 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
         // there as a confusing pairwise-overlap failure rather than as "the
         // budget and the reserve disagree". Name the actual invariant: the
         // widest possible title line (`nameBudget` characters at `CHW_LABEL`,
-        // from `titleTextLeft`) never reaches the link button's own left edge.
+        // from `titleTextLeft`) never reaches the leftmost right-hand control
+        // — the "+" since req #3582, which sits left of the link button.
         const layout = computePlanLayout(plan.rows, { stepLabel: 'title' });
         for (const row of plan.rows) {
+            const n = layout.nodes.get(row.id);
             const [step] = layout.labels.filter(
                 (l) => l.kind === 'step' && l.stepId === row.id);
-            const [link] = layout.labels.filter(
-                (l) => l.kind === 'step-link' && l.stepId === row.id);
+            // The reserve is the same on every card, so a stamped card (no
+            // "+") is checked against where its "+" would sit.
+            const addX = n.right - CARD_PAD_X - CARD_CHECK_W - CARD_STEP_LINK_W - CARD_STEP_ADD_W;
             const widestLineLen = Math.max(...step.lines.map((l) => l.length));
             expect(step.x + widestLineLen * CHW_LABEL, `step ${row.id}`)
-                .toBeLessThanOrEqual(link.x + 1e-6);
+                .toBeLessThanOrEqual(addX + 1e-6);
         }
     });
 

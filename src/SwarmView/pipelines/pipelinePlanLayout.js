@@ -58,7 +58,7 @@
 //      column width. Reserving it unconditionally keeps zoom a pure transform —
 //      level changes never relayout, so the overlap guarantee holds at every k.
 
-import { STEP_DONE, STEP_RUNNING, STEP_PENDING } from './pipelineModel';
+import { STEP_DONE, STEP_RUNNING, STEP_PENDING, canFileIntoStep } from './pipelineModel';
 // THE LADDER ITSELF, imported rather than passed in (req #3324): `planLevelFor`
 // below is the ONE place the four modes are resolved, and a resolution that took
 // the ladder's answer as an argument would leave half of Auto at the call site —
@@ -1770,11 +1770,13 @@ export const cardTitleH = (stepLabel, nameLines = 1) => CARD_PAD_Y
 
 // ── THE STEP NAME WRAPS TOO (req #3498, 2026-08-13) ─────────────────────────
 // It has to, and the reason is the same arithmetic that narrowed the card: at a
-// 28-character line the name's own budget — the text column less the four
+// 28-character line the name's own budget — the text column less the
 // title-row reserves (req #3503: the ✓, the link button, the badge and its
-// gap), at the LABEL glyph which is wider than the row glyph — is seventeen
-// characters (measured — see `cardChars(CHW_LABEL, CARD_CHECK_W +
-// CARD_STEP_LINK_W + CARD_BADGE_W + CARD_BADGE_GAP)`). "Feature Eradication
+// gap; req #3582: the "+"), at the LABEL glyph which is wider than the row
+// glyph — is thirteen characters (measured — see `cardChars(CHW_LABEL,
+// CARD_CHECK_W + CARD_STEP_LINK_W + CARD_STEP_ADD_W + CARD_BADGE_W +
+// CARD_BADGE_GAP)`; seventeen before req #3582 added the "+" and made both
+// buttons full-size). "Feature Eradication
 // - MCP, Scripts, Frontend…" is the actual data, and it truncates well short
 // of one line at that budget.
 //
@@ -1862,7 +1864,38 @@ export const CARD_CHECK_W = 13 * CARD_TYPE_SCALE;
 // them literally over-reserved this. A glyph the size of the ✓ needs a
 // target the size of the ✓'s own reserve, not a larger one, and every world
 // px given back here is a world px the title gets to keep.
-export const CARD_STEP_LINK_W = CARD_CHECK_W;
+//
+// RESIZED BY REQ #3582 (user directive: "the plus sign and the popout buttons
+// should be larger, commensurate with the font size of the step — they are
+// way too small and close together"). Sized to the ✓ they were each an
+// 18-world-px sliver, flush against each other, reading as two specks beside
+// a 23px title. Each is now a SQUARE BUTTON the full height of the title's own
+// line (`CARD_LINE_H` — a second pass, "they could be a little bigger", took
+// it up from the count badge's `CARD_LINE_H − 4`; the full line is the
+// ceiling, since anything taller leaves the title area a one-line name
+// reserves and crosses the rule under it), outlined so it reads as a control,
+// its glyph larger than the title's own type (`CARD_TITLE_BTN_FONT`), with
+// `CARD_TITLE_BTN_GAP` between neighbours. The cost is title room, and it is
+// paid knowingly.
+export const CARD_TITLE_BTN = CARD_LINE_H;
+export const CARD_TITLE_BTN_GAP = 4 * CARD_TYPE_SCALE;
+// A glyph inside the button: the title's size × 1.3 — `+` and `↗` carry less
+// ink per em than letters, so at exactly the title size they read smaller
+// than the name beside them, and the bigger box wants a bigger mark.
+export const CARD_TITLE_BTN_FONT = 16.5 * CARD_TYPE_SCALE * 1.3;
+// The link button's reserve: its button, flush against the ✓'s reserve, plus
+// the gap on its LEFT that keeps the "+" off it.
+export const CARD_STEP_LINK_W = CARD_TITLE_BTN + CARD_TITLE_BTN_GAP;
+
+// ── "FILE A REQUIREMENT INTO THIS STEP" — THE + BUTTON (req #3582) ─────────
+// Left of the ↗, sized like it for the same reason the ↗ is sized like the
+// ✓: a glyph the size of its neighbours needs a target that size, and every
+// world px not reserved here is one the title keeps. It opens the requirement
+// editor in "new" mode carrying this step, and the first save (picking a
+// category, the aggregator template's own rule) seats the new requirement
+// here. Reserved out of the step name's budget like the other three: its
+// button plus the gap between it and the ↗ (sizes above, req #3582).
+export const CARD_STEP_ADD_W = CARD_TITLE_BTN + CARD_TITLE_BTN_GAP;
 
 // ── THE TOTAL REQUIREMENT COUNT, AS A BADGE LEFT OF THE TITLE (req #3503,
 // user directive: "add a count badge to the left of the title — use that
@@ -2482,7 +2515,9 @@ export function drawsLabelKind(kind, level) {
     // `badge` and `step-link` ride the CARD (req #3498, extended req #3503) —
     // both are drawn in the title area, so they appear exactly where the card
     // does and never float beside a bare bead.
-    if (kind === 'step' || kind === 'req' || kind === 'badge' || kind === 'step-link') {
+    // `step-add` (req #3582) is the third title-area control and rides it too.
+    if (kind === 'step' || kind === 'req' || kind === 'badge' || kind === 'step-link'
+        || kind === 'step-add') {
         return level !== 'out';
     }
     if (kind === 'title') return level === 'in';
@@ -2909,7 +2944,7 @@ const truncate = (s, n) => {
 // `STEP_LABEL_MAX`: one width, measured where it is drawn, so there is no cap
 // left to drift out of step with the room.
 export function stepLabelText(row, stepLabel,
-    maxChars = cardChars(CHW_LABEL, CARD_CHECK_W + CARD_STEP_LINK_W + CARD_BADGE_W + CARD_BADGE_GAP)) {
+    maxChars = cardChars(CHW_LABEL, CARD_CHECK_W + CARD_STEP_LINK_W + CARD_STEP_ADD_W + CARD_BADGE_W + CARD_BADGE_GAP)) {
     return stepLabel === 'title'
         ? truncate(row.title || `step ${row.id}`, Math.max(4, maxChars))
         : String(row.id);
@@ -3161,7 +3196,7 @@ export function computePlanLayout(rows, opts = {}) {
     // count) and `wrapReqText` breaks it; a short name still returns one line,
     // so only the cards that need the room pay for it.
     const nameBudget = cardChars(CHW_LABEL,
-        CARD_CHECK_W + CARD_STEP_LINK_W + CARD_BADGE_W + CARD_BADGE_GAP, cardTextW);
+        CARD_CHECK_W + CARD_STEP_LINK_W + CARD_STEP_ADD_W + CARD_BADGE_W + CARD_BADGE_GAP, cardTextW);
     const nameLinesOf = new Map();
     for (const r of safeRows) {
         nameLinesOf.set(r.id, wrapReqText(
@@ -4183,9 +4218,29 @@ export function computePlanLayout(rows, opts = {}) {
                 // fixed scale-1 constant, and stayed put while the frame it
                 // was meant to track widened around it). Left of the ✓'s own
                 // reserve, the same order the old count/✓ pair drew in.
-                x: n.right - CARD_PAD_X - CARD_CHECK_W - CARD_STEP_LINK_W,
+                // The button sits at the RIGHT of its reserve; the reserve's
+                // leading `CARD_TITLE_BTN_GAP` is air between it and the "+".
+                x: n.right - CARD_PAD_X - CARD_CHECK_W - CARD_TITLE_BTN,
+                // Exactly the title's first line box (req #3582).
                 y: n.top + CARD_PAD_Y,
-                w: CARD_STEP_LINK_W, h: REQ_TEXT_H,
+                w: CARD_TITLE_BTN, h: CARD_TITLE_BTN,
+            });
+        }
+        // ── "+" — FILE A REQUIREMENT INTO THIS STEP (req #3582) ───────────────
+        // Left of the ↗, in the room `CARD_STEP_ADD_W` reserved out of the step
+        // name's budget — see that constant's own comment. NOT on a step with a
+        // stamped `completed_at` (`canFileIntoStep` — design rule 1); its
+        // reserve stays empty so the title budget is one number for every card.
+        // A DERIVED-done step (all work met, no stamp) does get one: adding
+        // work to it is playbook case 7, a TOP-UP.
+        if (canFileIntoStep(r)) {
+            labels.push({
+                kind: 'step-add', stepId: r.id, text: '+',
+                prose: false,
+                x: n.right - CARD_PAD_X - CARD_CHECK_W - CARD_STEP_LINK_W
+                    - CARD_TITLE_BTN,
+                y: n.top + CARD_PAD_Y,
+                w: CARD_TITLE_BTN, h: CARD_TITLE_BTN,
             });
         }
         // ── THE STEP'S OWN TITLE, ON THE L3 LINE ────────────────────────────

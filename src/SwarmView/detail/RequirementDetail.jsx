@@ -13,7 +13,8 @@ import { useOrchestrationIndex } from './useOrchestrationIndex';
 import { stepOptions } from './orchestrationIndex';
 import { moveStepRequirement } from '../../Steps/stepsApi';
 import { planLinkTo, epicLinkTo } from '../pipelines/pipelineEpicLink';
-import { stepPlanLinkTo } from '../pipelines/pipelineStepLink';
+import { stepPlanLinkTo, readNewRequirementSeat, backToStepPath,
+    BACK_STEP_STATE_KEY } from '../pipelines/pipelineStepLink';
 // req #3463 — the era↔route binding. This page never spells a plan route.
 // `useOrchestrationIndex` walks the PIPELINE 2.0 tables since req #3356, so the
 // plan and step links below are 2.0 — which is what `planLinkTo`/
@@ -34,7 +35,7 @@ import AppContext from '../../Context/AppContext';
 import { DataGrid } from '@mui/x-data-grid';
 import { useQueryClient } from '@tanstack/react-query';
 import { useConfirmDialog } from '../../hooks/useConfirmDialog';
-import { requirementKeys } from '../../hooks/useQueryKeys';
+import { requirementKeys, pipelineComposeKeys } from '../../hooks/useQueryKeys';
 import RequirementDeleteDialog from '../RequirementDeleteDialog';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
@@ -259,8 +260,14 @@ const RequirementDetail = () => {
     // No DB record exists yet — the requirement is POSTed only when the user
     // picks a category. Until then this page edits a purely local draft.
     const isNew = id === 'new';
+    // Req #3582: a plan step's "+" opened this draft — it is to be filed INTO
+    // that step. Seated by the same first save that creates it (below).
+    const newSeat = isNew ? readNewRequirementSeat(location.state) : null;
     const handleBack = () => {
         if (hasPipelineOrigin) {
+            // Req #3582 — opened off a step's "+": return to THAT step.
+            const stepBack = backToStepPath(location.state);
+            if (stepBack) return navigate(stepBack);
             // `?mode=` is a TRANSIENT override on the receiving page, never a
             // write to the reader's stored preference — so returning them to the
             // panel they left cannot change what any other plan opens in.
@@ -311,6 +318,8 @@ const RequirementDetail = () => {
     // (driven by the query resolving), so the ref value at that moment is exactly
     // the signal we need — and we don't want to trigger an extra re-render.
     const userInteractedRef = useRef(false);
+    // Req #3582 — set while a new-mode create is in flight (see createFromDraft).
+    const creatingRef = useRef(false);
     const markUserInteracted = () => { userInteractedRef.current = true; };
 
     const showError = useSnackBarStore(s => s.showError);
@@ -761,9 +770,90 @@ const RequirementDetail = () => {
         queryClient.invalidateQueries({ queryKey: ['orchestration_index'] });
     };
 
+    // New-mode create (req #2414), run by the first category pick. When a plan
+    // step's "+" opened the draft (req #3582) the step is re-read LIVE first:
+    // a step stamped complete since the plan rendered must not take new work
+    // (design rule 1 — the same refusal every other seat writer makes), and
+    // finding that out after the POST would strand a requirement it was
+    // created for.
+    const createFromDraft = async (newCategoryFk, wasCategoryUnset) => {
+        if (newSeat) {
+            const stepRead = await call_rest_api(
+                `${darwinUri}/pipeline_steps?id=${newSeat.stepId}&fields=id,completed_at`,
+                'GET', '', idToken).catch(() => null);
+            const stepRow = stepRead?.httpStatus?.httpStatus === 200 ? stepRead.data?.[0] : null;
+            if (!stepRow || stepRow.completed_at) {
+                setRequirement(prev => ({ ...prev, category_fk: null }));
+                showError(stepRead && stepRead.httpStatus ? stepRead : { httpStatus: { httpStatus: 'network error' } },
+                    stepRow ? `Step ${newSeat.stepId} is complete — it takes no new work; nothing was created`
+                        : `Unable to read step ${newSeat.stepId}; nothing was created`);
+                return;
+            }
+        }
+        // Send all four launch fields explicitly — the draft's values,
+        // which start as the SRIOH default (req #3573).
+        const draft = {
+            title: requirement?.title || '',
+            description: requirement?.description || '',
+            requirement_status: requirement?.requirement_status || DEFAULT_REQUIREMENT_SPEC.requirement_status,
+            category_fk: newCategoryFk,
+            project_fk: null,
+            coordination_type: requirement?.coordination_type || DEFAULT_REQUIREMENT_SPEC.coordination_type,
+            ai_model: requirement?.ai_model || DEFAULT_REQUIREMENT_SPEC.ai_model,
+            effort: requirement?.effort || DEFAULT_REQUIREMENT_SPEC.effort,
+        };
+        const postResult = await call_rest_api(`${darwinUri}/requirements`, 'POST', draft, idToken)
+            .catch(() => null);
+        if (!postResult || !postResult.httpStatus || postResult.httpStatus.httpStatus !== 200 ||
+            !postResult.data || !postResult.data[0]) {
+            setRequirement(prev => ({ ...prev, category_fk: null }));
+            const err = postResult && postResult.httpStatus
+                ? postResult
+                : { httpStatus: { httpStatus: 'network error' } };
+            showError(err, 'Unable to create requirement');
+            return;
+        }
+        const newId = postResult.data[0].id;
+        // Req #3582 — seat it on the step whose "+" opened this draft. The
+        // requirement exists either way; a failed seat is reported, never
+        // rolled back by deleting what the user just created, and the Step
+        // select on the page this navigates to shows the truth.
+        if (newSeat) {
+            try {
+                await moveStepRequirement(darwinUri, idToken,
+                    { requirementId: newId, fromStepId: null, toStepId: newSeat.stepId });
+            } catch (error) {
+                showError(error, `Requirement ${newId} created, but not seated on step ${newSeat.stepId}`);
+            }
+            queryClient.invalidateQueries({
+                queryKey: pipelineStepRequirementKeys.all(profile.userName) });
+            queryClient.invalidateQueries({ queryKey: ['orchestration_index'] });
+            if (hasPipelineOrigin) {
+                queryClient.invalidateQueries({
+                    queryKey: pipelineComposeKeys.byId(fromPipelineId) });
+            }
+        }
+        queryClient.invalidateQueries({ queryKey: requirementKeys.all(profile.userName) });
+        if (wasCategoryUnset) setFocusDescriptionPending(true);  // req #2818
+        // Keep the plan provenance — including the step — so Back still
+        // returns to the step the "+" was clicked on (req #3119/#3252); the
+        // draft-only keys drop.
+        navigate(`/swarm/requirement/${newId}`, {
+            replace: true,
+            state: hasPipelineOrigin
+                ? { from: 'pipeline', pipelineId: fromPipelineId, mode: fromPipelineMode,
+                    ...(location.state?.[BACK_STEP_STATE_KEY] != null
+                        && { [BACK_STEP_STATE_KEY]: location.state[BACK_STEP_STATE_KEY] }) }
+                : undefined,
+        });
+    };
+
     const handleCategoryChange = async (event) => {
         const newCategoryFk = parseInt(event.target.value, 10);
         if (!Number.isFinite(newCategoryFk)) return;  // ignore the placeholder value
+        // Req #3582 — one create per draft: a second pick while the first is in
+        // flight would POST (and seat) a duplicate.
+        if (isNew && creatingRef.current) return;
         // Req #2818: only the forced-pick (category-was-unset) case jumps focus to
         // description afterward. Changing the category on an already-categorized
         // requirement leaves focus where it is.
@@ -773,32 +863,12 @@ const RequirementDetail = () => {
         // New-mode (req #2414): picking a category is the first save. POST creates
         // the requirement, then we navigate to the canonical detail URL.
         if (isNew) {
-            // Send all four launch fields explicitly — the draft's values,
-            // which start as the SRIOH default (req #3573).
-            const draft = {
-                title: requirement?.title || '',
-                description: requirement?.description || '',
-                requirement_status: requirement?.requirement_status || DEFAULT_REQUIREMENT_SPEC.requirement_status,
-                category_fk: newCategoryFk,
-                project_fk: null,
-                coordination_type: requirement?.coordination_type || DEFAULT_REQUIREMENT_SPEC.coordination_type,
-                ai_model: requirement?.ai_model || DEFAULT_REQUIREMENT_SPEC.ai_model,
-                effort: requirement?.effort || DEFAULT_REQUIREMENT_SPEC.effort,
-            };
-            const postResult = await call_rest_api(`${darwinUri}/requirements`, 'POST', draft, idToken)
-                .catch(() => null);
-            if (!postResult || !postResult.httpStatus || postResult.httpStatus.httpStatus !== 200 ||
-                !postResult.data || !postResult.data[0]) {
-                setRequirement(prev => ({ ...prev, category_fk: null }));
-                const err = postResult && postResult.httpStatus
-                    ? postResult
-                    : { httpStatus: { httpStatus: 'network error' } };
-                showError(err, 'Unable to create requirement');
-                return;
+            creatingRef.current = true;
+            try {
+                await createFromDraft(newCategoryFk, wasCategoryUnset);
+            } finally {
+                creatingRef.current = false;
             }
-            queryClient.invalidateQueries({ queryKey: requirementKeys.all(profile.userName) });
-            if (wasCategoryUnset) setFocusDescriptionPending(true);  // req #2818
-            navigate(`/swarm/requirement/${postResult.data[0].id}`, { replace: true });
             return;
         }
 
@@ -1057,6 +1127,17 @@ const RequirementDetail = () => {
                     </Tooltip>
                 </Stack>
             </Box>
+            {/* Req #3582 — where this draft will be filed, on its own line
+                under the Category row (inside it, a full-width caption would
+                wrap the row's right-aligned icon group). */}
+            {newSeat && (
+                <Typography variant="body2" color="text.secondary"
+                            sx={{ mt: -1.5, mb: 2, ...NARROW }}
+                            data-testid="requirement-new-seat-step">
+                    Files into step {newSeat.stepId}
+                    {newSeat.stepName ? ` · ${newSeat.stepName}` : ''}
+                </Typography>
+            )}
 
             {/* New-mode (req #2424): keep this row in the layout but invisible so
                 Description below doesn't shift when the requirement is saved

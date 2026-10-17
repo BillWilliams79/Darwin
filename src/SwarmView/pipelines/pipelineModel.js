@@ -182,3 +182,16 @@ export function sumReqCost(reqIds, index) {
     }
     return { wallSecs, tokens };
 }
+
+// req #3582 — the plan step "+" (file a new requirement into this step).
+/**
+ * May a "+" file new work into this step? Not into one with a stamped
+ * `completed_at`: design rule 1 makes a stamp valid only with zero GATING
+ * requirements, and every other seat writer refuses it the same way
+ * (`pipelineReqDrag.js::canDropOn`, the requirement page's step picker,
+ * darwin-mcp's `link_step_requirement`). The editor re-checks LIVE before it
+ * writes anything — this is the render-time half.
+ */
+export function canFileIntoStep(row) {
+    return !!row && row.completedAt == null;
+}
