@@ -8269,7 +8269,25 @@ describe('palette themes (req #3365)', () => {
         // `PLAN_VIZ_PALETTE.runningRing` collides with aurora's own
         // `deferred` under the ΔE 20 floor). Pinned so a future patch that
         // adds the tracking does so having read this test, not by accident.
-        expect(aurora.status.development).toBe('#5eead4');
+        // Yellow-green since req #3588 — see the next test.
+        expect(aurora.status.development).toBe('#cfe635');
+    });
+
+    it('makes swarm_ready and development OBVIOUSLY different on the live theme (req #3588)', () => {
+        // The old teal development cleared the floor of 20 (ΔE 27.7) and the
+        // user still read it as "light blue" beside swarm_ready's blue. The
+        // floor is what stops two swatches being identical; it is not what
+        // makes queued vs in-progress obvious, so this pair gets its own,
+        // much higher bar.
+        const aurora = planPalette(DEFAULT_PLAN_PALETTE);
+        expect(deltaE(aurora.status.swarm_ready, aurora.status.development))
+            .toBeGreaterThanOrEqual(60);
+        // "On the way to green" (the user's words): nearer `met` than
+        // `swarm_ready`, yet still a separate colour from it.
+        const toMet = deltaE(aurora.status.development, aurora.status.met);
+        expect(toMet).toBeLessThan(
+            deltaE(aurora.status.development, aurora.status.swarm_ready));
+        expect(toMet).toBeGreaterThanOrEqual(20);
     });
 
     it('resolves an unknown, stale or hostile key to the default', () => {
@@ -8348,11 +8366,12 @@ describe('palette themes (req #3365)', () => {
         // single-hue ramp does not fit on a dark panel. Measured with THIS
         // file's own `hueSat` (HSL), the same metric the epic-palette guard
         // below uses, so the two cannot disagree about what saturation means:
-        // Signal 0.851, Slate 0.350, Aurora 0.828. Signal moved from 0.836
+        // Signal 0.851, Slate 0.350, Aurora 0.821. Signal moved from 0.836
         // (was 0.84 here) when req #3503 pushed `discuss`/`planned`/
         // `authoring`/`approved`/`met` toward more saturated stops — Slate
         // and Aurora are their own fixed swatches, not derived from
-        // `AUTONOMY_COLORS`/`REQ_STATUS_COLORS`, so neither moved.
+        // `AUTONOMY_COLORS`/`REQ_STATUS_COLORS`. Aurora moved to 0.821 when
+        // req #3588 made `development` yellow-green.
         const meanSat = (p) => {
             const all = [...p.epic, ...Object.values(p.status),
                 ...Object.values(p.autonomy)];
