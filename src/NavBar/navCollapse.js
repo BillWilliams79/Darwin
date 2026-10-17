@@ -119,3 +119,20 @@ export function defaultCollapsedGroups(groups, links, focusRoutes) {
         groups.filter(g => g.label && !open.has(g.id)).map(g => [g.id, true])
     );
 }
+
+// ── Icon-only sidebar (req #3590) ──
+
+// The links the icon-only sidebar shows, in display order: exactly the links
+// the full-width sidebar shows, flattened. A collapsed LABELLED group
+// contributes nothing (an unlabelled group has no header, so it is never
+// collapsed), and an L2 item's L3 children follow it only while that item is
+// expanded. Icon mode reflects the user's group/item choices rather than
+// flattening every route into view.
+export function iconModeLinks(groups, links, collapsedGroups, expandedItems) {
+    return groups.flatMap(g => (g.label && collapsedGroups[g.id])
+        ? []
+        : links
+            .filter(l => l.group === g.id)
+            .flatMap(l => [l, ...(expandedItems[l.path] ? (l.children ?? []) : [])])
+    );
+}
