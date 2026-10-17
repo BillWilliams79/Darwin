@@ -10,7 +10,7 @@ import {
 import {
     loadCollapsedGroups, persistCollapsedGroups, toggleGroupCollapsed,
     loadExpandedItems, persistExpandedItems, toggleItemExpanded,
-    devCollapsedGroupsKey, defaultCollapsedGroups,
+    devCollapsedGroupsKey, defaultCollapsedGroups, iconModeLinks,
 } from './navCollapse';
 import ProfileDialog from './ProfileDialog';
 import { prodRequirementUrl } from '../utils/prodUrl';
@@ -265,22 +265,11 @@ const NavBarSidebar = () => {
     };
 
     // Render one L2 item, plus its L3 children when it has any (req #3209).
-    //
-    // Icon-only mode has no room for a label, let alone a toggle, so children
-    // render flat right after the parent — the same way group headers vanish
-    // and their links flatten when the sidebar collapses. Every route stays
-    // one click away in both modes.
+    // Full-width sidebar only — icon-only mode renders the flat iconModeLinks
+    // list instead (req #3590).
     const renderNavTreeItem = (link, showText) => {
         const children = link.children ?? [];
         if (!children.length) return renderNavItem(link, showText);
-        if (!showText) {
-            return (
-                <React.Fragment key={link.path}>
-                    {renderNavItem(link, showText)}
-                    {children.map(child => renderNavItem(child, showText))}
-                </React.Fragment>
-            );
-        }
 
         const expanded = !!expandedItems[link.path];
         const toggleLabel = `${expanded ? 'Collapse' : 'Expand'} ${link.label}`;
@@ -420,14 +409,20 @@ const NavBarSidebar = () => {
                                 {renderHeaderCollapse(showText)}
                             </Box>
 
-                            {/* Primary nav links */}
+                            {/* Primary nav links. Icon-only mode has no room for
+                                headers or +/- toggles, so it shows the same links
+                                the full-width sidebar does — collapsed groups and
+                                unexpanded L3s stay hidden — as a flat icon strip
+                                (req #3590). */}
                             <List sx={{ pt: 0, pb: 0 }}>
-                                {visibleGroups.map((group) => {
+                                {!showText && iconModeLinks(visibleGroups, visibleLinks, collapsedGroups, expandedItems)
+                                    .map((link) => renderNavItem(link, showText))}
+                                {showText && visibleGroups.map((group) => {
                                     const groupLinks = visibleLinks.filter(l => l.group === group.id);
-                                    // A group is collapsible only when its header is visible
-                                    // (expanded sidebar + non-empty label). The calendar group
-                                    // has no label, so its single link always shows.
-                                    const hasHeader = showText && !!group.label;
+                                    // A group is collapsible only when it has a header
+                                    // (non-empty label). The calendar group has no label,
+                                    // so its single link always shows.
+                                    const hasHeader = !!group.label;
                                     const isCollapsed = hasHeader && !!collapsedGroups[group.id];
                                     return (
                                         <React.Fragment key={group.id}>
