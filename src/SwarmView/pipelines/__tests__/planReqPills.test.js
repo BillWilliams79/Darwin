@@ -1,5 +1,5 @@
 // planReqPills.test.js — req #3587: a requirement row on the plan visualizer
-// reads `3572  Terminal 2  3002 - Title`, the middle two tokens drawn as pills.
+// reads `3572   Terminal 2  3002 - Title`, the middle two tokens drawn as pills.
 //
 // Two halves: the JOIN (`buildReqPills` — which session, which terminal, which
 // port) and the LAYOUT (`reqPillPrefix` / `computePlanLayout` — the tokens are
@@ -10,7 +10,7 @@ import { describe, it, expect } from 'vitest';
 import { buildReqPills, NOT_LIVE_SESSION_STATUSES } from '../planReqPills';
 import { TERMINAL_STATE } from '../../terminalFocus';
 import {
-    computePlanLayout, reqLabelText, reqPillPrefix, REQ_PILL_SEP, CHW_REQ,
+    computePlanLayout, reqLabelText, reqPillPrefix, REQ_PILL_SEP, CHW_REQ, CARD_SEP_CHARS,
 } from '../pipelinePlanLayout';
 
 const MAC = { id: 1, title: 'Mac Mini', platform: 'darwin', hostname: 'mini', closed: 0 };
@@ -133,11 +133,11 @@ describe('reqPillPrefix / reqLabelText — the tokens are text', () => {
         [3574, { terminal: { label: 'Terminal 11' }, devServer: null }],
     ]);
 
-    it('reads `id  Terminal N  PORT - Title`, with ranges on the tokens', () => {
+    it('reads `id   Terminal N  PORT - Title`, with ranges on the tokens', () => {
         const titles = new Map([[3572, 'Title']]);
         const text = reqLabelText(3572, {
             reqLabel: 'title', reqTitles: titles, reqPills: pills, maxChars: 84 });
-        expect(text.replace(/ /g, ' ')).toBe('3572  Terminal 2  3002 - Title');
+        expect(text.replace(/ /g, ' ')).toBe('3572   Terminal 2  3002 - Title');
         const { text: prefix, pills: ranges } = reqPillPrefix(3572, pills);
         expect(ranges.map((r) => prefix.slice(r.start, r.start + r.len)))
             .toEqual(['Terminal 2', '3002']);
@@ -146,12 +146,24 @@ describe('reqPillPrefix / reqLabelText — the tokens are text', () => {
     });
 
     it('either pill alone, and none at all', () => {
-        expect(reqPillPrefix(3573, pills).text).toBe('3573  3004');
-        expect(reqPillPrefix(3574, pills).text).toBe('3574  Terminal 11');
+        expect(reqPillPrefix(3573, pills).text).toBe('3573   3004');
+        expect(reqPillPrefix(3574, pills).text).toBe('3574   Terminal 11');
         expect(reqPillPrefix(1, pills)).toEqual({ text: '1', pills: [] });
         expect(reqPillPrefix(1, null)).toEqual({ text: '1', pills: [] });
         // id mode carries the pills too.
-        expect(reqLabelText(3573, { reqLabel: 'id', reqPills: pills })).toBe('3573  3004');
+        expect(reqLabelText(3573, { reqLabel: 'id', reqPills: pills })).toBe('3573   3004');
+    });
+
+    // req #3601 — the id owns a column (`id - `, the hanging indent's width)
+    // and the first pill starts ON its far edge, where every title starts,
+    // never inside it.
+    it('the first pill starts on the title column, never inside the id column', () => {
+        for (const id of [3572, 3573, 3574]) {
+            const { pills: ranges } = reqPillPrefix(id, pills);
+            expect(ranges[0].start).toBe(String(id).length + CARD_SEP_CHARS);
+        }
+        expect(reqPillPrefix(7, new Map([[7, { terminal: { label: 'Terminal 1' } }]]))
+            .pills[0].start).toBe(1 + CARD_SEP_CHARS);
     });
 });
 
@@ -175,7 +187,7 @@ describe('computePlanLayout — pills on the requirement rows', () => {
         const reqs = l.labels.filter((x) => x.kind === 'req');
         const a = reqs.find((x) => x.reqId === 3572);
         expect(a.lines[0].startsWith(a.idText)).toBe(true);
-        expect(a.idText.replace(/ /g, ' ')).toBe('3572  Terminal 2  3002');
+        expect(a.idText.replace(/ /g, ' ')).toBe('3572   Terminal 2  3002');
         expect(a.pills.map((p) => a.lines[0].slice(p.start, p.start + p.len)))
             .toEqual(['Terminal 2', '3002']);
         // The id text never leaves the box the overlap sweep measured.
@@ -193,8 +205,8 @@ describe('computePlanLayout — pills on the requirement rows', () => {
         }
 
         const b = reqs.find((x) => x.reqId === 3573);
-        expect(b.text).toBe('3573  3004 - Short');
-        expect(b.pills).toEqual([{ kind: 'devserver', start: 6, len: 4 }]);
+        expect(b.text).toBe('3573   3004 - Short');
+        expect(b.pills).toEqual([{ kind: 'devserver', start: 7, len: 4 }]);
 
         const c = reqs.find((x) => x.reqId === 9);
         expect(c.idText).toBe('9');
