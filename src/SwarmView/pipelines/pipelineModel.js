@@ -72,6 +72,20 @@
 //                                       #3195's other half — work seated onto a
 //                                       step after it started used to be
 //                                       unreachable by any auto-launch
+// @property {boolean} gateOpen          req #3597 — the gate REPORTED: every
+//                                       dependency done and the step's own time
+//                                       gate passed. A report and a launch
+//                                       PRIORITY, no longer a launch precondition
+// @property {boolean} launchCandidate   req #3597 — may this step's work be
+//                                       ANNOUNCED for launch: not done, carries
+//                                       launch-ready ids, time gate passed —
+//                                       whatever its dependencies say. The
+//                                       engine fills free slots from these,
+//                                       gate-open first, then down the chain
+// @property {number[]} checkpointBlockedBy  req #3597 amendment — open
+//                                       CHECKPOINT steps (no work requirement,
+//                                       closed by hand) upstream that hold this
+//                                       step; a checkpoint stays a real gate
 // @property {?string} swarmStartCommand '/swarm-start <ids>', null when nothing on
 //                                       this row is launchable
 // @property {?string} noLaunchReason    the human sentence for launchBlock

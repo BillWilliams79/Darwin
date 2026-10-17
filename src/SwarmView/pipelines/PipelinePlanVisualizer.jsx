@@ -58,15 +58,18 @@
 // Requirement-centric: every mark derives from plan rows + hierarchy (design
 // rule 9 — no session data). Generated labels carry NO '#'. Click targets
 // (production directives): requirement id → /swarm/requirement/:id; bead →
-// Table mode scrolled/highlighted to the row (onStepFocus); epic band label →
-// FOCUS the band (req #3204), with /swarm/steps?epic=<id> — the req #3119
+// Table mode scrolled/highlighted to the row (onStepFocus); epic status light
+// and closure count → FOCUS the band (req #3204; moved off the name by req
+// #3580, which made the epic name, the step name and the step's run circle
+// in-place editors), with /swarm/steps?epic=<id> — the req #3119
 // directive, re-pointed by req #3373 when the browsable-catalog route it used
 // to open was retired (req #3357) — moved onto the chip's own ↗ control so it
 // stays a visible affordance rather than being deleted or buried under a
 // modifier key.
 //
 // ── Epic focus (req #3204) ─────────────────────────────────────────────────
-// Clicking an epic's name fits that band to the viewport. THIS IS NOT A MODE:
+// Clicking an epic's status light or closure count (its name until req #3580)
+// fits that band to the viewport. THIS IS NOT A MODE:
 // no focused-epic state exists anywhere in this file, there is nothing to
 // un-zoom, and after the click every gesture behaves exactly as in a session
 // where the feature was never used. That property is not a promise, it is a
@@ -80,8 +83,8 @@ import {
     useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState,
 } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQueryClient } from '@tanstack/react-query';
-import { Stage, Layer, Group, Rect, Circle, Line, Text, Path } from 'react-konva';
+import { useIsFetching, useQueryClient } from '@tanstack/react-query';
+import { Stage, Layer, Group, Rect, Circle, Line, Text, Path, Shape } from 'react-konva';
 import Konva from 'konva';
 import { select } from 'd3-selection';
 import { zoom as d3zoom, zoomIdentity } from 'd3-zoom';
@@ -93,6 +96,13 @@ import 'd3-transition';
 
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import Dialog from '@mui/material/Dialog';
+import DialogActions from '@mui/material/DialogActions';
+import DialogContent from '@mui/material/DialogContent';
+import DialogTitle from '@mui/material/DialogTitle';
+import MenuItem from '@mui/material/MenuItem';
+import TextField from '@mui/material/TextField';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
@@ -138,7 +148,9 @@ import {
     // measured; it never measures one of its own.
     CARD_RADIUS, CARD_PAD_X, CARD_PAD_Y, CARD_LINE_H, CARD_RULE_GAP,
     CARD_STATE_BAR_W, CARD_CHECK_W, CARD_BADGE_FONT,
-    MIN_CARD_H, REQ_LINE_H,
+    MIN_CARD_H, REQ_LINE_H, CHW_REQ,
+    // req #3580 — the run pill's word and type.
+    CARD_RUN_FONT, CARD_RUN_WORDS,
     buildReqColorViews, REQ_COLOR_KEYS, reqIdStyle, reqIdKeyEntries, normalizeColorKey,
     DEFAULT_PLAN_PALETTE, isPlanPalette, planPalette,
     DEFAULT_COLOR_KEY, PLAN_KEY_MAX_H, pinnedLevelOf, DEFAULT_PLAN_LEVEL_PREF,
@@ -157,22 +169,95 @@ import {
 // the rest of `/swarm`'s query string, so this file names no query key itself.
 import { swarmEpicLinkTo, swarmStepLinkTo } from '../swarmViewLink';
 import { useSavedViewport } from '../../hooks/useSavedViewport';
-import { viewportStorageKey, writeViewport } from '../../utils/viewportMemory';
-// req #3583 — the swarm-ready, not-orchestrated box and its drop-to-seat.
+// req #3581 — dragging a requirement between steps writes its seat.
 import AppContext from '../../Context/AppContext';
 import AuthContext from '../../Context/AuthContext';
-import call_rest_api from '../../RestApi/RestApi';
 import { pipelineComposeKeys } from '../../hooks/useQueryKeys';
-import { pipelineStepRequirementKeys } from '../../hooks/useDataQueries';
+import {
+    pipelineStepRequirementKeys, pipelineStepKeys, pipelineStepDepKeys, epicKeys,
+} from '../../hooks/useDataQueries';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
+import {
+    moveStepRequirement, insertStepOnEdge, branchStepFrom,
+    isRestNullLiteral, REST_NULL, updateStep,
+} from '../../Steps/stepsApi';
+// req #3586 — the "+" marks that add a step on an edge or as a branch.
+import {
+    insertMarkRadius, buildInsertMarks, insertMarkAt, insertRequest, NEW_STEP_TITLE,
+} from './pipelineStepInsert';
+import {
+    REQ_DRAG_SLOP, passedDragSlop, dropTargetAt, canDropOn, applyReqMoves,
+    edgePanVelocity,
+} from './pipelineReqDrag';
+import { viewportStorageKey, writeViewport } from '../../utils/viewportMemory';
+// req #3583 — the swarm-ready, not-orchestrated box and its drop-to-seat. The
+// contexts, snackbar, query keys and `moveStepRequirement` are req #3581's,
+// imported above.
 import UnorchestratedReqBox from './UnorchestratedReqBox';
 import { useUnorchestratedRequirements } from './useUnorchestratedRequirements';
 import {
     UNSEATED_REQ_MIME, resolveSeatDrop, screenRectOf, unseatedBoxFontPx,
 } from './pipelineUnseated';
 import '../../CalendarFC/swarmVisualizer.css';
+// req #3580 — in-place edit. The SAME mutation helpers the Epics and Steps
+// editors use (one gateway path per table); contexts, snackbar and query keys
+// are the ones req #3581 already imports above.
+import { updateEpic } from '../../Epics/epicsApi';
+import PlanInPlaceInput, { titleProblem } from './PlanInPlaceInput';
+import { createPressTracker } from './planPressGesture';
 
 const MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
+
+// req #3587 — the requirement row's Terminal and Dev Server pills.
+//
+// A PILL IS ITS OWN ELEMENT: a rounded box with its label drawn CENTRED inside
+// it (`align`/`verticalAlign`), never an outline behind the row's own glyphs.
+// The first version traced the row's characters, so its centring hung on two
+// independent width measurements agreeing to the sub-pixel, and the token took
+// the row's bold status colour — measured off-centre and heavy (user review,
+// 2026-10-17). Now the row text carries BLANKS where a token sat (the layout
+// still reserves exactly those characters, so wrap and card height are
+// untouched) and the pill owns its label, centred by construction.
+//
+// Each kind has its own quiet palette, independent of the row's colour key: a
+// dark tinted fill, a softened edge and a light label. The terminal is the
+// requirement-id blue (`P.req`, an MUI primary chip's role); the dev server the
+// Swarm visualizer's dark-mode dev-server green, so a port reads the same on
+// both canvases.
+const REQ_PILL_STYLE = {
+    terminal: { fill: '#7fb4ff26', stroke: '#7fb4ff8c', text: '#d3e5ff' },
+    devserver: { fill: '#81c78426', stroke: '#81c7848c', text: '#d5f1d7' },
+};
+const REQ_PILL_STROKE = 1.25;
+const REQ_PILL_H_EM = 1.3;                  // pill height, in req font sizes
+const REQ_PILL_FONT_EM = 0.78;              // label size, in req font sizes
+const REQ_PILL_FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif';
+// Inside the two-space gap `REQ_PILL_SEP` leaves, so neighbours keep clear air.
+const REQ_PILL_PAD_X = CHW_REQ * 0.3;
+// The pill's BOX is placed over the characters it replaced, MEASURED in the
+// font the row is actually drawn in, so the air between the id, the pills and
+// the title's dash stays even. `CHW_REQ` is a deliberate OVER-estimate of the
+// mono advance (it sizes boxes, where erring wide is safe), so as a
+// per-character OFFSET its error accumulates — and a browser without SF
+// Mono/Menlo falls back to a narrower monospace (Consolas, ~0.55em). The layout
+// still owns WHICH characters a pill covers; this only asks the canvas how wide
+// they really are. One shared 2D context; null where there
+// is no canvas (jsdom), and the caller falls back to the layout's advance.
+let pillMeasureCtx;
+const measureReqText = (str, fontSize, bold) => {
+    try {
+        if (pillMeasureCtx === undefined) {
+            pillMeasureCtx = Konva.Util.createCanvasElement().getContext('2d') || null;
+        }
+        if (!pillMeasureCtx) return null;
+        // Konva's own font string for a Text node: style, variant, size, family.
+        pillMeasureCtx.font = `${bold ? 'bold' : 'normal'} normal ${fontSize}px ${MONO}`;
+        const w = pillMeasureCtx.measureText(str).width;
+        return Number.isFinite(w) && w > 0 ? w : null;
+    } catch (e) {
+        return null;
+    }
+};
 
 // The requirement-mark colour scales, in the order they are reserved — the
 // REGISTRY's order plus `none`, never a copy of it (req #3422), so a scale added
@@ -204,6 +289,21 @@ const rgba = (hex, a) => {
     /* eslint-disable no-bitwise */
     return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
     /* eslint-enable no-bitwise */
+};
+
+// The run pill's STATIC chrome (req #3580) — hoisted so the ~100 pills on a
+// live plan hand Emotion one unchanging object per pan/zoom frame rather than
+// a fresh one each; everything that changes per frame or per state rides
+// `style`.
+const RUN_PILL_SX = {
+    position: 'absolute', p: 0, m: 0, border: 'none',
+    pointerEvents: 'auto', cursor: 'pointer',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    borderRadius: '999px',
+    color: P.panel, fontFamily: MONO, fontWeight: 700, lineHeight: 1,
+    transition: 'opacity 120ms, box-shadow 120ms',
+    '&[aria-busy="true"]': { cursor: 'progress' },
+    '&:hover, &:focus-visible': { outline: 'none', boxShadow: `0 0 0 2px ${P.text}` },
 };
 
 // Duration of the epic-focus camera move (req #3204). Long enough to read as a
@@ -360,8 +460,40 @@ export default function PipelinePlanVisualizer({
     // it, so it rides in `computePlanLayout`'s own options rather than being
     // applied as a post-hoc transform the way every other control here is.
     stepWidthLevel = DEFAULT_STEP_WIDTH_LEVEL,
+    // req #3587 — requirement id -> {terminal, devServer} (`planReqPills.js`),
+    // built by the page from reads it owns. Drawn as pills between a row's id
+    // and its title; null draws every row exactly as before.
+    reqPills = null,
 }) {
     const navigate = useNavigate();
+    const queryClient = useQueryClient();
+    const { darwinUri } = useContext(AppContext);
+    const { idToken, profile } = useContext(AuthContext);
+    const showError = useSnackBarStore((st) => st.showError);
+
+    // ── Requirement drag-and-drop: the moves in flight (req #3581) ──────────
+    // A dropped requirement is drawn on its NEW step from the instant of the
+    // drop, and stays there through the write and the refetch — see
+    // `applyReqMoves` for why that is one redraw rather than two. Each entry
+    // leaves this list once the refetch it triggered has landed (or the write
+    // failed, in which case the refetched server rows ARE the revert).
+    const [pendingMoves, setPendingMoves] = useState([]);
+
+    // ── Add a step from the canvas (req #3586) ──────────────────────────────
+    // `insertReq` is the open dialog's request (`insertRequest`), null when
+    // closed. The marks themselves are ONE non-listening Konva shape whose
+    // geometry is memoized per layout (see `insertGeom` below), and clicks and
+    // hover resolve against that geometry in the native listeners — so the
+    // marks add no hit-graph nodes and no React state on pointer movement.
+    // `insertHoverRef` is the key of the "+" under the pointer.
+    const [insertReq, setInsertReq] = useState(null);
+    const [insertTitle, setInsertTitle] = useState(NEW_STEP_TITLE);
+    const [insertEpic, setInsertEpic] = useState('');
+    const [inserting, setInserting] = useState(false);
+    const insertHoverRef = useRef(null);
+    const insertGeomRef = useRef(null);
+    const insertHitRef = useRef(null);
+    const openInsertRef = useRef(null);
 
     // Requirement name + status for the hover tooltip (req #3119). The canvas
     // keeps drawing bare IDS — a plan title is many times the width of the
@@ -376,30 +508,119 @@ export default function PipelinePlanVisualizer({
             .map((r) => [r.id, {
                 title: r.title, status: r.requirement_status,
                 coordination: r.coordination_type, model: r.ai_model, effort: r.effort,
-                machineFk: r.machine_fk,
+                machineFk: r.machine_fk, session: r.session_status,
             }])),
         [model]);
     // req #3363, generalized req #3503 — the requirement marks stacked under a
     // step sort by whichever colour key is ACTIVE (`sortReqIdsByColorKey`'s own
-    // ladder: State Authoring→Met, Autonomy Discuss→Deployed, Machine its own
-    // order), not by a fixed met-first ladder any more. Only the ORDER of each
+    // ladder: State Authoring→Met, Session no session→completed, Autonomy
+    // Discuss→Deployed, Machine its own order), not by a fixed met-first
+    // ladder any more. Only the ORDER of each
     // row's `reqIds` changes here; the ROW ARRAY keeps the engine's own order
     // (bead z-stacking, column/lane placement all key off it), and every other
     // field on a row — `launchReqIds`, `trackingReqIds`, `swarmStartCommand` —
     // is the engine's answer, computed before this runs and left untouched, so
     // re-ordering the display never touches what `/swarm-start` launches.
     const rows = useMemo(() => {
-        const base = plan.rows || [];
+        const base = applyReqMoves(plan.rows || [], pendingMoves);
         if (!base.length) return base;
         const statusOf = (id) => reqInfo.get(id)?.status;
+        const sessionOf = (id) => reqInfo.get(id)?.session;
         const autonomyOf = (id) => reqInfo.get(id)?.coordination;
         const machineOf = (id) => reqInfo.get(id)?.machineFk;
         return base.map((r) => ((r.reqIds || []).length > 1
             ? { ...r, reqIds: sortReqIdsByColorKey(r.reqIds,
-                { colorKey, statusOf, autonomyOf, machineOf }) }
+                { colorKey, statusOf, sessionOf, autonomyOf, machineOf }) }
             : r));
-    }, [plan.rows, reqInfo, colorKey]);
+    }, [plan.rows, pendingMoves, reqInfo, colorKey]);
     const rowById = useMemo(() => new Map(rows.map((r) => [r.id, r])), [rows]);
+
+    // The epics the add-step dialog offers: the payload's own `epics[]` (an
+    // epic with no steps yet included), in the plan's epic order. Falls back to
+    // the epics the rows name when a caller hands in a model without them.
+    const insertEpicOptions = useMemo(() => {
+        const fromModel = (model?.epics || []).map((e) => ({
+            id: e.id, title: e.title, sortOrder: e.sort_order,
+        }));
+        const list = fromModel.length ? fromModel : [...new Map(rows
+            .filter((r) => r.epicId != null)
+            .map((r) => [r.epicId, { id: r.epicId, title: r.epic, sortOrder: r.epicSortOrder }]))
+            .values()];
+        return list.sort((a, b) => (a.sortOrder ?? Infinity) - (b.sortOrder ?? Infinity)
+            || a.id - b.id);
+    }, [model, rows]);
+
+    // When the dialog opened — a double-click on a "+" lands its second click
+    // on the dialog's backdrop, which would close it again at once.
+    const insertOpenedAtRef = useRef(0);
+    const openInsert = useCallback((kind, ids) => {
+        const req = insertRequest(kind, ids, rowById);
+        setInsertTitle(NEW_STEP_TITLE);
+        setInsertEpic(req.epicId ?? '');
+        insertOpenedAtRef.current = Date.now();
+        setInsertReq(req);
+    }, [rowById]);
+    const closeInsert = useCallback((event, reason) => {
+        if (reason === 'backdropClick' && Date.now() - insertOpenedAtRef.current < 600) return;
+        if (!inserting) setInsertReq(null);
+    }, [inserting]);
+
+    const commitInsert = useCallback(async () => {
+        const req = insertReq;
+        if (!req || inserting) return;
+        const title = insertTitle.trim();
+        if (!title) {
+            showError('Title is required');
+            return;
+        }
+        if (isRestNullLiteral(title)) {
+            showError(`"${REST_NULL}" is the API's clear-this-column sentinel and cannot `
+                + 'be a title. Try "Null" or another wording.');
+            return;
+        }
+        if (insertEpic === '' || insertEpic == null) {
+            showError('Epic is required');
+            return;
+        }
+        setInserting(true);
+        try {
+            if (req.kind === 'edge') {
+                await insertStepOnEdge(darwinUri, idToken, {
+                    fromStepId: req.fromId, toStepId: req.toId,
+                    epic_fk: insertEpic, title,
+                });
+            } else {
+                await branchStepFrom(darwinUri, idToken, {
+                    fromStepId: req.fromId, epic_fk: insertEpic, title,
+                });
+            }
+            setInsertReq(null);
+        } catch (error) {
+            if (error?.orphanStep) {
+                // The step exists with no edges; a retry would make a second.
+                setInsertReq(null);
+                showError(error, 'Step created without its dependencies');
+            } else if (error?.redundantEdge) {
+                // The new step is in and wired; only the old direct edge is
+                // left, which gates exactly as the chain does.
+                setInsertReq(null);
+                showError(error, `Step inserted, but step ${req.toId} still also `
+                    + `waits on step ${req.fromId} directly`);
+            } else {
+                showError(error, req.kind === 'edge'
+                    ? 'Could not insert the step' : 'Could not add the step');
+            }
+        } finally {
+            setInserting(false);
+            if (pipeline?.id != null) {
+                queryClient.invalidateQueries({ queryKey: pipelineComposeKeys.byId(pipeline.id) });
+            }
+            queryClient.invalidateQueries({ queryKey: pipelineStepKeys.all(profile?.userName) });
+            queryClient.invalidateQueries({ queryKey: pipelineStepDepKeys.all(profile?.userName) });
+            queryClient.invalidateQueries({ queryKey: ['orchestration_index'] });
+        }
+    }, [insertReq, inserting, insertTitle, insertEpic, darwinUri, idToken,
+        pipeline?.id, profile?.userName, queryClient, showError]);
     const eligibleStepIds = plan.eligibleStepIds || new Set();
     // The requirement TITLE lookup, when that mark is showing (req #3168). Built
     // from `reqInfo`, which the hover card already needed — so the option costs
@@ -428,7 +649,7 @@ export default function PipelinePlanVisualizer({
     const activePalette = isPlanPalette(palette) ? palette : DEFAULT_PLAN_PALETTE;
     const layout = useMemo(
         () => computePlanLayout(rows, {
-            stepLabel, reqLabel, reqTitles,
+            stepLabel, reqLabel, reqTitles, reqPills,
             palette: activePalette,
             timeAxis: plan.timeAxis || null, epicCounts,
             // req #3226 — `plan.pause` comes from the composed derivation (same
@@ -438,7 +659,7 @@ export default function PipelinePlanVisualizer({
             stepWidthLevel,
         }),
         [rows, plan.timeAxis, stepLabel,
-            reqLabel, reqTitles, epicCounts, plan.pause, activePalette, stepWidthLevel]);
+            reqLabel, reqTitles, reqPills, epicCounts, plan.pause, activePalette, stepWidthLevel]);
 
     // ── The REQUIREMENT-ID channel (req #3119; #3168 neutral; #3422 registry) ─
     // Whatever the key, it rides the requirement ids and never the bead: the
@@ -479,10 +700,10 @@ export default function PipelinePlanVisualizer({
         REQ_KEY_SCALES.map((scale) => [scale, reqIdKeyEntries({
             colorKey: scale, views: reqColorViews,
         }).entries])), [reqColorViews]);
-    // Collapsed by default (req #3309 — the key covered too much of the plan
-    // on first view) — see the key's own comment below for why this is
-    // component state and not a persisted preference.
-    const [keyOpen, setKeyOpen] = useState(false);
+    // Expanded by default (req #3585, reversing req #3309's collapsed
+    // default) — see the key's own comment below for why this is component
+    // state and not a persisted preference.
+    const [keyOpen, setKeyOpen] = useState(true);
 
     // The container is tracked as STATE, not a bare ref: with an empty plan the
     // component returns the empty panel and no container exists — if the first
@@ -509,6 +730,30 @@ export default function PipelinePlanVisualizer({
     const zoomRef = useRef(null);
     const downRef = useRef(null);
     const draggingRef = useRef(false);
+    // ── The REQUIREMENT drag (req #3581) — not to be confused with the pan ──
+    // `draggingRef` above is d3's camera gesture. This one moves a requirement
+    // to another step, and the two never coexist: the zoom filter refuses any
+    // press that lands on a requirement mark (`reqHitRef`), so a press there
+    // belongs to the requirement — a click navigates, a drag moves it.
+    //
+    // `reqDragRef` is the gesture's live state (`{phase: 'press' | 'drag', …}`),
+    // read by native listeners at pointer rate, so a ref. `reqDrag` is the slice
+    // the RENDER needs — which mark to grey, the preview image — and is set only
+    // at drag start and drag end, so a drag in progress re-renders the canvas
+    // only when the target step under the pointer changes (`dropStepId`), never
+    // per pointermove. `reqHitRef` holds the current hit test so the zoom
+    // behaviour, built once, sees the current stage without being rebuilt.
+    const reqDragRef = useRef(null);
+    const reqHitRef = useRef(null);
+    // Re-aims the drop outline after the camera moves under a still pointer —
+    // a wheel zoom or an edge auto-pan mid-drag. Called from the zoom
+    // behaviour's own 'zoom' handler, the one place every camera move passes
+    // through (d3's wheel listener stops every other listener on the element).
+    const reqRetargetRef = useRef(null);
+    const reqClickGuardRef = useRef(false);
+    const dragPreviewRef = useRef(null);
+    const [reqDrag, setReqDrag] = useState(null);
+    const [dropStepId, setDropStepId] = useState(null);
     // True only while a focus transition is in flight (req #3204). See the
     // world-click hit-test for why. `focusSeqRef` stamps each transition so a
     // SUPERSEDED one cannot clear the flag out from under its successor: d3
@@ -526,10 +771,8 @@ export default function PipelinePlanVisualizer({
     // step card under the cursor (`{stepId, ok}`, outlined), and `pendingSeats`
     // the rows already dropped whose write or refetch has not landed — hidden
     // from the box at once so a drop never shows the row snapping back.
-    const { darwinUri } = useContext(AppContext);
-    const { idToken, profile } = useContext(AuthContext);
-    const queryClient = useQueryClient();
-    const showError = useSnackBarStore((s) => s.showError);
+    // (`darwinUri`/`idToken`/`profile`/`queryClient`/`showError` are declared
+    // once, at the top of the component, for req #3581.)
     const unseated = useUnorchestratedRequirements(profile?.userName);
     const [unseatDragId, setUnseatDragId] = useState(null);
     const [seatTarget, setSeatTarget] = useState(null);
@@ -916,8 +1159,17 @@ export default function PipelinePlanVisualizer({
             // d3 to scale continuously and then correcting it afterwards would
             // fight its own inertia and emit a smooth zoom before every snap.
             // Through a ref, so the toggle does not rebuild this behaviour.
+            //
+            // req #3581 — A PRESS ON A REQUIREMENT MARK IS NOT A PAN. It is the
+            // requirement's own gesture (click to open it, drag to re-seat it),
+            // and no handle exists to tell the two apart: the mark itself is
+            // the handle. Refused HERE for the same reason the key is — d3's
+            // listener fires first, so nothing downstream could take it back.
             .filter((ev) => (ev.type === 'wheel' ? !snapZoomRef.current
-                : (!ev.button && !ev.target?.closest?.(CHROME_SELECTOR))))
+                : (!ev.button && !ev.target?.closest?.(CHROME_SELECTOR)
+                    && !(ev.type === 'mousedown' && reqHitRef.current?.(ev))
+                    // req #3586 — a press on an add-step "+" is a click, never a pan.
+                    && !(ev.type === 'mousedown' && insertHitRef.current?.(ev)))))
             // ONE number for "how far may a click move" (req #3297). d3 uses it
             // to decide whether to suppress the click; the epic name's cycle
             // uses it to decide whether that same gesture was the reader taking
@@ -932,6 +1184,7 @@ export default function PipelinePlanVisualizer({
                 // req #3252 — one ref assignment per pointermove, no render and
                 // no write. The write happens once, on 'end' below.
                 liveTransformRef.current = { x: tr.x, y: tr.y, k: tr.k };
+                reqRetargetRef.current?.();          // req #3581, see the ref
                 if (!suppressSaveRef.current) viewport.record(liveTransformRef.current);
                 // `sourceEvent` is non-null only for a USER gesture — a drag or
                 // a wheel — and null for every programmatic transform. Once the
@@ -1398,8 +1651,14 @@ export default function PipelinePlanVisualizer({
             // canvas, and resolving a click through it would fire whichever
             // bead it happens to be lying on top of.
             if (e.target?.closest?.(CHROME_SELECTOR)) return;
+            // req #3581 — the click that ends a requirement DRAG is not a click
+            // on the requirement, even when the drop lands back within the slop
+            // of where it was picked up (a drag that wandered and came home).
+            if (reqClickGuardRef.current) return;
             const d = downRef.current;
-            if (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 4) return;
+            // `REQ_DRAG_SLOP` — the requirement drag starts at exactly the
+            // distance this stops calling a gesture a click (req #3581).
+            if (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) > REQ_DRAG_SLOP) return;
             // Only a click that landed on the CANVAS ITSELF is a world click
             // (req #3204). This listener is native and sits on the container,
             // so it also sees clicks bubbling up from the HTML overlays —
@@ -1421,6 +1680,13 @@ export default function PipelinePlanVisualizer({
             // that instant and switches to Table mode or navigates away. The
             // window is new: the chip used to leave the page immediately.
             if (focusingRef.current) return;
+            // req #3586 — an add-step "+" is resolved by geometry, not by the
+            // stage: the marks are drawn as one non-listening shape.
+            const mark = insertHitRef.current?.(e);
+            if (mark) {
+                openInsertRef.current?.(mark.kind, { fromId: mark.fromId, toId: mark.toId });
+                return;
+            }
             const stage = stageRef.current;
             if (!stage) return;
             const rect = el.getBoundingClientRect();
@@ -1429,11 +1695,403 @@ export default function PipelinePlanVisualizer({
             });
             if (node) node.fire('activate', { evt: e }, false);
         };
+        // ── STEP-TITLE PRESSES (req #3580) ─────────────────────────────────
+        // A step title is a Konva shape, so its quick-click / double-click /
+        // long-press gestures are resolved here, against the stage, the same
+        // way the click above is. The shape names itself with a `pressStepId`
+        // attr. POINTER events, which d3-zoom never stops (it owns mousedown).
+        //
+        // `canvasKey` is set only by a press that began ON A STEP TITLE: these
+        // listeners also see pointer events bubbling up from the HTML chips,
+        // whose presses the chips' own React handlers drive, and acting on
+        // those here (this native listener runs first) would cancel them.
+        let canvasKey = null;
+        const stepAt = (e) => {
+            const stage = stageRef.current;
+            if (!stage || !(e.target instanceof HTMLCanvasElement)) return null;
+            const rect = el.getBoundingClientRect();
+            const node = stage.getIntersection({
+                x: e.clientX - rect.left, y: e.clientY - rect.top,
+            });
+            return node?.getAttr('pressStepId') ?? null;
+        };
+        const onPDown = (e) => {
+            // A second finger (a pinch) ends any press the first one began —
+            // its moves would otherwise never reach the tracker, and the long
+            // press would fire mid-pinch.
+            if (canvasKey || !e.isPrimary) {
+                canvasKey = null;
+                pressRef.current.cancel();
+                return;
+            }
+            if (e.button !== 0 || focusingRef.current) return;
+            // Off the canvas is a chip — its own handlers drive the tracker.
+            if (!(e.target instanceof HTMLCanvasElement)) return;
+            const stepId = stepAt(e);
+            if (stepId == null) {
+                // Bare canvas: a click still waiting to see if it is a double
+                // is owed now, before this press can become a pan.
+                pressRef.current.flush();
+                return;
+            }
+            canvasKey = `step-${stepId}`;
+            pressRef.current.down(canvasKey, e.clientX, e.clientY,
+                stepPressRef.current(stepId));
+        };
+        const onPMove = (e) => {
+            if (canvasKey) pressRef.current.move(e.clientX, e.clientY);
+        };
+        const onPUp = (e) => {
+            if (!canvasKey) return;
+            const key = canvasKey;
+            canvasKey = null;
+            const stepId = stepAt(e);
+            if (stepId != null && `step-${stepId}` === key) pressRef.current.up(key);
+            else pressRef.current.cancel();
+        };
+        const onPCancel = () => {
+            if (!canvasKey) return;
+            canvasKey = null;
+            pressRef.current.cancel();
+        };
         el.addEventListener('mousedown', onDown);
         el.addEventListener('click', onClick);
+        el.addEventListener('pointerdown', onPDown);
+        el.addEventListener('pointermove', onPMove);
+        el.addEventListener('pointerup', onPUp);
+        el.addEventListener('pointercancel', onPCancel);
+        el.addEventListener('pointerleave', onPCancel);
+        // A touch long press on a title would also raise the browser's own
+        // callout menu.
+        const onMenu = (e) => { if (canvasKey) e.preventDefault(); };
+        el.addEventListener('contextmenu', onMenu);
         return () => {
+            el.removeEventListener('contextmenu', onMenu);
             el.removeEventListener('mousedown', onDown);
             el.removeEventListener('click', onClick);
+            el.removeEventListener('pointerdown', onPDown);
+            el.removeEventListener('pointermove', onPMove);
+            el.removeEventListener('pointerup', onPUp);
+            el.removeEventListener('pointercancel', onPCancel);
+            el.removeEventListener('pointerleave', onPCancel);
+        };
+    }, [containerEl]);
+
+    // ── DRAG A REQUIREMENT TO ANOTHER STEP (req #3581) ─────────────────────
+    // "Clean sweet and beautiful drag and drop for requirements between the
+    // steps shown on the screen" — no drag handle: the requirement mark itself
+    // is what you pick up. While it is in the air the mark it left is greyed
+    // out, a full-size copy of it (a snapshot of the very Konva node, at the
+    // current zoom and in its current colour) rides the cursor, the card it
+    // would land on is outlined, and NOTHING ELSE MOVES — the plan is laid out
+    // again exactly once, on the drop (`applyReqMoves`).
+    //
+    // A press that never passes `REQ_DRAG_SLOP` is still a click and still opens
+    // the requirement; the manual click hit-test above uses the same number.
+    // Pressing near the panel edge mid-drag auto-pans (bounded by the same
+    // clamp the zoom behaviour uses), so a step off-screen is still reachable;
+    // the wheel keeps zooming throughout. Escape, or the window losing focus,
+    // puts the requirement back.
+    //
+    // The listeners read everything that changes through `dragWorldRef`, so the
+    // effect binds once per container and never tears a gesture down mid-drag
+    // because a refetch re-rendered the page.
+    // The server's own rows, as of the last commit — what a written move is
+    // stamped with, so the settle effect below can tell a read that landed
+    // AFTER the write from the one already on screen.
+    const serverRowsRef = useRef(plan.rows);
+    const commitReqMove = useCallback(async (move) => {
+        setPendingMoves((ms) => [...ms, move]);
+        let failed = false;
+        try {
+            await moveStepRequirement(darwinUri, idToken, {
+                requirementId: move.reqId,
+                fromStepId: move.fromStepId,
+                toStepId: move.toStepId,
+            });
+        } catch (error) {
+            failed = true;
+            // THE RESIDUAL THE JUNCTION'S KEY PERMITS (see `moveStepRequirement`):
+            // the old seat was deleted and the new one refused. On this surface
+            // that would make the requirement vanish from the plan with nothing
+            // left to click, so it is put back where the DELETE just proved it
+            // was — a known prior state, not a guessed rollback.
+            let stranded = false;
+            if (error?.seatStage === 'seat' && move.fromStepId != null) {
+                try {
+                    await moveStepRequirement(darwinUri, idToken, {
+                        requirementId: move.reqId, toStepId: move.fromStepId,
+                    });
+                } catch {
+                    stranded = true;
+                }
+            }
+            showError(error, stranded
+                ? `Requirement ${move.reqId} could not be moved and is now on no step `
+                  + '— re-seat it from its requirement page'
+                : `Unable to move requirement ${move.reqId}`);
+        }
+        if (failed) {
+            // The server's rows ARE the revert, and they are already on screen
+            // under the local move — so it goes now, not when a refetch lands.
+            setPendingMoves((ms) => ms.filter((m) => m !== move));
+        } else {
+            // Written. It stays drawn until a read that LANDED AFTER the write
+            // says so — see the settle effect below for why a promise cannot
+            // be what clears it.
+            move.writtenRows = serverRowsRef.current;
+            setPendingMoves((ms) => [...ms]);
+        }
+        if (pipeline?.id != null) {
+            queryClient.invalidateQueries({ queryKey: pipelineComposeKeys.byId(pipeline.id) });
+        }
+        queryClient.invalidateQueries({
+            queryKey: pipelineStepRequirementKeys.all(profile?.userName) });
+        queryClient.invalidateQueries({ queryKey: ['orchestration_index'] });
+    }, [darwinUri, idToken, profile?.userName, pipeline?.id, queryClient, showError]);
+
+    // ── A WRITTEN MOVE IS DROPPED BY THE DATA, NEVER BY A PROMISE ───────────
+    // `invalidateQueries` cancels a refetch already in flight, and a cancelled
+    // (or paused, or failed) refetch still RESOLVES its caller's await — so
+    // clearing on that await let a second quick drop snap the first one back to
+    // its old step for a round trip (code review). Instead a written move stays
+    // until the server's rows put it on its target, or until a read that landed
+    // after the write, with nothing further in flight, says otherwise (somebody
+    // else moved it meanwhile — the server wins). A refetch that fails leaves
+    // it standing, which is right: the write succeeded.
+    const composeFetching = useIsFetching({
+        queryKey: pipelineComposeKeys.byId(pipeline?.id ?? null) });
+    useEffect(() => {
+        serverRowsRef.current = plan.rows;
+        const server = plan.rows || [];
+        const settled = pendingMoves.filter((m) => m.writtenRows !== undefined && (
+            server.some((r) => r.id === m.toStepId && (r.reqIds || []).includes(m.reqId))
+            || (server !== m.writtenRows && composeFetching === 0)));
+        if (settled.length) setPendingMoves((ms) => ms.filter((m) => !settled.includes(m)));
+    }, [plan.rows, pendingMoves, composeFetching]);
+
+    const dragWorldRef = useRef(null);
+    useLayoutEffect(() => {
+        dragWorldRef.current = {
+            layout, rowById, size, pendingMoves, commit: commitReqMove,
+            t: liveTransformRef.current || transform || { x: 0, y: 0, k: kFactoryDefault },
+        };
+    });
+
+    useEffect(() => {
+        const el = containerEl;
+        if (!el) return undefined;
+        // Screen padding around the snapshot inside the floating copy — the
+        // grab offset accounts for it, so the lifted text starts exactly where
+        // the mark it was copied from is drawn.
+        const PAD_X = 6;
+        const PAD_Y = 3;
+        let raf = 0;
+        let lastPoint = null;           // panel-relative, last pointer position
+        let guardTimer = 0;
+
+        const world = () => dragWorldRef.current;
+        const panelPoint = (e) => {
+            const r = el.getBoundingClientRect();
+            return { x: e.clientX - r.left, y: e.clientY - r.top };
+        };
+        // The live camera first: an auto-pan step emits its zoom event
+        // synchronously, so the ref is current before the next retarget reads
+        // it, while the render-time copy in `dragWorldRef` lags one commit.
+        const camera = () => liveTransformRef.current || world().t;
+        const toWorld = (p) => {
+            const t = camera();
+            return { x: (p.x - t.x) / t.k, y: (p.y - t.y) / t.k };
+        };
+        const setCursor = (c) => {
+            const sc = stageRef.current?.container();
+            if (sc) sc.style.cursor = c;
+        };
+        // The requirement mark under a pointer event, or null — also the zoom
+        // filter's test. Not one whose previous move is still being written:
+        // its DELETE would name a seat the server does not have yet.
+        const hit = (e) => {
+            const stage = stageRef.current;
+            if (!stage || focusingRef.current) return null;
+            if (!(e.target instanceof HTMLCanvasElement)) return null;
+            const node = stage.getIntersection(panelPoint(e));
+            const reqId = node?.getAttr?.('dragReqId');
+            if (reqId == null) return null;
+            if (world().pendingMoves.some((m) => m.reqId === reqId)) return null;
+            return node;
+        };
+        reqHitRef.current = hit;
+
+        const retarget = () => {
+            const d = reqDragRef.current;
+            if (d?.phase !== 'drag' || !lastPoint) return;
+            const w = world();
+            // ONLY INSIDE THE PANEL (code review C1). The move listeners are on
+            // `window`, so a pointer over the page header or past the panel
+            // edge still maps to a world point — onto a card clipped out of
+            // sight, which would take the drop with nobody having seen it lit.
+            const inside = lastPoint.x >= 0 && lastPoint.y >= 0
+                && lastPoint.x <= w.size.w && lastPoint.y <= w.size.h;
+            const stepId = inside ? dropTargetAt(w.layout.nodes, toWorld(lastPoint)) : null;
+            const ok = canDropOn(w.rowById.get(stepId), d.fromStepId);
+            const next = ok ? stepId : null;
+            if (d.target !== next) {
+                d.target = next;
+                setDropStepId(next);
+            }
+            // A card that refuses the requirement (a stamped step) says so; its
+            // own home card and open canvas just keep the grab.
+            setCursor(stepId != null && stepId !== d.fromStepId && !ok
+                ? 'no-drop' : 'grabbing');
+        };
+        const placePreview = () => {
+            const d = reqDragRef.current;
+            const box = dragPreviewRef.current;
+            if (!d || !box || !lastPoint) return;
+            box.style.transform =
+                `translate(${lastPoint.x - d.offX}px, ${lastPoint.y - d.offY}px)`;
+        };
+        // Edge auto-pan, one step per frame while the pointer sits in the edge
+        // band. Clamped BEFORE it is applied, with the zoom behaviour's own
+        // bound, so a plan already at its edge costs no transform (and no
+        // re-render) per frame.
+        const tick = () => {
+            raf = 0;
+            const d = reqDragRef.current;
+            const zb = zoomRef.current;
+            if (d?.phase !== 'drag' || !lastPoint || !zb) return;
+            const w = world();
+            const { vx, vy } = edgePanVelocity(lastPoint, w.size);
+            if (!vx && !vy) return;
+            const t = camera();
+            const c = clampPlanTransform(
+                { x: t.x - vx, y: t.y - vy, k: t.k }, w.size, w.layout, t.k, t.k);
+            if (c.x !== t.x || c.y !== t.y) {
+                // The reader moving the camera, by reaching for the edge — so
+                // it counts as theirs exactly as a pan does (see the zoom
+                // handler for both flags).
+                userMovedCameraRef.current = true;
+                epicZoomRef.current = null;
+                // Retargets through the zoom handler (`reqRetargetRef`).
+                select(el).call(zb.transform, zoomIdentity.translate(c.x, c.y).scale(t.k));
+            }
+            raf = requestAnimationFrame(tick);
+        };
+
+        const start = (d) => {
+            if (!d.node.getStage()) return false;       // redrawn away mid-press
+            let src;
+            try {
+                // req #3587 — a row with pills is a Group; snapshot the whole row.
+                d.snap = d.node.getAttr('dragRowGroup') ? (d.node.getParent() || d.node) : d.node;
+                src = d.snap.toDataURL({ pixelRatio: window.devicePixelRatio || 1 });
+            } catch {
+                return false;
+            }
+            const r = (d.snap || d.node).getClientRect();
+            const p0 = panelPoint({ clientX: d.down.x, clientY: d.down.y });
+            d.offX = p0.x - r.x + PAD_X;
+            d.offY = p0.y - r.y + PAD_Y;
+            d.phase = 'drag';
+            d.target = null;
+            setCard(null);
+            setReqDrag({
+                reqId: d.reqId, fromStepId: d.fromStepId, src,
+                w: r.width, h: r.height, padX: PAD_X, padY: PAD_Y,
+                x: lastPoint.x - d.offX, y: lastPoint.y - d.offY,
+            });
+            setCursor('grabbing');
+            return true;
+        };
+        const finish = () => {
+            reqDragRef.current = null;
+            if (raf) cancelAnimationFrame(raf);
+            raf = 0;
+            lastPoint = null;
+            setReqDrag(null);
+            setDropStepId(null);
+            setCursor('grab');
+        };
+        // The click that ends a drag is the drag's, not the requirement's —
+        // held for exactly the task that delivers it.
+        const guardClick = () => {
+            reqClickGuardRef.current = true;
+            clearTimeout(guardTimer);
+            guardTimer = setTimeout(() => { reqClickGuardRef.current = false; }, 0);
+        };
+
+        const onDown = (e) => {
+            if (e.button !== 0 || e.target?.closest?.(CHROME_SELECTOR)) return;
+            const node = hit(e);
+            if (!node) return;
+            e.preventDefault();          // no text selection, no native drag
+            reqDragRef.current = {
+                phase: 'press', node,
+                reqId: node.getAttr('dragReqId'),
+                fromStepId: node.getAttr('dragStepId'),
+                down: { x: e.clientX, y: e.clientY },
+            };
+        };
+        const onMove = (e) => {
+            const d = reqDragRef.current;
+            if (!d || d.phase === 'cancelled') return;
+            // The button is up but no mouseup reached us (something swallowed
+            // it): a release we never saw is not a drop — put it back.
+            if (!(e.buttons & 1)) {        // eslint-disable-line no-bitwise
+                if (d.phase === 'drag') finish(); else reqDragRef.current = null;
+                return;
+            }
+            lastPoint = panelPoint(e);
+            if (d.phase === 'press') {
+                if (!passedDragSlop(d.down, e.clientX, e.clientY)) return;
+                if (!start(d)) { reqDragRef.current = null; return; }
+            }
+            placePreview();
+            retarget();
+            if (!raf) raf = requestAnimationFrame(tick);
+        };
+        const onUp = (e) => {
+            const d = reqDragRef.current;
+            if (!d || e.button !== 0) return;      // only the button that lifted it
+            if (d.phase === 'press') { reqDragRef.current = null; return; }
+            guardClick();
+            if (d.phase === 'cancelled') { reqDragRef.current = null; return; }
+            lastPoint = panelPoint(e);
+            retarget();
+            const toStepId = d.target;
+            finish();
+            if (toStepId != null) {
+                world().commit({ reqId: d.reqId, fromStepId: d.fromStepId, toStepId });
+            }
+        };
+        // Escape puts it back. The press stays recorded as CANCELLED until the
+        // button comes up, so the release is neither a drop nor a click.
+        const onKey = (e) => {
+            if (e.key !== 'Escape' || reqDragRef.current?.phase !== 'drag') return;
+            e.preventDefault();
+            finish();
+            reqDragRef.current = { phase: 'cancelled' };
+        };
+        const onBlur = () => { if (reqDragRef.current) finish(); };
+        reqRetargetRef.current = retarget;
+
+        el.addEventListener('mousedown', onDown);
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+        window.addEventListener('keydown', onKey);
+        window.addEventListener('blur', onBlur);
+        return () => {
+            el.removeEventListener('mousedown', onDown);
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+            window.removeEventListener('keydown', onKey);
+            window.removeEventListener('blur', onBlur);
+            if (raf) cancelAnimationFrame(raf);
+            clearTimeout(guardTimer);
+            reqHitRef.current = null;
+            reqRetargetRef.current = null;
+            reqDragRef.current = null;
+            reqClickGuardRef.current = false;
         };
     }, [containerEl]);
 
@@ -1561,20 +2219,119 @@ export default function PipelinePlanVisualizer({
     // that is what `resetView` applies.
     const t = transform || { x: 0, y: 0, k: kFactoryDefault };
 
+    // ── The add-step marks' geometry (req #3586) ────────────────────────────
+    // PLACED once per LAYOUT (at the largest radius, so spacing holds at every
+    // zoom), never per frame or per zoom: the camera lives in state, so the
+    // render body runs on every pan and zoom event. Only the DRAWN radius
+    // follows the zoom, and that is a number the scene function and the hit
+    // test read. Drawn only where the cards are — the same predicate as the
+    // step label (`labelsDrawn` below).
+    const insertDrawn = drawsLabelKind('step', level);
+    const insertR = insertMarkRadius(curK);
+    const insertRRef = useRef(insertR);
+    insertRRef.current = insertR;
+    const insertGeom = useMemo(
+        () => (insertDrawn ? buildInsertMarks(layout, rows) : null),
+        [insertDrawn, layout, rows]);
+    insertGeomRef.current = insertGeom;
+    openInsertRef.current = openInsert;
+    insertHitRef.current = (e) => {
+        const el = containerEl;
+        const g = insertGeomRef.current;
+        if (!el || !g || !(e.target instanceof HTMLCanvasElement)) return null;
+        const cam = liveTransformRef.current || t;
+        const rect = el.getBoundingClientRect();
+        return insertMarkAt(g, {
+            x: (e.clientX - rect.left - cam.x) / cam.k,
+            y: (e.clientY - rect.top - cam.y) / cam.k,
+        }, insertMarkRadius(cam.k));
+    };
+    // Draws every stub and "+" in one pass on the canvas context. Reads the
+    // refs, so a hover change is a `batchDraw`, not a React render.
+    const insertSceneFunc = useCallback((ctx) => {
+        const g = insertGeomRef.current;
+        if (!g) return;
+        const hov = insertHoverRef.current;
+        const r = insertRRef.current;
+        ctx.save();
+        ctx.setAttr('strokeStyle', P.arc);
+        ctx.setAttr('lineWidth', 1.2);
+        ctx.setAttr('globalAlpha', 0.7);
+        ctx.setLineDash([4, 3]);
+        ctx.beginPath();
+        for (const st of g.stubs) {
+            ctx.moveTo(st.x1, st.y);
+            ctx.lineTo(st.x2 - r, st.y);
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
+        const arm = r * 0.5;
+        ctx.setAttr('lineWidth', Math.max(1, r * 0.17));
+        ctx.setAttr('lineCap', 'round');
+        ctx.setAttr('fillStyle', P.panel);
+        for (const m of g.marks) {
+            const lit = m.key === hov;
+            // The disc is OPAQUE: the dependency line runs through the mark's
+            // centre and must not show inside it (user directive).
+            ctx.setAttr('globalAlpha', 1);
+            ctx.setAttr('strokeStyle', lit ? P.accent : P.arc);
+            ctx.beginPath();
+            ctx.arc(m.x, m.y, r, 0, Math.PI * 2, false);
+            ctx.fill();
+            ctx.moveTo(m.x - arm, m.y);
+            ctx.lineTo(m.x + arm, m.y);
+            ctx.moveTo(m.x, m.y - arm);
+            ctx.lineTo(m.x, m.y + arm);
+            ctx.stroke();
+        }
+        ctx.restore();
+    }, []);
+    // Hover: light the "+" under the pointer and show a pointer cursor. Native,
+    // bound once per container, and a no-op during a pan or a requirement drag.
+    useEffect(() => {
+        const el = containerEl;
+        if (!el) return undefined;
+        const setHover = (key) => {
+            if (key === insertHoverRef.current) return;
+            insertHoverRef.current = key;
+            const sc = stageRef.current?.container?.();
+            if (sc) sc.style.cursor = key ? 'pointer' : 'grab';
+            layerRef.current?.batchDraw?.();
+        };
+        const onMove = (e) => {
+            if (draggingRef.current || reqDragRef.current) return;
+            setHover(insertHitRef.current?.(e)?.key ?? null);
+        };
+        const onLeave = () => setHover(null);
+        el.addEventListener('mousemove', onMove);
+        el.addEventListener('mouseleave', onLeave);
+        return () => {
+            el.removeEventListener('mousemove', onMove);
+            el.removeEventListener('mouseleave', onLeave);
+        };
+    }, [containerEl]);
+
     const cursorPointer = useCallback((e, on) => {
         const stage = e?.target?.getStage?.();
-        if (!stage || draggingRef.current) return;
+        if (!stage || draggingRef.current || reqDragRef.current?.phase === 'drag') return;
         stage.container().style.cursor = on ? 'pointer' : 'grab';
     }, []);
 
+    // No datacard while a requirement is in the air (req #3581) — the cursor is
+    // carrying one, and a card popping up under it would cover the drop target.
     const showStepCard = useCallback((row, e) => {
+        if (reqDragRef.current?.phase === 'drag') return;
         const p = e?.target?.getStage?.()?.getPointerPosition?.();
         if (p) setCard({ x: p.x, y: p.y, kind: 'step', row });
     }, []);
     const showReqCard = useCallback((reqId, e) => {
+        if (reqDragRef.current?.phase === 'drag') return;
         const p = e?.target?.getStage?.()?.getPointerPosition?.();
-        if (p) setCard({ x: p.x, y: p.y, kind: 'req', reqId, info: reqInfo.get(reqId) });
-    }, [reqInfo]);
+        if (p) {
+            setCard({ x: p.x, y: p.y, kind: 'req', reqId, info: reqInfo.get(reqId),
+                pills: reqPills?.get?.(reqId) || null });
+        }
+    }, [reqInfo, reqPills]);
     const hideCard = useCallback(() => setCard(null), []);
 
     // ── Focus an epic band (req #3204) ──────────────────────────────────────
@@ -1762,10 +2519,15 @@ export default function PipelinePlanVisualizer({
     // The epic name's activation — one function behind both the click and the
     // Enter/Space handler, so keyboard parity is structural rather than a second
     // copy that has to be kept in step.
-    const activateEpicName = useCallback((band) => {
+    // `deep` (req #3580, "double click to double zoom") skips the band stop and
+    // asks for the step stop directly — the same floor applies, so a band with
+    // no next step still lands on its band fit.
+    const activateEpicName = useCallback((band, { deep = false } = {}) => {
         const key = epicZoomStateKey(pipeline?.id, band);
         const workIds = epicWorkByEpic.get(epicCycleKey(band)) || [];
-        const next = nextEpicZoom(epicZoomRef.current, key, workIds.length > 0);
+        const next = deep && workIds.length > 0
+            ? EPIC_ZOOM_STEP
+            : nextEpicZoom(epicZoomRef.current, key, workIds.length > 0);
         // THE STEP MOVE IS ATTEMPTED, THE BAND MOVE IS THE FLOOR (code review).
         // If the step fit comes back null — the two halves disagreeing, or a
         // container not ready — the level would never advance and every further
@@ -1781,6 +2543,122 @@ export default function PipelinePlanVisualizer({
         }
         if (moved) epicZoomRef.current = { key, level };
     }, [epicWorkByEpic, focusEpicWork, focusEpic, pipeline?.id]);
+
+    // ── IN-PLACE EDIT (req #3580) ───────────────────────────────────────────
+    // Three edits, straight from the canvas: an epic's NAME, a step's NAME, and
+    // a step's RUN mode. Each writes ONE column through the same helper the
+    // Epics / Steps editors use, then re-reads the composed plan — the canvas
+    // never patches its own copy, so what it draws next is the server's answer.
+    //
+    // `{ key, saving }` / `{ stepId, saving }` — which editor is open, and
+    // whether its write is in flight (the input goes read-only rather than
+    // vanishing, so a slow save does not look like a dropped one).
+    // (`idToken`, `darwinUri`, `queryClient`, `showError` are declared once at
+    // the top of the component — req #3581's drag-and-drop needs them too.)
+    const [epicEdit, setEpicEdit] = useState(null);
+    const [stepEdit, setStepEdit] = useState(null);
+    // stepId -> the run mode being written. Drawn in place of the stored one
+    // until the re-read lands, so the circle answers the click immediately.
+    const [runPending, setRunPending] = useState(() => new Map());
+
+    // The plan's own read, plus the two list caches the Epics and Steps pages
+    // render from — a rename here must not leave either of them stale.
+    const refreshPlan = useCallback(() => {
+        const creatorFk = profile?.userName;
+        return Promise.all([
+            pipeline?.id != null
+                && queryClient.invalidateQueries({
+                    queryKey: pipelineComposeKeys.byId(pipeline.id) }),
+            creatorFk && queryClient.invalidateQueries({ queryKey: epicKeys.all(creatorFk) }),
+            creatorFk && queryClient.invalidateQueries({
+                queryKey: pipelineStepKeys.all(creatorFk) }),
+        ]);
+    }, [queryClient, pipeline?.id, profile?.userName]);
+
+    // One commit path for both names. An unchanged name closes the editor
+    // without a write; a refused one says why and keeps the stored name.
+    const commitTitle = useCallback(async ({ current, raw, setEdit, editState, write, what }) => {
+        const next = String(raw ?? '').trim();
+        if (next === current) { setEdit(null); return; }
+        const problem = titleProblem(next);
+        if (problem) { showError(problem); setEdit(null); return; }
+        setEdit({ ...editState, saving: true });
+        try {
+            await write(next);
+            await refreshPlan();
+        } catch (err) {
+            showError(err, `Could not rename the ${what}`);
+        } finally {
+            // Only THIS editor. While the write was in flight the reader may
+            // have opened another name — that editor is not this save's to close.
+            setEdit((cur) => (cur && cur.key === editState.key
+                && cur.stepId === editState.stepId ? null : cur));
+        }
+    }, [refreshPlan, showError]);
+
+    const commitEpicTitle = useCallback((band, raw) => commitTitle({
+        current: band.epic, raw, what: 'epic',
+        setEdit: setEpicEdit, editState: { key: epicCycleKey(band) },
+        write: (title) => updateEpic(darwinUri, idToken, band.epicId, { title }),
+    }), [commitTitle, darwinUri, idToken]);
+
+    const commitStepTitle = useCallback((row, raw) => commitTitle({
+        current: row.title || '', raw, what: 'step',
+        setEdit: setStepEdit, editState: { stepId: row.id },
+        write: (title) => updateStep(darwinUri, idToken, row.id, { title }),
+    }), [commitTitle, darwinUri, idToken]);
+
+    // The run circle's click. A second click while the first write is in flight
+    // is ignored rather than queued — it would race the first one's re-read.
+    const toggleRun = useCallback(async (stepId, current) => {
+        if (runPending.has(stepId)) return;
+        const next = current === 'manual' ? 'auto' : 'manual';
+        setRunPending((m) => new Map(m).set(stepId, next));
+        try {
+            await updateStep(darwinUri, idToken, stepId, { run: next });
+            await refreshPlan();
+        } catch (err) {
+            showError(err, 'Could not change the step run mode');
+        } finally {
+            setRunPending((m) => {
+                const out = new Map(m);
+                out.delete(stepId);
+                return out;
+            });
+        }
+    }, [runPending, darwinUri, idToken, refreshPlan, showError]);
+
+    // ── QUICK CLICK / DOUBLE CLICK / LONG PRESS (req #3580) ────────────────
+    // User directive: "fast click to zoom, long click to edit, double click to
+    // double zoom". ONE tracker for every target on the panel — see
+    // `planPressGesture.js` for the rules and for why it reads pointer events.
+    const pressRef = useRef(null);
+    if (!pressRef.current) pressRef.current = createPressTracker();
+    useEffect(() => () => pressRef.current?.dispose(), []);
+
+    // A STEP TITLE's three gestures. Read through a ref by the native canvas
+    // listeners (bound once per container), so they always see this render's
+    // layout and camera. A quick click frames the step — the `?step=` deep
+    // link's own framing — and a double click frames it at twice that scale,
+    // about the same centre. A long press opens the name's editor.
+    const stepPressRef = useRef(null);
+    stepPressRef.current = (stepId) => ({
+        onClick: () => {
+            epicZoomRef.current = null;
+            applyFocus(stepFocusTransform(layout, stepId, size, kDefault, kZoomFloor));
+        },
+        onDoubleClick: () => {
+            const tr = stepFocusTransform(layout, stepId, size, kDefault, kZoomFloor);
+            if (!tr) return;
+            epicZoomRef.current = null;
+            const k2 = Math.min(kDefault * ZOOM_MAX_RATIO, tr.k * 2);
+            applyFocus(zoomAboutViewportCentre(tr, size, k2) || tr);
+        },
+        onLongPress: () => {
+            setCard(null);
+            setStepEdit({ stepId, saving: false });
+        },
+    });
 
     // ── WHERE THE CYCLE IS CLEARED, AND WHY IT IS THREE PLACES ──────────────
     // Level 2 is only the right answer to the NEXT click while the premise
@@ -2124,12 +3002,14 @@ export default function PipelinePlanVisualizer({
         setPendingSeats((prev) => new Set(prev).add(reqId));
         const junctionKey = pipelineStepRequirementKeys.all(profile?.userName);
         try {
-            // A plain INSERT: a requirement in this box has no seat to vacate
-            // (the junction keys on `requirement_fk` alone). One seated by
-            // somebody else since the box last read answers 409, and the
-            // snackbar plus the junction re-read below put the row right.
-            await call_rest_api(`${darwinUri}/pipeline_step_requirements`, 'POST',
-                { step_fk: target.stepId, requirement_fk: reqId }, idToken);
+            // The one seat write (`moveStepRequirement`, req #3581) with no
+            // `fromStepId`: a requirement in this box has no seat to vacate
+            // (the junction keys on `requirement_fk` alone), so it is a plain
+            // INSERT. One seated by somebody else since the box last read
+            // answers 409, and the snackbar plus the junction re-read below
+            // put the row right.
+            await moveStepRequirement(darwinUri, idToken,
+                { requirementId: reqId, toStepId: target.stepId });
         } catch (error) {
             showError(error, `Unable to add ${reqId} to the step`);
             forgetPending(reqId);
@@ -2180,6 +3060,43 @@ export default function PipelinePlanVisualizer({
             fontSize: CARD_BADGE_FONT * t.k,
             text: l.text,
         }));
+
+    // ── THE RUN-MODE PILL, AS AN HTML OVERLAY (req #3580) ──────────────────
+    // A button, so it is HTML for the badge's reason (and rides the badge's
+    // layer, inset under the ruler the same way). The layout reserved its box
+    // in the card's title row (`CARD_RUN_W`); this only projects it to screen.
+    // A pending write draws the mode being WRITTEN, so the click answers now.
+    const floatingRuns = layout.labels
+        .filter((l) => l.kind === 'run' && drawsKind('run'))
+        .map((l) => ({
+            key: `run-${l.stepId}`,
+            stepId: l.stepId,
+            run: runPending.get(l.stepId) ?? l.run,
+            pending: runPending.has(l.stepId),
+            left: l.x * t.k + t.x,
+            top: l.y * t.k + t.y,
+            width: l.w * t.k,
+            height: l.h * t.k,
+            fontSize: CARD_RUN_FONT * t.k,
+        }));
+
+    // ── THE STEP-NAME EDITOR'S BOX (req #3580) ──────────────────────────────
+    // The name's own world rect, widened to the whole room the layout reserved
+    // for it (`editW`, up to the run pill), projected through `t`. Only while
+    // that step's name is actually drawn — an editor floating where no name is
+    // would be editing something the reader cannot see.
+    const stepEditLabel = stepEdit != null && drawsKind('step')
+        ? layout.labels.find((l) => l.kind === 'step' && l.stepId === stepEdit.stepId)
+        : null;
+    const stepEditRow = stepEditLabel ? rowById.get(stepEditLabel.stepId) : null;
+    const stepEditor = stepEditLabel && stepEditRow ? {
+        row: stepEditRow,
+        left: stepEditLabel.x * t.k + t.x,
+        top: stepEditLabel.y * t.k + t.y,
+        width: (stepEditLabel.editW ?? stepEditLabel.w) * t.k,
+        height: CARD_LINE_H * t.k,
+        fontSize: CF.label * t.k,
+    } : null;
 
     // ── World-space nodes ───────────────────────────────────────────────────
     const worldNodes = [];
@@ -2627,6 +3544,27 @@ export default function PipelinePlanVisualizer({
         }
     });
 
+    // ── THE DROP TARGET (req #3581) ─────────────────────────────────────────
+    // The card a dragged requirement would land on, outlined in the panel's
+    // accent and faintly washed — pushed after every card and before the label
+    // loop, so the rows read through the wash. Its outline is screen-constant
+    // (divided by `curK`), since a world-scaled stroke would vanish exactly when
+    // the reader has zoomed out to reach a distant step. The box is the layout's
+    // own frame, the same one `dropTargetAt` tests, so what lights up is what
+    // the drop will hit — at every level, including Overview where the card
+    // itself is not painted.
+    const dropNode = dropStepId != null ? layout.nodes.get(dropStepId) : null;
+    if (dropNode) {
+        const sw = 2.5 / curK;
+        worldNodes.push(
+            <Rect key="req-drop-target" x={dropNode.frameLeft - sw} y={dropNode.top - sw}
+                  width={dropNode.frameW + 2 * sw} height={dropNode.h + 2 * sw}
+                  cornerRadius={CARD_RADIUS + sw}
+                  fill={rgba(P.accent, 0.08)} stroke={P.accent} strokeWidth={sw}
+                  shadowColor={P.accent} shadowBlur={14 / curK} shadowOpacity={0.55}
+                  listening={false} />);
+    }
+
     // ── The merged next-step marks (req #3498) ──────────────────────────────
     // Pushed after the row loop so they sit above every bead, and counter-scaled
     // the same way the dot itself is: `nextMarkDotRadius` already returns a
@@ -2728,12 +3666,17 @@ export default function PipelinePlanVisualizer({
             // Wrapped at layout time (req #3498) — the step name takes a
             // second line before it truncates, exactly as a requirement row
             // does, because a 28-character line leaves it nineteen otherwise.
-            worldNodes.push(
-                <Text key={`lbl-${i}`} x={label.x} y={label.y}
-                      text={(label.lines || [label.text]).join('\n')}
-                      fontSize={CF.label} fontFamily={MONO} fill={P.text}
-                      lineHeight={CARD_LINE_H / CF.label}
-                      listening={false} />);
+            // Not drawn while its in-place editor is open (req #3580): the
+            // editor is one line and the name may be two, so the second line
+            // would show through beneath it.
+            if (stepEditor?.row.id !== label.stepId) {
+                worldNodes.push(
+                    <Text key={`lbl-${i}`} x={label.x} y={label.y}
+                          text={(label.lines || [label.text]).join('\n')}
+                          fontSize={CF.label} fontFamily={MONO} fill={P.text}
+                          lineHeight={CARD_LINE_H / CF.label}
+                          listening={false} />);
+            }
             // HOVER ONLY — deliberately NOT the bead's third handler (review
             // finding). The bead's hit circle also carries `onActivate`, which
             // switches the whole page to Table mode and, because the visualizer
@@ -2743,11 +3686,23 @@ export default function PipelinePlanVisualizer({
             // name the largest click target on the canvas, while the manual
             // hit-test tolerates 4px of drag before it stops calling a gesture
             // a click. D1 asks for the CARD; a click on the words did nothing
-            // before this change and still does nothing.
+            // before this change.
+            //
+            // req #3580 — THE WORDS NOW TAKE THREE GESTURES: a quick click
+            // frames the step, a double click frames it closer, a long press
+            // edits the name in place (user directive). `pressStepId` is how
+            // the canvas's pointer listeners find them — see the STEP-TITLE
+            // PRESSES block. None of the three leaves the page, so the
+            // click-to-leave surface the paragraph above measured is unchanged.
             const row = rowById.get(label.stepId);
             if (row) {
                 worldNodes.push(labelHit(`lblhit-${i}`, label, {
-                    onMouseEnter: (e) => { cursorPointer(e, true); showStepCard(row, e); },
+                    pressStepId: row.id,
+                    // No hover card over the step's own open editor.
+                    onMouseEnter: (e) => {
+                        cursorPointer(e, true);
+                        if (stepEdit?.stepId !== row.id) showStepCard(row, e);
+                    },
                     onMouseLeave: (e) => { cursorPointer(e, false); hideCard(); },
                 }));
             }
@@ -2822,12 +3777,64 @@ export default function PipelinePlanVisualizer({
             // crosses the L2/L3 line, only where the ids sit inside a box that
             // was always this tall.
             const reqY = showTitle ? label.y : label.idY;
-            worldNodes.push(
-                <Text key={`lbl-${i}`} x={reqX} y={reqY} text={reqText}
+            // req #3581 — the mark the reader has picked up stays where it was,
+            // GREYED OUT, until the drop: the copy riding the cursor is the
+            // requirement in flight, and this is the hole it left.
+            const lifted = reqDrag?.reqId === label.reqId;
+            // ── THE TERMINAL / DEV SERVER PILLS (req #3587) ─────────────────
+            // The layout put the tokens in the text and handed back their
+            // character ranges on the first line. The row is drawn with those
+            // characters BLANKED, and each pill — box and label — is drawn on
+            // top in the room they reserved: box over the measured span, y
+            // centred on the first line (Konva draws a line's glyphs
+            // `middle`-baselined at half its line height), label centred in
+            // the box. See `REQ_PILL_STYLE` for why the label is not the row's.
+            const pillsHere = label.pills || [];
+            const pillInfo = pillsHere.length ? (reqPills?.get?.(label.reqId) || null) : null;
+            let rowText = reqText;
+            let pillBoxes = [];
+            if (pillsHere.length) {
+                const rowLines = reqText.split('\n');
+                const firstLine = rowLines[0];
+                pillBoxes = pillsHere.map((pl) => {
+                    const h = CF.req * REQ_PILL_H_EM;
+                    const lead = pl.start === 0 ? 0
+                        : measureReqText(firstLine.slice(0, pl.start), CF.req, rs.bold);
+                    const span = measureReqText(firstLine.slice(pl.start, pl.start + pl.len),
+                        CF.req, rs.bold);
+                    return {
+                        ...pl,
+                        text: firstLine.slice(pl.start, pl.start + pl.len).replace(/\u00a0/g, ' '),
+                        x: reqX + (lead ?? pl.start * CHW_REQ) - REQ_PILL_PAD_X,
+                        y: reqY + REQ_LINE_H / 2 - h / 2,
+                        w: (span ?? pl.len * CHW_REQ) + 2 * REQ_PILL_PAD_X,
+                        h,
+                        style: REQ_PILL_STYLE[pl.kind] || REQ_PILL_STYLE.terminal,
+                    };
+                });
+                rowLines[0] = pillsHere.reduce((ln, pl) => ln.slice(0, pl.start)
+                    + ' '.repeat(pl.len) + ln.slice(pl.start + pl.len), firstLine);
+                rowText = rowLines.join('\n');
+            }
+            // A row that carries pills is drawn as ONE Group — text, pills and
+            // their targets — so the drag ghost (req #3581, a snapshot of the
+            // node under the pointer) shows the row as the reader sees it,
+            // pills included, rather than the bare text with blanks in it.
+            // `dragRowGroup` on the text is what tells the snapshot to take the
+            // parent. A pill-less row stays a lone Text, exactly as before.
+            const rowNodes = [];
+            rowNodes.push(
+                <Text key={`lbl-${i}`} x={reqX} y={reqY} text={rowText}
                       fontSize={CF.req} fontFamily={MONO}
                       lineHeight={REQ_LINE_H / CF.req}
-                      fill={rs.fill}
+                      fill={lifted ? P.dim : rs.fill}
+                      opacity={lifted ? 0.4 : 1}
                       fontStyle={rs.bold ? 'bold' : 'normal'}
+                      // What the drag hit test reads off the node it lands on
+                      // (req #3581): the mark IS the handle.
+                      dragReqId={label.reqId}
+                      dragStepId={label.stepId}
+                      dragRowGroup={pillBoxes.length > 0}
                       onMouseEnter={(e) => { cursorPointer(e, true); showReqCard(label.reqId, e); }}
                       onMouseLeave={(e) => { cursorPointer(e, false); hideCard(); }}
                       // Carry the plan's identity so the requirement page's Back
@@ -2860,6 +3867,47 @@ export default function PipelinePlanVisualizer({
                               ? { state: { from: 'pipeline', pipelineId: pipeline.id,
                                   mode: 'plan' } }
                               : undefined)} />);
+            pillBoxes.forEach((b, j) => {
+                rowNodes.push(
+                    <Rect key={`lbl-${i}-pill-${j}`} x={b.x} y={b.y} width={b.w} height={b.h}
+                          cornerRadius={b.h / 2} fill={b.style.fill}
+                          stroke={b.style.stroke} strokeWidth={REQ_PILL_STROKE}
+                          opacity={lifted ? 0.4 : 1} listening={false} />);
+                rowNodes.push(
+                    <Text key={`lbl-${i}-pilltxt-${j}`} x={b.x} y={b.y} width={b.w} height={b.h}
+                          text={b.text} align="center" verticalAlign="middle"
+                          fontSize={CF.req * REQ_PILL_FONT_EM} fontFamily={REQ_PILL_FONT}
+                          fontStyle="600" fill={b.style.text} wrap="none"
+                          opacity={lifted ? 0.4 : 1} listening={false} />);
+            });
+            // A pill that can DO something gets its own target ON TOP of the
+            // row's text — the port opens the dev server (the Swarm
+            // visualizer's port pill's action), a terminal on this machine is
+            // brought to the front (the Sessions grid chip's). A pill that can
+            // do nothing gets no target, so a click on it still opens the
+            // requirement like the rest of the row.
+            pillBoxes.forEach((b, j) => {
+                const action = b.kind === 'devserver' && pillInfo?.devServer?.local
+                    ? () => {
+                        try { window.open(pillInfo.devServer.url, '_blank', 'noopener,noreferrer'); }
+                        catch (e) { /* popup blocked — no-op */ }
+                    }
+                    : (b.kind === 'terminal' && pillInfo?.terminal?.href
+                        ? () => { window.location.href = pillInfo.terminal.href; }
+                        : null);
+                if (!action) return;
+                rowNodes.push(
+                    <Rect key={`lbl-${i}-pillhit-${j}`} x={b.x} y={b.y} width={b.w} height={b.h}
+                          fill="transparent"
+                          onMouseEnter={(e) => { cursorPointer(e, true); showReqCard(label.reqId, e); }}
+                          onMouseLeave={(e) => { cursorPointer(e, false); hideCard(); }}
+                          onActivate={action} />);
+            });
+            if (pillBoxes.length) {
+                worldNodes.push(<Group key={`lbl-${i}-row`}>{rowNodes}</Group>);
+            } else {
+                worldNodes.push(...rowNodes);
+            }
         } else if (label.kind === 'badge') {
             // req #3503, round 4 — drawn as an HTML overlay now (`floatingBadges`
             // below), not in Konva at all. Three rounds of hand-fighting canvas's
@@ -3012,6 +4060,18 @@ export default function PipelinePlanVisualizer({
         // one text kind rather than looser by an unreachable one.
     });
 
+    // ── THE ADD-STEP MARKS (req #3586) ──────────────────────────────────────
+    // A "+" on every dependency arc (split it: A -> new -> B) and one at the end
+    // of a dashed stub off every card's right side (branch: a new step gated on
+    // that step alone). ONE shape, pushed last so it sits above the labels; its
+    // geometry is `insertGeom` and its clicks are resolved by `insertHitRef`.
+    if (insertGeom) {
+        worldNodes.push(
+            <Shape key="insert-marks" sceneFunc={insertSceneFunc} geom={insertGeom}
+                   drawR={insertR}
+                   listening={false} perfectDrawEnabled={false} />);
+    }
+
     return (
         <Box>
             <OrderViolationsAlert plan={plan} />
@@ -3083,6 +4143,15 @@ export default function PipelinePlanVisualizer({
                  // read as L1 on the chips.
                  data-level={level}
                  data-drawn={drawnKinds}
+                 // req #3581 — the requirement in flight and the step it would
+                 // land on, for the same reason as `data-transform`: a canvas
+                 // drag is otherwise observable only as changed pixels.
+                 data-req-drag={reqDrag ? reqDrag.reqId : ''}
+                 data-drop-step={dropStepId ?? ''}
+                 // req #3586 — how many add-step marks the canvas drew, by kind,
+                 // for the same reason: they are otherwise only pixels.
+                 data-insert-edges={insertGeom ? insertGeom.edgeCount : 0}
+                 data-insert-branches={insertGeom ? insertGeom.stubs.length : 0}
                  // Full-page canvas (req #3119), the KonvaSwarmCanvas figure
                  // verbatim. The height is MEASURED (`availH` above) rather than
                  // subtracted from a list of known chrome, which is what lets the
@@ -3128,6 +4197,38 @@ export default function PipelinePlanVisualizer({
                     </Stage>
                 )}
 
+                {/* req #3581 — the requirement in flight: a FULL-SIZE copy of the
+                    mark, snapshotted from its own Konva node at drag start, so
+                    it is the requirement exactly as the canvas draws it — same
+                    zoom, same colour key, id or title per level. Lifted onto a
+                    panel-coloured plate with a soft shadow so it reads as
+                    picked up. Positioned by `transform` written straight to
+                    the DOM per pointermove (see the drag effect); React sets
+                    it once and never again, so dragging re-renders nothing.
+                    `pointerEvents: none` — it must never be what the drop
+                    lands on. */}
+                {reqDrag && (
+                    <Box ref={dragPreviewRef}
+                         data-testid="pipeline-viz-req-drag-preview"
+                         data-req-id={reqDrag.reqId}
+                         style={{ transform: `translate(${reqDrag.x}px, ${reqDrag.y}px)` }}
+                         sx={{ position: 'absolute', left: 0, top: 0, zIndex: 30,
+                                pointerEvents: 'none', willChange: 'transform',
+                                px: `${reqDrag.padX}px`, py: `${reqDrag.padY}px`,
+                                borderRadius: '6px',
+                                background: rgba(P.panel, 0.94),
+                                // OUTLINE, not border: it takes no layout space, so
+                                // the snapshot sits exactly `pad` in from the box
+                                // edge the grab offset was computed against.
+                                outline: `1px solid ${P.accent}`,
+                                boxShadow: `0 10px 28px rgba(0, 0, 0, 0.55), 0 0 0 3px ${rgba(P.accent, 0.12)}`,
+                                cursor: 'grabbing' }}>
+                        <img src={reqDrag.src} alt="" draggable={false}
+                             width={reqDrag.w} height={reqDrag.h}
+                             style={{ display: 'block' }} />
+                    </Box>
+                )}
+
                 {/* Floating epic labels — each at the top-left corner of its own
                     band's rectangle intersected with the visible content area
                     (req #3257). The strip ignores the pointer so it can never
@@ -3141,12 +4242,12 @@ export default function PipelinePlanVisualizer({
                     last few pixels of its band's life, and this is what cuts it
                     off at the edge instead of letting it spill.
 
-                    Clicking the NAME focuses that band (req #3204). Every band
-                    is focusable, "No epic" included — it is a band with steps
-                    like any other, and the previous rule (pointer events only
-                    when `epicId != null`) existed solely because the old click
-                    needed an epic id to navigate WITH. The ↗ beside it keeps
-                    that navigation, and only it needs the id.
+                    Clicking the STATUS LIGHT or the CLOSURE COUNT focuses that
+                    band (req #3204; it was the name until req #3580 made the
+                    name an in-place editor). Every band is focusable, "No epic"
+                    included — it is a band with steps like any other, and with
+                    no row to rename its NAME keeps the zoom. The ↗ beside it
+                    keeps the navigation, and only it needs the id.
 
                     Re-enabling pointer events does not cost the drag-pan: the
                     chip is a DESCENDANT of the container d3-zoom is bound to, so
@@ -3162,69 +4263,61 @@ export default function PipelinePlanVisualizer({
                             right: 0, bottom: 0, pointerEvents: 'none',
                             overflow: 'hidden' }}
                      data-testid="pipeline-viz-epic-layer">
-                    {floatingEpics.map((e) => (
-                        <Box
-                            key={e.key}
-                            onClick={() => activateEpicName(e.band)}
-                            // Reachable without a mouse. The chip has been a
-                            // click target since req #3119 and was never
-                            // focusable; now that it is the ONLY way to reach
-                            // the focus feature, leaving it mouse-only would
-                            // make the feature mouse-only.
-                            //
-                            // Req #3297 made this a CYCLE, and both inputs call
-                            // the SAME `activateEpicName` — so Enter/Space walk
-                            // band → step → band exactly as the mouse does,
-                            // rather than a keyboard path that re-fits the band
-                            // forever while the mouse gets the new level.
-                            role="button"
-                            tabIndex={0}
-                            onKeyDown={(ev) => {
+                    {floatingEpics.map((e) => {
+                        // req #3580 — THREE GESTURES ON THE NAME (user
+                        // directive: "fast click to zoom, long click to edit,
+                        // double click to double zoom"). A quick click walks
+                        // req #3297's band → step cycle exactly as the name
+                        // always did; a double click goes straight to the step
+                        // stop; a long press opens the in-place editor. The
+                        // status light and the closure count zoom the same way
+                        // (they edit nothing). The "No epic" band has no row to
+                        // rename, so it takes no long press.
+                        const renamable = e.epicId != null;
+                        const editing = renamable && epicEdit?.key === e.key;
+                        const zoomTitle = epicZoomHint(epicWorkByEpic.get(e.key))
+                            + epicSeatedHint(!!(showReqCounts && e.epicId != null
+                                && epicCounts?.get(e.epicId)));
+                        const zoomLabel = `Zoom pipeline epic ${e.name ?? e.text}`
+                            + epicZoomHintSuffix(epicWorkByEpic.get(e.key));
+                        const startEdit = () => setEpicEdit({ key: e.key, saving: false });
+                        const gestures = {
+                            onClick: () => activateEpicName(e.band),
+                            onDoubleClick: () => activateEpicName(e.band, { deep: true }),
+                        };
+                        // Pointer, not click — see `planPressGesture.js`. The
+                        // tracker is shared, so the key names this chip's part.
+                        const press = (part, cbs) => ({
+                            onPointerDown: (ev) => {
+                                if (ev.button !== 0) return;
+                                pressRef.current.down(`epic-${e.key}-${part}`,
+                                    ev.clientX, ev.clientY, cbs);
+                            },
+                            onPointerMove: (ev) => pressRef.current.move(ev.clientX, ev.clientY),
+                            onPointerUp: () => pressRef.current.up(`epic-${e.key}-${part}`),
+                            onPointerCancel: () => pressRef.current.cancel(),
+                            onPointerLeave: () => pressRef.current.cancel(),
+                        });
+                        // Enter/Space zoom from the keyboard through the SAME
+                        // function the pointer does, so keyboard parity stays
+                        // structural (req #3297); F2 — the platform's own
+                        // rename key — is the keyboard's long press.
+                        const zoomHandlers = {
+                            role: 'button',
+                            tabIndex: 0,
+                            ...press('zoom', gestures),
+                            onKeyDown: (ev) => {
                                 if (ev.key !== 'Enter' && ev.key !== ' ') return;
                                 ev.preventDefault();     // Space must not scroll
+                                ev.stopPropagation();
                                 activateEpicName(e.band);
-                            }}
-                            // NAMES WHAT THE CLICK DOES (req #3213 D6). The
-                            // chip body has focused the band since req #3204 —
-                            // only this tooltip still described the old
-                            // navigate-away behaviour, and a control that
-                            // silently does one of two plausible things is
-                            // worse than either. The chip's two controls each
-                            // name themselves: the body zooms, the ↗ below
-                            // opens the epic's steps, and both say so.
-                            //
-                            // AND SINCE REQ #3297 IT NAMES BOTH STOPS — but
-                            // only where the second one exists. A band with no
-                            // launch step has no second stop to go to — its
-                            // clicks keep fitting the band — and a label
-                            // promising a zoom that cannot happen is the same
-                            // "silently does one of two
-                            // plausible things" defect this tooltip was written
-                            // to close, arrived at from the other direction. So
-                            // the second-stop clause is a function of
-                            // `epicWorkByEpic` — the SAME lookup the click
-                            // itself reads, so the promise and the behaviour
-                            // cannot drift, down to naming the same step id.
-                            title={epicZoomHint(epicWorkByEpic.get(e.key))
-                                + epicSeatedHint(!!(showReqCounts && e.epicId != null
-                                    && epicCounts?.get(e.epicId)))}
-                            // req #3226 — the pause bubble is colour-only
-                            // (green/red), the least discriminable pair for
-                            // the most common colour-vision deficiency and
-                            // silent to a screen reader. Folded into the SAME
-                            // label the chip already carries rather than a
-                            // second announced element, so pause reads as one
-                            // more fact about the epic being named, not a
-                            // separate control.
-                            // Req #3297's clause goes BEFORE the pause clause
-                            // and inside this one label, keeping req #3226's
-                            // ruling intact: still ONE announced element, and
-                            // pause still reads as the last fact about the epic
-                            // being named rather than a control of its own.
-                            aria-label={`Zoom pipeline epic ${e.text}`
-                                + epicZoomHintSuffix(epicWorkByEpic.get(e.key))
-                                + (e.band?.paused ? ' — paused' : ' — active')}
+                            },
+                        };
+                        return (
+                        <Box
+                            key={e.key}
                             data-testid={`pipeline-viz-epic-${e.key}`}
+                            data-editing={editing ? 'true' : undefined}
                             sx={{
                                 // `e.y` is screen-absolute (panel-origin), but
                                 // this chip's containing block now starts at
@@ -3260,7 +4353,11 @@ export default function PipelinePlanVisualizer({
                                 // Capping UNCONDITIONALLY would hand the drawn
                                 // box to `EPIC_CHIP_CHAR_W`, an ESTIMATE: a hair
                                 // short and every name on the plan truncates.
-                                ...(e.clipped
+                                // …EXCEPT WHILE ITS NAME IS BEING EDITED (req
+                                // #3580): a cut box would hide the very text
+                                // being typed. The layer's own `overflow:
+                                // hidden` still stops it at the panel edge.
+                                ...(e.clipped && !editing
                                     ? { maxWidth: e.w, overflow: 'hidden' }
                                     : null),
                                 display: 'flex', alignItems: 'center', gap: '4px',
@@ -3277,18 +4374,15 @@ export default function PipelinePlanVisualizer({
                                 border: `1px solid ${e.color}55`,
                                 whiteSpace: 'nowrap', userSelect: 'none',
                                 pointerEvents: 'auto',
-                                cursor: 'pointer',
                                 // An affordance you cannot see is not a feature
-                                // (req #3204): the border firms up and the name
-                                // underlines on hover, so the chip reads as the
-                                // control it is.
+                                // (req #3204): the border firms up on hover, the
+                                // name underlines, and the light and the count
+                                // ring — every one of them zooms on a click, and
+                                // the name's tooltip names its long press.
                                 transition: 'border-color 120ms',
                                 '&:hover': { borderColor: e.color },
-                                // Scoped to the NAME, not the chip: an ancestor
-                                // rule would draw the underline through the ↗
-                                // too, and a blockified flex item cannot opt out
-                                // of an inherited text-decoration.
-                                '&:hover .pipeline-viz-epic-name': {
+                                '& .pipeline-viz-epic-name': { cursor: 'pointer' },
+                                '& .pipeline-viz-epic-name:hover': {
                                     textDecoration: 'underline',
                                     textDecorationThickness: '1px',
                                     textUnderlineOffset: '2px',
@@ -3313,23 +4407,108 @@ export default function PipelinePlanVisualizer({
                                 "No epic" included — pause is a scope fact,
                                 and the unlabelled band's scope is exactly
                                 the whole plan's. */}
+                            {/* req #3580 — THE STATUS LIGHT IS A ZOOM CONTROL.
+                                Its drawn footprint is unchanged (the reserved
+                                `EPIC_PAUSE_BUBBLE_W`); the HIT target is grown
+                                by padding cancelled with an equal negative
+                                margin, so an 8px dot is not an 8px target and
+                                nothing the placement measured moves. */}
                             <Box
                                 component="span"
+                                {...zoomHandlers}
+                                aria-label={zoomLabel
+                                    + (e.band?.paused ? ' — paused' : ' — active')}
                                 data-testid={`pipeline-viz-epic-pause-${e.key}`}
-                                title={e.band?.paused
+                                title={(e.band?.paused
                                     ? 'This scope is paused — not swarm-starting'
-                                    : 'This scope is active — may swarm-start'}
+                                    : 'This scope is active — may swarm-start')
+                                    + `\n${zoomTitle}`}
                                 sx={{
-                                    flexShrink: 0,
-                                    width: EPIC_PAUSE_BUBBLE_D,
-                                    height: EPIC_PAUSE_BUBBLE_D,
-                                    borderRadius: '50%',
-                                    bgcolor: pauseBubbleColor(!!e.band?.paused),
+                                    flexShrink: 0, display: 'inline-flex',
+                                    p: '5px', m: '-5px', borderRadius: '50%',
+                                    cursor: 'pointer',
+                                    '&:hover > span, &:focus-visible > span': {
+                                        boxShadow: `0 0 0 2px ${e.color}`,
+                                    },
+                                    outline: 'none',
                                 }}
-                            />
-                            <Box component="span" className="pipeline-viz-epic-name">
-                                {e.text}
+                            >
+                                <Box
+                                    component="span"
+                                    sx={{
+                                        width: EPIC_PAUSE_BUBBLE_D,
+                                        height: EPIC_PAUSE_BUBBLE_D,
+                                        borderRadius: '50%',
+                                        bgcolor: pauseBubbleColor(!!e.band?.paused),
+                                    }}
+                                />
                             </Box>
+                            {editing ? (
+                                <PlanInPlaceInput
+                                    initial={e.name ?? e.text}
+                                    saving={!!epicEdit?.saving}
+                                    ariaLabel={`Rename epic ${e.name ?? e.text}`}
+                                    testId={`pipeline-viz-epic-edit-${e.key}`}
+                                    onCommit={(raw) => commitEpicTitle(e.band, raw)}
+                                    onCancel={() => setEpicEdit(null)}
+                                    growCh
+                                    style={{ fontSize: e.fontSize, height: e.h - 4 }}
+                                    sx={{ color: e.color }}
+                                />
+                            ) : (
+                                <Box component="span" className="pipeline-viz-epic-name"
+                                     data-testid={`pipeline-viz-epic-name-${e.key}`}
+                                     {...zoomHandlers}
+                                     {...(renamable ? {
+                                         ...press('name', { ...gestures, onLongPress: startEdit }),
+                                         // A touch long press would otherwise
+                                         // also open the browser's own menu.
+                                         onContextMenu: (ev) => ev.preventDefault(),
+                                         onKeyDown: (ev) => {
+                                             if (ev.key === 'F2') {
+                                                 ev.preventDefault();
+                                                 ev.stopPropagation();
+                                                 startEdit();
+                                                 return;
+                                             }
+                                             zoomHandlers.onKeyDown(ev);
+                                         },
+                                         'aria-label': `${zoomLabel} — press F2 to rename`,
+                                         title: `${zoomTitle}\nDouble-click to zoom in further. `
+                                             + 'Press and hold to rename.',
+                                     } : {
+                                         'aria-label': zoomLabel,
+                                         title: `${zoomTitle}\nDouble-click to zoom in further.`,
+                                     })}
+                                >
+                                    {e.name ?? e.text}
+                                </Box>
+                            )}
+                            {/* req #3580 — THE CLOSURE COUNT, ITS OWN ELEMENT and
+                                the second zoom control. Its text was always part
+                                of the measured label (`epicLabel` = name + " " +
+                                count), so drawing it as a sibling costs no width
+                                the placement did not already reserve. */}
+                            {e.countText && (
+                                <Box component="span"
+                                     {...zoomHandlers}
+                                     {...press('count', gestures)}
+                                     aria-label={`${zoomLabel} — ${e.countText} requirements closed`}
+                                     title={`${zoomTitle}\nDouble-click to zoom in further.`}
+                                     data-testid={`pipeline-viz-epic-count-${e.key}`}
+                                     sx={{
+                                         cursor: 'pointer', fontWeight: 400,
+                                         opacity: 0.9, px: '3px', mx: '-3px',
+                                         borderRadius: '4px', outline: 'none',
+                                         '&:hover, &:focus-visible': {
+                                             opacity: 1,
+                                             boxShadow: `inset 0 0 0 1px ${e.color}`,
+                                         },
+                                     }}
+                                >
+                                    {e.countText}
+                                </Box>
+                            )}
                             {/* The req #3119 target, RE-POINTED by req #3373: the
                                 browsable-catalog route it used to open was retired
                                 (req #3357), and `/swarm/steps?epic=<id>` is the
@@ -3438,7 +4617,8 @@ export default function PipelinePlanVisualizer({
                                 </Box>
                             )}
                         </Box>
-                    ))}
+                        );
+                    })}
                 </Box>
 
                 {/* ── THE REQUIREMENT-COUNT BADGE LAYER (req #3503, round 4;
@@ -3532,6 +4712,64 @@ export default function PipelinePlanVisualizer({
                             {b.text}
                         </Box>
                     ))}
+                    {/* req #3580 — THE RUN-MODE PILL. Displays the step's run
+                        mode as the word and IS the control that changes it:
+                        green "auto", blue "manual" (user directive). Geometry
+                        in `style` for the badge's per-frame reason;
+                        `stopPropagation` so the card's own handlers never also
+                        fire. */}
+                    {floatingRuns.map((r) => {
+                        const manual = r.run === 'manual';
+                        const next = manual ? 'auto' : 'manual';
+                        return (
+                            <Box key={r.key}
+                                 component="button"
+                                 type="button"
+                                 data-testid={`pipeline-viz-run-${r.stepId}`}
+                                 data-run={r.run}
+                                 aria-label={`Step ${r.stepId} runs ${r.run} — switch to ${next}`}
+                                 aria-busy={r.pending || undefined}
+                                 title={`Run: ${runLabel(r.run)} — click to make it ${runLabel(next)}`}
+                                 onClick={(ev) => {
+                                     ev.stopPropagation();
+                                     toggleRun(r.stepId, r.run);
+                                 }}
+                                 style={{
+                                     left: r.left,
+                                     top: r.top - epicOverlayTopInset,
+                                     width: r.width, height: r.height,
+                                     fontSize: r.fontSize,
+                                     background: manual ? P.runManual : P.runAuto,
+                                     opacity: r.pending ? 0.55 : 1,
+                                 }}
+                                 sx={RUN_PILL_SX}
+                            >
+                                {CARD_RUN_WORDS[r.run]}
+                            </Box>
+                        );
+                    })}
+                    {/* req #3580 — THE STEP-NAME EDITOR, over the name's own
+                        reserved room on its card. */}
+                    {stepEditor && (
+                        <PlanInPlaceInput
+                            key={`step-edit-${stepEditor.row.id}`}
+                            initial={stepEditor.row.title || ''}
+                            saving={!!stepEdit?.saving}
+                            ariaLabel={`Rename step ${stepEditor.row.id}`}
+                            testId={`pipeline-viz-step-edit-${stepEditor.row.id}`}
+                            onCommit={(raw) => commitStepTitle(stepEditor.row, raw)}
+                            onCancel={() => setStepEdit(null)}
+                            style={{
+                                position: 'absolute',
+                                left: stepEditor.left,
+                                top: stepEditor.top - epicOverlayTopInset,
+                                width: stepEditor.width,
+                                height: stepEditor.height,
+                                fontSize: stepEditor.fontSize,
+                            }}
+                            sx={{ pointerEvents: 'auto', fontWeight: 400 }}
+                        />
+                    )}
                 </Box>
 
                 {/* req #3583 — the step card a box row would land on. An HTML
@@ -3620,7 +4858,7 @@ export default function PipelinePlanVisualizer({
                     Collapse is LOCAL STATE, not a persisted preference: a stored
                     one would need seeding in the E2E fixture and could arrive
                     shown from another session. Every visit opens with the key
-                    collapsed (req #3309).
+                    expanded (req #3585; req #3309 had it collapsed).
 
                     PARKED AT VIEWPORT MIDDLE BOTTOM (req #3255), not the
                     top-right corner: that corner sat in the typical down-and-
@@ -3682,10 +4920,10 @@ export default function PipelinePlanVisualizer({
                         element on the canvas, just no longer the one you have to
                         hunt for.
 
-                        THE '+' READS BRIGHTER THAN THE '−' (req #3309): with the
-                        key now collapsed by default, '+' is what a reader sees
-                        first and it is the one glyph that has to say "there is
-                        more here" with no key content around it to draw the eye.
+                        THE '+' READS BRIGHTER THAN THE '−' (req #3309): once the
+                        reader collapses the key, '+' is the one glyph that has
+                        to say "there is more here" with no key content around
+                        it to draw the eye.
                         Full resting opacity does that; the hover state (opacity
                         1, `P.accent`) is unchanged and still the stronger of the
                         two cues. */}
@@ -3844,6 +5082,49 @@ export default function PipelinePlanVisualizer({
                                   containerW={size.w} containerH={size.h} />
                 )}
             </Box>
+
+            {/* req #3586 — the add-step dialog. Portalled to the body, so a
+                click inside it never reaches the canvas's own click test. */}
+            <Dialog open={insertReq != null} onClose={closeInsert} fullWidth maxWidth="xs"
+                    data-testid="pipeline-viz-insert-dialog">
+                <DialogTitle>
+                    {insertReq?.kind === 'edge' ? 'Insert a step' : 'Add a parallel step'}
+                </DialogTitle>
+                <DialogContent>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}
+                                data-testid="pipeline-viz-insert-summary">
+                        {insertReq?.kind === 'edge'
+                            ? `Between "${insertReq.fromTitle}" and "${insertReq.toTitle}". `
+                              + 'The new step waits on the first; the second waits on the new step.'
+                            : insertReq
+                                ? `Depends on "${insertReq.fromTitle}" only.`
+                                : ''}
+                    </Typography>
+                    <TextField autoFocus fullWidth size="small" label="Title"
+                               value={insertTitle}
+                               onFocus={(e) => e.target.select()}
+                               onChange={(e) => setInsertTitle(e.target.value)}
+                               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commitInsert(); } }}
+                               inputProps={{ 'data-testid': 'pipeline-viz-insert-title' }}
+                               sx={{ mb: 2 }} />
+                    <TextField select fullWidth size="small" label="Epic"
+                               value={insertEpic}
+                               onChange={(e) => setInsertEpic(e.target.value)}
+                               inputProps={{ 'data-testid': 'pipeline-viz-insert-epic' }}>
+                        {insertEpicOptions.map((e) => (
+                            <MenuItem key={e.id} value={e.id}>{e.title || `Epic ${e.id}`}</MenuItem>
+                        ))}
+                    </TextField>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => closeInsert()} disabled={inserting}>Cancel</Button>
+                    <Button variant="contained" onClick={commitInsert}
+                            disabled={inserting || !insertTitle.trim()}
+                            data-testid="pipeline-viz-insert-create">
+                        {inserting ? 'Creating…' : 'Create'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
         </Box>
     );
 }
@@ -3909,6 +5190,8 @@ function PlanDataCard({ card, timezone, level, containerW, containerH }) {
                 <div className="ts-datacard-title">{info.title || '(untitled)'}</div>
                 {rowEl('Requirement', card.reqId)}
                 {rowEl('Status', info.status || 'unknown')}
+                {/* req #3584 — the Session colour key's value, in words. */}
+                {rowEl('Session', info.session ? info.session.replace('_', ' ') : 'unknown')}
                 {/* ONE missing-value policy across the three (review finding).
                     `aiModelLabel`/`effortLabel` fall back to Opus/High on
                     unknown input, and their own comments justify that by the
@@ -3922,6 +5205,11 @@ function PlanDataCard({ card, timezone, level, containerW, containerH }) {
                 {rowEl('Autonomy', formatCoordination(info.coordination))}
                 {rowEl('Model', info.model ? aiModelLabel(info.model) : '—')}
                 {rowEl('Effort', info.effort ? effortLabel(info.effort) : '—')}
+                {/* req #3587 — the pills' facts, spelled out: which terminal
+                    (and whether it can be focused from here), which port. */}
+                {card.pills?.terminal && rowEl('Terminal',
+                    card.pills.terminal.title || card.pills.terminal.label)}
+                {card.pills?.devServer && rowEl('Dev server', card.pills.devServer.title)}
             </div>
         );
     } else {

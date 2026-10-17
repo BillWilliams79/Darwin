@@ -178,7 +178,11 @@ const SwarmVisualizerView = () => {
     // a seeded `darwin_dev` fixture, so a dev build reads the real claims.
     const { data: devServers = [] } = useDevServers(
         profile?.userName,
-        { fields: 'id,port,session_fk,terminal_number,started_at' },
+        // `machine_fk` too (req #3587): `dev_servers` keeps no `fields` in its
+        // cache key, so this projection is the entry the plan page's port pill
+        // reads when this view populated it first — and that pill needs the
+        // machine to decide whether `localhost:<port>` is the right server.
+        { fields: 'id,port,session_fk,terminal_number,started_at,machine_fk' },
     );
 
     // Scroll restore — visualizer-specific key so the saved position never

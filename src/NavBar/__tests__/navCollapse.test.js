@@ -2,6 +2,7 @@
 //
 // Req #2869 — navbar group-header collapse persistence + toggle logic.
 // Req #3209 — navbar item expand persistence + toggle logic.
+// Req #3590 — icon-only sidebar shows only what the full sidebar shows.
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
@@ -16,7 +17,9 @@ import {
     devCollapsedGroupsKey,
     groupForRoute,
     defaultCollapsedGroups,
+    iconModeLinks,
 } from '../navCollapse';
+import { NAV_GROUPS, NAV_LINKS } from '../navConfig';
 
 describe('navCollapse', () => {
     beforeEach(() => {
@@ -221,5 +224,59 @@ describe('navCollapse dev-server default (req #3589)', () => {
             localStorage.setItem(COLLAPSED_GROUPS_KEY, JSON.stringify({}));
             expect(loadCollapsedGroups(key, { swarm: true })).toEqual({ swarm: true });
         });
+    });
+});
+
+describe('iconModeLinks (req #3590)', () => {
+    const groups = [
+        { id: 'cal', label: '' },
+        { id: 'work', label: 'WORK' },
+        { id: 'swarm', label: 'SWARM' },
+    ];
+    const links = [
+        { path: '/calview', group: 'cal' },
+        { path: '/tasks', group: 'work' },
+        { path: '/swarm', group: 'swarm', children: [
+            { path: '/swarm/sessions', group: 'swarm' },
+            { path: '/swarm/starts', group: 'swarm' },
+        ] },
+        { path: '/swarm/epics', group: 'swarm' },
+    ];
+    const paths = (ls) => ls.map(l => l.path);
+
+    it('shows every L2 link but no L3 children by default', () => {
+        expect(paths(iconModeLinks(groups, links, {}, {})))
+            .toEqual(['/calview', '/tasks', '/swarm', '/swarm/epics']);
+    });
+
+    it('hides every link of a collapsed group', () => {
+        expect(paths(iconModeLinks(groups, links, { swarm: true }, {})))
+            .toEqual(['/calview', '/tasks']);
+    });
+
+    it('never hides an unlabelled group, even with a stray flag', () => {
+        expect(paths(iconModeLinks(groups, links, { cal: true }, {})))
+            .toEqual(['/calview', '/tasks', '/swarm', '/swarm/epics']);
+    });
+
+    it('shows L3 children right after their parent only while it is expanded', () => {
+        expect(paths(iconModeLinks(groups, links, {}, { '/swarm': true })))
+            .toEqual(['/calview', '/tasks', '/swarm', '/swarm/sessions', '/swarm/starts', '/swarm/epics']);
+    });
+
+    it('a collapsed group hides an expanded item\'s children too', () => {
+        expect(paths(iconModeLinks(groups, links, { swarm: true }, { '/swarm': true })))
+            .toEqual(['/calview', '/tasks']);
+    });
+
+    it('follows group order, not link order', () => {
+        const reordered = [groups[2], groups[0], groups[1]];
+        expect(paths(iconModeLinks(reordered, links, {}, {})))
+            .toEqual(['/swarm', '/swarm/epics', '/calview', '/tasks']);
+    });
+
+    it('with nothing collapsed or expanded, matches the real config\'s top-level links', () => {
+        const expected = NAV_GROUPS.flatMap(g => NAV_LINKS.filter(l => l.group === g.id));
+        expect(iconModeLinks(NAV_GROUPS, NAV_LINKS, {}, {})).toEqual(expected);
     });
 });

@@ -16,7 +16,7 @@ import {
     WITHHELD_ABSENT,
     WITHHELD_UNSPECIFIED,
 } from '../pipelineAdapter';
-import { buildCostIndex } from '../pipelineViewModel';
+import { buildCostIndex, buildSessionStatusIndex } from '../pipelineViewModel';
 import { composedFixture } from './pipelineComposedFixture';
 
 describe('deriveDiagnostic — the four regimes (req #3345 § 4.5 / #3367 deliverable 3)', () => {
@@ -148,7 +148,8 @@ describe('buildPlanRows — joining derived.rows[] back onto steps[]/epics[]/req
         // `top_up_eligible` is True, and both must survive the reshape.
         {
             id: 73, state: 'running', run: 'auto', eligible: false,
-            top_up_eligible: true, epic_id: 5,
+            top_up_eligible: true, gate_open: true, launch_candidate: true,
+            checkpoint_blocked_by: [70], epic_id: 5,
             dep_ids: [], out_of_scope_dep_ids: [], req_ids: [3003, 3004],
             tracking_req_ids: [], unresolved_req_ids: [], launch_req_ids: [3004],
             launch_excluded: [], launch_block: null,
@@ -187,6 +188,19 @@ describe('buildPlanRows — joining derived.rows[] back onto steps[]/epics[]/req
         expect(running.title).toBe('Topped Up');
         expect(running.epic).toBe('Swarm Cloned Git');
         expect(running.machineLabels).toEqual(['Mac mini']);
+    });
+
+    // req #3597 — the gate is REPORTED and candidacy is carried beside it; a
+    // payload without the fields reads as gate closed / not a candidate.
+    it('carries gate_open and launch_candidate, defaulting to false when absent', () => {
+        const running = rows.find((x) => x.id === 73);
+        expect(running.gateOpen).toBe(true);
+        expect(running.launchCandidate).toBe(true);
+        const legacy = rows.find((x) => x.id === 71);
+        expect(legacy.gateOpen).toBe(false);
+        expect(legacy.launchCandidate).toBe(false);
+        expect(running.checkpointBlockedBy).toEqual([70]);
+        expect(legacy.checkpointBlockedBy).toEqual([]);
     });
 
     it('joins the step dictionary for title/notes/completedAt', () => {
@@ -353,6 +367,17 @@ describe('adaptComposedPipeline — the plan object', () => {
         expect(plan.eligibleStepIds).toEqual(new Set([1]));
     });
 
+    // req #3597 — PRIORITY order is the fact, so it stays an ordered array.
+    it('carries launch_candidate_step_ids in its own order, defaulting to empty', () => {
+        expect(adaptComposedPipeline(payload).launchCandidateStepIds).toEqual([]);
+        const withCandidates = {
+            ...payload,
+            derived: { ...payload.derived, launch_candidate_step_ids: [2, 1] },
+        };
+        expect(adaptComposedPipeline(withCandidates).launchCandidateStepIds)
+            .toEqual([2, 1]);
+    });
+
     it('reshapes violations — invariant/message kept, step_ids -> stepIds', () => {
         const plan = adaptComposedPipeline(payload);
         expect(plan.violations).toEqual([
@@ -416,9 +441,54 @@ describe('buildPlanModel — the narrow model PipelinePlanVisualizer.jsx still r
         expect(model.requirements).toEqual(payload.requirements);
         expect(model.machines).toBe(machines);
         expect(model.features).toBeUndefined();
+        // req #3586 — the add-step dialog's epic picker.
+        expect(model.epics).toEqual(payload.epics);
     });
 
     it('tolerates a null payload', () => {
-        expect(buildPlanModel(null)).toEqual({ pipeline: null, requirements: [], machines: [] });
+        expect(buildPlanModel(null)).toEqual({ pipeline: null, requirements: [], machines: [], epics: [] });
+    });
+
+    it('attaches session_status from the index, no_session for a requirement it does not name (req #3584)', () => {
+        const payload = composedFixture({
+            requirements: [{ id: 1, requirement_status: 'met' },
+                { id: 2, requirement_status: 'swarm_ready' }],
+        });
+        const model = buildPlanModel(payload, [], new Map([[1, 'review']]));
+        expect(model.requirements.map((r) => r.session_status)).toEqual(['review', 'no_session']);
+        // The payload's own rows are not mutated.
+        expect(payload.requirements[0].session_status).toBeUndefined();
+    });
+
+    it('leaves rows untouched when there is no index — unknown, never "no session"', () => {
+        const payload = composedFixture({ requirements: [{ id: 1 }] });
+        expect(buildPlanModel(payload, [], null).requirements).toEqual(payload.requirements);
+    });
+});
+
+describe('buildSessionStatusIndex (req #3584)', () => {
+    it('reports each requirement\'s LATEST session — the highest session id', () => {
+        const index = buildSessionStatusIndex({
+            requirementSessions: [
+                { requirement_fk: 1, session_fk: 10 },
+                { requirement_fk: 1, session_fk: 12 },
+                { requirement_fk: 2, session_fk: '11' },
+                // A link to a session the read did not return contributes nothing.
+                { requirement_fk: 3, session_fk: 99 },
+            ],
+            sessions: [
+                { id: 10, swarm_status: 'completed' },
+                { id: 11, swarm_status: 'paused' },
+                { id: 12, swarm_status: 'active' },
+            ],
+        });
+        expect(index.get(1)).toBe('active');
+        expect(index.get(2)).toBe('paused');
+        expect(index.has(3)).toBe(false);
+    });
+
+    it('is null until both reads have settled', () => {
+        expect(buildSessionStatusIndex({ ready: false })).toBeNull();
+        expect(buildSessionStatusIndex({}).size).toBe(0);
     });
 });

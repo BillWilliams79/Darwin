@@ -99,6 +99,14 @@ export const PLAN_VIZ_PALETTE = {
     pendingRing: '#5b729355',
     manualRing: '#ff9bf5',
     eligibleRing: '#7ee08a',
+    // The run-mode pill (req #3580, user directive: "green auto and blue
+    // manual"). Its own entries — a control's colours, not the bead's — and
+    // deliberately NOT `eligibleRing` or `badgeFill`: the eligible ring means
+    // "may launch now" and the count badge sits on the same line, so either
+    // green reused would make the pill read as one of those. Dark panel text
+    // on both (8.9:1 and 6.2:1).
+    runAuto: '#4ade80',
+    runManual: '#4d9bff',
     // The pause status bubble's two colours (req #3226) — a NEW channel
     // (SCOPE: is this band's launch suppressed?), so neither reuses an
     // existing entry outright even where a hue is nearby, to avoid the bubble
@@ -386,6 +394,8 @@ export const reqStatusColor = (status) => (Object.hasOwn(REQ_STATUS_COLORS, stat
 //
 //   State (the default):  Authoring → Met     — `REQ_STATUS_ORDER` itself,
 //                                                the legend's own reading order.
+//   Session:               no session → completed — `SESSION_STATUS_ORDER`
+//                                                (req #3584).
 //   Autonomy:              Discuss → Deployed  — `AUTONOMY_ORDER` itself.
 //   Machine:                its own order       — ascending `machine_fk`, the
 //                                                same ascending-id order
@@ -420,12 +430,15 @@ const UNPINNED_MACHINE_RANK = Number.MAX_SAFE_INTEGER;
  * @param {Object} args
  * @param {string} [args.colorKey]                    a REQ_COLOR_KEYS value
  * @param {(id: number) => ?string} [args.statusOf]    id -> requirement_status
+ * @param {(id: number) => ?string} [args.sessionOf]   id -> session_status
  * @param {(id: number) => ?string} [args.autonomyOf]  id -> coordination_type
  * @param {(id: number) => ?number} [args.machineOf]   id -> machine_fk
  * @returns {number}
  */
-export function reqSortRank(reqId, { colorKey, statusOf, autonomyOf, machineOf } = {}) {
+export function reqSortRank(reqId,
+    { colorKey, statusOf, sessionOf, autonomyOf, machineOf } = {}) {
     const key = normalizeColorKey(colorKey);
+    if (key === 'session') return rankInOrder(SESSION_STATUS_ORDER, sessionOf?.(reqId));
     if (key === 'autonomy') return rankInOrder(AUTONOMY_ORDER, autonomyOf?.(reqId));
     if (key === 'machine') {
         const m = machineOf?.(reqId);
@@ -626,6 +639,55 @@ export const AUTONOMY_UNKNOWN_COLOR = REQ_STATUS_UNKNOWN_COLOR;
 export const autonomyColor = (ct) => (Object.hasOwn(AUTONOMY_COLORS, ct)
     ? AUTONOMY_COLORS[ct] : AUTONOMY_UNKNOWN_COLOR);
 
+// ── Requirement-id scale 4: SESSION STATUS (the 'session' key, req #3584) ──
+// `swarm_sessions.swarm_status` of the requirement's LATEST session — what is
+// actually happening to the work right now, which the requirement's own
+// status cannot say: `development` covers a session that is planning, one
+// that is waiting on the user, one parked in `paused` and one sitting in
+// `review`. User directive: *"the session tracks what is happening actually.
+// so that should be a color option in the pipeline visualizer"*.
+//
+// `no_session` is a real member, not the unknown swatch: a requirement no
+// session has ever reached is a FACT about the plan (nothing launched it),
+// where unknown means this build cannot say. It is only ever written once the
+// session reads have SETTLED — see `buildSessionStatusIndex` — so a slow or
+// failed read paints unknown rather than claiming nothing ran.
+//
+// Design rule 9 ("requirement-centric views carry NO session data") is about
+// a requirement list turning into a session list. This scale adds one value
+// PER REQUIREMENT on a channel the requirement already owns — no session
+// identity, row or phase is drawn — so the view stays requirement-centric.
+//
+// Key order: the session lifecycle, `no_session` first because it precedes
+// launch.
+export const SESSION_STATUS_ORDER = [
+    'no_session', 'starting', 'waiting', 'planning', 'active',
+    'review', 'paused', 'completing', 'completed',
+];
+
+// Signal's session scale. Three members TRACK colours that already mean the
+// same thing elsewhere on this panel, by reference for `REQ_STATUS_COLORS`'
+// reason: `waiting` is the human-speaks-first stop (`discuss`), `active` is
+// Running, `completed` is GO/met.
+export const SESSION_STATUS_COLORS = {
+    no_session: '#9e9e9e',                  // grey — nothing launched it
+    starting: REQ_STATUS_COLORS.swarm_ready, // blue — launching
+    waiting: AUTONOMY_COLORS.discuss,        // hot magenta — waiting on a human
+    planning: AUTONOMY_COLORS.implemented,   // violet — building a plan
+    active: PLAN_VIZ_PALETTE.runningRing,    // amber — working
+    review: '#ff9800',                       // orange — stopped for review
+    paused: '#e0a3a3',                       // dusty rose — parked
+    completing: '#6ee7e7',                   // cyan — closing out
+    completed: AUTONOMY_COLORS.deployed,     // green — done
+};
+
+// A session status this build does not know, or a requirement whose session
+// reads have not loaded. Same swatch as the other unknowns, for their reason —
+// and because that is a routine state on every page load, every theme's
+// session members are held ≥ ΔE 20 from it (tested), so "not loaded yet" never
+// reads as "nothing launched".
+export const SESSION_UNKNOWN_COLOR = REQ_STATUS_UNKNOWN_COLOR;
+
 // ════════════════════════════════════════════════════════════════════════════
 // PALETTE THEMES (req #3365 user directive)
 // ════════════════════════════════════════════════════════════════════════════
@@ -665,7 +727,7 @@ export const autonomyColor = (ct) => (Object.hasOwn(AUTONOMY_COLORS, ct)
 //
 // So restraint is carried by SATURATION, not by collapsing the hues. Measured
 // mean HSL saturation across all three scales: **Signal 0.836, Slate 0.350,
-// Aurora 0.828** — Slate is under half the default's chroma and keeps its hue
+// Aurora 0.821** — Slate is under half the default's chroma and keeps its hue
 // separation, which is what makes it legible AND calm. `aurora` is deliberately
 // as saturated as the default: "modern" is a different axis from "restrained",
 // and offering two calm themes would be one theme with two names. Every scale
@@ -688,6 +750,7 @@ export const PLAN_PALETTES = [
         epic: EPIC_PALETTE,
         status: REQ_STATUS_COLORS,
         autonomy: AUTONOMY_COLORS,
+        session: SESSION_STATUS_COLORS,
     },
     {
         key: 'slate',
@@ -716,22 +779,48 @@ export const PLAN_PALETTES = [
             implemented: '#8c9fc4',
             deployed:    '#7fb08c',
         },
+        // req #3584. MEASURED minimum ΔE 22.7 (`paused`/`completed`); every
+        // member ≥ 22.8 from SESSION_UNKNOWN_COLOR.
+        session: {
+            no_session:  '#c0c0c0',
+            starting:    '#8aa8e6',
+            waiting:     '#c4849c',
+            planning:    '#ab84c4',
+            active:      '#d4b35c',
+            review:      '#cf8050',
+            paused:      '#a0a070',
+            completing:  '#6fd0c4',
+            completed:   '#8fbf7a',
+        },
     },
     {
         key: 'aurora',
         label: 'Aurora',
         tip: 'Aurora — a modern dark-UI palette: teal through indigo and violet, '
-            + 'with the status scale a cool-to-warm walk rather than a stoplight.',
+            + 'with in-progress work in yellow-green, on the way to green.',
         epic: ['#5eead4', '#818cf8', '#f0abfc', '#fcd34d'],
-        // COOL TO WARM as the work advances, so the scale reads as heat rather
-        // than as a set of labels — the "not a stoplight" the directive asked
-        // for, arrived at by ordering rather than by muting. `deferred` and
-        // `wontfix` leave the walk for Slate's reason.
+        // Not a stoplight — the directive's ask, met by hue choice rather than
+        // by muting. `deferred` and `wontfix` sit off the lifecycle for
+        // Slate's reason.
+        //
+        // `development` is YELLOW-GREEN (req #3588 user directive: *"the
+        // difference between swarm-start and dev in the visualizer should be
+        // more obvious. currently it is swarm ready blue and dev light blue.
+        // its too subtle"*, then *"swarm-ready is blue and met is green"* →
+        // *"try yellow green"* → *"make it more yellow"*). The old teal `#5eead4` was the blue-to-green
+        // midpoint, inside `swarm_ready`'s own cyan family — ΔE 27.7, clearing
+        // the floor of 20 while reading as one colour at a glance. Lime
+        // approaches green from the WARM side instead, so it reads as "on the
+        // way to green" without touching the blue. Hue 68° — pushed yellower
+        // than lime's 83° on the user's call, and held there because the next
+        // step toward yellow closes on `deferred` (`#fcd34d`, 45°). MEASURED
+        // ΔE 30.2 from `deferred` (its nearest neighbour), 52.6 from `met`,
+        // contrast 12.36:1.
         status: {
             authoring:   '#818cf8',
             approved:    '#38bdf8',
             swarm_ready: '#22d3ee',
-            development: '#5eead4',
+            development: '#cfe635',
             met:         '#a3e635',
             deferred:    '#fcd34d',
             wontfix:     '#94a3b8',
@@ -741,6 +830,24 @@ export const PLAN_PALETTES = [
             planned:     '#c4b5fd',
             implemented: '#7dd3fc',
             deployed:    '#4ade80',
+        },
+        // req #3584 — THE LIVE session scale. `waiting`/`active`/`completed`
+        // are assigned in the aurora patch below (tracking, for Signal's
+        // reason). MEASURED minimum ΔE 27.0
+        // (`starting`/`planning`), minimum contrast 5.79:1. `no_session` is a
+        // LIGHT neutral, not aurora's mid slate: it must not read as the
+        // unknown swatch every mark wears while the session reads load (every
+        // member ≥ 32.2 ΔE from it). Since req #3588 `active` (tracking
+        // `status.development`) is yellow-green, the one working state on the
+        // warm side — it is "on the way to" `completed`'s green, ΔE 52.6, and
+        // ΔE 30.2 from `review`'s yellow.
+        session: {
+            no_session:  '#cbd5e1',
+            starting:    '#818cf8',
+            planning:    '#c4b5fd',
+            review:      '#fcd34d',
+            paused:      '#fb923c',
+            completing:  '#38bdf8',
         },
     },
 ];
@@ -770,13 +877,17 @@ export const PLAN_PALETTES = [
 // DELIBERATELY NOT patched to `PLAN_VIZ_PALETTE.runningRing` here — doing so
 // collides with aurora's own `deferred` (`#fcd34d` vs `#ffd769`, measured ΔE
 // 10.4, under the 20 floor this file holds every scale to) and the user has
-// not been asked which of the two should move. `swarm_ready`/`deferred`/
+// not been asked which of the two should move; it is aurora's own literal
+// yellow-green instead (req #3588, see the registry entry). `swarm_ready`/`deferred`/
 // `wontfix` stay aurora's own literal values, matching Signal's identical
 // exemption.
 const auroraPalette = PLAN_PALETTES.find((p) => p.key === 'aurora');
 auroraPalette.status.authoring = auroraPalette.autonomy.discuss;
 auroraPalette.status.approved = auroraPalette.autonomy.planned;
 auroraPalette.status.met = auroraPalette.autonomy.deployed;
+auroraPalette.session.waiting = auroraPalette.autonomy.discuss;
+auroraPalette.session.active = auroraPalette.status.development;
+auroraPalette.session.completed = auroraPalette.autonomy.deployed;
 
 export const PLAN_PALETTE_KEYS = PLAN_PALETTES.map((p) => p.key);
 // AURORA, on the user's own directive after seeing all three on the live plan.
@@ -1032,8 +1143,9 @@ function buildEnumColorView({
     };
 }
 
-// The registry. ORDER IS THE TOOLBAR'S ORDER, and it is STATE, AUTONOMY,
-// MACHINE (req #3365 user directive). It was state, machine, autonomy — the
+// The registry. ORDER IS THE TOOLBAR'S ORDER, and it is STATE, SESSION,
+// AUTONOMY, MACHINE (req #3365 user directive; Session inserted second by req
+// #3584's). It was state, machine, autonomy — the
 // two original scales first so a reader's muscle memory for the chip positions
 // survived autonomy's arrival at req #3422. That reason has expired: the chips
 // have moved, so the muscle memory being protected is the memory of an order
@@ -1065,6 +1177,30 @@ export const REQ_COLOR_SCALES = [
             // 'swarm_ready' reads as two words on the key and as one in the
             // database. The key is for a person.
             labelOf: (v) => v.replace('_', '-'),
+        }),
+    },
+    // SECOND, directly after State (req #3584 user directive: "that could be
+    // the second in the list after state") — the requirement's status, then
+    // what its session is doing about it.
+    {
+        key: 'session',
+        chipLabel: 'Session',
+        chipTip: 'Colour the requirement marks by the STATUS of their latest swarm '
+            + 'session — click again for none',
+        chipName: 'Session — colour the requirement marks by session status',
+        keyTitle: 'Requirement id = session',
+        // Reads `session_status`, which `buildPlanModel` attaches to each
+        // requirement row from the session reads — the composed plan read
+        // carries no session data of its own.
+        build: ({ requirements, presentReqIds, pal = planPalette() }) => buildEnumColorView({
+            requirements,
+            presentReqIds,
+            field: 'session_status',
+            colors: pal.session,
+            order: SESSION_STATUS_ORDER,
+            paint: (v) => (Object.hasOwn(pal.session, v)
+                ? pal.session[v] : SESSION_UNKNOWN_COLOR),
+            labelOf: (v) => v.replace('_', ' '),
         }),
     },
     {
@@ -1736,6 +1872,7 @@ export const CARD_CHECK_W = 13 * CARD_TYPE_SCALE;
 // px given back here is a world px the title gets to keep.
 export const CARD_STEP_LINK_W = CARD_CHECK_W;
 
+
 // ── THE TOTAL REQUIREMENT COUNT, AS A BADGE LEFT OF THE TITLE (req #3503,
 // user directive: "add a count badge to the left of the title — use that
 // green count badge we had before") ─────────────────────────────────────
@@ -1768,6 +1905,29 @@ export const CARD_BADGE_GAP = CHW_REQ;
 // single-text-row metric `REQ_TEXT_H` measures. `− 4` leaves 2 world px of
 // margin top and bottom so the pill's round cap clears the line box.
 export const CARD_BADGE_H = CARD_LINE_H - 4;
+
+// ── THE RUN-MODE PILL (req #3580, user directives: "have a display circle for
+// step's manual vs auto and let that be a configurable button in the UI", then
+// "make it say auto or manual and be green auto and blue manual") ──────────
+// Left of the ↗, reserved out of the step name's budget exactly the way the ✓
+// and the link button are, so a long title never draws under it. It carries the
+// WORD, so it is sized for the longer of the two — one fixed width, so the pill
+// does not change size (and the title's room does not move) when it is toggled.
+// The same height as the count badge on the other end of the line, so the two
+// pills read as one row.
+//
+// THE COST, stated: the word takes about three more characters of each title
+// line than the bare A/M circle it replaced.
+// The word is set at 80% of the requirement-row type (`CARD_RUN_FONT`, below
+// `CARD_FONT`), so its glyph width is that same fraction of the row's.
+const CARD_RUN_TYPE_RATIO = 0.8;
+export const CARD_RUN_WORDS = { auto: 'auto', manual: 'manual' };
+const CHW_RUN = CHW_REQ * CARD_RUN_TYPE_RATIO;
+const CARD_RUN_PAD_X = 5 * CARD_TYPE_SCALE;
+export const CARD_RUN_W = Math.ceil(
+    Math.max(...Object.values(CARD_RUN_WORDS).map((w) => w.length)) * CHW_RUN
+    + 2 * CARD_RUN_PAD_X);
+export const CARD_RUN_H = CARD_BADGE_H;
 // The digit's own font size — the TITLE's size, not the row glyph's (round
 // 1's choice, and part of why round 2 was needed): the badge sits beside
 // the title on its own line, not among the requirement rows below, and
@@ -1842,7 +2002,14 @@ export const cardChars = (chw, reserve = 0, textW = CARD_TEXT_W) =>
 // It was TWO while the line held 47 characters. The line is 28 now (see
 // `CARD_TEXT_CHARS`), so three lines carry 84 characters where two carried 94 —
 // close to the same title, at half again the on-screen size.
+//
+// Since req #3575 the second and third lines HANG past the id column, so a row
+// with a 4-digit id carries 28 + 21 + 21 = 70 characters, not 84 — the price of
+// a left edge holding nothing but ids.
 export const REQ_MAX_LINES = 3;
+
+// The narrowest continuation line a hanging indent may leave (req #3575).
+export const REQ_MIN_HANG_CHARS = 8;
 
 /**
  * Break one row's text into at most `REQ_MAX_LINES` lines of `maxChars`.
@@ -1854,23 +2021,36 @@ export const REQ_MAX_LINES = 3;
  *
  * The LAST line it produces is the only one that may carry an ellipsis, and it
  * carries one only when text was actually dropped — `truncate`'s own rule.
+ *
+ * `indent` is a HANGING INDENT (req #3575, user directive: *"a clear column at
+ * the left edge occupied only by the requirement number and the titles will
+ * wrap but stay out of the column"*). Every line after the first starts with
+ * that many spaces and is budgeted at `maxChars - indent`, so the whole line
+ * still fits the same column. The font is mono, so spaces ARE the column. An
+ * indent that would leave a continuation line too narrow to carry a word is
+ * dropped rather than honoured — a column of ids is not worth a title broken
+ * one character per line (`REQ_MIN_HANG_CHARS`).
  */
-export function wrapReqText(text, maxChars, maxLines = REQ_MAX_LINES) {
+export function wrapReqText(text, maxChars, maxLines = REQ_MAX_LINES, indent = 0) {
     const full = String(text == null ? '' : text);
     if (full.length <= maxChars) return [full];
+    const hang = maxChars - indent >= REQ_MIN_HANG_CHARS ? Math.max(0, indent) : 0;
+    const pad = ' '.repeat(hang);
     const lines = [];
     let rest = full;
     while (rest.length > 0 && lines.length < maxLines) {
+        const room = lines.length === 0 ? maxChars : maxChars - hang;
+        const lead = lines.length === 0 ? '' : pad;
         if (lines.length === maxLines - 1) {
-            lines.push(truncate(rest, maxChars));
+            lines.push(lead + truncate(rest, room));
             rest = '';
             break;
         }
-        if (rest.length <= maxChars) { lines.push(rest); rest = ''; break; }
+        if (rest.length <= room) { lines.push(lead + rest); rest = ''; break; }
         // The last space that still fits, so the break lands between words.
-        const cut = rest.lastIndexOf(' ', maxChars);
-        const at = cut > 0 ? cut : maxChars;
-        lines.push(rest.slice(0, at));
+        const cut = rest.lastIndexOf(' ', room);
+        const at = cut > 0 ? cut : room;
+        lines.push(lead + rest.slice(0, at));
         rest = rest.slice(cut > 0 ? at + 1 : at);
     }
     return lines;
@@ -1925,6 +2105,8 @@ export const CARD_FONT = {
     title: PLAN_VIZ_FONT.title * CARD_TYPE_SCALE,
     check: PLAN_VIZ_FONT.check * CARD_TYPE_SCALE,
 };
+// req #3580 — the run pill's word; see `CARD_RUN_W`.
+export const CARD_RUN_FONT = CARD_FONT.req * CARD_RUN_TYPE_RATIO;
 
 export const BEAD_RADIUS = BEAD_R;
 
@@ -2354,7 +2536,9 @@ export function drawsLabelKind(kind, level) {
     // `badge` and `step-link` ride the CARD (req #3498, extended req #3503) —
     // both are drawn in the title area, so they appear exactly where the card
     // does and never float beside a bare bead.
-    if (kind === 'step' || kind === 'req' || kind === 'badge' || kind === 'step-link') {
+    // `run` (req #3580) is the third title-area control and rides the card too.
+    if (kind === 'step' || kind === 'req' || kind === 'badge' || kind === 'step-link'
+        || kind === 'run') {
         return level !== 'out';
     }
     if (kind === 'title') return level === 'in';
@@ -2781,7 +2965,8 @@ const truncate = (s, n) => {
 // `STEP_LABEL_MAX`: one width, measured where it is drawn, so there is no cap
 // left to drift out of step with the room.
 export function stepLabelText(row, stepLabel,
-    maxChars = cardChars(CHW_LABEL, CARD_CHECK_W + CARD_STEP_LINK_W + CARD_BADGE_W + CARD_BADGE_GAP)) {
+    maxChars = cardChars(CHW_LABEL, CARD_CHECK_W + CARD_STEP_LINK_W + CARD_RUN_W
+        + CARD_BADGE_W + CARD_BADGE_GAP)) {
     return stepLabel === 'title'
         ? truncate(row.title || `step ${row.id}`, Math.max(4, maxChars))
         : String(row.id);
@@ -2821,8 +3006,9 @@ const titleLookup = (reqTitles, reqId) => {
  * always true.
  */
 export function reqLabelText(reqId, { reqLabel = 'id', reqTitles = null,
-    maxChars = cardChars(CHW_REQ) } = {}) {
-    if (reqLabel !== 'title') return String(reqId);
+    reqPills = null, maxChars = cardChars(CHW_REQ) } = {}) {
+    const prefix = reqPillPrefix(reqId, reqPills).text;
+    if (reqLabel !== 'title') return prefix;
     const t = titleLookup(reqTitles, reqId);
     // The id rides ALONGSIDE the title, not instead of it (user directive) — an
     // id-only mark reading "3242" gives no hint what's under it without a
@@ -2831,8 +3017,61 @@ export function reqLabelText(reqId, { reqLabel = 'id', reqTitles = null,
     // the bare id below, so the id survives the cut and the title is what
     // gives way on a tight column — the id is the one piece of this string a
     // reader can always resolve to the actual requirement.
-    return t ? truncate(`${reqId} - ${t}`, Math.max(4, maxChars))
-        : String(reqId);
+    return t ? truncate(`${prefix} - ${t}`, Math.max(4, maxChars))
+        : prefix;
+}
+
+// ── THE TERMINAL AND DEV-SERVER PILLS (req #3587) ───────────────────────────
+// *"If a requirement has a dev server or terminal show those pills in the
+// visualizer so: 3572 Terminal 2 3002 - Title"*. The two tokens are part of the
+// row's TEXT, between the id and the title, and the renderer draws a pill
+// behind each one. That is the whole design, and it is why the pills need no
+// geometry of their own: the wrap, the card height, the zero-overlap sweep and
+// the hover box all measure them as the characters they are, so nothing this
+// module proves about a row's box has to be re-proved for them.
+//
+// TWO SPACES between tokens, so a pill's padding (drawn by the renderer, inside
+// the gap) leaves clear air between neighbours. A NO-BREAK SPACE inside
+// "Terminal 2", because `wrapReqText` breaks on ' ' and a pill split across two
+// lines is not a pill.
+//
+// The lookup is an ARGUMENT, never a row field — `reqTitles`' reasoning above:
+// session state is display data the engine's PlanRows must not carry. Entries
+// are `{terminal: {label}, devServer: {port}}` (`planReqPills.js` builds them);
+// the layout reads only those two strings.
+export const REQ_PILL_SEP = '  ';
+const NBSP = '\u00a0';
+const pillLookup = (reqPills, reqId) => {
+    if (!reqPills) return null;
+    if (typeof reqPills.get === 'function') return reqPills.get(reqId) || null;
+    return Object.hasOwn(reqPills, reqId) ? reqPills[reqId] : null;
+};
+
+/**
+ * The id plus its pill tokens, and WHERE each token sits in that string.
+ *
+ * @returns {{text: string, pills: Array<{kind: ('terminal'|'devserver'),
+ *            start: number, len: number}>}}  `start`/`len` are character
+ *            offsets into `text` — and so into the row's first line, which
+ *            always begins with this prefix.
+ */
+export function reqPillPrefix(reqId, reqPills) {
+    const p = pillLookup(reqPills, reqId);
+    const tokens = [];
+    if (p?.terminal?.label) {
+        tokens.push({ kind: 'terminal', text: String(p.terminal.label).replace(/ /g, NBSP) });
+    }
+    if (p?.devServer?.port != null && p.devServer.port !== '') {
+        tokens.push({ kind: 'devserver', text: String(p.devServer.port) });
+    }
+    let text = String(reqId);
+    const pills = [];
+    for (const t of tokens) {
+        text += REQ_PILL_SEP;
+        pills.push({ kind: t.kind, start: text.length, len: t.text.length });
+        text += t.text;
+    }
+    return { text, pills };
 }
 
 const reqStr = (row) => (row.reqIds || []).join(' ');
@@ -2859,11 +3098,20 @@ const reqStr = (row) => (row.reqIds || []).join(' ');
 //                                    to leave every band's plain name alone
 // @returns {string}
 function epicBandLabelText(epicId, epicName, epicCounts) {
-    if (!epicCounts || epicId == null) return epicName;
+    const countText = epicBandCountText(epicId, epicCounts);
+    return countText ? `${epicName} ${countText}` : epicName;
+}
+
+// req #3580 — the SAME suffix on its own, so the chip can draw the closure
+// count as its own element (it is a zoom control; the name beside it is an
+// in-place editor). `epicBandLabelText` above is built FROM this, so the
+// measured label and the two drawn pieces can never disagree.
+function epicBandCountText(epicId, epicCounts) {
+    if (!epicCounts || epicId == null) return null;
     const counts = typeof epicCounts.get === 'function'
         ? epicCounts.get(epicId)
         : (Object.hasOwn(epicCounts, epicId) ? epicCounts[epicId] : null);
-    return counts ? `${epicName} ${counts.met}/${counts.total}` : epicName;
+    return counts ? `${counts.met}/${counts.total}` : null;
 }
 
 /**
@@ -2881,6 +3129,9 @@ function epicBandLabelText(epicId, epicName, epicCounts) {
  *                             req #3498 — a card stacks its requirements and is
  *                             a fixed width, so neither had anything to select.
  * @param {(Map|Object)} [opts.reqTitles]    requirement id -> title, for 'title'
+ * @param {(Map|Object)} [opts.reqPills]     req #3587 — requirement id ->
+ *                             `{terminal: {label}, devServer: {port}}`, drawn as
+ *                             pills between the id and the title
  * @param {('id'|'title')} [opts.stepLabel]  what the card's TITLE AREA says
  * @param {?Object} [opts.timeAxis]  planTimeAxis() output (req #3201). Omitted,
  *                             the axis degenerates to pure dependency depth and
@@ -2915,6 +3166,9 @@ export function computePlanLayout(rows, opts = {}) {
         stepLabel = 'id',
         reqLabel = 'id', reqTitles = null, timeAxis = null, epicCounts = null,
         pauseInfo = null,
+        // req #3587 — requirement id -> {terminal, devServer}; see
+        // `reqPillPrefix`. Null leaves every row reading exactly as before.
+        reqPills = null,
         // req #3503 — "Step Width". A relayout, deliberately: the ladder's own
         // four rungs (`STEP_WIDTH_SCALES`) are the only legal values, and the
         // caller is what turns an out-of-range number into the default rather
@@ -2962,10 +3216,15 @@ export function computePlanLayout(rows, opts = {}) {
     const rowLinesOf = new Map();      // step id -> [[line, line?], …]
     for (const r of safeRows) {
         const ids = r.reqIds || [];
+        // The HANGING INDENT (req #3575): a wrapped title's continuation lines
+        // start where `${id} - ` ends, so the left edge holds the ids alone. It
+        // is the BARE id's width even on a row carrying pills — hanging under a
+        // pill row's title start would leave three characters a line — so every
+        // row's continuations line up on the one title column.
         rowLinesOf.set(r.id, ids.map((reqId) => wrapReqText(
             reqLabelText(reqId, {
-                reqLabel, reqTitles, maxChars: reqRowMax * REQ_MAX_LINES,
-            }), reqRowMax)));
+                reqLabel, reqTitles, reqPills, maxChars: reqRowMax * REQ_MAX_LINES,
+            }), reqRowMax, REQ_MAX_LINES, String(reqId).length + CARD_SEP_CHARS)));
     }
     const reqBlockOf = (r) => reqBlockHeight(rowLinesOf.get(r.id) || []);
     // The card's TITLE AREA, wrapped by the same rule and reserved the same way.
@@ -2973,7 +3232,8 @@ export function computePlanLayout(rows, opts = {}) {
     // count) and `wrapReqText` breaks it; a short name still returns one line,
     // so only the cards that need the room pay for it.
     const nameBudget = cardChars(CHW_LABEL,
-        CARD_CHECK_W + CARD_STEP_LINK_W + CARD_BADGE_W + CARD_BADGE_GAP, cardTextW);
+        CARD_CHECK_W + CARD_STEP_LINK_W + CARD_RUN_W + CARD_BADGE_W + CARD_BADGE_GAP,
+        cardTextW);
     const nameLinesOf = new Map();
     for (const r of safeRows) {
         nameLinesOf.set(r.id, wrapReqText(
@@ -3112,6 +3372,7 @@ export function computePlanLayout(rows, opts = {}) {
                 // req #3225 — the SAME string measures the zero-overlap label
                 // rect and the floating chip; see the helper's own comment.
                 epicLabel: epicBandLabelText(key, epic, epicCounts),
+                epicCountText: epicBandCountText(key, epicCounts),
                 paused: bandPausedOf(key),
                 steps: [],
             });
@@ -3848,6 +4109,12 @@ export function computePlanLayout(rows, opts = {}) {
             x: titleTextLeft,
             y: n.top + CARD_PAD_Y,
             w: lw, h: nameLines.length * CARD_LINE_H,
+            // req #3580 — the WHOLE room the name may occupy (up to the run
+            // pill's reserve), which is where the in-place editor is drawn.
+            // Not `w`: that is the drawn text's own width, and an editor sized
+            // to a short name would have no room to type a longer one.
+            editW: n.right - CARD_PAD_X - CARD_CHECK_W - CARD_STEP_LINK_W
+                - CARD_RUN_W - titleTextLeft,
         });
         const ids = r.reqIds || [];
         // ── THE REQUIREMENT ROWS, TOP TO BOTTOM, IN ORDER ───────────────────
@@ -3893,8 +4160,17 @@ export function computePlanLayout(rows, opts = {}) {
         // strict subset of space the first sweep already proved empty.
         let idRowY = rowsTop;
         rowLines.forEach((lines, i) => {
+            // A prefix too long for the first line (never at a real card
+            // width — `id  Terminal NN  PORT` is 23 characters against a 28
+            // character line) degrades to the bare id rather than drawing an
+            // id string wider than the box the overlap sweep measured.
+            const fullPrefix = reqPillPrefix(ids[i], reqPills);
+            const prefix = fullPrefix.text.length <= lines[0].length
+                ? fullPrefix : { text: String(ids[i]), pills: [] };
             const w = Math.max(...lines.map((l) => l.length)) * CHW_REQ;
-            const t = lines.join(' ');
+            // Joined WITHOUT the hanging indent's padding (req #3575) — the
+            // indent is how the row is drawn, not part of what it says.
+            const t = lines.map((l, k) => (k ? l.trimStart() : l)).join(' ');
             const thisY = rowY;
             const thisIdY = idRowY;
             // The next row starts below THIS row's lines plus the between-rows
@@ -3928,8 +4204,14 @@ export function computePlanLayout(rows, opts = {}) {
                 // it would move every card on the plan as the reader zoomed.
                 // Both strings are left-anchored at the same x and the id is
                 // strictly narrower, so it cannot leave a box the title fits.
-                idText: String(ids[i]),
-                idW: String(ids[i]).length * CHW_REQ,
+                // req #3587 — the id CARRIES its pill tokens at L1/L2 too, so a
+                // live terminal or dev server is visible at every level the
+                // card is drawn, not only once the reader has zoomed to L3.
+                idText: prefix.text,
+                idW: prefix.text.length * CHW_REQ,
+                // The pills' character ranges on the FIRST line, which both
+                // texts above begin with (guaranteed by the fallback above).
+                pills: prefix.pills,
                 // The RENDERER picks this instead of `y` at L1/L2 (`!showTitle`)
                 // — see the block comment above `idRowY`.
                 idY: thisIdY,
@@ -3985,6 +4267,24 @@ export function computePlanLayout(rows, opts = {}) {
                 x: n.right - CARD_PAD_X - CARD_CHECK_W - CARD_STEP_LINK_W,
                 y: n.top + CARD_PAD_Y,
                 w: CARD_STEP_LINK_W, h: REQ_TEXT_H,
+            });
+        }
+        // ── THE RUN-MODE PILL (req #3580) ────────────────────────────────────
+        // Left of the ↗, in the room `CARD_RUN_W` reserved out of the step
+        // name's budget. Emitted for every card: run mode is a fact about every
+        // step, and the pill is also the control that changes it. The text is
+        // the word drawn inside; the renderer draws it as an HTML overlay, the
+        // badge's own move, because it is a button.
+        {
+            labels.push({
+                kind: 'run', stepId: r.id,
+                text: CARD_RUN_WORDS[r.run === 'manual' ? 'manual' : 'auto'],
+                run: r.run === 'manual' ? 'manual' : 'auto',
+                prose: false,
+                x: n.right - CARD_PAD_X - CARD_CHECK_W - CARD_STEP_LINK_W - CARD_RUN_W,
+                // The count badge's own y — the two pills share the line.
+                y: n.top + CARD_PAD_Y + 1,
+                w: CARD_RUN_W, h: CARD_RUN_H,
             });
         }
         // ── THE STEP'S OWN TITLE, ON THE L3 LINE ────────────────────────────
@@ -4639,6 +4939,11 @@ export function placeEpicChips({
             key: band.key == null ? 'none' : band.key,
             epicId: band.epicId,
             text: bandText,
+            // req #3580 — `text` split into its two drawn pieces: the NAME (an
+            // in-place editor) and the closure COUNT (a zoom control), each its
+            // own element. `text` stays the measured whole.
+            name: band.epic,
+            countText: band.epicCountText ?? null,
             color: band.color,
             // The band itself, so a click can fit it (req #3204). Carried rather
             // than re-looked-up by key: `band.key` is null for the "No epic"
