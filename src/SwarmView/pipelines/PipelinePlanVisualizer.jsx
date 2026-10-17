@@ -152,7 +152,7 @@ import {
     // req #3580 — the run pill's word and type.
     CARD_RUN_FONT, CARD_RUN_WORDS,
     buildReqColorViews, REQ_COLOR_KEYS, reqIdStyle, reqIdKeyEntries, normalizeColorKey,
-    DEFAULT_PLAN_PALETTE, isPlanPalette,
+    DEFAULT_PLAN_PALETTE, isPlanPalette, planPalette,
     DEFAULT_COLOR_KEY, PLAN_KEY_MAX_H, pinnedLevelOf, DEFAULT_PLAN_LEVEL_PREF,
     DEFAULT_STEP_WIDTH_LEVEL,
     EPIC_PAUSE_BUBBLE_D, pauseBubbleColor, stickyRulerY, rulerScreenBottom,
@@ -190,6 +190,14 @@ import {
     edgePanVelocity,
 } from './pipelineReqDrag';
 import { viewportStorageKey, writeViewport } from '../../utils/viewportMemory';
+// req #3583 — the swarm-ready, not-orchestrated box and its drop-to-seat. The
+// contexts, snackbar, query keys and `moveStepRequirement` are req #3581's,
+// imported above.
+import UnorchestratedReqBox from './UnorchestratedReqBox';
+import { useUnorchestratedRequirements } from './useUnorchestratedRequirements';
+import {
+    UNSEATED_REQ_MIME, resolveSeatDrop, screenRectOf, unseatedBoxFontPx,
+} from './pipelineUnseated';
 import '../../CalendarFC/swarmVisualizer.css';
 // req #3580 — in-place edit. The SAME mutation helpers the Epics and Steps
 // editors use (one gateway path per table); contexts, snackbar and query keys
@@ -757,6 +765,23 @@ export default function PipelinePlanVisualizer({
     const [size, setSize] = useState({ w: 0, h: 0 });
     const [transform, setTransform] = useState(null);
     const [card, setCard] = useState(null);   // {x, y, kind: 'step'|'req', ...}
+
+    // ── The swarm-ready, not-orchestrated box (req #3583) ───────────────────
+    // `unseatDragId` is the box row in the air (it greys out), `seatTarget` the
+    // step card under the cursor (`{stepId, ok}`, outlined), and `pendingSeats`
+    // the rows already dropped whose write or refetch has not landed — hidden
+    // from the box at once so a drop never shows the row snapping back.
+    // (`darwinUri`/`idToken`/`profile`/`queryClient`/`showError` are declared
+    // once, at the top of the component, for req #3581.)
+    const unseated = useUnorchestratedRequirements(profile?.userName);
+    const [unseatDragId, setUnseatDragId] = useState(null);
+    const [seatTarget, setSeatTarget] = useState(null);
+    const [pendingSeats, setPendingSeats] = useState(() => new Set());
+    const unseatedItems = useMemo(
+        () => (pendingSeats.size
+            ? unseated.items.filter((r) => !pendingSeats.has(Number(r.id)))
+            : unseated.items),
+        [unseated.items, pendingSeats]);
 
     // ── The camera survives leaving the page (req #3252) ────────────────────
     // `transform` above is component state, and EVERY way of leaving this panel
@@ -2900,6 +2925,110 @@ export default function PipelinePlanVisualizer({
     // here clips it at the DOM layer instead of re-deriving the edge.
     const epicOverlayTopInset = rulerScreenBottom(t);
 
+    // ── Drop-to-seat from the unorchestrated box (req #3583) ────────────────
+    // Native HTML5 drag events on the container. d3-zoom never sees them — it
+    // listens for mouse/pointer events, which the browser suspends for the
+    // length of a native drag — so the plan cannot pan under a drag in flight.
+    // Only a drag carrying `UNSEATED_REQ_MIME` is ours; anything else (a file,
+    // selected text) is ignored. The point is projected through the SAME live
+    // transform the world Group is drawn with, then hit-tested against the
+    // layout's own card frames.
+    const isSeatDrag = (e) => Array.from(e.dataTransfer?.types || [])
+        .includes(UNSEATED_REQ_MIME);
+    // What hides a card: the box and the key (chrome), and an epic chip — any
+    // HTML over the canvas except a card's own count badge, which sits ON the
+    // card it counts. The key ignores the pointer, so its events land on the
+    // canvas beneath it and it is excluded by its measured rect instead.
+    const overlaysCard = (e) => {
+        const target = e.target;
+        if (target?.closest?.(`${CHROME_SELECTOR}, [data-viz-unseated]`)) return true;
+        if (!(target instanceof HTMLCanvasElement)
+            && !target?.closest?.('[data-testid="pipeline-viz-badge-layer"]')) return true;
+        const k = legendEl?.getBoundingClientRect?.();
+        return !!k && e.clientX >= k.left && e.clientX <= k.right
+            && e.clientY >= k.top && e.clientY <= k.bottom;
+    };
+    const seatTargetFor = (e) => {
+        const el = containerEl;
+        if (!el) return null;
+        const rect = el.getBoundingClientRect();
+        return resolveSeatDrop({
+            point: { x: e.clientX - rect.left, y: e.clientY - rect.top },
+            overChrome: overlaysCard(e),
+            rulerBottom: epicOverlayTopInset,
+            t, nodes: layout.nodes, rowById,
+        });
+    };
+    const sameTarget = (a, b) => (a === b)
+        || (!!a && !!b && a.stepId === b.stepId && a.ok === b.ok);
+    const onSeatDragOver = (e) => {
+        if (!isSeatDrag(e)) return;
+        const target = seatTargetFor(e);
+        if (target?.ok) {
+            e.preventDefault();               // this is what makes it droppable
+            e.dataTransfer.dropEffect = 'move';
+        }
+        setSeatTarget((prev) => (sameTarget(prev, target) ? prev : target));
+    };
+    // dragenter is cancelled under the same rule as dragover — the spec's
+    // pairing, so no engine is left to decide the drop is refused.
+    const onSeatDragEnter = (e) => {
+        if (isSeatDrag(e) && seatTargetFor(e)?.ok) e.preventDefault();
+    };
+    const onSeatDragLeave = (e) => {
+        if (!isSeatDrag(e) || !containerEl) return;
+        // Leaving for a child of the panel is not leaving the panel. Judged by
+        // the pointer as well as `relatedTarget`, which Safari leaves null.
+        if (e.relatedTarget && containerEl.contains(e.relatedTarget)) return;
+        const r = containerEl.getBoundingClientRect();
+        if (e.clientX > r.left && e.clientX < r.right
+            && e.clientY > r.top && e.clientY < r.bottom) return;
+        setSeatTarget(null);
+    };
+    const forgetPending = (reqId) => setPendingSeats((prev) => {
+        if (!prev.has(reqId)) return prev;
+        const next = new Set(prev);
+        next.delete(reqId);
+        return next;
+    });
+    const onSeatDrop = async (e) => {
+        if (!isSeatDrag(e)) return;
+        e.preventDefault();
+        const target = seatTargetFor(e);
+        const reqId = Number(e.dataTransfer.getData(UNSEATED_REQ_MIME));
+        setSeatTarget(null);
+        setUnseatDragId(null);
+        if (!target?.ok || !Number.isFinite(reqId) || reqId <= 0) return;
+        setPendingSeats((prev) => new Set(prev).add(reqId));
+        const junctionKey = pipelineStepRequirementKeys.all(profile?.userName);
+        try {
+            // The one seat write (`moveStepRequirement`, req #3581) with no
+            // `fromStepId`: a requirement in this box has no seat to vacate
+            // (the junction keys on `requirement_fk` alone), so it is a plain
+            // INSERT. One seated by somebody else since the box last read
+            // answers 409, and the snackbar plus the junction re-read below
+            // put the row right.
+            await moveStepRequirement(darwinUri, idToken,
+                { requirementId: reqId, toStepId: target.stepId });
+        } catch (error) {
+            showError(error, `Unable to add ${reqId} to the step`);
+            forgetPending(reqId);
+            queryClient.invalidateQueries({ queryKey: junctionKey });
+            return;
+        }
+        // Held hidden until the refetches land, so the row leaves the box once
+        // and the card gains it once — never a flash back in between.
+        await Promise.allSettled([
+            queryClient.invalidateQueries({ queryKey: pipelineComposeKeys.byId(pipeline?.id) }),
+            // The junction prefix also refreshes the requirement page's
+            // Orchestration box, which reads the same factory list.
+            queryClient.invalidateQueries({ queryKey: junctionKey }),
+        ]);
+        forgetPending(reqId);
+    };
+    const seatTargetNode = seatTarget ? layout.nodes.get(seatTarget.stepId) : null;
+    const seatTargetRect = seatTargetNode ? screenRectOf(seatTargetNode, t) : null;
+
     const chipBg = rgba(P.panel, EPIC_CHIP_BG_ALPHA);
 
     // ── THE REQUIREMENT-COUNT BADGE, AS AN HTML OVERLAY (req #3503, round 4)
@@ -4041,7 +4170,11 @@ export default function PipelinePlanVisualizer({
                         height: availH ? `${availH}px` : 'calc(100vh - 260px)',
                         minHeight: 480, overflow: 'hidden', borderRadius: '8px',
                         border: `1px solid ${P.line}`, background: P.panel,
-                        touchAction: 'none' }}>
+                        touchAction: 'none' }}
+                 onDragEnter={onSeatDragEnter}
+                 onDragOver={onSeatDragOver}
+                 onDragLeave={onSeatDragLeave}
+                 onDrop={onSeatDrop}>
                 {size.w > 0 && (
                     <Stage ref={stageRef} width={size.w} height={size.h}>
                         <Layer ref={layerRef}>
@@ -4638,6 +4771,50 @@ export default function PipelinePlanVisualizer({
                         />
                     )}
                 </Box>
+
+                {/* req #3583 — the step card a box row would land on. An HTML
+                    outline over the canvas rather than a Konva shape, so the
+                    world draws nothing new mid-drag: accent when the step takes
+                    the requirement, dashed red when it will not (a stamped
+                    step). */}
+                {seatTargetRect && (
+                    <Box data-testid="pipeline-viz-seat-target"
+                         data-step-id={seatTarget.stepId}
+                         data-ok={seatTarget.ok ? '1' : '0'}
+                         sx={{ position: 'absolute', pointerEvents: 'none',
+                                left: seatTargetRect.left - 3, top: seatTargetRect.top - 3,
+                                width: seatTargetRect.width + 6,
+                                height: seatTargetRect.height + 6,
+                                borderRadius: '9px',
+                                border: seatTarget.ok
+                                    ? `2px solid ${P.accent}` : '2px dashed #ff6b6b',
+                                boxShadow: seatTarget.ok
+                                    ? `0 0 0 4px ${P.accent}33` : 'none',
+                                zIndex: 1 }} />
+                )}
+
+                {/* req #3583 — swarm-ready work no step carries yet, locked to
+                    the top-right corner the key vacated for the bottom (req
+                    #3255). Its rows drag onto a step card to seat them. Its type
+                    is the requirement ids' own ON-SCREEN size — the card font
+                    `CF.req` (world px) through the live zoom — so it shrinks and
+                    grows with the marks it feeds (user directive), held within
+                    9–16px so it stays usable at both zoom extremes (user
+                    ruling). */}
+                <UnorchestratedReqBox
+                    items={unseatedItems}
+                    isLoading={unseated.isLoading}
+                    isError={unseated.isError}
+                    fontPx={unseatedBoxFontPx(t.k)}
+                    statusColor={planPalette(activePalette).status?.swarm_ready || P.req}
+                    draggingId={unseatDragId}
+                    onDragStartItem={setUnseatDragId}
+                    onDragEndItem={() => { setUnseatDragId(null); setSeatTarget(null); }}
+                    onOpen={(id) => navigate(`/swarm/requirement/${id}`,
+                        pipeline?.id
+                            ? { state: { from: 'pipeline', pipelineId: pipeline.id,
+                                mode: 'plan' } }
+                            : undefined)} />
 
                 {/* ── THE KEY (req #3168, user directives 2026-08-01) ────────
                     "Have a common key displayed in the upper right", then a
