@@ -13,6 +13,9 @@ import {
     loadExpandedItems,
     persistExpandedItems,
     toggleItemExpanded,
+    devCollapsedGroupsKey,
+    groupForRoute,
+    defaultCollapsedGroups,
 } from '../navCollapse';
 
 describe('navCollapse', () => {
@@ -126,6 +129,97 @@ describe('navCollapse', () => {
             persistExpandedItems({ '/swarm/sessions': true });
             expect(loadCollapsedGroups()).toEqual({ swarm: true });
             expect(loadExpandedItems()).toEqual({ '/swarm/sessions': true });
+        });
+    });
+});
+
+// Req #3589 — dev-server default: groups collapsed except the working area.
+describe('navCollapse dev-server default (req #3589)', () => {
+    const GROUPS = [
+        { id: 'calendar', label: '' },
+        { id: 'tasks', label: 'TASKS' },
+        { id: 'systems', label: 'SYSTEMS' },
+        { id: 'swarm', label: 'SWARM' },
+    ];
+    const LINKS = [
+        { path: '/calview', group: 'calendar' },
+        { path: '/taskcards', group: 'tasks' },
+        { path: '/systems2', group: 'systems' },
+        { path: '/swarm', group: 'swarm', children: [{ path: '/swarm/machines', group: 'swarm' }] },
+        { path: '/swarm/sessions', group: 'swarm' },
+    ];
+
+    beforeEach(() => {
+        localStorage.clear();
+    });
+
+    describe('groupForRoute', () => {
+        it('resolves an exact path', () => {
+            expect(groupForRoute(LINKS, '/systems2')).toBe('systems');
+        });
+
+        it('resolves a /-delimited sub-route through its own link', () => {
+            expect(groupForRoute(LINKS, '/swarm/sessions/7')).toBe('swarm');
+        });
+
+        it('resolves an L3 child route', () => {
+            expect(groupForRoute(LINKS, '/swarm/machines')).toBe('swarm');
+        });
+
+        it('ignores a query string or hash', () => {
+            expect(groupForRoute(LINKS, '/systems2?view=x')).toBe('systems');
+            expect(groupForRoute(LINKS, '/taskcards#top')).toBe('tasks');
+        });
+
+        it('does not match a bare string prefix', () => {
+            expect(groupForRoute(LINKS, '/systems2x')).toBeNull();
+        });
+
+        it('returns null for an unowned or empty route', () => {
+            expect(groupForRoute(LINKS, '/')).toBeNull();
+            expect(groupForRoute(LINKS, '')).toBeNull();
+        });
+    });
+
+    describe('defaultCollapsedGroups', () => {
+        it('collapses every labelled group except the one owning the working area', () => {
+            expect(defaultCollapsedGroups(GROUPS, LINKS, ['/systems2'])).toEqual({ tasks: true, swarm: true });
+        });
+
+        it('collapses every labelled group when no focus route is owned', () => {
+            expect(defaultCollapsedGroups(GROUPS, LINKS, ['/', ''])).toEqual({ tasks: true, systems: true, swarm: true });
+        });
+
+        it('opens every group owning any focus route', () => {
+            expect(defaultCollapsedGroups(GROUPS, LINKS, ['/systems2', '/swarm/sessions'])).toEqual({ tasks: true });
+        });
+
+        it('never flags an unlabelled group', () => {
+            expect(defaultCollapsedGroups(GROUPS, LINKS, [])).not.toHaveProperty('calendar');
+        });
+    });
+
+    describe('loadCollapsedGroups with a dev key + fallback', () => {
+        const key = devCollapsedGroupsKey(3589, '/systems2');
+
+        it('scopes the dev key to the requirement and working area', () => {
+            expect(key).toBe(`${COLLAPSED_GROUPS_KEY}:dev:3589:/systems2`);
+            expect(devCollapsedGroupsKey('', '/maps')).not.toBe(devCollapsedGroupsKey('', '/systems2'));
+            expect(devCollapsedGroupsKey(undefined, undefined)).toBe(`${COLLAPSED_GROUPS_KEY}:dev::`);
+        });
+
+        it('returns the fallback when nothing is stored', () => {
+            expect(loadCollapsedGroups(key, { tasks: true })).toEqual({ tasks: true });
+        });
+
+        it('honours a stored empty map over the fallback', () => {
+            persistCollapsedGroups({}, key);
+            expect(loadCollapsedGroups(key, { tasks: true })).toEqual({});
+        });
+
+        it('ignores the production key', () => {
+            localStorage.setItem(COLLAPSED_GROUPS_KEY, JSON.stringify({}));
+            expect(loadCollapsedGroups(key, { swarm: true })).toEqual({ swarm: true });
         });
     });
 });
