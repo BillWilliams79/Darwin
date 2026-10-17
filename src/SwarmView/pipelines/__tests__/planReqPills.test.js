@@ -183,6 +183,14 @@ describe('computePlanLayout — pills on the requirement rows', () => {
         expect(a.idW).toBe(a.idText.length * CHW_REQ);
         // A pill is never split across lines.
         expect(a.lines.slice(1).some((ln) => ln.includes('Terminal'))).toBe(false);
+        // req #3575 — a pill row's continuations hang at the BARE id's column
+        // (`3572 - `), the same column every other row's title uses, not past
+        // the pills where the first line's title happens to start.
+        expect(a.lines.length).toBeGreaterThan(1);
+        for (const ln of a.lines.slice(1)) {
+            expect(ln.slice(0, 7)).toBe(' '.repeat(7));
+            expect(ln[7]).not.toBe(' ');
+        }
 
         const b = reqs.find((x) => x.reqId === 3573);
         expect(b.text).toBe('3573  3004 - Short');
