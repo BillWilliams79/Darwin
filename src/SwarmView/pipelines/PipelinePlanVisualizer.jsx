@@ -58,15 +58,18 @@
 // Requirement-centric: every mark derives from plan rows + hierarchy (design
 // rule 9 — no session data). Generated labels carry NO '#'. Click targets
 // (production directives): requirement id → /swarm/requirement/:id; bead →
-// Table mode scrolled/highlighted to the row (onStepFocus); epic band label →
-// FOCUS the band (req #3204), with /swarm/steps?epic=<id> — the req #3119
+// Table mode scrolled/highlighted to the row (onStepFocus); epic status light
+// and closure count → FOCUS the band (req #3204; moved off the name by req
+// #3580, which made the epic name, the step name and the step's run circle
+// in-place editors), with /swarm/steps?epic=<id> — the req #3119
 // directive, re-pointed by req #3373 when the browsable-catalog route it used
 // to open was retired (req #3357) — moved onto the chip's own ↗ control so it
 // stays a visible affordance rather than being deleted or buried under a
 // modifier key.
 //
 // ── Epic focus (req #3204) ─────────────────────────────────────────────────
-// Clicking an epic's name fits that band to the viewport. THIS IS NOT A MODE:
+// Clicking an epic's status light or closure count (its name until req #3580)
+// fits that band to the viewport. THIS IS NOT A MODE:
 // no focused-epic state exists anywhere in this file, there is nothing to
 // un-zoom, and after the click every gesture behaves exactly as in a session
 // where the feature was never used. That property is not a promise, it is a
@@ -146,6 +149,8 @@ import {
     CARD_RADIUS, CARD_PAD_X, CARD_PAD_Y, CARD_LINE_H, CARD_RULE_GAP,
     CARD_STATE_BAR_W, CARD_CHECK_W, CARD_BADGE_FONT,
     MIN_CARD_H, REQ_LINE_H, CHW_REQ,
+    // req #3580 — the run pill's word and type.
+    CARD_RUN_FONT, CARD_RUN_WORDS,
     buildReqColorViews, REQ_COLOR_KEYS, reqIdStyle, reqIdKeyEntries, normalizeColorKey,
     DEFAULT_PLAN_PALETTE, isPlanPalette,
     DEFAULT_COLOR_KEY, PLAN_KEY_MAX_H, pinnedLevelOf, DEFAULT_PLAN_LEVEL_PREF,
@@ -169,12 +174,12 @@ import AppContext from '../../Context/AppContext';
 import AuthContext from '../../Context/AuthContext';
 import { pipelineComposeKeys } from '../../hooks/useQueryKeys';
 import {
-    pipelineStepRequirementKeys, pipelineStepKeys, pipelineStepDepKeys,
+    pipelineStepRequirementKeys, pipelineStepKeys, pipelineStepDepKeys, epicKeys,
 } from '../../hooks/useDataQueries';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
 import {
     moveStepRequirement, insertStepOnEdge, branchStepFrom,
-    isRestNullLiteral, REST_NULL,
+    isRestNullLiteral, REST_NULL, updateStep,
 } from '../../Steps/stepsApi';
 // req #3586 — the "+" marks that add a step on an edge or as a branch.
 import {
@@ -186,6 +191,12 @@ import {
 } from './pipelineReqDrag';
 import { viewportStorageKey, writeViewport } from '../../utils/viewportMemory';
 import '../../CalendarFC/swarmVisualizer.css';
+// req #3580 — in-place edit. The SAME mutation helpers the Epics and Steps
+// editors use (one gateway path per table); contexts, snackbar and query keys
+// are the ones req #3581 already imports above.
+import { updateEpic } from '../../Epics/epicsApi';
+import PlanInPlaceInput, { titleProblem } from './PlanInPlaceInput';
+import { createPressTracker } from './planPressGesture';
 
 const MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
 
@@ -270,6 +281,21 @@ const rgba = (hex, a) => {
     /* eslint-disable no-bitwise */
     return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
     /* eslint-enable no-bitwise */
+};
+
+// The run pill's STATIC chrome (req #3580) — hoisted so the ~100 pills on a
+// live plan hand Emotion one unchanging object per pan/zoom frame rather than
+// a fresh one each; everything that changes per frame or per state rides
+// `style`.
+const RUN_PILL_SX = {
+    position: 'absolute', p: 0, m: 0, border: 'none',
+    pointerEvents: 'auto', cursor: 'pointer',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    borderRadius: '999px',
+    color: P.panel, fontFamily: MONO, fontWeight: 700, lineHeight: 1,
+    transition: 'opacity 120ms, box-shadow 120ms',
+    '&[aria-busy="true"]': { cursor: 'progress' },
+    '&:hover, &:focus-visible': { outline: 'none', boxShadow: `0 0 0 2px ${P.text}` },
 };
 
 // Duration of the epic-focus camera move (req #3204). Long enough to read as a
@@ -1644,11 +1670,85 @@ export default function PipelinePlanVisualizer({
             });
             if (node) node.fire('activate', { evt: e }, false);
         };
+        // ── STEP-TITLE PRESSES (req #3580) ─────────────────────────────────
+        // A step title is a Konva shape, so its quick-click / double-click /
+        // long-press gestures are resolved here, against the stage, the same
+        // way the click above is. The shape names itself with a `pressStepId`
+        // attr. POINTER events, which d3-zoom never stops (it owns mousedown).
+        //
+        // `canvasKey` is set only by a press that began ON A STEP TITLE: these
+        // listeners also see pointer events bubbling up from the HTML chips,
+        // whose presses the chips' own React handlers drive, and acting on
+        // those here (this native listener runs first) would cancel them.
+        let canvasKey = null;
+        const stepAt = (e) => {
+            const stage = stageRef.current;
+            if (!stage || !(e.target instanceof HTMLCanvasElement)) return null;
+            const rect = el.getBoundingClientRect();
+            const node = stage.getIntersection({
+                x: e.clientX - rect.left, y: e.clientY - rect.top,
+            });
+            return node?.getAttr('pressStepId') ?? null;
+        };
+        const onPDown = (e) => {
+            // A second finger (a pinch) ends any press the first one began —
+            // its moves would otherwise never reach the tracker, and the long
+            // press would fire mid-pinch.
+            if (canvasKey || !e.isPrimary) {
+                canvasKey = null;
+                pressRef.current.cancel();
+                return;
+            }
+            if (e.button !== 0 || focusingRef.current) return;
+            // Off the canvas is a chip — its own handlers drive the tracker.
+            if (!(e.target instanceof HTMLCanvasElement)) return;
+            const stepId = stepAt(e);
+            if (stepId == null) {
+                // Bare canvas: a click still waiting to see if it is a double
+                // is owed now, before this press can become a pan.
+                pressRef.current.flush();
+                return;
+            }
+            canvasKey = `step-${stepId}`;
+            pressRef.current.down(canvasKey, e.clientX, e.clientY,
+                stepPressRef.current(stepId));
+        };
+        const onPMove = (e) => {
+            if (canvasKey) pressRef.current.move(e.clientX, e.clientY);
+        };
+        const onPUp = (e) => {
+            if (!canvasKey) return;
+            const key = canvasKey;
+            canvasKey = null;
+            const stepId = stepAt(e);
+            if (stepId != null && `step-${stepId}` === key) pressRef.current.up(key);
+            else pressRef.current.cancel();
+        };
+        const onPCancel = () => {
+            if (!canvasKey) return;
+            canvasKey = null;
+            pressRef.current.cancel();
+        };
         el.addEventListener('mousedown', onDown);
         el.addEventListener('click', onClick);
+        el.addEventListener('pointerdown', onPDown);
+        el.addEventListener('pointermove', onPMove);
+        el.addEventListener('pointerup', onPUp);
+        el.addEventListener('pointercancel', onPCancel);
+        el.addEventListener('pointerleave', onPCancel);
+        // A touch long press on a title would also raise the browser's own
+        // callout menu.
+        const onMenu = (e) => { if (canvasKey) e.preventDefault(); };
+        el.addEventListener('contextmenu', onMenu);
         return () => {
+            el.removeEventListener('contextmenu', onMenu);
             el.removeEventListener('mousedown', onDown);
             el.removeEventListener('click', onClick);
+            el.removeEventListener('pointerdown', onPDown);
+            el.removeEventListener('pointermove', onPMove);
+            el.removeEventListener('pointerup', onPUp);
+            el.removeEventListener('pointercancel', onPCancel);
+            el.removeEventListener('pointerleave', onPCancel);
         };
     }, [containerEl]);
 
@@ -2394,10 +2494,15 @@ export default function PipelinePlanVisualizer({
     // The epic name's activation — one function behind both the click and the
     // Enter/Space handler, so keyboard parity is structural rather than a second
     // copy that has to be kept in step.
-    const activateEpicName = useCallback((band) => {
+    // `deep` (req #3580, "double click to double zoom") skips the band stop and
+    // asks for the step stop directly — the same floor applies, so a band with
+    // no next step still lands on its band fit.
+    const activateEpicName = useCallback((band, { deep = false } = {}) => {
         const key = epicZoomStateKey(pipeline?.id, band);
         const workIds = epicWorkByEpic.get(epicCycleKey(band)) || [];
-        const next = nextEpicZoom(epicZoomRef.current, key, workIds.length > 0);
+        const next = deep && workIds.length > 0
+            ? EPIC_ZOOM_STEP
+            : nextEpicZoom(epicZoomRef.current, key, workIds.length > 0);
         // THE STEP MOVE IS ATTEMPTED, THE BAND MOVE IS THE FLOOR (code review).
         // If the step fit comes back null — the two halves disagreeing, or a
         // container not ready — the level would never advance and every further
@@ -2413,6 +2518,122 @@ export default function PipelinePlanVisualizer({
         }
         if (moved) epicZoomRef.current = { key, level };
     }, [epicWorkByEpic, focusEpicWork, focusEpic, pipeline?.id]);
+
+    // ── IN-PLACE EDIT (req #3580) ───────────────────────────────────────────
+    // Three edits, straight from the canvas: an epic's NAME, a step's NAME, and
+    // a step's RUN mode. Each writes ONE column through the same helper the
+    // Epics / Steps editors use, then re-reads the composed plan — the canvas
+    // never patches its own copy, so what it draws next is the server's answer.
+    //
+    // `{ key, saving }` / `{ stepId, saving }` — which editor is open, and
+    // whether its write is in flight (the input goes read-only rather than
+    // vanishing, so a slow save does not look like a dropped one).
+    // (`idToken`, `darwinUri`, `queryClient`, `showError` are declared once at
+    // the top of the component — req #3581's drag-and-drop needs them too.)
+    const [epicEdit, setEpicEdit] = useState(null);
+    const [stepEdit, setStepEdit] = useState(null);
+    // stepId -> the run mode being written. Drawn in place of the stored one
+    // until the re-read lands, so the circle answers the click immediately.
+    const [runPending, setRunPending] = useState(() => new Map());
+
+    // The plan's own read, plus the two list caches the Epics and Steps pages
+    // render from — a rename here must not leave either of them stale.
+    const refreshPlan = useCallback(() => {
+        const creatorFk = profile?.userName;
+        return Promise.all([
+            pipeline?.id != null
+                && queryClient.invalidateQueries({
+                    queryKey: pipelineComposeKeys.byId(pipeline.id) }),
+            creatorFk && queryClient.invalidateQueries({ queryKey: epicKeys.all(creatorFk) }),
+            creatorFk && queryClient.invalidateQueries({
+                queryKey: pipelineStepKeys.all(creatorFk) }),
+        ]);
+    }, [queryClient, pipeline?.id, profile?.userName]);
+
+    // One commit path for both names. An unchanged name closes the editor
+    // without a write; a refused one says why and keeps the stored name.
+    const commitTitle = useCallback(async ({ current, raw, setEdit, editState, write, what }) => {
+        const next = String(raw ?? '').trim();
+        if (next === current) { setEdit(null); return; }
+        const problem = titleProblem(next);
+        if (problem) { showError(problem); setEdit(null); return; }
+        setEdit({ ...editState, saving: true });
+        try {
+            await write(next);
+            await refreshPlan();
+        } catch (err) {
+            showError(err, `Could not rename the ${what}`);
+        } finally {
+            // Only THIS editor. While the write was in flight the reader may
+            // have opened another name — that editor is not this save's to close.
+            setEdit((cur) => (cur && cur.key === editState.key
+                && cur.stepId === editState.stepId ? null : cur));
+        }
+    }, [refreshPlan, showError]);
+
+    const commitEpicTitle = useCallback((band, raw) => commitTitle({
+        current: band.epic, raw, what: 'epic',
+        setEdit: setEpicEdit, editState: { key: epicCycleKey(band) },
+        write: (title) => updateEpic(darwinUri, idToken, band.epicId, { title }),
+    }), [commitTitle, darwinUri, idToken]);
+
+    const commitStepTitle = useCallback((row, raw) => commitTitle({
+        current: row.title || '', raw, what: 'step',
+        setEdit: setStepEdit, editState: { stepId: row.id },
+        write: (title) => updateStep(darwinUri, idToken, row.id, { title }),
+    }), [commitTitle, darwinUri, idToken]);
+
+    // The run circle's click. A second click while the first write is in flight
+    // is ignored rather than queued — it would race the first one's re-read.
+    const toggleRun = useCallback(async (stepId, current) => {
+        if (runPending.has(stepId)) return;
+        const next = current === 'manual' ? 'auto' : 'manual';
+        setRunPending((m) => new Map(m).set(stepId, next));
+        try {
+            await updateStep(darwinUri, idToken, stepId, { run: next });
+            await refreshPlan();
+        } catch (err) {
+            showError(err, 'Could not change the step run mode');
+        } finally {
+            setRunPending((m) => {
+                const out = new Map(m);
+                out.delete(stepId);
+                return out;
+            });
+        }
+    }, [runPending, darwinUri, idToken, refreshPlan, showError]);
+
+    // ── QUICK CLICK / DOUBLE CLICK / LONG PRESS (req #3580) ────────────────
+    // User directive: "fast click to zoom, long click to edit, double click to
+    // double zoom". ONE tracker for every target on the panel — see
+    // `planPressGesture.js` for the rules and for why it reads pointer events.
+    const pressRef = useRef(null);
+    if (!pressRef.current) pressRef.current = createPressTracker();
+    useEffect(() => () => pressRef.current?.dispose(), []);
+
+    // A STEP TITLE's three gestures. Read through a ref by the native canvas
+    // listeners (bound once per container), so they always see this render's
+    // layout and camera. A quick click frames the step — the `?step=` deep
+    // link's own framing — and a double click frames it at twice that scale,
+    // about the same centre. A long press opens the name's editor.
+    const stepPressRef = useRef(null);
+    stepPressRef.current = (stepId) => ({
+        onClick: () => {
+            epicZoomRef.current = null;
+            applyFocus(stepFocusTransform(layout, stepId, size, kDefault, kZoomFloor));
+        },
+        onDoubleClick: () => {
+            const tr = stepFocusTransform(layout, stepId, size, kDefault, kZoomFloor);
+            if (!tr) return;
+            epicZoomRef.current = null;
+            const k2 = Math.min(kDefault * ZOOM_MAX_RATIO, tr.k * 2);
+            applyFocus(zoomAboutViewportCentre(tr, size, k2) || tr);
+        },
+        onLongPress: () => {
+            setCard(null);
+            setStepEdit({ stepId, saving: false });
+        },
+    });
 
     // ── WHERE THE CYCLE IS CLEARED, AND WHY IT IS THREE PLACES ──────────────
     // Level 2 is only the right answer to the NEXT click while the premise
@@ -2710,6 +2931,43 @@ export default function PipelinePlanVisualizer({
             fontSize: CARD_BADGE_FONT * t.k,
             text: l.text,
         }));
+
+    // ── THE RUN-MODE PILL, AS AN HTML OVERLAY (req #3580) ──────────────────
+    // A button, so it is HTML for the badge's reason (and rides the badge's
+    // layer, inset under the ruler the same way). The layout reserved its box
+    // in the card's title row (`CARD_RUN_W`); this only projects it to screen.
+    // A pending write draws the mode being WRITTEN, so the click answers now.
+    const floatingRuns = layout.labels
+        .filter((l) => l.kind === 'run' && drawsKind('run'))
+        .map((l) => ({
+            key: `run-${l.stepId}`,
+            stepId: l.stepId,
+            run: runPending.get(l.stepId) ?? l.run,
+            pending: runPending.has(l.stepId),
+            left: l.x * t.k + t.x,
+            top: l.y * t.k + t.y,
+            width: l.w * t.k,
+            height: l.h * t.k,
+            fontSize: CARD_RUN_FONT * t.k,
+        }));
+
+    // ── THE STEP-NAME EDITOR'S BOX (req #3580) ──────────────────────────────
+    // The name's own world rect, widened to the whole room the layout reserved
+    // for it (`editW`, up to the run pill), projected through `t`. Only while
+    // that step's name is actually drawn — an editor floating where no name is
+    // would be editing something the reader cannot see.
+    const stepEditLabel = stepEdit != null && drawsKind('step')
+        ? layout.labels.find((l) => l.kind === 'step' && l.stepId === stepEdit.stepId)
+        : null;
+    const stepEditRow = stepEditLabel ? rowById.get(stepEditLabel.stepId) : null;
+    const stepEditor = stepEditLabel && stepEditRow ? {
+        row: stepEditRow,
+        left: stepEditLabel.x * t.k + t.x,
+        top: stepEditLabel.y * t.k + t.y,
+        width: (stepEditLabel.editW ?? stepEditLabel.w) * t.k,
+        height: CARD_LINE_H * t.k,
+        fontSize: CF.label * t.k,
+    } : null;
 
     // ── World-space nodes ───────────────────────────────────────────────────
     const worldNodes = [];
@@ -3279,12 +3537,17 @@ export default function PipelinePlanVisualizer({
             // Wrapped at layout time (req #3498) — the step name takes a
             // second line before it truncates, exactly as a requirement row
             // does, because a 28-character line leaves it nineteen otherwise.
-            worldNodes.push(
-                <Text key={`lbl-${i}`} x={label.x} y={label.y}
-                      text={(label.lines || [label.text]).join('\n')}
-                      fontSize={CF.label} fontFamily={MONO} fill={P.text}
-                      lineHeight={CARD_LINE_H / CF.label}
-                      listening={false} />);
+            // Not drawn while its in-place editor is open (req #3580): the
+            // editor is one line and the name may be two, so the second line
+            // would show through beneath it.
+            if (stepEditor?.row.id !== label.stepId) {
+                worldNodes.push(
+                    <Text key={`lbl-${i}`} x={label.x} y={label.y}
+                          text={(label.lines || [label.text]).join('\n')}
+                          fontSize={CF.label} fontFamily={MONO} fill={P.text}
+                          lineHeight={CARD_LINE_H / CF.label}
+                          listening={false} />);
+            }
             // HOVER ONLY — deliberately NOT the bead's third handler (review
             // finding). The bead's hit circle also carries `onActivate`, which
             // switches the whole page to Table mode and, because the visualizer
@@ -3294,11 +3557,23 @@ export default function PipelinePlanVisualizer({
             // name the largest click target on the canvas, while the manual
             // hit-test tolerates 4px of drag before it stops calling a gesture
             // a click. D1 asks for the CARD; a click on the words did nothing
-            // before this change and still does nothing.
+            // before this change.
+            //
+            // req #3580 — THE WORDS NOW TAKE THREE GESTURES: a quick click
+            // frames the step, a double click frames it closer, a long press
+            // edits the name in place (user directive). `pressStepId` is how
+            // the canvas's pointer listeners find them — see the STEP-TITLE
+            // PRESSES block. None of the three leaves the page, so the
+            // click-to-leave surface the paragraph above measured is unchanged.
             const row = rowById.get(label.stepId);
             if (row) {
                 worldNodes.push(labelHit(`lblhit-${i}`, label, {
-                    onMouseEnter: (e) => { cursorPointer(e, true); showStepCard(row, e); },
+                    pressStepId: row.id,
+                    // No hover card over the step's own open editor.
+                    onMouseEnter: (e) => {
+                        cursorPointer(e, true);
+                        if (stepEdit?.stepId !== row.id) showStepCard(row, e);
+                    },
                     onMouseLeave: (e) => { cursorPointer(e, false); hideCard(); },
                 }));
             }
@@ -3834,12 +4109,12 @@ export default function PipelinePlanVisualizer({
                     last few pixels of its band's life, and this is what cuts it
                     off at the edge instead of letting it spill.
 
-                    Clicking the NAME focuses that band (req #3204). Every band
-                    is focusable, "No epic" included — it is a band with steps
-                    like any other, and the previous rule (pointer events only
-                    when `epicId != null`) existed solely because the old click
-                    needed an epic id to navigate WITH. The ↗ beside it keeps
-                    that navigation, and only it needs the id.
+                    Clicking the STATUS LIGHT or the CLOSURE COUNT focuses that
+                    band (req #3204; it was the name until req #3580 made the
+                    name an in-place editor). Every band is focusable, "No epic"
+                    included — it is a band with steps like any other, and with
+                    no row to rename its NAME keeps the zoom. The ↗ beside it
+                    keeps the navigation, and only it needs the id.
 
                     Re-enabling pointer events does not cost the drag-pan: the
                     chip is a DESCENDANT of the container d3-zoom is bound to, so
@@ -3855,69 +4130,61 @@ export default function PipelinePlanVisualizer({
                             right: 0, bottom: 0, pointerEvents: 'none',
                             overflow: 'hidden' }}
                      data-testid="pipeline-viz-epic-layer">
-                    {floatingEpics.map((e) => (
-                        <Box
-                            key={e.key}
-                            onClick={() => activateEpicName(e.band)}
-                            // Reachable without a mouse. The chip has been a
-                            // click target since req #3119 and was never
-                            // focusable; now that it is the ONLY way to reach
-                            // the focus feature, leaving it mouse-only would
-                            // make the feature mouse-only.
-                            //
-                            // Req #3297 made this a CYCLE, and both inputs call
-                            // the SAME `activateEpicName` — so Enter/Space walk
-                            // band → step → band exactly as the mouse does,
-                            // rather than a keyboard path that re-fits the band
-                            // forever while the mouse gets the new level.
-                            role="button"
-                            tabIndex={0}
-                            onKeyDown={(ev) => {
+                    {floatingEpics.map((e) => {
+                        // req #3580 — THREE GESTURES ON THE NAME (user
+                        // directive: "fast click to zoom, long click to edit,
+                        // double click to double zoom"). A quick click walks
+                        // req #3297's band → step cycle exactly as the name
+                        // always did; a double click goes straight to the step
+                        // stop; a long press opens the in-place editor. The
+                        // status light and the closure count zoom the same way
+                        // (they edit nothing). The "No epic" band has no row to
+                        // rename, so it takes no long press.
+                        const renamable = e.epicId != null;
+                        const editing = renamable && epicEdit?.key === e.key;
+                        const zoomTitle = epicZoomHint(epicWorkByEpic.get(e.key))
+                            + epicSeatedHint(!!(showReqCounts && e.epicId != null
+                                && epicCounts?.get(e.epicId)));
+                        const zoomLabel = `Zoom pipeline epic ${e.name ?? e.text}`
+                            + epicZoomHintSuffix(epicWorkByEpic.get(e.key));
+                        const startEdit = () => setEpicEdit({ key: e.key, saving: false });
+                        const gestures = {
+                            onClick: () => activateEpicName(e.band),
+                            onDoubleClick: () => activateEpicName(e.band, { deep: true }),
+                        };
+                        // Pointer, not click — see `planPressGesture.js`. The
+                        // tracker is shared, so the key names this chip's part.
+                        const press = (part, cbs) => ({
+                            onPointerDown: (ev) => {
+                                if (ev.button !== 0) return;
+                                pressRef.current.down(`epic-${e.key}-${part}`,
+                                    ev.clientX, ev.clientY, cbs);
+                            },
+                            onPointerMove: (ev) => pressRef.current.move(ev.clientX, ev.clientY),
+                            onPointerUp: () => pressRef.current.up(`epic-${e.key}-${part}`),
+                            onPointerCancel: () => pressRef.current.cancel(),
+                            onPointerLeave: () => pressRef.current.cancel(),
+                        });
+                        // Enter/Space zoom from the keyboard through the SAME
+                        // function the pointer does, so keyboard parity stays
+                        // structural (req #3297); F2 — the platform's own
+                        // rename key — is the keyboard's long press.
+                        const zoomHandlers = {
+                            role: 'button',
+                            tabIndex: 0,
+                            ...press('zoom', gestures),
+                            onKeyDown: (ev) => {
                                 if (ev.key !== 'Enter' && ev.key !== ' ') return;
                                 ev.preventDefault();     // Space must not scroll
+                                ev.stopPropagation();
                                 activateEpicName(e.band);
-                            }}
-                            // NAMES WHAT THE CLICK DOES (req #3213 D6). The
-                            // chip body has focused the band since req #3204 —
-                            // only this tooltip still described the old
-                            // navigate-away behaviour, and a control that
-                            // silently does one of two plausible things is
-                            // worse than either. The chip's two controls each
-                            // name themselves: the body zooms, the ↗ below
-                            // opens the epic's steps, and both say so.
-                            //
-                            // AND SINCE REQ #3297 IT NAMES BOTH STOPS — but
-                            // only where the second one exists. A band with no
-                            // launch step has no second stop to go to — its
-                            // clicks keep fitting the band — and a label
-                            // promising a zoom that cannot happen is the same
-                            // "silently does one of two
-                            // plausible things" defect this tooltip was written
-                            // to close, arrived at from the other direction. So
-                            // the second-stop clause is a function of
-                            // `epicWorkByEpic` — the SAME lookup the click
-                            // itself reads, so the promise and the behaviour
-                            // cannot drift, down to naming the same step id.
-                            title={epicZoomHint(epicWorkByEpic.get(e.key))
-                                + epicSeatedHint(!!(showReqCounts && e.epicId != null
-                                    && epicCounts?.get(e.epicId)))}
-                            // req #3226 — the pause bubble is colour-only
-                            // (green/red), the least discriminable pair for
-                            // the most common colour-vision deficiency and
-                            // silent to a screen reader. Folded into the SAME
-                            // label the chip already carries rather than a
-                            // second announced element, so pause reads as one
-                            // more fact about the epic being named, not a
-                            // separate control.
-                            // Req #3297's clause goes BEFORE the pause clause
-                            // and inside this one label, keeping req #3226's
-                            // ruling intact: still ONE announced element, and
-                            // pause still reads as the last fact about the epic
-                            // being named rather than a control of its own.
-                            aria-label={`Zoom pipeline epic ${e.text}`
-                                + epicZoomHintSuffix(epicWorkByEpic.get(e.key))
-                                + (e.band?.paused ? ' — paused' : ' — active')}
+                            },
+                        };
+                        return (
+                        <Box
+                            key={e.key}
                             data-testid={`pipeline-viz-epic-${e.key}`}
+                            data-editing={editing ? 'true' : undefined}
                             sx={{
                                 // `e.y` is screen-absolute (panel-origin), but
                                 // this chip's containing block now starts at
@@ -3953,7 +4220,11 @@ export default function PipelinePlanVisualizer({
                                 // Capping UNCONDITIONALLY would hand the drawn
                                 // box to `EPIC_CHIP_CHAR_W`, an ESTIMATE: a hair
                                 // short and every name on the plan truncates.
-                                ...(e.clipped
+                                // …EXCEPT WHILE ITS NAME IS BEING EDITED (req
+                                // #3580): a cut box would hide the very text
+                                // being typed. The layer's own `overflow:
+                                // hidden` still stops it at the panel edge.
+                                ...(e.clipped && !editing
                                     ? { maxWidth: e.w, overflow: 'hidden' }
                                     : null),
                                 display: 'flex', alignItems: 'center', gap: '4px',
@@ -3970,18 +4241,15 @@ export default function PipelinePlanVisualizer({
                                 border: `1px solid ${e.color}55`,
                                 whiteSpace: 'nowrap', userSelect: 'none',
                                 pointerEvents: 'auto',
-                                cursor: 'pointer',
                                 // An affordance you cannot see is not a feature
-                                // (req #3204): the border firms up and the name
-                                // underlines on hover, so the chip reads as the
-                                // control it is.
+                                // (req #3204): the border firms up on hover, the
+                                // name underlines, and the light and the count
+                                // ring — every one of them zooms on a click, and
+                                // the name's tooltip names its long press.
                                 transition: 'border-color 120ms',
                                 '&:hover': { borderColor: e.color },
-                                // Scoped to the NAME, not the chip: an ancestor
-                                // rule would draw the underline through the ↗
-                                // too, and a blockified flex item cannot opt out
-                                // of an inherited text-decoration.
-                                '&:hover .pipeline-viz-epic-name': {
+                                '& .pipeline-viz-epic-name': { cursor: 'pointer' },
+                                '& .pipeline-viz-epic-name:hover': {
                                     textDecoration: 'underline',
                                     textDecorationThickness: '1px',
                                     textUnderlineOffset: '2px',
@@ -4006,23 +4274,108 @@ export default function PipelinePlanVisualizer({
                                 "No epic" included — pause is a scope fact,
                                 and the unlabelled band's scope is exactly
                                 the whole plan's. */}
+                            {/* req #3580 — THE STATUS LIGHT IS A ZOOM CONTROL.
+                                Its drawn footprint is unchanged (the reserved
+                                `EPIC_PAUSE_BUBBLE_W`); the HIT target is grown
+                                by padding cancelled with an equal negative
+                                margin, so an 8px dot is not an 8px target and
+                                nothing the placement measured moves. */}
                             <Box
                                 component="span"
+                                {...zoomHandlers}
+                                aria-label={zoomLabel
+                                    + (e.band?.paused ? ' — paused' : ' — active')}
                                 data-testid={`pipeline-viz-epic-pause-${e.key}`}
-                                title={e.band?.paused
+                                title={(e.band?.paused
                                     ? 'This scope is paused — not swarm-starting'
-                                    : 'This scope is active — may swarm-start'}
+                                    : 'This scope is active — may swarm-start')
+                                    + `\n${zoomTitle}`}
                                 sx={{
-                                    flexShrink: 0,
-                                    width: EPIC_PAUSE_BUBBLE_D,
-                                    height: EPIC_PAUSE_BUBBLE_D,
-                                    borderRadius: '50%',
-                                    bgcolor: pauseBubbleColor(!!e.band?.paused),
+                                    flexShrink: 0, display: 'inline-flex',
+                                    p: '5px', m: '-5px', borderRadius: '50%',
+                                    cursor: 'pointer',
+                                    '&:hover > span, &:focus-visible > span': {
+                                        boxShadow: `0 0 0 2px ${e.color}`,
+                                    },
+                                    outline: 'none',
                                 }}
-                            />
-                            <Box component="span" className="pipeline-viz-epic-name">
-                                {e.text}
+                            >
+                                <Box
+                                    component="span"
+                                    sx={{
+                                        width: EPIC_PAUSE_BUBBLE_D,
+                                        height: EPIC_PAUSE_BUBBLE_D,
+                                        borderRadius: '50%',
+                                        bgcolor: pauseBubbleColor(!!e.band?.paused),
+                                    }}
+                                />
                             </Box>
+                            {editing ? (
+                                <PlanInPlaceInput
+                                    initial={e.name ?? e.text}
+                                    saving={!!epicEdit?.saving}
+                                    ariaLabel={`Rename epic ${e.name ?? e.text}`}
+                                    testId={`pipeline-viz-epic-edit-${e.key}`}
+                                    onCommit={(raw) => commitEpicTitle(e.band, raw)}
+                                    onCancel={() => setEpicEdit(null)}
+                                    growCh
+                                    style={{ fontSize: e.fontSize, height: e.h - 4 }}
+                                    sx={{ color: e.color }}
+                                />
+                            ) : (
+                                <Box component="span" className="pipeline-viz-epic-name"
+                                     data-testid={`pipeline-viz-epic-name-${e.key}`}
+                                     {...zoomHandlers}
+                                     {...(renamable ? {
+                                         ...press('name', { ...gestures, onLongPress: startEdit }),
+                                         // A touch long press would otherwise
+                                         // also open the browser's own menu.
+                                         onContextMenu: (ev) => ev.preventDefault(),
+                                         onKeyDown: (ev) => {
+                                             if (ev.key === 'F2') {
+                                                 ev.preventDefault();
+                                                 ev.stopPropagation();
+                                                 startEdit();
+                                                 return;
+                                             }
+                                             zoomHandlers.onKeyDown(ev);
+                                         },
+                                         'aria-label': `${zoomLabel} — press F2 to rename`,
+                                         title: `${zoomTitle}\nDouble-click to zoom in further. `
+                                             + 'Press and hold to rename.',
+                                     } : {
+                                         'aria-label': zoomLabel,
+                                         title: `${zoomTitle}\nDouble-click to zoom in further.`,
+                                     })}
+                                >
+                                    {e.name ?? e.text}
+                                </Box>
+                            )}
+                            {/* req #3580 — THE CLOSURE COUNT, ITS OWN ELEMENT and
+                                the second zoom control. Its text was always part
+                                of the measured label (`epicLabel` = name + " " +
+                                count), so drawing it as a sibling costs no width
+                                the placement did not already reserve. */}
+                            {e.countText && (
+                                <Box component="span"
+                                     {...zoomHandlers}
+                                     {...press('count', gestures)}
+                                     aria-label={`${zoomLabel} — ${e.countText} requirements closed`}
+                                     title={`${zoomTitle}\nDouble-click to zoom in further.`}
+                                     data-testid={`pipeline-viz-epic-count-${e.key}`}
+                                     sx={{
+                                         cursor: 'pointer', fontWeight: 400,
+                                         opacity: 0.9, px: '3px', mx: '-3px',
+                                         borderRadius: '4px', outline: 'none',
+                                         '&:hover, &:focus-visible': {
+                                             opacity: 1,
+                                             boxShadow: `inset 0 0 0 1px ${e.color}`,
+                                         },
+                                     }}
+                                >
+                                    {e.countText}
+                                </Box>
+                            )}
                             {/* The req #3119 target, RE-POINTED by req #3373: the
                                 browsable-catalog route it used to open was retired
                                 (req #3357), and `/swarm/steps?epic=<id>` is the
@@ -4131,7 +4484,8 @@ export default function PipelinePlanVisualizer({
                                 </Box>
                             )}
                         </Box>
-                    ))}
+                        );
+                    })}
                 </Box>
 
                 {/* ── THE REQUIREMENT-COUNT BADGE LAYER (req #3503, round 4;
@@ -4225,6 +4579,64 @@ export default function PipelinePlanVisualizer({
                             {b.text}
                         </Box>
                     ))}
+                    {/* req #3580 — THE RUN-MODE PILL. Displays the step's run
+                        mode as the word and IS the control that changes it:
+                        green "auto", blue "manual" (user directive). Geometry
+                        in `style` for the badge's per-frame reason;
+                        `stopPropagation` so the card's own handlers never also
+                        fire. */}
+                    {floatingRuns.map((r) => {
+                        const manual = r.run === 'manual';
+                        const next = manual ? 'auto' : 'manual';
+                        return (
+                            <Box key={r.key}
+                                 component="button"
+                                 type="button"
+                                 data-testid={`pipeline-viz-run-${r.stepId}`}
+                                 data-run={r.run}
+                                 aria-label={`Step ${r.stepId} runs ${r.run} — switch to ${next}`}
+                                 aria-busy={r.pending || undefined}
+                                 title={`Run: ${runLabel(r.run)} — click to make it ${runLabel(next)}`}
+                                 onClick={(ev) => {
+                                     ev.stopPropagation();
+                                     toggleRun(r.stepId, r.run);
+                                 }}
+                                 style={{
+                                     left: r.left,
+                                     top: r.top - epicOverlayTopInset,
+                                     width: r.width, height: r.height,
+                                     fontSize: r.fontSize,
+                                     background: manual ? P.runManual : P.runAuto,
+                                     opacity: r.pending ? 0.55 : 1,
+                                 }}
+                                 sx={RUN_PILL_SX}
+                            >
+                                {CARD_RUN_WORDS[r.run]}
+                            </Box>
+                        );
+                    })}
+                    {/* req #3580 — THE STEP-NAME EDITOR, over the name's own
+                        reserved room on its card. */}
+                    {stepEditor && (
+                        <PlanInPlaceInput
+                            key={`step-edit-${stepEditor.row.id}`}
+                            initial={stepEditor.row.title || ''}
+                            saving={!!stepEdit?.saving}
+                            ariaLabel={`Rename step ${stepEditor.row.id}`}
+                            testId={`pipeline-viz-step-edit-${stepEditor.row.id}`}
+                            onCommit={(raw) => commitStepTitle(stepEditor.row, raw)}
+                            onCancel={() => setStepEdit(null)}
+                            style={{
+                                position: 'absolute',
+                                left: stepEditor.left,
+                                top: stepEditor.top - epicOverlayTopInset,
+                                width: stepEditor.width,
+                                height: stepEditor.height,
+                                fontSize: stepEditor.fontSize,
+                            }}
+                            sx={{ pointerEvents: 'auto', fontWeight: 400 }}
+                        />
+                    )}
                 </Box>
 
                 {/* ── THE KEY (req #3168, user directives 2026-08-01) ────────

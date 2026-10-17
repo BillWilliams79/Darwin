@@ -29,7 +29,7 @@ import {
     CARD_LINE_H, CARD_SUBTITLE_H, CARD_RULE_BAND, CARD_TITLE_CHARS, CARD_ID_CHARS,
     CARD_FRAME_W, CARD_FRAME_X, CARD_STATE_BAR_W, CARD_BAR_GAP,
     CARD_BADGE_W, CARD_BADGE_GAP, CARD_BADGE_H, CARD_BADGE_FONT, badgeWidthFor,
-    CARD_STEP_LINK_W, CARD_FONT,
+    CARD_STEP_LINK_W, CARD_RUN_W, CARD_RUN_H, CARD_RUN_WORDS, CARD_RUN_FONT, CARD_FONT,
     STEP_WIDTH_SCALES, cardGeometryFor,
     STEPS_ACROSS_OPTIONS, STEPS_ACROSS_LOOSE_FILL, stepsAcrossScale,
     zoomAboutViewportCentre, zoomAboutPoint, snapZoomScale, columnsAcross,
@@ -2827,6 +2827,12 @@ describe('epic band label counts, behind a toggle (req #3225)', () => {
                 || (b.key == null && chip.key === 'none'));
             expect(chip.text).toBe(band.epicLabel);
             if (band.epicId != null) expect(chip.text).toMatch(/ 9\/99$/);
+            // req #3580 — the two drawn pieces, which together are the measured
+            // whole: the name (an editor) and the closure count (a zoom control).
+            expect(chip.name).toBe(band.epic);
+            expect(chip.countText).toBe(band.epicId != null ? '9/99' : null);
+            expect(chip.countText ? `${chip.name} ${chip.countText}` : chip.name)
+                .toBe(chip.text);
         }
     });
 
@@ -2840,6 +2846,8 @@ describe('epic band label counts, behind a toggle (req #3225)', () => {
             transform: { x: 0, y: 0, k: 1 }, viewport: VIEWPORT, worldWidth: 3000,
         });
         expect(chip.text).toBe('X'.repeat(20));
+        expect(chip.name).toBe('X'.repeat(20));
+        expect(chip.countText).toBeNull();
         // + EPIC_CHIP_OPEN_LINK_W since req #3257 — the ↗ control's flat
         // footprint is reserved on every chip now that the measured box is what
         // keeps the name inside its own rectangle.
@@ -2862,8 +2870,14 @@ describe('epic band label counts, behind a toggle (req #3225)', () => {
         expect(withCounts.colW).toEqual(without.colW);
         expect([...withCounts.nodes.values()].map((n) => [n.x, n.y]))
             .toEqual([...without.nodes.values()].map((n) => [n.x, n.y]));
-        expect(withCounts.bands.map((b) => ({ ...b, epicLabel: undefined })))
-            .toEqual(without.bands.map((b) => ({ ...b, epicLabel: undefined })));
+        // `epicCountText` (req #3580) is the suffix on its own — the label's
+        // other half — so it is excluded alongside `epicLabel`.
+        const strip = (b) => ({ ...b, epicLabel: undefined, epicCountText: undefined });
+        expect(withCounts.bands.map(strip)).toEqual(without.bands.map(strip));
+        for (const b of withCounts.bands) {
+            expect(b.epicCountText).toBe(b.epicId != null ? '1/2' : null);
+            if (b.epicCountText) expect(b.epicLabel).toBe(`${b.epic} ${b.epicCountText}`);
+        }
     });
 });
 
@@ -5482,6 +5496,57 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
         expect(drawsLabelKind('step-link', 'out')).toBe(false);
         expect(drawsLabelKind('step-link', 'mid')).toBe(true);
         expect(drawsLabelKind('step-link', 'in')).toBe(true);
+    });
+
+    it('puts the run-mode pill LEFT of the ↗, clear of the step name (req #3580)', () => {
+        for (const stepLabel of ['title', 'id']) {
+            const layout = computePlanLayout(plan.rows, { stepLabel });
+            for (const row of plan.rows) {
+                const of = (kind) => layout.labels.find(
+                    (l) => l.kind === kind && l.stepId === row.id);
+                const run = of('run');
+                const link = of('step-link');
+                const name = of('step');
+                expect(run, `step ${row.id} has a run pill`).toBeTruthy();
+                expect(run.run).toBe(row.run === 'manual' ? 'manual' : 'auto');
+                expect(run.text).toBe(row.run === 'manual' ? 'manual' : 'auto');
+                expect(run.w).toBe(CARD_RUN_W);
+                expect(run.h).toBe(CARD_RUN_H);
+                // Abutting the ↗'s reserve on its left, never under it.
+                expect(run.x + run.w).toBeCloseTo(link.x, 6);
+                // Inside the title area, and never on the name it sits beside.
+                const n = layout.nodes.get(row.id);
+                expect(run.y).toBeGreaterThanOrEqual(n.top);
+                expect(run.y + run.h).toBeLessThanOrEqual(n.top + cardTitleH(stepLabel));
+                expect(rectsOverlap(run, name), `step ${row.id}`).toBe(false);
+                // The editor's room ends exactly where the pill begins, and
+                // always holds the drawn name.
+                expect(name.x + name.editW).toBeCloseTo(run.x, 6);
+                expect(name.editW).toBeGreaterThanOrEqual(name.w - 1e-6);
+            }
+        }
+        expect(drawsLabelKind('run', 'out')).toBe(false);
+        expect(drawsLabelKind('run', 'mid')).toBe(true);
+        expect(drawsLabelKind('run', 'in')).toBe(true);
+    });
+
+    it('a manual step\'s pill says manual, an auto step\'s says auto (req #3580)', () => {
+        const rows = plan.rows.map((r, i) => ({ ...r, run: i % 2 ? 'manual' : 'auto' }));
+        const layout = computePlanLayout(rows, { stepLabel: 'title' });
+        rows.forEach((r, i) => {
+            const run = layout.labels.find((l) => l.kind === 'run' && l.stepId === r.id);
+            expect(run.text).toBe(i % 2 ? 'manual' : 'auto');
+            expect(run.run).toBe(i % 2 ? 'manual' : 'auto');
+        });
+    });
+
+    it('the pill is wide enough for its longer word at its own type (req #3580)', () => {
+        // Mono glyph width scales with font size; CHW_REQ is the row font's.
+        const glyph = CHW_REQ * (CARD_RUN_FONT / CARD_FONT.req);
+        const longest = Math.max(...Object.values(CARD_RUN_WORDS).map((w) => w.length));
+        expect(CARD_RUN_W).toBeGreaterThanOrEqual(longest * glyph);
+        // And never wider than the word plus a modest pad on each side.
+        expect(CARD_RUN_W).toBeLessThanOrEqual(longest * glyph + 2 * 8 * CARD_TYPE_SCALE);
     });
 
     it('ONLY the title line shifts for the badge — req rows and the L3 line do not (req #3503)', () => {
