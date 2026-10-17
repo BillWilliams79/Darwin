@@ -136,7 +136,7 @@ import {
     // req #3498 — the step is a CARD. The renderer draws the box the layout
     // measured; it never measures one of its own.
     CARD_RADIUS, CARD_PAD_X, CARD_PAD_Y, CARD_LINE_H, CARD_RULE_GAP,
-    CARD_STATE_BAR_W, CARD_CHECK_W, CARD_BADGE_FONT, CARD_TITLE_BTN_FONT,
+    CARD_STATE_BAR_W, CARD_BADGE_FONT, CARD_TITLE_BTN_FONT,
     MIN_CARD_H, REQ_LINE_H, CHW_REQ,
     // req #3580 — the run pill's word and type.
     CARD_RUN_FONT, CARD_RUN_WORDS,
@@ -3441,17 +3441,6 @@ export default function PipelinePlanVisualizer({
                         n.frameLeft + n.frameW - CARD_PAD_X,
                         n.top + n.titleH + CARD_RULE_GAP,
                     ]} stroke={P.line} strokeWidth={1} listening={false} />
-                    {/* The ✓ sits in `CARD_CHECK_W`, which `stepLabelText`'s
-                        budget takes off the top — so it never lands on the step
-                        name. Before that reserve existed it overlapped the
-                        title's ellipsis on 23 of the fixture's 34 cards. */}
-                    {style.check && (
-                        <Text x={n.frameLeft + n.frameW
-                                  - CARD_PAD_X - CARD_CHECK_W + 2}
-                              y={n.top + CARD_PAD_Y + 2} text="✓"
-                              fontSize={CF.check} fill={P.doneCheck}
-                              listening={false} />
-                    )}
                 </Group>);
         } else {
             worldNodes.push(
