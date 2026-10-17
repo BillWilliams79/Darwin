@@ -49,6 +49,8 @@ import '../../CalendarFC/CalendarFC.css';
 import {
     useAllRequirementSessions,
     useAllSessionCostRollups,
+    useAllSessionTerminals,
+    useDevServers,
     useMachines,
     useOrchestrationClaims,
 } from '../../hooks/useDataQueries';
@@ -100,6 +102,7 @@ import {
     // payload, so the plan page still folds it here from two bounded reads.
     buildCostIndex,
 } from './pipelineViewModel';
+import { buildReqPills } from './planReqPills';
 
 // A SHARED frozen empty array for the `data = EMPTY` defaults below. A `= []`
 // literal mints a NEW array on every render while `data` is undefined — which is
@@ -420,8 +423,9 @@ export default function PipelineDetail() {
     // there), so gating the whole plan on it would trade a correct-but-costless
     // first paint for a slower one. They also do not gate because they are
     // OPT-IN at the UI: the Cost column is hidden until the user asks for it.
-    const { data: requirementSessions = EMPTY, isError: requirementSessionsError } =
-        useAllRequirementSessions(creatorFk);
+    // (The junction now gates anyway, as a pill input — req #3587, below.)
+    const { data: requirementSessions = EMPTY, isError: requirementSessionsError,
+        isLoading: requirementSessionsLoading } = useAllRequirementSessions(creatorFk);
     const { data: sessionCosts = EMPTY, isError: sessionCostsError } =
         useAllSessionCostRollups(creatorFk);
     // A failed cost read must not render as a column of em-dashes — that is
@@ -433,6 +437,32 @@ export default function PipelineDetail() {
         () => buildCostIndex({ requirementSessions, sessionCosts }),
         [requirementSessions, sessionCosts]);
 
+    // Req #3587 — the visualizer's Terminal and Dev Server pills. Two more
+    // bounded list reads (a light session projection and `dev_servers`, the
+    // latter always production per its req #2871 carve-out), joined against the
+    // junction already read above.
+    //
+    // UNLIKE COST, THESE GATE `isLoading`, because a pill is TEXT in the row and
+    // so changes the card's wrap, its height and the plan's: drawing first and
+    // adding pills a round trip later reflowed every card under the reader and
+    // fitted the landing view to a plan shorter than the one that then settled.
+    // A FAILED read still ends the wait (`isLoading` goes false, `data` stays
+    // EMPTY) — no pill is the right reading of "could not tell".
+    const { data: sessionTerminals = EMPTY, isLoading: sessionTerminalsLoading } =
+        useAllSessionTerminals(creatorFk);
+    const { data: devServers = EMPTY, isLoading: devServersLoading } =
+        useDevServers(creatorFk);
+    const pillsLoading = requirementSessionsLoading || sessionTerminalsLoading
+        || devServersLoading;
+    const reqPills = useMemo(
+        () => buildReqPills({
+            requirementSessions, sessions: sessionTerminals, devServers,
+            // undefined while in flight, so a terminal pill reads LOADING
+            // rather than claiming this browser's machine is unknowable.
+            machines: machinesLoading ? undefined : machines,
+        }),
+        [requirementSessions, sessionTerminals, devServers, machines, machinesLoading]);
+
     // ── THE FETCH (req #3463, collapsed to one head by req #3356) ───────────
     // The four values below are all this page consumes. 1.0 joined seven reads
     // in the browser; 2.0 consumes ONE composed read that already did the
@@ -443,7 +473,7 @@ export default function PipelineDetail() {
         dictionaryError: planDictionaryError, knownIds,
     } = usePlanSources(pipelineId, creatorFk, { machines, costIndex });
 
-    const isLoading = planLoading || machinesLoading;
+    const isLoading = planLoading || machinesLoading || pillsLoading;
 
     // `machines` is this page's own read — 2.0 carries no machines dictionary of
     // its own — so its failure is reported here rather than inside the head.
@@ -1053,6 +1083,7 @@ export default function PipelineDetail() {
                              resetViewNonce={resetViewNonce}
                              stepsAcross={stepsAcross}
                              stepWidthLevel={stepWidthLevel}
+                             reqPills={reqPills}
                              />
             )}
         </Box>
