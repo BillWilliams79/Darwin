@@ -77,6 +77,8 @@ vi.mock('../../../hooks/useDataQueries', async (importOriginal) => {
         useOrchestrationClaims: empty,
         useAllRequirementSessions: empty,
         useAllSessionCostRollups: empty,
+        useAllSessionTerminals: empty,
+        useDevServers: empty,
     };
 });
 

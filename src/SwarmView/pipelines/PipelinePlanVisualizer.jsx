@@ -138,7 +138,7 @@ import {
     // measured; it never measures one of its own.
     CARD_RADIUS, CARD_PAD_X, CARD_PAD_Y, CARD_LINE_H, CARD_RULE_GAP,
     CARD_STATE_BAR_W, CARD_CHECK_W, CARD_BADGE_FONT,
-    MIN_CARD_H, REQ_LINE_H,
+    MIN_CARD_H, REQ_LINE_H, CHW_REQ,
     buildReqColorViews, REQ_COLOR_KEYS, reqIdStyle, reqIdKeyEntries, normalizeColorKey,
     DEFAULT_PLAN_PALETTE, isPlanPalette,
     DEFAULT_COLOR_KEY, PLAN_KEY_MAX_H, pinnedLevelOf, DEFAULT_PLAN_LEVEL_PREF,
@@ -172,6 +172,57 @@ import { viewportStorageKey, writeViewport } from '../../utils/viewportMemory';
 import '../../CalendarFC/swarmVisualizer.css';
 
 const MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
+
+// req #3587 — the requirement row's Terminal and Dev Server pills.
+//
+// A PILL IS ITS OWN ELEMENT: a rounded box with its label drawn CENTRED inside
+// it (`align`/`verticalAlign`), never an outline behind the row's own glyphs.
+// The first version traced the row's characters, so its centring hung on two
+// independent width measurements agreeing to the sub-pixel, and the token took
+// the row's bold status colour — measured off-centre and heavy (user review,
+// 2026-10-17). Now the row text carries BLANKS where a token sat (the layout
+// still reserves exactly those characters, so wrap and card height are
+// untouched) and the pill owns its label, centred by construction.
+//
+// Each kind has its own quiet palette, independent of the row's colour key: a
+// dark tinted fill, a softened edge and a light label. The terminal is the
+// requirement-id blue (`P.req`, an MUI primary chip's role); the dev server the
+// Swarm visualizer's dark-mode dev-server green, so a port reads the same on
+// both canvases.
+const REQ_PILL_STYLE = {
+    terminal: { fill: '#7fb4ff26', stroke: '#7fb4ff8c', text: '#d3e5ff' },
+    devserver: { fill: '#81c78426', stroke: '#81c7848c', text: '#d5f1d7' },
+};
+const REQ_PILL_STROKE = 1.25;
+const REQ_PILL_H_EM = 1.3;                  // pill height, in req font sizes
+const REQ_PILL_FONT_EM = 0.78;              // label size, in req font sizes
+const REQ_PILL_FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif';
+// Inside the two-space gap `REQ_PILL_SEP` leaves, so neighbours keep clear air.
+const REQ_PILL_PAD_X = CHW_REQ * 0.3;
+// The pill's BOX is placed over the characters it replaced, MEASURED in the
+// font the row is actually drawn in, so the air between the id, the pills and
+// the title's dash stays even. `CHW_REQ` is a deliberate OVER-estimate of the
+// mono advance (it sizes boxes, where erring wide is safe), so as a
+// per-character OFFSET its error accumulates — and a browser without SF
+// Mono/Menlo falls back to a narrower monospace (Consolas, ~0.55em). The layout
+// still owns WHICH characters a pill covers; this only asks the canvas how wide
+// they really are. One shared 2D context; null where there
+// is no canvas (jsdom), and the caller falls back to the layout's advance.
+let pillMeasureCtx;
+const measureReqText = (str, fontSize, bold) => {
+    try {
+        if (pillMeasureCtx === undefined) {
+            pillMeasureCtx = Konva.Util.createCanvasElement().getContext('2d') || null;
+        }
+        if (!pillMeasureCtx) return null;
+        // Konva's own font string for a Text node: style, variant, size, family.
+        pillMeasureCtx.font = `${bold ? 'bold' : 'normal'} normal ${fontSize}px ${MONO}`;
+        const w = pillMeasureCtx.measureText(str).width;
+        return Number.isFinite(w) && w > 0 ? w : null;
+    } catch (e) {
+        return null;
+    }
+};
 
 // The requirement-mark colour scales, in the order they are reserved — the
 // REGISTRY's order plus `none`, never a copy of it (req #3422), so a scale added
@@ -359,6 +410,10 @@ export default function PipelinePlanVisualizer({
     // it, so it rides in `computePlanLayout`'s own options rather than being
     // applied as a post-hoc transform the way every other control here is.
     stepWidthLevel = DEFAULT_STEP_WIDTH_LEVEL,
+    // req #3587 — requirement id -> {terminal, devServer} (`planReqPills.js`),
+    // built by the page from reads it owns. Drawn as pills between a row's id
+    // and its title; null draws every row exactly as before.
+    reqPills = null,
 }) {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
@@ -441,7 +496,7 @@ export default function PipelinePlanVisualizer({
     const activePalette = isPlanPalette(palette) ? palette : DEFAULT_PLAN_PALETTE;
     const layout = useMemo(
         () => computePlanLayout(rows, {
-            stepLabel, reqLabel, reqTitles,
+            stepLabel, reqLabel, reqTitles, reqPills,
             palette: activePalette,
             timeAxis: plan.timeAxis || null, epicCounts,
             // req #3226 — `plan.pause` comes from the composed derivation (same
@@ -451,7 +506,7 @@ export default function PipelinePlanVisualizer({
             stepWidthLevel,
         }),
         [rows, plan.timeAxis, stepLabel,
-            reqLabel, reqTitles, epicCounts, plan.pause, activePalette, stepWidthLevel]);
+            reqLabel, reqTitles, reqPills, epicCounts, plan.pause, activePalette, stepWidthLevel]);
 
     // ── The REQUIREMENT-ID channel (req #3119; #3168 neutral; #3422 registry) ─
     // Whatever the key, it rides the requirement ids and never the bead: the
@@ -1674,11 +1729,13 @@ export default function PipelinePlanVisualizer({
             if (!d.node.getStage()) return false;       // redrawn away mid-press
             let src;
             try {
-                src = d.node.toDataURL({ pixelRatio: window.devicePixelRatio || 1 });
+                // req #3587 — a row with pills is a Group; snapshot the whole row.
+                d.snap = d.node.getAttr('dragRowGroup') ? (d.node.getParent() || d.node) : d.node;
+                src = d.snap.toDataURL({ pixelRatio: window.devicePixelRatio || 1 });
             } catch {
                 return false;
             }
-            const r = d.node.getClientRect();
+            const r = (d.snap || d.node).getClientRect();
             const p0 = panelPoint({ clientX: d.down.x, clientY: d.down.y });
             d.offX = p0.x - r.x + PAD_X;
             d.offY = p0.y - r.y + PAD_Y;
@@ -1925,8 +1982,11 @@ export default function PipelinePlanVisualizer({
     const showReqCard = useCallback((reqId, e) => {
         if (reqDragRef.current?.phase === 'drag') return;
         const p = e?.target?.getStage?.()?.getPointerPosition?.();
-        if (p) setCard({ x: p.x, y: p.y, kind: 'req', reqId, info: reqInfo.get(reqId) });
-    }, [reqInfo]);
+        if (p) {
+            setCard({ x: p.x, y: p.y, kind: 'req', reqId, info: reqInfo.get(reqId),
+                pills: reqPills?.get?.(reqId) || null });
+        }
+    }, [reqInfo, reqPills]);
     const hideCard = useCallback(() => setCard(null), []);
 
     // ── Focus an epic band (req #3204) ──────────────────────────────────────
@@ -3097,8 +3157,50 @@ export default function PipelinePlanVisualizer({
             // GREYED OUT, until the drop: the copy riding the cursor is the
             // requirement in flight, and this is the hole it left.
             const lifted = reqDrag?.reqId === label.reqId;
-            worldNodes.push(
-                <Text key={`lbl-${i}`} x={reqX} y={reqY} text={reqText}
+            // ── THE TERMINAL / DEV SERVER PILLS (req #3587) ─────────────────
+            // The layout put the tokens in the text and handed back their
+            // character ranges on the first line. The row is drawn with those
+            // characters BLANKED, and each pill — box and label — is drawn on
+            // top in the room they reserved: box over the measured span, y
+            // centred on the first line (Konva draws a line's glyphs
+            // `middle`-baselined at half its line height), label centred in
+            // the box. See `REQ_PILL_STYLE` for why the label is not the row's.
+            const pillsHere = label.pills || [];
+            const pillInfo = pillsHere.length ? (reqPills?.get?.(label.reqId) || null) : null;
+            let rowText = reqText;
+            let pillBoxes = [];
+            if (pillsHere.length) {
+                const rowLines = reqText.split('\n');
+                const firstLine = rowLines[0];
+                pillBoxes = pillsHere.map((pl) => {
+                    const h = CF.req * REQ_PILL_H_EM;
+                    const lead = pl.start === 0 ? 0
+                        : measureReqText(firstLine.slice(0, pl.start), CF.req, rs.bold);
+                    const span = measureReqText(firstLine.slice(pl.start, pl.start + pl.len),
+                        CF.req, rs.bold);
+                    return {
+                        ...pl,
+                        text: firstLine.slice(pl.start, pl.start + pl.len).replace(/\u00a0/g, ' '),
+                        x: reqX + (lead ?? pl.start * CHW_REQ) - REQ_PILL_PAD_X,
+                        y: reqY + REQ_LINE_H / 2 - h / 2,
+                        w: (span ?? pl.len * CHW_REQ) + 2 * REQ_PILL_PAD_X,
+                        h,
+                        style: REQ_PILL_STYLE[pl.kind] || REQ_PILL_STYLE.terminal,
+                    };
+                });
+                rowLines[0] = pillsHere.reduce((ln, pl) => ln.slice(0, pl.start)
+                    + ' '.repeat(pl.len) + ln.slice(pl.start + pl.len), firstLine);
+                rowText = rowLines.join('\n');
+            }
+            // A row that carries pills is drawn as ONE Group — text, pills and
+            // their targets — so the drag ghost (req #3581, a snapshot of the
+            // node under the pointer) shows the row as the reader sees it,
+            // pills included, rather than the bare text with blanks in it.
+            // `dragRowGroup` on the text is what tells the snapshot to take the
+            // parent. A pill-less row stays a lone Text, exactly as before.
+            const rowNodes = [];
+            rowNodes.push(
+                <Text key={`lbl-${i}`} x={reqX} y={reqY} text={rowText}
                       fontSize={CF.req} fontFamily={MONO}
                       lineHeight={REQ_LINE_H / CF.req}
                       fill={lifted ? P.dim : rs.fill}
@@ -3108,6 +3210,7 @@ export default function PipelinePlanVisualizer({
                       // (req #3581): the mark IS the handle.
                       dragReqId={label.reqId}
                       dragStepId={label.stepId}
+                      dragRowGroup={pillBoxes.length > 0}
                       onMouseEnter={(e) => { cursorPointer(e, true); showReqCard(label.reqId, e); }}
                       onMouseLeave={(e) => { cursorPointer(e, false); hideCard(); }}
                       // Carry the plan's identity so the requirement page's Back
@@ -3140,6 +3243,47 @@ export default function PipelinePlanVisualizer({
                               ? { state: { from: 'pipeline', pipelineId: pipeline.id,
                                   mode: 'plan' } }
                               : undefined)} />);
+            pillBoxes.forEach((b, j) => {
+                rowNodes.push(
+                    <Rect key={`lbl-${i}-pill-${j}`} x={b.x} y={b.y} width={b.w} height={b.h}
+                          cornerRadius={b.h / 2} fill={b.style.fill}
+                          stroke={b.style.stroke} strokeWidth={REQ_PILL_STROKE}
+                          opacity={lifted ? 0.4 : 1} listening={false} />);
+                rowNodes.push(
+                    <Text key={`lbl-${i}-pilltxt-${j}`} x={b.x} y={b.y} width={b.w} height={b.h}
+                          text={b.text} align="center" verticalAlign="middle"
+                          fontSize={CF.req * REQ_PILL_FONT_EM} fontFamily={REQ_PILL_FONT}
+                          fontStyle="600" fill={b.style.text} wrap="none"
+                          opacity={lifted ? 0.4 : 1} listening={false} />);
+            });
+            // A pill that can DO something gets its own target ON TOP of the
+            // row's text — the port opens the dev server (the Swarm
+            // visualizer's port pill's action), a terminal on this machine is
+            // brought to the front (the Sessions grid chip's). A pill that can
+            // do nothing gets no target, so a click on it still opens the
+            // requirement like the rest of the row.
+            pillBoxes.forEach((b, j) => {
+                const action = b.kind === 'devserver' && pillInfo?.devServer?.local
+                    ? () => {
+                        try { window.open(pillInfo.devServer.url, '_blank', 'noopener,noreferrer'); }
+                        catch (e) { /* popup blocked — no-op */ }
+                    }
+                    : (b.kind === 'terminal' && pillInfo?.terminal?.href
+                        ? () => { window.location.href = pillInfo.terminal.href; }
+                        : null);
+                if (!action) return;
+                rowNodes.push(
+                    <Rect key={`lbl-${i}-pillhit-${j}`} x={b.x} y={b.y} width={b.w} height={b.h}
+                          fill="transparent"
+                          onMouseEnter={(e) => { cursorPointer(e, true); showReqCard(label.reqId, e); }}
+                          onMouseLeave={(e) => { cursorPointer(e, false); hideCard(); }}
+                          onActivate={action} />);
+            });
+            if (pillBoxes.length) {
+                worldNodes.push(<Group key={`lbl-${i}-row`}>{rowNodes}</Group>);
+            } else {
+                worldNodes.push(...rowNodes);
+            }
         } else if (label.kind === 'badge') {
             // req #3503, round 4 — drawn as an HTML overlay now (`floatingBadges`
             // below), not in Konva at all. Three rounds of hand-fighting canvas's
@@ -4193,6 +4337,11 @@ function PlanDataCard({ card, timezone, level, containerW, containerH }) {
                 {rowEl('Autonomy', formatCoordination(info.coordination))}
                 {rowEl('Model', info.model ? aiModelLabel(info.model) : '—')}
                 {rowEl('Effort', info.effort ? effortLabel(info.effort) : '—')}
+                {/* req #3587 — the pills' facts, spelled out: which terminal
+                    (and whether it can be focused from here), which port. */}
+                {card.pills?.terminal && rowEl('Terminal',
+                    card.pills.terminal.title || card.pills.terminal.label)}
+                {card.pills?.devServer && rowEl('Dev server', card.pills.devServer.title)}
             </div>
         );
     } else {
