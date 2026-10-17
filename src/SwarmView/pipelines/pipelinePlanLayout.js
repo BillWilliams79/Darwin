@@ -386,6 +386,8 @@ export const reqStatusColor = (status) => (Object.hasOwn(REQ_STATUS_COLORS, stat
 //
 //   State (the default):  Authoring → Met     — `REQ_STATUS_ORDER` itself,
 //                                                the legend's own reading order.
+//   Session:               no session → completed — `SESSION_STATUS_ORDER`
+//                                                (req #3584).
 //   Autonomy:              Discuss → Deployed  — `AUTONOMY_ORDER` itself.
 //   Machine:                its own order       — ascending `machine_fk`, the
 //                                                same ascending-id order
@@ -420,12 +422,15 @@ const UNPINNED_MACHINE_RANK = Number.MAX_SAFE_INTEGER;
  * @param {Object} args
  * @param {string} [args.colorKey]                    a REQ_COLOR_KEYS value
  * @param {(id: number) => ?string} [args.statusOf]    id -> requirement_status
+ * @param {(id: number) => ?string} [args.sessionOf]   id -> session_status
  * @param {(id: number) => ?string} [args.autonomyOf]  id -> coordination_type
  * @param {(id: number) => ?number} [args.machineOf]   id -> machine_fk
  * @returns {number}
  */
-export function reqSortRank(reqId, { colorKey, statusOf, autonomyOf, machineOf } = {}) {
+export function reqSortRank(reqId,
+    { colorKey, statusOf, sessionOf, autonomyOf, machineOf } = {}) {
     const key = normalizeColorKey(colorKey);
+    if (key === 'session') return rankInOrder(SESSION_STATUS_ORDER, sessionOf?.(reqId));
     if (key === 'autonomy') return rankInOrder(AUTONOMY_ORDER, autonomyOf?.(reqId));
     if (key === 'machine') {
         const m = machineOf?.(reqId);
@@ -626,6 +631,55 @@ export const AUTONOMY_UNKNOWN_COLOR = REQ_STATUS_UNKNOWN_COLOR;
 export const autonomyColor = (ct) => (Object.hasOwn(AUTONOMY_COLORS, ct)
     ? AUTONOMY_COLORS[ct] : AUTONOMY_UNKNOWN_COLOR);
 
+// ── Requirement-id scale 4: SESSION STATUS (the 'session' key, req #3584) ──
+// `swarm_sessions.swarm_status` of the requirement's LATEST session — what is
+// actually happening to the work right now, which the requirement's own
+// status cannot say: `development` covers a session that is planning, one
+// that is waiting on the user, one parked in `paused` and one sitting in
+// `review`. User directive: *"the session tracks what is happening actually.
+// so that should be a color option in the pipeline visualizer"*.
+//
+// `no_session` is a real member, not the unknown swatch: a requirement no
+// session has ever reached is a FACT about the plan (nothing launched it),
+// where unknown means this build cannot say. It is only ever written once the
+// session reads have SETTLED — see `buildSessionStatusIndex` — so a slow or
+// failed read paints unknown rather than claiming nothing ran.
+//
+// Design rule 9 ("requirement-centric views carry NO session data") is about
+// a requirement list turning into a session list. This scale adds one value
+// PER REQUIREMENT on a channel the requirement already owns — no session
+// identity, row or phase is drawn — so the view stays requirement-centric.
+//
+// Key order: the session lifecycle, `no_session` first because it precedes
+// launch.
+export const SESSION_STATUS_ORDER = [
+    'no_session', 'starting', 'waiting', 'planning', 'active',
+    'review', 'paused', 'completing', 'completed',
+];
+
+// Signal's session scale. Three members TRACK colours that already mean the
+// same thing elsewhere on this panel, by reference for `REQ_STATUS_COLORS`'
+// reason: `waiting` is the human-speaks-first stop (`discuss`), `active` is
+// Running, `completed` is GO/met.
+export const SESSION_STATUS_COLORS = {
+    no_session: '#9e9e9e',                  // grey — nothing launched it
+    starting: REQ_STATUS_COLORS.swarm_ready, // blue — launching
+    waiting: AUTONOMY_COLORS.discuss,        // hot magenta — waiting on a human
+    planning: AUTONOMY_COLORS.implemented,   // violet — building a plan
+    active: PLAN_VIZ_PALETTE.runningRing,    // amber — working
+    review: '#ff9800',                       // orange — stopped for review
+    paused: '#e0a3a3',                       // dusty rose — parked
+    completing: '#6ee7e7',                   // cyan — closing out
+    completed: AUTONOMY_COLORS.deployed,     // green — done
+};
+
+// A session status this build does not know, or a requirement whose session
+// reads have not loaded. Same swatch as the other unknowns, for their reason —
+// and because that is a routine state on every page load, every theme's
+// session members are held ≥ ΔE 20 from it (tested), so "not loaded yet" never
+// reads as "nothing launched".
+export const SESSION_UNKNOWN_COLOR = REQ_STATUS_UNKNOWN_COLOR;
+
 // ════════════════════════════════════════════════════════════════════════════
 // PALETTE THEMES (req #3365 user directive)
 // ════════════════════════════════════════════════════════════════════════════
@@ -688,6 +742,7 @@ export const PLAN_PALETTES = [
         epic: EPIC_PALETTE,
         status: REQ_STATUS_COLORS,
         autonomy: AUTONOMY_COLORS,
+        session: SESSION_STATUS_COLORS,
     },
     {
         key: 'slate',
@@ -716,6 +771,19 @@ export const PLAN_PALETTES = [
             implemented: '#8c9fc4',
             deployed:    '#7fb08c',
         },
+        // req #3584. MEASURED minimum ΔE 22.7 (`paused`/`completed`); every
+        // member ≥ 22.8 from SESSION_UNKNOWN_COLOR.
+        session: {
+            no_session:  '#c0c0c0',
+            starting:    '#8aa8e6',
+            waiting:     '#c4849c',
+            planning:    '#ab84c4',
+            active:      '#d4b35c',
+            review:      '#cf8050',
+            paused:      '#a0a070',
+            completing:  '#6fd0c4',
+            completed:   '#8fbf7a',
+        },
     },
     {
         key: 'aurora',
@@ -741,6 +809,22 @@ export const PLAN_PALETTES = [
             planned:     '#c4b5fd',
             implemented: '#7dd3fc',
             deployed:    '#4ade80',
+        },
+        // req #3584 — THE LIVE session scale. `waiting`/`active`/`completed`
+        // are assigned in the aurora patch below (tracking, for Signal's
+        // reason). Attention states (`review`, `paused`) are the warm ones;
+        // working states stay cool. MEASURED minimum ΔE 27.0
+        // (`starting`/`planning`), minimum contrast 5.79:1. `no_session` is a
+        // LIGHT neutral, not aurora's mid slate: it must not read as the
+        // unknown swatch every mark wears while the session reads load (every
+        // member ≥ 32.2 ΔE from it).
+        session: {
+            no_session:  '#cbd5e1',
+            starting:    '#818cf8',
+            planning:    '#c4b5fd',
+            review:      '#fcd34d',
+            paused:      '#fb923c',
+            completing:  '#38bdf8',
         },
     },
 ];
@@ -777,6 +861,9 @@ const auroraPalette = PLAN_PALETTES.find((p) => p.key === 'aurora');
 auroraPalette.status.authoring = auroraPalette.autonomy.discuss;
 auroraPalette.status.approved = auroraPalette.autonomy.planned;
 auroraPalette.status.met = auroraPalette.autonomy.deployed;
+auroraPalette.session.waiting = auroraPalette.autonomy.discuss;
+auroraPalette.session.active = auroraPalette.status.development;
+auroraPalette.session.completed = auroraPalette.autonomy.deployed;
 
 export const PLAN_PALETTE_KEYS = PLAN_PALETTES.map((p) => p.key);
 // AURORA, on the user's own directive after seeing all three on the live plan.
@@ -1032,8 +1119,9 @@ function buildEnumColorView({
     };
 }
 
-// The registry. ORDER IS THE TOOLBAR'S ORDER, and it is STATE, AUTONOMY,
-// MACHINE (req #3365 user directive). It was state, machine, autonomy — the
+// The registry. ORDER IS THE TOOLBAR'S ORDER, and it is STATE, SESSION,
+// AUTONOMY, MACHINE (req #3365 user directive; Session inserted second by req
+// #3584's). It was state, machine, autonomy — the
 // two original scales first so a reader's muscle memory for the chip positions
 // survived autonomy's arrival at req #3422. That reason has expired: the chips
 // have moved, so the muscle memory being protected is the memory of an order
@@ -1065,6 +1153,30 @@ export const REQ_COLOR_SCALES = [
             // 'swarm_ready' reads as two words on the key and as one in the
             // database. The key is for a person.
             labelOf: (v) => v.replace('_', '-'),
+        }),
+    },
+    // SECOND, directly after State (req #3584 user directive: "that could be
+    // the second in the list after state") — the requirement's status, then
+    // what its session is doing about it.
+    {
+        key: 'session',
+        chipLabel: 'Session',
+        chipTip: 'Colour the requirement marks by the STATUS of their latest swarm '
+            + 'session — click again for none',
+        chipName: 'Session — colour the requirement marks by session status',
+        keyTitle: 'Requirement id = session',
+        // Reads `session_status`, which `buildPlanModel` attaches to each
+        // requirement row from the session reads — the composed plan read
+        // carries no session data of its own.
+        build: ({ requirements, presentReqIds, pal = planPalette() }) => buildEnumColorView({
+            requirements,
+            presentReqIds,
+            field: 'session_status',
+            colors: pal.session,
+            order: SESSION_STATUS_ORDER,
+            paint: (v) => (Object.hasOwn(pal.session, v)
+                ? pal.session[v] : SESSION_UNKNOWN_COLOR),
+            labelOf: (v) => v.replace('_', ' '),
         }),
     },
     {
