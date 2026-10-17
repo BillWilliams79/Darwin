@@ -441,10 +441,12 @@ describe('buildPlanModel — the narrow model PipelinePlanVisualizer.jsx still r
         expect(model.requirements).toEqual(payload.requirements);
         expect(model.machines).toBe(machines);
         expect(model.features).toBeUndefined();
+        // req #3586 — the add-step dialog's epic picker.
+        expect(model.epics).toEqual(payload.epics);
     });
 
     it('tolerates a null payload', () => {
-        expect(buildPlanModel(null)).toEqual({ pipeline: null, requirements: [], machines: [] });
+        expect(buildPlanModel(null)).toEqual({ pipeline: null, requirements: [], machines: [], epics: [] });
     });
 
     it('attaches session_status from the index, no_session for a requirement it does not name (req #3584)', () => {

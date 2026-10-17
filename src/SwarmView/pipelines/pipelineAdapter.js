@@ -331,7 +331,7 @@ export function adaptComposedPipeline(payload, { machines = [], costIndex = null
  * @param {Object} payload
  * @param {Object[]} [machines]
  * @param {?Map<number, string>} [sessionStatus]  buildSessionStatusIndex output
- * @returns {{pipeline: ?Object, requirements: Object[], machines: Object[]}}
+ * @returns {{pipeline: ?Object, requirements: Object[], machines: Object[], epics: Object[]}}
  */
 export function buildPlanModel(payload, machines = [], sessionStatus = null) {
     const requirements = asArray(payload && payload.requirements);
@@ -347,5 +347,8 @@ export function buildPlanModel(payload, machines = [], sessionStatus = null) {
             }))
             : requirements,
         machines: asArray(machines),
+        // req #3586 — the epic picker of the visualizer's add-step dialog. The
+        // payload's own `epics[]`, so an epic with no steps yet is offered too.
+        epics: asArray(payload && payload.epics),
     };
 }

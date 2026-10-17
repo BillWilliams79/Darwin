@@ -81,7 +81,7 @@ import {
 } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useIsFetching, useQueryClient } from '@tanstack/react-query';
-import { Stage, Layer, Group, Rect, Circle, Line, Text, Path } from 'react-konva';
+import { Stage, Layer, Group, Rect, Circle, Line, Text, Path, Shape } from 'react-konva';
 import Konva from 'konva';
 import { select } from 'd3-selection';
 import { zoom as d3zoom, zoomIdentity } from 'd3-zoom';
@@ -93,6 +93,13 @@ import 'd3-transition';
 
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import Dialog from '@mui/material/Dialog';
+import DialogActions from '@mui/material/DialogActions';
+import DialogContent from '@mui/material/DialogContent';
+import DialogTitle from '@mui/material/DialogTitle';
+import MenuItem from '@mui/material/MenuItem';
+import TextField from '@mui/material/TextField';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
@@ -161,9 +168,18 @@ import { useSavedViewport } from '../../hooks/useSavedViewport';
 import AppContext from '../../Context/AppContext';
 import AuthContext from '../../Context/AuthContext';
 import { pipelineComposeKeys } from '../../hooks/useQueryKeys';
-import { pipelineStepRequirementKeys } from '../../hooks/useDataQueries';
+import {
+    pipelineStepRequirementKeys, pipelineStepKeys, pipelineStepDepKeys,
+} from '../../hooks/useDataQueries';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
-import { moveStepRequirement } from '../../Steps/stepsApi';
+import {
+    moveStepRequirement, insertStepOnEdge, branchStepFrom,
+    isRestNullLiteral, REST_NULL,
+} from '../../Steps/stepsApi';
+// req #3586 — the "+" marks that add a step on an edge or as a branch.
+import {
+    insertMarkRadius, buildInsertMarks, insertMarkAt, insertRequest, NEW_STEP_TITLE,
+} from './pipelineStepInsert';
 import {
     REQ_DRAG_SLOP, passedDragSlop, dropTargetAt, canDropOn, applyReqMoves,
     edgePanVelocity,
@@ -429,6 +445,22 @@ export default function PipelinePlanVisualizer({
     // failed, in which case the refetched server rows ARE the revert).
     const [pendingMoves, setPendingMoves] = useState([]);
 
+    // ── Add a step from the canvas (req #3586) ──────────────────────────────
+    // `insertReq` is the open dialog's request (`insertRequest`), null when
+    // closed. The marks themselves are ONE non-listening Konva shape whose
+    // geometry is memoized per layout (see `insertGeom` below), and clicks and
+    // hover resolve against that geometry in the native listeners — so the
+    // marks add no hit-graph nodes and no React state on pointer movement.
+    // `insertHoverRef` is the key of the "+" under the pointer.
+    const [insertReq, setInsertReq] = useState(null);
+    const [insertTitle, setInsertTitle] = useState(NEW_STEP_TITLE);
+    const [insertEpic, setInsertEpic] = useState('');
+    const [inserting, setInserting] = useState(false);
+    const insertHoverRef = useRef(null);
+    const insertGeomRef = useRef(null);
+    const insertHitRef = useRef(null);
+    const openInsertRef = useRef(null);
+
     // Requirement name + status for the hover tooltip (req #3119). The canvas
     // keeps drawing bare IDS — a plan title is many times the width of the
     // column it hangs under, so putting names on the surface either shrinks them
@@ -468,6 +500,93 @@ export default function PipelinePlanVisualizer({
             : r));
     }, [plan.rows, pendingMoves, reqInfo, colorKey]);
     const rowById = useMemo(() => new Map(rows.map((r) => [r.id, r])), [rows]);
+
+    // The epics the add-step dialog offers: the payload's own `epics[]` (an
+    // epic with no steps yet included), in the plan's epic order. Falls back to
+    // the epics the rows name when a caller hands in a model without them.
+    const insertEpicOptions = useMemo(() => {
+        const fromModel = (model?.epics || []).map((e) => ({
+            id: e.id, title: e.title, sortOrder: e.sort_order,
+        }));
+        const list = fromModel.length ? fromModel : [...new Map(rows
+            .filter((r) => r.epicId != null)
+            .map((r) => [r.epicId, { id: r.epicId, title: r.epic, sortOrder: r.epicSortOrder }]))
+            .values()];
+        return list.sort((a, b) => (a.sortOrder ?? Infinity) - (b.sortOrder ?? Infinity)
+            || a.id - b.id);
+    }, [model, rows]);
+
+    // When the dialog opened — a double-click on a "+" lands its second click
+    // on the dialog's backdrop, which would close it again at once.
+    const insertOpenedAtRef = useRef(0);
+    const openInsert = useCallback((kind, ids) => {
+        const req = insertRequest(kind, ids, rowById);
+        setInsertTitle(NEW_STEP_TITLE);
+        setInsertEpic(req.epicId ?? '');
+        insertOpenedAtRef.current = Date.now();
+        setInsertReq(req);
+    }, [rowById]);
+    const closeInsert = useCallback((event, reason) => {
+        if (reason === 'backdropClick' && Date.now() - insertOpenedAtRef.current < 600) return;
+        if (!inserting) setInsertReq(null);
+    }, [inserting]);
+
+    const commitInsert = useCallback(async () => {
+        const req = insertReq;
+        if (!req || inserting) return;
+        const title = insertTitle.trim();
+        if (!title) {
+            showError('Title is required');
+            return;
+        }
+        if (isRestNullLiteral(title)) {
+            showError(`"${REST_NULL}" is the API's clear-this-column sentinel and cannot `
+                + 'be a title. Try "Null" or another wording.');
+            return;
+        }
+        if (insertEpic === '' || insertEpic == null) {
+            showError('Epic is required');
+            return;
+        }
+        setInserting(true);
+        try {
+            if (req.kind === 'edge') {
+                await insertStepOnEdge(darwinUri, idToken, {
+                    fromStepId: req.fromId, toStepId: req.toId,
+                    epic_fk: insertEpic, title,
+                });
+            } else {
+                await branchStepFrom(darwinUri, idToken, {
+                    fromStepId: req.fromId, epic_fk: insertEpic, title,
+                });
+            }
+            setInsertReq(null);
+        } catch (error) {
+            if (error?.orphanStep) {
+                // The step exists with no edges; a retry would make a second.
+                setInsertReq(null);
+                showError(error, 'Step created without its dependencies');
+            } else if (error?.redundantEdge) {
+                // The new step is in and wired; only the old direct edge is
+                // left, which gates exactly as the chain does.
+                setInsertReq(null);
+                showError(error, `Step inserted, but step ${req.toId} still also `
+                    + `waits on step ${req.fromId} directly`);
+            } else {
+                showError(error, req.kind === 'edge'
+                    ? 'Could not insert the step' : 'Could not add the step');
+            }
+        } finally {
+            setInserting(false);
+            if (pipeline?.id != null) {
+                queryClient.invalidateQueries({ queryKey: pipelineComposeKeys.byId(pipeline.id) });
+            }
+            queryClient.invalidateQueries({ queryKey: pipelineStepKeys.all(profile?.userName) });
+            queryClient.invalidateQueries({ queryKey: pipelineStepDepKeys.all(profile?.userName) });
+            queryClient.invalidateQueries({ queryKey: ['orchestration_index'] });
+        }
+    }, [insertReq, inserting, insertTitle, insertEpic, darwinUri, idToken,
+        pipeline?.id, profile?.userName, queryClient, showError]);
     const eligibleStepIds = plan.eligibleStepIds || new Set();
     // The requirement TITLE lookup, when that mark is showing (req #3168). Built
     // from `reqInfo`, which the hover card already needed — so the option costs
@@ -997,7 +1116,9 @@ export default function PipelinePlanVisualizer({
             // listener fires first, so nothing downstream could take it back.
             .filter((ev) => (ev.type === 'wheel' ? !snapZoomRef.current
                 : (!ev.button && !ev.target?.closest?.(CHROME_SELECTOR)
-                    && !(ev.type === 'mousedown' && reqHitRef.current?.(ev)))))
+                    && !(ev.type === 'mousedown' && reqHitRef.current?.(ev))
+                    // req #3586 — a press on an add-step "+" is a click, never a pan.
+                    && !(ev.type === 'mousedown' && insertHitRef.current?.(ev)))))
             // ONE number for "how far may a click move" (req #3297). d3 uses it
             // to decide whether to suppress the click; the epic name's cycle
             // uses it to decide whether that same gesture was the reader taking
@@ -1508,6 +1629,13 @@ export default function PipelinePlanVisualizer({
             // that instant and switches to Table mode or navigates away. The
             // window is new: the chip used to leave the page immediately.
             if (focusingRef.current) return;
+            // req #3586 — an add-step "+" is resolved by geometry, not by the
+            // stage: the marks are drawn as one non-listening shape.
+            const mark = insertHitRef.current?.(e);
+            if (mark) {
+                openInsertRef.current?.(mark.kind, { fromId: mark.fromId, toId: mark.toId });
+                return;
+            }
             const stage = stageRef.current;
             if (!stage) return;
             const rect = el.getBoundingClientRect();
@@ -1965,6 +2093,98 @@ export default function PipelinePlanVisualizer({
     // where it actually opens (req #3312). `x`/`y` stay at the origin because
     // that is what `resetView` applies.
     const t = transform || { x: 0, y: 0, k: kFactoryDefault };
+
+    // ── The add-step marks' geometry (req #3586) ────────────────────────────
+    // PLACED once per LAYOUT (at the largest radius, so spacing holds at every
+    // zoom), never per frame or per zoom: the camera lives in state, so the
+    // render body runs on every pan and zoom event. Only the DRAWN radius
+    // follows the zoom, and that is a number the scene function and the hit
+    // test read. Drawn only where the cards are — the same predicate as the
+    // step label (`labelsDrawn` below).
+    const insertDrawn = drawsLabelKind('step', level);
+    const insertR = insertMarkRadius(curK);
+    const insertRRef = useRef(insertR);
+    insertRRef.current = insertR;
+    const insertGeom = useMemo(
+        () => (insertDrawn ? buildInsertMarks(layout, rows) : null),
+        [insertDrawn, layout, rows]);
+    insertGeomRef.current = insertGeom;
+    openInsertRef.current = openInsert;
+    insertHitRef.current = (e) => {
+        const el = containerEl;
+        const g = insertGeomRef.current;
+        if (!el || !g || !(e.target instanceof HTMLCanvasElement)) return null;
+        const cam = liveTransformRef.current || t;
+        const rect = el.getBoundingClientRect();
+        return insertMarkAt(g, {
+            x: (e.clientX - rect.left - cam.x) / cam.k,
+            y: (e.clientY - rect.top - cam.y) / cam.k,
+        }, insertMarkRadius(cam.k));
+    };
+    // Draws every stub and "+" in one pass on the canvas context. Reads the
+    // refs, so a hover change is a `batchDraw`, not a React render.
+    const insertSceneFunc = useCallback((ctx) => {
+        const g = insertGeomRef.current;
+        if (!g) return;
+        const hov = insertHoverRef.current;
+        const r = insertRRef.current;
+        ctx.save();
+        ctx.setAttr('strokeStyle', P.arc);
+        ctx.setAttr('lineWidth', 1.2);
+        ctx.setAttr('globalAlpha', 0.7);
+        ctx.setLineDash([4, 3]);
+        ctx.beginPath();
+        for (const st of g.stubs) {
+            ctx.moveTo(st.x1, st.y);
+            ctx.lineTo(st.x2 - r, st.y);
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
+        const arm = r * 0.5;
+        ctx.setAttr('lineWidth', Math.max(1, r * 0.17));
+        ctx.setAttr('lineCap', 'round');
+        ctx.setAttr('fillStyle', P.panel);
+        for (const m of g.marks) {
+            const lit = m.key === hov;
+            // The disc is OPAQUE: the dependency line runs through the mark's
+            // centre and must not show inside it (user directive).
+            ctx.setAttr('globalAlpha', 1);
+            ctx.setAttr('strokeStyle', lit ? P.accent : P.arc);
+            ctx.beginPath();
+            ctx.arc(m.x, m.y, r, 0, Math.PI * 2, false);
+            ctx.fill();
+            ctx.moveTo(m.x - arm, m.y);
+            ctx.lineTo(m.x + arm, m.y);
+            ctx.moveTo(m.x, m.y - arm);
+            ctx.lineTo(m.x, m.y + arm);
+            ctx.stroke();
+        }
+        ctx.restore();
+    }, []);
+    // Hover: light the "+" under the pointer and show a pointer cursor. Native,
+    // bound once per container, and a no-op during a pan or a requirement drag.
+    useEffect(() => {
+        const el = containerEl;
+        if (!el) return undefined;
+        const setHover = (key) => {
+            if (key === insertHoverRef.current) return;
+            insertHoverRef.current = key;
+            const sc = stageRef.current?.container?.();
+            if (sc) sc.style.cursor = key ? 'pointer' : 'grab';
+            layerRef.current?.batchDraw?.();
+        };
+        const onMove = (e) => {
+            if (draggingRef.current || reqDragRef.current) return;
+            setHover(insertHitRef.current?.(e)?.key ?? null);
+        };
+        const onLeave = () => setHover(null);
+        el.addEventListener('mousemove', onMove);
+        el.addEventListener('mouseleave', onLeave);
+        return () => {
+            el.removeEventListener('mousemove', onMove);
+            el.removeEventListener('mouseleave', onLeave);
+        };
+    }, [containerEl]);
 
     const cursorPointer = useCallback((e, on) => {
         const stage = e?.target?.getStage?.();
@@ -3436,6 +3656,18 @@ export default function PipelinePlanVisualizer({
         // one text kind rather than looser by an unreachable one.
     });
 
+    // ── THE ADD-STEP MARKS (req #3586) ──────────────────────────────────────
+    // A "+" on every dependency arc (split it: A -> new -> B) and one at the end
+    // of a dashed stub off every card's right side (branch: a new step gated on
+    // that step alone). ONE shape, pushed last so it sits above the labels; its
+    // geometry is `insertGeom` and its clicks are resolved by `insertHitRef`.
+    if (insertGeom) {
+        worldNodes.push(
+            <Shape key="insert-marks" sceneFunc={insertSceneFunc} geom={insertGeom}
+                   drawR={insertR}
+                   listening={false} perfectDrawEnabled={false} />);
+    }
+
     return (
         <Box>
             <OrderViolationsAlert plan={plan} />
@@ -3512,6 +3744,10 @@ export default function PipelinePlanVisualizer({
                  // drag is otherwise observable only as changed pixels.
                  data-req-drag={reqDrag ? reqDrag.reqId : ''}
                  data-drop-step={dropStepId ?? ''}
+                 // req #3586 — how many add-step marks the canvas drew, by kind,
+                 // for the same reason: they are otherwise only pixels.
+                 data-insert-edges={insertGeom ? insertGeom.edgeCount : 0}
+                 data-insert-branches={insertGeom ? insertGeom.stubs.length : 0}
                  // Full-page canvas (req #3119), the KonvaSwarmCanvas figure
                  // verbatim. The height is MEASURED (`availH` above) rather than
                  // subtracted from a list of known chrome, which is what lets the
@@ -4257,6 +4493,49 @@ export default function PipelinePlanVisualizer({
                                   containerW={size.w} containerH={size.h} />
                 )}
             </Box>
+
+            {/* req #3586 — the add-step dialog. Portalled to the body, so a
+                click inside it never reaches the canvas's own click test. */}
+            <Dialog open={insertReq != null} onClose={closeInsert} fullWidth maxWidth="xs"
+                    data-testid="pipeline-viz-insert-dialog">
+                <DialogTitle>
+                    {insertReq?.kind === 'edge' ? 'Insert a step' : 'Add a parallel step'}
+                </DialogTitle>
+                <DialogContent>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}
+                                data-testid="pipeline-viz-insert-summary">
+                        {insertReq?.kind === 'edge'
+                            ? `Between "${insertReq.fromTitle}" and "${insertReq.toTitle}". `
+                              + 'The new step waits on the first; the second waits on the new step.'
+                            : insertReq
+                                ? `Depends on "${insertReq.fromTitle}" only.`
+                                : ''}
+                    </Typography>
+                    <TextField autoFocus fullWidth size="small" label="Title"
+                               value={insertTitle}
+                               onFocus={(e) => e.target.select()}
+                               onChange={(e) => setInsertTitle(e.target.value)}
+                               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commitInsert(); } }}
+                               inputProps={{ 'data-testid': 'pipeline-viz-insert-title' }}
+                               sx={{ mb: 2 }} />
+                    <TextField select fullWidth size="small" label="Epic"
+                               value={insertEpic}
+                               onChange={(e) => setInsertEpic(e.target.value)}
+                               inputProps={{ 'data-testid': 'pipeline-viz-insert-epic' }}>
+                        {insertEpicOptions.map((e) => (
+                            <MenuItem key={e.id} value={e.id}>{e.title || `Epic ${e.id}`}</MenuItem>
+                        ))}
+                    </TextField>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => closeInsert()} disabled={inserting}>Cancel</Button>
+                    <Button variant="contained" onClick={commitInsert}
+                            disabled={inserting || !insertTitle.trim()}
+                            data-testid="pipeline-viz-insert-create">
+                        {inserting ? 'Creating…' : 'Create'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
         </Box>
     );
 }
