@@ -147,7 +147,7 @@ import {
     // req #3498 — the step is a CARD. The renderer draws the box the layout
     // measured; it never measures one of its own.
     CARD_RADIUS, CARD_PAD_X, CARD_PAD_Y, CARD_LINE_H, CARD_RULE_GAP,
-    CARD_STATE_BAR_W, CARD_CHECK_W, CARD_BADGE_FONT,
+    CARD_STATE_BAR_W, CARD_CHECK_W, CARD_BADGE_FONT, CARD_TITLE_BTN_FONT,
     MIN_CARD_H, REQ_LINE_H, CHW_REQ,
     // req #3580 — the run pill's word and type.
     CARD_RUN_FONT, CARD_RUN_WORDS,
@@ -168,6 +168,7 @@ import {
 // req #3428 — the epic chip's second destination. The URL contract lives with
 // the rest of `/swarm`'s query string, so this file names no query key itself.
 import { swarmEpicLinkTo, swarmStepLinkTo } from '../swarmViewLink';
+import { newRequirementSeatState } from './pipelineStepLink';
 import { useSavedViewport } from '../../hooks/useSavedViewport';
 // req #3581 — dragging a requirement between steps writes its seat.
 import AppContext from '../../Context/AppContext';
@@ -233,7 +234,18 @@ const REQ_PILL_H_EM = 1.3;                  // pill height, in req font sizes
 const REQ_PILL_FONT_EM = 0.78;              // label size, in req font sizes
 const REQ_PILL_FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif';
 // Inside the two-space gap `REQ_PILL_SEP` leaves, so neighbours keep clear air.
+// The CEILING on a pill's reach — see `REQ_PILL_LABEL_PAD_EM` for its width.
 const REQ_PILL_PAD_X = CHW_REQ * 0.3;
+// THE PILL HUGS ITS LABEL (user review, 2026-10-17: "the bubble around
+// terminal is too wide — minimize the white space without making it feel
+// cramped"). The box used to span every MONO character the layout reserved,
+// but the label is drawn in the UI sans at `REQ_PILL_FONT_EM` of the row's
+// size — about half the mono advance — so "Terminal 2" sat in a box nearly
+// twice its width. Now the box is the label's own measured width plus this
+// much air each side (0.6em — an MUI small chip's proportion), CENTRED on the
+// reserved characters and never wider than they allow. The same rule for both
+// kinds: a terminal and a port pill differ only in palette.
+const REQ_PILL_LABEL_PAD_EM = 0.6;
 // The pill's BOX is placed over the characters it replaced, MEASURED in the
 // font the row is actually drawn in, so the air between the id, the pills and
 // the title's dash stays even. `CHW_REQ` is a deliberate OVER-estimate of the
@@ -244,14 +256,15 @@ const REQ_PILL_PAD_X = CHW_REQ * 0.3;
 // they really are. One shared 2D context; null where there
 // is no canvas (jsdom), and the caller falls back to the layout's advance.
 let pillMeasureCtx;
-const measureReqText = (str, fontSize, bold) => {
+const measureReqText = (str, fontSize, bold, fontSpec = null) => {
     try {
         if (pillMeasureCtx === undefined) {
             pillMeasureCtx = Konva.Util.createCanvasElement().getContext('2d') || null;
         }
         if (!pillMeasureCtx) return null;
         // Konva's own font string for a Text node: style, variant, size, family.
-        pillMeasureCtx.font = `${bold ? 'bold' : 'normal'} normal ${fontSize}px ${MONO}`;
+        pillMeasureCtx.font = fontSpec
+            || `${bold ? 'bold' : 'normal'} normal ${fontSize}px ${MONO}`;
         const w = pillMeasureCtx.measureText(str).width;
         return Number.isFinite(w) && w > 0 ? w : null;
     } catch (e) {
@@ -2196,7 +2209,7 @@ export default function PipelinePlanVisualizer({
     // in no dependency array — so the wrapper only read as if it memoised
     // something.
     const drawsKind = (kind) => drawsLabelKind(kind, level);
-    const drawnKinds = ['step', 'req', 'title', 'badge', 'step-link']
+    const drawnKinds = ['step', 'req', 'title', 'badge', 'step-link', 'step-add']
         .filter(drawsKind).join(',');
 
     // Report the level being rendered so the toolbar's selector can softly mark
@@ -3793,6 +3806,9 @@ export default function PipelinePlanVisualizer({
             const pillInfo = pillsHere.length ? (reqPills?.get?.(label.reqId) || null) : null;
             let rowText = reqText;
             let pillBoxes = [];
+            // The first line's text AFTER the last pill, redrawn flush against
+            // it (see the packing note below); null leaves it in the row Text.
+            let rowTail = null;
             if (pillsHere.length) {
                 const rowLines = reqText.split('\n');
                 const firstLine = rowLines[0];
@@ -3802,18 +3818,64 @@ export default function PipelinePlanVisualizer({
                         : measureReqText(firstLine.slice(0, pl.start), CF.req, rs.bold);
                     const span = measureReqText(firstLine.slice(pl.start, pl.start + pl.len),
                         CF.req, rs.bold);
+                    const text = firstLine.slice(pl.start, pl.start + pl.len).replace(/\u00a0/g, ' ');
+                    // Hug the label (see `REQ_PILL_LABEL_PAD_EM`), centred on the
+                    // reserved span; unmeasurable → the span itself, as before.
+                    const labelSize = CF.req * REQ_PILL_FONT_EM;
+                    const labelW = measureReqText(text, labelSize, false,
+                        `normal normal 600 ${labelSize}px ${REQ_PILL_FONT}`);
+                    const spanW = span ?? pl.len * CHW_REQ;
+                    const maxW = spanW + 2 * REQ_PILL_PAD_X;
+                    const w = labelW == null ? maxW
+                        : Math.min(maxW, labelW + 2 * labelSize * REQ_PILL_LABEL_PAD_EM);
+                    const slotX = reqX + (lead ?? pl.start * CHW_REQ);
                     return {
                         ...pl,
-                        text: firstLine.slice(pl.start, pl.start + pl.len).replace(/\u00a0/g, ' '),
-                        x: reqX + (lead ?? pl.start * CHW_REQ) - REQ_PILL_PAD_X,
+                        text,
+                        measured: labelW != null && lead != null && span != null,
+                        x: slotX + spanW / 2 - w / 2,
                         y: reqY + REQ_LINE_H / 2 - h / 2,
-                        w: (span ?? pl.len * CHW_REQ) + 2 * REQ_PILL_PAD_X,
+                        w,
                         h,
                         style: REQ_PILL_STYLE[pl.kind] || REQ_PILL_STYLE.terminal,
                     };
                 });
                 rowLines[0] = pillsHere.reduce((ln, pl) => ln.slice(0, pl.start)
                     + ' '.repeat(pl.len) + ln.slice(pl.start + pl.len), firstLine);
+                // ── PACKED, NOT CENTRED IN THEIR SLOTS (user review, 2026-10-17:
+                // "too much space between Terminal pill and the dash") ────────
+                // A pill hugs its sans label (`REQ_PILL_LABEL_PAD_EM`) but the
+                // layout reserves the label's MONO width, so a pill centred in its
+                // slot left the slack beside it — between the last pill and the
+                // title's dash most visibly. So when every width is measurable the
+                // pills are laid one after another, ONE SPACE of air from the id,
+                // from each other and from the title, and the first line's tail
+                // (` - Title…`, which starts with its own space) is redrawn flush
+                // after the last pill. The row Text keeps the layout's characters
+                // (tail blanked) and so stays the hover/click/drag target over the
+                // whole row; the layout's reservation is an upper bound the packed
+                // line never exceeds, so wrap, card height and overlap are untouched.
+                const spaceW = measureReqText(' ', CF.req, rs.bold);
+                const last = pillsHere[pillsHere.length - 1];
+                const tailStart = last.start + last.len;
+                const tailText = firstLine.slice(tailStart);
+                const measured = spaceW != null && pillsHere.every((pl, j) =>
+                    pl.start > 0 && pillBoxes[j].measured);
+                if (measured) {
+                    let x = reqX + measureReqText(firstLine.slice(0, pillsHere[0].start),
+                        CF.req, rs.bold) - spaceW;
+                    pillBoxes = pillBoxes.map((b) => {
+                        const placed = { ...b, x };
+                        x += b.w + spaceW;
+                        return placed;
+                    });
+                    const lastBox = pillBoxes[pillBoxes.length - 1];
+                    if (tailText.trim()) {
+                        rowTail = { x: lastBox.x + lastBox.w, text: tailText };
+                        rowLines[0] = rowLines[0].slice(0, tailStart)
+                            + ' '.repeat(tailText.length);
+                    }
+                }
                 rowText = rowLines.join('\n');
             }
             // A row that carries pills is drawn as ONE Group — text, pills and
@@ -3867,6 +3929,16 @@ export default function PipelinePlanVisualizer({
                               ? { state: { from: 'pipeline', pipelineId: pipeline.id,
                                   mode: 'plan' } }
                               : undefined)} />);
+            if (rowTail) {
+                rowNodes.push(
+                    <Text key={`lbl-${i}-tail`} x={rowTail.x} y={reqY} text={rowTail.text}
+                          fontSize={CF.req} fontFamily={MONO}
+                          lineHeight={REQ_LINE_H / CF.req}
+                          fill={lifted ? P.dim : rs.fill}
+                          opacity={lifted ? 0.4 : 1}
+                          fontStyle={rs.bold ? 'bold' : 'normal'}
+                          wrap="none" listening={false} />);
+            }
             pillBoxes.forEach((b, j) => {
                 rowNodes.push(
                     <Rect key={`lbl-${i}-pill-${j}`} x={b.x} y={b.y} width={b.w} height={b.h}
@@ -3942,17 +4014,49 @@ export default function PipelinePlanVisualizer({
             // card that blanked the tooltip instead of swapping it, exactly
             // the failure the requirement-row hover below already avoids.
             const linkRow = rowById.get(label.stepId);
+            // An OUTLINED SQUARE so it reads as a button, sized to the count
+            // badge (req #3582 polish — see `CARD_TITLE_BTN`). Decoration only:
+            // the Text's own box below is the hit target, same as before.
+            worldNodes.push(
+                <Rect key={`lbl-${i}-frame`} x={label.x} y={label.y}
+                      width={label.w} height={label.h} cornerRadius={4}
+                      stroke={P.dim} strokeWidth={1} listening={false} />);
             worldNodes.push(
                 <Text key={`lbl-${i}`} x={label.x} y={label.y}
                       width={label.w} height={label.h}
                       text={label.text} align="center" verticalAlign="middle"
-                      fontSize={CF.label} fontFamily={MONO} fill={P.text}
+                      fontSize={CARD_TITLE_BTN_FONT} fontFamily={MONO} fill={P.text}
                       onMouseEnter={(e) => {
                           cursorPointer(e, true);
                           if (linkRow) showStepCard(linkRow, e);
                       }}
                       onMouseLeave={(e) => { cursorPointer(e, false); hideCard(); }}
                       onActivate={() => onStepFocus?.(label.stepId)} />);
+        } else if (label.kind === 'step-add') {
+            // "+" — file a new requirement INTO this step (req #3582). Opens the
+            // requirement editor's "new" mode (req #2414, the aggregator
+            // template's own path) carrying the step; nothing is written until
+            // the user picks a category, and that first save seats it here.
+            // Framed, drawn and hovered exactly like the ↗ beside it — see that
+            // branch.
+            const addRow = rowById.get(label.stepId);
+            worldNodes.push(
+                <Rect key={`lbl-${i}-frame`} x={label.x} y={label.y}
+                      width={label.w} height={label.h} cornerRadius={4}
+                      stroke={P.dim} strokeWidth={1} listening={false} />);
+            worldNodes.push(
+                <Text key={`lbl-${i}`} x={label.x} y={label.y}
+                      width={label.w} height={label.h}
+                      text={label.text} align="center" verticalAlign="middle"
+                      fontSize={CARD_TITLE_BTN_FONT} fontFamily={MONO} fill={P.text}
+                      onMouseEnter={(e) => {
+                          cursorPointer(e, true);
+                          if (addRow) showStepCard(addRow, e);
+                      }}
+                      onMouseLeave={(e) => { cursorPointer(e, false); hideCard(); }}
+                      onActivate={() => navigate('/swarm/requirement/new', {
+                          state: newRequirementSeatState(pipeline?.id, 'plan', addRow),
+                      })} />);
         } else if (label.kind === 'title') {
             worldNodes.push(
                 <Text key={`lbl-${i}`} x={label.x} y={label.y} text={label.text}
