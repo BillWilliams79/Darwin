@@ -66,6 +66,7 @@ import ViewModuleIcon from '@mui/icons-material/ViewModule';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import GhostTextField from '../Components/GhostField/GhostTextField';
+import CollapsibleGhostField from '../Components/GhostField/CollapsibleGhostField';
 import ViewerHeader from '../Components/ViewerHeader/ViewerHeader';
 import { normalizeView } from '../Components/ViewerHeader/normalizeView';
 import {
@@ -199,6 +200,11 @@ const InstructionsPage = () => {
     // URL. The latch is set only when the scroll really happened, so a row that
     // has not rendered yet still gets its turn on a later pass.
     const scrolledToHash = useRef(null);
+    // The row a drill-through landed on, read ONCE: it seeds that card's
+    // expanded state, which is initial-only, so tracking later hash changes would
+    // buy nothing.
+    const [drillTargetId] = useState(
+        () => Number(window.location.hash.replace('#instruction-', '')) || null);
     useEffect(() => {
         if (isLoading) return;
         const hash = window.location.hash;
@@ -857,8 +863,17 @@ const InstructionsPage = () => {
                                 radius is carried by the agent chips at the foot of
                                 the card and the count chip above — always on, never
                                 waiting for you to touch a field. */}
+                            {/* COLLAPSED in the grid (req #3572): live content runs
+                                from a few hundred characters to 25,000, and a card
+                                rendering all of it buries the chips below it and
+                                every card after it. Clicking in expands the field for
+                                editing; Show more pins it open for reading. The
+                                drill-through target opens expanded — it was reached
+                                by a pencil whose whole purpose is to edit it. */}
                             <Box sx={{ mb: 1.5 }}>
-                                <GhostTextField
+                                <CollapsibleGhostField
+                                    collapsedRows={4}
+                                    defaultExpanded={row.id === drillTargetId}
                                     value={row.content}
                                     outlined
                                     label="Instruction text"
