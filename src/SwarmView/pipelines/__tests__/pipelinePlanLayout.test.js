@@ -5348,6 +5348,44 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
         expect(hard).toHaveLength(2);
     });
 
+    it('hangs a wrapped title past the id column (req #3575)', () => {
+        const budget = cardChars(CHW_REQ);
+        const hang = 4 + CARD_SEP_CHARS;
+        const text = `3342 - ${'word '.repeat(30).trim()}`;
+        const lines = wrapReqText(text, budget, REQ_MAX_LINES, hang);
+        expect(lines).toHaveLength(REQ_MAX_LINES);
+        expect(lines[0].startsWith('3342 - ')).toBe(true);
+        for (const l of lines.slice(1)) {
+            // The id column is blank on every continuation line, and the
+            // title starts exactly where the first line's title started.
+            expect(l.slice(0, hang)).toBe(' '.repeat(hang));
+            expect(l[hang]).not.toBe(' ');
+            expect(l.length).toBeLessThanOrEqual(budget);
+        }
+        expect(lines[REQ_MAX_LINES - 1]).toContain('…');
+        // An indent that would leave no room for a word is dropped.
+        expect(wrapReqText('x'.repeat(30), 10, 2, 5)[1].startsWith(' ')).toBe(false);
+    });
+
+    it('draws every wrapped requirement row with the hanging indent (req #3575)', () => {
+        const layout = computePlanLayout(plan.rows, {
+            ...reqViewOptions('titles'), stepLabel: 'title',
+            reqTitles: FIXTURE_TITLES,
+        });
+        const wrapped = layout.labels.filter((l) => l.kind === 'req' && l.lines.length > 1);
+        expect(wrapped.length, 'the fixture has wrapped rows').toBeGreaterThan(0);
+        for (const l of wrapped) {
+            const hang = String(l.reqId).length + CARD_SEP_CHARS;
+            expect(l.lines[0].startsWith(`${l.reqId} - `)).toBe(true);
+            for (const ln of l.lines.slice(1)) {
+                expect(ln.slice(0, hang)).toBe(' '.repeat(hang));
+            }
+            // `text` is what the row SAYS — the padding is not part of it.
+            expect(l.text).toBe(l.lines.map((ln, k) => (k ? ln.trimStart() : ln)).join(' '));
+            expect(l.text).not.toContain(' '.repeat(hang));
+        }
+    });
+
     it('reserves the wrapped rows at EVERY level — the level never relayouts', () => {
         // The layout takes no level at all, so the reserved second line is the
         // same box whatever is drawn in it. This pins that the ROW BOX, not just
