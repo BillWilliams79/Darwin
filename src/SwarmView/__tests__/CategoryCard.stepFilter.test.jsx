@@ -2,16 +2,15 @@
 //
 // Req #3503 — the step filter as the CategoryCard actually applies it.
 //
-// The pure rules are pinned in `utils/__tests__/pipelineMembership.test.js`; this
-// suite exists for the four things only a mounted card can show, and all four are
-// places where the behavior silently fails rather than errors:
-//   1. the forced pipeline override — without it this page renders EMPTY, and
-//      unlike the epic case it renders empty ALWAYS: `hidePipelinedRequirements`
-//      defaults to ON and a step's requirements are on a step BY DEFINITION;
-//   2. a card with none of the step's work renders NOTHING;
-//   3. the add-a-requirement row stands down, because a row saved there sits on
-//      no step and would vanish from the page that offered the control;
-//   4. the two filters COMPOSE as an intersection rather than one winning.
+// The pure rules are pinned in `utils/__tests__/pipelineMembership.test.js`.
+// Since req #3598 a scope RESTRICTS THE ROWS AND CHANGES NOTHING ELSE (user
+// ruling, 2026-10-17): the orchestrated toggle applies as stored, the card
+// renders even when it holds none of the step, and the add-a-requirement row
+// stays. What only a mounted card can show:
+//   1. the scope narrows the rows, on top of the toggle and the chips;
+//   2. none of req #3503's overrides survive (forced toggle, hidden card,
+//      suppressed add-row);
+//   3. the two filters COMPOSE as an intersection rather than one winning.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import React from 'react';
@@ -119,40 +118,30 @@ describe('CategoryCard under a step filter (req #3503)', () => {
         useShowClosedStore.setState({ hidePipelinedRequirements: false });
     });
 
-    it('shows the step\'s row even though it is pipelined and the toggle is ON', () => {
-        // The defect this closes: with `hidePipelined` left in charge, the page
-        // the badge opens is blank, always, and nothing anywhere reports an error.
+    it('the orchestrated toggle APPLIES under a step filter: stored ON hides the '
+        + 'step\'s pipelined row (req #3598)', () => {
+        const { container } = mount({ stepReqIds: new Set([10]) });
+        expect(rowPresent(container, 10)).toBe(false);
+    });
+
+    it('with the toggle OFF, shows ONLY the step\'s rows', () => {
+        useShowClosedStore.setState({ hidePipelinedRequirements: false });
         const { container } = mount({ stepReqIds: new Set([10]) });
         expect(rowPresent(container, 10)).toBe(true);
-    });
-
-    it('shows ONLY the step\'s rows', () => {
-        const { container } = mount({ stepReqIds: new Set([10]) });
         expect(rowPresent(container, 11)).toBe(false);
     });
 
-    it('renders no card at all when this category holds none of the step', () => {
+    it('still renders the card when this category holds none of the step', () => {
         const { container } = mount({ stepReqIds: new Set([9999]) });
-        expect(cardPresent(container)).toBe(false);
-    });
-
-    it('suppresses the add-a-requirement row while filtered', () => {
-        const { container } = mount({ stepReqIds: new Set([10]) });
-        expect(container.querySelector('[data-testid="requirement-template"]')).toBeNull();
-    });
-
-    it('with NO filter (null), behaves exactly as before — both the toggle and '
-        + 'the template row are back in charge', () => {
-        const { container } = mount();
-        // The stored toggle is ON and both rows are pipelined, so the unfiltered
-        // card is empty of rows but still RENDERS, template and all.
         expect(cardPresent(container)).toBe(true);
-        expect(rowPresent(container, 10)).toBe(false);
-        expect(rowPresent(container, 11)).toBe(false);
+    });
+
+    it('keeps the add-a-requirement row while filtered', () => {
+        const { container } = mount({ stepReqIds: new Set([10]) });
         expect(container.querySelector('[data-testid="requirement-template"]')).not.toBeNull();
     });
 
-    it('never writes the store — dismissing the filter restores what the reader had', () => {
+    it('never writes the store', () => {
         mount({ stepReqIds: new Set([10]) });
         expect(useShowClosedStore.getState().hidePipelinedRequirements).toBe(true);
     });
@@ -160,6 +149,7 @@ describe('CategoryCard under a step filter (req #3503)', () => {
     it('COMPOSES with the epic filter as an intersection, not as a winner', () => {
         // Both scopes arrive as props and neither is a mode of the other. The
         // epic set holds both rows, the step set holds one — so one survives.
+        useShowClosedStore.setState({ hidePipelinedRequirements: false });
         const { container } = mount({
             epicReqIds: new Set([10, 11]), stepReqIds: new Set([11]),
         });
@@ -167,10 +157,14 @@ describe('CategoryCard under a step filter (req #3503)', () => {
         expect(rowPresent(container, 10)).toBe(false);
     });
 
-    it('an epic filter and a step filter with nothing in common leave no card', () => {
+    it('an epic filter and a step filter with nothing in common leave the card '
+        + 'with no rows, but on screen', () => {
+        useShowClosedStore.setState({ hidePipelinedRequirements: false });
         const { container } = mount({
             epicReqIds: new Set([10]), stepReqIds: new Set([11]),
         });
-        expect(cardPresent(container)).toBe(false);
+        expect(cardPresent(container)).toBe(true);
+        expect(rowPresent(container, 10)).toBe(false);
+        expect(rowPresent(container, 11)).toBe(false);
     });
 });

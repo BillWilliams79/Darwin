@@ -16,7 +16,7 @@
 import { describe, it, expect } from 'vitest';
 import {
     epicRequirementIds, filterToEpic,
-    effectiveHidePipelined, firstProjectIndexWithEpicWork,
+    firstProjectIndexWithEpicWork,
 } from '../epicMembership';
 
 // `pipeline_steps` rows as `useAllPipelineSteps(fields: 'id,epic_fk')` returns
@@ -145,21 +145,6 @@ describe('filterToEpic', () => {
     it('drops the template row, whose id is the empty string', () => {
         expect(filterToEpic([{ id: '' }, { id: 3428 }], new Set([3428])).map(r => r.id))
             .toEqual([3428]);
-    });
-});
-
-describe('effectiveHidePipelined', () => {
-    it('an epic filter forces the pipeline toggle off, whatever is stored', () => {
-        // The store DEFAULTS to true (req #3242), and under containment an epic's
-        // requirements are step-seated BY DEFINITION (req #3356) — so without this
-        // the epic page arrives empty, always.
-        expect(effectiveHidePipelined(true, true)).toBe(false);
-        expect(effectiveHidePipelined(false, true)).toBe(false);
-    });
-
-    it('leaves the stored value alone with no filter active', () => {
-        expect(effectiveHidePipelined(true, false)).toBe(true);
-        expect(effectiveHidePipelined(false, false)).toBe(false);
     });
 });
 
