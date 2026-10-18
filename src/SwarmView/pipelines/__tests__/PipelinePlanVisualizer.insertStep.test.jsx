@@ -33,10 +33,12 @@ vi.mock('konva', () => ({
 
 const insertStepOnEdge = vi.fn(() => Promise.resolve({ id: 900 }));
 const branchStepFrom = vi.fn(() => Promise.resolve({ id: 901 }));
+const precedeStepWith = vi.fn(() => Promise.resolve({ id: 902 }));
 vi.mock('../../../Steps/stepsApi', async (orig) => ({
     ...(await orig()),
     insertStepOnEdge: (...a) => insertStepOnEdge(...a),
     branchStepFrom: (...a) => branchStepFrom(...a),
+    precedeStepWith: (...a) => precedeStepWith(...a),
 }));
 
 import { composedFixture } from './pipelineComposedFixture';
@@ -63,6 +65,7 @@ beforeEach(() => {
     };
     insertStepOnEdge.mockClear();
     branchStepFrom.mockClear();
+    precedeStepWith.mockClear();
 });
 
 afterEach(() => {
@@ -130,10 +133,35 @@ describe('add-step marks (req #3586)', () => {
         expect(document.querySelector('[data-insert="branch-10"]')).not.toBeNull();
     });
 
+    it('draws a precede "+" only on the step with no dependency on its left (req #3617)', () => {
+        render('3');
+        expect(viz().getAttribute('data-insert-precedes')).toBe('1');
+        expect(document.querySelector('[data-insert="precede-10"]')).not.toBeNull();
+        expect(document.querySelector('[data-insert="precede-11"]')).toBeNull();
+    });
+
+    it('the precede "+" adds a step the clicked step then waits on, in its epic by default', async () => {
+        render('3');
+        clickMark('precede-10');
+        expect(document.querySelector('[data-testid="pipeline-viz-insert-summary"]').textContent)
+            .toBe('"Design" will wait on the new step.');
+        setInput(document.querySelector('[data-testid="pipeline-viz-insert-title"]'), 'Research');
+        await act(async () => {
+            document.querySelector('[data-testid="pipeline-viz-insert-create"]').click();
+        });
+        expect(precedeStepWith).toHaveBeenCalledTimes(1);
+        expect(precedeStepWith.mock.calls[0][2]).toEqual({
+            toStepId: 10, epic_fk: 5, title: 'Research',
+        });
+        expect(branchStepFrom).not.toHaveBeenCalled();
+        expect(insertStepOnEdge).not.toHaveBeenCalled();
+    });
+
     it('draws none at L1, where a step is a bead and not a card', () => {
         render('1');
         expect(viz().getAttribute('data-insert-edges')).toBe('0');
         expect(viz().getAttribute('data-insert-branches')).toBe('0');
+        expect(viz().getAttribute('data-insert-precedes')).toBe('0');
     });
 
     it('the edge "+" splits the edge: dialog names both steps, Create calls insertStepOnEdge', async () => {

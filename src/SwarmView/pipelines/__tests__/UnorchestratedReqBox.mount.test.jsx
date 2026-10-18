@@ -50,7 +50,34 @@ describe('UnorchestratedReqBox', () => {
         expect(css.borderTopColor).toBe('rgb(166, 77, 255)');
     });
 
-    it('says so when nothing is waiting', () => {
+    it('leads each row with its category color bar (req #3619)', () => {
+        const colored = [
+            { id: 11, title: 'First thing', requirement_status: 'swarm_ready', category_fk: 7 },
+            { id: 12, title: 'Second thing', requirement_status: 'swarm_ready', category_fk: 99 },
+        ];
+        act(() => root.render(
+            <UnorchestratedReqBox items={colored} categoryColors={{ 7: '#ff0000' }} />));
+        const bar = q('pipeline-viz-unseated-bar-11');
+        // First in the row, so it reads as the row's left edge.
+        expect(q('pipeline-viz-unseated-item-11').firstElementChild).toBe(bar);
+        const css = getComputedStyle(bar);
+        expect(css.backgroundColor).toBe('rgb(255, 0, 0)');
+        // Same-hue lightened edge (RequirementRow's dark-mode rule).
+        expect(css.borderTopColor).toBe('rgb(255, 114, 114)');
+        // No color for that category: the slot stays, empty.
+        const empty = getComputedStyle(q('pipeline-viz-unseated-bar-12'));
+        expect(empty.backgroundColor).toBe('rgba(0, 0, 0, 0)');
+    });
+
+    it('gives a color MUI cannot parse a neutral edge, not a crash', () => {
+        const odd = [{ id: 11, title: 'First thing', requirement_status: 'swarm_ready', category_fk: 7 }];
+        act(() => root.render(
+            <UnorchestratedReqBox items={odd} categoryColors={{ 7: 'red' }} />));
+        const css = getComputedStyle(q('pipeline-viz-unseated-bar-11'));
+        expect(css.borderTopColor).toBe('rgba(128, 128, 128, 0.5)');
+    });
+
+        it('says so when nothing is waiting', () => {
         act(() => root.render(<UnorchestratedReqBox items={[]} />));
         expect(q('pipeline-viz-unseated-empty')).not.toBeNull();
         expect(q('pipeline-viz-unseated-count').textContent).toBe('0');

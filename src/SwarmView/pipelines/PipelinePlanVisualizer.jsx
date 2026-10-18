@@ -170,10 +170,11 @@ import {
 } from '../../hooks/useDataQueries';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
 import {
-    moveStepRequirement, insertStepOnEdge, branchStepFrom,
+    moveStepRequirement, insertStepOnEdge, branchStepFrom, precedeStepWith,
     isRestNullLiteral, REST_NULL, updateStep,
 } from '../../Steps/stepsApi';
-// req #3586 — the "+" marks that add a step on an edge or as a branch.
+// req #3586 — the "+" marks that add a step on an edge or as a branch; req
+// #3617 adds the one off a free left side, for a step this one depends on.
 import {
     insertMarkRadius, buildInsertMarks, insertMarkAt, insertRequest, NEW_STEP_TITLE,
 } from './pipelineStepInsert';
@@ -597,6 +598,10 @@ export default function PipelinePlanVisualizer({
                 await insertStepOnEdge(darwinUri, idToken, {
                     fromStepId: req.fromId, toStepId: req.toId,
                     epic_fk: insertEpic, title,
+                });
+            } else if (req.kind === 'precede') {
+                await precedeStepWith(darwinUri, idToken, {
+                    toStepId: req.toId, epic_fk: insertEpic, title,
                 });
             } else {
                 await branchStepFrom(darwinUri, idToken, {
@@ -2281,9 +2286,11 @@ export default function PipelinePlanVisualizer({
         ctx.setAttr('globalAlpha', 0.7);
         ctx.setLineDash([4, 3]);
         ctx.beginPath();
+        // A stub stops at its mark's rim, on whichever side of the card it
+        // leaves — right for a branch, left for a precede (req #3617).
         for (const st of g.stubs) {
             ctx.moveTo(st.x1, st.y);
-            ctx.lineTo(st.x2 - r, st.y);
+            ctx.lineTo(st.x2 - Math.sign(st.x2 - st.x1) * r, st.y);
         }
         ctx.stroke();
         ctx.setLineDash([]);
@@ -4220,10 +4227,11 @@ export default function PipelinePlanVisualizer({
     });
 
     // ── THE ADD-STEP MARKS (req #3586) ──────────────────────────────────────
-    // A "+" on every dependency arc (split it: A -> new -> B) and one at the end
+    // A "+" on every dependency arc (split it: A -> new -> B), one at the end
     // of a dashed stub off every card's right side (branch: a new step gated on
-    // that step alone). ONE shape, pushed last so it sits above the labels; its
-    // geometry is `insertGeom` and its clicks are resolved by `insertHitRef`.
+    // that step alone), and one off the left side of every card no arc lands on
+    // (precede, req #3617: a new step that card then waits on). ONE shape,
+    // pushed last so it sits above the labels; its geometry is `insertGeom` and its clicks are resolved by `insertHitRef`.
     if (insertGeom) {
         worldNodes.push(
             <Shape key="insert-marks" sceneFunc={insertSceneFunc} geom={insertGeom}
@@ -4310,7 +4318,8 @@ export default function PipelinePlanVisualizer({
                  // req #3586 — how many add-step marks the canvas drew, by kind,
                  // for the same reason: they are otherwise only pixels.
                  data-insert-edges={insertGeom ? insertGeom.edgeCount : 0}
-                 data-insert-branches={insertGeom ? insertGeom.stubs.length : 0}
+                 data-insert-branches={insertGeom ? insertGeom.branchCount : 0}
+                 data-insert-precedes={insertGeom ? insertGeom.precedeCount : 0}
                  // Full-page canvas (req #3119), the KonvaSwarmCanvas figure
                  // verbatim. The height is MEASURED (`availH` above) rather than
                  // subtracted from a list of known chrome, which is what lets the
@@ -4950,6 +4959,7 @@ export default function PipelinePlanVisualizer({
                     ruling). */}
                 <UnorchestratedReqBox
                     items={unseatedItems}
+                    categoryColors={unseated.categoryColors}
                     isLoading={unseated.isLoading}
                     isError={unseated.isError}
                     fontPx={unseatedBoxFontPx(t.k)}
@@ -5272,7 +5282,8 @@ export default function PipelinePlanVisualizer({
             <Dialog open={insertReq != null} onClose={closeInsert} fullWidth maxWidth="xs"
                     data-testid="pipeline-viz-insert-dialog">
                 <DialogTitle>
-                    {insertReq?.kind === 'edge' ? 'Insert a step' : 'Add a parallel step'}
+                    {{ edge: 'Insert a step', precede: 'Add a step before' }[insertReq?.kind]
+                        || 'Add a parallel step'}
                 </DialogTitle>
                 <DialogContent>
                     <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}
@@ -5280,6 +5291,8 @@ export default function PipelinePlanVisualizer({
                         {insertReq?.kind === 'edge'
                             ? `Between "${insertReq.fromTitle}" and "${insertReq.toTitle}". `
                               + 'The new step waits on the first; the second waits on the new step.'
+                            : insertReq?.kind === 'precede'
+                                ? `"${insertReq.toTitle}" will wait on the new step.`
                             : insertReq
                                 ? `Depends on "${insertReq.fromTitle}" only.`
                                 : ''}

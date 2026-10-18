@@ -63,8 +63,8 @@ export const VALID_RUN2_MODES = ['auto', 'manual'];
  * born incomplete. Requirement links are not created either: seating is
  * MCP/Primary-only (see this module's header). Dependency rows are written
  * only by the plan visualizer's add-step actions below (`branchStepFrom`,
- * `insertStepOnEdge`, req #3586) — a browser write racing a Primary
- * `set_step_deps` on the same step, the same KNOWN, ACCEPTED race
+ * `insertStepOnEdge`, req #3586; `precedeStepWith`, req #3617) — a browser
+ * write racing a Primary `set_step_deps` on the same step, the same KNOWN, ACCEPTED race
  * `moveStepRequirement` records for seats.
  */
 export async function createStep(darwinUri, idToken,
@@ -257,6 +257,30 @@ export async function branchStepFrom(darwinUri, idToken, { fromStepId, epic_fk, 
         await createStepDep(darwinUri, idToken, stepId, fromStepId);
     } catch (error) {
         await undoAll([() => deleteStep(darwinUri, idToken, stepId)]);
+        throw error;
+    }
+    return created;
+}
+
+/**
+ * Create a step and gate `toStepId` on it — the canvas's PRECEDE "+" off a
+ * card's free left side (req #3617): a new step N that the existing step will
+ * then depend on, N → T. No cycle is possible (N is new, so nothing reaches
+ * it). A failed edge undoes both writes — T → N first, because a write
+ * reported as failed may still have landed and N cannot be deleted while T
+ * waits on it (`dep_step_fk` is ON DELETE RESTRICT).
+ *
+ * @returns {Promise<Object>} the created step row
+ */
+export async function precedeStepWith(darwinUri, idToken, { toStepId, epic_fk, title }) {
+    const created = requireCreatedId(await createStep(darwinUri, idToken, { epic_fk, title }));
+    const stepId = created.id;
+    const undos = [() => deleteStep(darwinUri, idToken, stepId)];
+    try {
+        undos.push(() => deleteStepDep(darwinUri, idToken, toStepId, stepId));
+        await createStepDep(darwinUri, idToken, toStepId, stepId);
+    } catch (error) {
+        await undoAll(undos);
         throw error;
     }
     return created;
