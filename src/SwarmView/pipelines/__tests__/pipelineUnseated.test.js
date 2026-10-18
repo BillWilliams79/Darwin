@@ -7,8 +7,11 @@ import {
     unorchestratedSwarmReady, stepAcceptsNewWork, seatTargetAt,
     screenToWorld, screenRectOf, UNSEATED_REQ_MIME, resolveSeatDrop,
     unseatedBoxFontPx, UNSEATED_FONT_MIN, UNSEATED_FONT_MAX, bulkSeatRequest,
+    unseatedBoxWidthPx, UNSEATED_MIN_WIDTH_EM,
 } from '../pipelineUnseated';
-import { CARD_FONT } from '../pipelinePlanLayout';
+import {
+    CARD_FONT, CARD_FRAME_W, computePlanLayout, STEP_WIDTH_SCALES,
+} from '../pipelinePlanLayout';
 
 describe('unorchestratedSwarmReady', () => {
     const reqs = [
@@ -129,6 +132,57 @@ describe('unseatedBoxFontPx', () => {
     it('never answers NaN for a missing or degenerate scale', () => {
         expect(Number.isFinite(unseatedBoxFontPx(undefined))).toBe(true);
         expect(Number.isFinite(unseatedBoxFontPx(0))).toBe(true);
+    });
+});
+
+// req #3620 — the box is as wide as a step card, whatever the rung and zoom.
+describe('unseatedBoxWidthPx', () => {
+    const rows = [{ id: 1, name: 'A', depIds: [], requirementIds: [] }];
+    // The zoom at which the box's type hits its 16px ceiling.
+    const kMaxFont = UNSEATED_FONT_MAX / CARD_FONT.req;
+
+    it('is the card frame through the zoom wherever the card is wider', () => {
+        expect(unseatedBoxWidthPx(600, 1)).toBe(600);
+        expect(unseatedBoxWidthPx(600, 2.5)).toBe(1500);
+    });
+
+    it('never goes narrower than its title bar, zoomed far out', () => {
+        // Plan 7 opens near k=0.05: a ~18px card, the type at its 9px floor.
+        expect(unseatedBoxWidthPx(358, 0.05)).toBe(UNSEATED_MIN_WIDTH_EM * UNSEATED_FONT_MIN);
+        expect(UNSEATED_MIN_WIDTH_EM * UNSEATED_FONT_MIN).toBe(162);
+    });
+
+    it('is exactly the card wherever the type tracks the ids, every rung', () => {
+        const kMinFont = UNSEATED_FONT_MIN / CARD_FONT.req;
+        STEP_WIDTH_SCALES.forEach((_, i) => {
+            const frameW = computePlanLayout(rows, { stepWidthLevel: i + 1 }).cardFrameW;
+            [kMinFont, 0.6, 1, kMaxFont, 3].forEach((k) => {
+                expect(unseatedBoxWidthPx(frameW, k)).toBeCloseTo(frameW * k, 6);
+            });
+        });
+    });
+
+    it('mirrors every rung\'s drawn card frame, the seat outline\'s width', () => {
+        STEP_WIDTH_SCALES.forEach((_, i) => {
+            const layout = computePlanLayout(rows, { stepWidthLevel: i + 1 });
+            const node = [...layout.nodes.values()][0];
+            const k = 2;
+            const t = { k, x: 0, y: 0 };
+            expect(unseatedBoxWidthPx(layout.cardFrameW, k))
+                .toBeCloseTo(screenRectOf(node, t).width, 6);
+        });
+        const wide = computePlanLayout(rows, { stepWidthLevel: 4 }).cardFrameW;
+        expect(wide).toBeGreaterThan(CARD_FRAME_W);
+    });
+
+    it('an empty plan still answers its rung\'s frame width', () => {
+        expect(computePlanLayout([], { stepWidthLevel: 1 }).cardFrameW).toBe(CARD_FRAME_W);
+    });
+
+    it('never answers NaN for a missing width or degenerate scale', () => {
+        expect(Number.isFinite(unseatedBoxWidthPx(undefined, 1))).toBe(true);
+        expect(Number.isFinite(unseatedBoxWidthPx(CARD_FRAME_W, 0))).toBe(true);
+        expect(Number.isFinite(unseatedBoxWidthPx(NaN, undefined))).toBe(true);
     });
 });
 

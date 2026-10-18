@@ -50,6 +50,11 @@ describe('UnorchestratedReqBox', () => {
         expect(css.borderTopColor).toBe('rgb(166, 77, 255)');
     });
 
+    it('is exactly as wide as the step width it is handed (req #3620)', () => {
+        act(() => root.render(<UnorchestratedReqBox items={items} fontPx={9} widthPx={612} />));
+        expect(q('pipeline-viz-unseated').style.width).toBe('612px');
+    });
+
     it('says so when nothing is waiting', () => {
         act(() => root.render(<UnorchestratedReqBox items={[]} />));
         expect(q('pipeline-viz-unseated-empty')).not.toBeNull();

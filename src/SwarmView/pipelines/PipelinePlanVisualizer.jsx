@@ -189,6 +189,7 @@ import UnorchestratedReqBox from './UnorchestratedReqBox';
 import { useUnorchestratedRequirements } from './useUnorchestratedRequirements';
 import {
     UNSEATED_REQ_MIME, bulkSeatRequest, resolveSeatDrop, screenRectOf, unseatedBoxFontPx,
+    unseatedBoxWidthPx,
 } from './pipelineUnseated';
 import '../../CalendarFC/swarmVisualizer.css';
 // req #3580 — in-place edit. The SAME mutation helpers the Epics and Steps
@@ -4929,12 +4930,14 @@ export default function PipelinePlanVisualizer({
                     `CF.req` (world px) through the live zoom — so it shrinks and
                     grows with the marks it feeds (user directive), held within
                     9–16px so it stays usable at both zoom extremes (user
-                    ruling). */}
+                    ruling). Its WIDTH is a step card's on-screen frame width,
+                    whatever the Step Width rung and zoom (req #3620). */}
                 <UnorchestratedReqBox
                     items={unseatedItems}
                     isLoading={unseated.isLoading}
                     isError={unseated.isError}
                     fontPx={unseatedBoxFontPx(t.k)}
+                    widthPx={unseatedBoxWidthPx(layout.cardFrameW, t.k)}
                     statusColor={planPalette(activePalette).status?.swarm_ready || P.req}
                     draggingId={unseatDragId}
                     onDragStartItem={setUnseatDragId}
