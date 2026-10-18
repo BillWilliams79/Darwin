@@ -29,7 +29,8 @@ import {
     CARD_LINE_H, CARD_SUBTITLE_H, CARD_RULE_BAND, CARD_TITLE_CHARS, CARD_ID_CHARS,
     CARD_FRAME_W, CARD_FRAME_X, CARD_STATE_BAR_W, CARD_BAR_GAP,
     CARD_BADGE_W, CARD_BADGE_GAP, CARD_BADGE_H, CARD_BADGE_TOP, CARD_BADGE_FONT, badgeWidthFor,
-    CARD_STEP_LINK_W, CARD_STEP_ADD_W, CARD_TITLE_BTN, CARD_TITLE_BTN_GAP,
+    CARD_STEP_LINK_W, CARD_STEP_ADD_W, CARD_TITLE_BTN, CARD_TITLE_BTN_GAP, CARD_STEP_LINK_GAP,
+    CARD_TITLE_BTN_STROKE, CARD_TITLE_BTN_GLYPH_STROKE, titleBtnGlyph,
     CARD_RUN_W, CARD_RUN_H, CARD_RUN_WORDS, CARD_RUN_FONT, CARD_FONT,
     STEP_WIDTH_SCALES, cardGeometryFor,
     STEPS_ACROSS_OPTIONS, STEPS_ACROSS_LOOSE_FILL, stepsAcrossScale,
@@ -4395,18 +4396,21 @@ describe('machine colour view (moved to the pure module, req #3168)', () => {
         expect(view.colorOf(1)).toBe(MACHINE_ANY_COLOR);
         expect(view.colorOf(999)).toBe(MACHINE_ANY_COLOR);
         expect(view.legend).toEqual([
+            { key: 2, color: MACHINE_MAC_COLOR, label: 'Mac mini' },
             { key: 'any', color: MACHINE_ANY_COLOR, label: 'Any' },
         ]);
     });
 
-    it('keys the key on machines the plan USES, titled, lowest id first', () => {
+    it('keys the key on EVERY machine, used or not, titled, lowest id first, Any last (req #3621)', () => {
         const view = buildMachineColorView({
             requirements: [{ id: 1, machine_fk: 3 }, { id: 2, machine_fk: 2 }],
             machines: [{ id: 2, title: 'Mac mini', platform: 'darwin' },
                 { id: 3, title: 'WSL', platform: 'win32' },
                 { id: 4, title: 'Unused', platform: 'linux' }],
         });
-        expect(view.legend.map((e) => e.label)).toEqual(['Mac mini', 'WSL']);
+        expect(view.legend.map((e) => e.label)).toEqual(['Mac mini', 'WSL', 'Unused', 'Any']);
+        // An unused machine is listed in the colour it WOULD be painted.
+        expect(view.legend[2].color).toBe(MACHINE_FALLBACK_PALETTE[0]);
         // An id with no machine row still gets a nameable entry rather than
         // dropping out of the key.
         const orphan = buildMachineColorView({
@@ -4414,12 +4418,37 @@ describe('machine colour view (moved to the pure module, req #3168)', () => {
         });
         expect(orphan.legend).toEqual([
             { key: 77, color: MACHINE_FALLBACK_PALETTE[0], label: 'Machine 77' },
+            { key: 'any', color: MACHINE_ANY_COLOR, label: 'Any' },
         ]);
     });
 
-    it('is inert on an empty or absent model', () => {
+    it('leaves a RETIRED machine out of the key unless a requirement still uses it (req #3621)', () => {
+        const machines = [{ id: 2, title: 'Mac mini', platform: 'darwin' },
+            { id: 5, title: 'Old box', platform: 'linux', closed: 1 },
+            { id: 6, title: 'Older box', platform: 'linux', closed: 1 }];
+        const view = buildMachineColorView({
+            requirements: [{ id: 1, machine_fk: 6 }], machines,
+        });
+        expect(view.legend.map((e) => e.label)).toEqual(['Mac mini', 'Older box', 'Any']);
+        expect(view.colorOf(1)).toBe(view.legend[1].color);
+    });
+
+    it('deals fallback hues over the whole dictionary, so a plan cannot shift them (req #3621)', () => {
+        const machines = [{ id: 4, title: 'A', platform: 'linux' },
+            { id: 5, title: 'B', platform: 'linux' }];
+        const usesB = buildMachineColorView({
+            requirements: [{ id: 1, machine_fk: 5 }], machines,
+        });
+        const usesBoth = buildMachineColorView({
+            requirements: [{ id: 1, machine_fk: 5 }, { id: 2, machine_fk: 4 }], machines,
+        });
+        expect(usesB.colorOf(1)).toBe(MACHINE_FALLBACK_PALETTE[1]);
+        expect(usesBoth.colorOf(1)).toBe(MACHINE_FALLBACK_PALETTE[1]);
+    });
+
+    it('is inert on an empty or absent model — the key still names Any', () => {
         const view = buildMachineColorView();
-        expect(view.legend).toEqual([]);
+        expect(view.legend).toEqual([{ key: 'any', color: MACHINE_ANY_COLOR, label: 'Any' }]);
         expect(view.colorOf(1)).toBe(MACHINE_ANY_COLOR);
     });
 });
@@ -4571,7 +4600,7 @@ describe('the SCALE REGISTRY (req #3422)', () => {
             { id: 2, requirement_status: 'development', machine_fk: null,
                 coordination_type: 'discuss' },
             // Present in the model, NOT drawn by the plan — so it colours if
-            // asked, and contributes no key entry.
+            // asked. The key lists every value regardless (req #3621).
             { id: 3, requirement_status: 'wontfix', machine_fk: 3,
                 coordination_type: 'planned' },
         ];
@@ -4587,7 +4616,7 @@ describe('the SCALE REGISTRY (req #3422)', () => {
         expect(Object.keys(views)).toEqual(['state', 'session', 'autonomy', 'machine']);
         expect(views.state.colorOf(1)).toBe(PAL.status.met);
         expect(views.state.colorOf(3)).toBe(PAL.status.wontfix);
-        expect(views.state.legend.map((e) => e.key)).toEqual(['development', 'met']);
+        expect(views.state.legend.map((e) => e.key)).toEqual(REQ_STATUS_ORDER);
         // The MACHINE scale is NOT themed — its colours are keyed on a machine's
         // PLATFORM and named from the machine record, which is a fact about the
         // fleet rather than an aesthetic. Asserted here so a future theme cannot
@@ -4596,10 +4625,11 @@ describe('the SCALE REGISTRY (req #3422)', () => {
         expect(views.machine.colorOf(2)).toBe(MACHINE_ANY_COLOR);
         expect(views.autonomy.colorOf(1)).toBe(PAL.autonomy.deployed);
         expect(views.autonomy.colorOf(2)).toBe(PAL.autonomy.discuss);
-        // LADDER ORDER, not the order the requirements arrived in.
-        expect(views.autonomy.legend.map((e) => e.key)).toEqual(['discuss', 'deployed']);
+        // EVERY member, in LADDER ORDER — not only the ones the plan uses, and
+        // not the order the requirements arrived in (req #3621).
+        expect(views.autonomy.legend.map((e) => e.key)).toEqual(AUTONOMY_ORDER);
         expect(views.autonomy.legend.map((e) => e.color))
-            .toEqual([PAL.autonomy.discuss, PAL.autonomy.deployed]);
+            .toEqual(AUTONOMY_ORDER.map((v) => PAL.autonomy[v]));
     });
 
     it('builds the SESSION scale from `session_status`, second after State (req #3584)', () => {
@@ -4617,9 +4647,10 @@ describe('the SCALE REGISTRY (req #3422)', () => {
         expect(views.session.colorOf(1)).toBe(PAL.session.completed);
         expect(views.session.colorOf(3)).toBe(PAL.session.no_session);
         expect(views.session.colorOf(4)).toBe(SESSION_UNKNOWN_COLOR);
-        // LIFECYCLE order, with human-readable labels.
+        // EVERY member in LIFECYCLE order, with human-readable labels, then
+        // unknown because a mark is wearing it.
         expect(views.session.legend.map((e) => e.key))
-            .toEqual(['no_session', 'review', 'completed', 'unknown']);
+            .toEqual([...SESSION_STATUS_ORDER, 'unknown']);
         expect(views.session.legend[0].label).toBe('no session');
         expect(reqColorScale('session').keyTitle).toBe('Requirement id = session');
         expect(reqIdStyle({ colorKey: 'session', views, reqId: 2 }))
@@ -4656,21 +4687,23 @@ describe('the SCALE REGISTRY (req #3422)', () => {
         });
         // A drawn id with no requirement row is UNKNOWN, not absent — the same
         // rule the status scale has always followed.
-        expect(views.autonomy.legend.map((e) => e.key)).toEqual(['unknown']);
-        expect(views.autonomy.legend[0].color).toBe(AUTONOMY_UNKNOWN_COLOR);
-        expect(views.state.legend.map((e) => e.key)).toEqual(['met', 'unknown']);
+        expect(views.autonomy.legend.map((e) => e.key)).toEqual([...AUTONOMY_ORDER, 'unknown']);
+        expect(views.autonomy.legend.at(-1).color).toBe(AUTONOMY_UNKNOWN_COLOR);
+        expect(views.state.legend.map((e) => e.key)).toEqual([...REQ_STATUS_ORDER, 'unknown']);
         expect(views.state.colorOf(99)).toBe(REQ_STATUS_UNKNOWN_COLOR);
     });
 
-    it('lists every value when no plan filter is given, and is inert on nothing', () => {
+    it('lists every value whatever the plan holds — even nothing (req #3621)', () => {
         const views = buildReqColorViews({
             requirements: [{ id: 1, coordination_type: 'planned' },
                 { id: 2, coordination_type: 'implemented' }],
         });
-        expect(views.autonomy.legend.map((e) => e.key)).toEqual(['planned', 'implemented']);
+        expect(views.autonomy.legend.map((e) => e.key)).toEqual(AUTONOMY_ORDER);
         const empty = buildReqColorViews();
-        expect(empty.autonomy.legend).toEqual([]);
-        expect(empty.machine.legend).toEqual([]);
+        expect(empty.autonomy.legend.map((e) => e.key)).toEqual(AUTONOMY_ORDER);
+        expect(empty.state.legend.map((e) => e.key)).toEqual(REQ_STATUS_ORDER);
+        expect(empty.session.legend.map((e) => e.key)).toEqual(SESSION_STATUS_ORDER);
+        expect(empty.machine.legend.map((e) => e.key)).toEqual(['any']);
         expect(empty.autonomy.colorOf(1)).toBe(AUTONOMY_UNKNOWN_COLOR);
     });
 
@@ -4685,7 +4718,7 @@ describe('the SCALE REGISTRY (req #3422)', () => {
                 { id: 3, title: 'WSL', platform: 'win32' }],
             presentReqIds: new Set([1]),
         });
-        expect(views.machine.legend.map((e) => e.label)).toEqual(['Mac mini', 'WSL']);
+        expect(views.machine.legend.map((e) => e.label)).toEqual(['Mac mini', 'WSL', 'Any']);
     });
 });
 
@@ -4759,18 +4792,15 @@ describe('the colour key — N scales plus NONE (req #3168 directive 3, req #342
         expect(reqIdStyle({ colorKey: 'autonomy' }).fill).toBe(REQ_STATUS_UNKNOWN_COLOR);
     });
 
-    it('builds a key that lists only the values the plan CONTAINS, in scale order', () => {
+    it('builds a key that lists EVERY value the scale can paint, in scale order (req #3621)', () => {
         const state = reqIdKeyEntries({ colorKey: 'state', views });
         expect(state.title).toBe('Requirement id = status');
-        expect(state.entries.map((e) => e.key))
-            .toEqual(['swarm_ready', 'development', 'met']);
-        expect(state.entries.map((e) => e.label))
-            .toEqual(['swarm-ready', 'development', 'met']);
-        expect(state.entries.map((e) => e.color)).toEqual([
-            ACTIVE.status.swarm_ready,
-            ACTIVE.status.development,
-            ACTIVE.status.met,
+        expect(state.entries.map((e) => e.key)).toEqual(REQ_STATUS_ORDER);
+        expect(state.entries.map((e) => e.label)).toEqual([
+            'authoring', 'approved', 'swarm-ready', 'development', 'met', 'deferred', 'wontfix',
         ]);
+        expect(state.entries.map((e) => e.color))
+            .toEqual(REQ_STATUS_ORDER.map((v) => ACTIVE.status[v]));
     });
 
     it('switches wholesale to the machine and autonomy keys, and says so on none', () => {
@@ -4779,8 +4809,7 @@ describe('the colour key — N scales plus NONE (req #3168 directive 3, req #342
         });
         const autonomy = reqIdKeyEntries({ colorKey: 'autonomy', views });
         expect(autonomy.title).toBe('Requirement id = autonomy');
-        expect(autonomy.entries.map((e) => e.label))
-            .toEqual(['discuss', 'implemented', 'deployed']);
+        expect(autonomy.entries.map((e) => e.label)).toEqual(AUTONOMY_ORDER);
         const off = reqIdKeyEntries({ colorKey: 'none', views });
         expect(off.entries).toHaveLength(1);
         expect(off.entries[0].color).toBe(PLAN_VIZ_PALETTE.text);
@@ -4800,12 +4829,13 @@ describe('the colour key — N scales plus NONE (req #3168 directive 3, req #342
             const { entries } = reqIdKeyEntries({ colorKey: scale.key, views });
             const painted = new Set([1, 2, 3].map(
                 (id) => reqIdStyle({ colorKey: scale.key, views, reqId: id }).fill));
-            for (const e of entries) {
-                expect(painted, `${scale.key}: key entry ${e.key} is painted somewhere`)
-                    .toContain(e.color);
+            // Since req #3621 the key lists every value, so it is a SUPERSET of
+            // what the plan paints: every painted colour must be named in it.
+            const keyed = new Set(entries.map((e) => e.color));
+            for (const fill of painted) {
+                expect(keyed, `${scale.key}: painted colour ${fill} is in the key`)
+                    .toContain(fill);
             }
-            expect(entries.length, `${scale.key}: the key covers every painted colour`)
-                .toBe(painted.size);
         }
     });
 });
@@ -5504,6 +5534,35 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
         expect(drawsLabelKind('step-link', 'in')).toBe(true);
     });
 
+    it('doubles the title buttons\' outline (req #3607 — "like 100% more")', () => {
+        // It shipped at 1 world px (req #3582).
+        expect(CARD_TITLE_BTN_STROKE).toBe(2);
+        expect(CARD_TITLE_BTN_GLYPH_STROKE).toBeGreaterThanOrEqual(CARD_TITLE_BTN_STROKE);
+    });
+
+    it('centres both title-button glyphs on their button in BOTH axes (req #3607)', () => {
+        const layout = computePlanLayout(plan.rows, { stepLabel: 'title' });
+        const buttons = layout.labels.filter(
+            (l) => l.kind === 'step-add' || l.kind === 'step-link');
+        expect(buttons.some((b) => b.kind === 'step-add')).toBe(true);
+        expect(buttons.some((b) => b.kind === 'step-link')).toBe(true);
+        for (const b of buttons) {
+            const where = `${b.kind} step ${b.stepId}`;
+            const segs = titleBtnGlyph(b.kind, b);
+            expect(segs.length, where).toBeGreaterThan(0);
+            const xs = segs.flatMap((pts) => pts.filter((_, k) => k % 2 === 0));
+            const ys = segs.flatMap((pts) => pts.filter((_, k) => k % 2 === 1));
+            // The ink box's centre IS the button's centre.
+            expect((Math.min(...xs) + Math.max(...xs)) / 2, where).toBeCloseTo(b.x + b.w / 2, 6);
+            expect((Math.min(...ys) + Math.max(...ys)) / 2, where).toBeCloseTo(b.y + b.h / 2, 6);
+            // Square ink box, clear of the outline on every side.
+            const side = Math.max(...xs) - Math.min(...xs);
+            expect(Math.max(...ys) - Math.min(...ys), where).toBeCloseTo(side, 6);
+            const inset = (b.w - side) / 2 - CARD_TITLE_BTN_GLYPH_STROKE / 2;
+            expect(inset, where).toBeGreaterThan(CARD_TITLE_BTN_STROKE);
+        }
+    });
+
     it('puts a "+" (file a requirement into this step) LEFT of the link button (req #3582)', () => {
         for (let level = 1; level <= STEP_WIDTH_SCALES.length; level += 1) {
             const layout = computePlanLayout(plan.rows,
@@ -5525,7 +5584,9 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
                 expect(link.w).toBe(CARD_TITLE_BTN);
                 expect(link.h).toBe(CARD_TITLE_BTN);
                 expect(CARD_TITLE_BTN_GAP).toBeGreaterThan(0);
-                expect(add.x + add.w + CARD_TITLE_BTN_GAP, where).toBeCloseTo(link.x, 6);
+                // req #3607 — the "+"/↗ gap alone is a third wider.
+                expect(CARD_STEP_LINK_GAP).toBeCloseTo(CARD_TITLE_BTN_GAP * 1.33, 6);
+                expect(add.x + add.w + CARD_STEP_LINK_GAP, where).toBeCloseTo(link.x, 6);
                 expect(add.y, where).toBe(link.y);
                 const n = layout.nodes.get(row.id);
                 expect(add.y + add.h, where).toBeLessThanOrEqual(n.top + cardTitleH('title') + 1e-6);
@@ -5561,7 +5622,7 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
                 // Abutting the "+" reserve (req #3582) on its left — which
                 // abuts the ↗'s — never under either.
                 expect(run.x + run.w)
-                    .toBeCloseTo(link.x - CARD_TITLE_BTN_GAP - CARD_STEP_ADD_W, 6);
+                    .toBeCloseTo(link.x - CARD_STEP_LINK_GAP - CARD_STEP_ADD_W, 6);
                 // Inside the title area, and never on the name it sits beside.
                 const n = layout.nodes.get(row.id);
                 expect(run.y).toBeGreaterThanOrEqual(n.top);

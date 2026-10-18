@@ -136,7 +136,9 @@ import {
     // req #3498 — the step is a CARD. The renderer draws the box the layout
     // measured; it never measures one of its own.
     CARD_RADIUS, CARD_PAD_X, CARD_PAD_Y, CARD_LINE_H, CARD_RULE_GAP,
-    CARD_STATE_BAR_W, CARD_BADGE_FONT, CARD_TITLE_BTN_FONT,
+    CARD_STATE_BAR_W, CARD_BADGE_FONT,
+    // req #3607 — the title buttons' outline and their drawn (not typeset) glyphs.
+    CARD_TITLE_BTN_STROKE, CARD_TITLE_BTN_GLYPH_STROKE, titleBtnGlyph,
     MIN_CARD_H, REQ_LINE_H, CHW_REQ,
     // req #3580 — the run pill's word and type.
     CARD_RUN_FONT, CARD_RUN_WORDS,
@@ -187,6 +189,7 @@ import UnorchestratedReqBox from './UnorchestratedReqBox';
 import { useUnorchestratedRequirements } from './useUnorchestratedRequirements';
 import {
     UNSEATED_REQ_MIME, bulkSeatRequest, resolveSeatDrop, screenRectOf, unseatedBoxFontPx,
+    pointerCanSeat, runBulkSeat, bulkSeatFailureMessage,
 } from './pipelineUnseated';
 import '../../CalendarFC/swarmVisualizer.css';
 // req #3580 — in-place edit. The SAME mutation helpers the Epics and Steps
@@ -681,10 +684,10 @@ export default function PipelinePlanVisualizer({
     // visualizer rendered from anywhere else must not be able to receive a
     // localStorage string this file then hands to Konva as a `fill`.
     const activeColorKey = normalizeColorKey(colorKey);
-    // The requirements this plan actually DRAWS. Each enum scale lists only the
-    // values these carry, which is what stops a seven-entry status scale from
-    // taking the space the epic chips need. One pass over the rows, no extra
-    // read — and it is the ids rather than the values now (req #3422), because
+    // The requirements this plan actually DRAWS. Since req #3621 the key lists
+    // every value of every scale regardless; these ids decide only whether an
+    // `unknown` swatch is listed, because a drawn mark is wearing it. One pass
+    // over the rows, no extra read — ids rather than values (req #3422), because
     // the registry's builders each read their own column off the requirement.
     const presentReqIds = useMemo(() => {
         const seen = new Set();
@@ -725,8 +728,8 @@ export default function PipelinePlanVisualizer({
     // rect is MEASURED rather than assumed, and measuring is what lets the key
     // GROW into
     // the complete vocabulary without anyone re-tuning a constant: its size
-    // depends on the live colour key (a status scale filtered to the plan, or one
-    // entry per machine) and on whether the
+    // depends on the live colour key (every value of the scale since req #3621,
+    // or one entry per machine) and on whether the
     // reader has collapsed it. Any hard-coded keep-out would be wrong on most
     // plans in one direction or the other.
     const [legendEl, setLegendEl] = useState(null);
@@ -782,6 +785,7 @@ export default function PipelinePlanVisualizer({
     const [unseatDragId, setUnseatDragId] = useState(null);
     const [seatTarget, setSeatTarget] = useState(null);
     const [pendingSeats, setPendingSeats] = useState(() => new Set());
+    const [boxCarrying, setBoxCarrying] = useState(false);
     const unseatedItems = useMemo(
         () => (pendingSeats.size
             ? unseated.items.filter((r) => !pendingSeats.has(Number(r.id)))
@@ -790,8 +794,20 @@ export default function PipelinePlanVisualizer({
     // req #3608 — the whole box dropped on a step: the open confirm dialog's
     // request (`bulkSeatRequest`), null when closed, and whether its writes are
     // in flight.
+    // (req #3614) `bulkSeat` is the request being ASKED about and `bulkSeatOpen`
+    // whether the dialog is showing: the request stays rendered until the exit
+    // transition ends, so the title and list do not blank while it closes.
     const [bulkSeat, setBulkSeat] = useState(null);
+    const [bulkSeatOpen, setBulkSeatOpen] = useState(false);
     const [bulkSeating, setBulkSeating] = useState(false);
+    // The last pointer of a carrying title-bar move, and a ref to the function
+    // that re-resolves the outlined step from it. A wheel zoom mid-carry moves
+    // every card under a pointer that did not move, so the target is re-judged
+    // whenever the transform changes (req #3614) — via a ref because the
+    // function is defined below the empty-plan early return, the effect above it.
+    const boxPointerRef = useRef(null);
+    const reseatRef = useRef(null);
+    useEffect(() => { reseatRef.current?.(); }, [transform]);
 
     // ── The camera survives leaving the page (req #3252) ────────────────────
     // `transform` above is component state, and EVERY way of leaving this panel
@@ -3019,27 +3035,42 @@ export default function PipelinePlanVisualizer({
     // point that is not part of the box, judged by the same `overlaysCard` rule
     // a single row's drop uses (the key, an epic chip and the ruler still hide
     // the card they cover).
+    //
+    // Nothing beneath the pointer is NOT the open canvas (req #3614): pointer
+    // capture keeps delivering events past the window edge, where
+    // `elementsFromPoint` answers [] — and a point outside the plan panel is no
+    // seat either, so both are over-chrome and a release there is a relocation.
     const boxSeatTargetAt = (clientX, clientY) => {
         const el = containerEl;
         if (!el || clientX == null || clientY == null) return null;
         const beneath = (document.elementsFromPoint?.(clientX, clientY) || [])
             .find((n) => !n.closest?.('[data-viz-unseated]'));
         const rect = el.getBoundingClientRect();
+        const canSeat = pointerCanSeat(clientX, clientY, rect, beneath);
         return resolveSeatDrop({
             point: { x: clientX - rect.left, y: clientY - rect.top },
-            overChrome: !!beneath && overlaysCard({ target: beneath, clientX, clientY }),
+            overChrome: !canSeat || overlaysCard({ target: beneath, clientX, clientY }),
             rulerBottom: epicOverlayTopInset,
             t, nodes: layout.nodes, rowById,
         });
     };
     const onBoxMoveOver = (clientX, clientY) => {
+        boxPointerRef.current = clientX == null || clientY == null
+            ? null : { x: clientX, y: clientY };
         const target = boxSeatTargetAt(clientX, clientY);
+        setSeatTarget((prev) => (sameTarget(prev, target) ? prev : target));
+    };
+    reseatRef.current = () => {
+        const p = boxPointerRef.current;
+        if (!p || !boxCarrying) return;
+        const target = boxSeatTargetAt(p.x, p.y);
         setSeatTarget((prev) => (sameTarget(prev, target) ? prev : target));
     };
     // Returns whether the drop was a seat — the box goes back to where it was
     // when it is — and asks before writing anything.
     const onBoxMoveDrop = (clientX, clientY) => {
         const req = bulkSeatRequest(unseatedItems, boxSeatTargetAt(clientX, clientY), rowById);
+        boxPointerRef.current = null;
         setSeatTarget(null);
         if (!req) return false;
         if (!req.ok) {
@@ -3047,11 +3078,14 @@ export default function PipelinePlanVisualizer({
             return true;
         }
         setBulkSeat(req);
+        setBulkSeatOpen(true);
         return true;
     };
     const commitBulkSeat = async () => {
         const req = bulkSeat;
-        if (!req || bulkSeating) return;
+        // `bulkSeat` outlives the close (the exit transition), so a closing
+        // dialog must be refused here too, or a second click re-runs every write.
+        if (!req || bulkSeating || !bulkSeatOpen) return;
         const ids = req.reqs.map((r) => r.id);
         setBulkSeating(true);
         setPendingSeats((prev) => {
@@ -3063,29 +3097,12 @@ export default function PipelinePlanVisualizer({
         // every requirement in the box has no seat to vacate, so each is a
         // plain INSERT, and one seated elsewhere since the box last read
         // answers 409 without stopping the rest.
-        const failed = [];
-        const queue = ids.slice();
-        const worker = async () => {
-            while (queue.length) {
-                const id = queue.shift();
-                try {
-                    await moveStepRequirement(darwinUri, idToken,
-                        { requirementId: id, toStepId: req.stepId });
-                } catch (error) {
-                    failed.push({ id, error });
-                }
-            }
-        };
-        await Promise.all(Array.from({ length: Math.min(BULK_SEAT_CONCURRENCY, ids.length) },
-            worker));
+        const failed = await runBulkSeat(ids, (id) => moveStepRequirement(darwinUri, idToken,
+            { requirementId: id, toStepId: req.stepId }), BULK_SEAT_CONCURRENCY);
         setBulkSeating(false);
-        setBulkSeat(null);
-        if (failed.length) {
-            const which = failed.map((f) => f.id).sort((a, b) => a - b).join(', ');
-            showError(failed[0].error, failed.length === ids.length
-                ? `Unable to add ${which} to the step`
-                : `Added ${ids.length - failed.length} of ${ids.length}; unable to add ${which}`);
-        }
+        setBulkSeatOpen(false);
+        const failure = bulkSeatFailureMessage(ids.length, failed);
+        if (failure) showError(failure);
         const junctionKey = pipelineStepRequirementKeys.all(profile?.userName);
         await Promise.allSettled([
             queryClient.invalidateQueries({ queryKey: pipelineComposeKeys.byId(pipeline?.id) }),
@@ -3097,7 +3114,7 @@ export default function PipelinePlanVisualizer({
             return next;
         });
     };
-    const closeBulkSeat = () => { if (!bulkSeating) setBulkSeat(null); };
+    const closeBulkSeat = () => { if (!bulkSeating) setBulkSeatOpen(false); };
 
     const seatTargetNode = seatTarget ? layout.nodes.get(seatTarget.stepId) : null;
     const seatTargetRect = seatTargetNode ? screenRectOf(seatTargetNode, t) : null;
@@ -4058,57 +4075,43 @@ export default function PipelinePlanVisualizer({
             // branch is kept, EMPTY, so a `badge` label is a deliberate no-op
             // here rather than an unhandled kind silently falling through the
             // chain below to whatever the next `else if` happens to match.
-        } else if (label.kind === 'step-link') {
-            // The visible "view in table, highlighted" button (req #3503) —
-            // the epic chip's ↗ pattern, given to the SAME action the title
-            // area's hit rect has carried since req #3213 (`onStepFocus`).
-            // A real click target rather than dim decoration, so it is
-            // `CF.label`-sized (a shade larger than the row glyphs around it)
-            // and `P.text` rather than `P.dim` — the same "this is live"
-            // brightness the epic chip's own control carries at full opacity
-            // on hover. The reserved box IS the hit region (Konva hit-tests a
-            // `Text` node's given `width`/`height`, not its glyph ink), so no
-            // separate transparent Rect is needed — the same shortcut the
-            // requirement rows above already take.
-            //
-            const linkRow = rowById.get(label.stepId);
-            // An OUTLINED SQUARE so it reads as a button, sized to the count
-            // badge (req #3582 polish — see `CARD_TITLE_BTN`). Decoration only:
-            // the Text's own box below is the hit target, same as before.
+        } else if (label.kind === 'step-link' || label.kind === 'step-add') {
+            // The card title's two buttons, framed, drawn and hovered alike:
+            //  ↗ — "view in table, highlighted" (req #3503), the epic chip's ↗
+            //      pattern given to the SAME action the title area's hit rect
+            //      has carried since req #3213 (`onStepFocus`);
+            //  + — file a new requirement INTO this step (req #3582). Opens the
+            //      requirement editor's "new" mode (req #2414, the aggregator
+            //      template's own path) carrying the step; nothing is written
+            //      until the user picks a category, and that first save seats
+            //      it here.
+            // An OUTLINED SQUARE so it reads as a button (req #3582), its
+            // outline doubled by req #3607 (`CARD_TITLE_BTN_STROKE`). The frame
+            // IS the hit target — a transparent fill hit-tests its whole box,
+            // the pill targets' own move. The glyph is two or three strokes
+            // centred on that box by geometry (`titleBtnGlyph`, req #3607),
+            // never a `Text` whose font box is what gets centred, and it is
+            // `P.text` rather than `P.dim` — the "this is live" brightness.
+            const btnRow = rowById.get(label.stepId);
+            const activate = label.kind === 'step-link'
+                ? () => onStepFocus?.(label.stepId)
+                : () => navigate('/swarm/requirement/new', {
+                    state: newRequirementSeatState(pipeline?.id, 'plan', btnRow),
+                });
             worldNodes.push(
-                <Rect key={`lbl-${i}-frame`} x={label.x} y={label.y}
+                <Rect key={`lbl-${i}`} x={label.x} y={label.y}
                       width={label.w} height={label.h} cornerRadius={4}
-                      stroke={P.dim} strokeWidth={1} listening={false} />);
-            worldNodes.push(
-                <Text key={`lbl-${i}`} x={label.x} y={label.y}
-                      width={label.w} height={label.h}
-                      text={label.text} align="center" verticalAlign="middle"
-                      fontSize={CARD_TITLE_BTN_FONT} fontFamily={MONO} fill={P.text}
+                      fill="transparent"
+                      stroke={P.dim} strokeWidth={CARD_TITLE_BTN_STROKE}
                       onMouseEnter={(e) => cursorPointer(e, true)}
                       onMouseLeave={(e) => cursorPointer(e, false)}
-                      onActivate={() => onStepFocus?.(label.stepId)} />);
-        } else if (label.kind === 'step-add') {
-            // "+" — file a new requirement INTO this step (req #3582). Opens the
-            // requirement editor's "new" mode (req #2414, the aggregator
-            // template's own path) carrying the step; nothing is written until
-            // the user picks a category, and that first save seats it here.
-            // Framed, drawn and hovered exactly like the ↗ beside it — see that
-            // branch.
-            const addRow = rowById.get(label.stepId);
-            worldNodes.push(
-                <Rect key={`lbl-${i}-frame`} x={label.x} y={label.y}
-                      width={label.w} height={label.h} cornerRadius={4}
-                      stroke={P.dim} strokeWidth={1} listening={false} />);
-            worldNodes.push(
-                <Text key={`lbl-${i}`} x={label.x} y={label.y}
-                      width={label.w} height={label.h}
-                      text={label.text} align="center" verticalAlign="middle"
-                      fontSize={CARD_TITLE_BTN_FONT} fontFamily={MONO} fill={P.text}
-                      onMouseEnter={(e) => cursorPointer(e, true)}
-                      onMouseLeave={(e) => cursorPointer(e, false)}
-                      onActivate={() => navigate('/swarm/requirement/new', {
-                          state: newRequirementSeatState(pipeline?.id, 'plan', addRow),
-                      })} />);
+                      onActivate={activate} />);
+            titleBtnGlyph(label.kind, label).forEach((points, j) => {
+                worldNodes.push(
+                    <Line key={`lbl-${i}-glyph-${j}`} points={points}
+                          stroke={P.text} strokeWidth={CARD_TITLE_BTN_GLYPH_STROKE}
+                          lineCap="round" lineJoin="round" listening={false} />);
+            });
         } else if (label.kind === 'title') {
             worldNodes.push(
                 <Text key={`lbl-${i}`} x={label.x} y={label.y} text={label.text}
@@ -4931,7 +4934,10 @@ export default function PipelinePlanVisualizer({
                                     ? `2px solid ${P.accent}` : '2px dashed #ff6b6b',
                                 boxShadow: seatTarget.ok
                                     ? `0 0 0 4px ${P.accent}33` : 'none',
-                                zIndex: 1 }} />
+                                // Above the box (zIndex 2) while it is carried, so
+                                // the outlined step shows through (req #3614);
+                                // it takes no pointer, so hit-testing is unchanged.
+                                zIndex: boxCarrying ? 3 : 1 }} />
                 )}
 
                 {/* req #3583 — swarm-ready work no step carries yet, locked to
@@ -4954,6 +4960,7 @@ export default function PipelinePlanVisualizer({
                     onDragEndItem={() => { setUnseatDragId(null); setSeatTarget(null); }}
                     onMoveOver={onBoxMoveOver}
                     onMoveDrop={onBoxMoveDrop}
+                    onCarryingChange={setBoxCarrying}
                     onOpen={(id) => navigate(`/swarm/requirement/${id}`,
                         pipeline?.id
                             ? { state: { from: 'pipeline', pipelineId: pipeline.id,
@@ -4996,8 +5003,9 @@ export default function PipelinePlanVisualizer({
                     than the box getting WIDER. `PLAN_KEY_MAX_W` capped the
                     cheaper axis from the day the key moved to bottom-center
                     (req #3255) until this requirement; width is now
-                    deliberately uncapped, and a machine-heavy plan's wider key
-                    is the accepted, measured cost of that trade.
+                    deliberately uncapped, and the wider key — every plan's
+                    since req #3621 lists every value of every scale — is the
+                    accepted, measured cost of that trade.
 
                     Collapse is LOCAL STATE, not a persisted preference: a stored
                     one would need seeding in the E2E fixture and could arrive
@@ -5225,7 +5233,8 @@ export default function PipelinePlanVisualizer({
             {/* req #3608 — the whole swarm-ready box dropped on a step. The
                 list is the box as it stood at the drop, so what is approved is
                 what was shown. */}
-            <Dialog open={bulkSeat != null} onClose={closeBulkSeat} fullWidth maxWidth="xs"
+            <Dialog open={bulkSeatOpen} onClose={closeBulkSeat} fullWidth maxWidth="xs"
+                    slotProps={{ transition: { onExited: () => setBulkSeat(null) } }}
                     data-testid="pipeline-viz-bulk-seat-dialog">
                 <DialogTitle>
                     {bulkSeat && `Move ${bulkSeat.reqs.length === 1
@@ -5249,9 +5258,10 @@ export default function PipelinePlanVisualizer({
                     </Box>
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={closeBulkSeat} disabled={bulkSeating}
+                    <Button onClick={closeBulkSeat} disabled={bulkSeating || !bulkSeatOpen}
                             data-testid="pipeline-viz-bulk-seat-cancel">Cancel</Button>
-                    <Button variant="contained" onClick={commitBulkSeat} disabled={bulkSeating}
+                    <Button variant="contained" onClick={commitBulkSeat}
+                            disabled={bulkSeating || !bulkSeatOpen}
                             autoFocus data-testid="pipeline-viz-bulk-seat-confirm">
                         {bulkSeating ? 'Moving…' : 'Move'}
                     </Button>
