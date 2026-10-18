@@ -685,7 +685,7 @@ export const SESSION_STATUS_COLORS = {
     waiting: AUTONOMY_COLORS.discuss,        // hot magenta — waiting on a human
     planning: AUTONOMY_COLORS.implemented,   // violet — building a plan
     active: PLAN_VIZ_PALETTE.runningRing,    // amber — working
-    review: '#ff9800',                       // orange — stopped for review
+    review: '#ff3b30',                       // attention red — stopped for review (req #3636)
     paused: '#e0a3a3',                       // dusty rose — parked
     completing: '#6ee7e7',                   // cyan — closing out
     completed: AUTONOMY_COLORS.deployed,     // green — done
@@ -797,7 +797,7 @@ export const PLAN_PALETTES = [
             waiting:     '#c4849c',
             planning:    '#ab84c4',
             active:      '#d4b35c',
-            review:      '#cf8050',
+            review:      '#ff3b30',
             paused:      '#a0a070',
             completing:  '#6fd0c4',
             completed:   '#8fbf7a',
@@ -844,18 +844,24 @@ export const PLAN_PALETTES = [
         // req #3584 — THE LIVE session scale. `waiting`/`active`/`completed`
         // are assigned in the aurora patch below (tracking, for Signal's
         // reason). MEASURED minimum ΔE 27.0
-        // (`starting`/`planning`), minimum contrast 5.79:1. `no_session` is a
+        // (`starting`/`planning`), minimum contrast 4.87:1 (`review`). `no_session` is a
         // LIGHT neutral, not aurora's mid slate: it must not read as the
         // unknown swatch every mark wears while the session reads load (every
         // member ≥ 32.2 ΔE from it). Since req #3588 `active` (tracking
         // `status.development`) is yellow-green, the one working state on the
-        // warm side — it is "on the way to" `completed`'s green, ΔE 52.6, and
-        // ΔE 30.2 from `review`'s yellow.
+        // warm side — it is "on the way to" `completed`'s green, ΔE 52.6.
+        //
+        // `review` is ATTENTION RED (req #3636 user directive: *"Review is a
+        // state that needs my immediate attention. lets try a brighter color
+        // like red that is attention getting"*) — the same `#ff3b30` the
+        // session chip, row icon and phase bars use, in every theme, so review
+        // reads as one colour app-wide. MEASURED ΔE 41.3 from its nearest
+        // neighbour (`paused`'s orange), contrast 4.87:1.
         session: {
             no_session:  '#cbd5e1',
             starting:    '#818cf8',
             planning:    '#c4b5fd',
-            review:      '#fcd34d',
+            review:      '#ff3b30',
             paused:      '#fb923c',
             completing:  '#38bdf8',
         },
@@ -3288,6 +3294,9 @@ export function computePlanLayout(rows, opts = {}) {
             // absent key here would be the one shape that makes the renderer
             // need a null check the other path never exercises.
             ruler: { h: RULER_H, slots: [], futureX: null },
+            // req #3620 — the Orchestration Ready box mirrors this, so an empty
+            // plan still answers the rung's frame width.
+            cardFrameW,
             stepLabel, reqLabel, empty: true,
         };
     }
@@ -4487,6 +4496,10 @@ export function computePlanLayout(rows, opts = {}) {
         // array to NaN on arithmetic, never throws), which is exactly the
         // failure this field exists to make impossible to reach for again.
         colPitch: COL_W,
+        // The card's drawn FRAME width (world px) at this plan's Step Width
+        // rung — every node's `frameW`, as one number. req #3620: the
+        // Orchestration Ready box mirrors it, so it needs it without a node.
+        cardFrameW,
         colX,
         // The time axis as GEOMETRY (req #3201): the ordered slots and the
         // column each one starts at. Exported so the axis is assertable from
@@ -6361,6 +6374,29 @@ export function clampPlanTransform(t, size, layout, kMin, kMax) {
         y: Math.min(Math.max(t.y, loY), Math.max(0, h / 2)),
         k,
     };
+}
+
+/**
+ * What the plan canvas does with its camera when it lands (req #3637).
+ *
+ * `landed` is the `{ landKey, planKey }` it last landed on (null before the
+ * first), `next` the one it is rendering now; `landKey` is plan + Step Width
+ * rung, `planKey` the plan alone. `saved` is the stored camera, or null.
+ *
+ *   'keep'    — same plan, same rung: a resize or a refetch that grew the plan.
+ *               Never re-lands; the caller only re-clamps.
+ *   'restore' — ARRIVING at a plan (mount or in-place switch) with a camera on
+ *               record: every reload, Back/Forward, "Back to Plan" and panel
+ *               toggle lands here, which is what "sticky" means.
+ *   'reset'   — the base view: a first visit, or this plan's Step Width
+ *               changed (an explicit rescale the old camera does not describe).
+ *
+ * @returns {'keep'|'restore'|'reset'}
+ */
+export function planLandingAction(landed, next, saved) {
+    if (landed && landed.landKey === next.landKey) return 'keep';
+    const arrived = !landed || landed.planKey !== next.planKey;
+    return arrived && saved ? 'restore' : 'reset';
 }
 
 export { STEP_DONE, STEP_RUNNING, STEP_PENDING };

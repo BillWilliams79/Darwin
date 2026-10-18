@@ -20,9 +20,10 @@
 // Write the camera down when it moves, read it back when the canvas lands, and
 // the enumeration disappears. A per-call-site patch would have to be exhaustive
 // today AND stay exhaustive as links are added. Two of the plan visualizer's own
-// return paths involve NO NAVIGATION AT ALL (a bead click and the Table|Plan
-// toggle both unmount the canvas inside one route), so there is no navigation to
-// hang a patch on even if the list were complete.
+// return paths involve NO NAVIGATION AT ALL (the Table|Plan toggle unmounts the
+// canvas inside one route; a bead click did too until req #3637 made it push a
+// history entry), so there is no navigation to hang a patch on even if the list
+// were complete.
 //
 // ── A PLAIN MODULE, NOT A HOOK AND NOT A STORE ─────────────────────────────
 // It holds no state and has no lifecycle, so it is a module — and it must stay
@@ -82,9 +83,14 @@
 //   2. THE FINGERPRINT, for the different hazard of a camera landing on content
 //      that MOVED. #2799's camera was a bare `currentDate` with nothing to
 //      invalidate it; a record here is refused unless the world it was taken
-//      over still measures the same, so a plan that gained a step or a band
-//      lands on the base view. That protection stopped being free and became
-//      explicit, which is why it may not be weakened for convenience.
+//      over is still at the same SCALE. Req #3637 narrowed what that means for
+//      the plan canvas: its fingerprint was the layout's dimensions, which
+//      refused a restore whenever a plan gained a step or a band between two
+//      visits (*"refresh, reload, should not change the viewport"*). Content
+//      that GREW is not content that MOVED, and (1) bounds whatever did change;
+//      the fingerprint is now the Step Width rung, the one input that rescales
+//      every card. The check itself stays: a camera from another scale is
+//      refused, never approximated.
 //
 // THE COSTS, NAMED RATHER THAN DENIED:
 //   · TWO TABS ON ONE ARTIFACT SHARE ONE RECORD, last writer wins. Both commit

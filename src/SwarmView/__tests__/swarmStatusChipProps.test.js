@@ -37,7 +37,7 @@ describe('swarmStatusChipProps', () => {
     });
 
     it('returns correct props for review', () => {
-        expect(swarmStatusChipProps('review')).toEqual({ sx: { bgcolor: '#ce93d8', color: '#000' } });
+        expect(swarmStatusChipProps('review')).toEqual({ sx: { bgcolor: '#ff3b30', color: '#000' } });
     });
 
     it('returns correct props for paused', () => {
