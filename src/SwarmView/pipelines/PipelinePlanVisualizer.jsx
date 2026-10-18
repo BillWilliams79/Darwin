@@ -189,6 +189,7 @@ import UnorchestratedReqBox from './UnorchestratedReqBox';
 import { useUnorchestratedRequirements } from './useUnorchestratedRequirements';
 import {
     UNSEATED_REQ_MIME, bulkSeatRequest, resolveSeatDrop, screenRectOf, unseatedBoxFontPx,
+    pointerCanSeat, runBulkSeat, bulkSeatFailureMessage,
 } from './pipelineUnseated';
 import '../../CalendarFC/swarmVisualizer.css';
 // req #3580 — in-place edit. The SAME mutation helpers the Epics and Steps
@@ -784,6 +785,7 @@ export default function PipelinePlanVisualizer({
     const [unseatDragId, setUnseatDragId] = useState(null);
     const [seatTarget, setSeatTarget] = useState(null);
     const [pendingSeats, setPendingSeats] = useState(() => new Set());
+    const [boxCarrying, setBoxCarrying] = useState(false);
     const unseatedItems = useMemo(
         () => (pendingSeats.size
             ? unseated.items.filter((r) => !pendingSeats.has(Number(r.id)))
@@ -792,8 +794,20 @@ export default function PipelinePlanVisualizer({
     // req #3608 — the whole box dropped on a step: the open confirm dialog's
     // request (`bulkSeatRequest`), null when closed, and whether its writes are
     // in flight.
+    // (req #3614) `bulkSeat` is the request being ASKED about and `bulkSeatOpen`
+    // whether the dialog is showing: the request stays rendered until the exit
+    // transition ends, so the title and list do not blank while it closes.
     const [bulkSeat, setBulkSeat] = useState(null);
+    const [bulkSeatOpen, setBulkSeatOpen] = useState(false);
     const [bulkSeating, setBulkSeating] = useState(false);
+    // The last pointer of a carrying title-bar move, and a ref to the function
+    // that re-resolves the outlined step from it. A wheel zoom mid-carry moves
+    // every card under a pointer that did not move, so the target is re-judged
+    // whenever the transform changes (req #3614) — via a ref because the
+    // function is defined below the empty-plan early return, the effect above it.
+    const boxPointerRef = useRef(null);
+    const reseatRef = useRef(null);
+    useEffect(() => { reseatRef.current?.(); }, [transform]);
 
     // ── The camera survives leaving the page (req #3252) ────────────────────
     // `transform` above is component state, and EVERY way of leaving this panel
@@ -3021,27 +3035,42 @@ export default function PipelinePlanVisualizer({
     // point that is not part of the box, judged by the same `overlaysCard` rule
     // a single row's drop uses (the key, an epic chip and the ruler still hide
     // the card they cover).
+    //
+    // Nothing beneath the pointer is NOT the open canvas (req #3614): pointer
+    // capture keeps delivering events past the window edge, where
+    // `elementsFromPoint` answers [] — and a point outside the plan panel is no
+    // seat either, so both are over-chrome and a release there is a relocation.
     const boxSeatTargetAt = (clientX, clientY) => {
         const el = containerEl;
         if (!el || clientX == null || clientY == null) return null;
         const beneath = (document.elementsFromPoint?.(clientX, clientY) || [])
             .find((n) => !n.closest?.('[data-viz-unseated]'));
         const rect = el.getBoundingClientRect();
+        const canSeat = pointerCanSeat(clientX, clientY, rect, beneath);
         return resolveSeatDrop({
             point: { x: clientX - rect.left, y: clientY - rect.top },
-            overChrome: !!beneath && overlaysCard({ target: beneath, clientX, clientY }),
+            overChrome: !canSeat || overlaysCard({ target: beneath, clientX, clientY }),
             rulerBottom: epicOverlayTopInset,
             t, nodes: layout.nodes, rowById,
         });
     };
     const onBoxMoveOver = (clientX, clientY) => {
+        boxPointerRef.current = clientX == null || clientY == null
+            ? null : { x: clientX, y: clientY };
         const target = boxSeatTargetAt(clientX, clientY);
+        setSeatTarget((prev) => (sameTarget(prev, target) ? prev : target));
+    };
+    reseatRef.current = () => {
+        const p = boxPointerRef.current;
+        if (!p || !boxCarrying) return;
+        const target = boxSeatTargetAt(p.x, p.y);
         setSeatTarget((prev) => (sameTarget(prev, target) ? prev : target));
     };
     // Returns whether the drop was a seat — the box goes back to where it was
     // when it is — and asks before writing anything.
     const onBoxMoveDrop = (clientX, clientY) => {
         const req = bulkSeatRequest(unseatedItems, boxSeatTargetAt(clientX, clientY), rowById);
+        boxPointerRef.current = null;
         setSeatTarget(null);
         if (!req) return false;
         if (!req.ok) {
@@ -3049,11 +3078,14 @@ export default function PipelinePlanVisualizer({
             return true;
         }
         setBulkSeat(req);
+        setBulkSeatOpen(true);
         return true;
     };
     const commitBulkSeat = async () => {
         const req = bulkSeat;
-        if (!req || bulkSeating) return;
+        // `bulkSeat` outlives the close (the exit transition), so a closing
+        // dialog must be refused here too, or a second click re-runs every write.
+        if (!req || bulkSeating || !bulkSeatOpen) return;
         const ids = req.reqs.map((r) => r.id);
         setBulkSeating(true);
         setPendingSeats((prev) => {
@@ -3065,29 +3097,12 @@ export default function PipelinePlanVisualizer({
         // every requirement in the box has no seat to vacate, so each is a
         // plain INSERT, and one seated elsewhere since the box last read
         // answers 409 without stopping the rest.
-        const failed = [];
-        const queue = ids.slice();
-        const worker = async () => {
-            while (queue.length) {
-                const id = queue.shift();
-                try {
-                    await moveStepRequirement(darwinUri, idToken,
-                        { requirementId: id, toStepId: req.stepId });
-                } catch (error) {
-                    failed.push({ id, error });
-                }
-            }
-        };
-        await Promise.all(Array.from({ length: Math.min(BULK_SEAT_CONCURRENCY, ids.length) },
-            worker));
+        const failed = await runBulkSeat(ids, (id) => moveStepRequirement(darwinUri, idToken,
+            { requirementId: id, toStepId: req.stepId }), BULK_SEAT_CONCURRENCY);
         setBulkSeating(false);
-        setBulkSeat(null);
-        if (failed.length) {
-            const which = failed.map((f) => f.id).sort((a, b) => a - b).join(', ');
-            showError(failed[0].error, failed.length === ids.length
-                ? `Unable to add ${which} to the step`
-                : `Added ${ids.length - failed.length} of ${ids.length}; unable to add ${which}`);
-        }
+        setBulkSeatOpen(false);
+        const failure = bulkSeatFailureMessage(ids.length, failed);
+        if (failure) showError(failure);
         const junctionKey = pipelineStepRequirementKeys.all(profile?.userName);
         await Promise.allSettled([
             queryClient.invalidateQueries({ queryKey: pipelineComposeKeys.byId(pipeline?.id) }),
@@ -3099,7 +3114,7 @@ export default function PipelinePlanVisualizer({
             return next;
         });
     };
-    const closeBulkSeat = () => { if (!bulkSeating) setBulkSeat(null); };
+    const closeBulkSeat = () => { if (!bulkSeating) setBulkSeatOpen(false); };
 
     const seatTargetNode = seatTarget ? layout.nodes.get(seatTarget.stepId) : null;
     const seatTargetRect = seatTargetNode ? screenRectOf(seatTargetNode, t) : null;
@@ -4919,7 +4934,10 @@ export default function PipelinePlanVisualizer({
                                     ? `2px solid ${P.accent}` : '2px dashed #ff6b6b',
                                 boxShadow: seatTarget.ok
                                     ? `0 0 0 4px ${P.accent}33` : 'none',
-                                zIndex: 1 }} />
+                                // Above the box (zIndex 2) while it is carried, so
+                                // the outlined step shows through (req #3614);
+                                // it takes no pointer, so hit-testing is unchanged.
+                                zIndex: boxCarrying ? 3 : 1 }} />
                 )}
 
                 {/* req #3583 — swarm-ready work no step carries yet, locked to
@@ -4941,6 +4959,7 @@ export default function PipelinePlanVisualizer({
                     onDragEndItem={() => { setUnseatDragId(null); setSeatTarget(null); }}
                     onMoveOver={onBoxMoveOver}
                     onMoveDrop={onBoxMoveDrop}
+                    onCarryingChange={setBoxCarrying}
                     onOpen={(id) => navigate(`/swarm/requirement/${id}`,
                         pipeline?.id
                             ? { state: { from: 'pipeline', pipelineId: pipeline.id,
@@ -5213,7 +5232,8 @@ export default function PipelinePlanVisualizer({
             {/* req #3608 — the whole swarm-ready box dropped on a step. The
                 list is the box as it stood at the drop, so what is approved is
                 what was shown. */}
-            <Dialog open={bulkSeat != null} onClose={closeBulkSeat} fullWidth maxWidth="xs"
+            <Dialog open={bulkSeatOpen} onClose={closeBulkSeat} fullWidth maxWidth="xs"
+                    slotProps={{ transition: { onExited: () => setBulkSeat(null) } }}
                     data-testid="pipeline-viz-bulk-seat-dialog">
                 <DialogTitle>
                     {bulkSeat && `Move ${bulkSeat.reqs.length === 1
@@ -5237,9 +5257,10 @@ export default function PipelinePlanVisualizer({
                     </Box>
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={closeBulkSeat} disabled={bulkSeating}
+                    <Button onClick={closeBulkSeat} disabled={bulkSeating || !bulkSeatOpen}
                             data-testid="pipeline-viz-bulk-seat-cancel">Cancel</Button>
-                    <Button variant="contained" onClick={commitBulkSeat} disabled={bulkSeating}
+                    <Button variant="contained" onClick={commitBulkSeat}
+                            disabled={bulkSeating || !bulkSeatOpen}
                             autoFocus data-testid="pipeline-viz-bulk-seat-confirm">
                         {bulkSeating ? 'Moving…' : 'Move'}
                     </Button>
