@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 // Req #3140 — the addressable-step contract.
 //
 // Both halves live in one module precisely so they can be pinned against each
@@ -6,7 +7,7 @@
 // unit test and produce a link that navigates to the right plan and silently
 // highlights nothing.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import {
     FOCUS_COLOR_PARAM,
     FOCUS_LEVEL_PARAM,
@@ -19,7 +20,8 @@ import {
     stepPlanLinkTo,
     newRequirementSeatState,
     readNewRequirementSeat,
-    backToStepPath,
+    backToPlanQuery,
+    planExitState,
 } from '../pipelineStepLink';
 import { PLAN_LEVEL_BY_PREF, REQ_COLOR_KEYS } from '../pipelinePlanLayout';
 
@@ -204,20 +206,27 @@ describe('newRequirementSeatState / readNewRequirementSeat (req #3582)', () => {
     });
 });
 
-describe('backToStepPath (req #3582)', () => {
-    it('returns to the step on the panel the reader left', () => {
-        expect(backToStepPath({ pipelineId: 7, mode: 'plan', backStepId: 412 }))
-            .toBe(stepPlanLinkTo(7, 412));
-        expect(backToStepPath({ pipelineId: 7, mode: 'table', backStepId: 412 }))
-            .toBe(stepLinkTo(7, 412));
+describe('Back to Plan returns to the same view (req #3637)', () => {
+    afterEach(() => { window.history.replaceState(null, '', '/'); });
+
+    it('stamps the panel, and the plan\'s ?level= pin when it has one', () => {
+        window.history.replaceState(null, '', '/swarm/pipeline/7?mode=plan&step=412&level=3');
+        expect(planExitState(7, 'plan')).toEqual(
+            { from: 'pipeline', pipelineId: 7, mode: 'plan', level: '3' });
+        window.history.replaceState(null, '', '/swarm/pipeline/7');
+        expect(planExitState(7, 'table')).toEqual(
+            { from: 'pipeline', pipelineId: 7, mode: 'table' });
     });
 
-    it('is null without a usable step or plan, so the caller keeps plain Back', () => {
-        for (const bad of [undefined, null, {}, { pipelineId: 7 },
-            { pipelineId: 7, backStepId: 'x' }, { pipelineId: 7, backStepId: 0 },
-            { pipelineId: null, backStepId: 412 }]) {
-            expect(backToStepPath(bad)).toBeNull();
-        }
+    it('lands on the plain plan — mode and level, never a ?step= that moves the view', () => {
+        expect(backToPlanQuery({ mode: 'plan', level: '3', backStepId: 412 }))
+            .toBe('mode=plan&level=3');
+        expect(backToPlanQuery({ mode: 'table', backStepId: 412 })).toBe('mode=table');
+    });
+
+    it('drops anything it cannot validate', () => {
+        expect(backToPlanQuery({ mode: 'plan&x=1', level: '9' })).toBeNull();
+        expect(backToPlanQuery(undefined)).toBeNull();
     });
 });
 

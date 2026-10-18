@@ -189,12 +189,12 @@ describe('RequirementDetail new mode filed from a plan step (req #3582)', { time
             .toBe('Must Select');
     });
 
-    it('Back returns to the step the "+" was on, zoomed onto its card', async () => {
+    it('Back returns to the plan, not zoomed onto the card (req #3637 — camera restores)', async () => {
         const { container } = mount();
         await flush();
         const back = Array.from(container.querySelectorAll('button'))
             .find((b) => b.textContent === 'Back to Plan');
         await act(async () => { back.click(); });
-        expect(navigateCalls.at(-1)).toEqual(['/swarm/pipeline/7?mode=plan&step=412&level=3']);
+        expect(navigateCalls.at(-1)).toEqual(['/swarm/pipeline/7?mode=plan']);
     });
 });

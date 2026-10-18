@@ -6376,4 +6376,27 @@ export function clampPlanTransform(t, size, layout, kMin, kMax) {
     };
 }
 
+/**
+ * What the plan canvas does with its camera when it lands (req #3637).
+ *
+ * `landed` is the `{ landKey, planKey }` it last landed on (null before the
+ * first), `next` the one it is rendering now; `landKey` is plan + Step Width
+ * rung, `planKey` the plan alone. `saved` is the stored camera, or null.
+ *
+ *   'keep'    — same plan, same rung: a resize or a refetch that grew the plan.
+ *               Never re-lands; the caller only re-clamps.
+ *   'restore' — ARRIVING at a plan (mount or in-place switch) with a camera on
+ *               record: every reload, Back/Forward, "Back to Plan" and panel
+ *               toggle lands here, which is what "sticky" means.
+ *   'reset'   — the base view: a first visit, or this plan's Step Width
+ *               changed (an explicit rescale the old camera does not describe).
+ *
+ * @returns {'keep'|'restore'|'reset'}
+ */
+export function planLandingAction(landed, next, saved) {
+    if (landed && landed.landKey === next.landKey) return 'keep';
+    const arrived = !landed || landed.planKey !== next.planKey;
+    return arrived && saved ? 'restore' : 'reset';
+}
+
 export { STEP_DONE, STEP_RUNNING, STEP_PENDING };
