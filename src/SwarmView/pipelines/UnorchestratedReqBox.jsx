@@ -61,16 +61,6 @@
 // marks it feeds — held within 9–16px (`unseatedBoxFontPx`) so it stays
 // legible zoomed far out and never covers the canvas zoomed in (user ruling).
 //
-// ── ONE BOX, TWO LISTS (req #3622) ─────────────────────────────────────────
-// The "Urgent Review" box (`UrgentReviewBox.jsx`) is this same panel over a
-// different list — requirements whose session is waiting on the user. Every
-// prop below that names it (title, outline, test id, remembered spot, home
-// spot, width, per-row colour and trailing content) defaults to the
-// Orchestration Ready box's own value, and `seatable={false}` turns off the two
-// drags that feed a step: its rows are already somebody's work, so they only
-// open on click. `homeOffset` moves the home spot along the top edge — the
-// Urgent Review box docks against this box's left edge with it.
-//
 // ── A CATEGORY COLOR BAR ON EVERY ROW (req #3619) ─────────────────────────
 // Like the aggregator card, the box gathers requirements from many categories,
 // so each row leads with the same pill that card draws (RequirementRow, req
@@ -85,9 +75,7 @@ import Box from '@mui/material/Box';
 import { lighten } from '@mui/material/styles';
 
 import { PLAN_VIZ_PALETTE as P } from './pipelinePlanLayout';
-import {
-    UNSEATED_REQ_MIME, UNSEATED_BOX_WIDTH_EM, UNSEATED_BOX_INSET_PX,
-} from './pipelineUnseated';
+import { UNSEATED_REQ_MIME } from './pipelineUnseated';
 
 const MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
 
@@ -96,7 +84,7 @@ const MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
 const OUTLINE = '#a64dff';
 
 /** Panel inset of the home corner, px. */
-const CORNER_INSET = UNSEATED_BOX_INSET_PX;
+const CORNER_INSET = 8;
 /** The title bar's height in em — what must stay inside the pane. */
 const HEADER_EM = 3;
 /** Pointer travel, px, before a title-bar press becomes a move. */
@@ -112,19 +100,19 @@ function barEdge(color) {
     try { return lighten(color, 0.45); } catch { return 'rgba(128,128,128,0.5)'; }
 }
 
-function readPos(key) {
+function readPos() {
     try {
-        const v = JSON.parse(window.localStorage.getItem(key));
+        const v = JSON.parse(window.localStorage.getItem(POS_STORAGE_KEY));
         if (!v || !Number.isFinite(v.y)) return null;
         if (Number.isFinite(v.x)) return { x: v.x, y: v.y };
         if (Number.isFinite(v.r)) return { r: v.r, y: v.y };
         return null;
     } catch { return null; }
 }
-function writePos(key, pos) {
+function writePos(pos) {
     try {
-        if (pos) window.localStorage.setItem(key, JSON.stringify(pos));
-        else window.localStorage.removeItem(key);
+        if (pos) window.localStorage.setItem(POS_STORAGE_KEY, JSON.stringify(pos));
+        else window.localStorage.removeItem(POS_STORAGE_KEY);
     } catch { /* storage unavailable — the box still moves, it just forgets */ }
 }
 
@@ -133,30 +121,13 @@ export default function UnorchestratedReqBox({
     fontPx = 12, statusColor = P.req,
     draggingId = null, onDragStartItem, onDragEndItem, onOpen,
     onMoveOver, onMoveDrop, onCarryingChange,
-    // req #3622 — what lets the Urgent Review box be this same panel.
-    title = 'Orchestration Ready',
-    outline = OUTLINE,
-    testId = 'pipeline-viz-unseated',
-    chrome = 'unseated',
-    posStorageKey = POS_STORAGE_KEY,
-    home = 'right',
-    homeOffset = null,
-    widthEm = UNSEATED_BOX_WIDTH_EM,
-    emptyText = 'None — every swarm-ready requirement is on a step.',
-    errorText = 'Could not load swarm-ready requirements.',
-    itemColor = null,
-    renderItemEnd = null,
-    seatable = true,
-    // req #3619's category bar; the Urgent Review box's rows carry no category.
-    showCategoryBar = true,
 }) {
     // Open by default: the box exists to be seen next to the plan it feeds.
     const [open, setOpen] = useState(true);
     const listRef = useRef(null);
     const boxRef = useRef(null);
-    // `null` = home (top corner on the `home` side); else panel-relative px of
-    // the top-left corner.
-    const [pos, setPos] = useState(() => readPos(posStorageKey));
+    // `null` = home (top-right); else panel-relative px of the top-left corner.
+    const [pos, setPos] = useState(readPos);
     // The gesture lives in a ref; `moving` is state only so the cursor
     // re-renders on press and release.
     const moveRef = useRef(null);
@@ -179,7 +150,7 @@ export default function UnorchestratedReqBox({
             id: e.pointerId, sx: e.clientX, sy: e.clientY,
             left: box.offsetLeft, top: box.offsetTop, last: null,
             // Where to send the box back to if this drag turns out to be a seat.
-            before: pos, carries: seatable && items.length > 0,
+            before: pos, carries: items.length > 0,
         };
         setMoving(true);
     };
@@ -237,9 +208,9 @@ export default function UnorchestratedReqBox({
                 y: m.last.y };
         }
         setPos(final);
-        writePos(posStorageKey, final);
+        writePos(final);
     };
-    const goHome = () => { setPos(null); writePos(posStorageKey, null); };
+    const goHome = () => { setPos(null); writePos(null); };
     const onBarDoubleClick = (e) => {
         if (e.target.closest('button')) return;
         if (Date.now() - lastMoveEndRef.current < DBLCLICK_AFTER_MOVE_MS) return;
@@ -248,15 +219,14 @@ export default function UnorchestratedReqBox({
 
     // Geometry in `style` (it changes on every move frame — see fontSize below).
     const clampTop = (y) => `clamp(0px, ${y}px, calc(100% - ${HEADER_EM}em))`;
-    const clampSide = (v) => `clamp(0px, ${v}px, calc(100% - ${widthEm}em))`;
+    const clampSide = (v) => `clamp(0px, ${v}px, calc(100% - 23em))`;
     const placement = pos
         ? { ...(pos.r != null ? { right: clampSide(pos.r) } : { left: clampSide(pos.x) }),
             top: clampTop(pos.y),
             // Never below the title bar: parked at the bottom edge it shows
             // the bar whole rather than a squeezed sliver.
             maxHeight: `max(${HEADER_EM}em, calc(100% - ${clampTop(pos.y)} - ${CORNER_INSET}px))` }
-        : { top: CORNER_INSET,
-            [home === 'left' ? 'left' : 'right']: homeOffset ?? CORNER_INSET,
+        : { top: CORNER_INSET, right: CORNER_INSET,
             maxHeight: `calc(100% - ${2 * CORNER_INSET}px)` };
 
     useEffect(() => {
@@ -273,11 +243,8 @@ export default function UnorchestratedReqBox({
     const listShown = open && !carrying;
 
     return (
-        <Box ref={boxRef} data-viz-chrome={chrome}
-             // The visualizer's seat hit-test looks THROUGH this attribute, so
-             // only a box whose drags seat work carries it.
-             data-viz-unseated={seatable ? '' : undefined}
-             data-testid={testId}
+        <Box ref={boxRef} data-viz-chrome="unseated" data-viz-unseated=""
+             data-testid="pipeline-viz-unseated"
              data-carrying={carrying ? '1' : '0'}
              data-pos={!pos ? 'home'
                  : (pos.r != null ? `r${pos.r},${pos.y}` : `${pos.x},${pos.y}`)}
@@ -288,7 +255,7 @@ export default function UnorchestratedReqBox({
              style={{ fontSize: `${fontPx}px`, ...placement }}
              sx={{ position: 'absolute',
                     // Wide enough for an id plus a readable slice of title.
-                    width: `${widthEm}em`,
+                    width: '23em',
                     maxWidth: `calc(100% - ${2 * CORNER_INSET}px)`,
                     // Beats max-height: the title bar is always whole.
                     minHeight: `${HEADER_EM}em`,
@@ -296,15 +263,15 @@ export default function UnorchestratedReqBox({
                     // The key's own panel treatment, outlined in purple.
                     background: 'rgba(13, 20, 32, 0.94)',
                     backdropFilter: 'blur(2px)',
-                    borderRadius: '0.8em', border: `2px solid ${outline}`,
+                    borderRadius: '0.8em', border: `2px solid ${OUTLINE}`,
                     boxShadow: '0 0.5em 1.5em rgba(0, 0, 0, 0.45)',
                     fontFamily: MONO, color: P.text, userSelect: 'none',
                     overflow: 'hidden', zIndex: 2,
                     // See-through while carried (req #3614) so the outlined
                     // step beneath can be read.
                     opacity: carrying ? 0.35 : 1 }}>
-            <Box data-testid={`${testId}-header`}
-                 title={seatable && count > 0
+            <Box data-testid="pipeline-viz-unseated-header"
+                 title={count > 0
                      ? 'Drag to move · drop on a step to seat them all · double-click to put back'
                      : 'Drag to move · double-click to put back'}
                  onPointerDown={onBarDown}
@@ -320,9 +287,9 @@ export default function UnorchestratedReqBox({
                 <Box component="span"
                      sx={{ flex: 1, minWidth: 0, overflow: 'hidden',
                             textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {title}
+                    Orchestration Ready
                 </Box>
-                <Box component="span" data-testid={`${testId}-count`}
+                <Box component="span" data-testid="pipeline-viz-unseated-count"
                      sx={{ color: statusColor, fontWeight: 700 }}>
                     {isError ? '!' : (isLoading ? '…' : count)}
                 </Box>
@@ -330,7 +297,7 @@ export default function UnorchestratedReqBox({
                      onClick={() => setOpen((v) => !v)}
                      aria-expanded={open}
                      aria-label={open ? 'Collapse the list' : 'Expand the list'}
-                     data-testid={`${testId}-toggle`}
+                     data-testid="pipeline-viz-unseated-toggle"
                      sx={{ width: '1.6em', height: '1.6em', p: 0, display: 'flex',
                             alignItems: 'center', justifyContent: 'center',
                             background: 'transparent', border: 'none',
@@ -342,32 +309,30 @@ export default function UnorchestratedReqBox({
             </Box>
 
             {listShown && (
-                <Box ref={listRef} data-testid={`${testId}-list`}
+                <Box ref={listRef} data-testid="pipeline-viz-unseated-list"
                      sx={{ overflowY: 'auto', overscrollBehavior: 'contain',
                             minHeight: 0, flex: '0 1 auto', maxHeight: '26em',
                             borderTop: `1px solid ${P.line}`, py: '0.35em' }}>
                     {isError && (
                         <Box sx={{ px: '0.8em', py: '0.5em', color: '#ff8a80' }}>
-                            {errorText}
+                            Could not load swarm-ready requirements.
                         </Box>
                     )}
                     {!isError && !isLoading && count === 0 && (
-                        <Box data-testid={`${testId}-empty`}
+                        <Box data-testid="pipeline-viz-unseated-empty"
                              sx={{ px: '0.8em', py: '0.5em', color: P.dim }}>
-                            {emptyText}
+                            None — every swarm-ready requirement is on a step.
                         </Box>
                     )}
                     {items.map((r) => {
                         const id = Number(r.id);
                         const dragging = draggingId === id;
-                        const color = itemColor?.(r) || statusColor;
-                        const end = renderItemEnd?.(r);
                         const barColor = categoryColors[r.category_fk];
                         return (
                             <Box key={id}
-                                 draggable={seatable}
-                                 data-testid={`${testId}-item-${id}`}
-                                 onDragStart={!seatable ? undefined : (e) => {
+                                 draggable
+                                 data-testid={`pipeline-viz-unseated-item-${id}`}
+                                 onDragStart={(e) => {
                                      e.dataTransfer.setData(UNSEATED_REQ_MIME, String(id));
                                      e.dataTransfer.effectAllowed = 'move';
                                      // Next tick — see the header: the drag
@@ -378,15 +343,13 @@ export default function UnorchestratedReqBox({
                                  onClick={() => onOpen?.(id)}
                                  sx={{ display: 'flex', alignItems: 'baseline', gap: '0.6em',
                                         px: '0.8em', py: '0.3em',
-                                        cursor: seatable ? 'grab' : 'pointer',
-                                        opacity: dragging ? 0.3 : 1,
+                                        cursor: 'grab', opacity: dragging ? 0.3 : 1,
                                         // An opaque row so the drag image is a
                                         // solid copy, not a ghost of the canvas.
                                         background: dragging ? 'transparent' : '#0d1420',
                                         '&:hover': { background: '#16233a' } }}>
-                                {showCategoryBar && (
                                 <Box component="span"
-                                     data-testid={`${testId}-bar-${id}`}
+                                     data-testid={`pipeline-viz-unseated-bar-${id}`}
                                      sx={{ width: '0.45em', alignSelf: 'stretch',
                                             minHeight: '1.2em', flexShrink: 0,
                                             borderRadius: '0.25em', boxSizing: 'border-box',
@@ -395,9 +358,8 @@ export default function UnorchestratedReqBox({
                                                 border: '0.1em solid',
                                                 borderColor: barEdge(barColor),
                                             }) }} />
-                                )}
                                 <Box component="span"
-                                     sx={{ color, fontWeight: 700, flexShrink: 0 }}>
+                                     sx={{ color: statusColor, fontWeight: 700, flexShrink: 0 }}>
                                     {id}
                                 </Box>
                                 <Box component="span"
@@ -405,7 +367,6 @@ export default function UnorchestratedReqBox({
                                             textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                     {r.title}
                                 </Box>
-                                {end}
                             </Box>
                         );
                     })}
