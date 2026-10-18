@@ -12,6 +12,7 @@ const App = () => {
 
     const snackBarOpen = useSnackBarStore(s => s.open);
     const snackBarMessage = useSnackBarStore(s => s.message);
+    const snackBarDuration = useSnackBarStore(s => s.duration);
     const setSnackBarOpen = (open) => {
         if (!open) useSnackBarStore.getState().close();
     };
@@ -35,7 +36,8 @@ const App = () => {
             <Outlet />
             <SnackBar snackBarOpen={snackBarOpen}
                       setSnackBarOpen={setSnackBarOpen}
-                      snackBarMessage={snackBarMessage} />
+                      snackBarMessage={snackBarMessage}
+                      autoHideDuration={snackBarDuration} />
         </>
     );
 }

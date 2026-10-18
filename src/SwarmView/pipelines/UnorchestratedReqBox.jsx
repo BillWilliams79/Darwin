@@ -61,6 +61,13 @@
 // marks it feeds — held within 9–16px (`unseatedBoxFontPx`) so it stays
 // legible zoomed far out and never covers the canvas zoomed in (user ruling).
 //
+// ── AS WIDE AS A STEP (req #3620, user directive) ──────────────────────────
+// The one dimension NOT in em: the WIDTH is the step card's own on-screen
+// frame width (`widthPx`, from `unseatedBoxWidthPx`), so it follows the Step
+// Width rung and the zoom — "whatever the step width, the box will mirror its
+// width". Never narrower than its whole title bar (`UNSEATED_MIN_WIDTH_EM`):
+// zoomed out past the type's 9px floor, a card is too thin to hold it.
+//
 // ── A CATEGORY COLOR BAR ON EVERY ROW (req #3619) ─────────────────────────
 // Like the aggregator card, the box gathers requirements from many categories,
 // so each row leads with the same pill that card draws (RequirementRow, req
@@ -74,7 +81,7 @@ import { useEffect, useRef, useState } from 'react';
 import Box from '@mui/material/Box';
 import { lighten } from '@mui/material/styles';
 
-import { PLAN_VIZ_PALETTE as P } from './pipelinePlanLayout';
+import { CARD_FRAME_W, PLAN_VIZ_PALETTE as P } from './pipelinePlanLayout';
 import { UNSEATED_REQ_MIME } from './pipelineUnseated';
 
 const MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
@@ -118,7 +125,7 @@ function writePos(pos) {
 
 export default function UnorchestratedReqBox({
     items, categoryColors = {}, isLoading = false, isError = false,
-    fontPx = 12, statusColor = P.req,
+    fontPx = 12, widthPx = CARD_FRAME_W, statusColor = P.req,
     draggingId = null, onDragStartItem, onDragEndItem, onOpen,
     onMoveOver, onMoveDrop, onCarryingChange,
 }) {
@@ -219,7 +226,10 @@ export default function UnorchestratedReqBox({
 
     // Geometry in `style` (it changes on every move frame — see fontSize below).
     const clampTop = (y) => `clamp(0px, ${y}px, calc(100% - ${HEADER_EM}em))`;
-    const clampSide = (v) => `clamp(0px, ${v}px, calc(100% - 23em))`;
+    // The DRAWN width — `maxWidth` caps it at the pane — so this agrees with
+    // the move clamp, which reads `offsetWidth`.
+    const drawnW = `min(${widthPx}px, 100% - ${2 * CORNER_INSET}px)`;
+    const clampSide = (v) => `clamp(0px, ${v}px, calc(100% - ${drawnW}))`;
     const placement = pos
         ? { ...(pos.r != null ? { right: clampSide(pos.r) } : { left: clampSide(pos.x) }),
             top: clampTop(pos.y),
@@ -252,10 +262,8 @@ export default function UnorchestratedReqBox({
              // `sx`: it changes on every zoom frame, and each distinct value
              // through `sx` makes Emotion mint (and never free) a new rule —
              // the badge layer's own "geometry in style" rule.
-             style={{ fontSize: `${fontPx}px`, ...placement }}
+             style={{ fontSize: `${fontPx}px`, width: `${widthPx}px`, ...placement }}
              sx={{ position: 'absolute',
-                    // Wide enough for an id plus a readable slice of title.
-                    width: '23em',
                     maxWidth: `calc(100% - ${2 * CORNER_INSET}px)`,
                     // Beats max-height: the title bar is always whole.
                     minHeight: `${HEADER_EM}em`,

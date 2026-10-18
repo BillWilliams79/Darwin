@@ -3294,6 +3294,9 @@ export function computePlanLayout(rows, opts = {}) {
             // absent key here would be the one shape that makes the renderer
             // need a null check the other path never exercises.
             ruler: { h: RULER_H, slots: [], futureX: null },
+            // req #3620 — the Orchestration Ready box mirrors this, so an empty
+            // plan still answers the rung's frame width.
+            cardFrameW,
             stepLabel, reqLabel, empty: true,
         };
     }
@@ -4493,6 +4496,10 @@ export function computePlanLayout(rows, opts = {}) {
         // array to NaN on arithmetic, never throws), which is exactly the
         // failure this field exists to make impossible to reach for again.
         colPitch: COL_W,
+        // The card's drawn FRAME width (world px) at this plan's Step Width
+        // rung — every node's `frameW`, as one number. req #3620: the
+        // Orchestration Ready box mirrors it, so it needs it without a node.
+        cardFrameW,
         colX,
         // The time axis as GEOMETRY (req #3201): the ordered slots and the
         // column each one starts at. Exported so the axis is assertable from
