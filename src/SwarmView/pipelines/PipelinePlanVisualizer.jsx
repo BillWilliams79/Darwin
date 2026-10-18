@@ -136,7 +136,9 @@ import {
     // req #3498 — the step is a CARD. The renderer draws the box the layout
     // measured; it never measures one of its own.
     CARD_RADIUS, CARD_PAD_X, CARD_PAD_Y, CARD_LINE_H, CARD_RULE_GAP,
-    CARD_STATE_BAR_W, CARD_BADGE_FONT, CARD_TITLE_BTN_FONT,
+    CARD_STATE_BAR_W, CARD_BADGE_FONT,
+    // req #3607 — the title buttons' outline and their drawn (not typeset) glyphs.
+    CARD_TITLE_BTN_STROKE, CARD_TITLE_BTN_GLYPH_STROKE, titleBtnGlyph,
     MIN_CARD_H, REQ_LINE_H, CHW_REQ,
     // req #3580 — the run pill's word and type.
     CARD_RUN_FONT, CARD_RUN_WORDS,
@@ -4058,57 +4060,43 @@ export default function PipelinePlanVisualizer({
             // branch is kept, EMPTY, so a `badge` label is a deliberate no-op
             // here rather than an unhandled kind silently falling through the
             // chain below to whatever the next `else if` happens to match.
-        } else if (label.kind === 'step-link') {
-            // The visible "view in table, highlighted" button (req #3503) —
-            // the epic chip's ↗ pattern, given to the SAME action the title
-            // area's hit rect has carried since req #3213 (`onStepFocus`).
-            // A real click target rather than dim decoration, so it is
-            // `CF.label`-sized (a shade larger than the row glyphs around it)
-            // and `P.text` rather than `P.dim` — the same "this is live"
-            // brightness the epic chip's own control carries at full opacity
-            // on hover. The reserved box IS the hit region (Konva hit-tests a
-            // `Text` node's given `width`/`height`, not its glyph ink), so no
-            // separate transparent Rect is needed — the same shortcut the
-            // requirement rows above already take.
-            //
-            const linkRow = rowById.get(label.stepId);
-            // An OUTLINED SQUARE so it reads as a button, sized to the count
-            // badge (req #3582 polish — see `CARD_TITLE_BTN`). Decoration only:
-            // the Text's own box below is the hit target, same as before.
+        } else if (label.kind === 'step-link' || label.kind === 'step-add') {
+            // The card title's two buttons, framed, drawn and hovered alike:
+            //  ↗ — "view in table, highlighted" (req #3503), the epic chip's ↗
+            //      pattern given to the SAME action the title area's hit rect
+            //      has carried since req #3213 (`onStepFocus`);
+            //  + — file a new requirement INTO this step (req #3582). Opens the
+            //      requirement editor's "new" mode (req #2414, the aggregator
+            //      template's own path) carrying the step; nothing is written
+            //      until the user picks a category, and that first save seats
+            //      it here.
+            // An OUTLINED SQUARE so it reads as a button (req #3582), its
+            // outline doubled by req #3607 (`CARD_TITLE_BTN_STROKE`). The frame
+            // IS the hit target — a transparent fill hit-tests its whole box,
+            // the pill targets' own move. The glyph is two or three strokes
+            // centred on that box by geometry (`titleBtnGlyph`, req #3607),
+            // never a `Text` whose font box is what gets centred, and it is
+            // `P.text` rather than `P.dim` — the "this is live" brightness.
+            const btnRow = rowById.get(label.stepId);
+            const activate = label.kind === 'step-link'
+                ? () => onStepFocus?.(label.stepId)
+                : () => navigate('/swarm/requirement/new', {
+                    state: newRequirementSeatState(pipeline?.id, 'plan', btnRow),
+                });
             worldNodes.push(
-                <Rect key={`lbl-${i}-frame`} x={label.x} y={label.y}
+                <Rect key={`lbl-${i}`} x={label.x} y={label.y}
                       width={label.w} height={label.h} cornerRadius={4}
-                      stroke={P.dim} strokeWidth={1} listening={false} />);
-            worldNodes.push(
-                <Text key={`lbl-${i}`} x={label.x} y={label.y}
-                      width={label.w} height={label.h}
-                      text={label.text} align="center" verticalAlign="middle"
-                      fontSize={CARD_TITLE_BTN_FONT} fontFamily={MONO} fill={P.text}
+                      fill="transparent"
+                      stroke={P.dim} strokeWidth={CARD_TITLE_BTN_STROKE}
                       onMouseEnter={(e) => cursorPointer(e, true)}
                       onMouseLeave={(e) => cursorPointer(e, false)}
-                      onActivate={() => onStepFocus?.(label.stepId)} />);
-        } else if (label.kind === 'step-add') {
-            // "+" — file a new requirement INTO this step (req #3582). Opens the
-            // requirement editor's "new" mode (req #2414, the aggregator
-            // template's own path) carrying the step; nothing is written until
-            // the user picks a category, and that first save seats it here.
-            // Framed, drawn and hovered exactly like the ↗ beside it — see that
-            // branch.
-            const addRow = rowById.get(label.stepId);
-            worldNodes.push(
-                <Rect key={`lbl-${i}-frame`} x={label.x} y={label.y}
-                      width={label.w} height={label.h} cornerRadius={4}
-                      stroke={P.dim} strokeWidth={1} listening={false} />);
-            worldNodes.push(
-                <Text key={`lbl-${i}`} x={label.x} y={label.y}
-                      width={label.w} height={label.h}
-                      text={label.text} align="center" verticalAlign="middle"
-                      fontSize={CARD_TITLE_BTN_FONT} fontFamily={MONO} fill={P.text}
-                      onMouseEnter={(e) => cursorPointer(e, true)}
-                      onMouseLeave={(e) => cursorPointer(e, false)}
-                      onActivate={() => navigate('/swarm/requirement/new', {
-                          state: newRequirementSeatState(pipeline?.id, 'plan', addRow),
-                      })} />);
+                      onActivate={activate} />);
+            titleBtnGlyph(label.kind, label).forEach((points, j) => {
+                worldNodes.push(
+                    <Line key={`lbl-${i}-glyph-${j}`} points={points}
+                          stroke={P.text} strokeWidth={CARD_TITLE_BTN_GLYPH_STROKE}
+                          lineCap="round" lineJoin="round" listening={false} />);
+            });
         } else if (label.kind === 'title') {
             worldNodes.push(
                 <Text key={`lbl-${i}`} x={label.x} y={label.y} text={label.text}
