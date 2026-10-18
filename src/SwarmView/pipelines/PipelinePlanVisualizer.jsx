@@ -187,6 +187,9 @@ import { viewportStorageKey, writeViewport } from '../../utils/viewportMemory';
 // imported above.
 import UnorchestratedReqBox from './UnorchestratedReqBox';
 import { useUnorchestratedRequirements } from './useUnorchestratedRequirements';
+import UrgentReviewBox from './UrgentReviewBox';
+import { REQ_PILL_STYLE } from './planReqPills';
+import { useUrgentReviewRequirements } from './useUrgentReviewRequirements';
 import {
     UNSEATED_REQ_MIME, bulkSeatRequest, resolveSeatDrop, screenRectOf, unseatedBoxFontPx,
 } from './pipelineUnseated';
@@ -211,15 +214,8 @@ const MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
 // still reserves exactly those characters, so wrap and card height are
 // untouched) and the pill owns its label, centred by construction.
 //
-// Each kind has its own quiet palette, independent of the row's colour key: a
-// dark tinted fill, a softened edge and a light label. The terminal is the
-// requirement-id blue (`P.req`, an MUI primary chip's role); the dev server the
-// Swarm visualizer's dark-mode dev-server green, so a port reads the same on
-// both canvases.
-const REQ_PILL_STYLE = {
-    terminal: { fill: '#7fb4ff26', stroke: '#7fb4ff8c', text: '#d3e5ff' },
-    devserver: { fill: '#81c78426', stroke: '#81c7848c', text: '#d5f1d7' },
-};
+// Each kind has its own quiet palette (`REQ_PILL_STYLE`, in `planReqPills.js`
+// so the Urgent Review box draws the same pills — req #3622).
 const REQ_PILL_STROKE = 1.25;
 const REQ_PILL_H_EM = 1.3;                  // pill height, in req font sizes
 const REQ_PILL_FONT_EM = 0.78;              // label size, in req font sizes
@@ -794,6 +790,9 @@ export default function PipelinePlanVisualizer({
     // in flight.
     const [bulkSeat, setBulkSeat] = useState(null);
     const [bulkSeating, setBulkSeating] = useState(false);
+    // req #3622 — the Urgent Review box: every requirement whose latest session
+    // is waiting on the user, from the session reads the page already caches.
+    const urgent = useUrgentReviewRequirements(profile?.userName);
 
     // ── The camera survives leaving the page (req #3252) ────────────────────
     // `transform` above is component state, and EVERY way of leaving this panel
@@ -4922,6 +4921,32 @@ export default function PipelinePlanVisualizer({
                                 zIndex: 1 }} />
                 )}
 
+                {/* req #3622 — the Urgent Review box: requirements whose latest
+                    session is stopped on the user (review / waiting), exactly
+                    as wide as a step card on screen at every zoom, docked just
+                    left of the Orchestration Ready box's home. Same type size
+                    as that box, its ids wear the live palette's Session
+                    colours, and each row carries the requirement's terminal
+                    and dev-server pills from the same `reqPills` the cards
+                    draw. Mounted BEFORE that box: on a pane too narrow for
+                    both, the docked spot overlaps it, and the later sibling
+                    wins at equal z-index — Orchestration Ready's title bar is
+                    its seat-all drag handle, so it stays on top. */}
+                <UrgentReviewBox
+                    items={urgent.items}
+                    isLoading={urgent.isLoading}
+                    isError={urgent.isError}
+                    fontPx={unseatedBoxFontPx(t.k)}
+                    stepWidthLevel={stepWidthLevel}
+                    zoom={t.k}
+                    sessionColors={planPalette(activePalette).session}
+                    reqPills={reqPills}
+                    onOpen={(id) => navigate(`/swarm/requirement/${id}`,
+                        pipeline?.id
+                            ? { state: { from: 'pipeline', pipelineId: pipeline.id,
+                                mode: 'plan' } }
+                            : undefined)} />
+
                 {/* req #3583 — swarm-ready work no step carries yet, locked to
                     the top-right corner the key vacated for the bottom (req
                     #3255). Its rows drag onto a step card to seat them. Its type
@@ -4946,6 +4971,7 @@ export default function PipelinePlanVisualizer({
                             ? { state: { from: 'pipeline', pipelineId: pipeline.id,
                                 mode: 'plan' } }
                             : undefined)} />
+
 
                 {/* ── THE KEY (req #3168, user directives 2026-08-01) ────────
                     "Have a common key displayed in the upper right", then a

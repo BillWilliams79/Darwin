@@ -22,6 +22,11 @@
 
 import { CARD_FONT } from './pipelinePlanLayout';
 
+/** The box's width in em of its own type, and its home corner's inset in px.
+ *  Exported so the Urgent Review box (req #3622) docks against its home. */
+export const UNSEATED_BOX_WIDTH_EM = 23;
+export const UNSEATED_BOX_INSET_PX = 8;
+
 /** The box's type size bounds, screen px (user ruling: "match, within 9–16px"). */
 export const UNSEATED_FONT_MIN = 9;
 export const UNSEATED_FONT_MAX = 16;
