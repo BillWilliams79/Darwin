@@ -1,12 +1,13 @@
 // req #3583 — the pure half of the Plan visualizer's swarm-ready,
 // not-orchestrated box: which rows it lists and where a drop lands.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
 import {
     unorchestratedSwarmReady, stepAcceptsNewWork, seatTargetAt,
     screenToWorld, screenRectOf, UNSEATED_REQ_MIME, resolveSeatDrop,
     unseatedBoxFontPx, UNSEATED_FONT_MIN, UNSEATED_FONT_MAX, bulkSeatRequest,
+    pointInRect, pointerCanSeat, runBulkSeat, bulkSeatFailureMessage,
 } from '../pipelineUnseated';
 import { CARD_FONT } from '../pipelinePlanLayout';
 
@@ -164,5 +165,66 @@ describe('bulkSeatRequest', () => {
         const req = bulkSeatRequest(live, { stepId: 7, ok: true }, rowById);
         live.push({ id: 6, title: 'y' });
         expect(req.reqs.map((r) => r.id)).toEqual([5]);
+    });
+});
+
+// req #3614 — the release point must be on the plan panel, over something.
+describe('pointInRect / pointerCanSeat', () => {
+    const rect = { left: 10, top: 20, right: 110, bottom: 220 };
+    it('is inclusive of the edges and false for a null rect or NaN', () => {
+        expect(pointInRect(10, 20, rect)).toBe(true);
+        expect(pointInRect(110, 220, rect)).toBe(true);
+        expect(pointInRect(9, 50, rect)).toBe(false);
+        expect(pointInRect(50, 221, rect)).toBe(false);
+        expect(pointInRect(50, 50, null)).toBe(false);
+        expect(pointInRect(NaN, 50, rect)).toBe(false);
+    });
+    it('needs both the panel and an element beneath', () => {
+        const el = {};
+        expect(pointerCanSeat(50, 50, rect, el)).toBe(true);
+        // Past the window edge: elementsFromPoint answers [] — nothing beneath.
+        expect(pointerCanSeat(50, 50, rect, undefined)).toBe(false);
+        // Outside the panel, even over an element.
+        expect(pointerCanSeat(500, 50, rect, el)).toBe(false);
+    });
+});
+
+describe('runBulkSeat', () => {
+    it('seats every id, never more than `concurrency` at once, and reports failures', async () => {
+        let inflight = 0;
+        let peak = 0;
+        const seat = vi.fn(async (id) => {
+            inflight += 1;
+            peak = Math.max(peak, inflight);
+            await new Promise((r) => setTimeout(r, 5));
+            inflight -= 1;
+            if (id === 3) throw Object.assign(new Error('x'), { httpStatus: { httpStatus: 409 } });
+        });
+        const ids = [1, 2, 3, 4, 5, 6, 7];
+        const failed = await runBulkSeat(ids, seat, 3);
+        expect(seat.mock.calls.map((c) => c[0]).sort()).toEqual(ids);
+        expect(peak).toBe(3);
+        expect(failed.map((f) => f.id)).toEqual([3]);
+    });
+    it('copes with fewer ids than workers and with none', async () => {
+        const seat = vi.fn(async () => {});
+        expect(await runBulkSeat([9], seat, 4)).toEqual([]);
+        expect(seat).toHaveBeenCalledTimes(1);
+        expect(await runBulkSeat([], seat, 4)).toEqual([]);
+    });
+});
+
+describe('bulkSeatFailureMessage', () => {
+    const f = (id, status) => ({ id, error: status ? { httpStatus: { httpStatus: status } } : new Error('x') });
+    it('is null when nothing failed', () => {
+        expect(bulkSeatFailureMessage(3, [])).toBeNull();
+    });
+    it('names each failed id with its own status', () => {
+        expect(bulkSeatFailureMessage(5, [f(12, 500), f(11, 409)]))
+            .toBe('Added 3 of 5; unable to add 11 (409), 12 (500)');
+    });
+    it('says plainly when every one failed, and tolerates a missing status', () => {
+        expect(bulkSeatFailureMessage(2, [f(11, 409), f(12)]))
+            .toBe('Unable to add 11 (409), 12 to the step');
     });
 });
