@@ -492,3 +492,37 @@ describe('buildSessionStatusIndex (req #3584)', () => {
         expect(buildSessionStatusIndex({}).size).toBe(0);
     });
 });
+
+// req #3618 — the PRODUCTION path: `state` comes from the server's derived
+// rows, and `now` from the caller. An empty step sits on TODAY when a step is
+// running, in the FUTURE when none is, and stays UNKNOWN with no clock.
+describe('adaptComposedPipeline — empty step placement (req #3618)', () => {
+    const NOW = new Date('2026-10-18T07:30:00Z');
+    const fixture = (runningState) => {
+        const payload = composedFixture({
+            steps: [
+                { id: 1, epic_fk: null, title: 'work', run: 'auto', notes: null, completed_at: null, not_before: null },
+                { id: 2, epic_fk: null, title: 'empty', run: 'auto', notes: null, completed_at: null, not_before: null },
+            ],
+            requirements: [{ id: 10, requirement_status: 'development', started_at: '2026-10-18T06:00:00', completed_at: null }],
+            stepRequirements: [{ step_fk: 1, requirement_fk: 10 }],
+        });
+        payload.derived.rows[0].state = runningState;
+        return payload;
+    };
+
+    it('stamps the empty step TODAY when the server says a step is running', () => {
+        const plan = adaptComposedPipeline(fixture('running'), { now: NOW });
+        expect(plan.timeAxis.stepStarts.get(2)).toEqual({ at: '2026-10-18T07:30:00', kind: 'dated' });
+    });
+
+    it('puts the empty step in the FUTURE when nothing is running', () => {
+        const plan = adaptComposedPipeline(fixture('pending'), { now: NOW });
+        expect(plan.timeAxis.stepStarts.get(2).kind).toBe('future');
+    });
+
+    it('leaves the empty step UNKNOWN when the caller supplies no clock', () => {
+        const plan = adaptComposedPipeline(fixture('running'));
+        expect(plan.timeAxis.stepStarts.get(2).kind).toBe('unknown');
+    });
+});
