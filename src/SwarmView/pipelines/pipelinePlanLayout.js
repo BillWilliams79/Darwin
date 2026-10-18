@@ -364,8 +364,8 @@ export const REQ_STATUS_COLORS = {
     wontfix: '#9e9e9e',        // grey — never
 };
 
-// Key order: the lifecycle, not the alphabet. The on-screen key renders in this
-// order and shows only the statuses the plan actually contains.
+// Key order: the lifecycle, not the alphabet. The on-screen key renders every
+// status in this order, whether or not the plan contains it (req #3621).
 export const REQ_STATUS_ORDER = [
     'authoring', 'approved', 'swarm_ready', 'development', 'met', 'deferred', 'wontfix',
 ];
@@ -400,7 +400,7 @@ export const reqStatusColor = (status) => (Object.hasOwn(REQ_STATUS_COLORS, stat
 //   Machine:                its own order       — ascending `machine_fk`, the
 //                                                same ascending-id order
 //                                                `buildMachineColorView` legends
-//                                                the used machines in; a
+//                                                the machines in; a
 //                                                requirement with no machine
 //                                                pinned sinks last.
 //   none (the key off):    falls back to State's ladder — there is no colour
@@ -514,8 +514,17 @@ export function machineEcosystem(machine) {
 }
 
 /**
- * Resolve every requirement's machine colour, plus the key entries for the
- * machines this plan actually uses.
+ * Resolve every requirement's machine colour, plus a key entry for EVERY
+ * machine in the dictionary and for `Any` (req #3621, user directive: "show all
+ * the possibilities instead so I can see the color choices" — the key used to
+ * list only the machines this plan uses). A RETIRED machine (`closed`, which
+ * `useMachines` keeps on purpose) is not a choice and is left out — unless a
+ * requirement still points at it, and a `machine_fk` with no dictionary row
+ * gets an entry too, so no mark on the canvas wears an unnamed colour.
+ *
+ * Fallback hues are dealt over that same full set, lowest id first, so the key
+ * and the canvas read one assignment — and a non-Mac/non-Windows machine keeps
+ * its hue whichever other machines a given plan happens to use.
  *
  * @param {Object} args
  * @param {Object[]} [args.requirements]  the plan's light requirement rows
@@ -526,10 +535,12 @@ export function buildMachineColorView({ requirements = [], machines = [] } = {})
     const reqMachine = new Map((requirements || [])
         .map((r) => [r.id, r.machine_fk == null ? null : r.machine_fk]));
     const machineById = new Map((machines || []).map((m) => [m.id, m]));
-    const used = [...new Set([...reqMachine.values()].filter((v) => v != null))]
+    const keyed = [...new Set([
+        ...(machines || []).filter((m) => !m.closed).map((m) => m.id),
+        ...[...reqMachine.values()].filter((v) => v != null)])]
         .sort((a, b) => a - b);
     let fallbackNext = 0;
-    const colorById = new Map(used.map((id) => {
+    const colorById = new Map(keyed.map((id) => {
         const eco = machineEcosystem(machineById.get(id));
         if (eco === 'mac') return [id, MACHINE_MAC_COLOR];
         if (eco === 'windows') return [id, MACHINE_WINDOWS_COLOR];
@@ -537,19 +548,18 @@ export function buildMachineColorView({ requirements = [], machines = [] } = {})
         fallbackNext += 1;
         return [id, c];
     }));
-    const anyPresent = [...reqMachine.values()].some((v) => v == null);
     return {
         colorOf: (reqId) => {
             const m = reqMachine.get(reqId);
             return m == null ? MACHINE_ANY_COLOR : (colorById.get(m) || MACHINE_ANY_COLOR);
         },
         legend: [
-            ...used.map((id) => ({
+            ...keyed.map((id) => ({
                 key: id,
                 color: colorById.get(id),
                 label: machineById.get(id)?.title || `Machine ${id}`,
             })),
-            ...(anyPresent ? [{ key: 'any', color: MACHINE_ANY_COLOR, label: 'Any' }] : []),
+            { key: 'any', color: MACHINE_ANY_COLOR, label: 'Any' },
         ],
     };
 }
@@ -1034,8 +1044,11 @@ export function planPalette(key) {
 //   at h=78    width    150   300   470   600   900  1100
 //              dropped   12    21    33    39    57    69
 //
-// — a genuine, accepted cost on a many-machine plan, not an oversight: the
-// trade this requirement's own doc names for capping the STEEPER axis instead.
+// — a genuine, accepted cost, not an oversight: the trade this requirement's
+// own doc names for capping the STEEPER axis instead. SINCE REQ #3621 IT IS
+// EVERY PLAN'S COST, not only a many-machine plan's: the key lists every value
+// of every scale and they share one grid cell, so its width is the nine-member
+// session row's (~535px, estimated from character counts) on any plan.
 //
 // TWO EDGES THIS SWEEP DOES NOT COVER (code review finding, req #3374 P7),
 // named rather than silently accepted:
@@ -1043,7 +1056,8 @@ export function planPalette(key) {
 //      NEGATIVE once the key is wider than the viewport, which then drops
 //      every epic chip whose y overlaps the key's band regardless of x. The
 //      old 470 cap made that unreachable above a ~500px panel; uncapped width
-//      makes it reachable on a many-machine plan viewed on a narrow window.
+//      makes it reachable on a panel narrower than the key (~560px since req
+//      #3621's every-value key), where the key also clips at both edges.
 //      The sweep above stops at w=1100 on a 1500px viewport and never
 //      exercises this.
 //   2. `110` is an ESTIMATE from typography constants (below), never checked
@@ -1052,7 +1066,7 @@ export function planPalette(key) {
 //      outside the panel's own background and border, a quieter failure than
 //      the width overflow it replaces.
 // Neither is asserted against; both are one look at the rendered key (any
-// machine-heavy plan, narrow window) away from being closed or ruled out.
+// narrow window) away from being closed or ruled out.
 //
 // The cap is enforced in the component's `sx` (`maxHeight`, not `maxWidth`)
 // and swept in pipelinePlanLayout.test.js from this constant, so the two
@@ -1082,10 +1096,17 @@ export const PLAN_KEY_MAX_H = 110;
 //             the others do not takes it from the same argument bag and ignores
 //             the rest, so a fourth scale cannot widen anyone else's signature.
 //
+// THE KEY LISTS EVERY VALUE A SCALE CAN PAINT, not only the ones this plan
+// contains (req #3621, user directive: "show all the possibilities instead so I
+// can see the color choices"). It used to filter to the plan, to keep the key
+// small for the epic chips; the key's rect is MEASURED and the chips steer
+// around whatever size it is, so the cost of the full list is a taller key,
+// never an overlap.
+//
 // `presentReqIds` is the set of requirement ids the plan actually DRAWS (null =
-// no filter). It is what keeps a seven-entry status scale down to the two or
-// three a given plan contains, which is what stops the key stealing the space
-// the epic chips need.
+// every requirement). It now decides only whether the `unknown` swatch is
+// listed: unknown is not a member of any scale, it is a value this build does
+// not recognise, so it appears exactly when a drawn mark is wearing it.
 //
 // `none` IS NOT IN THE REGISTRY. It is the ABSENCE of a scale, it has no chip,
 // no builder and no data behind it, and giving it a fake entry would put an
@@ -1103,8 +1124,8 @@ export const PLAN_KEY_MAX_H = 110;
  * cannot disagree and the scale's public one-value helper (`reqStatusColor`,
  * `autonomyColor`) is the live path rather than a second copy of it sitting
  * beside this one. `colors` is here to answer a different question — IS this
- * value on the scale — which decides key membership and cannot be read off a
- * hex.
+ * value on the scale — which decides whether a drawn mark is `unknown` and
+ * cannot be read off a hex.
  *
  * @param {Object} args
  * @param {Object[]} [args.requirements]     the plan's light requirement rows
@@ -1127,15 +1148,11 @@ function buildEnumColorView({
     // `paint` applies the same discipline to the colour it returns.
     const known = (v) => Object.hasOwn(colors, v);
     const ids = presentReqIds ? [...presentReqIds] : [...valueById.keys()];
-    const present = new Set();
-    let unknown = false;
-    for (const id of ids) {
-        const v = valueById.get(id);
-        if (known(v)) present.add(v);
-        else unknown = true;   // includes an id with no requirement row at all
-    }
-    const legend = order.filter((v) => present.has(v))
-        .map((v) => ({ key: v, color: paint(v), label: labelOf(v) }));
+    // An id with no requirement row at all counts as unknown too.
+    const unknown = ids.some((id) => !known(valueById.get(id)));
+    // Every member, in the scale's order — whether or not this plan uses it
+    // (req #3621, see the registry's comment above).
+    const legend = order.map((v) => ({ key: v, color: paint(v), label: labelOf(v) }));
     if (unknown) legend.push({ key: 'unknown', color: paint(undefined), label: 'unknown' });
     return {
         colorOf: (reqId) => paint(valueById.get(reqId)),
@@ -1227,19 +1244,9 @@ export const REQ_COLOR_SCALES = [
             + 'click again for none',
         chipName: 'Machine — colour the requirement marks by the machine that ran them',
         keyTitle: 'Requirement id = machine',
-        // DELIBERATELY NOT `presentReqIds`-filtered, unlike the two enum scales.
-        // A machine's colour is keyed on its PLATFORM and its key entry is NAMED
-        // FROM THE MACHINE RECORD, so its entry set is the plan's machine
-        // dictionary — a property of the plan's machines, not of which steps
-        // happen to carry them. That is the whole reason, and it is asserted
-        // directly, so the asymmetry cannot be "tidied away" by someone who
-        // assumes it was an oversight.
-        //
-        // NOT because a filtered legend would move with the zoom: `presentReqIds`
-        // is derived from `rows`, which is level-independent, so the enum scales'
-        // legends do not change with the level either. Recorded because the wrong
-        // reason was written here first, and a false premise invites the very
-        // change the true one forbids.
+        // Takes no `presentReqIds`: since req #3621 the key lists every machine
+        // in the dictionary plus `Any`, so nothing about which steps the plan
+        // draws can change its entry set (`buildMachineColorView`).
         build: ({ requirements, machines }) => buildMachineColorView({ requirements, machines }),
     },
 ];
@@ -1325,10 +1332,10 @@ export function reqIdStyle({ colorKey, views, reqId } = {}) {
  *
  * The entry list is the scale's own — built by its registry `build()`, which is
  * the SAME view object `reqIdStyle` colours the canvas from, so the key cannot
- * name a colour the marks do not use. Each enum scale lists only the values the
- * plan actually contains, which is what keeps the key compact enough not to
- * steal the viewport middle-bottom (req #3255; was the top-right corner) from
- * the epic chips.
+ * name a colour the marks do not use. Since req #3621 every scale lists every
+ * value it can paint, not only the ones the plan contains — the user asked to
+ * see all the colour choices — so the key is wider, and the epic chips steer
+ * around its measured rect at the viewport middle-bottom (req #3255).
  *
  * @param {Object} args
  * @param {string} args.colorKey  a REQ_COLOR_KEYS value
