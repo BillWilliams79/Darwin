@@ -190,6 +190,7 @@ import UnorchestratedReqBox from './UnorchestratedReqBox';
 import { useUnorchestratedRequirements } from './useUnorchestratedRequirements';
 import {
     UNSEATED_REQ_MIME, bulkSeatRequest, resolveSeatDrop, screenRectOf, unseatedBoxFontPx,
+    unseatedBoxWidthPx,
     pointerCanSeat, runBulkSeat, bulkSeatFailureMessage,
 } from './pipelineUnseated';
 import '../../CalendarFC/swarmVisualizer.css';
@@ -714,10 +715,10 @@ export default function PipelinePlanVisualizer({
         REQ_KEY_SCALES.map((scale) => [scale, reqIdKeyEntries({
             colorKey: scale, views: reqColorViews,
         }).entries])), [reqColorViews]);
-    // Expanded by default (req #3585, reversing req #3309's collapsed
-    // default) — see the key's own comment below for why this is component
-    // state and not a persisted preference.
-    const [keyOpen, setKeyOpen] = useState(true);
+    // Collapsed by default (req #3633, reversing req #3585's expanded default
+    // and restoring req #3309's) — see the key's own comment below for why this
+    // is component state and not a persisted preference.
+    const [keyOpen, setKeyOpen] = useState(false);
 
     // The container is tracked as STATE, not a bare ref: with an empty plan the
     // component returns the empty panel and no container exists — if the first
@@ -4956,13 +4957,15 @@ export default function PipelinePlanVisualizer({
                     `CF.req` (world px) through the live zoom — so it shrinks and
                     grows with the marks it feeds (user directive), held within
                     9–16px so it stays usable at both zoom extremes (user
-                    ruling). */}
+                    ruling). Its WIDTH is a step card's on-screen frame width,
+                    whatever the Step Width rung and zoom (req #3620). */}
                 <UnorchestratedReqBox
                     items={unseatedItems}
                     categoryColors={unseated.categoryColors}
                     isLoading={unseated.isLoading}
                     isError={unseated.isError}
                     fontPx={unseatedBoxFontPx(t.k)}
+                    widthPx={unseatedBoxWidthPx(layout.cardFrameW, t.k)}
                     statusColor={planPalette(activePalette).status?.swarm_ready || P.req}
                     draggingId={unseatDragId}
                     onDragStartItem={setUnseatDragId}
@@ -5019,7 +5022,8 @@ export default function PipelinePlanVisualizer({
                     Collapse is LOCAL STATE, not a persisted preference: a stored
                     one would need seeding in the E2E fixture and could arrive
                     shown from another session. Every visit opens with the key
-                    expanded (req #3585; req #3309 had it collapsed).
+                    collapsed (req #3633; req #3585 had it expanded, req #3309
+                    collapsed).
 
                     PARKED AT VIEWPORT MIDDLE BOTTOM (req #3255), not the
                     top-right corner: that corner sat in the typical down-and-
