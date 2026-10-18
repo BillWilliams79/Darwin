@@ -36,10 +36,18 @@ describe('UnorchestratedReqBox', () => {
     it('lists each row with its id and title and counts them', () => {
         act(() => root.render(<UnorchestratedReqBox items={items} />));
         expect(q('pipeline-viz-unseated-count').textContent).toBe('2');
+        expect(q('pipeline-viz-unseated-header').textContent).toContain('Orchestration Ready');
         expect(q('pipeline-viz-unseated-item-11').textContent).toContain('First thing');
         expect(q('pipeline-viz-unseated-item-12').getAttribute('draggable')).toBe('true');
         // Chrome: d3-zoom and the world-click hit-test both skip it.
         expect(q('pipeline-viz-unseated').hasAttribute('data-viz-chrome')).toBe(true);
+    });
+
+    it('is outlined in a strong purple (req #3605)', () => {
+        act(() => root.render(<UnorchestratedReqBox items={items} />));
+        const css = getComputedStyle(q('pipeline-viz-unseated'));
+        expect(css.borderTopWidth).toBe('2px');
+        expect(css.borderTopColor).toBe('rgb(166, 77, 255)');
     });
 
     it('says so when nothing is waiting', () => {
@@ -160,6 +168,71 @@ describe('UnorchestratedReqBox', () => {
             new MouseEvent('dblclick', { bubbles: true })); });
         expect(q('pipeline-viz-unseated').getAttribute('data-pos')).toBe('home');
         expect(window.localStorage.getItem('darwin-plan-unseated-box-pos')).toBeNull();
+    });
+
+    // req #3608 — the title-bar move doubles as a drag of the whole set.
+    it('reports the pointer while moving, and a drop taken as a seat sends the box back', () => {
+        const onMoveOver = vi.fn();
+        const onMoveDrop = vi.fn(() => true);
+        act(() => root.render(<UnorchestratedReqBox items={items}
+            onMoveOver={onMoveOver} onMoveDrop={onMoveDrop} />));
+        const box = q('pipeline-viz-unseated');
+        const bar = q('pipeline-viz-unseated-header');
+        withGeometry(box, bar);
+        const fire = fireOn(bar);
+        act(() => { fire('pointerdown', 710, 20); });
+        act(() => { fire('pointermove', 410, 220); });
+        expect(onMoveOver).toHaveBeenLastCalledWith(410, 220);
+        act(() => { fire('pointerup', 410, 220); });
+        expect(onMoveDrop).toHaveBeenCalledWith(410, 220);
+        expect(box.getAttribute('data-pos')).toBe('home');
+        expect(window.localStorage.getItem('darwin-plan-unseated-box-pos')).toBeNull();
+    });
+
+    it('a drop the visualizer declines is an ordinary move, and clears the outline', () => {
+        const onMoveOver = vi.fn();
+        act(() => root.render(<UnorchestratedReqBox items={items}
+            onMoveOver={onMoveOver} onMoveDrop={() => false} />));
+        const box = q('pipeline-viz-unseated');
+        const bar = q('pipeline-viz-unseated-header');
+        withGeometry(box, bar);
+        const fire = fireOn(bar);
+        act(() => { fire('pointerdown', 710, 20); });
+        act(() => { fire('pointermove', 110, 120); });
+        act(() => { fire('pointerup', 110, 120); });
+        expect(onMoveOver).toHaveBeenLastCalledWith(null, null);
+        expect(JSON.parse(window.localStorage.getItem('darwin-plan-unseated-box-pos')))
+            .toEqual({ x: 100, y: 108 });
+    });
+
+    it('a cancelled pointer is no drop', () => {
+        const onMoveDrop = vi.fn(() => true);
+        act(() => root.render(<UnorchestratedReqBox items={items} onMoveDrop={onMoveDrop} />));
+        const box = q('pipeline-viz-unseated');
+        const bar = q('pipeline-viz-unseated-header');
+        withGeometry(box, bar);
+        const fire = fireOn(bar);
+        act(() => { fire('pointerdown', 710, 20); });
+        act(() => { fire('pointermove', 410, 220); });
+        act(() => { fire('pointercancel', 410, 220); });
+        expect(onMoveDrop).not.toHaveBeenCalled();
+    });
+
+    it('an empty box only moves — it has nothing to seat', () => {
+        const onMoveOver = vi.fn();
+        const onMoveDrop = vi.fn(() => true);
+        act(() => root.render(<UnorchestratedReqBox items={[]}
+            onMoveOver={onMoveOver} onMoveDrop={onMoveDrop} />));
+        const box = q('pipeline-viz-unseated');
+        const bar = q('pipeline-viz-unseated-header');
+        withGeometry(box, bar);
+        const fire = fireOn(bar);
+        act(() => { fire('pointerdown', 710, 20); });
+        act(() => { fire('pointermove', 410, 220); });
+        act(() => { fire('pointerup', 410, 220); });
+        expect(onMoveOver).not.toHaveBeenCalled();
+        expect(onMoveDrop).not.toHaveBeenCalled();
+        expect(box.getAttribute('data-pos')).not.toBe('home');
     });
 
     it('a box dropped in the left half is remembered from the left', () => {
