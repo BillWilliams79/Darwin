@@ -72,7 +72,7 @@ export const NAV_LINKS = [
     { path: '/calview', label: 'Calendar', icon: CalendarMonthIcon, group: 'calendar' },
     { path: '/maps', label: 'Maps', icon: RouteIcon, group: 'maps' },
     ...(import.meta.env.DEV ? [
-        { path: '/systems2', label: 'NVLink', icon: AccountTreeIcon, group: 'systems' },
+        { path: '/systems2', label: 'AI Architecture', icon: AccountTreeIcon, group: 'systems' },
         { path: '/build-visualizer', label: 'Build Visualizer', icon: TimelineIcon, group: 'systems' },
         { path: '/customers', label: 'Customers', icon: BusinessIcon, group: 'systems' },
         { path: '/customer-releases', label: 'Customer Releases', icon: BusinessIcon, group: 'systems' },

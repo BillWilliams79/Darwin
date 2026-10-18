@@ -19,7 +19,7 @@ vi.mock('../../RestApi/RestApi', () => ({
     }),
 }));
 
-import { insertStepOnEdge, branchStepFrom, createdRowOf } from '../stepsApi';
+import { insertStepOnEdge, branchStepFrom, precedeStepWith, createdRowOf } from '../stepsApi';
 
 const URI = 'https://api/darwin';
 const brief = () => calls.map(({ table, method, body }) => `${method} ${table} ${JSON.stringify(body)}`);
@@ -106,5 +106,31 @@ describe('createdRowOf', () => {
         expect(createdRowOf({ id: 4 })).toEqual({ id: 4 });
         expect(createdRowOf(null)).toBeNull();
         expect(createdRowOf([])).toBeNull();
+    });
+});
+
+// Req #3617 — the PRECEDE "+" off a card's free left side: N -> T.
+describe('precedeStepWith', () => {
+    const args = { toStepId: 2, epic_fk: 5, title: 'Before' };
+
+    it('creates N, then gates T on N — nothing else', async () => {
+        await expect(precedeStepWith(URI, 'tok', args)).resolves.toEqual({ id: 99 });
+        expect(brief().slice(1)).toEqual(['POST pipeline_step_deps {"step_fk":2,"dep_step_fk":99}']);
+        expect(calls[0].body).toMatchObject({ epic_fk: 5, title: 'Before', completed_at: null });
+    });
+
+    it('a refused T -> N edge deletes T -> N anyway (it may have landed), then N', async () => {
+        fail = 1;
+        await expect(precedeStepWith(URI, 'tok', args)).rejects.toThrow(/createStepDep/);
+        expect(brief().slice(2)).toEqual([
+            'DELETE pipeline_step_deps {"step_fk":2,"dep_step_fk":99}',
+            'DELETE pipeline_steps {"id":99}',
+        ]);
+    });
+
+    it('a create whose id cannot be read back writes no edge and is flagged orphanStep', async () => {
+        postData = [];
+        await expect(precedeStepWith(URI, 'tok', args)).rejects.toMatchObject({ orphanStep: true });
+        expect(calls).toHaveLength(1);
     });
 });

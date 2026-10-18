@@ -4,7 +4,7 @@
 import { describe, it, expect } from 'vitest';
 import { computePlanLayout, CARD_GAP_X, CARD_RADIUS } from '../pipelinePlanLayout';
 import {
-    insertMarkRadius, arcInsertCandidates, edgeInsertMarks, branchStub, insertRequest,
+    insertMarkRadius, arcInsertCandidates, edgeInsertMarks, branchStub, precedeStub, insertRequest,
     buildInsertMarks, insertMarkAt, INSERT_HIT_SCALE, INSERT_MARK_MAX_R, arcPathPoints,
 } from '../pipelineStepInsert';
 
@@ -82,10 +82,29 @@ describe('branchStub', () => {
     });
 });
 
+// Req #3617 — the mirror of the branch stub, off the LEFT side.
+describe('precedeStub', () => {
+    it('leaves the card left edge at the branch stub\'s height and ends in the gutter before it', () => {
+        const r = 7;
+        for (const n of layout.nodes.values()) {
+            const s = precedeStub(n, r);
+            expect(s.x1).toBeLessThan(n.left);
+            expect(s.y).toBe(branchStub(n, r).y);
+            expect(s.x).toBeLessThan(s.x1);
+            expect(s.x - r).toBeGreaterThan(n.left - CARD_GAP_X);
+            expect(n.left - s.x).toBeCloseTo(branchStub(n, r).x - n.right);
+        }
+    });
+});
+
 describe('buildInsertMarks — the whole set, as the canvas draws it', () => {
-    it('one stub + branch mark per step, one edge mark per arc', () => {
+    it('one branch mark per step, one precede mark per step no arc lands on, one edge mark per arc', () => {
         const g = buildInsertMarks(layout, rows, 7);
-        expect(g.stubs).toHaveLength(rows.length);
+        // Only step 1 has a free left side in the fixture.
+        expect(g.marks.filter((m) => m.kind === 'precede').map((m) => m.toId)).toEqual([1]);
+        expect(g.precedeCount).toBe(1);
+        expect(g.branchCount).toBe(rows.length);
+        expect(g.stubs).toHaveLength(rows.length + 1);
         expect(g.marks.filter((m) => m.kind === 'branch')).toHaveLength(rows.length);
         expect(g.marks.filter((m) => m.kind === 'edge')).toHaveLength(layout.arcs.length);
         expect(g.edgeCount).toBe(layout.arcs.length);
@@ -141,8 +160,36 @@ describe('insertRequest', () => {
         });
     });
 
+    it('a precede names only the step it will gate, and defaults to its epic', () => {
+        const rb = new Map([[2, row(2, [], 9)]]);
+        expect(insertRequest('precede', { fromId: null, toId: 2 }, rb)).toEqual({
+            kind: 'precede', fromId: null, toId: 2, epicId: 9,
+            fromTitle: null, toTitle: 'Step 2',
+        });
+    });
+
     it('a branch carries no target', () => {
         expect(insertRequest('branch', { fromId: 3, toId: 4 }, byId))
             .toMatchObject({ kind: 'branch', fromId: 3, toId: null, toTitle: null, epicId: 1 });
     });
 });
+
+describe('precede marks follow the arcs (req #3617)', () => {
+    it('every root of a multi-root plan gets one; a step an arc lands on never does', () => {
+        const rr = [row(1), row(2), row(3, [1, 2]), row(4)];
+        const ly = computePlanLayout(rr);
+        const g = buildInsertMarks(ly, rr);
+        expect(g.marks.filter((m) => m.kind === 'precede').map((m) => m.toId).sort())
+            .toEqual([1, 2, 4]);
+        for (const m of g.marks.filter((mm) => mm.kind === 'precede')) {
+            const n = ly.nodes.get(m.toId);
+            expect(m.x).toBeLessThan(n.left);
+            expect(inCardOf(ly)(m)).toBe(false);
+        }
+    });
+});
+
+function inCardOf(ly) {
+    return (p) => [...ly.nodes.values()].some((n) =>
+        p.x >= n.left && p.x <= n.right && p.y >= n.top && p.y <= n.bottom);
+}
