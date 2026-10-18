@@ -186,7 +186,7 @@ import { viewportStorageKey, writeViewport } from '../../utils/viewportMemory';
 import UnorchestratedReqBox from './UnorchestratedReqBox';
 import { useUnorchestratedRequirements } from './useUnorchestratedRequirements';
 import {
-    UNSEATED_REQ_MIME, resolveSeatDrop, screenRectOf, unseatedBoxFontPx,
+    UNSEATED_REQ_MIME, bulkSeatRequest, resolveSeatDrop, screenRectOf, unseatedBoxFontPx,
 } from './pipelineUnseated';
 import '../../CalendarFC/swarmVisualizer.css';
 // req #3580 — in-place edit. The SAME mutation helpers the Epics and Steps
@@ -282,6 +282,9 @@ const REQ_KEY_SCALES = REQ_COLOR_KEYS;
 // bound to, so a mousedown on them was never reachable as a pan gesture in the
 // first place. Anything added back over the canvas needs the attribute again.
 const CHROME_SELECTOR = '[data-viz-chrome]';
+/** Seat writes in flight at once when the whole box is dropped (req #3608) —
+ *  each is its own gateway call and its own database connection. */
+const BULK_SEAT_CONCURRENCY = 4;
 
 // The panel colour at the chip's declared opacity (req #3168 user directive:
 // 40% transparent). Derived from the ONE palette entry rather than written as a
@@ -784,6 +787,11 @@ export default function PipelinePlanVisualizer({
             ? unseated.items.filter((r) => !pendingSeats.has(Number(r.id)))
             : unseated.items),
         [unseated.items, pendingSeats]);
+    // req #3608 — the whole box dropped on a step: the open confirm dialog's
+    // request (`bulkSeatRequest`), null when closed, and whether its writes are
+    // in flight.
+    const [bulkSeat, setBulkSeat] = useState(null);
+    const [bulkSeating, setBulkSeating] = useState(false);
 
     // ── The camera survives leaving the page (req #3252) ────────────────────
     // `transform` above is component state, and EVERY way of leaving this panel
@@ -3003,6 +3011,94 @@ export default function PipelinePlanVisualizer({
         ]);
         forgetPending(reqId);
     };
+
+    // ── The whole box dropped on a step (req #3608) ─────────────────────────
+    // The box's title-bar move is a pointer gesture, not a native drag, so the
+    // box reports the pointer itself. The pointer is over the BOX, so the card
+    // it is aimed at is whatever lies beneath it: the first element under the
+    // point that is not part of the box, judged by the same `overlaysCard` rule
+    // a single row's drop uses (the key, an epic chip and the ruler still hide
+    // the card they cover).
+    const boxSeatTargetAt = (clientX, clientY) => {
+        const el = containerEl;
+        if (!el || clientX == null || clientY == null) return null;
+        const beneath = (document.elementsFromPoint?.(clientX, clientY) || [])
+            .find((n) => !n.closest?.('[data-viz-unseated]'));
+        const rect = el.getBoundingClientRect();
+        return resolveSeatDrop({
+            point: { x: clientX - rect.left, y: clientY - rect.top },
+            overChrome: !!beneath && overlaysCard({ target: beneath, clientX, clientY }),
+            rulerBottom: epicOverlayTopInset,
+            t, nodes: layout.nodes, rowById,
+        });
+    };
+    const onBoxMoveOver = (clientX, clientY) => {
+        const target = boxSeatTargetAt(clientX, clientY);
+        setSeatTarget((prev) => (sameTarget(prev, target) ? prev : target));
+    };
+    // Returns whether the drop was a seat — the box goes back to where it was
+    // when it is — and asks before writing anything.
+    const onBoxMoveDrop = (clientX, clientY) => {
+        const req = bulkSeatRequest(unseatedItems, boxSeatTargetAt(clientX, clientY), rowById);
+        setSeatTarget(null);
+        if (!req) return false;
+        if (!req.ok) {
+            showError(`"${req.stepTitle}" is completed — it takes no new work`);
+            return true;
+        }
+        setBulkSeat(req);
+        return true;
+    };
+    const commitBulkSeat = async () => {
+        const req = bulkSeat;
+        if (!req || bulkSeating) return;
+        const ids = req.reqs.map((r) => r.id);
+        setBulkSeating(true);
+        setPendingSeats((prev) => {
+            const next = new Set(prev);
+            for (const id of ids) next.add(id);
+            return next;
+        });
+        // The same one-row seat write a single drop makes, a few at a time:
+        // every requirement in the box has no seat to vacate, so each is a
+        // plain INSERT, and one seated elsewhere since the box last read
+        // answers 409 without stopping the rest.
+        const failed = [];
+        const queue = ids.slice();
+        const worker = async () => {
+            while (queue.length) {
+                const id = queue.shift();
+                try {
+                    await moveStepRequirement(darwinUri, idToken,
+                        { requirementId: id, toStepId: req.stepId });
+                } catch (error) {
+                    failed.push({ id, error });
+                }
+            }
+        };
+        await Promise.all(Array.from({ length: Math.min(BULK_SEAT_CONCURRENCY, ids.length) },
+            worker));
+        setBulkSeating(false);
+        setBulkSeat(null);
+        if (failed.length) {
+            const which = failed.map((f) => f.id).sort((a, b) => a - b).join(', ');
+            showError(failed[0].error, failed.length === ids.length
+                ? `Unable to add ${which} to the step`
+                : `Added ${ids.length - failed.length} of ${ids.length}; unable to add ${which}`);
+        }
+        const junctionKey = pipelineStepRequirementKeys.all(profile?.userName);
+        await Promise.allSettled([
+            queryClient.invalidateQueries({ queryKey: pipelineComposeKeys.byId(pipeline?.id) }),
+            queryClient.invalidateQueries({ queryKey: junctionKey }),
+        ]);
+        setPendingSeats((prev) => {
+            const next = new Set(prev);
+            for (const id of ids) next.delete(id);
+            return next;
+        });
+    };
+    const closeBulkSeat = () => { if (!bulkSeating) setBulkSeat(null); };
+
     const seatTargetNode = seatTarget ? layout.nodes.get(seatTarget.stepId) : null;
     const seatTargetRect = seatTargetNode ? screenRectOf(seatTargetNode, t) : null;
 
@@ -4855,6 +4951,8 @@ export default function PipelinePlanVisualizer({
                     draggingId={unseatDragId}
                     onDragStartItem={setUnseatDragId}
                     onDragEndItem={() => { setUnseatDragId(null); setSeatTarget(null); }}
+                    onMoveOver={onBoxMoveOver}
+                    onMoveDrop={onBoxMoveDrop}
                     onOpen={(id) => navigate(`/swarm/requirement/${id}`,
                         pipeline?.id
                             ? { state: { from: 'pipeline', pipelineId: pipeline.id,
@@ -5122,6 +5220,42 @@ export default function PipelinePlanVisualizer({
                     control is in the PAGE HEADER since req #3241; it was in the
                     key when this note was written. */}
             </Box>
+
+            {/* req #3608 — the whole swarm-ready box dropped on a step. The
+                list is the box as it stood at the drop, so what is approved is
+                what was shown. */}
+            <Dialog open={bulkSeat != null} onClose={closeBulkSeat} fullWidth maxWidth="xs"
+                    data-testid="pipeline-viz-bulk-seat-dialog">
+                <DialogTitle>
+                    {bulkSeat && `Move ${bulkSeat.reqs.length === 1
+                        ? 'this requirement' : `these ${bulkSeat.reqs.length} requirements`}?`}
+                </DialogTitle>
+                <DialogContent>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}
+                                data-testid="pipeline-viz-bulk-seat-summary">
+                        {bulkSeat && `Onto "${bulkSeat.stepTitle}". Every swarm-ready `
+                            + 'requirement not yet on a step is seated there.'}
+                    </Typography>
+                    <Box component="ul" data-testid="pipeline-viz-bulk-seat-list"
+                         sx={{ m: 0, p: 0, listStyle: 'none', maxHeight: 280, overflowY: 'auto' }}>
+                        {(bulkSeat?.reqs || []).map((r) => (
+                            <Typography component="li" variant="body2" key={r.id} noWrap
+                                        sx={{ py: 0.25 }}>
+                                <Box component="span" sx={{ fontWeight: 700, mr: 1 }}>{r.id}</Box>
+                                {r.title}
+                            </Typography>
+                        ))}
+                    </Box>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={closeBulkSeat} disabled={bulkSeating}
+                            data-testid="pipeline-viz-bulk-seat-cancel">Cancel</Button>
+                    <Button variant="contained" onClick={commitBulkSeat} disabled={bulkSeating}
+                            autoFocus data-testid="pipeline-viz-bulk-seat-confirm">
+                        {bulkSeating ? 'Moving…' : 'Move'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
 
             {/* req #3586 — the add-step dialog. Portalled to the body, so a
                 click inside it never reaches the canvas's own click test. */}
