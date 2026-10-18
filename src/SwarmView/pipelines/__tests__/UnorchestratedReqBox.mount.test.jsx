@@ -235,6 +235,77 @@ describe('UnorchestratedReqBox', () => {
         expect(box.getAttribute('data-pos')).not.toBe('home');
     });
 
+    // req #3614 — see-through while carried, restored on release; the outline
+    // is cleared when the gesture is cancelled or loses capture mid-carry.
+    it('turns see-through and folds its list while carrying, and restores on release', () => {
+        const onCarryingChange = vi.fn();
+        act(() => root.render(<UnorchestratedReqBox items={items}
+            onCarryingChange={onCarryingChange} onMoveDrop={() => false} />));
+        const box = q('pipeline-viz-unseated');
+        const bar = q('pipeline-viz-unseated-header');
+        withGeometry(box, bar);
+        const fire = fireOn(bar);
+        expect(box.getAttribute('data-carrying')).toBe('0');
+        expect(Number(getComputedStyle(box).opacity)).toBe(1);
+        act(() => { fire('pointerdown', 710, 20); });
+        // A press that has not passed the slop is not yet a carry.
+        expect(box.getAttribute('data-carrying')).toBe('0');
+        act(() => { fire('pointermove', 410, 220); });
+        expect(box.getAttribute('data-carrying')).toBe('1');
+        expect(Number(getComputedStyle(box).opacity)).toBeLessThan(1);
+        expect(q('pipeline-viz-unseated-list')).toBeNull();
+        expect(onCarryingChange).toHaveBeenLastCalledWith(true);
+        act(() => { fire('pointerup', 410, 220); });
+        expect(box.getAttribute('data-carrying')).toBe('0');
+        expect(Number(getComputedStyle(box).opacity)).toBe(1);
+        expect(q('pipeline-viz-unseated-list')).not.toBeNull();
+        expect(onCarryingChange).toHaveBeenLastCalledWith(false);
+    });
+
+    it('an empty box never turns see-through — it carries nothing', () => {
+        act(() => root.render(<UnorchestratedReqBox items={[]} />));
+        const box = q('pipeline-viz-unseated');
+        const bar = q('pipeline-viz-unseated-header');
+        withGeometry(box, bar);
+        const fire = fireOn(bar);
+        act(() => { fire('pointerdown', 710, 20); });
+        act(() => { fire('pointermove', 410, 220); });
+        expect(box.getAttribute('data-carrying')).toBe('0');
+    });
+
+    it('pointercancel mid-carry clears the outline', () => {
+        const onMoveOver = vi.fn();
+        act(() => root.render(<UnorchestratedReqBox items={items}
+            onMoveOver={onMoveOver} onMoveDrop={() => true} />));
+        const box = q('pipeline-viz-unseated');
+        const bar = q('pipeline-viz-unseated-header');
+        withGeometry(box, bar);
+        const fire = fireOn(bar);
+        act(() => { fire('pointerdown', 710, 20); });
+        act(() => { fire('pointermove', 410, 220); });
+        expect(onMoveOver).toHaveBeenLastCalledWith(410, 220);
+        act(() => { fire('pointercancel', 410, 220); });
+        expect(onMoveOver).toHaveBeenLastCalledWith(null, null);
+        expect(box.getAttribute('data-carrying')).toBe('0');
+    });
+
+    it('lostpointercapture mid-carry clears the outline and is no drop', () => {
+        const onMoveOver = vi.fn();
+        const onMoveDrop = vi.fn(() => true);
+        act(() => root.render(<UnorchestratedReqBox items={items}
+            onMoveOver={onMoveOver} onMoveDrop={onMoveDrop} />));
+        const box = q('pipeline-viz-unseated');
+        const bar = q('pipeline-viz-unseated-header');
+        withGeometry(box, bar);
+        const fire = fireOn(bar);
+        act(() => { fire('pointerdown', 710, 20); });
+        act(() => { fire('pointermove', 410, 220); });
+        act(() => { fire('lostpointercapture', 410, 220); });
+        expect(onMoveOver).toHaveBeenLastCalledWith(null, null);
+        expect(onMoveDrop).not.toHaveBeenCalled();
+        expect(box.getAttribute('data-carrying')).toBe('0');
+    });
+
     it('a box dropped in the left half is remembered from the left', () => {
         act(() => root.render(<UnorchestratedReqBox items={items} />));
         const box = q('pipeline-viz-unseated');
