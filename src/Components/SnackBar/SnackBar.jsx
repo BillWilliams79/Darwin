@@ -10,7 +10,7 @@ function SlideTransition(props) {
     return <Slide {...props} direction="up" />;
 }
 
-export const SnackBar = ({ snackBarOpen, setSnackBarOpen, snackBarMessage }) => {
+export const SnackBar = ({ snackBarOpen, setSnackBarOpen, snackBarMessage, autoHideDuration }) => {
 
     const snackBarClose = (event, reason) => {
         // allow snackbar to auto close or user clicks the X
@@ -33,7 +33,7 @@ export const SnackBar = ({ snackBarOpen, setSnackBarOpen, snackBarMessage }) => 
       <Snackbar
         data-testid="snackbar"
         open={snackBarOpen}
-        autoHideDuration={2000}
+        autoHideDuration={autoHideDuration ?? 2000}
         onClose={snackBarClose}
         message={snackBarMessage}
         action={action}

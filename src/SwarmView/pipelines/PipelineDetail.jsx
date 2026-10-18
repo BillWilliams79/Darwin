@@ -21,7 +21,7 @@
 // a different hat.
 
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useNavigationType, useParams, useSearchParams } from 'react-router-dom';
 
 import Alert from '@mui/material/Alert';
 import AlertTitle from '@mui/material/AlertTitle';
@@ -77,8 +77,11 @@ import {
     planEntityName, planListPath,
 } from './planEra';
 import { usePlanSources } from './usePlanSources';
-import { readFocusStepParam, readLevelParam } from './pipelineStepLink';
-import { readFocusEpicParam } from './pipelineEpicLink';
+import {
+    readColorParam, readFocusStepParam, readLevelParam, stepLinkTo,
+    FOCUS_STEP_PARAM, FOCUS_LEVEL_PARAM, FOCUS_COLOR_PARAM,
+} from './pipelineStepLink';
+import { readFocusEpicParam, FOCUS_EPIC_PARAM } from './pipelineEpicLink';
 import { writePipelinePlace } from './pipelinePlace';
 // Req #3261 P8 — the Plan mode's own controls, in their own component, exactly
 // as `SwarmView.jsx` renders `<VisualizerToolbar />` for its canvas mode (S4).
@@ -114,6 +117,11 @@ import { buildReqPills } from './planReqPills';
 // One stable reference costs nothing and keeps the memo chain honest in the
 // error path the costError branch exists to handle.
 const EMPTY = Object.freeze([]);
+
+// req #3637 — the history-state key marking an entry whose `?step=`/`?epic=`
+// link has already been honoured. Its value is the `search` it was honoured
+// for, so an entry whose query is later rewritten is not mistaken for marked.
+const PLAN_LINK_CONSUMED_STATE_KEY = 'planLinkConsumed';
 
 // The narrowest the plan's name may become (req #3365 polish). A FLOOR on the
 // header title's flex basis — see the title's own comment in the render for why
@@ -253,13 +261,14 @@ export default function PipelineDetail() {
     // "constructor" is a reachable string that resolves to an inherited function,
     // and this one is handed to Konva as a text `fill`. A stored value written
     // before this change ('state' / 'machine') still normalizes to itself, so an
-    // existing reader's plan opens exactly as it did.
-    const colorKey = normalizeColorKey(colorKeyPref);
+    // existing reader's plan opens exactly as it did. The resolved `colorKey`
+    // is computed below, after `?color=` (req #3636) is read.
 
     // Req #3115 cross-mode handshake: a bead click in the Plan visualizer lands
     // the user on the SAME step in the table — the visualizer calls
-    // onStepFocus(stepId), the page switches modes, and the table scrolls to and
-    // highlights the row. The switch is a TRANSIENT override, never written to
+    // onStepFocus(stepId), the page pushes the step's table link (req #3637, so
+    // Back returns to the canvas), and the table scrolls to and highlights the
+    // row. The switch is a TRANSIENT override, never written to
     // the persisted preference: the user asked to inspect one step, not to make
     // Table their default everywhere (review finding). Picking a mode by hand
     // persists it as usual and clears both the override and the focus, so a
@@ -276,8 +285,8 @@ export default function PipelineDetail() {
     // the same reason: a link asks to see one thing once. It must not rewrite what
     // the user chose as their default (the `normalizeView` doctrine — never let an
     // external condition overwrite uncommitted user intent). Picking a mode by
-    // hand clears the override, so the link is inert from that moment on even
-    // though the query string is still in the address bar.
+    // hand rewrites the query (req #3637 — it used to leave it in the address
+    // bar, so a reload resurrected the panel the reader had just left).
     const [searchParams] = useSearchParams();
     // Validated against the mode list, never trusted: an unknown `?mode=xyz` is a
     // typo, and falling through to `null` leaves the stored preference in charge
@@ -308,6 +317,9 @@ export default function PipelineDetail() {
     // vocabulary and null on anything else, so an unrecognised value leaves the
     // reader's stored preference in charge rather than pinning them to 'auto'.
     const linkLevel = readLevelParam(searchParams);
+    // req #3636 — `?color=` picks the colour key for one landing, transiently,
+    // by `?level=`'s contract (see `readColorParam`).
+    const linkColor = readColorParam(searchParams);
     // A named step FORCES THE TABLE — unless the link explicitly asks for the
     // plan (req #3253).
     //
@@ -323,59 +335,103 @@ export default function PipelineDetail() {
         ? (linkMode === 'plan' ? 'plan' : 'table')
         : (linkEpicId != null ? 'plan' : linkMode);
 
-    const [focusStepId, setFocusStepId] = useState(linkStepId);
+    // ── A LINK FIRES ONCE PER HISTORY ENTRY (req #3637) ─────────────────────
+    // `?step=`/`?epic=` move the camera (or the table's scroll) onto one thing.
+    // Read straight off the URL they fired AGAIN on every reload and every
+    // Back/Forward onto that entry — the URL still carries them — and yanked
+    // the reader off wherever they had since panned to: *"refresh, reload,
+    // should not change the viewport"*. So the first time an entry's link is
+    // honoured it is MARKED in that entry's own history state (a replace, same
+    // URL). History state survives a reload and travels with Back/Forward, so a
+    // marked entry is answered by the remembered camera, not by the link; a
+    // fresh click on the same link is a new entry and fires as it always did.
+    //
+    // `?mode=` and `?level=` are NOT consumed: they say which panel and which
+    // level the entry shows, which is exactly what a reload must keep. What
+    // stops them overriding a later manual pick is that the pick rewrites the
+    // URL (`replaceLinkParams` below) instead of leaving a stale query behind.
+    const location = useLocation();
+    const navigationType = useNavigationType();
+    const linkConsumed = location.state?.[PLAN_LINK_CONSUMED_STATE_KEY] === location.search;
+    const [focusStepId, setFocusStepId] = useState(linkConsumed ? null : linkStepId);
     // Req #3235 code review — `?epic=` needs the SAME transient-override
     // treatment as `?step=`, not the raw searchParams value passed straight
     // through: without a state copy, a manual mode pick can never clear it
-    // (nothing owns it to clear), so picking Table then Plan again — or
-    // navigating in-place from one `?epic=` link to another, which
-    // `pipelineId`'s own comment below notes this component survives without
-    // remounting — would keep re-focusing (or silently drop) a link the
-    // reader already left behind.
-    const [focusEpicId, setFocusEpicId] = useState(linkEpicId);
-    // Req #3253 — the level a link asked for, held TRANSIENTLY beside the
-    // persisted `levelPref` below and never written to it. Same doctrine as
-    // `modeOverride`/`focusStepId`/`focusEpicId`, and same reason: a link asks to
-    // see one thing once, so a reader who keeps L3 (or Auto) pinned still has it
-    // the next time they open a plan by any other route.
-    const [levelOverride, setLevelOverride] = useState(linkLevel);
-    const [modeOverride, setModeOverride] = useState(linkView);
-    // Re-seeds when the LINK changes — a new `?mode=`, a new `?step=`, a new
-    // `?epic=`, or a different plan — and at no other time, so a manual pick
-    // below is never resurrected by a re-render. A link with no `?step=`/
-    // `?epic=` clears the focus, which is what keeps a stale highlight (or a
-    // stale camera focus) from surviving an unrelated navigation.
+    // (nothing owns it to clear), and an in-place navigation from one `?epic=`
+    // link to another — which `pipelineId`'s own comment below notes this
+    // component survives without remounting — would keep re-focusing (or
+    // silently drop) a link the reader already left behind.
+    const [focusEpicId, setFocusEpicId] = useState(linkConsumed ? null : linkEpicId);
+    // The panel and the level are the URL's whenever it names them — derived,
+    // never a state copy, so a Back/Forward lands on that entry's own panel and
+    // a reload keeps it. Never written to the persisted preferences: a link
+    // asks to see one thing, and must not change what any other plan opens in.
+    const modeOverride = linkView;
+    const levelOverride = linkLevel;
+    const colorKey = normalizeColorKey(linkColor ?? colorKeyPref);
+    // Re-seeds the focus whenever the history ENTRY changes. Three cases:
+    //   · an UNMARKED entry carrying a link — honour it, then mark the entry;
+    //   · a marked entry reached by REPLACE — this page's own marking (or a
+    //     manual pick re-marking it), so the focus just seeded stays;
+    //   · anything else (a POP onto a marked entry, a URL with no link) — no
+    //     focus, so the restored camera / scroll is what the reader gets.
     useEffect(() => {
-        setModeOverride(linkView);
+        const hasFocusLink = linkStepId != null || linkEpicId != null;
+        if (linkConsumed && navigationType === 'REPLACE') return;
+        if (linkConsumed || !hasFocusLink) {
+            setFocusStepId(null);
+            setFocusEpicId(null);
+            return;
+        }
         setFocusStepId(linkStepId);
         setFocusEpicId(linkEpicId);
-        setLevelOverride(linkLevel);
-        // `era` sat in this list for the same reason it sat in the description
-        // dialog's: an era switch at the same id reused this instance, and a
-        // `?step=` focus from the other era's plan would have survived into
-        // this one. There is no other era to switch from now.
-    }, [linkView, linkStepId, linkEpicId, linkLevel, pipelineId]);
+        navigate({ pathname: location.pathname, search: location.search }, {
+            replace: true,
+            state: { ...(location.state || {}), [PLAN_LINK_CONSUMED_STATE_KEY]: location.search },
+        });
+        // `location.key` is the entry; the rest are read off that same entry.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [location.key]);
+    // Rewrite this entry's query in place — a manual pick must not leave a
+    // stale `?mode=`/`?level=` behind for a reload to resurrect. Re-marked so
+    // the rewrite is not mistaken for a fresh link.
+    const replaceLinkParams = useCallback((drop) => {
+        const next = new URLSearchParams(location.search);
+        drop.forEach((k) => next.delete(k));
+        const search = next.toString() ? `?${next.toString()}` : '';
+        if (search === location.search) return;
+        navigate({ pathname: location.pathname, search }, {
+            replace: true,
+            state: { ...(location.state || {}), [PLAN_LINK_CONSUMED_STATE_KEY]: search },
+        });
+    }, [location.pathname, location.search, location.state, navigate]);
+    // A bead click lands on the step's row in the Table. It PUSHES an entry
+    // (req #3637) — it used to switch the panel in place, so the browser's Back
+    // left the plan altogether instead of returning to the canvas the reader
+    // clicked from. The new entry is an ordinary step link, consumed like any.
     const onStepFocus = useCallback((stepId) => {
-        setFocusStepId(stepId);
-        setModeOverride('table');
-    }, []);
+        const to = stepLinkTo(pipelineId, stepId);
+        if (to) navigate(to);
+    }, [navigate, pipelineId]);
     const handleModeChange = useCallback((_e, v) => {
         if (v == null) return;
         setFocusStepId(null);
         setFocusEpicId(null);
-        setLevelOverride(null);
-        setModeOverride(null);
         setMode(v);
-    }, [setMode]);
+        replaceLinkParams(['mode', FOCUS_STEP_PARAM, FOCUS_EPIC_PARAM, FOCUS_LEVEL_PARAM]);
+    }, [setMode, replaceLinkParams]);
     // A manual LEVEL pick clears the link's level the same way a manual MODE pick
     // clears the link's mode — and persists the reader's choice as usual. The two
-    // are separate handlers because they are separate controls; folding the level
-    // clear into `handleModeChange` alone would leave a reader who picked L3 from
-    // the toolbar snapped back to the link's L2 on the next re-render.
+    // are separate handlers because they are separate controls.
     const handleLevelPrefChange = useCallback((v) => {
-        setLevelOverride(null);
         setLevelPref(v);
-    }, [setLevelPref]);
+        replaceLinkParams([FOCUS_LEVEL_PARAM]);
+    }, [setLevelPref, replaceLinkParams]);
+    // A manual COLOUR pick clears the link's `?color=` for the level pick's reason.
+    const handleColorKeyChange = useCallback((v) => {
+        setColorKeyPref(v);
+        replaceLinkParams([FOCUS_COLOR_PARAM]);
+    }, [setColorKeyPref, replaceLinkParams]);
     // ── RESET IS THE VIEW, AND ONLY THE VIEW (req #3324) ────────────────────
     // The camera goes back to the factory default; the LEVEL does not move.
     // > *"There are four modes only… it's fixed until Auto is selected."*
@@ -935,7 +991,7 @@ export default function PipelineDetail() {
                         stepWidthLevel={stepWidthLevel}
                         onChangeStepWidthLevel={setStepWidthLevelPref}
                         colorKey={colorKey}
-                        onChangeColorKey={setColorKeyPref}
+                        onChangeColorKey={handleColorKeyChange}
                         planLevelPref={activeLevelPref}
                         effectiveLevel={effectiveLevel}
                         onChangeLevelPref={handleLevelPrefChange}
