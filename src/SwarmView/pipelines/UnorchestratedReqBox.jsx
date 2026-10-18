@@ -321,7 +321,7 @@ export default function UnorchestratedReqBox({
                     {!isError && !isLoading && count === 0 && (
                         <Box data-testid="pipeline-viz-unseated-empty"
                              sx={{ px: '0.8em', py: '0.5em', color: P.dim }}>
-                            None — every swarm-ready requirement is on a step.
+                            None
                         </Box>
                     )}
                     {items.map((r) => {
