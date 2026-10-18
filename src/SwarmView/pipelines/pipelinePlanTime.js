@@ -49,8 +49,22 @@
 //    from `TERMINAL_REQUIREMENT_STATUSES` makes that class of drift
 //    unrepresentable — a status the engine calls finished can never be one this
 //    module calls future.
+// 3. **An EMPTY step sits on TODAY when the plan has active work, else in the
+//    FUTURE (req #3618, the user's rule).** An empty step — no linked
+//    requirements and no `completed_at` — has no stamp of any kind, so it used
+//    to be UNKNOWN, and an UNKNOWN step at the head of a chain has nothing
+//    upstream to take a time from: it fell into the plan's EARLIEST slot, the
+//    far-left edge, days before the work it was just added in front of. It is
+//    work that has not happened yet, so it belongs at "now or later": TODAY if
+//    any step in the plan is running, FUTURE if none is. TODAY is the UTC day
+//    of `now`, because the stamps this axis compares are UTC.
+//    THE COST, accepted by the user when this was ruled: the layout's
+//    monotonization drags every DEPENDENT of the empty step to at least its
+//    slot, so an empty step added in front of older dated work moves that work
+//    to today (or into the future region). The rule applies only when the
+//    caller supplies `now`; without it an empty step stays UNKNOWN.
 
-import { TERMINAL_REQUIREMENT_STATUSES } from './pipelineModel';
+import { STEP_RUNNING, TERMINAL_REQUIREMENT_STATUSES } from './pipelineModel';
 
 // A status positively asserts "this work has not begun" only if the engine
 // neither calls it finished nor calls it in flight. Today that is `authoring`,
@@ -126,6 +140,30 @@ export function stepStart(row, reqsById) {
 }
 
 /**
+ * Rule 3's TODAY stamp for `now`, in the same `YYYY-MM-DDTHH:MM:SS` shape the
+ * requirement stamps arrive in, or null when `now` is absent or unparseable.
+ */
+function nowStamp(now) {
+    if (now == null) return null;
+    const d = now instanceof Date ? now : new Date(now);
+    return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 19);
+}
+
+/**
+ * Rule 3: the start of an EMPTY step (no linked requirements, no
+ * `completedAt`), or null when the row is not empty or no `now` was supplied.
+ *
+ * @param {Object} row
+ * @param {?string} today      nowStamp() output
+ * @param {boolean} active     true when any step in the plan is running
+ * @returns {?{at: ?string, kind: string}}
+ */
+export function emptyStepStart(row, today, active) {
+    if (!row || row.completedAt || ((row.reqIds || []).length > 0) || today == null) return null;
+    return active ? { at: today, kind: TIME_DATED } : { at: null, kind: TIME_FUTURE };
+}
+
+/**
  * The whole axis: a start for every step, and a start for every epic band.
  *
  * BAND START IS THE RAW MINIMUM, not the monotonized one the layout computes.
@@ -149,19 +187,22 @@ export function stepStart(row, reqsById) {
  *
  * @param {Object[]} rows          PlanRows (any order)
  * @param {Object[]} requirements  the plan's requirement rows
+ * @param {?(Date|string)} [now]   the render clock, for rule 3 (empty steps)
  * @returns {{stepStarts: Map<number, {at: ?string, kind: string}>,
  *            bandStarts: Map<?number, ?string>,
  *            bandKinds: Map<?number, string>}}
  */
-export function planTimeAxis(rows, requirements) {
+export function planTimeAxis(rows, requirements, now = null) {
     const safeRows = Array.isArray(rows) ? rows : [];
     const reqsById = new Map(
         (Array.isArray(requirements) ? requirements : []).map((r) => [r.id, r]));
+    const today = nowStamp(now);
+    const active = safeRows.some((r) => r && r.state === STEP_RUNNING);
     const stepStarts = new Map();
     const bandStarts = new Map();
     const bandKinds = new Map();
     for (const row of safeRows) {
-        const start = stepStart(row, reqsById);
+        const start = emptyStepStart(row, today, active) || stepStart(row, reqsById);
         stepStarts.set(row.id, start);
         const key = row.epicId != null ? row.epicId : null;
         if (!bandStarts.has(key)) {
