@@ -170,10 +170,11 @@ import {
 } from '../../hooks/useDataQueries';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
 import {
-    moveStepRequirement, insertStepOnEdge, branchStepFrom,
+    moveStepRequirement, insertStepOnEdge, branchStepFrom, precedeStepWith,
     isRestNullLiteral, REST_NULL, updateStep,
 } from '../../Steps/stepsApi';
-// req #3586 — the "+" marks that add a step on an edge or as a branch.
+// req #3586 — the "+" marks that add a step on an edge or as a branch; req
+// #3617 adds the one off a free left side, for a step this one depends on.
 import {
     insertMarkRadius, buildInsertMarks, insertMarkAt, insertRequest, NEW_STEP_TITLE,
 } from './pipelineStepInsert';
@@ -187,6 +188,9 @@ import { viewportStorageKey, writeViewport } from '../../utils/viewportMemory';
 // imported above.
 import UnorchestratedReqBox from './UnorchestratedReqBox';
 import { useUnorchestratedRequirements } from './useUnorchestratedRequirements';
+import UrgentReviewBox from './UrgentReviewBox';
+import { REQ_PILL_STYLE } from './planReqPills';
+import { useUrgentReviewRequirements } from './useUrgentReviewRequirements';
 import {
     UNSEATED_REQ_MIME, bulkSeatRequest, resolveSeatDrop, screenRectOf, unseatedBoxFontPx,
     pointerCanSeat, runBulkSeat, bulkSeatFailureMessage,
@@ -212,15 +216,8 @@ const MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
 // still reserves exactly those characters, so wrap and card height are
 // untouched) and the pill owns its label, centred by construction.
 //
-// Each kind has its own quiet palette, independent of the row's colour key: a
-// dark tinted fill, a softened edge and a light label. The terminal is the
-// requirement-id blue (`P.req`, an MUI primary chip's role); the dev server the
-// Swarm visualizer's dark-mode dev-server green, so a port reads the same on
-// both canvases.
-const REQ_PILL_STYLE = {
-    terminal: { fill: '#7fb4ff26', stroke: '#7fb4ff8c', text: '#d3e5ff' },
-    devserver: { fill: '#81c78426', stroke: '#81c7848c', text: '#d5f1d7' },
-};
+// Each kind has its own quiet palette (`REQ_PILL_STYLE`, in `planReqPills.js`
+// so the Urgent Review box draws the same pills — req #3622).
 const REQ_PILL_STROKE = 1.25;
 const REQ_PILL_H_EM = 1.3;                  // pill height, in req font sizes
 const REQ_PILL_FONT_EM = 0.78;              // label size, in req font sizes
@@ -598,6 +595,10 @@ export default function PipelinePlanVisualizer({
                     fromStepId: req.fromId, toStepId: req.toId,
                     epic_fk: insertEpic, title,
                 });
+            } else if (req.kind === 'precede') {
+                await precedeStepWith(darwinUri, idToken, {
+                    toStepId: req.toId, epic_fk: insertEpic, title,
+                });
             } else {
                 await branchStepFrom(darwinUri, idToken, {
                     fromStepId: req.fromId, epic_fk: insertEpic, title,
@@ -800,6 +801,9 @@ export default function PipelinePlanVisualizer({
     const [bulkSeat, setBulkSeat] = useState(null);
     const [bulkSeatOpen, setBulkSeatOpen] = useState(false);
     const [bulkSeating, setBulkSeating] = useState(false);
+    // req #3622 — the Urgent Review box: every requirement whose latest session
+    // is waiting on the user, from the session reads the page already caches.
+    const urgent = useUrgentReviewRequirements(profile?.userName);
     // The last pointer of a carrying title-bar move, and a ref to the function
     // that re-resolves the outlined step from it. A wheel zoom mid-carry moves
     // every card under a pointer that did not move, so the target is re-judged
@@ -2281,9 +2285,11 @@ export default function PipelinePlanVisualizer({
         ctx.setAttr('globalAlpha', 0.7);
         ctx.setLineDash([4, 3]);
         ctx.beginPath();
+        // A stub stops at its mark's rim, on whichever side of the card it
+        // leaves — right for a branch, left for a precede (req #3617).
         for (const st of g.stubs) {
             ctx.moveTo(st.x1, st.y);
-            ctx.lineTo(st.x2 - r, st.y);
+            ctx.lineTo(st.x2 - Math.sign(st.x2 - st.x1) * r, st.y);
         }
         ctx.stroke();
         ctx.setLineDash([]);
@@ -4220,10 +4226,11 @@ export default function PipelinePlanVisualizer({
     });
 
     // ── THE ADD-STEP MARKS (req #3586) ──────────────────────────────────────
-    // A "+" on every dependency arc (split it: A -> new -> B) and one at the end
+    // A "+" on every dependency arc (split it: A -> new -> B), one at the end
     // of a dashed stub off every card's right side (branch: a new step gated on
-    // that step alone). ONE shape, pushed last so it sits above the labels; its
-    // geometry is `insertGeom` and its clicks are resolved by `insertHitRef`.
+    // that step alone), and one off the left side of every card no arc lands on
+    // (precede, req #3617: a new step that card then waits on). ONE shape,
+    // pushed last so it sits above the labels; its geometry is `insertGeom` and its clicks are resolved by `insertHitRef`.
     if (insertGeom) {
         worldNodes.push(
             <Shape key="insert-marks" sceneFunc={insertSceneFunc} geom={insertGeom}
@@ -4310,7 +4317,8 @@ export default function PipelinePlanVisualizer({
                  // req #3586 — how many add-step marks the canvas drew, by kind,
                  // for the same reason: they are otherwise only pixels.
                  data-insert-edges={insertGeom ? insertGeom.edgeCount : 0}
-                 data-insert-branches={insertGeom ? insertGeom.stubs.length : 0}
+                 data-insert-branches={insertGeom ? insertGeom.branchCount : 0}
+                 data-insert-precedes={insertGeom ? insertGeom.precedeCount : 0}
                  // Full-page canvas (req #3119), the KonvaSwarmCanvas figure
                  // verbatim. The height is MEASURED (`availH` above) rather than
                  // subtracted from a list of known chrome, which is what lets the
@@ -4940,6 +4948,32 @@ export default function PipelinePlanVisualizer({
                                 zIndex: boxCarrying ? 3 : 1 }} />
                 )}
 
+                {/* req #3622 — the Urgent Review box: requirements whose latest
+                    session is stopped on the user (review / waiting), exactly
+                    as wide as a step card on screen at every zoom, docked just
+                    left of the Orchestration Ready box's home. Same type size
+                    as that box, its ids wear the live palette's Session
+                    colours, and each row carries the requirement's terminal
+                    and dev-server pills from the same `reqPills` the cards
+                    draw. Mounted BEFORE that box: on a pane too narrow for
+                    both, the docked spot overlaps it, and the later sibling
+                    wins at equal z-index — Orchestration Ready's title bar is
+                    its seat-all drag handle, so it stays on top. */}
+                <UrgentReviewBox
+                    items={urgent.items}
+                    isLoading={urgent.isLoading}
+                    isError={urgent.isError}
+                    fontPx={unseatedBoxFontPx(t.k)}
+                    stepWidthLevel={stepWidthLevel}
+                    zoom={t.k}
+                    sessionColors={planPalette(activePalette).session}
+                    reqPills={reqPills}
+                    onOpen={(id) => navigate(`/swarm/requirement/${id}`,
+                        pipeline?.id
+                            ? { state: { from: 'pipeline', pipelineId: pipeline.id,
+                                mode: 'plan' } }
+                            : undefined)} />
+
                 {/* req #3583 — swarm-ready work no step carries yet, locked to
                     the top-right corner the key vacated for the bottom (req
                     #3255). Its rows drag onto a step card to seat them. Its type
@@ -4950,6 +4984,7 @@ export default function PipelinePlanVisualizer({
                     ruling). */}
                 <UnorchestratedReqBox
                     items={unseatedItems}
+                    categoryColors={unseated.categoryColors}
                     isLoading={unseated.isLoading}
                     isError={unseated.isError}
                     fontPx={unseatedBoxFontPx(t.k)}
@@ -4965,6 +5000,7 @@ export default function PipelinePlanVisualizer({
                             ? { state: { from: 'pipeline', pipelineId: pipeline.id,
                                 mode: 'plan' } }
                             : undefined)} />
+
 
                 {/* ── THE KEY (req #3168, user directives 2026-08-01) ────────
                     "Have a common key displayed in the upper right", then a
@@ -5272,7 +5308,8 @@ export default function PipelinePlanVisualizer({
             <Dialog open={insertReq != null} onClose={closeInsert} fullWidth maxWidth="xs"
                     data-testid="pipeline-viz-insert-dialog">
                 <DialogTitle>
-                    {insertReq?.kind === 'edge' ? 'Insert a step' : 'Add a parallel step'}
+                    {{ edge: 'Insert a step', precede: 'Add a step before' }[insertReq?.kind]
+                        || 'Add a parallel step'}
                 </DialogTitle>
                 <DialogContent>
                     <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}
@@ -5280,6 +5317,8 @@ export default function PipelinePlanVisualizer({
                         {insertReq?.kind === 'edge'
                             ? `Between "${insertReq.fromTitle}" and "${insertReq.toTitle}". `
                               + 'The new step waits on the first; the second waits on the new step.'
+                            : insertReq?.kind === 'precede'
+                                ? `"${insertReq.toTitle}" will wait on the new step.`
                             : insertReq
                                 ? `Depends on "${insertReq.fromTitle}" only.`
                                 : ''}
