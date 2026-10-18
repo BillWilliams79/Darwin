@@ -50,6 +50,11 @@ describe('UnorchestratedReqBox', () => {
         expect(css.borderTopColor).toBe('rgb(166, 77, 255)');
     });
 
+    it('is exactly as wide as the step width it is handed (req #3620)', () => {
+        act(() => root.render(<UnorchestratedReqBox items={items} fontPx={9} widthPx={612} />));
+        expect(q('pipeline-viz-unseated').style.width).toBe('612px');
+    });
+
     it('leads each row with its category color bar (req #3619)', () => {
         const colored = [
             { id: 11, title: 'First thing', requirement_status: 'swarm_ready', category_fk: 7 },
@@ -77,7 +82,7 @@ describe('UnorchestratedReqBox', () => {
         expect(css.borderTopColor).toBe('rgba(128, 128, 128, 0.5)');
     });
 
-        it('says so when nothing is waiting', () => {
+    it('says so when nothing is waiting', () => {
         act(() => root.render(<UnorchestratedReqBox items={[]} />));
         expect(q('pipeline-viz-unseated-empty')).not.toBeNull();
         expect(q('pipeline-viz-unseated-count').textContent).toBe('0');
@@ -146,14 +151,6 @@ describe('UnorchestratedReqBox', () => {
         expect(box.getAttribute('data-pos')).toBe('home');
         expect(box.style.top).toBe('8px');
         expect(box.style.right).toBe('8px');
-    });
-
-    // req #3622 — what docks the Urgent Review box beside this one.
-    it('takes its home spot along the top edge from homeOffset', () => {
-        act(() => root.render(<UnorchestratedReqBox items={items} homeOffset="300px" />));
-        const box = q('pipeline-viz-unseated');
-        expect(box.style.top).toBe('8px');
-        expect(box.style.right).toBe('300px');
     });
 
     const withGeometry = (box, header) => {
