@@ -148,6 +148,14 @@ describe('UnorchestratedReqBox', () => {
         expect(box.style.right).toBe('8px');
     });
 
+    // req #3622 — what docks the Urgent Review box beside this one.
+    it('takes its home spot along the top edge from homeOffset', () => {
+        act(() => root.render(<UnorchestratedReqBox items={items} homeOffset="300px" />));
+        const box = q('pipeline-viz-unseated');
+        expect(box.style.top).toBe('8px');
+        expect(box.style.right).toBe('300px');
+    });
+
     const withGeometry = (box, header) => {
         const pane = { clientWidth: 1000, clientHeight: 600 };
         Object.defineProperty(box, 'offsetParent', { get: () => pane });

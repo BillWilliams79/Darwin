@@ -36,6 +36,16 @@
 
 import { terminalFocusState, TERMINAL_VISIBLE, resolveThisMachineId } from '../terminalFocus';
 
+// The pills' palette — one per kind, independent of any colour key: a dark
+// tinted fill, a softened edge and a light label. The terminal is the
+// requirement-id blue (`P.req`, an MUI primary chip's role); the dev server the
+// Swarm visualizer's dark-mode dev-server green, so a port reads the same on
+// both canvases. Shared by the plan cards and the Urgent Review box (req #3622).
+export const REQ_PILL_STYLE = {
+    terminal: { fill: '#7fb4ff26', stroke: '#7fb4ff8c', text: '#d3e5ff' },
+    devserver: { fill: '#81c78426', stroke: '#81c7848c', text: '#d5f1d7' },
+};
+
 // Session statuses whose terminal is no longer the worker's.
 export const NOT_LIVE_SESSION_STATUSES = ['completed', 'paused'];
 
