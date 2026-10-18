@@ -1882,18 +1882,61 @@ export const CARD_CHECK_W = 0;
 // it up from the count badge's `CARD_LINE_H − 4`; the full line is the
 // ceiling, since anything taller leaves the title area a one-line name
 // reserves and crosses the rule under it), outlined so it reads as a control,
-// its glyph larger than the title's own type (`CARD_TITLE_BTN_FONT`), with
+// its glyph drawn as strokes sized to the box (`CARD_TITLE_BTN_GLYPH`, req #3607), with
 // `CARD_TITLE_BTN_GAP` between neighbours. The cost is title room, and it is
 // paid knowingly.
 export const CARD_TITLE_BTN = CARD_LINE_H;
 export const CARD_TITLE_BTN_GAP = 4 * CARD_TYPE_SCALE;
-// A glyph inside the button: the title's size × 1.3 — `+` and `↗` carry less
-// ink per em than letters, so at exactly the title size they read smaller
-// than the name beside them, and the bigger box wants a bigger mark.
-export const CARD_TITLE_BTN_FONT = 16.5 * CARD_TYPE_SCALE * 1.3;
+// The button's outline (req #3607, user directive: "a thicker border so its
+// more visible, like 100% more") — 2 world px, double the 1 it shipped with.
+export const CARD_TITLE_BTN_STROKE = 2;
+
+// ── THE GLYPH IS DRAWN, NOT TYPESET (req #3607, user directive: "have the
+// check and arrow centered in the button properly in both directions") ──────
+// Through req #3582 the `+` and `↗` were `Text` with `align="center"
+// verticalAlign="middle"`, which centres the FONT BOX, not the ink: canvas has
+// no glyph-ink centring primitive (the count badge fought the same thing for
+// three rounds before it moved to HTML — see the empty `badge` branch in the
+// renderer), and a mono `+`/`↗` sits off its em box's centre by a different
+// amount in each font the stack falls back to. Two strokes have no font, so
+// the geometry IS the centring: every glyph's ink bounding box is the square
+// `cx ± a, cy ± a` about the button's own centre, and round caps grow it by
+// the same half-stroke on all four sides.
+// Half the glyph's side, as a fraction of the button — `+` arms and the ↗'s
+// diagonal share one square, so the two marks read the same size side by side.
+export const CARD_TITLE_BTN_GLYPH = 0.26;
+// The glyph's own stroke — heavier than the outline so the mark, not the frame,
+// is what the eye lands on.
+export const CARD_TITLE_BTN_GLYPH_STROKE = 2.5;
+
+/**
+ * The vector strokes for a card title button's glyph, centred on its box.
+ * `kind` is the label kind (`'step-add'` draws `+`, `'step-link'` draws `↗`);
+ * returns an array of Konva `Line` point arrays (`[x0, y0, x1, y1, ...]`).
+ */
+export function titleBtnGlyph(kind, { x, y, w, h }) {
+    const cx = x + w / 2;
+    const cy = y + h / 2;
+    const a = Math.min(w, h) * CARD_TITLE_BTN_GLYPH;
+    if (kind === 'step-add') {
+        return [[cx - a, cy, cx + a, cy], [cx, cy - a, cx, cy + a]];
+    }
+    // ↗: the shaft corner to corner, and the head as two arms off the tip
+    // along the square's own top and right edges — so neither arm leaves it.
+    const head = a * 1.1;
+    return [
+        [cx - a, cy + a, cx + a, cy - a],
+        [cx + a - head, cy - a, cx + a, cy - a, cx + a, cy - a + head],
+    ];
+}
+// The gap between the "+" and the ↗ alone — `CARD_TITLE_BTN_GAP` widened by a
+// third (req #3607, user directive: "increase the spacing between the + and
+// arrow buttons by 33%, horizontal only"). The gap left of the "+" (to the run
+// pill) keeps `CARD_TITLE_BTN_GAP`.
+export const CARD_STEP_LINK_GAP = CARD_TITLE_BTN_GAP * 1.33;
 // The link button's reserve: its button, flush against the ✓'s reserve, plus
 // the gap on its LEFT that keeps the "+" off it.
-export const CARD_STEP_LINK_W = CARD_TITLE_BTN + CARD_TITLE_BTN_GAP;
+export const CARD_STEP_LINK_W = CARD_TITLE_BTN + CARD_STEP_LINK_GAP;
 
 // ── "FILE A REQUIREMENT INTO THIS STEP" — THE + BUTTON (req #3582) ─────────
 // Left of the ↗, sized like it for the same reason the ↗ is sized like the
@@ -4303,7 +4346,7 @@ export function computePlanLayout(rows, opts = {}) {
                 // was meant to track widened around it). Left of the ✓'s own
                 // reserve, the same order the old count/✓ pair drew in.
                 // The button sits at the RIGHT of its reserve; the reserve's
-                // leading `CARD_TITLE_BTN_GAP` is air between it and the "+".
+                // leading `CARD_STEP_LINK_GAP` is air between it and the "+".
                 x: n.right - CARD_PAD_X - CARD_CHECK_W - CARD_TITLE_BTN,
                 // Exactly the title's first line box (req #3582).
                 y: n.top + CARD_PAD_Y,
