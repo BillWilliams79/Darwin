@@ -13,8 +13,8 @@ import { useOrchestrationIndex } from './useOrchestrationIndex';
 import { stepOptions, pipelineOptions, epicOptions } from './orchestrationIndex';
 import { moveStepRequirement } from '../../Steps/stepsApi';
 import { planLinkTo, epicLinkTo } from '../pipelines/pipelineEpicLink';
-import { stepPlanLinkTo, readNewRequirementSeat, backToStepPath,
-    BACK_STEP_STATE_KEY } from '../pipelines/pipelineStepLink';
+import { stepPlanLinkTo, readNewRequirementSeat, backToPlanQuery,
+    BACK_STEP_STATE_KEY, BACK_LEVEL_STATE_KEY } from '../pipelines/pipelineStepLink';
 // req #3463 — the era↔route binding. This page never spells a plan route.
 // `useOrchestrationIndex` walks the PIPELINE 2.0 tables since req #3356, so the
 // plan and step links below are 2.0 — which is what `planLinkTo`/
@@ -254,14 +254,12 @@ const RequirementDetail = () => {
     const newSeat = isNew ? readNewRequirementSeat(location.state) : null;
     const handleBack = () => {
         if (hasPipelineOrigin) {
-            // Req #3582 — opened off a step's "+": return to THAT step.
-            const stepBack = backToStepPath(location.state);
-            if (stepBack) return navigate(stepBack);
-            // `?mode=` is a TRANSIENT override on the receiving page, never a
-            // write to the reader's stored preference — so returning them to the
-            // panel they left cannot change what any other plan opens in.
-            return navigate(planDetailPath(fromPipelineId,
-                fromPipelineMode ? `mode=${fromPipelineMode}` : null));
+            // `?mode=`/`?level=` are TRANSIENT overrides on the receiving page,
+            // never writes to the reader's stored preferences — so returning them
+            // to the view they left cannot change what any other plan opens in.
+            // The camera / table scroll restore from storage (req #3637); a
+            // `?step=` here would move them, so not even a "+" returns to one.
+            return navigate(planDetailPath(fromPipelineId, backToPlanQuery(location.state)));
         }
         return navigate(fromCalendar ? '/calview' : '/swarm');
     };
@@ -890,6 +888,8 @@ const RequirementDetail = () => {
             replace: true,
             state: hasPipelineOrigin
                 ? { from: 'pipeline', pipelineId: fromPipelineId, mode: fromPipelineMode,
+                    ...(location.state?.[BACK_LEVEL_STATE_KEY] != null
+                        && { [BACK_LEVEL_STATE_KEY]: location.state[BACK_LEVEL_STATE_KEY] }),
                     ...(location.state?.[BACK_STEP_STATE_KEY] != null
                         && { [BACK_STEP_STATE_KEY]: location.state[BACK_STEP_STATE_KEY] }) }
                 : undefined,

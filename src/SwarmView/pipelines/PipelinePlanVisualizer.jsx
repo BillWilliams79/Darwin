@@ -120,7 +120,7 @@ import { OrderViolationsAlert } from './PipelinePlanTable';
 import {
     computePlanLayout, beadStyle, placeEpicChips,
     epicFocusTransform, stepFocusTransform, stepsFocusTransform,
-    factoryDefaultScale, clampPlanTransform,
+    factoryDefaultScale, clampPlanTransform, planLandingAction,
     // req #3365 — the ruler's own thinning gap, re-applied at draw time
     // against the counter-scaled label widths.
     RULER_LABEL_GAP,
@@ -159,7 +159,7 @@ import {
 // req #3428 — the epic chip's second destination. The URL contract lives with
 // the rest of `/swarm`'s query string, so this file names no query key itself.
 import { swarmEpicLinkTo, swarmStepLinkTo } from '../swarmViewLink';
-import { newRequirementSeatState } from './pipelineStepLink';
+import { newRequirementSeatState, planExitState } from './pipelineStepLink';
 import { useSavedViewport } from '../../hooks/useSavedViewport';
 // req #3581 — dragging a requirement between steps writes its seat.
 import AppContext from '../../Context/AppContext';
@@ -182,7 +182,7 @@ import {
     REQ_DRAG_SLOP, passedDragSlop, dropTargetAt, canDropOn, applyReqMoves,
     edgePanVelocity,
 } from './pipelineReqDrag';
-import { viewportStorageKey, writeViewport } from '../../utils/viewportMemory';
+import { viewportStorageKey } from '../../utils/viewportMemory';
 // req #3583 — the swarm-ready, not-orchestrated box and its drop-to-seat. The
 // contexts, snackbar, query keys and `moveStepRequirement` are req #3581's,
 // imported above.
@@ -818,8 +818,9 @@ export default function PipelinePlanVisualizer({
     // ── The camera survives leaving the page (req #3252) ────────────────────
     // `transform` above is component state, and EVERY way of leaving this panel
     // unmounts the component: a requirement label, an epic chip's ↗, the
-    // breadcrumb, a bead click (which switches the page to Table mode — a return
-    // with no navigation at all), browser Back, a reload. The comment on the
+    // breadcrumb, a bead click (which pushes the step's Table link, req #3637),
+    // the Table|Plan toggle (a return with no navigation at all), browser Back,
+    // a reload. The comment on the
     // requirement label below used to end "only pan/zoom re-fits"; this is that
     // sentence being retired.
     //
@@ -835,37 +836,33 @@ export default function PipelinePlanVisualizer({
         // req #3463 — era-qualified, so 1.0 plan 7 and 2.0 plan 7 did not share
         // one camera (and one is not pruned by the other list's liveness read).
         ? viewportStorageKey(planStorageNamespace(), pipeline.id) : null;
-    // SIGNATURE is the world the camera was taken over, DERIVED from the layout
-    // rather than enumerated from the inputs that produce it. `computePlanLayout`
-    // takes eight options and reads the whole plan; listing the ones that move
-    // geometry is a list that goes stale the first time a ninth is added, while
-    // the layout's own dimensions cannot. A wider column, a step added by a
-    // background refetch, a band gained — all move these three numbers, and a
-    // restore whose signature disagrees is refused (see useSavedViewport).
-    //
-    // `colorKey` is deliberately absent: it repaints fills and moves nothing, so
-    // it must NOT invalidate a camera.
-    const viewportFingerprint = `${Math.round(layout.width)}x${Math.round(layout.height)}`
-        + `:${rows.length}:${layout.bands.length}`;
+    // SIGNATURE is the one input that RESCALES the world: the Step Width rung
+    // (req #3637). It used to be the layout's own dimensions plus its row and
+    // band counts, and that refused a restore for any change at all between two
+    // visits — a requirement added to a card, a status that re-wrapped a title,
+    // the time axis growing by a day — so a reload routinely landed on the base
+    // view for a plan the reader could still perfectly well have seen from
+    // where they were. Content that GREW is not content that MOVED: columns
+    // keep their places, and `clampPlanTransform` bounds whatever does change on
+    // the restore path. Step Width is different in kind — every card, column
+    // and wrap point is re-scaled, so a camera from another rung points at
+    // unrelated content and is refused.
+    const viewportFingerprint = `sw${stepWidthLevel}`;
     const viewport = useSavedViewport(viewportKey, viewportFingerprint);
     // The live camera, mirrored out of the d3-zoom 'zoom' handler so the commit
     // on unmount has something to write. A ref, not state: this is read only by
     // effects and costs one assignment per pointermove.
     const liveTransformRef = useRef(null);
-    // Raised for the duration of a `?epic=` deep-link focus so that ONE camera
-    // move does not persist (req #3252). Everything else does — a drag, a wheel,
-    // Reset, a band-header click, the landing view — because those are the reader
-    // moving the camera. A deep link is an EXTERNAL condition, and this page's
-    // standing doctrine for `?mode=`/`?step=`/`?epic=` is that a link asks to see
-    // one thing ONCE and must never rewrite what the reader chose (PipelineDetail's
-    // transient-override comment). A saved viewport IS what the reader chose here,
-    // so the link is shown and the stored camera is left alone; the reader's very
-    // next gesture saves normally.
-    //
-    // Suppress the ONE exception rather than tagging the several rules: the
-    // default is persist, so a flag that leaked would save an epic-focus camera
-    // (harmless) and can never lose one.
-    const suppressSaveRef = useRef(false);
+    // ── EVERY CAMERA MOVE PERSISTS, A DEEP LINK'S INCLUDED (req #3637) ──────
+    // A save-suppression flag used to keep a `?epic=`/`?step=` focus out of
+    // storage (req #3252: "a link must never rewrite what the reader chose").
+    // Req #3637 reverses it: *"refresh, reload, should not change the viewport"*
+    // — the camera ON SCREEN is the one a reload or a Back must bring back, and
+    // after following a link that camera IS the link's. Saving anything else
+    // made a reload jump from the epic the reader was looking at to a pan they
+    // had left behind. A link still cannot re-fire on a reload or a Back:
+    // PipelineDetail consumes it once (`planLinkConsumed`), so nothing here
+    // needs to tell a link from a gesture for the purpose of saving.
     // Has the reader CHOSEN where to look this mount? Guards the `?epic=`
     // re-focus below — see it for why (req #3252 review).
     //
@@ -1217,7 +1214,7 @@ export default function PipelinePlanVisualizer({
                 // no write. The write happens once, on 'end' below.
                 liveTransformRef.current = { x: tr.x, y: tr.y, k: tr.k };
                 reqRetargetRef.current?.();          // req #3581, see the ref
-                if (!suppressSaveRef.current) viewport.record(liveTransformRef.current);
+                viewport.record(liveTransformRef.current);
                 // `sourceEvent` is non-null only for a USER gesture — a drag or
                 // a wheel — and null for every programmatic transform. Once the
                 // reader has moved the camera themselves, the `?epic=` deep link
@@ -1330,11 +1327,10 @@ export default function PipelinePlanVisualizer({
         select(el).call(zb.transform, zoomIdentity.scale(kFactoryDefault));
     }, [containerEl, size.w, kFactoryDefault]);
     // ── THE LANDING VIEW (req #3252) ────────────────────────────────────────
-    // What this canvas shows when it arrives at a given world. Two answers, in
-    // order: the camera the reader left on this plan under THIS geometry, or —
-    // failing that, and it is the first visit or the geometry moved — the base
-    // view `resetView` computes, which since req #3312 is the factory default
-    // the header's Reset lands on.
+    // What this canvas shows when it arrives at a plan. Two answers, in order:
+    // the camera the reader left on this plan at THIS Step Width (req #3637), or
+    // — failing that, the first visit — the base view `resetView` computes,
+    // which since req #3312 is the factory default the header's Reset lands on.
     //
     // THE RESTORE SUBSTITUTES FOR resetView, IT DOES NOT RACE IT. Same code
     // path, same `zb.transform`, one of them runs. The stored-camera read stays
@@ -1342,27 +1338,20 @@ export default function PipelinePlanVisualizer({
     // lived inside, a Reset click would read back the pan it was asked to
     // discard and do nothing.
     //
-    // ── WHEN IT LANDS: on a RESCALE, never on a mere resize or growth ───────
-    // `landKey` is the plan plus the world's WIDTH, because width is what
-    // rescales the columns: it drives `kFit` → `kDefault`, and after it moves a
-    // remembered pan points at unrelated content. That is exactly the set the
-    // effect this replaced re-fitted on (through `resetView`'s own identity),
-    // so a layout toggle re-lands as it always did.
-    //
-    // Three things must NOT re-land, and each was a measured defect:
-    //   · A RESIZE. That is the difference between "maintains last viewport" and
-    //     the contract this requirement retires — and the panel is sized TWICE
-    //     at mount (the `calc(100vh - 260px)` fallback, then `measureAvailH`),
-    //     so keying on size discarded a camera set milliseconds earlier.
+    // ── WHEN IT LANDS: a new plan or a rescale, never a resize or growth ────
+    // `landKey` is the plan plus the Step Width rung (req #3637 — it was the
+    // world's width, which a refetch adding a column also moves). Three things
+    // must NOT re-land, and each was a measured defect:
+    //   · A RESIZE. The panel is sized TWICE at mount (the `calc(100vh - 260px)`
+    //     fallback, then `measureAvailH`), so keying on size discarded a camera
+    //     set milliseconds earlier.
     //   · A WORLD THAT GREW BUT WAS NOT RESCALED — a background refetch adding a
-    //     step to an existing column moves `layout.height` and `rows.length`
-    //     while every column stays put. Keying the landing on the full
-    //     fingerprint snapped the reader home mid-read for a plan they could
-    //     still perfectly well see (review finding).
+    //     step or a column. Re-landing snapped the reader home mid-read for a
+    //     plan they could still perfectly well see (review finding; #3637).
     //   · THE PLAN ID ALONE. `landKey` carries `viewportKey`, so an in-place
-    //     switch between two plans of coincidentally identical width still
-    //     lands — `PipelineDetail` renders this component with no `key` and
-    //     survives a `pipelineId` change without remounting (review finding).
+    //     switch between two plans still lands — `PipelineDetail` renders this
+    //     component with no `key` and survives a `pipelineId` change without
+    //     remounting (review finding).
     //
     // The readiness guard does NOT consume the mark: with no container, no
     // behaviour or no measured width there is nothing to apply a transform to,
@@ -1394,9 +1383,16 @@ export default function PipelinePlanVisualizer({
     // next delivery re-runs this effect (`size` is on its dependency list).
     // Exact equality, no tolerance: both sides are the identical value, one
     // through a ref and one through state, never two measurements compared.
-    const landKey = `${viewportKey}|${Math.round(layout.width)}`;
+    // req #3637 — keyed on the plan and the Step Width rung, NOT the world's
+    // width: a background refetch that adds a column moves `layout.width`, and
+    // re-landing on it reset the camera mid-read. Growth is handled by the
+    // re-clamp in (a) below; only a new plan or a rescale lands.
+    const landKey = `${viewportKey}|${viewportFingerprint}`;
     const landedKeyRef = useRef(null);
-    const committedFingerprintRef = useRef(null);
+    // Which PLAN last landed — tells "arrived at a plan" (restore) apart from
+    // "this plan's Step Width changed" (the base view: the rescale is the
+    // reader's explicit choice and the old camera means nothing on it).
+    const landedPlanRef = useRef(null);
     useEffect(() => {
         const el = containerEl;
         const zb = zoomRef.current;
@@ -1452,104 +1448,61 @@ export default function PipelinePlanVisualizer({
                 zoomIdentity.translate(c.x, c.y).scale(c.k));
         };
 
-        if (landedKeyRef.current !== landKey) {
+        const landed = landedKeyRef.current == null ? null
+            : { landKey: landedKeyRef.current, planKey: landedPlanRef.current };
+        const next = { landKey, planKey: viewportKey };
+        // Read only when it can matter — a 'keep' must not touch storage.
+        const saved = landed?.landKey === landKey ? null : viewport.read();
+        const action = planLandingAction(landed, next, saved);
+        if (action !== 'keep') {
             landedKeyRef.current = landKey;
-            committedFingerprintRef.current = viewportFingerprint;
+            landedPlanRef.current = viewportKey;
             // ── A NEW WORLD ENDS THE EPIC NAME'S CYCLE (req #3297, review) ──
-            // Both branches below relocate the camera, and they run because the
-            // GEOMETRY moved — a Step Width or requirement-layout toggle
-            // rescales the world, so the saved camera is refused and the base
-            // view is applied. Neither path carries a `sourceEvent`, so the
-            // zoom handler cannot see it, and without this the level survives:
-            // click an epic name, click Width, click the same name — and you
-            // land on its next launch step at 2.6× the readable default, never
-            // seen the band. Exactly the failure the deep-link comment below
-            // says the design rules out, reached by a different road.
-            //
-            // At the TOP of the block, so it covers the restore and the reset
-            // alike: what invalidates the level is the world changing under it,
-            // not which of the two answers the camera got.
+            // Both branches below relocate the camera, and neither carries a
+            // `sourceEvent`, so the zoom handler cannot see it — without this,
+            // click an epic name, click Width, click the same name and you land
+            // on its next launch step at 2.6× the readable default, never having
+            // seen the band. At the TOP of the block so it covers both answers.
             epicZoomRef.current = null;
-            // ── THE LANDING IS THE RESET VIEW. ALWAYS. (req #3365 directive) ─
-            // *"Default load screen needs to equal View: Reset — we see the
-            // whole pipeline."*
+            // ── THE LANDING RESTORES THE CAMERA THE READER LEFT (req #3637) ──
+            // *"the pipelines viewport should be pretty damn sticky. refresh,
+            // reload, should not change the viewport"* — and every other way
+            // back: browser Back/Forward, the requirement page's Back to Plan,
+            // the Plan|Table toggle, a bead click into the Table and back. They
+            // all arrive HERE, as a mount, so one read covers every one of them
+            // without a list of return paths.
             //
-            // This branch used to read the stored camera first and fall back to
-            // `resetView()` — req #3252/#3431's "maintains last viewport". That
-            // is REVERSED here, deliberately and on the user's own instruction,
-            // and it is worth being plain about what it costs: returning to a
-            // plan no longer puts you back where you were reading. What it buys
-            // is that opening a plan always answers the question a plan is
-            // opened to answer — how big is it, and how far along — instead of
-            // dropping the reader inside a camera they set days ago and cannot
-            // tell from a broken fit. Measured before this change: a reader who
-            // had zoomed once landed at k = 0.4648 on every subsequent open,
-            // while Reset gave 0.1576, so "load" and "Reset" were two different
-            // views on a page whose own contract (req #3312) says they are one.
-            //
-            // THE RECORD IS STILL WRITTEN AND NOTHING READS IT. Stated plainly
-            // because the tempting version of this comment — "the deep-link
-            // doctrine and the storage pruner still need it" — is FALSE:
-            // `suppressSaveRef` guards the WRITE and never reads the record, and
-            // `pipelinePlace.js` prunes by key PREFIX. This canvas was
-            // `useSavedViewport`'s only consumer, so `record`/`commit`, the
-            // fingerprint that validates a restore, and the "world grew, re-stamp
-            // it" branch below are all now write-only.
-            //
-            // Retained rather than deleted, as ONE line to reverse: the
-            // directive changed what happens on LOAD, and a reader who later
-            // wants their camera back on some other trigger would otherwise be
-            // asking for a subsystem to be rebuilt rather than for a call site
-            // to be restored. The cost is one localStorage write per gesture,
-            // which is what it already was. If that trade is not wanted, the
-            // deletion is `useSavedViewport` and its four call sites, not a
-            // change to anything above.
+            // This REVERSES req #3365's "the landing is the Reset view, always",
+            // on the user's later instruction. What #3365 wanted is kept where it
+            // still applies: a plan never opened before (no record) and a Step
+            // Width change both land on the base view, and the header's Reset is
+            // one click from any camera.
+            if (action === 'restore') {
+                apply(saved);
+                return;
+            }
             resetView();
             return;
         }
 
-        // ── Already landed on this world. Two housekeeping jobs, and NEITHER
-        // may move the camera the reader chose.
+        // ── Already landed on this world. Housekeeping that must NOT move the
+        // camera the reader chose.
+        //
+        // (a) THE EXTENT MOVES WITH THE PANEL AND THE WORLD. Both ends of the
+        // scale extent are proportional to `size.w`, and the pan bound to the
+        // layout, so a narrower window or a plan that shrank on a refetch can
+        // leave a perfectly good camera out of range. Nothing else re-clamps it
+        // — `constrain` only ever fixes translation and `scaleExtent` is
+        // consulted only by a wheel — so it would sit there looking correct
+        // until the reader's first scroll snapped it (review finding). Re-clamp
+        // ONLY when it is actually out of range, so a resize or a refetch is
+        // otherwise a no-op on the camera.
         const live = liveTransformRef.current;
         if (!live) return;
-
-        // (a) THE EXTENT MOVES WITH THE PANEL. Both ends are proportional to
-        // `size.w` (`kFit` → `kDefault` → `kZoomFloor` and `kDefault * MAX`), so
-        // narrowing the window can leave a perfectly good camera above the
-        // ceiling. Nothing else re-clamps it — `constrain` only ever fixes
-        // translation and `scaleExtent` is consulted only by a wheel — so it
-        // would sit there looking correct until the reader's first scroll
-        // snapped it (review finding). Re-clamp ONLY when it is actually out of
-        // range, so a resize is otherwise a no-op on the camera.
         const c = clampPlanTransform(live, size, layout, kZoomFloor, kMax);
-        if (c.k !== live.k || c.x !== live.x || c.y !== live.y) {
-            apply(live);
-            return;
-        }
-
-        // (b) THE WORLD GREW UNDER A CAMERA THAT IS STILL CORRECT. Re-stamp the
-        // stored record with the new fingerprint, or the reader's position would
-        // be refused on their next return for a change they never made and could
-        // not see. Costs one write per geometry change, never per render.
-        //
-        // WRITTEN DIRECTLY, not through `record`/`commit` (review finding). The
-        // hook stamps from a ref it assigns during RENDER, while this branch
-        // DECIDES from the effect closure's `viewportFingerprint` — and React
-        // only guarantees render-N's passive effects run before render N+1's
-        // COMMIT, not before its render. An N/N+1 interleave could therefore
-        // stamp the record with one fingerprint while the guard had approved
-        // another, and mark it committed under the third. Both halves read the
-        // same two closure values here, so the pair cannot disagree.
-        if (committedFingerprintRef.current !== viewportFingerprint) {
-            committedFingerprintRef.current = viewportFingerprint;
-            writeViewport(viewportKey, viewportFingerprint, live);
-        }
-    // `stepLabel`/`reqLabel` are deliberately NOT on this
-    // list any more. They were here as a hand-maintained enumeration of "things
-    // that rescale the world", and `landKey` is that same fact DERIVED — it
-    // cannot go stale when a ninth layout option is added, and a list can.
+        if (c.k !== live.k || c.x !== live.x || c.y !== live.y) apply(live);
     }, [resetView, containerEl, size, layout, kZoomFloor, kDefault, sizeSettled,
-        landKey, viewportFingerprint, viewport]);
+        landKey, viewportKey, viewport]);
 
     // Reset targets the same view the plan lands on (req #3312), so all this
     // adds over `resetView` is the INTENT: an explicit, in-the-moment
@@ -2388,31 +2341,16 @@ export default function PipelinePlanVisualizer({
         const zb = zoomRef.current;
         if (!el || !zb || !tr) return false;
         if (!animate) {
-            // INTERRUPT FIRST, THEN RAISE THE FLAG (review finding). `zoom.transform`
-            // runs `selection.interrupt()` of its own before dispatching, so an
-            // animated focus still in flight has its `interrupt.focus` handler fire
-            // BETWEEN the assignment below and the `zoom` event that reads it —
-            // lowering `suppressSaveRef` to false and persisting a camera this call
-            // asked not to persist. Doing the interrupt here means that handler has
-            // already run and cannot come back: d3's own call is then a no-op.
+            // INTERRUPT FIRST (review finding): an animated focus still in flight
+            // has its `interrupt.focus` handler run here, before this camera is
+            // dispatched, so it cannot come back and lower `focusingRef` later.
             select(el).interrupt();
-            suppressSaveRef.current = !persist;
             if (persist) userMovedCameraRef.current = true;
             select(el).call(zb.transform,
                 zoomIdentity.translate(tr.x, tr.y).scale(tr.k));
-            // Lowered to the same resting value the transition's own handler
-            // leaves behind. Safe as an unconditional assignment because every
-            // listener that could read it has now run, inline, above.
-            suppressSaveRef.current = false;
             return true;
         }
         focusingRef.current = true;
-        // ASSIGNED, not raised (req #3252 review). A `persist: true` focus that
-        // begins while a deep link's suppression is still up must LOWER it —
-        // otherwise the band fit the reader explicitly clicked for is swallowed
-        // by the previous transition's flag and never saved. Only this
-        // transition's own intent decides, and it decides every time.
-        suppressSaveRef.current = !persist;
         // A band-header click is the reader choosing where to look; the
         // `?epic=` deep link is not. See `userMovedCameraRef`'s own comment.
         if (persist) userMovedCameraRef.current = true;
@@ -2427,10 +2365,9 @@ export default function PipelinePlanVisualizer({
             // until the next animation frame, so anything that pre-empts it
             // inside that window — a mousedown, a wheel, the unmount cleanup's
             // `sel.interrupt()`, or `resetView`'s own `zoom.transform` (which
-            // interrupts first) — dispatched 'cancel' and NOTHING lowered these
-            // flags. `focusingRef` stuck true kills every world click; a stuck
-            // `suppressSaveRef` silently stops persisting for the whole visit.
-            // Both were reachable by pressing the mouse within one frame of a
+            // interrupts first) — dispatched 'cancel' and NOTHING lowered the
+            // flag, and `focusingRef` stuck true kills every world click. It was
+            // reachable by pressing the mouse within one frame of a
             // `?epic=` landing, and unbounded in a backgrounded tab where no
             // frame ever comes. (The `focusingRef` half predates req #3252.)
             //
@@ -2440,7 +2377,6 @@ export default function PipelinePlanVisualizer({
             .on('end.focus interrupt.focus cancel.focus', () => {
                 if (focusSeqRef.current !== seq) return;
                 focusingRef.current = false;
-                suppressSaveRef.current = false;
             })
             .call(zb.transform, zoomIdentity.translate(tr.x, tr.y).scale(tr.k));
         return true;
@@ -2730,19 +2666,15 @@ export default function PipelinePlanVisualizer({
     // wheels. One flag, set from the only place that can know the difference —
     // d3's `sourceEvent`.
     //
-    // ── AND IT DOES NOT OVERWRITE THE SAVED CAMERA (req #3252) ──────────────
-    // A `?epic=` link WINS over a restored viewport — it is the more specific
-    // request, and letting a stale camera silently swallow it produces exactly
-    // the dead-link outcome req #3235 exists to rule out. But it must not
-    // PERSIST, because this page's standing doctrine for `?mode=`/`?step=`/
-    // `?epic=` is that a link asks to see one thing ONCE and must never rewrite
-    // what the reader chose as their own default — and a saved viewport IS what
-    // the reader chose here. So the band is shown and the stored camera is left
-    // untouched; the reader's very next gesture saves normally.
-    //
-    // Concretely: pan to the bottom of a plan, follow an `?epic=` link into it,
-    // then Back to the plain plan URL — you are returned to your pan, not to the
-    // epic the link happened to name.
+    // ── IT WINS OVER THE RESTORED CAMERA, ONCE (req #3252, #3637) ───────────
+    // A freshly followed `?epic=` link is the more specific request, so it
+    // overrides the camera the landing restored — letting a stale camera
+    // silently swallow it is the dead-link outcome req #3235 rules out. Since
+    // req #3637 the camera it lands on is SAVED like any other (the reader is
+    // looking at it, so a reload must show it), and the link fires only once:
+    // PipelineDetail marks it consumed in the history entry, so a reload or a
+    // Back/Forward onto this URL restores the reader's camera instead of
+    // re-fitting the band.
     const epicFocusAppliedRef = useRef(null);
     useEffect(() => {
         if (focusEpicId == null) return;
@@ -2786,8 +2718,8 @@ export default function PipelinePlanVisualizer({
     // MEASURED SIZE as well as the (plan, step) pair so the panel's second sizing
     // re-fits rather than being recorded as done; abandoned the moment
     // `userMovedCameraRef` says the reader has taken the wheel; `persist: false`,
-    // because a link asks to see one thing once and must never overwrite the
-    // camera the reader saved. Read those comments for the reasoning; the only
+    // which since req #3637 only means "not the reader's own gesture" — the
+    // camera it lands on is saved, and the link is consumed once upstream. Read those comments for the reasoning; the only
     // thing that differs here is `stepFocusTransform` in place of the band fit.
     //
     // A STEP LINK BEATS AN EPIC LINK, matching `PipelineDetail`'s own precedence
@@ -3725,7 +3657,7 @@ export default function PipelinePlanVisualizer({
     // `from`/`pipelineId`/`mode` — read by the receiving page to render its own
     // "Back to Plan". One vocabulary for every exit from this surface.
     const stepsBackState = pipeline?.id
-        ? { state: { from: 'pipeline', pipelineId: pipeline.id, mode: 'plan' } }
+        ? { state: planExitState(pipeline.id, 'plan') }
         : undefined;
 
     const rulerLabelMag = rulerScreenMag(t);
@@ -4018,8 +3950,7 @@ export default function PipelinePlanVisualizer({
                       // was caused by.
                       onActivate={() => navigate(`/swarm/requirement/${label.reqId}`,
                           pipeline?.id
-                              ? { state: { from: 'pipeline', pipelineId: pipeline.id,
-                                  mode: 'plan' } }
+                              ? { state: planExitState(pipeline.id, 'plan') }
                               : undefined)} />);
             if (rowTail) {
                 rowNodes.push(
@@ -4975,8 +4906,7 @@ export default function PipelinePlanVisualizer({
                     onCarryingChange={setBoxCarrying}
                     onOpen={(id) => navigate(`/swarm/requirement/${id}`,
                         pipeline?.id
-                            ? { state: { from: 'pipeline', pipelineId: pipeline.id,
-                                mode: 'plan' } }
+                            ? { state: planExitState(pipeline.id, 'plan') }
                             : undefined)} />
 
                 {/* ── THE KEY (req #3168, user directives 2026-08-01) ────────

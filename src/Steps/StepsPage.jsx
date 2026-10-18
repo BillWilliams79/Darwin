@@ -82,6 +82,7 @@ import { runChipProps, runLabel } from '../SwarmView/pipelines/pipelineChipStyle
 // note is closed. The Epic column links there via the SAME builder the router
 // uses, never a literal string (planEra.js's own guard forbids one).
 import { planDetailPath } from '../SwarmView/pipelines/planEra';
+import { backToPlanQuery } from '../SwarmView/pipelines/pipelineStepLink';
 import { buildStepRows, completionGuard2, gatingRequirementIds2 } from './stepsModel';
 import {
     REST_NULL,
@@ -598,7 +599,7 @@ export default function StepsPage() {
                     <Button size="small" variant="outlined"
                             startIcon={<ArrowBackIcon />}
                             onClick={() => navigate(planDetailPath(planOrigin.id,
-                                planOrigin.mode ? `mode=${planOrigin.mode}` : null))}
+                                backToPlanQuery(location.state)))}
                             data-testid="steps-back-to-plan">
                         Back to Plan
                     </Button>

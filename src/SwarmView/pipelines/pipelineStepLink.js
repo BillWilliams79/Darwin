@@ -14,7 +14,8 @@
 // grep.
 //
 // It is the SAME handshake req #3115 built for a bead click — the visualizer
-// calls `onStepFocus(stepId)`, the page switches to the table, the table scrolls
+// calls `onStepFocus(stepId)`, the page pushes this same link (req #3637, so
+// browser Back returns to the canvas), the table scrolls
 // to and highlights that row. This only adds a way to enter that handshake from
 // outside the page. Nothing about `focusStepId` changes.
 //
@@ -194,15 +195,18 @@ export function readFocusStepParam(searchParams) {
 // together for this module's own reason — two files that must agree on a key.
 //
 // `from`/`pipelineId`/`mode` are the provenance every plan exit already
-// carries (req #3119/#3252), so the editor's Back returns to the plan — and
-// `backStepId` names the STEP the "+" was on, so Back lands on that step
-// (`backToStepPath`) rather than wherever the plan's saved camera was.
+// carries (req #3119/#3252), so the editor's Back returns to the plan. Back no
+// longer re-targets the step (req #3637): the reader clicked its "+", so it was
+// on screen, and the restored camera / table scroll puts them back exactly
+// there, where a `?step=` link would have moved the view. `backStepId` still
+// records which step it was.
 //
 // (Router state lives in `history.state`, so a reload of the draft keeps the
 // seat — harmless: the draft itself is rebuilt from the same state.)
 export const SEAT_STEP_STATE_KEY = 'seatStepId';
 export const SEAT_STEP_NAME_STATE_KEY = 'seatStepName';
 export const BACK_STEP_STATE_KEY = 'backStepId';
+export const BACK_LEVEL_STATE_KEY = 'level';
 
 export function newRequirementSeatState(pipelineId, mode, row) {
     const stepId = Number(row?.id);
@@ -213,24 +217,46 @@ export function newRequirementSeatState(pipelineId, mode, row) {
             ? row.title : null,
     };
     if (pipelineId != null) {
-        Object.assign(state, { from: 'pipeline', pipelineId, mode,
-            [BACK_STEP_STATE_KEY]: stepId });
+        Object.assign(state, planExitState(pipelineId, mode),
+            { [BACK_STEP_STATE_KEY]: stepId });
     }
     return state;
 }
 
 /**
- * Where Back from a requirement opened off a step's "+" goes: that step, in the
- * panel the reader left — the highlighted table row, or the plan zoomed onto
- * the card (`stepPlanLinkTo`'s pinned L3). Null when the state names no step,
- * so the caller keeps its plain back-to-plan route.
+ * The router state every exit from a plan surface carries, so the far page's
+ * "Back to Plan" can return to the SAME view (req #3637): the panel, and the
+ * `?level=` pin the reader was looking at when there was one. The camera and
+ * the table scroll come back from storage on their own — Back goes to the
+ * plain plan URL, never to a `?step=`/`?epic=` link that would move them.
+ *
+ * Read off `window.location` at click time, the one place both the plan's own
+ * panels and their callers agree on, and validated like the URL itself.
  */
-export function backToStepPath(state) {
-    const sid = toId(state?.[BACK_STEP_STATE_KEY]);
-    if (sid == null || sid <= 0) return null;
-    return state?.mode === 'table'
-        ? stepLinkTo(state?.pipelineId, sid)
-        : stepPlanLinkTo(state?.pipelineId, sid);
+export function planExitState(pipelineId, mode) {
+    const state = { from: 'pipeline', pipelineId, mode };
+    let level = null;
+    try {
+        level = readLevelParam(new URLSearchParams(window.location.search));
+    } catch {
+        level = null;
+    }
+    if (level) state[BACK_LEVEL_STATE_KEY] = level;
+    return state;
+}
+
+/**
+ * The query "Back to Plan" lands with, from a `planExitState` record: `mode=`
+ * and, when the plan had one, `level=`. Null when neither is usable. Both are
+ * validated — this comes from router state, and is interpolated into a URL.
+ */
+export function backToPlanQuery(state) {
+    const parts = [];
+    const mode = state?.mode;
+    if (typeof mode === 'string' && /^[a-z]{1,16}$/.test(mode)) parts.push(`mode=${mode}`);
+    const level = state?.[BACK_LEVEL_STATE_KEY];
+    if (isPlanLevelPref(level)) parts.push(`${FOCUS_LEVEL_PARAM}=${level}`);
+    return parts.length ? parts.join('&') : null;
 }
 
 /** The step a new requirement is to be seated on, or null when the state names
