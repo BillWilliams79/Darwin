@@ -110,6 +110,7 @@ export default function UrgentReviewBox({
             errorText="Could not load session status."
             itemColor={colorOf}
             renderItemEnd={pillsOf}
+            showCategoryBar={false}
             seatable={false} />
     );
 }

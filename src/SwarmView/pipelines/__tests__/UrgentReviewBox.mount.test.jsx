@@ -114,6 +114,8 @@ describe('UrgentReviewBox', () => {
         expect(box.getAttribute('data-viz-chrome')).toBe('urgent');
         expect(box.hasAttribute('data-viz-unseated')).toBe(false);
         expect(q('pipeline-viz-urgent-item-21').getAttribute('draggable')).toBe('false');
+        // Orchestration Ready's category bar (req #3619) is not drawn here.
+        expect(q('pipeline-viz-urgent-bar-21')).toBeNull();
         act(() => q('pipeline-viz-urgent-item-21').click());
         expect(onOpen).toHaveBeenCalledWith(21);
     });

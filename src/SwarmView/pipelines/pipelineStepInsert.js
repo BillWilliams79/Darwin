@@ -1,13 +1,16 @@
 // pipelineStepInsert.js — the pure half of adding steps from the Plan
 // visualizer (req #3586).
 //
-// Two "+" marks, both drawn wherever the cards are:
+// Three "+" marks, all drawn wherever the cards are:
 //
 //   EDGE "+"    on every dependency arc A → B. It SPLITS the edge: a new step N
 //               is created depending on A, and B's dependency switches from A
 //               to N, so the plan reads A → N → B.
 //   BRANCH "+"  at the end of a short stub off each card's right side. It adds
 //               a step N depending on that step ALONE — a parallel branch.
+//   PRECEDE "+" (req #3617) the branch stub's mirror, off the LEFT side of a
+//               card that has no dependency arc landing on it. It adds a step
+//               N that this step then DEPENDS ON: N → step.
 //
 // What lives here is the GEOMETRY (where each mark sits, in world coordinates,
 // derived from the layout's own arcs and nodes — never re-measured) and the
@@ -189,6 +192,22 @@ export function branchStub(n, r) {
     return { x1, y, x: x1 + r + 8 };
 }
 
+/**
+ * The precede stub off a card's LEFT side (req #3617): `branchStub`'s mirror —
+ * the same height, just above the BOTTOM-LEFT corner (user directive: "bottom
+ * aligned on the left side line"), the same length out into the gutter before
+ * the card. Only drawn on a card no dependency arc lands on.
+ *
+ * @param {Object} n  one node of `computePlanLayout(...).nodes`
+ * @param {number} r  the mark radius
+ * @returns {{x1: number, y: number, x: number}}  stub from (x1, y) to the mark at (x, y)
+ */
+export function precedeStub(n, r) {
+    const { y } = branchStub(n, r);
+    const x1 = n.left - 1;
+    return { x1, y, x: x1 - r - 8 };
+}
+
 /** The largest radius `insertMarkRadius` returns — marks are PLACED at it. */
 export const INSERT_MARK_MAX_R = 12;
 
@@ -198,29 +217,44 @@ export const INSERT_MARK_MAX_R = 12;
  * anything here that ran in the render body ran at pointer rate (the req #3586
  * first cut did, and made the plan unscrollable). Placement uses the LARGEST
  * radius, so the no-overlap spacing holds at every smaller radius the zoom
- * draws at, and the zoom never has to re-place anything. Branch marks are
- * placed first and the edge marks keep clear of them.
+ * draws at, and the zoom never has to re-place anything. Branch and precede
+ * marks are placed first and the edge marks keep clear of them.
  *
- * @returns {{r: number, edgeCount: number,
+ * A precede mark is drawn on a card only when NO ARC LANDS ON IT — the
+ * layout's own arcs, i.e. the step has no dependency among the drawn rows.
+ * (An unrelated early-route arc can still pass BEHIND such a card; the test is
+ * the dependency data, not the pixels.) A stub runs from `x1` (the card edge) towards `x2`
+ * (the mark's centre), on either side.
+ *
+ * @returns {{r: number, edgeCount: number, branchCount: number, precedeCount: number,
  *            stubs: {x1: number, x2: number, y: number}[],
- *            marks: {key: string, kind: 'edge'|'branch', fromId: number,
+ *            marks: {key: string, kind: 'edge'|'branch'|'precede', fromId: ?number,
  *                    toId: ?number, x: number, y: number}[]}}
  */
 export function buildInsertMarks(layout, rows, r = INSERT_MARK_MAX_R) {
     const stubs = [];
     const marks = [];
+    const landed = new Set((layout?.arcs || []).map((a) => a.toId));
+    let branchCount = 0;
+    let precedeCount = 0;
     for (const row of rows || []) {
         const n = layout?.nodes?.get(row.id);
         if (!n) continue;
         const b = branchStub(n, r);
         stubs.push({ x1: b.x1, x2: b.x, y: b.y });
         marks.push({ key: `branch-${row.id}`, kind: 'branch', fromId: row.id, toId: null, x: b.x, y: b.y });
+        branchCount++;
+        if (landed.has(row.id)) continue;
+        const p = precedeStub(n, r);
+        stubs.push({ x1: p.x1, x2: p.x, y: p.y });
+        marks.push({ key: `precede-${row.id}`, kind: 'precede', fromId: null, toId: row.id, x: p.x, y: p.y });
+        precedeCount++;
     }
     const edges = edgeInsertMarks(layout?.arcs, r, marks, layout?.nodes?.values?.() || []);
     for (const m of edges) {
         marks.push({ key: `edge-${m.fromId}-${m.toId}`, kind: 'edge', ...m });
     }
-    return { r, stubs, marks, edgeCount: edges.length };
+    return { r, stubs, marks, edgeCount: edges.length, branchCount, precedeCount };
 }
 
 /** The mark whose hit circle — at the DRAWN radius `r` — contains world point
@@ -243,13 +277,25 @@ export const NEW_STEP_TITLE = 'New step';
 /**
  * The dialog's request for each action, so the visualizer and its tests agree
  * on what is being asked: which step(s) it touches and which epic the new step
- * defaults to (the step to its LEFT — the one it depends on).
+ * defaults to (the step to its LEFT — the one it depends on — or, for a
+ * precede, which has no step on its left, the step it will gate).
  *
- * @param {'edge'|'branch'} kind
- * @param {{fromId: number, toId?: number}} ids
+ * @param {'edge'|'branch'|'precede'} kind
+ * @param {{fromId?: ?number, toId?: ?number}} ids
  * @param {Map<number, Object>} rowById
  */
-export function insertRequest(kind, { fromId, toId = null }, rowById) {
+export function insertRequest(kind, { fromId = null, toId = null }, rowById) {
+    if (kind === 'precede') {
+        const to = rowById?.get(toId);
+        return {
+            kind,
+            fromId: null,
+            toId,
+            epicId: to?.epicId ?? null,
+            fromTitle: null,
+            toTitle: to?.title || `step ${toId}`,
+        };
+    }
     const from = rowById?.get(fromId);
     const to = toId != null ? rowById?.get(toId) : null;
     return {
