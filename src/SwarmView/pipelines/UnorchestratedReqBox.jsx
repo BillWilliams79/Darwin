@@ -48,6 +48,11 @@
 // and the spot is not remembered. The visualizer asks before writing anything.
 // An empty box has nothing to seat, so it only ever moves.
 //
+// While a carrying move is under way (req #3614) the box turns see-through and
+// folds its list, so the step card it is aimed at can be read; both are undone
+// on release. `onCarryingChange` tells the visualizer, which then draws its
+// seat-target outline above the box.
+//
 // ── SIZED LIKE THE REQUIREMENTS (user directive) ───────────────────────────
 // Its TYPE is the
 // requirement ids' own on-screen size — `fontPx` is the card's requirement font
@@ -100,7 +105,7 @@ export default function UnorchestratedReqBox({
     items, isLoading = false, isError = false,
     fontPx = 12, statusColor = P.req,
     draggingId = null, onDragStartItem, onDragEndItem, onOpen,
-    onMoveOver, onMoveDrop,
+    onMoveOver, onMoveDrop, onCarryingChange,
 }) {
     // Open by default: the box exists to be seen next to the plan it feeds.
     const [open, setOpen] = useState(true);
@@ -112,6 +117,11 @@ export default function UnorchestratedReqBox({
     // re-renders on press and release.
     const moveRef = useRef(null);
     const [moving, setMoving] = useState(false);
+    // True from the first move frame of a title-bar move that carries rows
+    // until it ends (req #3614): the box turns see-through and folds its list
+    // so the step card beneath it can be read, and is restored on release.
+    const [carrying, setCarrying] = useState(false);
+    useEffect(() => { onCarryingChange?.(carrying); }, [carrying]);
     const lastMoveEndRef = useRef(0);
 
     const onBarDown = (e) => {
@@ -147,13 +157,17 @@ export default function UnorchestratedReqBox({
                 pane.clientHeight - e.currentTarget.offsetHeight)),
         };
         setPos(m.last);
-        if (m.carries) onMoveOver?.(e.clientX, e.clientY);
+        if (m.carries) {
+            setCarrying(true);
+            onMoveOver?.(e.clientX, e.clientY);
+        }
     };
     const onBarUp = (e) => {
         const m = moveRef.current;
         if (!m || e.pointerId !== m.id) return;
         moveRef.current = null;
         setMoving(false);
+        setCarrying(false);
         if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
             e.currentTarget.releasePointerCapture(e.pointerId);
         }
@@ -208,13 +222,15 @@ export default function UnorchestratedReqBox({
         };
         el.addEventListener('wheel', onWheel, { passive: true });
         return () => el.removeEventListener('wheel', onWheel);
-    }, [open]);
+    }, [open, carrying]);
 
     const count = items.length;
+    const listShown = open && !carrying;
 
     return (
         <Box ref={boxRef} data-viz-chrome="unseated" data-viz-unseated=""
              data-testid="pipeline-viz-unseated"
+             data-carrying={carrying ? '1' : '0'}
              data-pos={!pos ? 'home'
                  : (pos.r != null ? `r${pos.r},${pos.y}` : `${pos.x},${pos.y}`)}
              // Everything inside is in em off this one number. In `style`, NOT
@@ -235,7 +251,10 @@ export default function UnorchestratedReqBox({
                     borderRadius: '0.8em', border: `2px solid ${OUTLINE}`,
                     boxShadow: '0 0.5em 1.5em rgba(0, 0, 0, 0.45)',
                     fontFamily: MONO, color: P.text, userSelect: 'none',
-                    overflow: 'hidden', zIndex: 2 }}>
+                    overflow: 'hidden', zIndex: 2,
+                    // See-through while carried (req #3614) so the outlined
+                    // step beneath can be read.
+                    opacity: carrying ? 0.35 : 1 }}>
             <Box data-testid="pipeline-viz-unseated-header"
                  title={count > 0
                      ? 'Drag to move · drop on a step to seat them all · double-click to put back'
@@ -274,7 +293,7 @@ export default function UnorchestratedReqBox({
                 </Box>
             </Box>
 
-            {open && (
+            {listShown && (
                 <Box ref={listRef} data-testid="pipeline-viz-unseated-list"
                      sx={{ overflowY: 'auto', overscrollBehavior: 'contain',
                             minHeight: 0, flex: '0 1 auto', maxHeight: '26em',
