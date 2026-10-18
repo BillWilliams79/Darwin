@@ -1,5 +1,5 @@
-// UnorchestratedReqBox.jsx — the Plan visualizer's "swarm-ready, not
-// orchestrated" box (req #3583).
+// UnorchestratedReqBox.jsx — the Plan visualizer's "Orchestration Ready" box
+// (req #3583; titled and outlined in purple by req #3605).
 //
 // A floating panel in the canvas's top-right corner listing every requirement
 // that is ready to run but sits on no plan step. Each row is the SOURCE of a
@@ -55,6 +55,10 @@ import { PLAN_VIZ_PALETTE as P } from './pipelinePlanLayout';
 import { UNSEATED_REQ_MIME } from './pipelineUnseated';
 
 const MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
+
+/** The box's outline (req #3605, user directive: "a strong visible purple" —
+ *  neither dark nor pastel). ~4.5:1 against the box's own background. */
+const OUTLINE = '#a64dff';
 
 /** Panel inset of the home corner, px. */
 const CORNER_INSET = 8;
@@ -201,10 +205,10 @@ export default function UnorchestratedReqBox({
                     // Beats max-height: the title bar is always whole.
                     minHeight: `${HEADER_EM}em`,
                     display: 'flex', flexDirection: 'column',
-                    // The key's own panel treatment, so the two read as one family.
+                    // The key's own panel treatment, outlined in purple.
                     background: 'rgba(13, 20, 32, 0.94)',
                     backdropFilter: 'blur(2px)',
-                    borderRadius: '0.8em', border: `1px solid ${P.line}`,
+                    borderRadius: '0.8em', border: `2px solid ${OUTLINE}`,
                     boxShadow: '0 0.5em 1.5em rgba(0, 0, 0, 0.45)',
                     fontFamily: MONO, color: P.text, userSelect: 'none',
                     overflow: 'hidden', zIndex: 2 }}>
@@ -223,7 +227,7 @@ export default function UnorchestratedReqBox({
                 <Box component="span"
                      sx={{ flex: 1, minWidth: 0, overflow: 'hidden',
                             textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    Swarm-ready · not orchestrated
+                    Orchestration Ready
                 </Box>
                 <Box component="span" data-testid="pipeline-viz-unseated-count"
                      sx={{ color: statusColor, fontWeight: 700 }}>

@@ -36,10 +36,18 @@ describe('UnorchestratedReqBox', () => {
     it('lists each row with its id and title and counts them', () => {
         act(() => root.render(<UnorchestratedReqBox items={items} />));
         expect(q('pipeline-viz-unseated-count').textContent).toBe('2');
+        expect(q('pipeline-viz-unseated-header').textContent).toContain('Orchestration Ready');
         expect(q('pipeline-viz-unseated-item-11').textContent).toContain('First thing');
         expect(q('pipeline-viz-unseated-item-12').getAttribute('draggable')).toBe('true');
         // Chrome: d3-zoom and the world-click hit-test both skip it.
         expect(q('pipeline-viz-unseated').hasAttribute('data-viz-chrome')).toBe(true);
+    });
+
+    it('is outlined in a strong purple (req #3605)', () => {
+        act(() => root.render(<UnorchestratedReqBox items={items} />));
+        const css = getComputedStyle(q('pipeline-viz-unseated'));
+        expect(css.borderTopWidth).toBe('2px');
+        expect(css.borderTopColor).toBe('rgb(166, 77, 255)');
     });
 
     it('says so when nothing is waiting', () => {
