@@ -862,23 +862,35 @@ describe('the requirement-visibility harness — one rule, every surface, every 
             expect(probedEpic.epicReqIds).toBeNull();
         }, TIMEOUT);
 
-        it('narrows the Cards view to the epic, with the toggle stored ON', async () => {
-            // The forced override: an epic's work is step-carried BY DEFINITION
-            // under containment, so honouring the stored ON would render the page
-            // empty, always.
+        it('the toggle stored ON APPLIES under the epic scope — every epic row is '
+            + 'orchestrated, so the card is on screen with none of them (req #3598)', async () => {
+            // req #3428 forced the toggle off here; the user ruled a scope must
+            // restrict the rows and override no control, so the stored ON hides
+            // the epic's step-carried work exactly as it would unscoped.
+            const c = mount(<Card epicReqIds={new Set(EPIC_A_REQS)} />);
+            mount(<Probe />);
+            await settle(cardLoaded(c));
+            await settle(() => probed.orchestratedIds.size === ORCHESTRATED.length);
+            await settle(() => renderedIds(c).length === 0);
+            expect(renderedIds(c)).toEqual([]);
+            // The add-a-requirement row stays, as on any card.
+            expect(c.querySelector('[data-testid="requirement-template"]')).not.toBeNull();
+        }, TIMEOUT);
+
+        it('narrows the Cards view to the epic with the toggle OFF', async () => {
+            useShowClosedStore.setState({ hidePipelinedRequirements: false });
             const c = mount(<Card epicReqIds={new Set(EPIC_A_REQS)} />);
             await settle(() => renderedIds(c).length === EPIC_A_REQS.length);
             expect(sorted(renderedIds(c))).toEqual(EPIC_A_REQS);
-            // Suppressed while filtered — a row saved there would belong to no
-            // epic and vanish the instant it saved.
-            expect(c.querySelector('[data-testid="requirement-template"]')).toBeNull();
         }, TIMEOUT);
 
         it('narrows the aggregator rows AND badges to the epic, on a launch chip', async () => {
             // The intersection of both fixes: the epic scope still applies (only
             // 101 of the two authoring rows), and the launch chip no longer
             // withholds plan-carried work (101 is on screen at all). Before req
-            // #3502 this chip rendered nothing and badged 0.
+            // #3502 this chip rendered nothing and badged 0. Toggle OFF: it
+            // applies under a scope since req #3598.
+            useShowClosedStore.setState({ hidePipelinedRequirements: false });
             useSwarmStartCardStore.setState({ selectedStatus: 'authoring' });
             const c = mount(<SwarmStartCard epicReqIds={new Set(EPIC_A_REQS)} />);
             await settle(aggregatorMounted(c));
@@ -898,6 +910,7 @@ describe('the requirement-visibility harness — one rule, every surface, every 
             // the store asked for: that is req #3428's don't-open-blank override,
             // and its presence here is the second half of the same assertion —
             // epic A really has nothing met.
+            useShowClosedStore.setState({ hidePipelinedRequirements: false });
             useSwarmStartCardStore.setState({ selectedStatus: 'met' });
             const c = mount(<SwarmStartCard epicReqIds={new Set(EPIC_A_REQS)} />);
             await settle(aggregatorMounted(c));
@@ -910,6 +923,7 @@ describe('the requirement-visibility harness — one rule, every surface, every 
         }, TIMEOUT);
 
         it('agrees with the Cards view over the epic scope', async () => {
+            useShowClosedStore.setState({ hidePipelinedRequirements: false });
             useSwarmStartCardStore.setState({ selectedStatus: 'development' });
             const card = mount(<Card epicReqIds={new Set(EPIC_A_REQS)} />);
             const agg = mount(<SwarmStartCard epicReqIds={new Set(EPIC_A_REQS)} />);
@@ -920,12 +934,11 @@ describe('the requirement-visibility harness — one rule, every surface, every 
             expect(renderedIds(card)).toContain(131);
         }, TIMEOUT);
 
-        it('leaves the stored toggle untouched — dismissing the filter restores it', async () => {
-            // A derived override, never a write. The reader's preference must
-            // survive a visit to an epic page.
+        it('leaves the stored toggle untouched', async () => {
+            // The reader's preference must survive a visit to an epic page.
             expect(useShowClosedStore.getState().hidePipelinedRequirements).toBe(true);
             const c = mount(<Card epicReqIds={new Set(EPIC_A_REQS)} />);
-            await settle(() => renderedIds(c).length === EPIC_A_REQS.length);
+            await settle(cardLoaded(c));
             expect(useShowClosedStore.getState().hidePipelinedRequirements).toBe(true);
         }, TIMEOUT);
     });

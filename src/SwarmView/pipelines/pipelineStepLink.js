@@ -184,3 +184,60 @@ export function readFocusStepParam(searchParams) {
     const id = Number(raw);
     return Number.isInteger(id) ? id : null;
 }
+
+// ── FILING A NEW REQUIREMENT INTO A STEP (req #3582) ────────────────────────
+// A step's "+" (plan visualizer card, plan table row) opens the requirement
+// editor in "new" mode (`/swarm/requirement/new`, req #2414) carrying the step
+// to seat it on. Router STATE, not a query string: like the aggregator
+// template's typed title it belongs to one navigation, not to an address a
+// reader could bookmark or share. Writer and reader live here
+// together for this module's own reason — two files that must agree on a key.
+//
+// `from`/`pipelineId`/`mode` are the provenance every plan exit already
+// carries (req #3119/#3252), so the editor's Back returns to the plan — and
+// `backStepId` names the STEP the "+" was on, so Back lands on that step
+// (`backToStepPath`) rather than wherever the plan's saved camera was.
+//
+// (Router state lives in `history.state`, so a reload of the draft keeps the
+// seat — harmless: the draft itself is rebuilt from the same state.)
+export const SEAT_STEP_STATE_KEY = 'seatStepId';
+export const SEAT_STEP_NAME_STATE_KEY = 'seatStepName';
+export const BACK_STEP_STATE_KEY = 'backStepId';
+
+export function newRequirementSeatState(pipelineId, mode, row) {
+    const stepId = Number(row?.id);
+    if (!Number.isInteger(stepId) || stepId <= 0) return undefined;
+    const state = {
+        [SEAT_STEP_STATE_KEY]: stepId,
+        [SEAT_STEP_NAME_STATE_KEY]: typeof row?.title === 'string' && row.title.trim()
+            ? row.title : null,
+    };
+    if (pipelineId != null) {
+        Object.assign(state, { from: 'pipeline', pipelineId, mode,
+            [BACK_STEP_STATE_KEY]: stepId });
+    }
+    return state;
+}
+
+/**
+ * Where Back from a requirement opened off a step's "+" goes: that step, in the
+ * panel the reader left — the highlighted table row, or the plan zoomed onto
+ * the card (`stepPlanLinkTo`'s pinned L3). Null when the state names no step,
+ * so the caller keeps its plain back-to-plan route.
+ */
+export function backToStepPath(state) {
+    const sid = toId(state?.[BACK_STEP_STATE_KEY]);
+    if (sid == null || sid <= 0) return null;
+    return state?.mode === 'table'
+        ? stepLinkTo(state?.pipelineId, sid)
+        : stepPlanLinkTo(state?.pipelineId, sid);
+}
+
+/** The step a new requirement is to be seated on, or null when the state names
+ * none (or names something that is not a step id). */
+export function readNewRequirementSeat(state) {
+    const stepId = Number(state?.[SEAT_STEP_STATE_KEY]);
+    if (!Number.isInteger(stepId) || stepId <= 0) return null;
+    const rawName = state?.[SEAT_STEP_NAME_STATE_KEY];
+    return { stepId, stepName: typeof rawName === 'string' && rawName.trim() ? rawName : null };
+}

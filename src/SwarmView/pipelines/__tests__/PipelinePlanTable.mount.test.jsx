@@ -32,7 +32,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';
 
 import PipelinePlanTable from '../PipelinePlanTable';
 
@@ -145,5 +145,48 @@ describe('PipelinePlanTable mounts (req #3324)', () => {
         expect(document.querySelector('[data-testid="pipeline-plan-table"]'))
             .not.toBeNull();
         expect(document.body.textContent).toContain('Session Drain');
+    });
+
+    // req #3582 — every step row offers "+", and following it lands on the
+    // requirement editor's "new" mode carrying the step to seat it on plus the
+    // plan provenance Back needs.
+    it('a step\'s "+" opens a new requirement draft carrying that step', () => {
+        function NewProbe() {
+            const location = useLocation();
+            return <pre data-testid="new-probe">{JSON.stringify(location.state)}</pre>;
+        }
+        container = document.createElement('div');
+        document.body.appendChild(container);
+        root = createRoot(container);
+        act(() => {
+            root.render(
+                <MemoryRouter initialEntries={['/plan']}>
+                    <Routes>
+                        <Route path="/plan" element={
+                            <PipelinePlanTable plan={PLAN} pipeline={PIPELINE} timezone="UTC" />} />
+                        <Route path="/swarm/requirement/new" element={<NewProbe />} />
+                    </Routes>
+                </MemoryRouter>
+            );
+        });
+        for (const id of [47, 48]) {
+            expect(document.querySelector(`[data-testid="pipeline-step-add-${id}"]`)
+                .getAttribute('href')).toBe('/swarm/requirement/new');
+        }
+        act(() => {
+            document.querySelector('[data-testid="pipeline-step-add-48"]')
+                .dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 }));
+        });
+        expect(JSON.parse(document.querySelector('[data-testid="new-probe"]').textContent))
+            .toEqual({ seatStepId: 48, seatStepName: 'Pause Enforcement',
+                from: 'pipeline', pipelineId: 2, mode: 'table', backStepId: 48 });
+    });
+
+    it('offers no "+" on a step stamped complete (design rule 1, req #3582)', () => {
+        const stamped = { ...PLAN, rows: PLAN.rows.map((r) => (r.id === 47
+            ? { ...r, completedAt: '2026-10-17 00:00:00', state: 'done' } : r)) };
+        render({ plan: stamped });
+        expect(document.querySelector('[data-testid="pipeline-step-add-47"]')).toBeNull();
+        expect(document.querySelector('[data-testid="pipeline-step-add-48"]')).not.toBeNull();
     });
 });

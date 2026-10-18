@@ -154,31 +154,6 @@ export const filterToEpic = (rows, epicReqIds) => {
 };
 
 /**
- * Whether the pipeline-membership filter is applying right now.
- *
- * ONE predicate with two consumers — the header control's visibility in
- * `SwarmView` and the row predicate in `CategoryCard` — because those two
- * disagreeing is a toggle that is on screen and not applying, or applying and
- * not on screen. Both are the defect req #3242's own comment describes.
- *
- * An epic filter FORCES IT OFF. `hidePipelinedRequirements` defaults to `true`
- * (req #3242, and the v8→v9 migration makes that true for existing browsers as
- * well), while an epic's requirements are seated in pipeline steps by
- * construction — under #3356's containment rule that is no longer merely usual,
- * it is the DEFINITION of membership, so leaving the stored value in charge
- * would deliver an epic page with nothing on it, always. The store is never
- * WRITTEN here: an external condition does not overwrite uncommitted user intent
- * (`normalizeView`'s doctrine), so dismissing the pill restores exactly what the
- * reader had.
- *
- * @param {boolean} storedValue `useShowClosedStore.hidePipelinedRequirements`
- * @param {boolean} epicFilterActive
- * @returns {boolean}
- */
-export const effectiveHidePipelined = (storedValue, epicFilterActive) =>
-    epicFilterActive ? false : !!storedValue;
-
-/**
  * The index of the first project (in tab order) holding any of the epic's work.
  *
  * WHY THE PAGE NEEDS THIS AT ALL: an epic's requirements sit in categories, and

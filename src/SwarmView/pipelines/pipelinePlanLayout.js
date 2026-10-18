@@ -58,7 +58,7 @@
 //      column width. Reserving it unconditionally keeps zoom a pure transform —
 //      level changes never relayout, so the overlap guarantee holds at every k.
 
-import { STEP_DONE, STEP_RUNNING, STEP_PENDING } from './pipelineModel';
+import { STEP_DONE, STEP_RUNNING, STEP_PENDING, canFileIntoStep } from './pipelineModel';
 // THE LADDER ITSELF, imported rather than passed in (req #3324): `planLevelFor`
 // below is the ONE place the four modes are resolved, and a resolution that took
 // the ladder's answer as an argument would leave half of Auto at the call site —
@@ -1778,11 +1778,14 @@ export const cardTitleH = (stepLabel, nameLines = 1) => CARD_PAD_Y
 
 // ── THE STEP NAME WRAPS TOO (req #3498, 2026-08-13) ─────────────────────────
 // It has to, and the reason is the same arithmetic that narrowed the card: at a
-// 28-character line the name's own budget — the text column less the four
+// 28-character line the name's own budget — the text column less the
 // title-row reserves (req #3503: the ✓, the link button, the badge and its
-// gap), at the LABEL glyph which is wider than the row glyph — is seventeen
-// characters (measured — see `cardChars(CHW_LABEL, CARD_CHECK_W +
-// CARD_STEP_LINK_W + CARD_BADGE_W + CARD_BADGE_GAP)`). "Feature Eradication
+// gap; req #3580: the run pill; req #3582: the "+"), at the LABEL glyph which
+// is wider than the row glyph — is EIGHT characters (measured — see
+// `cardChars(CHW_LABEL, CARD_CHECK_W + CARD_STEP_LINK_W + CARD_STEP_ADD_W +
+// CARD_RUN_W + CARD_BADGE_W + CARD_BADGE_GAP)`; seventeen before #3580 and
+// #3582, eleven with the run pill alone, thirteen with the "+" alone — the user
+// saw the combination and accepted it, 2026-10-17). "Feature Eradication
 // - MCP, Scripts, Frontend…" is the actual data, and it truncates well short
 // of one line at that budget.
 //
@@ -1843,12 +1846,11 @@ export const cardHeight = (reqBlockH, stepLabel, nameLines = 1) =>
 // label with a line under it — but that is the bonus, not the derivation.
 const CARD_MIN_H = 68 * CARD_TYPE_SCALE;
 
-// The room the DONE ✓ occupies at the title area's right edge — reserved out of
-// the step label's budget rather than drawn over it (req #3498 review finding).
-// Every one of the 34 step titles on the live fixture is longer than the card
-// can draw, so an unreserved glyph is not an edge case: it landed on the
-// truncated title's ellipsis on all 23 completed cards.
-export const CARD_CHECK_W = 13 * CARD_TYPE_SCALE;
+// The room the card's DONE ✓ used to occupy at the title area's right edge.
+// Req #3603 removed the ✓ from the card header (the state bar and the buttons
+// already say it), so the reserve is zero; the constant stays because every
+// header-row offset is written in terms of it.
+export const CARD_CHECK_W = 0;
 
 // ── "VIEW IN TABLE, HIGHLIGHTED" — A VISIBLE BUTTON, NOT JUST A HIDDEN HIT
 // RECT (req #3503, user directive: "place a proper sized button for the
@@ -1870,7 +1872,38 @@ export const CARD_CHECK_W = 13 * CARD_TYPE_SCALE;
 // them literally over-reserved this. A glyph the size of the ✓ needs a
 // target the size of the ✓'s own reserve, not a larger one, and every world
 // px given back here is a world px the title gets to keep.
-export const CARD_STEP_LINK_W = CARD_CHECK_W;
+//
+// RESIZED BY REQ #3582 (user directive: "the plus sign and the popout buttons
+// should be larger, commensurate with the font size of the step — they are
+// way too small and close together"). Sized to the ✓ they were each an
+// 18-world-px sliver, flush against each other, reading as two specks beside
+// a 23px title. Each is now a SQUARE BUTTON the full height of the title's own
+// line (`CARD_LINE_H` — a second pass, "they could be a little bigger", took
+// it up from the count badge's `CARD_LINE_H − 4`; the full line is the
+// ceiling, since anything taller leaves the title area a one-line name
+// reserves and crosses the rule under it), outlined so it reads as a control,
+// its glyph larger than the title's own type (`CARD_TITLE_BTN_FONT`), with
+// `CARD_TITLE_BTN_GAP` between neighbours. The cost is title room, and it is
+// paid knowingly.
+export const CARD_TITLE_BTN = CARD_LINE_H;
+export const CARD_TITLE_BTN_GAP = 4 * CARD_TYPE_SCALE;
+// A glyph inside the button: the title's size × 1.3 — `+` and `↗` carry less
+// ink per em than letters, so at exactly the title size they read smaller
+// than the name beside them, and the bigger box wants a bigger mark.
+export const CARD_TITLE_BTN_FONT = 16.5 * CARD_TYPE_SCALE * 1.3;
+// The link button's reserve: its button, flush against the ✓'s reserve, plus
+// the gap on its LEFT that keeps the "+" off it.
+export const CARD_STEP_LINK_W = CARD_TITLE_BTN + CARD_TITLE_BTN_GAP;
+
+// ── "FILE A REQUIREMENT INTO THIS STEP" — THE + BUTTON (req #3582) ─────────
+// Left of the ↗, sized like it for the same reason the ↗ is sized like the
+// ✓: a glyph the size of its neighbours needs a target that size, and every
+// world px not reserved here is one the title keeps. It opens the requirement
+// editor in "new" mode carrying this step, and the first save (picking a
+// category, the aggregator template's own rule) seats the new requirement
+// here. Reserved out of the step name's budget like the other three: its
+// button plus the gap between it and the ↗ (sizes above, req #3582).
+export const CARD_STEP_ADD_W = CARD_TITLE_BTN + CARD_TITLE_BTN_GAP;
 
 
 // ── THE TOTAL REQUIREMENT COUNT, AS A BADGE LEFT OF THE TITLE (req #3503,
@@ -1921,7 +1954,7 @@ export const CARD_BADGE_H = CARD_LINE_H - 4;
 // The word is set at 80% of the requirement-row type (`CARD_RUN_FONT`, below
 // `CARD_FONT`), so its glyph width is that same fraction of the row's.
 const CARD_RUN_TYPE_RATIO = 0.8;
-export const CARD_RUN_WORDS = { auto: 'auto', manual: 'manual' };
+export const CARD_RUN_WORDS = { auto: 'Auto', manual: 'Manual' };
 const CHW_RUN = CHW_REQ * CARD_RUN_TYPE_RATIO;
 const CARD_RUN_PAD_X = 5 * CARD_TYPE_SCALE;
 export const CARD_RUN_W = Math.ceil(
@@ -2103,7 +2136,6 @@ export const CARD_FONT = {
     label: PLAN_VIZ_FONT.label * CARD_TYPE_SCALE,
     req: PLAN_VIZ_FONT.req * CARD_TYPE_SCALE,
     title: PLAN_VIZ_FONT.title * CARD_TYPE_SCALE,
-    check: PLAN_VIZ_FONT.check * CARD_TYPE_SCALE,
 };
 // req #3580 — the run pill's word; see `CARD_RUN_W`.
 export const CARD_RUN_FONT = CARD_FONT.req * CARD_RUN_TYPE_RATIO;
@@ -2536,9 +2568,10 @@ export function drawsLabelKind(kind, level) {
     // `badge` and `step-link` ride the CARD (req #3498, extended req #3503) —
     // both are drawn in the title area, so they appear exactly where the card
     // does and never float beside a bare bead.
-    // `run` (req #3580) is the third title-area control and rides the card too.
+    // `run` (req #3580) and `step-add` (req #3582) are title-area controls
+    // too and ride the card the same way.
     if (kind === 'step' || kind === 'req' || kind === 'badge' || kind === 'step-link'
-        || kind === 'run') {
+        || kind === 'run' || kind === 'step-add') {
         return level !== 'out';
     }
     if (kind === 'title') return level === 'in';
@@ -2965,8 +2998,8 @@ const truncate = (s, n) => {
 // `STEP_LABEL_MAX`: one width, measured where it is drawn, so there is no cap
 // left to drift out of step with the room.
 export function stepLabelText(row, stepLabel,
-    maxChars = cardChars(CHW_LABEL, CARD_CHECK_W + CARD_STEP_LINK_W + CARD_RUN_W
-        + CARD_BADGE_W + CARD_BADGE_GAP)) {
+    maxChars = cardChars(CHW_LABEL, CARD_CHECK_W + CARD_STEP_LINK_W + CARD_STEP_ADD_W
+        + CARD_RUN_W + CARD_BADGE_W + CARD_BADGE_GAP)) {
     return stepLabel === 'title'
         ? truncate(row.title || `step ${row.id}`, Math.max(4, maxChars))
         : String(row.id);
@@ -3031,7 +3064,12 @@ export function reqLabelText(reqId, { reqLabel = 'id', reqTitles = null,
 // module proves about a row's box has to be re-proved for them.
 //
 // TWO SPACES between tokens, so a pill's padding (drawn by the renderer, inside
-// the gap) leaves clear air between neighbours. A NO-BREAK SPACE inside
+// the gap) leaves clear air between neighbours. The gap AFTER THE ID is the id
+// column's own (`CARD_SEP_CHARS`, the width of " - "), so the first pill begins
+// on the title column every row's title and wrapped lines start on (req #3575's
+// hanging indent) and never inside the room reserved for the id (req #3601,
+// user: "Terminal intrudes into the space when added and should never do so").
+// A NO-BREAK SPACE inside
 // "Terminal 2", because `wrapReqText` breaks on ' ' and a pill split across two
 // lines is not a pill.
 //
@@ -3067,7 +3105,7 @@ export function reqPillPrefix(reqId, reqPills) {
     let text = String(reqId);
     const pills = [];
     for (const t of tokens) {
-        text += REQ_PILL_SEP;
+        text += pills.length ? REQ_PILL_SEP : ' '.repeat(CARD_SEP_CHARS);
         pills.push({ kind: t.kind, start: text.length, len: t.text.length });
         text += t.text;
     }
@@ -3232,8 +3270,8 @@ export function computePlanLayout(rows, opts = {}) {
     // count) and `wrapReqText` breaks it; a short name still returns one line,
     // so only the cards that need the room pay for it.
     const nameBudget = cardChars(CHW_LABEL,
-        CARD_CHECK_W + CARD_STEP_LINK_W + CARD_RUN_W + CARD_BADGE_W + CARD_BADGE_GAP,
-        cardTextW);
+        CARD_CHECK_W + CARD_STEP_LINK_W + CARD_STEP_ADD_W + CARD_RUN_W + CARD_BADGE_W
+        + CARD_BADGE_GAP, cardTextW);
     const nameLinesOf = new Map();
     for (const r of safeRows) {
         nameLinesOf.set(r.id, wrapReqText(
@@ -4114,7 +4152,7 @@ export function computePlanLayout(rows, opts = {}) {
             // Not `w`: that is the drawn text's own width, and an editor sized
             // to a short name would have no room to type a longer one.
             editW: n.right - CARD_PAD_X - CARD_CHECK_W - CARD_STEP_LINK_W
-                - CARD_RUN_W - titleTextLeft,
+                - CARD_STEP_ADD_W - CARD_RUN_W - titleTextLeft,
         });
         const ids = r.reqIds || [];
         // ── THE REQUIREMENT ROWS, TOP TO BOTTOM, IN ORDER ───────────────────
@@ -4161,7 +4199,7 @@ export function computePlanLayout(rows, opts = {}) {
         let idRowY = rowsTop;
         rowLines.forEach((lines, i) => {
             // A prefix too long for the first line (never at a real card
-            // width — `id  Terminal NN  PORT` is 23 characters against a 28
+            // width — `id   Terminal NN  PORT` is 24 characters against a 28
             // character line) degrades to the bare id rather than drawing an
             // id string wider than the box the overlap sweep measured.
             const fullPrefix = reqPillPrefix(ids[i], reqPills);
@@ -4264,14 +4302,37 @@ export function computePlanLayout(rows, opts = {}) {
                 // fixed scale-1 constant, and stayed put while the frame it
                 // was meant to track widened around it). Left of the ✓'s own
                 // reserve, the same order the old count/✓ pair drew in.
-                x: n.right - CARD_PAD_X - CARD_CHECK_W - CARD_STEP_LINK_W,
+                // The button sits at the RIGHT of its reserve; the reserve's
+                // leading `CARD_TITLE_BTN_GAP` is air between it and the "+".
+                x: n.right - CARD_PAD_X - CARD_CHECK_W - CARD_TITLE_BTN,
+                // Exactly the title's first line box (req #3582).
                 y: n.top + CARD_PAD_Y,
-                w: CARD_STEP_LINK_W, h: REQ_TEXT_H,
+                w: CARD_TITLE_BTN, h: CARD_TITLE_BTN,
+            });
+        }
+        // ── "+" — FILE A REQUIREMENT INTO THIS STEP (req #3582) ───────────────
+        // Left of the ↗ and right of the run pill (req #3580), in the room `CARD_STEP_ADD_W` reserved out of the step
+        // name's budget — see that constant's own comment. NOT on a step with a
+        // stamped `completed_at` (`canFileIntoStep` — design rule 1); its
+        // reserve stays empty so the title budget is one number for every card.
+        // A DERIVED-done step (all work met, no stamp) does get one: adding
+        // work to it is playbook case 7, a TOP-UP.
+        if (canFileIntoStep(r)) {
+            labels.push({
+                kind: 'step-add', stepId: r.id, text: '+',
+                prose: false,
+                x: n.right - CARD_PAD_X - CARD_CHECK_W - CARD_STEP_LINK_W
+                    - CARD_TITLE_BTN,
+                y: n.top + CARD_PAD_Y,
+                w: CARD_TITLE_BTN, h: CARD_TITLE_BTN,
             });
         }
         // ── THE RUN-MODE PILL (req #3580) ────────────────────────────────────
-        // Left of the ↗, in the room `CARD_RUN_W` reserved out of the step
-        // name's budget. Emitted for every card: run mode is a fact about every
+        // Left of the "+" (req #3582 — which sits between it and the ↗), in
+        // the room `CARD_RUN_W` reserved out of the step name's budget. The
+        // "+" reserve is subtracted whether or not a "+" draws (a stamped step
+        // has none), so the pill does not move when a step is completed.
+        // Emitted for every card: run mode is a fact about every
         // step, and the pill is also the control that changes it. The text is
         // the word drawn inside; the renderer draws it as an HTML overlay, the
         // badge's own move, because it is a button.
@@ -4281,7 +4342,8 @@ export function computePlanLayout(rows, opts = {}) {
                 text: CARD_RUN_WORDS[r.run === 'manual' ? 'manual' : 'auto'],
                 run: r.run === 'manual' ? 'manual' : 'auto',
                 prose: false,
-                x: n.right - CARD_PAD_X - CARD_CHECK_W - CARD_STEP_LINK_W - CARD_RUN_W,
+                x: n.right - CARD_PAD_X - CARD_CHECK_W - CARD_STEP_LINK_W - CARD_STEP_ADD_W
+                    - CARD_RUN_W,
                 // The count badge's own y — the two pills share the line.
                 y: n.top + CARD_PAD_Y + 1,
                 w: CARD_RUN_W, h: CARD_RUN_H,

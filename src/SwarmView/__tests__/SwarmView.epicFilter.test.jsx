@@ -4,9 +4,9 @@
 //
 // Everything else about the epic filter is pure and pinned elsewhere. What no
 // pure suite can catch is the page assembling it wrongly: a pill that renders in
-// a view the filter is not applying to, an aggregator that was supposed to be
-// forced visible and is not, a toggle left on screen that no longer does
-// anything, or a scope that never reaches the cards. Each of those renders a
+// a view the filter is not applying to, a scope that never reaches the cards,
+// or — since req #3598 — a control the scope still hides or overrides, when a
+// scope must restrict the rows and nothing else. Each of those renders a
 // plausible page and reports nothing.
 //
 // The heavy children are stubs — this asserts what `SwarmView` DECIDES, not what
@@ -59,8 +59,9 @@ vi.mock('../../hooks/useDataQueries', () => ({
     useStepRequirementIds: () => ({ stepReqIds: null, isError: false, requirements: undefined }),
 }));
 
-// Records the props the page hands the tab panel — the aggregator's forced
-// visibility and the filter scope are decisions made HERE, so this is where they
+// Records the props the page hands the tab panel — the filter scope is a
+// decision made HERE, and the aggregator's visibility must pass through it
+// untouched (req #3598), so this is where they
 // are observable.
 let panelProps = [];
 vi.mock('../CategoryTabPanel', () => ({
@@ -125,11 +126,9 @@ describe('SwarmView under ?epic= (req #3428)', () => {
         expect(getByTestId('swarm-epic-filter-chip').textContent).toContain('99999');
     });
 
-    it('forces the aggregator visible without touching its stored preference', () => {
+    it('leaves the aggregator to its own stored preference (req #3598)', () => {
         mount('/swarm?view=cards&epic=11');
-        expect(lastPanelProps().showSwarmStartCard).toBe(true);
-        // THE STORE IS UNTOUCHED — an external condition never overwrites
-        // uncommitted user intent, so dismissing the pill restores what was there.
+        expect(lastPanelProps().showSwarmStartCard).toBe(false);
         expect(useSwarmStartCardStore.getState().show).toBe(false);
     });
 
@@ -138,14 +137,14 @@ describe('SwarmView under ?epic= (req #3428)', () => {
         expect(lastPanelProps().epicReqIds).toBe(epicReqIdsFromHook);
     });
 
-    it('removes the pipeline toggle and the aggregator toggle, because neither '
-        + 'would be applying', () => {
+    it('keeps the pipeline toggle and the aggregator toggle on screen — a scope '
+        + 'restricts the rows and overrides no control (req #3598)', () => {
         const { queryByTestId } = mount('/swarm?view=cards&epic=11');
-        expect(queryByTestId('hide-pipelined-toggle')).toBeNull();
-        expect(queryByTestId('swarm-start-card-toggle')).toBeNull();
+        expect(queryByTestId('hide-pipelined-toggle')).not.toBeNull();
+        expect(queryByTestId('swarm-start-card-toggle')).not.toBeNull();
     });
 
-    it('keeps the status chips, which are orthogonal to epic membership', () => {
+    it('keeps the status chips on screen (req #3598)', () => {
         const { queryByTestId } = mount('/swarm?view=cards&epic=11');
         expect(queryByTestId('requirement-status-filter')).not.toBeNull();
     });
@@ -157,6 +156,7 @@ describe('SwarmView under ?epic= (req #3428)', () => {
         expect(queryByTestId('swarm-epic-filter-chip')).toBeNull();
         expect(queryByTestId('hide-pipelined-toggle')).not.toBeNull();
         expect(queryByTestId('swarm-start-card-toggle')).not.toBeNull();
+        expect(queryByTestId('requirement-status-filter')).not.toBeNull();
         expect(lastPanelProps().epicReqIds).toBeNull();
         expect(lastPanelProps().showSwarmStartCard).toBe(false);
     });
@@ -182,6 +182,8 @@ describe('SwarmView under ?epic= (req #3428)', () => {
         expect(queryByTestId('table-view')).not.toBeNull();
         expect(queryByTestId('swarm-epic-filter-chip')).toBeNull();
         expect(queryByTestId('hide-pipelined-toggle')).not.toBeNull();
+        // Table view never takes the scope, so its status chips stay (req #3598).
+        expect(queryByTestId('requirement-status-filter')).not.toBeNull();
     });
 
     it('with no ?epic= at all, nothing about the page changes', () => {
@@ -229,5 +231,7 @@ describe('SwarmView under ?epic= (req #3428)', () => {
         expect(lastPanelProps().showSwarmStartCard).toBe(false);
         expect(queryByTestId('hide-pipelined-toggle')).not.toBeNull();
         expect(queryByTestId('swarm-start-card-toggle')).not.toBeNull();
+        // Not engaged, so the status chips stay on screen AND keep filtering.
+        expect(queryByTestId('requirement-status-filter')).not.toBeNull();
     });
 });

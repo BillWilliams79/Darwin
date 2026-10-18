@@ -111,22 +111,11 @@ import Typography from '@mui/material/Typography';
 // legible as a destination.
 import ViewModuleIcon from '@mui/icons-material/ViewModule';
 
-import {
-    formatTimeGates, rowMachineLabel, STEP_RUNNING, STEP_PENDING,
-} from './pipelineViewModel';
-import { fmtCost } from './pipelineModel';
+import { STEP_RUNNING } from './pipelineViewModel';
 // req #3356 — the `era` PROP is gone (there is one era) but `planEra.js` stays
 // the ONE place a plan storage namespace or route is spelled, so the accessor is
 // still called — now with no era argument.
 import { planStorageNamespace } from './planEra';
-import { stepStateLabel, runLabel } from './pipelineChipStyles';
-// The autonomy / model / effort words the rest of the UI uses (req #3213 D5).
-// The card renders a requirement's execution settings through the SAME helpers
-// the swarm datacard and the detail grids do — a raw column value on one
-// surface and a label on another is two vocabularies for one fact.
-import { formatCoordination } from '../../CalendarFC/timeSeriesSizes';
-import { aiModelLabel } from '../modelChipStyles';
-import { effortLabel } from '../effortChipStyles';
 import { OrderViolationsAlert } from './PipelinePlanTable';
 import {
     computePlanLayout, beadStyle, placeEpicChips,
@@ -147,7 +136,7 @@ import {
     // req #3498 — the step is a CARD. The renderer draws the box the layout
     // measured; it never measures one of its own.
     CARD_RADIUS, CARD_PAD_X, CARD_PAD_Y, CARD_LINE_H, CARD_RULE_GAP,
-    CARD_STATE_BAR_W, CARD_CHECK_W, CARD_BADGE_FONT,
+    CARD_STATE_BAR_W, CARD_BADGE_FONT, CARD_TITLE_BTN_FONT,
     MIN_CARD_H, REQ_LINE_H, CHW_REQ,
     // req #3580 — the run pill's word and type.
     CARD_RUN_FONT, CARD_RUN_WORDS,
@@ -162,12 +151,13 @@ import {
 } from './pipelinePlanLayout';
 import {
     epicCycleKey, epicZoomStateKey, epicWorkStepIds, nextEpicZoom,
-    epicZoomHint, epicZoomHintSuffix, epicSeatedHint, gestureMovedCamera,
+    epicZoomHintSuffix, gestureMovedCamera,
     EPIC_ZOOM_CLICK_SLOP, EPIC_ZOOM_BAND, EPIC_ZOOM_STEP,
 } from './pipelineEpicZoom';
 // req #3428 — the epic chip's second destination. The URL contract lives with
 // the rest of `/swarm`'s query string, so this file names no query key itself.
 import { swarmEpicLinkTo, swarmStepLinkTo } from '../swarmViewLink';
+import { newRequirementSeatState } from './pipelineStepLink';
 import { useSavedViewport } from '../../hooks/useSavedViewport';
 // req #3581 — dragging a requirement between steps writes its seat.
 import AppContext from '../../Context/AppContext';
@@ -232,8 +222,20 @@ const REQ_PILL_STROKE = 1.25;
 const REQ_PILL_H_EM = 1.3;                  // pill height, in req font sizes
 const REQ_PILL_FONT_EM = 0.78;              // label size, in req font sizes
 const REQ_PILL_FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif';
-// Inside the two-space gap `REQ_PILL_SEP` leaves, so neighbours keep clear air.
+// Inside the gap before each token (`REQ_PILL_SEP` between pills, the id
+// column's own separator before the first), so neighbours keep clear air.
+// The CEILING on a pill's reach — see `REQ_PILL_LABEL_PAD_EM` for its width.
 const REQ_PILL_PAD_X = CHW_REQ * 0.3;
+// THE PILL HUGS ITS LABEL (user review, 2026-10-17: "the bubble around
+// terminal is too wide — minimize the white space without making it feel
+// cramped"). The box used to span every MONO character the layout reserved,
+// but the label is drawn in the UI sans at `REQ_PILL_FONT_EM` of the row's
+// size — about half the mono advance — so "Terminal 2" sat in a box nearly
+// twice its width. Now the box is the label's own measured width plus this
+// much air each side (0.6em — an MUI small chip's proportion), CENTRED on the
+// reserved characters and never wider than they allow. The same rule for both
+// kinds: a terminal and a port pill differ only in palette.
+const REQ_PILL_LABEL_PAD_EM = 0.6;
 // The pill's BOX is placed over the characters it replaced, MEASURED in the
 // font the row is actually drawn in, so the air between the id, the pills and
 // the title's dash stays even. `CHW_REQ` is a deliberate OVER-estimate of the
@@ -244,14 +246,15 @@ const REQ_PILL_PAD_X = CHW_REQ * 0.3;
 // they really are. One shared 2D context; null where there
 // is no canvas (jsdom), and the caller falls back to the layout's advance.
 let pillMeasureCtx;
-const measureReqText = (str, fontSize, bold) => {
+const measureReqText = (str, fontSize, bold, fontSpec = null) => {
     try {
         if (pillMeasureCtx === undefined) {
             pillMeasureCtx = Konva.Util.createCanvasElement().getContext('2d') || null;
         }
         if (!pillMeasureCtx) return null;
         // Konva's own font string for a Text node: style, variant, size, family.
-        pillMeasureCtx.font = `${bold ? 'bold' : 'normal'} normal ${fontSize}px ${MONO}`;
+        pillMeasureCtx.font = fontSpec
+            || `${bold ? 'bold' : 'normal'} normal ${fontSize}px ${MONO}`;
         const w = pillMeasureCtx.measureText(str).width;
         return Number.isFinite(w) && w > 0 ? w : null;
     } catch (e) {
@@ -402,7 +405,7 @@ function KeyGroup({ title, children, first = false }) {
 }
 
 export default function PipelinePlanVisualizer({
-    plan, model, pipeline, timezone, onStepFocus, focusEpicId,
+    plan, model, pipeline, onStepFocus, focusEpicId,
     // Req #3253 — the deep link's OTHER target. This prop has always travelled
     // here (PipelineDetail hands the same page state to both panels); until now
     // the canvas ignored it, because a step was a ROW and only the table had one
@@ -764,7 +767,6 @@ export default function PipelinePlanVisualizer({
     const focusSeqRef = useRef(0);
     const [size, setSize] = useState({ w: 0, h: 0 });
     const [transform, setTransform] = useState(null);
-    const [card, setCard] = useState(null);   // {x, y, kind: 'step'|'req', ...}
 
     // ── The swarm-ready, not-orchestrated box (req #3583) ───────────────────
     // `unseatDragId` is the box row in the air (it greys out), `seatTarget` the
@@ -1215,9 +1217,6 @@ export default function PipelinePlanVisualizer({
                     && gestureMovedCamera(gestureStartRef.current, tr)) {
                     epicZoomRef.current = null;
                 }
-                // The world slides under a stationary datacard, which would
-                // then caption whatever bead ends up beneath it — dismiss.
-                setCard(null);
             })
             .on('start', (ev) => {
                 // WHERE THE CAMERA WAS WHEN THIS GESTURE BEGAN (req #3297) —
@@ -1258,7 +1257,7 @@ export default function PipelinePlanVisualizer({
             sel.on('.zoom', null);
             // Detaching the listeners does NOT stop a running focus transition
             // (req #3204): it would keep ticking on a detached container for the
-            // rest of its 420ms, calling setTransform/setCard into an unmounted
+            // rest of its 420ms, calling setTransform into an unmounted
             // tree and holding the node. Reachable — a bead click switches the
             // page to Table mode, which unmounts this component.
             sel.interrupt();
@@ -1994,7 +1993,6 @@ export default function PipelinePlanVisualizer({
             d.offY = p0.y - r.y + PAD_Y;
             d.phase = 'drag';
             d.target = null;
-            setCard(null);
             setReqDrag({
                 reqId: d.reqId, fromStepId: d.fromStepId, src,
                 w: r.width, h: r.height, padX: PAD_X, padY: PAD_Y,
@@ -2196,7 +2194,7 @@ export default function PipelinePlanVisualizer({
     // in no dependency array — so the wrapper only read as if it memoised
     // something.
     const drawsKind = (kind) => drawsLabelKind(kind, level);
-    const drawnKinds = ['step', 'req', 'title', 'badge', 'step-link']
+    const drawnKinds = ['step', 'req', 'title', 'badge', 'step-link', 'step-add']
         .filter(drawsKind).join(',');
 
     // Report the level being rendered so the toolbar's selector can softly mark
@@ -2317,23 +2315,6 @@ export default function PipelinePlanVisualizer({
         stage.container().style.cursor = on ? 'pointer' : 'grab';
     }, []);
 
-    // No datacard while a requirement is in the air (req #3581) — the cursor is
-    // carrying one, and a card popping up under it would cover the drop target.
-    const showStepCard = useCallback((row, e) => {
-        if (reqDragRef.current?.phase === 'drag') return;
-        const p = e?.target?.getStage?.()?.getPointerPosition?.();
-        if (p) setCard({ x: p.x, y: p.y, kind: 'step', row });
-    }, []);
-    const showReqCard = useCallback((reqId, e) => {
-        if (reqDragRef.current?.phase === 'drag') return;
-        const p = e?.target?.getStage?.()?.getPointerPosition?.();
-        if (p) {
-            setCard({ x: p.x, y: p.y, kind: 'req', reqId, info: reqInfo.get(reqId),
-                pills: reqPills?.get?.(reqId) || null });
-        }
-    }, [reqInfo, reqPills]);
-    const hideCard = useCallback(() => setCard(null), []);
-
     // ── Focus an epic band (req #3204) ──────────────────────────────────────
     // Applied through the d3-zoom BEHAVIOR, on a transition. Animated rather
     // than jumped (the requirement asked for a decision): a 420ms ease shows
@@ -2374,9 +2355,6 @@ export default function PipelinePlanVisualizer({
         const el = containerEl;
         const zb = zoomRef.current;
         if (!el || !zb || !tr) return false;
-        // The world is about to slide out from under any open datacard, exactly
-        // as it does on a pan.
-        setCard(null);
         if (!animate) {
             // INTERRUPT FIRST, THEN RAISE THE FLAG (review finding). `zoom.transform`
             // runs `selection.interrupt()` of its own before dispatching, so an
@@ -2655,7 +2633,6 @@ export default function PipelinePlanVisualizer({
             applyFocus(zoomAboutViewportCentre(tr, size, k2) || tr);
         },
         onLongPress: () => {
-            setCard(null);
             setStepEdit({ stepId, saving: false });
         },
     });
@@ -3464,17 +3441,6 @@ export default function PipelinePlanVisualizer({
                         n.frameLeft + n.frameW - CARD_PAD_X,
                         n.top + n.titleH + CARD_RULE_GAP,
                     ]} stroke={P.line} strokeWidth={1} listening={false} />
-                    {/* The ✓ sits in `CARD_CHECK_W`, which `stepLabelText`'s
-                        budget takes off the top — so it never lands on the step
-                        name. Before that reserve existed it overlapped the
-                        title's ellipsis on 23 of the fixture's 34 cards. */}
-                    {style.check && (
-                        <Text x={n.frameLeft + n.frameW
-                                  - CARD_PAD_X - CARD_CHECK_W + 2}
-                              y={n.top + CARD_PAD_Y + 2} text="✓"
-                              fontSize={CF.check} fill={P.doneCheck}
-                              listening={false} />
-                    )}
                 </Group>);
         } else {
             worldNodes.push(
@@ -3521,8 +3487,8 @@ export default function PipelinePlanVisualizer({
         // above these nodes, so the clearance between the two is an invariant
         // the layout tests assert.
         const stepHover = {
-            onMouseEnter: (e) => { cursorPointer(e, true); showStepCard(row, e); },
-            onMouseLeave: (e) => { cursorPointer(e, false); hideCard(); },
+            onMouseEnter: (e) => cursorPointer(e, true),
+            onMouseLeave: (e) => cursorPointer(e, false),
         };
         const stepActivate = { ...stepHover, onActivate: () => onStepFocus?.(row.id) };
         if (drawsCard) {
@@ -3698,12 +3664,8 @@ export default function PipelinePlanVisualizer({
             if (row) {
                 worldNodes.push(labelHit(`lblhit-${i}`, label, {
                     pressStepId: row.id,
-                    // No hover card over the step's own open editor.
-                    onMouseEnter: (e) => {
-                        cursorPointer(e, true);
-                        if (stepEdit?.stepId !== row.id) showStepCard(row, e);
-                    },
-                    onMouseLeave: (e) => { cursorPointer(e, false); hideCard(); },
+                    onMouseEnter: (e) => cursorPointer(e, true),
+                    onMouseLeave: (e) => cursorPointer(e, false),
                 }));
             }
         } else if (label.kind === 'req') {
@@ -3793,27 +3755,98 @@ export default function PipelinePlanVisualizer({
             const pillInfo = pillsHere.length ? (reqPills?.get?.(label.reqId) || null) : null;
             let rowText = reqText;
             let pillBoxes = [];
+            // The first line's text AFTER the last pill, redrawn flush against
+            // it (see the packing note below); null leaves it in the row Text.
+            let rowTail = null;
             if (pillsHere.length) {
                 const rowLines = reqText.split('\n');
                 const firstLine = rowLines[0];
-                pillBoxes = pillsHere.map((pl) => {
+                pillBoxes = pillsHere.map((pl, j) => {
                     const h = CF.req * REQ_PILL_H_EM;
                     const lead = pl.start === 0 ? 0
                         : measureReqText(firstLine.slice(0, pl.start), CF.req, rs.bold);
                     const span = measureReqText(firstLine.slice(pl.start, pl.start + pl.len),
                         CF.req, rs.bold);
+                    const text = firstLine.slice(pl.start, pl.start + pl.len).replace(/\u00a0/g, ' ');
+                    // Hug the label (see `REQ_PILL_LABEL_PAD_EM`), centred on the
+                    // reserved span; unmeasurable → the span itself, as before.
+                    const labelSize = CF.req * REQ_PILL_FONT_EM;
+                    const labelW = measureReqText(text, labelSize, false,
+                        `normal normal 600 ${labelSize}px ${REQ_PILL_FONT}`);
+                    const spanW = span ?? pl.len * CHW_REQ;
+                    const maxW = spanW + 2 * REQ_PILL_PAD_X;
+                    const w = labelW == null ? maxW
+                        : Math.min(maxW, labelW + 2 * labelSize * REQ_PILL_LABEL_PAD_EM);
+                    const slotX = reqX + (lead ?? pl.start * CHW_REQ);
                     return {
                         ...pl,
-                        text: firstLine.slice(pl.start, pl.start + pl.len).replace(/\u00a0/g, ' '),
-                        x: reqX + (lead ?? pl.start * CHW_REQ) - REQ_PILL_PAD_X,
+                        text,
+                        measured: labelW != null && lead != null && span != null,
+                        // The first pill's slot starts ON the title column, so
+                        // it never centres out past that edge into the id's
+                        // (req #3601) — the unmeasured path included.
+                        x: j === 0 ? Math.max(slotX, slotX + spanW / 2 - w / 2)
+                            : slotX + spanW / 2 - w / 2,
                         y: reqY + REQ_LINE_H / 2 - h / 2,
-                        w: (span ?? pl.len * CHW_REQ) + 2 * REQ_PILL_PAD_X,
+                        w,
                         h,
                         style: REQ_PILL_STYLE[pl.kind] || REQ_PILL_STYLE.terminal,
                     };
                 });
                 rowLines[0] = pillsHere.reduce((ln, pl) => ln.slice(0, pl.start)
                     + ' '.repeat(pl.len) + ln.slice(pl.start + pl.len), firstLine);
+                // ── PACKED, NOT CENTRED IN THEIR SLOTS (user review, 2026-10-17:
+                // "too much space between Terminal pill and the dash") ────────
+                // A pill hugs its sans label (`REQ_PILL_LABEL_PAD_EM`) but the
+                // layout reserves the label's MONO width, so a pill centred in its
+                // slot left the slack beside it — between the last pill and the
+                // title's dash most visibly. So when every width is measurable the
+                // pills are laid one after another — the first with its left edge
+                // ON THE TITLE COLUMN the layout put its range on (req #3601: never
+                // inside the id's column), then ONE SPACE of air from each other
+                // and from the title — and the first line's tail
+                // (` - Title…`, which starts with its own space) is redrawn flush
+                // after the last pill. The row Text keeps the layout's characters
+                // (tail blanked) and so stays the hover/click/drag target over the
+                // whole row; the layout's reservation is an upper bound the packed
+                // line never exceeds, so wrap, card height and overlap are untouched.
+                const spaceW = measureReqText(' ', CF.req, rs.bold);
+                const last = pillsHere[pillsHere.length - 1];
+                const tailStart = last.start + last.len;
+                const tailText = firstLine.slice(tailStart);
+                const measured = spaceW != null && pillsHere.every((pl, j) =>
+                    pl.start > 0 && pillBoxes[j].measured);
+                if (measured) {
+                    let x = reqX + measureReqText(firstLine.slice(0, pillsHere[0].start),
+                        CF.req, rs.bold);
+                    pillBoxes = pillBoxes.map((b) => {
+                        const placed = { ...b, x };
+                        x += b.w + spaceW;
+                        return placed;
+                    });
+                    // The upper bound is ENFORCED, not assumed: a 4-digit port's
+                    // label plus its air is a little wider than the four
+                    // characters reserved for it, and with the first pill no
+                    // longer stepping back a space into the id column (req #3601)
+                    // nothing else absorbs that. The last pill gives up the
+                    // excess from its own air, so the line ends where the layout's
+                    // characters do.
+                    const reservedW = measureReqText(firstLine.slice(0, tailStart),
+                        CF.req, rs.bold);
+                    const reservedEnd = reservedW == null ? null : reqX + reservedW;
+                    const lastPacked = pillBoxes[pillBoxes.length - 1];
+                    if (reservedEnd != null && lastPacked.x + lastPacked.w > reservedEnd) {
+                        pillBoxes[pillBoxes.length - 1] = {
+                            ...lastPacked, w: reservedEnd - lastPacked.x,
+                        };
+                    }
+                    const lastBox = pillBoxes[pillBoxes.length - 1];
+                    if (tailText.trim()) {
+                        rowTail = { x: lastBox.x + lastBox.w, text: tailText };
+                        rowLines[0] = rowLines[0].slice(0, tailStart)
+                            + ' '.repeat(tailText.length);
+                    }
+                }
                 rowText = rowLines.join('\n');
             }
             // A row that carries pills is drawn as ONE Group — text, pills and
@@ -3835,8 +3868,8 @@ export default function PipelinePlanVisualizer({
                       dragReqId={label.reqId}
                       dragStepId={label.stepId}
                       dragRowGroup={pillBoxes.length > 0}
-                      onMouseEnter={(e) => { cursorPointer(e, true); showReqCard(label.reqId, e); }}
-                      onMouseLeave={(e) => { cursorPointer(e, false); hideCard(); }}
+                      onMouseEnter={(e) => cursorPointer(e, true)}
+                      onMouseLeave={(e) => cursorPointer(e, false)}
                       // Carry the plan's identity so the requirement page's Back
                       // returns HERE and not to the Roadmap (req #3119).
                       //
@@ -3867,6 +3900,16 @@ export default function PipelinePlanVisualizer({
                               ? { state: { from: 'pipeline', pipelineId: pipeline.id,
                                   mode: 'plan' } }
                               : undefined)} />);
+            if (rowTail) {
+                rowNodes.push(
+                    <Text key={`lbl-${i}-tail`} x={rowTail.x} y={reqY} text={rowTail.text}
+                          fontSize={CF.req} fontFamily={MONO}
+                          lineHeight={REQ_LINE_H / CF.req}
+                          fill={lifted ? P.dim : rs.fill}
+                          opacity={lifted ? 0.4 : 1}
+                          fontStyle={rs.bold ? 'bold' : 'normal'}
+                          wrap="none" listening={false} />);
+            }
             pillBoxes.forEach((b, j) => {
                 rowNodes.push(
                     <Rect key={`lbl-${i}-pill-${j}`} x={b.x} y={b.y} width={b.w} height={b.h}
@@ -3899,8 +3942,8 @@ export default function PipelinePlanVisualizer({
                 rowNodes.push(
                     <Rect key={`lbl-${i}-pillhit-${j}`} x={b.x} y={b.y} width={b.w} height={b.h}
                           fill="transparent"
-                          onMouseEnter={(e) => { cursorPointer(e, true); showReqCard(label.reqId, e); }}
-                          onMouseLeave={(e) => { cursorPointer(e, false); hideCard(); }}
+                          onMouseEnter={(e) => cursorPointer(e, true)}
+                          onMouseLeave={(e) => cursorPointer(e, false)}
                           onActivate={action} />);
             });
             if (pillBoxes.length) {
@@ -3932,27 +3975,44 @@ export default function PipelinePlanVisualizer({
             // separate transparent Rect is needed — the same shortcut the
             // requirement rows above already take.
             //
-            // HOVER SHOWS THE STEP CARD, same as `hitact-`'s own hover
-            // (review finding): this button is pushed AFTER — and so draws
-            // ON TOP OF — the whole-title-area hit rect, and Konva resolves
-            // mouseenter/mouseleave to the topmost shape. Without its own
-            // `showStepCard`, moving the pointer from the title onto this
-            // glyph fired the rect's `mouseleave` (→ `hideCard()`) with
-            // nothing here to replace it — the one listening node in the
-            // card that blanked the tooltip instead of swapping it, exactly
-            // the failure the requirement-row hover below already avoids.
             const linkRow = rowById.get(label.stepId);
+            // An OUTLINED SQUARE so it reads as a button, sized to the count
+            // badge (req #3582 polish — see `CARD_TITLE_BTN`). Decoration only:
+            // the Text's own box below is the hit target, same as before.
+            worldNodes.push(
+                <Rect key={`lbl-${i}-frame`} x={label.x} y={label.y}
+                      width={label.w} height={label.h} cornerRadius={4}
+                      stroke={P.dim} strokeWidth={1} listening={false} />);
             worldNodes.push(
                 <Text key={`lbl-${i}`} x={label.x} y={label.y}
                       width={label.w} height={label.h}
                       text={label.text} align="center" verticalAlign="middle"
-                      fontSize={CF.label} fontFamily={MONO} fill={P.text}
-                      onMouseEnter={(e) => {
-                          cursorPointer(e, true);
-                          if (linkRow) showStepCard(linkRow, e);
-                      }}
-                      onMouseLeave={(e) => { cursorPointer(e, false); hideCard(); }}
+                      fontSize={CARD_TITLE_BTN_FONT} fontFamily={MONO} fill={P.text}
+                      onMouseEnter={(e) => cursorPointer(e, true)}
+                      onMouseLeave={(e) => cursorPointer(e, false)}
                       onActivate={() => onStepFocus?.(label.stepId)} />);
+        } else if (label.kind === 'step-add') {
+            // "+" — file a new requirement INTO this step (req #3582). Opens the
+            // requirement editor's "new" mode (req #2414, the aggregator
+            // template's own path) carrying the step; nothing is written until
+            // the user picks a category, and that first save seats it here.
+            // Framed, drawn and hovered exactly like the ↗ beside it — see that
+            // branch.
+            const addRow = rowById.get(label.stepId);
+            worldNodes.push(
+                <Rect key={`lbl-${i}-frame`} x={label.x} y={label.y}
+                      width={label.w} height={label.h} cornerRadius={4}
+                      stroke={P.dim} strokeWidth={1} listening={false} />);
+            worldNodes.push(
+                <Text key={`lbl-${i}`} x={label.x} y={label.y}
+                      width={label.w} height={label.h}
+                      text={label.text} align="center" verticalAlign="middle"
+                      fontSize={CARD_TITLE_BTN_FONT} fontFamily={MONO} fill={P.text}
+                      onMouseEnter={(e) => cursorPointer(e, true)}
+                      onMouseLeave={(e) => cursorPointer(e, false)}
+                      onActivate={() => navigate('/swarm/requirement/new', {
+                          state: newRequirementSeatState(pipeline?.id, 'plan', addRow),
+                      })} />);
         } else if (label.kind === 'title') {
             worldNodes.push(
                 <Text key={`lbl-${i}`} x={label.x} y={label.y} text={label.text}
@@ -3974,8 +4034,8 @@ export default function PipelinePlanVisualizer({
             const titleRow = rowById.get(label.stepId);
             if (titleRow) {
                 worldNodes.push(labelHit(`lblhit-${i}`, label, {
-                    onMouseEnter: (e) => { cursorPointer(e, true); showStepCard(titleRow, e); },
-                    onMouseLeave: (e) => { cursorPointer(e, false); hideCard(); },
+                    onMouseEnter: (e) => cursorPointer(e, true),
+                    onMouseLeave: (e) => cursorPointer(e, false),
                 }));
             }
         } else if (label.kind === 'slot') {
@@ -4275,9 +4335,6 @@ export default function PipelinePlanVisualizer({
                         // rename, so it takes no long press.
                         const renamable = e.epicId != null;
                         const editing = renamable && epicEdit?.key === e.key;
-                        const zoomTitle = epicZoomHint(epicWorkByEpic.get(e.key))
-                            + epicSeatedHint(!!(showReqCounts && e.epicId != null
-                                && epicCounts?.get(e.epicId)));
                         const zoomLabel = `Zoom pipeline epic ${e.name ?? e.text}`
                             + epicZoomHintSuffix(epicWorkByEpic.get(e.key));
                         const startEdit = () => setEpicEdit({ key: e.key, saving: false });
@@ -4419,10 +4476,6 @@ export default function PipelinePlanVisualizer({
                                 aria-label={zoomLabel
                                     + (e.band?.paused ? ' — paused' : ' — active')}
                                 data-testid={`pipeline-viz-epic-pause-${e.key}`}
-                                title={(e.band?.paused
-                                    ? 'This scope is paused — not swarm-starting'
-                                    : 'This scope is active — may swarm-start')
-                                    + `\n${zoomTitle}`}
                                 sx={{
                                     flexShrink: 0, display: 'inline-flex',
                                     p: '5px', m: '-5px', borderRadius: '50%',
@@ -4474,11 +4527,8 @@ export default function PipelinePlanVisualizer({
                                              zoomHandlers.onKeyDown(ev);
                                          },
                                          'aria-label': `${zoomLabel} — press F2 to rename`,
-                                         title: `${zoomTitle}\nDouble-click to zoom in further. `
-                                             + 'Press and hold to rename.',
                                      } : {
                                          'aria-label': zoomLabel,
-                                         title: `${zoomTitle}\nDouble-click to zoom in further.`,
                                      })}
                                 >
                                     {e.name ?? e.text}
@@ -4494,7 +4544,6 @@ export default function PipelinePlanVisualizer({
                                      {...zoomHandlers}
                                      {...press('count', gestures)}
                                      aria-label={`${zoomLabel} — ${e.countText} requirements closed`}
-                                     title={`${zoomTitle}\nDouble-click to zoom in further.`}
                                      data-testid={`pipeline-viz-epic-count-${e.key}`}
                                      sx={{
                                          cursor: 'pointer', fontWeight: 400,
@@ -4529,7 +4578,6 @@ export default function PipelinePlanVisualizer({
                                     role="link"
                                     tabIndex={0}
                                     aria-label={`Open ${e.text}'s steps`}
-                                    title={`Open “${e.text}”'s steps`}
                                     data-testid={`pipeline-viz-epic-open-${e.key}`}
                                     onClick={(ev) => {
                                         ev.stopPropagation();
@@ -4593,7 +4641,6 @@ export default function PipelinePlanVisualizer({
                                     role="link"
                                     tabIndex={0}
                                     aria-label={`Open ${e.text} requirements in the task cards view`}
-                                    title={`Open “${e.text}” requirements in the Task Cards view`}
                                     data-testid={`pipeline-viz-epic-cards-${e.key}`}
                                     onClick={(ev) => {
                                         ev.stopPropagation();
@@ -4660,7 +4707,6 @@ export default function PipelinePlanVisualizer({
                              role="link"
                              tabIndex={0}
                              aria-label={`Open step ${b.stepId}'s ${b.text} requirements in the Task Cards view`}
-                             title={`Open this step's requirements in the Task Cards view`}
                              data-testid={`pipeline-viz-badge-open-${b.stepId}`}
                              onClick={(ev) => {
                                  ev.stopPropagation();
@@ -4729,7 +4775,6 @@ export default function PipelinePlanVisualizer({
                                  data-run={r.run}
                                  aria-label={`Step ${r.stepId} runs ${r.run} — switch to ${next}`}
                                  aria-busy={r.pending || undefined}
-                                 title={`Run: ${runLabel(r.run)} — click to make it ${runLabel(next)}`}
                                  onClick={(ev) => {
                                      ev.stopPropagation();
                                      toggleRun(r.stepId, r.run);
@@ -5076,11 +5121,6 @@ export default function PipelinePlanVisualizer({
                     this chip removes no signal that had no other home. That
                     control is in the PAGE HEADER since req #3241; it was in the
                     key when this note was written. */}
-
-                {card && (
-                    <PlanDataCard card={card} timezone={timezone} level={level}
-                                  containerW={size.w} containerH={size.h} />
-                )}
             </Box>
 
             {/* req #3586 — the add-step dialog. Portalled to the body, so a
@@ -5126,167 +5166,5 @@ export default function PipelinePlanVisualizer({
                 </DialogActions>
             </Dialog>
         </Box>
-    );
-}
-
-// ── Hover datacard (reuses the shared .ts-datacard CSS) ─────────────────────
-// Step: title, state, run, deps (step gates + wall-clock gates through the ONE
-// shared formatter), the step's epic as a single value (req #3373 — the
-// dominant-plus-full-set rendering and the Feature line both went with it: a
-// set of one is not a set, and Feature was never drawn anywhere on this
-// surface), requirement ids, machines, the step's own exact /swarm-start
-// argument list,
-// and — at the 'in' level only — Cost (req #3117). A THIRD card kind used to
-// caption the dashed launch-unit rectangle and carry that command; req #3371
-// made the step the launch unit, so the command is a field on the step's own
-// card and there are two kinds. No session data anywhere (design rule 9); no
-// generated '#'.
-//
-// COST IS LEVEL-GATED, matching the level ladder's own rule: 'in' is where the
-// per-step detail slot opens (the title line above does the same). It is also
-// the only place the number is actionable — at 'out' and 'mid' the question is
-// what runs next, not what it cost.
-//
-// It is NOT session data despite living on session rows. `row.cost` is a
-// per-requirement rollup summed by the engine; the visualizer reads a field the
-// table already renders, and design rule 9 stays intact because no session
-// identity, phase or status appears here.
-function PlanDataCard({ card, timezone, level, containerW, containerH }) {
-    const CARD_W = 300;
-    const cardRef = useRef(null);
-    const [cardH, setCardH] = useState(0);
-    useLayoutEffect(() => {
-        if (cardRef.current) setCardH(cardRef.current.offsetHeight);
-    }, [card]);
-    const estH = cardH || 60;
-    const left = Math.min(Math.max(8, card.x + 14), Math.max(8, containerW - CARD_W - 8));
-    const top = Math.min(Math.max(8, card.y + 14), Math.max(8, containerH - estH - 8));
-
-    const rowEl = (key, value) => (
-        <div className="ts-datacard-row">
-            <span className="ts-datacard-key">{key}</span><span>{value}</span>
-        </div>
-    );
-
-    let body;
-    if (card.kind === 'req') {
-        // Requirement hover (req #3119): the NAME and the STATUS, which is what
-        // an id alone cannot tell you. Deliberately not on the canvas — see the
-        // reqInfo comment. Requirement status is the requirement's OWN field, not
-        // the step state derived from it, so it is shown verbatim.
-        //
-        // THE NAME LEADS AND THE NUMBER IS A FIELD (req #3213 D4). It was
-        // exactly inverted — a bare id as the heading with the title labelled
-        // beneath it — so the card led with the one thing the reader had just
-        // pointed at and already knew. An identifier is data; the step card
-        // below now reads the same way, which is the other half of the fix.
-        //
-        // Autonomy / model / effort (D5) answer HOW the work will be executed,
-        // not merely what it is called, and every one of them goes through the
-        // shared label helper rather than printing a column value.
-        const info = card.info || {};
-        body = (
-            <div className="ts-datacard">
-                <div className="ts-datacard-title">{info.title || '(untitled)'}</div>
-                {rowEl('Requirement', card.reqId)}
-                {rowEl('Status', info.status || 'unknown')}
-                {/* req #3584 — the Session colour key's value, in words. */}
-                {rowEl('Session', info.session ? info.session.replace('_', ' ') : 'unknown')}
-                {/* ONE missing-value policy across the three (review finding).
-                    `aiModelLabel`/`effortLabel` fall back to Opus/High on
-                    unknown input, and their own comments justify that by the
-                    NULL backfill — but those columns are NOT NULL with exactly
-                    those defaults, so a fallback reached HERE can only mean the
-                    projection did not carry the field. That is a plausible
-                    WRONG answer with no visual tell, which is worse than no
-                    answer; `formatCoordination` in the line above already says
-                    '—' for the same condition. The row stays present either
-                    way, so the card still answers all four questions. */}
-                {rowEl('Autonomy', formatCoordination(info.coordination))}
-                {rowEl('Model', info.model ? aiModelLabel(info.model) : '—')}
-                {rowEl('Effort', info.effort ? effortLabel(info.effort) : '—')}
-                {/* req #3587 — the pills' facts, spelled out: which terminal
-                    (and whether it can be focused from here), which port. */}
-                {card.pills?.terminal && rowEl('Terminal',
-                    card.pills.terminal.title || card.pills.terminal.label)}
-                {card.pills?.devServer && rowEl('Dev server', card.pills.devServer.title)}
-            </div>
-        );
-    } else {
-        const r = card.row;
-        const timeGates = formatTimeGates(r.timeDeps, timezone);
-        const depText = r.depIds.length ? r.depIds.join(' ') : '—';
-        body = (
-            <div className="ts-datacard">
-                {/* NAME ALONE in the heading, id as the first field (req #3213
-                    D3). The heading used to concatenate the two, which made the
-                    step card and the requirement card read in opposite orders;
-                    they now agree — a name on top, identifiers among the
-                    attributes. */}
-                <div className="ts-datacard-title">{r.title || '(untitled)'}</div>
-                {rowEl('Step', r.id)}
-                {rowEl('State', stepStateLabel(r.state))}
-                {rowEl('Run', runLabel(r.run))}
-                {rowEl('Deps', depText)}
-                {timeGates.map((g) => <div key={g}>{rowEl('After', g)}</div>)}
-                {r.epic && rowEl('Epic', r.epic)}
-                {/* Tracking containers marked with a trailing † and named below
-                    (req #3123). The card answers the same question the plan
-                    table now answers — "this step links a requirement still in
-                    development, so why is it not Running?" — and leaving the
-                    SVG surface silent would make the derivation look broken to
-                    a reader who is right to check it. */}
-                {rowEl('Reqs', r.reqIds.length
-                    ? r.reqIds.map((id) => ((r.trackingReqIds || []).includes(id)
-                        ? `${id}†` : `${id}`)).join(' ')
-                    : '—')}
-                {(r.trackingReqIds || []).length > 0 && rowEl('† tracking',
-                    'container, not work — does not gate this step, not launched')}
-                {level === 'in' && rowEl('Cost',
-                    // Same fmtCost the table's Cost column uses, on the same
-                    // row.cost the engine attached — the two surfaces cannot
-                    // disagree about a step's cost because there is one value.
-                    // '\n'-joined, so the card renders it on two lines.
-                    <span style={{ whiteSpace: 'pre-line' }}>
-                        {fmtCost(r.cost?.wallSecs, r.cost?.tokens)}
-                    </span>)}
-                {/* Through the shared stripper: the engine degrades an unknown
-                    machine id to '#<id>' and the no-'#' directive covers it. */}
-                {rowEl('Machine', rowMachineLabel(r))}
-                {/* DESIGN RULE 8'S ARTIFACT, ON THE STEP IT BELONGS TO (req
-                    #3371). A separate card used to carry this for the dashed
-                    launch-unit rectangle; the step is the launch unit now, so
-                    the command sits with the step it launches — the same fact
-                    the plan table renders on the same row, from the same
-                    fields. SCHEDULED work only, matching the table: a finished
-                    step's "nothing to launch" is noise, and a running one is
-                    already out. */}
-                {r.state === STEP_PENDING && (r.swarmStartCommand || r.noLaunchReason)
-                    && rowEl('Launch', r.swarmStartCommand
-                        ? <code style={{ fontSize: '0.85em' }}>{r.swarmStartCommand}</code>
-                        : r.noLaunchReason)}
-                {/* req #3360 — the ids the command DROPPED and why. Only
-                    alongside a command: with none, the reason above names them
-                    all already. Without this a six-requirement step showing a
-                    three-id command reads as a dropped requirement. */}
-                {r.state === STEP_PENDING && r.swarmStartCommand
-                    && (r.launchExcluded || []).length > 0
-                    && rowEl('Skipped', r.launchExcluded.join(', '))}
-            </div>
-        );
-    }
-
-    return (
-        // `data-kind` is what makes D2 assertable (req #3213): "the card that
-        // appears belongs to the thing being pointed at" is a claim about WHICH
-        // card, and the three read too similarly to tell apart by text alone.
-        <div ref={cardRef} className="ts-shared-tooltip"
-             data-testid="pipeline-viz-datacard" data-kind={card.kind}
-             style={{
-                 position: 'absolute', left, top, maxWidth: CARD_W, zIndex: 20,
-                 pointerEvents: 'none',
-             }}>
-            {body}
-        </div>
     );
 }

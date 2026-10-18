@@ -57,7 +57,7 @@ import CheckIcon from '@mui/icons-material/Check';
 
 import { useScrollMemory } from '../../hooks/useScrollMemory';
 import { scrollStorageKey } from '../../utils/viewportMemory';
-import { fmtCost, STEP_DONE, STEP_RUNNING, STEP_PENDING } from './pipelineModel';
+import { fmtCost, STEP_DONE, STEP_RUNNING, STEP_PENDING, canFileIntoStep } from './pipelineModel';
 // req #3356 — the `era` PROP and ARGUMENT are both gone (there is one era) but
 // `planEra.js` stays the ONE place a plan route, entity or storage namespace is
 // spelled, so the accessors are still called — now with no argument.
@@ -83,6 +83,7 @@ import {
     PAUSE_PAUSED_COLOR,
 } from './pipelineChipStyles';
 import { sortReqIdsByColorKey } from './pipelinePlanLayout';
+import { newRequirementSeatState } from './pipelineStepLink';
 
 const NOWRAP = { whiteSpace: 'nowrap' };
 
@@ -258,12 +259,12 @@ function StepLaunchLine({ row }) {
 // reordered.
 function RequirementLinks({ row, pipelineId, colorKey, statusOf, sessionOf, autonomyOf,
     machineOf }) {
-    if (!row.reqIds.length) return <span>—</span>;
     const tracking = new Set(row.trackingReqIds || []);
     const sortedIds = sortReqIdsByColorKey(row.reqIds,
         { colorKey, statusOf, sessionOf, autonomyOf, machineOf });
     return (
         <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
+            {!sortedIds.length && <span>—</span>}
             {sortedIds.map((id) => {
                 const isTracking = tracking.has(id);
                 const link = (
@@ -317,6 +318,23 @@ function RequirementLinks({ row, pipelineId, colorKey, statusOf, sessionOf, auto
                     )
                     : link;
             })}
+            {/* req #3582 — file a NEW requirement into this step. The editor's
+                "new" mode posts nothing until a category is picked, and that
+                first save seats the requirement on this step. Not offered on a
+                step with a stamped completion (design rule 1). */}
+            {canFileIntoStep(row) && <Tooltip title="File a new requirement into this step">
+                <Link
+                    component={RouterLink}
+                    to="/swarm/requirement/new"
+                    state={newRequirementSeatState(pipelineId, 'table', row)}
+                    underline="none"
+                    aria-label={`File a new requirement into step ${row.id}`}
+                    sx={{ fontFamily: 'monospace', fontWeight: 700 }}
+                    data-testid={`pipeline-step-add-${row.id}`}
+                >
+                    +
+                </Link>
+            </Tooltip>}
         </Box>
     );
 }
