@@ -8,9 +8,11 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+    FOCUS_COLOR_PARAM,
     FOCUS_LEVEL_PARAM,
     FOCUS_STEP_PARAM,
     STEP_PLAN_LINK_LEVEL,
+    readColorParam,
     readFocusStepParam,
     readLevelParam,
     stepLinkTo,
@@ -19,7 +21,7 @@ import {
     readNewRequirementSeat,
     backToStepPath,
 } from '../pipelineStepLink';
-import { PLAN_LEVEL_BY_PREF } from '../pipelinePlanLayout';
+import { PLAN_LEVEL_BY_PREF, REQ_COLOR_KEYS } from '../pipelinePlanLayout';
 
 describe('stepLinkTo', () => {
     it('names the plan, the table mode and the step', () => {
@@ -216,5 +218,33 @@ describe('backToStepPath (req #3582)', () => {
             { pipelineId: null, backStepId: 412 }]) {
             expect(backToStepPath(bad)).toBeNull();
         }
+    });
+});
+
+describe('readColorParam (req #3636)', () => {
+    const params = (search) => new URLSearchParams(search);
+
+    it('is spelled `color`', () => {
+        expect(FOCUS_COLOR_PARAM).toBe('color');
+    });
+
+    it('reads every registered colour key a link names', () => {
+        for (const key of REQ_COLOR_KEYS) {
+            expect(readColorParam(params(`mode=plan&color=${key}`))).toBe(key);
+        }
+    });
+
+    it('is null for anything outside REQ_COLOR_KEYS, so the stored key stays in charge', () => {
+        expect(readColorParam(params('mode=plan'))).toBeNull();
+        expect(readColorParam(params('color='))).toBeNull();
+        expect(readColorParam(params('color=Session'))).toBeNull();
+        expect(readColorParam(params('color=constructor'))).toBeNull();
+        expect(readColorParam(params('color=__proto__'))).toBeNull();
+    });
+
+    it('survives a caller with no search params at all', () => {
+        expect(readColorParam(null)).toBeNull();
+        expect(readColorParam(undefined)).toBeNull();
+        expect(readColorParam({})).toBeNull();
     });
 });

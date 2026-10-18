@@ -248,7 +248,7 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
         if (sessionStatus === 'waiting')    return <HourglassTopIcon sx={{ fontSize: 18, color: '#ffb74d' }} />;
         if (sessionStatus === 'planning')   return <AutoFixHighIcon sx={{ fontSize: 18, color: '#4fc3f7' }} />;
         if (sessionStatus === 'active')     return <RocketLaunchIcon sx={{ fontSize: 18, color: '#4caf50' }} />;  // implementing
-        if (sessionStatus === 'review')     return <BiotechIcon sx={{ fontSize: 18, color: '#ce93d8' }} />;
+        if (sessionStatus === 'review')     return <BiotechIcon sx={{ fontSize: 18, color: '#ff3b30' }} />;  // attention red (req #3636)
         if (sessionStatus === 'paused')     return <PauseCircleIcon sx={{ fontSize: 18, color: '#f0d000' }} />;
         if (sessionStatus === 'completing') return <SyncIcon sx={{ fontSize: 18, color: 'info.main' }} />;
         if (sessionStatus === 'completed')  return <DoneAllIcon sx={{ fontSize: 18, color: 'success.main' }} />;
