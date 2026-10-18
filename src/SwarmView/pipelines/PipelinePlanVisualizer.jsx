@@ -683,10 +683,10 @@ export default function PipelinePlanVisualizer({
     // visualizer rendered from anywhere else must not be able to receive a
     // localStorage string this file then hands to Konva as a `fill`.
     const activeColorKey = normalizeColorKey(colorKey);
-    // The requirements this plan actually DRAWS. Each enum scale lists only the
-    // values these carry, which is what stops a seven-entry status scale from
-    // taking the space the epic chips need. One pass over the rows, no extra
-    // read — and it is the ids rather than the values now (req #3422), because
+    // The requirements this plan actually DRAWS. Since req #3621 the key lists
+    // every value of every scale regardless; these ids decide only whether an
+    // `unknown` swatch is listed, because a drawn mark is wearing it. One pass
+    // over the rows, no extra read — ids rather than values (req #3422), because
     // the registry's builders each read their own column off the requirement.
     const presentReqIds = useMemo(() => {
         const seen = new Set();
@@ -727,8 +727,8 @@ export default function PipelinePlanVisualizer({
     // rect is MEASURED rather than assumed, and measuring is what lets the key
     // GROW into
     // the complete vocabulary without anyone re-tuning a constant: its size
-    // depends on the live colour key (a status scale filtered to the plan, or one
-    // entry per machine) and on whether the
+    // depends on the live colour key (every value of the scale since req #3621,
+    // or one entry per machine) and on whether the
     // reader has collapsed it. Any hard-coded keep-out would be wrong on most
     // plans in one direction or the other.
     const [legendEl, setLegendEl] = useState(null);
@@ -4983,8 +4983,9 @@ export default function PipelinePlanVisualizer({
                     than the box getting WIDER. `PLAN_KEY_MAX_W` capped the
                     cheaper axis from the day the key moved to bottom-center
                     (req #3255) until this requirement; width is now
-                    deliberately uncapped, and a machine-heavy plan's wider key
-                    is the accepted, measured cost of that trade.
+                    deliberately uncapped, and the wider key — every plan's
+                    since req #3621 lists every value of every scale — is the
+                    accepted, measured cost of that trade.
 
                     Collapse is LOCAL STATE, not a persisted preference: a stored
                     one would need seeding in the E2E fixture and could arrive
