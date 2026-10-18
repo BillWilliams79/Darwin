@@ -78,7 +78,8 @@ import {
 } from './planEra';
 import { usePlanSources } from './usePlanSources';
 import {
-    readFocusStepParam, readLevelParam, stepLinkTo, FOCUS_STEP_PARAM, FOCUS_LEVEL_PARAM,
+    readColorParam, readFocusStepParam, readLevelParam, stepLinkTo,
+    FOCUS_STEP_PARAM, FOCUS_LEVEL_PARAM, FOCUS_COLOR_PARAM,
 } from './pipelineStepLink';
 import { readFocusEpicParam, FOCUS_EPIC_PARAM } from './pipelineEpicLink';
 import { writePipelinePlace } from './pipelinePlace';
@@ -260,8 +261,8 @@ export default function PipelineDetail() {
     // "constructor" is a reachable string that resolves to an inherited function,
     // and this one is handed to Konva as a text `fill`. A stored value written
     // before this change ('state' / 'machine') still normalizes to itself, so an
-    // existing reader's plan opens exactly as it did.
-    const colorKey = normalizeColorKey(colorKeyPref);
+    // existing reader's plan opens exactly as it did. The resolved `colorKey`
+    // is computed below, after `?color=` (req #3636) is read.
 
     // Req #3115 cross-mode handshake: a bead click in the Plan visualizer lands
     // the user on the SAME step in the table — the visualizer calls
@@ -316,6 +317,9 @@ export default function PipelineDetail() {
     // vocabulary and null on anything else, so an unrecognised value leaves the
     // reader's stored preference in charge rather than pinning them to 'auto'.
     const linkLevel = readLevelParam(searchParams);
+    // req #3636 — `?color=` picks the colour key for one landing, transiently,
+    // by `?level=`'s contract (see `readColorParam`).
+    const linkColor = readColorParam(searchParams);
     // A named step FORCES THE TABLE — unless the link explicitly asks for the
     // plan (req #3253).
     //
@@ -364,6 +368,7 @@ export default function PipelineDetail() {
     // asks to see one thing, and must not change what any other plan opens in.
     const modeOverride = linkView;
     const levelOverride = linkLevel;
+    const colorKey = normalizeColorKey(linkColor ?? colorKeyPref);
     // Re-seeds the focus whenever the history ENTRY changes. Three cases:
     //   · an UNMARKED entry carrying a link — honour it, then mark the entry;
     //   · a marked entry reached by REPLACE — this page's own marking (or a
@@ -422,6 +427,11 @@ export default function PipelineDetail() {
         setLevelPref(v);
         replaceLinkParams([FOCUS_LEVEL_PARAM]);
     }, [setLevelPref, replaceLinkParams]);
+    // A manual COLOUR pick clears the link's `?color=` for the level pick's reason.
+    const handleColorKeyChange = useCallback((v) => {
+        setColorKeyPref(v);
+        replaceLinkParams([FOCUS_COLOR_PARAM]);
+    }, [setColorKeyPref, replaceLinkParams]);
     // ── RESET IS THE VIEW, AND ONLY THE VIEW (req #3324) ────────────────────
     // The camera goes back to the factory default; the LEVEL does not move.
     // > *"There are four modes only… it's fixed until Auto is selected."*
@@ -981,7 +991,7 @@ export default function PipelineDetail() {
                         stepWidthLevel={stepWidthLevel}
                         onChangeStepWidthLevel={setStepWidthLevelPref}
                         colorKey={colorKey}
-                        onChangeColorKey={setColorKeyPref}
+                        onChangeColorKey={handleColorKeyChange}
                         planLevelPref={activeLevelPref}
                         effectiveLevel={effectiveLevel}
                         onChangeLevelPref={handleLevelPrefChange}

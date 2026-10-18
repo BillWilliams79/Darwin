@@ -36,7 +36,7 @@
 // unaffected: `pipelinePlanLayout` is pure arithmetic with one import of its
 // own (`pipelineModel`), so this file still runs under vitest with no DOM, which
 // its own test suite exercises.
-import { isPlanLevelPref } from './pipelinePlanLayout';
+import { isColorKey, isPlanLevelPref } from './pipelinePlanLayout';
 // TWO imports now (req #3463). The route itself is no longer this module's to
 // spell: `planEra.js` owns the era↔route binding, and a builder here that
 // interpolated the plan route directly is exactly what let a 2.0 id reach a
@@ -123,6 +123,27 @@ export function readLevelParam(searchParams) {
     const raw = searchParams && typeof searchParams.get === 'function'
         ? searchParams.get(FOCUS_LEVEL_PARAM) : null;
     return isPlanLevelPref(raw) ? String(raw) : null;
+}
+
+// ── `?color=` PICKS THE REQUIREMENT COLOUR KEY FOR ONE LANDING (req #3636) ──
+// The colour key was reachable only through the toolbar and localStorage, so no
+// link could open the plan on the Session key — the one view where a session
+// colour (review's attention red) is compared against every other state. Same
+// contract as `?level=`: held transiently, never written to the stored
+// preference, and null on an unrecognised value so the stored key stays in
+// charge.
+export const FOCUS_COLOR_PARAM = 'color';
+
+/**
+ * The requirement colour key a `?color=` parameter names, or null.
+ *
+ * @param {{get: function(string): ?string}} searchParams
+ * @returns {?string} one of REQ_COLOR_KEYS
+ */
+export function readColorParam(searchParams) {
+    const raw = searchParams && typeof searchParams.get === 'function'
+        ? searchParams.get(FOCUS_COLOR_PARAM) : null;
+    return isColorKey(raw) ? raw : null;
 }
 
 /**

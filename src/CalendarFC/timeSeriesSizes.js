@@ -122,7 +122,7 @@ export function getCoordinationColor(coordinationType) {
 //   agentic = Claude working autonomously — starting (machine setup), planning,
 //             implementing, completion. Cool hues (blue-grey → indigo → blue → teal).
 //   human   = waiting on the user — waiting (discuss idle), review, paused.
-//             Warm hues (amber → orange → brown).
+//             Warm hues (amber → red → brown); review is attention red (req #3636).
 //
 // Order: the agentic block first, then the human block, so the two families read
 // as two contiguous colour runs and the divide is a single boundary. These are
@@ -134,7 +134,7 @@ export const PHASE_SEGMENTS = [
     { key: 'implementing_secs', label: 'Implementing', family: 'agentic', color: '#1E88E5' }, // blue
     { key: 'completion_secs',   label: 'Completion',   family: 'agentic', color: '#26A69A' }, // teal
     { key: 'waiting_secs',      label: 'Waiting',      family: 'human',   color: '#FFB300' }, // amber
-    { key: 'review_secs',       label: 'Review',       family: 'human',   color: '#FB8C00' }, // orange
+    { key: 'review_secs',       label: 'Review',       family: 'human',   color: '#FF3B30' }, // attention red (req #3636)
     { key: 'paused_secs',       label: 'Paused',       family: 'human',   color: '#8D6E63' }, // brown
 ];
 

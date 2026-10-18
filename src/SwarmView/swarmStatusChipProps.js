@@ -8,7 +8,7 @@
 export const swarmStatusChipProps = (status) => {
     switch (status) {
         case 'active':     return { sx: { bgcolor: '#4caf50', color: '#fff' } };
-        case 'review':     return { sx: { bgcolor: '#ce93d8', color: '#000' } };
+        case 'review':     return { sx: { bgcolor: '#ff3b30', color: '#000' } };  // attention red (req #3636)
         case 'paused':     return { sx: { bgcolor: '#f0d000', color: '#000' } };
         case 'waiting':    return { sx: { bgcolor: '#ffb74d', color: '#000' } };
         case 'planning':   return { sx: { bgcolor: '#4fc3f7', color: '#000' } };
