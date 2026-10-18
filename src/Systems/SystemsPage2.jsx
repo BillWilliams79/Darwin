@@ -7,8 +7,8 @@ const SystemsPage2 = () => {
     const { search } = useLocation();
     return (
         <Box sx={{ gridArea: 'content', height: '100vh', width: '100%', overflow: 'hidden' }}>
-            {/* allow="fullscreen" (req #3568): the TPU SuperPod · 3D view's Full screen switch takes the
-                browser's full screen from inside this frame, so Darwin's navbar goes too. */}
+            {/* allow="fullscreen" (req #3568; every TPU 3D view since req #3600): a Rack / SuperPod / Data Center · 3D
+                view's Full screen switch takes the browser's full screen from inside this frame, so Darwin's navbar goes too. */}
             <iframe
                 src={`/systems2/nvlink_topology.html${search}`}
                 title="NVLink System Views"
