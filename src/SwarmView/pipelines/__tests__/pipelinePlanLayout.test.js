@@ -7946,6 +7946,79 @@ describe('time axis — review regressions', () => {
         expect(layout.slots.some((s) => s.kind === 'unknown')).toBe(false);
     });
 
+    // req #3618 — the live "Swarm Infra" shape: an EMPTY step added IN FRONT
+    // of today's active work used to render at the far-left edge. Rule 3 of
+    // `pipelinePlanTime.js`: an empty step sits on TODAY when the plan has
+    // active work, else in the FUTURE. `build` renders at 2026-07-10.
+    describe('an EMPTY step sits on today, or in the future (req #3618)', () => {
+        const dayOf = (layout, id) => layout.slots[layout.slotOf.get(id)];
+
+        it('renders on TODAY, one column left of the active work it gates', () => {
+            const { layout } = build(
+                [
+                    { id: 1, depIds: [], reqIds: [1] },     // earlier day
+                    { id: 2, depIds: [3], reqIds: [2] },    // today's active work
+                    { id: 3, depIds: [], reqIds: [] },      // the new, empty step
+                ],
+                [
+                    r({ id: 1, completed_at: '2026-07-01T00:00:00' }),
+                    r({ id: 2, requirement_status: 'development', started_at: '2026-07-10T00:00:00' }),
+                ],
+            );
+            expect(dayOf(layout, 3).day).toBe('2026-07-10');
+            expect(layout.slotOf.get(3)).toBe(layout.slotOf.get(2));
+            expect(layout.nodes.get(3).depth).toBe(layout.nodes.get(2).depth - 1);
+            expect(layout.nodes.get(3).depth).toBeGreaterThan(layout.nodes.get(1).depth);
+        });
+
+        it('renders on TODAY with active work anywhere in the plan, even with nothing to gate', () => {
+            const { layout } = build(
+                [
+                    { id: 1, depIds: [], reqIds: [1] },
+                    { id: 2, depIds: [], reqIds: [] },
+                ],
+                [r({ id: 1, requirement_status: 'development', started_at: '2026-07-05T00:00:00' })],
+            );
+            expect(dayOf(layout, 2).day).toBe('2026-07-10');
+            expect(layout.nodes.get(2).depth).toBeGreaterThan(layout.nodes.get(1).depth);
+        });
+
+        it('renders in the FUTURE when the plan has no active work', () => {
+            const { layout } = build(
+                [
+                    { id: 1, depIds: [], reqIds: [1] },
+                    { id: 2, depIds: [3], reqIds: [2] },
+                    { id: 3, depIds: [], reqIds: [] },
+                ],
+                [
+                    r({ id: 1, completed_at: '2026-07-01T00:00:00' }),
+                    r({ id: 2, requirement_status: 'swarm_ready' }),
+                ],
+            );
+            expect(dayOf(layout, 3).kind).toBe('future');
+            expect(layout.nodes.get(3).depth).toBe(layout.nodes.get(2).depth - 1);
+        });
+
+        // THE ACCEPTED COST: a dependent cannot render before its gate, so an
+        // empty step added in front of OLDER dated work drags it to today.
+        it('drags older dated work it gates onto today, arcs still forward', () => {
+            const { layout } = build(
+                [
+                    { id: 1, depIds: [], reqIds: [1] },     // active, so empty -> today
+                    { id: 2, depIds: [3], reqIds: [2] },    // finished 07-02
+                    { id: 3, depIds: [], reqIds: [] },
+                ],
+                [
+                    r({ id: 1, requirement_status: 'development', started_at: '2026-07-01T00:00:00' }),
+                    r({ id: 2, completed_at: '2026-07-02T00:00:00' }),
+                ],
+            );
+            expect(dayOf(layout, 3).day).toBe('2026-07-10');
+            expect(dayOf(layout, 2).day).toBe('2026-07-10');
+            expect(layout.nodes.get(3).depth).toBeLessThan(layout.nodes.get(2).depth);
+        });
+    });
+
     // Warning: a NULL start meant both "not begun" and "begun but unstamped",
     // so a pure BACKLOG epic could stack above an ACTIVE one on an id tie-break.
     it('stacks an unstamped ACTIVE epic above a never-started backlog epic', () => {

@@ -1,6 +1,7 @@
 // pipelineAdapter.js — the browser-side consumer of the Pipeline 2.0 composed
 // read (req #3381). PURE: plain payload in, plain render shapes out. No React,
-// no fetch, no clock.
+// no fetch, no clock — the one time-dependent fact (an empty step's TODAY,
+// req #3618) takes `now` from the caller rather than reading the wall clock.
 //
 // THIS MODULE DOES NOT DERIVE ANYTHING (design intent: "the visualizer
 // CONSUMES a derived block; it does not derive one" —
@@ -235,9 +236,11 @@ export function buildPlanRows(payload, machines = []) {
  * @param {Object} [options]
  * @param {Object[]} [options.machines]
  * @param {?Object} [options.costIndex]
+ * @param {?(Date|string)} [options.now]  the render clock; omitted, an empty step
+ *                                        stays UNKNOWN (`pipelinePlanTime.js` rule 3)
  * @returns {Object} plan
  */
-export function adaptComposedPipeline(payload, { machines = [], costIndex = null } = {}) {
+export function adaptComposedPipeline(payload, { machines = [], costIndex = null, now = null } = {}) {
     const derived = payload.derived || {};
     const rows = buildPlanRows(payload, machines);
     for (const r of rows) r.cost = sumReqCost(r.reqIds, costIndex);
@@ -292,7 +295,9 @@ export function adaptComposedPipeline(payload, { machines = [], costIndex = null
         // requirement, zero extra gateway round trips) rather than deferring
         // it — the gap was shipping-a-known-regression, not a design choice
         // for a later requirement to make.
-        timeAxis: planTimeAxis(rows, payload.requirements || []),
+        // `now` places an EMPTY step on today or in the future (req #3618 —
+        // `pipelinePlanTime.js` rule 3).
+        timeAxis: planTimeAxis(rows, payload.requirements || [], now),
         // Batch does not exist in 2.0 (module header) — present as empty so
         // every consumer that destructures `plan.batches`/
         // `batchLetterByStepId` (planRenderRows, PipelinePlanTable's banner
