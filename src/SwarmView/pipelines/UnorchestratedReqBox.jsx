@@ -1,5 +1,5 @@
-// UnorchestratedReqBox.jsx — the Plan visualizer's "swarm-ready, not
-// orchestrated" box (req #3583).
+// UnorchestratedReqBox.jsx — the Plan visualizer's "Orchestration Ready" box
+// (req #3583; titled and outlined in purple by req #3605).
 //
 // A floating panel in the canvas's top-right corner listing every requirement
 // that is ready to run but sits on no plan step. Each row is the SOURCE of a
@@ -39,6 +39,15 @@
 // its distance from the right edge, so it stays flush right as the zoom resizes
 // it or the window narrows — the same anchoring its home corner has.
 //
+// ── DROPPED ON A STEP, IT SEATS THE WHOLE SET (req #3608) ─────────────────
+// The same title-bar move doubles as a drag of EVERY requirement the box
+// lists. Each move frame hands the pointer to the visualizer (`onMoveOver`),
+// which outlines the step card beneath it; on release `onMoveDrop` is offered
+// the drop, and when it takes it (the pointer is over a step) the box goes back
+// to where it was before the drag — that gesture was a seat, not a relocation —
+// and the spot is not remembered. The visualizer asks before writing anything.
+// An empty box has nothing to seat, so it only ever moves.
+//
 // ── SIZED LIKE THE REQUIREMENTS (user directive) ───────────────────────────
 // Its TYPE is the
 // requirement ids' own on-screen size — `fontPx` is the card's requirement font
@@ -55,6 +64,10 @@ import { PLAN_VIZ_PALETTE as P } from './pipelinePlanLayout';
 import { UNSEATED_REQ_MIME } from './pipelineUnseated';
 
 const MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
+
+/** The box's outline (req #3605, user directive: "a strong visible purple" —
+ *  neither dark nor pastel). ~4.5:1 against the box's own background. */
+const OUTLINE = '#a64dff';
 
 /** Panel inset of the home corner, px. */
 const CORNER_INSET = 8;
@@ -87,6 +100,7 @@ export default function UnorchestratedReqBox({
     items, isLoading = false, isError = false,
     fontPx = 12, statusColor = P.req,
     draggingId = null, onDragStartItem, onDragEndItem, onOpen,
+    onMoveOver, onMoveDrop,
 }) {
     // Open by default: the box exists to be seen next to the plan it feeds.
     const [open, setOpen] = useState(true);
@@ -110,6 +124,8 @@ export default function UnorchestratedReqBox({
         moveRef.current = {
             id: e.pointerId, sx: e.clientX, sy: e.clientY,
             left: box.offsetLeft, top: box.offsetTop, last: null,
+            // Where to send the box back to if this drag turns out to be a seat.
+            before: pos, carries: items.length > 0,
         };
         setMoving(true);
     };
@@ -131,6 +147,7 @@ export default function UnorchestratedReqBox({
                 pane.clientHeight - e.currentTarget.offsetHeight)),
         };
         setPos(m.last);
+        if (m.carries) onMoveOver?.(e.clientX, e.clientY);
     };
     const onBarUp = (e) => {
         const m = moveRef.current;
@@ -142,6 +159,17 @@ export default function UnorchestratedReqBox({
         }
         if (!m.last) return;
         lastMoveEndRef.current = Date.now();
+        if (m.carries) {
+            // A cancelled pointer (or lost capture) is no drop: clear the
+            // outline and keep the box wherever it got to.
+            const seated = e.type === 'pointerup'
+                && !!onMoveDrop?.(e.clientX, e.clientY);
+            if (!seated) onMoveOver?.(null, null);
+            if (seated) {
+                setPos(m.before);
+                return;
+            }
+        }
         // Anchor to the nearer side: right half → remembered from the right.
         const box = boxRef.current;
         const pane = box?.offsetParent;
@@ -201,15 +229,17 @@ export default function UnorchestratedReqBox({
                     // Beats max-height: the title bar is always whole.
                     minHeight: `${HEADER_EM}em`,
                     display: 'flex', flexDirection: 'column',
-                    // The key's own panel treatment, so the two read as one family.
+                    // The key's own panel treatment, outlined in purple.
                     background: 'rgba(13, 20, 32, 0.94)',
                     backdropFilter: 'blur(2px)',
-                    borderRadius: '0.8em', border: `1px solid ${P.line}`,
+                    borderRadius: '0.8em', border: `2px solid ${OUTLINE}`,
                     boxShadow: '0 0.5em 1.5em rgba(0, 0, 0, 0.45)',
                     fontFamily: MONO, color: P.text, userSelect: 'none',
                     overflow: 'hidden', zIndex: 2 }}>
             <Box data-testid="pipeline-viz-unseated-header"
-                 title="Drag to move · double-click to put back"
+                 title={count > 0
+                     ? 'Drag to move · drop on a step to seat them all · double-click to put back'
+                     : 'Drag to move · double-click to put back'}
                  onPointerDown={onBarDown}
                  onPointerMove={onBarMove}
                  onPointerUp={onBarUp}
@@ -223,7 +253,7 @@ export default function UnorchestratedReqBox({
                 <Box component="span"
                      sx={{ flex: 1, minWidth: 0, overflow: 'hidden',
                             textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    Swarm-ready · not orchestrated
+                    Orchestration Ready
                 </Box>
                 <Box component="span" data-testid="pipeline-viz-unseated-count"
                      sx={{ color: statusColor, fontWeight: 700 }}>
