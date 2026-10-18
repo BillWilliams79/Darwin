@@ -4950,6 +4950,7 @@ export default function PipelinePlanVisualizer({
                     ruling). */}
                 <UnorchestratedReqBox
                     items={unseatedItems}
+                    categoryColors={unseated.categoryColors}
                     isLoading={unseated.isLoading}
                     isError={unseated.isError}
                     fontPx={unseatedBoxFontPx(t.k)}

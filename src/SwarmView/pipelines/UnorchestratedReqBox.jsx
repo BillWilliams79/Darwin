@@ -60,10 +60,19 @@
 // shrinks as the reader zooms out and grows as they zoom in, in step with the
 // marks it feeds — held within 9–16px (`unseatedBoxFontPx`) so it stays
 // legible zoomed far out and never covers the canvas zoomed in (user ruling).
+//
+// ── A CATEGORY COLOR BAR ON EVERY ROW (req #3619) ─────────────────────────
+// Like the aggregator card, the box gathers requirements from many categories,
+// so each row leads with the same pill that card draws (RequirementRow, req
+// #2752): the category's own color as the fill, outlined in a same-hue
+// lightened shade so a very dark color still has an edge — the box is always
+// dark, so it is the card's dark-mode rule. A row with no color keeps the slot,
+// transparent, so the ids stay in one column.
 
 import { useEffect, useRef, useState } from 'react';
 
 import Box from '@mui/material/Box';
+import { lighten } from '@mui/material/styles';
 
 import { PLAN_VIZ_PALETTE as P } from './pipelinePlanLayout';
 import { UNSEATED_REQ_MIME } from './pipelineUnseated';
@@ -85,6 +94,12 @@ const MOVE_SLOP = 4;
 const DBLCLICK_AFTER_MOVE_MS = 500;
 const POS_STORAGE_KEY = 'darwin-plan-unseated-box-pos';
 
+/** The bar's edge: a same-hue lightened shade of its fill, or a neutral edge
+ *  for a value MUI cannot parse (RequirementRow's rule, req #2752). */
+function barEdge(color) {
+    try { return lighten(color, 0.45); } catch { return 'rgba(128,128,128,0.5)'; }
+}
+
 function readPos() {
     try {
         const v = JSON.parse(window.localStorage.getItem(POS_STORAGE_KEY));
@@ -102,7 +117,7 @@ function writePos(pos) {
 }
 
 export default function UnorchestratedReqBox({
-    items, isLoading = false, isError = false,
+    items, categoryColors = {}, isLoading = false, isError = false,
     fontPx = 12, statusColor = P.req,
     draggingId = null, onDragStartItem, onDragEndItem, onOpen,
     onMoveOver, onMoveDrop, onCarryingChange,
@@ -312,6 +327,7 @@ export default function UnorchestratedReqBox({
                     {items.map((r) => {
                         const id = Number(r.id);
                         const dragging = draggingId === id;
+                        const barColor = categoryColors[r.category_fk];
                         return (
                             <Box key={id}
                                  draggable
@@ -332,6 +348,16 @@ export default function UnorchestratedReqBox({
                                         // solid copy, not a ghost of the canvas.
                                         background: dragging ? 'transparent' : '#0d1420',
                                         '&:hover': { background: '#16233a' } }}>
+                                <Box component="span"
+                                     data-testid={`pipeline-viz-unseated-bar-${id}`}
+                                     sx={{ width: '0.45em', alignSelf: 'stretch',
+                                            minHeight: '1.2em', flexShrink: 0,
+                                            borderRadius: '0.25em', boxSizing: 'border-box',
+                                            bgcolor: barColor || 'transparent',
+                                            ...(barColor && {
+                                                border: '0.1em solid',
+                                                borderColor: barEdge(barColor),
+                                            }) }} />
                                 <Box component="span"
                                      sx={{ color: statusColor, fontWeight: 700, flexShrink: 0 }}>
                                     {id}
