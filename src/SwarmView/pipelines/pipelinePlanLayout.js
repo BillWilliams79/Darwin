@@ -1938,6 +1938,18 @@ export const CARD_BADGE_GAP = CHW_REQ;
 // single-text-row metric `REQ_TEXT_H` measures. `− 4` leaves 2 world px of
 // margin top and bottom so the pill's round cap clears the line box.
 export const CARD_BADGE_H = CARD_LINE_H - 4;
+// The pill's top, from the card's title-row top (req #3606, user report: the
+// count circle "sits lower than the text by a noticeable amount"). The old
+// `+ 1` centred the pill on the line BOX, but the name is drawn on a canvas
+// `textBaseline: 'middle'` (em-box centring) and its ink sits ABOVE that box
+// centre: measured in Chromium at CARD_TYPE_SCALE 1.4 with SF Mono, the name's
+// baseline is 29.0 and the cap centre 20.4, while the old pill's digit
+// baseline was 31.0 and its centre 22.5 — the circle hung 2 world px below the
+// text it labels. Moving the pill from +1 to -1 (2 world px up) lands the
+// digit's baseline on the name's and the digit's centre on the caps' centre
+// (within 0.5px). Only the count badge moves: the run pill sits beside the
+// "+" and ↗ buttons, not the name, and keeps its own offset.
+export const CARD_BADGE_TOP = -1;
 
 // ── THE RUN-MODE PILL (req #3580, user directives: "have a display circle for
 // step's manual vs auto and let that be a configurable button in the UI", then
@@ -4279,7 +4291,7 @@ export function computePlanLayout(rows, opts = {}) {
                 x: textLeft + CARD_BADGE_W - badgeW,
                 // On the FIRST name line, whatever the name wrapped to — the
                 // count belongs to the card, not to the last line of its title.
-                y: n.top + CARD_PAD_Y + 1,
+                y: n.top + CARD_PAD_Y + CARD_BADGE_TOP,
                 w: badgeW, h: CARD_BADGE_H,
             });
         }
@@ -4344,7 +4356,8 @@ export function computePlanLayout(rows, opts = {}) {
                 prose: false,
                 x: n.right - CARD_PAD_X - CARD_CHECK_W - CARD_STEP_LINK_W - CARD_STEP_ADD_W
                     - CARD_RUN_W,
-                // The count badge's own y — the two pills share the line.
+                // Centred with the "+" and ↗ buttons beside it, which is why it does
+                // not follow the count badge's CARD_BADGE_TOP (req #3606).
                 y: n.top + CARD_PAD_Y + 1,
                 w: CARD_RUN_W, h: CARD_RUN_H,
             });

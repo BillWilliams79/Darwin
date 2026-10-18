@@ -28,7 +28,7 @@ import {
     CARD_W, CARD_GAP_X, CARD_GAP_Y, CARD_PAD_X, CARD_PAD_Y, CARD_TEXT_W,
     CARD_LINE_H, CARD_SUBTITLE_H, CARD_RULE_BAND, CARD_TITLE_CHARS, CARD_ID_CHARS,
     CARD_FRAME_W, CARD_FRAME_X, CARD_STATE_BAR_W, CARD_BAR_GAP,
-    CARD_BADGE_W, CARD_BADGE_GAP, CARD_BADGE_H, CARD_BADGE_FONT, badgeWidthFor,
+    CARD_BADGE_W, CARD_BADGE_GAP, CARD_BADGE_H, CARD_BADGE_TOP, CARD_BADGE_FONT, badgeWidthFor,
     CARD_STEP_LINK_W, CARD_STEP_ADD_W, CARD_TITLE_BTN, CARD_TITLE_BTN_GAP,
     CARD_RUN_W, CARD_RUN_H, CARD_RUN_WORDS, CARD_RUN_FONT, CARD_FONT,
     STEP_WIDTH_SCALES, cardGeometryFor,
@@ -5471,7 +5471,11 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
             const columnTextLeft = n.left + CARD_FRAME_X + CARD_PAD_X;
             expect(badge.x + badge.w).toBeCloseTo(columnTextLeft + CARD_BADGE_W, 6);
             expect(badge.x).toBeGreaterThanOrEqual(columnTextLeft - 1e-6);
-            expect(badge.y).toBeGreaterThanOrEqual(n.top + CARD_PAD_Y);
+            // req #3606 — the pill sits `CARD_BADGE_TOP` off the title row's top (the
+            // name's ink rides above the line box's centre), so it may overhang
+            // the row by that much into the card's top padding, never below it.
+            expect(badge.y).toBe(n.top + CARD_PAD_Y + CARD_BADGE_TOP);
+            expect(badge.y).toBeGreaterThanOrEqual(n.top);
             expect(badge.y + badge.h).toBeLessThanOrEqual(n.top + cardTitleH('title'));
         }
         // It rides the CARD, so it draws where the card does and nowhere else.

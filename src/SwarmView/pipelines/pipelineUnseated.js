@@ -134,3 +134,34 @@ export function screenRectOf(n, t) {
         height: n.h * t.k,
     };
 }
+
+/**
+ * The confirm dialog's request when the WHOLE box is dropped on a step (req
+ * #3608): every requirement the box lists at the moment of the drop, bound for
+ * that step. Null when there is nothing to ask — no step under the pointer, or
+ * an empty box. A stamped step still yields a request with `ok: false`, so the
+ * caller can say why nothing will be written rather than letting the gesture
+ * pass silently as a relocation.
+ *
+ * The ids are a SNAPSHOT: the box can refetch while the dialog is open, and the
+ * reader approves the list they were shown, not whatever the box holds later.
+ *
+ * @param {Object[]} items   the box's rows (`id`, `title`)
+ * @param {?{stepId: number, ok: boolean}} target  `resolveSeatDrop`'s answer
+ * @param {Map<number, Object>} rowById  plan rows by step id
+ * @returns {?{stepId: number, stepTitle: string, ok: boolean,
+ *            reqs: Array<{id: number, title: string}>}}
+ */
+export function bulkSeatRequest(items, target, rowById) {
+    if (!target || !Array.isArray(items) || !items.length) return null;
+    const reqs = items
+        .map((r) => ({ id: Number(r.id), title: r.title || '' }))
+        .filter((r) => Number.isFinite(r.id) && r.id > 0);
+    if (!reqs.length) return null;
+    return {
+        stepId: target.stepId,
+        stepTitle: rowById?.get(target.stepId)?.title || `step ${target.stepId}`,
+        ok: !!target.ok,
+        reqs,
+    };
+}
