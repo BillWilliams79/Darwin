@@ -9,7 +9,7 @@
 import { describe, it, expect } from 'vitest';
 
 import {
-    requirementStart, stepStart, planTimeAxis, isNotYetStarted,
+    requirementStart, stepStart, planTimeAxis, isNotYetStarted, emptyStepStart,
     TIME_DATED, TIME_FUTURE, TIME_UNKNOWN,
 } from '../pipelinePlanTime';
 import { TERMINAL_REQUIREMENT_STATUSES } from '../pipelineModel';
@@ -144,5 +144,57 @@ describe('planTimeAxis', () => {
         const { stepStarts, bandStarts } = planTimeAxis(null, null);
         expect(stepStarts.size).toBe(0);
         expect(bandStarts.size).toBe(0);
+    });
+});
+
+// req #3618 — rule 3: an EMPTY step sits on TODAY when the plan has active
+// work, else in the FUTURE. Without a `now` the rule does not apply.
+describe('empty step placement (req #3618)', () => {
+    const NOW = '2026-10-18T07:30:00Z';
+
+    it('stamps an empty step TODAY (UTC) when any step in the plan is running', () => {
+        const rows = [
+            row({ id: 1, reqIds: [1], state: 'running' }),
+            row({ id: 2, reqIds: [] }),
+        ];
+        const { stepStarts } = planTimeAxis(rows, [req({ id: 1, requirement_status: 'development' })], NOW);
+        expect(stepStarts.get(2)).toEqual({ at: '2026-10-18T07:30:00', kind: TIME_DATED });
+    });
+
+    it('puts an empty step in the FUTURE when nothing in the plan is running', () => {
+        const rows = [
+            row({ id: 1, reqIds: [1], state: 'done' }),
+            row({ id: 2, reqIds: [] }),
+        ];
+        const { stepStarts } = planTimeAxis(rows, [req({ id: 1, completed_at: '2026-10-17T00:00:00' })], NOW);
+        expect(stepStarts.get(2)).toEqual({ at: null, kind: TIME_FUTURE });
+    });
+
+    it('emptyStepStart answers only for an empty row with a clock', () => {
+        expect(emptyStepStart(row({}), '2026-10-18T07:30:00', true).at).toBe('2026-10-18T07:30:00');
+        expect(emptyStepStart(row({ reqIds: [1] }), '2026-10-18T07:30:00', true)).toBe(null);
+        expect(emptyStepStart(row({}), null, true)).toBe(null);
+    });
+
+    it('accepts a Date as the clock', () => {
+        const { stepStarts } = planTimeAxis(
+            [row({ id: 1, reqIds: [9], state: 'running' }), row({ id: 2 })], [], new Date(NOW));
+        expect(stepStarts.get(2).at).toBe('2026-10-18T07:30:00');
+    });
+
+    it('leaves a completed req-less step on its own stamp, and a step WITH requirements alone', () => {
+        const rows = [
+            row({ id: 1, reqIds: [], completedAt: '2026-10-01T00:00:00', state: 'running' }),
+            row({ id: 2, reqIds: [5] }),
+        ];
+        const { stepStarts } = planTimeAxis(rows, [req({ id: 5, requirement_status: 'authoring' })], NOW);
+        expect(stepStarts.get(1)).toEqual({ at: '2026-10-01T00:00:00', kind: TIME_DATED });
+        expect(stepStarts.get(2).kind).toBe(TIME_FUTURE);
+    });
+
+    it('does not apply without a clock, or with an unparseable one', () => {
+        const rows = [row({ id: 1, reqIds: [1], state: 'running' }), row({ id: 2 })];
+        expect(planTimeAxis(rows, []).stepStarts.get(2).kind).toBe(TIME_UNKNOWN);
+        expect(planTimeAxis(rows, [], 'not a date').stepStarts.get(2).kind).toBe(TIME_UNKNOWN);
     });
 });
