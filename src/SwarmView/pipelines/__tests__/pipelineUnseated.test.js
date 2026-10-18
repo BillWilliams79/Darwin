@@ -6,7 +6,7 @@ import { describe, it, expect } from 'vitest';
 import {
     unorchestratedSwarmReady, stepAcceptsNewWork, seatTargetAt,
     screenToWorld, screenRectOf, UNSEATED_REQ_MIME, resolveSeatDrop,
-    unseatedBoxFontPx, UNSEATED_FONT_MIN, UNSEATED_FONT_MAX,
+    unseatedBoxFontPx, UNSEATED_FONT_MIN, UNSEATED_FONT_MAX, bulkSeatRequest,
 } from '../pipelineUnseated';
 import { CARD_FONT } from '../pipelinePlanLayout';
 
@@ -129,5 +129,40 @@ describe('unseatedBoxFontPx', () => {
     it('never answers NaN for a missing or degenerate scale', () => {
         expect(Number.isFinite(unseatedBoxFontPx(undefined))).toBe(true);
         expect(Number.isFinite(unseatedBoxFontPx(0))).toBe(true);
+    });
+});
+
+// req #3608 — the whole box dropped on a step.
+describe('bulkSeatRequest', () => {
+    const rowById = new Map([[7, { id: 7, title: 'Build it' }], [8, { id: 8, title: 'Done' }]]);
+    const items = [{ id: 12, title: 'B' }, { id: '11', title: 'A' }];
+
+    it('carries every row in the box, bound for the step under the pointer', () => {
+        expect(bulkSeatRequest(items, { stepId: 7, ok: true }, rowById)).toEqual({
+            stepId: 7, stepTitle: 'Build it', ok: true,
+            reqs: [{ id: 12, title: 'B' }, { id: 11, title: 'A' }],
+        });
+    });
+
+    it('still answers for a stamped step, marked not ok, so the caller can say why', () => {
+        expect(bulkSeatRequest(items, { stepId: 8, ok: false }, rowById).ok).toBe(false);
+    });
+
+    it('is nothing to ask with no step under the pointer or an empty box', () => {
+        expect(bulkSeatRequest(items, null, rowById)).toBeNull();
+        expect(bulkSeatRequest([], { stepId: 7, ok: true }, rowById)).toBeNull();
+        expect(bulkSeatRequest([{ id: 'x' }], { stepId: 7, ok: true }, rowById)).toBeNull();
+    });
+
+    it('names a step the rows do not carry by its id', () => {
+        expect(bulkSeatRequest(items, { stepId: 99, ok: true }, rowById).stepTitle)
+            .toBe('step 99');
+    });
+
+    it('is a snapshot — later changes to the box do not reach it', () => {
+        const live = [{ id: 5, title: 'x' }];
+        const req = bulkSeatRequest(live, { stepId: 7, ok: true }, rowById);
+        live.push({ id: 6, title: 'y' });
+        expect(req.reqs.map((r) => r.id)).toEqual([5]);
     });
 });
