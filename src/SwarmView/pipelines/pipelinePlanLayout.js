@@ -1846,12 +1846,11 @@ export const cardHeight = (reqBlockH, stepLabel, nameLines = 1) =>
 // label with a line under it — but that is the bonus, not the derivation.
 const CARD_MIN_H = 68 * CARD_TYPE_SCALE;
 
-// The room the DONE ✓ occupies at the title area's right edge — reserved out of
-// the step label's budget rather than drawn over it (req #3498 review finding).
-// Every one of the 34 step titles on the live fixture is longer than the card
-// can draw, so an unreserved glyph is not an edge case: it landed on the
-// truncated title's ellipsis on all 23 completed cards.
-export const CARD_CHECK_W = 13 * CARD_TYPE_SCALE;
+// The room the card's DONE ✓ used to occupy at the title area's right edge.
+// Req #3603 removed the ✓ from the card header (the state bar and the buttons
+// already say it), so the reserve is zero; the constant stays because every
+// header-row offset is written in terms of it.
+export const CARD_CHECK_W = 0;
 
 // ── "VIEW IN TABLE, HIGHLIGHTED" — A VISIBLE BUTTON, NOT JUST A HIDDEN HIT
 // RECT (req #3503, user directive: "place a proper sized button for the
@@ -1955,7 +1954,7 @@ export const CARD_BADGE_H = CARD_LINE_H - 4;
 // The word is set at 80% of the requirement-row type (`CARD_RUN_FONT`, below
 // `CARD_FONT`), so its glyph width is that same fraction of the row's.
 const CARD_RUN_TYPE_RATIO = 0.8;
-export const CARD_RUN_WORDS = { auto: 'auto', manual: 'manual' };
+export const CARD_RUN_WORDS = { auto: 'Auto', manual: 'Manual' };
 const CHW_RUN = CHW_REQ * CARD_RUN_TYPE_RATIO;
 const CARD_RUN_PAD_X = 5 * CARD_TYPE_SCALE;
 export const CARD_RUN_W = Math.ceil(
@@ -2137,7 +2136,6 @@ export const CARD_FONT = {
     label: PLAN_VIZ_FONT.label * CARD_TYPE_SCALE,
     req: PLAN_VIZ_FONT.req * CARD_TYPE_SCALE,
     title: PLAN_VIZ_FONT.title * CARD_TYPE_SCALE,
-    check: PLAN_VIZ_FONT.check * CARD_TYPE_SCALE,
 };
 // req #3580 — the run pill's word; see `CARD_RUN_W`.
 export const CARD_RUN_FONT = CARD_FONT.req * CARD_RUN_TYPE_RATIO;
@@ -3066,7 +3064,12 @@ export function reqLabelText(reqId, { reqLabel = 'id', reqTitles = null,
 // module proves about a row's box has to be re-proved for them.
 //
 // TWO SPACES between tokens, so a pill's padding (drawn by the renderer, inside
-// the gap) leaves clear air between neighbours. A NO-BREAK SPACE inside
+// the gap) leaves clear air between neighbours. The gap AFTER THE ID is the id
+// column's own (`CARD_SEP_CHARS`, the width of " - "), so the first pill begins
+// on the title column every row's title and wrapped lines start on (req #3575's
+// hanging indent) and never inside the room reserved for the id (req #3601,
+// user: "Terminal intrudes into the space when added and should never do so").
+// A NO-BREAK SPACE inside
 // "Terminal 2", because `wrapReqText` breaks on ' ' and a pill split across two
 // lines is not a pill.
 //
@@ -3102,7 +3105,7 @@ export function reqPillPrefix(reqId, reqPills) {
     let text = String(reqId);
     const pills = [];
     for (const t of tokens) {
-        text += REQ_PILL_SEP;
+        text += pills.length ? REQ_PILL_SEP : ' '.repeat(CARD_SEP_CHARS);
         pills.push({ kind: t.kind, start: text.length, len: t.text.length });
         text += t.text;
     }
@@ -4196,7 +4199,7 @@ export function computePlanLayout(rows, opts = {}) {
         let idRowY = rowsTop;
         rowLines.forEach((lines, i) => {
             // A prefix too long for the first line (never at a real card
-            // width — `id  Terminal NN  PORT` is 23 characters against a 28
+            // width — `id   Terminal NN  PORT` is 24 characters against a 28
             // character line) degrades to the bare id rather than drawing an
             // id string wider than the box the overlap sweep measured.
             const fullPrefix = reqPillPrefix(ids[i], reqPills);

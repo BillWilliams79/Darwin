@@ -1,7 +1,7 @@
 // planReqPills.js — WHERE a requirement's work can be reached right now: its
 // terminal and its dev server (req #3587).
 //
-// The plan visualizer draws a requirement row as `3572  Terminal 2  3002 -
+// The plan visualizer draws a requirement row as `3572   Terminal 2  3002 -
 // Title`, the two middle tokens as pills. This file is the JOIN that answers
 // "which terminal, which port" — pure, plain objects in and a Map out, so it is
 // testable without a canvas and the layout module stays free of session data.

@@ -5551,7 +5551,7 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
                 const name = of('step');
                 expect(run, `step ${row.id} has a run pill`).toBeTruthy();
                 expect(run.run).toBe(row.run === 'manual' ? 'manual' : 'auto');
-                expect(run.text).toBe(row.run === 'manual' ? 'manual' : 'auto');
+                expect(run.text).toBe(row.run === 'manual' ? 'Manual' : 'Auto');
                 expect(run.w).toBe(CARD_RUN_W);
                 expect(run.h).toBe(CARD_RUN_H);
                 // Abutting the "+" reserve (req #3582) on its left — which
@@ -5574,12 +5574,12 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
         expect(drawsLabelKind('run', 'in')).toBe(true);
     });
 
-    it('a manual step\'s pill says manual, an auto step\'s says auto (req #3580)', () => {
+    it('a manual step\'s pill says Manual, an auto step\'s says Auto (req #3580)', () => {
         const rows = plan.rows.map((r, i) => ({ ...r, run: i % 2 ? 'manual' : 'auto' }));
         const layout = computePlanLayout(rows, { stepLabel: 'title' });
         rows.forEach((r, i) => {
             const run = layout.labels.find((l) => l.kind === 'run' && l.stepId === r.id);
-            expect(run.text).toBe(i % 2 ? 'manual' : 'auto');
+            expect(run.text).toBe(i % 2 ? 'Manual' : 'Auto');
             expect(run.run).toBe(i % 2 ? 'manual' : 'auto');
         });
     });
