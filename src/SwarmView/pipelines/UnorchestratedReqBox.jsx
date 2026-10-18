@@ -48,6 +48,11 @@
 // and the spot is not remembered. The visualizer asks before writing anything.
 // An empty box has nothing to seat, so it only ever moves.
 //
+// While a carrying move is under way (req #3614) the box turns see-through and
+// folds its list, so the step card it is aimed at can be read; both are undone
+// on release. `onCarryingChange` tells the visualizer, which then draws its
+// seat-target outline above the box.
+//
 // ── SIZED LIKE THE REQUIREMENTS (user directive) ───────────────────────────
 // Its TYPE is the
 // requirement ids' own on-screen size — `fontPx` is the card's requirement font
@@ -62,10 +67,19 @@
 // Width rung and the zoom — "whatever the step width, the box will mirror its
 // width". Never narrower than its whole title bar (`UNSEATED_MIN_WIDTH_EM`):
 // zoomed out past the type's 9px floor, a card is too thin to hold it.
+//
+// ── A CATEGORY COLOR BAR ON EVERY ROW (req #3619) ─────────────────────────
+// Like the aggregator card, the box gathers requirements from many categories,
+// so each row leads with the same pill that card draws (RequirementRow, req
+// #2752): the category's own color as the fill, outlined in a same-hue
+// lightened shade so a very dark color still has an edge — the box is always
+// dark, so it is the card's dark-mode rule. A row with no color keeps the slot,
+// transparent, so the ids stay in one column.
 
 import { useEffect, useRef, useState } from 'react';
 
 import Box from '@mui/material/Box';
+import { lighten } from '@mui/material/styles';
 
 import { CARD_FRAME_W, PLAN_VIZ_PALETTE as P } from './pipelinePlanLayout';
 import { UNSEATED_REQ_MIME } from './pipelineUnseated';
@@ -87,6 +101,12 @@ const MOVE_SLOP = 4;
 const DBLCLICK_AFTER_MOVE_MS = 500;
 const POS_STORAGE_KEY = 'darwin-plan-unseated-box-pos';
 
+/** The bar's edge: a same-hue lightened shade of its fill, or a neutral edge
+ *  for a value MUI cannot parse (RequirementRow's rule, req #2752). */
+function barEdge(color) {
+    try { return lighten(color, 0.45); } catch { return 'rgba(128,128,128,0.5)'; }
+}
+
 function readPos() {
     try {
         const v = JSON.parse(window.localStorage.getItem(POS_STORAGE_KEY));
@@ -104,10 +124,10 @@ function writePos(pos) {
 }
 
 export default function UnorchestratedReqBox({
-    items, isLoading = false, isError = false,
+    items, categoryColors = {}, isLoading = false, isError = false,
     fontPx = 12, widthPx = CARD_FRAME_W, statusColor = P.req,
     draggingId = null, onDragStartItem, onDragEndItem, onOpen,
-    onMoveOver, onMoveDrop,
+    onMoveOver, onMoveDrop, onCarryingChange,
 }) {
     // Open by default: the box exists to be seen next to the plan it feeds.
     const [open, setOpen] = useState(true);
@@ -119,6 +139,11 @@ export default function UnorchestratedReqBox({
     // re-renders on press and release.
     const moveRef = useRef(null);
     const [moving, setMoving] = useState(false);
+    // True from the first move frame of a title-bar move that carries rows
+    // until it ends (req #3614): the box turns see-through and folds its list
+    // so the step card beneath it can be read, and is restored on release.
+    const [carrying, setCarrying] = useState(false);
+    useEffect(() => { onCarryingChange?.(carrying); }, [carrying]);
     const lastMoveEndRef = useRef(0);
 
     const onBarDown = (e) => {
@@ -154,13 +179,17 @@ export default function UnorchestratedReqBox({
                 pane.clientHeight - e.currentTarget.offsetHeight)),
         };
         setPos(m.last);
-        if (m.carries) onMoveOver?.(e.clientX, e.clientY);
+        if (m.carries) {
+            setCarrying(true);
+            onMoveOver?.(e.clientX, e.clientY);
+        }
     };
     const onBarUp = (e) => {
         const m = moveRef.current;
         if (!m || e.pointerId !== m.id) return;
         moveRef.current = null;
         setMoving(false);
+        setCarrying(false);
         if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
             e.currentTarget.releasePointerCapture(e.pointerId);
         }
@@ -218,13 +247,15 @@ export default function UnorchestratedReqBox({
         };
         el.addEventListener('wheel', onWheel, { passive: true });
         return () => el.removeEventListener('wheel', onWheel);
-    }, [open]);
+    }, [open, carrying]);
 
     const count = items.length;
+    const listShown = open && !carrying;
 
     return (
         <Box ref={boxRef} data-viz-chrome="unseated" data-viz-unseated=""
              data-testid="pipeline-viz-unseated"
+             data-carrying={carrying ? '1' : '0'}
              data-pos={!pos ? 'home'
                  : (pos.r != null ? `r${pos.r},${pos.y}` : `${pos.x},${pos.y}`)}
              // Everything inside is in em off this one number. In `style`, NOT
@@ -243,7 +274,10 @@ export default function UnorchestratedReqBox({
                     borderRadius: '0.8em', border: `2px solid ${OUTLINE}`,
                     boxShadow: '0 0.5em 1.5em rgba(0, 0, 0, 0.45)',
                     fontFamily: MONO, color: P.text, userSelect: 'none',
-                    overflow: 'hidden', zIndex: 2 }}>
+                    overflow: 'hidden', zIndex: 2,
+                    // See-through while carried (req #3614) so the outlined
+                    // step beneath can be read.
+                    opacity: carrying ? 0.35 : 1 }}>
             <Box data-testid="pipeline-viz-unseated-header"
                  title={count > 0
                      ? 'Drag to move · drop on a step to seat them all · double-click to put back'
@@ -282,7 +316,7 @@ export default function UnorchestratedReqBox({
                 </Box>
             </Box>
 
-            {open && (
+            {listShown && (
                 <Box ref={listRef} data-testid="pipeline-viz-unseated-list"
                      sx={{ overflowY: 'auto', overscrollBehavior: 'contain',
                             minHeight: 0, flex: '0 1 auto', maxHeight: '26em',
@@ -295,12 +329,13 @@ export default function UnorchestratedReqBox({
                     {!isError && !isLoading && count === 0 && (
                         <Box data-testid="pipeline-viz-unseated-empty"
                              sx={{ px: '0.8em', py: '0.5em', color: P.dim }}>
-                            None — every swarm-ready requirement is on a step.
+                            None
                         </Box>
                     )}
                     {items.map((r) => {
                         const id = Number(r.id);
                         const dragging = draggingId === id;
+                        const barColor = categoryColors[r.category_fk];
                         return (
                             <Box key={id}
                                  draggable
@@ -321,6 +356,16 @@ export default function UnorchestratedReqBox({
                                         // solid copy, not a ghost of the canvas.
                                         background: dragging ? 'transparent' : '#0d1420',
                                         '&:hover': { background: '#16233a' } }}>
+                                <Box component="span"
+                                     data-testid={`pipeline-viz-unseated-bar-${id}`}
+                                     sx={{ width: '0.45em', alignSelf: 'stretch',
+                                            minHeight: '1.2em', flexShrink: 0,
+                                            borderRadius: '0.25em', boxSizing: 'border-box',
+                                            bgcolor: barColor || 'transparent',
+                                            ...(barColor && {
+                                                border: '0.1em solid',
+                                                borderColor: barEdge(barColor),
+                                            }) }} />
                                 <Box component="span"
                                      sx={{ color: statusColor, fontWeight: 700, flexShrink: 0 }}>
                                     {id}

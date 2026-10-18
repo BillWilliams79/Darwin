@@ -1632,7 +1632,7 @@ export function orderedPlan(model, { now, costIndex = null } = {}) {
     // caller's input, so there is nothing outside this function to surprise.
     for (const r of rows) r.cost = aggregateRowCost(r, costIndex);
 
-    const timeAxis = planTimeAxis(rows, (model && model.requirements) || []);
+    const timeAxis = planTimeAxis(rows, (model && model.requirements) || [], now);
 
     return {
         rows,

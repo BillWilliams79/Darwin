@@ -195,3 +195,74 @@ export function bulkSeatRequest(items, target, rowById) {
         reqs,
     };
 }
+
+/** Is a client point inside a DOM rect (edges inclusive)? Null rect → false. */
+export function pointInRect(x, y, rect) {
+    return !!rect && Number.isFinite(x) && Number.isFinite(y)
+        && x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+}
+
+/**
+ * May the pointer, released at a client point, mean a SEAT (req #3614)? Only
+ * when it is inside the plan panel and something other than the box lies
+ * beneath it. Pointer capture keeps delivering events past the window edge,
+ * where `elementsFromPoint` answers `[]` — "nothing beneath" is not "the open
+ * canvas", it is "not on the canvas at all", so it is chrome, never a card.
+ *
+ * @param {number} x  client x
+ * @param {number} y  client y
+ * @param {?{left: number, right: number, top: number, bottom: number}} panelRect
+ * @param {?Element} beneath  first element under the point that is not the box
+ */
+export function pointerCanSeat(x, y, panelRect, beneath) {
+    return pointInRect(x, y, panelRect) && !!beneath;
+}
+
+/**
+ * Seat every id with `seat(id)`, at most `concurrency` writes in flight; one
+ * failing never stops the rest. Resolves to the failures, `{id, error}` each,
+ * in completion order.
+ *
+ * @param {number[]} ids
+ * @param {(id: number) => Promise<*>} seat
+ * @param {number} concurrency
+ */
+export async function runBulkSeat(ids, seat, concurrency) {
+    const failed = [];
+    const queue = ids.slice();
+    const worker = async () => {
+        while (queue.length) {
+            const id = queue.shift();
+            try {
+                await seat(id);
+            } catch (error) {
+                failed.push({ id, error });
+            }
+        }
+    };
+    await Promise.all(Array.from(
+        { length: Math.min(Math.max(1, Math.floor(concurrency) || 1), ids.length) }, worker));
+    return failed;
+}
+
+/**
+ * The snackbar line for a bulk seat that did not fully land (req #3614): each
+ * failed id with its OWN HTTP status — `11 (409), 12 (500)` — never one
+ * status stamped on a list. Null when nothing failed.
+ *
+ * @param {number} total  how many were attempted
+ * @param {Array<{id: number, error: *}>} failed
+ */
+export function bulkSeatFailureMessage(total, failed) {
+    if (!failed?.length) return null;
+    const which = failed
+        .slice().sort((a, b) => a.id - b.id)
+        .map((f) => {
+            const status = f.error?.httpStatus?.httpStatus;
+            return status ? `${f.id} (${status})` : String(f.id);
+        })
+        .join(', ');
+    return failed.length === total
+        ? `Unable to add ${which} to the step`
+        : `Added ${total - failed.length} of ${total}; unable to add ${which}`;
+}

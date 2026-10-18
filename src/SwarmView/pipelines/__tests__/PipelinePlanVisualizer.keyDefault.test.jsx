@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
-// The plan visualizer's KEY opens EXPANDED (req #3585, reversing req #3309's
-// collapsed default). The default is one `useState` literal, so nothing else
+// The plan visualizer's KEY opens COLLAPSED (req #3633, reversing req #3585's
+// expanded default). The default is one `useState` literal, so nothing else
 // in the suite would notice it flipping back — this pins it.
 //
 // jsdom has no canvas, so react-konva is stubbed with inert elements: the key
@@ -63,21 +63,23 @@ afterEach(() => {
     document.body.innerHTML = '';
 });
 
-describe('the plan key opens expanded (req #3585)', () => {
-    it('renders the key content on first mount, with the toggle reading expanded', () => {
+describe('the plan key opens collapsed (req #3633)', () => {
+    it('renders no key content on first mount, with the toggle reading collapsed', () => {
         render();
         const toggle = document.querySelector('[data-testid="pipeline-viz-legend-toggle"]');
         expect(toggle).not.toBeNull();
-        expect(toggle.getAttribute('aria-expanded')).toBe('true');
-        expect(toggle.getAttribute('aria-label')).toBe('Collapse the key');
-        expect(toggle.textContent).toBe('−');
+        expect(toggle.getAttribute('aria-expanded')).toBe('false');
+        expect(toggle.getAttribute('aria-label')).toBe('Expand the key');
+        expect(toggle.textContent).toBe('+');
+        expect(document.querySelector('[data-testid="pipeline-viz-legend-reqscale"]')).toBeNull();
     });
 
-    it('still collapses on a click', () => {
+    it('still expands on a click', () => {
         render();
         const toggle = document.querySelector('[data-testid="pipeline-viz-legend-toggle"]');
         act(() => { toggle.click(); });
-        expect(toggle.getAttribute('aria-expanded')).toBe('false');
-        expect(toggle.textContent).toBe('+');
+        expect(toggle.getAttribute('aria-expanded')).toBe('true');
+        expect(toggle.textContent).toBe('−');
+        expect(document.querySelector('[data-testid="pipeline-viz-legend-reqscale"]')).not.toBeNull();
     });
 });
