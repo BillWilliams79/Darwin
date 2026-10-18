@@ -20,12 +20,7 @@
 // absent from it is seated NOWHERE and seating it is a plain INSERT — no
 // unseat, no move.
 
-import { CARD_FONT } from './pipelinePlanLayout';
-
-/** The box's width in em of its own type, and its home corner's inset in px.
- *  Exported so the Urgent Review box (req #3622) docks against its home. */
-export const UNSEATED_BOX_WIDTH_EM = 23;
-export const UNSEATED_BOX_INSET_PX = 8;
+import { CARD_FONT, CARD_FRAME_W } from './pipelinePlanLayout';
 
 /** The box's type size bounds, screen px (user ruling: "match, within 9–16px"). */
 export const UNSEATED_FONT_MIN = 9;
@@ -42,6 +37,36 @@ export const UNSEATED_FONT_MAX = 16;
 export function unseatedBoxFontPx(k) {
     const px = CARD_FONT.req * (Number.isFinite(k) && k > 0 ? k : 1);
     return Math.min(UNSEATED_FONT_MAX, Math.max(UNSEATED_FONT_MIN, px));
+}
+
+/** The box's narrowest width, in em of its own type: room for the whole title
+ *  bar — "Orchestration Ready", the count and the −/+ — and an id plus a slice
+ *  of title. Under a rung-1 card's own 18.6em, so it binds only once the type
+ *  is held at its 9px floor and the card keeps shrinking without it. */
+export const UNSEATED_MIN_WIDTH_EM = 18;
+
+/**
+ * The box's width at zoom `k`, screen px (req #3620, user directive: "whatever
+ * the step width, the box will mirror its width. it's too narrow"): the step
+ * card's drawn frame — `frameW`, world px, which follows the Step Width rung —
+ * through the zoom. The same width the seat-target outline draws around a card
+ * (`screenRectOf`), so the box and the card it feeds read as one size.
+ *
+ * FLOORED SO ITS TITLE BAR FITS. Zoomed out, a card is a few dozen px wide —
+ * plan 7 opens at k≈0.04–0.08, a 21–31px card — and a box that narrow clips its
+ * own title and −/+ toggle away. So it never goes below
+ * `UNSEATED_MIN_WIDTH_EM` of its own type, which is narrower than every rung's
+ * card at any zoom where the type tracks the ids: the box is exactly the card
+ * everywhere except zoomed out past the type's 9px floor (162px there). The
+ * pane caps it on the far side (`maxWidth` in the component).
+ *
+ * @param {number} frameW  the card frame width, world px (`layout.cardFrameW`)
+ * @param {number} k       the live zoom scale
+ */
+export function unseatedBoxWidthPx(frameW, k) {
+    const w = Number.isFinite(frameW) && frameW > 0 ? frameW : CARD_FRAME_W;
+    const card = w * (Number.isFinite(k) && k > 0 ? k : 1);
+    return Math.max(card, UNSEATED_MIN_WIDTH_EM * unseatedBoxFontPx(k));
 }
 
 /** The `dataTransfer` type a box row carries. Custom, so a text or file drag

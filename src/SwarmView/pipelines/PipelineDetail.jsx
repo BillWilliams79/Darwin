@@ -77,7 +77,7 @@ import {
     planEntityName, planListPath,
 } from './planEra';
 import { usePlanSources } from './usePlanSources';
-import { readFocusStepParam, readLevelParam } from './pipelineStepLink';
+import { readColorParam, readFocusStepParam, readLevelParam } from './pipelineStepLink';
 import { readFocusEpicParam } from './pipelineEpicLink';
 import { writePipelinePlace } from './pipelinePlace';
 // Req #3261 P8 — the Plan mode's own controls, in their own component, exactly
@@ -253,8 +253,8 @@ export default function PipelineDetail() {
     // "constructor" is a reachable string that resolves to an inherited function,
     // and this one is handed to Konva as a text `fill`. A stored value written
     // before this change ('state' / 'machine') still normalizes to itself, so an
-    // existing reader's plan opens exactly as it did.
-    const colorKey = normalizeColorKey(colorKeyPref);
+    // existing reader's plan opens exactly as it did. The resolved `colorKey`
+    // is computed below, after `?color=` (req #3636) is read.
 
     // Req #3115 cross-mode handshake: a bead click in the Plan visualizer lands
     // the user on the SAME step in the table — the visualizer calls
@@ -308,6 +308,9 @@ export default function PipelineDetail() {
     // vocabulary and null on anything else, so an unrecognised value leaves the
     // reader's stored preference in charge rather than pinning them to 'auto'.
     const linkLevel = readLevelParam(searchParams);
+    // req #3636 — `?color=` picks the colour key for one landing, transiently,
+    // by `?level=`'s contract (see `readColorParam`).
+    const linkColor = readColorParam(searchParams);
     // A named step FORCES THE TABLE — unless the link explicitly asks for the
     // plan (req #3253).
     //
@@ -339,6 +342,8 @@ export default function PipelineDetail() {
     // see one thing once, so a reader who keeps L3 (or Auto) pinned still has it
     // the next time they open a plan by any other route.
     const [levelOverride, setLevelOverride] = useState(linkLevel);
+    const [colorOverride, setColorOverride] = useState(linkColor);
+    const colorKey = normalizeColorKey(colorOverride ?? colorKeyPref);
     const [modeOverride, setModeOverride] = useState(linkView);
     // Re-seeds when the LINK changes — a new `?mode=`, a new `?step=`, a new
     // `?epic=`, or a different plan — and at no other time, so a manual pick
@@ -350,11 +355,12 @@ export default function PipelineDetail() {
         setFocusStepId(linkStepId);
         setFocusEpicId(linkEpicId);
         setLevelOverride(linkLevel);
+        setColorOverride(linkColor);
         // `era` sat in this list for the same reason it sat in the description
         // dialog's: an era switch at the same id reused this instance, and a
         // `?step=` focus from the other era's plan would have survived into
         // this one. There is no other era to switch from now.
-    }, [linkView, linkStepId, linkEpicId, linkLevel, pipelineId]);
+    }, [linkView, linkStepId, linkEpicId, linkLevel, linkColor, pipelineId]);
     const onStepFocus = useCallback((stepId) => {
         setFocusStepId(stepId);
         setModeOverride('table');
@@ -376,6 +382,11 @@ export default function PipelineDetail() {
         setLevelOverride(null);
         setLevelPref(v);
     }, [setLevelPref]);
+    // A manual COLOUR pick clears the link's `?color=` for the level pick's reason.
+    const handleColorKeyChange = useCallback((v) => {
+        setColorOverride(null);
+        setColorKeyPref(v);
+    }, [setColorKeyPref]);
     // ── RESET IS THE VIEW, AND ONLY THE VIEW (req #3324) ────────────────────
     // The camera goes back to the factory default; the LEVEL does not move.
     // > *"There are four modes only… it's fixed until Auto is selected."*
@@ -935,7 +946,7 @@ export default function PipelineDetail() {
                         stepWidthLevel={stepWidthLevel}
                         onChangeStepWidthLevel={setStepWidthLevelPref}
                         colorKey={colorKey}
-                        onChangeColorKey={setColorKeyPref}
+                        onChangeColorKey={handleColorKeyChange}
                         planLevelPref={activeLevelPref}
                         effectiveLevel={effectiveLevel}
                         onChangeLevelPref={handleLevelPrefChange}
