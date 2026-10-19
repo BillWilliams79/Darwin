@@ -103,7 +103,6 @@ import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
 import MenuItem from '@mui/material/MenuItem';
 import TextField from '@mui/material/TextField';
-import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 // req #3428 — the icon `/swarm`'s own view toggle uses for Cards. Reusing the
@@ -117,6 +116,7 @@ import { STEP_RUNNING } from './pipelineViewModel';
 // still called — now with no era argument.
 import { planStorageNamespace } from './planEra';
 import { OrderViolationsAlert } from './PipelinePlanTable';
+import EmptyPlanAddStep from './EmptyPlanAddStep';
 import {
     computePlanLayout, beadStyle, placeEpicChips,
     epicFocusTransform, stepFocusTransform, stepsFocusTransform,
@@ -170,10 +170,10 @@ import {
 } from '../../hooks/useDataQueries';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
 import {
-    moveStepRequirement, insertStepOnEdge, branchStepFrom, precedeStepWith,
+    moveStepRequirement, insertStepOnEdge, addDependentStep, precedeStepWith,
     isRestNullLiteral, REST_NULL, updateStep,
 } from '../../Steps/stepsApi';
-// req #3586 — the "+" marks that add a step on an edge or as a branch; req
+// req #3586 — the "+" marks that add a step on an edge or a dependent step; req
 // #3617 adds the one off a free left side, for a step this one depends on.
 import {
     insertMarkRadius, buildInsertMarks, insertMarkAt, insertRequest, NEW_STEP_TITLE,
@@ -605,7 +605,7 @@ export default function PipelinePlanVisualizer({
                     toStepId: req.toId, epic_fk: insertEpic, title,
                 });
             } else {
-                await branchStepFrom(darwinUri, idToken, {
+                await addDependentStep(darwinUri, idToken, {
                     fromStepId: req.fromId, epic_fk: insertEpic, title,
                 });
             }
@@ -2241,7 +2241,7 @@ export default function PipelinePlanVisualizer({
         ctx.setLineDash([4, 3]);
         ctx.beginPath();
         // A stub stops at its mark's rim, on whichever side of the card it
-        // leaves — right for a branch, left for a precede (req #3617).
+        // leaves — right for a dependent, left for a precede (req #3617).
         for (const st of g.stubs) {
             ctx.moveTo(st.x1, st.y);
             ctx.lineTo(st.x2 - Math.sign(st.x2 - st.x1) * r, st.y);
@@ -2768,12 +2768,8 @@ export default function PipelinePlanVisualizer({
         return (
             <Box>
                 <OrderViolationsAlert plan={plan} />
-                <Paper variant="outlined" sx={{ p: 4, textAlign: 'center' }}
-                       data-testid="pipeline-plan-viz-empty">
-                    <Typography variant="body2" color="text.secondary">
-                        This pipeline has no steps yet.
-                    </Typography>
-                </Paper>
+                <EmptyPlanAddStep model={model} pipeline={pipeline}
+                                  testId="pipeline-plan-viz-empty" />
             </Box>
         );
     }
@@ -4160,7 +4156,7 @@ export default function PipelinePlanVisualizer({
 
     // ── THE ADD-STEP MARKS (req #3586) ──────────────────────────────────────
     // A "+" on every dependency arc (split it: A -> new -> B), one at the end
-    // of a dashed stub off every card's right side (branch: a new step gated on
+    // of a dashed stub off every card's right side (dependent: a new step gated on
     // that step alone), and one off the left side of every card no arc lands on
     // (precede, req #3617: a new step that card then waits on). ONE shape,
     // pushed last so it sits above the labels; its geometry is `insertGeom` and its clicks are resolved by `insertHitRef`.
@@ -4250,7 +4246,7 @@ export default function PipelinePlanVisualizer({
                  // req #3586 — how many add-step marks the canvas drew, by kind,
                  // for the same reason: they are otherwise only pixels.
                  data-insert-edges={insertGeom ? insertGeom.edgeCount : 0}
-                 data-insert-branches={insertGeom ? insertGeom.branchCount : 0}
+                 data-insert-dependents={insertGeom ? insertGeom.dependentCount : 0}
                  data-insert-precedes={insertGeom ? insertGeom.precedeCount : 0}
                  // Full-page canvas (req #3119), the KonvaSwarmCanvas figure
                  // verbatim. The height is MEASURED (`availH` above) rather than
@@ -5217,9 +5213,12 @@ export default function PipelinePlanVisualizer({
                 click inside it never reaches the canvas's own click test. */}
             <Dialog open={insertReq != null} onClose={closeInsert} fullWidth maxWidth="xs"
                     data-testid="pipeline-viz-insert-dialog">
-                <DialogTitle>
-                    {{ edge: 'Insert a step', precede: 'Add a step before' }[insertReq?.kind]
-                        || 'Add a parallel step'}
+                <DialogTitle data-testid="pipeline-viz-insert-heading">
+                    {{
+                        edge: 'Insert a step',
+                        precede: 'Add a step before',
+                        dependent: 'Add a dependent step',
+                    }[insertReq?.kind]}
                 </DialogTitle>
                 <DialogContent>
                     <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}
