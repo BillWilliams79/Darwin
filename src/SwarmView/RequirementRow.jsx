@@ -39,6 +39,7 @@ import { useModelEffortDisplayStore } from '../stores/useModelEffortDisplayStore
 import { orchestratedMarkSx } from './orchestratedMarkStyles';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { watchFocusLoss } from '../utils/focusLossRecorder';
+import { copyFocusCapture } from '../utils/focusCapture';
 
 
 const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryName }) => {
@@ -215,9 +216,11 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
     // loss (req #2884's opt-in logger recorded nothing in four months: nobody
     // has DevTools open when it surprises them). Inert until the template title
     // is focused; when focus is taken WITHOUT the reader asking, it names the
-    // culprit in the snackbar (10 s) and keeps the full report in
-    // `window.__darwinFocusLoss` — `copy(darwinFocusLossReport())` in DevTools.
-    // See `utils/focusLossRecorder.js` for what counts as a loss.
+    // culprit in the snackbar and keeps the full report in
+    // `window.__darwinFocusLoss`. Req #3652: the alert's "Copy for Claude"
+    // button puts the whole capture on the clipboard, so the reader pastes it
+    // instead of working out what to say. See `utils/focusLossRecorder.js`
+    // for what counts as a loss, `utils/focusCapture.js` for the capture.
     const titleInputRef = useRef(null);
     const showMessage = useSnackBarStore(s => s.showMessage);
     const focusLossLabel = isTemplate ? `template title (${categoryName || 'category'})` : null;
@@ -226,9 +229,14 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
         return watchFocusLoss(titleInputRef.current, {
             label: focusLossLabel,
             onLoss: (report) => showMessage(
-                `Focus taken from ${report.label} — ${report.cause}: ${report.culprit}. `
-                + 'Details: copy(darwinFocusLossReport()) in DevTools',
-                { duration: 10000 }),
+                `Focus taken from ${report.label} — ${report.cause}: ${report.culprit}.`,
+                {
+                    duration: 30000,
+                    action: {
+                        label: 'Copy for Claude',
+                        onClick: () => copyFocusCapture({ reason: 'focus-loss alert', report }),
+                    },
+                }),
         });
     }, [isTemplate, focusLossLabel, showMessage]);
 
@@ -245,7 +253,7 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
         // Session-status icons (req #2332). Rocket = active/implementing; each other
         // status gets its own glyph, colored to match its chip.
         if (sessionStatus === 'starting')   return <PendingIcon sx={{ fontSize: 18, color: 'info.main' }} />;
-        if (sessionStatus === 'waiting')    return <HourglassTopIcon sx={{ fontSize: 18, color: '#ffb74d' }} />;
+        if (sessionStatus === 'waiting')    return <HourglassTopIcon sx={{ fontSize: 18, color: '#ff3b30' }} />;  // attention red, same as review (req #3656)
         if (sessionStatus === 'planning')   return <AutoFixHighIcon sx={{ fontSize: 18, color: '#4fc3f7' }} />;
         if (sessionStatus === 'active')     return <RocketLaunchIcon sx={{ fontSize: 18, color: '#4caf50' }} />;  // implementing
         if (sessionStatus === 'review')     return <BiotechIcon sx={{ fontSize: 18, color: '#ff3b30' }} />;  // attention red (req #3636)
