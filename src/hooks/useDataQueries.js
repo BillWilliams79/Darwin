@@ -376,6 +376,25 @@ export function useAllRequirements(creatorFk, { fields = 'id,title', enabled = t
 // Req #2593 — produced by createEntityQueries via factory/devopsQueries.js.
 export const useDevServers = devServers.useAll;
 
+// Req #3643 — the titles of the requirements the running dev servers serve, for
+// the Dev Servers dashboard. Read from PRODUCTION (`darwinOpsUri`) in every
+// build: the ids come from `dev_servers` claims (ops-pinned to production — a
+// session directory is named after its production requirement), so the
+// dev/prod-split `darwinUri` would look them up in darwin_dev, where the same
+// id is a different requirement or none. One read for the ids on screen
+// (`id=(a,b,c)`), id and title only.
+export function useDevServerRequirementTitles(creatorFk, ids, { enabled = true } = {}) {
+    const { darwinOpsUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+    const key = [...new Set(ids)].sort((a, b) => a - b).join(',');
+    return useQuery({
+        queryKey: ['devServerRequirementTitles', creatorFk, key],
+        queryFn: () => fetchEntity(`${darwinOpsUri}/requirements?id=(${key})&fields=id,title`, idToken),
+        enabled: enabled && !!creatorFk && !!idToken && key !== '',
+        staleTime: 60_000,
+    });
+}
+
 export function usePriorityTasks(creatorFk, domainId, areaIds, { enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
