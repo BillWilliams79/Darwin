@@ -10,7 +10,8 @@ import { DEFAULT_REQUIREMENT_COLOR_KEY, normalizeRequirementColorKey } from '../
 // the SwarmView header and the rows it colours are three components down, in
 // every CategoryCard and the Swarm-Start aggregator.
 //
-// Its OWN key, not the plan's `darwin-pipeline-viz-color-key`: the two pages
+// Its OWN key, not the plan's colour-key setting (`colorKey` in
+// pipelines/planViewSettings.js): the two pages
 // answer different questions, and picking Machine on a plan should not recolour
 // the requirements page behind the reader's back.
 //

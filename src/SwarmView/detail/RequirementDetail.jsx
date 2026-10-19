@@ -14,7 +14,7 @@ import { stepOptions, pipelineOptions, epicOptions } from './orchestrationIndex'
 import { moveStepRequirement } from '../../Steps/stepsApi';
 import { planLinkTo, epicLinkTo } from '../pipelines/pipelineEpicLink';
 import { stepPlanLinkTo, readNewRequirementSeat, backToPlanQuery,
-    BACK_STEP_STATE_KEY, BACK_LEVEL_STATE_KEY } from '../pipelines/pipelineStepLink';
+    BACK_STEP_STATE_KEY, planViewCarry } from '../pipelines/pipelineStepLink';
 // req #3463 — the era↔route binding. This page never spells a plan route.
 // `useOrchestrationIndex` walks the PIPELINE 2.0 tables since req #3356, so the
 // plan and step links below are 2.0 — which is what `planLinkTo`/
@@ -888,8 +888,8 @@ const RequirementDetail = () => {
             replace: true,
             state: hasPipelineOrigin
                 ? { from: 'pipeline', pipelineId: fromPipelineId, mode: fromPipelineMode,
-                    ...(location.state?.[BACK_LEVEL_STATE_KEY] != null
-                        && { [BACK_LEVEL_STATE_KEY]: location.state[BACK_LEVEL_STATE_KEY] }),
+                    // Every view override the plan exit recorded (req #3651).
+                    ...planViewCarry(location.state),
                     ...(location.state?.[BACK_STEP_STATE_KEY] != null
                         && { [BACK_STEP_STATE_KEY]: location.state[BACK_STEP_STATE_KEY] }) }
                 : undefined,

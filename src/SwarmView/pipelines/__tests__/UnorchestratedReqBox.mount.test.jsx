@@ -17,6 +17,10 @@ let host;
 let root;
 beforeEach(() => {
     window.localStorage.clear();
+    // The list's fold is a remembered setting since req #3651 (per-tab
+    // sessionStorage, seeded from localStorage) — clear both, or a test that
+    // folds the list leaks its fold into the next.
+    window.sessionStorage.clear();
     host = document.createElement('div');
     document.body.appendChild(host);
     root = createRoot(host);
@@ -386,5 +390,225 @@ describe('UnorchestratedReqBox', () => {
         act(() => { fire('pointerdown', 1, 1); });
         act(() => { fire('pointermove', 200, 200); });
         expect(box.getAttribute('data-pos')).toBe('home');
+    });
+
+    // req #3654 — stretched by its corner; text in exactly three sizes.
+    const withResizeGeometry = (box, list) => {
+        const pane = { clientWidth: 1000, clientHeight: 600 };
+        Object.defineProperty(box, 'offsetParent', { get: () => pane });
+        Object.defineProperty(box, 'offsetLeft', { get: () => 592 });
+        Object.defineProperty(box, 'offsetTop', { get: () => 8 });
+        Object.defineProperty(box, 'offsetWidth', { get: () => 400 });
+        Object.defineProperty(list, 'offsetHeight', { get: () => 100 });
+        Object.defineProperty(list, 'offsetTop', { get: () => 36 });
+    };
+
+    it('stretches leftward from its bottom-left grip at home, stepping the text up once', () => {
+        act(() => root.render(<UnorchestratedReqBox items={items} fontPx={12} widthPx={400} />));
+        const box = q('pipeline-viz-unseated');
+        const grip = q('pipeline-viz-unseated-grip');
+        expect(grip.getAttribute('data-corner')).toBe('bottom-left');
+        expect(getComputedStyle(grip).cursor).toBe('nesw-resize');
+        withResizeGeometry(box, q('pipeline-viz-unseated-list'));
+        const fire = fireOn(grip);
+        act(() => { fire('pointerdown', 600, 200); });
+        // A small stretch: wider, same text.
+        act(() => { fire('pointermove', 560, 200); });
+        expect(box.style.width).toBe('440px');
+        expect(box.getAttribute('data-text-step')).toBe('0');
+        expect(box.style.fontSize).toBe('12px');
+        // Sideways only: the list keeps its natural height.
+        expect(q('pipeline-viz-unseated-list').style.height).toBe('');
+        // A full step wider: one size bigger.
+        act(() => { fire('pointermove', 500, 260); });
+        expect(box.style.width).toBe('500px');
+        expect(box.getAttribute('data-text-step')).toBe('1');
+        expect(box.style.fontSize).toBe('15px');
+        expect(q('pipeline-viz-unseated-list').style.height).toBe('160px');
+        // Far wider still: no bigger than that one size (and capped at the pane).
+        act(() => { fire('pointermove', -2000, 260); });
+        expect(box.style.fontSize).toBe('15px');
+        expect(box.style.width).toBe('984px');
+        act(() => { fire('pointerup', -2000, 260); });
+        expect(JSON.parse(window.localStorage.getItem('darwin-plan-unseated-box-size')))
+            .toEqual({ ws: 984 / 400, hEm: 160 / 12 });
+        // Moving the box is untouched by a resize.
+        expect(box.getAttribute('data-pos')).toBe('home');
+    });
+
+    it('shrinks a step to one size smaller, and no smaller than that', () => {
+        act(() => root.render(<UnorchestratedReqBox items={items} fontPx={12} widthPx={400} />));
+        const box = q('pipeline-viz-unseated');
+        const grip = q('pipeline-viz-unseated-grip');
+        withResizeGeometry(box, q('pipeline-viz-unseated-list'));
+        const fire = fireOn(grip);
+        act(() => { fire('pointerdown', 600, 200); });
+        act(() => { fire('pointermove', 680, 200); });
+        expect(box.style.width).toBe('320px');
+        expect(box.getAttribute('data-text-step')).toBe('-1');
+        expect(box.style.fontSize).toBe('9.6px');
+        // Squeezed further: held at its title bar in the smaller type.
+        act(() => { fire('pointermove', 2000, 200); });
+        expect(box.style.fontSize).toBe('9.6px');
+        expect(parseFloat(box.style.width)).toBeCloseTo(18 * 9.6, 6);
+        act(() => { fire('pointerup', 2000, 200); });
+    });
+
+    it('is remembered, keeps tracking the zoom, and double-click on the grip restores it', () => {
+        window.localStorage.setItem('darwin-plan-unseated-box-size',
+            JSON.stringify({ ws: 1.5, hEm: 10 }));
+        act(() => root.render(<UnorchestratedReqBox items={items} fontPx={12} widthPx={400} />));
+        const box = q('pipeline-viz-unseated');
+        expect(box.getAttribute('data-stretched')).toBe('1');
+        expect(box.style.width).toBe('600px');
+        expect(box.style.fontSize).toBe('15px');
+        expect(q('pipeline-viz-unseated-list').style.height).toBe('120px');
+        // Zoomed in: the stretch scales with it.
+        act(() => root.render(<UnorchestratedReqBox items={items} fontPx={16} widthPx={800} />));
+        expect(box.style.width).toBe('1200px');
+        expect(box.style.fontSize).toBe('20px');
+        expect(q('pipeline-viz-unseated-list').style.height).toBe('160px');
+        act(() => { q('pipeline-viz-unseated-grip').dispatchEvent(
+            new MouseEvent('dblclick', { bubbles: true })); });
+        expect(box.getAttribute('data-stretched')).toBe('0');
+        expect(box.style.width).toBe('800px');
+        expect(box.style.fontSize).toBe('16px');
+        expect(window.localStorage.getItem('darwin-plan-unseated-box-size')).toBeNull();
+    });
+
+    it('remembered from the left, it grows rightward from a bottom-right grip', () => {
+        window.localStorage.setItem('darwin-plan-unseated-box-pos',
+            JSON.stringify({ x: 100, y: 50 }));
+        act(() => root.render(<UnorchestratedReqBox items={items} fontPx={12} widthPx={400} />));
+        const box = q('pipeline-viz-unseated');
+        const grip = q('pipeline-viz-unseated-grip');
+        expect(grip.getAttribute('data-corner')).toBe('bottom-right');
+        expect(getComputedStyle(grip).cursor).toBe('nwse-resize');
+        const pane = { clientWidth: 1000, clientHeight: 600 };
+        Object.defineProperty(box, 'offsetParent', { get: () => pane });
+        Object.defineProperty(box, 'offsetLeft', { get: () => 100 });
+        Object.defineProperty(box, 'offsetTop', { get: () => 50 });
+        Object.defineProperty(box, 'offsetWidth', { get: () => 400 });
+        const fire = fireOn(grip);
+        act(() => { fire('pointerdown', 500, 300); });
+        expect(box.getAttribute('data-pos')).toBe('100,50');
+        act(() => { fire('pointermove', 600, 300); });
+        expect(box.style.width).toBe('500px');
+        // Room to the right edge is the cap.
+        act(() => { fire('pointermove', 5000, 300); });
+        expect(box.style.width).toBe('900px');
+        act(() => { fire('pointerup', 5000, 300); });
+    });
+
+    it('a grip click that wobbles stretches nothing', () => {
+        act(() => root.render(<UnorchestratedReqBox items={items} />));
+        const box = q('pipeline-viz-unseated');
+        withResizeGeometry(box, q('pipeline-viz-unseated-list'));
+        const fire = fireOn(q('pipeline-viz-unseated-grip'));
+        act(() => { fire('pointerdown', 600, 200); });
+        act(() => { fire('pointermove', 602, 201); });
+        act(() => { fire('pointerup', 602, 201); });
+        expect(box.getAttribute('data-stretched')).toBe('0');
+        expect(window.localStorage.getItem('darwin-plan-unseated-box-size')).toBeNull();
+    });
+
+    it('has no grip while folded', () => {
+        act(() => root.render(<UnorchestratedReqBox items={items} />));
+        expect(q('pipeline-viz-unseated-grip')).not.toBeNull();
+        act(() => q('pipeline-viz-unseated-toggle').click());
+        expect(q('pipeline-viz-unseated-grip')).toBeNull();
+    });
+
+    it('a spot the pane is clamping is re-anchored where drawn, so the grip edge moves', () => {
+        // Remembered 300px from the right, but zoomed so wide the pane's clamp
+        // draws it at the left edge: the grip (bottom-left) must still be the
+        // edge that follows the pointer.
+        window.localStorage.setItem('darwin-plan-unseated-box-pos',
+            JSON.stringify({ r: 300, y: 40 }));
+        act(() => root.render(<UnorchestratedReqBox items={items} fontPx={12} widthPx={800} />));
+        const box = q('pipeline-viz-unseated');
+        const pane = { clientWidth: 1000, clientHeight: 600 };
+        Object.defineProperty(box, 'offsetParent', { get: () => pane });
+        Object.defineProperty(box, 'offsetLeft', { get: () => 0 });
+        Object.defineProperty(box, 'offsetTop', { get: () => 40 });
+        Object.defineProperty(box, 'offsetWidth', { get: () => 800 });
+        const fire = fireOn(q('pipeline-viz-unseated-grip'));
+        act(() => { fire('pointerdown', 0, 300); });
+        expect(box.getAttribute('data-pos')).toBe('r200,40');
+        // Narrowed by dragging the grip right: the right edge stays put.
+        act(() => { fire('pointermove', 100, 300); });
+        expect(box.style.width).toBe('700px');
+        act(() => { fire('pointerup', 100, 300); });
+        expect(JSON.parse(window.localStorage.getItem('darwin-plan-unseated-box-pos')))
+            .toEqual({ r: 200, y: 40 });
+    });
+
+    it('a sideways stretch that drifts a little leaves the height alone', () => {
+        act(() => root.render(<UnorchestratedReqBox items={items} fontPx={12} widthPx={400} />));
+        const box = q('pipeline-viz-unseated');
+        withResizeGeometry(box, q('pipeline-viz-unseated-list'));
+        const fire = fireOn(q('pipeline-viz-unseated-grip'));
+        act(() => { fire('pointerdown', 600, 200); });
+        act(() => { fire('pointermove', 540, 210); });
+        act(() => { fire('pointerup', 540, 210); });
+        expect(q('pipeline-viz-unseated-list').style.height).toBe('');
+        expect(JSON.parse(window.localStorage.getItem('darwin-plan-unseated-box-size')))
+            .toEqual({ ws: 460 / 400, hEm: null });
+    });
+
+    it('a stretched height is held between two rows and the pane bottom', () => {
+        act(() => root.render(<UnorchestratedReqBox items={items} fontPx={10} widthPx={400} />));
+        const box = q('pipeline-viz-unseated');
+        const list = q('pipeline-viz-unseated-list');
+        withResizeGeometry(box, list);
+        const fire = fireOn(q('pipeline-viz-unseated-grip'));
+        act(() => { fire('pointerdown', 600, 200); });
+        act(() => { fire('pointermove', 600, -500); });
+        expect(list.style.height).toBe('35px');
+        // 600 pane − 8 inset − 8 box top − 36 list top.
+        act(() => { fire('pointermove', 600, 5000); });
+        expect(list.style.height).toBe('548px');
+        act(() => { fire('pointerup', 600, 5000); });
+    });
+
+    it('a cancelled stretch keeps what was drawn and ends the gesture', () => {
+        act(() => root.render(<UnorchestratedReqBox items={items} fontPx={12} widthPx={400} />));
+        const box = q('pipeline-viz-unseated');
+        withResizeGeometry(box, q('pipeline-viz-unseated-list'));
+        const fire = fireOn(q('pipeline-viz-unseated-grip'));
+        act(() => { fire('pointerdown', 600, 200); });
+        act(() => { fire('pointermove', 500, 200); });
+        act(() => { fire('pointercancel', 500, 200); });
+        expect(box.style.width).toBe('500px');
+        act(() => { fire('pointermove', 100, 200); });
+        expect(box.style.width).toBe('500px');
+    });
+
+    it('a corrupt or absurd remembered size is ignored or bounded', () => {
+        window.localStorage.setItem('darwin-plan-unseated-box-size', '{not json');
+        act(() => root.render(<UnorchestratedReqBox items={items} fontPx={12} widthPx={400} />));
+        expect(q('pipeline-viz-unseated').getAttribute('data-stretched')).toBe('0');
+        act(() => root.unmount());
+        window.localStorage.setItem('darwin-plan-unseated-box-size',
+            JSON.stringify({ ws: 1e308, hEm: 1e308 }));
+        root = createRoot(host);
+        act(() => root.render(<UnorchestratedReqBox items={items} fontPx={12} widthPx={400} />));
+        const box = q('pipeline-viz-unseated');
+        expect(box.style.width).toBe('8000px');
+        expect(box.style.fontSize).toBe('15px');
+        expect(q('pipeline-viz-unseated-list').style.height).toBe('4800px');
+    });
+
+    it('hides its grip while the box is being moved', () => {
+        act(() => root.render(<UnorchestratedReqBox items={[]} />));
+        const box = q('pipeline-viz-unseated');
+        const bar = q('pipeline-viz-unseated-header');
+        withGeometry(box, bar);
+        const fire = fireOn(bar);
+        act(() => { fire('pointerdown', 710, 20); });
+        expect(q('pipeline-viz-unseated-grip')).toBeNull();
+        act(() => { fire('pointermove', 410, 220); });
+        act(() => { fire('pointerup', 410, 220); });
+        expect(q('pipeline-viz-unseated-grip')).not.toBeNull();
     });
 });

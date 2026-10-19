@@ -244,11 +244,24 @@ export function newRequirementSeatState(pipelineId, mode, row) {
     return state;
 }
 
+// ── THE VIEW A RETURN CARRIES BACK — ONE LIST (req #3651) ──────────────────
+// The transient `?…=` overrides that say how an entry LOOKS (never where it is
+// focused): a return to the plan must hand each one back, or "Back to Plan"
+// lands on a different view than the browser's Back to the same entry would.
+// It carried `level` alone (req #3637) and so dropped a `?color=` (req #3636)
+// the reader was looking at. A new view param is one row here, and every exit
+// and every return reads this list — none spells a param of its own.
+// The router-state key IS the param name: `level` is `BACK_LEVEL_STATE_KEY`.
+export const PLAN_VIEW_PARAMS = Object.freeze([
+    { param: FOCUS_LEVEL_PARAM, isValid: isPlanLevelPref },
+    { param: FOCUS_COLOR_PARAM, isValid: isColorKey },
+]);
+
 /**
  * The router state every exit from a plan surface carries, so the far page's
- * "Back to Plan" can return to the SAME view (req #3637): the panel, and the
- * `?level=` pin the reader was looking at when there was one. The camera and
- * the table scroll come back from storage on their own — Back goes to the
+ * "Back to Plan" can return to the SAME view (req #3637): the panel, and each
+ * `PLAN_VIEW_PARAMS` override the reader was looking at. The camera, the table
+ * scroll and the popouts come back from storage on their own — Back goes to the
  * plain plan URL, never to a `?step=`/`?epic=` link that would move them.
  *
  * Read off `window.location` at click time, the one place both the plan's own
@@ -256,27 +269,42 @@ export function newRequirementSeatState(pipelineId, mode, row) {
  */
 export function planExitState(pipelineId, mode) {
     const state = { from: 'pipeline', pipelineId, mode };
-    let level = null;
+    let params = null;
     try {
-        level = readLevelParam(new URLSearchParams(window.location.search));
+        params = new URLSearchParams(window.location.search);
     } catch {
-        level = null;
+        params = null;
     }
-    if (level) state[BACK_LEVEL_STATE_KEY] = level;
+    for (const { param, isValid } of PLAN_VIEW_PARAMS) {
+        const v = params?.get(param);
+        if (isValid(v)) state[param] = String(v);
+    }
     return state;
 }
 
 /**
+ * The `PLAN_VIEW_PARAMS` entries of a `planExitState` record — what a page that
+ * re-writes its own router state (the requirement editor's first save) must
+ * forward so its Back still returns to the same view.
+ */
+export function planViewCarry(state) {
+    const carry = {};
+    for (const { param, isValid } of PLAN_VIEW_PARAMS) {
+        if (isValid(state?.[param])) carry[param] = String(state[param]);
+    }
+    return carry;
+}
+
+/**
  * The query "Back to Plan" lands with, from a `planExitState` record: `mode=`
- * and, when the plan had one, `level=`. Null when neither is usable. Both are
- * validated — this comes from router state, and is interpolated into a URL.
+ * and every usable `PLAN_VIEW_PARAMS` override. Null when none is usable. All
+ * are validated — this comes from router state, and is interpolated into a URL.
  */
 export function backToPlanQuery(state) {
     const parts = [];
     const mode = state?.mode;
     if (typeof mode === 'string' && /^[a-z]{1,16}$/.test(mode)) parts.push(`mode=${mode}`);
-    const level = state?.[BACK_LEVEL_STATE_KEY];
-    if (isPlanLevelPref(level)) parts.push(`${FOCUS_LEVEL_PARAM}=${level}`);
+    for (const [param, v] of Object.entries(planViewCarry(state))) parts.push(`${param}=${v}`);
     return parts.length ? parts.join('&') : null;
 }
 
