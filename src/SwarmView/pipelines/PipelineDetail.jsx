@@ -1,8 +1,10 @@
 // PipelineDetail.jsx — /swarm/pipeline/:id (req #3114).
 //
-// The header, the Table|Plan mode switcher (fed by pipelineDetailModes.js so
-// req #3115 adds its visualizer without touching this file), and the active
-// mode's panel.
+// The header and the plan's panel. The panel comes from pipelineDetailModes.js,
+// which since req #3641 registers ONE mode — the Plan visualizer is the only way
+// to look at a pipeline (user directive), so there is no mode switcher on the
+// row and a click on a step frames it on the canvas rather than leaving for a
+// Table.
 //
 // DATA: four bounded list reads + three dictionary reads + (req #3117) two cost
 // reads, joined client-side in one useMemo (design rule 5 — the POC's ~86
@@ -35,8 +37,6 @@ import DialogTitle from '@mui/material/DialogTitle';
 import Divider from '@mui/material/Divider';
 import Link from '@mui/material/Link';
 import TextField from '@mui/material/TextField';
-import ToggleButton from '@mui/material/ToggleButton';
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import useMediaQuery from '@mui/material/useMediaQuery';
@@ -62,7 +62,7 @@ import {
     DEFAULT_PIPELINE_DETAIL_MODE,
     findPipelineDetailMode,
 } from './pipelineDetailModes';
-import { pipelineStatusChipProps, toolbarChipProps } from './pipelineChipStyles';
+import { pipelineStatusChipProps } from './pipelineChipStyles';
 import { claimForPipeline, holderView } from './orchestrationHolder';
 // req #3463 — the era↔route binding. This page never spells a plan route or an
 // entity name.
@@ -79,10 +79,10 @@ import {
 import { usePlanSources } from './usePlanSources';
 import { usePlanMaximize } from './usePlanMaximize';
 import {
-    readColorParam, readFocusStepParam, readLevelParam, stepLinkTo,
-    FOCUS_STEP_PARAM, FOCUS_LEVEL_PARAM, FOCUS_COLOR_PARAM,
+    readColorParam, readFocusStepParam, readLevelParam,
+    FOCUS_LEVEL_PARAM, FOCUS_COLOR_PARAM,
 } from './pipelineStepLink';
-import { readFocusEpicParam, FOCUS_EPIC_PARAM } from './pipelineEpicLink';
+import { readFocusEpicParam } from './pipelineEpicLink';
 import { writePipelinePlace } from './pipelinePlace';
 // Req #3261 P8 — the Plan mode's own controls, in their own component, exactly
 // as `SwarmView.jsx` renders `<VisualizerToolbar />` for its canvas mode (S4).
@@ -118,7 +118,7 @@ import { buildReqPills } from './planReqPills';
 // exactly the state a failed or in-flight read sits in — and that changing
 // identity permanently defeats every useMemo downstream of it: costIndex, plan
 // (so `new Date()` is re-read on every render, contradicting the "now is read
-// ONCE per model change" contract below), and the table's own planRenderRows.
+// ONCE per model change" contract below), and every panel memo keyed on them.
 // One stable reference costs nothing and keeps the memo chain honest in the
 // error path the costError branch exists to handle.
 const EMPTY = Object.freeze([]);
@@ -152,7 +152,9 @@ export default function PipelineDetail() {
     const timezone = profile?.timezone;
     const pipelineId = Number(id);
 
-    const [mode, setMode] = useViewPreference(
+    // Read, never written any more (req #3641 removed the switcher): a stored
+    // 'table' from before normalizes to the one registered mode below.
+    const [mode] = useViewPreference(
         PIPELINE_DETAIL_MODE_STORAGE_KEY, DEFAULT_PIPELINE_DETAIL_MODE);
 
     // ── Mode toolbar state, OWNED HERE (req #3119) ──────────────────────────
@@ -160,10 +162,6 @@ export default function PipelineDetail() {
     // SwarmView/VisualizerToolbar arrangement (req #2407), where the panel is the
     // canvas and the page owns the chrome. That is what buys the visualizer a
     // full-height canvas: every row of chrome it used to carry is now shared.
-    // req #3651 — PERSISTED, like every popout on this page: it was component
-    // state, so a requirement round-trip or a reload switched the columns off
-    // under a reader who had asked for them. One row in `planViewSettings.js`.
-    const [showCost, setShowCost] = usePlanViewSetting('showCost');
     // req #3225 — persisted because the SAME toggle
     // also governs the plan list page's Cards/Table titles, a different page
     // component that must read the same choice on its own next mount rather
@@ -266,50 +264,37 @@ export default function PipelineDetail() {
     // existing reader's plan opens exactly as it did. The resolved `colorKey`
     // is computed below, after `?color=` (req #3636) is read.
 
-    // Req #3115 cross-mode handshake: a bead click in the Plan visualizer lands
-    // the user on the SAME step in the table — the visualizer calls
-    // onStepFocus(stepId), the page pushes the step's table link (req #3637, so
-    // Back returns to the canvas), and the table scrolls to and highlights the
-    // row. The switch is a TRANSIENT override, never written to
-    // the persisted preference: the user asked to inspect one step, not to make
-    // Table their default everywhere (review finding). Picking a mode by hand
-    // persists it as usual and clears both the override and the focus, so a
-    // stale highlight never survives an unrelated visit to the table.
-    // ── `?mode=` makes the SURFACE addressable, not just the page (req #3168) ──
-    // Which panel this page shows is a persisted PREFERENCE, so the route alone
-    // names a plan and not a view of it: `/swarm/pipeline/2` opens the Table for
-    // anyone whose stored mode says Table, including every first-time visitor
-    // (`DEFAULT_PIPELINE_DETAIL_MODE`). That makes the visualizer unlinkable —
-    // there is no URL that reliably lands on it — which is a real gap for a dev
-    // server deep link, a bug report, or a link pasted into a review.
-    //
-    // It seeds the SAME transient override the bead-click handshake uses, and for
-    // the same reason: a link asks to see one thing once. It must not rewrite what
-    // the user chose as their default (the `normalizeView` doctrine — never let an
-    // external condition overwrite uncommitted user intent). Picking a mode by
-    // hand rewrites the query (req #3637 — it used to leave it in the address
-    // bar, so a reload resurrected the panel the reader had just left).
+    // ── ONE PANEL SINCE REQ #3641 ───────────────────────────────────────────
+    // This page chose between a Table and the Plan visualizer — a persisted
+    // preference, a `?mode=` link override (req #3168), and a bead-click
+    // handshake that pushed the step's Table link (req #3115/#3637). The user
+    // withdrew the Table: the visualizer is the only way to look at a pipeline.
+    // `pipelineDetailModes.js` now registers one mode, so every path below
+    // resolves to the plan; the machinery stays because `?mode=` links exist in
+    // the wild and the registry is how a second view would come back. A link is
+    // still a TRANSIENT override that never rewrites the stored preference (the
+    // `normalizeView` doctrine — never let an external condition overwrite
+    // uncommitted user intent).
     const [searchParams] = useSearchParams();
-    // Validated against the mode list, never trusted: an unknown `?mode=xyz` is a
-    // typo, and falling through to `null` leaves the stored preference in charge
-    // rather than selecting nothing in the toggle group.
+    // Validated against the mode list, never trusted: an unknown or withdrawn
+    // `?mode=` (`table`, a typo) falls through to `null` and leaves the stored
+    // preference — normalized onto the registry — in charge.
     const requestedMode = searchParams.get('mode');
     const linkMode = PIPELINE_DETAIL_MODES.some(
         (m) => m.value === requestedMode && !m.disabled) ? requestedMode : null;
     // ── `?step=` makes ONE STEP addressable (req #3140) ──────────────────────
-    // The receiving end of the Steps editor's row link, and the same handshake a
-    // bead click already uses: seed `focusStepId`, and the table scrolls to and
-    // highlights that row. `pipelineStepLink.js` owns both halves of the
-    // contract so the writer and this reader cannot drift on the key.
+    // The receiving end of a step link (`stepPlanLinkTo`): seed `focusStepId`,
+    // and the visualizer centres and zooms on that step. `pipelineStepLink.js`
+    // owns both halves of the contract so a writer and this reader cannot drift
+    // on the key.
     const linkStepId = readFocusStepParam(searchParams);
     // ── `?epic=` makes ONE EPIC'S LOCATION addressable (req #3235) ───────────
     // The receiving end of the requirement page's epic-box "view on plan" link.
-    // An epic band only exists in the visualizer, so a named epic FORCES the
-    // Plan mode the same way a named step forces the Table — but a `?step=`
-    // is more specific than a `?epic=` (a step names one row; an epic is a
-    // whole band a step already belongs to), so if a link somehow carried
-    // both, the step wins. `pipelineEpicLink.js` owns both halves of this
-    // contract, same split as the step link.
+    // A `?step=` is more specific than a `?epic=` (a step names one card; an
+    // epic is a whole band a step already belongs to), so if a link somehow
+    // carried both, the step wins — the canvas applies that precedence.
+    // `pipelineEpicLink.js` owns both halves of this contract, same split as the
+    // step link.
     const linkEpicId = readFocusEpicParam(searchParams);
     // ── `?level=` PINS THE SEMANTIC LEVEL FOR ONE LANDING (req #3253) ────────
     // The step-on-the-plan link carries `level=3` (req #3498 — it was `2`, and
@@ -322,23 +307,14 @@ export default function PipelineDetail() {
     // req #3636 — `?color=` picks the colour key for one landing, transiently,
     // by `?level=`'s contract (see `readColorParam`).
     const linkColor = readColorParam(searchParams);
-    // A named step FORCES THE TABLE — unless the link explicitly asks for the
-    // plan (req #3253).
-    //
-    // The original rule was unconditional, and its reason was that only the
-    // table consumed `focusStepId`: the visualizer had beads, not rows, so
-    // honouring `?mode=plan&step=7` landed the reader on a plan with nothing
-    // highlighted and nothing to say why. Req #3253 gives the visualizer that
-    // handshake — a named step centres and zooms the camera on its bead — so the
-    // reason has gone and the rule with it. What survives is the DEFAULT: a
-    // `?step=` with no `?mode=` (the Steps editor's row link, which does carry
-    // `mode=table`, and any hand-typed URL) still means the row.
-    const linkView = linkStepId != null
-        ? (linkMode === 'plan' ? 'plan' : 'table')
-        : (linkEpicId != null ? 'plan' : linkMode);
+    // A named step or epic means the PLAN, whatever `?mode=` the link carries
+    // (req #3641). Until then a bare `?step=` meant the Table's row; the Table is
+    // gone, and the visualizer has consumed `focusStepId` since req #3253 (it
+    // centres and zooms on the step).
+    const linkView = linkStepId != null || linkEpicId != null ? 'plan' : linkMode;
 
     // ── A LINK FIRES ONCE PER HISTORY ENTRY (req #3637) ─────────────────────
-    // `?step=`/`?epic=` move the camera (or the table's scroll) onto one thing.
+    // `?step=`/`?epic=` move the camera onto one thing.
     // Read straight off the URL they fired AGAIN on every reload and every
     // Back/Forward onto that entry — the URL still carries them — and yanked
     // the reader off wherever they had since panned to: *"refresh, reload,
@@ -368,9 +344,9 @@ export default function PipelineDetail() {
     // "adjust state when a prop changes" pattern below re-derives the focus in
     // the SAME render the entry changes in, before any child renders, so no
     // panel can see another entry's focus. `?epic=` rides along for the reason
-    // req #3235's review gave it a state copy at all: a manual mode pick must
-    // be able to clear it, and an in-place move between two links must not keep
-    // the first.
+    // req #3235's review gave it a state copy at all: an in-place move between
+    // two links must not keep the first. (A manual mode pick cleared both too,
+    // until req #3641 withdrew the Table and the switcher with it.)
     const linkConsumed = isPlanLinkConsumed(location);
     const entryKind = classifyPlanEntry({
         consumed: linkConsumed, navigationType,
@@ -390,8 +366,6 @@ export default function PipelineDetail() {
     }
     const focusStepId = liveFocus.stepId;
     const focusEpicId = liveFocus.epicId;
-    const clearFocus = useCallback(() => setFocus(
-        (f) => ({ ...f, stepId: null, epicId: null })), []);
     // The panel and the level are the URL's whenever it names them — derived,
     // never a state copy, so a Back/Forward lands on that entry's own panel and
     // a reload keeps it. Never written to the persisted preferences: a link
@@ -423,23 +397,11 @@ export default function PipelineDetail() {
             state: { ...(location.state || {}), [PLAN_LINK_CONSUMED_STATE_KEY]: search },
         });
     }, [location.pathname, location.search, location.state, navigate]);
-    // A bead click lands on the step's row in the Table. It PUSHES an entry
-    // (req #3637) — it used to switch the panel in place, so the browser's Back
-    // left the plan altogether instead of returning to the canvas the reader
-    // clicked from. The new entry is an ordinary step link, consumed like any.
-    const onStepFocus = useCallback((stepId) => {
-        const to = stepLinkTo(pipelineId, stepId);
-        if (to) navigate(to);
-    }, [navigate, pipelineId]);
-    const handleModeChange = useCallback((_e, v) => {
-        if (v == null) return;
-        clearFocus();
-        setMode(v);
-        replaceLinkParams(['mode', FOCUS_STEP_PARAM, FOCUS_EPIC_PARAM, FOCUS_LEVEL_PARAM]);
-    }, [setMode, replaceLinkParams, clearFocus]);
-    // A manual LEVEL pick clears the link's level the same way a manual MODE pick
-    // clears the link's mode — and persists the reader's choice as usual. The two
-    // are separate handlers because they are separate controls.
+    // A click on a step used to push its Table link (req #3115/#3637). Req
+    // #3641 removed the Table: the visualizer frames the step on its own
+    // canvas, so there is no cross-mode handshake left for this page to own.
+    // A manual LEVEL pick clears the link's `?level=` — so a reload keeps the
+    // pick (req #3637) — and persists the reader's choice as usual.
     const handleLevelPrefChange = useCallback((v) => {
         setLevelPref(v);
         replaceLinkParams([FOCUS_LEVEL_PARAM]);
@@ -872,33 +834,6 @@ export default function PipelineDetail() {
                         alignItems: 'center', gap: 1, flexWrap: 'nowrap',
                         minWidth: 0, overflowX: 'auto', mb: 1 }}
                  data-testid="pipeline-header-row">
-                <ToggleButtonGroup
-                    value={activeMode}
-                    exclusive
-                    onChange={handleModeChange}
-                    size="small"
-                    sx={{ flexShrink: 0 }}
-                    data-testid="pipeline-detail-mode-toggle"
-                >
-                    {PIPELINE_DETAIL_MODES.map(({ value, label, icon: Icon, disabled }) => (
-                        <Tooltip key={value} title={`${label} View`}>
-                            {/* Explicit aria-label (req #3281 code review): MUI
-                                never opens a Tooltip on a disabled child
-                                (disabled buttons are `pointer-events: none`),
-                                so a future `disabled` mode (V1) would get the
-                                Tooltip's injected name only when it can least
-                                afford to lose it. Setting it directly makes
-                                the accessible name independent of whether the
-                                Tooltip can ever open. */}
-                            <ToggleButton value={value} disabled={disabled}
-                                          aria-label={`${label} View`}
-                                          className="cal-toggle-btn" sx={{ px: 1.5 }}
-                                          data-testid={`pipeline-mode-${value}`}>
-                                <Icon fontSize="small" />
-                            </ToggleButton>
-                        </Tooltip>
-                    ))}
-                </ToggleButtonGroup>
 
                 {/* THE TITLE IS THE SPACER (req #3261 P3, S11 / V2). It used to
                     be `flexShrink: 1` beside a SEPARATE `flexGrow` Box —
@@ -1003,29 +938,6 @@ export default function PipelineDetail() {
                 <Divider orientation="vertical" flexItem
                          sx={{ mx: 0.5, flexShrink: 0 }} />
 
-                {activeMode === 'table' ? (
-                    <Tooltip title="Show each step's elapsed time and token cost">
-                        <Chip
-                            label="Time / Tokens"
-                            // WCAG 2.5.3 — MUI's Tooltip injects its title as
-                            // the child's `aria-label` unless the child sets
-                            // one, so this chip would display "Time / Tokens"
-                            // and announce a sentence that never says it. MUI
-                            // spreads the child's props LAST, so this one wins.
-                            aria-label={'Time / Tokens — show each step\'s '
-                                + 'elapsed time and token cost'}
-                            onClick={() => setShowCost((v) => !v)}
-                            // `aria-pressed` (req #3261 P5, S7): this was one of
-                            // the two toggles on the row that carried their
-                            // state in the variant alone, so a screen reader was
-                            // told there was a button called "Time / Tokens" and
-                            // never told whether it was on. (The other was
-                            // Counts, which req #3242 removed.)
-                            {...toolbarChipProps(showCost, { sx: { flexShrink: 0 } })}
-                            data-testid="pipeline-cost-toggle"
-                        />
-                    </Tooltip>
-                ) : (
                     <PipelinePlanToolbar
                         onStepsAcross={(n) => setStepsAcross(
                             (prev) => ({ n, nonce: prev.nonce + 1 }))}
@@ -1038,7 +950,6 @@ export default function PipelineDetail() {
                         onChangeLevelPref={handleLevelPrefChange}
                         onResetView={handleResetView}
                     />
-                )}
 
                 {/* The status chip and the machine chip were REMOVED on the
                     user's directive (2026-08-01). Plan status is already on the
@@ -1173,10 +1084,9 @@ export default function PipelineDetail() {
                 Alert above is then the last child instead. */}
             {canRenderPlan && (
             <ActiveComponent plan={plan} model={model} pipeline={pipeline} timezone={timezone}
-                             focusStepId={focusStepId} onStepFocus={onStepFocus}
+                             focusStepId={focusStepId}
                              focusEpicId={focusEpicId}
                              costError={!!costError}
-                             showCost={showCost}
                              showReqCounts={showReqCounts}
                              stepLabel={stepLabel} colorKey={colorKey}
                              reqLabel={reqLabel}

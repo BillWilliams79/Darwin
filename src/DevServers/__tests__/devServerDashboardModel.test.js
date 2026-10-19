@@ -55,6 +55,31 @@ describe('devServerDashboardRows', () => {
     it('has no rows until the machines read settles', () => {
         expect(devServerDashboardRows(servers, undefined, macNav)).toEqual([]);
     });
+    it('titles a local row with its link and terminal, and omits a terminal it has none of', () => {
+        const rows = devServerDashboardRows(servers, [mac, win], macNav);
+        expect(rows[1].title.split('\n')[0]).toBe('Open https://localhost:3003 · Terminal 6');
+        expect(rows[0].title.split('\n')[0]).toBe('Open https://localhost:3000');
+    });
+    it('shows every server, unlinked and naming its machine, when this machine cannot be resolved', () => {
+        const rows = devServerDashboardRows(servers, [mac, win], unknownNav);
+        expect(rows.map(r => r.key)).toEqual([12, 13, 11]);
+        expect(rows[1].title.split('\n')[0]).toBe('Port 3000 on MCHP');
+    });
+    it('shows every server, unlinked, when the machines read failed (passed as [])', () => {
+        const rows = devServerDashboardRows(servers, [], macNav);
+        expect(rows).toHaveLength(3);
+        expect(rows.every(r => r.href === null)).toBe(true);
+        expect(rows[0].title.split('\n')[0]).toBe('Port 3000 on machine 2');
+    });
+    it('is empty for no servers, and skips rows with no port', () => {
+        expect(devServerDashboardRows(undefined, [mac], macNav)).toEqual([]);
+        expect(devServerDashboardRows([{ id: 1, port: null, machine_fk: 2 }], [mac], macNav)).toEqual([]);
+    });
+    it("does not reorder the caller's array", () => {
+        const input = [...servers];
+        devServerDashboardRows(input, [mac, win], macNav);
+        expect(input).toEqual(servers);
+    });
 });
 
 describe('DASH_HOME', () => {

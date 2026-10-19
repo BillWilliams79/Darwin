@@ -2,7 +2,7 @@ import React, { useContext, useState, useMemo, useEffect, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
-import { useDevServers, useMachines } from '../hooks/useDataQueries';
+import { useDevServers } from '../hooks/useDataQueries';
 import {
     NAV_GROUPS, NAV_LINKS, PROFILE_LINK, flattenNavLinks, DEV_HOME_ROUTE,
     SIDEBAR_WIDTH, SIDEBAR_COLLAPSED_WIDTH, GROUP_PROFILE_KEY, GROUP_PROFILE_DEFAULT,
@@ -12,7 +12,6 @@ import {
     loadExpandedItems, persistExpandedItems, toggleItemExpanded,
     devCollapsedGroupsKey, defaultCollapsedGroups, iconModeLinks,
 } from './navCollapse';
-import { devServerNavPills } from './navDevServers';
 import ProfileDialog from './ProfileDialog';
 import { prodRequirementUrl } from '../utils/prodUrl';
 
@@ -114,12 +113,6 @@ const NavBarSidebar = () => {
     // running" — the only nav item that behaves this way. `undefined` (loading)
     // is deliberately NOT treated as empty to avoid a grey flash on first paint.
     const devServersEmpty = Array.isArray(devServersArray) && devServersArray.length === 0;
-    // Req #3642 — the pills the expanded Dev Servers item shows, scoped to this
-    // browser's machine (ports are machine-local) and in port order.
-    const { data: machinesData, isError: machinesError } = useMachines(profile?.userName);
-    const devServerPills = useMemo(
-        () => devServerNavPills(devServersArray, machinesError ? [] : machinesData),
-        [devServersArray, machinesData, machinesError]);
     const currentDevTerminal = useMemo(() => {
         if (!isDev || !devServersArray) return null;
         const port = parseInt(window.location.port || '0', 10);
@@ -274,13 +267,9 @@ const NavBarSidebar = () => {
     // Render one L2 item, plus its L3 children when it has any (req #3209).
     // Full-width sidebar only — icon-only mode renders the flat iconModeLinks
     // list instead (req #3590).
-    // Req #3642 — an item declaring `pills` expands the same way, but reveals a
-    // row of live-data pills instead of L3 links; with no pills there is
-    // nothing to expand, so it renders as a plain item.
     const renderNavTreeItem = (link, showText) => {
         const children = link.children ?? [];
-        const pills = link.pills === 'devServers' ? devServerPills : [];
-        if (!children.length && !pills.length) return renderNavItem(link, showText);
+        if (!children.length) return renderNavItem(link, showText);
 
         const expanded = !!expandedItems[link.path];
         const toggleLabel = `${expanded ? 'Collapse' : 'Expand'} ${link.label}`;
@@ -331,47 +320,9 @@ const NavBarSidebar = () => {
                     {/* `unmountOnExit` means the region only exists while open,
                         so `aria-controls` resolves exactly when there is
                         something to point at. */}
-                    {children.length ? (
-                        <List id={subListId} disablePadding component="div">
-                            {children.map(child => renderNavItem(child, showText, { indent: true }))}
-                        </List>
-                    ) : (
-                        <Box id={subListId} data-testid={`nav-pills-${slug}`} sx={{
-                            display: 'flex', flexWrap: 'wrap', gap: 0.5,
-                            // 5.5 = the parent's label column (pl 1.5 + 32px icon).
-                            pl: 5.5, pr: 1.5, pt: 0.25, pb: 0.75,
-                        }}>
-                            {pills.map(pill => (
-                                <Tooltip key={pill.key} title={pill.title} placement="right">
-                                    <Chip
-                                        size="small"
-                                        variant="outlined"
-                                        label={pill.label}
-                                        {...(pill.href ? {
-                                            component: 'a', href: pill.href, target: '_blank',
-                                            rel: 'noopener noreferrer', clickable: true,
-                                        } : {})}
-                                        data-testid={`nav-dev-server-pill-${pill.key}`}
-                                        sx={{
-                                            // One muted colour for every pill — the
-                                            // sidebar's own translucent white on
-                                            // black, not a status palette.
-                                            height: 20,
-                                            fontSize: 12,
-                                            color: 'rgba(255,255,255,0.7)',
-                                            bgcolor: 'rgba(255,255,255,0.06)',
-                                            borderColor: 'rgba(255,255,255,0.25)',
-                                            '& .MuiChip-label': { px: 0.75 },
-                                            '&.MuiChip-clickable:hover': {
-                                                bgcolor: 'rgba(255,255,255,0.12)',
-                                                color: 'white',
-                                            },
-                                        }}
-                                    />
-                                </Tooltip>
-                            ))}
-                        </Box>
-                    )}
+                    <List id={subListId} disablePadding component="div">
+                        {children.map(child => renderNavItem(child, showText, { indent: true }))}
+                    </List>
                 </Collapse>
             </React.Fragment>
         );

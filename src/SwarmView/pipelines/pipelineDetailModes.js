@@ -1,58 +1,54 @@
 // pipelineDetailModes.js — the mode registry for /swarm/pipeline/:id (req #3114).
 //
-// WHY A REGISTRY FOR TWO ENTRIES. The Plan visualizer is a separate requirement
-// (#3115) landing in a later wave, and the epic has more views behind it. Without
-// a registry, every new mode edits the switcher, the conditional render and the
-// storage-key normalization — three places, in a file that also owns the page
-// layout. With it, a new mode is ONE entry appended below and nothing else
-// changes. This is the same split as instructionSort.js / normalizeView.js: the
-// vocabulary lives outside the component so the component keeps its single job.
+// ONE ENTRY SINCE REQ #3641. It held Table and Plan; the user withdrew the
+// Table ("just show the visualizer and it's the only way to look at a pipeline
+// for now"), and the page dropped its Table|Plan switcher with it. The registry
+// stays because it is how a second view comes back: a mode is ONE entry here,
+// plus — once there are two — a switcher on PipelineDetail's header row (see
+// its git history for the one req #3641 removed). This is the same split as
+// instructionSort.js / normalizeView.js: the vocabulary lives outside the
+// component so the component keeps its single job.
 //
-// Contract for a new entry:
+// Contract for an entry:
 //   value      stable string — it is persisted per-tab by useViewPreference, so
 //              renaming one silently resets everyone who chose it
-//   label      the switcher's tooltip / accessible name
+//   label      the switcher's tooltip / accessible name, when there is one
 //   icon       an @mui/icons-material component (see view-switchable-pages § R3)
 //   Component  receives { plan, model, pipeline, timezone, focusStepId,
-//              onStepFocus, focusEpicId, costError, resetViewNonce } and
-//              renders the panel. focusStepId/onStepFocus are the req #3115
-//              cross-mode handshake: the visualizer calls onStepFocus(stepId)
-//              on a bead click, the page switches to the table mode, and the
-//              table scrolls to + highlights that row. `focusEpicId`
-//              (req #3235) is the one-shot `?epic=` deep link — only the
-//              visualizer consumes it, zooming to that epic's band once on
-//              mount via the same zoom behaviour a band-header click drives;
-//              the table ignores it entirely, same as the visualizer ignores
-//              `focusStepId`. `costError` (req #3117) is true when either cost
-//              read failed — a mode showing cost must say so rather than print
-//              em-dashes, which read as "no cost recorded". Every plan row
-//              already carries its own total on `row.cost`, so a mode needs no
-//              cost data of its own. `resetViewNonce` (req #3216) is the
-//              header's Reset control reaching into the mode's own pan/zoom
-//              state, a number that only ever increments; ignored by any mode
-//              with no camera of its own.
-//   disabled   optional — renders a disabled ToggleButton (rule V1: a
-//              not-yet-built view is disabled, never omitted, so the group holds
-//              its width)
+//              focusEpicId, costError, resetViewNonce, … } and renders the
+//              panel. `focusStepId` / `focusEpicId` are the one-shot `?step=` /
+//              `?epic=` deep links (req #3253 / #3235) — the visualizer centres
+//              and zooms on that step, or fits that epic's band. A click on a
+//              step is the panel's own business: the visualizer frames it (req
+//              #3641 — it used to call an `onStepFocus` that switched to the
+//              Table). `costError` (req #3117) is true when either cost read
+//              failed — a mode showing cost must say so rather than print
+//              em-dashes; the visualizer shows none and ignores it.
+//              `resetViewNonce` (req #3216) is the header's Reset control
+//              reaching into the mode's own pan/zoom state, a number that only
+//              ever increments.
+//   disabled   optional — renders a disabled ToggleButton once there is a
+//              switcher (rule V1: a not-yet-built view is disabled, never
+//              omitted, so the group holds its width)
 //
 // NO JSX in this file: it must stay importable by vitest without a DOM, and a
 // component file with non-component exports drops out of React Fast Refresh.
 
-import TableChartIcon from '@mui/icons-material/TableChart';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
 
-import PipelinePlanTable from './PipelinePlanTable';
 import PipelinePlanVisualizer from './PipelinePlanVisualizer';
 
 export const PIPELINE_DETAIL_MODE_STORAGE_KEY = 'darwin-swarm-pipeline-detail-mode';
 
+// ── ONE MODE (req #3641 user directive) ────────────────────────────────────
+// *"Remove the option to see the steps in the pipeline in a special viewer.
+// Just show the visualizer and it's the only way to look at a pipeline for
+// now."* The Table entry is withdrawn, not deleted: `PipelinePlanTable` and its
+// tests stay, so restoring it is this one entry plus PipelineDetail's
+// Table|Plan switcher and step-click handshake (both removed in req #3641's
+// change; see its git history). A stored
+// 'table' preference normalizes to 'plan' — `normalizeView` never writes back.
 export const PIPELINE_DETAIL_MODES = [
-    {
-        value: 'table',
-        label: 'Table',
-        icon: TableChartIcon,
-        Component: PipelinePlanTable,
-    },
     {
         // The req #3115 Plan visualizer: epic bands stacked by
         // `epics.sort_order` (req #3430 — the authoritative epic display order),
@@ -69,7 +65,7 @@ export const PIPELINE_DETAIL_MODES = [
     },
 ];
 
-export const DEFAULT_PIPELINE_DETAIL_MODE = 'table';
+export const DEFAULT_PIPELINE_DETAIL_MODE = 'plan';
 
 export const findPipelineDetailMode = (value) =>
     PIPELINE_DETAIL_MODES.find((m) => m.value === value);
