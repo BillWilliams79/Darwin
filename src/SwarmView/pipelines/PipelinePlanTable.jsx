@@ -57,6 +57,7 @@ import CheckIcon from '@mui/icons-material/Check';
 
 import { useScrollMemory } from '../../hooks/useScrollMemory';
 import { scrollStorageKey } from '../../utils/viewportMemory';
+import EmptyPlanAddStep from './EmptyPlanAddStep';
 import { fmtCost, STEP_DONE, STEP_RUNNING, STEP_PENDING, canFileIntoStep } from './pipelineModel';
 // req #3356 — the `era` PROP and ARGUMENT are both gone (there is one era) but
 // `planEra.js` stays the ONE place a plan route, entity or storage namespace is
@@ -83,7 +84,7 @@ import {
     PAUSE_PAUSED_COLOR,
 } from './pipelineChipStyles';
 import { sortReqIdsByColorKey } from './pipelinePlanLayout';
-import { newRequirementSeatState } from './pipelineStepLink';
+import { newRequirementSeatState, planExitState } from './pipelineStepLink';
 
 const NOWRAP = { whiteSpace: 'nowrap' };
 
@@ -289,8 +290,11 @@ function RequirementLinks({ row, pipelineId, colorKey, statusOf, sessionOf, auto
                         // and reintroducing this field would resurrect exactly
                         // the two-facts-in-two-places shape req #3462's outage
                         // was caused by.
+                        // req #3651 — `planExitState`, the one exit record every
+                        // plan surface writes, so Back carries the view's
+                        // overrides (`?color=`) like the canvas's exits do.
                         state={pipelineId
-                            ? { from: 'pipeline', pipelineId, mode: 'table' }
+                            ? planExitState(pipelineId, 'table')
                             : undefined}
                         underline="hover"
                         sx={{
@@ -502,12 +506,8 @@ export default function PipelinePlanTable({ plan, model, pipeline, timezone, foc
         return (
             <Box>
                 <OrderViolationsAlert plan={plan} />
-                <Paper variant="outlined" sx={{ p: 4, textAlign: 'center' }}
-                       data-testid="pipeline-plan-empty">
-                    <Typography variant="body2" color="text.secondary">
-                        This pipeline has no steps yet.
-                    </Typography>
-                </Paper>
+                <EmptyPlanAddStep model={model} pipeline={pipeline}
+                                  testId="pipeline-plan-empty" />
             </Box>
         );
     }

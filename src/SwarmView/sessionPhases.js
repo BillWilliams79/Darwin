@@ -12,10 +12,10 @@
 
 export const PHASE_BUCKETS = [
     { key: 'starting_secs',      label: 'Starting',      group: 'machine', color: '#5c6bc0' },
-    { key: 'waiting_secs',       label: 'Waiting',       group: 'human',   color: '#ffb74d' },
+    { key: 'waiting_secs',       label: 'Waiting',       group: 'human',   color: '#ff3b30' }, // attention red, same as review (req #3656)
     { key: 'planning_secs',      label: 'Planning',      group: 'agentic', color: '#4fc3f7' },
     { key: 'implementing_secs',  label: 'Implementing',  group: 'agentic', color: '#4caf50' },
-    { key: 'review_secs',        label: 'Review',        group: 'human',   color: '#ce93d8' },
+    { key: 'review_secs',        label: 'Review',        group: 'human',   color: '#ff3b30' }, // attention red (req #3636)
     { key: 'completion_secs',    label: 'Completion',    group: 'agentic', color: '#8d6e63' },
     { key: 'paused_secs',        label: 'Paused',        group: 'human',   color: '#f0d000' },
     { key: 'legacy_secs',        label: 'Legacy',        group: 'legacy',  color: '#bdbdbd' },

@@ -50,6 +50,7 @@ vi.mock('../../RestApi/RestApi', () => ({ default: vi.fn(() => Promise.resolve({
 import CategoryCard from '../CategoryCard';
 import AuthContext from '../../Context/AuthContext';
 import AppContext from '../../Context/AppContext';
+import { useSnackBarStore } from '../../stores/useSnackBarStore';
 
 const CATEGORY = { id: 5, category_name: 'Test Cat', project_fk: 1, sort_mode: 'process', color: null };
 const noop = () => {};
@@ -108,8 +109,16 @@ describe('CategoryCard template title keeps focus across a background re-seed (r
     beforeEach(() => {
         reqData = [{ id: 10, title: 'Existing req', requirement_status: 'authoring', category_fk: 5, sort_order: 0 }];
         roots = [];
+        window.__darwinFocusLoss = [];
     });
     afterEach(() => {
+        // Leave the field the way a reader would (a press elsewhere, then the
+        // blur): unmounting a focused template IS a remount, and the req #3632
+        // recorder would otherwise report the teardown itself.
+        act(() => {
+            document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+            document.activeElement?.blur?.();
+        });
         act(() => { roots.forEach((r) => r.unmount()); });
         document.body.innerHTML = '';
     });
@@ -145,5 +154,45 @@ describe('CategoryCard template title keeps focus across a background re-seed (r
         const taAfter = templateTextarea(container);
         expect(taAfter).not.toBeNull();
         expect(document.activeElement).toBe(taAfter);
+        // req #3632 — and the always-on recorder saw no loss: the re-seed is
+        // exactly the scenario under investigation, so it must stay silent.
+        await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+        expect(window.__darwinFocusLoss).toHaveLength(0);
+    }, 30000);
+
+    // req #3632 — the always-on focus-loss capture is wired to the real template
+    // row: a steal names its culprit in the snackbar and lands in the report.
+    it('names the culprit in the snackbar when focus is taken from the template title', async () => {
+        const { container } = mount();
+        const ta = templateTextarea(container);
+        const thief = document.createElement('button');
+        thief.setAttribute('data-testid', 'focus-thief');
+        document.body.appendChild(thief);
+        useSnackBarStore.setState({ open: false, message: '' });
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+            await act(async () => { ta.focus(); });
+            await act(async () => { thief.focus(); await new Promise((r) => setTimeout(r, 0)); });
+
+            const { open, message, duration, action } = useSnackBarStore.getState();
+            expect(open).toBe(true);
+            expect(message).toContain('Focus taken from template title (Test Cat) — focus-stolen: button[testid=focus-thief]');
+            expect(duration).toBe(30000);
+            expect(window.__darwinFocusLoss).toHaveLength(1);
+
+            // req #3652 — the alert's button puts the capture on the clipboard.
+            expect(action.label).toBe('Copy for Claude');
+            const writeText = vi.fn(() => Promise.resolve());
+            Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+            await act(async () => { await action.onClick(); });
+            const pasted = writeText.mock.calls[0][0];
+            expect(pasted).toContain('paste this whole block to Claude');
+            const capture = JSON.parse(pasted.split('```json\n')[1].split('\n```')[0]);
+            expect(capture.reason).toBe('focus-loss alert');
+            expect(capture.alertedLoss).toBe(window.__darwinFocusLoss[0].at);
+            expect(useSnackBarStore.getState().message).toBe('Focus capture copied — paste it to Claude.');
+        } finally {
+            warn.mockRestore();
+        }
     }, 30000);
 });

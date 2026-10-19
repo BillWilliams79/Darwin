@@ -14,7 +14,8 @@
 // grep.
 //
 // It is the SAME handshake req #3115 built for a bead click — the visualizer
-// calls `onStepFocus(stepId)`, the page switches to the table, the table scrolls
+// calls `onStepFocus(stepId)`, the page pushes this same link (req #3637, so
+// browser Back returns to the canvas), the table scrolls
 // to and highlights that row. This only adds a way to enter that handshake from
 // outside the page. Nothing about `focusStepId` changes.
 //
@@ -35,7 +36,7 @@
 // unaffected: `pipelinePlanLayout` is pure arithmetic with one import of its
 // own (`pipelineModel`), so this file still runs under vitest with no DOM, which
 // its own test suite exercises.
-import { isPlanLevelPref } from './pipelinePlanLayout';
+import { isColorKey, isPlanLevelPref } from './pipelinePlanLayout';
 // TWO imports now (req #3463). The route itself is no longer this module's to
 // spell: `planEra.js` owns the era↔route binding, and a builder here that
 // interpolated the plan route directly is exactly what let a 2.0 id reach a
@@ -124,6 +125,27 @@ export function readLevelParam(searchParams) {
     return isPlanLevelPref(raw) ? String(raw) : null;
 }
 
+// ── `?color=` PICKS THE REQUIREMENT COLOUR KEY FOR ONE LANDING (req #3636) ──
+// The colour key was reachable only through the toolbar and localStorage, so no
+// link could open the plan on the Session key — the one view where a session
+// colour (review's attention red) is compared against every other state. Same
+// contract as `?level=`: held transiently, never written to the stored
+// preference, and null on an unrecognised value so the stored key stays in
+// charge.
+export const FOCUS_COLOR_PARAM = 'color';
+
+/**
+ * The requirement colour key a `?color=` parameter names, or null.
+ *
+ * @param {{get: function(string): ?string}} searchParams
+ * @returns {?string} one of REQ_COLOR_KEYS
+ */
+export function readColorParam(searchParams) {
+    const raw = searchParams && typeof searchParams.get === 'function'
+        ? searchParams.get(FOCUS_COLOR_PARAM) : null;
+    return isColorKey(raw) ? raw : null;
+}
+
 /**
  * The route a step row links to.
  *
@@ -194,15 +216,18 @@ export function readFocusStepParam(searchParams) {
 // together for this module's own reason — two files that must agree on a key.
 //
 // `from`/`pipelineId`/`mode` are the provenance every plan exit already
-// carries (req #3119/#3252), so the editor's Back returns to the plan — and
-// `backStepId` names the STEP the "+" was on, so Back lands on that step
-// (`backToStepPath`) rather than wherever the plan's saved camera was.
+// carries (req #3119/#3252), so the editor's Back returns to the plan. Back no
+// longer re-targets the step (req #3637): the reader clicked its "+", so it was
+// on screen, and the restored camera / table scroll puts them back exactly
+// there, where a `?step=` link would have moved the view. `backStepId` still
+// records which step it was.
 //
 // (Router state lives in `history.state`, so a reload of the draft keeps the
 // seat — harmless: the draft itself is rebuilt from the same state.)
 export const SEAT_STEP_STATE_KEY = 'seatStepId';
 export const SEAT_STEP_NAME_STATE_KEY = 'seatStepName';
 export const BACK_STEP_STATE_KEY = 'backStepId';
+export const BACK_LEVEL_STATE_KEY = 'level';
 
 export function newRequirementSeatState(pipelineId, mode, row) {
     const stepId = Number(row?.id);
@@ -213,24 +238,74 @@ export function newRequirementSeatState(pipelineId, mode, row) {
             ? row.title : null,
     };
     if (pipelineId != null) {
-        Object.assign(state, { from: 'pipeline', pipelineId, mode,
-            [BACK_STEP_STATE_KEY]: stepId });
+        Object.assign(state, planExitState(pipelineId, mode),
+            { [BACK_STEP_STATE_KEY]: stepId });
+    }
+    return state;
+}
+
+// ── THE VIEW A RETURN CARRIES BACK — ONE LIST (req #3651) ──────────────────
+// The transient `?…=` overrides that say how an entry LOOKS (never where it is
+// focused): a return to the plan must hand each one back, or "Back to Plan"
+// lands on a different view than the browser's Back to the same entry would.
+// It carried `level` alone (req #3637) and so dropped a `?color=` (req #3636)
+// the reader was looking at. A new view param is one row here, and every exit
+// and every return reads this list — none spells a param of its own.
+// The router-state key IS the param name: `level` is `BACK_LEVEL_STATE_KEY`.
+export const PLAN_VIEW_PARAMS = Object.freeze([
+    { param: FOCUS_LEVEL_PARAM, isValid: isPlanLevelPref },
+    { param: FOCUS_COLOR_PARAM, isValid: isColorKey },
+]);
+
+/**
+ * The router state every exit from a plan surface carries, so the far page's
+ * "Back to Plan" can return to the SAME view (req #3637): the panel, and each
+ * `PLAN_VIEW_PARAMS` override the reader was looking at. The camera, the table
+ * scroll and the popouts come back from storage on their own — Back goes to the
+ * plain plan URL, never to a `?step=`/`?epic=` link that would move them.
+ *
+ * Read off `window.location` at click time, the one place both the plan's own
+ * panels and their callers agree on, and validated like the URL itself.
+ */
+export function planExitState(pipelineId, mode) {
+    const state = { from: 'pipeline', pipelineId, mode };
+    let params = null;
+    try {
+        params = new URLSearchParams(window.location.search);
+    } catch {
+        params = null;
+    }
+    for (const { param, isValid } of PLAN_VIEW_PARAMS) {
+        const v = params?.get(param);
+        if (isValid(v)) state[param] = String(v);
     }
     return state;
 }
 
 /**
- * Where Back from a requirement opened off a step's "+" goes: that step, in the
- * panel the reader left — the highlighted table row, or the plan zoomed onto
- * the card (`stepPlanLinkTo`'s pinned L3). Null when the state names no step,
- * so the caller keeps its plain back-to-plan route.
+ * The `PLAN_VIEW_PARAMS` entries of a `planExitState` record — what a page that
+ * re-writes its own router state (the requirement editor's first save) must
+ * forward so its Back still returns to the same view.
  */
-export function backToStepPath(state) {
-    const sid = toId(state?.[BACK_STEP_STATE_KEY]);
-    if (sid == null || sid <= 0) return null;
-    return state?.mode === 'table'
-        ? stepLinkTo(state?.pipelineId, sid)
-        : stepPlanLinkTo(state?.pipelineId, sid);
+export function planViewCarry(state) {
+    const carry = {};
+    for (const { param, isValid } of PLAN_VIEW_PARAMS) {
+        if (isValid(state?.[param])) carry[param] = String(state[param]);
+    }
+    return carry;
+}
+
+/**
+ * The query "Back to Plan" lands with, from a `planExitState` record: `mode=`
+ * and every usable `PLAN_VIEW_PARAMS` override. Null when none is usable. All
+ * are validated — this comes from router state, and is interpolated into a URL.
+ */
+export function backToPlanQuery(state) {
+    const parts = [];
+    const mode = state?.mode;
+    if (typeof mode === 'string' && /^[a-z]{1,16}$/.test(mode)) parts.push(`mode=${mode}`);
+    for (const [param, v] of Object.entries(planViewCarry(state))) parts.push(`${param}=${v}`);
+    return parts.length ? parts.join('&') : null;
 }
 
 /** The step a new requirement is to be seated on, or null when the state names

@@ -69,6 +69,83 @@ export function unseatedBoxWidthPx(frameW, k) {
     return Math.max(card, UNSEATED_MIN_WIDTH_EM * unseatedBoxFontPx(k));
 }
 
+// ── STRETCHED BY THE READER, IN THREE TEXT SIZES (req #3654) ─────────────
+// On top of the zoom sizing above, the reader may drag the box's corner to
+// make it wider or narrower and taller or shorter. Its type then steps ONE
+// size bigger or ONE size smaller as the box crosses a threshold, and never
+// further (user directive: "no more or no less, just those three sizes").
+//
+// The stretch is stored RELATIVE to the zoom size — width as a multiple of the
+// zoom width, list height in em of the zoom type — so a stretched box keeps
+// scaling with the zoom exactly as an unstretched one does.
+
+/** One text size step: the ratio between neighbouring sizes. */
+export const UNSEATED_TEXT_RATIO = 1.25;
+/** Width scale at or below which the type is one size smaller, and at or
+ *  above which it is one size bigger: the box has shrunk or grown by a full
+ *  text step before its text follows. */
+export const UNSEATED_SMALLER_AT = 1 / UNSEATED_TEXT_RATIO;
+export const UNSEATED_BIGGER_AT = UNSEATED_TEXT_RATIO;
+/** The list's shortest stretched height, em of the zoom type: about two rows. */
+export const UNSEATED_MIN_LIST_EM = 3.5;
+
+/**
+ * The text step for a width scale (stretched width ÷ zoom width): −1, 0 or +1.
+ * Anything not a positive number is the unstretched box.
+ *
+ * @param {number} scale
+ */
+export function unseatedTextStep(scale) {
+    if (!Number.isFinite(scale) || scale <= 0) return 0;
+    if (scale <= UNSEATED_SMALLER_AT + 1e-9) return -1;
+    if (scale >= UNSEATED_BIGGER_AT - 1e-9) return 1;
+    return 0;
+}
+
+/**
+ * The narrowest the reader may stretch the box, screen px: room for its whole
+ * title bar in the SMALLER type — the size it is drawn in once that narrow. A
+ * box stretched narrower than its zoom size but not yet a full step is held at
+ * its title bar's width in the zoom type, so it never clips the title.
+ *
+ * @param {number} fontPx  the zoom type size (`unseatedBoxFontPx`)
+ */
+export function unseatedMinStretchPx(fontPx) {
+    return UNSEATED_MIN_WIDTH_EM * (fontPx / UNSEATED_TEXT_RATIO);
+}
+
+/** A stretch is a ratio, so its px come back as 440.00000000000006 — drawn,
+ *  and remembered, to the hundredth. */
+const hundredths = (v) => Math.round(v * 100) / 100;
+
+/**
+ * The box as drawn, given its zoom size and the reader's stretch.
+ *
+ * `size` is `null` (never stretched) or `{ws, hEm}`: `ws` the width as a
+ * multiple of `widthPx`, `hEm` the list height in em of `fontPx` (or `null`
+ * when only the width was stretched — the list then keeps its natural height).
+ *
+ * @param {number} widthPx  the zoom width (`unseatedBoxWidthPx`)
+ * @param {number} fontPx   the zoom type size (`unseatedBoxFontPx`)
+ * @param {?{ws: number, hEm: ?number}} size
+ * @returns {{widthPx: number, fontPx: number, step: number, listHeightPx: ?number}}
+ */
+export function unseatedResizedBox(widthPx, fontPx, size) {
+    const ws = Number.isFinite(size?.ws) && size.ws > 0 ? size.ws : 1;
+    const step = unseatedTextStep(ws);
+    const hEm = Number.isFinite(size?.hEm) && size.hEm > 0
+        ? Math.max(UNSEATED_MIN_LIST_EM, size.hEm) : null;
+    const drawnFont = step > 0 ? fontPx * UNSEATED_TEXT_RATIO
+        : (step < 0 ? fontPx / UNSEATED_TEXT_RATIO : fontPx);
+    return {
+        // Never narrower than the title bar in the type it is drawn in.
+        widthPx: hundredths(Math.max(widthPx * ws, UNSEATED_MIN_WIDTH_EM * drawnFont)),
+        fontPx: drawnFont,
+        step,
+        listHeightPx: hEm == null ? null : hundredths(hEm * fontPx),
+    };
+}
+
 /** The `dataTransfer` type a box row carries. Custom, so a text or file drag
  *  from anywhere else on the page is never mistaken for a requirement. */
 export const UNSEATED_REQ_MIME = 'application/x-darwin-requirement';

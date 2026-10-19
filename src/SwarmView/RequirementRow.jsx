@@ -37,6 +37,9 @@ import ModelEffortIcon from './ModelEffortIcon';
 import { modelEffortGridTemplate } from './modelEffortLayout';
 import { useModelEffortDisplayStore } from '../stores/useModelEffortDisplayStore';
 import { orchestratedMarkSx } from './orchestratedMarkStyles';
+import { useSnackBarStore } from '../stores/useSnackBarStore';
+import { watchFocusLoss } from '../utils/focusLossRecorder';
+import { copyFocusCapture } from '../utils/focusCapture';
 
 
 const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryName }) => {
@@ -209,53 +212,33 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
         requirementDrop(node);
     }, [drag, requirementDrop]);
 
-    // req #2884 — dev-only, OPT-IN diagnostic for the intermittent template-title
-    // focus loss (root cause not yet identified; req re-opened when it reproduces).
-    // Silent by default so it never spams dev consoles. Enable in DevTools with:
-    //     window.__req2884Focus = true   (or localStorage.setItem('req2884Focus','1'))
-    // Then reproduce the focus loss and read the last [req2884] line:
-    //   • "UNMOUNTED WHILE FOCUSED" → the field REMOUNTED (reconciliation), not a steal.
-    //   • "BLURRED … activeElementAfter: X" → focus was STOLEN to element X.
+    // req #3632 — ALWAYS-ON capture of the intermittent template-title focus
+    // loss (req #2884's opt-in logger recorded nothing in four months: nobody
+    // has DevTools open when it surprises them). Inert until the template title
+    // is focused; when focus is taken WITHOUT the reader asking, it names the
+    // culprit in the snackbar and keeps the full report in
+    // `window.__darwinFocusLoss`. Req #3652: the alert's "Copy for Claude"
+    // button puts the whole capture on the clipboard, so the reader pastes it
+    // instead of working out what to say. See `utils/focusLossRecorder.js`
+    // for what counts as a loss, `utils/focusCapture.js` for the capture.
     const titleInputRef = useRef(null);
+    const showMessage = useSnackBarStore(s => s.showMessage);
+    const focusLossLabel = isTemplate ? `template title (${categoryName || 'category'})` : null;
     useEffect(() => {
-        if (!import.meta.env.DEV || !isTemplate) return;
-        const enabled = () => {
-            try {
-                return Boolean(window.__req2884Focus) || localStorage.getItem('req2884Focus') === '1';
-            } catch { return false; }
-        };
-        const el = titleInputRef.current;
-        if (!el) return;
-        const describe = (n) => {
-            if (!n) return String(n);
-            if (n === document.body) return 'document.body';
-            const testid = n.closest?.('[data-testid]')?.getAttribute('data-testid');
-            return `${n.tagName.toLowerCase()}${testid ? `[testid=${testid}]` : ''}${n.name ? `[name=${n.name}]` : ''}`;
-        };
-        const onBlur = (e) => {
-            if (!enabled()) return;
-            const related = e.relatedTarget;
-            // Defer one tick so document.activeElement settles after the blur.
-            setTimeout(() => {
-                // eslint-disable-next-line no-console
-                console.warn('[req2884] template title BLURRED', {
-                    stillInDOM: document.contains(el),
-                    relatedTarget: describe(related),
-                    activeElementAfter: describe(document.activeElement),
-                });
-            }, 0);
-        };
-        el.addEventListener('blur', onBlur);
-        return () => {
-            el.removeEventListener('blur', onBlur);
-            // If this fires while the field is focused, the field REMOUNTED (focus loss
-            // by reconciliation), not a steal.
-            if (enabled() && document.activeElement === el) {
-                // eslint-disable-next-line no-console
-                console.warn('[req2884] template title UNMOUNTED WHILE FOCUSED → remount caused the focus loss');
-            }
-        };
-    }, [isTemplate]);
+        if (!isTemplate) return;
+        return watchFocusLoss(titleInputRef.current, {
+            label: focusLossLabel,
+            onLoss: (report) => showMessage(
+                `Focus taken from ${report.label} — ${report.cause}: ${report.culprit}.`,
+                {
+                    duration: 30000,
+                    action: {
+                        label: 'Copy for Claude',
+                        onClick: () => copyFocusCapture({ reason: 'focus-loss alert', report }),
+                    },
+                }),
+        });
+    }, [isTemplate, focusLossLabel, showMessage]);
 
     // Determine status for indicator
     const sessionStatus = sessionStatusMap && sessionStatusMap[requirement.id];
@@ -270,10 +253,10 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
         // Session-status icons (req #2332). Rocket = active/implementing; each other
         // status gets its own glyph, colored to match its chip.
         if (sessionStatus === 'starting')   return <PendingIcon sx={{ fontSize: 18, color: 'info.main' }} />;
-        if (sessionStatus === 'waiting')    return <HourglassTopIcon sx={{ fontSize: 18, color: '#ffb74d' }} />;
+        if (sessionStatus === 'waiting')    return <HourglassTopIcon sx={{ fontSize: 18, color: '#ff3b30' }} />;  // attention red, same as review (req #3656)
         if (sessionStatus === 'planning')   return <AutoFixHighIcon sx={{ fontSize: 18, color: '#4fc3f7' }} />;
         if (sessionStatus === 'active')     return <RocketLaunchIcon sx={{ fontSize: 18, color: '#4caf50' }} />;  // implementing
-        if (sessionStatus === 'review')     return <BiotechIcon sx={{ fontSize: 18, color: '#ce93d8' }} />;
+        if (sessionStatus === 'review')     return <BiotechIcon sx={{ fontSize: 18, color: '#ff3b30' }} />;  // attention red (req #3636)
         if (sessionStatus === 'paused')     return <PauseCircleIcon sx={{ fontSize: 18, color: '#f0d000' }} />;
         if (sessionStatus === 'completing') return <SyncIcon sx={{ fontSize: 18, color: 'info.main' }} />;
         if (sessionStatus === 'completed')  return <DoneAllIcon sx={{ fontSize: 18, color: 'success.main' }} />;

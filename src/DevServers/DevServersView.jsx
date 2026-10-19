@@ -17,6 +17,7 @@ import useMediaQuery from '@mui/material/useMediaQuery';
 import { CircularProgress, Link, Typography } from '@mui/material';
 import { filterChipProps } from '../Components/ChipFilter/filterPalette';
 import { machineChipProps } from '../SwarmView/machineChipStyles';
+import { useDevServerDashboardStore } from '../stores/useDevServerDashboardStore';
 import {
     buildMachineOptions, effectiveSelection, toggleSelection, filterServersByMachine,
 } from './devServerMachineFilter';
@@ -175,6 +176,9 @@ const DevServersView = () => {
     const { data: sessionsArray } = useSessions(profile?.userName);
     const { data: allRequirements } = useAllRequirements(profile?.userName);
     const { data: machinesData } = useMachines(profile?.userName);
+    // req #3643 — brings back the viewport-docked dashboard its × hid.
+    const dashboardShown = useDevServerDashboardStore(s => s.show);
+    const toggleDashboard = useDevServerDashboardStore(s => s.toggleShow);
 
     // req #2943 — machine id → friendly name for the Machine column.
     const machineNameById = useMemo(() => {
@@ -272,6 +276,15 @@ const DevServersView = () => {
                         );
                     })}
                 </Stack>
+                {!isMobile && (
+                    <Chip label="Show dashboard" size="small"
+                          color="secondary"
+                          variant={dashboardShown ? 'filled' : 'outlined'}
+                          onClick={toggleDashboard}
+                          aria-pressed={dashboardShown}
+                          title={dashboardShown ? 'Hide the Dev Servers dashboard' : 'Show the Dev Servers dashboard'}
+                          data-testid="dev-servers-page-dashboard-chip" />
+                )}
             </Box>
 
             {!devServersArray ? (

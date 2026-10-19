@@ -39,9 +39,11 @@ import { clearViewport, readViewport, writeViewport } from '../utils/viewportMem
  *                               unresolved record id must do — a canvas with no
  *                               identity must never read or write another
  *                               canvas's camera
- * @param {string}  fingerprint  a string that CHANGES whenever the world geometry
- *                               changes, so a stale camera is discarded rather
- *                               than restored onto a layout it does not describe
+ * @param {string}  fingerprint  a string that CHANGES whenever the world is
+ *                               RESCALED, so a camera from another scale is
+ *                               discarded rather than restored onto content it
+ *                               does not describe (the plan canvas uses its Step
+ *                               Width rung — growth is clamped, not refused)
  * @returns {{record: function({x:number,y:number,k:number}): void,
  *            commit: function(): void,
  *            read: function(): ?{x:number,y:number,k:number},

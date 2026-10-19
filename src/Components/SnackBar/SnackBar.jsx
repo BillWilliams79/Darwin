@@ -1,6 +1,7 @@
 import Snackbar from '@mui/material/Snackbar';
 import CloseIcon from '@mui/icons-material/Close';
 import IconButton from '@mui/material/IconButton';
+import Button from '@mui/material/Button';
 import Slide from '@mui/material/Slide';
 
 
@@ -10,7 +11,7 @@ function SlideTransition(props) {
     return <Slide {...props} direction="up" />;
 }
 
-export const SnackBar = ({ snackBarOpen, setSnackBarOpen, snackBarMessage }) => {
+export const SnackBar = ({ snackBarOpen, setSnackBarOpen, snackBarMessage, autoHideDuration, snackBarAction }) => {
 
     const snackBarClose = (event, reason) => {
         // allow snackbar to auto close or user clicks the X
@@ -21,19 +22,29 @@ export const SnackBar = ({ snackBarOpen, setSnackBarOpen, snackBarMessage }) => 
     };
 
     const action = (
-        <IconButton size="small"
-                    color="inherit"
-                    aria-label="Close notification"
-                    onClick={snackBarClose} >
-            <CloseIcon fontSize="small" />
-        </IconButton>
+        <>
+            {snackBarAction && (
+                <Button size="small"
+                        color="secondary"
+                        data-testid="snackbar-action"
+                        onClick={snackBarAction.onClick} >
+                    {snackBarAction.label}
+                </Button>
+            )}
+            <IconButton size="small"
+                        color="inherit"
+                        aria-label="Close notification"
+                        onClick={snackBarClose} >
+                <CloseIcon fontSize="small" />
+            </IconButton>
+        </>
     );
 
   return (
       <Snackbar
         data-testid="snackbar"
         open={snackBarOpen}
-        autoHideDuration={2000}
+        autoHideDuration={autoHideDuration ?? 2000}
         onClose={snackBarClose}
         message={snackBarMessage}
         action={action}

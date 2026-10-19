@@ -84,6 +84,16 @@ setup('authenticate', async ({ page }) => {
     }
   });
 
+  // Req #3643 — the Dev Servers dashboard floats over every page, bottom-right,
+  // at a z-index above the app bar, and is shown by default. Specs that click or
+  // drop near that corner would hit it instead, so hand them the dashboard
+  // hidden (its persisted store, zustand's `{state, version}` shape).
+  // dev-servers.spec.ts DEV-04 turns it back on for itself.
+  await page.evaluate(() => {
+    localStorage.setItem('darwin_devserver_dashboard',
+      JSON.stringify({ state: { show: false, open: true, dock: null }, version: 2 }));
+  });
+
   // Save authenticated state for other tests
   await page.context().storageState({ path: STORAGE_STATE });
 });

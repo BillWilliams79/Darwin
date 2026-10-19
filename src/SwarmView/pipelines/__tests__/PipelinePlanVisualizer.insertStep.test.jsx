@@ -32,12 +32,12 @@ vi.mock('konva', () => ({
 }));
 
 const insertStepOnEdge = vi.fn(() => Promise.resolve({ id: 900 }));
-const branchStepFrom = vi.fn(() => Promise.resolve({ id: 901 }));
+const addDependentStep = vi.fn(() => Promise.resolve({ id: 901 }));
 const precedeStepWith = vi.fn(() => Promise.resolve({ id: 902 }));
 vi.mock('../../../Steps/stepsApi', async (orig) => ({
     ...(await orig()),
     insertStepOnEdge: (...a) => insertStepOnEdge(...a),
-    branchStepFrom: (...a) => branchStepFrom(...a),
+    addDependentStep: (...a) => addDependentStep(...a),
     precedeStepWith: (...a) => precedeStepWith(...a),
 }));
 
@@ -64,7 +64,7 @@ beforeEach(() => {
         if (h) Object.defineProperty(HTMLElement.prototype, 'clientHeight', h);
     };
     insertStepOnEdge.mockClear();
-    branchStepFrom.mockClear();
+    addDependentStep.mockClear();
     precedeStepWith.mockClear();
 });
 
@@ -125,12 +125,12 @@ const setInput = (el, value) => {
 };
 
 describe('add-step marks (req #3586)', () => {
-    it('draws one edge "+" per dependency and one branch "+" per step at the card level', () => {
+    it('draws one edge "+" per dependency and one dependent "+" per step at the card level', () => {
         render('3');
         expect(viz().getAttribute('data-insert-edges')).toBe('1');
-        expect(viz().getAttribute('data-insert-branches')).toBe('2');
+        expect(viz().getAttribute('data-insert-dependents')).toBe('2');
         expect(document.querySelector('[data-insert="edge-10-11"]')).not.toBeNull();
-        expect(document.querySelector('[data-insert="branch-10"]')).not.toBeNull();
+        expect(document.querySelector('[data-insert="dependent-10"]')).not.toBeNull();
     });
 
     it('draws a precede "+" only on the step with no dependency on its left (req #3617)', () => {
@@ -153,14 +153,14 @@ describe('add-step marks (req #3586)', () => {
         expect(precedeStepWith.mock.calls[0][2]).toEqual({
             toStepId: 10, epic_fk: 5, title: 'Research',
         });
-        expect(branchStepFrom).not.toHaveBeenCalled();
+        expect(addDependentStep).not.toHaveBeenCalled();
         expect(insertStepOnEdge).not.toHaveBeenCalled();
     });
 
     it('draws none at L1, where a step is a bead and not a card', () => {
         render('1');
         expect(viz().getAttribute('data-insert-edges')).toBe('0');
-        expect(viz().getAttribute('data-insert-branches')).toBe('0');
+        expect(viz().getAttribute('data-insert-dependents')).toBe('0');
         expect(viz().getAttribute('data-insert-precedes')).toBe('0');
     });
 
@@ -178,20 +178,33 @@ describe('add-step marks (req #3586)', () => {
         expect(insertStepOnEdge.mock.calls[0][2]).toEqual({
             fromStepId: 10, toStepId: 11, epic_fk: 5, title: 'Review',
         });
-        expect(branchStepFrom).not.toHaveBeenCalled();
+        expect(addDependentStep).not.toHaveBeenCalled();
     });
 
-    it('the branch "+" adds a step gated on that step alone, in its epic by default', async () => {
+    it('the dependent "+" adds a step gated on that step alone, in its epic by default', async () => {
         render('3');
-        clickMark('branch-11');
+        clickMark('dependent-11');
         await act(async () => {
             document.querySelector('[data-testid="pipeline-viz-insert-create"]').click();
         });
-        expect(branchStepFrom).toHaveBeenCalledTimes(1);
-        expect(branchStepFrom.mock.calls[0][2]).toEqual({
+        expect(addDependentStep).toHaveBeenCalledTimes(1);
+        expect(addDependentStep.mock.calls[0][2]).toEqual({
             fromStepId: 11, epic_fk: 5, title: 'New step',
         });
         expect(insertStepOnEdge).not.toHaveBeenCalled();
+    });
+
+    // req #3647 — the right-side "+" makes a step that DEPENDS on the clicked
+    // one; the dialog says so ("parallel" was the wrong word for it).
+    it.each([
+        ['dependent-11', 'Add a dependent step'],
+        ['edge-10-11', 'Insert a step'],
+        ['precede-10', 'Add a step before'],
+    ])('the %s mark opens a dialog titled "%s"', (key, title) => {
+        render('3');
+        clickMark(key);
+        expect(document.querySelector('[data-testid="pipeline-viz-insert-heading"]').textContent)
+            .toBe(title);
     });
 
     it('a click on open canvas away from every mark opens nothing', () => {
@@ -205,7 +218,7 @@ describe('add-step marks (req #3586)', () => {
 
     it('a blank title cannot be created', () => {
         render('3');
-        clickMark('branch-10');
+        clickMark('dependent-10');
         setInput(document.querySelector('[data-testid="pipeline-viz-insert-title"]'), '   ');
         expect(document.querySelector('[data-testid="pipeline-viz-insert-create"]').disabled).toBe(true);
     });
