@@ -13,11 +13,13 @@ import AuthContext from '../../Context/AuthContext';
 let devServers = [];
 const MACHINES = [{ id: 2, title: 'Mac Mini', platform: 'darwin', closed: 0 }];
 let machines = MACHINES;
+let sessionTerms = [];
 let reqTitles = [{ id: 3643, title: 'dev servers as dashboard' }];
 const titleReads = [];
 vi.mock('../../hooks/useDataQueries', () => ({
     useDevServers: () => ({ data: devServers, isLoading: false, isError: false }),
     useMachines: () => ({ data: machines }),
+    useDevServerSessionTerminals: () => ({ data: sessionTerms }),
     useDevServerRequirementTitles: (creator, ids) => { titleReads.push(ids); return { data: reqTitles }; },
 }));
 let mobile = false;
@@ -40,12 +42,13 @@ describe('DevServerDashboard (req #3643)', () => {
         machines = MACHINES;
         reqTitles = [{ id: 3643, title: 'dev servers as dashboard' }];
         titleReads.length = 0;
+        sessionTerms = [];
         Object.defineProperty(document.documentElement, 'clientWidth', { value: 1600, configurable: true });
         Object.defineProperty(document.documentElement, 'clientHeight', { value: 1000, configurable: true });
         useDevServerDashboardStore.setState({ show: true, open: true, dock: null });
         vi.stubGlobal('navigator', { ...navigator, platform: 'MacIntel', userAgentData: undefined });
         devServers = [
-            { id: 7, port: 3002, machine_fk: 2, terminal_number: 3,
+            { id: 7, port: 3002, machine_fk: 2, terminal_number: 3, session_fk: 90,
               workspace_path: '/x/sessions/3643-dev-servers-as-dashboard-1' },
             { id: 5, port: 3000, machine_fk: 2, terminal_number: null,
               workspace_path: '/x/primary' },
@@ -96,6 +99,44 @@ describe('DevServerDashboard (req #3643)', () => {
         renderDash();
         expect(cells(7)).toEqual(['', '3002', 'T3']);
         expect(cells(5)).toEqual(['', '3000', '']);
+    });
+
+    it('shaped wide, T3 spells out as Term 3; shaped narrower keeps T3 (req #3668)', () => {
+        useDevServerDashboardStore.setState({ dock: { h: 'r', x: 16, v: 'b', y: 16, w: 400, ht: null } });
+        renderDash();
+        expect(cells(7)[2]).toBe('Term 3');
+        cleanup();
+        useDevServerDashboardStore.setState({ dock: { h: 'r', x: 16, v: 'b', y: 16, w: 300, ht: null } });
+        renderDash();
+        expect(cells(7)[2]).toBe('T3');
+    });
+
+    it('the terminal links to its window when the session has a handle here (req #3668)', () => {
+        sessionTerms = [{ id: 90, terminal_window_id: 'w-abc', terminal_number: 3, machine_fk: 2,
+                          title: 'dev servers as dashboard' }];
+        const assign = vi.fn();
+        vi.stubGlobal('location', { ...window.location, port: '', assign });
+        renderDash();
+        const term = screen.getByTestId('devserver-dashboard-term-7');
+        expect(term.getAttribute('data-terminal-href'))
+            .toMatch(/^darwin-term:\/\/focus\?window=w-abc&session=90/);
+        // fireEvent returns false when the click was default-prevented, i.e. the
+        // row's own port link was blocked.
+        expect(fireEvent.click(term)).toBe(false);
+        expect(assign).toHaveBeenCalledTimes(1);
+        expect(assign.mock.calls[0][0]).toMatch(/^darwin-term:/);
+        // No handle recorded: plain text, no link.
+        expect(screen.getByTestId('devserver-dashboard-term-5').getAttribute('data-terminal-href')).toBeNull();
+    });
+
+    it('a terminal on another machine, or with no handle, stays plain text', () => {
+        sessionTerms = [{ id: 90, terminal_window_id: null, terminal_number: 3, machine_fk: 2 }];
+        renderDash();
+        expect(screen.getByTestId('devserver-dashboard-term-7').getAttribute('data-terminal-href')).toBeNull();
+        cleanup();
+        sessionTerms = [{ id: 90, terminal_window_id: 'w-abc', terminal_number: 3, machine_fk: 9 }];
+        renderDash();
+        expect(screen.getByTestId('devserver-dashboard-term-7').getAttribute('data-terminal-href')).toBeNull();
     });
 
     it('shaped really narrow, a row drops its bug #', () => {
