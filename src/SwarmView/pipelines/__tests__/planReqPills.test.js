@@ -1,5 +1,5 @@
 // planReqPills.test.js — req #3587: a requirement row on the plan visualizer
-// reads `3572   Terminal 2  3002 - Title`, the middle two tokens drawn as pills.
+// reads `3572   Terminal 2  3002   Title`, the middle two tokens drawn as pills.
 //
 // Two halves: the JOIN (`buildReqPills` — which session, which terminal, which
 // port) and the LAYOUT (`reqPillPrefix` / `computePlanLayout` — the tokens are
@@ -133,11 +133,11 @@ describe('reqPillPrefix / reqLabelText — the tokens are text', () => {
         [3574, { terminal: { label: 'Terminal 11' }, devServer: null }],
     ]);
 
-    it('reads `id   Terminal N  PORT - Title`, with ranges on the tokens', () => {
+    it('reads `id   Terminal N  PORT   Title`, with ranges on the tokens', () => {
         const titles = new Map([[3572, 'Title']]);
         const text = reqLabelText(3572, {
             reqLabel: 'title', reqTitles: titles, reqPills: pills, maxChars: 84 });
-        expect(text.replace(/ /g, ' ')).toBe('3572   Terminal 2  3002 - Title');
+        expect(text.replace(/ /g, ' ')).toBe('3572   Terminal 2  3002   Title');
         const { text: prefix, pills: ranges } = reqPillPrefix(3572, pills);
         expect(ranges.map((r) => prefix.slice(r.start, r.start + r.len)))
             .toEqual(['Terminal 2', '3002']);
@@ -154,7 +154,7 @@ describe('reqPillPrefix / reqLabelText — the tokens are text', () => {
         expect(reqLabelText(3573, { reqLabel: 'id', reqPills: pills })).toBe('3573   3004');
     });
 
-    // req #3601 — the id owns a column (`id - `, the hanging indent's width)
+    // req #3601 — the id owns a column (`id   `, the hanging indent's width)
     // and the first pill starts ON its far edge, where every title starts,
     // never inside it.
     it('the first pill starts on the title column, never inside the id column', () => {
@@ -196,7 +196,7 @@ describe('computePlanLayout — pills on the requirement rows', () => {
         // A pill is never split across lines.
         expect(a.lines.slice(1).some((ln) => ln.includes('Terminal'))).toBe(false);
         // req #3575 — a pill row's continuations hang at the BARE id's column
-        // (`3572 - `), the same column every other row's title uses, not past
+        // (`3572   `), the same column every other row's title uses, not past
         // the pills where the first line's title happens to start.
         expect(a.lines.length).toBeGreaterThan(1);
         for (const ln of a.lines.slice(1)) {
@@ -205,7 +205,7 @@ describe('computePlanLayout — pills on the requirement rows', () => {
         }
 
         const b = reqs.find((x) => x.reqId === 3573);
-        expect(b.text).toBe('3573   3004 - Short');
+        expect(b.text).toBe('3573   3004   Short');
         expect(b.pills).toEqual([{ kind: 'devserver', start: 7, len: 4 }]);
 
         const c = reqs.find((x) => x.reqId === 9);
@@ -216,8 +216,8 @@ describe('computePlanLayout — pills on the requirement rows', () => {
     it('no reqPills draws every row exactly as before', () => {
         const before = computePlanLayout(rows, { stepLabel: 'title', reqLabel: 'title', reqTitles });
         const reqs = before.labels.filter((x) => x.kind === 'req');
-        expect(reqs[0].text.startsWith('3572 - Visualizer')).toBe(true);
-        expect(reqs.slice(1).map((x) => x.text)).toEqual(['3573 - Short', '9 - No session here']);
+        expect(reqs[0].text.startsWith('3572   Visualizer')).toBe(true);
+        expect(reqs.slice(1).map((x) => x.text)).toEqual(['3573   Short', '9   No session here']);
         expect(reqs.every((x) => x.idText === String(x.reqId))).toBe(true);
         expect(reqs.every((x) => x.pills.length === 0)).toBe(true);
     });
