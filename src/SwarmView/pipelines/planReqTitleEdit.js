@@ -38,7 +38,7 @@ export async function updateRequirementTitle(darwinUri, idToken, id, title) {
  * the TITLE. Line `i` holds `title.slice(starts[i], starts[i + 1])`, which
  * includes the space the wrap consumed at the break, so the runs concatenate
  * back to the title exactly. Line 0 may hold no title at all — the layout puts
- * a first word too long for line 1 on line 2, leaving "3661 -" alone.
+ * a first word too long for line 1 on line 2, leaving the id alone.
  *
  * Not capped at the row's three lines: the layout truncates the third line with
  * an ellipsis, and an editor has to show what it truncates. Every line before
@@ -52,7 +52,7 @@ export async function updateRequirementTitle(darwinUri, idToken, id, title) {
 export function titleLineStarts(title, label) {
     const text = String(title ?? '');
     const prefix = String(label.idText ?? label.reqId);
-    const full = `${prefix} - ${text}`;
+    const full = `${prefix}${' '.repeat(CARD_SEP_CHARS)}${text}`;
     const off = full.length - text.length;
     const maxChars = (label.titleHang ?? 0) + (label.titleRoom ?? full.length);
     const indent = String(label.reqId).length + CARD_SEP_CHARS;
@@ -108,7 +108,7 @@ export function wordEndAfter(text, i) {
  *   - the COLUMN (`left`) is where continuation lines start — the row's x plus
  *     the hanging indent the layout's wrap honoured (`label.titleHang`);
  *   - line 1's title starts where the canvas put it (`indent`): after the id
- *     and " - ", or — on a row carrying pills — after the PACKED pills, whose
+ *     and its separator, or — on a row carrying pills — after the PACKED pills, whose
  *     tail the renderer redraws flush against the last one (`tail`);
  *   - `width` is the column's characters plus one, for the space a break
  *     consumed, which rides at the end of its line;

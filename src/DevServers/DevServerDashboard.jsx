@@ -17,7 +17,7 @@
 // (user directive): machine colour bar · port (the link) · terminal (T10) ·
 // bug # · the requirement's title, in fixed columns so they line up row to row.
 // Shaped really narrow, the bug # goes; at the smallest, the title too. Which
-// rows appear, and which link, is the Dev Servers nav item's rule (see
+// rows appear, and which link, is devServerDashboardRows' rule (see
 // devServerDashboardModel.js). The server this page is served from is the
 // highlighted row.
 //
@@ -34,13 +34,13 @@ import useMediaQuery from '@mui/material/useMediaQuery';
 import AnchoredPanel from '../Components/AnchoredPanel/AnchoredPanel';
 import { validDock } from '../Components/AnchoredPanel/anchoredPanelGeometry';
 import AuthContext from '../Context/AuthContext';
-import { useDevServerRequirementTitles, useDevServers, useMachines } from '../hooks/useDataQueries';
+import { useDevServerRequirementTitles, useDevServerSessionTerminals, useDevServers, useMachines } from '../hooks/useDataQueries';
 import { useDevServerDashboardStore } from '../stores/useDevServerDashboardStore';
 import { machineChipProps } from '../SwarmView/machineChipStyles';
 import { PLAN_VIZ_PALETTE as P } from '../SwarmView/pipelines/pipelinePlanLayout';
 import {
-    DASH_AUTO_MAX_W, DASH_COMPACT_W, DASH_HOME, DASH_MIN_H, DASH_MIN_W, DASH_TINY_W,
-    devServerDashboardRows, withRequirementTitles,
+    DASH_AUTO_MAX_W, DASH_COMPACT_W, DASH_HOME, DASH_MIN_H, DASH_MIN_W, DASH_TINY_W, DASH_WIDE_W,
+    devServerDashboardRows, withRequirementTitles, withTerminalLinks,
 } from './devServerDashboardModel';
 
 const MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
@@ -82,7 +82,7 @@ export default function DevServerDashboard() {
         enabled: visible, staleTime: 30_000,
     });
     const { data: machines, isError: machinesError } = useMachines(profile?.userName, { enabled: visible });
-    // The rows wait for the machines read too (devServerNavPills draws none
+    // The rows wait for the machines read too (devServerDashboardRows draws none
     // until it settles), so until then this is loading, never "None running".
     const isLoading = serversLoading || (machines === undefined && !machinesError);
     // A failed REFETCH keeps the rows it already has; only no data is an error.
@@ -97,7 +97,15 @@ export default function DevServerDashboard() {
     const { data: reqTitles } = useDevServerRequirementTitles(
         profile?.userName, baseRows.map(r => r.reqId).filter(id => id != null),
         { enabled: visible });
-    const rows = useMemo(() => withRequirementTitles(baseRows, reqTitles), [baseRows, reqTitles]);
+    // The terminal is a link to its window (req #3668) when the row's session
+    // has a handle on this machine.
+    const { data: sessionTerms } = useDevServerSessionTerminals(
+        profile?.userName, baseRows.map(r => r.sessionId).filter(id => id != null),
+        { enabled: visible });
+    const rows = useMemo(
+        () => withTerminalLinks(withRequirementTitles(baseRows, reqTitles), sessionTerms,
+            machinesError ? [] : machines),
+        [baseRows, reqTitles, sessionTerms, machines, machinesError]);
 
     if (!visible) return null;
     const count = rows.length;
@@ -143,6 +151,8 @@ export default function DevServerDashboard() {
                 // terminal. Content-sized (null) is never cut.
                 const compact = shapedWidth != null && shapedWidth < DASH_COMPACT_W;
                 const tiny = shapedWidth != null && shapedWidth < DASH_TINY_W;
+                // Shaped wide, "T4" spells out as "Term 4" (req #3668).
+                const wide = shapedWidth != null && shapedWidth >= DASH_WIDE_W;
                 return (
                     <>
                         {failed && (
@@ -195,8 +205,28 @@ export default function DevServerDashboard() {
                                         {r.port}
                                     </Box>
                                     <Box component="span" data-testid={`devserver-dashboard-term-${r.key}`}
-                                         sx={{ color: P.dim, flexShrink: 0, minWidth: '3ch' }}>
-                                        {r.terminal != null ? `T${r.terminal}` : ''}
+                                         {...(r.terminalHref ? {
+                                             role: 'link', tabIndex: 0, title: r.terminalTitle,
+                                             'data-terminal-href': r.terminalHref,
+                                             // Inside the row's own <a>, so a click here
+                                             // must not also open the port.
+                                             onClick: (e) => {
+                                                 e.preventDefault(); e.stopPropagation();
+                                                 window.location.assign(r.terminalHref);
+                                             },
+                                             onKeyDown: (e) => {
+                                                 if (e.key !== 'Enter') return;
+                                                 e.preventDefault(); e.stopPropagation();
+                                                 window.location.assign(r.terminalHref);
+                                             },
+                                         } : {})}
+                                         sx={{ color: r.terminalHref ? P.accent : P.dim, flexShrink: 0,
+                                                minWidth: wide ? '7ch' : '3ch',
+                                                ...(r.terminalHref && {
+                                                    cursor: 'pointer',
+                                                    '&:hover': { textDecoration: 'underline' },
+                                                }) }}>
+                                        {r.terminal != null ? `${wide ? 'Term ' : 'T'}${r.terminal}` : ''}
                                     </Box>
                                     {!compact && (
                                         <Box component="span" data-testid={`devserver-dashboard-req-${r.key}`}

@@ -42,14 +42,14 @@ vi.mock('../pipelineDetailModes', () => {
     const Panel = (name) => function ModeStub() {
         return <div data-testid={`mode-${name}`} />;
     };
+    // The real registry's shape since req #3641: ONE mode, the Plan visualizer.
     const MODES = [
-        { value: 'table', label: 'Table', icon: () => null, Component: Panel('table') },
         { value: 'plan', label: 'Plan', icon: () => null, Component: Panel('plan') },
     ];
     return {
         PIPELINE_DETAIL_MODES: MODES,
         PIPELINE_DETAIL_MODE_STORAGE_KEY: 'darwin-swarm-pipeline-detail-mode',
-        DEFAULT_PIPELINE_DETAIL_MODE: 'table',
+        DEFAULT_PIPELINE_DETAIL_MODE: 'plan',
         findPipelineDetailMode: (v) => MODES.find((m) => m.value === v),
         default: MODES,
     };
@@ -200,7 +200,7 @@ describe('PipelineDetail — which table is read (req #3463, one era since #3356
 
     it('renders the plan panel once the composed read resolves', () => {
         mount('/swarm/pipeline/7');
-        expect(node('mode-table')).not.toBeNull();
+        expect(node('mode-plan')).not.toBeNull();
     });
 });
 

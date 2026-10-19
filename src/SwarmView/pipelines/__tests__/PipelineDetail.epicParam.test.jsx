@@ -26,14 +26,14 @@ vi.mock('../pipelineDetailModes', () => {
                     data-focus-step={focusStepId == null ? '' : String(focusStepId)}
                     data-focus-epic={focusEpicId == null ? '' : String(focusEpicId)} />;
     };
+    // The real registry's shape since req #3641: ONE mode, the Plan visualizer.
     const MODES = [
-        { value: 'table', label: 'Table', icon: () => null, Component: Panel('table') },
         { value: 'plan', label: 'Plan', icon: () => null, Component: Panel('plan') },
     ];
     return {
         PIPELINE_DETAIL_MODES: MODES,
         PIPELINE_DETAIL_MODE_STORAGE_KEY: 'darwin-swarm-pipeline-detail-mode',
-        DEFAULT_PIPELINE_DETAIL_MODE: 'table',
+        DEFAULT_PIPELINE_DETAIL_MODE: 'plan',
         findPipelineDetailMode: (v) => MODES.find((m) => m.value === v),
         default: MODES,
     };
@@ -125,7 +125,6 @@ describe('PipelineDetail — ?epic= (req #3235)', () => {
     it('forces the PLAN mode even when ?mode= names the table', () => {
         mount('/swarm/pipeline/2?mode=table&epic=55');
         expect(node('mode-plan')).not.toBeNull();
-        expect(node('mode-table')).toBeNull();
         expect(focusEpicOf('plan')).toBe('55');
     });
 
@@ -150,24 +149,13 @@ describe('PipelineDetail — ?epic= (req #3235)', () => {
         expect(focusEpicOf('plan')).toBe('');
     });
 
-    it('a named ?step= is more specific and wins over ?epic=', () => {
+    it('a named ?step= and ?epic= both reach the plan (req #3641 — no Table)', () => {
+        // The step still outranks the epic inside the canvas (its focus effect
+        // runs instead of the band fit), so the page passes BOTH and lets the
+        // canvas apply that precedence; the panel is the plan either way.
         mount('/swarm/pipeline/2?step=47&epic=55');
-        expect(node('mode-table')).not.toBeNull();
-        expect(node('mode-plan')).toBeNull();
-        expect(focusStepOf('table')).toBe('47');
-    });
-
-    it('passes focusEpicId to whichever panel is active — only the REAL table ignores it', () => {
-        // Code review, req #3235: PipelineDetail hands focusEpicId to
-        // `ActiveComponent` unconditionally, same as focusStepId — it does not
-        // know or care which mode won. It is inert on the table only because
-        // `PipelinePlanTable`'s own parameter list never destructures it
-        // (unlike this stub, which exposes both props on both panels so the
-        // wiring itself is verifiable). A test that only checked "mode-plan is
-        // absent" would pass even if PipelineDetail silently dropped the prop.
-        mount('/swarm/pipeline/2?mode=table&step=47&epic=55');
-        expect(focusStepOf('table')).toBe('47');
-        expect(focusEpicOf('table')).toBe('55');
-        expect(node('mode-plan')).toBeNull();
+        expect(node('mode-plan')).not.toBeNull();
+        expect(focusStepOf('plan')).toBe('47');
+        expect(focusEpicOf('plan')).toBe('55');
     });
 });

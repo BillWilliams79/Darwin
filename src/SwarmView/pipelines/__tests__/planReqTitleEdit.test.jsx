@@ -46,7 +46,7 @@ describe('layout — the title column (req #3661)', () => {
         expect(reqs).toHaveLength(2);
         const [withPill, bare] = reqs;
         expect(withPill.titleHang).toBe(4 + CARD_SEP_CHARS);
-        // id + 3 + "Terminal 6" + " - "
+        // id + 3 + "Terminal 6" + the 3-space separator
         expect(withPill.titleStart).toBe(withPill.idText.length + CARD_SEP_CHARS);
         expect(withPill.titleStart).toBeGreaterThan(withPill.titleHang);
         expect(bare.titleHang).toBe(2 + CARD_SEP_CHARS);
@@ -91,15 +91,16 @@ describe('reqTitleEditorBox (req #3661)', () => {
     });
 
     it('a pill row: line 1 starts after the PACKED tail', () => {
-        const label = { ...base, titleStart: 20 };          // 13 chars of pill + " - "
-        const firstLine = '3661   Terminal 6 - ';
-        // The renderer packed the tail 30px left of its reserved characters.
-        const tail = { x: 100 + 17 * 8 - 30, text: ' - ', start: 17 };
+        const label = { ...base, titleStart: 20 };    // 10 chars of pill + 3 blanks
+        const firstLine = '3661   Terminal 6   ';
+        // The renderer packed the tail 30px left of its reserved characters and
+        // collapsed its blank lead to one space, which stands at index 19.
+        const tail = { x: 100 + 17 * 8 - 30, text: ' ', start: 19 };
         const b = reqTitleEditorBox({
             label, firstLine, measure, chw: 9, tail, t, lineH: 20, fontSize: 13, insetTop: 4,
         });
         const colX = 100 + 7 * 8;
-        const line1X = tail.x + 3 * 8;
+        const line1X = tail.x + 1 * 8;
         expect(b.indent).toBe(`${(line1X - colX) * 2}px`);
         expect(b.top).toBe(50 * 2 + 20 - 4);
     });
@@ -126,7 +127,7 @@ describe('updateRequirementTitle (req #3661)', () => {
 
 describe('titleLineStarts — the editor draws the layout\'s lines (req #3661)', () => {
     // The row a requirement is drawn as, rebuilt from the editor's runs: line 0
-    // is the prefix + " - " + its run, later lines the hang + their run, each
+    // is the prefix + the separator + its run, later lines the hang + their run, each
     // run less the space its break consumed.
     const rebuild = (title, label) => {
         const starts = titleLineStarts(title, label);
@@ -134,7 +135,8 @@ describe('titleLineStarts — the editor draws the layout\'s lines (req #3661)',
         return starts.map((s, i) => {
             const run = title.slice(s, starts[i + 1] ?? title.length);
             const body = i < starts.length - 1 ? run.replace(/ $/, '') : run;
-            return i === 0 ? `${label.idText} - ${body}`.replace(/ $/, '') : pad + body;
+            return i === 0 ? `${label.idText}${' '.repeat(CARD_SEP_CHARS)}${body}`.replace(/ $/, '')
+                : pad + body;
         });
     };
     const words = ['a', 'to', 'edit', 'requirement', 'title', 'Pipeline', 'visualizer',
@@ -159,7 +161,7 @@ describe('titleLineStarts — the editor draws the layout\'s lines (req #3661)',
             const maxChars = label.titleHang + label.titleRoom;
             // The layout's own lines, uncapped, are the reference; the layout
             // DRAWS the first two verbatim and truncates the third.
-            const ref = wrapReqText(`${label.idText} - ${title}`, maxChars, 1e9,
+            const ref = wrapReqText(`${label.idText}${' '.repeat(CARD_SEP_CHARS)}${title}`, maxChars, 1e9,
                 String(id).length + CARD_SEP_CHARS);
             expect(drawn).toEqual(ref);
             label.lines.slice(0, 2).forEach((ln, i) => {
@@ -226,7 +228,7 @@ describe('PlanInPlaceTitleArea (req #3661)', () => {
 
     it('opens on the title laid out as the row\'s lines, all selected', () => {
         const { el, getByTestId } = mount();
-        // "3661 - edit requirement title in place": 28-char line 1, 21-char hang.
+        // "3661   edit requirement title in place": 28-char line 1, 21-char hang.
         expect(lines(el)).toEqual(['edit requirement ', 'title in place']);
         expect(el.getAttribute('contenteditable')).toBe('plaintext-only');
         expect(getByTestId('ed-box').getAttribute('data-viz-chrome')).toBe('edit');
