@@ -222,8 +222,9 @@ export const INSERT_MARK_MAX_R = 12;
  * draws at, and the zoom never has to re-place anything. Dependent and precede
  * marks are placed first and the edge marks keep clear of them.
  *
- * A precede mark is drawn on a card only when NO ARC LANDS ON IT — the
- * layout's own arcs, i.e. the step has no dependency among the drawn rows.
+ * A precede mark is drawn on a card only when the step has no dependency
+ * among the plan's rows (req #3650 — read from `depIds`, since a folded epic
+ * draws no arcs for a dependency that still exists).
  * (An unrelated early-route arc can still pass BEHIND such a card; the test is
  * the dependency data, not the pixels.) A stub runs from `x1` (the card edge) towards `x2`
  * (the mark's centre), on either side.
@@ -236,7 +237,15 @@ export const INSERT_MARK_MAX_R = 12;
 export function buildInsertMarks(layout, rows, r = INSERT_MARK_MAX_R) {
     const stubs = [];
     const marks = [];
-    const landed = new Set((layout?.arcs || []).map((a) => a.toId));
+    // From the DEPENDENCY DATA, not from the drawn arcs (req #3650): a folded
+    // epic draws no arcs into or out of its steps, and a step waiting on one of
+    // them still HAS a dependency — it must not be offered a "nothing precedes
+    // this" mark. With nothing folded the two answers are identical, because
+    // the layout draws exactly one arc per in-plan dependency.
+    const rowIds = new Set((rows || []).map((row) => row.id));
+    const landed = new Set((rows || [])
+        .filter((row) => (row.depIds || []).some((d) => rowIds.has(d)))
+        .map((row) => row.id));
     let dependentCount = 0;
     let precedeCount = 0;
     for (const row of rows || []) {
