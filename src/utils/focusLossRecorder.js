@@ -88,6 +88,35 @@ const timeline = [];
 let lastPress = { touch: false, at: 0 };
 let timelineInstalled = false;
 
+// ── THE CONSOLE ECHO (req #3657) ───────────────────────────────────────────
+// Every timeline event is ALSO printed to the browser console as it happens,
+// so the reader can watch focus move live in DevTools (filter on `[focus]`)
+// instead of copying a capture after the fact. Each line ends with where focus
+// IS and whether that field's MUI focus ring is drawn — which separates
+// "focus left the field" from "focus stayed but the blue ring went away".
+// Two console-only extras never enter the ring (they would flood it and push
+// the evidence a capture needs out of it): HOVER — each new element the
+// pointer moves onto, because the ring was seen to drop on mouse-over — and
+// every app-wide `focus()` / `blur()` call, with the stack that made it.
+// Silent under vitest, where it would only be test noise.
+const CONSOLE_ECHO = import.meta.env.MODE !== 'test';
+
+function focusState() {
+    const el = document.activeElement;
+    const muiRoot = el?.closest?.('.MuiInputBase-root');
+    const ring = muiRoot ? (muiRoot.classList.contains('Mui-focused') ? 'on' : 'OFF') : 'n/a';
+    return `active=${describeElement(el)} ring=${ring}`;
+}
+
+function echo(type, target, extra = {}) {
+    if (!CONSOLE_ECHO) return;
+    const details = Object.entries(extra)
+        .filter(([, v]) => v !== null && v !== undefined)
+        .map(([k, v]) => `${k}=${v}`).join(' ');
+    // eslint-disable-next-line no-console
+    console.log(`[focus] ${type} ${target}${details ? ` ${details}` : ''} | ${focusState()}`);
+}
+
 function note(type, target, extra = {}) {
     const entry = { t: Date.now(), type, target, ...extra };
     // A run of typing is ONE entry with a count, so forty keystrokes cannot
@@ -98,8 +127,32 @@ function note(type, target, extra = {}) {
         last.count = (last.count || 1) + 1;
         return;
     }
+    echo(type, target, extra);
     timeline.push(entry);
     if (timeline.length > TIMELINE_SIZE) timeline.shift();
+}
+
+// App-wide `focus()` / `blur()` wrappers for the console echo. A loss
+// session's own wrappers (openSession) chain on top of these and restore
+// them on teardown, so the two never fight.
+function installCallEcho() {
+    const protos = [HTMLElement.prototype];
+    if (typeof SVGElement !== 'undefined') protos.push(SVGElement.prototype);
+    for (const proto of protos) {
+        const { focus, blur } = proto;
+        proto.focus = function focusWithStack(...args) {
+            // eslint-disable-next-line no-console
+            console.log(`[focus] focus() called on ${describeElement(this)} | ${focusState()}\n  `
+                + captureStack().slice(0, 12).join('\n  '));
+            return focus.apply(this, args);
+        };
+        proto.blur = function blurWithStack(...args) {
+            // eslint-disable-next-line no-console
+            console.log(`[focus] blur() called on ${describeElement(this)} | ${focusState()}\n  `
+                + captureStack().slice(0, 12).join('\n  '));
+            return blur.apply(this, args);
+        };
+    }
 }
 
 // A key that produces a character is recorded as `char`, never the character
@@ -145,6 +198,16 @@ export function installFocusTimeline() {
         if (e.target === window) note('window-focus', 'window');
     });
     window.addEventListener('popstate', () => note('popstate', window.location.pathname), true);
+    if (CONSOLE_ECHO) {
+        installCallEcho();
+        let lastHover = null;
+        document.addEventListener('pointerover', (e) => {
+            const target = describeElement(e.target);
+            if (target === lastHover) return;
+            lastHover = target;
+            echo('hover', target);
+        }, true);
+    }
 }
 
 /** Timeline entries at or after `since` (epoch ms), oldest first — copies. */
