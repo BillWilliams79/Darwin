@@ -395,6 +395,25 @@ export function useDevServerRequirementTitles(creatorFk, ids, { enabled = true }
     });
 }
 
+// Req #3668 — the terminal each running dev server's session works in, for the
+// dashboard's clickable Tx. Production (`darwinOpsUri`) for the same reason as
+// the titles above: `session_fk` comes from the production claim, and the
+// dev/prod-split sessions read would look the id up in darwin_dev. Only the ids
+// on screen, and only the short columns `terminalFocusState` reads.
+export function useDevServerSessionTerminals(creatorFk, ids, { enabled = true } = {}) {
+    const { darwinOpsUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+    const key = [...new Set(ids)].sort((a, b) => a - b).join(',');
+    return useQuery({
+        queryKey: ['devServerSessionTerminals', creatorFk, key],
+        queryFn: () => fetchEntity(
+            `${darwinOpsUri}/swarm_sessions?id=(${key})&fields=id,terminal_number,terminal_window_id,machine_fk,title,task_name`,
+            idToken),
+        enabled: enabled && !!creatorFk && !!idToken && key !== '',
+        staleTime: 60_000,
+    });
+}
+
 export function usePriorityTasks(creatorFk, domainId, areaIds, { enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);
