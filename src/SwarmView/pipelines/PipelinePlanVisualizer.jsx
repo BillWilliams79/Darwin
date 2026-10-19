@@ -140,8 +140,9 @@ import {
     // measured; it never measures one of its own.
     CARD_RADIUS, CARD_PAD_X, CARD_PAD_Y, CARD_LINE_H, CARD_RULE_GAP,
     CARD_STATE_BAR_W, CARD_BADGE_FONT,
-    // req #3607 — the title buttons' outline and their drawn (not typeset) glyphs.
-    CARD_TITLE_BTN_STROKE, CARD_TITLE_BTN_GLYPH_STROKE, titleBtnGlyph,
+    // req #3607 — the title buttons' outline (the checkpoint and lock buttons'
+    // border since they moved to HTML, req #3673).
+    CARD_TITLE_BTN_STROKE,
     MIN_CARD_H, REQ_LINE_H, CHW_REQ, CARD_SEP_CHARS,
     // req #3580 — the run pill's word and type.
     CARD_RUN_FONT, CARD_RUN_WORDS,
@@ -186,9 +187,11 @@ import {
     moveStepRequirement, insertStepOnEdge, addDependentStep, precedeStepWith,
     isRestNullLiteral, REST_NULL, updateStep,
 } from '../../Steps/stepsApi';
-// req #3649 — the epic chip's lock control.
-import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
-import LockOpenOutlinedIcon from '@mui/icons-material/LockOpenOutlined';
+// req #3649 — the epic chip's lock control; req #3673 — the pictures on it and
+// on the step card's checkpoint and lock buttons.
+import {
+    CheckpointGateIcon, PlanLockIcon, checkpointTitle, lockTitle,
+} from './PlanStepFlagIcons';
 // req #3586 — the "+" marks that add a step on an edge or a dependent step; req
 // #3617 adds the one off a free left side, for a step this one depends on.
 import {
@@ -336,6 +339,17 @@ const RUN_PILL_SX = {
     '&:hover, &:focus-visible': { outline: 'none', boxShadow: `0 0 0 2px ${P.text}` },
 };
 
+// req #3673 — the checkpoint and lock buttons' static chrome; geometry and the
+// state's colours ride `style`, for the run pill's per-frame reason.
+const FLAG_BTN_SX = {
+    position: 'absolute', p: 0, m: 0,
+    pointerEvents: 'auto', cursor: 'pointer',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    borderRadius: '4px', boxSizing: 'border-box', lineHeight: 1,
+    transition: 'box-shadow 120ms',
+    '&:hover, &:focus-visible': { outline: 'none', boxShadow: `0 0 0 2px ${P.text}` },
+};
+
 // Duration of the epic-focus camera move (req #3204). Long enough to read as a
 // move, short enough that a second click never feels queued.
 const FOCUS_MS = 420;
@@ -396,6 +410,18 @@ function LegendWord({ color, label }) {
                            lineHeight: 1.35, whiteSpace: 'nowrap' }}>
             {label}
         </Typography>
+    );
+}
+
+// req #3673 — a key entry whose swatch is a control's own picture: the icon
+// the card draws, then its word in the state's colour.
+function LegendIcon({ color, label, children }) {
+    return (
+        <Box component="span" data-testid="pipeline-viz-legend-icon"
+             sx={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+            {children}
+            <LegendWord color={color} label={label} />
+        </Box>
     );
 }
 
@@ -3384,6 +3410,25 @@ export default function PipelinePlanVisualizer({
             fontSize: CARD_RUN_FONT * t.k,
         }));
 
+    // ── THE CHECKPOINT GATE AND THE PADLOCK, AS HTML OVERLAYS (req #3673) ──
+    // Buttons, so HTML for the run pill's reason, on the run pill's layer —
+    // and for the pictures: real icons (`PlanStepFlagIcons.jsx`) rather than
+    // the stroked ⚑ and padlock req #3649 drew in Konva, which the user could
+    // not read. The layout reserved both boxes on the title line; this only
+    // projects them to screen.
+    const floatingFlags = layout.labels
+        .filter((l) => (l.kind === 'checkpoint' || l.kind === 'lock') && drawsKind(l.kind))
+        .map((l) => ({
+            key: `${l.kind}-${l.stepId}`,
+            kind: l.kind,
+            stepId: l.stepId,
+            on: !!l.on,
+            lockedBy: l.lockedBy || null,
+            left: l.x * t.k + t.x,
+            top: l.y * t.k + t.y,
+            size: l.w * t.k,
+        }));
+
     // ── THE STEP CARD'S COLLAPSE HEAD, AS AN HTML OVERLAY (req #3650) ──────
     // A button, so HTML for the run pill's reason, on the run pill's layer. The
     // layout reserved its box at the title line's left (`CARD_COLLAPSE_W`,
@@ -4355,33 +4400,11 @@ export default function PipelinePlanVisualizer({
             // here rather than an unhandled kind silently falling through the
             // chain below to whatever the next `else if` happens to match.
         } else if (label.kind === 'checkpoint' || label.kind === 'lock') {
-            // req #3649 — ⚑ and the padlock: outlined buttons like the "+" and
-            // ↗ beside them, their glyphs drawn (never typeset, req #3607).
-            // The pennant / the lock body is FILLED when the flag is on, so
-            // the state reads at a glance: a solid flag holds its downstream,
-            // a hollow one is a priority; a solid padlock is frozen.
-            const btnRow = rowById.get(label.stepId);
-            const activate = label.kind === 'checkpoint'
-                ? () => btnRow && toggleCheckpoint(btnRow)
-                : () => btnRow && toggleStepLock(btnRow);
-            const glyph = titleBtnGlyph(label.kind, label);
-            worldNodes.push(
-                <Rect key={`lbl-${i}`} x={label.x} y={label.y}
-                      width={label.w} height={label.h} cornerRadius={4}
-                      fill="transparent"
-                      stroke={P.dim} strokeWidth={CARD_TITLE_BTN_STROKE}
-                      name={`pipeline-viz-${label.kind}-${label.stepId}`}
-                      onMouseEnter={(e) => cursorPointer(e, true)}
-                      onMouseLeave={(e) => cursorPointer(e, false)}
-                      onActivate={activate} />);
-            glyph.forEach((points, j) => {
-                const filled = label.on && (label.kind === 'checkpoint' ? j === 1 : j === 0);
-                worldNodes.push(
-                    <Line key={`lbl-${i}-glyph-${j}`} points={points}
-                          stroke={P.text} strokeWidth={CARD_TITLE_BTN_GLYPH_STROKE}
-                          closed={filled} fill={filled ? P.text : undefined}
-                          lineCap="round" lineJoin="round" listening={false} />);
-            });
+            // req #3673 — drawn as HTML icon buttons now (`floatingFlags`
+            // below), not in Konva: the user found the stroked ⚑ and padlock
+            // unreadable, and a real icon, a hover title and a focusable
+            // button are all HTML's. Kept, EMPTY, for the `badge` branch's
+            // reason — a deliberate no-op, never a fall-through.
         } else if (label.kind === 'title') {
             worldNodes.push(
                 <Text key={`lbl-${i}`} x={label.x} y={label.y} text={label.text}
@@ -5091,12 +5114,14 @@ export default function PipelinePlanVisualizer({
                                         display: 'inline-flex', alignItems: 'center',
                                         lineHeight: 1, px: '2px', cursor: 'pointer',
                                         opacity: e.band?.locked ? 1 : 0.6,
+                                        // req #3673 — the step card's padlock
+                                        // colours: orange shut, chip colour open.
+                                        color: e.band?.locked ? P.lockOn : undefined,
                                         '&:hover': { opacity: 1 },
                                     }}
                                 >
-                                    {e.band?.locked
-                                        ? <LockOutlinedIcon sx={{ fontSize: EPIC_LOCK_D }} />
-                                        : <LockOpenOutlinedIcon sx={{ fontSize: EPIC_LOCK_D }} />}
+                                    <PlanLockIcon locked={!!e.band?.locked}
+                                                  sx={{ fontSize: EPIC_LOCK_D }} />
                                 </Box>
                             )}
                         </Box>
@@ -5250,6 +5275,60 @@ export default function PipelinePlanVisualizer({
                                  sx={RUN_PILL_SX}
                             >
                                 {CARD_RUN_WORDS[r.run]}
+                            </Box>
+                        );
+                    })}
+                    {/* req #3673 — THE CHECKPOINT GATE AND THE PADLOCK. Each
+                        shows its state as a picture that differs in SHAPE and
+                        COLOUR — barrier arm down (red/white) or raised (grey),
+                        padlock shut (orange) or open (grey) — and IS the
+                        control that flips it. The hover title says what the
+                        state means and what a click does. A lock held by the
+                        epic or plan has a DASHED border: this button cannot
+                        lift it. */}
+                    {floatingFlags.map((f) => {
+                        const checkpoint = f.kind === 'checkpoint';
+                        const row = rowById.get(f.stepId);
+                        const onColor = checkpoint ? P.checkpointOn : P.lockOn;
+                        const color = f.on ? onColor : P.dim;
+                        const title = checkpoint
+                            ? checkpointTitle(f.on, row?.lockedBy) : lockTitle(f.on, f.lockedBy);
+                        const inherited = !checkpoint && f.on
+                            && f.lockedBy && f.lockedBy !== 'step';
+                        return (
+                            <Box key={f.key}
+                                 component="button"
+                                 type="button"
+                                 data-testid={`pipeline-viz-${f.kind}-${f.stepId}`}
+                                 data-on={f.on ? '1' : '0'}
+                                 aria-pressed={f.on}
+                                 aria-label={`Step ${f.stepId}: ${title}`}
+                                 title={title}
+                                 onClick={(ev) => {
+                                     ev.stopPropagation();
+                                     if (!row) return;
+                                     if (checkpoint) toggleCheckpoint(row);
+                                     else toggleStepLock(row);
+                                 }}
+                                 style={{
+                                     left: f.left,
+                                     top: f.top - epicOverlayTopInset,
+                                     width: f.size, height: f.size,
+                                     fontSize: f.size * 0.74,
+                                     color,
+                                     borderColor: f.on ? onColor : rgba(P.dim, 0.8),
+                                     borderStyle: inherited ? 'dashed' : 'solid',
+                                     borderWidth: Math.max(1, CARD_TITLE_BTN_STROKE * t.k),
+                                     background: f.on ? rgba(onColor, 0.16) : 'transparent',
+                                 }}
+                                 sx={FLAG_BTN_SX}
+                            >
+                                {checkpoint
+                                    ? <CheckpointGateIcon closed={f.on}
+                                                          stripe={P.checkpointOn}
+                                                          light={P.checkpointLight}
+                                                          fontSize="inherit" />
+                                    : <PlanLockIcon locked={f.on} fontSize="inherit" />}
                             </Box>
                         );
                     })}
@@ -5584,12 +5663,19 @@ export default function PipelinePlanVisualizer({
                                     swatch for it. */}
                                 <LegendDot ring={P.eligibleRing} label="Up Next"
                                            dashed animated="pipeKeyBreathe" />
-                                {/* req #3649 — the two title-line buttons.
-                                    ⚑ solid: the step holds its downstream
-                                    until done; hollow: a launch priority.
-                                    Padlock solid: frozen (step, epic or plan). */}
-                                <LegendWord color={P.text} label="⚑ Checkpoint" />
-                                <LegendWord color={P.text} label="🔒 Locked" />
+                                {/* req #3649 — the two title-line buttons,
+                                    drawn with the card's own pictures since
+                                    req #3673: barrier arm down = a checkpoint
+                                    (the step holds its downstream until done);
+                                    padlock shut = frozen (step, epic or plan). */}
+                                <LegendIcon label="Checkpoint" color={P.checkpointOn}>
+                                    <CheckpointGateIcon closed stripe={P.checkpointOn}
+                                                        light={P.checkpointLight}
+                                                        sx={{ fontSize: 13, color: P.checkpointOn }} />
+                                </LegendIcon>
+                                <LegendIcon label="Locked" color={P.lockOn}>
+                                    <PlanLockIcon locked sx={{ fontSize: 13, color: P.lockOn }} />
+                                </LegendIcon>
                             </KeyGroup>
 
                             {/* THE REQUIREMENT channel — EVERY scale in ONE grid

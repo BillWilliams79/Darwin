@@ -30,7 +30,7 @@ import {
     CARD_FRAME_W, CARD_FRAME_X, CARD_STATE_BAR_W, CARD_BAR_GAP,
     CARD_BADGE_W, CARD_BADGE_GAP, CARD_BADGE_H, CARD_BADGE_TOP, CARD_BADGE_FONT, badgeWidthFor,
     CARD_TITLE_BTN, CARD_TITLE_BTN_GAP,
-    CARD_TITLE_BTN_STROKE, CARD_TITLE_BTN_GLYPH_STROKE, titleBtnGlyph,
+    CARD_TITLE_BTN_STROKE,
     CARD_RUN_W, CARD_RUN_H, CARD_RUN_WORDS, CARD_RUN_FONT, CARD_FONT,
     STEP_WIDTH_RUNGS, stepWidthScale, cardGeometryFor,
     STEPS_ACROSS_OPTIONS, STEPS_ACROSS_LOOSE_FILL, stepsAcrossScale,
@@ -5700,31 +5700,19 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
     it('doubles the title buttons\' outline (req #3607 — "like 100% more")', () => {
         // It shipped at 1 world px (req #3582).
         expect(CARD_TITLE_BTN_STROKE).toBe(2);
-        expect(CARD_TITLE_BTN_GLYPH_STROKE).toBeGreaterThanOrEqual(CARD_TITLE_BTN_STROKE);
     });
 
-    it('centres the title-button glyph on its button in BOTH axes (req #3607)', () => {
+    it('reserves a square title-line box for the checkpoint and the padlock (req #3649, #3673)', () => {
         const layout = computePlanLayout(plan.rows, { stepLabel: 'title' });
-        // req #3649 — the ⚑ and the padlock are the title-line buttons now
-        // (the "+" and ↗ were removed on the user's directive).
+        // req #3673 — the pictures are HTML icons now (PlanStepFlagIcons.jsx),
+        // centred by flexbox; the layout's part is a square box per button.
         const buttons = layout.labels.filter(
             (l) => l.kind === 'checkpoint' || l.kind === 'lock');
         expect(buttons.some((b) => b.kind === 'checkpoint')).toBe(true);
         expect(buttons.some((b) => b.kind === 'lock')).toBe(true);
         for (const b of buttons) {
-            const where = `${b.kind} step ${b.stepId}`;
-            const segs = titleBtnGlyph(b.kind, b);
-            expect(segs.length, where).toBeGreaterThan(0);
-            const xs = segs.flatMap((pts) => pts.filter((_, k) => k % 2 === 0));
-            const ys = segs.flatMap((pts) => pts.filter((_, k) => k % 2 === 1));
-            // The ink box's centre IS the button's centre.
-            expect((Math.min(...xs) + Math.max(...xs)) / 2, where).toBeCloseTo(b.x + b.w / 2, 6);
-            expect((Math.min(...ys) + Math.max(...ys)) / 2, where).toBeCloseTo(b.y + b.h / 2, 6);
-            // Square ink box, clear of the outline on every side.
-            const side = Math.max(...xs) - Math.min(...xs);
-            expect(Math.max(...ys) - Math.min(...ys), where).toBeCloseTo(side, 6);
-            const inset = (b.w - side) / 2 - CARD_TITLE_BTN_GLYPH_STROKE / 2;
-            expect(inset, where).toBeGreaterThan(CARD_TITLE_BTN_STROKE);
+            expect(b.w, `${b.kind} step ${b.stepId}`).toBe(CARD_TITLE_BTN);
+            expect(b.h, `${b.kind} step ${b.stepId}`).toBe(CARD_TITLE_BTN);
         }
     });
 
