@@ -103,7 +103,6 @@ import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
 import MenuItem from '@mui/material/MenuItem';
 import TextField from '@mui/material/TextField';
-import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 // req #3428 — the icon `/swarm`'s own view toggle uses for Cards. Reusing the
@@ -117,6 +116,7 @@ import { STEP_RUNNING } from './pipelineViewModel';
 // still called — now with no era argument.
 import { planStorageNamespace } from './planEra';
 import { OrderViolationsAlert } from './PipelinePlanTable';
+import EmptyPlanAddStep from './EmptyPlanAddStep';
 import {
     computePlanLayout, beadStyle, placeEpicChips,
     epicFocusTransform, stepFocusTransform, stepsFocusTransform,
@@ -2768,12 +2768,8 @@ export default function PipelinePlanVisualizer({
         return (
             <Box>
                 <OrderViolationsAlert plan={plan} />
-                <Paper variant="outlined" sx={{ p: 4, textAlign: 'center' }}
-                       data-testid="pipeline-plan-viz-empty">
-                    <Typography variant="body2" color="text.secondary">
-                        This pipeline has no steps yet.
-                    </Typography>
-                </Paper>
+                <EmptyPlanAddStep model={model} pipeline={pipeline}
+                                  testId="pipeline-plan-viz-empty" />
             </Box>
         );
     }
