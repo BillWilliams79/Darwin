@@ -62,7 +62,7 @@ export const VALID_RUN2_MODES = ['auto', 'manual'];
  * Create a step under an epic. `completed_at` is never set here — a step is
  * born incomplete. Requirement links are not created either: seating is
  * MCP/Primary-only (see this module's header). Dependency rows are written
- * only by the plan visualizer's add-step actions below (`branchStepFrom`,
+ * only by the plan visualizer's add-step actions below (`addDependentStep`,
  * `insertStepOnEdge`, req #3586; `precedeStepWith`, req #3617) — a browser
  * write racing a Primary `set_step_deps` on the same step, the same KNOWN, ACCEPTED race
  * `moveStepRequirement` records for seats.
@@ -241,7 +241,7 @@ async function undoAll(undos) {
 }
 
 /**
- * Create a step and gate it on `fromStepId` — the canvas's BRANCH "+"
+ * Create a step and gate it on `fromStepId` — the canvas's DEPENDENT "+"
  * (req #3586): a new step that depends on that one step alone. Neither write
  * can introduce a cycle (the new step has no dependents), and both steps are
  * in the same plan by construction. A failed edge deletes the new step. (The
@@ -250,7 +250,7 @@ async function undoAll(undos) {
  *
  * @returns {Promise<Object>} the created step row
  */
-export async function branchStepFrom(darwinUri, idToken, { fromStepId, epic_fk, title }) {
+export async function addDependentStep(darwinUri, idToken, { fromStepId, epic_fk, title }) {
     const created = requireCreatedId(await createStep(darwinUri, idToken, { epic_fk, title }));
     const stepId = created.id;
     try {
