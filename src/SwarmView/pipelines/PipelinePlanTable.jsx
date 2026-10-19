@@ -57,6 +57,7 @@ import CheckIcon from '@mui/icons-material/Check';
 
 import { useScrollMemory } from '../../hooks/useScrollMemory';
 import { scrollStorageKey } from '../../utils/viewportMemory';
+import EmptyPlanAddStep from './EmptyPlanAddStep';
 import { fmtCost, STEP_DONE, STEP_RUNNING, STEP_PENDING, canFileIntoStep } from './pipelineModel';
 // req #3356 — the `era` PROP and ARGUMENT are both gone (there is one era) but
 // `planEra.js` stays the ONE place a plan route, entity or storage namespace is
@@ -502,12 +503,8 @@ export default function PipelinePlanTable({ plan, model, pipeline, timezone, foc
         return (
             <Box>
                 <OrderViolationsAlert plan={plan} />
-                <Paper variant="outlined" sx={{ p: 4, textAlign: 'center' }}
-                       data-testid="pipeline-plan-empty">
-                    <Typography variant="body2" color="text.secondary">
-                        This pipeline has no steps yet.
-                    </Typography>
-                </Paper>
+                <EmptyPlanAddStep model={model} pipeline={pipeline}
+                                  testId="pipeline-plan-empty" />
             </Box>
         );
     }
