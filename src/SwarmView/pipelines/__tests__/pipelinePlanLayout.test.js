@@ -29,7 +29,7 @@ import {
     CARD_LINE_H, CARD_SUBTITLE_H, CARD_RULE_BAND, CARD_TITLE_CHARS, CARD_ID_CHARS,
     CARD_FRAME_W, CARD_FRAME_X, CARD_STATE_BAR_W, CARD_BAR_GAP,
     CARD_BADGE_W, CARD_BADGE_GAP, CARD_BADGE_H, CARD_BADGE_TOP, CARD_BADGE_FONT, badgeWidthFor,
-    CARD_STEP_LINK_W, CARD_STEP_ADD_W, CARD_TITLE_BTN, CARD_TITLE_BTN_GAP, CARD_STEP_LINK_GAP,
+    CARD_STEP_LINK_W, CARD_STEP_ADD_W, CARD_TITLE_BTN, CARD_TITLE_BTN_GAP,
     CARD_TITLE_BTN_STROKE, CARD_TITLE_BTN_GLYPH_STROKE, titleBtnGlyph,
     CARD_RUN_W, CARD_RUN_H, CARD_RUN_WORDS, CARD_RUN_FONT, CARD_FONT,
     STEP_WIDTH_SCALES, cardGeometryFor,
@@ -1180,20 +1180,22 @@ describe('Step Width — the card scales, four rungs (req #3503)', () => {
         }
     });
 
-    it('the step-link button stays flush with the RIGHT edge at every rung (req #3503 review)', () => {
-        // Regression guard: the first cut positioned this off `CARD_FRAME_X +
+    it('the rightmost title button stays flush with the RIGHT edge at every rung (req #3503 review, #3641)', () => {
+        // Regression guard: the first cut positioned the ↗ off `CARD_FRAME_X +
         // CARD_FRAME_W` (fixed, scale-1 constants) instead of the scaled
         // frame the rest of the card actually drew at, so it drifted off the
         // true right edge at any level but 1 — invisible at the default rung,
-        // which is exactly why a dedicated test outlives the fix.
+        // which is exactly why a dedicated test outlives the fix. The ↗ is
+        // gone since req #3641, so the "+" is the button on that edge now.
         for (let level = 1; level <= STEP_WIDTH_SCALES.length; level += 1) {
             const layout = computePlanLayout(plan.rows,
                 { stepLabel: 'title', stepWidthLevel: level });
             for (const row of plan.rows) {
                 const n = layout.nodes.get(row.id);
-                const [link] = layout.labels.filter(
-                    (l) => l.kind === 'step-link' && l.stepId === row.id);
-                expect(link.x + link.w, `level ${level} step ${row.id}`)
+                const [add] = layout.labels.filter(
+                    (l) => l.kind === 'step-add' && l.stepId === row.id);
+                if (!add) continue;   // a stamped step carries no "+"
+                expect(add.x + add.w, `level ${level} step ${row.id}`)
                     .toBeCloseTo(n.right - CARD_PAD_X - CARD_CHECK_W, 6);
             }
         }
@@ -5529,24 +5531,11 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
         expect(drawsLabelKind('badge', 'in')).toBe(true);
     });
 
-    it('puts a "view in table" link button RIGHT of the title, clear of the ✓ (req #3503)', () => {
+    it('draws no "view in table" ↗ button — the Table is gone (req #3641)', () => {
         const layout = computePlanLayout(plan.rows, { stepLabel: 'title' });
-        for (const row of plan.rows) {
-            const [link] = layout.labels.filter(
-                (l) => l.kind === 'step-link' && l.stepId === row.id);
-            expect(link, `step ${row.id} has a link button`).toBeTruthy();
-            expect(link.text).toBe('↗');
-            const n = layout.nodes.get(row.id);
-            // Right-aligned, clear of the ✓, inside the title area.
-            expect(link.x + link.w)
-                .toBeCloseTo(n.right - CARD_PAD_X - CARD_CHECK_W, 6);
-            // Flush with the title area's bottom since req #3582 — float slack only.
-            expect(link.y + link.h).toBeLessThanOrEqual(n.top + cardTitleH('title') + 1e-6);
-        }
-        // It rides the CARD too, same rule as the badge.
-        expect(drawsLabelKind('step-link', 'out')).toBe(false);
-        expect(drawsLabelKind('step-link', 'mid')).toBe(true);
-        expect(drawsLabelKind('step-link', 'in')).toBe(true);
+        expect(layout.labels.filter((l) => l.kind === 'step-link')).toEqual([]);
+        // Its reserve is zero, so it costs the title no room.
+        expect(CARD_STEP_LINK_W).toBe(0);
     });
 
     it('doubles the title buttons\' outline (req #3607 — "like 100% more")', () => {
@@ -5555,12 +5544,10 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
         expect(CARD_TITLE_BTN_GLYPH_STROKE).toBeGreaterThanOrEqual(CARD_TITLE_BTN_STROKE);
     });
 
-    it('centres both title-button glyphs on their button in BOTH axes (req #3607)', () => {
+    it('centres the title-button glyph on its button in BOTH axes (req #3607)', () => {
         const layout = computePlanLayout(plan.rows, { stepLabel: 'title' });
-        const buttons = layout.labels.filter(
-            (l) => l.kind === 'step-add' || l.kind === 'step-link');
-        expect(buttons.some((b) => b.kind === 'step-add')).toBe(true);
-        expect(buttons.some((b) => b.kind === 'step-link')).toBe(true);
+        const buttons = layout.labels.filter((l) => l.kind === 'step-add');
+        expect(buttons.length).toBeGreaterThan(0);
         for (const b of buttons) {
             const where = `${b.kind} step ${b.stepId}`;
             const segs = titleBtnGlyph(b.kind, b);
@@ -5578,7 +5565,7 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
         }
     });
 
-    it('puts a "+" (file a requirement into this step) LEFT of the link button (req #3582)', () => {
+    it('puts a "+" (file a requirement into this step) on the title row\'s right edge (req #3582, #3641)', () => {
         for (let level = 1; level <= STEP_WIDTH_SCALES.length; level += 1) {
             const layout = computePlanLayout(plan.rows,
                 { stepLabel: 'title', stepWidthLevel: level });
@@ -5586,8 +5573,6 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
                 const where = `level ${level} step ${row.id}`;
                 const [add] = layout.labels.filter(
                     (l) => l.kind === 'step-add' && l.stepId === row.id);
-                const [link] = layout.labels.filter(
-                    (l) => l.kind === 'step-link' && l.stepId === row.id);
                 // Design rule 1: a stamped step takes no new work, so no "+".
                 if (row.completedAt != null) { expect(add, where).toBeUndefined(); continue; }
                 expect(add, where).toBeTruthy();
@@ -5596,15 +5581,17 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
                 // "way too small and close together").
                 expect(add.w).toBe(CARD_TITLE_BTN);
                 expect(add.h).toBe(CARD_TITLE_BTN);
-                expect(link.w).toBe(CARD_TITLE_BTN);
-                expect(link.h).toBe(CARD_TITLE_BTN);
                 expect(CARD_TITLE_BTN_GAP).toBeGreaterThan(0);
-                // req #3607 — the "+"/↗ gap alone is a third wider.
-                expect(CARD_STEP_LINK_GAP).toBeCloseTo(CARD_TITLE_BTN_GAP * 1.33, 6);
-                expect(add.x + add.w + CARD_STEP_LINK_GAP, where).toBeCloseTo(link.x, 6);
-                expect(add.y, where).toBe(link.y);
+                // Flush right since req #3641 took the ↗ that stood there.
                 const n = layout.nodes.get(row.id);
-                expect(add.y + add.h, where).toBeLessThanOrEqual(n.top + cardTitleH('title') + 1e-6);
+                expect(add.x + add.w, where)
+                    .toBeCloseTo(n.right - CARD_PAD_X - CARD_CHECK_W, 6);
+                // On the title's own line — below the collapse head's row since
+                // req #3650 — and inside the title area.
+                const [name] = layout.labels.filter(
+                    (l) => l.kind === 'step' && l.stepId === row.id);
+                expect(add.y, where).toBe(name.y);
+                expect(add.y + add.h, where).toBeLessThanOrEqual(n.top + n.titleH + 1e-6);
             }
         }
         // A stamped step specifically — the fixture may carry none.
@@ -5620,24 +5607,24 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
         expect(drawsLabelKind('step-add', 'in')).toBe(true);
     });
 
-    it('puts the run-mode pill LEFT of the ↗, clear of the step name (req #3580)', () => {
+    it('puts the run-mode pill LEFT of the "+", clear of the step name (req #3580)', () => {
         for (const stepLabel of ['title', 'id']) {
             const layout = computePlanLayout(plan.rows, { stepLabel });
+            const n0 = (row) => layout.nodes.get(row.id);
             for (const row of plan.rows) {
                 const of = (kind) => layout.labels.find(
                     (l) => l.kind === kind && l.stepId === row.id);
                 const run = of('run');
-                const link = of('step-link');
                 const name = of('step');
                 expect(run, `step ${row.id} has a run pill`).toBeTruthy();
                 expect(run.run).toBe(row.run === 'manual' ? 'manual' : 'auto');
                 expect(run.text).toBe(row.run === 'manual' ? 'Manual' : 'Auto');
                 expect(run.w).toBe(CARD_RUN_W);
                 expect(run.h).toBe(CARD_RUN_H);
-                // Abutting the "+" reserve (req #3582) on its left — which
-                // abuts the ↗'s — never under either.
+                // Abutting the "+" reserve (req #3582) on its left — which is
+                // flush with the right edge since req #3641 took the ↗.
                 expect(run.x + run.w)
-                    .toBeCloseTo(link.x - CARD_STEP_LINK_GAP - CARD_STEP_ADD_W, 6);
+                    .toBeCloseTo(n0(row).right - CARD_PAD_X - CARD_CHECK_W - CARD_STEP_ADD_W, 6);
                 // Inside the title area, and never on the name it sits beside.
                 const n = layout.nodes.get(row.id);
                 expect(run.y).toBeGreaterThanOrEqual(n.top);
