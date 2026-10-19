@@ -8,6 +8,8 @@ import {
     screenToWorld, screenRectOf, UNSEATED_REQ_MIME, resolveSeatDrop,
     unseatedBoxFontPx, UNSEATED_FONT_MIN, UNSEATED_FONT_MAX, bulkSeatRequest,
     unseatedBoxWidthPx, UNSEATED_MIN_WIDTH_EM,
+    unseatedTextStep, unseatedResizedBox, unseatedMinStretchPx, UNSEATED_TEXT_RATIO,
+    UNSEATED_MIN_LIST_EM,
     pointInRect, pointerCanSeat, runBulkSeat, bulkSeatFailureMessage,
 } from '../pipelineUnseated';
 import {
@@ -184,6 +186,72 @@ describe('unseatedBoxWidthPx', () => {
         expect(Number.isFinite(unseatedBoxWidthPx(undefined, 1))).toBe(true);
         expect(Number.isFinite(unseatedBoxWidthPx(CARD_FRAME_W, 0))).toBe(true);
         expect(Number.isFinite(unseatedBoxWidthPx(NaN, undefined))).toBe(true);
+    });
+});
+
+// req #3654 — the reader's stretch, and the three text sizes it allows.
+describe('unseatedTextStep', () => {
+    it('is one size smaller a full step narrower, one bigger a full step wider', () => {
+        expect(unseatedTextStep(1)).toBe(0);
+        expect(unseatedTextStep(0.9)).toBe(0);
+        expect(unseatedTextStep(1.2)).toBe(0);
+        expect(unseatedTextStep(1 / UNSEATED_TEXT_RATIO)).toBe(-1);
+        expect(unseatedTextStep(UNSEATED_TEXT_RATIO)).toBe(1);
+    });
+
+    it('never goes past one size either way, however far it is stretched', () => {
+        expect(unseatedTextStep(0.1)).toBe(-1);
+        expect(unseatedTextStep(40)).toBe(1);
+    });
+
+    it('treats a missing or degenerate scale as unstretched', () => {
+        expect(unseatedTextStep(undefined)).toBe(0);
+        expect(unseatedTextStep(0)).toBe(0);
+        expect(unseatedTextStep(-2)).toBe(0);
+        expect(unseatedTextStep(NaN)).toBe(0);
+    });
+});
+
+describe('unseatedResizedBox', () => {
+    it('is the zoom size, untouched, when never stretched', () => {
+        expect(unseatedResizedBox(400, 12, null))
+            .toEqual({ widthPx: 400, fontPx: 12, step: 0, listHeightPx: null });
+    });
+
+    it('draws exactly three type sizes across every stretch', () => {
+        const sizes = new Set([0.2, 0.5, 0.8, 0.9, 1, 1.1, 1.25, 2, 5, 30]
+            .map((ws) => unseatedResizedBox(600, 12, { ws, hEm: null }).fontPx));
+        expect([...sizes].sort((a, b) => a - b)).toEqual([12 / 1.25, 12, 15]);
+    });
+
+    it('follows the stretch in width, and keeps tracking the zoom', () => {
+        expect(unseatedResizedBox(400, 12, { ws: 1.5, hEm: null }).widthPx).toBe(600);
+        // Same stretch, zoomed in: the box is twice as wide, the type twice as big.
+        const zoomed = unseatedResizedBox(800, 24, { ws: 1.5, hEm: 10 });
+        expect(zoomed.widthPx).toBe(1200);
+        expect(zoomed.fontPx).toBe(30);
+        expect(zoomed.listHeightPx).toBe(240);
+    });
+
+    it('never narrower than its title bar in the type it is drawn in', () => {
+        // At the zoom floor the box is exactly its title bar wide: shrinking
+        // part of a step holds it there; a full step drops the type a size.
+        const floor = UNSEATED_MIN_WIDTH_EM * 9;
+        expect(unseatedResizedBox(floor, 9, { ws: 0.9 }).widthPx).toBe(floor);
+        const small = unseatedResizedBox(floor, 9, { ws: 0.5 });
+        expect(small.step).toBe(-1);
+        expect(small.widthPx).toBeCloseTo(unseatedMinStretchPx(9), 6);
+        expect(small.widthPx).toBeCloseTo(UNSEATED_MIN_WIDTH_EM * small.fontPx, 6);
+    });
+
+    it('holds a stretched list at least about two rows tall', () => {
+        expect(unseatedResizedBox(400, 10, { ws: 1, hEm: 0.5 }).listHeightPx)
+            .toBe(UNSEATED_MIN_LIST_EM * 10);
+    });
+
+    it('ignores a corrupt stretch', () => {
+        expect(unseatedResizedBox(400, 12, { ws: 'x', hEm: -3 }))
+            .toEqual({ widthPx: 400, fontPx: 12, step: 0, listHeightPx: null });
     });
 });
 

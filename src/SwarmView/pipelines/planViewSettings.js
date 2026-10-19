@@ -60,10 +60,23 @@ export const PLAN_VIEW_SETTINGS = Object.freeze({
         default: true },
     // The Table's Time / Tokens columns: off until asked for (req #3117).
     showCost: { kind: 'flag', storageKey: 'darwin-pipeline-show-cost', default: false },
+    // The header's ONE fold for both modes' options (req #3650). Persisted from
+    // the day it shipped, as 'open' / 'collapsed' — `on`/`off` keep that
+    // encoding so every stored choice reads back unchanged.
+    controlsOpen: { kind: 'flag', storageKey: 'darwin-swarm-pipeline-detail-controls',
+        default: true, on: 'open', off: 'collapsed' },
 });
 
-const encode = (def, v) => (def.kind === 'flag' ? (v ? '1' : '0') : v);
-const decode = (def, raw) => (def.kind === 'flag' ? raw === '1' : raw);
+// A flag is stored as its `on` / `off` string ('1' / '0' unless the row names
+// its own). Decoding is anchored on the DEFAULT: only the opposite state's
+// exact string flips it, so anything unrecognised in storage reads as default.
+const onOf = (def) => def.on ?? '1';
+const offOf = (def) => def.off ?? '0';
+const encode = (def, v) => (def.kind === 'flag' ? (v ? onOf(def) : offOf(def)) : v);
+const decode = (def, raw) => {
+    if (def.kind !== 'flag') return raw;
+    return def.default ? raw !== offOf(def) : raw === onOf(def);
+};
 
 /**
  * One remembered setting of the plan page, by its name in `PLAN_VIEW_SETTINGS`.

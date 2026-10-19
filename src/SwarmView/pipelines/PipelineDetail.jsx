@@ -88,6 +88,8 @@ import { writePipelinePlace } from './pipelinePlace';
 // `SemanticLevelControl` and `PLAN_LEVEL_NUMBER` went with them; this page no
 // longer knows what a semantic level is.
 import PipelinePlanToolbar from './PipelinePlanToolbar';
+// req #3650 — the TPU 3D collapse head, leading the header row.
+import ControlsCollapseHead from './ControlsCollapseHead';
 // Trimmed to what this file actually renders (req #3241). `DEFAULT_REQ_VIEW`,
 // `REQ_VIEWS`, `normalizeReqView`, `reqViewOptions` and `machineTitle` outlived
 // the `Reqs:`/`Step:` controls and the status/machine chips that the 2026-08-01
@@ -247,6 +249,14 @@ export default function PipelineDetail() {
     // for "8" again must bring you back, and a bare value would be unchanged
     // state and do nothing.
     const [stepsAcross, setStepsAcross] = useState({ n: null, nonce: 0 });
+    // req #3650 — ONE fold for the header's UI options, in both modes: the
+    // Plan view's toolbar and the Table view's Time/Tokens fold together, so
+    // the page has a single control rather than one per mode. PERSISTED like
+    // the other view preferences — a reader who folds the controls away to
+    // give the plan the room wants them folded next visit too.
+    // One row of `planViewSettings.js` since req #3651 (same key, same values).
+    const [controlsOpen, setControlsOpen] = usePlanViewSetting('controlsOpen');
+    const toggleControls = useCallback(() => setControlsOpen((v) => !v), [setControlsOpen]);
     // The step label is always the TITLE, and the requirement marks always
     // reserve room for their TITLE — the renderer draws the id inside that box
     // at L1/L2 and the title itself at L3 (see the `idText` note in
@@ -840,13 +850,22 @@ export default function PipelineDetail() {
                 `visible` value paired with a non-`visible` one computes to
                 `auto`, so this row is now a scroll container on BOTH axes and
                 clips vertical overflow. Nothing overflows vertically today (the
-                `flexItem` Dividers define the line's height, and Tooltips are
-                portaled), and `SwarmView.jsx` has carried the identical shape
+                tallest item — the mode toggle, or the title once the controls
+                fold — defines the line's height, and Tooltips are portaled), and `SwarmView.jsx` has carried the identical shape
                 since req #2802 — but the first control here with a badge or a
                 popper anchored INSIDE the row will find it. */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'nowrap',
                         minWidth: 0, overflowX: 'auto', mb: 1 }}
                  data-testid="pipeline-header-row">
+                {/* req #3650 — THE COLLAPSE HEAD LEADS THE ROW, which is the
+                    page's upper-left corner, where the TPU 3D views keep theirs.
+                    Folded, the row keeps only what is NOT an option: this head,
+                    the plan's name (its only identity on the page) and the
+                    live-ops status chips. The mode switch, the divider that
+                    opens the controls and the active mode's controls all go. */}
+                <ControlsCollapseHead open={controlsOpen} onToggle={toggleControls} />
+
+                {controlsOpen && (
                 <ToggleButtonGroup
                     value={activeMode}
                     exclusive
@@ -874,6 +893,7 @@ export default function PipelineDetail() {
                         </Tooltip>
                     ))}
                 </ToggleButtonGroup>
+                )}
 
                 {/* THE TITLE IS THE SPACER (req #3261 P3, S11 / V2). It used to
                     be `flexShrink: 1` beside a SEPARATE `flexGrow` Box —
@@ -975,10 +995,12 @@ export default function PipelineDetail() {
                     there BE groups and that a rule separate them — is applied to
                     the order the user asked for, which is the only reading under
                     which both requirements are satisfied. */}
+                {controlsOpen && (
                 <Divider orientation="vertical" flexItem
                          sx={{ mx: 0.5, flexShrink: 0 }} />
+                )}
 
-                {activeMode === 'table' ? (
+                {!controlsOpen ? null : activeMode === 'table' ? (
                     <Tooltip title="Show each step's elapsed time and token cost">
                         <Chip
                             label="Time / Tokens"
@@ -1022,11 +1044,14 @@ export default function PipelineDetail() {
                     were two more things between the plan's name and the reader.
                     Snap (req #3503) and the description button (req #3503) are
                     both gone too — this row's own last child now is whichever
-                    of Time/Tokens or PipelinePlanToolbar the active mode drew. */}
+                    of Time/Tokens or PipelinePlanToolbar the active mode drew,
+                    or, with the controls folded (req #3650), the title. */}
 
                 {/* ── STATUS GROUP (req #3261 P2) ─────────────────────────────
-                    CONDITIONAL ON ITS OWN CONTENTS, not rendered unconditionally
-                    like the two dividers around it: both chips below appear only
+                    CONDITIONAL ON ITS OWN CONTENTS, not on the controls fold
+                    like the dividers before it (req #3650): it separates the
+                    title from the status chips, both of which stay when the
+                    controls fold. Both chips below appear only
                     in a live ops state, so an unconditional rule here would put
                     two adjacent separators with nothing between them on the
                     ordinary row — a group boundary announcing an empty group,

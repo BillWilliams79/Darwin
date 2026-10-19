@@ -615,8 +615,11 @@ describe('PHASE_SEGMENTS config', () => {
     });
 
     it('gives every phase a distinct hex colour, none equal to unclassified gray', () => {
-        const colors = PHASE_SEGMENTS.map(p => p.color);
+        // `waiting` and `review` share attention red by directive (req #3656).
+        const colors = PHASE_SEGMENTS.filter(p => p.key !== 'waiting_secs').map(p => p.color);
         expect(new Set(colors).size).toBe(colors.length);
+        expect(PHASE_SEGMENTS.find(p => p.key === 'waiting_secs').color)
+            .toBe(PHASE_SEGMENTS.find(p => p.key === 'review_secs').color);
         expect(colors).not.toContain(PHASE_UNCLASSIFIED_COLOR);
         for (const c of colors) expect(c).toMatch(/^#[0-9A-Fa-f]{6}$/);
     });
