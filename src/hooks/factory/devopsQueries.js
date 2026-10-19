@@ -480,7 +480,8 @@ export const orchestrationClaims = createEntityQueries({
 export const pipelines = createEntityQueries({
     entity: 'pipelines',
     defaultFields:
-        'id,title,pipeline_status,execution_mode,machine_fk,' +
+        // req #3649 — `locked` rides the index read so the list can show the lock.
+        'id,title,pipeline_status,execution_mode,locked,machine_fk,' +
         'started_at,completed_at,creator_fk,create_ts,update_ts',
     fieldsInKey: true,
     defaultSort: 'id:desc',
@@ -504,7 +505,8 @@ export const pipelines = createEntityQueries({
 export const epics = createEntityQueries({
     entity: 'epics',
     defaultFields:
-        'id,pipeline_fk,title,description,epic_status,sort_order,category_fk,' +
+        // req #3649 — `locked` (a frozen epic freezes its steps).
+        'id,pipeline_fk,title,description,epic_status,locked,sort_order,category_fk,' +
         'closed,creator_fk,create_ts,update_ts',
     fieldsInKey: true,
     defaultSort: 'sort_order:asc',
@@ -520,7 +522,9 @@ export const epics = createEntityQueries({
 // sort the plan could re-order between renders on an unordered result set.
 export const pipelineSteps = createEntityQueries({
     entity: 'pipeline_steps',
-    defaultFields: 'id,epic_fk,title,run,notes,not_before,completed_at,creator_fk',
+    // req #3649 — `checkpoint` (holds downstream launches) and `locked`.
+    defaultFields:
+        'id,epic_fk,title,run,checkpoint,locked,notes,not_before,completed_at,creator_fk',
     fieldsInKey: true,
     defaultSort: 'id:asc',
 });

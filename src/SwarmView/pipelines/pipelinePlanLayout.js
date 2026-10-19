@@ -1974,27 +1974,37 @@ export const CARD_TITLE_BTN_GLYPH_STROKE = 2.5;
  * longer emitted since req #3641, draws `↗`);
  * returns an array of Konva `Line` point arrays (`[x0, y0, x1, y1, ...]`).
  */
-export function titleBtnGlyph(kind, { x, y, w, h }) {
+export function titleBtnGlyph(kind, { x, y, w, h, on }) {
     const cx = x + w / 2;
     const cy = y + h / 2;
     const a = Math.min(w, h) * CARD_TITLE_BTN_GLYPH;
-    if (kind === 'step-add') {
-        return [[cx - a, cy, cx + a, cy], [cx, cy - a, cx, cy + a]];
+    if (kind === 'checkpoint') {
+        // ⚑ — a pole with a pennant off its top. The renderer FILLS the pennant
+        // when the flag is on (a checkpoint holds its downstream) and strokes
+        // it alone when off (a launch priority). Same `cx ± a` square.
+        return [
+            [cx - a, cy - a, cx - a, cy + a],
+            [cx - a, cy - a, cx + a, cy - a * 0.4, cx - a, cy + a * 0.2, cx - a, cy - a],
+        ];
     }
-    // ↗: the shaft corner to corner, and the head as two arms off the tip
-    // along the square's own top and right edges — so neither arm leaves it.
-    const head = a * 1.1;
-    return [
-        [cx - a, cy + a, cx + a, cy - a],
-        [cx + a - head, cy - a, cx + a, cy - a, cx + a, cy - a + head],
-    ];
+    if (kind === 'lock') {
+        // A padlock: the body is the lower part of the square, the shackle an
+        // arch over it — swung open on the right when `on` is false.
+        const bodyTop = cy - a * 0.15;
+        const body = [cx - a, bodyTop, cx + a, bodyTop, cx + a, cy + a,
+            cx - a, cy + a, cx - a, bodyTop];
+        const sh = a * 0.62;
+        const shackle = on
+            ? [cx - sh, bodyTop, cx - sh, cy - a * 0.55, cx - sh * 0.55, cy - a,
+                cx + sh * 0.55, cy - a, cx + sh, cy - a * 0.55, cx + sh, bodyTop]
+            : [cx - sh, bodyTop, cx - sh, cy - a * 0.55, cx - sh * 0.55, cy - a,
+                cx + sh * 0.55, cy - a, cx + sh, cy - a * 0.55, cx + sh, cy - a * 0.6];
+        return [body, shackle];
+    }
+    return [];
 }
-// `CARD_STEP_LINK_GAP` — the "+"/↗ gap, `CARD_TITLE_BTN_GAP` widened by a
-// third (req #3607) — went with the ↗ in req #3641.
-// The link button's reserve — ZERO since req #3641 (above). It was its button,
-// flush against the ✓'s reserve, plus the gap on its LEFT that kept the "+"
-// off it: `CARD_TITLE_BTN + CARD_STEP_LINK_GAP`.
-export const CARD_STEP_LINK_W = 0;
+// (`CARD_STEP_LINK_GAP` / `CARD_STEP_LINK_W` — the ↗'s reserve — went with the
+// ↗ in req #3641 and req #3649.)
 
 // ── "FILE A REQUIREMENT INTO THIS STEP" — THE + BUTTON (req #3582) ─────────
 // On the title row's right edge since req #3641 took the ↗ that stood there;
@@ -2005,7 +2015,19 @@ export const CARD_STEP_LINK_W = 0;
 // category, the aggregator template's own rule) seats the new requirement
 // here. Reserved out of the step name's budget like the other three: its
 // button plus the gap between it and the ↗ (sizes above, req #3582).
-export const CARD_STEP_ADD_W = CARD_TITLE_BTN + CARD_TITLE_BTN_GAP;
+// (`CARD_STEP_ADD_W` — the "+"'s reserve — was deleted with the button by
+// req #3649.)
+
+// ── THE CHECKPOINT FLAG AND THE LOCK (req #3649) ─────────────────────────────
+// Two more title-line buttons, left of the run pill, each sized like the "+"
+// and the ↗ for the same reason and reserved out of the step name's budget
+// the same way: button plus the gap that keeps it off its right-hand
+// neighbour. ⚑ is the step's `checkpoint` flag (on by default: the step holds
+// everything downstream until it is done; off: a launch priority only). The
+// padlock is the step's `locked` flag, drawn CLOSED whenever the step is
+// effectively locked — by itself, its epic or its plan.
+export const CARD_CHECKPOINT_W = CARD_TITLE_BTN + CARD_TITLE_BTN_GAP;
+export const CARD_LOCK_W = CARD_TITLE_BTN + CARD_TITLE_BTN_GAP;
 
 
 // ── THE TOTAL REQUIREMENT COUNT, AS A BADGE LEFT OF THE TITLE (req #3503,
@@ -2751,8 +2773,9 @@ export function drawsLabelKind(kind, level) {
     // `run` (req #3580) and `step-add` (req #3582) are title-area controls
     // too and ride the card the same way.
     // `collapse` (req #3650) is the card's own fold, on its title line.
-    if (kind === 'step' || kind === 'req' || kind === 'badge' || kind === 'step-link'
-        || kind === 'run' || kind === 'step-add' || kind === 'collapse') {
+    if (kind === 'step' || kind === 'req' || kind === 'badge'
+        || kind === 'run' || kind === 'checkpoint' || kind === 'lock'
+        || kind === 'collapse') {
         return level !== 'out';
     }
     if (kind === 'title') return level === 'in';
@@ -3194,8 +3217,9 @@ const truncate = (s, n) => {
 // `STEP_LABEL_MAX`: one width, measured where it is drawn, so there is no cap
 // left to drift out of step with the room.
 export function stepLabelText(row, stepLabel,
-    maxChars = cardChars(CHW_LABEL, CARD_CHECK_W + CARD_STEP_LINK_W + CARD_STEP_ADD_W
-        + CARD_RUN_W + CARD_COLLAPSE_W + CARD_COLLAPSE_GAP + CARD_BADGE_W + CARD_BADGE_GAP)) {
+    maxChars = cardChars(CHW_LABEL, CARD_CHECK_W
+        + CARD_RUN_W + CARD_CHECKPOINT_W + CARD_LOCK_W
+        + CARD_COLLAPSE_W + CARD_COLLAPSE_GAP + CARD_BADGE_W + CARD_BADGE_GAP)) {
     return stepLabel === 'title'
         ? truncate(row.title || `step ${row.id}`, Math.max(4, maxChars))
         : String(row.id);
@@ -3400,6 +3424,10 @@ export function computePlanLayout(rows, opts = {}) {
         stepLabel = 'id',
         reqLabel = 'id', reqTitles = null, timeAxis = null, epicCounts = null,
         pauseInfo = null,
+        // req #3649 — `{ planLocked, lockedEpicIds }`; a band is LOCKED when
+        // the whole plan is or when its own epic is, resolved once here like
+        // `paused` below. Null = nothing locked.
+        lockInfo = null,
         // req #3587 — requirement id -> {terminal, devServer}; see
         // `reqPillPrefix`. Null leaves every row reading exactly as before.
         reqPills = null,
@@ -3480,16 +3508,16 @@ export function computePlanLayout(rows, opts = {}) {
     // so only the cards that need the room pay for it.
     //
     // ── A NAME WITH NO ROOM BESIDE THE CONTROLS GETS ITS OWN LINE (req #3648) ─
-    // The title line carries the chevron, the badge, the run pill, "+" and ↗.
-    // On the narrowest Step Width (3, a 0.75x card) that leaves under two
-    // characters for the name, and `cardChars` floors at 3 — so the name drew
-    // UNDER the run pill on every card (req #3648 code review). Below
-    // `NAME_INLINE_MIN_CHARS` of room the control row keeps the line to itself
-    // and the name starts on the next one, at the text column's full width;
-    // that extra line is counted as one of the title area's lines, so every
-    // height derived from the line count reserves it.
-    const nameInlineReserve = CARD_CHECK_W + CARD_STEP_LINK_W + CARD_STEP_ADD_W
-        + CARD_RUN_W + CARD_COLLAPSE_W + CARD_COLLAPSE_GAP + CARD_BADGE_W + CARD_BADGE_GAP;
+    // The title line carries the chevron and the badge on the left and the
+    // padlock, ⚑ and run pill on the right (req #3649). On a narrow Step Width
+    // that can leave the name under `NAME_INLINE_MIN_CHARS`, and `cardChars`
+    // floors at 3 — so the name would draw UNDER the controls (req #3648 code
+    // review). Below that the control row keeps the line to itself and the name
+    // starts on the next one, at the text column's full width; that extra line
+    // is counted as one of the title area's lines, so every height derived from
+    // the line count reserves it.
+    const nameInlineReserve = CARD_CHECK_W + CARD_RUN_W + CARD_CHECKPOINT_W + CARD_LOCK_W
+        + CARD_COLLAPSE_W + CARD_COLLAPSE_GAP + CARD_BADGE_W + CARD_BADGE_GAP;
     const nameBelow = Math.floor((cardTextW - nameInlineReserve) / CHW_LABEL)
         < NAME_INLINE_MIN_CHARS;
     const nameBudget = cardChars(CHW_LABEL, nameBelow ? 0 : nameInlineReserve, cardTextW);
@@ -3597,6 +3625,10 @@ export function computePlanLayout(rows, opts = {}) {
     const pausedEpicIdSet = new Set(pauseInfo?.pausedEpicIds || []);
     const planPaused = !!pauseInfo?.pipelinePaused;
     const bandPausedOf = (key) => planPaused || (key != null && pausedEpicIdSet.has(key));
+    const lockedEpicIdSet = new Set(lockInfo?.lockedEpicIds || []);
+    const planLocked = !!lockInfo?.planLocked;
+    const bandLockedByOf = (key) => (planLocked ? 'pipeline'
+        : (key != null && lockedEpicIdSet.has(key)) ? 'epic' : null);
 
     // req #3372 (2026-08-10) — the requirement asked for the "No epic" band
     // (the `key == null` case throughout this file) to be deleted outright,
@@ -3635,6 +3667,10 @@ export function computePlanLayout(rows, opts = {}) {
                 epicLabel: epicBandLabelText(key, epic, epicCounts),
                 epicCountText: epicBandCountText(key, epicCounts),
                 paused: bandPausedOf(key),
+                // req #3649 — `locked` is the band's EFFECTIVE lock (its epic's
+                // own, or the plan's); `lockedBy` says which.
+                locked: bandLockedByOf(key) != null,
+                lockedBy: bandLockedByOf(key),
                 // req #3650 — folded by its own collapse head: the band keeps
                 // its header (the chip that unfolds it) and draws no lanes.
                 collapsed: epicFolded(key),
@@ -4409,7 +4445,7 @@ export function computePlanLayout(rows, opts = {}) {
             // Not `w`: that is the drawn text's own width, and an editor sized
             // to a short name would have no room to type a longer one.
             editW: n.right - CARD_PAD_X - CARD_CHECK_W - titleTextLeft
-                - (nameBelow ? 0 : CARD_STEP_LINK_W + CARD_STEP_ADD_W + CARD_RUN_W),
+                - (nameBelow ? 0 : CARD_RUN_W + CARD_CHECKPOINT_W + CARD_LOCK_W),
         });
         const ids = r.reqIds || [];
         // ── THE REQUIREMENT ROWS, TOP TO BOTTOM, IN ORDER ───────────────────
@@ -4541,31 +4577,13 @@ export function computePlanLayout(rows, opts = {}) {
                 w: badgeW, h: CARD_BADGE_H,
             });
         }
-        // The ↗ "view in table" button (req #3503) is no longer emitted — req
-        // #3641 withdrew the Table; see `CARD_STEP_LINK_W`.
-        // ── "+" — FILE A REQUIREMENT INTO THIS STEP (req #3582) ───────────────
-        // Flush right (req #3641 took the ↗ beside it), right of the run pill
-        // (req #3580), in the room `CARD_STEP_ADD_W` reserved out of the step
-        // name's budget — see that constant's own comment. NOT on a step with a
-        // stamped `completed_at` (`canFileIntoStep` — design rule 1); its
-        // reserve stays empty so the title budget is one number for every card.
-        // A DERIVED-done step (all work met, no stamp) does get one: adding
-        // work to it is playbook case 7, a TOP-UP.
-        if (canFileIntoStep(r)) {
-            labels.push({
-                kind: 'step-add', stepId: r.id, text: '+',
-                prose: false,
-                x: n.right - CARD_PAD_X - CARD_CHECK_W - CARD_STEP_LINK_W
-                    - CARD_TITLE_BTN,
-                y: nameTop,
-                w: CARD_TITLE_BTN, h: CARD_TITLE_BTN,
-            });
-        }
+        // The "view in table" ↗ (req #3503) and the "+" that filed a
+        // requirement into the step (req #3582) were REMOVED by req #3649 (user
+        // directive: "I never use the plus … I never use the arrow"); the title
+        // line now carries the run pill, the ⚑ and the padlock only.
         // ── THE RUN-MODE PILL (req #3580) ────────────────────────────────────
-        // Left of the "+" (req #3582 — which sits between it and the ↗), in
-        // the room `CARD_RUN_W` reserved out of the step name's budget. The
-        // "+" reserve is subtracted whether or not a "+" draws (a stamped step
-        // has none), so the pill does not move when a step is completed.
+        // Rightmost on the title line since req #3649, in the room
+        // `CARD_RUN_W` reserved out of the step name's budget.
         // Emitted for every card: run mode is a fact about every
         // step, and the pill is also the control that changes it. The text is
         // the word drawn inside; the renderer draws it as an HTML overlay, the
@@ -4576,12 +4594,33 @@ export function computePlanLayout(rows, opts = {}) {
                 text: CARD_RUN_WORDS[r.run === 'manual' ? 'manual' : 'auto'],
                 run: r.run === 'manual' ? 'manual' : 'auto',
                 prose: false,
-                x: n.right - CARD_PAD_X - CARD_CHECK_W - CARD_STEP_LINK_W - CARD_STEP_ADD_W
-                    - CARD_RUN_W,
+                x: n.right - CARD_PAD_X - CARD_CHECK_W - CARD_RUN_W,
                 // Centred with the "+" and ↗ buttons beside it, which is why it does
                 // not follow the count badge's CARD_BADGE_TOP (req #3606).
                 y: nameTop + 1,
                 w: CARD_RUN_W, h: CARD_RUN_H,
+            });
+        }
+        // ── ⚑ AND THE PADLOCK (req #3649) ───────────────────────────────────
+        // Left of the run pill, in their own reserves (`CARD_CHECKPOINT_W`,
+        // `CARD_LOCK_W`), each button flush right in its reserve so the gap
+        // sits between it and its neighbour — the "+"'s own arrangement.
+        // Emitted for every card: both are facts about every step, and both
+        // are the controls that change them (the renderer draws them as
+        // outlined buttons like the "+" and ↗, `on` deciding the glyph).
+        {
+            const runX = n.right - CARD_PAD_X - CARD_CHECK_W - CARD_RUN_W;
+            labels.push({
+                kind: 'checkpoint', stepId: r.id, text: '⚑', prose: false,
+                on: r.checkpoint !== false,
+                x: runX - CARD_CHECKPOINT_W, y: nameTop,
+                w: CARD_TITLE_BTN, h: CARD_TITLE_BTN,
+            });
+            labels.push({
+                kind: 'lock', stepId: r.id, text: '🔒', prose: false,
+                on: !!r.effectiveLocked, lockedBy: r.lockedBy || null,
+                x: runX - CARD_CHECKPOINT_W - CARD_LOCK_W, y: nameTop,
+                w: CARD_TITLE_BTN, h: CARD_TITLE_BTN,
             });
         }
         // ── THE STEP'S OWN TITLE, ON THE L3 LINE ────────────────────────────
@@ -4638,7 +4677,8 @@ export function computePlanLayout(rows, opts = {}) {
             // floating chip against, grown onto the rect the zero-overlap
             // invariant actually sweeps (req #3225 set this precedent: the
             // count suffix grew both together, never just the chip).
-            w: bandText.length * CHW_EPIC + EPIC_PAUSE_BUBBLE_W + EPIC_CHIP_COLLAPSE_W, h: 16,
+            w: bandText.length * CHW_EPIC + EPIC_PAUSE_BUBBLE_W + EPIC_CHIP_COLLAPSE_W
+                + (band.epicId != null ? EPIC_LOCK_W : 0), h: 16,
         });
     }
     return {
@@ -4856,6 +4896,10 @@ export const EPIC_CHIP_CARDS_LINK_W = 30;
 export const EPIC_PAUSE_BUBBLE_D = 8;    // the dot's own diameter, screen px
 const EPIC_PAUSE_BUBBLE_GAP = 4;         // matches the chip's flex `gap`
 export const EPIC_PAUSE_BUBBLE_W = EPIC_PAUSE_BUBBLE_D + EPIC_PAUSE_BUBBLE_GAP;
+// req #3649 — the chip's padlock, a FLAT control like the bubble: its glyph
+// box plus the chip's flex gap, reserved on every band the same way.
+export const EPIC_LOCK_D = 12;
+export const EPIC_LOCK_W = EPIC_LOCK_D + EPIC_PAUSE_BUBBLE_GAP;
 // req #3650 — the chip's COLLAPSE HEAD, which leads it: the TPU 3D head
 // (`.tpu3d-head`) at its own 10px. FLAT, like the pause bubble — the TPU head
 // never scales — and drawn at exactly `EPIC_CHIP_COLLAPSE_HEAD_W`, so this
@@ -5054,7 +5098,8 @@ export function placeEpicChips({
         // anything is clamped or clipped against it.
         const wFull = bandText.length * charW * scale + EPIC_CHIP_PAD_W * scale
             + (band.epicId != null ? EPIC_CHIP_OPEN_LINK_W + EPIC_CHIP_CARDS_LINK_W : 0)
-            + EPIC_PAUSE_BUBBLE_W + EPIC_CHIP_COLLAPSE_W;
+            + EPIC_PAUSE_BUBBLE_W + EPIC_CHIP_COLLAPSE_W
+            + (band.epicId != null ? EPIC_LOCK_W : 0);
 
         // ── THE RULE ────────────────────────────────────────────────────────
         // First term: the intersection's own corner, plus the margin. Second:
@@ -5227,7 +5272,8 @@ export function placeEpicChips({
             // The collapse head (req #3650) leads the chip, so a cut chip
             // that keeps any of its name keeps the head that folds it.
             const minW = EPIC_CHIP_PAD_W * scale + EPIC_PAUSE_BUBBLE_W
-                + EPIC_CHIP_COLLAPSE_W + EPIC_CHIP_MIN_CHARS * charW * scale;
+                + EPIC_CHIP_COLLAPSE_W + (band.epicId != null ? EPIC_LOCK_W : 0)
+                + EPIC_CHIP_MIN_CHARS * charW * scale;
             if (room < minW) continue;
             w = room;
             clipped = true;

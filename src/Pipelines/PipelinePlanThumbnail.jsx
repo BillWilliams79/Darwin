@@ -107,6 +107,7 @@ import {
     NEXT_HALO_STROKE,
     NEXT_HALO_OPACITY,
     NEXT_HALO_DASH,
+    DEFAULT_PLAN_STEP_WIDTH,
 } from '../SwarmView/pipelines/pipelinePlanLayout';
 import { thumbnailFrame, THUMB_H } from './pipelineThumbnailFrame';
 
@@ -195,6 +196,9 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
             palette: DEFAULT_PLAN_PALETTE,
             timeAxis: adapted.timeAxis || null,
             pauseInfo: adapted.pause || null,
+            // The plan page's own card width (req #3648 — 25% wider), so the
+            // thumbnail draws the cards the reader will open, not the base card.
+            stepWidthLevel: DEFAULT_PLAN_STEP_WIDTH,
         });
         if (!layout || layout.empty || !(layout.width > 0)) return null;
 

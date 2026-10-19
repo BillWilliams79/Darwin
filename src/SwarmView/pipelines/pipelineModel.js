@@ -82,10 +82,15 @@
 //                                       whatever its dependencies say. The
 //                                       engine fills free slots from these,
 //                                       gate-open first, then down the chain
-// @property {number[]} checkpointBlockedBy  req #3597 amendment — open
-//                                       CHECKPOINT steps (no work requirement,
-//                                       closed by hand) upstream that hold this
-//                                       step; a checkpoint stays a real gate
+// @property {number[]} checkpointBlockedBy  req #3597 amendment — CHECKPOINT
+//                                       steps upstream (`checkpoint` flag, on by
+//                                       default since req #3649) not yet done,
+//                                       holding this step; a checkpoint stays a
+//                                       real gate
+// @property {boolean} checkpoint       req #3649 — this step holds its downstream
+//                                       until done (true) or is a priority only
+// @property {boolean} locked           req #3649 — the step's own lock flag
+// @property {boolean} effectiveLocked  ...or an ancestor's; `lockedBy` names it
 // @property {?string} swarmStartCommand '/swarm-start <ids>', null when nothing on
 //                                       this row is launchable
 // @property {?string} noLaunchReason    the human sentence for launchBlock
@@ -207,5 +212,7 @@ export function sumReqCost(reqIds, index) {
  * writes anything — this is the render-time half.
  */
 export function canFileIntoStep(row) {
-    return !!row && row.completedAt == null;
+    // ...nor into an effectively LOCKED step (req #3649): the gateway refuses
+    // the link, so the affordance is withheld rather than offered and refused.
+    return !!row && row.completedAt == null && !row.effectiveLocked;
 }

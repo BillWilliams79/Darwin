@@ -56,8 +56,8 @@ describe('the step card\'s collapse head (req #3650)', () => {
             expect(name.y).toBeCloseTo(head.y, 6);
             expect(badge.x).toBeGreaterThanOrEqual(head.x + head.w - 1e-6);
             expect(name.x).toBeGreaterThan(badge.x + badge.w - 1e-6);
-            // The run pill, "+" and ↗ all sit right of the name's room.
-            for (const k of ['run', 'step-add', 'step-link']) {
+            // The padlock, ⚑ and run pill (req #3649) all sit right of the name.
+            for (const k of ['run', 'checkpoint', 'lock']) {
                 const c = others.find((l) => l.kind === k);
                 if (c) expect(c.x, k).toBeGreaterThanOrEqual(name.x + name.w - 1e-6);
             }
@@ -88,7 +88,7 @@ describe('the title line overlaps nothing at any Step Width (req #3648)', () => 
                 const layout = computePlanLayout(LONG, { stepLabel, stepWidthLevel: rung });
                 for (const r of LONG) {
                     const mine = layout.labels.filter((l) => l.stepId === r.id
-                        && ['collapse', 'badge', 'step', 'run', 'step-add', 'step-link', 'title']
+                        && ['collapse', 'badge', 'step', 'run', 'checkpoint', 'lock', 'title']
                             .includes(l.kind));
                     for (let i = 0; i < mine.length; i += 1) {
                         for (let j = i + 1; j < mine.length; j += 1) {
