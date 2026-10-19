@@ -32,8 +32,9 @@ import {
     CARD_TITLE_BTN, CARD_TITLE_BTN_GAP,
     CARD_TITLE_BTN_STROKE, CARD_TITLE_BTN_GLYPH_STROKE, titleBtnGlyph,
     CARD_RUN_W, CARD_RUN_H, CARD_RUN_WORDS, CARD_RUN_FONT, CARD_FONT,
-    STEP_WIDTH_SCALES, cardGeometryFor,
+    STEP_WIDTH_RUNGS, stepWidthScale, cardGeometryFor,
     STEPS_ACROSS_OPTIONS, STEPS_ACROSS_LOOSE_FILL, stepsAcrossScale,
+    activeStepIds, stepsAcrossTransform,
     zoomAboutViewportCentre, zoomAboutPoint, snapZoomScale, columnsAcross,
     SNAP_COLUMNS_STEP,
     CARD_TEXT_CHARS, CARD_SEP_CHARS, CARD_CHECK_W,
@@ -69,14 +70,14 @@ import {
     FOCUS_LABEL_H, epicFocusNeighbours,
     stepFitRect, stepFocusTransform, stepsFitRect, stepsFocusTransform,
     STEP_FOCUS_STEPS_ACROSS, placedStepCount, centreTransform,
-    RULER_H, computeRuler, slotTickText, factoryDefaultScale,
-    stickyRulerY, rulerScreenBottom, rulerScreenMag,
+    RULER_H, computeRuler, slotTickText, factoryDefaultScale, factoryDefaultView,
+    stickyRulerY, rulerScreenBottom, rulerScreenMag, rulerExcessY,
     EPIC_PALETTE,
     PAUSE_ACTIVE_COLOR, PAUSE_PAUSED_COLOR, pauseBubbleColor, EPIC_PAUSE_BUBBLE_W,
     // req #3649 — the epic chip's padlock and the step card's two new buttons.
     EPIC_LOCK_W, CARD_CHECKPOINT_W, CARD_LOCK_W,
     // req #3650 — the collapse heads.
-    EPIC_CHIP_COLLAPSE_W, CARD_HEAD_BAND, CARD_HEAD_H, CARD_HEAD_W,
+    EPIC_CHIP_COLLAPSE_W, CARD_COLLAPSE_W, CARD_COLLAPSE_GAP,
     COLOR_CHANNELS, KEY_GROUP_TITLES,
     reqSortRank, sortReqIdsByColorKey,
 } from '../pipelinePlanLayout';
@@ -900,8 +901,9 @@ describe('the card is a fixed, uniform box (req #3498)', () => {
         // The one thing that keeps a LEVEL change a pure transform: the room for
         // the L3 line is spent at every level, so nothing moves when it appears.
         expect(cardTitleH('id') - cardTitleH('title')).toBeCloseTo(CARD_SUBTITLE_H, 6);
-        // + the collapse head's row (req #3650), the card's first line.
-        expect(cardTitleH('title')).toBeCloseTo(CARD_PAD_Y + CARD_HEAD_BAND + CARD_LINE_H, 6);
+        // The collapse head rides the title line since req #3648 — no row of
+        // its own.
+        expect(cardTitleH('title')).toBeCloseTo(CARD_PAD_Y + CARD_LINE_H, 6);
     });
 
     it('the box is the same at every level — a level change never relayouts', () => {
@@ -1203,7 +1205,7 @@ describe('the card is a fixed, uniform box (req #3498)', () => {
         // one: the options are ignored, so nothing silently renders a geometry
         // that no control can produce. `stepWidth` (a STRING — 'wide'/'medium',
         // the S/M/L content multiplier) is a different key from req #3503's
-        // `stepWidthLevel` (a NUMBER, 1-4) below, so this claim is unaffected
+        // `stepWidthLevel` (a NUMBER, a rung 6|5|4|3) below, so this claim is unaffected
         // by that requirement reusing the axis under a different name.
         const plainLayout = computePlanLayout(plan.rows, { stepLabel: 'title' });
         for (const stale of [{ stepWidth: 'wide' }, { reqLayout: 'horizontal' },
@@ -1229,17 +1231,19 @@ describe('Step Width — the card scales, four rungs (req #3503)', () => {
         expect(g.cardTextW).toBe(CARD_TEXT_W);
     });
 
-    it('STEP_WIDTH_SCALES is the linear ladder the toolbar promises: 1, 1.25, 1.5, 1.75', () => {
-        expect(STEP_WIDTH_SCALES).toEqual([1, 1.25, 1.5, 1.75]);
+    it('the rungs are quarters of the base card, drawn 6 5 4 3 (req #3648)', () => {
+        expect(STEP_WIDTH_RUNGS).toEqual([6, 5, 4, 3]);
+        expect(STEP_WIDTH_RUNGS.map(stepWidthScale)).toEqual([1.5, 1.25, 1, 0.75]);
     });
 
     it('a wider rung grows ONLY the text room — padding, state bar and gap stay fixed', () => {
         const base = cardGeometryFor(1);
-        for (let level = 2; level <= STEP_WIDTH_SCALES.length; level += 1) {
-            const wide = cardGeometryFor(STEP_WIDTH_SCALES[level - 1]);
+        for (const level of STEP_WIDTH_RUNGS.filter((r) => r !== 4)) {
+            const wide = cardGeometryFor(stepWidthScale(level));
             const where = `level ${level}`;
-            expect(wide.cardW, where).toBeGreaterThan(base.cardW);
-            expect(wide.cardTextW, where).toBeGreaterThan(base.cardTextW);
+            const cmp = level > 4 ? 'toBeGreaterThan' : 'toBeLessThan';
+            expect(wide.cardW, where)[cmp](base.cardW);
+            expect(wide.cardTextW, where)[cmp](base.cardTextW);
             // The chrome — total width minus text room — is IDENTICAL at
             // every rung: `2*CARD_PAD_X + CARD_STATE_BAR_W + CARD_BAR_GAP`.
             const baseChrome = base.cardW - base.cardTextW;
@@ -1250,10 +1254,10 @@ describe('Step Width — the card scales, four rungs (req #3503)', () => {
 
     it('computePlanLayout at a wider rung produces wider, self-consistent cards', () => {
         const base = computePlanLayout(plan.rows, { stepLabel: 'title' });
-        for (let level = 1; level <= STEP_WIDTH_SCALES.length; level += 1) {
+        for (const level of STEP_WIDTH_RUNGS) {
             const layout = computePlanLayout(plan.rows,
                 { stepLabel: 'title', stepWidthLevel: level });
-            const g = cardGeometryFor(STEP_WIDTH_SCALES[level - 1]);
+            const g = cardGeometryFor(stepWidthScale(level));
             const where = `level ${level}`;
             // Every column is STILL exactly one (now possibly wider) card
             // plus the fixed gutter — the req #3498 invariant, at whichever
@@ -1267,10 +1271,12 @@ describe('Step Width — the card scales, four rungs (req #3503)', () => {
                 expect(n.frameW, where).toBe(g.cardFrameW);
                 expect(n.right - n.left, where).toBeCloseTo(g.cardW, 6);
             }
-            if (level === 1) {
+            if (level === 4) {
                 expect(layout.colW).toEqual(base.colW);
-            } else {
+            } else if (level > 4) {
                 expect(layout.colW[0]).toBeGreaterThan(base.colW[0]);
+            } else {
+                expect(layout.colW[0]).toBeLessThan(base.colW[0]);
             }
             // `colPitch` (req #3503 review) is the SAME number as `colW`'s own
             // entries, exported as a scalar because a caller wanting "the"
@@ -1289,7 +1295,7 @@ describe('Step Width — the card scales, four rungs (req #3503)', () => {
         // dedicated test outlives the fix (the same lesson the step-link
         // regression test above already states).
         const size = { w: 1730, h: 900 };
-        for (let level = 1; level <= STEP_WIDTH_SCALES.length; level += 1) {
+        for (const level of STEP_WIDTH_RUNGS) {
             const layout = computePlanLayout(plan.rows,
                 { stepLabel: 'title', stepWidthLevel: level });
             const where = `level ${level}`;
@@ -1302,10 +1308,10 @@ describe('Step Width — the card scales, four rungs (req #3503)', () => {
             // at every rung but 1 — proving the fix actually changed the
             // number rather than happening to agree with it.
             const kFrozen = stepsAcrossScale(5, size.w, CARD_W + CARD_GAP_X);
-            if (level === 1) {
+            if (level === 4) {
                 expect(k, where).toBeCloseTo(kFrozen, 9);
             } else {
-                expect(k, where).toBeLessThan(kFrozen);
+                expect(k, where).not.toBeCloseTo(kFrozen, 6);
             }
 
             // The single-step focus: `stepFocusTransform` must resolve to
@@ -1328,7 +1334,7 @@ describe('Step Width — the card scales, four rungs (req #3503)', () => {
         // true right edge at any level but 1 — invisible at the default rung,
         // which is exactly why a dedicated test outlives the fix. The ↗ is
         // gone since req #3641, so the "+" is the button on that edge now.
-        for (let level = 1; level <= STEP_WIDTH_SCALES.length; level += 1) {
+        for (const level of STEP_WIDTH_RUNGS) {
             const layout = computePlanLayout(plan.rows,
                 { stepLabel: 'title', stepWidthLevel: level });
             for (const row of plan.rows) {
@@ -1345,7 +1351,7 @@ describe('Step Width — the card scales, four rungs (req #3503)', () => {
 
     it('an out-of-range level falls back to the default rung, not a crash', () => {
         const fallback = computePlanLayout(plan.rows, { stepLabel: 'title' });
-        for (const bad of [0, 5, -1, NaN, undefined]) {
+        for (const bad of [0, 1, 2, 7, -1, NaN, undefined]) {
             const layout = computePlanLayout(plan.rows,
                 { stepLabel: 'title', stepWidthLevel: bad });
             expect(layout.colW, `level ${bad}`).toEqual(fallback.colW);
@@ -5665,14 +5671,17 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
             // reserve (`badgeWidthFor`, req #3503 review), and the slack
             // that frees opens on the badge's OWN left, never moving the
             // title. The right edge is what stays constant across cards.
-            const columnTextLeft = n.left + CARD_FRAME_X + CARD_PAD_X;
+            // The collapse chevron leads the line since req #3648, so the
+            // reserve starts after it.
+            const columnTextLeft = n.left + CARD_FRAME_X + CARD_PAD_X
+                + CARD_COLLAPSE_W + CARD_COLLAPSE_GAP;
             expect(badge.x + badge.w).toBeCloseTo(columnTextLeft + CARD_BADGE_W, 6);
             expect(badge.x).toBeGreaterThanOrEqual(columnTextLeft - 1e-6);
             // req #3606 — the pill sits `CARD_BADGE_TOP` off the title row's top (the
             // name's ink rides above the line box's centre), so it may overhang
             // the row by that much into the card's top padding, never below it.
-            // (The title row starts under the collapse head's row, req #3650.)
-            expect(badge.y).toBe(n.top + CARD_PAD_Y + CARD_HEAD_BAND + CARD_BADGE_TOP);
+            // (One title row since req #3648 — the head no longer has its own.)
+            expect(badge.y).toBe(n.top + CARD_PAD_Y + CARD_BADGE_TOP);
             expect(badge.y).toBeGreaterThanOrEqual(n.top);
             expect(badge.y + badge.h).toBeLessThanOrEqual(n.top + cardTitleH('title'));
         }
@@ -5801,8 +5810,8 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
                 const [step] = layout.labels.filter(
                     (l) => l.kind === 'step' && l.stepId === row.id);
                 const where = `step ${row.id} (${stepLabel})`;
-                expect(step.x - columnTextLeft, where)
-                    .toBeCloseTo(CARD_BADGE_W + CARD_BADGE_GAP, 6);
+                expect(step.x - columnTextLeft, where).toBeCloseTo(CARD_COLLAPSE_W
+                    + CARD_COLLAPSE_GAP + CARD_BADGE_W + CARD_BADGE_GAP, 6);
                 for (const req of layout.labels.filter(
                     (l) => l.kind === 'req' && l.stepId === row.id)) {
                     expect(req.x, where).toBeCloseTo(columnTextLeft, 6);
@@ -5909,14 +5918,86 @@ describe('the requirement-view control (req #3168 directive E, req #3498)', () =
 describe('steps-across zoom (req #3498, user directive 2026-08-13)', () => {
     const COL = CARD_W + CARD_GAP_X;
 
-    it('offers 10 through 2 on evens, widest first', () => {
-        expect(STEPS_ACROSS_OPTIONS).toEqual([10, 8, 6, 4, 2]);
+    it('offers 6 5 4 3, widest first (req #3648)', () => {
+        expect(STEPS_ACROSS_OPTIONS).toEqual([6, 5, 4, 3]);
+    });
+
+    // req #3648 — the buttons centre on the ACTIVE steps, not the viewport.
+    describe('centred on the active steps (req #3648)', () => {
+        const mkRow = (id, state, depIds = []) => ({
+            id, title: `step ${id}`, run: 'auto', state, reqIds: [1],
+            depIds, timeDeps: [], epicId: 5, epic: 'e', epicLabels: [],
+            featureLabels: [], machineLabels: [], machineLabel: '—',
+        });
+        const rows = [mkRow(1, 'done'), mkRow(2, 'done', [1]), mkRow(3, 'done', [2]),
+            mkRow(4, 'running', [3]), mkRow(5, 'running', [4]), mkRow(6, 'pending', [5])];
+        const layout = computePlanLayout(rows, {});
+        const size = { w: 1600, h: 900 };
+        const kBase = size.w / layout.width;
+
+        it('the running steps first, then the unfinished, then all', () => {
+            expect(activeStepIds(rows, layout)).toEqual([4, 5]);
+            const noneRunning = rows.map((r) => (r.state === 'running' ? { ...r, state: 'done' } : r));
+            expect(activeStepIds(noneRunning, layout)).toEqual([6]);
+            const allDone = rows.map((r) => ({ ...r, state: 'done' }));
+            expect(activeStepIds(allDone, layout)).toEqual([1, 2, 3, 4, 5, 6]);
+        });
+
+        it('shows n WHOLE columns, as near centred on the active steps as columns allow', () => {
+            for (const n of STEPS_ACROSS_OPTIONS) {
+                const tr = stepsAcrossTransform(layout, rows, n, size, kBase, kBase * 0.05);
+                expect(tr, `${n}`).toBeTruthy();
+                expect(n * layout.colPitch * tr.k, `${n} across`).toBeCloseTo(size.w, 6);
+                // The viewport's left edge is a column boundary: no half card.
+                const worldLeft = (0 - tr.x) / tr.k;
+                const first = layout.colX.findIndex(
+                    (cx, i) => Math.abs(cx - layout.colW[i] / 2 - worldLeft) < 1e-6);
+                expect(first, `${n}: left edge on a column boundary`).toBeGreaterThanOrEqual(0);
+                // Both active steps are inside the window.
+                for (const id of [4, 5]) {
+                    const node = layout.nodes.get(id);
+                    expect(node.left * tr.k + tr.x, `${n} step ${id}`).toBeGreaterThanOrEqual(-1e-6);
+                    expect(node.right * tr.k + tr.x, `${n} step ${id}`)
+                        .toBeLessThanOrEqual(size.w + 1e-6);
+                }
+            }
+        });
+
+        it('an active set wider than n starts at its FIRST column, not its middle', () => {
+            const wide = rows.map((r) => ({ ...r, state: r.id >= 2 ? 'pending' : 'done' }));
+            // Pending 2..6 is five columns; three across shows 2, 3 and 4.
+            const tr = stepsAcrossTransform(layout, wide, 3, size, kBase, kBase * 0.05);
+            const worldLeft = (0 - tr.x) / tr.k;
+            const n2 = layout.nodes.get(2);
+            const col = n2.depth;
+            expect(worldLeft).toBeCloseTo(layout.colX[col] - layout.colW[col] / 2, 6);
+        });
+
+        it('returns null with nothing placed, so the caller falls back', () => {
+            const empty = computePlanLayout([], {});
+            expect(stepsAcrossTransform(empty, [], 4, size, kBase, kBase * 0.05)).toBeNull();
+        });
+
+        it('centres the active steps vertically', () => {
+            const tr = stepsAcrossTransform(layout, rows, 4, size, kBase, kBase * 0.05);
+            const a = layout.nodes.get(4);
+            const b = layout.nodes.get(5);
+            const cy = ((Math.min(a.top, b.top) + Math.max(a.bottom, b.bottom)) / 2) * tr.k + tr.y;
+            expect(cy).toBeCloseTo(size.h / 2, 6);
+        });
+
+        it('four across around an even pair puts it in the middle two columns', () => {
+            const tr = stepsAcrossTransform(layout, rows, 4, size, kBase, kBase * 0.05);
+            const a = layout.nodes.get(4);
+            const b = layout.nodes.get(5);
+            expect(((a.left + b.right) / 2) * tr.k + tr.x).toBeCloseTo(size.w / 2, 6);
+        });
     });
 
     it('fits exactly that many COLUMNS across, gutters included', () => {
         // A step is a COLUMN, not a card: fitting `n` cards and forgetting the
         // gutters lands every option one card too wide.
-        for (const n of [10, 8, 6, 4]) {
+        for (const n of [10, 8, 6, 5, 4, 3]) {
             const k = stepsAcrossScale(n, 1730);
             expect(n * COL * k, `${n} across`).toBeCloseTo(1730, 6);
         }
@@ -6938,33 +7019,30 @@ describe('epic focus reserves room for the neighbours\' names (req #3274)', () =
         expect(chip.h + 2 * marginY).toBeLessThanOrEqual(FOCUS_LABEL_H + 1e-6);
     });
 
-    it('below k ≈ 0.818 the top band goes BEHIND the strip and its name clamps '
-        + 'to the strip instead — still fully visible (req #3365)', () => {
-        // The regime the test above deliberately steps out of, pinned here so
-        // it is a KNOWN outcome rather than an untested corner. req #3274's
-        // guarantee is that the neighbour's name is visible and unobstructed;
-        // it never promised the name sits inside its own band's top corner at
-        // every zoom, and with a screen-sized ruler it cannot.
+    it('below k ≈ 0.818 the strip hangs from its bottom edge, so a camera with '
+        + 'room above the top band keeps that band OUT from behind it (req #3648)', () => {
+        // Before req #3648 the strip hung from the world origin at a constant
+        // screen height, so below k = RULER_H / 44 its excess covered the top
+        // band's header and the band's name was clamped onto that band's cards.
+        // The strip now ends where its world reservation ends whenever the
+        // camera leaves room for it (t.y ≥ its excess), so the band is clear.
         const lay = synth([130, 1276, 400], 12);
         const mid = lay.bands[1];
         const size = { w: 1400, h: 800 };
         const kBase = size.w / lay.width;
         const tr = epicFocusTransform(lay, mid, size, kBase, kBase * FOCUS_MIN_RATIO);
-        // 44 = the layout's own reservation above the first band, `8 + ruler.h`
-        // (module-private; the bands' `y` is what publishes it — `lay.bands[0].y`
-        // IS that number, so this reads it rather than restating it).
+        // 44 = the layout's own reservation above the first band, `8 + ruler.h`.
         expect(tr.k).toBeLessThan(RULER_H / lay.bands[0].y);
+        expect(tr.y).toBeGreaterThanOrEqual(rulerExcessY(tr.k));
         const above = lay.bands[0];
         const aboveTop = tr.y + above.y * tr.k;
         const inset = rulerScreenBottom(tr);
-        // The band's top really is behind the strip — the premise.
-        expect(aboveTop).toBeLessThan(inset);
+        expect(aboveTop).toBeGreaterThanOrEqual(inset - 1e-9);
         const chip = chipOf(chipsAt(lay, tr, size), 'Epic 1');
         expect(chip).toBeTruthy();
-        // …and the name is nonetheless whole, below the strip, inside the panel.
-        // `chipsAt` passes `rulerScreenBottom(tr)` as `topInset` itself — the
-        // same number the component passes — so this is the real clamp.
+        // The name is whole, below the strip, inside its own band, in the panel.
         expect(chip.y).toBeGreaterThanOrEqual(inset);
+        expect(chip.y).toBeGreaterThanOrEqual(aboveTop);
         expect(chip.y + chip.h).toBeLessThanOrEqual(size.h);
     });
 
@@ -7643,6 +7721,27 @@ describe('the base view = factory default scale (req #3216 D1, req #3312)', () =
         const layout = { height: 400_000 };
         const oddFloor = kFit * 1.5;
         expect(factoryDefaultScale(layout, size, kFit, oddFloor)).toBe(oddFloor);
+    });
+
+    // req #3648 — the base view pulls the plan down by the ruler's excess, so on
+    // Reset/landing the top band's header (and its epic name) is never behind
+    // the pinned strip, and the whole vertical extent still fits.
+    it('the base view clears the ruler above the top band and still fits the plan', () => {
+        const size = { w: 1000, h: 900 };
+        const layout = { height: 4000 };
+        const v = factoryDefaultView(layout, size, kFit, kFloor);
+        expect(v.k).toBeLessThan(1);
+        expect(v.x).toBe(0);
+        expect(v.y).toBeCloseTo(rulerExcessY(v.k), 9);
+        // The top band starts at world 44; on screen it is below the strip.
+        expect(v.y + 44 * v.k).toBeGreaterThanOrEqual(rulerScreenBottom(v) - 1e-9);
+        // The whole vertical extent is visible.
+        expect(v.y + layout.height * v.k).toBeLessThanOrEqual(size.h + 1e-9);
+    });
+
+    it('the base view is the plain scale, unshifted, at k ≥ 1', () => {
+        const v = factoryDefaultView({ height: 300 }, { w: 1000, h: 900 }, 1.5, 0.1);
+        expect(v).toEqual({ x: 0, y: 0, k: 1.5 });
     });
 
     it('falls back to kFit when the viewport or the plan has not measured yet', () => {
@@ -8472,6 +8571,13 @@ describe('sticky ruler pin (req #3254)', () => {
         expect(stickyRulerY({ x: 0, y: -1, k: 1 })).toBe(0);
         expect(stickyRulerY({ x: 0, y: -600, k: 1 })).toBe(0);
         expect(stickyRulerY({ x: 0, y: -3000, k: 3 })).toBe(0);
+        // req #3648 — below k = 1 the strip hangs from its BOTTOM edge: it is
+        // raised by its screen excess, RULER_H·(1 − k), and still pins at 0.
+        expect(stickyRulerY({ x: 0, y: 100, k: 0.25 })).toBeCloseTo(100 - RULER_H * 0.75, 9);
+        expect(stickyRulerY({ x: 0, y: 10, k: 0.25 })).toBe(0);
+        expect(rulerExcessY(1)).toBe(0);
+        expect(rulerExcessY(2)).toBe(0);
+        expect(rulerExcessY(0.5)).toBeCloseTo(RULER_H / 2, 9);
     });
 
     it('degrades safely on a missing or malformed transform', () => {

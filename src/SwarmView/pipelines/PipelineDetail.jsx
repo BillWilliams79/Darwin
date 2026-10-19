@@ -96,7 +96,7 @@ import { writePipelinePlace } from './pipelinePlace';
 // as `SwarmView.jsx` renders `<VisualizerToolbar />` for its canvas mode (S4).
 // `SemanticLevelControl` and `PLAN_LEVEL_NUMBER` went with them; this page no
 // longer knows what a semantic level is.
-import PipelinePlanToolbar from './PipelinePlanToolbar';
+import PipelinePlanToolbar, { SHOW_STEP_WIDTH } from './PipelinePlanToolbar';
 // Trimmed to what this file actually renders (req #3241). `DEFAULT_REQ_VIEW`,
 // `REQ_VIEWS`, `normalizeReqView`, `reqViewOptions` and `machineTitle` outlived
 // the `Reqs:`/`Step:` controls and the status/machine chips that the 2026-08-01
@@ -105,7 +105,7 @@ import PipelinePlanToolbar from './PipelinePlanToolbar';
 // was filed from.
 import {
     normalizeColorKey, normalizePlanLevelPref,
-    STEP_WIDTH_SCALES, DEFAULT_STEP_WIDTH_LEVEL,
+    isStepWidthRung, DEFAULT_PLAN_STEP_WIDTH,
 } from './pipelinePlanLayout';
 import { usePlanViewSetting } from './planViewSettings';
 import {
@@ -219,8 +219,12 @@ export default function PipelineDetail() {
     // `Number.isFinite` on the LOOKED-UP SCALE, not a truthiness test on it
     // (review finding): correct today only because no rung is `0` or another
     // falsy-but-valid number — this says what is actually meant regardless.
-    const stepWidthLevel = Number.isFinite(STEP_WIDTH_SCALES[Number(stepWidthLevelPref) - 1])
-        ? Number(stepWidthLevelPref) : DEFAULT_STEP_WIDTH_LEVEL;
+    // req #3648 — the rung is the card's width in QUARTERS of the base card
+    // (6 5 4 3); the plan opens at 5, "25% wider" (user directive).
+    // While the rungs are hidden (`SHOW_STEP_WIDTH`) the plan is drawn at the
+    // fixed default, so a stored rung nobody can see cannot decide the width.
+    const stepWidthLevel = SHOW_STEP_WIDTH && isStepWidthRung(Number(stepWidthLevelPref))
+        ? Number(stepWidthLevelPref) : DEFAULT_PLAN_STEP_WIDTH;
     // Req #3168 — the semantic-level selector, the Build Visualizer's control
     // (user directive: "show me the L1, L2, L3 and Auto selector used
     // elsewhere"). `auto` keeps the zoom-derived level; 1|2|3 pin one. Persisted
@@ -706,15 +710,18 @@ export default function PipelineDetail() {
     // counts are a `<span>`, so `text-overflow: ellipsis` still clips one line
     // box. A second BLOCK is what would break it — do not turn this into a
     // Stack or a second Typography.
+    //
+    // NUMBERS ONLY, "EE  -  MM/TT" (req #3648 user directive: "2  -  70/71",
+    // two spaces either side of the dash to separate the numbers visually). The
+    // spaces are NO-BREAK spaces: the title is `noWrap`, i.e. `white-space:
+    // nowrap`, which collapses a run of ordinary spaces to one.
     const countsText = planReqCounts
-        ? `${planEpicCount} Epic${planEpicCount === 1 ? '' : 's'}, `
-            + `${planReqCounts.met}/${planReqCounts.total} `
-            + `Requirement${planReqCounts.total === 1 ? '' : 's'}`
+        ? `${planEpicCount}\u00a0\u00a0-\u00a0\u00a0`
+            + `${planReqCounts.met}/${planReqCounts.total}`
         : '';
-    // The tooltip's value, and the accessible text, stay the WHOLE line — it is
-    // the recovery path for a clip, so it has to carry everything that was on
-    // the row whether or not the two halves are styled alike.
-    const titleText = countsText ? `${pipeline.title} ${countsText}` : pipeline.title;
+    // NO TOOLTIP ON THE TITLE (req #3648 user directive, "drop the tooltip for
+    // the title"). It used to carry the whole line as the recovery path for a
+    // clip; the title's own text is now its accessible name.
 
     // `minWidth: 0` is load-bearing, not tidiness (req #3119 polish pass). This
     // Box is an item of the `.app-layout` CSS grid, whose items default to
@@ -825,7 +832,7 @@ export default function PipelineDetail() {
                 every pixel of slack while there is slack, and zero once there is
                 not. So a desktop sees no scrollbar at all, a narrow viewport
                 spends the title first exactly as before, and only then does the
-                band scroll — with the plan's name still on its tooltip. What no
+                band scroll (the title's tooltip was dropped by req #3648). What no
                 longer happens is the page itself moving. It matters more since
                 req #3242 removed the breadcrumb: this row IS the plan's
                 identity now, so the page dragging sideways would drag the name
@@ -868,63 +875,59 @@ export default function PipelineDetail() {
                     ellipsizes — at zero width there is no text to ellipsize and
                     no target to hover, so that path is gone too and the page
                     silently stops saying which plan it is drawing.
-                    `TITLE_MIN_W` keeps a hoverable stub on the row at every
+                    `TITLE_MIN_W` keeps a stub of the name on the row at every
                     width; the controls scroll in the band S13 built for exactly
                     this, which is the trade S13 already chose over page
                     overflow. It does not weaken S11 — the title is still the
-                    spacer and still takes every pixel of slack first. */}
-                <Tooltip title={titleText}>
-                    <Typography variant={isMobile ? 'h6' : 'h5'} noWrap
-                                sx={{ flex: 1, minWidth: TITLE_MIN_W }}
-                                data-testid="pipeline-title">
-                        {pipeline.title}
-                        {/* A REAL SPACE, not just the margin below (measured —
-                            the first cut had only the margin and the row's
-                            `textContent` read "…Agent Harness4 Epics, 73/115…").
-                            The margin is what the eye sees; this is what a
-                            COPY-PASTE carries, and the two must not disagree.
-                            NOT an accessibility fix: MUI's Tooltip defaults to
-                            `describeChild={false}`, so it puts `titleText` on
-                            the child as an `aria-label`, and an aria-label
-                            OVERRIDES descendant text as the accessible name —
-                            a reader is announced the tooltip's string either
-                            way. Claiming otherwise here would be citing a
-                            benefit this line does not deliver. */}
-                        {countsText && ' '}
-                        {countsText && (
-                            <Box component="span"
-                                 data-testid="pipeline-title-counts"
-                                 sx={{
-                                     // `em`, so the counts stay in proportion
-                                     // through the `h6`/`h5` breakpoint swap
-                                     // instead of needing a second media query.
-                                     fontSize: '0.62em',
-                                     fontWeight: 400,
-                                     color: 'text.secondary',
-                                     // The gap is a margin rather than a space
-                                     // in the string so it does not collapse
-                                     // against the ellipsis when the line clips.
-                                     ml: 1,
-                                     // NO `whiteSpace` HERE, deliberately. The
-                                     // first cut set `nowrap` to stop a count
-                                     // breaking across the clip ("73/1…"), and
-                                     // that was two mistakes at once: the
-                                     // parent's `noWrap` already inherits down,
-                                     // so it was a no-op, and no `white-space`
-                                     // value could have done it anyway —
-                                     // `text-overflow: ellipsis` clips at the
-                                     // box edge without regard to word or token
-                                     // boundaries. What actually protects the
-                                     // numbers is ORDER: the counts come last,
-                                     // so the name is spent first and the clip
-                                     // reaches them only once the name is
-                                     // already gone.
-                                 }}>
-                                {countsText}
-                            </Box>
-                        )}
-                    </Typography>
-                </Tooltip>
+                    spacer and still takes every pixel of slack first.
+                    The title's tooltip was dropped by req #3648 (user
+                    directive), so a clipped name is read from the plan list. */}
+                <Typography variant={isMobile ? 'h6' : 'h5'} noWrap
+                            sx={{ flex: 1, minWidth: TITLE_MIN_W }}
+                            data-testid="pipeline-title">
+                    {pipeline.title}
+                    {/* A REAL SPACE, not just the margin below (measured —
+                        the first cut had only the margin and the row's
+                        `textContent` read "…Agent Harness4 Epics, 73/115…").
+                        The margin is what the eye sees; this is what a
+                        COPY-PASTE carries, and the two must not disagree.
+                        With the tooltip gone (req #3648) the text content
+                        is also the accessible name, so the space reaches a
+                        screen reader too. */}
+                    {countsText && ' '}
+                    {countsText && (
+                        <Box component="span"
+                             data-testid="pipeline-title-counts"
+                             sx={{
+                                 // `em`, so the counts stay in proportion
+                                 // through the `h6`/`h5` breakpoint swap
+                                 // instead of needing a second media query.
+                                 fontSize: '0.62em',
+                                 fontWeight: 400,
+                                 color: 'text.secondary',
+                                 // The gap is a margin rather than a space
+                                 // in the string so it does not collapse
+                                 // against the ellipsis when the line clips.
+                                 ml: 1,
+                                 // NO `whiteSpace` HERE, deliberately. The
+                                 // first cut set `nowrap` to stop a count
+                                 // breaking across the clip ("73/1…"), and
+                                 // that was two mistakes at once: the
+                                 // parent's `noWrap` already inherits down,
+                                 // so it was a no-op, and no `white-space`
+                                 // value could have done it anyway —
+                                 // `text-overflow: ellipsis` clips at the
+                                 // box edge without regard to word or token
+                                 // boundaries. What actually protects the
+                                 // numbers is ORDER: the counts come last,
+                                 // so the name is spent first and the clip
+                                 // reaches them only once the name is
+                                 // already gone.
+                             }}>
+                            {countsText}
+                        </Box>
+                    )}
+                </Typography>
 
                 {/* ── GROUP SEPARATOR (req #3261 P2, S5) ──────────────────────
                     The single most legible thing the Build Visualizer does, and

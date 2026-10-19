@@ -1,5 +1,6 @@
-// UnorchestratedReqBox.jsx — the Plan visualizer's "Orchestration Ready" box
-// (req #3583; titled and outlined in purple by req #3605).
+// UnorchestratedReqBox.jsx — the Plan visualizer's "Orchestrables" box
+// (req #3583; titled and outlined in purple by req #3605; retitled from
+// "Orchestration Ready" by req #3648).
 //
 // A floating panel in the canvas's top-right corner listing every requirement
 // that is ready to run but sits on no plan step. Each row is the SOURCE of a
@@ -89,10 +90,22 @@
 // lightened shade so a very dark color still has an edge — the box is always
 // dark, so it is the card's dark-mode rule. A row with no color keeps the slot,
 // transparent, so the ids stay in one column.
+//
+// ── FOLDED, IT IS A NARROW "OR" BAR (req #3648, user directive) ───────────
+// The count leads the title bar as a badge, then the name, then the −/+.
+// Folding the box swaps the name for "OR" and narrows the box to exactly that
+// bar — badge, "OR", toggle, nothing else changed — and both the width and the
+// list's height animate, so it shrinks in and out smoothly. The width only
+// transitions for the length of a fold: the zoom resizes the box on every
+// wheel frame, and a transition there would make it trail the plan. A carry
+// (req #3614) still folds the list instantly — that fold is so the step
+// beneath can be read NOW. Reduced motion turns both animations off.
 
 import { useEffect, useRef, useState } from 'react';
 
 import Box from '@mui/material/Box';
+import Collapse from '@mui/material/Collapse';
+import useMediaQuery from '@mui/material/useMediaQuery';
 import { lighten } from '@mui/material/styles';
 
 import { CARD_FRAME_W, PLAN_VIZ_PALETTE as P } from './pipelinePlanLayout';
@@ -119,6 +132,16 @@ const STRETCH_HEIGHT_SLOP = 12;
 /** Bounds on a remembered stretch, so a hand-edited value cannot draw nonsense. */
 const MAX_STRETCH_WS = 20;
 const MAX_STRETCH_H_EM = 400;
+/** How long a fold or unfold animates, ms. */
+export const FOLD_MS = 220;
+/** The folded bar's fixed parts, in em: the title bar's side padding (2 × 0.8),
+ *  its two gaps (2 × 0.6), the toggle (1.6em of its own 1.25em type = 2.0) and
+ *  a little slack. The badge and "OR" itself are added in `ch`. */
+const FOLDED_FIXED_EM = 1.6 + 1.2 + 2.0 + 0.6;
+/** The count badge's side padding (2 × 0.45) and its floor, in em. */
+const BADGE_PAD_EM = 0.9;
+const BADGE_MIN_EM = 1.8;
+
 /** A double-click this soon after a move ended is the move's own release
  *  pairing with a click, not a request to send the box home. */
 const DBLCLICK_AFTER_MOVE_MS = 500;
@@ -173,6 +196,20 @@ export default function UnorchestratedReqBox({
     // REMEMBERED across every transition (req #3651) — it was local state, so a
     // reader who folded it found it open again after any Back or mode switch.
     const [open, setOpen] = usePlanViewSetting('unseatedOpen');
+    // True for the length of a fold/unfold, so the width transitions then and
+    // only then (see the header).
+    const [folding, setFolding] = useState(false);
+    const foldTimerRef = useRef(null);
+    useEffect(() => () => clearTimeout(foldTimerRef.current), []);
+    const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
+    const foldMs = reduceMotion ? 0 : FOLD_MS;
+    const toggleOpen = () => {
+        setOpen((v) => !v);
+        if (!foldMs) return;
+        setFolding(true);
+        clearTimeout(foldTimerRef.current);
+        foldTimerRef.current = setTimeout(() => setFolding(false), foldMs + 50);
+    };
     const listRef = useRef(null);
     const boxRef = useRef(null);
     // `null` = home (top-right); else panel-relative px of the top-left corner.
@@ -358,7 +395,14 @@ export default function UnorchestratedReqBox({
     const clampTop = (y) => `clamp(0px, ${y}px, calc(100% - ${HEADER_EM}em))`;
     // The DRAWN width — `maxWidth` caps it at the pane — so this agrees with
     // the move clamp, which reads `offsetWidth`.
-    const drawnW = `min(${drawn.widthPx}px, 100% - ${2 * CORNER_INSET}px)`;
+    const count = items.length;
+    // Folded, the box is exactly its "OR" bar wide: the badge holds the count's
+    // digits (or the one-character loading/error mark) and "OR" is two.
+    const badgeChars = isError || isLoading ? 1 : String(count).length;
+    const foldedW = `calc(${FOLDED_FIXED_EM}em + 2ch`
+        + ` + max(${BADGE_MIN_EM}em, ${badgeChars}ch + ${BADGE_PAD_EM}em) + 4px)`;
+    const drawnW = open ? `min(${drawn.widthPx}px, 100% - ${2 * CORNER_INSET}px)`
+        : `min(${foldedW}, 100% - ${2 * CORNER_INSET}px)`;
     const clampSide = (v) => `clamp(0px, ${v}px, calc(100% - ${drawnW}))`;
     const placement = pos
         ? { ...(pos.r != null ? { right: clampSide(pos.r) } : { left: clampSide(pos.x) }),
@@ -379,7 +423,6 @@ export default function UnorchestratedReqBox({
         return () => el.removeEventListener('wheel', onWheel);
     }, [open, carrying]);
 
-    const count = items.length;
     const listShown = open && !carrying;
     // No grip while folded, carried or being moved (its corner follows the
     // side the box is anchored to, which a move is changing).
@@ -403,7 +446,9 @@ export default function UnorchestratedReqBox({
              // `sx`: it changes on every zoom frame, and each distinct value
              // through `sx` makes Emotion mint (and never free) a new rule —
              // the badge layer's own "geometry in style" rule.
-             style={{ fontSize: `${drawn.fontPx}px`, width: `${drawn.widthPx}px`,
+             data-open={open ? '1' : '0'}
+             style={{ fontSize: `${drawn.fontPx}px`,
+                      width: open ? `${drawn.widthPx}px` : foldedW,
                       ...placement }}
              sx={{ position: 'absolute',
                     maxWidth: `calc(100% - ${2 * CORNER_INSET}px)`,
@@ -419,7 +464,9 @@ export default function UnorchestratedReqBox({
                     overflow: 'hidden', zIndex: 2,
                     // See-through while carried (req #3614) so the outlined
                     // step beneath can be read.
-                    opacity: carrying ? 0.35 : 1 }}>
+                    opacity: carrying ? 0.35 : 1,
+                    // Only while folding — see the header.
+                    transition: folding ? `width ${foldMs}ms ease` : 'none' }}>
             <Box data-testid="pipeline-viz-unseated-header"
                  title={count > 0
                      ? 'Drag to move · drop on a step to seat them all · double-click to put back'
@@ -434,17 +481,25 @@ export default function UnorchestratedReqBox({
                         px: '0.8em', py: '0.45em', flexShrink: 0,
                         cursor: moving ? 'grabbing' : 'move', touchAction: 'none',
                         fontWeight: 600 }}>
-                <Box component="span"
-                     sx={{ flex: 1, minWidth: 0, overflow: 'hidden',
-                            textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    Orchestration Ready
-                </Box>
+                {/* The count is a badge LEFT of the name (req #3648), folded
+                    or not. */}
                 <Box component="span" data-testid="pipeline-viz-unseated-count"
-                     sx={{ color: statusColor, fontWeight: 700 }}>
+                     sx={{ flexShrink: 0, minWidth: `${BADGE_MIN_EM}em`,
+                            px: `${BADGE_PAD_EM / 2}em`, boxSizing: 'border-box',
+                            borderRadius: '1em', bgcolor: statusColor,
+                            color: '#0d1420', fontWeight: 700, lineHeight: 1.45,
+                            textAlign: 'center' }}>
                     {isError ? '!' : (isLoading ? '…' : count)}
                 </Box>
+                <Box component="span" data-testid="pipeline-viz-unseated-title"
+                     // Folded, "OR" never gives way: the bar is sized to it.
+                     sx={{ flex: open ? 1 : '1 0 auto', minWidth: open ? 0 : 'auto',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {open ? 'Orchestrables' : 'OR'}
+                </Box>
                 <Box component="button" type="button"
-                     onClick={() => setOpen((v) => !v)}
+                     onClick={toggleOpen}
                      aria-expanded={open}
                      aria-label={open ? 'Collapse the list' : 'Expand the list'}
                      data-testid="pipeline-viz-unseated-toggle"
@@ -458,7 +513,20 @@ export default function UnorchestratedReqBox({
                 </Box>
             </Box>
 
-            {listShown && (
+            {/* Animated by the toggle; a carry unmounts it outright. Once
+                ENTERED the wrappers are flex columns that may shrink, so a list
+                the pane cuts short still scrolls inside the box. Only then:
+                Collapse measures the wrapper's height to animate to, and a
+                shrinkable wrapper in a flex root measures 0 — the unfold would
+                animate 0 → 0 and then pop (req #3648 code review). */}
+            {!carrying && (
+                <Collapse in={open} timeout={foldMs} unmountOnExit
+                          sx={{ flex: '0 1 auto', minHeight: 0,
+                                '&.MuiCollapse-entered': {
+                                    display: 'flex', flexDirection: 'column',
+                                    '& .MuiCollapse-wrapper': { flex: '0 1 auto', minHeight: 0 },
+                                    '& .MuiCollapse-wrapperInner': {
+                                        display: 'flex', flexDirection: 'column', minHeight: 0 } } }}>
                 <Box ref={listRef} data-testid="pipeline-viz-unseated-list"
                      // A stretched height, in `style` for the same reason as
                      // the box's own geometry: it changes on every frame.
@@ -525,6 +593,7 @@ export default function UnorchestratedReqBox({
                         );
                     })}
                 </Box>
+                </Collapse>
             )}
 
             {gripShown && (

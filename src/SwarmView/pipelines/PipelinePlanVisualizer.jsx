@@ -122,7 +122,7 @@ import EmptyPlanAddStep from './EmptyPlanAddStep';
 import {
     computePlanLayout, beadStyle, placeEpicChips,
     epicFocusTransform, stepFocusTransform, stepsFocusTransform,
-    factoryDefaultScale, clampPlanTransform, planLandingAction,
+    factoryDefaultView, clampPlanTransform, planLandingAction,
     // req #3365 — the ruler's own thinning gap, re-applied at draw time
     // against the counter-scaled label widths.
     RULER_LABEL_GAP,
@@ -134,6 +134,7 @@ import {
     nextHaloMagnify, nextMarkIsDot, nextMarkDotRadius,
     clusterNextMarks, NEXT_MARK_COUNT_FONT_PX,
     planLevelFor, drawsLabelKind, stepsAcrossScale, zoomAboutViewportCentre,
+    stepsAcrossTransform,
     snapZoomScale, zoomAboutPoint,
     // req #3498 — the step is a CARD. The renderer draws the box the layout
     // measured; it never measures one of its own.
@@ -145,7 +146,7 @@ import {
     // req #3580 — the run pill's word and type.
     CARD_RUN_FONT, CARD_RUN_WORDS,
     // req #3650 — the collapse heads' type and the chip head's reserved width.
-    CARD_HEAD_FONT, CARD_HEAD_H, EPIC_CHIP_COLLAPSE_HEAD_W,
+    CARD_COLLAPSE_FONT, CARD_COLLAPSE_W, CARD_COLLAPSE_GAP, EPIC_CHIP_COLLAPSE_HEAD_W,
     buildReqColorViews, REQ_COLOR_KEYS, reqIdStyle, reqIdKeyEntries, normalizeColorKey,
     DEFAULT_PLAN_PALETTE, isPlanPalette, planPalette,
     DEFAULT_COLOR_KEY, PLAN_KEY_MAX_H, pinnedLevelOf, DEFAULT_PLAN_LEVEL_PREF,
@@ -205,7 +206,7 @@ import UnorchestratedReqBox from './UnorchestratedReqBox';
 import { useUnorchestratedRequirements } from './useUnorchestratedRequirements';
 import {
     UNSEATED_REQ_MIME, bulkSeatRequest, resolveSeatDrop, screenRectOf, unseatedBoxFontPx,
-    unseatedBoxWidthPx,
+    unseatedBoxWidthPx, unseatedBoxZoom,
     pointerCanSeat, runBulkSeat, bulkSeatFailureMessage,
 } from './pipelineUnseated';
 import '../../CalendarFC/swarmVisualizer.css';
@@ -483,7 +484,8 @@ export default function PipelinePlanVisualizer({
     // toggling it never rebuilds the zoom behaviour (which would drop the
     // reader's camera).
     snapZoom = false,
-    // req #3503 — "Step Width". 1-4, `STEP_WIDTH_SCALES`' own index+1. The ONE
+    // req #3503 — "Step Width". A `STEP_WIDTH_RUNGS` value (6 5 4 3, quarters
+    // of the base card since req #3648). The ONE
     // toolbar control that RELAYOUTS rather than just moving the camera —
     // every column, every card, every wrap point in `layout` below depends on
     // it, so it rides in `computePlanLayout`'s own options rather than being
@@ -947,7 +949,10 @@ export default function PipelinePlanVisualizer({
     // the restore path. Step Width is different in kind — every card, column
     // and wrap point is re-scaled, so a camera from another rung points at
     // unrelated content and is refused.
-    const viewportFingerprint = `sw${stepWidthLevel}`;
+    // `q` since req #3648 — the rungs became quarters of the base card (6 5 4
+    // 3), so a camera saved under the old `sw1`-`sw4` was taken at a different
+    // width than the same number means now.
+    const viewportFingerprint = `q${stepWidthLevel}`;
     const viewport = useSavedViewport(viewportKey, viewportFingerprint);
     // The live camera, mirrored out of the d3-zoom 'zoom' handler so the commit
     // on unmount has something to write. A ref, not state: this is read only by
@@ -1174,7 +1179,11 @@ export default function PipelinePlanVisualizer({
     // used to sit: the two fallbacks below are "the view the page opens in"
     // for the frames before the zoom behavior has emitted anything, and they
     // can only be that if the number exists by then.
-    const kFactoryDefault = factoryDefaultScale(layout, size, kFit, kZoomFloor);
+    // req #3648 — the base view is a whole camera, not just a scale: below
+    // k = 1 it is pulled down so the pinned ruler clears the top band's header.
+    const factoryView = factoryDefaultView(layout, size, kFit, kZoomFloor);
+    const kFactoryDefault = factoryView.k;
+    const yFactoryDefault = factoryView.y;
     // The camera's live scale, or — before the first transform — the one the
     // landing effect is about to apply. Reading `kDefault` here made the very
     // first frame report `mid` on a plan that opens at Overview, a level the
@@ -1435,8 +1444,9 @@ export default function PipelinePlanVisualizer({
         const el = containerEl;
         const zb = zoomRef.current;
         if (!el || !zb || size.w === 0) return;
-        select(el).call(zb.transform, zoomIdentity.scale(kFactoryDefault));
-    }, [containerEl, size.w, kFactoryDefault]);
+        select(el).call(zb.transform,
+            zoomIdentity.translate(0, yFactoryDefault).scale(kFactoryDefault));
+    }, [containerEl, size.w, kFactoryDefault, yFactoryDefault]);
     // ── THE LANDING VIEW (req #3252) ────────────────────────────────────────
     // What this canvas shows when it arrives at a plan. Two answers, in order:
     // the camera the reader left on this plan at THIS Step Width (req #3637), or
@@ -1653,18 +1663,18 @@ export default function PipelinePlanVisualizer({
         factoryResetRef.current();
     }, [resetViewNonce]);
 
-    // ── FIT N STEPS ACROSS, ABOUT THE VIEWPORT'S CENTRE (req #3498) ─────────
+    // ── FIT N STEPS ACROSS, ON THE ACTIVE STEPS (req #3498, #3648) ──────────
     // The scale and the transform are both `pipelinePlanLayout`'s (see
-    // `stepsAcrossScale` / `zoomAboutViewportCentre`) — this effect only drives
+    // `stepsAcrossScale` / `stepsAcrossTransform`) — this effect only drives
     // d3-zoom with the answer, so the arithmetic stays testable without a canvas
     // and the "2 is the loose one" rule lives beside the option list rather than
     // in a component.
     //
     // Through `zb.transform`, not by setting state: d3-zoom owns the gesture and
     // a transform written behind its back is reverted by the next wheel event.
-    // It applies `scaleExtent` itself, so a request past either end of the zoom
-    // range is clamped rather than refused — asking for 2 across on a plan too
-    // small to need it lands at the ceiling, which is the honest answer.
+    // `zb.transform` does NOT apply `scaleExtent` (only `scale()` does), so the
+    // clamp is `stepsAcrossTransform`'s, through `centreTransform`; the
+    // viewport-centre fallback is only reached on a plan with nothing placed.
     //
     // Keyed on the NONCE alone, read through a ref: `size` and the layout change
     // on every resize and every toggle, and depending on them would re-fire a
@@ -1680,7 +1690,11 @@ export default function PipelinePlanVisualizer({
         // per-column array this scalar was built from.
         const nextK = stepsAcrossScale(stepsAcross?.n, size.w, layout.colPitch);
         if (!nextK) return;
-        const next = zoomAboutViewportCentre(t, size, nextK);
+        // req #3648 — centred on the ACTIVE steps (`activeStepIds`), not on
+        // wherever the viewport happens to be; the viewport centre is only the
+        // fallback for a plan with nothing placed.
+        const next = stepsAcrossTransform(layout, rows, stepsAcross?.n, size,
+            kDefault, kZoomFloor) || zoomAboutViewportCentre(t, size, nextK);
         if (!next) return;
         // The reader moved the camera deliberately, so a pending `?epic=` re-fit
         // must not fight them for it — the same stand-down `factoryReset` does.
@@ -1973,7 +1987,7 @@ export default function PipelinePlanVisualizer({
     useLayoutEffect(() => {
         dragWorldRef.current = {
             layout, rowById, size, pendingMoves, commit: commitReqMove,
-            t: liveTransformRef.current || transform || { x: 0, y: 0, k: kFactoryDefault },
+            t: liveTransformRef.current || transform || { x: 0, y: yFactoryDefault, k: kFactoryDefault },
         };
     });
 
@@ -2338,9 +2352,9 @@ export default function PipelinePlanVisualizer({
     // The frames before the zoom behavior has emitted anything draw the view
     // the landing effect is about to apply, not the readable scale it used to
     // name — otherwise the plan paints once zoomed in and then jumps out to
-    // where it actually opens (req #3312). `x`/`y` stay at the origin because
-    // that is what `resetView` applies.
-    const t = transform || { x: 0, y: 0, k: kFactoryDefault };
+    // where it actually opens (req #3312). `x` stays at the origin and `y` at
+    // the ruler's excess, because that is what `resetView` applies (req #3648).
+    const t = transform || { x: 0, y: yFactoryDefault, k: kFactoryDefault };
 
     // ── The add-step marks' geometry (req #3586) ────────────────────────────
     // PLACED once per LAYOUT (at the largest radius, so spacing holds at every
@@ -3372,8 +3386,8 @@ export default function PipelinePlanVisualizer({
 
     // ── THE STEP CARD'S COLLAPSE HEAD, AS AN HTML OVERLAY (req #3650) ──────
     // A button, so HTML for the run pill's reason, on the run pill's layer. The
-    // layout reserved its row at the card's top-left (`CARD_HEAD_W` ×
-    // `CARD_HEAD_H`); this only projects it to screen.
+    // layout reserved its box at the title line's left (`CARD_COLLAPSE_W`,
+    // req #3648); this only projects it to screen.
     const floatingCollapses = layout.labels
         .filter((l) => l.kind === 'collapse' && drawsKind('collapse'))
         .map((l) => ({
@@ -3385,7 +3399,7 @@ export default function PipelinePlanVisualizer({
             top: l.y * t.k + t.y,
             width: l.w * t.k,
             height: l.h * t.k,
-            fontSize: CARD_HEAD_FONT * t.k,
+            fontSize: CARD_COLLAPSE_FONT * t.k,
         }));
 
     // ── THE STEP-NAME EDITOR'S BOX (req #3580) ──────────────────────────────
@@ -3519,6 +3533,10 @@ export default function PipelinePlanVisualizer({
         // HTML chips already clamped below `rulerScreenBottom(t)`. At k ≥ 1,
         // where that region does hold drawn text, `rulerScreenMag` is 1 and the
         // geometry is bit-for-bit what it was.
+        // REPAID BY req #3648: below k = 1 the strip now hangs from its BOTTOM
+        // edge (`stickyRulerY`) and the base view pulls the plan down by the
+        // excess, so on landing/Default it no longer hides band 0's header —
+        // that hidden header is what parked the top epic's name on its cards.
         const rulerMag = rulerScreenMag(t);
         stickyRulerNodes.push(
             <Rect key="ruler-sticky-bg" x={0} y={0} width={layout.width}
@@ -3826,12 +3844,15 @@ export default function PipelinePlanVisualizer({
                 <Rect key={`hit-${row.id}`} x={n.frameLeft} y={n.top}
                       width={n.frameW} height={n.h} cornerRadius={CARD_RADIUS}
                       fill="transparent" {...stepHover} />,
-                // Starts BELOW the collapse head's row (req #3650), so a
-                // near-miss beside "REQS" never leaves for the Table — the
-                // head's row adds nothing to req #3213's click-to-leave area.
-                <Rect key={`hitact-${row.id}`} x={n.frameLeft}
-                      y={n.top + CARD_PAD_Y + CARD_HEAD_H}
-                      width={n.frameW} height={n.titleH - CARD_PAD_Y - CARD_HEAD_H}
+                // From the BADGE rightward since req #3648 put the collapse
+                // head on the title line: a near-miss beside the chevron must
+                // not also activate the step (req #3650's own rule for the
+                // head; since req #3641 activation frames the step on canvas).
+                <Rect key={`hitact-${row.id}`}
+                      x={n.frameLeft + CARD_PAD_X + CARD_COLLAPSE_W + CARD_COLLAPSE_GAP}
+                      y={n.top + CARD_PAD_Y}
+                      width={n.frameW - CARD_PAD_X - CARD_COLLAPSE_W - CARD_COLLAPSE_GAP}
+                      height={n.titleH - CARD_PAD_Y}
                       fill="transparent" {...stepActivate} />);
         } else {
             worldNodes.push(
@@ -4405,7 +4426,8 @@ export default function PipelinePlanVisualizer({
             // it did before), but the sweep's guarantee is a LAYOUT-time one:
             // it does NOT extend across a live pan, because this is now the
             // one label kind whose SCREEN position is `stickyRulerY(t)` where
-            // every other label's is `t.y`. Once the strip pins (`t.y < 0`),
+            // every other label's is `t.y`. Once the strip pins (`t.y` below the
+            // ruler's excess, `rulerExcessY` — 0 at k ≥ 1),
             // a step or requirement label scrolled up near the viewport top
             // can land under it on screen — the same trade-off the sticky
             // epic chips already accept (their own comment: "a sticky chip
@@ -4830,16 +4852,18 @@ export default function PipelinePlanVisualizer({
                             {/* req #3650 — THE CHIP'S COLLAPSE HEAD, leading it:
                                 its upper-left, where the TPU 3D panels keep
                                 theirs. Folds THIS epic's steps and nothing
-                                else. Its width is reserved in `placeEpicChips`
+                                else. The chevron alone since req #3648 — no
+                                "STEPS" word. Its width is reserved in `placeEpicChips`
                                 (`EPIC_CHIP_COLLAPSE_W`) and drawn at exactly
                                 that, at the TPU head's own unscaled 10px. */}
                             <PlanCollapseHead
                                 open={!e.band?.collapsed}
                                 onToggle={() => toggleEpicFold(e.epicId ?? null)}
-                                label="Steps"
+                                label={null}
                                 name={`Steps of epic ${e.name ?? e.text}`}
                                 testId={`pipeline-viz-epic-collapse-${e.key}`}
-                                style={{ width: EPIC_CHIP_COLLAPSE_HEAD_W, fontSize: 10 }}
+                                style={{ width: EPIC_CHIP_COLLAPSE_HEAD_W, fontSize: 10,
+                                    justifyContent: 'center' }}
                             />
                             <Box
                                 component="span"
@@ -5170,6 +5194,30 @@ export default function PipelinePlanVisualizer({
                             {b.text}
                         </Box>
                     ))}
+                    {/* req #3650 — EVERY STEP CARD'S COLLAPSE HEAD, in the
+                        box the layout reserved at the title line's left. Folds
+                        THIS step's requirement rows and nothing else. The
+                        chevron alone since req #3648 — `text` names it for
+                        assistive tech only. Rendered BEFORE the run pills so
+                        keyboard focus reaches a card's chevron first, the way
+                        the line reads. */}
+                    {floatingCollapses.map((c) => (
+                        <PlanCollapseHead key={c.key}
+                            open={c.open}
+                            onToggle={() => toggleStepFold(c.stepId)}
+                            label={null}
+                            name={`${c.text} of step ${c.stepId}`}
+                            testId={`pipeline-viz-step-collapse-${c.stepId}`}
+                            style={{
+                                position: 'absolute',
+                                left: c.left,
+                                top: c.top - epicOverlayTopInset,
+                                width: c.width, height: c.height,
+                                fontSize: c.fontSize,
+                                justifyContent: 'center',
+                            }}
+                        />
+                    ))}
                     {/* req #3580 — THE RUN-MODE PILL. Displays the step's run
                         mode as the word and IS the control that changes it:
                         green "auto", blue "manual" (user directive). Geometry
@@ -5205,25 +5253,6 @@ export default function PipelinePlanVisualizer({
                             </Box>
                         );
                     })}
-                    {/* req #3650 — EVERY STEP CARD'S COLLAPSE HEAD, in the
-                        row the layout reserved at the card's top-left. Folds
-                        THIS step's requirement rows and nothing else. */}
-                    {floatingCollapses.map((c) => (
-                        <PlanCollapseHead key={c.key}
-                            open={c.open}
-                            onToggle={() => toggleStepFold(c.stepId)}
-                            label={c.text}
-                            name={`${c.text} of step ${c.stepId}`}
-                            testId={`pipeline-viz-step-collapse-${c.stepId}`}
-                            style={{
-                                position: 'absolute',
-                                left: c.left,
-                                top: c.top - epicOverlayTopInset,
-                                width: c.width, height: c.height,
-                                fontSize: c.fontSize,
-                            }}
-                        />
-                    ))}
                     {/* req #3580 — THE STEP-NAME EDITOR, over the name's own
                         reserved room on its card. */}
                     {stepEditor && (
@@ -5320,14 +5349,17 @@ export default function PipelinePlanVisualizer({
                     ruling). Its WIDTH is a step card's on-screen frame width,
                     whatever the Step Width rung and zoom (req #3620). The
                     reader may stretch it by its corner on top of that, its text
-                    stepping one size up or down — the box owns that (req #3654). */}
+                    stepping one size up or down — the box owns that (req #3654).
+                    Never bigger than at six steps across (req #3648 —
+                    `unseatedBoxZoom`). */}
                 <UnorchestratedReqBox
                     items={unseatedItems}
                     categoryColors={unseated.categoryColors}
                     isLoading={unseated.isLoading}
                     isError={unseated.isError}
-                    fontPx={unseatedBoxFontPx(t.k)}
-                    widthPx={unseatedBoxWidthPx(layout.cardFrameW, t.k)}
+                    fontPx={unseatedBoxFontPx(unseatedBoxZoom(t.k, size.w, layout.colPitch))}
+                    widthPx={unseatedBoxWidthPx(layout.cardFrameW,
+                        unseatedBoxZoom(t.k, size.w, layout.colPitch))}
                     statusColor={planPalette(activePalette).status?.swarm_ready || P.req}
                     draggingId={unseatDragId}
                     onDragStartItem={setUnseatDragId}
