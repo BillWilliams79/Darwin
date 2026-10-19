@@ -1652,12 +1652,12 @@ export const REQ_ROW_GAP = 9.5 * CARD_TYPE_SCALE;
 // raised to three lines so a long title still arrives whole.
 //
 // Counted against WHAT THE ROW ACTUALLY DRAWS: `reqLabelText`'s
-// `${reqId} - ${title}`, so the prefix is a 4-digit id plus the three-character
-// " - " separator — SEVEN characters, and no '#' anywhere (ids render bare on
+// `${reqId}   ${title}`, so the prefix is a 4-digit id plus the three-character
+// blank separator (req #3660 — it was " - ") — SEVEN characters, and no '#' anywhere (ids render bare on
 // this surface, production directive).
 export const CARD_TEXT_CHARS = 28;
 export const CARD_ID_CHARS = 4;
-export const CARD_SEP_CHARS = 3;        // " - ", written by `reqLabelText`
+export const CARD_SEP_CHARS = 3;        // three spaces, written by `reqLabelText`
 // What is left for the title on the FIRST line. Derived, not stated: the line is
 // the budget now, so a title budget written beside it would be a second number
 // to keep in step.
@@ -3140,12 +3140,12 @@ export function reqLabelText(reqId, { reqLabel = 'id', reqTitles = null,
     const t = titleLookup(reqTitles, reqId);
     // The id rides ALONGSIDE the title, not instead of it (user directive) — an
     // id-only mark reading "3242" gives no hint what's under it without a
-    // hover; "3242 - Pipeline Visualizer Polish" answers that at the same L3
+    // hover; "3242   Pipeline Visualizer Polish" answers that at the same L3
     // glance the title itself was added for. Built BEFORE truncation, same as
     // the bare id below, so the id survives the cut and the title is what
     // gives way on a tight column — the id is the one piece of this string a
     // reader can always resolve to the actual requirement.
-    return t ? truncate(`${prefix} - ${t}`, Math.max(4, maxChars))
+    return t ? truncate(`${prefix}${' '.repeat(CARD_SEP_CHARS)}${t}`, Math.max(4, maxChars))
         : prefix;
 }
 
@@ -3160,7 +3160,7 @@ export function reqLabelText(reqId, { reqLabel = 'id', reqTitles = null,
 //
 // TWO SPACES between tokens, so a pill's padding (drawn by the renderer, inside
 // the gap) leaves clear air between neighbours. The gap AFTER THE ID is the id
-// column's own (`CARD_SEP_CHARS`, the width of " - "), so the first pill begins
+// column's own (`CARD_SEP_CHARS`, the width of the blank gap), so the first pill begins
 // on the title column every row's title and wrapped lines start on (req #3575's
 // hanging indent) and never inside the room reserved for the id (req #3601,
 // user: "Terminal intrudes into the space when added and should never do so").
@@ -3359,7 +3359,7 @@ export function computePlanLayout(rows, opts = {}) {
     for (const r of safeRows) {
         const ids = r.reqIds || [];
         // The HANGING INDENT (req #3575): a wrapped title's continuation lines
-        // start where `${id} - ` ends, so the left edge holds the ids alone. It
+        // start where `${id}   ` ends, so the left edge holds the ids alone. It
         // is the BARE id's width even on a row carrying pills — hanging under a
         // pill row's title start would leave three characters a line — so every
         // row's continuations line up on the one title column.

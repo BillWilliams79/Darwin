@@ -672,13 +672,13 @@ describe('the card is a fixed, uniform box (req #3498)', () => {
         expect(CARD_TEXT_CHARS).toBe(28);
         expect(CARD_TITLE_CHARS).toBe(CARD_TEXT_CHARS - CARD_ID_CHARS - CARD_SEP_CHARS);
         // The prefix is what `reqLabelText` actually writes — a bare 4-digit id
-        // and the three-character " - ". No '#': ids render bare on this
+        // and the three-character blank gap. No '#': ids render bare on this
         // surface, so counting one cost the reader a title character.
         expect(CARD_TITLE_CHARS).toBeGreaterThan(0);
         expect(reqLabelText(3498, {
             reqLabel: 'title',
             reqTitles: new Map([[3498, 'x'.repeat(80)]]),
-        })).toBe(`3498 - ${'x'.repeat(CARD_TITLE_CHARS - 1)}\u2026`);
+        })).toBe(`3498   ${'x'.repeat(CARD_TITLE_CHARS - 1)}\u2026`);
         // The text column fits what the width was BOUGHT for, measured at the
         // requirement row's own glyph width — `cardChars` is the function the
         // layout truncates with, so a padding change that quietly ate the
@@ -5410,10 +5410,10 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
     it('hangs a wrapped title past the id column (req #3575)', () => {
         const budget = cardChars(CHW_REQ);
         const hang = 4 + CARD_SEP_CHARS;
-        const text = `3342 - ${'word '.repeat(30).trim()}`;
+        const text = `3342   ${'word '.repeat(30).trim()}`;
         const lines = wrapReqText(text, budget, REQ_MAX_LINES, hang);
         expect(lines).toHaveLength(REQ_MAX_LINES);
-        expect(lines[0].startsWith('3342 - ')).toBe(true);
+        expect(lines[0].startsWith('3342   ')).toBe(true);
         for (const l of lines.slice(1)) {
             // The id column is blank on every continuation line, and the
             // title starts exactly where the first line's title started.
@@ -5435,13 +5435,15 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
         expect(wrapped.length, 'the fixture has wrapped rows').toBeGreaterThan(0);
         for (const l of wrapped) {
             const hang = String(l.reqId).length + CARD_SEP_CHARS;
-            expect(l.lines[0].startsWith(`${l.reqId} - `)).toBe(true);
+            expect(l.lines[0].startsWith(`${l.reqId}   `)).toBe(true);
             for (const ln of l.lines.slice(1)) {
                 expect(ln.slice(0, hang)).toBe(' '.repeat(hang));
             }
             // `text` is what the row SAYS — the padding is not part of it.
             expect(l.text).toBe(l.lines.map((ln, k) => (k ? ln.trimStart() : ln)).join(' '));
-            expect(l.text).not.toContain(' '.repeat(hang));
+            // The id's separator is the widest blank run in `text`; the
+            // continuation padding never leaks into it.
+            expect(l.text.indexOf(' '.repeat(CARD_SEP_CHARS + 1))).toBe(-1);
         }
     });
 

@@ -3975,13 +3975,13 @@ export default function PipelinePlanVisualizer({
                 // A pill hugs its sans label (`REQ_PILL_LABEL_PAD_EM`) but the
                 // layout reserves the label's MONO width, so a pill centred in its
                 // slot left the slack beside it — between the last pill and the
-                // title's dash most visibly. So when every width is measurable the
+                // title most visibly. So when every width is measurable the
                 // pills are laid one after another — the first with its left edge
                 // ON THE TITLE COLUMN the layout put its range on (req #3601: never
                 // inside the id's column), then ONE SPACE of air from each other
                 // and from the title — and the first line's tail
-                // (` - Title…`, which starts with its own space) is redrawn flush
-                // after the last pill. The row Text keeps the layout's characters
+                // (`   Title…`, the layout's blank gap — redrawn here with ONE
+                // space, req #3660) is redrawn flush after the last pill. The row Text keeps the layout's characters
                 // (tail blanked) and so stays the hover/click/drag target over the
                 // whole row; the layout's reservation is an upper bound the packed
                 // line never exceeds, so wrap, card height and overlap are untouched.
@@ -4017,7 +4017,7 @@ export default function PipelinePlanVisualizer({
                     }
                     const lastBox = pillBoxes[pillBoxes.length - 1];
                     if (tailText.trim()) {
-                        rowTail = { x: lastBox.x + lastBox.w, text: tailText };
+                        rowTail = { x: lastBox.x + lastBox.w, text: ` ${tailText.trimStart()}` };
                         rowLines[0] = rowLines[0].slice(0, tailStart)
                             + ' '.repeat(tailText.length);
                     }
