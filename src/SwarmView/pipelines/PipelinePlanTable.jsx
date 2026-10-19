@@ -75,6 +75,10 @@ import {
     stepStateChipProps,
     runLabel,
     runChipProps,
+    checkpointLabel,
+    checkpointChipProps,
+    lockedLabel,
+    lockedChipProps,
     ROW_ACCENT,
     LAUNCH_ACCENT,
     ELIGIBLE_MARKER_COLOR,
@@ -104,7 +108,10 @@ const COL = {
     // so this is a hint only: the column never shrinks below the chip's own
     // min-content width regardless of this number.
     status: 104,
-    run: 132,
+    // req #3649 — widened from 132: the cell now also carries the step's
+    // Checkpoint/Priority chip and, when frozen, its Locked chip beside the run
+    // chip and the eligible/held markers.
+    run: 300,
     machine: 148,
     cost: 96,
     epic: 190,
@@ -651,6 +658,27 @@ export default function PipelinePlanTable({ plan, model, pipeline, timezone, foc
                                             <Chip size="small" label={runLabel(row.run)}
                                                   {...runChipProps(row.run)}
                                                   data-testid={`pipeline-run-chip-${row.id}`} />
+                                            {/* req #3649 — display-only. An
+                                                absent flag is the column
+                                                default: a checkpoint. */}
+                                            <Tooltip title={row.checkpoint === false
+                                                ? 'Priority — this step\'s work launches first; nothing waits on it'
+                                                : 'Checkpoint — every step downstream waits until this step is done'}>
+                                                <Chip size="small"
+                                                      label={checkpointLabel(row.checkpoint !== false)}
+                                                      {...checkpointChipProps(row.checkpoint !== false)}
+                                                      data-testid={`pipeline-checkpoint-chip-${row.id}`} />
+                                            </Tooltip>
+                                            {row.effectiveLocked && (
+                                                <Tooltip title={row.lockedBy && row.lockedBy !== 'step'
+                                                    ? `Locked by its ${row.lockedBy} — frozen as a record`
+                                                    : 'Locked — this step is frozen as a record'}>
+                                                    <Chip size="small"
+                                                          label={lockedLabel(true)}
+                                                          {...lockedChipProps(true)}
+                                                          data-testid={`pipeline-lock-chip-${row.id}`} />
+                                                </Tooltip>
+                                            )}
                                             {eligible && (
                                                 <Typography
                                                     variant="caption"
