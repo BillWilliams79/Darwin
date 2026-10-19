@@ -4885,7 +4885,9 @@ export default function PipelinePlanVisualizer({
                     grows with the marks it feeds (user directive), held within
                     9–16px so it stays usable at both zoom extremes (user
                     ruling). Its WIDTH is a step card's on-screen frame width,
-                    whatever the Step Width rung and zoom (req #3620). */}
+                    whatever the Step Width rung and zoom (req #3620). The
+                    reader may stretch it by its corner on top of that, its text
+                    stepping one size up or down — the box owns that (req #3654). */}
                 <UnorchestratedReqBox
                     items={unseatedItems}
                     categoryColors={unseated.categoryColors}
