@@ -9,7 +9,7 @@ import { describe, it, expect } from 'vitest';
 import {
     computePlanLayout, cardHeight, cardTitleH, drawsLabelKind,
     CARD_PAD_Y, CARD_PAD_X, CARD_FRAME_X, CARD_COLLAPSE_W, CARD_TITLE_BTN,
-    CARD_HEAD_LABEL, CARD_LINE_H, STEP_WIDTH_RUNGS,
+    CARD_HEAD_LABEL, CARD_LINE_H, STEP_WIDTH_RUNGS, NAME_INLINE_MIN_CHARS, CHW_LABEL,
 } from '../pipelinePlanLayout';
 
 const mk = (id, epicId, depIds = [], reqIds = []) => ({
@@ -107,12 +107,19 @@ describe('the title line overlaps nothing at any Step Width (req #3648)', () => 
         }
     }
 
-    it('at rung 3 the name sits on its own line below the controls', () => {
-        const layout = computePlanLayout(LONG, { stepLabel: 'title', stepWidthLevel: 3 });
-        const head = layout.labels.find((l) => l.kind === 'collapse' && l.stepId === 10);
-        const name = layout.labels.find((l) => l.kind === 'step' && l.stepId === 10);
-        expect(name.y).toBeCloseTo(head.y + CARD_LINE_H, 6);
-        expect(name.x).toBeCloseTo(head.x, 6);
+    it('beside the controls only with NAME_INLINE_MIN_CHARS of room, else on the next line', () => {
+        for (const rung of STEP_WIDTH_RUNGS) {
+            const layout = computePlanLayout(LONG, { stepLabel: 'title', stepWidthLevel: rung });
+            const head = layout.labels.find((l) => l.kind === 'collapse' && l.stepId === 10);
+            const name = layout.labels.find((l) => l.kind === 'step' && l.stepId === 10);
+            if (Math.abs(name.y - head.y) < 1e-6) {
+                expect(name.editW, `rung ${rung} inline room`)
+                    .toBeGreaterThanOrEqual(NAME_INLINE_MIN_CHARS * CHW_LABEL - 1e-6);
+            } else {
+                expect(name.y, `rung ${rung}`).toBeCloseTo(head.y + CARD_LINE_H, 6);
+                expect(name.x, `rung ${rung}`).toBeCloseTo(head.x, 6);
+            }
+        }
     });
 });
 
