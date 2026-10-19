@@ -88,7 +88,6 @@ import {
     reqIdStyle,
     buildReqColorViews,
     sortReqIdsByColorKey,
-    titleBtnGlyph,
     DEFAULT_COLOR_KEY,
     DEFAULT_PLAN_PALETTE,
     PLAN_VIZ_PALETTE,
@@ -101,8 +100,6 @@ import {
     CARD_PAD_X,
     CARD_RULE_GAP,
     CARD_STATE_BAR_W,
-    CARD_TITLE_BTN_STROKE,
-    CARD_TITLE_BTN_GLYPH_STROKE,
     MIN_CARD_H,
     NEXT_HALO_STROKE,
     NEXT_HALO_OPACITY,
@@ -381,8 +378,7 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
                                 boxes — L3's formation: the step name, each
                                 requirement's TITLE row (wrapped by the layout,
                                 never re-wrapped here) in its colour key, the
-                                count badge, the run pill and the "+"
-                                button. */}
+                                count badge and the run pill. */}
                             {view.layout.labels.map((label, i) => {
                                 if (label.stepId == null || !visibleIds.has(label.stepId)) {
                                     return null;
@@ -432,23 +428,6 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
                                                   fontFamily={MONO} fontStyle="bold"
                                                   fill={run ? P.panel : P.badgeText}
                                                   wrap="none" />
-                                        </Group>
-                                    );
-                                }
-                                if (label.kind === 'step-add') {
-                                    return (
-                                        <Group key={`lbl-${i}`}>
-                                            <Rect x={label.x} y={label.y}
-                                                  width={label.w} height={label.h}
-                                                  cornerRadius={4}
-                                                  stroke={P.dim}
-                                                  strokeWidth={CARD_TITLE_BTN_STROKE} />
-                                            {titleBtnGlyph(label.kind, label).map((points, j) => (
-                                                <Line key={j} points={points}
-                                                      stroke={P.text}
-                                                      strokeWidth={CARD_TITLE_BTN_GLYPH_STROKE}
-                                                      lineCap="round" lineJoin="round" />
-                                            ))}
                                         </Group>
                                     );
                                 }

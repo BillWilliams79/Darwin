@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 //
-// Req #3649 — the plan visualizer's two new title-line buttons (⚑ checkpoint,
+// Req #3649 — the plan visualizer's two new title-line buttons (the checkpoint,
 // the padlock) and the epic chip's padlock write the right stepsApi/epicsApi
 // call, and a LOCKED row refuses authoring before any write. jsdom has no
 // canvas, so react-konva is stubbed: a Rect that carries a `name` is rendered
-// as a real button whose click fires the Rect's `onActivate`, which is how the
-// visualizer wires every title-line control.
+// as a real button whose click fires the Rect's `onActivate`. The step card's
+// two buttons are HTML since req #3673 and render as themselves.
 
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { createRoot } from 'react-dom/client';
@@ -129,7 +129,7 @@ const click = (testId) => {
 };
 const flush = () => act(async () => { await Promise.resolve(); await Promise.resolve(); });
 
-describe('the step card\'s ⚑ and padlock (req #3649)', () => {
+describe('the step card\'s checkpoint and padlock (req #3649, #3673)', () => {
     it('draws both buttons on every card and the flag writes checkpoint=0 then 1', async () => {
         render(payloadFor());
         expect(document.querySelector('[data-testid="pipeline-viz-checkpoint-10"]')).not.toBeNull();
@@ -175,6 +175,36 @@ describe('the step card\'s ⚑ and padlock (req #3649)', () => {
         click('pipeline-viz-lock-10');
         await flush();
         expect(updateStep).not.toHaveBeenCalled();
+    });
+
+    it('draws the state as a picture: barrier down / padlock shut when on, raised / open when off (req #3673)', () => {
+        render(payloadFor({ stepFlags: { locked: 1 } }));
+        const btn = (id) => document.querySelector(`[data-testid="${id}"]`);
+        // Step 10: checkpoint on, locked. Step 11: checkpoint on, unlocked.
+        expect(btn('pipeline-viz-checkpoint-10').getAttribute('data-on')).toBe('1');
+        expect(btn('pipeline-viz-checkpoint-10').querySelector('[data-arm]')
+            .getAttribute('data-arm')).toBe('down');
+        expect(btn('pipeline-viz-lock-10').querySelector('[data-lock]')
+            .getAttribute('data-lock')).toBe('closed');
+        expect(btn('pipeline-viz-lock-11').getAttribute('data-on')).toBe('0');
+        expect(btn('pipeline-viz-lock-11').querySelector('[data-lock]')
+            .getAttribute('data-lock')).toBe('open');
+        // The hover title says what the state means and what a click does.
+        expect(btn('pipeline-viz-checkpoint-10').getAttribute('title'))
+            .toMatch(/^Checkpoint ON — the steps after this one wait/);
+        expect(btn('pipeline-viz-lock-10').getAttribute('title')).toMatch(/^Locked —.*unlock/);
+        expect(btn('pipeline-viz-lock-11').getAttribute('title')).toMatch(/^Unlocked — click to lock/);
+        act(() => { root.unmount(); });
+        root = null;
+        document.body.innerHTML = '';
+        render(payloadFor({ stepFlags: { checkpoint: 0 }, epicLocked: 1 }));
+        expect(btn('pipeline-viz-checkpoint-10').querySelector('[data-arm]')
+            .getAttribute('data-arm')).toBe('up');
+        expect(btn('pipeline-viz-checkpoint-10').getAttribute('title'))
+            .toMatch(/^Checkpoint OFF — the steps after this one may start.*Locked by its epic/);
+        // A lock held by the epic says so, and its border is dashed.
+        expect(btn('pipeline-viz-lock-10').getAttribute('title')).toMatch(/^Locked by its epic/);
+        expect(btn('pipeline-viz-lock-10').style.borderStyle).toBe('dashed');
     });
 
     it('a locked step draws a closed padlock and takes no requirement drop (layout)', () => {
