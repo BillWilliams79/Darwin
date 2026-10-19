@@ -99,6 +99,7 @@ import { CARD_FRAME_W, PLAN_VIZ_PALETTE as P } from './pipelinePlanLayout';
 import {
     UNSEATED_MIN_LIST_EM, UNSEATED_REQ_MIME, unseatedMinStretchPx, unseatedResizedBox,
 } from './pipelineUnseated';
+import { usePlanViewSetting } from './planViewSettings';
 
 const MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
 
@@ -169,7 +170,9 @@ export default function UnorchestratedReqBox({
     onMoveOver, onMoveDrop, onCarryingChange,
 }) {
     // Open by default: the box exists to be seen next to the plan it feeds.
-    const [open, setOpen] = useState(true);
+    // REMEMBERED across every transition (req #3651) — it was local state, so a
+    // reader who folded it found it open again after any Back or mode switch.
+    const [open, setOpen] = usePlanViewSetting('unseatedOpen');
     const listRef = useRef(null);
     const boxRef = useRef(null);
     // `null` = home (top-right); else panel-relative px of the top-left corner.

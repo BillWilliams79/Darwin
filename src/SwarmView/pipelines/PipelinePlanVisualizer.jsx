@@ -143,6 +143,8 @@ import {
     MIN_CARD_H, REQ_LINE_H, CHW_REQ,
     // req #3580 — the run pill's word and type.
     CARD_RUN_FONT, CARD_RUN_WORDS,
+    // req #3650 — the collapse heads' type and the chip head's reserved width.
+    CARD_HEAD_FONT, CARD_HEAD_H, EPIC_CHIP_COLLAPSE_HEAD_W,
     buildReqColorViews, REQ_COLOR_KEYS, reqIdStyle, reqIdKeyEntries, normalizeColorKey,
     DEFAULT_PLAN_PALETTE, isPlanPalette, planPalette,
     DEFAULT_COLOR_KEY, PLAN_KEY_MAX_H, pinnedLevelOf, DEFAULT_PLAN_LEVEL_PREF,
@@ -162,6 +164,12 @@ import {
 import { swarmEpicLinkTo, swarmStepLinkTo } from '../swarmViewLink';
 import { newRequirementSeatState, planExitState } from './pipelineStepLink';
 import { useSavedViewport } from '../../hooks/useSavedViewport';
+import { usePlanViewSetting } from './planViewSettings';
+// req #3650 — every epic chip's and step card's own fold.
+import {
+    parseCollapsed, toggleEpicCollapsed, toggleStepCollapsed, expandEpic, expandStep,
+} from './planCollapse';
+import PlanCollapseHead from './PlanCollapseHead';
 // req #3581 — dragging a requirement between steps writes its seat.
 import AppContext from '../../Context/AppContext';
 import AuthContext from '../../Context/AuthContext';
@@ -476,6 +484,11 @@ export default function PipelinePlanVisualizer({
     // built by the page from reads it owns. Drawn as pills between a row's id
     // and its title; null draws every row exactly as before.
     reqPills = null,
+    // req #3658 — the page is maximized (PipelineDetail owns the state, because
+    // what it hides — the header row and the navbar — is the page's), and the
+    // switch's click. No `onToggleMaximized`, no switch.
+    maximized = false,
+    onToggleMaximized = null,
 }) {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
@@ -663,6 +676,17 @@ export default function PipelinePlanVisualizer({
     // surfaces over one plan must not each derive the same fact.
     // Normalized HERE as well as in the page, for `activeColorKey`'s reason.
     const activePalette = isPlanPalette(palette) ? palette : DEFAULT_PLAN_PALETTE;
+    // req #3650 — the epics and steps folded by their own collapse heads. One
+    // remembered setting, so a fold survives every way of leaving the canvas
+    // and coming back, exactly as the key's popout does (req #3651).
+    const [collapsedRaw, setCollapsedRaw] = usePlanViewSetting('collapsed');
+    const collapsed = useMemo(() => parseCollapsed(collapsedRaw), [collapsedRaw]);
+    const toggleEpicFold = useCallback(
+        (epicId) => setCollapsedRaw((raw) => toggleEpicCollapsed(raw, epicId)),
+        [setCollapsedRaw]);
+    const toggleStepFold = useCallback(
+        (stepId) => setCollapsedRaw((raw) => toggleStepCollapsed(raw, stepId)),
+        [setCollapsedRaw]);
     const layout = useMemo(
         () => computePlanLayout(rows, {
             stepLabel, reqLabel, reqTitles, reqPills,
@@ -673,9 +697,41 @@ export default function PipelinePlanVisualizer({
             // derivation, read here rather than recomputed.
             pauseInfo: plan.pause || null,
             stepWidthLevel,
+            collapsedEpicIds: collapsed.epicIds, collapsedStepIds: collapsed.stepIds,
         }),
         [rows, plan.timeAxis, stepLabel,
-            reqLabel, reqTitles, reqPills, epicCounts, plan.pause, activePalette, stepWidthLevel]);
+            reqLabel, reqTitles, reqPills, epicCounts, plan.pause, activePalette, stepWidthLevel,
+            collapsed]);
+    // A LINK INTO A FOLDED BOX UNFOLDS IT (req #3650). `?epic=` and `?step=`
+    // name a place on the plan to land on, and a folded band draws no cards —
+    // so the fit would have nothing to fit. `?step=` is how the requirement
+    // page shows a requirement on its plan, so the step unfolds too, or its
+    // rows would stay hidden. Every other fold stays as the reader left it.
+    //
+    // ONCE PER LINK, NOT WHILE IT STANDS: the focus props live as long as the
+    // history entry does, so an effect that kept unfolding while they were set
+    // would undo every fold the reader then made on that very box. The fold
+    // state is therefore not a dependency — this answers "a link arrived",
+    // never "the box is folded".
+    const linkUnfoldedRef = useRef(null);
+    useEffect(() => {
+        if (focusEpicId == null && focusStepId == null) {
+            linkUnfoldedRef.current = null;
+            return;
+        }
+        const key = `${focusEpicId}:${focusStepId}`;
+        if (linkUnfoldedRef.current === key) return;
+        const epics = focusEpicId != null ? [focusEpicId] : [];
+        if (focusStepId != null) {
+            if (!rowById.has(focusStepId)) return;       // the plan has not loaded it yet
+            epics.push(rowById.get(focusStepId).epicId ?? null);
+        }
+        linkUnfoldedRef.current = key;
+        setCollapsedRaw((raw) => {
+            const next = epics.reduce(expandEpic, raw);
+            return focusStepId != null ? expandStep(next, focusStepId) : next;
+        });
+    }, [focusEpicId, focusStepId, rowById, setCollapsedRaw]);
 
     // ── The REQUIREMENT-ID channel (req #3119; #3168 neutral; #3422 registry) ─
     // Whatever the key, it rides the requirement ids and never the bead: the
@@ -717,9 +773,19 @@ export default function PipelinePlanVisualizer({
             colorKey: scale, views: reqColorViews,
         }).entries])), [reqColorViews]);
     // Collapsed by default (req #3633, reversing req #3585's expanded default
-    // and restoring req #3309's) — see the key's own comment below for why this
-    // is component state and not a persisted preference.
-    const [keyOpen, setKeyOpen] = useState(false);
+    // and restoring req #3309's) and REMEMBERED once the reader opens it (req
+    // #3651) — see the key's own comment below.
+    const [keyOpenStored, setKeyOpenStored] = usePlanViewSetting('keyOpen');
+    // req #3658 — maximized, the key FOLDS on the way in ("default collapse but
+    // don't completely hide supporting text boxes"): it keeps its + toggle and
+    // opens if the reader asks, and on the way out it is back to the reader's
+    // remembered state. The TPU Full screen switch's rule for its panels. So a
+    // fold or unfold made while maximized is held HERE and never written to
+    // the remembered setting, and every switch-on starts it folded again.
+    const [keyOpenMax, setKeyOpenMax] = useState(false);
+    useLayoutEffect(() => { if (maximized) setKeyOpenMax(false); }, [maximized]);
+    const keyOpen = maximized ? keyOpenMax : keyOpenStored;
+    const setKeyOpen = maximized ? setKeyOpenMax : setKeyOpenStored;
 
     // The container is tracked as STATE, not a bare ref: with an empty plan the
     // component returns the empty panel and no container exists — if the first
@@ -1008,10 +1074,20 @@ export default function PipelinePlanVisualizer({
         // "fill the rest of the window" intent actually means. Where the scroller
         // is an inner element instead of the document, scrollY is 0 and this is
         // the old expression exactly.
-        const top = containerEl.getBoundingClientRect().top + (window.scrollY || 0);
-        const next = Math.max(480, Math.round(window.innerHeight - top - 14));
+        //
+        // req #3658 — MAXIMIZED, the page is a fixed full-window layer, so its
+        // top is the window's and the document's scroll is not in it, and the
+        // canvas runs to the window's bottom edge with no 14px gutter — and with
+        // no 480px floor either: the overlay clips, so on a short window (a
+        // phone in landscape) a floor would push the restore switch and the
+        // key off the bottom of the screen.
+        const top = containerEl.getBoundingClientRect().top
+            + (maximized ? 0 : (window.scrollY || 0));
+        const next = maximized
+            ? Math.max(0, Math.round(window.innerHeight - top))
+            : Math.max(480, Math.round(window.innerHeight - top - 14));
         setAvailH((prev) => (prev === next ? prev : next));
-    }, [containerEl]);
+    }, [containerEl, maximized]);
     useLayoutEffect(measureAvailH);                     // after every render
     useEffect(() => {
         window.addEventListener('resize', measureAvailH);
@@ -1390,6 +1466,10 @@ export default function PipelinePlanVisualizer({
     // re-clamp in (a) below; only a new plan or a rescale lands.
     const landKey = `${viewportKey}|${viewportFingerprint}`;
     const landedKeyRef = useRef(null);
+    // The same fact as STATE, for the two focus effects (req #3651): they must
+    // not move the camera before the landing has, and must re-run in the commit
+    // after it does whatever else did or did not change in that commit.
+    const [landedKey, setLandedKey] = useState(null);
     // Which PLAN last landed — tells "arrived at a plan" (restore) apart from
     // "this plan's Step Width changed" (the base view: the rescale is the
     // reader's explicit choice and the old camera means nothing on it).
@@ -1458,6 +1538,7 @@ export default function PipelinePlanVisualizer({
         if (action !== 'keep') {
             landedKeyRef.current = landKey;
             landedPlanRef.current = viewportKey;
+            setLandedKey(landKey);
             // ── A NEW WORLD ENDS THE EPIC NAME'S CYCLE (req #3297, review) ──
             // Both branches below relocate the camera, and neither carries a
             // `sourceEvent`, so the zoom handler cannot see it — without this,
@@ -2471,6 +2552,12 @@ export default function PipelinePlanVisualizer({
     // asks for the step stop directly — the same floor applies, so a band with
     // no next step still lands on its band fit.
     const activateEpicName = useCallback((band, { deep = false } = {}) => {
+        // A FOLDED epic has no cards to zoom to (req #3650), so its name
+        // unfolds it instead of doing nothing; the next click zooms as usual.
+        if (band?.collapsed) {
+            toggleEpicFold(band.epicId ?? null);
+            return;
+        }
         const key = epicZoomStateKey(pipeline?.id, band);
         const workIds = epicWorkByEpic.get(epicCycleKey(band)) || [];
         const next = deep && workIds.length > 0
@@ -2490,7 +2577,7 @@ export default function PipelinePlanVisualizer({
             moved = focusEpic(band);
         }
         if (moved) epicZoomRef.current = { key, level };
-    }, [epicWorkByEpic, focusEpicWork, focusEpic, pipeline?.id]);
+    }, [epicWorkByEpic, focusEpicWork, focusEpic, pipeline?.id, toggleEpicFold]);
 
     // ── IN-PLACE EDIT (req #3580) ───────────────────────────────────────────
     // Three edits, straight from the canvas: an epic's NAME, a step's NAME, and
@@ -2679,13 +2766,17 @@ export default function PipelinePlanVisualizer({
     // re-fitting the band.
     const epicFocusAppliedRef = useRef(null);
     useEffect(() => {
-        if (focusEpicId == null) return;
+        // req #3651 — a cleared focus forgets it was applied, so a LATER link
+        // to the same epic on this same canvas flies again.
+        if (focusEpicId == null) { epicFocusAppliedRef.current = null; return; }
         // Req #3253 — a named STEP is the more specific request and wins, exactly
         // as it does in `PipelineDetail`'s `linkView`. Without this a URL
         // carrying both parameters would start two camera transitions in one
         // commit, and the loser would be pre-empted mid-flight.
         if (focusStepId != null) return;
         if (userMovedCameraRef.current) return;
+        // req #3651 — NOT BEFORE THE LANDING. See the step twin below.
+        if (landedKey !== landKey) return;
         // The SAME readiness guard the landing effect takes (req #3312). Without
         // it the two desynchronise at mount: this would start its 420ms ease
         // against the provisional panel while the landing waited, and the
@@ -2711,7 +2802,8 @@ export default function PipelinePlanVisualizer({
                 key: epicZoomStateKey(pipeline?.id, band), level: EPIC_ZOOM_BAND,
             };
         }
-    }, [focusEpicId, focusStepId, pipeline?.id, size, layout, focusEpic, sizeSettled]);
+    }, [focusEpicId, focusStepId, pipeline?.id, size, layout, focusEpic, sizeSettled,
+        landKey, landedKey]);
 
     // Req #3253 — the mount-time end of the `?step=` deep link, in PLAN mode.
     //
@@ -2731,8 +2823,18 @@ export default function PipelinePlanVisualizer({
     // carries both parameters.
     const stepFocusAppliedRef = useRef(null);
     useEffect(() => {
-        if (focusStepId == null) return;
+        if (focusStepId == null) { stepFocusAppliedRef.current = null; return; }  // its twin's reason
         if (userMovedCameraRef.current) return;
+        // ── NOT BEFORE THE LANDING (req #3651) ──────────────────────────────
+        // The landing is this canvas's FIRST camera write — restore or base
+        // view — and it waits for the panel's real height; `sizeSettled()`
+        // alone is satisfied by the provisional one. A focus that started
+        // first flew from the identity camera, was interrupted at its first
+        // tick when the panel re-sized (the zoom behaviour is rebuilt on a size
+        // change and interrupts what is running), and its 'end' SAVED that
+        // near-identity camera — which the landing then restored. `landedKey`
+        // is state the landing sets, so this re-runs in the commit after it.
+        if (landedKey !== landKey) return;
         if (!sizeSettled()) return;                      // the twin's guard, req #3312
         const key = `${pipeline?.id}:${focusStepId}:${size.w}x${size.h}`;
         if (stepFocusAppliedRef.current === key) return;
@@ -2740,7 +2842,7 @@ export default function PipelinePlanVisualizer({
         if (!tr) return;
         if (applyFocus(tr, { persist: false })) stepFocusAppliedRef.current = key;
     }, [focusStepId, pipeline?.id, size, layout, kDefault, kZoomFloor, applyFocus,
-        sizeSettled]);
+        sizeSettled, landKey, landedKey]);
 
     // Req #3235 code review — the resolved pipeline can legitimately hold no
     // band for this epic: the resolver answers "which pipeline hosts any of
@@ -2764,7 +2866,9 @@ export default function PipelinePlanVisualizer({
     // moved. Deliberately keyed on the LAYOUT, not on the transform: a step that
     // is on the plan but could not be fit (a zero-size container mid-mount) is
     // still going to focus on the next render, and must not flash this.
-    const focusStepNotOnPlan = focusStepId != null && !layout.nodes.has(focusStepId);
+    // The PLAN's rows, not the layout's nodes (req #3650): a step inside a
+    // folded epic has no node and is still on this plan.
+    const focusStepNotOnPlan = focusStepId != null && !rowById.has(focusStepId);
 
     if (!rows.length) {
         return (
@@ -3106,6 +3210,24 @@ export default function PipelinePlanVisualizer({
             width: l.w * t.k,
             height: l.h * t.k,
             fontSize: CARD_RUN_FONT * t.k,
+        }));
+
+    // ── THE STEP CARD'S COLLAPSE HEAD, AS AN HTML OVERLAY (req #3650) ──────
+    // A button, so HTML for the run pill's reason, on the run pill's layer. The
+    // layout reserved its row at the card's top-left (`CARD_HEAD_W` ×
+    // `CARD_HEAD_H`); this only projects it to screen.
+    const floatingCollapses = layout.labels
+        .filter((l) => l.kind === 'collapse' && drawsKind('collapse'))
+        .map((l) => ({
+            key: `collapse-${l.stepId}`,
+            stepId: l.stepId,
+            open: !l.collapsed,
+            text: l.text,
+            left: l.x * t.k + t.x,
+            top: l.y * t.k + t.y,
+            width: l.w * t.k,
+            height: l.h * t.k,
+            fontSize: CARD_HEAD_FONT * t.k,
         }));
 
     // ── THE STEP-NAME EDITOR'S BOX (req #3580) ──────────────────────────────
@@ -3546,8 +3668,12 @@ export default function PipelinePlanVisualizer({
                 <Rect key={`hit-${row.id}`} x={n.frameLeft} y={n.top}
                       width={n.frameW} height={n.h} cornerRadius={CARD_RADIUS}
                       fill="transparent" {...stepHover} />,
-                <Rect key={`hitact-${row.id}`} x={n.frameLeft} y={n.top}
-                      width={n.frameW} height={n.titleH}
+                // Starts BELOW the collapse head's row (req #3650), so a
+                // near-miss beside "REQS" never leaves for the Table — the
+                // head's row adds nothing to req #3213's click-to-leave area.
+                <Rect key={`hitact-${row.id}`} x={n.frameLeft}
+                      y={n.top + CARD_PAD_Y + CARD_HEAD_H}
+                      width={n.frameW} height={n.titleH - CARD_PAD_Y - CARD_HEAD_H}
                       fill="transparent" {...stepActivate} />);
         } else {
             worldNodes.push(
@@ -4137,6 +4263,9 @@ export default function PipelinePlanVisualizer({
         } else if (label.kind === 'epic') {
             // Drawn as an HTML overlay below, not in the world — see
             // `floatingEpics`. Nothing is pushed here.
+        } else if (label.kind === 'collapse') {
+            // req #3650 — an HTML button over its reserved box, like the run
+            // pill — see `floatingCollapses`. Nothing is pushed here.
         }
         // THE LABEL KINDS THIS SWEEP HANDLES ARE THE LABEL KINDS THE LAYOUT
         // EMITS, and req #3371 narrowed both by one. `computePlanLayout` used
@@ -4258,8 +4387,12 @@ export default function PipelinePlanVisualizer({
                  // zero-padding tab panel; this makes the two match.
                  sx={{ position: 'relative', mx: -3, mb: -3,
                         height: availH ? `${availH}px` : 'calc(100vh - 260px)',
-                        minHeight: 480, overflow: 'hidden', borderRadius: '8px',
-                        border: `1px solid ${P.line}`, background: P.panel,
+                        minHeight: maximized ? 0 : 480, overflow: 'hidden',
+                        // req #3658 — maximized, the canvas IS the window: no
+                        // rounded frame drawn inside the screen's edge.
+                        borderRadius: maximized ? 0 : '8px',
+                        border: maximized ? 'none' : `1px solid ${P.line}`,
+                        background: P.panel,
                         touchAction: 'none' }}
                  onDragEnter={onSeatDragEnter}
                  onDragOver={onSeatDragOver}
@@ -4500,6 +4633,20 @@ export default function PipelinePlanVisualizer({
                                 by padding cancelled with an equal negative
                                 margin, so an 8px dot is not an 8px target and
                                 nothing the placement measured moves. */}
+                            {/* req #3650 — THE CHIP'S COLLAPSE HEAD, leading it:
+                                its upper-left, where the TPU 3D panels keep
+                                theirs. Folds THIS epic's steps and nothing
+                                else. Its width is reserved in `placeEpicChips`
+                                (`EPIC_CHIP_COLLAPSE_W`) and drawn at exactly
+                                that, at the TPU head's own unscaled 10px. */}
+                            <PlanCollapseHead
+                                open={!e.band?.collapsed}
+                                onToggle={() => toggleEpicFold(e.epicId ?? null)}
+                                label="Steps"
+                                name={`Steps of epic ${e.name ?? e.text}`}
+                                testId={`pipeline-viz-epic-collapse-${e.key}`}
+                                style={{ width: EPIC_CHIP_COLLAPSE_HEAD_W, fontSize: 10 }}
+                            />
                             <Box
                                 component="span"
                                 {...zoomHandlers}
@@ -4823,6 +4970,25 @@ export default function PipelinePlanVisualizer({
                             </Box>
                         );
                     })}
+                    {/* req #3650 — EVERY STEP CARD'S COLLAPSE HEAD, in the
+                        row the layout reserved at the card's top-left. Folds
+                        THIS step's requirement rows and nothing else. */}
+                    {floatingCollapses.map((c) => (
+                        <PlanCollapseHead key={c.key}
+                            open={c.open}
+                            onToggle={() => toggleStepFold(c.stepId)}
+                            label={c.text}
+                            name={`${c.text} of step ${c.stepId}`}
+                            testId={`pipeline-viz-step-collapse-${c.stepId}`}
+                            style={{
+                                position: 'absolute',
+                                left: c.left,
+                                top: c.top - epicOverlayTopInset,
+                                width: c.width, height: c.height,
+                                fontSize: c.fontSize,
+                            }}
+                        />
+                    ))}
                     {/* req #3580 — THE STEP-NAME EDITOR, over the name's own
                         reserved room on its card. */}
                     {stepEditor && (
@@ -4941,11 +5107,14 @@ export default function PipelinePlanVisualizer({
                     since req #3621 lists every value of every scale — is the
                     accepted, measured cost of that trade.
 
-                    Collapse is LOCAL STATE, not a persisted preference: a stored
-                    one would need seeding in the E2E fixture and could arrive
-                    shown from another session. Every visit opens with the key
-                    collapsed (req #3633; req #3585 had it expanded, req #3309
-                    collapsed).
+                    Collapse is a REMEMBERED SETTING (req #3651), not local
+                    state: as local state every transition — Plan|Table, a step
+                    card into the Table and Back, a requirement round-trip, a
+                    reload — re-mounted it collapsed under a reader who had
+                    opened it. It defaults collapsed (req #3633; req #3585 had it
+                    expanded, req #3309 collapsed), so a reader who never opens
+                    it, and every E2E run (empty storage), sees no change. Its
+                    key and default are one row in `planViewSettings.js`.
 
                     PARKED AT VIEWPORT MIDDLE BOTTOM (req #3255), not the
                     top-right corner: that corner sat in the typical down-and-
@@ -5145,6 +5314,52 @@ export default function PipelinePlanVisualizer({
                         </>
                     )}
                 </Stack>
+
+                {/* ── MAXIMIZE (req #3658) ──────────────────────────────────
+                    The TPU 3D views' Full screen switch, borrowed (user
+                    direction: "Borrow the button"): the same corner-arrows
+                    glyph — out when it would maximize, in when it would
+                    restore — in the TPU header's colours, with its rim. It
+                    lives ON the canvas, in the bottom-right corner, in BOTH
+                    states, because maximized there is no header row left to
+                    hold it and a switch should not move when clicked. The
+                    corner is the one the canvas's other floating panels leave
+                    free: the key is bottom-centre and the Orchestration Ready
+                    box opens top-right. The box can still be parked or
+                    stretched over this corner, so the switch sits ABOVE it
+                    (the box is `zIndex: 2`) — it must never be covered, it is
+                    the only way back. `data-viz-chrome` keeps d3-zoom and the
+                    bead hit-test off it. */}
+                {onToggleMaximized && (
+                    <Box component="button" type="button"
+                         onClick={onToggleMaximized}
+                         data-viz-chrome="maximize"
+                         data-testid="pipeline-viz-maximize"
+                         aria-pressed={maximized}
+                         aria-label={maximized ? 'Restore the page' : 'Maximize the plan'}
+                         title={maximized
+                             ? 'Restore the page (Esc)'
+                             : 'Maximize — only the plan (Esc to exit)'}
+                         sx={{ position: 'absolute', right: 12, bottom: 12, zIndex: 3,
+                                width: 28, height: 26, p: 0, m: 0,
+                                display: 'flex', alignItems: 'center',
+                                justifyContent: 'center', cursor: 'pointer',
+                                color: '#7bb8de',
+                                background: 'rgba(13, 20, 32, 0.94)',
+                                border: '1px solid #2d5a85', borderRadius: '4px',
+                                boxShadow: '0 6px 18px rgba(0, 0, 0, 0.45)',
+                                '&:hover, &:focus-visible': {
+                                    color: '#cfe4f7', borderColor: '#5fa3d4',
+                                    outline: 'none',
+                                } }}>
+                        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                            <path d={maximized
+                                      ? 'M6 1v5H1M15 6h-5V1M10 15v-5h5M1 10h5v5'
+                                      : 'M1 6V1h5M10 1h5v5M15 10v5h-5M6 15H1v-5'}
+                                  fill="none" stroke="currentColor" strokeWidth="2" />
+                        </svg>
+                    </Box>
+                )}
 
                 {/* The bottom-right reset button + status chip stack is GONE
                     (req #3216). Reset moved to the header's zoom control group

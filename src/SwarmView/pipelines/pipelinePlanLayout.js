@@ -1764,6 +1764,29 @@ export const CARD_GAP_Y = 22;
 // second line is a property of the LAYOUT and never of the zoom level.
 export const CARD_LINE_H = 21 * CARD_TYPE_SCALE;      // the step-name line
 export const CARD_SUBTITLE_H = 14 * CARD_TYPE_SCALE;  // the step-title line
+// ── THE COLLAPSE HEAD (req #3650) ───────────────────────────────────────────
+// *"the small one we had in the topology TPU 3D visualizer … keep it in the
+// upper left corner as in TPU 3D Vis."* The TPU head (`.tpu3d-head`,
+// Topology/systems2/styles.css) is a 10px uppercase label on a 14px line led
+// by a ▾ that turns a quarter-turn when folded, and it is the FIRST row of the
+// panel it folds. So it is the card's first row here too — its own line at the
+// top-left of the title area, above the name — rather than squeezed into the
+// name's line, whose budget is already eight characters (see NAME_MAX_LINES).
+// Same type at `CARD_TYPE_SCALE`, so it reads at the TPU head's size whenever
+// the card text reads at its own. `CARD_HEAD_GAP` is the TPU head's row gap,
+// scaled the same way, and keeps the head's box clear of the count badge, which
+// rides the name's line one px high (`CARD_BADGE_TOP`).
+export const CARD_HEAD_FONT = 10 * CARD_TYPE_SCALE;
+export const CARD_HEAD_H = 14 * CARD_TYPE_SCALE;
+export const CARD_HEAD_GAP = 3 * CARD_TYPE_SCALE;
+export const CARD_HEAD_BAND = CARD_HEAD_H + CARD_HEAD_GAP;
+// What a step's fold folds: its requirement rows.
+export const CARD_HEAD_LABEL = 'Reqs';
+// The head's box: the 10px chevron, the TPU head's 5px gap and four uppercase
+// characters with their 0.06em tracking, with room to spare — the HTML button
+// is drawn at exactly this width, so the box the layout reserved is the box the
+// reader can click.
+export const CARD_HEAD_W = 50 * CARD_TYPE_SCALE;
 // The horizontal rule under the title area, and the air either side of it.
 export const CARD_RULE_GAP = 7 * CARD_TYPE_SCALE;
 export const CARD_RULE_H = 1;
@@ -1788,6 +1811,7 @@ export const CARD_RADIUS = 10 * CARD_TYPE_SCALE;
  * the slot for the same reason).
  */
 export const cardTitleH = (stepLabel, nameLines = 1) => CARD_PAD_Y
+    + CARD_HEAD_BAND
     + Math.max(1, nameLines) * CARD_LINE_H
     + (stepLabel === 'title' ? 0 : CARD_SUBTITLE_H);
 
@@ -2650,8 +2674,9 @@ export function drawsLabelKind(kind, level) {
     // does and never float beside a bare bead.
     // `run` (req #3580) and `step-add` (req #3582) are title-area controls
     // too and ride the card the same way.
+    // `collapse` (req #3650) is the card's own fold, its first row.
     if (kind === 'step' || kind === 'req' || kind === 'badge' || kind === 'step-link'
-        || kind === 'run' || kind === 'step-add') {
+        || kind === 'run' || kind === 'step-add' || kind === 'collapse') {
         return level !== 'out';
     }
     if (kind === 'title') return level === 'in';
@@ -3292,7 +3317,13 @@ export function computePlanLayout(rows, opts = {}) {
         // caller is what turns an out-of-range number into the default rather
         // than this module guessing which rung was meant.
         stepWidthLevel = DEFAULT_STEP_WIDTH_LEVEL,
+        // req #3650 — the boxes the reader folded with their own collapse
+        // heads (`planCollapse.js`): epic ids (null = the "No epic" band) and
+        // step ids. Null folds nothing.
+        collapsedEpicIds = null, collapsedStepIds = null,
     } = opts || {};
+    const epicFolded = (key) => !!collapsedEpicIds?.has(key);
+    const stepFolded = (r) => !!collapsedStepIds?.has(r.id);
     const widthScale = STEP_WIDTH_SCALES[stepWidthLevel - 1] ?? 1;
     const { cardW, cardFrameW, cardTextW } = cardGeometryFor(widthScale);
     const safeRows = Array.isArray(rows) ? rows : [];
@@ -3347,7 +3378,11 @@ export function computePlanLayout(rows, opts = {}) {
                 reqLabel, reqTitles, reqPills, maxChars: reqRowMax * REQ_MAX_LINES,
             }), reqRowMax, REQ_MAX_LINES, String(reqId).length + CARD_SEP_CHARS)));
     }
-    const reqBlockOf = (r) => reqBlockHeight(rowLinesOf.get(r.id) || []);
+    // A FOLDED step (req #3650) reserves no requirement block at all, so its
+    // card is the title area alone. Its LANE is as tall as the tallest card
+    // still in it, so the lane closes up only when nothing beside it is taller.
+    const reqBlockOf = (r) => (stepFolded(r) ? 0
+        : reqBlockHeight(rowLinesOf.get(r.id) || []));
     // The card's TITLE AREA, wrapped by the same rule and reserved the same way.
     // `stepLabelText` is asked for the whole name (the budget times the line
     // count) and `wrapReqText` breaks it; a short name still returns one line,
@@ -3495,6 +3530,9 @@ export function computePlanLayout(rows, opts = {}) {
                 epicLabel: epicBandLabelText(key, epic, epicCounts),
                 epicCountText: epicBandCountText(key, epicCounts),
                 paused: bandPausedOf(key),
+                // req #3650 — folded by its own collapse head: the band keeps
+                // its header (the chip that unfolds it) and draws no lanes.
+                collapsed: epicFolded(key),
                 steps: [],
             });
             bandKeys.push(key);
@@ -3977,10 +4015,16 @@ export function computePlanLayout(rows, opts = {}) {
         // rather than index × a single pitch. `laneY` is exported on the band:
         // every consumer that draws per-lane furniture (the visualizer's lane
         // wires) must use it or the wires detach from the cards.
+        // A FOLDED band (req #3650) draws NO lanes, so its height is its
+        // header alone. The lanes above are still assigned — the placement is
+        // band-local, so assigning it changes nothing outside this band — and
+        // the COLUMNS were computed over every row, so folding an epic never
+        // moves another epic's cards sideways.
+        const drawnSub = band.collapsed ? 0 : sub;
         const laneY = [];
         {
             let acc = 0;
-            for (let l = 0; l < sub; l++) { laneY.push(acc); acc += lanePitch(l); }
+            for (let l = 0; l < drawnSub; l++) { laneY.push(acc); acc += lanePitch(l); }
             laneY.push(acc); // sentinel: total lane height
         }
         // Retained for consumers that want a representative pitch; band height
@@ -3999,7 +4043,7 @@ export function computePlanLayout(rows, opts = {}) {
         // visualizer's floating epic chip clamps to THIS rather than re-deriving
         // it, and the two must not drift apart again.
         const epicLaneH = headerH;
-        bands.push({ ...band, steps, sub, pitch, laneY, laneCardH,
+        bands.push({ ...band, steps, sub: drawnSub, pitch, laneY, laneCardH,
             headerH, epicLaneH });
         bandUsed.push(used);
     }
@@ -4041,6 +4085,11 @@ export function computePlanLayout(rows, opts = {}) {
     // curve means what it should mean — a BRANCH into another lane.
     const nodes = new Map();
     bands.forEach((band, bandIndex) => {
+        // A folded band (req #3650) places no cards: its steps have no node,
+        // so every consumer that walks `nodes` — the arcs below, the labels,
+        // the renderer, the focus fits — passes over them as it does any step
+        // with no node, and an arc into or out of the band is not drawn.
+        if (band.collapsed) return;
         for (const r of band.steps) {
             const d = colOf.get(r.id);
             const lane = laneById.get(r.id);
@@ -4196,6 +4245,21 @@ export function computePlanLayout(rows, opts = {}) {
     const labels = [];
     for (const r of safeRows) {
         const n = nodes.get(r.id);
+        if (!n) continue;                  // in a folded band (req #3650)
+        // The title area's own line starts BELOW the collapse head's row (req
+        // #3650), and every control on that line is placed from it.
+        const headTop = n.top + CARD_PAD_Y;
+        const nameTop = headTop + CARD_HEAD_BAND;
+        // ── THE COLLAPSE HEAD (req #3650) — the card's first row, at the
+        //    top-left of its text column, where the TPU 3D panels keep theirs.
+        labels.push({
+            kind: 'collapse', stepId: r.id, text: CARD_HEAD_LABEL,
+            collapsed: stepFolded(r),
+            prose: false,
+            x: n.left + CARD_FRAME_X + CARD_PAD_X,
+            y: headTop,
+            w: CARD_HEAD_W, h: CARD_HEAD_H,
+        });
         // ── THE STEP NAME, IN THE CARD'S TITLE AREA (req #3498) ─────────────
         // It floated 34px ABOVE the bead until now, fitted to a stagger budget
         // assembled from the neighbouring columns. It sits inside the card's own
@@ -4229,7 +4293,7 @@ export function computePlanLayout(rows, opts = {}) {
             // In `title` mode this label IS the step's stored name.
             prose: stepLabel === 'title',
             x: titleTextLeft,
-            y: n.top + CARD_PAD_Y,
+            y: nameTop,
             w: lw, h: nameLines.length * CARD_LINE_H,
             // req #3580 — the WHOLE room the name may occupy (up to the run
             // pill's reserve), which is where the in-place editor is drawn.
@@ -4256,7 +4320,8 @@ export function computePlanLayout(rows, opts = {}) {
         // The wrapped lines this step's rows occupy — derived once at the top of
         // this function, so the box that was measured and the text drawn into it
         // are the same answer.
-        const rowLines = rowLinesOf.get(r.id) || [];
+        // A folded step's rows are not drawn (req #3650): it reserved no block.
+        const rowLines = stepFolded(r) ? [] : (rowLinesOf.get(r.id) || []);
         let rowY = rowsTop;
         // ── THE ID-ONLY PACKING, ALONGSIDE THE TITLE ONE (req #3503 review:
         //    "bring all the numbers into a nice vertical line up with no white
@@ -4363,7 +4428,7 @@ export function computePlanLayout(rows, opts = {}) {
                 x: textLeft + CARD_BADGE_W - badgeW,
                 // On the FIRST name line, whatever the name wrapped to — the
                 // count belongs to the card, not to the last line of its title.
-                y: n.top + CARD_PAD_Y + CARD_BADGE_TOP,
+                y: nameTop + CARD_BADGE_TOP,
                 w: badgeW, h: CARD_BADGE_H,
             });
         }
@@ -4383,7 +4448,7 @@ export function computePlanLayout(rows, opts = {}) {
                 prose: false,
                 x: n.right - CARD_PAD_X - CARD_CHECK_W - CARD_STEP_LINK_W
                     - CARD_TITLE_BTN,
-                y: n.top + CARD_PAD_Y,
+                y: nameTop,
                 w: CARD_TITLE_BTN, h: CARD_TITLE_BTN,
             });
         }
@@ -4406,7 +4471,7 @@ export function computePlanLayout(rows, opts = {}) {
                     - CARD_RUN_W,
                 // Centred with the "+" and ↗ buttons beside it, which is why it does
                 // not follow the count badge's CARD_BADGE_TOP (req #3606).
-                y: n.top + CARD_PAD_Y + 1,
+                y: nameTop + 1,
                 w: CARD_RUN_W, h: CARD_RUN_H,
             });
         }
@@ -4422,7 +4487,7 @@ export function computePlanLayout(rows, opts = {}) {
                     // Stored plan content — see the `prose` note on req marks.
                     prose: true,
                     x: textLeft,
-                    y: n.top + CARD_PAD_Y + nameLines.length * CARD_LINE_H,
+                    y: nameTop + nameLines.length * CARD_LINE_H,
                     w: t.length * CHW_TITLE, h: 11,
                 });
             }
@@ -4464,7 +4529,7 @@ export function computePlanLayout(rows, opts = {}) {
             // floating chip against, grown onto the rect the zero-overlap
             // invariant actually sweeps (req #3225 set this precedent: the
             // count suffix grew both together, never just the chip).
-            w: bandText.length * CHW_EPIC + EPIC_PAUSE_BUBBLE_W, h: 16,
+            w: bandText.length * CHW_EPIC + EPIC_PAUSE_BUBBLE_W + EPIC_CHIP_COLLAPSE_W, h: 16,
         });
     }
     return {
@@ -4682,6 +4747,13 @@ export const EPIC_CHIP_CARDS_LINK_W = 30;
 export const EPIC_PAUSE_BUBBLE_D = 8;    // the dot's own diameter, screen px
 const EPIC_PAUSE_BUBBLE_GAP = 4;         // matches the chip's flex `gap`
 export const EPIC_PAUSE_BUBBLE_W = EPIC_PAUSE_BUBBLE_D + EPIC_PAUSE_BUBBLE_GAP;
+// req #3650 — the chip's COLLAPSE HEAD, which leads it: the TPU 3D head
+// (`.tpu3d-head`) at its own 10px, chevron + "STEPS". FLAT, like the pause
+// bubble — the TPU head never scales — and drawn at exactly
+// `EPIC_CHIP_COLLAPSE_HEAD_W`, so this reservation is the box on screen; the
+// rest is the chip's flex `gap`.
+export const EPIC_CHIP_COLLAPSE_HEAD_W = 50;
+export const EPIC_CHIP_COLLAPSE_W = EPIC_CHIP_COLLAPSE_HEAD_W + EPIC_PAUSE_BUBBLE_GAP;
 // ── THE FLOOR (req #3272) ──────────────────────────────────────────────────
 // The smallest size the epic NAME may ever render at. This is the whole of the
 // requirement: a floor on the FONT, with the box derived from it, replacing a
@@ -4872,7 +4944,7 @@ export function placeEpicChips({
         // anything is clamped or clipped against it.
         const wFull = bandText.length * charW * scale + EPIC_CHIP_PAD_W * scale
             + (band.epicId != null ? EPIC_CHIP_OPEN_LINK_W + EPIC_CHIP_CARDS_LINK_W : 0)
-            + EPIC_PAUSE_BUBBLE_W;
+            + EPIC_PAUSE_BUBBLE_W + EPIC_CHIP_COLLAPSE_W;
 
         // ── THE RULE ────────────────────────────────────────────────────────
         // First term: the intersection's own corner, plus the margin. Second:
@@ -5042,8 +5114,10 @@ export function placeEpicChips({
         }
         if (x + w > limit) {
             const room = limit - x;
+            // The collapse head (req #3650) leads the chip, so a cut chip
+            // that keeps any of its name keeps the head that folds it.
             const minW = EPIC_CHIP_PAD_W * scale + EPIC_PAUSE_BUBBLE_W
-                + EPIC_CHIP_MIN_CHARS * charW * scale;
+                + EPIC_CHIP_COLLAPSE_W + EPIC_CHIP_MIN_CHARS * charW * scale;
             if (room < minW) continue;
             w = room;
             clipped = true;

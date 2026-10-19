@@ -73,6 +73,8 @@ import {
     stickyRulerY, rulerScreenBottom, rulerScreenMag,
     EPIC_PALETTE,
     PAUSE_ACTIVE_COLOR, PAUSE_PAUSED_COLOR, pauseBubbleColor, EPIC_PAUSE_BUBBLE_W,
+    // req #3650 — the collapse heads.
+    EPIC_CHIP_COLLAPSE_W, CARD_HEAD_BAND, CARD_HEAD_H, CARD_HEAD_W,
     COLOR_CHANNELS, KEY_GROUP_TITLES,
     reqSortRank, sortReqIdsByColorKey,
 } from '../pipelinePlanLayout';
@@ -757,7 +759,8 @@ describe('the card is a fixed, uniform box (req #3498)', () => {
         // The one thing that keeps a LEVEL change a pure transform: the room for
         // the L3 line is spent at every level, so nothing moves when it appears.
         expect(cardTitleH('id') - cardTitleH('title')).toBeCloseTo(CARD_SUBTITLE_H, 6);
-        expect(cardTitleH('title')).toBeCloseTo(CARD_PAD_Y + CARD_LINE_H, 6);
+        // + the collapse head's row (req #3650), the card's first line.
+        expect(cardTitleH('title')).toBeCloseTo(CARD_PAD_Y + CARD_HEAD_BAND + CARD_LINE_H, 6);
     });
 
     it('the box is the same at every level — a level change never relayouts', () => {
@@ -1290,7 +1293,7 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
         const text = band.epicLabel || band.epic;
         const w = text.length * EPIC_CHIP_CHAR_W * scale + EPIC_CHIP_PAD_W * scale
             + (band.epicId != null ? EPIC_CHIP_OPEN_LINK_W + EPIC_CHIP_CARDS_LINK_W : 0)
-            + EPIC_PAUSE_BUBBLE_W;
+            + EPIC_PAUSE_BUBBLE_W + EPIC_CHIP_COLLAPSE_W;
         return { w, h };
     };
 
@@ -2036,7 +2039,8 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
         // so 24 unmeasured px is 24 px that hangs past the edge it was clamped to.
         expect(chip.w).toBeCloseTo(
             20 * EPIC_CHIP_CHAR_W + EPIC_CHIP_PAD_W
-            + EPIC_CHIP_OPEN_LINK_W + EPIC_CHIP_CARDS_LINK_W + EPIC_PAUSE_BUBBLE_W, 6);
+            + EPIC_CHIP_OPEN_LINK_W + EPIC_CHIP_CARDS_LINK_W + EPIC_PAUSE_BUBBLE_W
+            + EPIC_CHIP_COLLAPSE_W, 6);
         expect(chip.clipped).toBe(false);
     });
 
@@ -2048,7 +2052,8 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
         });
         expect(chip.key).toBe('none');
         expect(chip.w).toBeCloseTo(
-            20 * EPIC_CHIP_CHAR_W + EPIC_CHIP_PAD_W + EPIC_PAUSE_BUBBLE_W, 6);
+            20 * EPIC_CHIP_CHAR_W + EPIC_CHIP_PAD_W + EPIC_PAUSE_BUBBLE_W
+            + EPIC_CHIP_COLLAPSE_W, 6);
     });
 
     // ── LEAVING SLIDES OFF; ENTERING WAITS (or is clipped) ─────────────────
@@ -2402,7 +2407,7 @@ describe('the epic name holds a legible minimum font (req #3272)', () => {
             const w = text.length * EPIC_CHIP_CHAR_W * scale
                 + EPIC_CHIP_PAD_W * scale
                 + (band.epicId != null ? EPIC_CHIP_OPEN_LINK_W + EPIC_CHIP_CARDS_LINK_W : 0)
-                + EPIC_PAUSE_BUBBLE_W;
+                + EPIC_PAUSE_BUBBLE_W + EPIC_CHIP_COLLAPSE_W;
             const x = Math.min(ix0 + MX, right - MX - w);
             const y = Math.min(iy0 + MY, bottom - MY - h);
             if (x < left + MX - 0.01) return null;
@@ -2742,7 +2747,8 @@ describe('epic band label counts, behind a toggle (req #3225)', () => {
             const band = withCounts.bands.find((b) => b.epicId === label.epicId);
             expect(label.text).toBe(band.epic);
             expect(label.w).toBeCloseTo(
-                band.epic.length * EPIC_CHIP_CHAR_W + EPIC_PAUSE_BUBBLE_W, 6);
+                band.epic.length * EPIC_CHIP_CHAR_W + EPIC_PAUSE_BUBBLE_W
+                + EPIC_CHIP_COLLAPSE_W, 6);
         }
     });
 
@@ -2856,7 +2862,8 @@ describe('epic band label counts, behind a toggle (req #3225)', () => {
         // footprint is reserved on every chip now that the measured box is what
         // keeps the name inside its own rectangle.
         expect(chip.w).toBeCloseTo(20 * EPIC_CHIP_CHAR_W + 18
-            + EPIC_CHIP_OPEN_LINK_W + EPIC_CHIP_CARDS_LINK_W + EPIC_PAUSE_BUBBLE_W, 6);
+            + EPIC_CHIP_OPEN_LINK_W + EPIC_CHIP_CARDS_LINK_W + EPIC_PAUSE_BUBBLE_W
+            + EPIC_CHIP_COLLAPSE_W, 6);
     });
 
     it('the toggle is a pure display transform: the ONLY thing that changes '
@@ -3986,7 +3993,8 @@ describe('the pause status bubble (req #3226)', () => {
         });
         // + EPIC_CHIP_OPEN_LINK_W since req #3257 (see the fallback test above).
         expect(withBubble[0].w).toBeCloseTo(20 * EPIC_CHIP_CHAR_W + 18
-            + EPIC_CHIP_OPEN_LINK_W + EPIC_CHIP_CARDS_LINK_W + EPIC_PAUSE_BUBBLE_W, 6);
+            + EPIC_CHIP_OPEN_LINK_W + EPIC_CHIP_CARDS_LINK_W + EPIC_PAUSE_BUBBLE_W
+            + EPIC_CHIP_COLLAPSE_W, 6);
     });
 
     // "its rectangle belongs in the same label set the zero-overlap invariant
@@ -4002,7 +4010,8 @@ describe('the pause status bubble (req #3226)', () => {
             const band = layout.bands.find((b) => b.epicId === label.epicId);
             const bandText = band.epicLabel || band.epic;
             expect(label.w).toBeCloseTo(
-                bandText.length * EPIC_CHIP_CHAR_W + EPIC_PAUSE_BUBBLE_W, 6);
+                bandText.length * EPIC_CHIP_CHAR_W + EPIC_PAUSE_BUBBLE_W
+                + EPIC_CHIP_COLLAPSE_W, 6);
         }
     });
 });
@@ -5511,7 +5520,8 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
             // req #3606 — the pill sits `CARD_BADGE_TOP` off the title row's top (the
             // name's ink rides above the line box's centre), so it may overhang
             // the row by that much into the card's top padding, never below it.
-            expect(badge.y).toBe(n.top + CARD_PAD_Y + CARD_BADGE_TOP);
+            // (The title row starts under the collapse head's row, req #3650.)
+            expect(badge.y).toBe(n.top + CARD_PAD_Y + CARD_HEAD_BAND + CARD_BADGE_TOP);
             expect(badge.y).toBeGreaterThanOrEqual(n.top);
             expect(badge.y + badge.h).toBeLessThanOrEqual(n.top + cardTitleH('title'));
         }
@@ -5576,8 +5586,12 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
                 const n = layout.nodes.get(row.id);
                 expect(add.x + add.w, where)
                     .toBeCloseTo(n.right - CARD_PAD_X - CARD_CHECK_W, 6);
-                expect(add.y, where).toBe(n.top + CARD_PAD_Y);
-                expect(add.y + add.h, where).toBeLessThanOrEqual(n.top + cardTitleH('title') + 1e-6);
+                // On the title's own line — below the collapse head's row since
+                // req #3650 — and inside the title area.
+                const [name] = layout.labels.filter(
+                    (l) => l.kind === 'step' && l.stepId === row.id);
+                expect(add.y, where).toBe(name.y);
+                expect(add.y + add.h, where).toBeLessThanOrEqual(n.top + n.titleH + 1e-6);
             }
         }
         // A stamped step specifically — the fixture may carry none.

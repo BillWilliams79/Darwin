@@ -21,6 +21,10 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 vi.mock('../pipelineDetailModes', () => {
     const Panel = (name) => function ModeStub({ focusStepId, focusEpicId, onStepFocus }) {
+        // EVERY render, not just the last (req #3651): a stale focus that is
+        // cleared a render later has already reached a mounting canvas.
+        (globalThis.__panelRenders ||= []).push(
+            { name, step: focusStepId ?? null, epic: focusEpicId ?? null });
         return <div data-testid={`mode-${name}`}
                     data-focus-step={focusStepId == null ? '' : String(focusStepId)}
                     data-focus-epic={focusEpicId == null ? '' : String(focusEpicId)}>
@@ -189,5 +193,55 @@ describe('PipelineDetail — a bead click stays on the plan (req #3641)', () => 
         act(() => { node('bead-plan').click(); });
         expect(node('mode-plan')).not.toBeNull();
         expect(loc.search).toBe('?mode=plan');
+    });
+});
+
+describe('PipelineDetail — a RETURN never hands a panel the previous entry\'s focus (req #3651)', () => {
+    // The measured defect: Back from a bead click's `?mode=table&step=N` mounted
+    // the canvas with `focusStepId = N` for one render, which was enough for it
+    // to start flying to the step and save the interrupted flight over the
+    // reader's camera. The final state was always right — which is why the
+    // test above, which reads only the final state, passed throughout. A bead
+    // click no longer pushes that link (req #3641 withdrew the Table), so the
+    // step link is followed directly — the property is the same: a RETURN
+    // never carries the previous entry's focus.
+    it('Back from a step link: no plan render ever carries the step', () => {
+        mount(['/swarm/pipeline/2?mode=plan']);
+        act(() => { nav('/swarm/pipeline/2?mode=plan&step=47'); });
+        expect(focusStepOf('plan')).toBe('47');
+        globalThis.__panelRenders = [];
+        act(() => { nav(-1); });
+        const plan = globalThis.__panelRenders.filter((r) => r.name === 'plan');
+        expect(plan.length).toBeGreaterThan(0);
+        expect(plan.filter((r) => r.step != null || r.epic != null)).toEqual([]);
+    });
+
+    it('Back from an epic link onto a plain entry: no render carries the epic', () => {
+        mount(['/swarm/pipeline/2?mode=plan']);
+        act(() => { nav('/swarm/pipeline/2?epic=55'); });
+        expect(focusEpicOf('plan')).toBe('55');
+        globalThis.__panelRenders = [];
+        act(() => { nav(-1); });
+        expect(globalThis.__panelRenders.filter((r) => r.epic != null)).toEqual([]);
+    });
+
+    it('a fresh link still focuses on its FIRST render, and keeps it through its own mark', () => {
+        mount(['/swarm/pipeline/2?mode=plan']);
+        globalThis.__panelRenders = [];
+        act(() => { nav('/swarm/pipeline/2?mode=plan&epic=55'); });
+        const plan = globalThis.__panelRenders.filter((r) => r.name === 'plan');
+        expect(plan.length).toBeGreaterThan(0);
+        expect(plan.every((r) => r.epic === 55)).toBe(true);
+        expect(loc.state).toEqual(consumed('?mode=plan&epic=55'));
+    });
+
+    it('Forward onto a marked link entry is a RETURN too — no re-fire', () => {
+        mount(['/swarm/pipeline/2?mode=plan']);
+        act(() => { nav('/swarm/pipeline/2?mode=plan&step=47'); });
+        act(() => { nav(-1); });
+        globalThis.__panelRenders = [];
+        act(() => { nav(1); });
+        expect(node('mode-plan')).not.toBeNull();
+        expect(globalThis.__panelRenders.filter((r) => r.step != null)).toEqual([]);
     });
 });

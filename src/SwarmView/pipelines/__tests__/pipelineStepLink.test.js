@@ -21,6 +21,8 @@ import {
     readNewRequirementSeat,
     backToPlanQuery,
     planExitState,
+    planViewCarry,
+    PLAN_VIEW_PARAMS,
 } from '../pipelineStepLink';
 import { PLAN_LEVEL_BY_PREF, REQ_COLOR_KEYS } from '../pipelinePlanLayout';
 
@@ -198,7 +200,22 @@ describe('Back to Plan returns to the same view (req #3637)', () => {
 
     it('drops anything it cannot validate', () => {
         expect(backToPlanQuery({ mode: 'plan&x=1', level: '9' })).toBeNull();
+        expect(backToPlanQuery({ color: 'chartreuse&x=1' })).toBeNull();
         expect(backToPlanQuery(undefined)).toBeNull();
+    });
+
+    // req #3651 — every view override travels, not `level` alone: a `?color=`
+    // the reader was looking at used to be dropped by "Back to Plan", so it
+    // landed on a different view than the browser's Back to the same entry.
+    it('carries every PLAN_VIEW_PARAMS override — ?color= as well as ?level=', () => {
+        window.history.replaceState(null, '', '/swarm/pipeline/7?mode=plan&level=2&color=session');
+        const state = planExitState(7, 'plan');
+        expect(state).toEqual(
+            { from: 'pipeline', pipelineId: 7, mode: 'plan', level: '2', color: 'session' });
+        expect(backToPlanQuery(state)).toBe('mode=plan&level=2&color=session');
+        // …and what a page re-writing its own state must forward.
+        expect(planViewCarry({ ...state, backStepId: 9 })).toEqual({ level: '2', color: 'session' });
+        expect(PLAN_VIEW_PARAMS.map((p) => p.param)).toEqual(['level', 'color']);
     });
 });
 

@@ -77,6 +77,7 @@ import {
     planEntityName, planListPath,
 } from './planEra';
 import { usePlanSources } from './usePlanSources';
+import { usePlanMaximize } from './usePlanMaximize';
 import {
     readColorParam, readFocusStepParam, readLevelParam,
     FOCUS_LEVEL_PARAM, FOCUS_COLOR_PARAM,
@@ -88,8 +89,6 @@ import { writePipelinePlace } from './pipelinePlace';
 // `SemanticLevelControl` and `PLAN_LEVEL_NUMBER` went with them; this page no
 // longer knows what a semantic level is.
 import PipelinePlanToolbar from './PipelinePlanToolbar';
-// req #3650 — the TPU 3D collapse head, leading the header row.
-import ControlsCollapseHead from './ControlsCollapseHead';
 // Trimmed to what this file actually renders (req #3241). `DEFAULT_REQ_VIEW`,
 // `REQ_VIEWS`, `normalizeReqView`, `reqViewOptions` and `machineTitle` outlived
 // the `Reqs:`/`Step:` controls and the status/machine chips that the 2026-08-01
@@ -97,10 +96,14 @@ import ControlsCollapseHead from './ControlsCollapseHead';
 // of them — a dead `SemanticLevelControl` import was the visible trace req #3261
 // was filed from.
 import {
-    DEFAULT_COLOR_KEY, DEFAULT_PLAN_LEVEL_PREF,
     normalizeColorKey, normalizePlanLevelPref,
     STEP_WIDTH_SCALES, DEFAULT_STEP_WIDTH_LEVEL,
 } from './pipelinePlanLayout';
+import { usePlanViewSetting } from './planViewSettings';
+import {
+    classifyPlanEntry, isPlanLinkConsumed, planEntryFocus,
+    PLAN_ENTRY_LINK, PLAN_LINK_CONSUMED_STATE_KEY,
+} from './planViewEntry';
 import {
     // The two-read cost fold. It is not plan derivation — `pipeline2_derive.py`
     // owns that, server side — and req #3345 did not move cost into the composed
@@ -119,11 +122,6 @@ import { buildReqPills } from './planReqPills';
 // One stable reference costs nothing and keeps the memo chain honest in the
 // error path the costError branch exists to handle.
 const EMPTY = Object.freeze([]);
-
-// req #3637 — the history-state key marking an entry whose `?step=`/`?epic=`
-// link has already been honoured. Its value is the `search` it was honoured
-// for, so an entry whose query is later rewritten is not mistaken for marked.
-const PLAN_LINK_CONSUMED_STATE_KEY = 'planLinkConsumed';
 
 // The narrowest the plan's name may become (req #3365 polish). A FLOOR on the
 // header title's flex basis — see the title's own comment in the render for why
@@ -180,10 +178,10 @@ export default function PipelineDetail() {
     //    point). The `Reqs:` and `Step:` preferences went with their controls
     //    (user directive 2026-08-01); the requirement LAYOUT stopped being a
     //    value at all with req #3498, because a card stacks its requirements top
-    //    to bottom and there is no second arrangement left to name; and
-    //    `darwin-pipeline-viz-step-width` went with the S/M/L control in the
-    //    same pass, since every column is one card wide and a stored factor has
-    //    nothing to scale. `stepLabel` and `reqLabel` are the two survivors and
+    //    to bottom and there is no second arrangement left to name. (The S/M/L
+    //    step-width control went in that same pass; its storage key came back
+    //    with req #3503's four-rung Step Width, now the `stepWidth` row of
+    //    `planViewSettings.js` — read below.) `stepLabel` and `reqLabel` are the two survivors and
     //    are declared as constants further down, beside the comment that
     //    explains what they are pinned TO.
     //
@@ -196,8 +194,9 @@ export default function PipelineDetail() {
     // shown on every desktop: a page title one step smaller than every other
     // page's, for no reason anybody recorded.
     const isMobile = useMediaQuery('(max-width:899px)');
-    const [colorKeyPref, setColorKeyPref] = useViewPreference(
-        'darwin-pipeline-viz-color-key', DEFAULT_COLOR_KEY);
+    // The persisted view settings are ONE table, `planViewSettings.js` (req
+    // #3651) — key and default are spelled there, never at a call site.
+    const [colorKeyPref, setColorKeyPref] = usePlanViewSetting('colorKey');
     // req #3503 — "Step Width": four rungs, 1 the card every existing plan is
     // already sized for, 2-4 each 25% more text room. PERSISTED like every
     // other view preference — a reader who widens the card wants it wide next
@@ -205,8 +204,7 @@ export default function PipelineDetail() {
     // relayouts the plan (every column, every card, every wrap point) rather
     // than just moving the camera, which is exactly why it is a deliberate,
     // explicit choice and never an automatic one.
-    const [stepWidthLevelPref, setStepWidthLevelPref] = useViewPreference(
-        'darwin-pipeline-viz-step-width', String(DEFAULT_STEP_WIDTH_LEVEL));
+    const [stepWidthLevelPref, setStepWidthLevelPref] = usePlanViewSetting('stepWidth');
     // `Number.isFinite` on the LOOKED-UP SCALE, not a truthiness test on it
     // (review finding): correct today only because no rung is `0` or another
     // falsy-but-valid number — this says what is actually meant regardless.
@@ -217,8 +215,7 @@ export default function PipelineDetail() {
     // elsewhere"). `auto` keeps the zoom-derived level; 1|2|3 pin one. Persisted
     // like every other view preference, and normalized the same way — the value
     // comes from localStorage.
-    const [levelPref, setLevelPref] = useViewPreference(
-        'darwin-pipeline-viz-level', DEFAULT_PLAN_LEVEL_PREF);
+    const [levelPref, setLevelPref] = usePlanViewSetting('level');
     // The STORED preference. What the toolbar and the canvas actually read is
     // `activeLevelPref` further down, which lets a `?level=` link pin one level
     // for one landing without ever writing it here (req #3253).
@@ -249,17 +246,6 @@ export default function PipelineDetail() {
     // for "8" again must bring you back, and a bare value would be unchanged
     // state and do nothing.
     const [stepsAcross, setStepsAcross] = useState({ n: null, nonce: 0 });
-    // req #3650 — ONE fold for the header's UI options: the Plan view's toolbar
-    // (it also folded the Table view's Time/Tokens until req #3641 withdrew the
-    // Table). PERSISTED like
-    // the other view preferences — a reader who folds the controls away to
-    // give the plan the room wants them folded next visit too.
-    const [controlsPref, setControlsPref] = useViewPreference(
-        'darwin-swarm-pipeline-detail-controls', 'open');
-    const controlsOpen = controlsPref !== 'collapsed';
-    const toggleControls = useCallback(
-        () => setControlsPref(controlsOpen ? 'collapsed' : 'open'),
-        [controlsOpen, setControlsPref]);
     // The step label is always the TITLE, and the requirement marks always
     // reserve room for their TITLE — the renderer draws the id inside that box
     // at L1/L2 and the title itself at L3 (see the `idText` note in
@@ -306,8 +292,9 @@ export default function PipelineDetail() {
     // The receiving end of the requirement page's epic-box "view on plan" link.
     // A `?step=` is more specific than a `?epic=` (a step names one card; an
     // epic is a whole band a step already belongs to), so if a link somehow
-    // carried both, the step wins — the canvas applies that precedence. `pipelineEpicLink.js` owns both halves of this
-    // contract, same split as the step link.
+    // carried both, the step wins — the canvas applies that precedence.
+    // `pipelineEpicLink.js` owns both halves of this contract, same split as the
+    // step link.
     const linkEpicId = readFocusEpicParam(searchParams);
     // ── `?level=` PINS THE SEMANTIC LEVEL FOR ONE LANDING (req #3253) ────────
     // The step-on-the-plan link carries `level=3` (req #3498 — it was `2`, and
@@ -343,16 +330,42 @@ export default function PipelineDetail() {
     // URL (`replaceLinkParams` below) instead of leaving a stale query behind.
     const location = useLocation();
     const navigationType = useNavigationType();
-    const linkConsumed = location.state?.[PLAN_LINK_CONSUMED_STATE_KEY] === location.search;
-    const [focusStepId, setFocusStepId] = useState(linkConsumed ? null : linkStepId);
-    // Req #3235 code review — `?epic=` needs the SAME transient-override
-    // treatment as `?step=`, not the raw searchParams value passed straight
-    // through: without a state copy, a manual mode pick can never clear it
-    // (nothing owns it to clear), and an in-place navigation from one `?epic=`
-    // link to another — which `pipelineId`'s own comment below notes this
-    // component survives without remounting — would keep re-focusing (or
-    // silently drop) a link the reader already left behind.
-    const [focusEpicId, setFocusEpicId] = useState(linkConsumed ? null : linkEpicId);
+    // ── THE FOCUS IS THE ENTRY'S, COMPUTED IN RENDER (req #3651) ────────────
+    // Each entry is a LINK (fire once, then mark), a REWRITE (this page's own
+    // replace — keep the focus in hand) or a RETURN (Back/Forward, reload,
+    // "Back to Plan" — no focus; memory answers). `planViewEntry.js` holds the
+    // three and why there are only three.
+    //
+    // It used to be state re-seeded by an EFFECT on `location.key`, and an
+    // effect runs after the render it follows — so a Back from a bead click's
+    // `?mode=table&step=N` mounted the canvas WITH `focusStepId = N`. The canvas
+    // began flying to that step before restoring the reader's camera, and saved
+    // the interrupted flight over it: the plan's top-left at scale 1. React's
+    // "adjust state when a prop changes" pattern below re-derives the focus in
+    // the SAME render the entry changes in, before any child renders, so no
+    // panel can see another entry's focus. `?epic=` rides along for the reason
+    // req #3235's review gave it a state copy at all: an in-place move between
+    // two links must not keep the first. (A manual mode pick cleared both too,
+    // until req #3641 withdrew the Table and the switcher with it.)
+    const linkConsumed = isPlanLinkConsumed(location);
+    const entryKind = classifyPlanEntry({
+        consumed: linkConsumed, navigationType,
+        hasFocusLink: linkStepId != null || linkEpicId != null,
+    });
+    const [focus, setFocus] = useState(() => ({
+        entry: location.key,
+        ...planEntryFocus(entryKind, { stepId: linkStepId, epicId: linkEpicId }, null),
+    }));
+    let liveFocus = focus;
+    if (focus.entry !== location.key) {
+        liveFocus = {
+            entry: location.key,
+            ...planEntryFocus(entryKind, { stepId: linkStepId, epicId: linkEpicId }, focus),
+        };
+        setFocus(liveFocus);
+    }
+    const focusStepId = liveFocus.stepId;
+    const focusEpicId = liveFocus.epicId;
     // The panel and the level are the URL's whenever it names them — derived,
     // never a state copy, so a Back/Forward lands on that entry's own panel and
     // a reload keeps it. Never written to the persisted preferences: a link
@@ -360,22 +373,10 @@ export default function PipelineDetail() {
     const modeOverride = linkView;
     const levelOverride = linkLevel;
     const colorKey = normalizeColorKey(linkColor ?? colorKeyPref);
-    // Re-seeds the focus whenever the history ENTRY changes. Three cases:
-    //   · an UNMARKED entry carrying a link — honour it, then mark the entry;
-    //   · a marked entry reached by REPLACE — this page's own marking (or a
-    //     manual pick re-marking it), so the focus just seeded stays;
-    //   · anything else (a POP onto a marked entry, a URL with no link) — no
-    //     focus, so the restored camera / scroll is what the reader gets.
+    // A LINK entry is MARKED once its focus is in hand — a replace onto the same
+    // URL, which arrives back here as a REWRITE and so keeps the focus.
     useEffect(() => {
-        const hasFocusLink = linkStepId != null || linkEpicId != null;
-        if (linkConsumed && navigationType === 'REPLACE') return;
-        if (linkConsumed || !hasFocusLink) {
-            setFocusStepId(null);
-            setFocusEpicId(null);
-            return;
-        }
-        setFocusStepId(linkStepId);
-        setFocusEpicId(linkEpicId);
+        if (entryKind !== PLAN_ENTRY_LINK) return;
         navigate({ pathname: location.pathname, search: location.search }, {
             replace: true,
             state: { ...(location.state || {}), [PLAN_LINK_CONSUMED_STATE_KEY]: location.search },
@@ -533,6 +534,14 @@ export default function PipelineDetail() {
     // req #3381 item 3 — a withheld or degraded `derived` block is a HARD STOP,
     // not an empty render.
     const canRenderPlan = !!pipeline && !diagnostic && !!plan;
+    // req #3658 — the Plan visualizer's maximize switch. The switch itself is
+    // on the canvas; this page owns the state because what it hides is HERE:
+    // the header row, and (by covering it) the Darwin navbar. Enabled only while
+    // the canvas is actually drawn — the switch is the only way out on screen,
+    // so a mode, a load or a withheld derivation that takes the canvas away
+    // must take the maximize with it.
+    const { maximized, toggle: toggleMaximized } =
+        usePlanMaximize(activeMode === 'plan' && canRenderPlan);
 
     // req #3225 — the whole-plan met/total, read straight off the composed
     // read's own derivation. `plan` is null while a diagnostic is set, so this
@@ -709,7 +718,20 @@ export default function PipelineDetail() {
     // claims happens ("The TableContainer scrolls instead"), and it is scoped to
     // this page: nothing else reads it.
     return (
-        <Box sx={{ p: 3, minWidth: 0 }} data-testid="pipeline-detail">
+        <Box sx={{ p: 3, minWidth: 0,
+                   // req #3658 — MAXIMIZED: the page becomes a fixed full-window
+                   // layer over the Darwin navbar (the drawer's z-index and
+                   // above) and under the modal layer, so the seat and insert
+                   // dialogs and every tooltip still open over it. No top
+                   // padding — the header row above the canvas is hidden, so
+                   // the canvas starts at the window's top edge; the sides and
+                   // bottom keep `p: 3` because the canvas cancels exactly that.
+                   ...(maximized && {
+                       position: 'fixed', inset: 0, zIndex: 1250, pt: 0,
+                       overflow: 'hidden', bgcolor: 'background.default',
+                   }) }}
+             data-maximized={maximized ? 'true' : 'false'}
+             data-testid="pipeline-detail">
             {/* ── ONE ROW (user directive 2026-08-01) ─────────────────────────
                 "the title of the visualizer, it became three rows for seemingly
                 no reason." Earlier in req #3168 this was split into a PIPELINE
@@ -802,21 +824,16 @@ export default function PipelineDetail() {
                 `visible` value paired with a non-`visible` one computes to
                 `auto`, so this row is now a scroll container on BOTH axes and
                 clips vertical overflow. Nothing overflows vertically today (the
-                tallest item — the mode toggle, or the title once the controls
-                fold — defines the line's height, and Tooltips are portaled), and `SwarmView.jsx` has carried the identical shape
+                `flexItem` Dividers define the line's height, and Tooltips are
+                portaled), and `SwarmView.jsx` has carried the identical shape
                 since req #2802 — but the first control here with a badge or a
                 popper anchored INSIDE the row will find it. */}
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'nowrap',
+            {/* req #3658 — hidden, not unmounted, while maximized: the
+                toolbar's controls keep their state for the way back. */}
+            <Box sx={{ display: maximized ? 'none' : 'flex',
+                        alignItems: 'center', gap: 1, flexWrap: 'nowrap',
                         minWidth: 0, overflowX: 'auto', mb: 1 }}
                  data-testid="pipeline-header-row">
-                {/* req #3650 — THE COLLAPSE HEAD LEADS THE ROW, which is the
-                    page's upper-left corner, where the TPU 3D views keep theirs.
-                    Folded, the row keeps only what is NOT an option: this head,
-                    the plan's name (its only identity on the page) and the
-                    live-ops status chips. The mode switch, the divider that
-                    opens the controls and the active mode's controls all go. */}
-                <ControlsCollapseHead open={controlsOpen} onToggle={toggleControls} />
-
 
                 {/* THE TITLE IS THE SPACER (req #3261 P3, S11 / V2). It used to
                     be `flexShrink: 1` beside a SEPARATE `flexGrow` Box —
@@ -918,12 +935,9 @@ export default function PipelineDetail() {
                     there BE groups and that a rule separate them — is applied to
                     the order the user asked for, which is the only reading under
                     which both requirements are satisfied. */}
-                {controlsOpen && (
                 <Divider orientation="vertical" flexItem
                          sx={{ mx: 0.5, flexShrink: 0 }} />
-                )}
 
-                {controlsOpen && (
                     <PipelinePlanToolbar
                         onStepsAcross={(n) => setStepsAcross(
                             (prev) => ({ n, nonce: prev.nonce + 1 }))}
@@ -936,7 +950,6 @@ export default function PipelineDetail() {
                         onChangeLevelPref={handleLevelPrefChange}
                         onResetView={handleResetView}
                     />
-                )}
 
                 {/* The status chip and the machine chip were REMOVED on the
                     user's directive (2026-08-01). Plan status is already on the
@@ -945,14 +958,11 @@ export default function PipelineDetail() {
                     were two more things between the plan's name and the reader.
                     Snap (req #3503) and the description button (req #3503) are
                     both gone too — this row's own last child now is whichever
-                    of Time/Tokens or PipelinePlanToolbar the active mode drew,
-                    or, with the controls folded (req #3650), the title. */}
+                    of Time/Tokens or PipelinePlanToolbar the active mode drew. */}
 
                 {/* ── STATUS GROUP (req #3261 P2) ─────────────────────────────
-                    CONDITIONAL ON ITS OWN CONTENTS, not on the controls fold
-                    like the dividers before it (req #3650): it separates the
-                    title from the status chips, both of which stay when the
-                    controls fold. Both chips below appear only
+                    CONDITIONAL ON ITS OWN CONTENTS, not rendered unconditionally
+                    like the two dividers around it: both chips below appear only
                     in a live ops state, so an unconditional rule here would put
                     two adjacent separators with nothing between them on the
                     ordinary row — a group boundary announcing an empty group,
@@ -1098,6 +1108,8 @@ export default function PipelineDetail() {
                              stepsAcross={stepsAcross}
                              stepWidthLevel={stepWidthLevel}
                              reqPills={reqPills}
+                             maximized={maximized}
+                             onToggleMaximized={toggleMaximized}
                              />
             )}
         </Box>
