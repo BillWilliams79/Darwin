@@ -16,7 +16,6 @@ import {
     readColorParam,
     readFocusStepParam,
     readLevelParam,
-    stepLinkTo,
     stepPlanLinkTo,
     newRequirementSeatState,
     readNewRequirementSeat,
@@ -25,26 +24,8 @@ import {
 } from '../pipelineStepLink';
 import { PLAN_LEVEL_BY_PREF, REQ_COLOR_KEYS } from '../pipelinePlanLayout';
 
-describe('stepLinkTo', () => {
-    it('names the plan, the table mode and the step', () => {
-        expect(stepLinkTo(2, 47)).toBe('/swarm/pipeline/2?mode=table&step=47');
-    });
-
-    it('accepts numeric strings, because a grid row carries whatever the wire sent', () => {
-        expect(stepLinkTo('2', '47')).toBe('/swarm/pipeline/2?mode=table&step=47');
-    });
-
-    it('returns null rather than a link to /swarm/pipeline/undefined', () => {
-        // The caller renders a plain chip instead. A step whose pipeline did not
-        // resolve is a real state on the editor page — the pipelines read can fail
-        // independently of the steps read.
-        expect(stepLinkTo(null, 47)).toBeNull();
-        expect(stepLinkTo(undefined, 47)).toBeNull();
-        expect(stepLinkTo(2, null)).toBeNull();
-        expect(stepLinkTo('abc', 47)).toBeNull();
-        expect(stepLinkTo(2, 1.5)).toBeNull();
-    });
-});
+// `stepLinkTo` (the Table's step link, `?mode=table&step=`) was deleted with
+// the Table by req #3641; `stepPlanLinkTo` below is the one step link left.
 
 describe('readFocusStepParam', () => {
     const params = (search) => new URLSearchParams(search);
@@ -75,16 +56,16 @@ describe('readFocusStepParam', () => {
         expect(readFocusStepParam({})).toBeNull();
     });
 
-    it('round-trips what stepLinkTo built', () => {
-        const to = stepLinkTo(2, 47);
+    it('round-trips what stepPlanLinkTo built', () => {
+        const to = stepPlanLinkTo(2, 47);
         const search = to.slice(to.indexOf('?'));
         expect(readFocusStepParam(new URLSearchParams(search))).toBe(47);
-        expect(new URLSearchParams(search).get('mode')).toBe('table');
+        expect(new URLSearchParams(search).get('mode')).toBe('plan');
     });
 
     it('exports the key both halves agree on', () => {
         expect(FOCUS_STEP_PARAM).toBe('step');
-        expect(stepLinkTo(1, 2)).toContain(`${FOCUS_STEP_PARAM}=2`);
+        expect(stepPlanLinkTo(1, 2)).toContain(`${FOCUS_STEP_PARAM}=2`);
     });
 
     // req #3356 — the `era` PARAMETER IS GONE, not merely defaulted. It existed
@@ -92,7 +73,6 @@ describe('readFocusStepParam', () => {
     // ids and no 1.0 route. A surviving parameter would be a way to ask for a
     // page that does not exist, which is req #3462's shape.
     it('takes no era argument — a stray one cannot redirect the link', () => {
-        expect(stepLinkTo(2, 47, 1)).toBe(stepLinkTo(2, 47));
         expect(stepPlanLinkTo(2, 47, 1)).toBe(stepPlanLinkTo(2, 47));
     });
 });
@@ -101,14 +81,6 @@ describe('readFocusStepParam', () => {
 describe('stepPlanLinkTo', () => {
     it('names the plan, the plan mode, the step and the level', () => {
         expect(stepPlanLinkTo(2, 47)).toBe('/swarm/pipeline/2?mode=plan&step=47&level=3');
-    });
-
-    it('is the SAME step parameter as the table link, not a third landing mode', () => {
-        const table = new URLSearchParams(stepLinkTo(2, 47).split('?')[1]);
-        const plan = new URLSearchParams(stepPlanLinkTo(2, 47).split('?')[1]);
-        expect(readFocusStepParam(plan)).toBe(readFocusStepParam(table));
-        expect(plan.get('mode')).toBe('plan');
-        expect(table.get('mode')).toBe('table');
     });
 
     it('applies the same id validation — a dead link is worse than no link', () => {

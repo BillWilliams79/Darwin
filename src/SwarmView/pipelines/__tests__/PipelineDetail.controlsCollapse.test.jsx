@@ -20,14 +20,14 @@ vi.mock('../pipelineDetailModes', () => {
     const Panel = (name) => function ModeStub() {
         return <div data-testid={`mode-${name}`} />;
     };
+    // The real registry's shape since req #3641: ONE mode, the Plan visualizer.
     const MODES = [
-        { value: 'table', label: 'Table', icon: () => null, Component: Panel('table') },
         { value: 'plan', label: 'Plan', icon: () => null, Component: Panel('plan') },
     ];
     return {
         PIPELINE_DETAIL_MODES: MODES,
         PIPELINE_DETAIL_MODE_STORAGE_KEY: 'darwin-swarm-pipeline-detail-mode',
-        DEFAULT_PIPELINE_DETAIL_MODE: 'table',
+        DEFAULT_PIPELINE_DETAIL_MODE: 'plan',
         findPipelineDetailMode: (v) => MODES.find((m) => m.value === v),
         default: MODES,
     };
@@ -124,22 +124,11 @@ describe('PipelineDetail — controls collapse head (req #3650)', () => {
         expect(head().getAttribute('title')).toBe('Collapse controls');
     });
 
-    it('folds and unfolds the Table (steps) view options, keeping the title', () => {
+    it('has no mode switcher to fold — the visualizer is the only view (req #3641)', () => {
         mount('/swarm/pipeline/2?mode=table');
-        expect(node('pipeline-detail-mode-toggle')).not.toBeNull();
-        expect(node('pipeline-cost-toggle')).not.toBeNull();
-
-        click(head());
-        expect(head().getAttribute('aria-expanded')).toBe('false');
         expect(node('pipeline-detail-mode-toggle')).toBeNull();
         expect(node('pipeline-cost-toggle')).toBeNull();
-        expect(node('pipeline-title')).not.toBeNull();
-        expect(node('mode-table')).not.toBeNull();   // the view itself stays
-
-        click(head());
-        expect(head().getAttribute('aria-expanded')).toBe('true');
-        expect(node('pipeline-detail-mode-toggle')).not.toBeNull();
-        expect(node('pipeline-cost-toggle')).not.toBeNull();
+        expect(node('mode-plan')).not.toBeNull();
     });
 
     it('folds and unfolds the Plan (pipeline) view toolbar with the same head', () => {

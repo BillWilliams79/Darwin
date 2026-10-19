@@ -1794,13 +1794,12 @@ export const cardTitleH = (stepLabel, nameLines = 1) => CARD_PAD_Y
 // ── THE STEP NAME WRAPS TOO (req #3498, 2026-08-13) ─────────────────────────
 // It has to, and the reason is the same arithmetic that narrowed the card: at a
 // 28-character line the name's own budget — the text column less the
-// title-row reserves (req #3503: the ✓, the link button, the badge and its
-// gap; req #3580: the run pill; req #3582: the "+"), at the LABEL glyph which
-// is wider than the row glyph — is EIGHT characters (measured — see
+// title-row reserves (req #3503: the ✓ and the badge and its gap; req #3580:
+// the run pill; req #3582: the "+"), at the LABEL glyph which is wider than the
+// row glyph — is TWELVE characters (measured 2026-10-19 — see
 // `cardChars(CHW_LABEL, CARD_CHECK_W + CARD_STEP_LINK_W + CARD_STEP_ADD_W +
-// CARD_RUN_W + CARD_BADGE_W + CARD_BADGE_GAP)`; seventeen before #3580 and
-// #3582, eleven with the run pill alone, thirteen with the "+" alone — the user
-// saw the combination and accepted it, 2026-10-17). "Feature Eradication
+// CARD_RUN_W + CARD_BADGE_W + CARD_BADGE_GAP)`; ten while req #3503's ↗ link
+// button still took its reserve, which req #3641 zeroed). "Feature Eradication
 // - MCP, Scripts, Frontend…" is the actual data, and it truncates well short
 // of one line at that budget.
 //
@@ -1867,6 +1866,17 @@ const CARD_MIN_H = 68 * CARD_TYPE_SCALE;
 // header-row offset is written in terms of it.
 export const CARD_CHECK_W = 0;
 
+// ── THE ↗ "VIEW IN TABLE" BUTTON IS GONE (req #3641) ─────────────────────────
+// User directive: "remove the option to see the steps in the pipeline in a
+// special viewer — just show the visualizer". The Table it opened was
+// withdrawn from the plan page, so the button has nowhere to go and is no
+// longer emitted; a click on the title area frames the step on the canvas
+// instead. Its reserve is zero, `CARD_CHECK_W`'s precedent: the constant
+// stays because every title-row offset is written in terms of it, so the "+"
+// and the run pill slide right into the room it held and the title keeps the
+// rest. The history below is what the button WAS, kept for whoever restores
+// the Table.
+//
 // ── "VIEW IN TABLE, HIGHLIGHTED" — A VISIBLE BUTTON, NOT JUST A HIDDEN HIT
 // RECT (req #3503, user directive: "place a proper sized button for the
 // requirements link — use same button as epic's requirement link, that is the
@@ -1926,7 +1936,8 @@ export const CARD_TITLE_BTN_GLYPH_STROKE = 2.5;
 
 /**
  * The vector strokes for a card title button's glyph, centred on its box.
- * `kind` is the label kind (`'step-add'` draws `+`, `'step-link'` draws `↗`);
+ * `kind` is the label kind (`'step-add'` draws `+`; `'step-link'`, the ↗ no
+ * longer emitted since req #3641, draws `↗`);
  * returns an array of Konva `Line` point arrays (`[x0, y0, x1, y1, ...]`).
  */
 export function titleBtnGlyph(kind, { x, y, w, h }) {
@@ -1944,18 +1955,17 @@ export function titleBtnGlyph(kind, { x, y, w, h }) {
         [cx + a - head, cy - a, cx + a, cy - a, cx + a, cy - a + head],
     ];
 }
-// The gap between the "+" and the ↗ alone — `CARD_TITLE_BTN_GAP` widened by a
-// third (req #3607, user directive: "increase the spacing between the + and
-// arrow buttons by 33%, horizontal only"). The gap left of the "+" (to the run
-// pill) keeps `CARD_TITLE_BTN_GAP`.
-export const CARD_STEP_LINK_GAP = CARD_TITLE_BTN_GAP * 1.33;
-// The link button's reserve: its button, flush against the ✓'s reserve, plus
-// the gap on its LEFT that keeps the "+" off it.
-export const CARD_STEP_LINK_W = CARD_TITLE_BTN + CARD_STEP_LINK_GAP;
+// `CARD_STEP_LINK_GAP` — the "+"/↗ gap, `CARD_TITLE_BTN_GAP` widened by a
+// third (req #3607) — went with the ↗ in req #3641.
+// The link button's reserve — ZERO since req #3641 (above). It was its button,
+// flush against the ✓'s reserve, plus the gap on its LEFT that kept the "+"
+// off it: `CARD_TITLE_BTN + CARD_STEP_LINK_GAP`.
+export const CARD_STEP_LINK_W = 0;
 
 // ── "FILE A REQUIREMENT INTO THIS STEP" — THE + BUTTON (req #3582) ─────────
-// Left of the ↗, sized like it for the same reason the ↗ is sized like the
-// ✓: a glyph the size of its neighbours needs a target that size, and every
+// On the title row's right edge since req #3641 took the ↗ that stood there;
+// sized like the ↗ was, for the same reason the ↗ was sized like the ✓: a
+// glyph the size of its neighbours needs a target that size, and every
 // world px not reserved here is one the title keeps. It opens the requirement
 // editor in "new" mode carrying this step, and the first save (picking a
 // category, the aggregator template's own rule) seats the new requirement
@@ -2012,8 +2022,8 @@ export const CARD_BADGE_TOP = -1;
 // ── THE RUN-MODE PILL (req #3580, user directives: "have a display circle for
 // step's manual vs auto and let that be a configurable button in the UI", then
 // "make it say auto or manual and be green auto and blue manual") ──────────
-// Left of the ↗, reserved out of the step name's budget exactly the way the ✓
-// and the link button are, so a long title never draws under it. It carries the
+// Left of the "+", reserved out of the step name's budget exactly the way the ✓
+// and the "+" are, so a long title never draws under it. It carries the
 // WORD, so it is sized for the longer of the two — one fixed width, so the pill
 // does not change size (and the title's room does not move) when it is toggled.
 // The same height as the count badge on the other end of the line, so the two
@@ -2085,7 +2095,7 @@ export const CARD_BADGE_W = badgeWidthFor(2);
 
 // How many characters of a given mono width fit the card's text column.
 // `reserve` is total room taken off the column, from either edge — the ✓,
-// the link button and the badge, whichever of them the caller's own budget
+// the "+", the run pill and the badge, whichever of them the caller's own budget
 // is for. `textW` defaults to the scale-1 column (`CARD_TEXT_W`) but takes
 // any `cardGeometryFor(scale).cardTextW` too — the SAME formula at whatever
 // rung "Step Width" is on, never a second one.
@@ -4195,8 +4205,9 @@ export function computePlanLayout(rows, opts = {}) {
         // scans down a lane. NOT on the requirement rows' own `textLeft` since
         // req #3503, though — see `titleTextLeft` below for why the title's
         // line alone is indented past the badge.
-        // The ✓'s room and the link button's come off the right (CARD_CHECK_W,
-        // CARD_STEP_LINK_W); the badge's comes off the left (CARD_BADGE_W,
+        // The ✓'s, the "+"'s and the run pill's room come off the right
+        // (CARD_CHECK_W, CARD_STEP_ADD_W, CARD_RUN_W — and CARD_STEP_LINK_W, zero
+        // since req #3641); the badge's comes off the left (CARD_BADGE_W,
         // CARD_BADGE_GAP) — all four drawn on the title area's own line, so a
         // budget that ignored any of them would put the step name under one.
         const nameLines = nameLinesOf.get(r.id) || [''];
@@ -4356,35 +4367,11 @@ export function computePlanLayout(rows, opts = {}) {
                 w: badgeW, h: CARD_BADGE_H,
             });
         }
-        // ── "VIEW IN TABLE" LINK BUTTON (req #3503) ──────────────────────────
-        // Right of the title, in the room `CARD_STEP_LINK_W` reserved out of
-        // the step name's budget, left of the ✓ — see `CARD_STEP_LINK_W`'s own
-        // comment. `onStepFocus` already exists (req #3213) as a hit rect over
-        // the whole title area; this is that SAME action, given a mark a
-        // reader can see and aim at, so it draws for every card exactly where
-        // the ✓ and the reserve agree it will, whether or not the step is done.
-        {
-            labels.push({
-                kind: 'step-link', stepId: r.id, text: '↗',
-                prose: false,
-                // Off the FRAME's right edge — which, unlike its LEFT edge, IS
-                // the node box's: the state bar owns a strip before the frame
-                // only on the left, so `n.right` already is that edge, at
-                // whatever `cardW` this plan's Step Width rung resolved to
-                // (req #3503 review — this line named `CARD_FRAME_W`, the
-                // fixed scale-1 constant, and stayed put while the frame it
-                // was meant to track widened around it). Left of the ✓'s own
-                // reserve, the same order the old count/✓ pair drew in.
-                // The button sits at the RIGHT of its reserve; the reserve's
-                // leading `CARD_STEP_LINK_GAP` is air between it and the "+".
-                x: n.right - CARD_PAD_X - CARD_CHECK_W - CARD_TITLE_BTN,
-                // Exactly the title's first line box (req #3582).
-                y: n.top + CARD_PAD_Y,
-                w: CARD_TITLE_BTN, h: CARD_TITLE_BTN,
-            });
-        }
+        // The ↗ "view in table" button (req #3503) is no longer emitted — req
+        // #3641 withdrew the Table; see `CARD_STEP_LINK_W`.
         // ── "+" — FILE A REQUIREMENT INTO THIS STEP (req #3582) ───────────────
-        // Left of the ↗ and right of the run pill (req #3580), in the room `CARD_STEP_ADD_W` reserved out of the step
+        // Flush right (req #3641 took the ↗ beside it), right of the run pill
+        // (req #3580), in the room `CARD_STEP_ADD_W` reserved out of the step
         // name's budget — see that constant's own comment. NOT on a step with a
         // stamped `completed_at` (`canFileIntoStep` — design rule 1); its
         // reserve stays empty so the title budget is one number for every card.

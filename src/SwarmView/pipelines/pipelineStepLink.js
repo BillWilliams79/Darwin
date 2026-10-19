@@ -1,6 +1,7 @@
 // pipelineStepLink.js — the addressable-step contract (req #3140).
 //
-// ONE step of a plan, named by URL: `<plan detail route>?mode=table&step=<sid>`.
+// ONE step of a plan, named by URL: `<plan detail route>?mode=plan&step=<sid>`
+// (`stepPlanLinkTo`, which also pins the level).
 // The route half comes from `planEra.js` (2.0 by default since req #3356);
 // this module owns the `?step=` / `?level=` half.
 //
@@ -13,16 +14,16 @@
 // the key in one place makes a rename a compile-time-shaped edit rather than a
 // grep.
 //
-// It is the SAME handshake req #3115 built for a bead click — the visualizer
-// calls `onStepFocus(stepId)`, the page pushes this same link (req #3637, so
-// browser Back returns to the canvas), the table scrolls
-// to and highlights that row. This only adds a way to enter that handshake from
-// outside the page. Nothing about `focusStepId` changes.
-//
-// `mode=table` is carried explicitly rather than left to the stored preference:
-// a step is a ROW, and the visualizer has no row to scroll to. Both parameters
-// seed the same TRANSIENT override — a link asks to see one thing once and must
-// never rewrite the reader's own default view (the `normalizeView` doctrine).
+// The link seeds `focusStepId`, and the plan visualizer centres and zooms on
+// that step (req #3253's handshake). A second builder, `stepLinkTo`, named
+// `mode=table&step=` — the Table scrolled to and highlighted the step's ROW,
+// and a bead click pushed that link to get there. Req #3641 withdrew the Table
+// (user directive: the visualizer is the only way to look at a pipeline), the
+// canvas now frames a clicked step itself, and `stepLinkTo` was deleted with
+// its only caller; restoring the Table means restoring it from git too. Both
+// parameters seed a TRANSIENT override — a link asks to see one thing once and
+// must never rewrite the reader's own default view (the `normalizeView`
+// doctrine).
 //
 // NO JSX and no React: a pure module vitest can exercise without a DOM, and a
 // component file with non-component exports drops out of Fast Refresh (the
@@ -63,10 +64,9 @@ export const FOCUS_STEP_PARAM = 'step';
 // `?epic=` fits the entire band — which on a large epic IS a zoomed-out view.
 // The link means "show me where this requirement lives", so it names the STEP.
 //
-// A step is a bead as well as a row, so this is the SAME `?step=` parameter with
-// `mode=plan` instead of `mode=table` — deliberately not a third landing mode.
-// Both panels now consume `focusStepId`: the table scrolls to and highlights the
-// row, the visualizer centres and zooms the camera on the bead.
+// The SAME `?step=` parameter the Table's `stepLinkTo` used — deliberately not
+// a third landing mode — with `mode=plan` and a `?level=` pin. (`stepLinkTo`
+// went with the Table in req #3641.)
 export const FOCUS_LEVEL_PARAM = 'level';
 // L3 — `PLAN_LEVEL_BY_PREF['3'] === 'in'`. Written as the PREF value the page
 // already speaks rather than the canvas's 'in', because that is what the
@@ -90,7 +90,7 @@ export const STEP_PLAN_LINK_LEVEL = '3';
 /**
  * The route a step's location ON THE PLAN links to (req #3253).
  *
- * Same validation and same null-rather-than-a-dead-link rule as `stepLinkTo`;
+ * Null rather than a dead link when either id is unusable (`toId`);
  * the only differences are the mode and the pinned level.
  *
  * @param {?number} pipelineId
@@ -144,26 +144,6 @@ export function readColorParam(searchParams) {
     const raw = searchParams && typeof searchParams.get === 'function'
         ? searchParams.get(FOCUS_COLOR_PARAM) : null;
     return isColorKey(raw) ? raw : null;
-}
-
-/**
- * The route a step row links to.
- *
- * Returns null when either id is unusable, so a caller renders a plain number
- * instead of a link that would navigate to `/swarm/pipeline/undefined`. A step
- * whose `pipeline_fk` did not resolve is a real state on the editor page — the
- * pipelines read can fail independently of the steps read.
- *
- * @param {?number} pipelineId
- * @param {?number} stepId
- * @param {number} [era] the era `pipelineId` was READ from (req #3463).
- *        Defaults to 2.0 since req #3356 — see the module header.
- * @returns {?string}
- */
-export function stepLinkTo(pipelineId, stepId) {
-    const sid = toId(stepId);
-    if (sid == null) return null;
-    return planDetailPath(pipelineId, `mode=table&${FOCUS_STEP_PARAM}=${sid}`);
 }
 
 // NULLISH AND EMPTY ARE REJECTED BEFORE `Number` SEES THEM, which is the whole

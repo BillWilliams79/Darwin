@@ -2,9 +2,10 @@
 //
 // Req #3637 — "refresh, reload, should not change the viewport". The page half:
 // a `?step=`/`?epic=` link moves the camera ONCE per history entry, never again
-// on a reload or a Back/Forward onto it; a manual mode pick rewrites the URL so
-// a reload cannot resurrect the panel just left; a bead click pushes an entry so
-// the browser's Back returns to the canvas. The panels are stubbed (react-konva
+// on a reload or a Back/Forward onto it; a manual level pick rewrites the URL so
+// a reload cannot resurrect the pin just left. (A bead click pushed a Table
+// entry until req #3641 withdrew the Table; the canvas now frames the step
+// itself and the page is not involved.) The panels are stubbed (react-konva
 // needs a canvas jsdom does not provide) — the canvas half's landing rule is
 // `planLandingAction` (pinned in `pipelinePlanLayout.landing.test.js`) and the
 // record lifecycle is `useSavedViewport.test.jsx`.
@@ -27,14 +28,14 @@ vi.mock('../pipelineDetailModes', () => {
                     onClick={() => onStepFocus?.(47)} />
         </div>;
     };
+    // The real registry's shape since req #3641: ONE mode, the Plan visualizer.
     const MODES = [
-        { value: 'table', label: 'Table', icon: () => null, Component: Panel('table') },
         { value: 'plan', label: 'Plan', icon: () => null, Component: Panel('plan') },
     ];
     return {
         PIPELINE_DETAIL_MODES: MODES,
         PIPELINE_DETAIL_MODE_STORAGE_KEY: 'darwin-swarm-pipeline-detail-mode',
-        DEFAULT_PIPELINE_DETAIL_MODE: 'table',
+        DEFAULT_PIPELINE_DETAIL_MODE: 'plan',
         findPipelineDetailMode: (v) => MODES.find((m) => m.value === v),
         default: MODES,
     };
@@ -147,11 +148,11 @@ describe('PipelineDetail — a deep link fires once per history entry (req #3637
         expect(focusEpicOf('plan')).toBe('');
     });
 
-    it('does NOT re-fire a marked ?step= entry, and keeps the table it forced', () => {
-        mount([{ pathname: '/swarm/pipeline/2', search: '?mode=table&step=47',
-            state: consumed('?mode=table&step=47') }]);
-        expect(node('mode-table')).not.toBeNull();
-        expect(focusStepOf('table')).toBe('');
+    it('does NOT re-fire a marked ?step= entry, and stays on the plan', () => {
+        mount([{ pathname: '/swarm/pipeline/2', search: '?mode=plan&step=47',
+            state: consumed('?mode=plan&step=47') }]);
+        expect(node('mode-plan')).not.toBeNull();
+        expect(focusStepOf('plan')).toBe('');
     });
 
     it('treats a mark for a DIFFERENT query as no mark', () => {
@@ -171,27 +172,22 @@ describe('PipelineDetail — a deep link fires once per history entry (req #3637
 });
 
 describe('PipelineDetail — manual picks rewrite the URL (req #3637)', () => {
-    it('a manual mode pick drops ?mode=/?step=/?epic=/?level= so a reload keeps the pick', () => {
-        localStorage.setItem('darwin-swarm-pipeline-detail-mode', 'plan');
+    it('a manual level pick drops ?level= so a reload keeps the pick', () => {
         mount(['/swarm/pipeline/2?mode=plan&epic=55&level=3']);
-        act(() => { node('pipeline-mode-table').click(); });
-        expect(node('mode-table')).not.toBeNull();
-        expect(loc.search).toBe('');
-        // …and the stored preference is what a reload lands on.
-        expect(localStorage.getItem('darwin-swarm-pipeline-detail-mode')).toBe('table');
+        act(() => { node('pipeline-viz-level-2').click(); });
+        expect(new URLSearchParams(loc.search).get('level')).toBeNull();
+        expect(localStorage.getItem('darwin-pipeline-viz-level')).toBe('2');
     });
 });
 
-describe('PipelineDetail — a bead click is a history entry (req #3637)', () => {
-    it('pushes the step\'s table link, and Back returns to the plan with no focus', () => {
+// Req #3641 — the panel is given no `onStepFocus`: a step click is the canvas's
+// own business (it frames the step), so it neither switches panel nor pushes a
+// history entry.
+describe('PipelineDetail — a bead click stays on the plan (req #3641)', () => {
+    it('does not navigate, and the plan stays the panel', () => {
         mount(['/swarm/pipeline/2?mode=plan']);
         act(() => { node('bead-plan').click(); });
-        expect(node('mode-table')).not.toBeNull();
-        expect(focusStepOf('table')).toBe('47');
-        expect(loc.search).toBe('?mode=table&step=47');
-        act(() => { nav(-1); });
-        expect(loc.search).toBe('?mode=plan');
         expect(node('mode-plan')).not.toBeNull();
-        expect(focusStepOf('plan')).toBe('');
+        expect(loc.search).toBe('?mode=plan');
     });
 });
