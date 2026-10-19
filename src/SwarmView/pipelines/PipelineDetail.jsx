@@ -97,10 +97,14 @@ import ControlsCollapseHead from './ControlsCollapseHead';
 // of them — a dead `SemanticLevelControl` import was the visible trace req #3261
 // was filed from.
 import {
-    DEFAULT_COLOR_KEY, DEFAULT_PLAN_LEVEL_PREF,
     normalizeColorKey, normalizePlanLevelPref,
     STEP_WIDTH_SCALES, DEFAULT_STEP_WIDTH_LEVEL,
 } from './pipelinePlanLayout';
+import { usePlanViewSetting } from './planViewSettings';
+import {
+    classifyPlanEntry, isPlanLinkConsumed, planEntryFocus,
+    PLAN_ENTRY_LINK, PLAN_LINK_CONSUMED_STATE_KEY,
+} from './planViewEntry';
 import {
     // The two-read cost fold. It is not plan derivation — `pipeline2_derive.py`
     // owns that, server side — and req #3345 did not move cost into the composed
@@ -119,11 +123,6 @@ import { buildReqPills } from './planReqPills';
 // One stable reference costs nothing and keeps the memo chain honest in the
 // error path the costError branch exists to handle.
 const EMPTY = Object.freeze([]);
-
-// req #3637 — the history-state key marking an entry whose `?step=`/`?epic=`
-// link has already been honoured. Its value is the `search` it was honoured
-// for, so an entry whose query is later rewritten is not mistaken for marked.
-const PLAN_LINK_CONSUMED_STATE_KEY = 'planLinkConsumed';
 
 // The narrowest the plan's name may become (req #3365 polish). A FLOOR on the
 // header title's flex basis — see the title's own comment in the render for why
@@ -162,8 +161,11 @@ export default function PipelineDetail() {
     // SwarmView/VisualizerToolbar arrangement (req #2407), where the panel is the
     // canvas and the page owns the chrome. That is what buys the visualizer a
     // full-height canvas: every row of chrome it used to carry is now shared.
-    const [showCost, setShowCost] = useState(false);
-    // req #3225 — persisted (unlike showCost above) because the SAME toggle
+    // req #3651 — PERSISTED, like every popout on this page: it was component
+    // state, so a requirement round-trip or a reload switched the columns off
+    // under a reader who had asked for them. One row in `planViewSettings.js`.
+    const [showCost, setShowCost] = usePlanViewSetting('showCost');
+    // req #3225 — persisted because the SAME toggle
     // also governs the plan list page's Cards/Table titles, a different page
     // component that must read the same choice on its own next mount rather
     // than default back to off. `useViewPreference`'s per-tab sessionStorage
@@ -179,10 +181,10 @@ export default function PipelineDetail() {
     //    point). The `Reqs:` and `Step:` preferences went with their controls
     //    (user directive 2026-08-01); the requirement LAYOUT stopped being a
     //    value at all with req #3498, because a card stacks its requirements top
-    //    to bottom and there is no second arrangement left to name; and
-    //    `darwin-pipeline-viz-step-width` went with the S/M/L control in the
-    //    same pass, since every column is one card wide and a stored factor has
-    //    nothing to scale. `stepLabel` and `reqLabel` are the two survivors and
+    //    to bottom and there is no second arrangement left to name. (The S/M/L
+    //    step-width control went in that same pass; its storage key came back
+    //    with req #3503's four-rung Step Width, now the `stepWidth` row of
+    //    `planViewSettings.js` — read below.) `stepLabel` and `reqLabel` are the two survivors and
     //    are declared as constants further down, beside the comment that
     //    explains what they are pinned TO.
     //
@@ -195,8 +197,9 @@ export default function PipelineDetail() {
     // shown on every desktop: a page title one step smaller than every other
     // page's, for no reason anybody recorded.
     const isMobile = useMediaQuery('(max-width:899px)');
-    const [colorKeyPref, setColorKeyPref] = useViewPreference(
-        'darwin-pipeline-viz-color-key', DEFAULT_COLOR_KEY);
+    // The persisted view settings are ONE table, `planViewSettings.js` (req
+    // #3651) — key and default are spelled there, never at a call site.
+    const [colorKeyPref, setColorKeyPref] = usePlanViewSetting('colorKey');
     // req #3503 — "Step Width": four rungs, 1 the card every existing plan is
     // already sized for, 2-4 each 25% more text room. PERSISTED like every
     // other view preference — a reader who widens the card wants it wide next
@@ -204,8 +207,7 @@ export default function PipelineDetail() {
     // relayouts the plan (every column, every card, every wrap point) rather
     // than just moving the camera, which is exactly why it is a deliberate,
     // explicit choice and never an automatic one.
-    const [stepWidthLevelPref, setStepWidthLevelPref] = useViewPreference(
-        'darwin-pipeline-viz-step-width', String(DEFAULT_STEP_WIDTH_LEVEL));
+    const [stepWidthLevelPref, setStepWidthLevelPref] = usePlanViewSetting('stepWidth');
     // `Number.isFinite` on the LOOKED-UP SCALE, not a truthiness test on it
     // (review finding): correct today only because no rung is `0` or another
     // falsy-but-valid number — this says what is actually meant regardless.
@@ -216,8 +218,7 @@ export default function PipelineDetail() {
     // elsewhere"). `auto` keeps the zoom-derived level; 1|2|3 pin one. Persisted
     // like every other view preference, and normalized the same way — the value
     // comes from localStorage.
-    const [levelPref, setLevelPref] = useViewPreference(
-        'darwin-pipeline-viz-level', DEFAULT_PLAN_LEVEL_PREF);
+    const [levelPref, setLevelPref] = usePlanViewSetting('level');
     // The STORED preference. What the toolbar and the canvas actually read is
     // `activeLevelPref` further down, which lets a `?level=` link pin one level
     // for one landing without ever writing it here (req #3253).
@@ -253,12 +254,9 @@ export default function PipelineDetail() {
     // the page has a single control rather than one per mode. PERSISTED like
     // the other view preferences — a reader who folds the controls away to
     // give the plan the room wants them folded next visit too.
-    const [controlsPref, setControlsPref] = useViewPreference(
-        'darwin-swarm-pipeline-detail-controls', 'open');
-    const controlsOpen = controlsPref !== 'collapsed';
-    const toggleControls = useCallback(
-        () => setControlsPref(controlsOpen ? 'collapsed' : 'open'),
-        [controlsOpen, setControlsPref]);
+    // One row of `planViewSettings.js` since req #3651 (same key, same values).
+    const [controlsOpen, setControlsOpen] = usePlanViewSetting('controlsOpen');
+    const toggleControls = useCallback(() => setControlsOpen((v) => !v), [setControlsOpen]);
     // The step label is always the TITLE, and the requirement marks always
     // reserve room for their TITLE — the renderer draws the id inside that box
     // at L1/L2 and the title itself at L3 (see the `idText` note in
@@ -365,16 +363,44 @@ export default function PipelineDetail() {
     // URL (`replaceLinkParams` below) instead of leaving a stale query behind.
     const location = useLocation();
     const navigationType = useNavigationType();
-    const linkConsumed = location.state?.[PLAN_LINK_CONSUMED_STATE_KEY] === location.search;
-    const [focusStepId, setFocusStepId] = useState(linkConsumed ? null : linkStepId);
-    // Req #3235 code review — `?epic=` needs the SAME transient-override
-    // treatment as `?step=`, not the raw searchParams value passed straight
-    // through: without a state copy, a manual mode pick can never clear it
-    // (nothing owns it to clear), and an in-place navigation from one `?epic=`
-    // link to another — which `pipelineId`'s own comment below notes this
-    // component survives without remounting — would keep re-focusing (or
-    // silently drop) a link the reader already left behind.
-    const [focusEpicId, setFocusEpicId] = useState(linkConsumed ? null : linkEpicId);
+    // ── THE FOCUS IS THE ENTRY'S, COMPUTED IN RENDER (req #3651) ────────────
+    // Each entry is a LINK (fire once, then mark), a REWRITE (this page's own
+    // replace — keep the focus in hand) or a RETURN (Back/Forward, reload,
+    // "Back to Plan" — no focus; memory answers). `planViewEntry.js` holds the
+    // three and why there are only three.
+    //
+    // It used to be state re-seeded by an EFFECT on `location.key`, and an
+    // effect runs after the render it follows — so a Back from a bead click's
+    // `?mode=table&step=N` mounted the canvas WITH `focusStepId = N`. The canvas
+    // began flying to that step before restoring the reader's camera, and saved
+    // the interrupted flight over it: the plan's top-left at scale 1. React's
+    // "adjust state when a prop changes" pattern below re-derives the focus in
+    // the SAME render the entry changes in, before any child renders, so no
+    // panel can see another entry's focus. `?epic=` rides along for the reason
+    // req #3235's review gave it a state copy at all: a manual mode pick must
+    // be able to clear it, and an in-place move between two links must not keep
+    // the first.
+    const linkConsumed = isPlanLinkConsumed(location);
+    const entryKind = classifyPlanEntry({
+        consumed: linkConsumed, navigationType,
+        hasFocusLink: linkStepId != null || linkEpicId != null,
+    });
+    const [focus, setFocus] = useState(() => ({
+        entry: location.key,
+        ...planEntryFocus(entryKind, { stepId: linkStepId, epicId: linkEpicId }, null),
+    }));
+    let liveFocus = focus;
+    if (focus.entry !== location.key) {
+        liveFocus = {
+            entry: location.key,
+            ...planEntryFocus(entryKind, { stepId: linkStepId, epicId: linkEpicId }, focus),
+        };
+        setFocus(liveFocus);
+    }
+    const focusStepId = liveFocus.stepId;
+    const focusEpicId = liveFocus.epicId;
+    const clearFocus = useCallback(() => setFocus(
+        (f) => ({ ...f, stepId: null, epicId: null })), []);
     // The panel and the level are the URL's whenever it names them — derived,
     // never a state copy, so a Back/Forward lands on that entry's own panel and
     // a reload keeps it. Never written to the persisted preferences: a link
@@ -382,22 +408,10 @@ export default function PipelineDetail() {
     const modeOverride = linkView;
     const levelOverride = linkLevel;
     const colorKey = normalizeColorKey(linkColor ?? colorKeyPref);
-    // Re-seeds the focus whenever the history ENTRY changes. Three cases:
-    //   · an UNMARKED entry carrying a link — honour it, then mark the entry;
-    //   · a marked entry reached by REPLACE — this page's own marking (or a
-    //     manual pick re-marking it), so the focus just seeded stays;
-    //   · anything else (a POP onto a marked entry, a URL with no link) — no
-    //     focus, so the restored camera / scroll is what the reader gets.
+    // A LINK entry is MARKED once its focus is in hand — a replace onto the same
+    // URL, which arrives back here as a REWRITE and so keeps the focus.
     useEffect(() => {
-        const hasFocusLink = linkStepId != null || linkEpicId != null;
-        if (linkConsumed && navigationType === 'REPLACE') return;
-        if (linkConsumed || !hasFocusLink) {
-            setFocusStepId(null);
-            setFocusEpicId(null);
-            return;
-        }
-        setFocusStepId(linkStepId);
-        setFocusEpicId(linkEpicId);
+        if (entryKind !== PLAN_ENTRY_LINK) return;
         navigate({ pathname: location.pathname, search: location.search }, {
             replace: true,
             state: { ...(location.state || {}), [PLAN_LINK_CONSUMED_STATE_KEY]: location.search },
@@ -428,11 +442,10 @@ export default function PipelineDetail() {
     }, [navigate, pipelineId]);
     const handleModeChange = useCallback((_e, v) => {
         if (v == null) return;
-        setFocusStepId(null);
-        setFocusEpicId(null);
+        clearFocus();
         setMode(v);
         replaceLinkParams(['mode', FOCUS_STEP_PARAM, FOCUS_EPIC_PARAM, FOCUS_LEVEL_PARAM]);
-    }, [setMode, replaceLinkParams]);
+    }, [setMode, replaceLinkParams, clearFocus]);
     // A manual LEVEL pick clears the link's level the same way a manual MODE pick
     // clears the link's mode — and persists the reader's choice as usual. The two
     // are separate handlers because they are separate controls.
