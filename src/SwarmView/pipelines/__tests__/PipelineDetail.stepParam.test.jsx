@@ -25,8 +25,9 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 // The panel factory lives INSIDE the factory: vi.mock is hoisted above every
 // top-level binding in this file, so a `const Panel` outside is a TDZ error.
 vi.mock('../pipelineDetailModes', () => {
-    const Panel = (name) => function ModeStub({ focusStepId, levelPref }) {
+    const Panel = (name) => function ModeStub({ focusStepId, levelPref, stepWidthLevel }) {
         return <div data-testid={`mode-${name}`}
+                    data-step-width={stepWidthLevel == null ? '' : String(stepWidthLevel)}
                     data-focus={focusStepId == null ? '' : String(focusStepId)}
                     // Req #3253 — the level the panel is told to draw at. The
                     // canvas is react-konva and cannot mount here, so the only
@@ -353,6 +354,28 @@ describe('PipelineDetail — the level is fixed until Auto (req #3324)', () => {
         expect(levelOf('plan')).toBe('2');
         click(node('pipeline-viz-reset'));
         expect(levelOf('plan')).toBe('2');
+    });
+
+    // req #3648 — Step Width is a rung in quarters of the base card; the plan
+    // opens at 5 (25% wider), a level stored under the OLD key is not read, and
+    // the title has no tooltip.
+    it('opens at Step Width 5 and ignores a level stored under the old key', () => {
+        window.localStorage.setItem('darwin-pipeline-viz-step-width', '1');
+        mount('/swarm/pipeline/2?mode=plan');
+        expect(node('mode-plan').getAttribute('data-step-width')).toBe('5');
+    });
+
+    it('a stored rung is not drawn while the Step Width control is hidden', () => {
+        window.localStorage.setItem('darwin-pipeline-viz-step-width-q', '6');
+        mount('/swarm/pipeline/2?mode=plan');
+        expect(node('mode-plan').getAttribute('data-step-width')).toBe('5');
+    });
+
+    it('the title carries no tooltip', () => {
+        mount('/swarm/pipeline/2?mode=plan');
+        const title = node('pipeline-title');
+        expect(title.hasAttribute('aria-label')).toBe(false);
+        expect(title.getAttribute('aria-describedby')).toBeNull();
     });
 
     it('AUTO is the one control that clears a pin', () => {

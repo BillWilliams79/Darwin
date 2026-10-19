@@ -1,5 +1,6 @@
 // req #3650 — the layout half of the per-box collapse heads. Every step card
-// carries its head as its own first row; a FOLDED step reserves no requirement
+// carries its head as the title line's first control (req #3648 — it had a row
+// of its own, labelled "REQS"); a FOLDED step reserves no requirement
 // block and draws no rows; a FOLDED epic keeps its header and places no cards —
 // without moving any other epic's card sideways.
 
@@ -7,8 +8,8 @@ import { describe, it, expect } from 'vitest';
 
 import {
     computePlanLayout, cardHeight, cardTitleH, drawsLabelKind,
-    CARD_PAD_Y, CARD_PAD_X, CARD_FRAME_X, CARD_HEAD_BAND, CARD_HEAD_H, CARD_HEAD_W,
-    CARD_HEAD_LABEL,
+    CARD_PAD_Y, CARD_PAD_X, CARD_FRAME_X, CARD_COLLAPSE_W, CARD_TITLE_BTN,
+    CARD_HEAD_LABEL, CARD_LINE_H, STEP_WIDTH_RUNGS,
 } from '../pipelinePlanLayout';
 
 const mk = (id, epicId, depIds = [], reqIds = []) => ({
@@ -30,7 +31,7 @@ const rectsOverlap = (a, b) =>
 describe('the step card\'s collapse head (req #3650)', () => {
     const layout = computePlanLayout(ROWS);
 
-    it('emits exactly one head per card, at the top-left of its text column', () => {
+    it('emits exactly one head per card, at the left of its title line', () => {
         for (const r of ROWS) {
             const heads = layout.labels.filter((l) => l.kind === 'collapse' && l.stepId === r.id);
             expect(heads).toHaveLength(1);
@@ -38,33 +39,80 @@ describe('the step card\'s collapse head (req #3650)', () => {
             const n = layout.nodes.get(r.id);
             expect(h.x).toBeCloseTo(n.left + CARD_FRAME_X + CARD_PAD_X, 6);
             expect(h.y).toBeCloseTo(n.top + CARD_PAD_Y, 6);
-            expect(h.w).toBe(CARD_HEAD_W);
-            expect(h.h).toBe(CARD_HEAD_H);
+            expect(h.w).toBe(CARD_COLLAPSE_W);
+            expect(h.h).toBe(CARD_TITLE_BTN);
             expect(h.text).toBe(CARD_HEAD_LABEL);
             expect(h.collapsed).toBe(false);
         }
     });
 
-    it('is its own row: it overlaps nothing else on the card, and sits above the name', () => {
+    it('shares the title line, LEFT of the badge and the name, overlapping nothing (req #3648)', () => {
         for (const r of ROWS) {
             const head = layout.labels.find((l) => l.kind === 'collapse' && l.stepId === r.id);
             const others = layout.labels.filter((l) => l.stepId === r.id && l !== head);
             for (const o of others) expect(rectsOverlap(head, o)).toBe(false);
             const name = others.find((l) => l.kind === 'step');
-            expect(name.y).toBeGreaterThanOrEqual(head.y + CARD_HEAD_BAND - 1e-6);
+            const badge = others.find((l) => l.kind === 'badge');
+            expect(name.y).toBeCloseTo(head.y, 6);
+            expect(badge.x).toBeGreaterThanOrEqual(head.x + head.w - 1e-6);
+            expect(name.x).toBeGreaterThan(badge.x + badge.w - 1e-6);
+            // The run pill, "+" and ↗ all sit right of the name's room.
+            for (const k of ['run', 'step-add', 'step-link']) {
+                const c = others.find((l) => l.kind === k);
+                if (c) expect(c.x, k).toBeGreaterThanOrEqual(name.x + name.w - 1e-6);
+            }
         }
     });
 
     it('is reserved in the title area, so a card has room for it at every level', () => {
         const n = layout.nodes.get(10);
         expect(n.titleH).toBeCloseTo(cardTitleH('id', 1), 6);
-        expect(n.titleH).toBeGreaterThanOrEqual(CARD_PAD_Y + CARD_HEAD_BAND);
+        expect(n.titleH).toBeGreaterThanOrEqual(CARD_PAD_Y + CARD_LINE_H);
     });
 
     it('rides the card: drawn wherever the card is, never beside a bare bead', () => {
         expect(drawsLabelKind('collapse', 'out')).toBe(false);
         expect(drawsLabelKind('collapse', 'mid')).toBe(true);
         expect(drawsLabelKind('collapse', 'in')).toBe(true);
+    });
+});
+
+// req #3648 code review — at Step Width 3 the controls left the name under two
+// characters, and it drew under the run pill on every card. Swept at EVERY
+// rung, both label modes, with names long enough to wrap.
+describe('the title line overlaps nothing at any Step Width (req #3648)', () => {
+    const LONG = ROWS.map((r) => ({ ...r, title: `Infrastructure priorities ${r.id}` }));
+    for (const rung of STEP_WIDTH_RUNGS) {
+        for (const stepLabel of ['title', 'id']) {
+            it(`rung ${rung}, ${stepLabel} labels`, () => {
+                const layout = computePlanLayout(LONG, { stepLabel, stepWidthLevel: rung });
+                for (const r of LONG) {
+                    const mine = layout.labels.filter((l) => l.stepId === r.id
+                        && ['collapse', 'badge', 'step', 'run', 'step-add', 'step-link', 'title']
+                            .includes(l.kind));
+                    for (let i = 0; i < mine.length; i += 1) {
+                        for (let j = i + 1; j < mine.length; j += 1) {
+                            expect(rectsOverlap(mine[i], mine[j]),
+                                `step ${r.id}: ${mine[i].kind} × ${mine[j].kind}`).toBe(false);
+                        }
+                    }
+                    const n = layout.nodes.get(r.id);
+                    const name = mine.find((l) => l.kind === 'step');
+                    // Inside the card's text column, and inside its title area.
+                    expect(name.x + name.w).toBeLessThanOrEqual(n.right - CARD_PAD_X + 1e-6);
+                    expect(name.y + name.h).toBeLessThanOrEqual(n.top + n.titleH + 1e-6);
+                    expect(name.editW).toBeGreaterThanOrEqual(3 * 14);
+                }
+            });
+        }
+    }
+
+    it('at rung 3 the name sits on its own line below the controls', () => {
+        const layout = computePlanLayout(LONG, { stepLabel: 'title', stepWidthLevel: 3 });
+        const head = layout.labels.find((l) => l.kind === 'collapse' && l.stepId === 10);
+        const name = layout.labels.find((l) => l.kind === 'step' && l.stepId === 10);
+        expect(name.y).toBeCloseTo(head.y + CARD_LINE_H, 6);
+        expect(name.x).toBeCloseTo(head.x, 6);
     });
 });
 

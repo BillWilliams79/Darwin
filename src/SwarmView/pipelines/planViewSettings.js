@@ -36,7 +36,7 @@ import { useCallback, useRef } from 'react';
 
 import { useViewPreference } from '../../hooks/useViewPreference';
 import {
-    DEFAULT_COLOR_KEY, DEFAULT_PLAN_LEVEL_PREF, DEFAULT_STEP_WIDTH_LEVEL,
+    DEFAULT_COLOR_KEY, DEFAULT_PLAN_LEVEL_PREF, DEFAULT_PLAN_STEP_WIDTH,
 } from './pipelinePlanLayout';
 
 // `flag` settings are booleans stored as '1' / '0'; `value` settings are the
@@ -47,8 +47,11 @@ export const PLAN_VIEW_SETTINGS = Object.freeze({
     //    stored choice survives the move) ───────────────────────────────────
     colorKey: { kind: 'value', storageKey: 'darwin-pipeline-viz-color-key',
         default: DEFAULT_COLOR_KEY },
-    stepWidth: { kind: 'value', storageKey: 'darwin-pipeline-viz-step-width',
-        default: String(DEFAULT_STEP_WIDTH_LEVEL) },
+    // A NEW key since req #3648: the value is now a rung in quarters of the
+    // base card (6 5 4 3), and a level stored under the old key (1-4, where 1
+    // was the base card) would read as a different width.
+    stepWidth: { kind: 'value', storageKey: 'darwin-pipeline-viz-step-width-q',
+        default: String(DEFAULT_PLAN_STEP_WIDTH) },
     level: { kind: 'value', storageKey: 'darwin-pipeline-viz-level',
         default: DEFAULT_PLAN_LEVEL_PREF },
     // ── Popouts (req #3651 — were component state, reset on every mount) ───

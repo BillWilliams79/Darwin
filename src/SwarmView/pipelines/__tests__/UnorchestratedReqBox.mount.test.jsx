@@ -8,7 +8,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
 
-import UnorchestratedReqBox from '../UnorchestratedReqBox';
+import UnorchestratedReqBox, { FOLD_MS } from '../UnorchestratedReqBox';
 import { UNSEATED_REQ_MIME } from '../pipelineUnseated';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -40,7 +40,7 @@ describe('UnorchestratedReqBox', () => {
     it('lists each row with its id and title and counts them', () => {
         act(() => root.render(<UnorchestratedReqBox items={items} />));
         expect(q('pipeline-viz-unseated-count').textContent).toBe('2');
-        expect(q('pipeline-viz-unseated-header').textContent).toContain('Orchestration Ready');
+        expect(q('pipeline-viz-unseated-title').textContent).toBe('Orchestrables');
         expect(q('pipeline-viz-unseated-item-11').textContent).toContain('First thing');
         expect(q('pipeline-viz-unseated-item-12').getAttribute('draggable')).toBe('true');
         // Chrome: d3-zoom and the world-click hit-test both skip it.
@@ -99,12 +99,54 @@ describe('UnorchestratedReqBox', () => {
     });
 
     it('collapses to its header and reopens', () => {
-        act(() => root.render(<UnorchestratedReqBox items={items} />));
-        act(() => q('pipeline-viz-unseated-toggle').click());
-        expect(q('pipeline-viz-unseated-list')).toBeNull();
-        expect(q('pipeline-viz-unseated-count').textContent).toBe('2');
-        act(() => q('pipeline-viz-unseated-toggle').click());
-        expect(q('pipeline-viz-unseated-list')).not.toBeNull();
+        vi.useFakeTimers();
+        try {
+            act(() => root.render(<UnorchestratedReqBox items={items} />));
+            act(() => q('pipeline-viz-unseated-toggle').click());
+            // The list animates out, then is gone.
+            act(() => { vi.advanceTimersByTime(FOLD_MS + 100); });
+            expect(q('pipeline-viz-unseated-list')).toBeNull();
+            expect(q('pipeline-viz-unseated-count').textContent).toBe('2');
+            act(() => q('pipeline-viz-unseated-toggle').click());
+            expect(q('pipeline-viz-unseated-list')).not.toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    // req #3648 — the count badge leads the title bar; folded, the bar reads
+    // "OR" and the box narrows to it, animating only for the fold itself.
+    it('leads with the count badge, and folds to a narrow "OR" bar', () => {
+        vi.useFakeTimers();
+        try {
+            act(() => root.render(<UnorchestratedReqBox items={items} fontPx={12} widthPx={612} />));
+            const header = q('pipeline-viz-unseated-header');
+            expect(header.firstElementChild).toBe(q('pipeline-viz-unseated-count'));
+            const box = q('pipeline-viz-unseated');
+            expect(box.style.width).toBe('612px');
+            expect(getComputedStyle(box).transitionProperty || 'none').not.toContain('width');
+
+            act(() => q('pipeline-viz-unseated-toggle').click());
+            expect(q('pipeline-viz-unseated-title').textContent).toBe('OR');
+            expect(box.getAttribute('data-open')).toBe('0');
+            // Narrow: badge + "OR" + toggle, not the step width.
+            expect(box.style.width).toMatch(/^calc\(.*em.*ch.*\)$/);
+            expect(box.style.width).not.toContain('612');
+            expect(getComputedStyle(box).transition).toContain('width');
+            // The other controls are unchanged.
+            expect(q('pipeline-viz-unseated-count').textContent).toBe('2');
+            expect(q('pipeline-viz-unseated-toggle')).not.toBeNull();
+
+            // The width transitions only while folding — never on a zoom frame.
+            act(() => { vi.advanceTimersByTime(FOLD_MS + 100); });
+            expect(getComputedStyle(box).transition || 'none').not.toContain('width');
+
+            act(() => q('pipeline-viz-unseated-toggle').click());
+            expect(q('pipeline-viz-unseated-title').textContent).toBe('Orchestrables');
+            expect(box.style.width).toBe('612px');
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('opens the requirement on click', () => {
