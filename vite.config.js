@@ -240,12 +240,24 @@ export default defineConfig(({ command }) => {
     }
   }
 
+  // req #3652 — the commit this bundle was built from, carried in a focus
+  // capture so a minified production stack can be mapped back to source (no
+  // sourcemaps ship). `+dirty` = uncommitted changes were in the build.
+  let buildCommit = ''
+  try {
+    const git = (args) => execSync(`git ${args}`, {
+      cwd: import.meta.dirname, timeout: 5000, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim()
+    buildCommit = git('rev-parse --short=12 HEAD') + (git('status --porcelain') ? '+dirty' : '')
+  } catch {}
+
   return {
     plugins: [react(), basicSsl(), devserverMarker(), topologyDevAssets(command)],
     define: {
       global: 'globalThis',
       'import.meta.env.VITE_DEV_REQ_ID': JSON.stringify(devReqId),
       'import.meta.env.VITE_DEV_REQ_TITLE': JSON.stringify(devReqTitle),
+      'import.meta.env.VITE_BUILD_COMMIT': JSON.stringify(buildCommit),
     },
     resolve: {
       alias: { buffer: 'buffer/' },
