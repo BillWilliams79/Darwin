@@ -21,9 +21,9 @@
 // `cameFrom` exactly the way `PipelinesPage` does — from a `useState`
 // initializer, i.e. during render, before any effect on the page has run.
 //
-// `NavBar` and `SnackBar` are stubbed. Neither participates in the trail, and
-// the real NavBar drags in the profile, the query client and the whole nav
-// config for nothing.
+// `NavBar`, `SnackBar` and the Dev Servers dashboard (req #3643) are stubbed.
+// None participates in the trail, and the real NavBar and dashboard drag in the
+// profile, the query client and the whole nav config for nothing.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import React, { useState } from 'react';
@@ -35,6 +35,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 vi.mock('../NavBar/NavBar', () => ({ default: () => null }));
 vi.mock('../Components/SnackBar/SnackBar', () => ({ SnackBar: () => null }));
+vi.mock('../DevServers/DevServerDashboard', () => ({ default: () => null }));
 
 import App from '../App';
 import { cameFrom, resetRouteTrail } from '../utils/routeTrail';
