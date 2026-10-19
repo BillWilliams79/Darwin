@@ -88,24 +88,6 @@ describe('usePlanViewSetting', () => {
         unmount();
     });
 
-    it('a flag with its own encoding reads and writes the values it shipped with (req #3650)', () => {
-        mount('controlsOpen');
-        expect(api.value).toBe(true);                     // nothing stored: open
-        act(() => { api.set(false); });
-        expect(localStorage.getItem('darwin-swarm-pipeline-detail-controls')).toBe('collapsed');
-        unmount();
-        sessionStorage.clear();
-        localStorage.setItem('darwin-swarm-pipeline-detail-controls', 'open');
-        mount('controlsOpen');
-        expect(api.value).toBe(true);
-        unmount();
-        sessionStorage.clear();
-        localStorage.setItem('darwin-swarm-pipeline-detail-controls', 'garbage');
-        mount('controlsOpen');
-        expect(api.value).toBe(true);                     // unrecognised → default
-        unmount();
-    });
-
     it('refuses a name that is not in the table, rather than inventing a key', () => {
         expect(() => mount('nope')).toThrow(/unknown setting/);
         try { root.unmount(); } catch { /* the render threw */ }

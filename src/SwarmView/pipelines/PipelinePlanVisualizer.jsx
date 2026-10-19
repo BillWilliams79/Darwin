@@ -142,6 +142,8 @@ import {
     MIN_CARD_H, REQ_LINE_H, CHW_REQ,
     // req #3580 — the run pill's word and type.
     CARD_RUN_FONT, CARD_RUN_WORDS,
+    // req #3650 — the collapse heads' type and the chip head's reserved width.
+    CARD_HEAD_FONT, CARD_HEAD_H, EPIC_CHIP_COLLAPSE_HEAD_W,
     buildReqColorViews, REQ_COLOR_KEYS, reqIdStyle, reqIdKeyEntries, normalizeColorKey,
     DEFAULT_PLAN_PALETTE, isPlanPalette, planPalette,
     DEFAULT_COLOR_KEY, PLAN_KEY_MAX_H, pinnedLevelOf, DEFAULT_PLAN_LEVEL_PREF,
@@ -162,6 +164,11 @@ import { swarmEpicLinkTo, swarmStepLinkTo } from '../swarmViewLink';
 import { newRequirementSeatState, planExitState } from './pipelineStepLink';
 import { useSavedViewport } from '../../hooks/useSavedViewport';
 import { usePlanViewSetting } from './planViewSettings';
+// req #3650 — every epic chip's and step card's own fold.
+import {
+    parseCollapsed, toggleEpicCollapsed, toggleStepCollapsed, expandEpic, expandStep,
+} from './planCollapse';
+import PlanCollapseHead from './PlanCollapseHead';
 // req #3581 — dragging a requirement between steps writes its seat.
 import AppContext from '../../Context/AppContext';
 import AuthContext from '../../Context/AuthContext';
@@ -663,6 +670,17 @@ export default function PipelinePlanVisualizer({
     // surfaces over one plan must not each derive the same fact.
     // Normalized HERE as well as in the page, for `activeColorKey`'s reason.
     const activePalette = isPlanPalette(palette) ? palette : DEFAULT_PLAN_PALETTE;
+    // req #3650 — the epics and steps folded by their own collapse heads. One
+    // remembered setting, so a fold survives every way of leaving the canvas
+    // and coming back, exactly as the key's popout does (req #3651).
+    const [collapsedRaw, setCollapsedRaw] = usePlanViewSetting('collapsed');
+    const collapsed = useMemo(() => parseCollapsed(collapsedRaw), [collapsedRaw]);
+    const toggleEpicFold = useCallback(
+        (epicId) => setCollapsedRaw((raw) => toggleEpicCollapsed(raw, epicId)),
+        [setCollapsedRaw]);
+    const toggleStepFold = useCallback(
+        (stepId) => setCollapsedRaw((raw) => toggleStepCollapsed(raw, stepId)),
+        [setCollapsedRaw]);
     const layout = useMemo(
         () => computePlanLayout(rows, {
             stepLabel, reqLabel, reqTitles, reqPills,
@@ -673,9 +691,41 @@ export default function PipelinePlanVisualizer({
             // derivation, read here rather than recomputed.
             pauseInfo: plan.pause || null,
             stepWidthLevel,
+            collapsedEpicIds: collapsed.epicIds, collapsedStepIds: collapsed.stepIds,
         }),
         [rows, plan.timeAxis, stepLabel,
-            reqLabel, reqTitles, reqPills, epicCounts, plan.pause, activePalette, stepWidthLevel]);
+            reqLabel, reqTitles, reqPills, epicCounts, plan.pause, activePalette, stepWidthLevel,
+            collapsed]);
+    // A LINK INTO A FOLDED BOX UNFOLDS IT (req #3650). `?epic=` and `?step=`
+    // name a place on the plan to land on, and a folded band draws no cards —
+    // so the fit would have nothing to fit. `?step=` is how the requirement
+    // page shows a requirement on its plan, so the step unfolds too, or its
+    // rows would stay hidden. Every other fold stays as the reader left it.
+    //
+    // ONCE PER LINK, NOT WHILE IT STANDS: the focus props live as long as the
+    // history entry does, so an effect that kept unfolding while they were set
+    // would undo every fold the reader then made on that very box. The fold
+    // state is therefore not a dependency — this answers "a link arrived",
+    // never "the box is folded".
+    const linkUnfoldedRef = useRef(null);
+    useEffect(() => {
+        if (focusEpicId == null && focusStepId == null) {
+            linkUnfoldedRef.current = null;
+            return;
+        }
+        const key = `${focusEpicId}:${focusStepId}`;
+        if (linkUnfoldedRef.current === key) return;
+        const epics = focusEpicId != null ? [focusEpicId] : [];
+        if (focusStepId != null) {
+            if (!rowById.has(focusStepId)) return;       // the plan has not loaded it yet
+            epics.push(rowById.get(focusStepId).epicId ?? null);
+        }
+        linkUnfoldedRef.current = key;
+        setCollapsedRaw((raw) => {
+            const next = epics.reduce(expandEpic, raw);
+            return focusStepId != null ? expandStep(next, focusStepId) : next;
+        });
+    }, [focusEpicId, focusStepId, rowById, setCollapsedRaw]);
 
     // ── The REQUIREMENT-ID channel (req #3119; #3168 neutral; #3422 registry) ─
     // Whatever the key, it rides the requirement ids and never the bead: the
@@ -2475,6 +2525,12 @@ export default function PipelinePlanVisualizer({
     // asks for the step stop directly — the same floor applies, so a band with
     // no next step still lands on its band fit.
     const activateEpicName = useCallback((band, { deep = false } = {}) => {
+        // A FOLDED epic has no cards to zoom to (req #3650), so its name
+        // unfolds it instead of doing nothing; the next click zooms as usual.
+        if (band?.collapsed) {
+            toggleEpicFold(band.epicId ?? null);
+            return;
+        }
         const key = epicZoomStateKey(pipeline?.id, band);
         const workIds = epicWorkByEpic.get(epicCycleKey(band)) || [];
         const next = deep && workIds.length > 0
@@ -2494,7 +2550,7 @@ export default function PipelinePlanVisualizer({
             moved = focusEpic(band);
         }
         if (moved) epicZoomRef.current = { key, level };
-    }, [epicWorkByEpic, focusEpicWork, focusEpic, pipeline?.id]);
+    }, [epicWorkByEpic, focusEpicWork, focusEpic, pipeline?.id, toggleEpicFold]);
 
     // ── IN-PLACE EDIT (req #3580) ───────────────────────────────────────────
     // Three edits, straight from the canvas: an epic's NAME, a step's NAME, and
@@ -2783,7 +2839,9 @@ export default function PipelinePlanVisualizer({
     // moved. Deliberately keyed on the LAYOUT, not on the transform: a step that
     // is on the plan but could not be fit (a zero-size container mid-mount) is
     // still going to focus on the next render, and must not flash this.
-    const focusStepNotOnPlan = focusStepId != null && !layout.nodes.has(focusStepId);
+    // The PLAN's rows, not the layout's nodes (req #3650): a step inside a
+    // folded epic has no node and is still on this plan.
+    const focusStepNotOnPlan = focusStepId != null && !rowById.has(focusStepId);
 
     if (!rows.length) {
         return (
@@ -3125,6 +3183,24 @@ export default function PipelinePlanVisualizer({
             width: l.w * t.k,
             height: l.h * t.k,
             fontSize: CARD_RUN_FONT * t.k,
+        }));
+
+    // ── THE STEP CARD'S COLLAPSE HEAD, AS AN HTML OVERLAY (req #3650) ──────
+    // A button, so HTML for the run pill's reason, on the run pill's layer. The
+    // layout reserved its row at the card's top-left (`CARD_HEAD_W` ×
+    // `CARD_HEAD_H`); this only projects it to screen.
+    const floatingCollapses = layout.labels
+        .filter((l) => l.kind === 'collapse' && drawsKind('collapse'))
+        .map((l) => ({
+            key: `collapse-${l.stepId}`,
+            stepId: l.stepId,
+            open: !l.collapsed,
+            text: l.text,
+            left: l.x * t.k + t.x,
+            top: l.y * t.k + t.y,
+            width: l.w * t.k,
+            height: l.h * t.k,
+            fontSize: CARD_HEAD_FONT * t.k,
         }));
 
     // ── THE STEP-NAME EDITOR'S BOX (req #3580) ──────────────────────────────
@@ -3570,8 +3646,12 @@ export default function PipelinePlanVisualizer({
                 <Rect key={`hit-${row.id}`} x={n.frameLeft} y={n.top}
                       width={n.frameW} height={n.h} cornerRadius={CARD_RADIUS}
                       fill="transparent" {...stepHover} />,
-                <Rect key={`hitact-${row.id}`} x={n.frameLeft} y={n.top}
-                      width={n.frameW} height={n.titleH}
+                // Starts BELOW the collapse head's row (req #3650), so a
+                // near-miss beside "REQS" never leaves for the Table — the
+                // head's row adds nothing to req #3213's click-to-leave area.
+                <Rect key={`hitact-${row.id}`} x={n.frameLeft}
+                      y={n.top + CARD_PAD_Y + CARD_HEAD_H}
+                      width={n.frameW} height={n.titleH - CARD_PAD_Y - CARD_HEAD_H}
                       fill="transparent" {...stepActivate} />);
         } else {
             worldNodes.push(
@@ -4164,6 +4244,9 @@ export default function PipelinePlanVisualizer({
         } else if (label.kind === 'epic') {
             // Drawn as an HTML overlay below, not in the world — see
             // `floatingEpics`. Nothing is pushed here.
+        } else if (label.kind === 'collapse') {
+            // req #3650 — an HTML button over its reserved box, like the run
+            // pill — see `floatingCollapses`. Nothing is pushed here.
         }
         // THE LABEL KINDS THIS SWEEP HANDLES ARE THE LABEL KINDS THE LAYOUT
         // EMITS, and req #3371 narrowed both by one. `computePlanLayout` used
@@ -4527,6 +4610,20 @@ export default function PipelinePlanVisualizer({
                                 by padding cancelled with an equal negative
                                 margin, so an 8px dot is not an 8px target and
                                 nothing the placement measured moves. */}
+                            {/* req #3650 — THE CHIP'S COLLAPSE HEAD, leading it:
+                                its upper-left, where the TPU 3D panels keep
+                                theirs. Folds THIS epic's steps and nothing
+                                else. Its width is reserved in `placeEpicChips`
+                                (`EPIC_CHIP_COLLAPSE_W`) and drawn at exactly
+                                that, at the TPU head's own unscaled 10px. */}
+                            <PlanCollapseHead
+                                open={!e.band?.collapsed}
+                                onToggle={() => toggleEpicFold(e.epicId ?? null)}
+                                label="Steps"
+                                name={`Steps of epic ${e.name ?? e.text}`}
+                                testId={`pipeline-viz-epic-collapse-${e.key}`}
+                                style={{ width: EPIC_CHIP_COLLAPSE_HEAD_W, fontSize: 10 }}
+                            />
                             <Box
                                 component="span"
                                 {...zoomHandlers}
@@ -4850,6 +4947,25 @@ export default function PipelinePlanVisualizer({
                             </Box>
                         );
                     })}
+                    {/* req #3650 — EVERY STEP CARD'S COLLAPSE HEAD, in the
+                        row the layout reserved at the card's top-left. Folds
+                        THIS step's requirement rows and nothing else. */}
+                    {floatingCollapses.map((c) => (
+                        <PlanCollapseHead key={c.key}
+                            open={c.open}
+                            onToggle={() => toggleStepFold(c.stepId)}
+                            label={c.text}
+                            name={`${c.text} of step ${c.stepId}`}
+                            testId={`pipeline-viz-step-collapse-${c.stepId}`}
+                            style={{
+                                position: 'absolute',
+                                left: c.left,
+                                top: c.top - epicOverlayTopInset,
+                                width: c.width, height: c.height,
+                                fontSize: c.fontSize,
+                            }}
+                        />
+                    ))}
                     {/* req #3580 — THE STEP-NAME EDITOR, over the name's own
                         reserved room on its card. */}
                     {stepEditor && (
