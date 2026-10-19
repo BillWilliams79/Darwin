@@ -53,8 +53,11 @@
 //
 // ── WHERE A LOSS GOES ──────────────────────────────────────────────────────
 // Every loss: `console.warn('[focus-loss]', …)` and `window.__darwinFocusLoss`
-// (newest last, capped). In DevTools, `copy(darwinFocusLossReport())` puts
-// them all on the clipboard as JSON — the artifact to hand back for diagnosis.
+// (newest last, capped), and localStorage, so a reload does not lose it. In
+// DevTools, `copy(darwinFocusLossReport())` puts them all on the clipboard as
+// JSON. The hand-off a reader actually uses is `focusCapture.js` (req #3652):
+// one button / hotkey that copies everything below as a block to paste to
+// Claude.
 // `onLoss(report)` — the caller's visible alert — is NOT called for two
 // shapes that are recorded but are not the bug: a loss that coincides with a
 // ROUTE CHANGE (another field's save navigated away; the bug happens on one
@@ -71,21 +74,89 @@ const EVIDENCE_FREE_CAUSES = new Set(['blurred', 'focus-moved']);
 // One open session at a time: only one element can hold focus.
 let active = null;
 
-// The press that FOCUSES a field arrives before its session opens, so the
-// pointer type is tracked here, once, for the session to read when it opens.
+// ── THE TIMELINE (req #3652) ───────────────────────────────────────────────
+// A loss session only knows what happened while the watched field held focus.
+// When the detector does NOT fire — the click never landed, or the caret
+// blinks and the keys go somewhere else — the evidence is in what happened
+// AROUND it, on any element. So every focus change, press and keystroke on the
+// page is kept in a small ring, app-wide, from start-up. Keystrokes record the
+// KEY CLASS only (`char`), never what was typed, unless a modifier makes it a
+// shortcut. The press that FOCUSES a field arrives before its session opens,
+// so the pointer type a session reads at open comes from here too.
+const TIMELINE_SIZE = 200;
+const timeline = [];
 let lastPress = { touch: false, at: 0 };
-let pressTrackerInstalled = false;
-function installPressTracker() {
-    if (pressTrackerInstalled || typeof document === 'undefined') return;
-    pressTrackerInstalled = true;
+let timelineInstalled = false;
+
+function note(type, target, extra = {}) {
+    const entry = { t: Date.now(), type, target, ...extra };
+    // A run of typing is ONE entry with a count, so forty keystrokes cannot
+    // push the click that focused the field out of a loss report's slice.
+    const last = timeline[timeline.length - 1];
+    if (entry.key === 'char' && last && last.key === 'char' && last.target === target) {
+        last.t = entry.t;
+        last.count = (last.count || 1) + 1;
+        return;
+    }
+    timeline.push(entry);
+    if (timeline.length > TIMELINE_SIZE) timeline.shift();
+}
+
+// A key that produces a character is recorded as `char`, never the character
+// — including Option/AltGr characters (Alt held, or Ctrl+Alt on Windows) and
+// emoji (a surrogate pair). Only a Ctrl- or Meta-only chord keeps its letter,
+// because that is a shortcut, not text. The timeline runs on /login too.
+function keyName(e) {
+    const printable = [...(e.key || '')].length === 1;
+    if (printable && (e.altKey || !(e.ctrlKey || e.metaKey))) return 'char';
+    const chord = [e.ctrlKey && 'Ctrl', e.altKey && 'Alt', e.metaKey && 'Meta',
+        e.shiftKey && 'Shift'].filter(Boolean);
+    return [...chord, e.key].join('+');
+}
+
+export function installFocusTimeline() {
+    if (timelineInstalled || typeof document === 'undefined') return;
+    timelineInstalled = true;
     document.addEventListener('pointerdown', (e) => {
         lastPress = { touch: e.pointerType === 'touch', at: Date.now() };
+        note('pointerdown', describeElement(e.target), { pointerType: e.pointerType || null });
     }, true);
     document.addEventListener('touchstart', () => {
         lastPress = { touch: true, at: Date.now() };
     }, true);
+    document.addEventListener('focusin', (e) => {
+        note('focusin', describeElement(e.target),
+            { from: e.relatedTarget ? describeElement(e.relatedTarget) : null });
+    }, true);
+    document.addEventListener('focusout', (e) => {
+        note('focusout', describeElement(e.target),
+            { to: e.relatedTarget ? describeElement(e.relatedTarget) : null });
+    }, true);
+    document.addEventListener('keydown', (e) => {
+        note('keydown', describeElement(e.target), { key: keyName(e) });
+    }, true);
+    document.addEventListener('visibilitychange', () => {
+        note('visibility', 'document', { state: document.visibilityState });
+    });
+    window.addEventListener('blur', (e) => {
+        if (e.target === window) note('window-blur', 'window');
+    });
+    window.addEventListener('focus', (e) => {
+        if (e.target === window) note('window-focus', 'window');
+    });
+    window.addEventListener('popstate', () => note('popstate', window.location.pathname), true);
 }
+
+/** Timeline entries at or after `since` (epoch ms), oldest first — copies. */
+export function focusTimeline(since = 0) {
+    return timeline.filter((e) => e.t >= since).map((e) => ({ ...e }));
+}
+
 const FOCUSING_PRESS_MS = 1000;
+// How far before the field gained focus a loss report's timeline reaches —
+// the click that focused it, and whatever raced it.
+const TIMELINE_LEAD_MS = 2000;
+const REPORT_TIMELINE_MAX = 40;
 
 export function describeElement(node) {
     if (!node) return String(node);
@@ -135,11 +206,25 @@ function hiddenAncestor(el) {
     return null;
 }
 
+const STORAGE_KEY = 'darwinFocusLoss';
+
+/** Every loss recorded in this browser, across reloads, oldest first. */
+export function storedFocusLosses() {
+    try {
+        const stored = JSON.parse(window.localStorage.getItem(STORAGE_KEY) || '[]');
+        return Array.isArray(stored) ? stored : [];
+    } catch { return []; }
+}
+
 function record(report) {
     if (typeof window === 'undefined') return;
     const list = window.__darwinFocusLoss || (window.__darwinFocusLoss = []);
     list.push(report);
     if (list.length > MAX_REPORTS) list.splice(0, list.length - MAX_REPORTS);
+    try {
+        const stored = [...storedFocusLosses(), report].slice(-MAX_REPORTS);
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+    } catch { /* storage full or blocked — the in-page list still has it */ }
 }
 
 if (typeof window !== 'undefined') {
@@ -334,6 +419,9 @@ function closeSession(session, trigger, relatedTarget = null) {
         routeChanged,
         touch: session.touch,
         visibilityState: typeof document !== 'undefined' ? document.visibilityState : '',
+        timeline: focusTimeline(session.focusedAt - TIMELINE_LEAD_MS)
+            .slice(-REPORT_TIMELINE_MAX)
+            .map(({ t, ...e }) => ({ atMs: t - session.focusedAt, ...e })),
     };
     report.culprit = culpritFor(cause, report, session);
     const quiet = routeChanged || (session.touch && EVIDENCE_FREE_CAUSES.has(cause)
@@ -342,7 +430,7 @@ function closeSession(session, trigger, relatedTarget = null) {
     record(report);
     // eslint-disable-next-line no-console
     console.warn('[focus-loss]', report,
-        '\n→ copy(darwinFocusLossReport()) puts every captured loss on the clipboard.');
+        '\n→ Ctrl+Shift+F (or copy(darwinFocusCapture()) here) copies a capture to paste to Claude.');
     if (!quiet && session.opts.onLoss) session.opts.onLoss(report);
 }
 
@@ -357,7 +445,7 @@ function closeSession(session, trigger, relatedTarget = null) {
  */
 export function watchFocusLoss(el, opts = {}) {
     if (!el || typeof document === 'undefined') return () => {};
-    installPressTracker();
+    installFocusTimeline();
 
     const onFocus = () => {
         if (active && active.el === el && !active.closed) {
