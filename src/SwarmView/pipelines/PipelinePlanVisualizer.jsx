@@ -161,6 +161,7 @@ import {
 import { swarmEpicLinkTo, swarmStepLinkTo } from '../swarmViewLink';
 import { newRequirementSeatState, planExitState } from './pipelineStepLink';
 import { useSavedViewport } from '../../hooks/useSavedViewport';
+import { usePlanViewSetting } from './planViewSettings';
 // req #3581 — dragging a requirement between steps writes its seat.
 import AppContext from '../../Context/AppContext';
 import AuthContext from '../../Context/AuthContext';
@@ -716,9 +717,9 @@ export default function PipelinePlanVisualizer({
             colorKey: scale, views: reqColorViews,
         }).entries])), [reqColorViews]);
     // Collapsed by default (req #3633, reversing req #3585's expanded default
-    // and restoring req #3309's) — see the key's own comment below for why this
-    // is component state and not a persisted preference.
-    const [keyOpen, setKeyOpen] = useState(false);
+    // and restoring req #3309's) and REMEMBERED once the reader opens it (req
+    // #3651) — see the key's own comment below.
+    const [keyOpen, setKeyOpen] = usePlanViewSetting('keyOpen');
 
     // The container is tracked as STATE, not a bare ref: with an empty plan the
     // component returns the empty panel and no container exists — if the first
@@ -1389,6 +1390,10 @@ export default function PipelinePlanVisualizer({
     // re-clamp in (a) below; only a new plan or a rescale lands.
     const landKey = `${viewportKey}|${viewportFingerprint}`;
     const landedKeyRef = useRef(null);
+    // The same fact as STATE, for the two focus effects (req #3651): they must
+    // not move the camera before the landing has, and must re-run in the commit
+    // after it does whatever else did or did not change in that commit.
+    const [landedKey, setLandedKey] = useState(null);
     // Which PLAN last landed — tells "arrived at a plan" (restore) apart from
     // "this plan's Step Width changed" (the base view: the rescale is the
     // reader's explicit choice and the old camera means nothing on it).
@@ -1457,6 +1462,7 @@ export default function PipelinePlanVisualizer({
         if (action !== 'keep') {
             landedKeyRef.current = landKey;
             landedPlanRef.current = viewportKey;
+            setLandedKey(landKey);
             // ── A NEW WORLD ENDS THE EPIC NAME'S CYCLE (req #3297, review) ──
             // Both branches below relocate the camera, and neither carries a
             // `sourceEvent`, so the zoom handler cannot see it — without this,
@@ -2677,13 +2683,17 @@ export default function PipelinePlanVisualizer({
     // re-fitting the band.
     const epicFocusAppliedRef = useRef(null);
     useEffect(() => {
-        if (focusEpicId == null) return;
+        // req #3651 — a cleared focus forgets it was applied, so a LATER link
+        // to the same epic on this same canvas flies again.
+        if (focusEpicId == null) { epicFocusAppliedRef.current = null; return; }
         // Req #3253 — a named STEP is the more specific request and wins, exactly
         // as it does in `PipelineDetail`'s `linkView`. Without this a URL
         // carrying both parameters would start two camera transitions in one
         // commit, and the loser would be pre-empted mid-flight.
         if (focusStepId != null) return;
         if (userMovedCameraRef.current) return;
+        // req #3651 — NOT BEFORE THE LANDING. See the step twin below.
+        if (landedKey !== landKey) return;
         // The SAME readiness guard the landing effect takes (req #3312). Without
         // it the two desynchronise at mount: this would start its 420ms ease
         // against the provisional panel while the landing waited, and the
@@ -2709,7 +2719,8 @@ export default function PipelinePlanVisualizer({
                 key: epicZoomStateKey(pipeline?.id, band), level: EPIC_ZOOM_BAND,
             };
         }
-    }, [focusEpicId, focusStepId, pipeline?.id, size, layout, focusEpic, sizeSettled]);
+    }, [focusEpicId, focusStepId, pipeline?.id, size, layout, focusEpic, sizeSettled,
+        landKey, landedKey]);
 
     // Req #3253 — the mount-time end of the `?step=` deep link, in PLAN mode.
     //
@@ -2729,8 +2740,18 @@ export default function PipelinePlanVisualizer({
     // carries both parameters.
     const stepFocusAppliedRef = useRef(null);
     useEffect(() => {
-        if (focusStepId == null) return;
+        if (focusStepId == null) { stepFocusAppliedRef.current = null; return; }  // its twin's reason
         if (userMovedCameraRef.current) return;
+        // ── NOT BEFORE THE LANDING (req #3651) ──────────────────────────────
+        // The landing is this canvas's FIRST camera write — restore or base
+        // view — and it waits for the panel's real height; `sizeSettled()`
+        // alone is satisfied by the provisional one. A focus that started
+        // first flew from the identity camera, was interrupted at its first
+        // tick when the panel re-sized (the zoom behaviour is rebuilt on a size
+        // change and interrupts what is running), and its 'end' SAVED that
+        // near-identity camera — which the landing then restored. `landedKey`
+        // is state the landing sets, so this re-runs in the commit after it.
+        if (landedKey !== landKey) return;
         if (!sizeSettled()) return;                      // the twin's guard, req #3312
         const key = `${pipeline?.id}:${focusStepId}:${size.w}x${size.h}`;
         if (stepFocusAppliedRef.current === key) return;
@@ -2738,7 +2759,7 @@ export default function PipelinePlanVisualizer({
         if (!tr) return;
         if (applyFocus(tr, { persist: false })) stepFocusAppliedRef.current = key;
     }, [focusStepId, pipeline?.id, size, layout, kDefault, kZoomFloor, applyFocus,
-        sizeSettled]);
+        sizeSettled, landKey, landedKey]);
 
     // Req #3235 code review — the resolved pipeline can legitimately hold no
     // band for this epic: the resolver answers "which pipeline hosts any of
@@ -4949,11 +4970,14 @@ export default function PipelinePlanVisualizer({
                     since req #3621 lists every value of every scale — is the
                     accepted, measured cost of that trade.
 
-                    Collapse is LOCAL STATE, not a persisted preference: a stored
-                    one would need seeding in the E2E fixture and could arrive
-                    shown from another session. Every visit opens with the key
-                    collapsed (req #3633; req #3585 had it expanded, req #3309
-                    collapsed).
+                    Collapse is a REMEMBERED SETTING (req #3651), not local
+                    state: as local state every transition — Plan|Table, a step
+                    card into the Table and Back, a requirement round-trip, a
+                    reload — re-mounted it collapsed under a reader who had
+                    opened it. It defaults collapsed (req #3633; req #3585 had it
+                    expanded, req #3309 collapsed), so a reader who never opens
+                    it, and every E2E run (empty storage), sees no change. Its
+                    key and default are one row in `planViewSettings.js`.
 
                     PARKED AT VIEWPORT MIDDLE BOTTOM (req #3255), not the
                     top-right corner: that corner sat in the typical down-and-

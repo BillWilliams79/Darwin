@@ -83,7 +83,7 @@ import {
     PAUSE_PAUSED_COLOR,
 } from './pipelineChipStyles';
 import { sortReqIdsByColorKey } from './pipelinePlanLayout';
-import { newRequirementSeatState } from './pipelineStepLink';
+import { newRequirementSeatState, planExitState } from './pipelineStepLink';
 
 const NOWRAP = { whiteSpace: 'nowrap' };
 
@@ -289,8 +289,11 @@ function RequirementLinks({ row, pipelineId, colorKey, statusOf, sessionOf, auto
                         // and reintroducing this field would resurrect exactly
                         // the two-facts-in-two-places shape req #3462's outage
                         // was caused by.
+                        // req #3651 — `planExitState`, the one exit record every
+                        // plan surface writes, so Back carries the view's
+                        // overrides (`?color=`) like the canvas's exits do.
                         state={pipelineId
-                            ? { from: 'pipeline', pipelineId, mode: 'table' }
+                            ? planExitState(pipelineId, 'table')
                             : undefined}
                         underline="hover"
                         sx={{
