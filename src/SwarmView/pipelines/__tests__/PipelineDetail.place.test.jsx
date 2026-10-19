@@ -36,14 +36,14 @@ vi.mock('../pipelineDetailModes', () => {
     const Panel = (name) => function ModeStub() {
         return <div data-testid={`mode-${name}`} />;
     };
+    // The real registry's shape since req #3641: ONE mode, the Plan visualizer.
     const MODES = [
-        { value: 'table', label: 'Table', icon: () => null, Component: Panel('table') },
         { value: 'plan', label: 'Plan', icon: () => null, Component: Panel('plan') },
     ];
     return {
         PIPELINE_DETAIL_MODES: MODES,
         PIPELINE_DETAIL_MODE_STORAGE_KEY: 'darwin-swarm-pipeline-detail-mode',
-        DEFAULT_PIPELINE_DETAIL_MODE: 'table',
+        DEFAULT_PIPELINE_DETAIL_MODE: 'plan',
         findPipelineDetailMode: (v) => MODES.find((m) => m.value === v),
         default: MODES,
     };
@@ -190,7 +190,6 @@ describe('PipelineDetail — recording the remembered place (req #3431)', () => 
         // this record and every field in it is either navigated to or gates a
         // navigation, so an extra one is a channel nobody audited.
         expect(Object.keys(storedPlace()).sort()).toEqual(['at', 'pipelineId', 'v']);
-        click('pipeline-mode-plan');
         expect(node('mode-plan')).not.toBeNull();
         expect(storedPlace()).toEqual({ v: PIPELINE_PLACE_SCHEMA_VERSION, at: 'plan', pipelineId: 2 });
     });
@@ -199,7 +198,7 @@ describe('PipelineDetail — recording the remembered place (req #3431)', () => 
     // list-page click handler could not see, and each one is a plan the reader
     // would swear they had last selected.
     it.each([
-        ['a ?step= deep link', '/swarm/pipeline/2?mode=table&step=47'],
+        ['a ?step= deep link', '/swarm/pipeline/2?mode=plan&step=47'],
         ['an ?epic= link from the requirement page', '/swarm/pipeline/2?epic=9'],
         ['a ?mode= link', '/swarm/pipeline/2?mode=plan'],
         ['a bare bookmark', '/swarm/pipeline/2'],

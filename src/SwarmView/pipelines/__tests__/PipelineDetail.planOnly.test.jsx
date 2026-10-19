@@ -1,13 +1,15 @@
 // @vitest-environment jsdom
 //
-// Req #3281 — the plan-page mode toggle is icon-only and had NO accessible
-// name: MUI's Tooltip was wrapping the icon INSIDE the ToggleButton, so
-// SvgIcon's `aria-hidden={titleAccess ? undefined : true}` pulled the named
-// element out of the accessibility tree and the button itself named nothing.
-// The fix moves the Tooltip outside the ToggleButton (SwarmView.jsx's
-// existing, correct shape) so MUI injects the title as the BUTTON's
-// aria-label. This is the accessible-name coverage the requirement says never
-// existed for this control.
+// Req #3641 — "remove the option to see the steps in the pipeline in a special
+// viewer; just show the visualizer, it's the only way to look at a pipeline
+// for now". Mounted against the REAL `pipelineDetailModes.js` registry (only
+// the two panel bodies are stubbed, for react-konva's canvas), so this proves
+// what the shipped page does: the Plan visualizer renders, the Table never
+// does — not for a stored 'table' preference, not for an old `?mode=table`
+// link — and there is no mode switcher on the header row.
+//
+// It replaces req #3281's accessible-name coverage of that switcher, which no
+// longer exists to be named.
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import React from 'react';
@@ -99,32 +101,33 @@ afterEach(() => {
     vi.restoreAllMocks();
 });
 
-describe('PipelineDetail — mode toggle accessible name (req #3281)', () => {
-    it('gives every icon-only mode button a non-empty accessible name', () => {
-        mount('/swarm/pipeline/2');
-        for (const { value, label } of PIPELINE_DETAIL_MODES) {
-            const btn = node(`pipeline-mode-${value}`);
-            expect(btn, `expected a rendered button for mode "${value}"`).not.toBeNull();
-            // MUI's Tooltip injects its `title` as the wrapped child's
-            // aria-label when the child sets none of its own. Wrapping the
-            // BUTTON (rather than the icon inside it) is what makes this the
-            // button's own accessible name rather than a name on an
-            // aria-hidden descendant the accessibility tree never sees.
-            expect(btn.getAttribute('aria-label')).toBe(`${label} View`);
-        }
+describe('PipelineDetail — the visualizer is the only view (req #3641)', () => {
+    it('registers exactly one mode, the Plan visualizer', () => {
+        expect(PIPELINE_DETAIL_MODES.map((m) => m.value)).toEqual(['plan']);
     });
 
-    it('never puts the Tooltip title on the icon instead of the button', () => {
+    it.each([
+        ['a bare plan URL', '/swarm/pipeline/2'],
+        ['an old ?mode=table link', '/swarm/pipeline/2?mode=table'],
+        ['an old Table step link', '/swarm/pipeline/2?mode=table&step=47'],
+    ])('renders the Plan and never the Table for %s', (_label, url) => {
+        mount(url);
+        expect(node('mode-plan')).not.toBeNull();
+        expect(node('mode-table')).toBeNull();
+    });
+
+    it('renders the Plan for a reader whose stored preference says table', () => {
+        localStorage.setItem('darwin-swarm-pipeline-detail-mode', 'table');
+        sessionStorage.setItem('darwin-swarm-pipeline-detail-mode', 'table');
         mount('/swarm/pipeline/2');
-        for (const { value } of PIPELINE_DETAIL_MODES) {
-            const btn = node(`pipeline-mode-${value}`);
-            const icon = btn.querySelector('svg');
-            // The regression shape wrapped the icon in the Tooltip, which
-            // left the SvgIcon carrying the title/aria-hidden dance and the
-            // BUTTON with nothing. Assert the icon is a plain, un-named,
-            // non-hidden decorative child now that the button owns the name.
-            expect(icon).not.toBeNull();
-            expect(icon.getAttribute('aria-label')).toBeNull();
-        }
+        expect(node('mode-plan')).not.toBeNull();
+        expect(node('mode-table')).toBeNull();
+    });
+
+    it('puts no mode switcher on the header row', () => {
+        mount('/swarm/pipeline/2');
+        expect(node('pipeline-detail-mode-toggle')).toBeNull();
+        expect(node('pipeline-mode-plan')).toBeNull();
+        expect(node('pipeline-mode-table')).toBeNull();
     });
 });

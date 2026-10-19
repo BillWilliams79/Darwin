@@ -2,13 +2,21 @@
 // which rows it lists, and its own sizes and home. Pure, so the scoping is
 // testable without rendering.
 //
-// ── THE ROWS ARE THE NAV PILLS' ROWS ───────────────────────────────────────
-// Which servers appear, in what order, and which of them link, is exactly the
-// Dev Servers nav item's rule (req #3642, `devServerNavPills`): this machine's
-// servers in port order, every server when the machine cannot be resolved, a
-// link only where the port is reachable from this browser. The dashboard joins
-// each pill back to its claim for what the pill has no room for — the workspace
-// it serves and its terminal.
+// ── WHICH ROWS ─────────────────────────────────────────────────────────────
+// A dev server is NUMBERED by its port everywhere in Darwin, so the rows run in
+// port order — the Dev Servers page's own default sort.
+//
+// PORTS ARE MACHINE-LOCAL: the Mac and WSL each run the full 3000-3007 pool, so
+// `https://localhost:3001` opens THIS machine's 3001. The rows are scoped to
+// the machine this browser resolves to — the Dev Servers page's default
+// selection (req #3556) — and fall back to every server when it cannot tell,
+// rather than showing nothing. A row only links when its claim is on the
+// resolved machine; otherwise it is still drawn, because the server is still
+// running, just not reachable from here, and its title names the machine so
+// two machines' same-numbered ports can be told apart. Until the machines read
+// settles there are NO rows, so the list never flashes every machine's servers
+// and then narrows; a failed machines read is passed in as [] by the caller,
+// which resolves to no machine and so shows everything.
 //
 // The requirement is read from the claim's own `workspace_path`, not joined
 // through the session: a session directory is named `<reqId>-<taskName>`, so
@@ -22,7 +30,7 @@
 // (Components/AnchoredPanel/anchoredPanelGeometry.js). This module holds only
 // the dashboard's own numbers.
 
-import { devServerNavPills } from '../NavBar/navDevServers';
+import { resolveThisMachineId, terminalFocusState, TERMINAL_STATE } from '../SwarmView/terminalFocus';
 
 /** Viewport inset of the home corner, px. */
 export const DASH_INSET = 16;
@@ -34,6 +42,9 @@ export const DASH_COMPACT_W = 250;
 /** Narrower than this, it drops the title too: bar, port and terminal only
  *  (user directive: "at its smallest"). */
 export const DASH_TINY_W = 190;
+/** At least this wide (shaped), the terminal reads "Term 4" rather than "T4"
+ *  (req #3668). Content-sized is never "wider": it keeps the short form. */
+export const DASH_WIDE_W = 340;
 /** Content-sized, the panel is as wide as its rows, up to this, px. */
 export const DASH_AUTO_MAX_W = 420;
 
@@ -67,24 +78,38 @@ export function workspaceLabel(path) {
  *   terminal: ?number, reqId: ?number, label: string, current: boolean}>}
  */
 export function devServerDashboardRows(devServers, machines, nav, currentPort = null) {
-    const byId = new Map((devServers || []).filter(Boolean).map(s => [s.id, s]));
-    return devServerNavPills(devServers, machines, nav).map((pill) => {
-        const s = byId.get(pill.key);
-        const { reqId, label } = workspaceLabel(s.workspace_path);
-        return {
-            key: pill.key,
-            port: s.port,
-            href: pill.href,
-            title: s.workspace_path ? `${pill.title}\n${s.workspace_path}` : pill.title,
-            machineId: s.machine_fk ?? null,
-            terminal: s.terminal_number ?? null,
-            reqId,
-            label,
-            // Only a LINKED row can be this page: an unlinked one is the same
-            // port number on another machine.
-            current: pill.href != null && currentPort != null && s.port === currentPort,
-        };
-    });
+    if (!machines) return [];
+    const thisMachineId = resolveThisMachineId(machines, nav);
+    const machineTitle = (id) => machines.find(m => m.id === id)?.title
+        || (id != null ? `machine ${id}` : 'an unknown machine');
+    return (devServers || [])
+        .filter(s => s && s.port != null)
+        .filter(s => thisMachineId == null || s.machine_fk === thisMachineId)
+        .sort((a, b) => (a.port - b.port) || ((a.machine_fk ?? 0) - (b.machine_fk ?? 0)) || (a.id - b.id))
+        .map((s) => {
+            const url = `https://localhost:${s.port}`;
+            const local = thisMachineId != null && s.machine_fk === thisMachineId;
+            const href = local ? url : null;
+            const terminalNote = s.terminal_number != null ? ` · Terminal ${s.terminal_number}` : '';
+            const where = local
+                ? `Open ${url}${terminalNote}`
+                : `Port ${s.port} on ${machineTitle(s.machine_fk)}${terminalNote}`;
+            const { reqId, label } = workspaceLabel(s.workspace_path);
+            return {
+                key: s.id,
+                port: s.port,
+                href,
+                title: s.workspace_path ? `${where}\n${s.workspace_path}` : where,
+                machineId: s.machine_fk ?? null,
+                sessionId: s.session_fk ?? null,
+                terminal: s.terminal_number ?? null,
+                reqId,
+                label,
+                // Only a LINKED row can be this page: an unlinked one is the same
+                // port number on another machine.
+                current: href != null && currentPort != null && s.port === currentPort,
+            };
+        });
 }
 
 /**
@@ -101,5 +126,28 @@ export function withRequirementTitles(rows, reqs) {
     return rows.map((r) => {
         const title = r.reqId != null ? titleById.get(r.reqId) : undefined;
         return title ? { ...r, label: title, title: `${r.title}\n${r.label}` } : r;
+    });
+}
+
+/**
+ * Rows with the terminal's focus link (req #3668): the `darwin-term://` URL
+ * and tooltip `terminalFocusState` answers for the row's session — the same
+ * judgement the Sessions grid's chip makes — set only when it is a LINK (this
+ * browser's machine, a durable window handle). Any other state leaves the
+ * terminal plain text, as before.
+ *
+ * @param {Array<Object>} rows        devServerDashboardRows output.
+ * @param {?Array<Object>} sessions   swarm_sessions rows (terminal columns).
+ * @param {?Array<Object>} machines
+ * @param {Object} [nav]              navigator override (tests).
+ */
+export function withTerminalLinks(rows, sessions, machines, nav) {
+    const byId = new Map((sessions || []).filter(x => x).map(x => [Number(x.id), x]));
+    return rows.map((r) => {
+        const session = r.sessionId != null ? byId.get(Number(r.sessionId)) : undefined;
+        if (!session) return r;
+        const t = terminalFocusState(session, machines, nav);
+        return t.state === TERMINAL_STATE.LINK
+            ? { ...r, terminalHref: t.href, terminalTitle: t.title } : r;
     });
 }

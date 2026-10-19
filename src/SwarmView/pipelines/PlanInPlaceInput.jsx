@@ -9,12 +9,12 @@ import Box from '@mui/material/Box';
 import { isRestNullLiteral, REST_NULL } from '../../Steps/stepsApi';
 import { PLAN_VIZ_PALETTE as P } from './pipelinePlanLayout';
 
-const MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
+export const MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
 
 // The longest title either editable column holds — `epics.title` and
 // `pipeline_steps.title` are both VARCHAR(256), the cap the Epics and Steps
 // editors already put on their own title fields.
-const TITLE_MAX = 256;
+export const TITLE_MAX = 256;
 
 // Why a typed title cannot be saved, or null when it can. The same two refusals
 // the Epics and Steps dialogs make: the column is NOT NULL, and the literal
@@ -48,24 +48,19 @@ export function titleProblem(title) {
 // unmount-then-remount (which re-runs the setup and sets `mountedRef` again)
 // is not mistaken for a real removal. `valueRef`/`onCommitRef` hold the latest
 // of each, because the cleanup closes over the FIRST render's.
-//
-// `growCh` (the epic chip): the box widens with what is typed rather than
-// staying the width of the name it opened on.
-export default function PlanInPlaceInput({
-    initial, onCommit, onCancel, saving, ariaLabel, testId, style, sx, growCh = false,
-}) {
-    const [value, setValue] = useState(initial);
-    const ref = useRef(null);
+
+// The latch and the unmount-commit above, shared by the one-line input and the
+// requirement title's wrapping editor (req #3661) — one copy of the rule that
+// the FIRST ending wins and that being taken away is a commit.
+// `focusSelect` runs once on mount; `valueRef` is read at unmount.
+export function useInPlaceEnding({ onCommit, onCancel, valueRef, focusSelect }) {
     const doneRef = useRef(false);
     const mountedRef = useRef(false);
-    const valueRef = useRef(value);
-    valueRef.current = value;
     const onCommitRef = useRef(onCommit);
     onCommitRef.current = onCommit;
     useEffect(() => {
         mountedRef.current = true;
-        ref.current?.focus();
-        ref.current?.select();
+        focusSelect?.();
         return () => {
             mountedRef.current = false;
             setTimeout(() => {
@@ -74,13 +69,28 @@ export default function PlanInPlaceInput({
                 onCommitRef.current(valueRef.current);
             }, 0);
         };
-    }, []);
-    const finish = (commit) => {
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    return (commit) => {
         if (doneRef.current) return;
         doneRef.current = true;
-        if (commit) onCommit(value);
+        if (commit) onCommitRef.current(valueRef.current);
         else onCancel();
     };
+}
+
+// `growCh` (the epic chip): the box widens with what is typed rather than
+// staying the width of the name it opened on.
+export default function PlanInPlaceInput({
+    initial, onCommit, onCancel, saving, ariaLabel, testId, style, sx, growCh = false,
+}) {
+    const [value, setValue] = useState(initial);
+    const ref = useRef(null);
+    const valueRef = useRef(value);
+    valueRef.current = value;
+    const finish = useInPlaceEnding({
+        onCommit, onCancel, valueRef,
+        focusSelect: () => { ref.current?.focus(); ref.current?.select(); },
+    });
     return (
         <Box component="input" ref={ref} data-viz-chrome="edit" data-testid={testId}
              aria-label={ariaLabel} value={value} maxLength={TITLE_MAX}
@@ -111,3 +121,4 @@ export default function PlanInPlaceInput({
              }} />
     );
 }
+

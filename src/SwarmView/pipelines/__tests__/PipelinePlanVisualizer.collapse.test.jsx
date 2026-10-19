@@ -100,13 +100,15 @@ describe('per-box collapse heads on the plan canvas (req #3650)', () => {
             expect(h, `step ${id}`).not.toBeNull();
             expect(h.tagName).toBe('BUTTON');
             expect(h.getAttribute('aria-expanded')).toBe('true');
-            expect(h.textContent).toBe('▾Reqs');
+            // The chevron alone since req #3648 — no "Reqs" word.
+            expect(h.textContent).toBe('▾');
         }
         for (const id of [5, 6]) {
             const h = epicHead(id);
             expect(h, `epic ${id}`).not.toBeNull();
             expect(h.getAttribute('aria-expanded')).toBe('true');
-            expect(h.textContent).toBe('▾Steps');
+            // The chevron alone since req #3648 — no "Steps" word.
+            expect(h.textContent).toBe('▾');
             // It LEADS the chip — the chip's upper-left.
             expect(h.parentElement.firstElementChild).toBe(h);
         }
@@ -116,7 +118,7 @@ describe('per-box collapse heads on the plan canvas (req #3650)', () => {
         render();
         click(stepHead(10));
         expect(stepHead(10).getAttribute('aria-expanded')).toBe('false');
-        expect(stepHead(10).getAttribute('title')).toBe('Expand Reqs of step 10');
+        expect(stepHead(10).getAttribute('title')).toBe('Expand Requirements of step 10');
         expect(stepHead(11).getAttribute('aria-expanded')).toBe('true');
         expect(stepHead(12).getAttribute('aria-expanded')).toBe('true');
         expect(epicHead(5).getAttribute('aria-expanded')).toBe('true');
@@ -181,7 +183,7 @@ describe('per-box collapse heads on the plan canvas (req #3650)', () => {
 
     it('names each head with its visible label first (WCAG 2.5.3)', () => {
         render();
-        expect(stepHead(10).getAttribute('aria-label')).toBe('Reqs of step 10');
+        expect(stepHead(10).getAttribute('aria-label')).toBe('Requirements of step 10');
         expect(epicHead(5).getAttribute('aria-label')).toBe('Steps of epic Build');
     });
 });

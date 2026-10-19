@@ -7,13 +7,13 @@ import {
     unorchestratedSwarmReady, stepAcceptsNewWork, seatTargetAt,
     screenToWorld, screenRectOf, UNSEATED_REQ_MIME, resolveSeatDrop,
     unseatedBoxFontPx, UNSEATED_FONT_MIN, UNSEATED_FONT_MAX, bulkSeatRequest,
-    unseatedBoxWidthPx, UNSEATED_MIN_WIDTH_EM,
+    unseatedBoxWidthPx, UNSEATED_MIN_WIDTH_EM, unseatedBoxZoom, UNSEATED_MAX_STEPS_ACROSS,
     unseatedTextStep, unseatedResizedBox, unseatedMinStretchPx, UNSEATED_TEXT_RATIO,
     UNSEATED_MIN_LIST_EM,
     pointInRect, pointerCanSeat, runBulkSeat, bulkSeatFailureMessage,
 } from '../pipelineUnseated';
 import {
-    CARD_FONT, CARD_FRAME_W, computePlanLayout, STEP_WIDTH_SCALES,
+    CARD_FONT, CARD_FRAME_W, computePlanLayout, STEP_WIDTH_RUNGS, stepsAcrossScale,
 } from '../pipelinePlanLayout';
 
 describe('unorchestratedSwarmReady', () => {
@@ -157,29 +157,33 @@ describe('unseatedBoxWidthPx', () => {
 
     it('is exactly the card wherever the type tracks the ids, every rung', () => {
         const kMinFont = UNSEATED_FONT_MIN / CARD_FONT.req;
-        STEP_WIDTH_SCALES.forEach((_, i) => {
-            const frameW = computePlanLayout(rows, { stepWidthLevel: i + 1 }).cardFrameW;
+        STEP_WIDTH_RUNGS.forEach((rung) => {
+            const frameW = computePlanLayout(rows, { stepWidthLevel: rung }).cardFrameW;
             [kMinFont, 0.6, 1, kMaxFont, 3].forEach((k) => {
-                expect(unseatedBoxWidthPx(frameW, k)).toBeCloseTo(frameW * k, 6);
+                // The 3/4 card (req #3648) can be narrower than the box's own
+                // title bar, which is the box's floor at any rung.
+                const floor = UNSEATED_MIN_WIDTH_EM * unseatedBoxFontPx(k);
+                expect(unseatedBoxWidthPx(frameW, k))
+                    .toBeCloseTo(Math.max(frameW * k, floor), 6);
             });
         });
     });
 
     it('mirrors every rung\'s drawn card frame, the seat outline\'s width', () => {
-        STEP_WIDTH_SCALES.forEach((_, i) => {
-            const layout = computePlanLayout(rows, { stepWidthLevel: i + 1 });
+        STEP_WIDTH_RUNGS.forEach((rung) => {
+            const layout = computePlanLayout(rows, { stepWidthLevel: rung });
             const node = [...layout.nodes.values()][0];
             const k = 2;
             const t = { k, x: 0, y: 0 };
             expect(unseatedBoxWidthPx(layout.cardFrameW, k))
                 .toBeCloseTo(screenRectOf(node, t).width, 6);
         });
-        const wide = computePlanLayout(rows, { stepWidthLevel: 4 }).cardFrameW;
+        const wide = computePlanLayout(rows, { stepWidthLevel: 6 }).cardFrameW;
         expect(wide).toBeGreaterThan(CARD_FRAME_W);
     });
 
     it('an empty plan still answers its rung\'s frame width', () => {
-        expect(computePlanLayout([], { stepWidthLevel: 1 }).cardFrameW).toBe(CARD_FRAME_W);
+        expect(computePlanLayout([], { stepWidthLevel: 4 }).cardFrameW).toBe(CARD_FRAME_W);
     });
 
     it('never answers NaN for a missing width or degenerate scale', () => {
@@ -348,5 +352,30 @@ describe('bulkSeatFailureMessage', () => {
     it('says plainly when every one failed, and tolerates a missing status', () => {
         expect(bulkSeatFailureMessage(2, [f(11, 409), f(12)]))
             .toBe('Unable to add 11 (409), 12 to the step');
+    });
+});
+
+// req #3648 — "Orchestrables shouldn't get any bigger than it is at six window
+// widths": the box follows the zoom only up to the six-steps-across scale.
+describe('unseatedBoxZoom — capped at six steps across (req #3648)', () => {
+    const VW = 1600;
+    const pitch = 600;
+    const k6 = stepsAcrossScale(UNSEATED_MAX_STEPS_ACROSS, VW, pitch);
+
+    it('follows the zoom below six across', () => {
+        expect(unseatedBoxZoom(k6 / 2, VW, pitch)).toBe(k6 / 2);
+    });
+
+    it('holds at the six-across scale when zoomed further in', () => {
+        expect(unseatedBoxZoom(k6 * 3, VW, pitch)).toBe(k6);
+        const at6 = unseatedBoxWidthPx(CARD_FRAME_W, unseatedBoxZoom(k6, VW, pitch));
+        const past = unseatedBoxWidthPx(CARD_FRAME_W, unseatedBoxZoom(k6 * 3, VW, pitch));
+        expect(past).toBe(at6);
+        expect(unseatedBoxFontPx(unseatedBoxZoom(k6 * 3, VW, pitch)))
+            .toBe(unseatedBoxFontPx(k6));
+    });
+
+    it('passes the zoom through when the viewport is not measured yet', () => {
+        expect(unseatedBoxZoom(2, 0, pitch)).toBe(2);
     });
 });

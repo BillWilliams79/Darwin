@@ -20,7 +20,26 @@
 // absent from it is seated NOWHERE and seating it is a plain INSERT — no
 // unseat, no move.
 
-import { CARD_FONT, CARD_FRAME_W } from './pipelinePlanLayout';
+import { CARD_FONT, CARD_FRAME_W, stepsAcrossScale } from './pipelinePlanLayout';
+
+// ── NEVER BIGGER THAN AT SIX STEPS ACROSS (req #3648, user directive) ──────
+// "Orchestrables shouldn't get any bigger than it is at size six window widths.
+// any bigger is no good." The box follows the zoom as the sections below say,
+// but the zoom it follows is capped at the scale the "6" steps-across button
+// lands on, so zooming further in leaves the box where it was.
+export const UNSEATED_MAX_STEPS_ACROSS = 6;
+
+/**
+ * The zoom the box is sized at: the live `k`, but never past six steps across.
+ *
+ * @param {number} k          the live zoom scale
+ * @param {number} viewportW  the panel's width, screen px
+ * @param {number} colPitch   the plan's column pitch, world px (`layout.colPitch`)
+ */
+export function unseatedBoxZoom(k, viewportW, colPitch) {
+    const cap = stepsAcrossScale(UNSEATED_MAX_STEPS_ACROSS, viewportW, colPitch);
+    return cap && Number.isFinite(k) && k > cap ? cap : k;
+}
 
 /** The box's type size bounds, screen px (user ruling: "match, within 9–16px"). */
 export const UNSEATED_FONT_MIN = 9;
@@ -40,9 +59,11 @@ export function unseatedBoxFontPx(k) {
 }
 
 /** The box's narrowest width, in em of its own type: room for the whole title
- *  bar — "Orchestration Ready", the count and the −/+ — and an id plus a slice
- *  of title. Under a rung-1 card's own 18.6em, so it binds only once the type
- *  is held at its 9px floor and the card keeps shrinking without it. */
+ *  bar — the count badge, "Orchestrables" and the −/+ — and an id plus a slice
+ *  of title. Under the base card's own 18.6em, so at Step Width 4 and up it
+ *  binds only once the type is held at its 9px floor; a Step Width 3 card
+ *  (0.75x, ~14em, req #3648) is narrower than the title bar itself, so there
+ *  the box is held at this width rather than mirroring the card. */
 export const UNSEATED_MIN_WIDTH_EM = 18;
 
 /**

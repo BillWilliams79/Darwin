@@ -60,6 +60,7 @@ vi.mock('../pipelineUnseated', async (orig) => {
 import { composedFixture } from './pipelineComposedFixture';
 import { adaptComposedPipeline, buildPlanModel } from '../pipelineAdapter';
 import PipelinePlanVisualizer from '../PipelinePlanVisualizer';
+import { rulerExcessY } from '../pipelinePlanLayout';
 import { useSnackBarStore } from '../../../stores/useSnackBarStore';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -332,6 +333,27 @@ describe('whole-box drop — only on the plan panel', () => {
         drop(300, 300);
         expect(resolveSeatDropSpy).toHaveBeenLastCalledWith(
             expect.objectContaining({ overChrome: false, point: { x: 300, y: 300 } }));
+    });
+});
+
+// req #3648 — the landing (= Default) camera pulls the plan down by the ruler's
+// screen excess, so the pinned date strip never covers the top band's header.
+describe('the base view clears the ruler (req #3648)', () => {
+    it('lands with y equal to the ruler excess at its scale', () => {
+        // A short panel, so the vertical fit lands below k = 1 where the
+        // excess is non-zero (at 700px this plan lands at k ≈ 1.02, excess 0).
+        Object.defineProperty(HTMLElement.prototype, 'clientHeight',
+            { configurable: true, get: () => 200 });
+        // First visit: no camera remembered by an earlier test to restore.
+        window.localStorage.clear();
+        window.sessionStorage.clear();
+        render();
+        const panel = document.querySelector('[data-insert-edges]');
+        const [x, y, k] = panel.getAttribute('data-transform').split(',').map(Number);
+        expect(k).toBeLessThan(1);
+        expect(rulerExcessY(k)).toBeGreaterThan(1);
+        expect(x).toBe(0);
+        expect(y).toBeCloseTo(rulerExcessY(k), 1);
     });
 });
 
