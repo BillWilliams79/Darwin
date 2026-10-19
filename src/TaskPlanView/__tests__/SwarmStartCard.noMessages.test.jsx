@@ -10,8 +10,8 @@
 // control label or a datum:
 //
 //   • one of the five chip labels
-//   • a badge count — `\d+`, or MUI's `99+` overflow form (Badge's `max`
-//     defaults to 99, and the Met chip's count runs to four digits on live data)
+//   • a pill count — `\d+`, or the `99+` overflow form (the pill keeps MUI
+//     Badge's old clamp at 99; the Met chip's count runs to four digits on live data)
 //   • a row's own title, in the title editor
 //
 // Anything else — an empty state, a filter explanation, a hint — fails. Prose
@@ -306,14 +306,13 @@ describe('SwarmStartCard renders no messages (req #3286)', () => {
         const { container } = mount();
         await flush();
         // Behaviour intact: both rows excluded, badge agrees with the list.
-        // Read the badge BUBBLE, not the Badge root — the testid lands on the
-        // root, whose textContent is the chip label plus the count, so a
-        // substring check there would pass on the wrong number.
+        // Read the COUNT CIRCLE, not the pill — the pill's textContent is the
+        // count plus the label, so a substring check there would pass on the
+        // wrong number. (req #3644: zero is shown, as a datum, not hidden.)
         expect(container.querySelectorAll('[data-testid^="requirement-"]').length).toBe(1);
         const bubble = container.querySelector(
-            '[data-testid="swarm-start-chip-badge-swarm_ready"] .MuiBadge-badge');
+            '[data-testid="swarm-start-chip-count-swarm_ready"]');
         expect(bubble.textContent).toBe('0');
-        expect(bubble.className).toContain('MuiBadge-invisible');
         expectNoMessages(container, 'launch chip fully hidden');
     });
 
@@ -333,7 +332,7 @@ describe('SwarmStartCard renders no messages (req #3286)', () => {
 
     // The live Met population is four digits (1041 rows, 2026-08-02), and
     // `counts.met` carries all of it until the trailing-24h query overlays it.
-    // MUI clamps the badge to `99+` — a datum, and the state a naive `^\d+$`
+    // The pill clamps the count to `99+` — a datum, and the state a naive `^\d+$`
     // allowlist would have called a message.
     it('renders no text when the Met badge overflows to 99+', async () => {
         allRows = Array.from({ length: 120 }, (_, i) => req(1000 + i, 'met'));
@@ -343,7 +342,7 @@ describe('SwarmStartCard renders no messages (req #3286)', () => {
         const { container } = mount();
         await flush();
         const bubble = container.querySelector(
-            '[data-testid="swarm-start-chip-badge-met"] .MuiBadge-badge');
+            '[data-testid="swarm-start-chip-count-met"]');
         expect(bubble.textContent).toBe('99+');
         expectNoMessages(container, 'Met badge overflow');
     });

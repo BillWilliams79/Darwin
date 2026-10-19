@@ -49,8 +49,8 @@ describe('effortChipStyles (req #2916, recolored #3044)', () => {
     });
 
     // Sharing xhigh's green is right for a chip (motion + a written label tell
-    // them apart) and WRONG for a mark that has neither: the effort pie, its
-    // legend swatch, and ModelEffortIcon's bare bolt glyph. Live production
+    // them apart) and WRONG for a mark that has neither: the effort pie and its
+    // legend swatch. Live production
     // effort is {high 955, xhigh 151, medium 17, low 3, ultracode 1}, so two
     // identically-filled slices with different legend rows was reachable today.
     it('effortDistinctColor separates xhigh from ultracode for label-less marks', () => {

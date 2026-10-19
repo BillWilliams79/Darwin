@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
 // Req #3505 — display preference for the per-category-card requirement count
-// suffix, e.g. "Swarm (17)". Mirrors useModelEffortDisplayStore.test.js.
+// suffix, e.g. "Swarm (17)".
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useCategoryCountDisplayStore } from '../useCategoryCountDisplayStore';

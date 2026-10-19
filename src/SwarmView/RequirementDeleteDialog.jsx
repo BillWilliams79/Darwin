@@ -22,8 +22,9 @@ import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 import { coordinationIconColor } from './coordinationChipStyles';
 
 
-// Mirror RequirementRow getStatusIcon (minus session-scoped states that don't
-// apply in the delete-confirm preview: paused/review/live-session rocket).
+// The delete-confirm preview's status glyph. (It once mirrored RequirementRow's
+// status icon; req #3644 removed that icon from the row, so this is now the
+// preview's own.)
 const getStatusIcon = (status) => {
     if (status === 'met')          return <CheckCircleIcon sx={{ fontSize: 18, color: 'success.main' }} />;
     if (status === 'deferred')     return <DoNotDisturbOnIcon sx={{ fontSize: 18, color: '#ff9800' }} />;
@@ -34,8 +35,8 @@ const getStatusIcon = (status) => {
     return <EditNoteIcon sx={{ fontSize: 18, color: '#fbc02d' }} />;
 };
 
-// Mirror RequirementRow getCoordinationIcon — always visible (locked in this
-// preview, since nothing here is editable), for every status (req #3056).
+// The preview's autonomy glyph — always visible (locked, since nothing here is
+// editable), for every status (req #3056).
 const getCoordinationIcon = (coordType) => {
     // Autonomy-progression colors — pink → purple → blue → green (req #2866).
     if (coordType === 'discuss')     return <ForumIcon sx={{ fontSize: 18, color: coordinationIconColor('discuss') }} />;

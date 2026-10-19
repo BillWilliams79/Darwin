@@ -134,10 +134,15 @@ describe('CategoryCard status writes carry all three timestamp columns (req #324
         const { container } = mount();
         await flush();
 
-        const toggle = container.querySelector('[data-testid="status-toggle-20"]');
-        expect(toggle).not.toBeNull();
+        // req #3644 — status is set from the row's ⋮ menu (the cycle icon
+        // is gone); the menu renders in a portal, hence `document`.
+        const menuButton = container.querySelector('[data-testid="req-menu-20"]');
+        expect(menuButton).not.toBeNull();
+        await act(async () => { menuButton.click(); });
+        const option = document.querySelector('[data-testid="req-status-20-swarm_ready"]');
+        expect(option).not.toBeNull();
 
-        await act(async () => { toggle.click(); });
+        await act(async () => { option.click(); });
         await flush();
 
         expect(putBodies).toHaveLength(1);

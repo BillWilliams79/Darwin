@@ -114,8 +114,8 @@ const rowIds = (container) => Array.from(
     .filter(id => id !== 'template');
 
 const badge = (container, status) => {
-    const el = container.querySelector(`[data-testid="swarm-start-chip-badge-${status}"]`);
-    const b = el?.querySelector('.MuiBadge-badge');
+    // req #3644 — the count is the circle at the front of the status pill.
+    const b = container.querySelector(`[data-testid="swarm-start-chip-count-${status}"]`);
     return b ? Number(b.textContent || '0') : 0;
 };
 

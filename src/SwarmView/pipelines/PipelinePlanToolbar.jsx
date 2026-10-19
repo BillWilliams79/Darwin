@@ -37,9 +37,10 @@ import SemanticLevelControl from '../../Components/SemanticLevelControl';
 // `SemanticLevelControl` reads its own "Detail:" style from, so the three
 // captions on this row cannot drift into three voices.
 import { TOOLBAR_CAPTION_SX } from '../../Components/toolbarStyles';
-import { PLAN_LEVEL_NUMBER, REQ_COLOR_SCALES,
+import { PLAN_LEVEL_NUMBER,
     STEPS_ACROSS_OPTIONS, STEP_WIDTH_SCALES } from './pipelinePlanLayout';
 import { toolbarChipProps } from './pipelineChipStyles';
+import ReqColorKeyControl from './ReqColorKeyControl';
 
 // Reset's wording, in ONE place: it is both the tooltip and the accessible name
 // (see the chip below for why the two may not drift). It named the level too
@@ -298,25 +299,11 @@ export default function PipelinePlanToolbar({
                 rest of the product's UI spelling rather than the code's. The
                 chip ORDER is the user's too, and it lives in
                 `REQ_COLOR_SCALES`, not here — see its own comment. */}
-            <Stack direction="row" spacing={0.5} useFlexGap alignItems="center"
-                   sx={{ flexShrink: 0 }}
-                   data-testid="pipeline-viz-colorkey-toggle">
-                <Box component="span" sx={TOOLBAR_CAPTION_SX}>Color:</Box>
-                {REQ_COLOR_SCALES.map(({ key, chipLabel, chipTip, chipName }) => {
-                    const on = colorKey === key;
-                    return (
-                        <Tooltip key={key} title={chipTip}>
-                            <Chip
-                                label={chipLabel}
-                                aria-label={chipName}
-                                onClick={() => onChangeColorKey(on ? 'none' : key)}
-                                {...toolbarChipProps(on)}
-                                data-testid={`pipeline-viz-colorkey-${key}`}
-                            />
-                        </Tooltip>
-                    );
-                })}
-            </Stack>
+            {/* req #3644 — the group is the shared `ReqColorKeyControl`, so the
+                Requirements page header renders the identical control. */}
+            <ReqColorKeyControl colorKey={colorKey}
+                                onChangeColorKey={onChangeColorKey}
+                                testIdPrefix="pipeline-viz" />
         </>
     );
 }

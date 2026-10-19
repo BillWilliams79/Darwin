@@ -11,11 +11,12 @@ import { getIdToken, apiCall, apiDelete, uniqueName } from '../helpers/api';
  * so the stripe reads as invisible.
  *
  * The fix keeps the true category color as the fill and adds a SAME-HUE
- * delineating border (a darkened shade of the fill in light mode, lightened in
- * dark mode) so the bar always shows up as its own category color — not washed
+ * delineating border (req #3644: the cards are the plan's dark panel in both
+ * app themes, so the edge is always the LIGHTENED same-hue shade; before that
+ * it was darkened in light mode) so the bar always shows up as its own category color — not washed
  * to gray. This test pins both halves of that contract:
  *   1. fill === the exact category color (#f2e982)
- *   2. border is solid AND a darker, same-hue (yellow) shade — never gray.
+ *   2. border is solid AND a lighter, same-hue (yellow) shade — never gray.
  */
 test.describe.serial('req #2752 — aggregator color bar', () => {
   test.setTimeout(60000);
@@ -93,7 +94,7 @@ test.describe.serial('req #2752 — aggregator color bar', () => {
 
     // 3) The border is a SAME-HUE shade (yellow), not a flat gray. Parse the rgb
     //    and assert it is (a) yellow-ish — red & green both clearly exceed blue —
-    //    and (b) darker than the pale fill, so it reads against the white card.
+    //    and (b) lighter than the fill, so it reads against the dark panel (req #3644).
     const m = style.borderTopColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
     expect(m).not.toBeNull();
     const [r, g, b] = [Number(m![1]), Number(m![2]), Number(m![3])];
@@ -101,8 +102,8 @@ test.describe.serial('req #2752 — aggregator color bar', () => {
     // would have r ≈ g ≈ b and fail this).
     expect(r - b).toBeGreaterThan(40);
     expect(g - b).toBeGreaterThan(40);
-    // Darker than the #f2e982 fill (242/233/130) so it contrasts on white.
-    expect(r).toBeLessThan(242);
-    expect(g).toBeLessThan(233);
+    // Lighter than the #f2e982 fill (242/233/130): the edge on the dark panel.
+    expect(r).toBeGreaterThan(242);
+    expect(g).toBeGreaterThan(233);
   });
 });

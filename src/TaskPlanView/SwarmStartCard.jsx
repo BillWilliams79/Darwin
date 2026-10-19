@@ -35,8 +35,11 @@ import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { RequirementActionsContext } from '../hooks/useRequirementActions';
 import { useSwarmStartCardStore } from '../stores/useSwarmStartCardStore';
-import { requirementStatusChipProps, requirementStatusLabel } from '../SwarmView/statusChipStyles';
+import { requirementStatusColor, requirementStatusLabel } from '../SwarmView/statusChipStyles';
+import StatusCountPill from '../SwarmView/StatusCountPill';
 import { requirementStatusTimestampFields, requirementStatusTimestampState } from '../utils/requirementStatusTimestamps';
+import { useRequirementColoring } from '../SwarmView/useRequirementColoring';
+import { REQ_CARD_THEME as T, cardFrameSx } from '../SwarmView/requirementCardTheme';
 
 // Chip statuses shown on this card. Mirrors the requirements page filter chips minus
 // 'deferred' and 'wontfix' — both terminal/historical states outside this card's
@@ -121,10 +124,8 @@ import AppContext from '../Context/AppContext';
 import Box from '@mui/material/Box';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
-import Chip from '@mui/material/Chip';
 import Stack from '@mui/material/Stack';
 import IconButton from '@mui/material/IconButton';
-import Badge from '@mui/material/Badge';
 import Check from '@mui/icons-material/Check';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
@@ -354,7 +355,7 @@ const SwarmStartCard = ({ epicReqIds = null, stepReqIds = null }) => {
         metWindow.endStr,
         // ai_model,effort included so the Met chip's rows can render the Model +
         // Effort columns too (req #3029); the active-status query already carries them.
-        { fields: 'id,title,requirement_status,coordination_type,ai_model,effort,category_fk,completed_at' },
+        { fields: 'id,title,requirement_status,coordination_type,ai_model,effort,machine_fk,category_fk,completed_at' },
     );
 
     // req #3500 — under an epic filter, "met" means the EPIC's completed work,
@@ -380,7 +381,7 @@ const SwarmStartCard = ({ epicReqIds = null, stepReqIds = null }) => {
     // round trip when the override does land on `met` — the query enables in
     // the exact render that happens.
     const { data: serverMetRequirementsAllTime } = useRequirementsByStatus(profile?.userName, 'met', {
-        fields: 'id,title,requirement_status,coordination_type,ai_model,effort,category_fk,completed_at',
+        fields: 'id,title,requirement_status,coordination_type,ai_model,effort,machine_fk,category_fk,completed_at',
         enabled: membershipFilterActive && isMet,
     });
 
@@ -626,12 +627,16 @@ const SwarmStartCard = ({ epicReqIds = null, stepReqIds = null }) => {
 
     // Status click — items cycle off the selected status leave the card.
     const STATUS_CYCLE = ['authoring', 'approved', 'swarm_ready'];
-    const statusClick = (requirementIndex, requirementId) => {
+    // req #3644 — `target` is the row menu's direct choice (CategoryCard's
+    // contract); omitted, the click cycles as before.
+    const statusClick = (requirementIndex, requirementId, target) => {
         const currentRow = requirementsArray[requirementIndex];
         const current = currentRow.requirement_status;
         const idx = STATUS_CYCLE.indexOf(current);
         if (idx === -1) return;
-        const next = STATUS_CYCLE[(idx + 1) % STATUS_CYCLE.length];
+        if (target !== undefined && !STATUS_CYCLE.includes(target)) return;
+        const next = target ?? STATUS_CYCLE[(idx + 1) % STATUS_CYCLE.length];
+        if (next === current) return;
         // req #3244 — every requirement_status write re-derives all three status
         // timestamps, matching darwin-mcp's update_requirement, so this UI path
         // never leaves a stale started_at/completed_at/deferred_at behind. One `now`
@@ -680,10 +685,12 @@ const SwarmStartCard = ({ epicReqIds = null, stepReqIds = null }) => {
     // Autonomy is mandatory (req #2745) — no null/empty state. Cycling a legacy
     // unset requirement (indexOf === -1) advances to the first value, 'discuss'.
     const COORD_CYCLE = ['discuss', 'planned', 'implemented', 'deployed'];
-    const coordinationClick = (requirementIndex, requirementId) => {
+    const coordinationClick = (requirementIndex, requirementId, target) => {
         const current = requirementsArray[requirementIndex].coordination_type || null;
         const idx = COORD_CYCLE.indexOf(current);
-        const next = COORD_CYCLE[(idx + 1) % COORD_CYCLE.length];
+        if (target !== undefined && !COORD_CYCLE.includes(target)) return;
+        const next = target ?? COORD_CYCLE[(idx + 1) % COORD_CYCLE.length];
+        if (next === current) return;
 
         // Capture cache snapshots BEFORE touching local state (shared refs, see helper comment).
         const revert = writeThroughRequirementCaches(requirementId, { coordination_type: next });
@@ -748,55 +755,40 @@ const SwarmStartCard = ({ epicReqIds = null, stepReqIds = null }) => {
     // No same-card DnD reordering for a cross-category aggregation card
     const setCrossCardInsertIndex = useCallback(() => {}, []);
 
+    // req #3644 — the plan colour key over this card's rows (colours only; the
+    // card's own oldest/newest order is untouched).
+    const { colorKey, colorViews } = useRequirementColoring(requirementsArray, sessionStatusMap);
+
     return (
-        <Card raised={true}
-              data-testid="swarm-start-card"
-              sx={{ border: '2px solid transparent' }}>
+        <Card data-testid="swarm-start-card"
+              // req #3644 — the plan's panel, framed like a plan step card in
+              // the plan's own accent: this card is the launch queue, the
+              // page's link to the plan.
+              sx={cardFrameSx(T.accent)}>
             {/* req #3064 — CardContent defaults to 16px left/right padding; trimming
                 it (-15% left, -33% right) widens the requirement display area. The
                 Title column is the row's only `1fr` grid track, so the reclaimed
                 space flows straight into it with no other layout change. */}
             <CardContent sx={{ pl: '13.6px', pr: '10.7px' }}>
                 <Box className="card-header"
-                     sx={{ marginBottom: 2, minHeight: '44px', display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}
+                     sx={{ marginBottom: 1.5, minHeight: '44px', display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}
                      data-testid="swarm-start-card-status-filter">
-                    <Stack direction="row" spacing={1.75} sx={{ flex: 1, flexWrap: 'wrap', rowGap: 0.5, alignItems: 'center' }}>
+                    <Stack direction="row" spacing={1} sx={{ flex: 1, flexWrap: 'wrap', rowGap: 0.75, alignItems: 'center' }}>
                         {SWARM_START_STATUSES.map(status => {
                             const selected = status === effectiveStatus;
-                            const chipProps = requirementStatusChipProps(status);
-                            const count = statusCountMap[status] ?? 0;
                             return (
-                                <Badge
+                                // req #3644 — one pill: the count in a circle, then
+                                // the status name (replaced a Badge on a Chip).
+                                <StatusCountPill
                                     key={status}
-                                    badgeContent={count}
-                                    overlap="rectangular"
-                                    showZero={false}
-                                    data-testid={`swarm-start-chip-badge-${status}`}
-                                    sx={{
-                                        '& .MuiBadge-badge': {
-                                            fontSize: 10,
-                                            height: 16,
-                                            minWidth: 16,
-                                            padding: '0 4px',
-                                            bgcolor: '#241773',
-                                            color: '#ffffff',
-                                        },
-                                    }}
-                                >
-                                    <Chip
-                                        label={requirementStatusLabel(status)}
-                                        size="small"
-                                        onClick={() => handleChipClick(status)}
-                                        {...(selected ? chipProps : { variant: 'outlined' })}
-                                        sx={{
-                                            ...(selected ? chipProps.sx : {}),
-                                            ...(!selected && { opacity: 0.5 }),
-                                            cursor: 'pointer',
-                                            textTransform: 'capitalize',
-                                        }}
-                                        data-testid={`swarm-start-chip-${status}`}
-                                    />
-                                </Badge>
+                                    label={requirementStatusLabel(status)}
+                                    count={statusCountMap[status] ?? 0}
+                                    color={requirementStatusColor(status) || T.dim}
+                                    selected={selected}
+                                    onClick={() => handleChipClick(status)}
+                                    testId={`swarm-start-chip-${status}`}
+                                    countTestId={`swarm-start-chip-count-${status}`}
+                                />
                             );
                         })}
                     </Stack>
@@ -805,7 +797,7 @@ const SwarmStartCard = ({ epicReqIds = null, stepReqIds = null }) => {
                         aria-label="Swarm start card menu"
                         data-testid="swarm-start-card-menu"
                         size="small"
-                        sx={{ maxWidth: '25px', maxHeight: '25px' }}
+                        sx={{ maxWidth: '25px', maxHeight: '25px', color: T.dim, '&:hover': { color: T.text } }}
                     >
                         <MoreVertIcon />
                     </IconButton>
@@ -830,7 +822,7 @@ const SwarmStartCard = ({ epicReqIds = null, stepReqIds = null }) => {
                 </Box>
 
                 {requirementsArray === undefined ? (
-                    <CircularProgress size={24} />
+                    <CircularProgress size={24} sx={{ color: T.dim }} />
                 ) : (
                     <RequirementActionsContext.Provider value={{
                         statusClick, coordinationClick,
@@ -853,6 +845,8 @@ const SwarmStartCard = ({ epicReqIds = null, stepReqIds = null }) => {
                         // reader and an orchestrated row here, which is what
                         // makes the mark load-bearing rather than decorative.
                         orchestratedIds: visibility.orchestratedIds,
+                        colorKey,
+                        colorViews,
                     }}>
                         {/* req #3286 — THE CARD RENDERS NO MESSAGES. Two used to sit here:
                             the "No <status> requirements" empty state and the req #3180

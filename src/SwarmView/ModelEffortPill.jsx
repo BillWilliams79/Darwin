@@ -12,9 +12,8 @@
 // relationship real. Deliberately NOT a blended single colour — that would
 // invent a third meaning neither axis has.
 //
-// NOT the same thing as ModelEffortIcon.jsx, which renders ONE value as a
-// glyph for the dense requirement rows. This is the two-value pill for the
-// wider session/complete tables, where there is room for the words.
+// The two-value pill for the wider session/complete tables, where there is
+// room for the words.
 
 import React from 'react';
 import Box from '@mui/material/Box';

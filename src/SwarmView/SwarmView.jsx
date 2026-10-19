@@ -7,7 +7,7 @@ import { useSwarmTabStore } from '../stores/useSwarmTabStore';
 import { useWorkingProjectStore } from '../stores/useWorkingProjectStore';
 import { useShowClosedStore, ALL_REQUIREMENT_STATUSES } from '../stores/useShowClosedStore';
 import { useSwarmStartCardStore } from '../stores/useSwarmStartCardStore';
-import { useModelEffortDisplayStore } from '../stores/useModelEffortDisplayStore';
+import { useRequirementColorKeyStore } from '../stores/useRequirementColorKeyStore';
 import { useCategoryCountDisplayStore } from '../stores/useCategoryCountDisplayStore';
 import { useRequirementDrillStore } from '../stores/useRequirementDrillStore';
 import { useProjects, useAllEpics, useAllCategories, useEpicRequirementIds, useAllPipelineSteps, useStepRequirementIds } from '../hooks/useDataQueries';
@@ -22,6 +22,9 @@ import RequirementsTableView, { SWARM_TABLE_WIDTH } from './RequirementsTableVie
 import SwarmVisualizerView from './SwarmVisualizerView';
 import RequirementsTrendsView from './RequirementsTrendsView';
 import VisualizerToolbar from './VisualizerToolbar';
+import ReqColorKeyControl from './pipelines/ReqColorKeyControl';
+import RequirementColorKeyLegend from './RequirementColorKeyLegend';
+import { REQUIREMENT_COLOR_SCALES } from './requirementCardTheme';
 
 import React, { useState, useEffect, useContext, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -112,11 +115,12 @@ const SwarmView = () => {
     const toggleHidePipelined = useShowClosedStore(s => s.toggleHidePipelinedRequirements);
     const showSwarmStartCard = useSwarmStartCardStore(s => s.show);
     const toggleSwarmStartCard = useSwarmStartCardStore(s => s.toggle);
-    // Model/Effort column display preference (req #3029) — surfaced in the gear
-    // Settings menu (req #3064 retired the standalone Tune icon+menu; the
-    // aggregator card is now always the usual width, same as every other card).
-    const meShowOnAllCards = useModelEffortDisplayStore(s => s.showOnAllCards);
-    const meToggleShowOnAllCards = useModelEffortDisplayStore(s => s.toggleShowOnAllCards);
+    // req #3644 — the plan's colour key, on this page: which scale colours every
+    // requirement's id and title TEXT in the Cards view. It replaced the
+    // per-row Status/Autonomy/Model/Effort icons (and with them req #3029's
+    // "Model & Effort on all cards" setting, which had no columns left to show).
+    const reqColorKey = useRequirementColorKeyStore(s => s.colorKey);
+    const setReqColorKey = useRequirementColorKeyStore(s => s.setColorKey);
     // req #3505 — per-category-card requirement count preference, e.g. "Swarm
     // (17)". Surfaced in the same gear Settings menu, Cards view only (the
     // count renders on CategoryCard, which only exists in Cards view).
@@ -446,12 +450,6 @@ const SwarmView = () => {
     // nothing to keep in sync.
     const settingsToggleItems = view === 'cards' ? [
         {
-            label: 'Show Model & Effort on all cards',
-            checked: meShowOnAllCards,
-            onToggle: meToggleShowOnAllCards,
-            testId: 'model-effort-show-all-cards',
-        },
-        {
             label: 'Show requirement count on category cards',
             checked: showCategoryCount,
             onToggle: toggleShowCategoryCount,
@@ -628,6 +626,19 @@ const SwarmView = () => {
                                   onDelete={clearStepFilter}
                                   sx={{ flexShrink: 0, cursor: 'pointer' }}
                                   data-testid="swarm-step-filter-chip" />
+                        )}
+                        {/* req #3644 — the plan toolbar's own Color selector,
+                            the same component, colouring the cards' rows by the
+                            original row's display elements (State, Session,
+                            Autonomy, Model, Effort). Its
+                            key pops out under the hovered chip rather than
+                            taking a band of the page. */}
+                        {view === 'cards' && (
+                            <ReqColorKeyControl colorKey={reqColorKey}
+                                                onChangeColorKey={setReqColorKey}
+                                                testIdPrefix="swarm-req"
+                                                scales={REQUIREMENT_COLOR_SCALES}
+                                                renderKey={(key) => <RequirementColorKeyLegend colorKey={key} />} />
                         )}
                         {/* req #3598 — the status chips stay on screen and keep
                             applying under an epic/step scope: a scope restricts

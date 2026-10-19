@@ -1,13 +1,8 @@
 import React, { useEffect } from 'react';
 import { useDragLayer } from 'react-dnd';
 import Box from '@mui/material/Box';
-import TextField from '@mui/material/TextField';
-import IconButton from '@mui/material/IconButton';
-import DeleteIcon from '@mui/icons-material/Delete';
-import OpenInNewIcon from '@mui/icons-material/OpenInNew';
-import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
-import ToggleButton from '@mui/material/ToggleButton';
-import RocketIcon from '@mui/icons-material/Rocket';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
+import { REQ_CARD_MONO, REQ_CARD_THEME as T } from './requirementCardTheme';
 
 const layerStyles = {
     position: 'fixed',
@@ -45,39 +40,30 @@ const RequirementDragLayer = () => {
 
     return (
         <div style={layerStyles}>
+            {/* req #3644 — the preview wears the row's new shape: the plan's
+                dark panel, the mono id, the title, the ⋮. The colour key is
+                the host card's, so the preview's id stays in neutral text. */}
             <Box className="task requirement-row" sx={{
                 transform,
                 WebkitTransform: transform,
                 transformOrigin: 'top left',
                 width: item?.sourceWidth || 300,
-                opacity: 0.75,
-                bgcolor: 'background.paper',
+                opacity: 0.85,
+                bgcolor: T.panel,
+                border: `1px solid ${T.line}`,
                 boxShadow: 3,
-                borderRadius: 1,
+                borderRadius: `${T.fieldRadius}px`,
+                px: 1, py: 0.5,
             }}>
-                <ToggleButtonGroup
-                    value="idle"
-                    exclusive
-                    size="small"
-                    sx={{ height: 28, '& .MuiToggleButton-root': { px: 0.5, py: 0, minWidth: 28 } }}
-                >
-                    <ToggleButton value="idle" disabled aria-label="Requirement status"><RocketIcon sx={{ fontSize: 18 }} /></ToggleButton>
-                </ToggleButtonGroup>
-                <TextField
-                    variant="outlined"
-                    value={item?.title || ''}
-                    size="small"
-                    slotProps={{ input: { readOnly: true } }}
-                    sx={{...(item?.requirement_status === 'met' && { textDecoration: 'line-through' }), ...((item?.requirement_status === 'deferred' || item?.requirement_status === 'wontfix') && { opacity: 0.5 })}}
-                />
-                <Box sx={{ display: 'flex', justifyContent: 'flex-start', width: 56 }}>
-                    <IconButton aria-label="Open requirement" sx={{ maxWidth: "25px", maxHeight: "25px" }}>
-                        <OpenInNewIcon />
-                    </IconButton>
-                    <IconButton aria-label="Delete requirement" sx={{ maxWidth: "25px", maxHeight: "25px" }}>
-                        <DeleteIcon />
-                    </IconButton>
+                <Box sx={{ fontFamily: REQ_CARD_MONO, fontWeight: 700, color: T.text, minWidth: '5.5ch', pr: 1 }}>
+                    {item?.id}
                 </Box>
+                <Box sx={{ color: T.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                           ...(item?.requirement_status === 'met' && { textDecoration: 'line-through' }),
+                           ...((item?.requirement_status === 'deferred' || item?.requirement_status === 'wontfix') && { opacity: 0.5 }) }}>
+                    {item?.title || ''}
+                </Box>
+                <MoreVertIcon fontSize="small" sx={{ color: T.dim }} />
             </Box>
         </div>
     );
