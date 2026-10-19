@@ -75,6 +75,8 @@ import {
     PAUSE_ACTIVE_COLOR, PAUSE_PAUSED_COLOR, pauseBubbleColor, EPIC_PAUSE_BUBBLE_W,
     // req #3649 — the epic chip's padlock and the step card's two new buttons.
     EPIC_LOCK_W, CARD_CHECKPOINT_W, CARD_LOCK_W,
+    // req #3650 — the collapse heads.
+    EPIC_CHIP_COLLAPSE_W, CARD_HEAD_BAND, CARD_HEAD_H, CARD_HEAD_W,
     COLOR_CHANNELS, KEY_GROUP_TITLES,
     reqSortRank, sortReqIdsByColorKey,
 } from '../pipelinePlanLayout';
@@ -672,13 +674,13 @@ describe('the card is a fixed, uniform box (req #3498)', () => {
         expect(CARD_TEXT_CHARS).toBe(28);
         expect(CARD_TITLE_CHARS).toBe(CARD_TEXT_CHARS - CARD_ID_CHARS - CARD_SEP_CHARS);
         // The prefix is what `reqLabelText` actually writes — a bare 4-digit id
-        // and the three-character " - ". No '#': ids render bare on this
+        // and the three-character blank gap. No '#': ids render bare on this
         // surface, so counting one cost the reader a title character.
         expect(CARD_TITLE_CHARS).toBeGreaterThan(0);
         expect(reqLabelText(3498, {
             reqLabel: 'title',
             reqTitles: new Map([[3498, 'x'.repeat(80)]]),
-        })).toBe(`3498 - ${'x'.repeat(CARD_TITLE_CHARS - 1)}\u2026`);
+        })).toBe(`3498   ${'x'.repeat(CARD_TITLE_CHARS - 1)}\u2026`);
         // The text column fits what the width was BOUGHT for, measured at the
         // requirement row's own glyph width — `cardChars` is the function the
         // layout truncates with, so a padding change that quietly ate the
@@ -759,7 +761,8 @@ describe('the card is a fixed, uniform box (req #3498)', () => {
         // The one thing that keeps a LEVEL change a pure transform: the room for
         // the L3 line is spent at every level, so nothing moves when it appears.
         expect(cardTitleH('id') - cardTitleH('title')).toBeCloseTo(CARD_SUBTITLE_H, 6);
-        expect(cardTitleH('title')).toBeCloseTo(CARD_PAD_Y + CARD_LINE_H, 6);
+        // + the collapse head's row (req #3650), the card's first line.
+        expect(cardTitleH('title')).toBeCloseTo(CARD_PAD_Y + CARD_HEAD_BAND + CARD_LINE_H, 6);
     });
 
     it('the box is the same at every level — a level change never relayouts', () => {
@@ -1179,12 +1182,13 @@ describe('Step Width — the card scales, four rungs (req #3503)', () => {
         }
     });
 
-    it('the step-link button stays flush with the RIGHT edge at every rung (req #3503 review)', () => {
-        // Regression guard: the first cut positioned this off `CARD_FRAME_X +
+    it('the rightmost title button stays flush with the RIGHT edge at every rung (req #3503 review, #3641)', () => {
+        // Regression guard: the first cut positioned the ↗ off `CARD_FRAME_X +
         // CARD_FRAME_W` (fixed, scale-1 constants) instead of the scaled
         // frame the rest of the card actually drew at, so it drifted off the
         // true right edge at any level but 1 — invisible at the default rung,
-        // which is exactly why a dedicated test outlives the fix.
+        // which is exactly why a dedicated test outlives the fix. The ↗ is
+        // gone since req #3641, so the "+" is the button on that edge now.
         for (let level = 1; level <= STEP_WIDTH_SCALES.length; level += 1) {
             const layout = computePlanLayout(plan.rows,
                 { stepLabel: 'title', stepWidthLevel: level });
@@ -1293,7 +1297,7 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
         const w = text.length * EPIC_CHIP_CHAR_W * scale + EPIC_CHIP_PAD_W * scale
             + (band.epicId != null ? EPIC_CHIP_OPEN_LINK_W + EPIC_CHIP_CARDS_LINK_W
                 + EPIC_LOCK_W : 0)
-            + EPIC_PAUSE_BUBBLE_W;
+            + EPIC_PAUSE_BUBBLE_W + EPIC_CHIP_COLLAPSE_W;
         return { w, h };
     };
 
@@ -2041,7 +2045,7 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
         expect(chip.w).toBeCloseTo(
             20 * EPIC_CHIP_CHAR_W + EPIC_CHIP_PAD_W
             + EPIC_CHIP_OPEN_LINK_W + EPIC_CHIP_CARDS_LINK_W + EPIC_LOCK_W
-            + EPIC_PAUSE_BUBBLE_W, 6);
+            + EPIC_PAUSE_BUBBLE_W + EPIC_CHIP_COLLAPSE_W, 6);
         expect(chip.clipped).toBe(false);
     });
 
@@ -2053,7 +2057,8 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
         });
         expect(chip.key).toBe('none');
         expect(chip.w).toBeCloseTo(
-            20 * EPIC_CHIP_CHAR_W + EPIC_CHIP_PAD_W + EPIC_PAUSE_BUBBLE_W, 6);
+            20 * EPIC_CHIP_CHAR_W + EPIC_CHIP_PAD_W + EPIC_PAUSE_BUBBLE_W
+            + EPIC_CHIP_COLLAPSE_W, 6);
     });
 
     // ── LEAVING SLIDES OFF; ENTERING WAITS (or is clipped) ─────────────────
@@ -2408,7 +2413,7 @@ describe('the epic name holds a legible minimum font (req #3272)', () => {
                 + EPIC_CHIP_PAD_W * scale
                 + (band.epicId != null ? EPIC_CHIP_OPEN_LINK_W + EPIC_CHIP_CARDS_LINK_W
                     + EPIC_LOCK_W : 0)
-                + EPIC_PAUSE_BUBBLE_W;
+                + EPIC_PAUSE_BUBBLE_W + EPIC_CHIP_COLLAPSE_W;
             const x = Math.min(ix0 + MX, right - MX - w);
             const y = Math.min(iy0 + MY, bottom - MY - h);
             if (x < left + MX - 0.01) return null;
@@ -2751,7 +2756,7 @@ describe('epic band label counts, behind a toggle (req #3225)', () => {
             expect(label.text).toBe(band.epic);
             expect(label.w).toBeCloseTo(
                 band.epic.length * EPIC_CHIP_CHAR_W + EPIC_PAUSE_BUBBLE_W
-                + (band.epicId != null ? EPIC_LOCK_W : 0), 6);
+                + EPIC_CHIP_COLLAPSE_W + (band.epicId != null ? EPIC_LOCK_W : 0), 6);
         }
     });
 
@@ -2866,7 +2871,7 @@ describe('epic band label counts, behind a toggle (req #3225)', () => {
         // keeps the name inside its own rectangle.
         expect(chip.w).toBeCloseTo(20 * EPIC_CHIP_CHAR_W + 18
             + EPIC_CHIP_OPEN_LINK_W + EPIC_CHIP_CARDS_LINK_W + EPIC_LOCK_W
-            + EPIC_PAUSE_BUBBLE_W, 6);
+            + EPIC_PAUSE_BUBBLE_W + EPIC_CHIP_COLLAPSE_W, 6);
     });
 
     it('the toggle is a pure display transform: the ONLY thing that changes '
@@ -3998,7 +4003,7 @@ describe('the pause status bubble (req #3226)', () => {
         // + EPIC_LOCK_W since req #3649 — the padlock is reserved the same way.
         expect(withBubble[0].w).toBeCloseTo(20 * EPIC_CHIP_CHAR_W + 18
             + EPIC_CHIP_OPEN_LINK_W + EPIC_CHIP_CARDS_LINK_W + EPIC_LOCK_W
-            + EPIC_PAUSE_BUBBLE_W, 6);
+            + EPIC_PAUSE_BUBBLE_W + EPIC_CHIP_COLLAPSE_W, 6);
     });
 
     // "its rectangle belongs in the same label set the zero-overlap invariant
@@ -4015,7 +4020,7 @@ describe('the pause status bubble (req #3226)', () => {
             const bandText = band.epicLabel || band.epic;
             expect(label.w).toBeCloseTo(
                 bandText.length * EPIC_CHIP_CHAR_W + EPIC_PAUSE_BUBBLE_W
-                + (band.epicId != null ? EPIC_LOCK_W : 0), 6);
+                + EPIC_CHIP_COLLAPSE_W + (band.epicId != null ? EPIC_LOCK_W : 0), 6);
         }
     });
 });
@@ -4672,6 +4677,13 @@ describe('the SCALE REGISTRY (req #3422)', () => {
             .toEqual({ fill: PAL.session.review, bold: true });
     });
 
+    it('paints waiting and review the same attention red in every theme (req #3656)', () => {
+        for (const p of PLAN_PALETTES) {
+            expect(p.session.waiting, p.key).toBe(p.session.review);
+            expect(p.session.review, p.key).toBe('#ff3b30');
+        }
+    });
+
     it('never lets a session member read as the unknown swatch, in any theme', () => {
         // Unknown is what EVERY mark wears while the session reads load, so a
         // member near it would make "not loaded yet" read as that member.
@@ -4686,10 +4698,8 @@ describe('the SCALE REGISTRY (req #3422)', () => {
     it('makes the live session scale TRACK the colours that already mean the same thing', () => {
         // By identity, for REQ_STATUS_COLORS' reason: a copied hex drifts.
         const aurora = planPalette('aurora');
-        expect(aurora.session.waiting).toBe(aurora.autonomy.discuss);
         expect(aurora.session.active).toBe(aurora.status.development);
         expect(aurora.session.completed).toBe(aurora.autonomy.deployed);
-        expect(SESSION_STATUS_COLORS.waiting).toBe(AUTONOMY_COLORS.discuss);
         expect(SESSION_STATUS_COLORS.active).toBe(PLAN_VIZ_PALETTE.runningRing);
         expect(SESSION_STATUS_COLORS.completed).toBe(AUTONOMY_COLORS.deployed);
         expect(planPalette('stoplight').session).toBe(SESSION_STATUS_COLORS);
@@ -5412,10 +5422,10 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
     it('hangs a wrapped title past the id column (req #3575)', () => {
         const budget = cardChars(CHW_REQ);
         const hang = 4 + CARD_SEP_CHARS;
-        const text = `3342 - ${'word '.repeat(30).trim()}`;
+        const text = `3342   ${'word '.repeat(30).trim()}`;
         const lines = wrapReqText(text, budget, REQ_MAX_LINES, hang);
         expect(lines).toHaveLength(REQ_MAX_LINES);
-        expect(lines[0].startsWith('3342 - ')).toBe(true);
+        expect(lines[0].startsWith('3342   ')).toBe(true);
         for (const l of lines.slice(1)) {
             // The id column is blank on every continuation line, and the
             // title starts exactly where the first line's title started.
@@ -5437,13 +5447,15 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
         expect(wrapped.length, 'the fixture has wrapped rows').toBeGreaterThan(0);
         for (const l of wrapped) {
             const hang = String(l.reqId).length + CARD_SEP_CHARS;
-            expect(l.lines[0].startsWith(`${l.reqId} - `)).toBe(true);
+            expect(l.lines[0].startsWith(`${l.reqId}   `)).toBe(true);
             for (const ln of l.lines.slice(1)) {
                 expect(ln.slice(0, hang)).toBe(' '.repeat(hang));
             }
             // `text` is what the row SAYS — the padding is not part of it.
             expect(l.text).toBe(l.lines.map((ln, k) => (k ? ln.trimStart() : ln)).join(' '));
-            expect(l.text).not.toContain(' '.repeat(hang));
+            // The id's separator is the widest blank run in `text`; the
+            // continuation padding never leaks into it.
+            expect(l.text.indexOf(' '.repeat(CARD_SEP_CHARS + 1))).toBe(-1);
         }
     });
 
@@ -5520,7 +5532,8 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
             // req #3606 — the pill sits `CARD_BADGE_TOP` off the title row's top (the
             // name's ink rides above the line box's centre), so it may overhang
             // the row by that much into the card's top padding, never below it.
-            expect(badge.y).toBe(n.top + CARD_PAD_Y + CARD_BADGE_TOP);
+            // (The title row starts under the collapse head's row, req #3650.)
+            expect(badge.y).toBe(n.top + CARD_PAD_Y + CARD_HEAD_BAND + CARD_BADGE_TOP);
             expect(badge.y).toBeGreaterThanOrEqual(n.top);
             expect(badge.y + badge.h).toBeLessThanOrEqual(n.top + cardTitleH('title'));
         }
@@ -5530,13 +5543,19 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
         expect(drawsLabelKind('badge', 'in')).toBe(true);
     });
 
+    it('draws no "view in table" ↗ button — the Table is gone (req #3641, #3649)', () => {
+        const layout = computePlanLayout(plan.rows, { stepLabel: 'title' });
+        expect(layout.labels.filter((l) => l.kind === 'step-link')).toEqual([]);
+        expect(layout.labels.filter((l) => l.kind === 'step-add')).toEqual([]);
+    });
+
     it('doubles the title buttons\' outline (req #3607 — "like 100% more")', () => {
         // It shipped at 1 world px (req #3582).
         expect(CARD_TITLE_BTN_STROKE).toBe(2);
         expect(CARD_TITLE_BTN_GLYPH_STROKE).toBeGreaterThanOrEqual(CARD_TITLE_BTN_STROKE);
     });
 
-    it('centres both title-button glyphs on their button in BOTH axes (req #3607)', () => {
+    it('centres the title-button glyph on its button in BOTH axes (req #3607)', () => {
         const layout = computePlanLayout(plan.rows, { stepLabel: 'title' });
         // req #3649 — the ⚑ and the padlock are the title-line buttons now
         // (the "+" and ↗ were removed on the user's directive).
@@ -5564,6 +5583,7 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
     it('puts the run-mode pill at the title line\'s right edge, clear of the step name (req #3580, #3649)', () => {
         for (const stepLabel of ['title', 'id']) {
             const layout = computePlanLayout(plan.rows, { stepLabel });
+            const n0 = (row) => layout.nodes.get(row.id);
             for (const row of plan.rows) {
                 const of = (kind) => layout.labels.find(
                     (l) => l.kind === kind && l.stepId === row.id);
@@ -8599,7 +8619,8 @@ describe('palette themes (req #3365)', () => {
                 epic: p.epic,
                 status: Object.values(p.status),
                 autonomy: Object.values(p.autonomy),
-                session: Object.values(p.session),
+                session: Object.entries(p.session)
+                    .filter(([k]) => k !== 'waiting').map(([, v]) => v), // waiting ≡ review by directive (req #3656)
             })) {
                 let worst = { pair: null, d: Infinity };
                 for (let i = 0; i < hexes.length; i++) {

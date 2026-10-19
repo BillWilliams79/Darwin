@@ -174,12 +174,23 @@ describe('CategoryCard template title keeps focus across a background re-seed (r
             await act(async () => { ta.focus(); });
             await act(async () => { thief.focus(); await new Promise((r) => setTimeout(r, 0)); });
 
-            const { open, message, duration } = useSnackBarStore.getState();
+            const { open, message, duration, action } = useSnackBarStore.getState();
             expect(open).toBe(true);
             expect(message).toContain('Focus taken from template title (Test Cat) — focus-stolen: button[testid=focus-thief]');
-            expect(message).toContain('copy(darwinFocusLossReport())');
-            expect(duration).toBe(10000);
+            expect(duration).toBe(30000);
             expect(window.__darwinFocusLoss).toHaveLength(1);
+
+            // req #3652 — the alert's button puts the capture on the clipboard.
+            expect(action.label).toBe('Copy for Claude');
+            const writeText = vi.fn(() => Promise.resolve());
+            Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+            await act(async () => { await action.onClick(); });
+            const pasted = writeText.mock.calls[0][0];
+            expect(pasted).toContain('paste this whole block to Claude');
+            const capture = JSON.parse(pasted.split('```json\n')[1].split('\n```')[0]);
+            expect(capture.reason).toBe('focus-loss alert');
+            expect(capture.alertedLoss).toBe(window.__darwinFocusLoss[0].at);
+            expect(useSnackBarStore.getState().message).toBe('Focus capture copied — paste it to Claude.');
         } finally {
             warn.mockRestore();
         }

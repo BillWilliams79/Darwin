@@ -675,14 +675,16 @@ export const SESSION_STATUS_ORDER = [
     'review', 'paused', 'completing', 'completed',
 ];
 
-// Signal's session scale. Three members TRACK colours that already mean the
+// Signal's session scale. Two members TRACK colours that already mean the
 // same thing elsewhere on this panel, by reference for `REQ_STATUS_COLORS`'
-// reason: `waiting` is the human-speaks-first stop (`discuss`), `active` is
-// Running, `completed` is GO/met.
+// reason: `active` is Running, `completed` is GO/met. `waiting` and `review`
+// are both "stopped for the human" and share ONE attention red (req #3656 user
+// directive: *"waiting and review should both be red - the color of action for
+// me"*) — a deliberate identical pair, exempt from the separability floor.
 export const SESSION_STATUS_COLORS = {
     no_session: '#9e9e9e',                  // grey — nothing launched it
     starting: REQ_STATUS_COLORS.swarm_ready, // blue — launching
-    waiting: AUTONOMY_COLORS.discuss,        // hot magenta — waiting on a human
+    waiting: '#ff3b30',                      // attention red — waiting on a human, same as review (req #3656)
     planning: AUTONOMY_COLORS.implemented,   // violet — building a plan
     active: PLAN_VIZ_PALETTE.runningRing,    // amber — working
     review: '#ff3b30',                       // attention red — stopped for review (req #3636)
@@ -794,7 +796,7 @@ export const PLAN_PALETTES = [
         session: {
             no_session:  '#c0c0c0',
             starting:    '#8aa8e6',
-            waiting:     '#c4849c',
+            waiting:     '#ff3b30',
             planning:    '#ab84c4',
             active:      '#d4b35c',
             review:      '#ff3b30',
@@ -841,9 +843,9 @@ export const PLAN_PALETTES = [
             implemented: '#7dd3fc',
             deployed:    '#4ade80',
         },
-        // req #3584 — THE LIVE session scale. `waiting`/`active`/`completed`
+        // req #3584 — THE LIVE session scale. `active`/`completed`
         // are assigned in the aurora patch below (tracking, for Signal's
-        // reason). MEASURED minimum ΔE 27.0
+        // reason). `waiting` is the same attention red as `review` (req #3656). MEASURED minimum ΔE 27.0
         // (`starting`/`planning`), minimum contrast 4.87:1 (`review`). `no_session` is a
         // LIGHT neutral, not aurora's mid slate: it must not read as the
         // unknown swatch every mark wears while the session reads load (every
@@ -861,6 +863,7 @@ export const PLAN_PALETTES = [
             no_session:  '#cbd5e1',
             starting:    '#818cf8',
             planning:    '#c4b5fd',
+            waiting:     '#ff3b30',
             review:      '#ff3b30',
             paused:      '#fb923c',
             completing:  '#38bdf8',
@@ -901,7 +904,6 @@ const auroraPalette = PLAN_PALETTES.find((p) => p.key === 'aurora');
 auroraPalette.status.authoring = auroraPalette.autonomy.discuss;
 auroraPalette.status.approved = auroraPalette.autonomy.planned;
 auroraPalette.status.met = auroraPalette.autonomy.deployed;
-auroraPalette.session.waiting = auroraPalette.autonomy.discuss;
 auroraPalette.session.active = auroraPalette.status.development;
 auroraPalette.session.completed = auroraPalette.autonomy.deployed;
 
@@ -1650,12 +1652,12 @@ export const REQ_ROW_GAP = 9.5 * CARD_TYPE_SCALE;
 // raised to three lines so a long title still arrives whole.
 //
 // Counted against WHAT THE ROW ACTUALLY DRAWS: `reqLabelText`'s
-// `${reqId} - ${title}`, so the prefix is a 4-digit id plus the three-character
-// " - " separator — SEVEN characters, and no '#' anywhere (ids render bare on
+// `${reqId}   ${title}`, so the prefix is a 4-digit id plus the three-character
+// blank separator (req #3660 — it was " - ") — SEVEN characters, and no '#' anywhere (ids render bare on
 // this surface, production directive).
 export const CARD_TEXT_CHARS = 28;
 export const CARD_ID_CHARS = 4;
-export const CARD_SEP_CHARS = 3;        // " - ", written by `reqLabelText`
+export const CARD_SEP_CHARS = 3;        // three spaces, written by `reqLabelText`
 // What is left for the title on the FIRST line. Derived, not stated: the line is
 // the budget now, so a title budget written beside it would be a second number
 // to keep in step.
@@ -1762,6 +1764,29 @@ export const CARD_GAP_Y = 22;
 // second line is a property of the LAYOUT and never of the zoom level.
 export const CARD_LINE_H = 21 * CARD_TYPE_SCALE;      // the step-name line
 export const CARD_SUBTITLE_H = 14 * CARD_TYPE_SCALE;  // the step-title line
+// ── THE COLLAPSE HEAD (req #3650) ───────────────────────────────────────────
+// *"the small one we had in the topology TPU 3D visualizer … keep it in the
+// upper left corner as in TPU 3D Vis."* The TPU head (`.tpu3d-head`,
+// Topology/systems2/styles.css) is a 10px uppercase label on a 14px line led
+// by a ▾ that turns a quarter-turn when folded, and it is the FIRST row of the
+// panel it folds. So it is the card's first row here too — its own line at the
+// top-left of the title area, above the name — rather than squeezed into the
+// name's line, whose budget is already eight characters (see NAME_MAX_LINES).
+// Same type at `CARD_TYPE_SCALE`, so it reads at the TPU head's size whenever
+// the card text reads at its own. `CARD_HEAD_GAP` is the TPU head's row gap,
+// scaled the same way, and keeps the head's box clear of the count badge, which
+// rides the name's line one px high (`CARD_BADGE_TOP`).
+export const CARD_HEAD_FONT = 10 * CARD_TYPE_SCALE;
+export const CARD_HEAD_H = 14 * CARD_TYPE_SCALE;
+export const CARD_HEAD_GAP = 3 * CARD_TYPE_SCALE;
+export const CARD_HEAD_BAND = CARD_HEAD_H + CARD_HEAD_GAP;
+// What a step's fold folds: its requirement rows.
+export const CARD_HEAD_LABEL = 'Reqs';
+// The head's box: the 10px chevron, the TPU head's 5px gap and four uppercase
+// characters with their 0.06em tracking, with room to spare — the HTML button
+// is drawn at exactly this width, so the box the layout reserved is the box the
+// reader can click.
+export const CARD_HEAD_W = 50 * CARD_TYPE_SCALE;
 // The horizontal rule under the title area, and the air either side of it.
 export const CARD_RULE_GAP = 7 * CARD_TYPE_SCALE;
 export const CARD_RULE_H = 1;
@@ -1786,19 +1811,19 @@ export const CARD_RADIUS = 10 * CARD_TYPE_SCALE;
  * the slot for the same reason).
  */
 export const cardTitleH = (stepLabel, nameLines = 1) => CARD_PAD_Y
+    + CARD_HEAD_BAND
     + Math.max(1, nameLines) * CARD_LINE_H
     + (stepLabel === 'title' ? 0 : CARD_SUBTITLE_H);
 
 // ── THE STEP NAME WRAPS TOO (req #3498, 2026-08-13) ─────────────────────────
 // It has to, and the reason is the same arithmetic that narrowed the card: at a
 // 28-character line the name's own budget — the text column less the
-// title-row reserves (req #3503: the ✓, the link button, the badge and its
-// gap; req #3580: the run pill; req #3582: the "+"), at the LABEL glyph which
-// is wider than the row glyph — is EIGHT characters (measured — see
+// title-row reserves (req #3503: the ✓ and the badge and its gap; req #3580:
+// the run pill; req #3582: the "+"), at the LABEL glyph which is wider than the
+// row glyph — is TWELVE characters (measured 2026-10-19 — see
 // `cardChars(CHW_LABEL, CARD_CHECK_W + CARD_STEP_LINK_W + CARD_STEP_ADD_W +
-// CARD_RUN_W + CARD_BADGE_W + CARD_BADGE_GAP)`; seventeen before #3580 and
-// #3582, eleven with the run pill alone, thirteen with the "+" alone — the user
-// saw the combination and accepted it, 2026-10-17). "Feature Eradication
+// CARD_RUN_W + CARD_BADGE_W + CARD_BADGE_GAP)`; ten while req #3503's ↗ link
+// button still took its reserve, which req #3641 zeroed). "Feature Eradication
 // - MCP, Scripts, Frontend…" is the actual data, and it truncates well short
 // of one line at that budget.
 //
@@ -1865,6 +1890,17 @@ const CARD_MIN_H = 68 * CARD_TYPE_SCALE;
 // header-row offset is written in terms of it.
 export const CARD_CHECK_W = 0;
 
+// ── THE ↗ "VIEW IN TABLE" BUTTON IS GONE (req #3641) ─────────────────────────
+// User directive: "remove the option to see the steps in the pipeline in a
+// special viewer — just show the visualizer". The Table it opened was
+// withdrawn from the plan page, so the button has nowhere to go and is no
+// longer emitted; a click on the title area frames the step on the canvas
+// instead. Its reserve is zero, `CARD_CHECK_W`'s precedent: the constant
+// stays because every title-row offset is written in terms of it, so the "+"
+// and the run pill slide right into the room it held and the title keeps the
+// rest. The history below is what the button WAS, kept for whoever restores
+// the Table.
+//
 // ── "VIEW IN TABLE, HIGHLIGHTED" — A VISIBLE BUTTON, NOT JUST A HIDDEN HIT
 // RECT (req #3503, user directive: "place a proper sized button for the
 // requirements link — use same button as epic's requirement link, that is the
@@ -1924,7 +1960,8 @@ export const CARD_TITLE_BTN_GLYPH_STROKE = 2.5;
 
 /**
  * The vector strokes for a card title button's glyph, centred on its box.
- * `kind` is the label kind (`'step-add'` draws `+`, `'step-link'` draws `↗`);
+ * `kind` is the label kind (`'step-add'` draws `+`; `'step-link'`, the ↗ no
+ * longer emitted since req #3641, draws `↗`);
  * returns an array of Konva `Line` point arrays (`[x0, y0, x1, y1, ...]`).
  */
 export function titleBtnGlyph(kind, { x, y, w, h, on }) {
@@ -1956,16 +1993,13 @@ export function titleBtnGlyph(kind, { x, y, w, h, on }) {
     }
     return [];
 }
-// The gap between the "+" and the ↗ alone — `CARD_TITLE_BTN_GAP` widened by a
-// third (req #3607, user directive: "increase the spacing between the + and
-// arrow buttons by 33%, horizontal only"). The gap left of the "+" (to the run
-// pill) keeps `CARD_TITLE_BTN_GAP`.
-// (`CARD_STEP_LINK_GAP` / `CARD_STEP_LINK_W` — the ↗'s reserve — were deleted
-// with the button by req #3649.)
+// (`CARD_STEP_LINK_GAP` / `CARD_STEP_LINK_W` — the ↗'s reserve — went with the
+// ↗ in req #3641 and req #3649.)
 
 // ── "FILE A REQUIREMENT INTO THIS STEP" — THE + BUTTON (req #3582) ─────────
-// Left of the ↗, sized like it for the same reason the ↗ is sized like the
-// ✓: a glyph the size of its neighbours needs a target that size, and every
+// On the title row's right edge since req #3641 took the ↗ that stood there;
+// sized like the ↗ was, for the same reason the ↗ was sized like the ✓: a
+// glyph the size of its neighbours needs a target that size, and every
 // world px not reserved here is one the title keeps. It opens the requirement
 // editor in "new" mode carrying this step, and the first save (picking a
 // category, the aggregator template's own rule) seats the new requirement
@@ -2034,8 +2068,8 @@ export const CARD_BADGE_TOP = -1;
 // ── THE RUN-MODE PILL (req #3580, user directives: "have a display circle for
 // step's manual vs auto and let that be a configurable button in the UI", then
 // "make it say auto or manual and be green auto and blue manual") ──────────
-// Left of the ↗, reserved out of the step name's budget exactly the way the ✓
-// and the link button are, so a long title never draws under it. It carries the
+// Left of the "+", reserved out of the step name's budget exactly the way the ✓
+// and the "+" are, so a long title never draws under it. It carries the
 // WORD, so it is sized for the longer of the two — one fixed width, so the pill
 // does not change size (and the title's room does not move) when it is toggled.
 // The same height as the count badge on the other end of the line, so the two
@@ -2107,7 +2141,7 @@ export const CARD_BADGE_W = badgeWidthFor(2);
 
 // How many characters of a given mono width fit the card's text column.
 // `reserve` is total room taken off the column, from either edge — the ✓,
-// the link button and the badge, whichever of them the caller's own budget
+// the "+", the run pill and the badge, whichever of them the caller's own budget
 // is for. `textW` defaults to the scale-1 column (`CARD_TEXT_W`) but takes
 // any `cardGeometryFor(scale).cardTextW` too — the SAME formula at whatever
 // rung "Step Width" is on, never a second one.
@@ -2662,8 +2696,10 @@ export function drawsLabelKind(kind, level) {
     // does and never float beside a bare bead.
     // `run` (req #3580) and `step-add` (req #3582) are title-area controls
     // too and ride the card the same way.
+    // `collapse` (req #3650) is the card's own fold, its first row.
     if (kind === 'step' || kind === 'req' || kind === 'badge'
-        || kind === 'run' || kind === 'checkpoint' || kind === 'lock') {
+        || kind === 'run' || kind === 'checkpoint' || kind === 'lock'
+        || kind === 'collapse') {
         return level !== 'out';
     }
     if (kind === 'title') return level === 'in';
@@ -3137,12 +3173,12 @@ export function reqLabelText(reqId, { reqLabel = 'id', reqTitles = null,
     const t = titleLookup(reqTitles, reqId);
     // The id rides ALONGSIDE the title, not instead of it (user directive) — an
     // id-only mark reading "3242" gives no hint what's under it without a
-    // hover; "3242 - Pipeline Visualizer Polish" answers that at the same L3
+    // hover; "3242   Pipeline Visualizer Polish" answers that at the same L3
     // glance the title itself was added for. Built BEFORE truncation, same as
     // the bare id below, so the id survives the cut and the title is what
     // gives way on a tight column — the id is the one piece of this string a
     // reader can always resolve to the actual requirement.
-    return t ? truncate(`${prefix} - ${t}`, Math.max(4, maxChars))
+    return t ? truncate(`${prefix}${' '.repeat(CARD_SEP_CHARS)}${t}`, Math.max(4, maxChars))
         : prefix;
 }
 
@@ -3157,7 +3193,7 @@ export function reqLabelText(reqId, { reqLabel = 'id', reqTitles = null,
 //
 // TWO SPACES between tokens, so a pill's padding (drawn by the renderer, inside
 // the gap) leaves clear air between neighbours. The gap AFTER THE ID is the id
-// column's own (`CARD_SEP_CHARS`, the width of " - "), so the first pill begins
+// column's own (`CARD_SEP_CHARS`, the width of the blank gap), so the first pill begins
 // on the title column every row's title and wrapped lines start on (req #3575's
 // hanging indent) and never inside the room reserved for the id (req #3601,
 // user: "Terminal intrudes into the space when added and should never do so").
@@ -3308,7 +3344,13 @@ export function computePlanLayout(rows, opts = {}) {
         // caller is what turns an out-of-range number into the default rather
         // than this module guessing which rung was meant.
         stepWidthLevel = DEFAULT_STEP_WIDTH_LEVEL,
+        // req #3650 — the boxes the reader folded with their own collapse
+        // heads (`planCollapse.js`): epic ids (null = the "No epic" band) and
+        // step ids. Null folds nothing.
+        collapsedEpicIds = null, collapsedStepIds = null,
     } = opts || {};
+    const epicFolded = (key) => !!collapsedEpicIds?.has(key);
+    const stepFolded = (r) => !!collapsedStepIds?.has(r.id);
     const widthScale = STEP_WIDTH_SCALES[stepWidthLevel - 1] ?? 1;
     const { cardW, cardFrameW, cardTextW } = cardGeometryFor(widthScale);
     const safeRows = Array.isArray(rows) ? rows : [];
@@ -3354,7 +3396,7 @@ export function computePlanLayout(rows, opts = {}) {
     for (const r of safeRows) {
         const ids = r.reqIds || [];
         // The HANGING INDENT (req #3575): a wrapped title's continuation lines
-        // start where `${id} - ` ends, so the left edge holds the ids alone. It
+        // start where `${id}   ` ends, so the left edge holds the ids alone. It
         // is the BARE id's width even on a row carrying pills — hanging under a
         // pill row's title start would leave three characters a line — so every
         // row's continuations line up on the one title column.
@@ -3363,7 +3405,11 @@ export function computePlanLayout(rows, opts = {}) {
                 reqLabel, reqTitles, reqPills, maxChars: reqRowMax * REQ_MAX_LINES,
             }), reqRowMax, REQ_MAX_LINES, String(reqId).length + CARD_SEP_CHARS)));
     }
-    const reqBlockOf = (r) => reqBlockHeight(rowLinesOf.get(r.id) || []);
+    // A FOLDED step (req #3650) reserves no requirement block at all, so its
+    // card is the title area alone. Its LANE is as tall as the tallest card
+    // still in it, so the lane closes up only when nothing beside it is taller.
+    const reqBlockOf = (r) => (stepFolded(r) ? 0
+        : reqBlockHeight(rowLinesOf.get(r.id) || []));
     // The card's TITLE AREA, wrapped by the same rule and reserved the same way.
     // `stepLabelText` is asked for the whole name (the budget times the line
     // count) and `wrapReqText` breaks it; a short name still returns one line,
@@ -3519,6 +3565,9 @@ export function computePlanLayout(rows, opts = {}) {
                 // own, or the plan's); `lockedBy` says which.
                 locked: bandLockedByOf(key) != null,
                 lockedBy: bandLockedByOf(key),
+                // req #3650 — folded by its own collapse head: the band keeps
+                // its header (the chip that unfolds it) and draws no lanes.
+                collapsed: epicFolded(key),
                 steps: [],
             });
             bandKeys.push(key);
@@ -4001,10 +4050,16 @@ export function computePlanLayout(rows, opts = {}) {
         // rather than index × a single pitch. `laneY` is exported on the band:
         // every consumer that draws per-lane furniture (the visualizer's lane
         // wires) must use it or the wires detach from the cards.
+        // A FOLDED band (req #3650) draws NO lanes, so its height is its
+        // header alone. The lanes above are still assigned — the placement is
+        // band-local, so assigning it changes nothing outside this band — and
+        // the COLUMNS were computed over every row, so folding an epic never
+        // moves another epic's cards sideways.
+        const drawnSub = band.collapsed ? 0 : sub;
         const laneY = [];
         {
             let acc = 0;
-            for (let l = 0; l < sub; l++) { laneY.push(acc); acc += lanePitch(l); }
+            for (let l = 0; l < drawnSub; l++) { laneY.push(acc); acc += lanePitch(l); }
             laneY.push(acc); // sentinel: total lane height
         }
         // Retained for consumers that want a representative pitch; band height
@@ -4023,7 +4078,7 @@ export function computePlanLayout(rows, opts = {}) {
         // visualizer's floating epic chip clamps to THIS rather than re-deriving
         // it, and the two must not drift apart again.
         const epicLaneH = headerH;
-        bands.push({ ...band, steps, sub, pitch, laneY, laneCardH,
+        bands.push({ ...band, steps, sub: drawnSub, pitch, laneY, laneCardH,
             headerH, epicLaneH });
         bandUsed.push(used);
     }
@@ -4065,6 +4120,11 @@ export function computePlanLayout(rows, opts = {}) {
     // curve means what it should mean — a BRANCH into another lane.
     const nodes = new Map();
     bands.forEach((band, bandIndex) => {
+        // A folded band (req #3650) places no cards: its steps have no node,
+        // so every consumer that walks `nodes` — the arcs below, the labels,
+        // the renderer, the focus fits — passes over them as it does any step
+        // with no node, and an arc into or out of the band is not drawn.
+        if (band.collapsed) return;
         for (const r of band.steps) {
             const d = colOf.get(r.id);
             const lane = laneById.get(r.id);
@@ -4220,6 +4280,21 @@ export function computePlanLayout(rows, opts = {}) {
     const labels = [];
     for (const r of safeRows) {
         const n = nodes.get(r.id);
+        if (!n) continue;                  // in a folded band (req #3650)
+        // The title area's own line starts BELOW the collapse head's row (req
+        // #3650), and every control on that line is placed from it.
+        const headTop = n.top + CARD_PAD_Y;
+        const nameTop = headTop + CARD_HEAD_BAND;
+        // ── THE COLLAPSE HEAD (req #3650) — the card's first row, at the
+        //    top-left of its text column, where the TPU 3D panels keep theirs.
+        labels.push({
+            kind: 'collapse', stepId: r.id, text: CARD_HEAD_LABEL,
+            collapsed: stepFolded(r),
+            prose: false,
+            x: n.left + CARD_FRAME_X + CARD_PAD_X,
+            y: headTop,
+            w: CARD_HEAD_W, h: CARD_HEAD_H,
+        });
         // ── THE STEP NAME, IN THE CARD'S TITLE AREA (req #3498) ─────────────
         // It floated 34px ABOVE the bead until now, fitted to a stagger budget
         // assembled from the neighbouring columns. It sits inside the card's own
@@ -4229,8 +4304,9 @@ export function computePlanLayout(rows, opts = {}) {
         // scans down a lane. NOT on the requirement rows' own `textLeft` since
         // req #3503, though — see `titleTextLeft` below for why the title's
         // line alone is indented past the badge.
-        // The ✓'s room and the link button's come off the right (CARD_CHECK_W,
-        // CARD_STEP_LINK_W); the badge's comes off the left (CARD_BADGE_W,
+        // The ✓'s, the "+"'s and the run pill's room come off the right
+        // (CARD_CHECK_W, CARD_STEP_ADD_W, CARD_RUN_W — and CARD_STEP_LINK_W, zero
+        // since req #3641); the badge's comes off the left (CARD_BADGE_W,
         // CARD_BADGE_GAP) — all four drawn on the title area's own line, so a
         // budget that ignored any of them would put the step name under one.
         const nameLines = nameLinesOf.get(r.id) || [''];
@@ -4252,7 +4328,7 @@ export function computePlanLayout(rows, opts = {}) {
             // In `title` mode this label IS the step's stored name.
             prose: stepLabel === 'title',
             x: titleTextLeft,
-            y: n.top + CARD_PAD_Y,
+            y: nameTop,
             w: lw, h: nameLines.length * CARD_LINE_H,
             // req #3580 — the WHOLE room the name may occupy (up to the run
             // pill's reserve), which is where the in-place editor is drawn.
@@ -4280,7 +4356,8 @@ export function computePlanLayout(rows, opts = {}) {
         // The wrapped lines this step's rows occupy — derived once at the top of
         // this function, so the box that was measured and the text drawn into it
         // are the same answer.
-        const rowLines = rowLinesOf.get(r.id) || [];
+        // A folded step's rows are not drawn (req #3650): it reserved no block.
+        const rowLines = stepFolded(r) ? [] : (rowLinesOf.get(r.id) || []);
         let rowY = rowsTop;
         // ── THE ID-ONLY PACKING, ALONGSIDE THE TITLE ONE (req #3503 review:
         //    "bring all the numbers into a nice vertical line up with no white
@@ -4387,7 +4464,7 @@ export function computePlanLayout(rows, opts = {}) {
                 x: textLeft + CARD_BADGE_W - badgeW,
                 // On the FIRST name line, whatever the name wrapped to — the
                 // count belongs to the card, not to the last line of its title.
-                y: n.top + CARD_PAD_Y + CARD_BADGE_TOP,
+                y: nameTop + CARD_BADGE_TOP,
                 w: badgeW, h: CARD_BADGE_H,
             });
         }
@@ -4411,7 +4488,7 @@ export function computePlanLayout(rows, opts = {}) {
                 x: n.right - CARD_PAD_X - CARD_CHECK_W - CARD_RUN_W,
                 // Centred with the "+" and ↗ buttons beside it, which is why it does
                 // not follow the count badge's CARD_BADGE_TOP (req #3606).
-                y: n.top + CARD_PAD_Y + 1,
+                y: nameTop + 1,
                 w: CARD_RUN_W, h: CARD_RUN_H,
             });
         }
@@ -4427,13 +4504,13 @@ export function computePlanLayout(rows, opts = {}) {
             labels.push({
                 kind: 'checkpoint', stepId: r.id, text: '⚑', prose: false,
                 on: r.checkpoint !== false,
-                x: runX - CARD_CHECKPOINT_W, y: n.top + CARD_PAD_Y,
+                x: runX - CARD_CHECKPOINT_W, y: nameTop,
                 w: CARD_TITLE_BTN, h: CARD_TITLE_BTN,
             });
             labels.push({
                 kind: 'lock', stepId: r.id, text: '🔒', prose: false,
                 on: !!r.effectiveLocked, lockedBy: r.lockedBy || null,
-                x: runX - CARD_CHECKPOINT_W - CARD_LOCK_W, y: n.top + CARD_PAD_Y,
+                x: runX - CARD_CHECKPOINT_W - CARD_LOCK_W, y: nameTop,
                 w: CARD_TITLE_BTN, h: CARD_TITLE_BTN,
             });
         }
@@ -4449,7 +4526,7 @@ export function computePlanLayout(rows, opts = {}) {
                     // Stored plan content — see the `prose` note on req marks.
                     prose: true,
                     x: textLeft,
-                    y: n.top + CARD_PAD_Y + nameLines.length * CARD_LINE_H,
+                    y: nameTop + nameLines.length * CARD_LINE_H,
                     w: t.length * CHW_TITLE, h: 11,
                 });
             }
@@ -4491,7 +4568,7 @@ export function computePlanLayout(rows, opts = {}) {
             // floating chip against, grown onto the rect the zero-overlap
             // invariant actually sweeps (req #3225 set this precedent: the
             // count suffix grew both together, never just the chip).
-            w: bandText.length * CHW_EPIC + EPIC_PAUSE_BUBBLE_W
+            w: bandText.length * CHW_EPIC + EPIC_PAUSE_BUBBLE_W + EPIC_CHIP_COLLAPSE_W
                 + (band.epicId != null ? EPIC_LOCK_W : 0), h: 16,
         });
     }
@@ -4714,6 +4791,13 @@ export const EPIC_PAUSE_BUBBLE_W = EPIC_PAUSE_BUBBLE_D + EPIC_PAUSE_BUBBLE_GAP;
 // box plus the chip's flex gap, reserved on every band the same way.
 export const EPIC_LOCK_D = 12;
 export const EPIC_LOCK_W = EPIC_LOCK_D + EPIC_PAUSE_BUBBLE_GAP;
+// req #3650 — the chip's COLLAPSE HEAD, which leads it: the TPU 3D head
+// (`.tpu3d-head`) at its own 10px, chevron + "STEPS". FLAT, like the pause
+// bubble — the TPU head never scales — and drawn at exactly
+// `EPIC_CHIP_COLLAPSE_HEAD_W`, so this reservation is the box on screen; the
+// rest is the chip's flex `gap`.
+export const EPIC_CHIP_COLLAPSE_HEAD_W = 50;
+export const EPIC_CHIP_COLLAPSE_W = EPIC_CHIP_COLLAPSE_HEAD_W + EPIC_PAUSE_BUBBLE_GAP;
 // ── THE FLOOR (req #3272) ──────────────────────────────────────────────────
 // The smallest size the epic NAME may ever render at. This is the whole of the
 // requirement: a floor on the FONT, with the box derived from it, replacing a
@@ -4904,7 +4988,8 @@ export function placeEpicChips({
         // anything is clamped or clipped against it.
         const wFull = bandText.length * charW * scale + EPIC_CHIP_PAD_W * scale
             + (band.epicId != null ? EPIC_CHIP_OPEN_LINK_W + EPIC_CHIP_CARDS_LINK_W : 0)
-            + EPIC_PAUSE_BUBBLE_W + (band.epicId != null ? EPIC_LOCK_W : 0);
+            + EPIC_PAUSE_BUBBLE_W + EPIC_CHIP_COLLAPSE_W
+            + (band.epicId != null ? EPIC_LOCK_W : 0);
 
         // ── THE RULE ────────────────────────────────────────────────────────
         // First term: the intersection's own corner, plus the margin. Second:
@@ -5074,8 +5159,10 @@ export function placeEpicChips({
         }
         if (x + w > limit) {
             const room = limit - x;
+            // The collapse head (req #3650) leads the chip, so a cut chip
+            // that keeps any of its name keeps the head that folds it.
             const minW = EPIC_CHIP_PAD_W * scale + EPIC_PAUSE_BUBBLE_W
-                + (band.epicId != null ? EPIC_LOCK_W : 0)
+                + EPIC_CHIP_COLLAPSE_W + (band.epicId != null ? EPIC_LOCK_W : 0)
                 + EPIC_CHIP_MIN_CHARS * charW * scale;
             if (room < minW) continue;
             w = room;

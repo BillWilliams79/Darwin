@@ -4,7 +4,7 @@
 import { describe, it, expect } from 'vitest';
 import { computePlanLayout, CARD_GAP_X, CARD_RADIUS } from '../pipelinePlanLayout';
 import {
-    insertMarkRadius, arcInsertCandidates, edgeInsertMarks, branchStub, precedeStub, insertRequest,
+    insertMarkRadius, arcInsertCandidates, edgeInsertMarks, dependentStub, precedeStub, insertRequest,
     buildInsertMarks, insertMarkAt, INSERT_HIT_SCALE, INSERT_MARK_MAX_R, arcPathPoints,
 } from '../pipelineStepInsert';
 
@@ -67,11 +67,11 @@ describe('edgeInsertMarks', () => {
     });
 });
 
-describe('branchStub', () => {
+describe('dependentStub', () => {
     it('leaves the card right edge just above the bottom-right corner and ends in the gutter', () => {
         const r = 7;
         for (const n of layout.nodes.values()) {
-            const s = branchStub(n, r);
+            const s = dependentStub(n, r);
             expect(s.x1).toBeGreaterThan(n.right);
             expect(s.y).toBeGreaterThan(n.y);
             // On the straight part of the right edge, above the corner's rounding.
@@ -82,32 +82,40 @@ describe('branchStub', () => {
     });
 });
 
-// Req #3617 — the mirror of the branch stub, off the LEFT side.
+// Req #3617 — the mirror of the dependent stub, off the LEFT side.
 describe('precedeStub', () => {
-    it('leaves the card left edge at the branch stub\'s height and ends in the gutter before it', () => {
+    it('leaves the card left edge at the dependent stub\'s height and ends in the gutter before it', () => {
         const r = 7;
         for (const n of layout.nodes.values()) {
             const s = precedeStub(n, r);
             expect(s.x1).toBeLessThan(n.left);
-            expect(s.y).toBe(branchStub(n, r).y);
+            expect(s.y).toBe(dependentStub(n, r).y);
             expect(s.x).toBeLessThan(s.x1);
             expect(s.x - r).toBeGreaterThan(n.left - CARD_GAP_X);
-            expect(n.left - s.x).toBeCloseTo(branchStub(n, r).x - n.right);
+            expect(n.left - s.x).toBeCloseTo(dependentStub(n, r).x - n.right);
         }
     });
 });
 
 describe('buildInsertMarks — the whole set, as the canvas draws it', () => {
-    it('one branch mark per step, one precede mark per step no arc lands on, one edge mark per arc', () => {
+    it('one dependent mark per step, one precede mark per step no arc lands on, one edge mark per arc', () => {
         const g = buildInsertMarks(layout, rows, 7);
         // Only step 1 has a free left side in the fixture.
         expect(g.marks.filter((m) => m.kind === 'precede').map((m) => m.toId)).toEqual([1]);
         expect(g.precedeCount).toBe(1);
-        expect(g.branchCount).toBe(rows.length);
+        expect(g.dependentCount).toBe(rows.length);
         expect(g.stubs).toHaveLength(rows.length + 1);
-        expect(g.marks.filter((m) => m.kind === 'branch')).toHaveLength(rows.length);
+        expect(g.marks.filter((m) => m.kind === 'dependent')).toHaveLength(rows.length);
         expect(g.marks.filter((m) => m.kind === 'edge')).toHaveLength(layout.arcs.length);
         expect(g.edgeCount).toBe(layout.arcs.length);
+    });
+
+    it('a step waiting on a FOLDED epic gets no precede mark (req #3650)', () => {
+        const folded = [row(1, [], 1), row(2, [1], 2), row(3, [2], 2)];
+        const l = computePlanLayout(folded, { collapsedEpicIds: new Set([1]) });
+        expect(l.arcs.some((a) => a.toId === 2)).toBe(false);   // nothing drawn into 2
+        const g = buildInsertMarks(l, folded, 7);
+        expect(g.marks.filter((m) => m.kind === 'precede')).toHaveLength(0);
     });
 
     it('no two HIT areas overlap at the placement radius — so none at any drawn radius', () => {
@@ -168,9 +176,9 @@ describe('insertRequest', () => {
         });
     });
 
-    it('a branch carries no target', () => {
-        expect(insertRequest('branch', { fromId: 3, toId: 4 }, byId))
-            .toMatchObject({ kind: 'branch', fromId: 3, toId: null, toTitle: null, epicId: 1 });
+    it('a dependent step carries no target', () => {
+        expect(insertRequest('dependent', { fromId: 3, toId: 4 }, byId))
+            .toMatchObject({ kind: 'dependent', fromId: 3, toId: null, toTitle: null, epicId: 1 });
     });
 });
 

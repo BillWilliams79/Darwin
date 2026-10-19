@@ -376,6 +376,44 @@ export function useAllRequirements(creatorFk, { fields = 'id,title', enabled = t
 // Req #2593 — produced by createEntityQueries via factory/devopsQueries.js.
 export const useDevServers = devServers.useAll;
 
+// Req #3643 — the titles of the requirements the running dev servers serve, for
+// the Dev Servers dashboard. Read from PRODUCTION (`darwinOpsUri`) in every
+// build: the ids come from `dev_servers` claims (ops-pinned to production — a
+// session directory is named after its production requirement), so the
+// dev/prod-split `darwinUri` would look them up in darwin_dev, where the same
+// id is a different requirement or none. One read for the ids on screen
+// (`id=(a,b,c)`), id and title only.
+export function useDevServerRequirementTitles(creatorFk, ids, { enabled = true } = {}) {
+    const { darwinOpsUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+    const key = [...new Set(ids)].sort((a, b) => a - b).join(',');
+    return useQuery({
+        queryKey: ['devServerRequirementTitles', creatorFk, key],
+        queryFn: () => fetchEntity(`${darwinOpsUri}/requirements?id=(${key})&fields=id,title`, idToken),
+        enabled: enabled && !!creatorFk && !!idToken && key !== '',
+        staleTime: 60_000,
+    });
+}
+
+// Req #3668 — the terminal each running dev server's session works in, for the
+// dashboard's clickable Tx. Production (`darwinOpsUri`) for the same reason as
+// the titles above: `session_fk` comes from the production claim, and the
+// dev/prod-split sessions read would look the id up in darwin_dev. Only the ids
+// on screen, and only the short columns `terminalFocusState` reads.
+export function useDevServerSessionTerminals(creatorFk, ids, { enabled = true } = {}) {
+    const { darwinOpsUri } = useContext(AppContext);
+    const { idToken } = useContext(AuthContext);
+    const key = [...new Set(ids)].sort((a, b) => a - b).join(',');
+    return useQuery({
+        queryKey: ['devServerSessionTerminals', creatorFk, key],
+        queryFn: () => fetchEntity(
+            `${darwinOpsUri}/swarm_sessions?id=(${key})&fields=id,terminal_number,terminal_window_id,machine_fk,title,task_name`,
+            idToken),
+        enabled: enabled && !!creatorFk && !!idToken && key !== '',
+        staleTime: 60_000,
+    });
+}
+
 export function usePriorityTasks(creatorFk, domainId, areaIds, { enabled = true } = {}) {
     const { darwinUri } = useContext(AppContext);
     const { idToken } = useContext(AuthContext);

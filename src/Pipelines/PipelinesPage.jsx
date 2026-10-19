@@ -48,7 +48,7 @@
 // has no decoration on this surface any more.
 
 import { useContext, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 
 import Alert from '@mui/material/Alert';
@@ -183,7 +183,26 @@ export default function PipelinesPage() {
     const timezone = profile?.timezone;
 
     const [view, setView] = useViewPreference(VIEW_STORAGE_KEY, 'cards');
-    const activeView = normalizeView(view, VIEWS);
+    // ── `?view=` MAKES THE PANEL ADDRESSABLE (req #3641) ────────────────────
+    // A dev-server deep link or a pasted link names the panel it means; the
+    // stored preference would otherwise decide. PipelineDetail's `?mode=`
+    // contract: validated against VIEWS (a typo leaves the preference in
+    // charge), TRANSIENT (it never rewrites the stored choice), and dropped
+    // from the address the moment the reader picks a view by hand, so a reload
+    // does not resurrect the panel they just left.
+    const [searchParams, setSearchParams] = useSearchParams();
+    const requestedView = searchParams.get('view');
+    const linkView = VIEWS.some((v) => v.value === requestedView) ? requestedView : null;
+    const activeView = linkView ?? normalizeView(view, VIEWS);
+    const changeView = (next) => {
+        if (next == null) return;
+        if (searchParams.has('view')) {
+            const rest = new URLSearchParams(searchParams);
+            rest.delete('view');
+            setSearchParams(rest, { replace: true });
+        }
+        setView(next);
+    };
     const [showReqCountsPref] = useViewPreference(REQ_COUNTS_STORAGE_KEY, DEFAULT_REQ_COUNTS);
     const showReqCounts = showReqCountsPref === 'on';
 
@@ -412,7 +431,7 @@ export default function PipelinesPage() {
                     title="Pipelines"
                     views={VIEWS}
                     view={activeView}
-                    onViewChange={setView}
+                    onViewChange={changeView}
                     testIdPrefix="pipelines"
                     filters={
                         <ChipFilter

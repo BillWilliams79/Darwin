@@ -57,3 +57,19 @@ describe('DevServersView machine pills', () => {
         expect(rowIds().sort()).toEqual(['11', '12', '13']);
     });
 });
+
+// Req #3643 — the page's Dashboard chip shows and hides the viewport-docked
+// Dev Servers dashboard; it is the way back after the dashboard's own ×.
+describe('DevServersView dashboard chip', () => {
+    it('toggles the dashboard and says which way it is', async () => {
+        const { useDevServerDashboardStore } = await import('../../stores/useDevServerDashboardStore');
+        useDevServerDashboardStore.setState({ show: false });
+        render(<DevServersView />);
+        const chip = screen.getByTestId('dev-servers-page-dashboard-chip');
+        expect(chip.textContent).toBe('Show dashboard');
+        expect(chip.getAttribute('aria-pressed')).toBe('false');
+        fireEvent.click(chip);
+        expect(useDevServerDashboardStore.getState().show).toBe(true);
+        expect(screen.getByTestId('dev-servers-page-dashboard-chip').getAttribute('aria-pressed')).toBe('true');
+    });
+});
