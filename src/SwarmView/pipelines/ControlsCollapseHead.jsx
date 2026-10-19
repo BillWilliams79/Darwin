@@ -17,7 +17,11 @@
 // the theme's secondary/primary text so the control reads in light and dark.
 // The geometry, type and motion are the TPU head's, unchanged.
 
-import Box from '@mui/material/Box';
+// Since req #3643 the head itself is the shared CollapseHead
+// (Components/AnchoredPanel; pattern doc memory/anchored-collapse-pattern.md);
+// this file pins the plan page's name, theme colours and test id onto it.
+
+import CollapseHead from '../../Components/AnchoredPanel/CollapseHead';
 
 /**
  * @param {Object} props
@@ -26,36 +30,9 @@ import Box from '@mui/material/Box';
  * @param {string} [props.name]     the panel's name, as on the TPU head
  */
 export default function ControlsCollapseHead({ open, onToggle, name = 'Controls' }) {
-    // The NAME is fixed and `aria-expanded` carries the state, so a reader
-    // hears "Controls, collapsed" rather than the state twice; the hover
-    // tooltip says what a click will do, as the TPU head's `title` does.
-    const tip = `${open ? 'Collapse' : 'Expand'} ${name.toLowerCase()}`;
     return (
-        <Box component="button" type="button"
-             onClick={onToggle}
-             aria-expanded={open}
-             aria-label={name}
-             title={tip}
-             data-testid="pipeline-controls-collapse"
-             sx={{
-                 display: 'flex', alignItems: 'center', gap: '5px', flexShrink: 0,
-                 m: 0, p: 0, background: 'none', border: 'none',
-                 color: 'text.secondary', fontFamily: 'inherit',
-                 fontSize: '10px', fontWeight: 700, lineHeight: '14px',
-                 letterSpacing: '0.06em', textTransform: 'uppercase',
-                 textAlign: 'left', whiteSpace: 'nowrap', cursor: 'pointer',
-                 '&:hover': { color: 'text.primary' },
-             }}>
-            <Box component="span" aria-hidden="true"
-                 sx={{
-                     display: 'inline-block', width: '10px', textAlign: 'center',
-                     transition: 'transform 0.15s',
-                     transform: open ? 'none' : 'rotate(-90deg)',
-                     '@media (prefers-reduced-motion: reduce)': { transition: 'none' },
-                 }}>
-                ▾
-            </Box>
-            {name}
-        </Box>
+        <CollapseHead open={open} onToggle={onToggle} name={name}
+                      testid="pipeline-controls-collapse"
+                      color="text.secondary" hoverColor="text.primary" fontSize="10px" />
     );
 }
