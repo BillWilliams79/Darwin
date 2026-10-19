@@ -675,14 +675,16 @@ export const SESSION_STATUS_ORDER = [
     'review', 'paused', 'completing', 'completed',
 ];
 
-// Signal's session scale. Three members TRACK colours that already mean the
+// Signal's session scale. Two members TRACK colours that already mean the
 // same thing elsewhere on this panel, by reference for `REQ_STATUS_COLORS`'
-// reason: `waiting` is the human-speaks-first stop (`discuss`), `active` is
-// Running, `completed` is GO/met.
+// reason: `active` is Running, `completed` is GO/met. `waiting` and `review`
+// are both "stopped for the human" and share ONE attention red (req #3656 user
+// directive: *"waiting and review should both be red - the color of action for
+// me"*) — a deliberate identical pair, exempt from the separability floor.
 export const SESSION_STATUS_COLORS = {
     no_session: '#9e9e9e',                  // grey — nothing launched it
     starting: REQ_STATUS_COLORS.swarm_ready, // blue — launching
-    waiting: AUTONOMY_COLORS.discuss,        // hot magenta — waiting on a human
+    waiting: '#ff3b30',                      // attention red — waiting on a human, same as review (req #3656)
     planning: AUTONOMY_COLORS.implemented,   // violet — building a plan
     active: PLAN_VIZ_PALETTE.runningRing,    // amber — working
     review: '#ff3b30',                       // attention red — stopped for review (req #3636)
@@ -794,7 +796,7 @@ export const PLAN_PALETTES = [
         session: {
             no_session:  '#c0c0c0',
             starting:    '#8aa8e6',
-            waiting:     '#c4849c',
+            waiting:     '#ff3b30',
             planning:    '#ab84c4',
             active:      '#d4b35c',
             review:      '#ff3b30',
@@ -841,9 +843,9 @@ export const PLAN_PALETTES = [
             implemented: '#7dd3fc',
             deployed:    '#4ade80',
         },
-        // req #3584 — THE LIVE session scale. `waiting`/`active`/`completed`
+        // req #3584 — THE LIVE session scale. `active`/`completed`
         // are assigned in the aurora patch below (tracking, for Signal's
-        // reason). MEASURED minimum ΔE 27.0
+        // reason). `waiting` is the same attention red as `review` (req #3656). MEASURED minimum ΔE 27.0
         // (`starting`/`planning`), minimum contrast 4.87:1 (`review`). `no_session` is a
         // LIGHT neutral, not aurora's mid slate: it must not read as the
         // unknown swatch every mark wears while the session reads load (every
@@ -861,6 +863,7 @@ export const PLAN_PALETTES = [
             no_session:  '#cbd5e1',
             starting:    '#818cf8',
             planning:    '#c4b5fd',
+            waiting:     '#ff3b30',
             review:      '#ff3b30',
             paused:      '#fb923c',
             completing:  '#38bdf8',
@@ -901,7 +904,6 @@ const auroraPalette = PLAN_PALETTES.find((p) => p.key === 'aurora');
 auroraPalette.status.authoring = auroraPalette.autonomy.discuss;
 auroraPalette.status.approved = auroraPalette.autonomy.planned;
 auroraPalette.status.met = auroraPalette.autonomy.deployed;
-auroraPalette.session.waiting = auroraPalette.autonomy.discuss;
 auroraPalette.session.active = auroraPalette.status.development;
 auroraPalette.session.completed = auroraPalette.autonomy.deployed;
 

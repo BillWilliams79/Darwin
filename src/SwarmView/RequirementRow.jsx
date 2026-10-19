@@ -253,7 +253,7 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
         // Session-status icons (req #2332). Rocket = active/implementing; each other
         // status gets its own glyph, colored to match its chip.
         if (sessionStatus === 'starting')   return <PendingIcon sx={{ fontSize: 18, color: 'info.main' }} />;
-        if (sessionStatus === 'waiting')    return <HourglassTopIcon sx={{ fontSize: 18, color: '#ffb74d' }} />;
+        if (sessionStatus === 'waiting')    return <HourglassTopIcon sx={{ fontSize: 18, color: '#ff3b30' }} />;  // attention red, same as review (req #3656)
         if (sessionStatus === 'planning')   return <AutoFixHighIcon sx={{ fontSize: 18, color: '#4fc3f7' }} />;
         if (sessionStatus === 'active')     return <RocketLaunchIcon sx={{ fontSize: 18, color: '#4caf50' }} />;  // implementing
         if (sessionStatus === 'review')     return <BiotechIcon sx={{ fontSize: 18, color: '#ff3b30' }} />;  // attention red (req #3636)
