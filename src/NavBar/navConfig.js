@@ -145,12 +145,7 @@ export const NAV_LINKS = [
             { path: '/swarm/swarm-undos', label: 'Undos', icon: UndoIcon, group: 'swarm' },
         ],
     },
-    // Req #3642 — Dev Servers expands like an L2 parent, but what it reveals is
-    // live data rather than nav links: one pill per running dev server
-    // (navDevServers.js). `pills` names that source; it is not a `children`
-    // list, so flattenNavLinks / iconModeLinks / the mobile bottom nav are
-    // unaffected.
-    { path: '/devservers', label: 'Dev Servers', icon: DnsIcon, group: 'swarm', pills: 'devServers' },
+    { path: '/devservers', label: 'Dev Servers', icon: DnsIcon, group: 'swarm' },
     // Agents is its own top-level group (req #3005), not nested under SWARM.
     // Instructions + Documents listings live under AGENTS (req #3013) — the same
     // icons the Agents page header chips used, kept in that order (Instructions

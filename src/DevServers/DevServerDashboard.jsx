@@ -17,7 +17,7 @@
 // (user directive): machine colour bar · port (the link) · terminal (T10) ·
 // bug # · the requirement's title, in fixed columns so they line up row to row.
 // Shaped really narrow, the bug # goes; at the smallest, the title too. Which
-// rows appear, and which link, is the Dev Servers nav item's rule (see
+// rows appear, and which link, is devServerDashboardRows' rule (see
 // devServerDashboardModel.js). The server this page is served from is the
 // highlighted row.
 //
@@ -82,7 +82,7 @@ export default function DevServerDashboard() {
         enabled: visible, staleTime: 30_000,
     });
     const { data: machines, isError: machinesError } = useMachines(profile?.userName, { enabled: visible });
-    // The rows wait for the machines read too (devServerNavPills draws none
+    // The rows wait for the machines read too (devServerDashboardRows draws none
     // until it settles), so until then this is loading, never "None running".
     const isLoading = serversLoading || (machines === undefined && !machinesError);
     // A failed REFETCH keeps the rows it already has; only no data is an error.
