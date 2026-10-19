@@ -1,5 +1,5 @@
 // Req #3586 — the plan visualizer's two add-step actions: split an edge
-// (A -> N -> B) and branch off a step (A -> N). What is pinned is the ORDER of
+// (A -> N -> B) and add a dependent step (A -> N). What is pinned is the ORDER of
 // writes, because the order is what keeps B gated at every instant.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -19,7 +19,7 @@ vi.mock('../../RestApi/RestApi', () => ({
     }),
 }));
 
-import { insertStepOnEdge, branchStepFrom, precedeStepWith, createdRowOf } from '../stepsApi';
+import { insertStepOnEdge, addDependentStep, precedeStepWith, createdRowOf } from '../stepsApi';
 
 const URI = 'https://api/darwin';
 const brief = () => calls.map(({ table, method, body }) => `${method} ${table} ${JSON.stringify(body)}`);
@@ -86,15 +86,15 @@ describe('insertStepOnEdge', () => {
     });
 });
 
-describe('branchStepFrom', () => {
+describe('addDependentStep', () => {
     it('creates N and gates it on the one step', async () => {
-        await branchStepFrom(URI, 'tok', { fromStepId: 7, epic_fk: 5, title: 'Side' });
+        await addDependentStep(URI, 'tok', { fromStepId: 7, epic_fk: 5, title: 'Side' });
         expect(brief().slice(1)).toEqual(['POST pipeline_step_deps {"step_fk":99,"dep_step_fk":7}']);
     });
 
     it('a refused edge deletes the new step', async () => {
         fail = 1;
-        await expect(branchStepFrom(URI, 'tok', { fromStepId: 7, epic_fk: 5, title: 'S' }))
+        await expect(addDependentStep(URI, 'tok', { fromStepId: 7, epic_fk: 5, title: 'S' }))
             .rejects.toThrow();
         expect(brief().slice(2)).toEqual(['DELETE pipeline_steps {"id":99}']);
     });
