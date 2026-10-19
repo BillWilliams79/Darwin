@@ -24,7 +24,9 @@
 //     its dependencies', so every arc still points forward.
 //   - Chain-aware swim lanes inside each band: a step takes its first same-epic
 //     dependency's lane when free, and that lane is RESERVED across the columns
-//     the chain spans, so no unrelated bead sits on an arc's path.
+//     the chain spans, so no unrelated bead sits on an arc's path. When several
+//     dependents want one lane, the earliest-created (lowest step id) is its
+//     heir and a later branch opens a row beside it (req #3669).
 //   - Requirement ids BELOW the bead: 'horizontal' lays them on one line and the
 //     column grows to fit; 'vertical' stacks one per line and the lane pitch
 //     grows instead. Step label ABOVE the bead: the step id, or the step title
@@ -3606,7 +3608,19 @@ export function computePlanLayout(rows, opts = {}) {
     const laneById = new Map();
     const bands = [];
     const bandUsed = [];       // bandIndex -> the band's cell map (kept for arc routing)
+    // A corridor cell held for a straight arc. It records the arc's SOURCE
+    // (req #3669): another arc out of that same step may run along it, because
+    // the two leave one card at one y and read as a trunk that forks. Anything
+    // else is still blocked. Before, a reservation was anonymous, so a branch's
+    // LATE bend along its parent's own row was refused and fell back to EARLY
+    // — running along the branch's row over whatever beads sat there. That hole
+    // was rare while a branch usually took the parent's row itself; the heir
+    // rule below makes the trunk keep it, which makes the fork the common case.
     const RESERVED = Symbol('reserved');
+    const reservedFor = (srcId) => ({ [RESERVED]: srcId });
+    // `o` is a cell occupant: a step id, a reservation, or undefined.
+    const reservedBy = (o) => (o !== null && typeof o === 'object' ? o[RESERVED] : undefined);
+    const isReserved = (o) => reservedBy(o) !== undefined;
     for (const key of bandKeys) {
         const band = bandByKey.get(key);
         // COLUMN-MAJOR, and that is now the whole sort (req #3371). Two further
@@ -3617,7 +3631,7 @@ export function computePlanLayout(rows, opts = {}) {
         // that orders nothing only makes the placement harder to reason about.
         const steps = [...band.steps].sort((a, b) =>
             (colOf.get(a.id) - colOf.get(b.id)));
-        const used = new Map(); // depth -> Map(lane -> step id | RESERVED)
+        const used = new Map(); // depth -> Map(lane -> step id | reservedFor(src))
         const laneBeads = new Map(); // lane -> [{id, d}] — real beads only
         // Every lane this band has ASSIGNED, whether or not the cell was free
         // when the bead got there. `laneBeads` cannot answer that question —
@@ -3628,7 +3642,7 @@ export function computePlanLayout(rows, opts = {}) {
             const cells = used.get(d);
             if (!cells.has(lane)) {
                 cells.set(lane, occupant);
-                if (occupant !== RESERVED) {
+                if (!isReserved(occupant)) {
                     if (!laneBeads.has(lane)) laneBeads.set(lane, []);
                     laneBeads.get(lane).push({ id: occupant, d });
                 }
@@ -3641,7 +3655,10 @@ export function computePlanLayout(rows, opts = {}) {
             for (let dd = colOf.get(a.id) + 1; dd < colOf.get(r.id); dd++) {
                 const o = occupant(dd, lane);
                 if (o === undefined) continue;
-                if (o === RESERVED) return false;
+                if (isReserved(o)) {
+                    if (reservedBy(o) === a.id) continue;
+                    return false;
+                }
                 if (!(reach(o).has(a.id) && reach(r.id).has(o))) return false;
             }
             return true;
@@ -3656,6 +3673,66 @@ export function computePlanLayout(rows, opts = {}) {
                 dependentsInBand.get(a.id).push(r.id);
             }
         }
+        // ── A LANE HAS ONE HEIR, AND A NEW BRANCH IS NEVER IT (req #3669) ───
+        // When two dependents of one step both want that step's lane, the one
+        // that PLACES first used to win — and placement order is column, then
+        // display order, neither of which says which thread was there first.
+        // MEASURED on live plan 10's epic 24: 320 → 321 → 324 → 322 was one
+        // row; the user added 329 off 321. 329 and 324 share column 9, 329
+        // sorts first, so 329 took 321's row and the ORIGINAL continuation
+        // 324 → 322 dropped onto a new row below it. The user's words: *"I
+        // would expected E to start a new lower row and be always visualized
+        // there."*
+        //
+        // So the lane's heir is decided up front, by CREATION ORDER, and the
+        // unit of creation order is the THREAD, not the step: a dependent is
+        // as old as the oldest step it leads to inside the band (itself or any
+        // same-band descendant), and the oldest thread is the heir. Comparing
+        // the direct dependents' own ids is not enough — a step INSERTED into
+        // the trunk is newer than the branch it competes with, and live epic
+        // 24 was built exactly that way (324 was inserted in front of 322, 329
+        // in front of 323). The trunk still reaches its old tail; a new branch
+        // reaches only new steps. Ties (a branch that merges back into the
+        // trunk) go to the older direct dependent. A step id is allocated once
+        // and never changes, so adding a branch can never displace the chain
+        // it branches off — whatever the time axis does to the columns or the
+        // derivation does to display order. Every other dependent is a BRANCH
+        // and opens (or re-uses) a row beside its parent.
+        //
+        // Ids are integers from the derivation; the numeric collation keeps a
+        // string-id fixture ordering '9' before '10' rather than as text.
+        const idBefore = (p, q) => ((typeof p === 'number' && typeof q === 'number')
+            ? p < q
+            : String(p).localeCompare(String(q), undefined, { numeric: true }) < 0);
+        const oldestMemo = new Map();
+        const oldestIn = (id) => {
+            if (oldestMemo.has(id)) return oldestMemo.get(id);
+            oldestMemo.set(id, id); // cycle guard
+            let best = id;
+            for (const t of dependentsInBand.get(id) || []) {
+                const o = oldestIn(t);
+                if (idBefore(o, best)) best = o;
+            }
+            oldestMemo.set(id, best);
+            return best;
+        };
+        const heirOf = new Map(); // dependency id -> heir step id
+        for (const [aid, deps] of dependentsInBand) {
+            heirOf.set(aid, deps.reduce((p, q) => {
+                const op = oldestIn(p);
+                const oq = oldestIn(q);
+                if (idBefore(oq, op)) return q;
+                if (idBefore(op, oq)) return p;
+                return idBefore(q, p) ? q : p;
+            }));
+        }
+        // A step tries the lanes it is HEIR to first, so the row held for it
+        // is the row it takes rather than one of its other dependencies'.
+        const inheritOrder = (r) => {
+            const deps = sameEpicDepsOf(r);
+            return [...deps.filter((a) => heirOf.get(a.id) === r.id),
+                ...deps.filter((a) => heirOf.get(a.id) !== r.id)];
+        };
         // A lane is usable only if (1) the cell is free, (2) every same-lane
         // dependency arc into it crosses only in-chain beads, and (3) — the
         // corridor-aware rule (user directive, epic #6 plan) — no shallower
@@ -3817,6 +3894,25 @@ export function computePlanLayout(rows, opts = {}) {
             // `colOf.get(tid) === d`, and `colOf.get(tid) <= d` continues. No
             // reachability, no `byId`, no `reach` involved: had the guard ever
             // been reachable, the line below would have handled it identically.
+            // (4) THE HEIR'S ROW IS HELD FOR IT (req #3669). The bead this
+            // lane ends on, short of column d, has an heir; until that heir has
+            // placed, nobody else may sit on the lane at or before the heir's
+            // column — it would take the heir's cell or block its corridor.
+            // Exempt only a step UPSTREAM of the heir (tail → r → heir), which
+            // continues the heir's own chain. It lives HERE, not at the
+            // inheritance call, because every placement path (inherit, re-use,
+            // the dep-less scan) goes through this predicate — guarding only
+            // inheritance let a branch re-use ANOTHER thread's row and push that
+            // thread's own next step off it (code review, req #3669).
+            let tail = null;
+            for (const bead of laneBeads.get(lane) || []) {
+                if (bead.d < d && (tail === null || bead.d > tail.d)) tail = bead;
+            }
+            const heir = tail === null ? undefined : heirOf.get(tail.id);
+            if (heir !== undefined && heir !== r.id && !laneById.has(heir)
+                && colOf.get(heir) >= d && !reach(heir).has(r.id)) {
+                return false;
+            }
             const rReach = reach(r.id);
             for (const { id: sid, d: ds } of laneBeads.get(lane) || []) {
                 if (ds >= d || rReach.has(sid)) continue;
@@ -3842,7 +3938,7 @@ export function computePlanLayout(rows, opts = {}) {
         for (const r of steps) {
             const d = colOf.get(r.id);
             let lane = null;
-            for (const a of sameEpicDepsOf(r)) {
+            for (const a of inheritOrder(r)) {
                 const al = laneById.get(a.id);
                 if (al !== undefined && laneOk(r, d, al)) { lane = al; break; }
             }
@@ -3943,7 +4039,7 @@ export function computePlanLayout(rows, opts = {}) {
             for (const a of sameEpicDepsOf(r)) {
                 if (laneById.get(a.id) === lane) {
                     for (let dd = colOf.get(a.id) + 1; dd < d; dd++) {
-                        take(dd, lane, RESERVED);
+                        take(dd, lane, reservedFor(a.id));
                     }
                 }
             }
@@ -4151,7 +4247,9 @@ export function computePlanLayout(rows, opts = {}) {
     // the destination lane (the convergence into a penultimate step overdrew
     // the whole main chain). Now an arc runs the horizontal on its SOURCE lane
     // and dives just before the destination column (LATE bend) whenever that
-    // corridor is clear of unrelated beads and reservations; if only the
+    // corridor is clear of unrelated beads and of reservations held for
+    // another step's arc (its own source's are a trunk it forks off, req
+    // #3669); if only the
     // destination-lane corridor is clear it bends early as before; if neither
     // is clear, early is the fallback. Corridor-aware PLACEMENT (laneOk above)
     // keeps source corridors clear in the common case, so late is the norm.
@@ -4161,7 +4259,10 @@ export function computePlanLayout(rows, opts = {}) {
         for (let dd = dFrom + 1; dd < dTo; dd++) {
             const o = used.has(dd) ? used.get(dd).get(lane) : undefined;
             if (o === undefined) continue;
-            if (o === RESERVED) return false;
+            if (isReserved(o)) {
+                if (reservedBy(o) === aId) continue;
+                return false;
+            }
             if (!(reach(o).has(aId) && reach(rId).has(o))) return false;
         }
         return true;

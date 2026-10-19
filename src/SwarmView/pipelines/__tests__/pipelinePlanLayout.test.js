@@ -490,6 +490,145 @@ describe('a dependent step stays in its chain\'s lane (req #3512)', () => {
     });
 });
 
+// ── A NEW BRANCH NEVER DISPLACES THE CHAIN IT BRANCHES OFF (req #3669) ─────
+// The user's own repro, live plan 10's epic 24: 320 → 321 → 324 → 322 was one
+// row, then 329 was added off 321 (with its own child 323). 329 and 324 landed
+// in the same column and 329 came first in display order, so 329 took 321's row
+// and the ORIGINAL continuation 324 → 322 dropped onto a new row. *"I would
+// expected E to start a new lower row and be always visualized there."*
+//
+// Ids here are the live ones, so the fixture reads against the real plan. The
+// rows are in the ORDER that broke it — the branch ahead of the trunk — and a
+// second case pushes the branch into an EARLIER time column than the trunk,
+// which is the other way placement order used to hand it the row.
+describe('a new branch never displaces the chain it branches off (req #3669)', () => {
+    const mk = (id, depIds) => ({
+        id, title: `s${id}`, run: 'auto', state: 'pending', reqIds: [],
+        depIds, timeDeps: [], epicId: 24, epic: 'Sunday Review',
+        epicLabels: [], featureLabels: [], machineLabels: [], machineLabel: '—',
+    });
+    //          A          B             E (branch)     E's child      C (trunk)      D
+    const rows = [mk(320, []), mk(321, [320]), mk(329, [321]), mk(323, [329]),
+        mk(324, [321]), mk(322, [324])];
+    const TRUNK = [320, 321, 324, 322];
+    const BRANCH = [329, 323];
+
+    const assertTrunkHoldsRow = (layout, name) => {
+        const n = (id) => layout.nodes.get(id);
+        for (const id of TRUNK) {
+            expect(n(id).lane, `${name}: trunk step ${id} left row 0`).toBe(0);
+        }
+        for (const id of BRANCH) {
+            expect(n(id).lane, `${name}: branch step ${id} is not on the row below`)
+                .toBe(1);
+        }
+        expect(layout.bands[n(320).bandIndex].sub, `${name}: lane count`).toBe(2);
+        assertStraightArcsClear(layout, rows);
+        expect(arcCrossings(layout, rows).crossings, `${name}: crossings`).toBe(0);
+    };
+
+    it('keeps the trunk on its row when the branch shares its column', () => {
+        const layout = computePlanLayout(rows);
+        // The precondition, asserted: the branch and the trunk's next step
+        // really do compete for one column.
+        expect(layout.nodes.get(329).depth).toBe(layout.nodes.get(324).depth);
+        assertTrunkHoldsRow(layout, 'same column');
+    });
+
+    it('keeps the trunk on its row when the branch is in an EARLIER column', () => {
+        const DAY = ['2026-10-12', '2026-10-13', '2026-10-14', '2026-10-15',
+            '2026-10-16', '2026-10-17'];
+        const at = (i) => ({ at: DAY[i], kind: 'dated' });
+        const timeAxis = {
+            stepStarts: new Map([
+                [320, at(0)], [321, at(1)], [329, at(2)], [323, at(3)],
+                [324, at(4)], [322, at(5)],
+            ]),
+            bandStarts: new Map(), bandKinds: new Map(),
+        };
+        const layout = computePlanLayout(rows, { timeAxis });
+        expect(layout.nodes.get(329).depth)
+            .toBeLessThan(layout.nodes.get(324).depth);
+        assertTrunkHoldsRow(layout, 'earlier column');
+    });
+
+    it('decides by creation order, not row order', () => {
+        // Reversed rows place the trunk first anyway; the answer must not move.
+        assertTrunkHoldsRow(computePlanLayout([...rows].reverse()), 'reversed rows');
+    });
+
+    // ── THE SHAPES THE CODE REVIEW BROKE THE FIRST CUT WITH ────────────────
+    // The first cut guarded only INHERITANCE, so a branch refused its parent's
+    // row went to re-use and took ANOTHER thread's row (or a root took the
+    // heir's cell), and it keyed the heir on the direct dependent's own id, so
+    // a step inserted into the trunk lost to an older branch. Each row below
+    // is `id:[deps]` in placement order.
+    const parse = (spec) => spec.split(' ').map((t) => {
+        const [id, deps] = t.split(':');
+        return mk(Number(id), JSON.parse(deps));
+    });
+    const lanes = (layout, ids) => ids.map((id) => layout.nodes.get(id).lane);
+
+    it('never re-uses ANOTHER thread\'s row for the branch', () => {
+        // Threads 1→2→3 and 4→5→6; 7 branches off 5 and places first.
+        const l = computePlanLayout(parse('1:[] 2:[1] 4:[] 5:[4] 7:[5] 3:[2] 6:[5]'));
+        expect(lanes(l, [1, 2, 3]), 'thread 1-2-3').toEqual([0, 0, 0]);
+        expect(lanes(l, [4, 5, 6]), 'thread 4-5-6').toEqual([1, 1, 1]);
+        expect(l.nodes.get(7).lane, 'the branch, below its parent').toBe(2);
+    });
+
+    it('keeps the user\'s epic whole beside an unrelated thread', () => {
+        const l = computePlanLayout(parse('300:[] 301:[300] 320:[] 321:[320] '
+            + '329:[321] 324:[321] 302:[301] 323:[329] 322:[324] 303:[302]'));
+        expect(lanes(l, [300, 301, 302, 303]), 'the other thread').toEqual([0, 0, 0, 0]);
+        expect(lanes(l, TRUNK), 'the trunk').toEqual([1, 1, 1, 1]);
+        expect(lanes(l, BRANCH), 'the branch, below the trunk').toEqual([2, 2]);
+    });
+
+    it('does not let a two-parent branch displace either parent\'s heir', () => {
+        const l = computePlanLayout(parse('1:[] 2:[1] 4:[] 5:[4] 7:[2,5] 3:[2] 6:[5]'));
+        const n = (id) => l.nodes.get(id);
+        expect(n(3).lane, '3 continues 2').toBe(n(2).lane);
+        expect(n(6).lane, '6 continues 5').toBe(n(5).lane);
+        expect([n(2).lane, n(5).lane]).not.toContain(n(7).lane);
+    });
+
+    it('holds the heir\'s cell against an unrelated root', () => {
+        // 9 is the newer dependent of 1 and sits in an earlier column than
+        // the heir 2; root 20 shares the heir's column.
+        const at = (day) => ({ at: day, kind: 'dated' });
+        const l = computePlanLayout(parse('1:[] 9:[1] 20:[] 2:[1]'), {
+            timeAxis: {
+                stepStarts: new Map([[1, at('2026-01-01')], [9, at('2026-01-02')],
+                    [20, at('2026-01-04')], [2, at('2026-01-04')]]),
+                bandStarts: new Map(), bandKinds: new Map(),
+            },
+        });
+        expect(l.nodes.get(9).depth).toBeLessThan(l.nodes.get(2).depth);
+        expect(lanes(l, [1, 2]), 'the trunk 1 → 2').toEqual([0, 0]);
+        expect(l.nodes.get(9).lane).not.toBe(0);
+        expect(l.nodes.get(20).lane).not.toBe(0);
+    });
+
+    it('treats a step INSERTED into the trunk as the trunk, not as a branch', () => {
+        // A1 → B2 → C3 → D4, branch E5 off B, then X6 inserted between B and C.
+        // X is newer than E, but X's thread reaches C and D, which are older.
+        const l = computePlanLayout(parse('1:[] 2:[1] 6:[2] 3:[6] 4:[3] 5:[2]'));
+        expect(lanes(l, [1, 2, 6, 3, 4]), 'A B X C D').toEqual([0, 0, 0, 0, 0]);
+        expect(l.nodes.get(5).lane, 'the branch E').toBe(1);
+    });
+
+    it('lets the branch\'s arc fork off the trunk\'s row instead of bending early', () => {
+        // The 321 → 329 arc leaves 321 on row 0, where the corridor reserved for
+        // 321 → 324 is the arc's OWN source's reservation (late bend), not a
+        // foreign one (which forced the early fallback before this change).
+        const layout = computePlanLayout(rows);
+        const arc = layout.arcs.find((a) => a.fromId === 321 && a.toId === 329);
+        expect(arc.straight).toBe(false);
+        expect(arc.route).toBe('late');
+    });
+});
+
 describe('zero label overlap — every layout/label combination', () => {
     // The wide-outer-columns fixture: one chain (⇒ one lane) whose ends carry
     // many requirements and whose middle carries one. It was built to expose a
@@ -8967,6 +9106,17 @@ describe('cell invariant over a timed fuzz corpus (req #3229)', () => {
     // pile onto one plan, and the six that went away came off several. A change
     // that improves any figure should LOWER these constants in the same commit;
     // a change that raises one has to say why in review.
+    //
+    // req #3669 (a lane's heir is its oldest THREAD and its row is held for it
+    // on every placement path; a corridor reservation records its arc's
+    // source, so a branch may fork off its parent's trunk), before → after:
+    //   total lanes        1877 → 1853 (with axis)   2122 → 2111 (without)
+    //   arc crossings        11 →    2 (with axis)      3 →    0 (without)
+    //   worst single plan     3 →    1 (with axis)      1 →    0 (without)
+    // MONOTONE PER PLAN this time: the two crossings left (seeds 36 and 149)
+    // were both there before, and no plan gained one. Lanes are NOT monotone
+    // per plan: 17 plans gained one with the axis and 37 lost one — holding
+    // the heir's row is a refusal, and a refusal can cost a lane.
     it('packs no more lanes, and draws no more spaghetti, than the measured ceiling', () => {
         const tally = {
             bands: 0, lanesAxis: 0, lanesPlain: 0,
@@ -9006,16 +9156,16 @@ describe('cell invariant over a timed fuzz corpus (req #3229)', () => {
             'no bead sat on any arc run — is the geometry predicate still wired up?')
             .toBeGreaterThan(100);
 
-        expect(tally.lanesAxis, 'total lanes, with a time axis').toBeLessThanOrEqual(1877);
-        expect(tally.lanesPlain, 'total lanes, no time axis').toBeLessThanOrEqual(2122);
+        expect(tally.lanesAxis, 'total lanes, with a time axis').toBeLessThanOrEqual(1853);
+        expect(tally.lanesPlain, 'total lanes, no time axis').toBeLessThanOrEqual(2111);
         expect(tally.crossAxis, 'arc runs over an unrelated bead, with a time axis')
-            .toBeLessThanOrEqual(11);
+            .toBeLessThanOrEqual(2);
         expect(tally.crossPlain, 'arc runs over an unrelated bead, no time axis')
-            .toBeLessThanOrEqual(3);
+            .toBeLessThanOrEqual(0);
         expect(tally.worstAxis, 'worst single plan, with a time axis')
-            .toBeLessThanOrEqual(3);
-        expect(tally.worstPlain, 'worst single plan, no time axis')
             .toBeLessThanOrEqual(1);
+        expect(tally.worstPlain, 'worst single plan, no time axis')
+            .toBeLessThanOrEqual(0);
     }, 60000);
 
     // The user-visible consequence of a shared cell, asserted independently of
