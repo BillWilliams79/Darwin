@@ -4657,6 +4657,13 @@ describe('the SCALE REGISTRY (req #3422)', () => {
             .toEqual({ fill: PAL.session.review, bold: true });
     });
 
+    it('paints waiting and review the same attention red in every theme (req #3656)', () => {
+        for (const p of PLAN_PALETTES) {
+            expect(p.session.waiting, p.key).toBe(p.session.review);
+            expect(p.session.review, p.key).toBe('#ff3b30');
+        }
+    });
+
     it('never lets a session member read as the unknown swatch, in any theme', () => {
         // Unknown is what EVERY mark wears while the session reads load, so a
         // member near it would make "not loaded yet" read as that member.
@@ -4671,10 +4678,8 @@ describe('the SCALE REGISTRY (req #3422)', () => {
     it('makes the live session scale TRACK the colours that already mean the same thing', () => {
         // By identity, for REQ_STATUS_COLORS' reason: a copied hex drifts.
         const aurora = planPalette('aurora');
-        expect(aurora.session.waiting).toBe(aurora.autonomy.discuss);
         expect(aurora.session.active).toBe(aurora.status.development);
         expect(aurora.session.completed).toBe(aurora.autonomy.deployed);
-        expect(SESSION_STATUS_COLORS.waiting).toBe(AUTONOMY_COLORS.discuss);
         expect(SESSION_STATUS_COLORS.active).toBe(PLAN_VIZ_PALETTE.runningRing);
         expect(SESSION_STATUS_COLORS.completed).toBe(AUTONOMY_COLORS.deployed);
         expect(planPalette('stoplight').session).toBe(SESSION_STATUS_COLORS);
@@ -8633,7 +8638,8 @@ describe('palette themes (req #3365)', () => {
                 epic: p.epic,
                 status: Object.values(p.status),
                 autonomy: Object.values(p.autonomy),
-                session: Object.values(p.session),
+                session: Object.entries(p.session)
+                    .filter(([k]) => k !== 'waiting').map(([, v]) => v), // waiting ≡ review by directive (req #3656)
             })) {
                 let worst = { pair: null, d: Infinity };
                 for (let i = 0; i < hexes.length; i++) {

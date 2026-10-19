@@ -14,9 +14,11 @@ describe('swarmStatusChipProps', () => {
 
     it('returns distinct props for statuses with explicit bgcolor', () => {
         // Statuses that use sx.bgcolor should each have a unique color
-        const bgStatuses = ['active', 'review', 'paused', 'waiting', 'planning'];
+        // `waiting` and `review` share attention red by directive (req #3656).
+        const bgStatuses = ['active', 'review', 'paused', 'planning'];
         const bgColors = bgStatuses.map(s => swarmStatusChipProps(s).sx?.bgcolor);
         expect(new Set(bgColors).size).toBe(bgStatuses.length);
+        expect(swarmStatusChipProps('waiting').sx.bgcolor).toBe(swarmStatusChipProps('review').sx.bgcolor);
     });
 
     it('returns { color: "default" } for unknown status', () => {
@@ -29,7 +31,7 @@ describe('swarmStatusChipProps', () => {
     });
 
     it('returns correct props for waiting', () => {
-        expect(swarmStatusChipProps('waiting')).toEqual({ sx: { bgcolor: '#ffb74d', color: '#000' } });
+        expect(swarmStatusChipProps('waiting')).toEqual({ sx: { bgcolor: '#ff3b30', color: '#000' } });
     });
 
     it('returns correct props for planning', () => {
