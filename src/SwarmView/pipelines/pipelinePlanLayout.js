@@ -2158,10 +2158,20 @@ export const REQ_MIN_HANG_CHARS = 8;
  * dropped rather than honoured — a column of ids is not worth a title broken
  * one character per line (`REQ_MIN_HANG_CHARS`).
  */
+/**
+ * The hanging indent `wrapReqText` actually honours for a line of `maxChars`
+ * — `indent`, or 0 where it would leave a continuation line narrower than
+ * `REQ_MIN_HANG_CHARS`. Its own function because the in-place title editor
+ * (req #3661) has to put its title column exactly where the wrap does.
+ */
+export function reqHangChars(maxChars, indent) {
+    return maxChars - indent >= REQ_MIN_HANG_CHARS ? Math.max(0, indent) : 0;
+}
+
 export function wrapReqText(text, maxChars, maxLines = REQ_MAX_LINES, indent = 0) {
     const full = String(text == null ? '' : text);
     if (full.length <= maxChars) return [full];
-    const hang = maxChars - indent >= REQ_MIN_HANG_CHARS ? Math.max(0, indent) : 0;
+    const hang = reqHangChars(maxChars, indent);
     const pad = ' '.repeat(hang);
     const lines = [];
     let rest = full;
@@ -4344,6 +4354,7 @@ export function computePlanLayout(rows, opts = {}) {
             const prefix = fullPrefix.text.length <= lines[0].length
                 ? fullPrefix : { text: String(ids[i]), pills: [] };
             const w = Math.max(...lines.map((l) => l.length)) * CHW_REQ;
+            const titleHang = reqHangChars(reqRowMax, String(ids[i]).length + CARD_SEP_CHARS);
             // Joined WITHOUT the hanging indent's padding (req #3575) — the
             // indent is how the row is drawn, not part of what it says.
             const t = lines.map((l, k) => (k ? l.trimStart() : l)).join(' ');
@@ -4391,6 +4402,15 @@ export function computePlanLayout(rows, opts = {}) {
                 // The RENDERER picks this instead of `y` at L1/L2 (`!showTitle`)
                 // — see the block comment above `idRowY`.
                 idY: thisIdY,
+                // req #3661 — WHERE THE TITLE SITS, in characters, so the
+                // in-place editor can occupy exactly the room the wrap gives it:
+                // continuation lines start at `titleHang` (the hanging indent
+                // `wrapReqText` honoured), the first line's title at
+                // `titleStart` (after the id, any pills and " - "), and every
+                // line of title holds `titleRoom` characters.
+                titleHang,
+                titleStart: prefix.text.length + CARD_SEP_CHARS,
+                titleRoom: reqRowMax - titleHang,
             });
         });
         // ── THE TOTAL REQUIREMENT COUNT, AS A BADGE (req #3503; originally
