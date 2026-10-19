@@ -17,6 +17,10 @@ let host;
 let root;
 beforeEach(() => {
     window.localStorage.clear();
+    // The list's fold is a remembered setting since req #3651 (per-tab
+    // sessionStorage, seeded from localStorage) — clear both, or a test that
+    // folds the list leaks its fold into the next.
+    window.sessionStorage.clear();
     host = document.createElement('div');
     document.body.appendChild(host);
     root = createRoot(host);

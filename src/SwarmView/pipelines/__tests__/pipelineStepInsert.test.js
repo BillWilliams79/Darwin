@@ -110,6 +110,14 @@ describe('buildInsertMarks — the whole set, as the canvas draws it', () => {
         expect(g.edgeCount).toBe(layout.arcs.length);
     });
 
+    it('a step waiting on a FOLDED epic gets no precede mark (req #3650)', () => {
+        const folded = [row(1, [], 1), row(2, [1], 2), row(3, [2], 2)];
+        const l = computePlanLayout(folded, { collapsedEpicIds: new Set([1]) });
+        expect(l.arcs.some((a) => a.toId === 2)).toBe(false);   // nothing drawn into 2
+        const g = buildInsertMarks(l, folded, 7);
+        expect(g.marks.filter((m) => m.kind === 'precede')).toHaveLength(0);
+    });
+
     it('no two HIT areas overlap at the placement radius — so none at any drawn radius', () => {
         const { marks } = buildInsertMarks(layout, rows);
         for (const k of [0.3, 0.58, 0.8, 1, 2]) {
