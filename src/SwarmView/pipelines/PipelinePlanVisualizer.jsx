@@ -483,6 +483,11 @@ export default function PipelinePlanVisualizer({
     // built by the page from reads it owns. Drawn as pills between a row's id
     // and its title; null draws every row exactly as before.
     reqPills = null,
+    // req #3658 — the page is maximized (PipelineDetail owns the state, because
+    // what it hides — the header row and the navbar — is the page's), and the
+    // switch's click. No `onToggleMaximized`, no switch.
+    maximized = false,
+    onToggleMaximized = null,
 }) {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
@@ -769,7 +774,17 @@ export default function PipelinePlanVisualizer({
     // Collapsed by default (req #3633, reversing req #3585's expanded default
     // and restoring req #3309's) and REMEMBERED once the reader opens it (req
     // #3651) — see the key's own comment below.
-    const [keyOpen, setKeyOpen] = usePlanViewSetting('keyOpen');
+    const [keyOpenStored, setKeyOpenStored] = usePlanViewSetting('keyOpen');
+    // req #3658 — maximized, the key FOLDS on the way in ("default collapse but
+    // don't completely hide supporting text boxes"): it keeps its + toggle and
+    // opens if the reader asks, and on the way out it is back to the reader's
+    // remembered state. The TPU Full screen switch's rule for its panels. So a
+    // fold or unfold made while maximized is held HERE and never written to
+    // the remembered setting, and every switch-on starts it folded again.
+    const [keyOpenMax, setKeyOpenMax] = useState(false);
+    useLayoutEffect(() => { if (maximized) setKeyOpenMax(false); }, [maximized]);
+    const keyOpen = maximized ? keyOpenMax : keyOpenStored;
+    const setKeyOpen = maximized ? setKeyOpenMax : setKeyOpenStored;
 
     // The container is tracked as STATE, not a bare ref: with an empty plan the
     // component returns the empty panel and no container exists — if the first
@@ -1059,10 +1074,20 @@ export default function PipelinePlanVisualizer({
         // "fill the rest of the window" intent actually means. Where the scroller
         // is an inner element instead of the document, scrollY is 0 and this is
         // the old expression exactly.
-        const top = containerEl.getBoundingClientRect().top + (window.scrollY || 0);
-        const next = Math.max(480, Math.round(window.innerHeight - top - 14));
+        //
+        // req #3658 — MAXIMIZED, the page is a fixed full-window layer, so its
+        // top is the window's and the document's scroll is not in it, and the
+        // canvas runs to the window's bottom edge with no 14px gutter — and with
+        // no 480px floor either: the overlay clips, so on a short window (a
+        // phone in landscape) a floor would push the restore switch and the
+        // key off the bottom of the screen.
+        const top = containerEl.getBoundingClientRect().top
+            + (maximized ? 0 : (window.scrollY || 0));
+        const next = maximized
+            ? Math.max(0, Math.round(window.innerHeight - top))
+            : Math.max(480, Math.round(window.innerHeight - top - 14));
         setAvailH((prev) => (prev === next ? prev : next));
-    }, [containerEl]);
+    }, [containerEl, maximized]);
     useLayoutEffect(measureAvailH);                     // after every render
     useEffect(() => {
         window.addEventListener('resize', measureAvailH);
@@ -4368,8 +4393,12 @@ export default function PipelinePlanVisualizer({
                  // zero-padding tab panel; this makes the two match.
                  sx={{ position: 'relative', mx: -3, mb: -3,
                         height: availH ? `${availH}px` : 'calc(100vh - 260px)',
-                        minHeight: 480, overflow: 'hidden', borderRadius: '8px',
-                        border: `1px solid ${P.line}`, background: P.panel,
+                        minHeight: maximized ? 0 : 480, overflow: 'hidden',
+                        // req #3658 — maximized, the canvas IS the window: no
+                        // rounded frame drawn inside the screen's edge.
+                        borderRadius: maximized ? 0 : '8px',
+                        border: maximized ? 'none' : `1px solid ${P.line}`,
+                        background: P.panel,
                         touchAction: 'none' }}
                  onDragEnter={onSeatDragEnter}
                  onDragOver={onSeatDragOver}
@@ -5291,6 +5320,52 @@ export default function PipelinePlanVisualizer({
                         </>
                     )}
                 </Stack>
+
+                {/* ── MAXIMIZE (req #3658) ──────────────────────────────────
+                    The TPU 3D views' Full screen switch, borrowed (user
+                    direction: "Borrow the button"): the same corner-arrows
+                    glyph — out when it would maximize, in when it would
+                    restore — in the TPU header's colours, with its rim. It
+                    lives ON the canvas, in the bottom-right corner, in BOTH
+                    states, because maximized there is no header row left to
+                    hold it and a switch should not move when clicked. The
+                    corner is the one the canvas's other floating panels leave
+                    free: the key is bottom-centre and the Orchestration Ready
+                    box opens top-right. The box can still be parked or
+                    stretched over this corner, so the switch sits ABOVE it
+                    (the box is `zIndex: 2`) — it must never be covered, it is
+                    the only way back. `data-viz-chrome` keeps d3-zoom and the
+                    bead hit-test off it. */}
+                {onToggleMaximized && (
+                    <Box component="button" type="button"
+                         onClick={onToggleMaximized}
+                         data-viz-chrome="maximize"
+                         data-testid="pipeline-viz-maximize"
+                         aria-pressed={maximized}
+                         aria-label={maximized ? 'Restore the page' : 'Maximize the plan'}
+                         title={maximized
+                             ? 'Restore the page (Esc)'
+                             : 'Maximize — only the plan (Esc to exit)'}
+                         sx={{ position: 'absolute', right: 12, bottom: 12, zIndex: 3,
+                                width: 28, height: 26, p: 0, m: 0,
+                                display: 'flex', alignItems: 'center',
+                                justifyContent: 'center', cursor: 'pointer',
+                                color: '#7bb8de',
+                                background: 'rgba(13, 20, 32, 0.94)',
+                                border: '1px solid #2d5a85', borderRadius: '4px',
+                                boxShadow: '0 6px 18px rgba(0, 0, 0, 0.45)',
+                                '&:hover, &:focus-visible': {
+                                    color: '#cfe4f7', borderColor: '#5fa3d4',
+                                    outline: 'none',
+                                } }}>
+                        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                            <path d={maximized
+                                      ? 'M6 1v5H1M15 6h-5V1M10 15v-5h5M1 10h5v5'
+                                      : 'M1 6V1h5M10 1h5v5M15 10v5h-5M6 15H1v-5'}
+                                  fill="none" stroke="currentColor" strokeWidth="2" />
+                        </svg>
+                    </Box>
+                )}
 
                 {/* The bottom-right reset button + status chip stack is GONE
                     (req #3216). Reset moved to the header's zoom control group

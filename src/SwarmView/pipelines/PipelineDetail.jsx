@@ -77,6 +77,7 @@ import {
     planEntityName, planListPath,
 } from './planEra';
 import { usePlanSources } from './usePlanSources';
+import { usePlanMaximize } from './usePlanMaximize';
 import {
     readColorParam, readFocusStepParam, readLevelParam, stepLinkTo,
     FOCUS_STEP_PARAM, FOCUS_LEVEL_PARAM, FOCUS_COLOR_PARAM,
@@ -571,6 +572,14 @@ export default function PipelineDetail() {
     // req #3381 item 3 — a withheld or degraded `derived` block is a HARD STOP,
     // not an empty render.
     const canRenderPlan = !!pipeline && !diagnostic && !!plan;
+    // req #3658 — the Plan visualizer's maximize switch. The switch itself is
+    // on the canvas; this page owns the state because what it hides is HERE:
+    // the header row, and (by covering it) the Darwin navbar. Enabled only while
+    // the canvas is actually drawn — the switch is the only way out on screen,
+    // so a mode, a load or a withheld derivation that takes the canvas away
+    // must take the maximize with it.
+    const { maximized, toggle: toggleMaximized } =
+        usePlanMaximize(activeMode === 'plan' && canRenderPlan);
 
     // req #3225 — the whole-plan met/total, read straight off the composed
     // read's own derivation. `plan` is null while a diagnostic is set, so this
@@ -747,7 +756,20 @@ export default function PipelineDetail() {
     // claims happens ("The TableContainer scrolls instead"), and it is scoped to
     // this page: nothing else reads it.
     return (
-        <Box sx={{ p: 3, minWidth: 0 }} data-testid="pipeline-detail">
+        <Box sx={{ p: 3, minWidth: 0,
+                   // req #3658 — MAXIMIZED: the page becomes a fixed full-window
+                   // layer over the Darwin navbar (the drawer's z-index and
+                   // above) and under the modal layer, so the seat and insert
+                   // dialogs and every tooltip still open over it. No top
+                   // padding — the header row above the canvas is hidden, so
+                   // the canvas starts at the window's top edge; the sides and
+                   // bottom keep `p: 3` because the canvas cancels exactly that.
+                   ...(maximized && {
+                       position: 'fixed', inset: 0, zIndex: 1250, pt: 0,
+                       overflow: 'hidden', bgcolor: 'background.default',
+                   }) }}
+             data-maximized={maximized ? 'true' : 'false'}
+             data-testid="pipeline-detail">
             {/* ── ONE ROW (user directive 2026-08-01) ─────────────────────────
                 "the title of the visualizer, it became three rows for seemingly
                 no reason." Earlier in req #3168 this was split into a PIPELINE
@@ -844,7 +866,10 @@ export default function PipelineDetail() {
                 portaled), and `SwarmView.jsx` has carried the identical shape
                 since req #2802 — but the first control here with a badge or a
                 popper anchored INSIDE the row will find it. */}
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'nowrap',
+            {/* req #3658 — hidden, not unmounted, while maximized: the
+                toolbar's controls keep their state for the way back. */}
+            <Box sx={{ display: maximized ? 'none' : 'flex',
+                        alignItems: 'center', gap: 1, flexWrap: 'nowrap',
                         minWidth: 0, overflowX: 'auto', mb: 1 }}
                  data-testid="pipeline-header-row">
                 <ToggleButtonGroup
@@ -1173,6 +1198,8 @@ export default function PipelineDetail() {
                              stepsAcross={stepsAcross}
                              stepWidthLevel={stepWidthLevel}
                              reqPills={reqPills}
+                             maximized={maximized}
+                             onToggleMaximized={toggleMaximized}
                              />
             )}
         </Box>
