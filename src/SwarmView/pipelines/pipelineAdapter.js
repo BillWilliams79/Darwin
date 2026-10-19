@@ -161,16 +161,29 @@ export function buildPlanRows(payload, machines = []) {
     const epicsById = new Map(asArray(payload.epics).map((e) => [e.id, e]));
     const reqsById = new Map(asArray(payload.requirements).map((r) => [r.id, r]));
     const machinesById = new Map(asArray(machines).map((m) => [m.id, m]));
+    const planLocked = isFlagOn(payload.pipeline?.locked, false);
 
     return asArray(derived.rows).map((dr) => {
         const step = stepsById.get(dr.id) || {};
         const epic = dr.epic_id != null ? epicsById.get(dr.epic_id) : null;
         const labels = machineLabelsFor(
             dr.req_ids, dr.tracking_req_ids, reqsById, machinesById);
+        // req #3649 — the two stored flags, read the way the derivation
+        // reads them (`checkpoint` absent = the column DEFAULT, on). The lock
+        // CASCADES: a step under a locked epic or plan is as frozen as one
+        // locked itself, and `lockedBy` names the OUTERMOST lock so the
+        // control can say which one to lift.
+        const locked = isFlagOn(dr.locked ?? step.locked, false);
+        const epicLocked = isFlagOn(epic?.locked, false);
+        const lockedBy = planLocked ? 'pipeline' : epicLocked ? 'epic' : locked ? 'step' : null;
         return {
             id: dr.id,
             title: step.title != null ? step.title : '',
             run: dr.run || step.run || 'auto',
+            checkpoint: isFlagOn(dr.checkpoint ?? step.checkpoint, true),
+            locked,
+            effectiveLocked: lockedBy != null,
+            lockedBy,
             notes: step.notes != null ? step.notes : null,
             completedAt: step.completed_at != null ? step.completed_at : null,
             state: dr.state,
@@ -210,8 +223,9 @@ export function buildPlanRows(payload, machines = []) {
             // fields reads as gate closed / not a candidate — never the reverse.
             gateOpen: Boolean(dr.gate_open),
             launchCandidate: Boolean(dr.launch_candidate),
-            // The user's amendment: open hand-closed checkpoints upstream that
-            // HOLD this step. Empty = nothing hand-closed blocks it.
+            // The user's amendment: checkpoint steps upstream (req #3649: the
+            // flag, on by default) not yet done, holding this step.
+            // Empty = no checkpoint blocks it.
             checkpointBlockedBy: dr.checkpoint_blocked_by || [],
             launchSuppressed: Boolean(dr.launch_suppressed),
             suppressedBy: dr.suppressed_by || [],
@@ -219,6 +233,15 @@ export function buildPlanRows(payload, machines = []) {
             noLaunchReason: dr.no_launch_reason != null ? dr.no_launch_reason : null,
         };
     });
+}
+
+/** A TINYINT(1) off the wire as a boolean, with the column's own DEFAULT
+ *  standing in for an absent value — `"0"` is off, `1`/`"1"`/`true` on. */
+export function isFlagOn(value, dflt) {
+    if (value == null || value === '') return dflt;
+    if (typeof value === 'boolean') return value;
+    const n = Number(value);
+    return Number.isFinite(n) ? n !== 0 : dflt;
 }
 
 /**
@@ -314,6 +337,18 @@ export function adaptComposedPipeline(payload, { machines = [], costIndex = null
         // req #3597 — every launch candidate, in launch PRIORITY order (gate-open
         // first, then display order). An array, not a Set: the order IS the fact.
         launchCandidateStepIds: derived.launch_candidate_step_ids || [],
+        // req #3649 — THE launch order, one entry per announceable
+        // (step, requirement), as the engine consumes it. An array: the
+        // order IS the fact.
+        launchQueue: asArray(derived.launch_queue).map((e) => ({
+            stepId: e.step_id, requirementId: e.requirement_id,
+        })),
+        // req #3649 — the plan's own lock and the epics locked in their own
+        // right, for the band chips and the header control. A step's
+        // effective lock is already on its row (`effectiveLocked`/`lockedBy`).
+        locked: isFlagOn(payload.pipeline?.locked, false),
+        lockedEpicIds: new Set(asArray(payload.epics)
+            .filter((e) => isFlagOn(e.locked, false)).map((e) => e.id)),
         cycleDetected: Boolean(derived.cycle_detected),
         cycleStepIds: derived.cycle_step_ids || [],
         duplicateStepIds: derived.duplicate_step_ids || [],

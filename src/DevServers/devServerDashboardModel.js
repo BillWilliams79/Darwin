@@ -30,7 +30,7 @@
 // (Components/AnchoredPanel/anchoredPanelGeometry.js). This module holds only
 // the dashboard's own numbers.
 
-import { resolveThisMachineId } from '../SwarmView/terminalFocus';
+import { resolveThisMachineId, terminalFocusState, TERMINAL_STATE } from '../SwarmView/terminalFocus';
 
 /** Viewport inset of the home corner, px. */
 export const DASH_INSET = 16;
@@ -42,6 +42,9 @@ export const DASH_COMPACT_W = 250;
 /** Narrower than this, it drops the title too: bar, port and terminal only
  *  (user directive: "at its smallest"). */
 export const DASH_TINY_W = 190;
+/** At least this wide (shaped), the terminal reads "Term 4" rather than "T4"
+ *  (req #3668). Content-sized is never "wider": it keeps the short form. */
+export const DASH_WIDE_W = 340;
 /** Content-sized, the panel is as wide as its rows, up to this, px. */
 export const DASH_AUTO_MAX_W = 420;
 
@@ -98,6 +101,7 @@ export function devServerDashboardRows(devServers, machines, nav, currentPort = 
                 href,
                 title: s.workspace_path ? `${where}\n${s.workspace_path}` : where,
                 machineId: s.machine_fk ?? null,
+                sessionId: s.session_fk ?? null,
                 terminal: s.terminal_number ?? null,
                 reqId,
                 label,
@@ -122,5 +126,28 @@ export function withRequirementTitles(rows, reqs) {
     return rows.map((r) => {
         const title = r.reqId != null ? titleById.get(r.reqId) : undefined;
         return title ? { ...r, label: title, title: `${r.title}\n${r.label}` } : r;
+    });
+}
+
+/**
+ * Rows with the terminal's focus link (req #3668): the `darwin-term://` URL
+ * and tooltip `terminalFocusState` answers for the row's session — the same
+ * judgement the Sessions grid's chip makes — set only when it is a LINK (this
+ * browser's machine, a durable window handle). Any other state leaves the
+ * terminal plain text, as before.
+ *
+ * @param {Array<Object>} rows        devServerDashboardRows output.
+ * @param {?Array<Object>} sessions   swarm_sessions rows (terminal columns).
+ * @param {?Array<Object>} machines
+ * @param {Object} [nav]              navigator override (tests).
+ */
+export function withTerminalLinks(rows, sessions, machines, nav) {
+    const byId = new Map((sessions || []).filter(x => x).map(x => [Number(x.id), x]));
+    return rows.map((r) => {
+        const session = r.sessionId != null ? byId.get(Number(r.sessionId)) : undefined;
+        if (!session) return r;
+        const t = terminalFocusState(session, machines, nav);
+        return t.state === TERMINAL_STATE.LINK
+            ? { ...r, terminalHref: t.href, terminalTitle: t.title } : r;
     });
 }

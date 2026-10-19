@@ -171,7 +171,7 @@ beforeEach(() => {
         { id: 100, epic_fk: 4, title: 'Free step', run: 'auto', notes: null,
           not_before: null, completed_at: null },
         { id: 101, epic_fk: 4, title: 'Gated step', run: 'manual', notes: 'Some notes',
-          not_before: null, completed_at: null },
+          not_before: null, completed_at: null, checkpoint: 0, locked: 1 },
         { id: 102, epic_fk: 5, title: 'Done step', run: 'auto', notes: null,
           not_before: '2026-08-01 12:00:00', completed_at: '2026-08-01 12:00:00' },
         { id: 103, epic_fk: 5, title: 'Blocked step', run: 'auto', notes: null,
@@ -291,6 +291,52 @@ describe('StepsPage2 run toggle', () => {
             method: 'PUT',
             body: [{ id: 100, run: 'manual' }],
         }]);
+    });
+});
+
+// req #3649 — checkpoint and lock chips flip their flag with a one-field PUT.
+// Step 100 carries no `checkpoint` at all: that is the column default (1).
+describe('StepsPage2 checkpoint toggle', () => {
+    it('flips a default (absent) checkpoint to priority', async () => {
+        mount();
+        expect(node('step2-checkpoint-chip-100').textContent).toBe('Checkpoint');
+        click(node('step2-checkpoint-chip-100'));
+        await flush();
+        expect(restCalls).toEqual([{
+            uri: 'http://test.local/darwin/pipeline_steps',
+            method: 'PUT',
+            body: [{ id: 100, checkpoint: 0 }],
+        }]);
+    });
+
+    it('flips priority back to checkpoint', async () => {
+        mount();
+        expect(node('step2-checkpoint-chip-101').textContent).toBe('Priority');
+        click(node('step2-checkpoint-chip-101'));
+        await flush();
+        expect(restCalls[0].body).toEqual([{ id: 101, checkpoint: 1 }]);
+    });
+});
+
+describe('StepsPage2 lock toggle', () => {
+    it('locks an open step', async () => {
+        mount();
+        expect(node('step2-lock-chip-100').textContent).toBe('Open');
+        click(node('step2-lock-chip-100'));
+        await flush();
+        expect(restCalls).toEqual([{
+            uri: 'http://test.local/darwin/pipeline_steps',
+            method: 'PUT',
+            body: [{ id: 100, locked: 1 }],
+        }]);
+    });
+
+    it('unlocks a locked step', async () => {
+        mount();
+        expect(node('step2-lock-chip-101').textContent).toBe('Locked');
+        click(node('step2-lock-chip-101'));
+        await flush();
+        expect(restCalls[0].body).toEqual([{ id: 101, locked: 0 }]);
     });
 });
 

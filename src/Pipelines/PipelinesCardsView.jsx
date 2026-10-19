@@ -47,6 +47,8 @@ import {
     pipelineStatusChipProps,
     executionModeChipProps,
     executionModeLabel,
+    lockedChipProps,
+    lockedLabel,
 } from '../SwarmView/pipelines/pipelineChipStyles';
 import { machineTitle, pipelinesEmptyMessage } from '../SwarmView/pipelines/pipelineViewModel';
 import { claimForPipeline, holderView } from '../SwarmView/pipelines/orchestrationHolder';
@@ -157,6 +159,15 @@ export default function PipelinesCardsView({ pipelines, summaries, reqCounts,
                                               {...executionModeChipProps(p.execution_mode)}
                                               label={executionModeLabel(p.execution_mode)} />
                                     </Tooltip>
+                                    {/* req #3649 — display-only; the Table view toggles it. */}
+                                    {Boolean(Number(p.locked)) && (
+                                        <Tooltip title="Locked — this plan, its epics and steps are frozen as a record">
+                                            <Chip size="small"
+                                                  {...lockedChipProps(p.locked)}
+                                                  label={lockedLabel(p.locked)}
+                                                  data-testid={`pipelines-card-locked-${p.id}`} />
+                                        </Tooltip>
+                                    )}
                                     {holder && (
                                         <Tooltip title={holder.title}>
                                             <Chip size="small"

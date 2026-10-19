@@ -81,7 +81,8 @@
 // The geometry itself is pure and lives in pipelinePlanLayout.js.
 
 import {
-    useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState,
+    startTransition, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef,
+    useState,
 } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useIsFetching, useQueryClient } from '@tanstack/react-query';
@@ -140,7 +141,7 @@ import {
     CARD_STATE_BAR_W, CARD_BADGE_FONT,
     // req #3607 — the title buttons' outline and their drawn (not typeset) glyphs.
     CARD_TITLE_BTN_STROKE, CARD_TITLE_BTN_GLYPH_STROKE, titleBtnGlyph,
-    MIN_CARD_H, REQ_LINE_H, CHW_REQ,
+    MIN_CARD_H, REQ_LINE_H, CHW_REQ, CARD_SEP_CHARS,
     // req #3580 — the run pill's word and type.
     CARD_RUN_FONT, CARD_RUN_WORDS,
     // req #3650 — the collapse heads' type and the chip head's reserved width.
@@ -151,6 +152,8 @@ import {
     DEFAULT_STEP_WIDTH_LEVEL,
     EPIC_PAUSE_BUBBLE_D, pauseBubbleColor, stickyRulerY, rulerScreenBottom,
     PAUSE_PAUSED_COLOR,
+    // req #3649 — the epic chip's padlock.
+    EPIC_LOCK_D,
     rulerScreenMag,
     KEY_GROUP_TITLES, sortReqIdsByColorKey,
 } from './pipelinePlanLayout';
@@ -162,7 +165,7 @@ import {
 // req #3428 — the epic chip's second destination. The URL contract lives with
 // the rest of `/swarm`'s query string, so this file names no query key itself.
 import { swarmEpicLinkTo, swarmStepLinkTo } from '../swarmViewLink';
-import { newRequirementSeatState, planExitState } from './pipelineStepLink';
+import { planExitState } from './pipelineStepLink';
 import { useSavedViewport } from '../../hooks/useSavedViewport';
 import { usePlanViewSetting } from './planViewSettings';
 // req #3650 — every epic chip's and step card's own fold.
@@ -173,7 +176,7 @@ import PlanCollapseHead from './PlanCollapseHead';
 // req #3581 — dragging a requirement between steps writes its seat.
 import AppContext from '../../Context/AppContext';
 import AuthContext from '../../Context/AuthContext';
-import { pipelineComposeKeys } from '../../hooks/useQueryKeys';
+import { pipelineComposeKeys, requirementKeys } from '../../hooks/useQueryKeys';
 import {
     pipelineStepRequirementKeys, pipelineStepKeys, pipelineStepDepKeys, epicKeys,
 } from '../../hooks/useDataQueries';
@@ -182,6 +185,9 @@ import {
     moveStepRequirement, insertStepOnEdge, addDependentStep, precedeStepWith,
     isRestNullLiteral, REST_NULL, updateStep,
 } from '../../Steps/stepsApi';
+// req #3649 — the epic chip's lock control.
+import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
+import LockOpenOutlinedIcon from '@mui/icons-material/LockOpenOutlined';
 // req #3586 — the "+" marks that add a step on an edge or a dependent step; req
 // #3617 adds the one off a free left side, for a step this one depends on.
 import {
@@ -208,7 +214,10 @@ import '../../CalendarFC/swarmVisualizer.css';
 // are the ones req #3581 already imports above.
 import { updateEpic } from '../../Epics/epicsApi';
 import PlanInPlaceInput, { titleProblem } from './PlanInPlaceInput';
-import { createPressTracker } from './planPressGesture';
+import { createPressTracker, LONG_PRESS_MS } from './planPressGesture';
+// req #3661 — a requirement's title, edited in place on its own row.
+import PlanInPlaceTitleArea from './PlanInPlaceTitleArea';
+import { reqTitleEditorBox, updateRequirementTitle } from './planReqTitleEdit';
 
 const MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
 
@@ -658,6 +667,23 @@ export default function PipelinePlanVisualizer({
     // `reqLabelText` in the layout module.
     const reqTitles = useMemo(
         () => new Map([...reqInfo].map(([id, info]) => [id, info.title])), [reqInfo]);
+    // req #3661 — the requirement title open in its in-place editor
+    // (`{ reqId, stepId, saving }` — the row, not just the requirement), and
+    // what has been typed (`reqId -> title`). Declared here, not with the other
+    // in-place edits below, because the LAYOUT reads the drafts: the card is
+    // laid out around the title being typed — wrapped, and grown or shrunk a
+    // line, exactly as it will be drawn once saved — so the editor is always
+    // the size of what it will become. A draft stays until its save's re-read
+    // lands, so a save never flashes the old title back — including one whose
+    // editor was closed by opening the next row's (several drafts at once).
+    const [reqEdit, setReqEdit] = useState(null);
+    const [reqDrafts, setReqDrafts] = useState(() => new Map());
+    const layoutTitles = useMemo(() => {
+        if (!reqDrafts.size) return reqTitles;
+        const out = new Map(reqTitles);
+        reqDrafts.forEach((title, id) => out.set(id, title));
+        return out;
+    }, [reqTitles, reqDrafts]);
     // req #3225 — the epic->{met,total} lookup `computePlanLayout` measures
     // into the band label. Built from `plan.requirementCounts.byEpic`, the
     // SAME derivation `orderedPlan` already ran (design rule 5: no second
@@ -689,19 +715,22 @@ export default function PipelinePlanVisualizer({
         [setCollapsedRaw]);
     const layout = useMemo(
         () => computePlanLayout(rows, {
-            stepLabel, reqLabel, reqTitles, reqPills,
+            stepLabel, reqLabel, reqTitles: layoutTitles, reqPills,
             palette: activePalette,
             timeAxis: plan.timeAxis || null, epicCounts,
             // req #3226 — `plan.pause` comes from the composed derivation (same
             // provenance as `requirementCounts`/`timeAxis` above): one
             // derivation, read here rather than recomputed.
             pauseInfo: plan.pause || null,
+            // req #3649 — which bands are LOCKED (their own epic, or the plan).
+            lockInfo: { planLocked: !!plan.locked,
+                        lockedEpicIds: [...(plan.lockedEpicIds || [])] },
             stepWidthLevel,
             collapsedEpicIds: collapsed.epicIds, collapsedStepIds: collapsed.stepIds,
         }),
         [rows, plan.timeAxis, stepLabel,
-            reqLabel, reqTitles, reqPills, epicCounts, plan.pause, activePalette, stepWidthLevel,
-            collapsed]);
+            reqLabel, layoutTitles, reqPills, epicCounts, plan.pause, plan.locked,
+            plan.lockedEpicIds, activePalette, stepWidthLevel, collapsed]);
     // A LINK INTO A FOLDED BOX UNFOLDS IT (req #3650). `?epic=` and `?step=`
     // name a place on the plan to land on, and a folded band draws no cards —
     // so the fit would have nothing to fit. `?step=` is how the requirement
@@ -827,6 +856,11 @@ export default function PipelinePlanVisualizer({
     // behaviour, built once, sees the current stage without being rebuilt.
     const reqDragRef = useRef(null);
     const reqHitRef = useRef(null);
+    // req #3661 — opens a requirement's title editor from a long press on its
+    // row, or answers false when this frame draws no title to edit. Rebound
+    // every render (below `drawsKind`) so the press listeners read this frame's
+    // level.
+    const reqLongPressRef = useRef(null);
     // Re-aims the drop outline after the camera moves under a still pointer —
     // a wheel zoom or an edge auto-pan mid-drag. Called from the zoom
     // behaviour's own 'zoom' handler, the one place every camera move passes
@@ -2089,12 +2123,24 @@ export default function PipelinePlanVisualizer({
             const node = hit(e);
             if (!node) return;
             e.preventDefault();          // no text selection, no native drag
-            reqDragRef.current = {
+            const d = {
                 phase: 'press', node,
                 reqId: node.getAttr('dragReqId'),
                 fromStepId: node.getAttr('dragStepId'),
                 down: { x: e.clientX, y: e.clientY },
             };
+            // req #3661 — HELD STILL IS AN EDIT: a press that has not passed
+            // the drag slop after `LONG_PRESS_MS` opens the title's in-place
+            // editor (the gesture the step and epic names already take, req
+            // #3580). It fires while still held, and the press becomes
+            // CANCELLED, so the release that follows is neither a drop nor the
+            // click that opens the requirement page.
+            d.longTimer = setTimeout(() => {
+                if (reqDragRef.current !== d || d.phase !== 'press') return;
+                if (!reqLongPressRef.current?.(d.reqId, d.fromStepId)) return;
+                d.phase = 'cancelled';
+            }, LONG_PRESS_MS);
+            reqDragRef.current = d;
         };
         const onMove = (e) => {
             const d = reqDragRef.current;
@@ -2102,12 +2148,14 @@ export default function PipelinePlanVisualizer({
             // The button is up but no mouseup reached us (something swallowed
             // it): a release we never saw is not a drop — put it back.
             if (!(e.buttons & 1)) {        // eslint-disable-line no-bitwise
+                clearTimeout(d.longTimer);
                 if (d.phase === 'drag') finish(); else reqDragRef.current = null;
                 return;
             }
             lastPoint = panelPoint(e);
             if (d.phase === 'press') {
                 if (!passedDragSlop(d.down, e.clientX, e.clientY)) return;
+                clearTimeout(d.longTimer);
                 if (!start(d)) { reqDragRef.current = null; return; }
             }
             placePreview();
@@ -2117,6 +2165,7 @@ export default function PipelinePlanVisualizer({
         const onUp = (e) => {
             const d = reqDragRef.current;
             if (!d || e.button !== 0) return;      // only the button that lifted it
+            clearTimeout(d.longTimer);
             if (d.phase === 'press') { reqDragRef.current = null; return; }
             guardClick();
             if (d.phase === 'cancelled') { reqDragRef.current = null; return; }
@@ -2152,6 +2201,7 @@ export default function PipelinePlanVisualizer({
             window.removeEventListener('blur', onBlur);
             if (raf) cancelAnimationFrame(raf);
             clearTimeout(guardTimer);
+            clearTimeout(reqDragRef.current?.longTimer);
             reqHitRef.current = null;
             reqRetargetRef.current = null;
             reqDragRef.current = null;
@@ -2260,7 +2310,16 @@ export default function PipelinePlanVisualizer({
     // in no dependency array — so the wrapper only read as if it memoised
     // something.
     const drawsKind = (kind) => drawsLabelKind(kind, level);
-    const drawnKinds = ['step', 'req', 'title', 'badge', 'step-add']
+    // req #3661 — only where the title is DRAWN (L3): at L1/L2 the row is the
+    // bare id, and an editor there would be editing text the reader cannot see.
+    reqLongPressRef.current = (reqId, stepId) => {
+        if (level !== 'in' || !drawsKind('req')) return false;
+        if (!layout.labels.some((l) => l.kind === 'req' && l.reqId === reqId
+            && l.stepId === stepId)) return false;
+        setReqEdit({ reqId, stepId, saving: false });
+        return true;
+    };
+    const drawnKinds = ['step', 'req', 'title', 'badge', 'checkpoint', 'lock']
         .filter(drawsKind).join(',');
 
     // Report the level being rendered so the toolbar's selector can softly mark
@@ -2610,43 +2669,142 @@ export default function PipelinePlanVisualizer({
         ]);
     }, [queryClient, pipeline?.id, profile?.userName]);
 
-    // One commit path for both names. An unchanged name closes the editor
+    // One commit path for every name — epic, step and (req #3661) requirement
+    // title. An unchanged name closes the editor
     // without a write; a refused one says why and keeps the stored name.
+    //
+    // EVERY state write is to THIS editor only. An editor can commit after the
+    // reader has already opened another — a long press on the next row takes
+    // the first editor away, and its unmount is a commit — so an unconditional
+    // `setEdit` would mark, or close, the editor the reader just asked for.
     const commitTitle = useCallback(async ({ current, raw, setEdit, editState, write, what }) => {
+        const mine = (cur) => !!cur && cur.key === editState.key
+            && cur.stepId === editState.stepId && cur.reqId === editState.reqId;
+        const close = () => setEdit((cur) => (mine(cur) ? null : cur));
         const next = String(raw ?? '').trim();
-        if (next === current) { setEdit(null); return; }
+        if (next === current) { close(); return; }
         const problem = titleProblem(next);
-        if (problem) { showError(problem); setEdit(null); return; }
-        setEdit({ ...editState, saving: true });
+        if (problem) { showError(problem); close(); return; }
+        setEdit((cur) => (mine(cur) ? { ...cur, saving: true } : cur));
         try {
             await write(next);
             await refreshPlan();
         } catch (err) {
             showError(err, `Could not rename the ${what}`);
         } finally {
-            // Only THIS editor. While the write was in flight the reader may
-            // have opened another name — that editor is not this save's to close.
-            setEdit((cur) => (cur && cur.key === editState.key
-                && cur.stepId === editState.stepId ? null : cur));
+            close();
         }
     }, [refreshPlan, showError]);
 
-    const commitEpicTitle = useCallback((band, raw) => commitTitle({
-        current: band.epic, raw, what: 'epic',
-        setEdit: setEpicEdit, editState: { key: epicCycleKey(band) },
-        write: (title) => updateEpic(darwinUri, idToken, band.epicId, { title }),
-    }), [commitTitle, darwinUri, idToken]);
+    // req #3649 — A LOCKED ROW IS A RELIC IN TIME. The gateway refuses the
+    // write (423) whatever the UI does; these say so BEFORE the attempt, in
+    // the lock's own words, and name the level to unlock. `lockedBy` is the
+    // OUTERMOST lock, which is the one that must be lifted first.
+    const lockedMessage = (what, lockedBy) => (
+        `This ${what} is locked${lockedBy && lockedBy !== what
+            ? ` by its ${lockedBy}` : ''} — unlock it first`);
+    const refuseIfLocked = useCallback((what, lockedBy) => {
+        if (!lockedBy) return false;
+        showError(lockedMessage(what, lockedBy));
+        return true;
+    }, [showError]);
 
-    const commitStepTitle = useCallback((row, raw) => commitTitle({
-        current: row.title || '', raw, what: 'step',
-        setEdit: setStepEdit, editState: { stepId: row.id },
-        write: (title) => updateStep(darwinUri, idToken, row.id, { title }),
-    }), [commitTitle, darwinUri, idToken]);
+    const commitEpicTitle = useCallback((band, raw) => {
+        if (refuseIfLocked('epic', band.lockedBy)) { setEpicEdit(null); return undefined; }
+        return commitTitle({
+            current: band.epic, raw, what: 'epic',
+            setEdit: setEpicEdit, editState: { key: epicCycleKey(band) },
+            write: (title) => updateEpic(darwinUri, idToken, band.epicId, { title }),
+        });
+    }, [commitTitle, darwinUri, idToken, refuseIfLocked]);
+
+    const commitStepTitle = useCallback((row, raw) => {
+        if (refuseIfLocked('step', row.lockedBy)) { setStepEdit(null); return undefined; }
+        return commitTitle({
+            current: row.title || '', raw, what: 'step',
+            setEdit: setStepEdit, editState: { stepId: row.id },
+            write: (title) => updateStep(darwinUri, idToken, row.id, { title }),
+        });
+    }, [commitTitle, darwinUri, idToken, refuseIfLocked]);
+
+    // req #3649 — ONE write path for the step's two flags and the three locks:
+    // write, re-read, surface the gateway's own refusal. The lock toggle is the
+    // one authoring write a locked row still accepts (it is how a lock is
+    // lifted), so it never asks `refuseIfLocked` — except when the lock is an
+    // ANCESTOR's, where flipping this row's own flag would change nothing the
+    // reader can see.
+    const writeFlag = useCallback(async (write, failure) => {
+        try {
+            await write();
+            await refreshPlan();
+        } catch (err) {
+            showError(err, failure);
+        }
+    }, [refreshPlan, showError]);
+
+    const toggleCheckpoint = useCallback((row) => {
+        if (refuseIfLocked('step', row.lockedBy)) return;
+        writeFlag(() => updateStep(darwinUri, idToken, row.id,
+            { checkpoint: row.checkpoint === false ? 1 : 0 }),
+        'Could not change the step checkpoint flag');
+    }, [writeFlag, refuseIfLocked, darwinUri, idToken]);
+
+    const toggleStepLock = useCallback((row) => {
+        if (row.lockedBy && row.lockedBy !== 'step') {
+            showError(lockedMessage('step', row.lockedBy));
+            return;
+        }
+        writeFlag(() => updateStep(darwinUri, idToken, row.id,
+            { locked: row.locked ? 0 : 1 }),
+        'Could not change the step lock');
+    }, [writeFlag, showError, darwinUri, idToken]);
+
+    const toggleEpicLock = useCallback((band) => {
+        if (band.lockedBy === 'pipeline') {
+            showError(lockedMessage('epic', 'pipeline'));
+            return;
+        }
+        writeFlag(() => updateEpic(darwinUri, idToken, band.epicId,
+            { locked: band.lockedBy === 'epic' ? 0 : 1 }),
+        'Could not change the epic lock');
+    }, [writeFlag, showError, darwinUri, idToken]);
+
+    // req #3661 — the requirement title. The composed plan read carries the
+    // titles the canvas draws; the requirements lists carry them everywhere else.
+    //
+    // "Unchanged" is judged against the text the editor OPENED on, not the
+    // latest stored title: if somebody else renamed it meanwhile, closing this
+    // editor untouched must not write the old name back over theirs.
+    const dropReqDraft = useCallback((reqId, title) => setReqDrafts((m) => {
+        if (!m.has(reqId) || (title !== undefined && m.get(reqId) !== title)) return m;
+        const out = new Map(m);
+        out.delete(reqId);
+        return out;
+    }), []);
+    const commitReqTitle = useCallback(async (reqId, stepId, raw, opened) => {
+        try {
+            await commitTitle({
+                current: opened, raw, what: 'requirement',
+                setEdit: setReqEdit, editState: { reqId, stepId },
+                write: async (title) => {
+                    await updateRequirementTitle(darwinUri, idToken, reqId, title);
+                    if (profile?.userName) {
+                        queryClient.invalidateQueries({
+                            queryKey: requirementKeys.all(profile.userName) });
+                    }
+                },
+            });
+        } finally {
+            // Unless the reader has since typed something newer for it.
+            dropReqDraft(reqId, raw);
+        }
+    }, [commitTitle, dropReqDraft, darwinUri, idToken, queryClient, profile?.userName]);
 
     // The run circle's click. A second click while the first write is in flight
     // is ignored rather than queued — it would race the first one's re-read.
     const toggleRun = useCallback(async (stepId, current) => {
         if (runPending.has(stepId)) return;
+        if (refuseIfLocked('step', rowById.get(stepId)?.lockedBy)) return;
         const next = current === 'manual' ? 'auto' : 'manual';
         setRunPending((m) => new Map(m).set(stepId, next));
         try {
@@ -2661,7 +2819,7 @@ export default function PipelinePlanVisualizer({
                 return out;
             });
         }
-    }, [runPending, darwinUri, idToken, refreshPlan, showError]);
+    }, [runPending, darwinUri, idToken, refreshPlan, showError, refuseIfLocked, rowById]);
 
     // ── QUICK CLICK / DOUBLE CLICK / LONG PRESS (req #3580) ────────────────
     // User directive: "fast click to zoom, long click to edit, double click to
@@ -3798,6 +3956,9 @@ export default function PipelinePlanVisualizer({
         }
     }
 
+    // req #3661 — the requirement title editor's box, found while its row is
+    // drawn below (it needs the row's own pill packing to place line 1).
+    let reqEditor = null;
     layout.labels.forEach((label, i) => {
         if (!drawsKind(label.kind)) return;
         if (label.kind === 'step') {
@@ -3884,8 +4045,15 @@ export default function PipelinePlanVisualizer({
             // the box the overlap sweep measured.
             const reqLines = showTitle && Array.isArray(label.lines)
                 ? label.lines : null;
-            const reqText = reqLines ? reqLines.join('\n')
-                : (showTitle ? label.text : (label.idText ?? label.text));
+            // req #3661 — a row whose title is open in its in-place editor
+            // draws everything BUT the title (id, pills, separator): the editor
+            // draws the title itself, in the room the layout gave it.
+            const editingTitle = showTitle && reqEdit?.reqId === label.reqId
+                && reqEdit?.stepId === label.stepId;
+            const reqText = editingTitle
+                ? `${label.idText ?? label.reqId}${' '.repeat(CARD_SEP_CHARS)}`
+                : reqLines ? reqLines.join('\n')
+                    : (showTitle ? label.text : (label.idText ?? label.text));
             // ── LEFT-ANCHORED, NOT CENTRED IN THE TITLE'S BOX (req #3498) ───
             // The id used to be centred inside the room the title reserved,
             // because the layout centred the title on the node's x. A card's
@@ -3931,6 +4099,10 @@ export default function PipelinePlanVisualizer({
             // The first line's text AFTER the last pill, redrawn flush against
             // it (see the packing note below); null leaves it in the row Text.
             let rowTail = null;
+            // req #3661 — the same packed position for a row whose title is
+            // open in the editor: its tail is the blank separator alone, which
+            // draws nothing, but the editor's line 1 starts where it ends.
+            let editTail = null;
             if (pillsHere.length) {
                 const rowLines = reqText.split('\n');
                 const firstLine = rowLines[0];
@@ -4014,13 +4186,40 @@ export default function PipelinePlanVisualizer({
                         };
                     }
                     const lastBox = pillBoxes[pillBoxes.length - 1];
+                    const tailLead = tailText.length - tailText.trimStart().length;
+                    const tail = {
+                        x: lastBox.x + lastBox.w,
+                        text: ` ${tailText.trimStart()}`,
+                        // req #3661 — the line-1 character index `text` begins
+                        // at (its one space is the last of the lead it
+                        // replaced), so the title editor can find where the
+                        // title starts inside it.
+                        start: tailStart + Math.max(0, tailLead - 1),
+                    };
+                    if (editingTitle) editTail = tail;
                     if (tailText.trim()) {
-                        rowTail = { x: lastBox.x + lastBox.w, text: ` ${tailText.trimStart()}` };
+                        rowTail = tail;
                         rowLines[0] = rowLines[0].slice(0, tailStart)
                             + ' '.repeat(tailText.length);
                     }
                 }
                 rowText = rowLines.join('\n');
+            }
+            if (editingTitle) {
+                reqEditor = {
+                    reqId: label.reqId,
+                    stepId: label.stepId,
+                    label,
+                    color: rs.fill,
+                    bold: rs.bold,
+                    box: reqTitleEditorBox({
+                        label, firstLine: reqText.split('\n')[0],
+                        measure: (str) => measureReqText(str, CF.req, rs.bold),
+                        chw: CHW_REQ, tail: rowTail || editTail, t,
+                        lineH: REQ_LINE_H, fontSize: CF.req,
+                        insetTop: epicOverlayTopInset,
+                    }),
+                };
             }
             // A row that carries pills is drawn as ONE Group — text, pills and
             // their targets — so the drag ghost (req #3581, a snapshot of the
@@ -4134,37 +4333,32 @@ export default function PipelinePlanVisualizer({
             // branch is kept, EMPTY, so a `badge` label is a deliberate no-op
             // here rather than an unhandled kind silently falling through the
             // chain below to whatever the next `else if` happens to match.
-        } else if (label.kind === 'step-add') {
-            // The card title's button (the ↗ "view in table" beside it went with
-            // the Table in req #3641):
-            //  + — file a new requirement INTO this step (req #3582). Opens the
-            //      requirement editor's "new" mode (req #2414, the aggregator
-            //      template's own path) carrying the step; nothing is written
-            //      until the user picks a category, and that first save seats
-            //      it here.
-            // An OUTLINED SQUARE so it reads as a button (req #3582), its
-            // outline doubled by req #3607 (`CARD_TITLE_BTN_STROKE`). The frame
-            // IS the hit target — a transparent fill hit-tests its whole box,
-            // the pill targets' own move. The glyph is two or three strokes
-            // centred on that box by geometry (`titleBtnGlyph`, req #3607),
-            // never a `Text` whose font box is what gets centred, and it is
-            // `P.text` rather than `P.dim` — the "this is live" brightness.
+        } else if (label.kind === 'checkpoint' || label.kind === 'lock') {
+            // req #3649 — ⚑ and the padlock: outlined buttons like the "+" and
+            // ↗ beside them, their glyphs drawn (never typeset, req #3607).
+            // The pennant / the lock body is FILLED when the flag is on, so
+            // the state reads at a glance: a solid flag holds its downstream,
+            // a hollow one is a priority; a solid padlock is frozen.
             const btnRow = rowById.get(label.stepId);
-            const activate = () => navigate('/swarm/requirement/new', {
-                state: newRequirementSeatState(pipeline?.id, 'plan', btnRow),
-            });
+            const activate = label.kind === 'checkpoint'
+                ? () => btnRow && toggleCheckpoint(btnRow)
+                : () => btnRow && toggleStepLock(btnRow);
+            const glyph = titleBtnGlyph(label.kind, label);
             worldNodes.push(
                 <Rect key={`lbl-${i}`} x={label.x} y={label.y}
                       width={label.w} height={label.h} cornerRadius={4}
                       fill="transparent"
                       stroke={P.dim} strokeWidth={CARD_TITLE_BTN_STROKE}
+                      name={`pipeline-viz-${label.kind}-${label.stepId}`}
                       onMouseEnter={(e) => cursorPointer(e, true)}
                       onMouseLeave={(e) => cursorPointer(e, false)}
                       onActivate={activate} />);
-            titleBtnGlyph(label.kind, label).forEach((points, j) => {
+            glyph.forEach((points, j) => {
+                const filled = label.on && (label.kind === 'checkpoint' ? j === 1 : j === 0);
                 worldNodes.push(
                     <Line key={`lbl-${i}-glyph-${j}`} points={points}
                           stroke={P.text} strokeWidth={CARD_TITLE_BTN_GLYPH_STROKE}
+                          closed={filled} fill={filled ? P.text : undefined}
                           lineCap="round" lineJoin="round" listening={false} />);
             });
         } else if (label.kind === 'title') {
@@ -4840,6 +5034,47 @@ export default function PipelinePlanVisualizer({
                                     <ViewModuleIcon sx={{ fontSize: EPIC_CHIP_FONT + 2 }} />
                                 </Box>
                             )}
+                            {/* req #3649 — THE EPIC'S PADLOCK, the chip's one
+                                authoring control. Reserved in `placeEpicChips`
+                                (`EPIC_LOCK_W`) under the same `epicId != null`
+                                condition. Closed when the epic is locked in
+                                its own right OR under a locked plan; a click
+                                flips the epic's own flag, and names the plan
+                                when that is what holds it. */}
+                            {e.epicId != null && (
+                                <Box
+                                    component="span"
+                                    role="button"
+                                    tabIndex={0}
+                                    aria-pressed={!!e.band?.locked}
+                                    aria-label={e.band?.locked
+                                        ? `Epic ${e.text} is locked${e.band?.lockedBy === 'pipeline'
+                                            ? ' by its plan' : ''} — unlock`
+                                        : `Lock epic ${e.text}`}
+                                    data-testid={`pipeline-viz-epic-lock-${e.key}`}
+                                    data-locked={e.band?.locked ? '1' : '0'}
+                                    onClick={(ev) => {
+                                        ev.stopPropagation();
+                                        toggleEpicLock(e.band);
+                                    }}
+                                    onKeyDown={(ev) => {
+                                        if (ev.key !== 'Enter') return;
+                                        ev.stopPropagation();
+                                        ev.preventDefault();
+                                        toggleEpicLock(e.band);
+                                    }}
+                                    sx={{
+                                        display: 'inline-flex', alignItems: 'center',
+                                        lineHeight: 1, px: '2px', cursor: 'pointer',
+                                        opacity: e.band?.locked ? 1 : 0.6,
+                                        '&:hover': { opacity: 1 },
+                                    }}
+                                >
+                                    {e.band?.locked
+                                        ? <LockOutlinedIcon sx={{ fontSize: EPIC_LOCK_D }} />
+                                        : <LockOpenOutlinedIcon sx={{ fontSize: EPIC_LOCK_D }} />}
+                                </Box>
+                            )}
                         </Box>
                         );
                     })}
@@ -5009,6 +5244,44 @@ export default function PipelinePlanVisualizer({
                                 fontSize: stepEditor.fontSize,
                             }}
                             sx={{ pointerEvents: 'auto', fontWeight: 400 }}
+                        />
+                    )}
+                    {/* req #3661 — THE REQUIREMENT TITLE EDITOR, on the title's
+                        own room in its row: same font, colour and lines as the
+                        row draws, so editing changes nothing on screen but the
+                        caret and the outline. */}
+                    {reqEditor && (
+                        <PlanInPlaceTitleArea
+                            key={`req-edit-${reqEditor.reqId}-${reqEditor.stepId}`}
+                            initial={layoutTitles.get(reqEditor.reqId) || ''}
+                            label={reqEditor.label}
+                            saving={!!reqEdit?.saving}
+                            ariaLabel={`Rename requirement ${reqEditor.reqId}`}
+                            testId={`pipeline-viz-req-edit-${reqEditor.reqId}`}
+                            onDraft={(title) => {
+                                const reqId = reqEditor.reqId;
+                                startTransition(() => setReqDrafts(
+                                    (m) => new Map(m).set(reqId, title)));
+                            }}
+                            onCommit={(raw, opened) => commitReqTitle(
+                                reqEditor.reqId, reqEditor.stepId, raw, opened)}
+                            onCancel={() => {
+                                dropReqDraft(reqEditor.reqId);
+                                setReqEdit(null);
+                            }}
+                            indent={reqEditor.box.indent}
+                            lineHeight={reqEditor.box.lineHeight}
+                            color={reqEditor.color}
+                            bold={reqEditor.bold}
+                            style={{
+                                position: 'absolute',
+                                left: reqEditor.box.left,
+                                top: reqEditor.box.top,
+                                width: reqEditor.box.width,
+                                height: reqEditor.box.height,
+                                fontSize: reqEditor.box.fontSize,
+                                pointerEvents: 'auto',
+                            }}
                         />
                     )}
                 </Box>
@@ -5279,6 +5552,12 @@ export default function PipelinePlanVisualizer({
                                     swatch for it. */}
                                 <LegendDot ring={P.eligibleRing} label="Up Next"
                                            dashed animated="pipeKeyBreathe" />
+                                {/* req #3649 — the two title-line buttons.
+                                    ⚑ solid: the step holds its downstream
+                                    until done; hollow: a launch priority.
+                                    Padlock solid: frozen (step, epic or plan). */}
+                                <LegendWord color={P.text} label="⚑ Checkpoint" />
+                                <LegendWord color={P.text} label="🔒 Locked" />
                             </KeyGroup>
 
                             {/* THE REQUIREMENT channel — EVERY scale in ONE grid
