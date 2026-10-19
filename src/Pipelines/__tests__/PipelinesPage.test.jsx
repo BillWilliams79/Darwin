@@ -199,7 +199,8 @@ beforeEach(() => {
         { id: 7, title: 'Plan Seven', description: 'Existing goal.', pipeline_status: 'active',
           execution_mode: 'parallel', machine_fk: 4, started_at: '2026-08-01 00:00:00', completed_at: null },
         { id: 8, title: 'Plan Eight', description: null, pipeline_status: 'draft',
-          execution_mode: 'serial', machine_fk: null, started_at: null, completed_at: null },
+          execution_mode: 'serial', locked: 1, machine_fk: null, started_at: null,
+          completed_at: null },
     ];
     machines = [{ id: 4, title: 'Mac mini' }];
     epics = [
@@ -417,6 +418,41 @@ describe('PipelinesPage2 execution_mode toggle (Table view)', () => {
         click(node('pipelines-execmode-chip-8'));
         await flush();
         expect(restCalls[0].body).toEqual([{ id: 8, execution_mode: 'parallel' }]);
+    });
+});
+
+// req #3649 — the Lock column flips `locked` with a one-field PUT; the Cards
+// view shows a display-only lock chip on a locked plan and nothing on an open one.
+describe('PipelinesPage2 lock toggle (Table view)', () => {
+    it('locks an open plan', async () => {
+        mount();
+        switchToTable();
+        expect(node('pipelines-lock-chip-7').textContent).toBe('Open');
+        click(node('pipelines-lock-chip-7'));
+        await flush();
+        expect(restCalls).toEqual([{
+            uri: 'http://test.local/darwin/pipelines',
+            method: 'PUT',
+            body: [{ id: 7, locked: 1 }],
+        }]);
+        expect(navigations).toEqual([]);
+    });
+
+    it('unlocks a locked plan', async () => {
+        mount();
+        switchToTable();
+        expect(node('pipelines-lock-chip-8').textContent).toBe('Locked');
+        click(node('pipelines-lock-chip-8'));
+        await flush();
+        expect(restCalls[0].body).toEqual([{ id: 8, locked: 0 }]);
+    });
+});
+
+describe('PipelinesPage2 lock chip (Cards view)', () => {
+    it('marks only the locked plan', () => {
+        mount();
+        expect(node('pipelines-card-locked-8')).not.toBeNull();
+        expect(node('pipelines-card-locked-7')).toBeNull();
     });
 });
 

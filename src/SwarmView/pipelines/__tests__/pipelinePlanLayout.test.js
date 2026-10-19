@@ -29,7 +29,7 @@ import {
     CARD_LINE_H, CARD_SUBTITLE_H, CARD_RULE_BAND, CARD_TITLE_CHARS, CARD_ID_CHARS,
     CARD_FRAME_W, CARD_FRAME_X, CARD_STATE_BAR_W, CARD_BAR_GAP,
     CARD_BADGE_W, CARD_BADGE_GAP, CARD_BADGE_H, CARD_BADGE_TOP, CARD_BADGE_FONT, badgeWidthFor,
-    CARD_STEP_LINK_W, CARD_STEP_ADD_W, CARD_TITLE_BTN, CARD_TITLE_BTN_GAP, CARD_STEP_LINK_GAP,
+    CARD_TITLE_BTN, CARD_TITLE_BTN_GAP,
     CARD_TITLE_BTN_STROKE, CARD_TITLE_BTN_GLYPH_STROKE, titleBtnGlyph,
     CARD_RUN_W, CARD_RUN_H, CARD_RUN_WORDS, CARD_RUN_FONT, CARD_FONT,
     STEP_WIDTH_SCALES, cardGeometryFor,
@@ -73,6 +73,8 @@ import {
     stickyRulerY, rulerScreenBottom, rulerScreenMag,
     EPIC_PALETTE,
     PAUSE_ACTIVE_COLOR, PAUSE_PAUSED_COLOR, pauseBubbleColor, EPIC_PAUSE_BUBBLE_W,
+    // req #3649 — the epic chip's padlock and the step card's two new buttons.
+    EPIC_LOCK_W, CARD_CHECKPOINT_W, CARD_LOCK_W,
     COLOR_CHANNELS, KEY_GROUP_TITLES,
     reqSortRank, sortReqIdsByColorKey,
 } from '../pipelinePlanLayout';
@@ -1188,9 +1190,11 @@ describe('Step Width — the card scales, four rungs (req #3503)', () => {
                 { stepLabel: 'title', stepWidthLevel: level });
             for (const row of plan.rows) {
                 const n = layout.nodes.get(row.id);
-                const [link] = layout.labels.filter(
-                    (l) => l.kind === 'step-link' && l.stepId === row.id);
-                expect(link.x + link.w, `level ${level} step ${row.id}`)
+                // The run pill is the rightmost title-line control since req
+                // #3649 deleted the ↗ and the "+".
+                const [run] = layout.labels.filter(
+                    (l) => l.kind === 'run' && l.stepId === row.id);
+                expect(run.x + run.w, `level ${level} step ${row.id}`)
                     .toBeCloseTo(n.right - CARD_PAD_X - CARD_CHECK_W, 6);
             }
         }
@@ -1287,7 +1291,8 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
         const scale = h / EPIC_CHIP_H;
         const text = band.epicLabel || band.epic;
         const w = text.length * EPIC_CHIP_CHAR_W * scale + EPIC_CHIP_PAD_W * scale
-            + (band.epicId != null ? EPIC_CHIP_OPEN_LINK_W + EPIC_CHIP_CARDS_LINK_W : 0)
+            + (band.epicId != null ? EPIC_CHIP_OPEN_LINK_W + EPIC_CHIP_CARDS_LINK_W
+                + EPIC_LOCK_W : 0)
             + EPIC_PAUSE_BUBBLE_W;
         return { w, h };
     };
@@ -1782,6 +1787,7 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
                         const scale = chip.h / EPIC_CHIP_H;
                         expect(chip.w).toBeGreaterThanOrEqual(
                             EPIC_CHIP_PAD_W * scale + EPIC_PAUSE_BUBBLE_W
+                            + (chip.band.epicId != null ? EPIC_LOCK_W : 0)
                             + EPIC_CHIP_MIN_CHARS * EPIC_CHIP_CHAR_W * scale - 1e-9);
                     }
                     // The clip never moves a name out of its rectangle
@@ -2034,7 +2040,8 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
         // so 24 unmeasured px is 24 px that hangs past the edge it was clamped to.
         expect(chip.w).toBeCloseTo(
             20 * EPIC_CHIP_CHAR_W + EPIC_CHIP_PAD_W
-            + EPIC_CHIP_OPEN_LINK_W + EPIC_CHIP_CARDS_LINK_W + EPIC_PAUSE_BUBBLE_W, 6);
+            + EPIC_CHIP_OPEN_LINK_W + EPIC_CHIP_CARDS_LINK_W + EPIC_LOCK_W
+            + EPIC_PAUSE_BUBBLE_W, 6);
         expect(chip.clipped).toBe(false);
     });
 
@@ -2399,7 +2406,8 @@ describe('the epic name holds a legible minimum font (req #3272)', () => {
             const text = band.epicLabel || band.epic;
             const w = text.length * EPIC_CHIP_CHAR_W * scale
                 + EPIC_CHIP_PAD_W * scale
-                + (band.epicId != null ? EPIC_CHIP_OPEN_LINK_W + EPIC_CHIP_CARDS_LINK_W : 0)
+                + (band.epicId != null ? EPIC_CHIP_OPEN_LINK_W + EPIC_CHIP_CARDS_LINK_W
+                    + EPIC_LOCK_W : 0)
                 + EPIC_PAUSE_BUBBLE_W;
             const x = Math.min(ix0 + MX, right - MX - w);
             const y = Math.min(iy0 + MY, bottom - MY - h);
@@ -2466,6 +2474,7 @@ describe('the epic name holds a legible minimum font (req #3272)', () => {
                 const scale = chip.h / EPIC_CHIP_H;
                 expect(chip.w).toBeGreaterThanOrEqual(
                     EPIC_CHIP_PAD_W * scale + EPIC_PAUSE_BUBBLE_W
+                    + (chip.band.epicId != null ? EPIC_LOCK_W : 0)
                     + EPIC_CHIP_MIN_CHARS * EPIC_CHIP_CHAR_W * scale - 1e-9);
             }
         }
@@ -2721,6 +2730,7 @@ describe('the epic name holds a legible minimum font (req #3272)', () => {
             const scale = chip.h / EPIC_CHIP_H;
             expect(chip.w).toBeGreaterThanOrEqual(
                 EPIC_CHIP_PAD_W * scale + EPIC_PAUSE_BUBBLE_W
+                + (chip.band.epicId != null ? EPIC_LOCK_W : 0)
                 + EPIC_CHIP_MIN_CHARS * EPIC_CHIP_CHAR_W * scale - 1e-9);
         }
     });
@@ -2740,7 +2750,8 @@ describe('epic band label counts, behind a toggle (req #3225)', () => {
             const band = withCounts.bands.find((b) => b.epicId === label.epicId);
             expect(label.text).toBe(band.epic);
             expect(label.w).toBeCloseTo(
-                band.epic.length * EPIC_CHIP_CHAR_W + EPIC_PAUSE_BUBBLE_W, 6);
+                band.epic.length * EPIC_CHIP_CHAR_W + EPIC_PAUSE_BUBBLE_W
+                + (band.epicId != null ? EPIC_LOCK_W : 0), 6);
         }
     });
 
@@ -2854,7 +2865,8 @@ describe('epic band label counts, behind a toggle (req #3225)', () => {
         // footprint is reserved on every chip now that the measured box is what
         // keeps the name inside its own rectangle.
         expect(chip.w).toBeCloseTo(20 * EPIC_CHIP_CHAR_W + 18
-            + EPIC_CHIP_OPEN_LINK_W + EPIC_CHIP_CARDS_LINK_W + EPIC_PAUSE_BUBBLE_W, 6);
+            + EPIC_CHIP_OPEN_LINK_W + EPIC_CHIP_CARDS_LINK_W + EPIC_LOCK_W
+            + EPIC_PAUSE_BUBBLE_W, 6);
     });
 
     it('the toggle is a pure display transform: the ONLY thing that changes '
@@ -3983,8 +3995,10 @@ describe('the pause status bubble (req #3226)', () => {
             transform: { x: 0, y: 0, k: 1 }, viewport: VIEWPORT, worldWidth: 3000,
         });
         // + EPIC_CHIP_OPEN_LINK_W since req #3257 (see the fallback test above).
+        // + EPIC_LOCK_W since req #3649 — the padlock is reserved the same way.
         expect(withBubble[0].w).toBeCloseTo(20 * EPIC_CHIP_CHAR_W + 18
-            + EPIC_CHIP_OPEN_LINK_W + EPIC_CHIP_CARDS_LINK_W + EPIC_PAUSE_BUBBLE_W, 6);
+            + EPIC_CHIP_OPEN_LINK_W + EPIC_CHIP_CARDS_LINK_W + EPIC_LOCK_W
+            + EPIC_PAUSE_BUBBLE_W, 6);
     });
 
     // "its rectangle belongs in the same label set the zero-overlap invariant
@@ -4000,7 +4014,8 @@ describe('the pause status bubble (req #3226)', () => {
             const band = layout.bands.find((b) => b.epicId === label.epicId);
             const bandText = band.epicLabel || band.epic;
             expect(label.w).toBeCloseTo(
-                bandText.length * EPIC_CHIP_CHAR_W + EPIC_PAUSE_BUBBLE_W, 6);
+                bandText.length * EPIC_CHIP_CHAR_W + EPIC_PAUSE_BUBBLE_W
+                + (band.epicId != null ? EPIC_LOCK_W : 0), 6);
         }
     });
 });
@@ -5192,7 +5207,8 @@ describe('the character budget IS the card (req #3498, was the 35-char ceiling)'
         // would otherwise truncate to nineteen — so what is pinned is the
         // per-LINE budget, which is what a reader actually sees on one row.
         const stepBudget = cardChars(CHW_LABEL,
-            CARD_CHECK_W + CARD_STEP_LINK_W + CARD_STEP_ADD_W + CARD_BADGE_W + CARD_BADGE_GAP);
+            CARD_CHECK_W + CARD_RUN_W + CARD_CHECKPOINT_W + CARD_LOCK_W
+            + CARD_BADGE_W + CARD_BADGE_GAP);
         for (const view of Object.keys(REQ_VIEWS)) {
             const layout = computePlanLayout(plan.rows,
                 { ...reqViewOptions(view), stepLabel: 'title',
@@ -5514,26 +5530,6 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
         expect(drawsLabelKind('badge', 'in')).toBe(true);
     });
 
-    it('puts a "view in table" link button RIGHT of the title, clear of the ✓ (req #3503)', () => {
-        const layout = computePlanLayout(plan.rows, { stepLabel: 'title' });
-        for (const row of plan.rows) {
-            const [link] = layout.labels.filter(
-                (l) => l.kind === 'step-link' && l.stepId === row.id);
-            expect(link, `step ${row.id} has a link button`).toBeTruthy();
-            expect(link.text).toBe('↗');
-            const n = layout.nodes.get(row.id);
-            // Right-aligned, clear of the ✓, inside the title area.
-            expect(link.x + link.w)
-                .toBeCloseTo(n.right - CARD_PAD_X - CARD_CHECK_W, 6);
-            // Flush with the title area's bottom since req #3582 — float slack only.
-            expect(link.y + link.h).toBeLessThanOrEqual(n.top + cardTitleH('title') + 1e-6);
-        }
-        // It rides the CARD too, same rule as the badge.
-        expect(drawsLabelKind('step-link', 'out')).toBe(false);
-        expect(drawsLabelKind('step-link', 'mid')).toBe(true);
-        expect(drawsLabelKind('step-link', 'in')).toBe(true);
-    });
-
     it('doubles the title buttons\' outline (req #3607 — "like 100% more")', () => {
         // It shipped at 1 world px (req #3582).
         expect(CARD_TITLE_BTN_STROKE).toBe(2);
@@ -5542,10 +5538,12 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
 
     it('centres both title-button glyphs on their button in BOTH axes (req #3607)', () => {
         const layout = computePlanLayout(plan.rows, { stepLabel: 'title' });
+        // req #3649 — the ⚑ and the padlock are the title-line buttons now
+        // (the "+" and ↗ were removed on the user's directive).
         const buttons = layout.labels.filter(
-            (l) => l.kind === 'step-add' || l.kind === 'step-link');
-        expect(buttons.some((b) => b.kind === 'step-add')).toBe(true);
-        expect(buttons.some((b) => b.kind === 'step-link')).toBe(true);
+            (l) => l.kind === 'checkpoint' || l.kind === 'lock');
+        expect(buttons.some((b) => b.kind === 'checkpoint')).toBe(true);
+        expect(buttons.some((b) => b.kind === 'lock')).toBe(true);
         for (const b of buttons) {
             const where = `${b.kind} step ${b.stepId}`;
             const segs = titleBtnGlyph(b.kind, b);
@@ -5563,78 +5561,47 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
         }
     });
 
-    it('puts a "+" (file a requirement into this step) LEFT of the link button (req #3582)', () => {
-        for (let level = 1; level <= STEP_WIDTH_SCALES.length; level += 1) {
-            const layout = computePlanLayout(plan.rows,
-                { stepLabel: 'title', stepWidthLevel: level });
-            for (const row of plan.rows) {
-                const where = `level ${level} step ${row.id}`;
-                const [add] = layout.labels.filter(
-                    (l) => l.kind === 'step-add' && l.stepId === row.id);
-                const [link] = layout.labels.filter(
-                    (l) => l.kind === 'step-link' && l.stepId === row.id);
-                // Design rule 1: a stamped step takes no new work, so no "+".
-                if (row.completedAt != null) { expect(add, where).toBeUndefined(); continue; }
-                expect(add, where).toBeTruthy();
-                expect(add.text).toBe('+');
-                // Same-size square buttons, a real gap apart (req #3582 polish:
-                // "way too small and close together").
-                expect(add.w).toBe(CARD_TITLE_BTN);
-                expect(add.h).toBe(CARD_TITLE_BTN);
-                expect(link.w).toBe(CARD_TITLE_BTN);
-                expect(link.h).toBe(CARD_TITLE_BTN);
-                expect(CARD_TITLE_BTN_GAP).toBeGreaterThan(0);
-                // req #3607 — the "+"/↗ gap alone is a third wider.
-                expect(CARD_STEP_LINK_GAP).toBeCloseTo(CARD_TITLE_BTN_GAP * 1.33, 6);
-                expect(add.x + add.w + CARD_STEP_LINK_GAP, where).toBeCloseTo(link.x, 6);
-                expect(add.y, where).toBe(link.y);
-                const n = layout.nodes.get(row.id);
-                expect(add.y + add.h, where).toBeLessThanOrEqual(n.top + cardTitleH('title') + 1e-6);
-            }
-        }
-        // A stamped step specifically — the fixture may carry none.
-        const stamped = plan.rows.map((r, i) => (i === 0
-            ? { ...r, completedAt: '2026-10-17 00:00:00' } : r));
-        const sLayout = computePlanLayout(stamped, { stepLabel: 'title' });
-        expect(sLayout.labels.filter(
-            (l) => l.kind === 'step-add' && l.stepId === stamped[0].id)).toEqual([]);
-        expect(sLayout.labels.filter(
-            (l) => l.kind === 'step-add' && l.stepId === stamped[1].id)).toHaveLength(1);
-        expect(drawsLabelKind('step-add', 'out')).toBe(false);
-        expect(drawsLabelKind('step-add', 'mid')).toBe(true);
-        expect(drawsLabelKind('step-add', 'in')).toBe(true);
-    });
-
-    it('puts the run-mode pill LEFT of the ↗, clear of the step name (req #3580)', () => {
+    it('puts the run-mode pill at the title line\'s right edge, clear of the step name (req #3580, #3649)', () => {
         for (const stepLabel of ['title', 'id']) {
             const layout = computePlanLayout(plan.rows, { stepLabel });
             for (const row of plan.rows) {
                 const of = (kind) => layout.labels.find(
                     (l) => l.kind === kind && l.stepId === row.id);
                 const run = of('run');
-                const link = of('step-link');
                 const name = of('step');
                 expect(run, `step ${row.id} has a run pill`).toBeTruthy();
                 expect(run.run).toBe(row.run === 'manual' ? 'manual' : 'auto');
                 expect(run.text).toBe(row.run === 'manual' ? 'Manual' : 'Auto');
                 expect(run.w).toBe(CARD_RUN_W);
                 expect(run.h).toBe(CARD_RUN_H);
-                // Abutting the "+" reserve (req #3582) on its left — which
-                // abuts the ↗'s — never under either.
-                expect(run.x + run.w)
-                    .toBeCloseTo(link.x - CARD_STEP_LINK_GAP - CARD_STEP_ADD_W, 6);
-                // Inside the title area, and never on the name it sits beside.
                 const n = layout.nodes.get(row.id);
+                // Flush against the ✓'s reserve at the card's right edge (req
+                // #3649 — the "+" and ↗ that used to sit there are gone).
+                expect(run.x + run.w)
+                    .toBeCloseTo(n.right - CARD_PAD_X - CARD_CHECK_W, 6);
+                // Inside the title area, and never on the name it sits beside.
                 expect(run.y).toBeGreaterThanOrEqual(n.top);
                 expect(run.y + run.h).toBeLessThanOrEqual(n.top + cardTitleH(stepLabel));
                 expect(rectsOverlap(run, name), `step ${row.id}`).toBe(false);
-                // The editor's room ends exactly where the pill begins, and
-                // always holds the drawn name.
-                expect(name.x + name.editW).toBeCloseTo(run.x, 6);
+                // The editor's room ends where the ⚑ and padlock reserves
+                // begin (req #3649), left of the pill, and always holds the
+                // drawn name.
+                expect(name.x + name.editW)
+                    .toBeCloseTo(run.x - CARD_CHECKPOINT_W - CARD_LOCK_W, 6);
                 expect(name.editW).toBeGreaterThanOrEqual(name.w - 1e-6);
+                // The two buttons sit in their reserves, between name and pill.
+                const flag = of('checkpoint');
+                const lock = of('lock');
+                expect(flag.x + flag.w).toBeCloseTo(run.x - (CARD_CHECKPOINT_W - flag.w), 6);
+                expect(lock.x + lock.w).toBeLessThanOrEqual(flag.x + 1e-6);
+                expect(lock.x).toBeGreaterThanOrEqual(name.x + name.editW - 1e-6);
+                expect(rectsOverlap(flag, name), `step ${row.id} flag`).toBe(false);
+                expect(rectsOverlap(lock, name), `step ${row.id} lock`).toBe(false);
             }
         }
         expect(drawsLabelKind('run', 'out')).toBe(false);
+        expect(drawsLabelKind('checkpoint', 'out')).toBe(false);
+        expect(drawsLabelKind('lock', 'in')).toBe(true);
         expect(drawsLabelKind('run', 'mid')).toBe(true);
         expect(drawsLabelKind('run', 'in')).toBe(true);
     });
@@ -5701,15 +5668,14 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
         // budget and the reserve disagree". Name the actual invariant: the
         // widest possible title line (`nameBudget` characters at `CHW_LABEL`,
         // from `titleTextLeft`) never reaches the leftmost right-hand control
-        // — the "+" since req #3582, which sits left of the link button.
+        // — the padlock since req #3649, which sits left of the ⚑ and the pill.
         const layout = computePlanLayout(plan.rows, { stepLabel: 'title' });
         for (const row of plan.rows) {
             const n = layout.nodes.get(row.id);
             const [step] = layout.labels.filter(
                 (l) => l.kind === 'step' && l.stepId === row.id);
-            // The reserve is the same on every card, so a stamped card (no
-            // "+") is checked against where its "+" would sit.
-            const addX = n.right - CARD_PAD_X - CARD_CHECK_W - CARD_STEP_LINK_W - CARD_STEP_ADD_W;
+            const addX = n.right - CARD_PAD_X - CARD_CHECK_W - CARD_RUN_W
+                - CARD_CHECKPOINT_W - CARD_LOCK_W;
             const widestLineLen = Math.max(...step.lines.map((l) => l.length));
             expect(step.x + widestLineLen * CHW_LABEL, `step ${row.id}`)
                 .toBeLessThanOrEqual(addX + 1e-6);

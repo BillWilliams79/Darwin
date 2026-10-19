@@ -84,6 +84,8 @@ import {
     pipelineStatusChipProps,
     executionModeChipProps,
     executionModeLabel,
+    lockedChipProps,
+    lockedLabel,
     PIPELINE_STATUS_VALUES,
 } from '../SwarmView/pipelines/pipelineChipStyles';
 import {
@@ -131,7 +133,8 @@ const DEFAULT_PIPELINE_STATUSES = ['draft', 'active', 'paused'];
 // against production plan 7's 454-character description. Own cache entry
 // (`pipelines` has `fieldsInKey: true`), so this does not collide with req
 // #3463's own narrower read of the same table.
-const PIPELINES_FIELDS = 'id,title,description,pipeline_status,execution_mode,'
+// req #3649 — `locked` added so the Lock column reads the stored flag.
+const PIPELINES_FIELDS = 'id,title,description,pipeline_status,execution_mode,locked,'
     + 'machine_fk,started_at,completed_at,creator_fk,create_ts,update_ts';
 
 const pipelineStatusOptions = PIPELINE_STATUS_VALUES.map((status) => ({
@@ -273,6 +276,16 @@ export default function PipelinesPage() {
         }
     };
 
+    // req #3649 — a locked plan freezes its epics and steps (gateway 423).
+    const toggleLock = async (row) => {
+        try {
+            await updatePipeline(darwinUri, idToken, row.id, { locked: row.locked ? 0 : 1 });
+            invalidatePipelines();
+        } catch (err) {
+            showError(err, 'Could not change the plan lock');
+        }
+    };
+
     const columns = [
         { field: 'id', headerName: 'ID', width: 70 },
         {
@@ -329,6 +342,24 @@ export default function PipelinesPage() {
                         clickable
                         onClick={(e) => { e.stopPropagation(); toggleExecutionMode(params.row); }}
                         data-testid={`pipelines-execmode-chip-${params.row.id}`}
+                    />
+                </Tooltip>
+            ),
+        },
+        {
+            // req #3649 — the lock cascades to every epic and step in the plan.
+            field: 'locked', headerName: 'Lock', width: 100, sortable: false,
+            renderCell: (params) => (
+                <Tooltip title={params.value
+                    ? 'Locked — this plan, its epics and steps are frozen as a record. Click to unlock.'
+                    : 'Open — editable. Click to lock this plan and freeze everything in it.'}>
+                    <Chip
+                        label={lockedLabel(params.value)}
+                        size="small"
+                        {...lockedChipProps(params.value)}
+                        clickable
+                        onClick={(e) => { e.stopPropagation(); toggleLock(params.row); }}
+                        data-testid={`pipelines-lock-chip-${params.row.id}`}
                     />
                 </Tooltip>
             ),

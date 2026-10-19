@@ -147,7 +147,8 @@ beforeEach(() => {
         { id: 4, pipeline_fk: 7, title: 'Core rebuild', description: null, category_fk: 1,
           epic_status: 'active', closed: 0, sort_order: 0, create_ts: '2026-08-01 00:00:00' },
         { id: 5, pipeline_fk: 7, title: 'Parked work', description: null, category_fk: 1,
-          epic_status: 'paused', closed: 0, sort_order: 1, create_ts: '2026-08-01 00:00:00' },
+          epic_status: 'paused', locked: 1, closed: 0, sort_order: 1,
+          create_ts: '2026-08-01 00:00:00' },
         { id: 6, pipeline_fk: 7, title: 'Retired', description: null, category_fk: 1,
           epic_status: 'active', closed: 1, sort_order: 2, create_ts: '2026-08-01 00:00:00' },
     ];
@@ -279,6 +280,29 @@ describe('EpicsPage2 pause toggle', () => {
     });
 });
 
+// req #3649 — the lock chip flips `locked` with a one-field PUT.
+describe('EpicsPage2 lock toggle', () => {
+    it('locks an open epic', async () => {
+        mount();
+        expect(node('epic2-lock-chip-4').textContent).toBe('Open');
+        click(node('epic2-lock-chip-4'));
+        await flush();
+        expect(restCalls).toEqual([{
+            uri: 'http://test.local/darwin/epics',
+            method: 'PUT',
+            body: [{ id: 4, locked: 1 }],
+        }]);
+    });
+
+    it('unlocks a locked epic', async () => {
+        mount();
+        expect(node('epic2-lock-chip-5').textContent).toBe('Locked');
+        click(node('epic2-lock-chip-5'));
+        await flush();
+        expect(restCalls[0].body).toEqual([{ id: 5, locked: 0 }]);
+    });
+});
+
 describe('EpicsPage2 closed toggle', () => {
     it('closes an open epic', async () => {
         mount();
@@ -320,7 +344,13 @@ describe('EpicsPage2 delete', () => {
         // The mock returns an empty step list, so no dep-edge reads/clears
         // follow; that branch has its own coverage below.
         expect(restCalls).toEqual([{
-            uri: 'http://test.local/darwin/pipeline_steps?epic_fk=4&fields=id',
+            uri: 'http://test.local/darwin/pipeline_steps?epic_fk=4&fields=id,locked',
+            method: 'GET',
+            body: '',
+        }, {
+            // req #3649 — the epic's own lock (and, when it names a plan, the
+            // plan's) is read BEFORE any write.
+            uri: 'http://test.local/darwin/epics?id=4&fields=id,pipeline_fk,locked',
             method: 'GET',
             body: '',
         }, {
@@ -338,7 +368,7 @@ describe('EpicsPage2 delete', () => {
         // Epic 4 owns steps 100 and 101 (see the `steps` fixture above); 101
         // depends on 100, both inside epic 4 — the InnoDB RESTRICT-vs-cascade
         // false refusal `deleteEpic`'s header describes.
-        restGetResponses['http://test.local/darwin/pipeline_steps?epic_fk=4&fields=id'] =
+        restGetResponses['http://test.local/darwin/pipeline_steps?epic_fk=4&fields=id,locked'] =
             [{ id: 100 }, { id: 101 }];
         restGetResponses['http://test.local/darwin/pipeline_step_deps?dep_step_fk=(100,101)'
             + '&fields=id,step_fk,dep_step_fk'] = [{ id: 900, step_fk: 101, dep_step_fk: 100 }];
@@ -347,7 +377,8 @@ describe('EpicsPage2 delete', () => {
         await flush();
 
         expect(restCalls.map(c => ({ uri: c.uri, method: c.method }))).toEqual([
-            { uri: 'http://test.local/darwin/pipeline_steps?epic_fk=4&fields=id', method: 'GET' },
+            { uri: 'http://test.local/darwin/pipeline_steps?epic_fk=4&fields=id,locked', method: 'GET' },
+            { uri: 'http://test.local/darwin/epics?id=4&fields=id,pipeline_fk,locked', method: 'GET' },
             {
                 uri: 'http://test.local/darwin/pipeline_step_deps?dep_step_fk=(100,101)'
                     + '&fields=id,step_fk,dep_step_fk',
@@ -356,8 +387,8 @@ describe('EpicsPage2 delete', () => {
             { uri: 'http://test.local/darwin/pipeline_step_deps', method: 'DELETE' },
             { uri: 'http://test.local/darwin/epics', method: 'DELETE' },
         ]);
-        expect(restCalls[2].body).toEqual({ id: 900 });
-        expect(restCalls[3].body).toEqual({ id: 4 });
+        expect(restCalls[3].body).toEqual({ id: 900 });
+        expect(restCalls[4].body).toEqual({ id: 4 });
         expect(useSnackBarStore.getState().open).toBe(false);
     });
 
@@ -366,7 +397,7 @@ describe('EpicsPage2 delete', () => {
         // Step 102 belongs to epic 5 (see the `steps` fixture above) and
         // depends on step 100, which belongs to epic 4 — a real cross-epic
         // edge, not the false-refusal case above.
-        restGetResponses['http://test.local/darwin/pipeline_steps?epic_fk=4&fields=id'] =
+        restGetResponses['http://test.local/darwin/pipeline_steps?epic_fk=4&fields=id,locked'] =
             [{ id: 100 }, { id: 101 }];
         restGetResponses['http://test.local/darwin/pipeline_step_deps?dep_step_fk=(100,101)'
             + '&fields=id,step_fk,dep_step_fk'] = [{ id: 901, step_fk: 102, dep_step_fk: 100 }];
@@ -377,5 +408,32 @@ describe('EpicsPage2 delete', () => {
         expect(restCalls.some(c => c.method === 'DELETE')).toBe(false);
         expect(useSnackBarStore.getState().open).toBe(true);
         expect(useSnackBarStore.getState().message).toContain('409');
+    });
+
+    it('refuses BEFORE any write when a step under the epic is locked (req #3649)', async () => {
+        vi.spyOn(window, 'confirm').mockReturnValue(true);
+        restGetResponses['http://test.local/darwin/pipeline_steps?epic_fk=4&fields=id,locked'] =
+            [{ id: 100, locked: 1 }, { id: 101, locked: 0 }];
+        restGetResponses['http://test.local/darwin/pipeline_step_deps?dep_step_fk=(100,101)'
+            + '&fields=id,step_fk,dep_step_fk'] = [{ id: 900, step_fk: 101, dep_step_fk: 100 }];
+        mount();
+        click(node('epic2-delete-4'));
+        await flush();
+        // The intra-epic edge would otherwise be deleted first and the epic
+        // delete refused after — a plan stripped of a gate. Nothing is written.
+        expect(restCalls.some(c => c.method === 'DELETE')).toBe(false);
+        expect(useSnackBarStore.getState().open).toBe(true);
+        expect(useSnackBarStore.getState().message).toContain('423');
+    });
+
+    it('refuses BEFORE any write when the epic itself is locked (req #3649)', async () => {
+        vi.spyOn(window, 'confirm').mockReturnValue(true);
+        restGetResponses['http://test.local/darwin/epics?id=4&fields=id,pipeline_fk,locked'] =
+            [{ id: 4, pipeline_fk: 1, locked: 1 }];
+        mount();
+        click(node('epic2-delete-4'));
+        await flush();
+        expect(restCalls.some(c => c.method === 'DELETE')).toBe(false);
+        expect(useSnackBarStore.getState().message).toContain('423');
     });
 });
