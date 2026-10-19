@@ -7,7 +7,7 @@
 //   discuss → pink · planned → purple · implemented → blue · deployed → green
 //
 // Used by:
-//   • RequirementRow / RequirementDeleteDialog — coordination icon color
+//   • RequirementDeleteDialog — coordination icon color
 //   • RequirementDetail — autonomy selector chips
 //   • SwarmCompleteDetail / SwarmUndoDetail — coordination chips
 //

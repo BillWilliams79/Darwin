@@ -88,37 +88,16 @@
     -webkit-touch-callout: none;
 }
 
+/* req #3644 — Req# · Title · actions. The Status/Autonomy/Model/Effort icon
+   columns are gone (the plan colour key carries that information on the id and
+   the colour of the id and title text), so the title is the row's only
+   flexible track. */
 .task.requirement-row {
-    grid-template-columns: 56px 28px 28px 1fr auto;
+    grid-template-columns: auto 1fr auto;
 }
 
 .task.requirement-row.aggregator-row {
-    grid-template-columns: 24px 56px 28px 28px 1fr auto;
-}
-
-@media screen and (max-width: 899px) {
-    .task.requirement-row {
-        grid-template-columns: 56px 28px 28px 1fr auto;
-    }
-
-    .task.requirement-row.aggregator-row {
-        grid-template-columns: 24px 56px 28px 28px 1fr auto;
-    }
-}
-
-/* req #3029 — Model + Effort columns. When present, RequirementRow adds `me-cols`
-   and sets the `--me-grid` custom property to the full grid-template (built in
-   modelEffortLayout.js). These selectors carry one more class than the base row
-   templates above, so they outrank them regardless of source order — the reason
-   the template is applied here rather than via MUI `sx` (which would generate
-   only a single-class rule and lose to the base templates). No media variant is
-   needed: with higher specificity these win at every width. */
-.task.requirement-row.me-cols {
-    grid-template-columns: var(--me-grid);
-}
-
-.task.requirement-row.aggregator-row.me-cols {
-    grid-template-columns: var(--me-grid);
+    grid-template-columns: 14px auto 1fr auto;
 }
 
 .app-navbar{

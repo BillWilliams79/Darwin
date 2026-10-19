@@ -69,8 +69,6 @@ export const effortPulses = (e) => EFFORT_PULSE.has(e);
 //
 //   * the effort pie + legend in SessionsStatsView / SwarmStartsStatsView /
 //     SwarmCompletesStatsView — two slices, one fill, two different legend rows
-//   * ModelEffortIcon's bolt glyph (RequirementRow) — a bare coloured icon with
-//     no text at all, only a hover tooltip
 //
 // Reachable on live data, not hypothetically: production effort over 1,127
 // sessions is {high 955, xhigh 151, medium 17, low 3, ultracode 1}.

@@ -6,8 +6,7 @@ import { persist } from 'zustand/middleware';
 // the aggregator (Swarm-Start) card — that card is a different component
 // (TaskPlanView/SwarmStartCard.jsx) that this store's consumer never touches.
 // Default false (off) so existing card titles are unchanged until the user
-// opts in. Persisted so the choice survives reloads, mirroring
-// useModelEffortDisplayStore.
+// opts in. Persisted so the choice survives reloads.
 
 export const useCategoryCountDisplayStore = create(
     persist(

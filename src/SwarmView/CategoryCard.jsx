@@ -46,6 +46,8 @@ import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import { CircularProgress } from '@mui/material';
 import { DEFAULT_REQUIREMENT_SPEC } from './requirementSpec';
+import { useRequirementColoring } from './useRequirementColoring';
+import { REQ_CARD_THEME as T, categoryBrandColor, cardFrameSx } from './requirementCardTheme';
 
 const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categoryKeyDown, categoryOnBlur, clickCardClosed, clickCardDelete, moveCard, persistCategoryOrder, removeCategory, isTemplate, showClosed, epicReqIds = null, stepReqIds = null }) => {
 
@@ -565,12 +567,16 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
     };
 
     const STATUS_CYCLE = ['authoring', 'approved', 'swarm_ready'];
-    const statusClick = (requirementIndex, requirementId) => {
+    // req #3644 — `target` is the row menu's direct choice; omitted, the click
+    // cycles as before. Either way only the pre-launch window is writable here.
+    const statusClick = (requirementIndex, requirementId, target) => {
         const currentRow = requirementsArray[requirementIndex];
         const current = currentRow.requirement_status;
         const idx = STATUS_CYCLE.indexOf(current);
         if (idx === -1) return; // not a cycleable status (development/met/deferred)
-        const next = STATUS_CYCLE[(idx + 1) % STATUS_CYCLE.length];
+        if (target !== undefined && !STATUS_CYCLE.includes(target)) return;
+        const next = target ?? STATUS_CYCLE[(idx + 1) % STATUS_CYCLE.length];
+        if (next === current) return;
         // req #3244 — every requirement_status write re-derives all three status
         // timestamps, matching darwin-mcp's update_requirement, so this UI path
         // never leaves a stale started_at/completed_at/deferred_at behind. One `now`
@@ -621,10 +627,12 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
     // Autonomy is mandatory (req #2745) — no null/empty state. Cycling a legacy
     // unset requirement (indexOf === -1) advances to the first value, 'discuss'.
     const COORD_CYCLE = ['discuss', 'planned', 'implemented', 'deployed'];
-    const coordinationClick = (requirementIndex, requirementId) => {
+    const coordinationClick = (requirementIndex, requirementId, target) => {
         const current = requirementsArray[requirementIndex].coordination_type || null;
         const idx = COORD_CYCLE.indexOf(current);
-        const next = COORD_CYCLE[(idx + 1) % COORD_CYCLE.length];
+        if (target !== undefined && !COORD_CYCLE.includes(target)) return;
+        const next = target ?? COORD_CYCLE[(idx + 1) % COORD_CYCLE.length];
+        if (next === current) return;
 
         if (requirementId !== '') {
             // Write-through to every requirement cache (req #2381) — see statusClick
@@ -751,21 +759,33 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
     // and the delete-category confirmation, which used to compute this itself.
     const requirementCount = requirementsArray ? requirementsArray.filter(t => t.id !== '').length : 0;
 
+    // req #3644 — the plan colour key, over this card's rows. Colours only;
+    // the rows keep exactly the order `activeSort` gave them.
+    const { colorKey, colorViews } = useRequirementColoring(requirementsArray, sessionStatusMap);
+    // The card brands itself with its category's colour (the plan's epic-band
+    // idea: a group wears its colour) as its WHOLE perimeter, framed the way
+    // the plan frames a step card (`cardFrameSx`).
+    const brandColor = categoryBrandColor(category);
+    const dropHighlight = isOver && !isDragging;
+
     return (
-        <Card key={categoryIndex} raised={true} ref={mergedRef}
+        <Card key={categoryIndex} ref={mergedRef}
               data-testid={category.id === '' ? 'category-card-template' : `category-card-${category.id}`}
+              data-brand-color={brandColor}
               sx={{
                   opacity: isDragging ? 0.3 : category._isAdopted ? 0.5 : 1,
                   cursor: isTemplate ? 'default' : 'grab',
-                  border: isOver && !isDragging ? '2px solid' : '2px solid transparent',
-                  borderColor: isOver && !isDragging ? 'primary.main' : 'transparent',
+                  // req #3644 — the plan's panel (dark in both app themes,
+                  // because the colour key's hues were tuned for it), framed
+                  // like a plan step card in the category's colour.
+                  ...cardFrameSx(brandColor, { dashed: isTemplate, highlight: dropHighlight }),
               }}>
             {/* req #3064 — CardContent defaults to 16px left/right padding; trimming
                 it (-15% left, -33% right) widens the requirement display area. The
                 Title column is the row's only `1fr` grid track, so the reclaimed
                 space flows straight into it with no other layout change. */}
             <CardContent sx={{ pl: '13.6px', pr: '10.7px' }}>
-                <Box className="card-header" sx={{marginBottom: 2, minHeight: '44px'}}>
+                <Box className="card-header" sx={{marginBottom: 1.5, minHeight: '44px'}}>
                     <TextField
                                 variant="standard"
                                 value={category.category_name || ''}
@@ -778,10 +798,14 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                                 autoComplete='off'
                                 size = 'small'
                                 sx={{
-                                    ...(category.color && { borderLeft: `4px solid ${category.color}`, pl: 1 }),
+                                    '& .MuiInputBase-input': { color: T.text, fontWeight: 600, letterSpacing: '0.01em' },
+                                    '& .MuiInputBase-input::placeholder': { color: T.dim, opacity: 1 },
+                                    '& .MuiInput-underline:before': { borderBottomColor: T.line },
+                                    '& .MuiInput-underline:hover:not(.Mui-disabled, .Mui-error):before': { borderBottomColor: T.dim },
+                                    '& .MuiInput-underline:after': { borderBottomColor: T.accent },
                                 }}
                                 slotProps={{
-                                    input: {...((category.id !== '') ? {disableUnderline: true} : (category.category_name !== '') && {disableUnderline: true} ), style: {fontSize: 24}},
+                                    input: {...((category.id !== '') ? {disableUnderline: true} : (category.category_name !== '') && {disableUnderline: true} ), style: {fontSize: 22}},
                                     htmlInput: { maxLength: 128 }
                                 }}
                                 key={`category-${category.id}`}
@@ -799,7 +823,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                     {category.id !== '' && showCategoryCount && requirementsArray && (
                         <Typography
                             data-testid={`category-count-${category.id}`}
-                            sx={{ fontSize: 24, color: 'text.secondary', whiteSpace: 'nowrap' }}
+                            sx={{ fontSize: 22, color: T.dim, whiteSpace: 'nowrap' }}
                         >
                             ({requirementCount})
                         </Typography>
@@ -811,7 +835,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                                 aria-label="Category card menu"
                                 data-testid={`card-menu-${category.id}`}
                                 size="small"
-                                sx={{ maxWidth: "25px", maxHeight: "25px" }}
+                                sx={{ maxWidth: "25px", maxHeight: "25px", color: T.dim, '&:hover': { color: T.text } }}
                             >
                                 <MoreVertIcon />
                             </IconButton>
@@ -883,7 +907,8 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                 { (requirementsArray) ?
                     <RequirementActionsContext.Provider value={{ statusClick, coordinationClick,
                         titleChange, titleKeyDown, titleOnBlur, deleteClick, requirementsArray, setRequirementsArray,
-                        sessionStatusMap, sortMode, setCrossCardInsertIndex, orchestratedIds }}>
+                        sessionStatusMap, sortMode, setCrossCardInsertIndex, orchestratedIds,
+                        colorKey, colorViews }}>
                         {requirementsArray.map((requirement, requirementIndex) => (
                             <RequirementRow {...{key: requirement.id, requirement, requirementIndex,
                                 categoryId: category.id, categoryName: category.category_name }}
@@ -891,7 +916,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                         ))}
                     </RequirementActionsContext.Provider>
                   :
-                    category.id  === '' ? '' : <CircularProgress/>
+                    category.id  === '' ? '' : <CircularProgress size={24} sx={{ color: T.dim }}/>
                 }
             </CardContent>
             <RequirementDeleteDialog deleteDialogOpen = {requirementDelete.dialogOpen}

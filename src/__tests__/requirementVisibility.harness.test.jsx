@@ -295,9 +295,9 @@ const cardLoaded = (container) => () =>
 
 // The aggregator always renders its chips.
 //
-// THE BADGE ELEMENT IS NOT A SIGNAL, and an earlier version of this comment said
-// it was (req #3502 code review). MUI renders `.MuiBadge-badge` unconditionally;
-// `showZero={false}` only adds `MuiBadge-invisible` while the text stays "0". On
+// THE COUNT ELEMENT IS NOT A SIGNAL, and an earlier version of this comment said
+// it was (req #3502 code review). The status pill renders its count circle
+// unconditionally, "0" included (req #3644 replaced MUI's Badge with it). On
 // first paint `statusCountMap` is the zeroed map `tallyRequirementStatuses`
 // returns for an unresolved read, so waiting on this element is satisfied BEFORE
 // any query lands. It is a mount check and nothing more.
@@ -309,7 +309,7 @@ const cardLoaded = (container) => () =>
 // is being read unwaited relative to its own source, which fails safe (a flake
 // is a false RED, never a false GREEN) but exactly as a mystery under load.
 const aggregatorMounted = (container) => () =>
-    container.querySelector('[data-testid="swarm-start-chip-badge-authoring"] .MuiBadge-badge') !== null;
+    container.querySelector('[data-testid="swarm-start-chip-count-authoring"]') !== null;
 
 // Both halves of one chip, from their two queries. `rows` is also the badge's
 // expected value in every case here, because the two must agree — which is the
@@ -361,7 +361,7 @@ const tableIds = (container) =>
 
 const badgeCount = (container, status) => {
     const bubble = container.querySelector(
-        `[data-testid="swarm-start-chip-badge-${status}"] .MuiBadge-badge`);
+        `[data-testid="swarm-start-chip-count-${status}"]`);
     if (!bubble) return null;
     const text = bubble.textContent || '';
     return text === '' ? 0 : Number(text);
