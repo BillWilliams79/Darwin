@@ -143,7 +143,7 @@ import {
     // req #3607 — the title buttons' outline (the checkpoint and lock buttons'
     // border since they moved to HTML, req #3673).
     CARD_TITLE_BTN_STROKE,
-    MIN_CARD_H, REQ_LINE_H, CHW_REQ, CARD_SEP_CHARS,
+    MIN_CARD_H, REQ_LINE_H, CHW_REQ, CARD_SEP_CHARS, REQ_SEP_PULL,
     // req #3580 — the run pill's word and type.
     CARD_RUN_FONT, CARD_RUN_WORDS,
     // req #3650 — the collapse heads' type and the chip head's reserved width.
@@ -3444,7 +3444,7 @@ export default function PipelinePlanVisualizer({
 
     // ── THE STEP-NAME EDITOR'S BOX (req #3580) ──────────────────────────────
     // The name's own world rect, widened to the whole room the layout reserved
-    // for it (`editW`, up to the run pill), projected through `t`. Only while
+    // for it (`editW`, up to the control cluster's gap), projected through `t`. Only while
     // that step's name is actually drawn — an editor floating where no name is
     // would be editing something the reader cannot see.
     const stepEditLabel = stepEdit != null && drawsKind('step')
@@ -3898,8 +3898,9 @@ export default function PipelinePlanVisualizer({
                 <Rect key={`hit-${row.id}`} x={n.frameLeft} y={n.top}
                       width={n.frameW} height={n.h} cornerRadius={CARD_RADIUS}
                       fill="transparent" {...stepHover} />,
-                // From the BADGE rightward since req #3648 put the collapse
-                // head on the title line: a near-miss beside the chevron must
+                // From the NAME rightward since req #3648 put the collapse
+                // head on the title line (the badge stood there until req
+                // #3683): a near-miss beside the chevron must
                 // not also activate the step (req #3650's own rule for the
                 // head; since req #3641 activation frames the step on canvas).
                 <Rect key={`hitact-${row.id}`}
@@ -4155,6 +4156,16 @@ export default function PipelinePlanVisualizer({
             // crosses the L2/L3 line, only where the ids sit inside a box that
             // was always this tall.
             const reqY = showTitle ? label.y : label.idY;
+            // ── THE ID→TITLE GAP IS 1.5 CHARACTERS (req #3683) ──────────────
+            // The layout's text carries a two-space separator; everything after
+            // the id — the title, its continuation lines, the pills, the editor
+            // — is drawn `REQ_SEP_PULL` (half a character) further left, so the
+            // gap reads as half the three spaces it was. The id itself stays on
+            // the text column and is drawn as its own Text. A bare id (L1/L2
+            // with no pills) has nothing after it to pull.
+            const idStr = String(label.reqId);
+            const pull = reqText.length > idStr.length ? REQ_SEP_PULL : 0;
+            const restX = reqX - pull;
             // req #3581 — the mark the reader has picked up stays where it was,
             // GREYED OUT, until the drop: the copy riding the cursor is the
             // requirement in flight, and this is the hole it left.
@@ -4197,7 +4208,7 @@ export default function PipelinePlanVisualizer({
                     const maxW = spanW + 2 * REQ_PILL_PAD_X;
                     const w = labelW == null ? maxW
                         : Math.min(maxW, labelW + 2 * labelSize * REQ_PILL_LABEL_PAD_EM);
-                    const slotX = reqX + (lead ?? pl.start * CHW_REQ);
+                    const slotX = restX + (lead ?? pl.start * CHW_REQ);
                     return {
                         ...pl,
                         text,
@@ -4237,7 +4248,7 @@ export default function PipelinePlanVisualizer({
                 const measured = spaceW != null && pillsHere.every((pl, j) =>
                     pl.start > 0 && pillBoxes[j].measured);
                 if (measured) {
-                    let x = reqX + measureReqText(firstLine.slice(0, pillsHere[0].start),
+                    let x = restX + measureReqText(firstLine.slice(0, pillsHere[0].start),
                         CF.req, rs.bold);
                     pillBoxes = pillBoxes.map((b) => {
                         const placed = { ...b, x };
@@ -4253,7 +4264,7 @@ export default function PipelinePlanVisualizer({
                     // characters do.
                     const reservedW = measureReqText(firstLine.slice(0, tailStart),
                         CF.req, rs.bold);
-                    const reservedEnd = reservedW == null ? null : reqX + reservedW;
+                    const reservedEnd = reservedW == null ? null : restX + reservedW;
                     const lastPacked = pillBoxes[pillBoxes.length - 1];
                     if (reservedEnd != null && lastPacked.x + lastPacked.w > reservedEnd) {
                         pillBoxes[pillBoxes.length - 1] = {
@@ -4280,6 +4291,11 @@ export default function PipelinePlanVisualizer({
                 }
                 rowText = rowLines.join('\n');
             }
+            // The id is drawn by its own Text at `reqX`; the row Text, pulled
+            // left, carries blanks in its place — still the row's hover, click
+            // and drag target over the id, since a Text's hit box is its
+            // whole run, blanks included.
+            if (pull) rowText = ' '.repeat(idStr.length) + rowText.slice(idStr.length);
             if (editingTitle) {
                 reqEditor = {
                     reqId: label.reqId,
@@ -4290,7 +4306,7 @@ export default function PipelinePlanVisualizer({
                     box: reqTitleEditorBox({
                         label, firstLine: reqText.split('\n')[0],
                         measure: (str) => measureReqText(str, CF.req, rs.bold),
-                        chw: CHW_REQ, tail: rowTail || editTail, t,
+                        chw: CHW_REQ, tail: rowTail || editTail, t, pull,
                         lineH: REQ_LINE_H, fontSize: CF.req,
                         insetTop: epicOverlayTopInset,
                     }),
@@ -4301,10 +4317,12 @@ export default function PipelinePlanVisualizer({
             // node under the pointer) shows the row as the reader sees it,
             // pills included, rather than the bare text with blanks in it.
             // `dragRowGroup` on the text is what tells the snapshot to take the
-            // parent. A pill-less row stays a lone Text, exactly as before.
+            // parent. So does a row whose id is drawn apart from its title
+            // (req #3683). A bare id stays a lone Text, exactly as before.
+            const rowGroup = pillBoxes.length > 0 || pull > 0;
             const rowNodes = [];
             rowNodes.push(
-                <Text key={`lbl-${i}`} x={reqX} y={reqY} text={rowText}
+                <Text key={`lbl-${i}`} x={restX} y={reqY} text={rowText}
                       fontSize={CF.req} fontFamily={MONO}
                       lineHeight={REQ_LINE_H / CF.req}
                       fill={lifted ? P.dim : rs.fill}
@@ -4314,7 +4332,7 @@ export default function PipelinePlanVisualizer({
                       // (req #3581): the mark IS the handle.
                       dragReqId={label.reqId}
                       dragStepId={label.stepId}
-                      dragRowGroup={pillBoxes.length > 0}
+                      dragRowGroup={rowGroup}
                       onMouseEnter={(e) => cursorPointer(e, true)}
                       onMouseLeave={(e) => cursorPointer(e, false)}
                       // Carry the plan's identity so the requirement page's Back
@@ -4346,6 +4364,16 @@ export default function PipelinePlanVisualizer({
                           pipeline?.id
                               ? { state: planExitState(pipeline.id, 'plan') }
                               : undefined)} />);
+            if (pull) {
+                rowNodes.push(
+                    <Text key={`lbl-${i}-id`} x={reqX} y={reqY} text={idStr}
+                          fontSize={CF.req} fontFamily={MONO}
+                          lineHeight={REQ_LINE_H / CF.req}
+                          fill={lifted ? P.dim : rs.fill}
+                          opacity={lifted ? 0.4 : 1}
+                          fontStyle={rs.bold ? 'bold' : 'normal'}
+                          wrap="none" listening={false} />);
+            }
             if (rowTail) {
                 rowNodes.push(
                     <Text key={`lbl-${i}-tail`} x={rowTail.x} y={reqY} text={rowTail.text}
@@ -4392,7 +4420,7 @@ export default function PipelinePlanVisualizer({
                           onMouseLeave={(e) => cursorPointer(e, false)}
                           onActivate={action} />);
             });
-            if (pillBoxes.length) {
+            if (rowGroup) {
                 worldNodes.push(<Group key={`lbl-${i}-row`}>{rowNodes}</Group>);
             } else {
                 worldNodes.push(...rowNodes);

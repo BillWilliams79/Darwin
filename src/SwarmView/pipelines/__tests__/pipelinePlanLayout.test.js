@@ -28,7 +28,7 @@ import {
     CARD_W, CARD_GAP_X, CARD_GAP_Y, CARD_PAD_X, CARD_PAD_Y, CARD_TEXT_W,
     CARD_LINE_H, CARD_SUBTITLE_H, CARD_RULE_BAND, CARD_TITLE_CHARS, CARD_ID_CHARS,
     CARD_FRAME_W, CARD_FRAME_X, CARD_STATE_BAR_W, CARD_BAR_GAP,
-    CARD_BADGE_W, CARD_BADGE_GAP, CARD_BADGE_H, CARD_BADGE_TOP, CARD_BADGE_FONT, badgeWidthFor,
+    CARD_BADGE_W, CARD_BADGE_H, CARD_BADGE_TOP, CARD_BADGE_FONT, badgeWidthFor,
     CARD_TITLE_BTN, CARD_TITLE_BTN_GAP,
     CARD_TITLE_BTN_STROKE,
     CARD_RUN_W, CARD_RUN_H, CARD_RUN_WORDS, CARD_RUN_FONT, CARD_FONT,
@@ -37,7 +37,7 @@ import {
     activeStepIds, stepsAcrossTransform,
     zoomAboutViewportCentre, zoomAboutPoint, snapZoomScale, columnsAcross,
     SNAP_COLUMNS_STEP,
-    CARD_TEXT_CHARS, CARD_SEP_CHARS, CARD_CHECK_W,
+    CARD_TEXT_CHARS, CARD_SEP_CHARS, REQ_SEP_PULL, CARD_CHECK_W,
     REQ_MAX_LINES, wrapReqText, REQ_ROW_GAP, reqBlockHeight, REQ_TEXT_H,
     CHW_LABEL, CHW_REQ, CHW_TITLE, CARD_TYPE_SCALE, NAME_MAX_LINES,
     cardHeight, cardTitleH, cardChars, MIN_CARD_H,
@@ -74,8 +74,11 @@ import {
     stickyRulerY, rulerScreenBottom, rulerScreenMag, rulerExcessY,
     EPIC_PALETTE,
     PAUSE_ACTIVE_COLOR, PAUSE_PAUSED_COLOR, pauseBubbleColor, EPIC_PAUSE_BUBBLE_W,
-    // req #3649 — the epic chip's padlock and the step card's two new buttons.
-    EPIC_LOCK_W, CARD_CHECKPOINT_W, CARD_LOCK_W,
+    // req #3649 — the epic chip's padlock.
+    EPIC_LOCK_W,
+    // req #3683 — the step card's 2x2 control cluster.
+    CARD_NAME_RESERVE, CARD_CLUSTER_W, CARD_CLUSTER_H, CARD_CLUSTER_COL2_W, CARD_CLUSTER_GAP,
+    CARD_NAME_CLUSTER_GAP,
     // req #3650 — the collapse heads.
     EPIC_CHIP_COLLAPSE_W, CARD_COLLAPSE_W, CARD_COLLAPSE_GAP,
     COLOR_CHANNELS, KEY_GROUP_TITLES,
@@ -814,13 +817,17 @@ describe('the card is a fixed, uniform box (req #3498)', () => {
         expect(CARD_TEXT_CHARS).toBe(28);
         expect(CARD_TITLE_CHARS).toBe(CARD_TEXT_CHARS - CARD_ID_CHARS - CARD_SEP_CHARS);
         // The prefix is what `reqLabelText` actually writes — a bare 4-digit id
-        // and the three-character blank gap. No '#': ids render bare on this
-        // surface, so counting one cost the reader a title character.
+        // and the two-character blank gap (req #3683 — three until the gap was
+        // halved; the renderer pulls the title half a character further, see
+        // `REQ_SEP_PULL`). No '#': ids render bare on this surface, so counting
+        // one cost the reader a title character.
         expect(CARD_TITLE_CHARS).toBeGreaterThan(0);
+        expect(CARD_SEP_CHARS).toBe(2);
+        expect(REQ_SEP_PULL).toBeCloseTo(0.5 * CHW_REQ, 9);
         expect(reqLabelText(3498, {
             reqLabel: 'title',
             reqTitles: new Map([[3498, 'x'.repeat(80)]]),
-        })).toBe(`3498   ${'x'.repeat(CARD_TITLE_CHARS - 1)}\u2026`);
+        })).toBe(`3498  ${'x'.repeat(CARD_TITLE_CHARS - 1)}\u2026`);
         // The text column fits what the width was BOUGHT for, measured at the
         // requirement row's own glyph width — `cardChars` is the function the
         // layout truncates with, so a padding change that quietly ate the
@@ -900,10 +907,18 @@ describe('the card is a fixed, uniform box (req #3498)', () => {
     it('reserves the L3 step-title line in ID mode and not in TITLE mode', () => {
         // The one thing that keeps a LEVEL change a pure transform: the room for
         // the L3 line is spent at every level, so nothing moves when it appears.
-        expect(cardTitleH('id') - cardTitleH('title')).toBeCloseTo(CARD_SUBTITLE_H, 6);
+        // Since req #3683 the 2x2 control cluster floors the title area at two
+        // lines, and a one-line id plus its L3 line fits beside it — so the
+        // reserve shows where the name runs past the cluster's height.
+        expect(cardTitleH('id', 3) - cardTitleH('title', 3)).toBeCloseTo(CARD_SUBTITLE_H, 6);
+        for (const lines of [1, 2, 3]) {
+            expect(cardTitleH('id', lines)).toBeGreaterThanOrEqual(
+                CARD_PAD_Y + lines * CARD_LINE_H + CARD_SUBTITLE_H - 1e-6);
+        }
         // The collapse head rides the title line since req #3648 — no row of
-        // its own.
-        expect(cardTitleH('title')).toBeCloseTo(CARD_PAD_Y + CARD_LINE_H, 6);
+        // its own; the cluster is two lines tall (req #3683).
+        expect(cardTitleH('title')).toBeCloseTo(CARD_PAD_Y + 2 * CARD_LINE_H, 6);
+        expect(cardTitleH('id')).toBeCloseTo(CARD_PAD_Y + 2 * CARD_LINE_H, 6);
     });
 
     it('the box is the same at every level — a level change never relayouts', () => {
@@ -1339,12 +1354,15 @@ describe('Step Width — the card scales, four rungs (req #3503)', () => {
                 { stepLabel: 'title', stepWidthLevel: level });
             for (const row of plan.rows) {
                 const n = layout.nodes.get(row.id);
-                // The run pill is the rightmost title-line control since req
-                // #3649 deleted the ↗ and the "+".
-                const [run] = layout.labels.filter(
-                    (l) => l.kind === 'run' && l.stepId === row.id);
-                expect(run.x + run.w, `level ${level} step ${row.id}`)
-                    .toBeCloseTo(n.right - CARD_PAD_X - CARD_CHECK_W, 6);
+                // The count badge and the checkpoint are the right-hand column
+                // of the 2x2 cluster since req #3683 (the run pill was the
+                // rightmost control from req #3649 until then).
+                for (const kind of ['badge', 'checkpoint']) {
+                    const [c] = layout.labels.filter(
+                        (l) => l.kind === kind && l.stepId === row.id);
+                    expect(c.x + c.w, `level ${level} step ${row.id} ${kind}`)
+                        .toBeCloseTo(n.right - CARD_PAD_X - CARD_CHECK_W, 6);
+                }
             }
         }
     });
@@ -5378,15 +5396,20 @@ describe('the character budget IS the card (req #3498, was the 35-char ceiling)'
         // The step name is drawn at `PLAN_VIZ_FONT.label` (16.5), which is wider
         // per character than the requirement rows, so it fits fewer of them than
         // the 46 the width was bought for.
-        // The ✓'s room AND the link button's come off the RIGHT of the step
-        // label's budget; the badge's comes off the LEFT (req #3503) — all
-        // three drawn on the title area's own line.
+        // The chevron's room comes off the LEFT of the step label's budget and
+        // the 2x2 control cluster's off the RIGHT (req #3683) — both drawn
+        // beside the name.
         // The step NAME wraps too since 2026-08-13 — at a 28-character line it
         // would otherwise truncate to nineteen — so what is pinned is the
         // per-LINE budget, which is what a reader actually sees on one row.
-        const stepBudget = cardChars(CHW_LABEL,
-            CARD_CHECK_W + CARD_RUN_W + CARD_CHECKPOINT_W + CARD_LOCK_W
-            + CARD_BADGE_W + CARD_BADGE_GAP);
+        const stepBudget = cardChars(CHW_LABEL, CARD_NAME_RESERVE);
+        // req #3683 — "compress the white space for the title so it has more
+        // room": the one-line arrangement left the base card a SEVEN character
+        // name line; the cluster leaves it twelve.
+        expect(stepBudget).toBe(12);
+        expect(cardChars(CHW_LABEL, CARD_CHECK_W + CARD_RUN_W + 2 * (CARD_TITLE_BTN
+            + CARD_TITLE_BTN_GAP) + CARD_COLLAPSE_W + CARD_COLLAPSE_GAP + CARD_BADGE_W
+            + CHW_REQ)).toBe(7);
         for (const view of Object.keys(REQ_VIEWS)) {
             const layout = computePlanLayout(plan.rows,
                 { ...reqViewOptions(view), stepLabel: 'title',
@@ -5615,7 +5638,7 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
         expect(wrapped.length, 'the fixture has wrapped rows').toBeGreaterThan(0);
         for (const l of wrapped) {
             const hang = String(l.reqId).length + CARD_SEP_CHARS;
-            expect(l.lines[0].startsWith(`${l.reqId}   `)).toBe(true);
+            expect(l.lines[0].startsWith(`${l.reqId}${' '.repeat(CARD_SEP_CHARS)}`)).toBe(true);
             for (const ln of l.lines.slice(1)) {
                 expect(ln.slice(0, hang)).toBe(' '.repeat(hang));
             }
@@ -5677,7 +5700,7 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
         }
     });
 
-    it('puts the TOTAL requirement count in a badge LEFT of the title (req #3503)', () => {
+    it('puts the TOTAL requirement count in a badge at the cluster\'s top right (req #3503, #3683)', () => {
         const layout = computePlanLayout(plan.rows, { stepLabel: 'title' });
         for (const row of plan.rows) {
             const [badge] = layout.labels.filter(
@@ -5688,25 +5711,18 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
             // parens now — the pill's own shape says "this is a count".
             expect(badge.text).toBe(String((row.reqIds || []).length));
             const n = layout.nodes.get(row.id);
-            // RIGHT-aligned against the reserve's own right edge — flush with
-            // the gap before the title — not left-aligned at the column's
-            // text start: the drawn badge is usually narrower than the
-            // reserve (`badgeWidthFor`, req #3503 review), and the slack
-            // that frees opens on the badge's OWN left, never moving the
-            // title. The right edge is what stays constant across cards.
-            // The collapse chevron leads the line since req #3648, so the
-            // reserve starts after it.
-            const columnTextLeft = n.left + CARD_FRAME_X + CARD_PAD_X
-                + CARD_COLLAPSE_W + CARD_COLLAPSE_GAP;
-            expect(badge.x + badge.w).toBeCloseTo(columnTextLeft + CARD_BADGE_W, 6);
-            expect(badge.x).toBeGreaterThanOrEqual(columnTextLeft - 1e-6);
-            // req #3606 — the pill sits `CARD_BADGE_TOP` off the title row's top (the
-            // name's ink rides above the line box's centre), so it may overhang
-            // the row by that much into the card's top padding, never below it.
-            // (One title row since req #3648 — the head no longer has its own.)
+            // req #3683 — RIGHT-aligned against the text column's right edge,
+            // the 2x2 cluster's column 2: the drawn badge is usually narrower
+            // than its reserve (`badgeWidthFor`, req #3503 review), and the
+            // slack opens on the badge's OWN left, inside its column, never
+            // moving the run pill. The right edge is what stays constant.
+            const right = n.right - CARD_PAD_X - CARD_CHECK_W;
+            expect(badge.x + badge.w).toBeCloseTo(right, 6);
+            expect(badge.x).toBeGreaterThanOrEqual(right - CARD_CLUSTER_COL2_W - 1e-6);
+            // The cluster's first row, on the run pill's own top.
             expect(badge.y).toBe(n.top + CARD_PAD_Y + CARD_BADGE_TOP);
             expect(badge.y).toBeGreaterThanOrEqual(n.top);
-            expect(badge.y + badge.h).toBeLessThanOrEqual(n.top + cardTitleH('title'));
+            expect(badge.y + badge.h).toBeLessThanOrEqual(n.top + CARD_PAD_Y + CARD_LINE_H);
         }
         // It rides the CARD, so it draws where the card does and nowhere else.
         expect(drawsLabelKind('badge', 'out')).toBe(false);
@@ -5725,7 +5741,7 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
         expect(CARD_TITLE_BTN_STROKE).toBe(2);
     });
 
-    it('reserves a square title-line box for the checkpoint and the padlock (req #3649, #3673)', () => {
+    it('reserves a square title-area box for the checkpoint and the padlock (req #3649, #3673)', () => {
         const layout = computePlanLayout(plan.rows, { stepLabel: 'title' });
         // req #3673 — the pictures are HTML icons now (PlanStepFlagIcons.jsx),
         // centred by flexbox; the layout's part is a square box per button.
@@ -5739,7 +5755,7 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
         }
     });
 
-    it('puts the run-mode pill at the title line\'s right edge, clear of the step name (req #3580, #3649)', () => {
+    it('puts the run-mode pill and the two buttons in the cluster, clear of the step name (req #3580, #3649, #3683)', () => {
         for (const stepLabel of ['title', 'id']) {
             const layout = computePlanLayout(plan.rows, { stepLabel });
             const n0 = (row) => layout.nodes.get(row.id);
@@ -5754,26 +5770,31 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
                 expect(run.w).toBe(CARD_RUN_W);
                 expect(run.h).toBe(CARD_RUN_H);
                 const n = layout.nodes.get(row.id);
-                // Flush against the ✓'s reserve at the card's right edge (req
-                // #3649 — the "+" and ↗ that used to sit there are gone).
+                const right = n.right - CARD_PAD_X - CARD_CHECK_W;
+                // req #3683 — column 1 of the 2x2 cluster: a gap left of the
+                // badge's column.
                 expect(run.x + run.w)
-                    .toBeCloseTo(n.right - CARD_PAD_X - CARD_CHECK_W, 6);
+                    .toBeCloseTo(right - CARD_CLUSTER_COL2_W - CARD_CLUSTER_GAP, 6);
                 // Inside the title area, and never on the name it sits beside.
                 expect(run.y).toBeGreaterThanOrEqual(n.top);
                 expect(run.y + run.h).toBeLessThanOrEqual(n.top + cardTitleH(stepLabel));
                 expect(rectsOverlap(run, name), `step ${row.id}`).toBe(false);
-                // The editor's room ends where the ⚑ and padlock reserves
-                // begin (req #3649), left of the pill, and always holds the
-                // drawn name.
+                // The editor's room ends a gap short of the cluster, and always
+                // holds the drawn name.
                 expect(name.x + name.editW)
-                    .toBeCloseTo(run.x - CARD_CHECKPOINT_W - CARD_LOCK_W, 6);
+                    .toBeCloseTo(right - CARD_CLUSTER_W - CARD_NAME_CLUSTER_GAP, 6);
                 expect(name.editW).toBeGreaterThanOrEqual(name.w - 1e-6);
-                // The two buttons sit in their reserves, between name and pill.
+                // The two buttons are the cluster's second row: the padlock under
+                // the pill, the checkpoint under the badge.
                 const flag = of('checkpoint');
                 const lock = of('lock');
-                expect(flag.x + flag.w).toBeCloseTo(run.x - (CARD_CHECKPOINT_W - flag.w), 6);
+                expect(flag.x + flag.w).toBeCloseTo(right, 6);
+                expect(lock.x + lock.w).toBeCloseTo(run.x + run.w, 6);
                 expect(lock.x + lock.w).toBeLessThanOrEqual(flag.x + 1e-6);
+                expect(lock.y).toBeGreaterThanOrEqual(run.y + run.h - 1e-6);
+                expect(flag.y).toBeCloseTo(lock.y, 6);
                 expect(lock.x).toBeGreaterThanOrEqual(name.x + name.editW - 1e-6);
+                expect(flag.y + flag.h).toBeLessThanOrEqual(n.top + cardTitleH(stepLabel) + 1e-6);
                 expect(rectsOverlap(flag, name), `step ${row.id} flag`).toBe(false);
                 expect(rectsOverlap(lock, name), `step ${row.id} lock`).toBe(false);
             }
@@ -5804,8 +5825,8 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
         expect(CARD_RUN_W).toBeLessThanOrEqual(longest * glyph + 2 * 8 * CARD_TYPE_SCALE);
     });
 
-    it('ONLY the title line shifts for the badge — req rows and the L3 line do not (req #3503)', () => {
-        // The asymmetry the whole layout depends on: the badge answers for
+    it('ONLY the title line shifts for the chevron — req rows and the L3 line do not (req #3503, #3683)', () => {
+        // The asymmetry the whole layout depends on: the chevron answers for
         // the title's own row, not for the column. Pin it directly against
         // the column's own unshifted left edge — not against a requirement
         // row, which may not exist for a step with none — rather than
@@ -5821,8 +5842,10 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
                 const [step] = layout.labels.filter(
                     (l) => l.kind === 'step' && l.stepId === row.id);
                 const where = `step ${row.id} (${stepLabel})`;
+                // req #3683 — the badge no longer stands between the chevron
+                // and the name.
                 expect(step.x - columnTextLeft, where).toBeCloseTo(CARD_COLLAPSE_W
-                    + CARD_COLLAPSE_GAP + CARD_BADGE_W + CARD_BADGE_GAP, 6);
+                    + CARD_COLLAPSE_GAP, 6);
                 for (const req of layout.labels.filter(
                     (l) => l.kind === 'req' && l.stepId === row.id)) {
                     expect(req.x, where).toBeCloseTo(columnTextLeft, 6);
@@ -5846,15 +5869,14 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
         // there as a confusing pairwise-overlap failure rather than as "the
         // budget and the reserve disagree". Name the actual invariant: the
         // widest possible title line (`nameBudget` characters at `CHW_LABEL`,
-        // from `titleTextLeft`) never reaches the leftmost right-hand control
-        // — the padlock since req #3649, which sits left of the ⚑ and the pill.
+        // from `titleTextLeft`) never reaches the 2x2 control cluster's left
+        // edge (req #3683).
         const layout = computePlanLayout(plan.rows, { stepLabel: 'title' });
         for (const row of plan.rows) {
             const n = layout.nodes.get(row.id);
             const [step] = layout.labels.filter(
                 (l) => l.kind === 'step' && l.stepId === row.id);
-            const addX = n.right - CARD_PAD_X - CARD_CHECK_W - CARD_RUN_W
-                - CARD_CHECKPOINT_W - CARD_LOCK_W;
+            const addX = n.right - CARD_PAD_X - CARD_CHECK_W - CARD_CLUSTER_W;
             const widestLineLen = Math.max(...step.lines.map((l) => l.length));
             expect(step.x + widestLineLen * CHW_LABEL, `step ${row.id}`)
                 .toBeLessThanOrEqual(addX + 1e-6);

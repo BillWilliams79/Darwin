@@ -106,7 +106,8 @@ export function wordEndAfter(text, i) {
  *
  * Everything is DERIVED from what the renderer drew:
  *   - the COLUMN (`left`) is where continuation lines start — the row's x plus
- *     the hanging indent the layout's wrap honoured (`label.titleHang`);
+ *     the hanging indent the layout's wrap honoured (`label.titleHang`), less
+ *     the `pull` the renderer draws everything after the id with (req #3683);
  *   - line 1's title starts where the canvas put it (`indent`): after the id
  *     and its separator, or — on a row carrying pills — after the PACKED pills, whose
  *     tail the renderer redraws flush against the last one (`tail`);
@@ -123,20 +124,25 @@ export function wordEndAfter(text, i) {
  * @param {?{x:number,text:string,start:number}} a.tail the packed first-line
  *                             tail, when the renderer drew one
  * @param {{x:number,y:number,k:number}} a.t camera transform
+ * @param {number} [a.pull]   world px the row's text after the id is drawn
+ *                             left of the layout's characters (`REQ_SEP_PULL`)
  * @param {number} a.lineH     world line pitch of a requirement row
  * @param {number} a.fontSize  world font size of a requirement row
  * @param {number} [a.insetTop] the overlay layer's own top inset (screen px)
  */
 export function reqTitleEditorBox({
     label, firstLine, measure, chw, tail = null, t, lineH, fontSize, insetTop = 0,
+    pull = 0,
 }) {
     const adv = (s) => (s ? (measure(s) ?? s.length * chw) : 0);
     const hang = label.titleHang ?? 0;
     const start = label.titleStart ?? hang;
-    const colX = label.x + adv(firstLine.slice(0, hang));
+    const restX = label.x - pull;
+    const colX = restX + adv(firstLine.slice(0, hang));
+    // A packed tail was placed from the pulled pills, so it is already pulled.
     const line1X = tail
         ? tail.x + adv(tail.text.slice(0, Math.max(0, start - tail.start)))
-        : label.x + adv(firstLine.slice(0, start));
+        : restX + adv(firstLine.slice(0, start));
     const lines = Math.max(1, (label.lines || []).length);
     return {
         left: colX * t.k + t.x,
