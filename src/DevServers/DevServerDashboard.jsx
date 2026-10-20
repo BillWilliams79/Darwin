@@ -15,11 +15,11 @@
 // ── THE SAME BOX ───────────────────────────────────────────────────────────
 // Same dark panel, same strong purple outline, same row anatomy. A row reads
 // (user directive): machine colour bar · port (the link) · terminal (T10) ·
-// bug # · the requirement's title, in fixed columns so they line up row to row.
-// Shaped really narrow, the bug # goes; at the smallest, the title too. Which
-// rows appear, and which link, is devServerDashboardRows' rule (see
-// devServerDashboardModel.js). The server this page is served from is the
-// highlighted row.
+// the requirement's title, in fixed columns so they line up row to row. No
+// bug # (req #3689) — the title already says which requirement it is. At the
+// smallest, the title goes too. Which rows appear, and which link, is
+// devServerDashboardRows' rule (see devServerDashboardModel.js). The server
+// this page is served from is the highlighted row.
 //
 // Where it sits, its shape, whether it is expanded and whether it is shown at
 // all are remembered per browser (useDevServerDashboardStore); × hides it and
@@ -39,7 +39,7 @@ import { useDevServerDashboardStore } from '../stores/useDevServerDashboardStore
 import { machineChipProps } from '../SwarmView/machineChipStyles';
 import { PLAN_VIZ_PALETTE as P } from '../SwarmView/pipelines/pipelinePlanLayout';
 import {
-    DASH_AUTO_MAX_W, DASH_COMPACT_W, DASH_HOME, DASH_MIN_H, DASH_MIN_W, DASH_TINY_W, DASH_WIDE_W,
+    DASH_AUTO_MAX_W, DASH_HOME, DASH_MIN_H, DASH_MIN_W, DASH_TINY_W, DASH_WIDE_W,
     devServerDashboardRows, withRequirementTitles, withTerminalLinks,
 } from './devServerDashboardModel';
 
@@ -146,10 +146,8 @@ export default function DevServerDashboard() {
                            </Box>
                        }>
             {({ shapedWidth }) => {
-                // Cut really small, the bug # goes and the title keeps the
-                // room; at the smallest, the title goes too — bar, port and
-                // terminal. Content-sized (null) is never cut.
-                const compact = shapedWidth != null && shapedWidth < DASH_COMPACT_W;
+                // At the smallest, the title goes — bar, port and terminal.
+                // Content-sized (null) is never cut.
                 const tiny = shapedWidth != null && shapedWidth < DASH_TINY_W;
                 // Shaped wide, "T4" spells out as "Term 4" (req #3668).
                 const wide = shapedWidth != null && shapedWidth >= DASH_WIDE_W;
@@ -196,9 +194,9 @@ export default function DevServerDashboard() {
                                                     border: '0.1em solid',
                                                     borderColor: barEdge(barColor),
                                                 }) }} />
-                                    {/* Fixed columns, so ports, terminals and
-                                        bug numbers line up row to row; an
-                                        absent one keeps its slot. */}
+                                    {/* Fixed columns, so ports and terminals
+                                        line up row to row; an absent one
+                                        keeps its slot. */}
                                     <Box component="span"
                                          sx={{ color: P.req, fontWeight: 700, flexShrink: 0,
                                                 minWidth: '4ch' }}>
@@ -228,12 +226,6 @@ export default function DevServerDashboard() {
                                                 }) }}>
                                         {r.terminal != null ? `${wide ? 'Term ' : 'T'}${r.terminal}` : ''}
                                     </Box>
-                                    {!compact && (
-                                        <Box component="span" data-testid={`devserver-dashboard-req-${r.key}`}
-                                             sx={{ color: P.dim, flexShrink: 0, minWidth: '5ch' }}>
-                                            {r.reqId != null ? `#${r.reqId}` : ''}
-                                        </Box>
-                                    )}
                                     {!tiny && (
                                         <Box component="span"
                                              sx={{ flex: 1, minWidth: 0, overflow: 'hidden',

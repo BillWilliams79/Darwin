@@ -39,7 +39,8 @@ let boxProps = null;
 vi.mock('../useUnorchestratedRequirements', () => ({
     useUnorchestratedRequirements: () => ({ items: boxItems, isLoading: false, isError: false }),
 }));
-vi.mock('../UnorchestratedReqBox', () => ({
+vi.mock('../UnorchestratedReqBox', async (orig) => ({
+    ...(await orig()),
     default: (props) => { boxProps = props; return <div data-testid="box-stub" />; },
 }));
 
@@ -60,6 +61,7 @@ vi.mock('../pipelineUnseated', async (orig) => {
 import { composedFixture } from './pipelineComposedFixture';
 import { adaptComposedPipeline, buildPlanModel } from '../pipelineAdapter';
 import PipelinePlanVisualizer from '../PipelinePlanVisualizer';
+import { UNSEATED_FLOAT_Z } from '../UnorchestratedReqBox';
 import { rulerExcessY } from '../pipelinePlanLayout';
 import { useSnackBarStore } from '../../../stores/useSnackBarStore';
 
@@ -360,7 +362,9 @@ describe('the base view clears the ruler (req #3648)', () => {
 describe('whole-box drop — the outline while carrying', () => {
     const outline = () => document.querySelector('[data-testid="pipeline-viz-seat-target"]');
 
-    it('is drawn above the box (zIndex over the box\'s 2) only while the box is carried', () => {
+    // A carried box is a placed one, fixed in the window at UNSEATED_FLOAT_Z
+    // (req #3687).
+    it('is drawn above the box (zIndex over the placed box\'s) only while the box is carried', () => {
         render();
         seatOn(10);
         act(() => { boxProps.onMoveOver(300, 300); });
@@ -368,7 +372,7 @@ describe('whole-box drop — the outline while carrying', () => {
         expect(outline().getAttribute('data-step-id')).toBe('10');
         expect(getComputedStyle(outline()).zIndex).toBe('1');
         act(() => { boxProps.onCarryingChange(true); });
-        expect(Number(getComputedStyle(outline()).zIndex)).toBeGreaterThan(2);
+        expect(Number(getComputedStyle(outline()).zIndex)).toBeGreaterThan(UNSEATED_FLOAT_Z);
         act(() => { boxProps.onCarryingChange(false); });
         expect(getComputedStyle(outline()).zIndex).toBe('1');
     });

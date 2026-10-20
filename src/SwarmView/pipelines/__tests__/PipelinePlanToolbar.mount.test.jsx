@@ -33,16 +33,46 @@ afterEach(() => {
 const q = (id) => host.querySelector(`[data-testid="${id}"]`);
 
 describe('PipelinePlanToolbar (req #3648)', () => {
-    it('draws the steps-across ladder as 6 5 4 3, between the colour chips and the view group', () => {
+    it('draws the steps-across ladder as 10 6 5 4 3, between the colour chips and the view group', () => {
         const across = q('pipeline-viz-steps-across');
         expect([...across.querySelectorAll('[data-testid^="pipeline-viz-steps-across-"]')]
-            .map((c) => c.textContent)).toEqual(['6', '5', '4', '3']);
+            .map((c) => c.textContent)).toEqual(['10', '6', '5', '4', '3']);
         const color = q('pipeline-viz-colorkey-toggle');
         const view = q('pipeline-viz-level-control');
         // eslint-disable-next-line no-bitwise
         expect(color.compareDocumentPosition(across) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
         // eslint-disable-next-line no-bitwise
         expect(across.compareDocumentPosition(view) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    // req #3686 — the Hide closed chip sits between the colour chips and the ladder.
+    it('draws Hide closed between the colour chips and the steps-across ladder', () => {
+        const color = q('pipeline-viz-colorkey-toggle');
+        const hide = q('pipeline-viz-hide-closed');
+        const across = q('pipeline-viz-steps-across');
+        expect(hide).not.toBeNull();
+        // eslint-disable-next-line no-bitwise
+        expect(color.compareDocumentPosition(hide) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        // eslint-disable-next-line no-bitwise
+        expect(hide.compareDocumentPosition(across) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('Hide closed toggles: reports the opposite of its current state', () => {
+        const got = [];
+        const render = (hideClosed) => act(() => root.render(
+            <PipelinePlanToolbar onStepsAcross={() => {}} stepWidthLevel={5}
+                                 onChangeStepWidthLevel={() => {}} colorKey="state"
+                                 onChangeColorKey={() => {}} hideClosed={hideClosed}
+                                 onChangeHideClosed={(v) => got.push(v)} planLevelPref="auto"
+                                 effectiveLevel="out" onChangeLevelPref={() => {}}
+                                 onResetView={() => {}} />));
+        render(false);
+        expect(q('pipeline-viz-hide-closed').getAttribute('aria-pressed')).toBe('false');
+        act(() => q('pipeline-viz-hide-closed').click());
+        render(true);
+        expect(q('pipeline-viz-hide-closed').getAttribute('aria-pressed')).toBe('true');
+        act(() => q('pipeline-viz-hide-closed').click());
+        expect(got).toEqual([true, false]);
     });
 
     it('hides the Step Width rungs', () => {

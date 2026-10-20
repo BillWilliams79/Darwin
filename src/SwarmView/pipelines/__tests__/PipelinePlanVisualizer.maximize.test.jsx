@@ -34,6 +34,7 @@ vi.mock('konva', () => ({
 import { composedFixture } from './pipelineComposedFixture';
 import { adaptComposedPipeline, buildPlanModel } from '../pipelineAdapter';
 import PipelinePlanVisualizer from '../PipelinePlanVisualizer';
+import { UNSEATED_FLOAT_Z } from '../UnorchestratedReqBox';
 import { usePlanMaximize } from '../usePlanMaximize';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -106,6 +107,15 @@ describe('the maximize switch on the canvas (req #3658)', () => {
         const sw = q('pipeline-viz-maximize');
         expect(sw.getAttribute('aria-pressed')).toBe('true');
         expect(sw.getAttribute('aria-label')).toBe('Restore the page');
+    });
+
+    // req #3687 — a placed Orchestrables box floats at UNSEATED_FLOAT_Z and can
+    // be parked over this corner; the switch is the only way back, so it stays
+    // above the box.
+    it('sits above a placed Orchestrables box', () => {
+        mount(<Viz maximized onToggle={() => {}} />);
+        expect(Number(getComputedStyle(q('pipeline-viz-maximize')).zIndex))
+            .toBeGreaterThan(UNSEATED_FLOAT_Z);
     });
 
     it('is absent when the page offers no toggle', () => {

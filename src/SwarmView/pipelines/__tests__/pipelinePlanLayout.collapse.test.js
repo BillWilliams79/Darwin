@@ -10,6 +10,8 @@ import {
     computePlanLayout, cardHeight, cardTitleH, drawsLabelKind,
     CARD_PAD_Y, CARD_PAD_X, CARD_FRAME_X, CARD_COLLAPSE_W, CARD_TITLE_BTN,
     CARD_HEAD_LABEL, CARD_LINE_H, STEP_WIDTH_RUNGS, NAME_INLINE_MIN_CHARS, CHW_LABEL,
+    CARD_COLLAPSE_GAP, CARD_CLUSTER_H, CARD_CLUSTER_W, CARD_CLUSTER_COL2_W, CARD_CLUSTER_GAP,
+    CARD_NAME_CLUSTER_GAP, CARD_RUN_W, CARD_BADGE_TOP,
 } from '../pipelinePlanLayout';
 
 const mk = (id, epicId, depIds = [], reqIds = []) => ({
@@ -46,22 +48,90 @@ describe('the step card\'s collapse head (req #3650)', () => {
         }
     });
 
-    it('shares the title line, LEFT of the badge and the name, overlapping nothing (req #3648)', () => {
+    it('shares the title line, LEFT of the name, overlapping nothing (req #3648, #3683)', () => {
         for (const r of ROWS) {
             const head = layout.labels.find((l) => l.kind === 'collapse' && l.stepId === r.id);
             const others = layout.labels.filter((l) => l.stepId === r.id && l !== head);
             for (const o of others) expect(rectsOverlap(head, o)).toBe(false);
             const name = others.find((l) => l.kind === 'step');
-            const badge = others.find((l) => l.kind === 'badge');
             expect(name.y).toBeCloseTo(head.y, 6);
-            expect(badge.x).toBeGreaterThanOrEqual(head.x + head.w - 1e-6);
-            expect(name.x).toBeGreaterThan(badge.x + badge.w - 1e-6);
-            // The padlock, ⚑ and run pill (req #3649) all sit right of the name.
-            for (const k of ['run', 'checkpoint', 'lock']) {
+            // req #3683 — the name starts straight after the chevron's gap: the
+            // badge no longer stands between them.
+            expect(name.x).toBeCloseTo(head.x + head.w + CARD_COLLAPSE_GAP, 6);
+            // The badge, run pill, padlock and ⚑ all sit right of the name.
+            for (const k of ['badge', 'run', 'checkpoint', 'lock']) {
                 const c = others.find((l) => l.kind === k);
-                if (c) expect(c.x, k).toBeGreaterThanOrEqual(name.x + name.w - 1e-6);
+                expect(c.x, k).toBeGreaterThanOrEqual(name.x + name.w - 1e-6);
             }
         }
+    });
+
+    // req #3683 — "move the counter badge to the right hand side and make a 2x2
+    // button cluster … so step cards will always be two high".
+    it('lays the badge, run pill, padlock and checkpoint out as a 2x2 grid at the right', () => {
+        for (const rung of STEP_WIDTH_RUNGS) {
+            for (const stepLabel of ['title', 'id']) {
+                const l = computePlanLayout(ROWS, { stepLabel, stepWidthLevel: rung });
+                for (const r of ROWS) {
+                    const n = l.nodes.get(r.id);
+                    const get = (k) => l.labels.find((x) => x.kind === k && x.stepId === r.id);
+                    const [badge, run, lock, cp] = ['badge', 'run', 'lock', 'checkpoint'].map(get);
+                    const right = n.right - CARD_PAD_X;
+                    const col1Right = right - CARD_CLUSTER_COL2_W - CARD_CLUSTER_GAP;
+                    const top = n.top + CARD_PAD_Y;
+                    // Column 2: the badge over the checkpoint, flush right.
+                    expect(badge.x + badge.w).toBeCloseTo(right, 6);
+                    expect(cp.x + cp.w).toBeCloseTo(right, 6);
+                    // Column 1: the run pill over the padlock, flush right.
+                    expect(run.x + run.w).toBeCloseTo(col1Right, 6);
+                    expect(lock.x + lock.w).toBeCloseTo(col1Right, 6);
+                    expect(run.w).toBe(CARD_RUN_W);
+                    // Row 1: the pills, on one top; row 2: the buttons, one line down.
+                    expect(badge.y).toBeCloseTo(top + CARD_BADGE_TOP, 6);
+                    expect(run.y).toBeCloseTo(badge.y, 6);
+                    expect(lock.y).toBeCloseTo(top + CARD_LINE_H, 6);
+                    expect(cp.y).toBeCloseTo(lock.y, 6);
+                    // The whole cluster is two lines tall and inside the title area,
+                    // its left edge where the name's reserve ends.
+                    for (const c of [badge, run, lock, cp]) {
+                        expect(c.y + c.h).toBeLessThanOrEqual(top + CARD_CLUSTER_H + 1e-6);
+                        expect(c.x).toBeGreaterThanOrEqual(right - CARD_CLUSTER_W - 1e-6);
+                    }
+                    expect(n.titleH).toBeGreaterThanOrEqual(CARD_PAD_Y + CARD_CLUSTER_H - 1e-6);
+                    // Nothing in the cluster overlaps anything else in it.
+                    const cl = [badge, run, lock, cp];
+                    for (let i = 0; i < cl.length; i += 1) {
+                        for (let j = i + 1; j < cl.length; j += 1) {
+                            expect(rectsOverlap(cl[i], cl[j])).toBe(false);
+                        }
+                    }
+                    // The name's room ends a gap short of the cluster — or, on a
+                    // rung too narrow for that (NAME_INLINE_MIN_CHARS), the name
+                    // sits under the cluster with the column's full width.
+                    const name = get('step');
+                    if (Math.abs(name.y - top) < 1e-6) {
+                        expect(name.x + name.editW)
+                            .toBeCloseTo(right - CARD_CLUSTER_W - CARD_NAME_CLUSTER_GAP, 6);
+                    } else {
+                        expect(name.y).toBeCloseTo(top + CARD_CLUSTER_H, 6);
+                        expect(name.x + name.editW).toBeCloseTo(right, 6);
+                    }
+                }
+            }
+        }
+    });
+
+    it('every card\'s title area is two lines high, even with a one-line name (req #3683)', () => {
+        const short = ROWS.map((r) => ({ ...r, title: 'A' }));
+        for (const stepLabel of ['title', 'id']) {
+            const l = computePlanLayout(short, { stepLabel });
+            for (const r of short) {
+                expect(l.nodes.get(r.id).titleH).toBeCloseTo(CARD_PAD_Y + CARD_CLUSTER_H, 6);
+            }
+        }
+        expect(cardTitleH('title', 1)).toBeCloseTo(CARD_PAD_Y + 2 * CARD_LINE_H, 6);
+        expect(cardTitleH('title', 2)).toBeCloseTo(cardTitleH('title', 1), 6);
+        expect(cardTitleH('title', 3)).toBeCloseTo(CARD_PAD_Y + 3 * CARD_LINE_H, 6);
     });
 
     it('is reserved in the title area, so a card has room for it at every level', () => {
@@ -116,7 +186,10 @@ describe('the title line overlaps nothing at any Step Width (req #3648)', () => 
                 expect(name.editW, `rung ${rung} inline room`)
                     .toBeGreaterThanOrEqual(NAME_INLINE_MIN_CHARS * CHW_LABEL - 1e-6);
             } else {
-                expect(name.y, `rung ${rung}`).toBeCloseTo(head.y + CARD_LINE_H, 6);
+                // req #3683 — rung 3 is the one too narrow for a name beside the
+                // cluster; it gets the column's full width under it instead.
+                expect(rung, 'only the narrowest rung').toBe(3);
+                expect(name.y, `rung ${rung}`).toBeCloseTo(head.y + CARD_CLUSTER_H, 6);
                 expect(name.x, `rung ${rung}`).toBeCloseTo(head.x, 6);
             }
         }

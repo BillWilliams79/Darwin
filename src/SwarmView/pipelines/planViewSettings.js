@@ -54,6 +54,9 @@ export const PLAN_VIEW_SETTINGS = Object.freeze({
         default: String(DEFAULT_PLAN_STEP_WIDTH) },
     level: { kind: 'value', storageKey: 'darwin-pipeline-viz-level',
         default: DEFAULT_PLAN_LEVEL_PREF },
+    // req #3686 — the plan's closed requirements (met / deferred / wontfix),
+    // and the dashed line above them, hidden from every step card. Off until asked for.
+    hideClosed: { kind: 'flag', storageKey: 'darwin-pipeline-viz-hide-closed', default: false },
     // ── Popouts (req #3651 — were component state, reset on every mount) ───
     // The canvas's colour key: collapsed until the reader opens it (req #3633).
     keyOpen: { kind: 'flag', storageKey: 'darwin-pipeline-viz-key-open', default: false },
