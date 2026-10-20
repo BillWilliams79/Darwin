@@ -451,6 +451,21 @@ export function sortReqIdsByOrchestration(reqIds, { statusOf, autonomyOf } = {})
 }
 
 /**
+ * Drop each row's CLOSED requirements (req #3686) from rows already run through
+ * `orderStepReqs`: closed ids are the tail from `reqDoneFrom`, so the open ones
+ * are a leading slice. `reqDoneFrom` becomes the new length, so the complete
+ * line (drawn only at `i === reqDoneFrom`, `i > 0`) is never drawn. A row with
+ * nothing closed is returned as the same object.
+ */
+export function hideClosedReqs(rows) {
+    return (rows || []).map((r) => {
+        const ids = r.reqIds || [];
+        const open = ids.slice(0, r.reqDoneFrom ?? ids.length);
+        return open.length === ids.length ? r : { ...r, reqIds: open, reqDoneFrom: open.length };
+    });
+}
+
+/**
  * The rows a canvas lays out, each with its `reqIds` in orchestration order and
  * `reqDoneFrom` stamped for the complete line (req #3676). Only the ORDER of
  * each row's `reqIds` changes. The row array keeps the engine's own order (bead
@@ -2405,7 +2420,9 @@ export const reqViewOptions = (v) => REQ_VIEWS[normalizeReqView(v)];
 // 4 3 … put it between Color and the view", "it's supposed to center that
 // many active steps"). The numbers are still steps across; the centre is no
 // longer the viewport's but the active steps' (`activeStepIds`).
-export const STEPS_ACROSS_OPTIONS = [6, 5, 4, 3];
+// 10 joined the ladder in req #3686 (user directive: "make the width button have 10
+// as well as the other") — the widest look, widest first like the rest.
+export const STEPS_ACROSS_OPTIONS = [10, 6, 5, 4, 3];
 
 // TWO IS THE EXCEPTION THE USER NAMED — *"fitting ... with tight white space
 // except when 2 is selected"*. Every other option fits its columns edge to
