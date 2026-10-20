@@ -69,6 +69,7 @@ import {
 // which is where the two-levels-at-once confusion #3324 fixes came from. The
 // same ladder the swarm canvas uses, deliberately (`semanticLevel`'s own note).
 import { semanticLevel } from '../konvaSwarmModel';
+import { localDayOf } from './pipelinePlanTime';
 
 // ── POC design language (viz-generate.py palette, kept verbatim) ────────────
 export const PLAN_VIZ_PALETTE = {
@@ -2862,7 +2863,9 @@ export function drawsLabelKind(kind, level) {
 // chronological order: '0' < '1' < '2', and ISO days sort as strings.
 const SLOT_UNKNOWN = '0:unknown';
 const SLOT_FUTURE = '2:future';
-const slotOfDay = (at) => `1:${String(at).slice(0, 10)}`;
+// The day is the READER's local calendar day (req #3692 review) — see
+// `localDayOf` for why the UTC day put tonight's open work under tomorrow.
+const slotOfDay = (at) => `1:${localDayOf(at)}`;
 
 // Comparable rank for a step's derived start. UNKNOWN sorts BEFORE every date
 // and FUTURE AFTER every date, which is what makes the monotone max below mean
@@ -3647,12 +3650,13 @@ export function computePlanLayout(rows, opts = {}) {
     // is NULL: an unordered plan stacks exactly as it did before req #3430, and
     // an ordered epic always sits above an unordered one.
     //
-    // The vertical axis reads as time too: the epic whose work began first sits
-    // on top. An epic's start is the minimum over its requirements — there is no
-    // `epics.started_at` and design rule 1 says there never will be — and
-    // `pipelinePlanTime.js` owns the derivation, including the ruling that a
-    // requirement which completed without ever being stamped `started_at`
-    // counts as started.
+    // The vertical axis reads as time too: the epic whose earliest step sits
+    // furthest left sits on top. An epic's start is the minimum over its STEPS'
+    // times — a step's time being its LAST activity, or today when it is
+    // running (req #3692) — there is no `epics.started_at` and design rule 1
+    // says there never will be — and `pipelinePlanTime.js` owns the derivation,
+    // including the ruling that a requirement which completed without ever
+    // being stamped `started_at` counts as active on its `completed_at`.
     //
     // THREE TIERS, then tie-breaks, stated rather than left to sort stability:
     //   1. `dated`   — sort ascending on the derived start;
@@ -4031,16 +4035,19 @@ export function computePlanLayout(rows, opts = {}) {
             // `steps`, `step_deps`, `step_requirements` and `epics` were
             // byte-identical and EXACTLY ONE requirement stamp moved — 3446
             // reaching `met` at 19:32:54Z — and that stamp provably changes
-            // nothing: `stepStart` takes the MINIMUM `requirementStart` over a
-            // step's linked requirements, and 3447 on the same step carries an
-            // `started_at` 41 minutes earlier, so 3446's is never the minimum.
+            // nothing: `stepStart` (then) took the MINIMUM `requirementStart`
+            // over a step's linked requirements, and 3447 on the same step
+            // carries an `started_at` 41 minutes earlier, so 3446's is never
+            // the minimum. (Req #3692 since replaced the minimum with the
+            // step's LAST activity — `stepTime` in `pipelinePlanTime.js`.)
             // (Nulling both of 3446's stamps and re-laying out confirms it: the
             // count does not move. Its step is in Technical Debt anyway.)
             //
             // So THE CAUSE WAS NEVER PINNED — and that is a RESULT, not a gap
             // in the investigation. A requirement's `started_at`/`completed_at`
-            // feeds `planTimeAxis` (the STAMPS — `requirement_status` is
-            // consulted only via `isNotYetStarted`, when no stamp exists),
+            // feeds `planTimeAxis` (the STAMPS — `requirement_status` was then
+            // consulted only via `isNotYetStarted`, when no stamp exists; since
+            // req #3692 the derived RUNNING state places a step on today too),
             // which feeds the columns, which feed the lanes. Sweeping every
             // stamped requirement on the plan under the shipped predicate, FIVE
             // move the First Principles count (3338, 3477, 3486, 3490, 3491),

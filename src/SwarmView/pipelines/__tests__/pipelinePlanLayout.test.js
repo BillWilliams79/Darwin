@@ -7908,7 +7908,9 @@ describe('time axis — vertical band order (req #3201)', () => {
 
     it('derives an epic start from completed_at when started_at was never stamped', () => {
         expect(timedPlan.timeAxis.bandStarts.get(1)).toBe('2026-07-25T09:00:00');
-        expect(timedPlan.timeAxis.bandStarts.get(2)).toBe('2026-07-27T09:00:00');
+        // Epic 2's two steps are both RUNNING, so both sit on TODAY (req #3692
+        // rule 4) — the render clock below, not r103's 07-27 stamp.
+        expect(timedPlan.timeAxis.bandStarts.get(2)).toBe('2026-07-28T12:00:00');
         expect(timedPlan.timeAxis.bandStarts.get(3)).toBe(null);
     });
 });
@@ -8118,8 +8120,11 @@ describe('time axis — horizontal position (req #3201)', () => {
         // still render right of everything whose work happened earlier. This is
         // what removes the need for a synthetic dep edge.
         const late = colOfStep(timedLayout, 4);
-        for (const id of [1, 2, 3]) expect(colOfStep(timedLayout, id)).toBeLessThan(late);
+        for (const id of [1, 2]) expect(colOfStep(timedLayout, id)).toBeLessThan(late);
         expect(timedPlan.rows.find((r) => r.id === 4).depIds).toEqual([]);
+        // req #3692: step 3 is RUNNING too, so it is today's work and stacks in
+        // the SAME column as step 4 — open work stands together.
+        expect(colOfStep(timedLayout, 3)).toBe(late);
     });
 
     it('monotonizes a BACKWARD-IN-TIME edge rather than drawing the arc backwards', () => {
@@ -8130,8 +8135,10 @@ describe('time axis — horizontal position (req #3201)', () => {
     });
 
     it('orders the slots chronologically, with the future slot last', () => {
+        // No 07-27 slot: r103 started then, but its step is RUNNING, so it
+        // sits on today (07-28) with the other open step (req #3692).
         expect(timedLayout.slots.map((s) => s.day)).toEqual([
-            '2026-07-25', '2026-07-26', '2026-07-27', '2026-07-28', null,
+            '2026-07-25', '2026-07-26', '2026-07-28', null,
         ]);
         expect(timedLayout.slots[timedLayout.slots.length - 1].kind).toBe('future');
         for (let i = 1; i < timedLayout.slots.length; i++) {
@@ -8178,7 +8185,7 @@ describe('time axis — review regressions', () => {
                 .map((q) => ({ step_fk: r.id, requirement_fk: q }))),
             requirements: reqs,
         };
-        const p = orderedPlan(buildPipelineModel(model), { now: '2026-07-10T00:00:00Z' });
+        const p = orderedPlan(buildPipelineModel(model), { now: '2026-07-10T12:00:00Z' });
         return {
             plan: p,
             layout: computePlanLayout(p.rows, { timeAxis: p.timeAxis }),
@@ -8231,7 +8238,8 @@ describe('time axis — review regressions', () => {
     // req #3618 — the live "Swarm Infra" shape: an EMPTY step added IN FRONT
     // of today's active work used to render at the far-left edge. Rule 3 of
     // `pipelinePlanTime.js`: an empty step sits on TODAY when the plan has
-    // active work, else in the FUTURE. `build` renders at 2026-07-10.
+    // active work, else in the FUTURE. `build` renders at 2026-07-10 12:00Z,
+    // so the reader's local day is the 10th in any zone from UTC-11 to UTC+11.
     describe('an EMPTY step sits on today, or in the future (req #3618)', () => {
         const dayOf = (layout, id) => layout.slots[layout.slotOf.get(id)];
 
@@ -8262,7 +8270,10 @@ describe('time axis — review regressions', () => {
                 [r({ id: 1, requirement_status: 'development', started_at: '2026-07-05T00:00:00' })],
             );
             expect(dayOf(layout, 2).day).toBe('2026-07-10');
-            expect(layout.nodes.get(2).depth).toBeGreaterThan(layout.nodes.get(1).depth);
+            // The running step is on today too (req #3692), so the two stack
+            // in one column rather than the empty step trailing it.
+            expect(dayOf(layout, 1).day).toBe('2026-07-10');
+            expect(layout.nodes.get(2).depth).toBe(layout.nodes.get(1).depth);
         });
 
         it('renders in the FUTURE when the plan has no active work', () => {
@@ -8428,18 +8439,19 @@ describe('time ruler (req #3207)', () => {
     it('labels the dated slots as calendar days and the future slot as future', () => {
         const texts = timedLayout.ruler.slots.map((s) => s.label);
         expect(texts).toEqual([
-            "Jul 25 '26", 'Jul 26', 'Jul 27', 'Jul 28', 'future',
+            "Jul 25 '26", 'Jul 26', 'Jul 28', 'future',
         ]);
         expect(timedLayout.ruler.futureX)
             .toBe(timedLayout.ruler.slots[timedLayout.ruler.slots.length - 1].x);
     });
 
     it('carries the calendar GAP so adjacent columns two days apart can say so', () => {
-        // Slots are dense in COLUMNS and sparse in TIME. Every gap here is 1
-        // (consecutive days); the gapped case gets its own plan below.
+        // Slots are dense in COLUMNS and sparse in TIME. 07-26 → 07-28 is two
+        // days with no 07-27 slot between them, because the running step that
+        // began on 07-27 sits on today (req #3692).
         const gaps = timedLayout.ruler.slots.filter((s) => s.kind === 'dated')
             .map((s) => s.gapDays);
-        expect(gaps).toEqual([null, 1, 1, 1]);
+        expect(gaps).toEqual([null, 1, 2]);
     });
 
     it('measures a real gap in DAYS, not in slots', () => {
@@ -8452,7 +8464,9 @@ describe('time ruler (req #3207)', () => {
                 // dense-in-columns case the requirement names.
                 ? { ...r, completed_at: '2026-07-31T09:00:00' } : r)),
         };
-        const p = orderedPlan(buildPipelineModel(gapped), { now: '2026-08-01T12:00:00Z' });
+        // Rendered on 07-28, so the two running steps sit on 07-28 (req #3692)
+        // and step 3, gated on step 2, is dragged to 07-31 with it.
+        const p = orderedPlan(buildPipelineModel(gapped), { now: '2026-07-28T12:00:00Z' });
         const L = computePlanLayout(p.rows, { timeAxis: p.timeAxis });
         const days = L.ruler.slots.filter((s) => s.kind === 'dated');
         const gap = days.find((s) => s.day === '2026-07-31');
@@ -9263,6 +9277,19 @@ describe('cell invariant over a timed fuzz corpus (req #3229)', () => {
     // were both there before, and no plan gained one. Lanes are NOT monotone
     // per plan: 17 plans gained one with the axis and 37 lost one — holding
     // the heir's row is a refusal, and a refusal can cost a lane.
+    //
+    // req #3692 (a step sits on its LAST activity, every RUNNING step sits on
+    // TODAY, an unstarted gate of running work comes to today with it, and
+    // today's work drags its queued dependents onto today; days are the
+    // reader's LOCAL day), before → after:
+    //   total lanes        1853 → 1883 (with axis)   2111 → 2111 (without)
+    //   arc crossings         2 →    2 (with axis)      0 →    0 (without)
+    //   worst single plan     1 →    1 (with axis)      0 →    0 (without)
+    // The +30 lanes are the requirement's own ask, not a regression: open work
+    // that used to spread across the days it began, and the unstarted gates and
+    // queued dependents tied to it, now STACK in today's columns, and a stack is
+    // lanes. Identical under TZ=America/Los_Angeles, UTC and Asia/Kolkata. The no-axis figures cannot move (the rule
+    // is time-only) and they did not.
     it('packs no more lanes, and draws no more spaghetti, than the measured ceiling', () => {
         const tally = {
             bands: 0, lanesAxis: 0, lanesPlain: 0,
@@ -9302,7 +9329,7 @@ describe('cell invariant over a timed fuzz corpus (req #3229)', () => {
             'no bead sat on any arc run — is the geometry predicate still wired up?')
             .toBeGreaterThan(100);
 
-        expect(tally.lanesAxis, 'total lanes, with a time axis').toBeLessThanOrEqual(1853);
+        expect(tally.lanesAxis, 'total lanes, with a time axis').toBeLessThanOrEqual(1883);
         expect(tally.lanesPlain, 'total lanes, no time axis').toBeLessThanOrEqual(2111);
         expect(tally.crossAxis, 'arc runs over an unrelated bead, with a time axis')
             .toBeLessThanOrEqual(2);

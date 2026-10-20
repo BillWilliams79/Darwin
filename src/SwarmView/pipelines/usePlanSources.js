@@ -47,6 +47,7 @@ import {
     buildPlanModel,
     deriveDiagnostic,
 } from './pipelineAdapter';
+import { localDayOf } from './pipelinePlanTime';
 
 // A SHARED frozen empty array, for the same reason `PipelineDetail.jsx` keeps
 // one: a `= []` default literal mints a NEW array on every render, which is a
@@ -109,15 +110,16 @@ export function usePlanSources(pipelineId, creatorFk,
         () => (canBuild ? buildPlanModel(composed, machines, sessionStatus) : null),
         [canBuild, composed, machines, sessionStatus]);
 
-    // req #3618 — an empty step sits on TODAY (UTC). The day is a memo key so a
-    // render after UTC midnight re-places it even when a refetch returned the
-    // structurally-shared, unchanged `composed` object.
-    const todayUtc = new Date().toISOString().slice(0, 10);
+    // req #3618 / #3692 — empty and RUNNING steps sit on TODAY, the reader's
+    // LOCAL day. The day is a memo key so a render after local midnight
+    // re-places them even when a refetch returned the structurally-shared,
+    // unchanged `composed` object.
+    const today = localDayOf(new Date());
     const plan = useMemo(
         () => (canBuild
             ? adaptComposedPipeline(composed, { machines, costIndex, now: new Date() })
             : null),
-        [canBuild, composed, machines, costIndex, todayUtc]);
+        [canBuild, composed, machines, costIndex, today]);
 
     const knownIds = useMemo(
         () => (missed && knownSettled ? known.map((p) => p.id) : null),
