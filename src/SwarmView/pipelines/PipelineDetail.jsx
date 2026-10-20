@@ -208,6 +208,8 @@ export default function PipelineDetail() {
     // The persisted view settings are ONE table, `planViewSettings.js` (req
     // #3651) — key and default are spelled there, never at a call site.
     const [colorKeyPref, setColorKeyPref] = usePlanViewSetting('colorKey');
+    // req #3686 — hide the closed requirements (and the line above them) on the canvas.
+    const [hideClosed, setHideClosed] = usePlanViewSetting('hideClosed');
     // req #3503 — "Step Width": four rungs, 1 the card every existing plan is
     // already sized for, 2-4 each 25% more text room. PERSISTED like every
     // other view preference — a reader who widens the card wants it wide next
@@ -959,6 +961,8 @@ export default function PipelineDetail() {
                         onChangeStepWidthLevel={setStepWidthLevelPref}
                         colorKey={colorKey}
                         onChangeColorKey={handleColorKeyChange}
+                        hideClosed={hideClosed}
+                        onChangeHideClosed={setHideClosed}
                         planLevelPref={activeLevelPref}
                         effectiveLevel={effectiveLevel}
                         onChangeLevelPref={handleLevelPrefChange}
@@ -1158,6 +1162,7 @@ export default function PipelineDetail() {
                              resetViewNonce={resetViewNonce}
                              stepsAcross={stepsAcross}
                              stepWidthLevel={stepWidthLevel}
+                             hideClosed={hideClosed}
                              reqPills={reqPills}
                              maximized={maximized}
                              onToggleMaximized={toggleMaximized}

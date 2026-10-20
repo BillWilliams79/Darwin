@@ -8,7 +8,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
 
-import UnorchestratedReqBox, { FOLD_MS } from '../UnorchestratedReqBox';
+import UnorchestratedReqBox, { FOLD_MS, UNSEATED_FLOAT_Z } from '../UnorchestratedReqBox';
 import { UNSEATED_REQ_MIME } from '../pipelineUnseated';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -28,7 +28,20 @@ beforeEach(() => {
 afterEach(() => {
     act(() => root.unmount());
     host.remove();
+    delete document.documentElement.clientWidth;
+    delete document.documentElement.clientHeight;
 });
+
+// req #3687 — a PLACED box lives in the window: its frame is the viewport
+// (`documentElement.clientWidth/Height`) and its spot its client rect.
+const withWindow = (box, { w = 1000, h = 600, left = 0, top = 0 } = {}) => {
+    Object.defineProperty(document.documentElement, 'clientWidth',
+        { configurable: true, get: () => w });
+    Object.defineProperty(document.documentElement, 'clientHeight',
+        { configurable: true, get: () => h });
+    box.getBoundingClientRect = () => ({ left, top, right: left + box.offsetWidth,
+        bottom: top + box.offsetHeight, width: box.offsetWidth, height: box.offsetHeight });
+};
 
 const q = (id) => host.querySelector(`[data-testid="${id}"]`);
 const items = [
@@ -45,6 +58,24 @@ describe('UnorchestratedReqBox', () => {
         expect(q('pipeline-viz-unseated-item-12').getAttribute('draggable')).toBe('true');
         // Chrome: d3-zoom and the world-click hit-test both skip it.
         expect(q('pipeline-viz-unseated').hasAttribute('data-viz-chrome')).toBe(true);
+    });
+
+    it('wraps a title to two lines at most, then an ellipsis (req #3684)', () => {
+        act(() => root.render(<UnorchestratedReqBox items={items} />));
+        const title = q('pipeline-viz-unseated-item-title-11');
+        expect(title.textContent).toBe('First thing');
+        // jsdom's computed style drops -webkit-box-orient, so read the rule
+        // emotion emitted for the span's own class.
+        const rule = [...document.styleSheets]
+            .flatMap((s) => [...s.cssRules])
+            .map((r) => r.cssText)
+            .filter((t) => [...title.classList].some((c) => t.startsWith(`.${c} `)))
+            .join(' ');
+        expect(rule).toContain('display: -webkit-box');
+        expect(rule).toContain('-webkit-box-orient: vertical');
+        expect(rule).toContain('-webkit-line-clamp: 2');
+        expect(rule).toContain('overflow: hidden');
+        expect(rule).not.toContain('nowrap');
     });
 
     it('is outlined in a strong purple (req #3605)', () => {
@@ -149,6 +180,39 @@ describe('UnorchestratedReqBox', () => {
         }
     });
 
+    // req #3684 — rows wrap, so their height follows the width: through a fold
+    // the list is laid out at the OPEN box's inner width, never the narrowing
+    // box's, so the unfold animates to the height it ends at.
+    it('holds the list at the open width for the length of a fold', () => {
+        vi.useFakeTimers();
+        try {
+            act(() => root.render(<UnorchestratedReqBox items={items} fontPx={12} widthPx={612} />));
+            const box = q('pipeline-viz-unseated');
+            const pane = { clientWidth: 500, clientHeight: 600 };
+            Object.defineProperty(box, 'offsetParent', { get: () => pane });
+            Object.defineProperty(box, 'offsetWidth', { get: () => 100 });
+            Object.defineProperty(box, 'clientWidth', { get: () => 96 });
+            expect(q('pipeline-viz-unseated-list').style.width).toBe('');
+
+            // Fold: still drawn while it animates out, at the open width.
+            act(() => q('pipeline-viz-unseated-toggle').click());
+            act(() => { vi.advanceTimersByTime(FOLD_MS + 100); });
+
+            // Unfold: the pane caps the box (500 − 2 × 8 inset), less a 4px
+            // border, whatever its folded width is mid-transition.
+            act(() => q('pipeline-viz-unseated-toggle').click());
+            const list = q('pipeline-viz-unseated-list');
+            const boxSizing = getComputedStyle(box).boxSizing;
+            expect(list.style.width).toBe(boxSizing === 'border-box' ? '480px' : '484px');
+
+            // At rest it is the box's width again.
+            act(() => { vi.advanceTimersByTime(FOLD_MS + 100); });
+            expect(list.style.width).toBe('');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('opens the requirement on click', () => {
         const onOpen = vi.fn();
         act(() => root.render(<UnorchestratedReqBox items={items} onOpen={onOpen} />));
@@ -199,6 +263,8 @@ describe('UnorchestratedReqBox', () => {
         expect(box.style.right).toBe('8px');
     });
 
+    // A 1000 × 600 window with the box at (700, 8) in it — at home that is
+    // also its spot in a pane flush with the window.
     const withGeometry = (box, header) => {
         const pane = { clientWidth: 1000, clientHeight: 600 };
         Object.defineProperty(box, 'offsetParent', { get: () => pane });
@@ -206,11 +272,12 @@ describe('UnorchestratedReqBox', () => {
         Object.defineProperty(box, 'offsetTop', { get: () => 8 });
         Object.defineProperty(box, 'offsetWidth', { get: () => 280 });
         Object.defineProperty(header, 'offsetHeight', { get: () => 36 });
+        withWindow(box, { left: 700, top: 8 });
     };
     const fireOn = (el) => (type, x, y) => el.dispatchEvent(new MouseEvent(type,
         { bubbles: true, clientX: x, clientY: y, button: 0 }));
 
-    it('moves by its title bar within the pane, remembers the spot, and goes home', () => {
+    it('moves by its title bar within the window, remembers the spot, and goes home', () => {
         act(() => root.render(<UnorchestratedReqBox items={items} />));
         const box = q('pipeline-viz-unseated');
         const bar = q('pipeline-viz-unseated-header');
@@ -221,14 +288,14 @@ describe('UnorchestratedReqBox', () => {
         act(() => { fire('pointermove', 410, 220); });
         expect(box.getAttribute('data-pos')).toBe('400,208');
         // (`left` itself is a CSS clamp(), which jsdom's style parser drops.)
-        // Clamped: the box stays inside the pane, its bottom above the 8px
+        // Clamped: the box stays inside the window, its bottom above the 8px
         // inset (req #3677).
         act(() => { fire('pointermove', 5000, 5000); });
         expect(box.getAttribute('data-pos')).toBe('720,554');
         act(() => { fire('pointerup', 5000, 5000); });
         expect(getComputedStyle(bar).cursor).toBe('move');
         // Dropped in the right half: remembered from the RIGHT edge (flush = 0).
-        expect(JSON.parse(window.localStorage.getItem('darwin-plan-unseated-box-pos')))
+        expect(JSON.parse(window.localStorage.getItem('darwin-plan-unseated-box-window-pos')))
             .toEqual({ r: 0, y: 554 });
         expect(box.getAttribute('data-pos')).toBe('r0,554');
 
@@ -246,7 +313,7 @@ describe('UnorchestratedReqBox', () => {
         act(() => { q('pipeline-viz-unseated-header').dispatchEvent(
             new MouseEvent('dblclick', { bubbles: true })); });
         expect(q('pipeline-viz-unseated').getAttribute('data-pos')).toBe('home');
-        expect(window.localStorage.getItem('darwin-plan-unseated-box-pos')).toBeNull();
+        expect(window.localStorage.getItem('darwin-plan-unseated-box-window-pos')).toBeNull();
     });
 
     // req #3608 — the title-bar move doubles as a drag of the whole set.
@@ -265,7 +332,7 @@ describe('UnorchestratedReqBox', () => {
         act(() => { fire('pointerup', 410, 220); });
         expect(onMoveDrop).toHaveBeenCalledWith(410, 220);
         expect(box.getAttribute('data-pos')).toBe('home');
-        expect(window.localStorage.getItem('darwin-plan-unseated-box-pos')).toBeNull();
+        expect(window.localStorage.getItem('darwin-plan-unseated-box-window-pos')).toBeNull();
     });
 
     it('a drop the visualizer declines is an ordinary move, and clears the outline', () => {
@@ -280,7 +347,7 @@ describe('UnorchestratedReqBox', () => {
         act(() => { fire('pointermove', 110, 120); });
         act(() => { fire('pointerup', 110, 120); });
         expect(onMoveOver).toHaveBeenLastCalledWith(null, null);
-        expect(JSON.parse(window.localStorage.getItem('darwin-plan-unseated-box-pos')))
+        expect(JSON.parse(window.localStorage.getItem('darwin-plan-unseated-box-window-pos')))
             .toEqual({ x: 100, y: 108 });
     });
 
@@ -427,7 +494,7 @@ describe('UnorchestratedReqBox', () => {
             { id: 13, title: 'Third thing', requirement_status: 'swarm_ready' }]} />));
         // 600 − 8 − 2 − (56 + 301) = 233.
         expect(box.getAttribute('data-pos')).toBe('r20,233');
-        expect(JSON.parse(window.localStorage.getItem('darwin-plan-unseated-box-pos')))
+        expect(JSON.parse(window.localStorage.getItem('darwin-plan-unseated-box-window-pos')))
             .toEqual({ r: 20, y: 313 });
     });
 
@@ -484,7 +551,7 @@ describe('UnorchestratedReqBox', () => {
         act(() => { fire('pointerdown', 710, 20); });
         act(() => { fire('pointermove', 110, 120); });
         act(() => { fire('pointerup', 110, 120); });
-        expect(JSON.parse(window.localStorage.getItem('darwin-plan-unseated-box-pos')))
+        expect(JSON.parse(window.localStorage.getItem('darwin-plan-unseated-box-window-pos')))
             .toEqual({ x: 100, y: 108 });
     });
 
@@ -512,7 +579,7 @@ describe('UnorchestratedReqBox', () => {
         act(() => { fire('pointermove', 102, 101); });
         act(() => { fire('pointerup', 102, 101); });
         expect(box.getAttribute('data-pos')).toBe('home');
-        expect(window.localStorage.getItem('darwin-plan-unseated-box-pos')).toBeNull();
+        expect(window.localStorage.getItem('darwin-plan-unseated-box-window-pos')).toBeNull();
     });
 
     it('a press on the collapse button never starts a move', () => {
@@ -610,18 +677,15 @@ describe('UnorchestratedReqBox', () => {
     });
 
     it('remembered from the left, it grows rightward from a bottom-right grip', () => {
-        window.localStorage.setItem('darwin-plan-unseated-box-pos',
+        window.localStorage.setItem('darwin-plan-unseated-box-window-pos',
             JSON.stringify({ x: 100, y: 50 }));
         act(() => root.render(<UnorchestratedReqBox items={items} fontPx={12} widthPx={400} />));
         const box = q('pipeline-viz-unseated');
         const grip = q('pipeline-viz-unseated-grip');
         expect(grip.getAttribute('data-corner')).toBe('bottom-right');
         expect(getComputedStyle(grip).cursor).toBe('nwse-resize');
-        const pane = { clientWidth: 1000, clientHeight: 600 };
-        Object.defineProperty(box, 'offsetParent', { get: () => pane });
-        Object.defineProperty(box, 'offsetLeft', { get: () => 100 });
-        Object.defineProperty(box, 'offsetTop', { get: () => 50 });
         Object.defineProperty(box, 'offsetWidth', { get: () => 400 });
+        withWindow(box, { left: 100, top: 50 });
         const fire = fireOn(grip);
         act(() => { fire('pointerdown', 500, 300); });
         expect(box.getAttribute('data-pos')).toBe('100,50');
@@ -652,19 +716,16 @@ describe('UnorchestratedReqBox', () => {
         expect(q('pipeline-viz-unseated-grip')).toBeNull();
     });
 
-    it('a spot the pane is clamping is re-anchored where drawn, so the grip edge moves', () => {
-        // Remembered 300px from the right, but zoomed so wide the pane's clamp
+    it('a spot the window is clamping is re-anchored where drawn, so the grip edge moves', () => {
+        // Remembered 300px from the right, but zoomed so wide the window's clamp
         // draws it at the left edge: the grip (bottom-left) must still be the
         // edge that follows the pointer.
-        window.localStorage.setItem('darwin-plan-unseated-box-pos',
+        window.localStorage.setItem('darwin-plan-unseated-box-window-pos',
             JSON.stringify({ r: 300, y: 40 }));
         act(() => root.render(<UnorchestratedReqBox items={items} fontPx={12} widthPx={800} />));
         const box = q('pipeline-viz-unseated');
-        const pane = { clientWidth: 1000, clientHeight: 600 };
-        Object.defineProperty(box, 'offsetParent', { get: () => pane });
-        Object.defineProperty(box, 'offsetLeft', { get: () => 0 });
-        Object.defineProperty(box, 'offsetTop', { get: () => 40 });
         Object.defineProperty(box, 'offsetWidth', { get: () => 800 });
+        withWindow(box, { left: 0, top: 40 });
         const fire = fireOn(q('pipeline-viz-unseated-grip'));
         act(() => { fire('pointerdown', 0, 300); });
         expect(box.getAttribute('data-pos')).toBe('r200,40');
@@ -672,7 +733,7 @@ describe('UnorchestratedReqBox', () => {
         act(() => { fire('pointermove', 100, 300); });
         expect(box.style.width).toBe('700px');
         act(() => { fire('pointerup', 100, 300); });
-        expect(JSON.parse(window.localStorage.getItem('darwin-plan-unseated-box-pos')))
+        expect(JSON.parse(window.localStorage.getItem('darwin-plan-unseated-box-window-pos')))
             .toEqual({ r: 200, y: 40 });
     });
 
@@ -689,7 +750,7 @@ describe('UnorchestratedReqBox', () => {
             .toEqual({ ws: 460 / 400, hEm: null });
     });
 
-    it('a stretched height is held between two rows and the pane bottom', () => {
+    it('a stretched height is held between one wrapped row and the pane bottom', () => {
         act(() => root.render(<UnorchestratedReqBox items={items} fontPx={10} widthPx={400} />));
         const box = q('pipeline-viz-unseated');
         const list = q('pipeline-viz-unseated-list');
@@ -703,7 +764,8 @@ describe('UnorchestratedReqBox', () => {
         const fire = fireOn(q('pipeline-viz-unseated-grip'));
         act(() => { fire('pointerdown', 600, 200); });
         act(() => { fire('pointermove', 600, -500); });
-        expect(list.style.height).toBe('35px');
+        // UNSEATED_MIN_LIST_EM (4.5, req #3684) of the 10px type.
+        expect(list.style.height).toBe('45px');
         // The WHOLE box stays above the inset (req #3677): 600 pane − 8 inset
         // − 2 slack − 8 box top − (36 title bar + 13 grip strip + 4 border).
         act(() => { fire('pointermove', 600, 5000); });
@@ -750,5 +812,94 @@ describe('UnorchestratedReqBox', () => {
         act(() => { fire('pointermove', 410, 220); });
         act(() => { fire('pointerup', 410, 220); });
         expect(q('pipeline-viz-unseated-grip')).not.toBeNull();
+    });
+    // req #3687 — placed, the box is fixed in the WINDOW above the navbar, so
+    // it can leave the plan pane entirely.
+    it('at home it sits in the pane; placed it is fixed in the window above the navbar', () => {
+        act(() => root.render(<UnorchestratedReqBox items={items} />));
+        const box = q('pipeline-viz-unseated');
+        expect(box.style.position).toBe('');
+        expect(getComputedStyle(box).position).toBe('absolute');
+        const bar = q('pipeline-viz-unseated-header');
+        withGeometry(box, bar);
+        const fire = fireOn(bar);
+        act(() => { fire('pointerdown', 710, 20); });
+        act(() => { fire('pointermove', 410, 220); });
+        act(() => { fire('pointerup', 410, 220); });
+        expect(box.style.position).toBe('fixed');
+        expect(Number(box.style.zIndex)).toBe(UNSEATED_FLOAT_Z);
+        // Above the navbar, the bottom nav and the drawer; under the modal
+        // layer so the seat dialog still opens over it.
+        expect(UNSEATED_FLOAT_Z).toBeGreaterThan(1200);
+        expect(UNSEATED_FLOAT_Z).toBeLessThan(1300);
+        // Home again: back in the pane.
+        act(() => { vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 10000); });
+        act(() => { bar.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); });
+        vi.restoreAllMocks();
+        expect(box.getAttribute('data-pos')).toBe('home');
+        expect(box.style.position).toBe('');
+    });
+
+    it('moves out of the pane to the window\'s top-left corner, over the navbar', () => {
+        act(() => root.render(<UnorchestratedReqBox items={items} onMoveDrop={() => false} />));
+        const box = q('pipeline-viz-unseated');
+        const bar = q('pipeline-viz-unseated-header');
+        // A pane that starts 240px in (the sidebar) and 120px down (the page
+        // header); the box at home in its top-right corner.
+        Object.defineProperty(box, 'offsetWidth', { get: () => 280 });
+        Object.defineProperty(bar, 'offsetHeight', { get: () => 36 });
+        withWindow(box, { w: 1400, h: 900, left: 1112, top: 128 });
+        const fire = fireOn(bar);
+        act(() => { fire('pointerdown', 1120, 140); });
+        act(() => { fire('pointermove', -500, -500); });
+        expect(box.getAttribute('data-pos')).toBe('0,0');
+        act(() => { fire('pointerup', -500, -500); });
+        expect(JSON.parse(window.localStorage.getItem('darwin-plan-unseated-box-window-pos')))
+            .toEqual({ x: 0, y: 0 });
+        expect(box.style.position).toBe('fixed');
+    });
+
+    it('drops a pane-relative spot remembered before it could leave the pane', () => {
+        window.localStorage.setItem('darwin-plan-unseated-box-pos',
+            JSON.stringify({ x: 100, y: 50 }));
+        act(() => root.render(<UnorchestratedReqBox items={items} />));
+        expect(q('pipeline-viz-unseated').getAttribute('data-pos')).toBe('home');
+        expect(window.localStorage.getItem('darwin-plan-unseated-box-pos')).toBeNull();
+    });
+
+    it('a window that shrinks lifts a placed box so it stays whole', () => {
+        window.localStorage.setItem('darwin-plan-unseated-box-window-pos',
+            JSON.stringify({ r: 0, y: 500 }));
+        act(() => root.render(<UnorchestratedReqBox items={items} />));
+        const box = q('pipeline-viz-unseated');
+        Object.defineProperty(q('pipeline-viz-unseated-header'), 'offsetHeight',
+            { get: () => 36 });
+        withWindow(box, { w: 1000, h: 900, top: 500 });
+        withParts(box, q('pipeline-viz-unseated-list'));
+        act(() => { window.dispatchEvent(new Event('resize')); });
+        expect(box.getAttribute('data-pos')).toBe('r0,500');
+        withWindow(box, { w: 1000, h: 600, top: 500 });
+        act(() => { window.dispatchEvent(new Event('resize')); });
+        // 600 − 8 − 2 − (56 + 221) = 313.
+        expect(box.getAttribute('data-pos')).toBe('r0,313');
+    });
+
+    it('a wheel over the box zooms the plan only while the box is over the plan', () => {
+        const pane = document.createElement('div');
+        host.appendChild(pane);
+        const paneRoot = createRoot(pane);
+        act(() => paneRoot.render(<UnorchestratedReqBox items={items} />));
+        pane.getBoundingClientRect = () => ({ left: 240, top: 120, right: 1000, bottom: 600 });
+        const zoom = vi.fn();
+        pane.addEventListener('wheel', zoom);
+        const box = pane.querySelector('[data-testid="pipeline-viz-unseated"]');
+        const wheel = (x, y) => box.dispatchEvent(new WheelEvent('wheel',
+            { bubbles: true, clientX: x, clientY: y, deltaY: 50 }));
+        act(() => { wheel(800, 300); });
+        expect(zoom).toHaveBeenCalledTimes(1);
+        // Over the navbar: not a zoom.
+        act(() => { wheel(100, 300); });
+        expect(zoom).toHaveBeenCalledTimes(1);
+        act(() => paneRoot.unmount());
     });
 });
