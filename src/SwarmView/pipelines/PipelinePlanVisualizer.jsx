@@ -157,7 +157,7 @@ import {
     // req #3649 — the epic chip's padlock.
     EPIC_LOCK_D,
     rulerScreenMag,
-    KEY_GROUP_TITLES, orderStepReqs, CARD_DONE_RULE_DASH, CARD_DONE_RULE_OPACITY,
+    KEY_GROUP_TITLES, orderStepReqs, hideClosedReqs, CARD_DONE_RULE_DASH, CARD_DONE_RULE_OPACITY,
 } from './pipelinePlanLayout';
 import {
     epicCycleKey, epicZoomStateKey, epicWorkStepIds, nextEpicZoom,
@@ -517,6 +517,9 @@ export default function PipelinePlanVisualizer({
     // it, so it rides in `computePlanLayout`'s own options rather than being
     // applied as a post-hoc transform the way every other control here is.
     stepWidthLevel = DEFAULT_STEP_WIDTH_LEVEL,
+    // req #3686 — draw only the OPEN requirements under each step (the closed
+    // group and its dashed line are dropped from the layout's input).
+    hideClosed = false,
     // req #3587 — requirement id -> {terminal, devServer} (`planReqPills.js`),
     // built by the page from reads it owns. Drawn as pills between a row's id
     // and its title; null draws every row exactly as before.
@@ -734,8 +737,13 @@ export default function PipelinePlanVisualizer({
     const toggleStepFold = useCallback(
         (stepId) => setCollapsedRaw((raw) => toggleStepCollapsed(raw, stepId)),
         [setCollapsedRaw]);
+    // req #3686 — `orderStepReqs` puts the closed requirements last, from
+    // `reqDoneFrom` on; hiding them is slicing there. Only the LAYOUT's input is
+    // trimmed: `rows` (drag, seating, counts) keeps every requirement.
+    const layoutRows = useMemo(
+        () => (hideClosed ? hideClosedReqs(rows) : rows), [rows, hideClosed]);
     const layout = useMemo(
-        () => computePlanLayout(rows, {
+        () => computePlanLayout(layoutRows, {
             stepLabel, reqLabel, reqTitles: layoutTitles, reqPills,
             palette: activePalette,
             timeAxis: plan.timeAxis || null, epicCounts,
@@ -749,7 +757,7 @@ export default function PipelinePlanVisualizer({
             stepWidthLevel,
             collapsedEpicIds: collapsed.epicIds, collapsedStepIds: collapsed.stepIds,
         }),
-        [rows, plan.timeAxis, stepLabel,
+        [layoutRows, plan.timeAxis, stepLabel,
             reqLabel, layoutTitles, reqPills, epicCounts, plan.pause, plan.locked,
             plan.lockedEpicIds, activePalette, stepWidthLevel, collapsed]);
     // A LINK INTO A FOLDED BOX UNFOLDS IT (req #3650). `?epic=` and `?step=`

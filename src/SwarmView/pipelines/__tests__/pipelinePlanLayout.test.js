@@ -82,7 +82,7 @@ import {
     // req #3650 — the collapse heads.
     EPIC_CHIP_COLLAPSE_W, CARD_COLLAPSE_W, CARD_COLLAPSE_GAP,
     COLOR_CHANNELS, KEY_GROUP_TITLES,
-    sortReqIdsByOrchestration, orderStepReqs, REQ_ROW_GAP,
+    sortReqIdsByOrchestration, orderStepReqs, hideClosedReqs, REQ_ROW_GAP,
 } from '../pipelinePlanLayout';
 import { epicWorkStepIds } from '../pipelineEpicZoom';
 
@@ -5948,11 +5948,36 @@ describe('the requirement-view control (req #3168 directive E, req #3498)', () =
     });
 });
 
+describe('hideClosedReqs (req #3686)', () => {
+    const status = { 1: 'approved', 2: 'development', 3: 'met', 4: 'wontfix' };
+    const base = [
+        { id: 10, reqIds: [4, 1, 3, 2] },
+        { id: 11, reqIds: [1, 2] },
+        { id: 12, reqIds: [3, 4] },
+        { id: 13, reqIds: [] },
+    ];
+    const ordered = orderStepReqs(base, { statusOf: (id) => status[id] });
+
+    it('drops the closed tail and the complete line trigger', () => {
+        const out = hideClosedReqs(ordered);
+        expect(out[0].reqIds).toEqual([1, 2]);
+        expect(out[0].reqDoneFrom).toBe(2);
+        expect(out[2].reqIds).toEqual([]);
+        expect(out[2].reqDoneFrom).toBe(0);
+    });
+
+    it('passes rows with nothing closed through untouched', () => {
+        const out = hideClosedReqs(ordered);
+        expect(out[1]).toBe(ordered[1]);
+        expect(out[3]).toBe(ordered[3]);
+    });
+});
+
 describe('steps-across zoom (req #3498, user directive 2026-08-13)', () => {
     const COL = CARD_W + CARD_GAP_X;
 
-    it('offers 6 5 4 3, widest first (req #3648)', () => {
-        expect(STEPS_ACROSS_OPTIONS).toEqual([6, 5, 4, 3]);
+    it('offers 10 6 5 4 3, widest first (req #3648, #3686)', () => {
+        expect(STEPS_ACROSS_OPTIONS).toEqual([10, 6, 5, 4, 3]);
     });
 
     // req #3648 — the buttons centre on the ACTIVE steps, not the viewport.
