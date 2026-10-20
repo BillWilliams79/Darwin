@@ -71,7 +71,7 @@ import {
     findPipelineDetailMode,
 } from './pipelineDetailModes';
 import { pipelineStatusChipProps } from './pipelineChipStyles';
-import { claimForPipeline, holderView } from './orchestrationHolder';
+import { orchestrationView } from './orchestrationHolder';
 // req #3463 — the era↔route binding. This page never spells a plan route or an
 // entity name.
 //
@@ -572,7 +572,9 @@ export default function PipelineDetail() {
     // lookup about a 2.0 plan matched nothing and vice versa. `claimForPipeline`
     // (the 1.0 half) went with req #3356; this reads the 2.0 columns directly.
     const orchestrationHolder = useMemo(
-        () => holderView(claimForPipeline(orchestrationClaims, pipeline?.id), machines),
+        // req #3678 — machine-aware: the whole-plan LEAD plus every machine
+        // subscribed to it, each of which launches only its own pinned work.
+        () => orchestrationView(orchestrationClaims, pipeline?.id, machines),
         [orchestrationClaims, pipeline?.id, machines]);
 
     // `planMachines` — the distinct machine set behind the header's machine chip
