@@ -86,28 +86,55 @@ export function releaseLiftFocus(pressTarget, liftedItem = null) {
 
 /**
  * Where a mouse long-click lifted an item from inside one of its text fields:
- * the item, the field and the caret the click placed. After the drop the
- * cursor goes back there (user ruling, req #3662 review: a long click on text
- * that turned into a drag still meant "I'm working on this text"). Touch is
- * excluded on purpose — focusing a field after a touch drag throws up the
- * phone keyboard.
+ * the field, which row it belongs to, and the caret the click placed. After
+ * the drop the cursor goes back there (user ruling, req #3662 review: a long
+ * click on text that turned into a drag still meant "I'm working on this
+ * text"). Touch is excluded on purpose — focusing a field after a touch drag
+ * throws up the phone keyboard.
+ *
+ * The field is found again by the NEAREST test id around it (its own row),
+ * not the lifted item's: a press on a card's template row lifts the CARD, and
+ * the card's first `[name="title"]` is somebody else's (req #3663 review).
+ * `scope` — the test id around the lifted item — tells copies of one row
+ * apart: a requirement shows in its category card AND in the aggregator.
  */
 export function captureLiftFocus(activatorEvent, liftedItem) {
     if (!liftedItem || typeof TouchEvent !== 'undefined' && activatorEvent instanceof TouchEvent) return null;
     if (activatorEvent?.type && !activatorEvent.type.startsWith('pointer')) return null;
     const field = activatorEvent?.target?.closest?.(EDITABLE);
-    const item = liftedItem.getAttribute('data-testid');
+    const lifted = liftedItem.getAttribute('data-testid');
     const name = field?.getAttribute('name');
-    if (!field || !item || !name || !liftedItem.contains(field)) return null;
+    if (!field || !lifted || !name || !liftedItem.contains(field)) return null;
+    const anchor = field.parentElement?.closest('[data-testid]');
+    if (!anchor || !liftedItem.contains(anchor) && anchor !== liftedItem) return null;
+    const scope = liftedItem.parentElement?.closest('[data-testid]')?.getAttribute('data-testid') ?? null;
     const caret = pressCaret.has(field) ? pressCaret.get(field)
         : typeof field.selectionStart === 'number' ? field.selectionStart : null;
-    return { item, name, caret };
+    return { lifted, anchor: anchor.getAttribute('data-testid'), scope, name, caret };
 }
 
-/** Put the cursor back in the field `captureLiftFocus` recorded, wherever its item now is. */
+const shown = (el) => typeof el.getClientRects !== 'function' || el.getClientRects().length > 0;
+// 'category-card-12' → 'category-card' — the KIND of list a scope is.
+const kindOf = (testId) => (testId ? testId.replace(/[-:]\d+$/, '') : null);
+
+/**
+ * Put the cursor back in the field `captureLiftFocus` recorded, wherever its
+ * row now is: inside the lifted item, preferring a copy shown in the list it
+ * lifted from, then one in the same KIND of list (a row carried to another
+ * category card), then any shown copy.
+ */
 export function restoreLiftFocus(spot, doc = document) {
     if (!spot) return;
-    const field = doc.querySelector(`[data-testid="${spot.item}"] [name="${spot.name}"]`);
+    const fields = [...doc.querySelectorAll(`[data-testid="${spot.anchor}"]`)]
+        .map(anchor => anchor.querySelector(`[name="${spot.name}"]`))
+        .filter(field => field && field.closest(`[data-testid="${spot.lifted}"]`));
+    const visible = fields.filter(shown);
+    const pool = visible.length ? visible : fields;
+    const scopeOf = (field) => field.closest(`[data-testid="${spot.lifted}"]`)
+        ?.parentElement?.closest('[data-testid]')?.getAttribute('data-testid') ?? null;
+    const field = pool.find(f => scopeOf(f) === spot.scope)
+        ?? pool.find(f => kindOf(scopeOf(f)) === kindOf(spot.scope))
+        ?? pool[0];
     if (!field) return;
     field.focus();
     if (spot.caret != null && typeof field.setSelectionRange === 'function') {

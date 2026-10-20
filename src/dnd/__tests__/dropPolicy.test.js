@@ -45,6 +45,14 @@ describe('policy predicates', () => {
         expect(isRowTarget(item({ id: '' }), 'task')).toBe(false);
         expect(isRowTarget(item({ id: 1 }, 'priority'), 'task')).toBe(false);
     });
+
+    it('a source-only list (req #3663, the aggregator) takes nothing and keeps a moved row', () => {
+        const SOURCE = defineDropPolicy({ accepts: [], keepsMovedRows: true });
+        expect(policyAccepts({ policy: SOURCE }, 'requirement')).toBe(false);
+        expect(isRowTarget({ kind: 'item', policy: SOURCE, row: { id: 1 } }, 'requirement')).toBe(false);
+        expect(SOURCE.keepsMovedRows).toBe(true);
+        expect(TASKS.keepsMovedRows).toBe(false);
+    });
 });
 
 describe('createDarwinCollisionDetection', () => {

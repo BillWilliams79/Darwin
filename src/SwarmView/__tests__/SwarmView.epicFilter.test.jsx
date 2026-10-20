@@ -20,7 +20,7 @@ import { MemoryRouter } from 'react-router-dom';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 // The first mounted `it()` in a file absorbs the cold module-compile cost of the
-// component tree (react-dnd + MUI + this page), which on a loaded machine is
+// component tree (dnd-kit + MUI + this page), which on a loaded machine is
 // measured at 5-8s against vitest's 5000ms default — red in CI about half the
 // time, for nothing. File-scoped rather than a global config change, so no other
 // suite's timeout moves.
@@ -67,7 +67,6 @@ let panelProps = [];
 vi.mock('../CategoryTabPanel', () => ({
     default: (props) => { panelProps.push(props); return <div data-testid="tab-panel" />; },
 }));
-vi.mock('../RequirementDragLayer', () => ({ default: () => null }));
 vi.mock('../SwarmVisualizerView', () => ({ default: () => null }));
 vi.mock('../RequirementsTrendsView', () => ({ default: () => null }));
 vi.mock('../VisualizerToolbar', () => ({ default: () => null }));

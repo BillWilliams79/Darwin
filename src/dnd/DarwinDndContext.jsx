@@ -17,10 +17,9 @@
 //                    lift itself — shadow and a slight scale — plus a haptic
 //                    tick on a touch lift where the platform has one
 //
-// react-dnd's DndProvider stays mounted at the app root for the surfaces not
-// yet moved (SwarmView, SwarmStartCard, RecurringTaskEdit). The two coexist:
-// TouchBackend only begins a drag from a node registered with it, and a page on
-// this context registers none.
+// Every DOM drag surface mounts it: the Plan view (req #3662), the Swarm cards
+// view with its aggregator and the Recurring page (req #3663). react-dnd is
+// gone from the app.
 
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import {

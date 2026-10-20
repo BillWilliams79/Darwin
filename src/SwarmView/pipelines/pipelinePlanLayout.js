@@ -3538,8 +3538,23 @@ export function computePlanLayout(rows, opts = {}) {
         // heads (`planCollapse.js`): epic ids (null = the "No epic" band) and
         // step ids. Null folds nothing.
         collapsedEpicIds = null, collapsedStepIds = null,
+        // req #3695 — epic key -> how far OPEN that band is drawn, 0..1, for
+        // the bands whose fold is ANIMATING (`planFoldAnimation.js`). It
+        // overrides the fold for drawing only; `collapsed` still reports the
+        // reader's fold. Null (every settled layout) animates nothing.
+        foldReveal = null,
     } = opts || {};
     const epicFolded = (key) => !!collapsedEpicIds?.has(key);
+    // req #3695 — a band's REVEAL: 1 open, 0 folded, between while its fold
+    // animates. Clamped, so a frame that overshoots cannot draw a band taller
+    // than open or a negative one.
+    const bandRevealOf = (key) => {
+        if (foldReveal?.has(key)) {
+            const v = Number(foldReveal.get(key));
+            return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : (epicFolded(key) ? 0 : 1);
+        }
+        return epicFolded(key) ? 0 : 1;
+    };
     const stepFolded = (r) => !!collapsedStepIds?.has(r.id);
     const widthScale = stepWidthScale(stepWidthLevel);
     const { cardW, cardFrameW, cardTextW } = cardGeometryFor(widthScale);
@@ -3771,6 +3786,10 @@ export function computePlanLayout(rows, opts = {}) {
                 // req #3650 — folded by its own collapse head: the band keeps
                 // its header (the chip that unfolds it) and draws no lanes.
                 collapsed: epicFolded(key),
+                // req #3695 — how far open the band is DRAWN (see
+                // `bandRevealOf`). Equal to `!collapsed` on every settled
+                // layout; only an animating fold puts it in between.
+                reveal: bandRevealOf(key),
                 steps: [],
             });
             bandKeys.push(key);
@@ -4355,12 +4374,21 @@ export function computePlanLayout(rows, opts = {}) {
         // band-local, so assigning it changes nothing outside this band — and
         // the COLUMNS were computed over every row, so folding an epic never
         // moves another epic's cards sideways.
-        const drawnSub = band.collapsed ? 0 : sub;
+        //
+        // req #3695 — the fold ANIMATES: a band part-way open lays its lanes
+        // out COMPRESSED by its reveal, so the band's height (header + the
+        // sentinel below) grows or shrinks smoothly and every band beneath it
+        // slides with it. Cards keep their own size, so mid-fold they overlap
+        // inside the compressed lanes — the renderer fades them with the same
+        // reveal, so what reads is the box opening. `* 1` is exact in floating
+        // point, so an open band's lanes are bit-for-bit what they were.
+        const rv = band.reveal;
+        const drawnSub = rv > 0 ? sub : 0;
         const laneY = [];
         {
             let acc = 0;
-            for (let l = 0; l < drawnSub; l++) { laneY.push(acc); acc += lanePitch(l); }
-            laneY.push(acc); // sentinel: total lane height
+            for (let l = 0; l < drawnSub; l++) { laneY.push(acc * rv); acc += lanePitch(l); }
+            laneY.push(acc * rv); // sentinel: total lane height
         }
         // Retained for consumers that want a representative pitch; band height
         // comes from laneY, never from sub × pitch.
@@ -4424,7 +4452,10 @@ export function computePlanLayout(rows, opts = {}) {
         // so every consumer that walks `nodes` — the arcs below, the labels,
         // the renderer, the focus fits — passes over them as it does any step
         // with no node, and an arc into or out of the band is not drawn.
-        if (band.collapsed) return;
+        if (!(band.reveal > 0)) return;
+        // req #3695 — a band part-way through its fold animation stamps its
+        // reveal on each node, so the renderer can fade the card with it.
+        const nodeReveal = band.reveal < 1 ? { reveal: band.reveal } : null;
         for (const r of band.steps) {
             const d = colOf.get(r.id);
             const lane = laneById.get(r.id);
@@ -4479,6 +4510,7 @@ export function computePlanLayout(rows, opts = {}) {
                 depth: d,
                 lane,
                 bandIndex,
+                ...nodeReveal,
             });
         }
     });
@@ -4517,6 +4549,9 @@ export function computePlanLayout(rows, opts = {}) {
             const a = nodes.get(dId);
             const b = nodes.get(r.id);
             if (!a || !b) continue;
+            // req #3695 — an arc touching a card mid-fold fades with it.
+            const arcReveal = (a.reveal ?? 1) < 1 || (b.reveal ?? 1) < 1
+                ? { reveal: Math.min(a.reveal ?? 1, b.reveal ?? 1) } : null;
             // FROM THE MIDPOINTS (req #3498, user directive). `a.y`/`b.y` are
             // the cards' vertical centres and `± w/2` their left and right
             // edges, so an arc leaves one card's right-edge midpoint and lands
@@ -4530,6 +4565,7 @@ export function computePlanLayout(rows, opts = {}) {
             if (y1 === y2) {
                 arcs.push({
                     fromId: dId, toId: r.id, straight: true, route: 'straight', x1, y1, x2, y2,
+                    ...arcReveal,
                 });
                 continue;
             }
@@ -4580,6 +4616,7 @@ export function computePlanLayout(rows, opts = {}) {
             arcs.push({
                 fromId: dId, toId: r.id, straight: false,
                 route: late ? 'late' : 'early', x1, y1, x2, y2, path,
+                ...arcReveal,
             });
         }
     }
@@ -4919,6 +4956,15 @@ export function computePlanLayout(rows, opts = {}) {
                 + (band.epicId != null ? EPIC_LOCK_W : 0), h: 16,
         });
     }
+    // req #3695 — every piece of a card mid-fold carries its card's reveal, so
+    // the renderer fades the text, the badge and the controls with the frame.
+    // Only an animating layout has any to stamp.
+    if (foldReveal) {
+        for (const l of labels) {
+            const rv = l.stepId != null ? nodes.get(l.stepId)?.reveal : undefined;
+            if (rv != null) l.reveal = rv;
+        }
+    }
     return {
         width: totalW,
         height: totalH,
@@ -5201,6 +5247,20 @@ export const EPIC_CHIP_MIN_CHARS = 3;
 // the plan; at 0.6 the band beneath shows through as tint while the name still
 // wins over whatever it crosses.
 export const EPIC_CHIP_BG_ALPHA = 0.6;
+// ── A FOLDED EPIC IS A FLOATING TITLE BAR (req #3695) ───────────────────────
+// User direction: "Let a collapsed epic not have a display rectangle. it can
+// occupy a respectable amount of width as it is an epic … when collapsed it's
+// just a floating title bar so it gives way to the other highlighted epics."
+// The band draws no rectangle once folded (the renderer's call), so the chip is
+// all of the epic that remains — and a chip only as wide as its name reads as a
+// label, not as an epic. A folded chip therefore widens to this many SCREEN px:
+// flat, like the chip's other reservations, because a title bar is chrome the
+// reader reads at any zoom. It never NARROWS a chip (a longer name keeps its own
+// width) and it never takes room the name did not have — the band's right edge,
+// the panel edge and the key still bound it, and only the NAME decides whether
+// the chip is clipped. It morphs with the fold: an epic half-way through its
+// animation is half-way between bar and chip.
+export const EPIC_BAR_W = 420;
 
 /**
  * Where every epic band's name is drawn, in SCREEN px.
@@ -5516,6 +5576,17 @@ export function placeEpicChips({
             w = room;
             clipped = true;
         }
+        // req #3695 — THE TITLE BAR. How far FOLDED the band is drawn: 1 for a
+        // folded epic, 0 for an open one, between while its fold animates.
+        // Hand-built bands with no `reveal` answer from `collapsed`.
+        const folded = 1 - (Number.isFinite(band.reveal) ? band.reveal
+            : (band.collapsed ? 0 : 1));
+        let bar = 0;
+        if (!clipped && folded > 0) {
+            bar = folded;
+            const wBar = wFull + folded * Math.max(0, EPIC_BAR_W - wFull);
+            w = Math.max(wFull, Math.min(wBar, limit - x));
+        }
 
         // THE LAST FRAME OF THE PUSH-OFF. A name leaving with its band ends up
         // wholly outside the content area for the final margin's worth of the
@@ -5551,6 +5622,10 @@ export function placeEpicChips({
             // would hand the drawn box over to an ESTIMATED width (`charW`), and
             // an estimate a hair short would truncate every name on the plan.
             clipped,
+            // req #3695 — how much of a TITLE BAR this chip is (0..1): the
+            // band's folded fraction. Above 0, `w` is the bar's width — never
+            // less than the name's — and the renderer draws the box at it.
+            bar,
             // The renderer must draw at the size this was MEASURED at, or the
             // whole placement is decided against a box that does not exist.
             fontSize: EPIC_CHIP_FONT * scale,

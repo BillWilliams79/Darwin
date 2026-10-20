@@ -11,8 +11,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
-import { DndProvider } from 'react-dnd';
-import { TouchBackend } from 'react-dnd-touch-backend';
+import { DarwinDndContext } from '../../dnd';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -31,17 +30,16 @@ function mount(requirement) {
     roots.push(root);
     act(() => {
         root.render(
-            <DndProvider backend={TouchBackend} options={{ enableMouseEvents: true }}>
+            <DarwinDndContext>
                 <RequirementActionsContext.Provider value={{
                     statusClick: noop, coordinationClick: noop,
                     titleChange: noop, titleKeyDown: noop, titleOnBlur: noop,
-                    deleteClick: noop, sessionStatusMap: {}, sortMode: 'created',
-                    setCrossCardInsertIndex: noop, requirementsArray: [requirement],
+                    deleteClick: noop, sessionStatusMap: {}, requirementsArray: [requirement],
                     setRequirementsArray: noop,
                 }}>
                     <RequirementRow requirement={requirement} requirementIndex={0} />
                 </RequirementActionsContext.Provider>
-            </DndProvider>
+            </DarwinDndContext>
         );
     });
     return container;
