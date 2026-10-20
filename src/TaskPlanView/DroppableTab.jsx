@@ -1,27 +1,26 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useDrag, useDrop } from 'react-dnd';
-import { getEmptyImage } from 'react-dnd-html5-backend';
+import React, { useState, useRef, useCallback } from 'react';
+import { useDndContext } from '@dnd-kit/core';
 import Tab from '@mui/material/Tab';
 import InputBase from '@mui/material/InputBase';
 import { useDragTabStore } from '../stores/useDragTabStore';
+import { useDarwinDrag, useHoverSwitch, useLongPress, mergeHandlers, isHoverSwitch } from '../dnd';
+import { DOMAIN_TABS, planIds } from './planDnd';
 
-const DroppableTab = ({ domainIndex, domainId, domainName, setDomainInsertIndex, persistDomainOrder, renameDomain, ...tabProps }) => {
+// A domain tab (req #3662, on dnd-kit): it lifts and reorders along the strip,
+// it switches the page to its domain when a task or card hovers it for
+// TAB_HOVER_SWITCH_MS (reverted if that drag is cancelled), and a long press
+// renames it — firing WHILE HELD, on mouse and touch alike. A touch press lifts
+// the tab at LIFT_DELAY_MS; still held at LONG_PRESS_MS, the lift is abandoned
+// for the edit. Double-click still renames on desktop.
+const DroppableTab = ({ domainIndex, domainId, domain, domainName, isActiveTab, renameDomain, ...tabProps }) => {
 
     const onDragTabSwitch = useDragTabStore(s => s.onDragTabSwitch);
-
-    const hoverTimerRef = useRef(null);
-    const wasOverRef = useRef(false);
-    const firedRef = useRef(false);
-    const monitorRef = useRef(null);
-    const tabRef = useRef(null);
+    const { active } = useDndContext();
 
     // Inline editing state
     const [editing, setEditing] = useState(false);
     const [editValue, setEditValue] = useState(domainName);
     const editingRef = useRef(false);
-    const longPressTimerRef = useRef(null);
-
-    const [insertIndicator, setInsertIndicator] = useState(null); // 'left' | 'right' | null
 
     const enterEditMode = useCallback(() => {
         setEditValue(domainName);
@@ -42,124 +41,23 @@ const DroppableTab = ({ domainIndex, domainId, domainName, setDomainInsertIndex,
         exitEditMode();
     }, [editValue, domainName, renameDomain, domainId, exitEditMode]);
 
-    const [{ isDragging }, drag, preview] = useDrag(() => ({
-        type: 'domainTab',
-        canDrag: () => !editingRef.current,
-        item: () => {
-            const rect = tabRef.current?.getBoundingClientRect();
-            return {
-                domainIndex,
-                domainId,
-                domainName,
-                sourceWidth: rect?.width || 100,
-                sourceHeight: rect?.height || 48,
-            };
-        },
-        collect: (monitor) => ({
-            isDragging: !!monitor.isDragging(),
-        }),
-        end: (_item, monitor) => {
-            persistDomainOrder(monitor.didDrop(), _item.domainId);
-        },
-    }), [domainIndex, domainId, domainName, persistDomainOrder]);
+    const { ref, style, attributes, listeners, isDragging, isOver } = useDarwinDrag({
+        id: planIds.domain(domainId),
+        type: 'domain',
+        containerId: planIds.domains,
+        policy: DOMAIN_TABS,
+        row: domain,
+        disabled: editing,
+        sortsOutside: true,
+    });
 
-    // Suppress browser drag ghost — custom drag layer renders preview
-    useEffect(() => {
-        preview(getEmptyImage());
-    }, [preview]);
+    // A task or area card held over this tab switches the page to it.
+    const activeType = active?.data.current?.type;
+    const hoverSwitching = isOver && !isActiveTab
+        && isHoverSwitch({ policy: DOMAIN_TABS }, activeType);
+    useHoverSwitch({ hovering: hoverSwitching, onSwitch: () => onDragTabSwitch(domainIndex) });
 
-    const [{ isOverCurrent }, drop] = useDrop(() => ({
-        accept: ['taskPlan', 'areaCard', 'domainTab'],
-        canDrop: (item, monitor) => {
-            const type = monitor.getItemType();
-            return type === 'taskPlan' || type === 'domainTab';
-        },
-        drop: (item, monitor) => {
-            // Accept task drops to prevent browser snap-back animation.
-            // Returning {task: null} tells TaskEdit's end handler this is a cancel.
-            if (monitor.getItemType() === 'taskPlan') {
-                return { task: null };
-            }
-            if (monitor.getItemType() === 'domainTab') {
-                return { domainTab: true };
-            }
-        },
-        hover: (item, monitor) => {
-            const type = monitor.getItemType();
-
-            if (type === 'domainTab') {
-                if (item.domainId === domainId) {
-                    setInsertIndicator(null);
-                    return;
-                }
-
-                const clientOffset = monitor.getClientOffset();
-                if (!clientOffset || !tabRef.current) return;
-
-                const hoverRect = tabRef.current.getBoundingClientRect();
-                const hoverClientX = clientOffset.x - hoverRect.left;
-                const hoverMiddleX = (hoverRect.right - hoverRect.left) / 2;
-
-                if (hoverClientX < hoverMiddleX) {
-                    setInsertIndicator('left');
-                    setDomainInsertIndex(domainIndex);
-                } else {
-                    setInsertIndicator('right');
-                    setDomainInsertIndex(domainIndex + 1);
-                }
-                return;
-            }
-
-            // Task/area card hover — delayed tab switch
-            monitorRef.current = monitor;
-            // Once we've fired for this hover sequence, don't start new timers
-            if (firedRef.current) return;
-            if (hoverTimerRef.current !== null) return;
-            hoverTimerRef.current = setTimeout(() => {
-                hoverTimerRef.current = null;
-                // Only switch if still being hovered during an active drag
-                if (monitorRef.current?.isOver({ shallow: true })) {
-                    onDragTabSwitch(domainIndex);
-                    firedRef.current = true;
-                }
-            }, 500);
-        },
-        collect: (monitor) => ({
-            isOverCurrent: monitor.isOver({ shallow: true }),
-        }),
-    }), [domainIndex, domainId, onDragTabSwitch, setDomainInsertIndex]);
-
-    // Clear insert indicator when hover ends
-    useEffect(() => {
-        if (wasOverRef.current && !isOverCurrent) {
-            if (hoverTimerRef.current !== null) {
-                clearTimeout(hoverTimerRef.current);
-                hoverTimerRef.current = null;
-            }
-            firedRef.current = false;
-            setInsertIndicator(null);
-        }
-        wasOverRef.current = isOverCurrent;
-    }, [isOverCurrent]);
-
-    // Cleanup on unmount
-    useEffect(() => {
-        return () => {
-            if (hoverTimerRef.current !== null) {
-                clearTimeout(hoverTimerRef.current);
-            }
-            if (longPressTimerRef.current !== null) {
-                clearTimeout(longPressTimerRef.current);
-            }
-        };
-    }, []);
-
-    // Combine drag and drop refs
-    const combinedRef = useCallback((el) => {
-        tabRef.current = el;
-        drag(el);
-        drop(el);
-    }, [drag, drop]);
+    const longPress = useLongPress(enterEditMode, { enabled: !editing });
 
     // Double-click handler for desktop editing
     const handleDoubleClick = useCallback((e) => {
@@ -167,28 +65,6 @@ const DroppableTab = ({ domainIndex, domainId, domainName, setDomainInsertIndex,
         e.stopPropagation();
         enterEditMode();
     }, [enterEditMode]);
-
-    // Long-press handlers for mobile editing
-    const handleTouchStart = useCallback((e) => {
-        longPressTimerRef.current = setTimeout(() => {
-            longPressTimerRef.current = null;
-            enterEditMode();
-        }, 500);
-    }, [enterEditMode]);
-
-    const handleTouchEnd = useCallback(() => {
-        if (longPressTimerRef.current !== null) {
-            clearTimeout(longPressTimerRef.current);
-            longPressTimerRef.current = null;
-        }
-    }, []);
-
-    const handleTouchMove = useCallback((e) => {
-        if (longPressTimerRef.current !== null) {
-            clearTimeout(longPressTimerRef.current);
-            longPressTimerRef.current = null;
-        }
-    }, []);
 
     // Suppress context menu when editing (mobile long-press)
     const handleContextMenu = useCallback((e) => {
@@ -203,6 +79,7 @@ const DroppableTab = ({ domainIndex, domainId, domainName, setDomainInsertIndex,
             value={editValue}
             onChange={(e) => setEditValue(e.target.value)}
             onKeyDown={(e) => {
+                e.stopPropagation();
                 if (e.key === 'Enter') {
                     e.preventDefault();
                     saveAndExit();
@@ -225,35 +102,34 @@ const DroppableTab = ({ domainIndex, domainId, domainName, setDomainInsertIndex,
         />
     ) : domainName;
 
+    // MUI Tabs owns the tab's role/aria-selected/tabIndex; dnd-kit's sortable
+    // attributes would overwrite them, so only its description rides along.
+    const dndAria = { 'aria-roledescription': attributes['aria-roledescription'],
+                      'aria-describedby': attributes['aria-describedby'] };
+
     return (
         <Tab
-            ref={combinedRef}
+            ref={ref}
             data-testid={`domain-tab-${domainIndex}`}
             {...tabProps}
+            {...dndAria}
+            {...mergeHandlers(listeners, longPress)}
             label={tabLabel}
             onDoubleClick={handleDoubleClick}
-            onTouchStart={handleTouchStart}
-            onTouchEnd={handleTouchEnd}
-            onTouchMove={handleTouchMove}
             onContextMenu={handleContextMenu}
-            sx={{
-                ...tabProps.sx,
+            style={style}
+            sx={(theme) => ({
+                ...(typeof tabProps.sx === 'function' ? tabProps.sx(theme) : tabProps.sx),
+                touchAction: 'manipulation',
                 ...(isDragging && {
-                    width: 0,
-                    minWidth: 0,
-                    padding: 0,
-                    overflow: 'hidden',
-                    opacity: 0,
+                    opacity: 0.35,
                 }),
-                ...(insertIndicator === 'left' && {
-                    borderLeft: '3px solid',
-                    borderLeftColor: 'primary.main',
+                // Hover-switch countdown: the tab tints while a dragged task or
+                // card waits on it, so the switch is expected, not a surprise.
+                ...(hoverSwitching && {
+                    backgroundColor: theme.palette.action.selected,
                 }),
-                ...(insertIndicator === 'right' && {
-                    borderRight: '3px solid',
-                    borderRightColor: 'primary.main',
-                }),
-            }}
+            })}
         />
     );
 };

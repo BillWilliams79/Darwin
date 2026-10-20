@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { getIdToken, apiCall, apiDelete, uniqueName } from '../helpers/api';
-import { dragAndDrop } from '../helpers/react-dnd-drag';
+import { dndKitDrag } from '../helpers/dnd-kit-drag';
 
 test.describe.serial('Area Management P1', () => {
   let idToken: string;
@@ -205,7 +205,7 @@ test.describe.serial('Area Management P1', () => {
     await expect(areaCard).not.toBeVisible({ timeout: 5000 });
   });
 
-  test('AREA-06: DnD area cross-domain on TaskPlanView (react-dnd)', async ({ page }) => {
+  test('AREA-06: DnD area cross-domain on TaskPlanView (dnd-kit)', async ({ page }) => {
     const sub = process.env.E2E_TEST_COGNITO_SUB!;
 
     // Create a second domain to drop the area onto
@@ -250,112 +250,25 @@ test.describe.serial('Area Management P1', () => {
       const targetTab = page.getByRole('tab', { name: domain2Name });
       await expect(targetTab).toBeVisible({ timeout: 5000 });
 
-      // Cross-domain DnD requires a multi-step sequence:
-      // 1. dragstart on source card
-      // 2. dragenter + dragover on target domain tab (hover 500ms+ to trigger tab switch)
-      // 3. Wait for tab switch, then hover on the target panel
-      // 4. drop on the target panel
-      //
-      // Ensure elements are scrolled into view before getting coordinates
+      // Lift the card, hold it over the other domain's tab until the page
+      // switches to it (TAB_HOVER_SWITCH_MS), then carry it onto that domain's
+      // card and release. One drag, no synthetic events, no API fallback.
       await sourceCard.scrollIntoViewIfNeeded();
       await targetTab.scrollIntoViewIfNeeded();
-      await page.waitForTimeout(500);
-
-      const sourceBox = await sourceCard.boundingBox();
-      const targetTabBox = await targetTab.boundingBox();
-
-      if (!sourceBox || !targetTabBox) throw new Error('Cannot get bounding boxes');
-
-      const src = { x: sourceBox.x + sourceBox.width / 2, y: sourceBox.y + sourceBox.height / 2 };
-      const tabTarget = { x: targetTabBox.x + targetTabBox.width / 2, y: targetTabBox.y + targetTabBox.height / 2 };
-
-      await page.evaluate(
-        async ({ src, tabTarget }) => {
-          const dataTransfer = new DataTransfer();
-
-          function fire(el: Element, type: string, x: number, y: number) {
-            el.dispatchEvent(new DragEvent(type, {
-              bubbles: true, cancelable: true, dataTransfer, clientX: x, clientY: y,
-            }));
-          }
-
-          const sourceEl = document.elementFromPoint(src.x, src.y);
-          const tabEl = document.elementFromPoint(tabTarget.x, tabTarget.y);
-          if (!sourceEl || !tabEl) throw new Error('Elements not found');
-
-          // Step 1: Start drag
-          fire(sourceEl, 'dragstart', src.x, src.y);
-
-          // Step 2: Hover over target tab for 700ms to trigger tab switch
-          fire(tabEl, 'dragenter', tabTarget.x, tabTarget.y);
-          for (let i = 0; i < 8; i++) {
-            fire(tabEl, 'dragover', tabTarget.x, tabTarget.y);
-            await new Promise(r => setTimeout(r, 100));
-          }
-
-          // Step 3: Wait for the tab panel to appear
-          await new Promise(r => setTimeout(r, 500));
-
-          // Step 4: Find the visible tab panel and drop on it
-          const panels = document.querySelectorAll('[role="tabpanel"]');
-          let targetPanel: Element | null = null;
-          for (const p of panels) {
-            if (p.getAttribute('hidden') === null || p.getAttribute('hidden') === '') {
-              // Visible panel
-              const rect = p.getBoundingClientRect();
-              if (rect.height > 0) {
-                targetPanel = p;
-                break;
-              }
-            }
-          }
-
-          if (targetPanel) {
-            const panelRect = targetPanel.getBoundingClientRect();
-            const px = panelRect.x + panelRect.width / 2;
-            const py = panelRect.y + panelRect.height / 2;
-
-            fire(targetPanel, 'dragenter', px, py);
-            for (let i = 0; i < 5; i++) {
-              fire(targetPanel, 'dragover', px, py);
-              await new Promise(r => setTimeout(r, 50));
-            }
-            fire(targetPanel, 'drop', px, py);
-          } else {
-            // Fallback: drop on the tab itself
-            fire(tabEl, 'drop', tabTarget.x, tabTarget.y);
-          }
-
-          fire(sourceEl, 'dragend', src.x, src.y);
-        },
-        { src, tabTarget },
+      const areaPut = page.waitForResponse(
+        res => res.request().method() === 'PUT' && res.url().includes('/areas'),
+        { timeout: 10000 },
       );
+      await dndKitDrag(page, sourceCard, targetTab, {
+        grab: 'upper',
+        holdOverTargetMs: 900,
+        then: page.getByTestId(`area-card-${area2Id}`),
+      });
+      await areaPut;
 
-      // Wait for the API call and re-render
-      await page.waitForTimeout(3000);
-
-      // Switch to the target domain tab to verify the area appeared there
-      await page.getByRole('tab', { name: domain2Name }).click();
-      await page.waitForTimeout(1500);
-
-      // Verify the area is now visible in the target domain's tab panel
-      // (may need reload since the drag state may not have fully propagated)
-      // First check without reload
-      let movedCard = page.getByTestId(`area-card-${areaId}`);
-      let isVisible = await movedCard.isVisible().catch(() => false);
-
-      if (!isVisible) {
-        // DnD may not have fully worked via synthetic events — verify via API
-        // Update domain_fk directly to simulate the cross-domain move
-        // This validates the end-to-end flow: API update + UI reflection
-        await apiCall('areas', 'PUT', [{ id: areaId, domain_fk: domain2Id }], idToken);
-        await page.reload();
-        await page.waitForSelector('[role="tab"]', { timeout: 10000 });
-        await page.getByRole('tab', { name: domain2Name }).click();
-        await page.waitForTimeout(1500);
-        movedCard = page.getByTestId(`area-card-${areaId}`);
-      }
-
+      // The page stays on the domain the card was carried to.
+      const movedCard = page.getByTestId(`area-card-${areaId}`);
+      await expect(page.getByRole('tab', { name: domain2Name })).toHaveAttribute('aria-selected', 'true');
       await expect(movedCard).toBeVisible({ timeout: 5000 });
 
       // Verify persists after reload

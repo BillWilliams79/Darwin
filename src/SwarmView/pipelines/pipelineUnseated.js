@@ -60,9 +60,9 @@ export function unseatedBoxFontPx(k) {
 
 /** The box's narrowest width, in em of its own type: room for the whole title
  *  bar — the count badge, "Orchestrables" and the −/+ — and an id plus a slice
- *  of title. Under the base card's own 18.6em, so at Step Width 4 and up it
- *  binds only once the type is held at its 9px floor; a Step Width 3 card
- *  (0.75x, ~14em, req #3648) is narrower than the title bar itself, so there
+ *  of title. Under the base card's own ~21.4em (req #3693's narrower requirement
+ *  type), so at Step Width 4 and up it binds only once the type is held at its
+ *  9px floor; a Step Width 3 card (0.75x, ~16.4em, req #3648) is narrower than the title bar itself, so there
  *  the box is held at this width rather than mirroring the card. */
 export const UNSEATED_MIN_WIDTH_EM = 18;
 

@@ -1,9 +1,9 @@
 // eslint-disable-next-line no-unused-vars
 import varDump from '../classifier/classifier';
 
-import React, { useState, useEffect, useContext, useRef, useCallback} from 'react'
+import React, { useState, useEffect, useContext, useRef, useCallback, useMemo} from 'react'
 import { useQueryClient } from '@tanstack/react-query';
-import TaskEdit from '../Components/TaskEdit/TaskEdit';
+import TaskEdit, { SortableTaskEdit } from '../Components/TaskEdit/TaskEdit';
 import TaskDeleteDialog from '../Components/TaskDeleteDialog/TaskDeleteDialog';
 import call_rest_api from '../RestApi/RestApi';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
@@ -14,12 +14,13 @@ import { taskGroupRank, closedTaskSort, isOrderableTask, isClosedHistory,
          clearClosedHistory, buildClosedRows, mergeClosedRows } from './closedTasks';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
-import { useDragTabStore } from '../stores/useDragTabStore';
-import { TaskActionsContext } from '../hooks/useTaskActions';
+import { TaskActionsContext, useStableTaskActions } from '../hooks/useTaskActions';
+import { DarwinSortableList, useDarwinDrag, useDarwinDropZone, isLiftBlur } from '../dnd';
+import { AREA_CARDS, AREA_TASKS, planIds, usePlanDragStore, usePlanSession, useRegisterPlanList } from './planDnd';
+import { withPlacement } from './planMoves';
 
 import AuthContext from '../Context/AuthContext'
 import AppContext from '../Context/AppContext';
-import { useDrop, useDrag } from "react-dnd";
 
 import Box from '@mui/material/Box';
 import TextField from '@mui/material/TextField';
@@ -41,9 +42,7 @@ import { CircularProgress } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 
 
-const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlur, clickCardClosed, clickCardDelete, moveCard, persistAreaOrder, removeArea, isTemplate, autoFocusTemplate, clearAutoFocusTemplate, domainActive = true }) => {
-
-    const revertDragTabSwitch = useDragTabStore(s => s.revertDragTabSwitch);
+const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlur, clickCardClosed, clickCardDelete, isTemplate, autoFocusTemplate, clearAutoFocusTemplate, domainActive = true }) => {
 
     // Task card is the list of tasks per area displayed in a card.
     const { idToken, profile } = useContext(AuthContext);
@@ -180,12 +179,6 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
     const handleMenuOpen = (event) => setMenuAnchorEl(event.currentTarget);
     const handleMenuClose = () => setMenuAnchorEl(null);
 
-    // Tracks where a task should be inserted during hand-sort drag (set by TaskEdit hover)
-    const crossCardInsertIndexRef = useRef(null);
-    const setCrossCardInsertIndex = useCallback((index) => {
-        crossCardInsertIndexRef.current = index;
-    }, []);
-
     const showError = useSnackBarStore(s => s.showError);
 
     const taskDelete = useConfirmDialog({
@@ -210,201 +203,61 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
         }
     });
 
-    const [{ isOver }, drop] = useDrop(() => ({
-
-        accept: ["taskPlan", "areaCard"],
-
-        drop: (item, monitor) => {
-            if (monitor.getItemType() === "taskPlan") {
-                return addTaskToArea(item);
-            }
-            // Cross-domain adopted area card
-            if (item.sourceDomainId && item.sourceDomainId !== domainId) {
-                return { crossDomain: true };
-            }
-            // Same-domain areaCard drops are handled via hover + drag end
-        },
-
-        hover: (item, monitor) => {
-            if (monitor.getItemType() !== "areaCard") return;
-            if (item.domainId !== domainId) return;
-            if (isTemplate) return;
-            const dragIndex = item.areaIndex;
-            const hoverIndex = areaIndex;
-            if (dragIndex === hoverIndex) {
-                item.settled = true;
-                return;
-            }
-
-            if (item.movePending) return;
-
-            if (item.settled === false) return;
-
-            moveCard(dragIndex, hoverIndex);
-            item.areaIndex = hoverIndex;
-            item.settled = false;
-
-            // Short cooldown prevents cascading swaps when the cursor moves through
-            // multiple cards in quick succession. Tightened 150ms→90ms (req #1923) so
-            // the card-switch path feels more responsive while still suppressing thrash.
-            item.movePending = true;
-            setTimeout(() => {
-                item.movePending = false;
-            }, 90);
-        },
-
-        collect: (monitor) => ({
-            isOver: monitor.isOver() && monitor.getItemType() === "areaCard",
-        }),
-
-    }), [tasksArray, areaIndex, domainId, isTemplate, moveCard]);
-
-    const [{ isDragging }, drag] = useDrag(() => ({
-        type: "areaCard",
-        item: () => ({ areaId: area.id, areaIndex, domainId, areaData: { ...area } }),
-        canDrag: () => !isTemplate,
-        collect: (monitor) => ({
-            isDragging: monitor.isDragging(),
-        }),
-        end: (item, monitor) => {
-            const dropResult = monitor.getDropResult();
-            if (dropResult && dropResult.crossDomain) {
-                if (item.persistInTarget) item.persistInTarget();
-                removeArea(item.areaId);
-            } else {
-                if (item.removeFromTarget) item.removeFromTarget();
-                persistAreaOrder(monitor.didDrop());
-                revertDragTabSwitch();
-            }
-        },
-    }), [area, areaIndex, domainId, isTemplate, persistAreaOrder, removeArea, revertDragTabSwitch]);
+    // --- Drag and drop (req #3662) ---
+    // The card lifts as a whole (anywhere on it — a press on one of its task
+    // rows lifts that row instead) and is a position in its domain's grid. Its
+    // task list is a drop zone: hand-sorted, it honours a position and its rows
+    // slide aside; priority-sorted, it highlights and a drop appends. Every
+    // drop is resolved by the page (usePlanDnd) against this registration.
+    // The template card (one per domain, id '') is neither draggable nor a
+    // drop zone, but its hooks still register — under ids no other domain's
+    // template shares.
+    const tasksListId = isTemplate ? `tasks-template:${domainId}` : planIds.tasks(area.id);
+    const cardDrag = useDarwinDrag({
+        id: isTemplate ? `area-template:${domainId}` : planIds.area(area.id),
+        type: 'area',
+        containerId: planIds.areas(domainId),
+        policy: AREA_CARDS,
+        row: area,
+        // A hidden domain's cards take no part in a drag: dnd-kit measures and
+        // collides only ENABLED zones, so they cost nothing until a hover-switch
+        // shows their domain and switches them on.
+        disabled: isTemplate || !domainActive,
+        sortsOutside: true,
+    });
+    const { setNodeRef: tasksDropRef } = useDarwinDropZone({
+        id: tasksListId, policy: AREA_TASKS, sortMode, disabled: isTemplate || !domainActive,
+    });
+    useRegisterPlanList(isTemplate ? null : tasksListId, {
+        getItems: () => tasksArray || [],
+        setItems: setTasksArray,
+        ready: !!tasksArray,
+        sortMode,
+        areaId: area.id,
+        sortRows: (rows) => [...rows].sort((a, b) => activeSort(a, b)),
+    });
+    const { active: dragActive, placement } = usePlanSession(tasksListId);
+    const highlighted = usePlanDragStore(s => s.highlight === tasksListId);
+    const renderedTasks = withPlacement(tasksArray, tasksListId,
+        { active: dragActive, placement }, AREA_TASKS.isTarget);
+    const sortableTaskIds = (renderedTasks || [])
+        .filter(AREA_TASKS.isTarget)
+        .map(task => planIds.task(task.id));
 
     const cardRef = useRef(null);
     const mergedRef = useCallback((node) => {
         cardRef.current = node;
-        drag(drop(node));
-    }, [drag, drop]);
-
-    const addTaskToArea = (task) => {
-
-        // Read insert index FIRST (before any early returns clear it)
-        const insertIndex = crossCardInsertIndexRef.current;
-        crossCardInsertIndexRef.current = null;
-
-        // STEP 1: if we are dropping back to the same card, handle same-card reorder
-        let matchTask = tasksArray.find( arrayTask => arrayTask.id === task.id)
-
-        if (matchTask !== undefined) {
-            // Same-card drop: reorder if hand-sorted with a valid insertion point
-            if (sortMode === 'hand' && insertIndex !== null) {
-                const draggedIdx = tasksArray.findIndex(t => t.id === task.id);
-                if (draggedIdx === -1) return { task: null };
-
-                // Short-circuit if dropped in same position
-                const adjustedIndex = insertIndex > draggedIdx ? insertIndex - 1 : insertIndex;
-                if (adjustedIndex === draggedIdx) return { task: null };
-
-                const updated = [...tasksArray];
-                const [moved] = updated.splice(draggedIdx, 1);
-                updated.splice(adjustedIndex, 0, moved);
-
-                // Renumber sort_orders and bulk PUT. `isOrderableTask` skips the
-                // template row and — since req #3506 — any closed row parked at
-                // the bottom of the card: a closed task's stored position is
-                // history and must survive a live reorder above it.
-                const bulkUpdate = [];
-                updated.forEach((t, idx) => {
-                    if (isOrderableTask(t)) {
-                        t.sort_order = idx;
-                        bulkUpdate.push({ id: t.id, sort_order: idx });
-                    }
-                });
-
-                let taskUri = `${darwinUri}/tasks`;
-                call_rest_api(taskUri, 'PUT', bulkUpdate, idToken)
-                    .then(result => {
-                        if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
-                            showError(result, 'Unable to save task sort order');
-                        }
-                    }).catch(error => {
-                        showError(error, 'Unable to save task sort order');
-                    });
-
-                setTasksArray(updated);
-            }
-            // Return task: null so drag source's end handler knows this was same-card
-            return { task: null };
-        }
-
-        // STEP 2: is a drop to a new card, update task with new data via API
-        let taskUri = `${darwinUri}/tasks`;
-
-        if (sortMode === 'hand' && insertIndex !== null) {
-            // Hand-sorted target: insert at the tracked position.
-            // `isOrderableTask` keeps closed rows (req #3506) out of the
-            // renumbering entirely — they are re-appended below, unchanged.
-            const realTasks = tasksArray.filter(isOrderableTask);
-            const template = tasksArray.find(t => t.id === '');
-            const closedRows = tasksArray.filter(isClosedHistory);
-            const clampedIndex = Math.min(insertIndex, realTasks.length);
-            realTasks.splice(clampedIndex, 0, {...task, area_fk: parseInt(area.id)});
-
-            // Renumber sort_orders and build bulk update
-            const bulkUpdate = realTasks.map((t, idx) => {
-                t.sort_order = idx;
-                const update = { id: t.id, sort_order: idx };
-                if (t.id === task.id) update.area_fk = parseInt(area.id);
-                return update;
-            });
-
-            call_rest_api(taskUri, 'PUT', bulkUpdate, idToken)
-                .then(result => {
-                    if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
-                        showError(result, "Unable to save task order");
-                    }
-                }).catch(error => {
-                    showError(error, "Unable to save task order");
-                });
-
-            const final = [...realTasks];
-            if (template) final.push(template);
-            final.push(...closedRows);
-            setTasksArray(final);
-        } else {
-            // Priority-sorted target or no specific position: append to bottom
-            // Optimistic UI: update immediately, roll back on failure
-            const maxSortOrder = Math.max(0, ...tasksArray.filter(isOrderableTask).map(t => t.sort_order ?? 0));
-            const newSortOrder = maxSortOrder + 1;
-
-            var newTasksArray = [...tasksArray];
-            task.sort_order = newSortOrder;
-            task.area_fk = parseInt(area.id);
-            newTasksArray.push(task);
-            newTasksArray.sort((taskA, taskB) => activeSort(taskA, taskB));
-            setTasksArray(newTasksArray);
-
-            call_rest_api(taskUri, 'PUT', [{'id': task.id, 'area_fk': area.id, 'sort_order': newSortOrder }], idToken)
-                .then(result => {
-                    if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
-                        // Roll back optimistic update
-                        setTasksArray(prev => prev.filter(t => t.id !== task.id));
-                        showError(result, "Unable to change task's area");
-                    }
-                }).catch(error => {
-                    setTasksArray(prev => prev.filter(t => t.id !== task.id));
-                    showError(error, "Unable to change task's area");
-                });
-        }
-
-        // Return synchronously so drag source's end handler knows this was a real drop
-        return {task: task.id};
-    };
+        cardDrag.ref(node);
+        tasksDropRef(node);
+    }, [cardDrag.ref, tasksDropRef]);
 
     const priorityClick = (taskIndex, taskId) => {
 
-        // invert priority, resort task array for the card, update state.
+        // invert priority, resort task array for the card, update state. A new
+        // row object, never an in-place edit: rows are memoized on identity
+        // (req #3662) and may be the query cache's own objects.
         let newTasksArray = [...tasksArray]
-        newTasksArray[taskIndex].priority = newTasksArray[taskIndex].priority ? 0 : 1;
+        newTasksArray[taskIndex] = { ...newTasksArray[taskIndex], priority: newTasksArray[taskIndex].priority ? 0 : 1 };
 
         // for tasks already in the db, update db
         if (taskId !== '') {
@@ -438,9 +291,9 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
 
     const doneClick = (taskIndex, taskId) => {
 
-        // invert done, update state
+        // invert done, update state (a new row object — see priorityClick)
         let newTasksArray = [...tasksArray]
-        newTasksArray[taskIndex].done = newTasksArray[taskIndex].done ? 0 : 1;
+        newTasksArray[taskIndex] = { ...newTasksArray[taskIndex], done: newTasksArray[taskIndex].done ? 0 : 1 };
 
         // Read the new value BEFORE any re-sort below — everything after this
         // point uses `nextDone` rather than re-reading `newTasksArray[taskIndex]`,
@@ -633,115 +486,148 @@ const TaskCard = ({area, areaIndex, domainId, areaChange, areaKeyDown, areaOnBlu
     }
 
 
+    // The card's header (the area-name field, the menu) is memoized for the
+    // same reason as the rows: the card re-renders on every pointer move of a
+    // drag, and an auto-sizing text field measures its layout each time it does.
+    const header = useMemo(() => (
+        <Box className="card-header" sx={{marginBottom: 2}}>
+            <TextField  /*variant={area.id === '' ? "outlined" : "standard"}*/
+                        variant="standard"
+                        value={area.area_name || ''}
+                        name='area-name'
+                        placeholder={area.id === '' ? 'Add new area' : undefined}
+                        onChange= { (event) => areaChange(event, areaIndex) }
+                        onKeyDown = {(event) => areaKeyDown(event, areaIndex, area.id)}
+                        onBlur = {(event) => { if (!isLiftBlur(event)) areaOnBlur(event, areaIndex, area.id); }}
+                        multiline
+                        autoComplete='off'
+                        size = 'small'
+                        slotProps={{
+                            input: {...((area.id !== '') ? {disableUnderline: true} : (area.area_name !== '') && {disableUnderline: true} ), style: {fontSize: 24}},
+                            htmlInput: { maxLength: 32 }
+                        }}
+                        key={`area-${area.id}`}
+             />
+            {area.id !== '' && (
+                <>
+                    <IconButton
+                        onClick={handleMenuOpen}
+                        aria-label="Area card menu"
+                        data-testid={`card-menu-${area.id}`}
+                        size="small"
+                        sx={{ maxWidth: "25px", maxHeight: "25px" }}
+                    >
+                        <MoreVertIcon />
+                    </IconButton>
+                    <Menu
+                        anchorEl={menuAnchorEl}
+                        open={menuOpen}
+                        onClose={handleMenuClose}
+                        data-testid={`card-menu-popup-${area.id}`}
+                        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+                    >
+                        <MenuItem
+                            onClick={(event) => { handleMenuClose(); changeSortMode(event, 'priority'); }}
+                            data-testid={`sort-priority-${area.id}`}
+                        >
+                            <ListItemIcon><FlagIcon fontSize="small" /></ListItemIcon>
+                            <ListItemText>Priority Sort</ListItemText>
+                            {sortMode === 'priority' && <Check fontSize="small" sx={{ ml: 1 }} />}
+                        </MenuItem>
+                        <MenuItem
+                            onClick={(event) => { handleMenuClose(); changeSortMode(event, 'hand'); }}
+                            data-testid={`sort-hand-${area.id}`}
+                        >
+                            <ListItemIcon><SwapVertIcon fontSize="small" /></ListItemIcon>
+                            <ListItemText>Hand Sort</ListItemText>
+                            {sortMode === 'hand' && <Check fontSize="small" sx={{ ml: 1 }} />}
+                        </MenuItem>
+                        <Divider />
+                        <MenuItem
+                            onClick={(event) => { handleMenuClose(); clickCardClosed(event, area.area_name, area.id); }}
+                            data-testid={`menu-close-area-${area.id}`}
+                        >
+                            <ListItemIcon><CloseIcon fontSize="small" /></ListItemIcon>
+                            <ListItemText>Close Area</ListItemText>
+                        </MenuItem>
+                        <Divider />
+                        <MenuItem
+                            onClick={(event) => {
+                                handleMenuClose();
+                                // Open tasks only — the delete warning is about work
+                                // that would be lost, not about closed history the
+                                // "Closed" option happens to be showing (req #3506).
+                                const taskCount = tasksArray ? tasksArray.filter(isOrderableTask).length : 0;
+                                clickCardDelete(event, area.area_name, area.id, taskCount);
+                            }}
+                            data-testid={`menu-delete-area-${area.id}`}
+                            sx={{ color: 'error.main' }}
+                        >
+                            <ListItemIcon><DeleteForeverIcon fontSize="small" sx={{ color: 'error.main' }} /></ListItemIcon>
+                            <ListItemText>Delete Area</ListItemText>
+                        </MenuItem>
+                    </Menu>
+                </>
+            )}
+        </Box>
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    ), [area, areaIndex, sortMode, menuAnchorEl, tasksArray, areaChange, areaKeyDown, areaOnBlur,
+        clickCardClosed, clickCardDelete]);
+
+    // Rows re-render when the data changes, not on every pointer move (req #3662).
+    const taskActions = useStableTaskActions({ priorityClick, doneClick, descriptionChange,
+        descriptionKeyDown, descriptionOnBlur, deleteClick, tasksArray, setTasksArray, sortMode });
+
     return (
-        <Card key={areaIndex} raised={true} ref={mergedRef}
+        <Card raised={true} ref={mergedRef}
               data-testid={area.id === '' ? 'area-card-template' : `area-card-${area.id}`}
+              data-dragging={cardDrag.isDragging ? 'true' : undefined}
+              data-drop-highlight={highlighted ? 'true' : undefined}
+              {...(isTemplate ? {} : { ...cardDrag.attributes, ...cardDrag.listeners })}
+              style={cardDrag.style}
               sx={(theme) => ({
                   // Animate the drag/drop visual states so the card lifts, dims and
                   // highlights smoothly instead of snapping (req #1923).
                   transition: 'opacity 160ms ease, border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease',
-                  opacity: isDragging ? 0.3 : area._isAdopted ? 0.5 : 1,
                   cursor: isTemplate ? 'default' : 'grab',
                   border: '2px solid',
-                  borderColor: isOver && !isDragging ? 'primary.main' : 'transparent',
-                  // Drop-target affordance: tint + lift so the destination card is
-                  // unmistakable while a card is dragged over it.
-                  ...(isOver && !isDragging && {
+                  borderColor: highlighted ? 'primary.main' : 'transparent',
+                  '&:focus-visible': { outline: `2px solid ${theme.palette.primary.main}`, outlineOffset: 2 },
+                  // The slot a lifted card leaves: tinted, so the grid shows
+                  // where it will land as its neighbours slide aside.
+                  ...(cardDrag.isDragging && {
+                      backgroundColor: alpha(theme.palette.primary.main, 0.08),
+                      borderColor: alpha(theme.palette.primary.main, 0.45),
+                      borderStyle: 'dashed',
+                      boxShadow: 'none',
+                      '& > *': { opacity: 0.3 },
+                  }),
+                  // Drop-target affordance: tint + lift so a card taking a task
+                  // as a whole is unmistakable while the task hovers it.
+                  ...(highlighted && {
                       backgroundColor: alpha(theme.palette.primary.main, 0.06),
                       boxShadow: `0 6px 18px ${alpha(theme.palette.primary.main, 0.35)}`,
                   }),
               })}>
             <CardContent>
-                <Box className="card-header" sx={{marginBottom: 2}}>
-                    <TextField  /*variant={area.id === '' ? "outlined" : "standard"}*/
-                                variant="standard"
-                                value={area.area_name || ''}
-                                name='area-name'
-                                placeholder={area.id === '' ? 'Add new area' : undefined}
-                                onChange= { (event) => areaChange(event, areaIndex) }
-                                onKeyDown = {(event) => areaKeyDown(event, areaIndex, area.id)}
-                                onBlur = {(event) => areaOnBlur(event, areaIndex, area.id)}
-                                multiline
-                                autoComplete='off'
-                                size = 'small'
-                                slotProps={{
-                                    input: {...((area.id !== '') ? {disableUnderline: true} : (area.area_name !== '') && {disableUnderline: true} ), style: {fontSize: 24}},
-                                    htmlInput: { maxLength: 32 }
-                                }}
-                                key={`area-${area.id}`}
-                     />
-                    {area.id !== '' && (
-                        <>
-                            <IconButton
-                                onClick={handleMenuOpen}
-                                aria-label="Area card menu"
-                                data-testid={`card-menu-${area.id}`}
-                                size="small"
-                                sx={{ maxWidth: "25px", maxHeight: "25px" }}
-                            >
-                                <MoreVertIcon />
-                            </IconButton>
-                            <Menu
-                                anchorEl={menuAnchorEl}
-                                open={menuOpen}
-                                onClose={handleMenuClose}
-                                data-testid={`card-menu-popup-${area.id}`}
-                                anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-                                transformOrigin={{ vertical: 'top', horizontal: 'right' }}
-                            >
-                                <MenuItem
-                                    onClick={(event) => { handleMenuClose(); changeSortMode(event, 'priority'); }}
-                                    data-testid={`sort-priority-${area.id}`}
-                                >
-                                    <ListItemIcon><FlagIcon fontSize="small" /></ListItemIcon>
-                                    <ListItemText>Priority Sort</ListItemText>
-                                    {sortMode === 'priority' && <Check fontSize="small" sx={{ ml: 1 }} />}
-                                </MenuItem>
-                                <MenuItem
-                                    onClick={(event) => { handleMenuClose(); changeSortMode(event, 'hand'); }}
-                                    data-testid={`sort-hand-${area.id}`}
-                                >
-                                    <ListItemIcon><SwapVertIcon fontSize="small" /></ListItemIcon>
-                                    <ListItemText>Hand Sort</ListItemText>
-                                    {sortMode === 'hand' && <Check fontSize="small" sx={{ ml: 1 }} />}
-                                </MenuItem>
-                                <Divider />
-                                <MenuItem
-                                    onClick={(event) => { handleMenuClose(); clickCardClosed(event, area.area_name, area.id); }}
-                                    data-testid={`menu-close-area-${area.id}`}
-                                >
-                                    <ListItemIcon><CloseIcon fontSize="small" /></ListItemIcon>
-                                    <ListItemText>Close Area</ListItemText>
-                                </MenuItem>
-                                <Divider />
-                                <MenuItem
-                                    onClick={(event) => {
-                                        handleMenuClose();
-                                        // Open tasks only — the delete warning is about work
-                                        // that would be lost, not about closed history the
-                                        // "Closed" option happens to be showing (req #3506).
-                                        const taskCount = tasksArray ? tasksArray.filter(isOrderableTask).length : 0;
-                                        clickCardDelete(event, area.area_name, area.id, taskCount);
-                                    }}
-                                    data-testid={`menu-delete-area-${area.id}`}
-                                    sx={{ color: 'error.main' }}
-                                >
-                                    <ListItemIcon><DeleteForeverIcon fontSize="small" sx={{ color: 'error.main' }} /></ListItemIcon>
-                                    <ListItemText>Delete Area</ListItemText>
-                                </MenuItem>
-                            </Menu>
-                        </>
-                    )}
-                </Box>
+                {header}
                 { (tasksArray) ?
-                    <TaskActionsContext.Provider value={{ priorityClick, doneClick, descriptionChange,
-                        descriptionKeyDown, descriptionOnBlur, deleteClick, tasksArray, setTasksArray,
-                        sortMode, setCrossCardInsertIndex }}>
-                        {tasksArray.map((task, taskIndex) => (
-                            <TaskEdit key={task.id} {...{supportDrag: !isClosedHistory(task), task, taskIndex,
-                                areaId: area.id, areaName: area.area_name }}
-                            />
-                        ))}
+                    <TaskActionsContext.Provider value={taskActions}>
+                        <DarwinSortableList id={tasksListId} items={sortableTaskIds}
+                                            policy={AREA_TASKS} sortMode={sortMode}>
+                        {renderedTasks.map((task) => {
+                            // Handlers address rows by their index in tasksArray;
+                            // a task carried in from another card mid-drag has none.
+                            const rowProps = { task, taskIndex: tasksArray.indexOf(task),
+                                areaId: area.id, areaName: area.area_name };
+                            return AREA_TASKS.isTarget(task)
+                                ? <SortableTaskEdit key={task.id} {...rowProps} drag={{
+                                      id: planIds.task(task.id), type: 'task', disabled: !domainActive,
+                                      containerId: tasksListId, policy: AREA_TASKS, sortMode }} />
+                                : <TaskEdit key={task.id} {...rowProps} />;
+                        })}
+                        </DarwinSortableList>
                     </TaskActionsContext.Provider>
                   :
                     area.id  === '' ? '' : <CircularProgress/>

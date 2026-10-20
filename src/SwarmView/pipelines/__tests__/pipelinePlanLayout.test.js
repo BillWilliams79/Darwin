@@ -40,6 +40,7 @@ import {
     CARD_TEXT_CHARS, CARD_SEP_CHARS, REQ_SEP_PULL, CARD_CHECK_W,
     REQ_MAX_LINES, wrapReqText, REQ_ROW_GAP, reqBlockHeight, REQ_TEXT_H,
     CHW_LABEL, CHW_REQ, CHW_TITLE, CARD_TYPE_SCALE, NAME_MAX_LINES,
+    CHW_CARD, REQ_TITLE_WIDEN, CARD_REQ_CHARS, REQ_LINE_H,
     cardHeight, cardTitleH, cardChars, MIN_CARD_H,
     PLAN_PALETTES, PLAN_PALETTE_KEYS, DEFAULT_PLAN_PALETTE, planPalette,
     isPlanPalette,
@@ -815,7 +816,10 @@ describe('the card is a fixed, uniform box (req #3498)', () => {
         // forced it (on-screen type is viewport / (columns x chars-per-line),
         // and the world font cancels). The title budget is DERIVED from it now.
         expect(CARD_TEXT_CHARS).toBe(28);
-        expect(CARD_TITLE_CHARS).toBe(CARD_TEXT_CHARS - CARD_ID_CHARS - CARD_SEP_CHARS);
+        // req #3693 — the requirement row's glyph is `REQ_TITLE_WIDEN` narrower,
+        // so the same column carries that many times the characters.
+        expect(CARD_REQ_CHARS).toBe(Math.floor(CARD_TEXT_CHARS * REQ_TITLE_WIDEN));
+        expect(CARD_TITLE_CHARS).toBe(CARD_REQ_CHARS - CARD_ID_CHARS - CARD_SEP_CHARS);
         // The prefix is what `reqLabelText` actually writes — a bare 4-digit id
         // and the two-character blank gap (req #3683 — three until the gap was
         // halved; the renderer pulls the title half a character further, see
@@ -832,11 +836,13 @@ describe('the card is a fixed, uniform box (req #3498)', () => {
         // requirement row's own glyph width — `cardChars` is the function the
         // layout truncates with, so a padding change that quietly ate the
         // budget fails here rather than showing up as a shorter title.
-        expect(cardChars(CHW_REQ)).toBe(CARD_TEXT_CHARS);
+        expect(cardChars(CHW_CARD)).toBe(CARD_TEXT_CHARS);
+        expect(cardChars(CHW_REQ)).toBe(CARD_REQ_CHARS);
         // Every card metric moves by ONE factor — a half-applied type scale is
         // what this pins, not the value 1.4 itself.
-        expect(CHW_REQ / CHW_LABEL).toBeCloseTo(8.4 / 10.05, 9);
-        expect(CHW_TITLE / CHW_REQ).toBeCloseTo(5.8 / 8.4, 9);
+        expect(CHW_CARD / CHW_LABEL).toBeCloseTo(8.4 / 10.05, 9);
+        expect(CHW_TITLE / CHW_CARD).toBeCloseTo(5.8 / 8.4, 9);
+        expect(CHW_REQ).toBeCloseTo(CHW_CARD / REQ_TITLE_WIDEN, 9);
         // The text column is the FRAME's, not the node box's: the state bar
         // stands outside the frame (user directive, 2026-08-13) and the box
         // spans both, so the bar costs the card width rather than the text.
@@ -1374,6 +1380,57 @@ describe('Step Width — the card scales, four rungs (req #3503)', () => {
                 { stepLabel: 'title', stepWidthLevel: bad });
             expect(layout.colW, `level ${bad}`).toEqual(fallback.colW);
         }
+    });
+});
+
+describe('the requirement title gets 15% more of a fixed card (req #3693)', () => {
+    // *"step has a fixed width which I like. but let's make the width of field
+    // given to the requirement title to be 15% wider than it is now"*. The
+    // pre-#3693 numbers are written out here on purpose: the card's width must
+    // equal them exactly, and the title's room must beat them by 15%.
+    const OLD_CHW_REQ = 8.4 * 1.4;
+    const oldCardW = (rung) => Math.ceil(28 * (rung / 4) * OLD_CHW_REQ
+        + 2 * CARD_PAD_X + CARD_STATE_BAR_W + CARD_BAR_GAP);
+
+    it('leaves the card exactly as wide as it was, at every rung', () => {
+        expect(REQ_TITLE_WIDEN).toBe(1.15);
+        for (const rung of STEP_WIDTH_RUNGS) {
+            expect(cardGeometryFor(stepWidthScale(rung)).cardW, `rung ${rung}`)
+                .toBe(oldCardW(rung));
+        }
+        expect(CARD_W).toBe(oldCardW(4));
+    });
+
+    it('gives every row at least 15% more title per line, at every rung', () => {
+        for (const rung of STEP_WIDTH_RUNGS) {
+            const layout = computePlanLayout(plan.rows, {
+                ...reqViewOptions('titles'), reqTitles: FIXTURE_TITLES,
+                stepWidthLevel: rung,
+            });
+            const { cardTextW } = cardGeometryFor(stepWidthScale(rung));
+            const rows = layout.labels.filter((l) => l.kind === 'req');
+            expect(rows.length).toBeGreaterThan(0);
+            for (const l of rows) {
+                const hang = String(l.reqId).length + CARD_SEP_CHARS;
+                const oldRoom = Math.floor(cardTextW / OLD_CHW_REQ) - hang;
+                expect(l.titleRoom, `rung ${rung} req ${l.reqId}`)
+                    .toBeGreaterThanOrEqual(oldRoom * REQ_TITLE_WIDEN);
+                // ...and the row still fits the text column it is drawn in.
+                for (const line of l.lines) {
+                    expect(line.length * CHW_REQ).toBeLessThanOrEqual(cardTextW + 1e-9);
+                }
+            }
+        }
+    });
+
+    it('shrinks the requirement row as one unit, and nothing else on the card', () => {
+        expect(CARD_FONT.req).toBeCloseTo(PLAN_VIZ_FONT.req * CARD_TYPE_SCALE / REQ_TITLE_WIDEN, 9);
+        expect(REQ_LINE_H / CARD_FONT.req).toBeCloseTo(23.5 / 13.75, 9);
+        expect(REQ_TEXT_H / CARD_FONT.req).toBeCloseTo(14 / 13.75, 9);
+        // The step name and the Auto/Manual pill keep their pre-#3693 type.
+        expect(CARD_FONT.label).toBeCloseTo(PLAN_VIZ_FONT.label * CARD_TYPE_SCALE, 9);
+        expect(CARD_RUN_FONT).toBeCloseTo(PLAN_VIZ_FONT.req * CARD_TYPE_SCALE * 0.8, 9);
+        expect(CARD_RUN_W).toBe(Math.ceil(6 * OLD_CHW_REQ * 0.8 + 2 * 5 * CARD_TYPE_SCALE));
     });
 });
 
@@ -5409,7 +5466,7 @@ describe('the character budget IS the card (req #3498, was the 35-char ceiling)'
         expect(stepBudget).toBe(12);
         expect(cardChars(CHW_LABEL, CARD_CHECK_W + CARD_RUN_W + 2 * (CARD_TITLE_BTN
             + CARD_TITLE_BTN_GAP) + CARD_COLLAPSE_W + CARD_COLLAPSE_GAP + CARD_BADGE_W
-            + CHW_REQ)).toBe(7);
+            + CHW_CARD)).toBe(7);
         for (const view of Object.keys(REQ_VIEWS)) {
             const layout = computePlanLayout(plan.rows,
                 { ...reqViewOptions(view), stepLabel: 'title',
@@ -5424,7 +5481,7 @@ describe('the character budget IS the card (req #3498, was the 35-char ceiling)'
         }
         // Requirement rows get the full budget, at the row font — no ✓ on
         // those lines, so nothing is reserved out of them.
-        expect(cardChars(CHW_REQ)).toBe(CARD_TEXT_CHARS);
+        expect(cardChars(CHW_REQ)).toBe(CARD_REQ_CHARS);
         // An ID label is the step id, whatever the budget — nothing to truncate.
         expect(at('vertical', 'id')[1]).toBeLessThanOrEqual(String(
             Math.max(...plan.rows.map((r) => r.id))).length);
@@ -7908,7 +7965,9 @@ describe('time axis — vertical band order (req #3201)', () => {
 
     it('derives an epic start from completed_at when started_at was never stamped', () => {
         expect(timedPlan.timeAxis.bandStarts.get(1)).toBe('2026-07-25T09:00:00');
-        expect(timedPlan.timeAxis.bandStarts.get(2)).toBe('2026-07-27T09:00:00');
+        // Epic 2's two steps are both RUNNING, so both sit on TODAY (req #3692
+        // rule 4) — the render clock below, not r103's 07-27 stamp.
+        expect(timedPlan.timeAxis.bandStarts.get(2)).toBe('2026-07-28T12:00:00');
         expect(timedPlan.timeAxis.bandStarts.get(3)).toBe(null);
     });
 });
@@ -8118,8 +8177,11 @@ describe('time axis — horizontal position (req #3201)', () => {
         // still render right of everything whose work happened earlier. This is
         // what removes the need for a synthetic dep edge.
         const late = colOfStep(timedLayout, 4);
-        for (const id of [1, 2, 3]) expect(colOfStep(timedLayout, id)).toBeLessThan(late);
+        for (const id of [1, 2]) expect(colOfStep(timedLayout, id)).toBeLessThan(late);
         expect(timedPlan.rows.find((r) => r.id === 4).depIds).toEqual([]);
+        // req #3692: step 3 is RUNNING too, so it is today's work and stacks in
+        // the SAME column as step 4 — open work stands together.
+        expect(colOfStep(timedLayout, 3)).toBe(late);
     });
 
     it('monotonizes a BACKWARD-IN-TIME edge rather than drawing the arc backwards', () => {
@@ -8130,8 +8192,10 @@ describe('time axis — horizontal position (req #3201)', () => {
     });
 
     it('orders the slots chronologically, with the future slot last', () => {
+        // No 07-27 slot: r103 started then, but its step is RUNNING, so it
+        // sits on today (07-28) with the other open step (req #3692).
         expect(timedLayout.slots.map((s) => s.day)).toEqual([
-            '2026-07-25', '2026-07-26', '2026-07-27', '2026-07-28', null,
+            '2026-07-25', '2026-07-26', '2026-07-28', null,
         ]);
         expect(timedLayout.slots[timedLayout.slots.length - 1].kind).toBe('future');
         for (let i = 1; i < timedLayout.slots.length; i++) {
@@ -8178,7 +8242,7 @@ describe('time axis — review regressions', () => {
                 .map((q) => ({ step_fk: r.id, requirement_fk: q }))),
             requirements: reqs,
         };
-        const p = orderedPlan(buildPipelineModel(model), { now: '2026-07-10T00:00:00Z' });
+        const p = orderedPlan(buildPipelineModel(model), { now: '2026-07-10T12:00:00Z' });
         return {
             plan: p,
             layout: computePlanLayout(p.rows, { timeAxis: p.timeAxis }),
@@ -8231,7 +8295,8 @@ describe('time axis — review regressions', () => {
     // req #3618 — the live "Swarm Infra" shape: an EMPTY step added IN FRONT
     // of today's active work used to render at the far-left edge. Rule 3 of
     // `pipelinePlanTime.js`: an empty step sits on TODAY when the plan has
-    // active work, else in the FUTURE. `build` renders at 2026-07-10.
+    // active work, else in the FUTURE. `build` renders at 2026-07-10 12:00Z,
+    // so the reader's local day is the 10th in any zone from UTC-11 to UTC+11.
     describe('an EMPTY step sits on today, or in the future (req #3618)', () => {
         const dayOf = (layout, id) => layout.slots[layout.slotOf.get(id)];
 
@@ -8262,7 +8327,10 @@ describe('time axis — review regressions', () => {
                 [r({ id: 1, requirement_status: 'development', started_at: '2026-07-05T00:00:00' })],
             );
             expect(dayOf(layout, 2).day).toBe('2026-07-10');
-            expect(layout.nodes.get(2).depth).toBeGreaterThan(layout.nodes.get(1).depth);
+            // The running step is on today too (req #3692), so the two stack
+            // in one column rather than the empty step trailing it.
+            expect(dayOf(layout, 1).day).toBe('2026-07-10');
+            expect(layout.nodes.get(2).depth).toBe(layout.nodes.get(1).depth);
         });
 
         it('renders in the FUTURE when the plan has no active work', () => {
@@ -8428,18 +8496,19 @@ describe('time ruler (req #3207)', () => {
     it('labels the dated slots as calendar days and the future slot as future', () => {
         const texts = timedLayout.ruler.slots.map((s) => s.label);
         expect(texts).toEqual([
-            "Jul 25 '26", 'Jul 26', 'Jul 27', 'Jul 28', 'future',
+            "Jul 25 '26", 'Jul 26', 'Jul 28', 'future',
         ]);
         expect(timedLayout.ruler.futureX)
             .toBe(timedLayout.ruler.slots[timedLayout.ruler.slots.length - 1].x);
     });
 
     it('carries the calendar GAP so adjacent columns two days apart can say so', () => {
-        // Slots are dense in COLUMNS and sparse in TIME. Every gap here is 1
-        // (consecutive days); the gapped case gets its own plan below.
+        // Slots are dense in COLUMNS and sparse in TIME. 07-26 → 07-28 is two
+        // days with no 07-27 slot between them, because the running step that
+        // began on 07-27 sits on today (req #3692).
         const gaps = timedLayout.ruler.slots.filter((s) => s.kind === 'dated')
             .map((s) => s.gapDays);
-        expect(gaps).toEqual([null, 1, 1, 1]);
+        expect(gaps).toEqual([null, 1, 2]);
     });
 
     it('measures a real gap in DAYS, not in slots', () => {
@@ -8452,7 +8521,9 @@ describe('time ruler (req #3207)', () => {
                 // dense-in-columns case the requirement names.
                 ? { ...r, completed_at: '2026-07-31T09:00:00' } : r)),
         };
-        const p = orderedPlan(buildPipelineModel(gapped), { now: '2026-08-01T12:00:00Z' });
+        // Rendered on 07-28, so the two running steps sit on 07-28 (req #3692)
+        // and step 3, gated on step 2, is dragged to 07-31 with it.
+        const p = orderedPlan(buildPipelineModel(gapped), { now: '2026-07-28T12:00:00Z' });
         const L = computePlanLayout(p.rows, { timeAxis: p.timeAxis });
         const days = L.ruler.slots.filter((s) => s.kind === 'dated');
         const gap = days.find((s) => s.day === '2026-07-31');
@@ -9263,6 +9334,19 @@ describe('cell invariant over a timed fuzz corpus (req #3229)', () => {
     // were both there before, and no plan gained one. Lanes are NOT monotone
     // per plan: 17 plans gained one with the axis and 37 lost one — holding
     // the heir's row is a refusal, and a refusal can cost a lane.
+    //
+    // req #3692 (a step sits on its LAST activity, every RUNNING step sits on
+    // TODAY, an unstarted gate of running work comes to today with it, and
+    // today's work drags its queued dependents onto today; days are the
+    // reader's LOCAL day), before → after:
+    //   total lanes        1853 → 1883 (with axis)   2111 → 2111 (without)
+    //   arc crossings         2 →    2 (with axis)      0 →    0 (without)
+    //   worst single plan     1 →    1 (with axis)      0 →    0 (without)
+    // The +30 lanes are the requirement's own ask, not a regression: open work
+    // that used to spread across the days it began, and the unstarted gates and
+    // queued dependents tied to it, now STACK in today's columns, and a stack is
+    // lanes. Identical under TZ=America/Los_Angeles, UTC and Asia/Kolkata. The no-axis figures cannot move (the rule
+    // is time-only) and they did not.
     it('packs no more lanes, and draws no more spaghetti, than the measured ceiling', () => {
         const tally = {
             bands: 0, lanesAxis: 0, lanesPlain: 0,
@@ -9302,7 +9386,7 @@ describe('cell invariant over a timed fuzz corpus (req #3229)', () => {
             'no bead sat on any arc run — is the geometry predicate still wired up?')
             .toBeGreaterThan(100);
 
-        expect(tally.lanesAxis, 'total lanes, with a time axis').toBeLessThanOrEqual(1853);
+        expect(tally.lanesAxis, 'total lanes, with a time axis').toBeLessThanOrEqual(1883);
         expect(tally.lanesPlain, 'total lanes, no time axis').toBeLessThanOrEqual(2111);
         expect(tally.crossAxis, 'arc runs over an unrelated bead, with a time axis')
             .toBeLessThanOrEqual(2);

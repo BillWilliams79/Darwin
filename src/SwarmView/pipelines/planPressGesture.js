@@ -23,9 +23,11 @@
 // loop, where a hook per target is not allowed) — only one pointer press is
 // ever in flight, so one state slot is the whole state.
 
-export const LONG_PRESS_MS = 500;
-export const DOUBLE_CLICK_MS = 260;
-export const PRESS_SLOP_PX = 4;
+// The numbers are the app-wide press timeline's (req #3662) — one file owns
+// them so this canvas and every drag surface read a press identically.
+import { LONG_PRESS_MS, DOUBLE_CLICK_MS, PRESS_SLOP_PX } from '../../dnd/pressTimeline';
+
+export { LONG_PRESS_MS, DOUBLE_CLICK_MS, PRESS_SLOP_PX };
 
 /**
  * @param {Object} [opts]

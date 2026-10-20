@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { getIdToken, apiCall, apiDelete, uniqueName, clickSortMode } from '../helpers/api';
-import { dragAndDrop } from '../helpers/react-dnd-drag';
+import { dndKitDrag } from '../helpers/dnd-kit-drag';
 
 test.describe.serial('Task DnD — Hand Sort & Cross Card', () => {
   // Production can be slow due to Lambda cold starts + many domains
@@ -168,20 +168,9 @@ test.describe.serial('Task DnD — Hand Sort & Cross Card', () => {
     const taskRow = page.getByTestId(`task-${task0Id}`);
     await expect(taskRow).toBeVisible({ timeout: 5000 });
 
-    await page.evaluate(({ taskId }) => {
-      const taskEl = document.querySelector(`[data-testid="task-${taskId}"]`);
-      if (!taskEl) throw new Error('Task element not found');
-      const dataTransfer = new DataTransfer();
-      const rect = taskEl.getBoundingClientRect();
-      const x = rect.x + rect.width / 2;
-      const y = rect.y + rect.height / 2;
-      taskEl.dispatchEvent(new DragEvent('dragstart', {
-        bubbles: true, cancelable: true, dataTransfer, clientX: x, clientY: y,
-      }));
-      taskEl.dispatchEvent(new DragEvent('dragend', {
-        bubbles: true, cancelable: true, dataTransfer, clientX: x, clientY: y,
-      }));
-    }, { taskId: task0Id });
+    // Lift it, carry it over its neighbour (siblings slide aside), then Esc —
+    // a real drag that is cancelled, not a synthetic dragend.
+    await dndKitDrag(page, taskRow, page.getByTestId(`task-${task2Id}`), { cancelWithEscape: true });
 
     // Brief wait to confirm no PUT was fired (negative assertion)
     await page.waitForTimeout(500);
@@ -208,7 +197,7 @@ test.describe.serial('Task DnD — Hand Sort & Cross Card', () => {
 
     const source = page.getByTestId(`task-${task0Id}`);
     const target = page.getByTestId(`task-${task2Id}`);
-    await dragAndDrop(page, source, target);
+    await dndKitDrag(page, source, target);
 
     // Poll until reorder completes (PUT + re-render)
     await expect.poll(async () => {
@@ -234,7 +223,7 @@ test.describe.serial('Task DnD — Hand Sort & Cross Card', () => {
 
     const source = page.getByTestId(`task-${task2Id}`);
     const target = page.getByTestId(`task-${task0Id}`);
-    await dragAndDrop(page, source, target);
+    await dndKitDrag(page, source, target);
 
     // Wait for reorder to settle
     const card = page.getByTestId(`area-card-${area1Id}`);
@@ -256,7 +245,7 @@ test.describe.serial('Task DnD — Hand Sort & Cross Card', () => {
     const sourceTask = page.getByTestId(`task-${crossTask1Id}`);
     const targetCard = page.getByTestId(`area-card-${area2Id}`);
     await expect(sourceTask).toBeVisible({ timeout: 5000 });
-    await dragAndDrop(page, sourceTask, targetCard);
+    await dndKitDrag(page, sourceTask, targetCard);
 
     const area2Card = page.getByTestId(`area-card-${area2Id}`);
     await expect(area2Card.getByTestId(`task-${crossTask1Id}`)).toBeVisible({ timeout: 5000 });
@@ -281,7 +270,7 @@ test.describe.serial('Task DnD — Hand Sort & Cross Card', () => {
     const sourceTask = page.getByTestId(`task-${crossTask2Id}`);
     const targetCard = page.getByTestId(`area-card-${area2Id}`);
     await expect(sourceTask).toBeVisible({ timeout: 5000 });
-    await dragAndDrop(page, sourceTask, targetCard);
+    await dndKitDrag(page, sourceTask, targetCard);
 
     const area2Card = page.getByTestId(`area-card-${area2Id}`);
     await expect(area2Card.getByTestId(`task-${crossTask2Id}`)).toBeVisible({ timeout: 5000 });
