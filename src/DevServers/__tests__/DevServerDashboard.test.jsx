@@ -82,16 +82,17 @@ describe('DevServerDashboard (req #3643)', () => {
         expect(screen.getByTestId('devserver-dashboard-count').textContent).toBe('2');
     });
 
-    it('rows in port order: bar · port (the link) · terminal · bug # · requirement title, in columns', () => {
+    it('rows in port order: bar · port (the link) · terminal · requirement title, in columns — no bug # (req #3689)', () => {
         renderDash();
         const items = screen.getAllByTestId(/^devserver-dashboard-item-/);
         expect(items.map(i => i.getAttribute('data-testid')))
             .toEqual(['devserver-dashboard-item-5', 'devserver-dashboard-item-7']);
         expect(items[1].getAttribute('href')).toBe('https://localhost:3002');
-        expect(cells(7)).toEqual(['', '3002', 'T3', '#3643', 'dev servers as dashboard']);
+        expect(cells(7)).toEqual(['', '3002', 'T3', 'dev servers as dashboard']);
         expect(titleReads.at(-1)).toEqual([3643]);
-        // An absent terminal or bug # keeps its slot, so the columns hold.
-        expect(cells(5)).toEqual(['', '3000', '', '', 'primary']);
+        // An absent terminal keeps its slot, so the columns hold.
+        expect(cells(5)).toEqual(['', '3000', '', 'primary']);
+        expect(screen.queryByTestId(/^devserver-dashboard-req-/)).toBeNull();
     });
 
     it('at its smallest, a row is just bar, port and terminal', () => {
@@ -139,14 +140,14 @@ describe('DevServerDashboard (req #3643)', () => {
         expect(screen.getByTestId('devserver-dashboard-term-7').getAttribute('data-terminal-href')).toBeNull();
     });
 
-    it('shaped really narrow, a row drops its bug #', () => {
+    it('shaped narrow but above the smallest, a row keeps its title and shows no bug #', () => {
         useDevServerDashboardStore.setState({ dock: { h: 'r', x: 16, v: 'b', y: 16, w: 200, ht: null } });
         renderDash();
         expect(cells(7)).toEqual(['', '3002', 'T3', 'dev servers as dashboard']);
         cleanup();
         useDevServerDashboardStore.setState({ dock: { h: 'r', x: 16, v: 'b', y: 16, w: 300, ht: null } });
         renderDash();
-        expect(cells(7)).toContain('#3643');
+        expect(cells(7)).toEqual(['', '3002', 'T3', 'dev servers as dashboard']);
     });
 
     it('until the title arrives (or for a requirement it cannot find) a row shows its task name', () => {
