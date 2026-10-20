@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { getIdToken, apiCall, apiDelete, uniqueName } from '../helpers/api';
+import { dndKitDrag } from '../helpers/dnd-kit-drag';
 
 test.describe.serial('Cancel Drag', () => {
   let idToken: string;
@@ -129,26 +130,9 @@ test.describe.serial('Cancel Drag', () => {
     const taskRow = page.getByTestId(`task-${taskId}`);
     await expect(taskRow).toBeVisible({ timeout: 5000 });
 
-    // Start a synthetic drag and immediately cancel via dragend (no drop)
-    await page.evaluate(
-      ({ taskId }) => {
-        const taskEl = document.querySelector(`[data-testid="task-${taskId}"]`);
-        if (!taskEl) throw new Error('Task element not found');
-        const dataTransfer = new DataTransfer();
-        const rect = taskEl.getBoundingClientRect();
-        const x = rect.x + rect.width / 2;
-        const y = rect.y + rect.height / 2;
-
-        taskEl.dispatchEvent(new DragEvent('dragstart', {
-          bubbles: true, cancelable: true, dataTransfer, clientX: x, clientY: y,
-        }));
-        // Cancel immediately — no drop event
-        taskEl.dispatchEvent(new DragEvent('dragend', {
-          bubbles: true, cancelable: true, dataTransfer, clientX: x, clientY: y,
-        }));
-      },
-      { taskId },
-    );
+    // Lift the task and release it over empty page space below the cards —
+    // a drop outside every list is a cancel (req #3662).
+    await dndKitDrag(page, taskRow, page.locator('body'), { drop: 'lower' });
 
     await page.waitForTimeout(1000);
 

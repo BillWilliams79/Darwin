@@ -21,7 +21,7 @@ import { MemoryRouter } from 'react-router-dom';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 // See the epic suite's note: the first mounted `it()` absorbs the cold
-// module-compile cost of react-dnd + MUI + this page.
+// module-compile cost of dnd-kit + MUI + this page.
 vi.setConfig({ testTimeout: 30000 });
 
 // TWO projects, and the step's work is in the SECOND — so the tab seed has a
@@ -75,7 +75,6 @@ let panelProps = [];
 vi.mock('../CategoryTabPanel', () => ({
     default: (props) => { panelProps.push(props); return <div data-testid="tab-panel" />; },
 }));
-vi.mock('../RequirementDragLayer', () => ({ default: () => null }));
 vi.mock('../SwarmVisualizerView', () => ({ default: () => null }));
 vi.mock('../RequirementsTrendsView', () => ({ default: () => null }));
 vi.mock('../VisualizerToolbar', () => ({ default: () => null }));

@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useContext, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useContext, useRef, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { STATUS_SORT_PROCESS, requirementActiveSort, requirementHandSort, coerceSortMode } from './processSort';
-import RequirementRow from './RequirementRow';
+import RequirementRow, { SortableRequirementRow } from './RequirementRow';
 import RequirementDeleteDialog from './RequirementDeleteDialog';
 import call_rest_api from '../RestApi/RestApi';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
@@ -11,10 +11,9 @@ import { useRequirementVisibility } from '../hooks/useRequirementVisibility';
 import { requirementKeys, categoryKeys } from '../hooks/useQueryKeys';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
-import { useSwarmTabStore } from '../stores/useSwarmTabStore';
 import { useShowClosedStore } from '../stores/useShowClosedStore';
 import { useCategoryCountDisplayStore } from '../stores/useCategoryCountDisplayStore';
-import { RequirementActionsContext } from '../hooks/useRequirementActions';
+import { RequirementActionsContext, useStableRequirementActions } from '../hooks/useRequirementActions';
 import { requirementStatusTimestampFields, requirementStatusTimestampState } from '../utils/requirementStatusTimestamps';
 import { filterToEpic } from '../utils/epicMembership';
 // req #3503 — the STEP filter's row predicate. Its own module because step
@@ -23,7 +22,8 @@ import { filterToStepReqIds } from '../utils/pipelineMembership';
 
 import AuthContext from '../Context/AuthContext'
 import AppContext from '../Context/AppContext';
-import { useDrop, useDrag } from "react-dnd";
+import { DarwinSortableList, useDarwinDrag, useDarwinDropZone, useRegisterList, withPlacement, isLiftBlur } from '../dnd';
+import { CATEGORY_CARDS, CATEGORY_REQS, swarmIds, useSwarmDragStore, useSwarmSession } from './swarmDnd';
 
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
@@ -45,11 +45,10 @@ import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import { CircularProgress } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import { DEFAULT_REQUIREMENT_SPEC } from './requirementSpec';
 
-const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categoryKeyDown, categoryOnBlur, clickCardClosed, clickCardDelete, moveCard, persistCategoryOrder, removeCategory, isTemplate, showClosed, epicReqIds = null, stepReqIds = null }) => {
-
-    const revertDragTabSwitch = useSwarmTabStore(s => s.revertDragTabSwitch);
+const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categoryKeyDown, categoryOnBlur, clickCardClosed, clickCardDelete, isTemplate, showClosed, panelActive = true, epicReqIds = null, stepReqIds = null }) => {
 
     const navigate = useNavigate();
     const { idToken, profile } = useContext(AuthContext);
@@ -190,14 +189,6 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
     const handleMenuOpen = (event) => setMenuAnchorEl(event.currentTarget);
     const handleMenuClose = () => setMenuAnchorEl(null);
 
-    // Hand-sort drop coordination (req #2417). RequirementRow's hover handler
-    // writes the splice target (above-this-row, below-this-row) into this ref;
-    // the card-level useDrop reads it on drop and recomputes sort_order.
-    const crossCardInsertIndexRef = useRef(null);
-    const setCrossCardInsertIndex = useCallback((index) => {
-        crossCardInsertIndexRef.current = index;
-    }, []);
-
     // TanStack Query — fetch all requirements for this category (client-side filtering via chips)
     const { data: serverRequirements } = useRequirements(profile?.userName, category.id, {
         enabled: category.id !== '',
@@ -298,247 +289,6 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
             setRequirementsArray(undefined);
         }
     }, [category.id]);
-
-    // Drop handler for `requirementRow` items landing on THIS category card
-    // (req #2417). Two branches:
-    //
-    //   Same-card  — dragItem.id is already in this card's requirementsArray.
-    //                Splices to the hovered insert position and bulk-PUTs new
-    //                sort_order values. Gated on sortMode === 'hand' (process /
-    //                reverse never reorders within a card).
-    //
-    //   Cross-card — dragItem.id is NOT in this card's requirementsArray. The
-    //                requirement is moved here (PUT category_fk). If THIS card
-    //                is in hand mode AND the user hovered a target row (giving
-    //                us an insertIndex), the target sort_order map is rebuilt
-    //                so the moved row lands at that position; otherwise the
-    //                row is appended (no sort_order shuffle).
-    //
-    // On any PUT failure we restore both local state AND the TanStack cache
-    // snapshots (mirrors statusClick / coordinationClick).
-    const addRequirementToCategory = (dragItem) => {
-        const insertIndex = crossCardInsertIndexRef.current;
-        crossCardInsertIndexRef.current = null;
-
-        const draggedIdx = requirementsArray.findIndex(t => t.id === dragItem.id);
-        const isSameCard = draggedIdx !== -1;
-
-        const prefix = requirementKeys.all(profile.userName);
-        queryClient.cancelQueries({ queryKey: prefix });
-        const snapshots = queryClient.getQueriesData({ queryKey: prefix });
-        const revertCaches = () => {
-            for (const [key, data] of snapshots) {
-                queryClient.setQueryData(key, data);
-            }
-        };
-        const previousArray = requirementsArray;
-        const failPut = (errOrResult, message) => {
-            revertCaches();
-            setRequirementsArray(previousArray);
-            showError(errOrResult, message);
-        };
-
-        // ---------- Same-card branch ----------
-        if (isSameCard) {
-            if (sortMode !== 'hand') return { requirement: null, crossCard: false };
-            if (insertIndex === null) return { requirement: null, crossCard: false };
-
-            const adjustedIndex = insertIndex > draggedIdx ? insertIndex - 1 : insertIndex;
-            if (adjustedIndex === draggedIdx) return { requirement: null, crossCard: false };
-
-            const updated = [...requirementsArray];
-            const [moved] = updated.splice(draggedIdx, 1);
-            updated.splice(adjustedIndex, 0, moved);
-
-            const bulkUpdate = [];
-            const reordered = updated.map((t, idx) => {
-                if (t.id === '') return t;
-                bulkUpdate.push({ id: t.id, sort_order: idx });
-                return { ...t, sort_order: idx };
-            });
-
-            const updatesById = {};
-            bulkUpdate.forEach(u => { updatesById[u.id] = u.sort_order; });
-            queryClient.setQueriesData({ queryKey: prefix }, (old) => {
-                if (!Array.isArray(old)) return old;
-                if (!old.some(r => r.id in updatesById)) return old;
-                return old.map(r => r.id in updatesById ? { ...r, sort_order: updatesById[r.id] } : r);
-            });
-
-            setRequirementsArray(reordered);
-
-            if (bulkUpdate.length > 0) {
-                call_rest_api(`${darwinUri}/requirements`, 'PUT', bulkUpdate, idToken)
-                    .then(result => {
-                        if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
-                            failPut(result, 'Unable to save requirement sort order');
-                        }
-                    }).catch(error => failPut(error, 'Unable to save requirement sort order'));
-            }
-            return { requirement: dragItem.id, crossCard: false };
-        }
-
-        // ---------- Cross-card branch ----------
-        const targetCategoryId = parseInt(category.id);
-        // Strip drag-transport-only fields so the cache slice stays
-        // shape-identical to server-sourced rows.
-        const { requirementIndex: _ridx, sourceWidth: _sw, sourceHeight: _sh,
-                ...requirementFields } = dragItem;
-        const movedRow = {
-            ...requirementFields,
-            category_fk: targetCategoryId,
-        };
-
-        let bulkUpdate;
-        let updatedTargetArray;
-
-        if (sortMode === 'hand') {
-            // Insert at the hovered position, or append when no row hover.
-            const realRows = requirementsArray.filter(t => t.id !== '');
-            const template = requirementsArray.find(t => t.id === '');
-            const clampedIndex = insertIndex === null
-                ? realRows.length
-                : Math.min(Math.max(insertIndex, 0), realRows.length);
-            const inserted = [...realRows];
-            inserted.splice(clampedIndex, 0, movedRow);
-
-            bulkUpdate = inserted.map((t, idx) => {
-                const update = { id: t.id, sort_order: idx };
-                if (t.id === movedRow.id) update.category_fk = targetCategoryId;
-                return update;
-            });
-            const reorderedReal = inserted.map((t, idx) => ({ ...t, sort_order: idx }));
-            updatedTargetArray = template ? [...reorderedReal, template] : reorderedReal;
-        } else {
-            // Process / reverse: append, do not touch sort_order.
-            bulkUpdate = [{ id: movedRow.id, category_fk: targetCategoryId }];
-            const realRows = requirementsArray.filter(t => t.id !== '');
-            const template = requirementsArray.find(t => t.id === '');
-            const appended = [...realRows, movedRow];
-            updatedTargetArray = template ? [...appended, template] : appended;
-        }
-
-        // Cache write-through: route each slice deliberately based on its key.
-        //
-        //   byCategory(source)          → filter out (row moved away)
-        //   byCategory(target)          → add (with new category_fk)
-        //   byStatus / useAllRequirements / done → if the slice already had the
-        //                                  row, REPLACE it in place so the row's
-        //                                  category_fk updates without changing
-        //                                  the caller's local sort. (This is
-        //                                  what the aggregator's swarm_ready
-        //                                  cache needs — the row should stay
-        //                                  visible after a cross-category move.)
-        //   any other category slice    → leave alone (row was never there).
-        //
-        // TanStack Query v5's setQueriesData updater receives only `oldData`
-        // (no query / queryKey arg), so we iterate the cache manually to keep
-        // per-slice key inspection.
-        const sourceCategoryId = parseInt(dragItem.category_fk);
-        const queries = queryClient.getQueryCache().findAll({ queryKey: prefix });
-        for (const q of queries) {
-            const old = q.state.data;
-            if (!Array.isArray(old)) continue;
-            const filterObj = q.queryKey.find(k => typeof k === 'object' && k !== null);
-            const sliceCategoryId = filterObj && 'categoryId' in filterObj
-                ? parseInt(filterObj.categoryId)
-                : undefined;
-            const hadRow = old.some(r => r.id === movedRow.id);
-
-            let next = old;
-            if (sliceCategoryId !== undefined) {
-                if (sliceCategoryId === sourceCategoryId) {
-                    next = hadRow ? old.filter(r => r.id !== movedRow.id) : old;
-                } else if (sliceCategoryId === targetCategoryId) {
-                    next = [...old.filter(r => r.id !== movedRow.id), movedRow];
-                }
-                // else: leave alone (row was never in this category's slice)
-            } else if (hadRow) {
-                next = old.map(r => r.id === movedRow.id ? movedRow : r);
-            }
-            if (next !== old) queryClient.setQueryData(q.queryKey, next);
-        }
-
-        setRequirementsArray(updatedTargetArray);
-
-        call_rest_api(`${darwinUri}/requirements`, 'PUT', bulkUpdate, idToken)
-            .then(result => {
-                if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
-                    failPut(result, 'Unable to move requirement to category');
-                }
-            }).catch(error => failPut(error, 'Unable to move requirement to category'));
-
-        return { requirement: dragItem.id, crossCard: true };
-    };
-
-    const [{ isOver }, drop] = useDrop(() => ({
-
-        accept: ["requirementRow", "categoryCard"],
-
-        drop: (item, monitor) => {
-            if (monitor.getItemType() === "requirementRow") {
-                return addRequirementToCategory(item);
-            }
-            if (item.sourceDomainId && item.sourceDomainId !== projectId) {
-                return { crossDomain: true };
-            }
-        },
-
-        hover: (item, monitor) => {
-            if (monitor.getItemType() !== "categoryCard") return;
-            if (item.domainId !== projectId) return;
-            if (isTemplate) return;
-            const dragIndex = item.areaIndex;
-            const hoverIndex = categoryIndex;
-            if (dragIndex === hoverIndex) {
-                item.settled = true;
-                return;
-            }
-
-            if (item.movePending) return;
-            if (item.settled === false) return;
-
-            moveCard(dragIndex, hoverIndex);
-            item.areaIndex = hoverIndex;
-            item.settled = false;
-
-            item.movePending = true;
-            setTimeout(() => {
-                item.movePending = false;
-            }, 150);
-        },
-
-        collect: (monitor) => ({
-            isOver: monitor.isOver() && monitor.getItemType() === "categoryCard",
-        }),
-
-    }), [requirementsArray, sortMode, category.id, categoryIndex, projectId, isTemplate, moveCard, darwinUri, idToken]);
-
-    const [{ isDragging }, drag] = useDrag(() => ({
-        type: "categoryCard",
-        item: () => ({ areaId: category.id, areaIndex: categoryIndex, domainId: projectId, areaData: { ...category } }),
-        canDrag: () => !isTemplate,
-        collect: (monitor) => ({
-            isDragging: monitor.isDragging(),
-        }),
-        end: (item, monitor) => {
-            const dropResult = monitor.getDropResult();
-            if (dropResult && dropResult.crossDomain) {
-                if (item.persistInTarget) item.persistInTarget();
-                removeCategory(item.areaId);
-            } else {
-                if (item.removeFromTarget) item.removeFromTarget();
-                persistCategoryOrder(monitor.didDrop());
-                revertDragTabSwitch();
-            }
-        },
-    }), [category, categoryIndex, projectId, isTemplate, persistCategoryOrder, removeCategory, revertDragTabSwitch]);
-
-    const cardRef = useRef(null);
-    const mergedRef = useCallback((node) => {
-        cardRef.current = node;
-        drag(drop(node));
-    }, [drag, drop]);
 
     // Optimistically apply `updates` to every requirement cache for this creator
     // (byCategory, byStatus, done, etc.) so downstream views — including the
@@ -751,144 +501,235 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
     // and the delete-category confirmation, which used to compute this itself.
     const requirementCount = requirementsArray ? requirementsArray.filter(t => t.id !== '').length : 0;
 
+    // --- Drag and drop (req #3663, on the dnd-kit foundation) ---
+    // The card lifts as a whole (anywhere on it — a press on one of its rows
+    // lifts that row instead) and is a position in its project's grid. Its
+    // requirement list is a drop zone: hand-sorted, it honours a position and
+    // its rows slide aside; process / reverse, it highlights and a drop appends.
+    // Every drop is resolved by the page (useSwarmDnd) against this
+    // registration. The template card (one per project, id '') is neither
+    // draggable nor a drop zone, but its hooks still register — under ids no
+    // other project's template shares. A hidden project's cards take no part in
+    // a drag until a tab hover-switch shows them.
+    const reqsListId = isTemplate ? `reqs-template:${projectId}` : swarmIds.reqs(category.id);
+    const cardDrag = useDarwinDrag({
+        id: isTemplate ? `category-template:${projectId}` : swarmIds.category(category.id),
+        type: 'category',
+        containerId: swarmIds.categories(projectId),
+        policy: CATEGORY_CARDS,
+        row: category,
+        disabled: isTemplate || !panelActive,
+        sortsOutside: true,
+    });
+    const { setNodeRef: reqsDropRef } = useDarwinDropZone({
+        id: reqsListId, policy: CATEGORY_REQS, sortMode, disabled: isTemplate || !panelActive,
+    });
+    useRegisterList(isTemplate ? null : reqsListId, {
+        getItems: () => requirementsArray || [],
+        setItems: setRequirementsArray,
+        ready: !!requirementsArray,
+        sortMode,
+        categoryId: category.id,
+        sortRows: (rows) => [...rows].sort((a, b) => activeSort(a, b)),
+    });
+    const { active: dragActive, placement } = useSwarmSession(reqsListId);
+    const highlighted = useSwarmDragStore(s => s.highlight === reqsListId);
+    const renderedRequirements = withPlacement(requirementsArray, reqsListId,
+        { active: dragActive, placement }, CATEGORY_REQS.isTarget);
+    // A row carried in from elsewhere keeps the id it lifted with (the
+    // aggregator's rows have their own namespace).
+    const dragIdOf = (requirement) => (placement && dragActive && requirement === dragActive.row
+        ? dragActive.id : swarmIds.req(requirement.id));
+    const sortableRequirementIds = (renderedRequirements || [])
+        .filter(CATEGORY_REQS.isTarget)
+        .map(dragIdOf);
+
+    const mergedRef = useCallback((node) => {
+        cardDrag.ref(node);
+        reqsDropRef(node);
+    }, [cardDrag.ref, reqsDropRef]);
+
+    // Rows re-render when the data changes, not on every pointer move (req #3663).
+    const requirementActions = useStableRequirementActions({ statusClick, coordinationClick,
+        titleChange, titleKeyDown, titleOnBlur, deleteClick, requirementsArray, setRequirementsArray,
+        sessionStatusMap, orchestratedIds });
+
+    // The card's header (the category-name field, the menu) is memoized for the
+    // same reason as the rows: the card re-renders on every pointer move of a
+    // drag, and an auto-sizing text field measures its layout each time it does.
+    const header = useMemo(() => (
+        <Box className="card-header" sx={{marginBottom: 2, minHeight: '44px'}}>
+            <TextField
+                        variant="standard"
+                        value={category.category_name || ''}
+                        name='category-name'
+                        placeholder={category.id === '' ? 'Add new category' : undefined}
+                        onChange= { (event) => categoryChange(event, categoryIndex) }
+                        onKeyDown = {(event) => categoryKeyDown(event, categoryIndex, category.id)}
+                        onBlur = {(event) => { if (!isLiftBlur(event)) categoryOnBlur(event, categoryIndex, category.id); }}
+                        multiline
+                        autoComplete='off'
+                        size = 'small'
+                        sx={{
+                            ...(category.color && { borderLeft: `4px solid ${category.color}`, pl: 1 }),
+                        }}
+                        slotProps={{
+                            input: {...((category.id !== '') ? {disableUnderline: true} : (category.category_name !== '') && {disableUnderline: true} ), style: {fontSize: 24}},
+                            htmlInput: { maxLength: 128 }
+                        }}
+                        key={`category-${category.id}`}
+             />
+            {/* req #3505 — optional requirement count suffix, e.g. "(17)". A
+                sibling of the TextField, never inside its `value`, so it can
+                never be typed into or saved as part of the category name.
+                Suppressed on the template "Add new category" card, which
+                holds no requirements. The aggregator (Swarm-Start) card is a
+                different component and is never touched here. Gated on
+                `requirementsArray` (not just `category.id !== ''`) so the
+                count never flashes "(0)" while the requirements query is
+                still in flight — that would be indistinguishable from a
+                genuinely empty category, which is a real, distinct value. */}
+            {category.id !== '' && showCategoryCount && requirementsArray && (
+                <Typography
+                    data-testid={`category-count-${category.id}`}
+                    sx={{ fontSize: 24, color: 'text.secondary', whiteSpace: 'nowrap' }}
+                >
+                    ({requirementCount})
+                </Typography>
+            )}
+            {category.id !== '' && (
+                <>
+                    <IconButton
+                        onClick={handleMenuOpen}
+                        aria-label="Category card menu"
+                        data-testid={`card-menu-${category.id}`}
+                        size="small"
+                        sx={{ maxWidth: "25px", maxHeight: "25px" }}
+                    >
+                        <MoreVertIcon />
+                    </IconButton>
+                    <Menu
+                        anchorEl={menuAnchorEl}
+                        open={menuOpen}
+                        onClose={handleMenuClose}
+                        data-testid={`card-menu-popup-${category.id}`}
+                        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+                    >
+                        <MenuItem
+                            onClick={(event) => { handleMenuClose(); changeSortMode(event, 'process'); }}
+                            data-testid={`sort-process-${category.id}`}
+                        >
+                            <ListItemIcon><AccountTreeIcon fontSize="small" /></ListItemIcon>
+                            <ListItemText>Status Sort</ListItemText>
+                            {sortMode === 'process' && (
+                                <ArrowUpwardIcon
+                                    fontSize="small"
+                                    sx={{ ml: 1 }}
+                                    data-testid={`sort-direction-asc-${category.id}`}
+                                />
+                            )}
+                            {sortMode === 'reverse' && (
+                                <ArrowDownwardIcon
+                                    fontSize="small"
+                                    sx={{ ml: 1 }}
+                                    data-testid={`sort-direction-desc-${category.id}`}
+                                />
+                            )}
+                        </MenuItem>
+                        <MenuItem
+                            onClick={(event) => { handleMenuClose(); changeSortMode(event, 'hand'); }}
+                            data-testid={`sort-hand-${category.id}`}
+                        >
+                            <ListItemIcon><SwapVertIcon fontSize="small" /></ListItemIcon>
+                            <ListItemText>Hand Sort</ListItemText>
+                            {sortMode === 'hand' && <Check fontSize="small" sx={{ ml: 1 }} />}
+                        </MenuItem>
+                        <Divider />
+                        <MenuItem
+                            onClick={(event) => { handleMenuClose(); clickCardClosed(event, category.category_name, category.id); }}
+                            data-testid={`menu-close-category-${category.id}`}
+                        >
+                            <ListItemIcon><CloseIcon fontSize="small" /></ListItemIcon>
+                            <ListItemText>Close Category</ListItemText>
+                        </MenuItem>
+                        <Divider />
+                        <MenuItem
+                            onClick={(event) => {
+                                handleMenuClose();
+                                // req #3598 — what the delete REMOVES: every requirement
+                                // in the category, not the rows the chips, the toggle or
+                                // an epic/step scope left on screen.
+                                clickCardDelete(event, category.category_name, category.id,
+                                    serverRequirements ? serverRequirements.length : requirementCount);
+                            }}
+                            data-testid={`menu-delete-category-${category.id}`}
+                            sx={{ color: 'error.main' }}
+                        >
+                            <ListItemIcon><DeleteForeverIcon fontSize="small" sx={{ color: 'error.main' }} /></ListItemIcon>
+                            <ListItemText>Delete Category</ListItemText>
+                        </MenuItem>
+                    </Menu>
+                </>
+            )}
+        </Box>
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    ), [category, categoryIndex, sortMode, menuAnchorEl, requirementsArray, serverRequirements,
+        showCategoryCount, categoryChange, categoryKeyDown, categoryOnBlur, clickCardClosed, clickCardDelete]);
+
     return (
         <Card key={categoryIndex} raised={true} ref={mergedRef}
               data-testid={category.id === '' ? 'category-card-template' : `category-card-${category.id}`}
-              sx={{
-                  opacity: isDragging ? 0.3 : category._isAdopted ? 0.5 : 1,
+              data-dragging={cardDrag.isDragging ? 'true' : undefined}
+              data-drop-highlight={highlighted ? 'true' : undefined}
+              {...(isTemplate ? {} : { ...cardDrag.attributes, ...cardDrag.listeners })}
+              style={cardDrag.style}
+              sx={(theme) => ({
+                  // Animate the drag/drop visual states so the card lifts, dims and
+                  // highlights smoothly instead of snapping.
+                  transition: 'opacity 160ms ease, border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease',
                   cursor: isTemplate ? 'default' : 'grab',
-                  border: isOver && !isDragging ? '2px solid' : '2px solid transparent',
-                  borderColor: isOver && !isDragging ? 'primary.main' : 'transparent',
-              }}>
+                  border: '2px solid',
+                  borderColor: highlighted ? 'primary.main' : 'transparent',
+                  '&:focus-visible': { outline: `2px solid ${theme.palette.primary.main}`, outlineOffset: 2 },
+                  // The slot a lifted card leaves: tinted, so the grid shows
+                  // where it will land as its neighbours slide aside.
+                  ...(cardDrag.isDragging && {
+                      backgroundColor: alpha(theme.palette.primary.main, 0.08),
+                      borderColor: alpha(theme.palette.primary.main, 0.45),
+                      borderStyle: 'dashed',
+                      boxShadow: 'none',
+                      '& > *': { opacity: 0.3 },
+                  }),
+                  // Drop-target affordance: tint + lift so a card taking a
+                  // requirement as a whole is unmistakable while it hovers.
+                  ...(highlighted && {
+                      backgroundColor: alpha(theme.palette.primary.main, 0.06),
+                      boxShadow: `0 6px 18px ${alpha(theme.palette.primary.main, 0.35)}`,
+                  }),
+              })}>
             {/* req #3064 — CardContent defaults to 16px left/right padding; trimming
                 it (-15% left, -33% right) widens the requirement display area. The
                 Title column is the row's only `1fr` grid track, so the reclaimed
                 space flows straight into it with no other layout change. */}
             <CardContent sx={{ pl: '13.6px', pr: '10.7px' }}>
-                <Box className="card-header" sx={{marginBottom: 2, minHeight: '44px'}}>
-                    <TextField
-                                variant="standard"
-                                value={category.category_name || ''}
-                                name='category-name'
-                                placeholder={category.id === '' ? 'Add new category' : undefined}
-                                onChange= { (event) => categoryChange(event, categoryIndex) }
-                                onKeyDown = {(event) => categoryKeyDown(event, categoryIndex, category.id)}
-                                onBlur = {(event) => categoryOnBlur(event, categoryIndex, category.id)}
-                                multiline
-                                autoComplete='off'
-                                size = 'small'
-                                sx={{
-                                    ...(category.color && { borderLeft: `4px solid ${category.color}`, pl: 1 }),
-                                }}
-                                slotProps={{
-                                    input: {...((category.id !== '') ? {disableUnderline: true} : (category.category_name !== '') && {disableUnderline: true} ), style: {fontSize: 24}},
-                                    htmlInput: { maxLength: 128 }
-                                }}
-                                key={`category-${category.id}`}
-                     />
-                    {/* req #3505 — optional requirement count suffix, e.g. "(17)". A
-                        sibling of the TextField, never inside its `value`, so it can
-                        never be typed into or saved as part of the category name.
-                        Suppressed on the template "Add new category" card, which
-                        holds no requirements. The aggregator (Swarm-Start) card is a
-                        different component and is never touched here. Gated on
-                        `requirementsArray` (not just `category.id !== ''`) so the
-                        count never flashes "(0)" while the requirements query is
-                        still in flight — that would be indistinguishable from a
-                        genuinely empty category, which is a real, distinct value. */}
-                    {category.id !== '' && showCategoryCount && requirementsArray && (
-                        <Typography
-                            data-testid={`category-count-${category.id}`}
-                            sx={{ fontSize: 24, color: 'text.secondary', whiteSpace: 'nowrap' }}
-                        >
-                            ({requirementCount})
-                        </Typography>
-                    )}
-                    {category.id !== '' && (
-                        <>
-                            <IconButton
-                                onClick={handleMenuOpen}
-                                aria-label="Category card menu"
-                                data-testid={`card-menu-${category.id}`}
-                                size="small"
-                                sx={{ maxWidth: "25px", maxHeight: "25px" }}
-                            >
-                                <MoreVertIcon />
-                            </IconButton>
-                            <Menu
-                                anchorEl={menuAnchorEl}
-                                open={menuOpen}
-                                onClose={handleMenuClose}
-                                data-testid={`card-menu-popup-${category.id}`}
-                                anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-                                transformOrigin={{ vertical: 'top', horizontal: 'right' }}
-                            >
-                                <MenuItem
-                                    onClick={(event) => { handleMenuClose(); changeSortMode(event, 'process'); }}
-                                    data-testid={`sort-process-${category.id}`}
-                                >
-                                    <ListItemIcon><AccountTreeIcon fontSize="small" /></ListItemIcon>
-                                    <ListItemText>Status Sort</ListItemText>
-                                    {sortMode === 'process' && (
-                                        <ArrowUpwardIcon
-                                            fontSize="small"
-                                            sx={{ ml: 1 }}
-                                            data-testid={`sort-direction-asc-${category.id}`}
-                                        />
-                                    )}
-                                    {sortMode === 'reverse' && (
-                                        <ArrowDownwardIcon
-                                            fontSize="small"
-                                            sx={{ ml: 1 }}
-                                            data-testid={`sort-direction-desc-${category.id}`}
-                                        />
-                                    )}
-                                </MenuItem>
-                                <MenuItem
-                                    onClick={(event) => { handleMenuClose(); changeSortMode(event, 'hand'); }}
-                                    data-testid={`sort-hand-${category.id}`}
-                                >
-                                    <ListItemIcon><SwapVertIcon fontSize="small" /></ListItemIcon>
-                                    <ListItemText>Hand Sort</ListItemText>
-                                    {sortMode === 'hand' && <Check fontSize="small" sx={{ ml: 1 }} />}
-                                </MenuItem>
-                                <Divider />
-                                <MenuItem
-                                    onClick={(event) => { handleMenuClose(); clickCardClosed(event, category.category_name, category.id); }}
-                                    data-testid={`menu-close-category-${category.id}`}
-                                >
-                                    <ListItemIcon><CloseIcon fontSize="small" /></ListItemIcon>
-                                    <ListItemText>Close Category</ListItemText>
-                                </MenuItem>
-                                <Divider />
-                                <MenuItem
-                                    onClick={(event) => {
-                                        handleMenuClose();
-                                        // req #3598 — what the delete REMOVES: every requirement
-                                        // in the category, not the rows the chips, the toggle or
-                                        // an epic/step scope left on screen.
-                                        clickCardDelete(event, category.category_name, category.id,
-                                            serverRequirements ? serverRequirements.length : requirementCount);
-                                    }}
-                                    data-testid={`menu-delete-category-${category.id}`}
-                                    sx={{ color: 'error.main' }}
-                                >
-                                    <ListItemIcon><DeleteForeverIcon fontSize="small" sx={{ color: 'error.main' }} /></ListItemIcon>
-                                    <ListItemText>Delete Category</ListItemText>
-                                </MenuItem>
-                            </Menu>
-                        </>
-                    )}
-                </Box>
+                {header}
                 { (requirementsArray) ?
-                    <RequirementActionsContext.Provider value={{ statusClick, coordinationClick,
-                        titleChange, titleKeyDown, titleOnBlur, deleteClick, requirementsArray, setRequirementsArray,
-                        sessionStatusMap, sortMode, setCrossCardInsertIndex, orchestratedIds }}>
-                        {requirementsArray.map((requirement, requirementIndex) => (
-                            <RequirementRow {...{key: requirement.id, requirement, requirementIndex,
-                                categoryId: category.id, categoryName: category.category_name }}
-                            />
-                        ))}
+                    <RequirementActionsContext.Provider value={requirementActions}>
+                        <DarwinSortableList id={reqsListId} items={sortableRequirementIds}
+                                            policy={CATEGORY_REQS} sortMode={sortMode}>
+                        {renderedRequirements.map((requirement) => {
+                            // Handlers address rows by their index in requirementsArray;
+                            // a row carried in from another card mid-drag has none.
+                            const rowProps = { requirement, requirementIndex: requirementsArray.indexOf(requirement),
+                                categoryId: category.id, categoryName: category.category_name };
+                            return CATEGORY_REQS.isTarget(requirement)
+                                ? <SortableRequirementRow key={requirement.id} {...rowProps} drag={{
+                                      id: dragIdOf(requirement), type: 'requirement', disabled: !panelActive,
+                                      containerId: reqsListId, policy: CATEGORY_REQS, sortMode }} />
+                                : <RequirementRow key={requirement.id} {...rowProps} />;
+                        })}
+                        </DarwinSortableList>
                     </RequirementActionsContext.Provider>
                   :
                     category.id  === '' ? '' : <CircularProgress/>

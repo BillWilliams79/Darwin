@@ -82,13 +82,15 @@ import { Stage, Layer, Group, Rect, Line, Path, Text } from 'react-konva';
 
 import { useComposedPipeline } from '../hooks/useDataQueries';
 import { adaptComposedPipeline, buildPlanModel } from '../SwarmView/pipelines/pipelineAdapter';
+import { localDayOf } from '../SwarmView/pipelines/pipelinePlanTime';
 import {
     computePlanLayout,
     beadStyle,
     reqIdStyle,
     buildReqColorViews,
-    sortReqIdsByColorKey,
-    titleBtnGlyph,
+    orderStepReqs,
+    CARD_DONE_RULE_DASH,
+    CARD_DONE_RULE_OPACITY,
     DEFAULT_COLOR_KEY,
     DEFAULT_PLAN_PALETTE,
     PLAN_VIZ_PALETTE,
@@ -97,12 +99,11 @@ import {
     CARD_RUN_FONT,
     CARD_LINE_H,
     REQ_LINE_H,
+    REQ_SEP_PULL,
     CARD_RADIUS,
     CARD_PAD_X,
     CARD_RULE_GAP,
     CARD_STATE_BAR_W,
-    CARD_TITLE_BTN_STROKE,
-    CARD_TITLE_BTN_GLYPH_STROKE,
     MIN_CARD_H,
     NEXT_HALO_STROKE,
     NEXT_HALO_OPACITY,
@@ -152,10 +153,11 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
     // window resize re-crops without re-running the layout. Each stage is pure
     // and the inputs change only when the payload does, so a card re-rendering
     // for an unrelated reason (a status filter toggle, a sibling's refetch)
-    // re-runs none of it. `todayUtc` is a memo key for `usePlanSources`'
-    // reason: an empty step sits on today, so a render after UTC midnight must
-    // re-place it even when the cached payload object is unchanged.
-    const todayUtc = new Date().toISOString().slice(0, 10);
+    // re-runs none of it. `today` is a memo key for `usePlanSources`'
+    // reason: empty and running steps sit on the reader's local today, so a
+    // render after local midnight must re-place them even when the cached
+    // payload object is unchanged.
+    const today = localDayOf(new Date());
     const drawing = useMemo(() => {
         if (!data) return null;
         let adapted;
@@ -176,19 +178,13 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
         if (!baseRows || !baseRows.length) return null;
 
         // The requirement rows in each card, in the order the plan page shows
-        // them under its default colour key — the same `sortReqIdsByColorKey`
-        // pass the visualizer runs over the same columns.
+        // them — orchestration order (req #3676), the same `orderStepReqs`
+        // pass the visualizer runs over the same rows.
         const reqById = new Map(model.requirements.map((r) => [r.id, r]));
-        const sortArgs = {
-            colorKey: DEFAULT_COLOR_KEY,
+        const rows = orderStepReqs(baseRows, {
             statusOf: (id) => reqById.get(id)?.requirement_status,
-            sessionOf: (id) => reqById.get(id)?.session_status,
             autonomyOf: (id) => reqById.get(id)?.coordination_type,
-            machineOf: (id) => reqById.get(id)?.machine_fk,
-        };
-        const rows = baseRows.map((r) => ((r.reqIds || []).length > 1
-            ? { ...r, reqIds: sortReqIdsByColorKey(r.reqIds, sortArgs) }
-            : r));
+        });
 
         const reqTitles = new Map(model.requirements.map((r) => [r.id, r.title]));
         const layout = computePlanLayout(rows, {
@@ -218,7 +214,7 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
             // a later edit here cannot mutate the cached plan object.
             eligible: new Set(adapted?.eligibleStepIds || []),
         };
-    }, [data, machines, todayUtc]);
+    }, [data, machines, today]);
 
     const frame = useMemo(
         () => (drawing && width > 0 ? thumbnailFrame(drawing.layout, width) : null),
@@ -373,6 +369,15 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
                                             n.frameLeft + CARD_PAD_X, ruleY,
                                             n.frameLeft + n.frameW - CARD_PAD_X, ruleY,
                                         ]} stroke={P.line} strokeWidth={lineW(1)} />
+                                        {n.doneRule && (
+                                            <Line points={[
+                                                n.frameLeft + CARD_PAD_X, n.doneRule.y,
+                                                n.frameLeft + n.frameW - CARD_PAD_X,
+                                                n.doneRule.y,
+                                            ]} stroke={P.dim} strokeWidth={lineW(1)}
+                                                  dash={CARD_DONE_RULE_DASH}
+                                                  opacity={CARD_DONE_RULE_OPACITY} />
+                                        )}
                                     </Group>
                                 );
                             })}
@@ -381,8 +386,7 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
                                 boxes — L3's formation: the step name, each
                                 requirement's TITLE row (wrapped by the layout,
                                 never re-wrapped here) in its colour key, the
-                                count badge, the run pill and the "+"
-                                button. */}
+                                count badge and the run pill. */}
                             {view.layout.labels.map((label, i) => {
                                 if (label.stepId == null || !visibleIds.has(label.stepId)) {
                                     return null;
@@ -404,13 +408,29 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
                                     });
                                     const text = Array.isArray(label.lines)
                                         ? label.lines.join('\n') : label.text;
+                                    // req #3683 — the id→title gap is 1.5
+                                    // characters, as on the plan canvas: the id
+                                    // stays put and the rest is drawn
+                                    // `REQ_SEP_PULL` further left.
+                                    const id = String(label.reqId);
+                                    const font = {
+                                        fontSize: CF.req, fontFamily: MONO,
+                                        lineHeight: REQ_LINE_H / CF.req, fill: rs.fill,
+                                        fontStyle: rs.bold ? 'bold' : 'normal',
+                                    };
+                                    if (text.length <= id.length) {
+                                        return (
+                                            <Text key={`lbl-${i}`} x={label.x} y={label.y}
+                                                  text={text} {...font} />
+                                        );
+                                    }
                                     return (
-                                        <Text key={`lbl-${i}`} x={label.x} y={label.y}
-                                              text={text}
-                                              fontSize={CF.req} fontFamily={MONO}
-                                              lineHeight={REQ_LINE_H / CF.req}
-                                              fill={rs.fill}
-                                              fontStyle={rs.bold ? 'bold' : 'normal'} />
+                                        <Group key={`lbl-${i}`}>
+                                            <Text x={label.x} y={label.y} text={id} {...font} />
+                                            <Text x={label.x - REQ_SEP_PULL} y={label.y}
+                                                  text={' '.repeat(id.length) + text.slice(id.length)}
+                                                  {...font} />
+                                        </Group>
                                     );
                                 }
                                 if (label.kind === 'badge' || label.kind === 'run') {
@@ -432,23 +452,6 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
                                                   fontFamily={MONO} fontStyle="bold"
                                                   fill={run ? P.panel : P.badgeText}
                                                   wrap="none" />
-                                        </Group>
-                                    );
-                                }
-                                if (label.kind === 'step-add') {
-                                    return (
-                                        <Group key={`lbl-${i}`}>
-                                            <Rect x={label.x} y={label.y}
-                                                  width={label.w} height={label.h}
-                                                  cornerRadius={4}
-                                                  stroke={P.dim}
-                                                  strokeWidth={CARD_TITLE_BTN_STROKE} />
-                                            {titleBtnGlyph(label.kind, label).map((points, j) => (
-                                                <Line key={j} points={points}
-                                                      stroke={P.text}
-                                                      strokeWidth={CARD_TITLE_BTN_GLYPH_STROKE}
-                                                      lineCap="round" lineJoin="round" />
-                                            ))}
                                         </Group>
                                     );
                                 }

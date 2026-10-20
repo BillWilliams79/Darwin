@@ -14,8 +14,6 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { DndProvider } from 'react-dnd';
-import { TouchBackend } from 'react-dnd-touch-backend';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -51,6 +49,7 @@ let postResponse = null;
 
 import TaskCard from '../TaskCard';
 import AuthContext from '../../Context/AuthContext';
+import { DarwinDndContext } from '../../dnd';
 import AppContext from '../../Context/AppContext';
 import { useClosedTasksStore } from '../../stores/useClosedTasksStore';
 
@@ -66,7 +65,7 @@ const tree = (props = {}) => (
     <QueryClientProvider client={queryClient}>
         <AppContext.Provider value={{ darwinUri: 'http://test.local' }}>
             <AuthContext.Provider value={{ idToken: 'tok', profile: { userName: 'tester' } }}>
-                <DndProvider backend={TouchBackend} options={{ enableMouseEvents: true }}>
+                <DarwinDndContext>
                     <TaskCard
                         area={AREA}
                         areaIndex={0}
@@ -76,15 +75,12 @@ const tree = (props = {}) => (
                         areaOnBlur={noop}
                         clickCardClosed={noop}
                         clickCardDelete={noop}
-                        moveCard={noop}
-                        persistAreaOrder={noop}
-                        removeArea={noop}
                         isTemplate={false}
                         autoFocusTemplate={false}
                         clearAutoFocusTemplate={noop}
                         {...props}
                     />
-                </DndProvider>
+                </DarwinDndContext>
             </AuthContext.Provider>
         </AppContext.Provider>
     </QueryClientProvider>

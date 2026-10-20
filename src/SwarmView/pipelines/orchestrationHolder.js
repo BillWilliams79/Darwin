@@ -114,6 +114,139 @@ export function claimForPipeline(claims, pipelineId) {
         (c) => c.pipeline_fk === pipelineId && c.epic_fk == null) || null;
 }
 
+// ── req #3678 — MACHINE-AWARE ORCHESTRATION: one lead per epic, any subscribers
+//
+// Several machines may hold claims on one plan. LEADERSHIP IS PER EPIC: for
+// every epic, the lowest-id live claim covering it (a whole-plan claim, or that
+// epic's own) LEADS it — the first machine in — and launches requirements
+// pinned to "Any" and to itself there. Every other machine covering it is a
+// SUBSCRIBER and launches only requirements pinned to it. The role is DERIVED
+// from the rows, never stored, by `resolve_roles` in
+// darwin-mcp/services/orchestration_claims.py — mirrored here for the same
+// reason `isStale` is: the browser reaches Lambda-Rest, a passthrough with no
+// derivation layer, so it gets raw rows. `__tests__/claimRolesCorpus.json`,
+// generated from the service, holds this copy to the same answers.
+
+export const ROLE_LEAD = 'lead';
+export const ROLE_SUBSCRIBER = 'subscriber';
+export const ROLE_REFUSED = 'refused';
+
+const nullish = (v) => (v === undefined ? null : v);
+const idKey = (c) => (Number.isInteger(c.id) ? c.id : Infinity);
+
+function claimsConflict(aEpic, bEpic) {
+    return aEpic == null || bEpic == null || aEpic === bEpic;
+}
+
+/**
+ * `Map<claimId, { role, lead_id, blocker_id, defers, refusal? }>` for LIVE
+ * claims — the browser's copy of `resolve_roles`, same keys. Walked in id order
+ * per plan: an overlap with an accepted claim on the SAME machine (or where
+ * either has no machine) → REFUSED; no overlap → LEAD; an epic claim, or a
+ * whole-plan claim under an earlier whole-plan claim → SUBSCRIBER of the
+ * lowest-id claim covering it; a whole-plan claim under earlier EPIC claims
+ * only → LEAD that `defers` those epics to them.
+ */
+export function resolveRoles(claims) {
+    const out = new Map();
+    const accepted = new Map();
+    const sorted = asArray(claims).slice().sort((a, b) => idKey(a) - idKey(b));
+    for (const row of sorted) {
+        const pid = nullish(row.pipeline_fk);
+        const epic = nullish(row.epic_fk);
+        const mine = nullish(row.machine_fk);
+        if (!accepted.has(pid)) accepted.set(pid, []);
+        const prior = accepted.get(pid);
+        const overlapping = prior.filter((c) => claimsConflict(nullish(c.epic_fk), epic));
+        const blocker = overlapping.find((c) => mine == null
+            || nullish(c.machine_fk) == null || nullish(c.machine_fk) === mine);
+        let verdict;
+        if (blocker) {
+            verdict = {
+                role: ROLE_REFUSED, lead_id: null, blocker_id: blocker.id, defers: [],
+                refusal: mine != null && nullish(blocker.machine_fk) === mine
+                    ? 'same-machine' : 'no-machine',
+            };
+        } else if (!overlapping.length) {
+            verdict = { role: ROLE_LEAD, lead_id: row.id, blocker_id: null, defers: [] };
+        } else if (epic != null) {
+            verdict = { role: ROLE_SUBSCRIBER, lead_id: overlapping[0].id,
+                        blocker_id: null, defers: [] };
+        } else {
+            const whole = overlapping.filter((c) => nullish(c.epic_fk) == null);
+            if (whole.length) {
+                verdict = { role: ROLE_SUBSCRIBER, lead_id: whole[0].id,
+                            blocker_id: null, defers: [] };
+            } else {
+                const defers = new Map();
+                for (const c of overlapping) {
+                    if (!defers.has(c.epic_fk)) defers.set(c.epic_fk, c.id);
+                }
+                verdict = {
+                    role: ROLE_LEAD, lead_id: row.id, blocker_id: null,
+                    defers: [...defers.keys()].sort((x, y) => x - y)
+                        .map((e) => ({ epic_fk: e, lead_id: defers.get(e) })),
+                };
+            }
+        }
+        out.set(row.id, verdict);
+        if (verdict.role !== ROLE_REFUSED) prior.push(row);
+    }
+    return out;
+}
+
+/**
+ * Who is orchestrating a whole PLAN, machine-aware (req #3678): the whole-plan
+ * LEAD, plus every OTHER machine holding a live claim on the plan — each a
+ * subscriber, or the lead of an epic the whole-plan lead defers to it.
+ * `{ ...holderView(lead), role, subscribers: [holderView + role] }` or null.
+ *
+ * No live whole-plan lead falls back to `claimForPipeline` — a STALE claim is
+ * still worth showing (the orchestrator is gone and the scope reclaimable),
+ * which is the pre-#3678 behaviour this keeps.
+ */
+export function orchestrationView(claims, pipelineId, machines, now = new Date()) {
+    if (pipelineId == null) return null;
+    const onPlan = asArray(claims).filter((c) => c.pipeline_fk === pipelineId);
+    const live = onPlan.filter((c) => !isStale(c, now));
+    const roles = resolveRoles(live);
+    const lead = live.slice().sort((a, b) => idKey(a) - idKey(b))
+        .find((c) => c.epic_fk == null && roles.get(c.id)?.role === ROLE_LEAD);
+    if (!lead) {
+        const fallback = holderView(claimForPipeline(onPlan, pipelineId), machines, now);
+        return fallback && { ...fallback, role: null, subscribers: [] };
+    }
+    const base = holderView(lead, machines, now);
+    const subscribers = live
+        .filter((c) => c.id !== lead.id && roles.get(c.id)?.role !== ROLE_REFUSED)
+        .sort((a, b) => idKey(a) - idKey(b))
+        .map((c) => ({ ...holderView(c, machines, now), role: roles.get(c.id).role }));
+    const deferred = roles.get(lead.id).defers || [];
+    const leadSentence = `${base.machine} LEADS — it launches requirements pinned to Any `
+        + `and to ${base.machine}${deferred.length
+            ? ` everywhere except ${deferred.map((d) => `epic ${d.epic_fk}`).join(', ')}`
+            : ''}`;
+    const describe = (s) => (s.role === ROLE_LEAD
+        ? `${s.machine} (${scopeLabel(s.claim)}) LEADS that epic — it was there first`
+        : `${s.machine} (${scopeLabel(s.claim)}) subscribes — launches ONLY requirements `
+            + 'pinned to its own machine');
+    const others = subscribers.length
+        ? ` Also orchestrating: ${subscribers.map((s) => `${describe(s)}, ${
+            s.heldSeconds == null ? 'held since an unknown time'
+                : `held ${humanDuration(s.heldSeconds)}`}`).join('; ')}.`
+        : ' No other machine has joined, so work pinned to another machine waits '
+            + 'until that machine runs /pipeline-start on this plan.';
+    return {
+        ...base,
+        role: ROLE_LEAD,
+        subscribers,
+        label: subscribers.length
+            ? `${base.label} + ${subscribers.map((s) => s.machine).join(', ')}`
+            : base.label,
+        title: `${base.title} ${leadSentence}.${others}`,
+    };
+}
+
 // `claimsForEpic` — every reservation covering an EPIC's work, its own plus any
 // whole-plan reservation on a plan the epic sat in — was DELETED by req #3356
 // with its only caller, the 1.0 `/swarm/epics` page.

@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { getIdToken, apiCall, apiDelete, uniqueName } from '../helpers/api';
+import { dndKitDrag, dndKitTouchDrag } from '../helpers/dnd-kit-drag';
 
 test.describe('Recurring Tasks Management', () => {
   test.describe.configure({ mode: 'serial' }); // single worker — beforeAll creates one shared domain
@@ -504,296 +505,187 @@ test.describe('Recurring Tasks Management', () => {
     await expect(annualMonth).toBeFocused({ timeout: 3000 });
   });
 
+  // Drag and drop (req #3663, dnd-kit — real pointer / CDP touch input). A
+  // recurring task has no stored order, so an area card takes it as a whole:
+  // it highlights while the row hovers and the drop writes area_fk alone.
+
+  /** Create a recurring def via the API and remember it for cleanup. */
+  async function createDef(areaId: string, description: string, extra: object = {}) {
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+    const result = await apiCall('recurring_tasks', 'POST', {
+      creator_fk: sub, description, area_fk: areaId, recurrence: 'daily', active: 1,
+      accumulate: 1, priority: 0, insert_position: 'bottom', ...extra,
+    }, idToken) as Array<{ id: string }>;
+    if (!result?.length) throw new Error('Failed to create recurring task');
+    createdDefIds.push(String(result[0].id));
+    return String(result[0].id);
+  }
+
+  async function createDomainWithArea(prefix: string) {
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+    const name = uniqueName(prefix);
+    const dom = await apiCall('domains', 'POST', { creator_fk: sub, domain_name: name, closed: 0 }, idToken) as Array<{ id: string }>;
+    const area = await apiCall('areas', 'POST', {
+      creator_fk: sub, area_name: uniqueName(`${prefix}Area`), domain_fk: dom[0].id, closed: 0, sort_order: 0,
+    }, idToken) as Array<{ id: string }>;
+    return { name, domainId: String(dom[0].id), areaId: String(area[0].id) };
+  }
+
+  // Grab a row by its description text — where a person picks it up. The
+  // row's centre can fall on its Recurrence select, which (by design) opens on
+  // the press and never lifts the row.
+  const grip = (page: import('@playwright/test').Page, defId: string) =>
+    page.getByTestId(`recurring-${defId}`).locator('[name="description"]').first();
+
+  const areaOf = async (defId: string) =>
+    String(((await apiCall(`recurring_tasks?id=${defId}`, 'GET', '', idToken)) as Array<{ area_fk: number | string }>)[0]?.area_fk);
+
   // -------------------------------------------------------------------------
   // REC-DND-01: Drag recurring task between area cards (same domain)
   // -------------------------------------------------------------------------
-  // retries: 1 handles inherent timing flakiness of mouse-based react-dnd DnD under full-suite load
-  test('REC-DND-01: drag recurring task between area cards (same domain)', { retries: 1 }, async ({ page }) => {
+  test('REC-DND-01: drag recurring task between area cards (same domain)', async ({ page }) => {
     const sub = process.env.E2E_TEST_COGNITO_SUB!;
-
-    // Create a second area in the same test domain
-    const area2Name = uniqueName('RecArea2');
     const area2Result = await apiCall('areas', 'POST', {
-      creator_fk: sub, area_name: area2Name, domain_fk: testDomainId, closed: 0, sort_order: 1,
+      creator_fk: sub, area_name: uniqueName('RecArea2'), domain_fk: testDomainId, closed: 0, sort_order: 1,
     }, idToken) as Array<{ id: string }>;
     if (!area2Result?.length) throw new Error('Failed to create second test area');
-    const testArea2Id = area2Result[0].id;
-
-    // Create a recurring def in area 1 via API
-    const result = await apiCall('recurring_tasks', 'POST', {
-      creator_fk: sub,
-      description: 'DnD cross-card task',
-      area_fk: testAreaId,
-      recurrence: 'daily',
-      active: 1,
-      accumulate: 1,
-      priority: 0,
-      insert_position: 'bottom',
-    }, idToken) as Array<{ id: string }>;
-    if (!result?.length) throw new Error('Failed to create recurring task for DnD test');
-    const defId = result[0].id;
-    createdDefIds.push(String(defId));
+    const testArea2Id = String(area2Result[0].id);
+    const defId = await createDef(testAreaId, 'DnD cross-card task');
 
     await goToTestDomain(page);
-
-    // Wait for both cards
-    await page.waitForSelector(`[data-testid="recurring-area-card-${testArea2Id}"]`, { timeout: 15000 });
-
-    const sourceRow = page.getByTestId(`recurring-${defId}`);
     const targetCard = page.getByTestId(`recurring-area-card-${testArea2Id}`);
+    await expect(targetCard).toBeVisible({ timeout: 15000 });
 
-    await expect(sourceRow).toBeVisible();
+    const put = page.waitForResponse(r => r.request().method() === 'PUT' && r.url().includes('/recurring_tasks'));
+    await dndKitDrag(page, grip(page, defId), targetCard);
+    const body = JSON.parse((await put).request().postData() || '[]');
+    expect(body).toEqual([{ id: Number(defId), area_fk: Number(testArea2Id) }]);
 
-    // Ensure both source and target are inside the viewport so mouse coordinates
-    // resolve to the intended DOM elements — prior tests can leave the page
-    // scrolled such that the source row is off-screen at DnD time.
-    await sourceRow.scrollIntoViewIfNeeded();
-    await targetCard.scrollIntoViewIfNeeded();
-
-    // Use page.mouse — fires mousedown/mousemove/mouseup that TouchBackend handles.
-    // dragTo fires DragEvent which TouchBackend ignores.
-    const srcBounds = await sourceRow.boundingBox();
-    const tgtBounds = await targetCard.boundingBox();
-    if (!srcBounds || !tgtBounds) throw new Error('Could not get bounding boxes');
-
-    // Start drag from left edge (priority checkbox area, x+12) to avoid opening Recurrence Select
-    await page.mouse.move(srcBounds.x + 12, srcBounds.y + 12);
-    await page.mouse.down();
-    await page.waitForTimeout(100);
-    // Small initial move to trigger drag recognition, then move to target card center
-    await page.mouse.move(srcBounds.x + 25, srcBounds.y + 12, { steps: 3 });
-    await page.mouse.move(tgtBounds.x + tgtBounds.width / 2, tgtBounds.y + tgtBounds.height / 2, { steps: 10 });
-    await page.waitForTimeout(200);
-    await page.mouse.up();
-    // Allow optimistic update + TanStack Query refetch to settle
-    await page.waitForTimeout(1500);
-
-    // Def should appear in area 2's card
     await expect(targetCard.getByTestId(`recurring-${defId}`)).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId(`recurring-area-card-${testAreaId}`).getByTestId(`recurring-${defId}`)).toHaveCount(0);
+    expect(await areaOf(defId)).toBe(testArea2Id);
 
-    // Verify via API that area_fk was updated
-    const updated = await apiCall(`recurring_tasks?id=${defId}`, 'GET', '', idToken) as Array<{ area_fk: number | string }>;
-    expect(String(updated?.[0]?.area_fk)).toBe(String(testArea2Id));
-
-    // Cleanup second area (cascade deletes its recurring tasks is not needed — def already moved)
     try { await apiDelete('areas', testArea2Id, idToken); } catch {}
   });
 
   // -------------------------------------------------------------------------
   // REC-DND-02: Drag recurring task across domain tabs
   // -------------------------------------------------------------------------
-  // retries: 1 handles inherent timing flakiness of 500ms hover-to-switch under full-suite load
-  test('REC-DND-02: drag recurring task across domain tabs', { retries: 1 }, async ({ page }) => {
-    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+  test('REC-DND-02: drag recurring task across domain tabs', async ({ page }) => {
+    const other = await createDomainWithArea('RecDomain2');
+    const defId = await createDef(testAreaId, 'DnD cross-domain task', { recurrence: 'weekly', anchor_date: '2025-01-06' });
 
-    // Create a second domain + area for this test
-    const domain2Name = uniqueName('RecDomain2');
-    const domResult = await apiCall('domains', 'POST', {
-      creator_fk: sub, domain_name: domain2Name, closed: 0,
-    }, idToken) as Array<{ id: string }>;
-    if (!domResult?.length) throw new Error('Failed to create second test domain');
-    const testDomain2Id = domResult[0].id;
+    // Earlier tests leave rows in this card, so the new row sits low on the
+    // page; at the default height, scrolling it into view takes the tab strip
+    // off screen and the glide would aim above the viewport. Tall enough that
+    // the row and the tab are on screen together, as a person would see them.
+    await page.setViewportSize({ width: 1280, height: 2400 });
+    await goToTestDomain(page);
+    const targetTab = page.getByRole('tab', { name: other.name }).first();
+    await targetTab.scrollIntoViewIfNeeded();
+    const put = page.waitForResponse(r => r.request().method() === 'PUT' && r.url().includes('/recurring_tasks'));
+    await dndKitDrag(page, grip(page, defId), targetTab, {
+      holdOverTargetMs: 900,
+      then: page.getByTestId(`recurring-area-card-${other.areaId}`),
+    });
+    await put;
+    await expect(targetTab).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId(`recurring-area-card-${other.areaId}`).getByTestId(`recurring-${defId}`)).toBeVisible({ timeout: 10000 });
+    expect(await areaOf(defId)).toBe(other.areaId);
 
-    const area3Name = uniqueName('RecArea3');
-    const areaResult = await apiCall('areas', 'POST', {
-      creator_fk: sub, area_name: area3Name, domain_fk: testDomain2Id, closed: 0, sort_order: 0,
-    }, idToken) as Array<{ id: string }>;
-    if (!areaResult?.length) throw new Error('Failed to create area in second domain');
-    const testArea3Id = areaResult[0].id;
-
-    // Create a recurring def in the original test domain's area
-    const result = await apiCall('recurring_tasks', 'POST', {
-      creator_fk: sub,
-      description: 'DnD cross-domain task',
-      area_fk: testAreaId,
-      recurrence: 'weekly',
-      anchor_date: '2025-01-06',
-      active: 1,
-      accumulate: 1,
-      priority: 0,
-      insert_position: 'bottom',
-    }, idToken) as Array<{ id: string }>;
-    if (!result?.length) throw new Error('Failed to create recurring task for cross-domain DnD test');
-    const defId = result[0].id;
-    createdDefIds.push(String(defId));
-
-    await page.goto('/recurring');
-    await page.waitForSelector('[role="tab"]', { timeout: 30000 });
-    await page.getByRole('tab', { name: testDomainName }).first().click();
-    await page.waitForSelector(`[data-testid="recurring-area-card-${testAreaId}"]`, { timeout: 15000 });
-
-    const sourceRow = page.getByTestId(`recurring-${defId}`);
-    await expect(sourceRow).toBeVisible();
-
-    // .first() guards against duplicate tab names from parallel worker runs
-    const targetTab = page.getByRole('tab', { name: domain2Name }).first();
-    await expect(targetTab).toBeVisible();
-
-    const area3Card = page.getByTestId(`recurring-area-card-${testArea3Id}`);
-
-    const srcBounds = await sourceRow.boundingBox();
-    const tabBounds = await targetTab.boundingBox();
-    if (!srcBounds || !tabBounds) throw new Error('Could not get bounding boxes');
-
-    // Use page.mouse — fires mousedown/mousemove/mouseup that TouchBackend handles
-    // Step 1: start drag on the source row (left edge = priority checkbox, avoids Selects)
-    await page.mouse.move(srcBounds.x + 12, srcBounds.y + 12);
-    await page.mouse.down();
-    await page.waitForTimeout(100);
-    // Small initial move to trigger drag recognition (mirroring REC-DND-01 pattern)
-    await page.mouse.move(srcBounds.x + 25, srcBounds.y + 12, { steps: 3 });
-    await page.waitForTimeout(100);
-
-    // Step 2: hover over domain 2 tab — triggers RecurringDroppableTab's 500ms timer.
-    // Poll: keep generating hover events (every 50ms) until the tab switch is detected,
-    // or until 6000ms elapses. This is more robust than a fixed-time wiggle under load.
-    const tabCx = tabBounds.x + tabBounds.width / 2;
-    const tabCy = tabBounds.y + tabBounds.height / 2;
-    await page.mouse.move(tabCx, tabCy, { steps: 20 });
-    const deadline = Date.now() + 6000;
-    let tabSwitched = false;
-    while (Date.now() < deadline) {
-      await page.waitForTimeout(50);
-      await page.mouse.move(tabCx + ((Date.now() % 3) - 1), tabCy, { steps: 2 });
-      if (await area3Card.isVisible()) { tabSwitched = true; break; }
-    }
-    // Step 3 + 4: if the tab switched, complete the drop on the target area card.
-    let moved = false;
-    if (tabSwitched) {
-      const area3Bounds = await area3Card.boundingBox();
-      if (area3Bounds) {
-        await page.mouse.move(area3Bounds.x + area3Bounds.width / 2, area3Bounds.y + area3Bounds.height / 2, { steps: 5 });
-        await page.waitForTimeout(200);
-        await page.mouse.up();
-        moved = await area3Card.getByTestId(`recurring-${defId}`).isVisible().catch(() => false);
-      }
-    }
-    // Always release the button (no-op if the drop already did) so a stuck drag
-    // can't wedge the subsequent reload.
-    await page.mouse.up().catch(() => {});
-
-    if (!moved) {
-      // The TouchBackend drag + hover-to-switch-tab gesture does not reliably
-      // propagate via synthetic page.mouse events on all hosts — the same harness
-      // limitation AREA-06 documents and handles. Fall back to an API move of
-      // area_fk and verify the UI reflects it: this still exercises the end-to-end
-      // outcome (cross-domain move persists + the row renders in the target card).
-      await apiCall('recurring_tasks', 'PUT', [{ id: defId, area_fk: testArea3Id }], idToken);
-      await page.reload();
-      await page.waitForSelector('[role="tab"]', { timeout: 15000 });
-      await page.getByRole('tab', { name: domain2Name }).first().click();
-      await page.waitForSelector(`[data-testid="recurring-area-card-${testArea3Id}"]`, { timeout: 15000 });
-    }
-
-    // Def should appear in domain 2's area card
-    await expect(area3Card.getByTestId(`recurring-${defId}`)).toBeVisible({ timeout: 10000 });
-
-    // Verify via API
-    const updated = await apiCall(`recurring_tasks?id=${defId}`, 'GET', '', idToken) as Array<{ area_fk: number | string }>;
-    expect(String(updated?.[0]?.area_fk)).toBe(String(testArea3Id));
-
-    // Cleanup domain 2 (cascade handles area + recurring tasks)
-    try { await apiDelete('domains', testDomain2Id, idToken); } catch {}
+    try { await apiDelete('domains', other.domainId, idToken); } catch {}
   });
 
   // -------------------------------------------------------------------------
-  // REC-DND-03: Drag recurring task → tab switch → drop on tab → tab reverts
+  // REC-DND-03: Drag → tab switch → release ON the tab → cancelled, tab reverts
   // -------------------------------------------------------------------------
-  // retries: 1 handles inherent timing flakiness of 500ms hover-to-switch under full-suite load
-  test('REC-DND-03: cancelled cross-domain drag reverts tab to original domain', { retries: 1 }, async ({ page }) => {
-    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+  test('REC-DND-03: cancelled cross-domain drag reverts tab to original domain', async ({ page }) => {
+    const other = await createDomainWithArea('RecDomain4');
+    const defId = await createDef(testAreaId, 'DnD cancelled cross-domain task');
 
-    // Create a second domain + area so there is a droppable tab to hover over
-    const domain4Name = uniqueName('RecDomain4');
-    const domResult = await apiCall('domains', 'POST', {
-      creator_fk: sub, domain_name: domain4Name, closed: 0,
-    }, idToken) as Array<{ id: string }>;
-    if (!domResult?.length) throw new Error('Failed to create second test domain');
-    const testDomain4Id = domResult[0].id;
+    // Row and tab on screen together (see REC-DND-02).
+    await page.setViewportSize({ width: 1280, height: 2400 });
+    await goToTestDomain(page);
+    let puts = 0;
+    await page.route('**/recurring_tasks*', r => { if (r.request().method() === 'PUT') puts++; r.continue(); });
+    const targetTab = page.getByRole('tab', { name: other.name }).first();
+    await targetTab.scrollIntoViewIfNeeded();
+    const area4Card = page.getByTestId(`recurring-area-card-${other.areaId}`);
 
-    const area4Name = uniqueName('RecArea4');
-    const areaResult = await apiCall('areas', 'POST', {
-      creator_fk: sub, area_name: area4Name, domain_fk: testDomain4Id, closed: 0, sort_order: 0,
-    }, idToken) as Array<{ id: string }>;
-    if (!areaResult?.length) throw new Error('Failed to create area in second domain');
-    const testArea4Id = areaResult[0].id;
+    // Hold over the tab until it switches, then release ON the tab — a cancel.
+    // The switch is observed while the drag is still in the air.
+    let switched = false;
+    const watch = (async () => {
+      const until = Date.now() + 6000;
+      while (!switched && Date.now() < until) {
+        switched = await area4Card.isVisible().catch(() => false);
+        await page.waitForTimeout(50);
+      }
+    })();
+    await dndKitDrag(page, grip(page, defId), targetTab, { holdOverTargetMs: 1200 });
+    await watch;
+    expect(switched).toBe(true);
 
-    // Create a recurring def in the original test domain's area
-    const result = await apiCall('recurring_tasks', 'POST', {
-      creator_fk: sub,
-      description: 'DnD cancelled cross-domain task',
-      area_fk: testAreaId,
-      recurrence: 'daily',
-      active: 1,
-      accumulate: 1,
-      priority: 0,
-      insert_position: 'bottom',
-    }, idToken) as Array<{ id: string }>;
-    if (!result?.length) throw new Error('Failed to create recurring task for REC-DND-03');
-    const defId = result[0].id;
-    createdDefIds.push(String(defId));
-
-    await page.goto('/recurring');
-    await page.waitForSelector('[role="tab"]', { timeout: 30000 });
-    await page.getByRole('tab', { name: testDomainName }).first().click();
-    await page.waitForSelector(`[data-testid="recurring-area-card-${testAreaId}"]`, { timeout: 15000 });
-
-    const sourceRow = page.getByTestId(`recurring-${defId}`);
-    await expect(sourceRow).toBeVisible();
-
-    const targetTab = page.getByRole('tab', { name: domain4Name }).first();
-    await expect(targetTab).toBeVisible();
-
-    // area4Card becomes visible when the tab switch fires
-    const area4Card = page.getByTestId(`recurring-area-card-${testArea4Id}`);
-    // area1Card is visible only when we're on the original domain
-    const area1Card = page.getByTestId(`recurring-area-card-${testAreaId}`);
-
-    const srcBounds = await sourceRow.boundingBox();
-    const tabBounds = await targetTab.boundingBox();
-    if (!srcBounds || !tabBounds) throw new Error('Could not get bounding boxes');
-
-    // Step 1: start drag
-    await page.mouse.move(srcBounds.x + 12, srcBounds.y + 12);
-    await page.mouse.down();
-    await page.waitForTimeout(100);
-    await page.mouse.move(srcBounds.x + 25, srcBounds.y + 12, { steps: 3 });
-    await page.waitForTimeout(100);
-
-    // Step 2: hover over domain 4 tab until tab switch fires (area4Card appears)
-    const tabCx = tabBounds.x + tabBounds.width / 2;
-    const tabCy = tabBounds.y + tabBounds.height / 2;
-    await page.mouse.move(tabCx, tabCy, { steps: 20 });
-    const deadline = Date.now() + 6000;
-    let tabSwitched = false;
-    while (Date.now() < deadline) {
-      await page.waitForTimeout(50);
-      await page.mouse.move(tabCx + ((Date.now() % 3) - 1), tabCy, { steps: 2 });
-      if (await area4Card.isVisible()) { tabSwitched = true; break; }
-    }
-    // The synthetic TouchBackend drag + 500ms hover-to-switch is not reliably
-    // driven by page.mouse on all hosts (the harness limitation AREA-06 / tests.md
-    // document). Treat the hover-switch as best-effort: whether or not it fired,
-    // the assertions below hold and the deterministic guarantee — a cancelled drag
-    // does NOT change area_fk — is verified via the API. (When it did fire we also
-    // exercise the visual revert; when it didn't we were never off the original
-    // domain, so the same tab-state assertions still apply.)
-
-    // Step 3: drop ON the tab itself (not a card) — cancelled drop
-    await page.mouse.up();
-    await page.waitForTimeout(500);
-
-    // Tab is on the original domain — area1Card visible, area4Card hidden (either
-    // it reverted after the hover-switch, or the switch never fired).
-    await expect(area1Card).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId(`recurring-area-card-${testAreaId}`)).toBeVisible({ timeout: 5000 });
     await expect(area4Card).not.toBeVisible();
+    await page.waitForTimeout(300);
+    expect(puts).toBe(0);
+    expect(await areaOf(defId)).toBe(String(testAreaId));
 
-    // Core guarantee: a cancelled cross-domain drag must NOT change area_fk.
-    const check = await apiCall(`recurring_tasks?id=${defId}`, 'GET', '', idToken) as Array<{ area_fk: number | string }>;
-    expect(String(check?.[0]?.area_fk)).toBe(String(testAreaId));
+    try { await apiDelete('domains', other.domainId, idToken); } catch {}
+  });
 
-    // Cleanup domain 4 (cascade handles area)
-    try { await apiDelete('domains', testDomain4Id, idToken); } catch {}
+  // -------------------------------------------------------------------------
+  // REC-DND-04: the whole row is the grip — pressing ON THE DESCRIPTION lifts it
+  // -------------------------------------------------------------------------
+  test('REC-DND-04: pressing on the description text lifts the row; a quick click still edits', async ({ page }) => {
+    const defId = await createDef(testAreaId, 'DnD grip task');
+    await goToTestDomain(page);
+    const field = page.getByTestId(`recurring-${defId}`).locator('[name="description"]').first();
+
+    // A quick click places the caret and lifts nothing.
+    await field.click();
+    await expect(field).toBeFocused();
+    await expect(page.getByTestId('drag-overlay')).toHaveCount(0);
+    // Leave the field (a press in a field ALREADY being edited edits, by design).
+    await field.evaluate(el => (el as HTMLElement).blur());
+    await expect(field).not.toBeFocused();
+
+    // A press that moves lifts the row: the preview is the row itself.
+    await field.scrollIntoViewIfNeeded();
+    const fb = (await field.boundingBox())!;
+    await page.mouse.move(fb.x + fb.width / 2, fb.y + fb.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(fb.x + fb.width / 2 + 3, fb.y + fb.height / 2 + 3);
+    await page.waitForTimeout(60);
+    await page.mouse.move(fb.x + fb.width / 2 + 10, fb.y + fb.height / 2 + 30, { steps: 4 });
+    const overlay = page.getByTestId('drag-overlay');
+    await expect(overlay).toBeVisible();
+    await expect(overlay.locator('textarea').first()).toHaveValue('DnD grip task');
+    await page.keyboard.press('Escape');
+    await page.mouse.up();
+    await expect(page.locator('[data-dragging="true"]')).toHaveCount(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // REC-DND-05: a Select stays a control — pressing it opens it, never lifts
+  // -------------------------------------------------------------------------
+  test('REC-DND-05: a press on the recurrence select opens it and never lifts the row', async ({ page }) => {
+    const defId = await createDef(testAreaId, 'DnD select task');
+    await goToTestDomain(page);
+    const select = page.getByTestId(`recurring-${defId}`).locator('[role="combobox"]').first();
+    await select.scrollIntoViewIfNeeded();
+    const b = (await select.boundingBox())!;
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(b.x + b.width / 2 + 3, b.y + b.height / 2 + 3);
+    await page.waitForTimeout(60);
+    await page.mouse.move(b.x + b.width / 2 + 12, b.y + b.height / 2 + 12, { steps: 4 });
+    await page.waitForTimeout(500);
+    await expect(page.getByTestId('drag-overlay')).toHaveCount(0);
+    await page.mouse.up();
+    await expect(page.getByRole('listbox')).toBeVisible();
+    await page.keyboard.press('Escape');
   });
 
   // -------------------------------------------------------------------------
@@ -833,5 +725,47 @@ test.describe('Recurring Tasks Management', () => {
     const check = await apiCall(`recurring_tasks?id=${defId}`, 'GET', '', idToken) as unknown;
     // 404 comes back as an error object or empty — just confirm id not in results
     expect(Array.isArray(check) ? check.length : 0).toBe(0);
+  });
+});
+
+test.describe.serial('Recurring Tasks — touch drag (dnd-kit)', () => {
+  test.use({ hasTouch: true, viewport: { width: 412, height: 780 } });
+  test.setTimeout(90000);
+  let idToken: string;
+  let domainId: string, area1Id: string, area2Id: string, defId: string;
+  const domainName = uniqueName('RecTouch');
+
+  test.beforeAll(async ({ browser }) => {
+    const context = await browser.newContext({ storageState: '.auth/user.json' });
+    const page = await context.newPage();
+    idToken = await getIdToken(page);
+    await context.close();
+    const sub = process.env.E2E_TEST_COGNITO_SUB!;
+    const post = async (table: string, body: object) =>
+      String(((await apiCall(table, 'POST', { creator_fk: sub, ...body }, idToken)) as Array<{ id: string }>)[0].id);
+    domainId = await post('domains', { domain_name: domainName, closed: 0 });
+    area1Id = await post('areas', { area_name: uniqueName('TouchA'), domain_fk: domainId, closed: 0, sort_order: 0 });
+    area2Id = await post('areas', { area_name: uniqueName('TouchB'), domain_fk: domainId, closed: 0, sort_order: 1 });
+    defId = await post('recurring_tasks', {
+      description: 'Touch-moved task', area_fk: area1Id, recurrence: 'daily', active: 1,
+      accumulate: 1, priority: 0, insert_position: 'bottom',
+    });
+  });
+
+  test.afterAll(async () => {
+    try { await apiDelete('domains', domainId, idToken); } catch {}
+  });
+
+  test('REC-TOUCH-01: hold still to lift a recurring row, then carry it to another card', async ({ page }) => {
+    await page.goto(`/recurring?domain=${domainId}`);
+    const source = page.getByTestId(`recurring-${defId}`).locator('[name="description"]').first();
+    await expect(source).toBeVisible({ timeout: 30000 });
+    const target = page.getByTestId(`recurring-area-card-${area2Id}`);
+    const put = page.waitForResponse(r => r.request().method() === 'PUT' && r.url().includes('/recurring_tasks'));
+    await dndKitTouchDrag(page, source, target);
+    await put;
+    await expect(target.getByTestId(`recurring-${defId}`)).toBeVisible({ timeout: 10000 });
+    const after = (await apiCall(`recurring_tasks?id=${defId}`, 'GET', '', idToken)) as Array<{ area_fk: number | string }>;
+    expect(String(after[0].area_fk)).toBe(area2Id);
   });
 });

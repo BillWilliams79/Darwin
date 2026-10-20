@@ -124,7 +124,8 @@ These 13 tests were added in sessions after the original TEST_PLAN.md was writte
 2. **TASK-10 (Plan): Tab-hover-switch during drag** (`DroppableTab` 500ms timer)
    - The plan specified testing tab switching during drag-hover
    - Requires sustained drag-hover coordination between react-dnd synthetic events and tab monitoring
-   - **Priority: P2** — works in manual testing, hard to automate reliably
+   - **Since covered** with real input on dnd-kit: `plan-dnd.spec.ts` PDND-07/08 (req #3662),
+     `swarm-dnd.spec.ts` SDND-12/13 and `recurring-tasks.spec.ts` REC-DND-02/03 (req #3663)
 
 3. **RESP-01: Responsive viewport**
    - No mobile viewport tests

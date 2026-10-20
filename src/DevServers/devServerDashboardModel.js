@@ -37,8 +37,6 @@ export const DASH_INSET = 16;
 /** Smallest panel the edges will shape, px: a row's bar, port and terminal. */
 export const DASH_MIN_W = 120;
 export const DASH_MIN_H = 64;
-/** Narrower than this (shaped), a row drops its bug # (user directive). */
-export const DASH_COMPACT_W = 250;
 /** Narrower than this, it drops the title too: bar, port and terminal only
  *  (user directive: "at its smallest"). */
 export const DASH_TINY_W = 190;
