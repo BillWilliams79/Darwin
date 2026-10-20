@@ -8,15 +8,18 @@ import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { useDragTabStore } from '../stores/useDragTabStore';
 import { useWorkingDomainStore } from '../stores/useWorkingDomainStore';
 import { useDomains } from '../hooks/useDataQueries';
-import { domainKeys } from '../hooks/useQueryKeys';
+import { domainKeys, areaKeys, taskKeys } from '../hooks/useQueryKeys';
 
 import DomainCloseDialog from '../Components/DomainClose/DomainCloseDialog';
 import DomainAddDialog from '../Components/DomainAdd/DomainAddDialog';
 import AreaTabPanel from './AreaTabPanel';
-import TaskDragLayer from '../Components/TaskEdit/TaskDragLayer';
+import { DarwinDndContext, DarwinSortableList, RemeasureOnChange, useDarwinDropZone } from '../dnd';
+import { DOMAIN_TABS, PlanListRegistry, planIds } from './planDnd';
+import { usePlanDnd } from './usePlanDnd';
 
 import React, { useState, useEffect, useContext, useRef, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 
 import Box from '@mui/material/Box';
@@ -52,6 +55,19 @@ const PriorityFlagButton = ({ domainId, toggleCard }) => {
     );
 };
 
+// The tab strip as a drop zone: tabs reorder within it (req #3662).
+const TabStripZone = ({ children }) => {
+    const { setNodeRef } = useDarwinDropZone({ id: planIds.domains, policy: DOMAIN_TABS });
+    return (
+        <Box ref={setNodeRef} sx={{ flex: 1, overflow: 'hidden' }}>
+            {children}
+        </Box>
+    );
+};
+
+// A lifted tab grows a little more than a row or a card — it is small.
+const liftScale = (active) => (active.data.current?.type === 'domain' ? 1.06 : 1.02);
+
 const TaskPlanView = () => {
 
     const { idToken, profile } = useContext(AuthContext);
@@ -75,6 +91,17 @@ const TaskPlanView = () => {
     // TanStack Query — fetch open domains
     const { data: serverDomains } = useDomains(profile?.userName, { closed: 0 });
 
+    // A deep link may name the domain to open (`?domain=<id>`) and ask for its
+    // priority card (`&priority=1`) — so a link can land on one exact board
+    // (req #3662: the dev server opens on the change). Otherwise the working
+    // domain from localStorage, then the first tab.
+    const [searchParams] = useSearchParams();
+    const linkedDomainId = searchParams.get('domain');
+    const linkedPriority = searchParams.get('priority') === '1';
+    // Honoured on the FIRST seed only: every later domain refetch (a reorder,
+    // an add, a close) must leave the user on the tab they chose.
+    const linkAppliedRef = useRef(false);
+
     // Seed local state from query data (hybrid pattern — local state owns DnD)
     useEffect(() => {
         if (serverDomains) {
@@ -86,10 +113,18 @@ const TaskPlanView = () => {
                 return a.sort_order - b.sort_order;
             });
 
-            // Restore working domain from localStorage, fall back to first tab
+            // Linked domain, else the working domain from localStorage, else the first tab
             const storedId = getWorkingDomain();
             let initialTab = 0;
-            if (storedId) {
+            const linkedIdx = linkedDomainId && !linkAppliedRef.current
+                ? sorted.findIndex(d => String(d.id) === linkedDomainId) : -1;
+            linkAppliedRef.current = true;
+            if (linkedIdx >= 0) {
+                initialTab = linkedIdx;
+                if (linkedPriority && !useOptionalCardStore.getState().cards[linkedDomainId]?.priority?.show) {
+                    toggleCard(linkedDomainId, 'priority');
+                }
+            } else if (storedId) {
                 const idx = sorted.findIndex(d => String(d.id) === storedId);
                 if (idx >= 0) initialTab = idx;
             }
@@ -98,11 +133,9 @@ const TaskPlanView = () => {
         }
     }, [serverDomains]);
 
-    // Ref to track blue-line insertion index during domain tab drag
-    const domainInsertIndexRef = useRef(null);
-    const setDomainInsertIndex = useCallback((index) => {
-        domainInsertIndexRef.current = index;
-    }, []);
+    // req #3662 — every card registers its local array here; the page's one
+    // onDragEnd resolves a drop against them.
+    const planListRegistry = useRef(new Map()).current;
 
     const renameDomain = useCallback((domainId, newName) => {
         const uri = `${darwinUri}/domains`;
@@ -188,72 +221,32 @@ const TaskPlanView = () => {
         domainAdd.openDialog();
      }
 
-    const persistDomainOrder = useCallback((didDrop, dragDomainId) => {
-        const insertIndex = domainInsertIndexRef.current;
-        domainInsertIndexRef.current = null;
-
-        if (!didDrop || insertIndex === null) return;
-
-        let restDataArray = null;
-
-        setDomainsArray(prev => {
-            if (!prev) return prev;
-
-            const dragIndex = prev.findIndex(d => d.id === dragDomainId);
-            if (dragIndex < 0) return prev;
-
-            // Adjust insert index: if dragging rightward, removing the item shifts indices left
-            const adjustedIndex = insertIndex > dragIndex ? insertIndex - 1 : insertIndex;
-            if (adjustedIndex === dragIndex) return prev;
-
-            const updated = [...prev];
-            const [moved] = updated.splice(dragIndex, 1);
-            updated.splice(adjustedIndex, 0, moved);
-
-            // Track active tab by domain ID
-            const currentTabIndex = parseInt(activeTab);
-            if (currentTabIndex >= 0 && currentTabIndex < prev.length) {
-                const activeDomainId = prev[currentTabIndex].id;
-                const newIndex = updated.findIndex(d => d.id === activeDomainId);
-                if (newIndex >= 0 && newIndex !== currentTabIndex) {
-                    setActiveTab(newIndex);
-                }
-            }
-
-            // Renumber sort_order
-            const renumbered = updated.map((dom, idx) => ({ ...dom, sort_order: idx }));
-            restDataArray = renumbered.map(dom => ({ 'id': dom.id, 'sort_order': dom.sort_order }));
-
-            return renumbered;
-        });
-
-        // Persist and invalidate cache outside the state updater
-        if (restDataArray) {
-            let uri = `${darwinUri}/domains`;
-            call_rest_api(uri, 'PUT', restDataArray, idToken)
-                .then(result => {
-                    if ((result.httpStatus.httpStatus === 200) ||
-                        (result.httpStatus.httpStatus === 204)) {
-                        queryClient.invalidateQueries({ queryKey: domainKeys.all(profile.userName) });
-                    } else {
-                        showError(result, 'Unable to save domain sort order')
-                    }
-                }).catch(error => {
-                    showError(error, 'Unable to save domain sort order')
-                });
-        }
-    }, [activeTab, darwinUri, idToken, showError, setActiveTab, queryClient, profile]);
+    const dragHandlers = usePlanDnd({
+        registry: planListRegistry,
+        writeCtx: { darwinUri, idToken, showError },
+        invalidateTasks: () => queryClient.invalidateQueries({ queryKey: taskKeys.all(profile.userName) }),
+        invalidateAreas: () => queryClient.invalidateQueries({ queryKey: areaKeys.all(profile.userName) }),
+        invalidateDomains: () => queryClient.invalidateQueries({ queryKey: domainKeys.all(profile.userName) }),
+        domains: domainsArray,
+        setDomains: setDomainsArray,
+        activeTab,
+        setActiveTab,
+    });
 
     return (
-        <>
-        <TaskDragLayer />
+        <PlanListRegistry.Provider value={planListRegistry}>
+        <DarwinDndContext {...dragHandlers} liftScale={liftScale}>
+        <RemeasureOnChange value={activeTab} />
         {domainsArray ?
             <>
             <Box className="app-content-planpage">
                     <Box sx={{ borderBottom: 1, borderColor: 'divider', display: 'flex', alignItems: 'center' }}
                          className="app-content-tabs"
                     >
-                        <Box sx={{ flex: 1, overflow: 'hidden' }}>
+                        <TabStripZone>
+                            <DarwinSortableList id={planIds.domains}
+                                                items={domainsArray.map(d => planIds.domain(d.id))}
+                                                policy={DOMAIN_TABS}>
                             <Tabs value={activeTab.toString()}
                                   onChange={changeActiveTab}
                                   variant="scrollable"
@@ -262,9 +255,9 @@ const TaskPlanView = () => {
                                     <DroppableTab key={domain.id}
                                          domainIndex={domainIndex}
                                          domainId={domain.id}
+                                         domain={domain}
                                          domainName={domain.domain_name}
-                                         setDomainInsertIndex={setDomainInsertIndex}
-                                         persistDomainOrder={persistDomainOrder}
+                                         isActiveTab={String(activeTab) === String(domainIndex)}
                                          renameDomain={renameDomain}
                                          icon={<CloseIcon onClick={(event) => domainCloseClick(event, domain.domain_name, domain.id, domainIndex)}/>}
                                          label={domain.domain_name}
@@ -277,7 +270,8 @@ const TaskPlanView = () => {
                                      value={9999} // this value is used in changeActiveTab()
                                 />
                             </Tabs>
-                        </Box>
+                            </DarwinSortableList>
+                        </TabStripZone>
                         {/* req #3506 — "Closed" window, global to the page rather
                             than per-domain, so it sits outside the active-domain
                             block below. */}
@@ -319,7 +313,8 @@ const TaskPlanView = () => {
             :
             <CircularProgress/>
         }
-        </>
+        </DarwinDndContext>
+        </PlanListRegistry.Provider>
     );
 
 }
