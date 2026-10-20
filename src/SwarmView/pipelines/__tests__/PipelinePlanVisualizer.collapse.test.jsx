@@ -187,3 +187,87 @@ describe('per-box collapse heads on the plan canvas (req #3650)', () => {
         expect(epicHead(5).getAttribute('aria-label')).toBe('Steps of epic Build');
     });
 });
+
+// req #3695 — the fold ANIMATES. jsdom has no `matchMedia`, which the canvas
+// reads as "do not animate" (every test above relies on that); these tests
+// give it one that allows motion, and drive the frames by hand.
+describe('the epic fold animates, and a folded epic is a title bar (req #3695)', () => {
+    let frames;
+    let clock;
+    let restore;
+    beforeEach(() => {
+        frames = [];
+        clock = 1000;
+        const saved = {
+            matchMedia: window.matchMedia,
+            raf: globalThis.requestAnimationFrame,
+            caf: globalThis.cancelAnimationFrame,
+        };
+        window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+        globalThis.requestAnimationFrame = (cb) => { frames.push(cb); return frames.length; };
+        globalThis.cancelAnimationFrame = () => {};
+        const nowSpy = vi.spyOn(performance, 'now').mockImplementation(() => clock);
+        restore = () => {
+            window.matchMedia = saved.matchMedia;
+            globalThis.requestAnimationFrame = saved.raf;
+            globalThis.cancelAnimationFrame = saved.caf;
+            nowSpy.mockRestore();
+        };
+    });
+    afterEach(() => restore());
+
+    // Advance the clock and run the frame the canvas asked for.
+    const frame = (ms) => act(() => {
+        clock += ms;
+        const run = frames.splice(0);
+        for (const cb of run) cb(clock);
+    });
+    const opacityOf = (el) => Number(el.style.opacity === '' ? 1 : el.style.opacity);
+
+    it('folding: the chevron answers at once, the cards fade out with the box, then are gone', () => {
+        render();
+        click(epicHead(5));
+        expect(epicHead(5).getAttribute('aria-expanded')).toBe('false');
+        // Still drawn on the first frame — the box has not started to move.
+        expect(stepHead(10)).not.toBeNull();
+        frame(230);
+        const mid = stepHead(10);
+        expect(mid).not.toBeNull();
+        expect(opacityOf(mid)).toBeLessThan(1);
+        expect(mid.style.pointerEvents).toBe('none');
+        frame(300);
+        expect(stepHead(10)).toBeNull();
+        expect(stepHead(11)).toBeNull();
+        expect(frames).toHaveLength(0);
+        // The other epic was never touched.
+        expect(stepHead(12)).not.toBeNull();
+        expect(opacityOf(stepHead(12))).toBe(1);
+    });
+
+    it('unfolding: the cards arrive as the box grows, fully present when it lands', () => {
+        localStorage.setItem('darwin-pipeline-viz-collapsed', 'e5');
+        render();
+        expect(stepHead(10)).toBeNull();
+        click(epicHead(5));
+        expect(epicHead(5).getAttribute('aria-expanded')).toBe('true');
+        frame(380);
+        const mid = stepHead(10);
+        expect(mid).not.toBeNull();
+        expect(opacityOf(mid)).toBeGreaterThan(0);
+        expect(opacityOf(mid)).toBeLessThan(1);
+        frame(200);
+        expect(opacityOf(stepHead(10))).toBe(1);
+        expect(stepHead(10).style.pointerEvents).not.toBe('none');
+        expect(frames).toHaveLength(0);
+    });
+
+    it('a folded epic\'s chip is a title bar; an open one is not', () => {
+        localStorage.setItem('darwin-pipeline-viz-collapsed', 'e5');
+        render();
+        expect(q('pipeline-viz-epic-5').getAttribute('data-bar')).toBe('1.00');
+        expect(q('pipeline-viz-epic-6').hasAttribute('data-bar')).toBe(false);
+        click(epicHead(5));
+        frame(600);
+        expect(q('pipeline-viz-epic-5').hasAttribute('data-bar')).toBe(false);
+    });
+});
