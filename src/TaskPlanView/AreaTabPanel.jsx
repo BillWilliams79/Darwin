@@ -1,7 +1,7 @@
 // eslint-disable-next-line no-unused-vars
 import varDump from '../classifier/classifier';
 
-import React, {useState, useContext, useEffect, useRef, useCallback} from 'react';
+import React, {useState, useContext, useEffect} from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import call_rest_api from '../RestApi/RestApi';
 import TaskCard from './TaskCard';
@@ -11,21 +11,20 @@ import { useAreas } from '../hooks/useDataQueries';
 import { areaKeys } from '../hooks/useQueryKeys';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
-import { useDragTabStore } from '../stores/useDragTabStore';
 import { useOptionalCardStore } from '../stores/useOptionalCardStore';
+import { DarwinSortableList, useDarwinDropZone } from '../dnd';
+import { AREA_CARDS, planIds, usePlanSession, useRegisterPlanList } from './planDnd';
+import { withPlacement } from './planMoves';
 
 import CardCloseDialog from '../Components/CardClose/CardCloseDialog';
 import AreaDeleteDialog from '../Components/AreaDeleteDialog/AreaDeleteDialog';
 
-import { useDrop } from 'react-dnd';
 import AuthContext from '../Context/AuthContext'
 import AppContext from '../Context/AppContext';
 
 import Box from '@mui/material/Box';
 
 const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
-
-    const clearDragTabSwitch = useDragTabStore(s => s.clearDragTabSwitch);
 
     // Optional card show states — toggle lives in TaskPlanView tab bar
     const showPriorityCard = useOptionalCardStore(s => s.cards[String(domain.id)]?.priority?.show ?? false);
@@ -194,253 +193,34 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
         }
     }
 
-    // --- Area card drag-and-drop reordering ---
-    const areasBeforeDrag = useRef(null);
-
-    const moveCard = useCallback((fromIndex, toIndex) => {
-        setAreasArray(prev => {
-            if (!prev) return prev;
-            // snapshot the pre-drag state on first move
-            if (areasBeforeDrag.current === null) {
-                areasBeforeDrag.current = prev;
-            }
-            const updated = [...prev];
-            const [moved] = updated.splice(fromIndex, 1);
-            updated.splice(toIndex, 0, moved);
-            return updated;
-        });
-    }, []);
-
-    const persistAreaOrder = useCallback((didDrop) => {
-        if (!didDrop) {
-            // drag cancelled — revert to pre-drag snapshot
-            if (areasBeforeDrag.current) {
-                setAreasArray(areasBeforeDrag.current);
-            }
-            areasBeforeDrag.current = null;
-            return;
-        }
-
-        areasBeforeDrag.current = null;
-
-        // renumber sort_order 0,1,2,... and bulk PUT
-        setAreasArray(prev => {
-            if (!prev) return prev;
-
-            const restDataArray = prev
-                .filter(area => area.id !== '')
-                .map((area, index) => ({ id: area.id, sort_order: index }));
-
-            // update sort_order in local state
-            const updated = prev.map((area, index) => {
-                if (area.id !== '') {
-                    return { ...area, sort_order: index };
-                }
-                return area;
-            });
-
-            // persist to API
-            let uri = `${darwinUri}/areas`;
-            call_rest_api(uri, 'PUT', restDataArray, idToken)
-                .then(result => {
-                    if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
-                        showError(result, 'Unable to save area sort order');
-                    }
-                }).catch(error => {
-                    showError(error, 'Unable to save area sort order');
-                });
-
-            return updated;
-        });
-    }, [darwinUri, idToken]);
-
-    const removeArea = useCallback((areaId) => {
-        setAreasArray(prev => {
-            if (!prev) return prev;
-            const updated = prev.filter(area => area.id !== areaId);
-            // renumber sort_order for remaining real cards
-            const renumbered = updated.map((area, index) => {
-                if (area.id !== '') {
-                    return { ...area, sort_order: index };
-                }
-                return area;
-            });
-
-            // persist new sort orders to API
-            const restDataArray = renumbered
-                .filter(area => area.id !== '')
-                .map(area => ({ id: area.id, sort_order: area.sort_order }));
-
-            if (restDataArray.length > 0) {
-                let uri = `${darwinUri}/areas`;
-                call_rest_api(uri, 'PUT', restDataArray, idToken)
-                    .then(result => {
-                        if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
-                            showError(result, 'Unable to save area sort order');
-                        }
-                    }).catch(error => {
-                        showError(error, 'Unable to save area sort order');
-                    });
-            }
-
-            areasBeforeDrag.current = null;
-            return renumbered;
-        });
-    }, [darwinUri, idToken]);
-
-    const [, panelDrop] = useDrop(() => ({
-        accept: ['areaCard', 'taskPlan'],
-        canDrop: (item, monitor) => {
-            // Always accept tasks — acts as catch-all to prevent browser snap-back
-            if (monitor.getItemType() === 'taskPlan') return true;
-            // Accept foreign area cards not yet adopted, and already-adopted foreign cards
-            if (item.sourceDomainId) return item.sourceDomainId !== domain.id;
-            return item.domainId !== domain.id;
-        },
-        hover: (item, monitor) => {
-            // Only area cards get hover adoption, not tasks
-            if (monitor.getItemType() !== 'areaCard') return;
-            // Already in this domain — nothing to do
-            if (item.domainId === domain.id) return;
-
-            const currentAreas = areasArray || [];
-
-            // Return-to-origin: card was never removed from this domain's array.
-            // Clean up the adoption from the other domain and restore item state.
-            if (currentAreas.find(a => a.id === item.areaId)) {
-                if (item.removeFromTarget) item.removeFromTarget();
-                item.areaIndex = currentAreas.findIndex(a => a.id === item.areaId);
-                item.domainId = domain.id;
-                item.sourceDomainId = undefined;
-                item.removeFromTarget = undefined;
-                item.persistInTarget = undefined;
-                return;
-            }
-
-            // Normal adoption: insert foreign card into this domain's areasArray
-            const insertIndex = currentAreas.filter(a => a.id !== '').length;
-
-            setAreasArray(prev => {
-                if (!prev) return prev;
-                if (prev.find(a => a.id === item.areaId)) return prev;
-                const newArea = { ...item.areaData, domain_fk: domain.id, _isAdopted: true };
-                const templateIdx = prev.findIndex(a => a.id === '');
-                const updated = [...prev];
-                if (templateIdx >= 0) {
-                    updated.splice(templateIdx, 0, newArea);
-                } else {
-                    updated.push(newArea);
-                }
-                return updated;
-            });
-
-            item.sourceDomainId = item.domainId;
-            item.domainId = domain.id;
-            item.areaIndex = insertIndex;
-
-            // Lock until React commits the insertion
-            item.movePending = true;
-            requestAnimationFrame(() => {
-                requestAnimationFrame(() => {
-                    item.movePending = false;
-                });
-            });
-
-            // Store cleanup function for cancel case
-            item.removeFromTarget = () => {
-                setAreasArray(prev => {
-                    if (!prev) return prev;
-                    return prev.filter(a => a.id !== item.areaId);
-                });
-                areasBeforeDrag.current = null;
-            };
-
-            // Store persist function for successful drop
-            item.persistInTarget = () => {
-                areasBeforeDrag.current = null;
-                setAreasArray(prev => {
-                    if (!prev) return prev;
-                    const updated = prev.map((a, idx) => {
-                        if (a.id === '') return a;
-                        const { _isAdopted, ...clean } = a;
-                        return { ...clean, sort_order: idx };
-                    });
-
-                    const restDataArray = updated
-                        .filter(a => a.id !== '')
-                        .map(a => ({
-                            id: a.id,
-                            sort_order: a.sort_order,
-                            ...(a.id === item.areaId ? { domain_fk: domain.id } : {}),
-                        }));
-
-                    let uri = `${darwinUri}/areas`;
-                    call_rest_api(uri, 'PUT', restDataArray, idToken)
-                        .then(result => {
-                            if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
-                                showError(result, 'Unable to move area to domain');
-                            }
-                        }).catch(error => {
-                            showError(error, 'Unable to move area to domain');
-                        });
-
-                    return updated;
-                });
-            };
-        },
-        drop: (item, monitor) => {
-            // If a child (TaskCard) already handled the drop, don't interfere
-            if (monitor.didDrop()) return;
-
-            // Task dropped on panel background (not on a card) — treat as cancel.
-            // Returning {task: null} prevents browser snap-back and tells TaskEdit it's a cancel.
-            if (monitor.getItemType() === 'taskPlan') {
-                return { task: null };
-            }
-
-            if (!item.persistInTarget) {
-                // Direct drop without hover adoption (fallback)
-                const areaData = item.areaData;
-                const newSortOrder = areasArray
-                    ? Math.max(0, ...areasArray.filter(a => a.id !== '').map(a => a.sort_order)) + 1
-                    : 0;
-
-                setAreasArray(prev => {
-                    if (!prev) return prev;
-                    const newArea = { ...areaData, domain_fk: domain.id, sort_order: newSortOrder };
-                    const templateIndex = prev.findIndex(a => a.id === '');
-                    const updated = [...prev];
-                    if (templateIndex >= 0) {
-                        updated.splice(templateIndex, 0, newArea);
-                    } else {
-                        updated.push(newArea);
-                    }
-                    return updated;
-                });
-
-                let uri = `${darwinUri}/areas`;
-                call_rest_api(uri, 'PUT', [{ id: areaData.id, domain_fk: domain.id, sort_order: newSortOrder }], idToken)
-                    .then(result => {
-                        if (result.httpStatus.httpStatus !== 200 && result.httpStatus.httpStatus !== 204) {
-                            showError(result, 'Unable to move area to domain');
-                        }
-                    }).catch(error => {
-                        showError(error, 'Unable to move area to domain');
-                    });
-            }
-
-            clearDragTabSwitch();
-            return { crossDomain: true };
-        },
-    }), [domain.id, areasArray, darwinUri, idToken, clearDragTabSwitch]);
+    // --- Area card drag and drop (req #3662) ---
+    // The grid is one sortable list; the page resolves every drop (usePlanDnd)
+    // and writes through this registration. While a card from ANOTHER domain
+    // is carried in here (tab hover-switch), it renders at its placement and
+    // the cards around it slide aside — derived from the drag session, never
+    // written into areasArray, so a cancel leaves nothing behind.
+    // req #3506 — an inactive panel is HIDDEN, not unmounted, so its cards keep
+    // running their queries. The closed-task reads are gated on this so the
+    // "Closed" option fetches one domain's history rather than the account's;
+    // its drop zones are switched off on the same signal (req #3662).
+    const domainActive = String(activeTab) === String(domainIndex);
+    const areasListId = planIds.areas(domain.id);
+    useRegisterPlanList(areasListId, {
+        getItems: () => areasArray || [],
+        setItems: setAreasArray,
+        ready: !!areasArray,
+        domainId: domain.id,
+    });
+    const { setNodeRef: panelDropRef } = useDarwinDropZone({ id: areasListId, policy: AREA_CARDS, disabled: !domainActive });
+    const { active: dragActive, placement } = usePlanSession(areasListId);
+    const renderedAreas = withPlacement(areasArray, areasListId,
+        { active: dragActive, placement }, AREA_CARDS.isTarget);
+    const sortableAreaIds = (renderedAreas || [])
+        .filter(AREA_CARDS.isTarget)
+        .map(area => planIds.area(area.id));
 
     // Real area IDs (exclude template row) for PriorityCard
     const realAreaIds = areasArray ? areasArray.filter(a => a.id !== '').map(a => a.id) : [];
-
-    // req #3506 — an inactive panel is HIDDEN, not unmounted, so its cards keep
-    // running their queries. The closed-task reads are gated on this so the
-    // "Closed" option fetches one domain's history rather than the account's.
-    const domainActive = String(activeTab) === String(domainIndex);
 
     return (
             <Box key={domainIndex} role="tabpanel" hidden={!domainActive}
@@ -448,29 +228,32 @@ const AreaTabPanel = ( { domain, domainIndex, activeTab } ) => {
                  sx={{ p: 3 }}
             >
                 { areasArray &&
-                    <Box className="card" ref={panelDrop}>
+                    <DarwinSortableList id={areasListId} items={sortableAreaIds} policy={AREA_CARDS}>
+                    <Box className="card" ref={panelDropRef}>
                         {showPriorityCard && realAreaIds.length > 0 && (
                             <PriorityCard domainId={domain.id} areaIds={realAreaIds} domainActive={domainActive} />
                         )}
-                        { areasArray.map((area, areaIndex) => (
+                        { renderedAreas.map((area) => (
                             <TaskCard key={area.id} {...{
                                            area,
-                                           areaIndex,
+                                           // The index into areasArray, which every
+                                           // inline-edit handler addresses — not the
+                                           // position on screen, which a card carried
+                                           // in from another domain shifts mid-drag.
+                                           areaIndex: areasArray.indexOf(area),
                                            domainId: domain.id,
                                            areaChange,
                                            areaKeyDown,
                                            areaOnBlur,
                                            clickCardClosed,
                                            clickCardDelete,
-                                           moveCard,
-                                           persistAreaOrder,
-                                           removeArea,
                                            domainActive,
                                            isTemplate: area.id === '',
                                            autoFocusTemplate: newlyCreatedAreaId !== null && area.id === newlyCreatedAreaId,
                                            clearAutoFocusTemplate: () => setNewlyCreatedAreaId(null),}}/>
                         ))}
                     </Box>
+                    </DarwinSortableList>
                 }
                 <CardCloseDialog cardSettingsDialogOpen={areaClose.dialogOpen}
                                  setCardSettingsDialogOpen={areaClose.setDialogOpen}

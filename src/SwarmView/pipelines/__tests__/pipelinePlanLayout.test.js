@@ -40,6 +40,7 @@ import {
     CARD_TEXT_CHARS, CARD_SEP_CHARS, REQ_SEP_PULL, CARD_CHECK_W,
     REQ_MAX_LINES, wrapReqText, REQ_ROW_GAP, reqBlockHeight, REQ_TEXT_H,
     CHW_LABEL, CHW_REQ, CHW_TITLE, CARD_TYPE_SCALE, NAME_MAX_LINES,
+    CHW_CARD, REQ_TITLE_WIDEN, CARD_REQ_CHARS, REQ_LINE_H,
     cardHeight, cardTitleH, cardChars, MIN_CARD_H,
     PLAN_PALETTES, PLAN_PALETTE_KEYS, DEFAULT_PLAN_PALETTE, planPalette,
     isPlanPalette,
@@ -815,7 +816,10 @@ describe('the card is a fixed, uniform box (req #3498)', () => {
         // forced it (on-screen type is viewport / (columns x chars-per-line),
         // and the world font cancels). The title budget is DERIVED from it now.
         expect(CARD_TEXT_CHARS).toBe(28);
-        expect(CARD_TITLE_CHARS).toBe(CARD_TEXT_CHARS - CARD_ID_CHARS - CARD_SEP_CHARS);
+        // req #3693 — the requirement row's glyph is `REQ_TITLE_WIDEN` narrower,
+        // so the same column carries that many times the characters.
+        expect(CARD_REQ_CHARS).toBe(Math.floor(CARD_TEXT_CHARS * REQ_TITLE_WIDEN));
+        expect(CARD_TITLE_CHARS).toBe(CARD_REQ_CHARS - CARD_ID_CHARS - CARD_SEP_CHARS);
         // The prefix is what `reqLabelText` actually writes — a bare 4-digit id
         // and the two-character blank gap (req #3683 — three until the gap was
         // halved; the renderer pulls the title half a character further, see
@@ -832,11 +836,13 @@ describe('the card is a fixed, uniform box (req #3498)', () => {
         // requirement row's own glyph width — `cardChars` is the function the
         // layout truncates with, so a padding change that quietly ate the
         // budget fails here rather than showing up as a shorter title.
-        expect(cardChars(CHW_REQ)).toBe(CARD_TEXT_CHARS);
+        expect(cardChars(CHW_CARD)).toBe(CARD_TEXT_CHARS);
+        expect(cardChars(CHW_REQ)).toBe(CARD_REQ_CHARS);
         // Every card metric moves by ONE factor — a half-applied type scale is
         // what this pins, not the value 1.4 itself.
-        expect(CHW_REQ / CHW_LABEL).toBeCloseTo(8.4 / 10.05, 9);
-        expect(CHW_TITLE / CHW_REQ).toBeCloseTo(5.8 / 8.4, 9);
+        expect(CHW_CARD / CHW_LABEL).toBeCloseTo(8.4 / 10.05, 9);
+        expect(CHW_TITLE / CHW_CARD).toBeCloseTo(5.8 / 8.4, 9);
+        expect(CHW_REQ).toBeCloseTo(CHW_CARD / REQ_TITLE_WIDEN, 9);
         // The text column is the FRAME's, not the node box's: the state bar
         // stands outside the frame (user directive, 2026-08-13) and the box
         // spans both, so the bar costs the card width rather than the text.
@@ -1374,6 +1380,57 @@ describe('Step Width — the card scales, four rungs (req #3503)', () => {
                 { stepLabel: 'title', stepWidthLevel: bad });
             expect(layout.colW, `level ${bad}`).toEqual(fallback.colW);
         }
+    });
+});
+
+describe('the requirement title gets 15% more of a fixed card (req #3693)', () => {
+    // *"step has a fixed width which I like. but let's make the width of field
+    // given to the requirement title to be 15% wider than it is now"*. The
+    // pre-#3693 numbers are written out here on purpose: the card's width must
+    // equal them exactly, and the title's room must beat them by 15%.
+    const OLD_CHW_REQ = 8.4 * 1.4;
+    const oldCardW = (rung) => Math.ceil(28 * (rung / 4) * OLD_CHW_REQ
+        + 2 * CARD_PAD_X + CARD_STATE_BAR_W + CARD_BAR_GAP);
+
+    it('leaves the card exactly as wide as it was, at every rung', () => {
+        expect(REQ_TITLE_WIDEN).toBe(1.15);
+        for (const rung of STEP_WIDTH_RUNGS) {
+            expect(cardGeometryFor(stepWidthScale(rung)).cardW, `rung ${rung}`)
+                .toBe(oldCardW(rung));
+        }
+        expect(CARD_W).toBe(oldCardW(4));
+    });
+
+    it('gives every row at least 15% more title per line, at every rung', () => {
+        for (const rung of STEP_WIDTH_RUNGS) {
+            const layout = computePlanLayout(plan.rows, {
+                ...reqViewOptions('titles'), reqTitles: FIXTURE_TITLES,
+                stepWidthLevel: rung,
+            });
+            const { cardTextW } = cardGeometryFor(stepWidthScale(rung));
+            const rows = layout.labels.filter((l) => l.kind === 'req');
+            expect(rows.length).toBeGreaterThan(0);
+            for (const l of rows) {
+                const hang = String(l.reqId).length + CARD_SEP_CHARS;
+                const oldRoom = Math.floor(cardTextW / OLD_CHW_REQ) - hang;
+                expect(l.titleRoom, `rung ${rung} req ${l.reqId}`)
+                    .toBeGreaterThanOrEqual(oldRoom * REQ_TITLE_WIDEN);
+                // ...and the row still fits the text column it is drawn in.
+                for (const line of l.lines) {
+                    expect(line.length * CHW_REQ).toBeLessThanOrEqual(cardTextW + 1e-9);
+                }
+            }
+        }
+    });
+
+    it('shrinks the requirement row as one unit, and nothing else on the card', () => {
+        expect(CARD_FONT.req).toBeCloseTo(PLAN_VIZ_FONT.req * CARD_TYPE_SCALE / REQ_TITLE_WIDEN, 9);
+        expect(REQ_LINE_H / CARD_FONT.req).toBeCloseTo(23.5 / 13.75, 9);
+        expect(REQ_TEXT_H / CARD_FONT.req).toBeCloseTo(14 / 13.75, 9);
+        // The step name and the Auto/Manual pill keep their pre-#3693 type.
+        expect(CARD_FONT.label).toBeCloseTo(PLAN_VIZ_FONT.label * CARD_TYPE_SCALE, 9);
+        expect(CARD_RUN_FONT).toBeCloseTo(PLAN_VIZ_FONT.req * CARD_TYPE_SCALE * 0.8, 9);
+        expect(CARD_RUN_W).toBe(Math.ceil(6 * OLD_CHW_REQ * 0.8 + 2 * 5 * CARD_TYPE_SCALE));
     });
 });
 
@@ -5409,7 +5466,7 @@ describe('the character budget IS the card (req #3498, was the 35-char ceiling)'
         expect(stepBudget).toBe(12);
         expect(cardChars(CHW_LABEL, CARD_CHECK_W + CARD_RUN_W + 2 * (CARD_TITLE_BTN
             + CARD_TITLE_BTN_GAP) + CARD_COLLAPSE_W + CARD_COLLAPSE_GAP + CARD_BADGE_W
-            + CHW_REQ)).toBe(7);
+            + CHW_CARD)).toBe(7);
         for (const view of Object.keys(REQ_VIEWS)) {
             const layout = computePlanLayout(plan.rows,
                 { ...reqViewOptions(view), stepLabel: 'title',
@@ -5424,7 +5481,7 @@ describe('the character budget IS the card (req #3498, was the 35-char ceiling)'
         }
         // Requirement rows get the full budget, at the row font — no ✓ on
         // those lines, so nothing is reserved out of them.
-        expect(cardChars(CHW_REQ)).toBe(CARD_TEXT_CHARS);
+        expect(cardChars(CHW_REQ)).toBe(CARD_REQ_CHARS);
         // An ID label is the step id, whatever the budget — nothing to truncate.
         expect(at('vertical', 'id')[1]).toBeLessThanOrEqual(String(
             Math.max(...plan.rows.map((r) => r.id))).length);

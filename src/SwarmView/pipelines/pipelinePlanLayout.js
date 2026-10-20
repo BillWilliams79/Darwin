@@ -1406,11 +1406,31 @@ const MIN_WORLD_W = 1180;       // POC viewBox floor
 // HTML overlay with its own screen-space sizing rules besides.
 export const CARD_TYPE_SCALE = 1.4;
 
+// ── THE REQUIREMENT TITLE GETS 15% MORE OF THE CARD (req #3693) ─────────────
+// User directive: *"step has a fixed width which I like. but let's make the
+// width of field given to the requirement title to be 15% wider than it is now
+// with subsequent superior line wrapping."*
+//
+// THE CARD DOES NOT MOVE, so the room cannot come from the card. A requirement
+// row already spans the whole text column (`cardChars(CHW_REQ, 0, …)` — no
+// reserve), so the only lever left inside a fixed card is the row's own glyph:
+// the requirement row is set this much narrower, and the same column carries
+// this many times the characters. The CARD is still sized in `CHW_CARD`, the
+// glyph it was always measured in, so every rung's width is unchanged to the
+// pixel; only `CHW_REQ`, `CARD_FONT.req` and the row's line box divide by it.
+//
+// THE COST: requirement type is 1/1.15 (about 13%) smaller on screen, at every
+// zoom. The step name, the count badge and the Auto/Manual pill stay as they were.
+export const REQ_TITLE_WIDEN = 1.15;
+
 // EXPORTED (req #3498): a test that re-typed these as literals would agree with
 // a half-applied type scale, which is the one failure `CARD_TYPE_SCALE` exists
 // to make impossible.
 export const CHW_LABEL = 10.05 * CARD_TYPE_SCALE;   // px per mono char, step name
-export const CHW_REQ = 8.4 * CARD_TYPE_SCALE;       // px per mono char, req row
+// The card's WIDTH unit — the requirement glyph as it was before req #3693.
+// `cardGeometryFor` measures the card in this, so the card keeps its width.
+export const CHW_CARD = 8.4 * CARD_TYPE_SCALE;
+export const CHW_REQ = CHW_CARD / REQ_TITLE_WIDEN;  // px per mono char, req row
 export const CHW_TITLE = 5.8 * CARD_TYPE_SCALE;     // px per mono char, the L3 own-title line
 export const CHW_EPIC = 9.15;   // px per mono char at font 15 (epic band label)
 const BEAD_R = 10;
@@ -1589,8 +1609,13 @@ const BAND_GAP = 8;
 // The requirement row's own text box, and the pitch one line sits on. Both
 // scale with the card's type — a 40% larger glyph on a 23.5px line would have
 // the rows touching.
-export const REQ_TEXT_H = 14 * CARD_TYPE_SCALE;
-export const REQ_LINE_H = 23.5 * CARD_TYPE_SCALE;
+//
+// Both follow the row's glyph down too (req #3693, `REQ_TITLE_WIDEN`), so a
+// row keeps the proportions it had and the room saved by fewer wrapped lines
+// shows up as a shorter card. So does the gap between rows (`REQ_ROW_GAP`), which
+// is defined as the air inside a wrapped row, doubled.
+export const REQ_TEXT_H = 14 * CARD_TYPE_SCALE / REQ_TITLE_WIDEN;
+export const REQ_LINE_H = 23.5 * CARD_TYPE_SCALE / REQ_TITLE_WIDEN;
 
 // ── THE GAP BETWEEN ONE REQUIREMENT AND THE NEXT (req #3498, user directive:
 //    "double white space between requirement titles") ────────────────────────
@@ -1605,7 +1630,7 @@ export const REQ_LINE_H = 23.5 * CARD_TYPE_SCALE;
 // So the doubling is spent HERE, between rows: 9.5px of extra air after each
 // requirement takes the gap between two of them from 9.5 to 19, while the gap
 // INSIDE a wrapped row stays at `REQ_LINE_H`'s own 9.5.
-export const REQ_ROW_GAP = 9.5 * CARD_TYPE_SCALE;
+export const REQ_ROW_GAP = 9.5 * CARD_TYPE_SCALE / REQ_TITLE_WIDEN;
 
 // ── THE STEP IS A CARD (req #3498) ──────────────────────────────────────────
 // *"Make each step a card that contains the requirements inside. Use a round
@@ -1667,6 +1692,11 @@ export const REQ_ROW_GAP = 9.5 * CARD_TYPE_SCALE;
 // blank separator (req #3660 — it was " - "; req #3683 — it was three spaces) —
 // SIX characters, and no '#' anywhere (ids render bare on this surface,
 // production directive).
+//
+// SINCE REQ #3693 THIS IS THE CARD'S WIDTH, in the card's own glyph
+// (`CHW_CARD`), and no longer the requirement line: the requirement row is set
+// `REQ_TITLE_WIDEN` narrower, so the same column holds
+// `floor(CARD_TEXT_CHARS x REQ_TITLE_WIDEN)` of its characters (`CARD_REQ_CHARS`).
 export const CARD_TEXT_CHARS = 28;
 export const CARD_ID_CHARS = 4;
 export const CARD_SEP_CHARS = 2;        // two spaces, written by `reqLabelText`
@@ -1681,10 +1711,13 @@ export const CARD_SEP_CHARS = 2;        // two spaces, written by `reqLabelText`
 // line then ends half a character INSIDE the box the layout measured, so no
 // overlap or wrap proof has to be re-made.
 export const REQ_SEP_PULL = 0.5 * CHW_REQ;
+// The requirement LINE at the base card, in the row's own (narrower) glyph —
+// what `cardChars(CHW_REQ)` reports there (req #3693).
+export const CARD_REQ_CHARS = Math.floor(CARD_TEXT_CHARS * REQ_TITLE_WIDEN);
 // What is left for the title on the FIRST line. Derived, not stated: the line is
 // the budget now, so a title budget written beside it would be a second number
 // to keep in step.
-export const CARD_TITLE_CHARS = CARD_TEXT_CHARS - CARD_ID_CHARS - CARD_SEP_CHARS;
+export const CARD_TITLE_CHARS = CARD_REQ_CHARS - CARD_ID_CHARS - CARD_SEP_CHARS;
 // ── WHERE THE BEAD'S FILL WENT (req #3498) ─────────────────────────────────
 // The bead carried four channels — FILL (step state), RING (run mode /
 // eligible), outer HALO (launchable next), and the ✓ — and it is not drawn at
@@ -1757,7 +1790,7 @@ export const DEFAULT_PLAN_STEP_WIDTH = 5;
  * — which floors — then reports, so the budget stops being a guarantee.
  */
 export function cardGeometryFor(widthScale = 1) {
-    const cardW = Math.ceil(CARD_TEXT_CHARS * widthScale * CHW_REQ + 2 * CARD_PAD_X
+    const cardW = Math.ceil(CARD_TEXT_CHARS * widthScale * CHW_CARD + 2 * CARD_PAD_X
         + CARD_STATE_BAR_W + CARD_BAR_GAP);
     const cardFrameW = cardW - CARD_STATE_BAR_W - CARD_BAR_GAP;
     const cardTextW = cardFrameW - 2 * CARD_PAD_X;
@@ -2099,9 +2132,11 @@ export const CARD_BADGE_TOP = 1;
 // line than the bare A/M circle it replaced.
 // The word is set at 80% of the requirement-row type (`CARD_RUN_FONT`, below
 // `CARD_FONT`), so its glyph width is that same fraction of the row's.
+// Measured against the CARD's glyph (`CHW_CARD`), not the requirement row's, so
+// req #3693's narrower requirement type leaves the pill exactly as it was.
 const CARD_RUN_TYPE_RATIO = 0.8;
 export const CARD_RUN_WORDS = { auto: 'Auto', manual: 'Manual' };
-const CHW_RUN = CHW_REQ * CARD_RUN_TYPE_RATIO;
+const CHW_RUN = CHW_CARD * CARD_RUN_TYPE_RATIO;
 const CARD_RUN_PAD_X = 5 * CARD_TYPE_SCALE;
 export const CARD_RUN_W = Math.ceil(
     Math.max(...Object.values(CARD_RUN_WORDS).map((w) => w.length)) * CHW_RUN
@@ -2222,7 +2257,8 @@ export const cardChars = (chw, reserve = 0, textW = CARD_TEXT_W) =>
 //
 // Since req #3575 the second and third lines HANG past the id column, so a row
 // with a 4-digit id carries 28 + 21 + 21 = 70 characters, not 84 — the price of
-// a left edge holding nothing but ids.
+// a left edge holding nothing but ids. (Req #3693's narrower requirement glyph
+// made the base card's line 32, so that row now carries 32 + 26 + 26 = 84.)
 export const REQ_MAX_LINES = 3;
 
 // The narrowest continuation line a hanging indent may leave (req #3575).
@@ -2328,11 +2364,13 @@ export const PLAN_VIZ_FONT = {
 // did not grow.
 export const CARD_FONT = {
     label: PLAN_VIZ_FONT.label * CARD_TYPE_SCALE,
-    req: PLAN_VIZ_FONT.req * CARD_TYPE_SCALE,
+    // req #3693 — narrower by `REQ_TITLE_WIDEN`, in step with `CHW_REQ`.
+    req: PLAN_VIZ_FONT.req * CARD_TYPE_SCALE / REQ_TITLE_WIDEN,
     title: PLAN_VIZ_FONT.title * CARD_TYPE_SCALE,
 };
-// req #3580 — the run pill's word; see `CARD_RUN_W`.
-export const CARD_RUN_FONT = CARD_FONT.req * CARD_RUN_TYPE_RATIO;
+// req #3580 — the run pill's word; see `CARD_RUN_W`. The card's own requirement
+// size before req #3693, so the pill is unchanged.
+export const CARD_RUN_FONT = PLAN_VIZ_FONT.req * CARD_TYPE_SCALE * CARD_RUN_TYPE_RATIO;
 
 export const BEAD_RADIUS = BEAD_R;
 
@@ -4665,9 +4703,9 @@ export function computePlanLayout(rows, opts = {}) {
         // strict subset of space the first sweep already proved empty.
         let idRowY = rowsTop;
         rowLines.forEach((lines, i) => {
-            // A prefix too long for the first line (never at a real card
-            // width — `id   Terminal NN  PORT` is 24 characters against a 28
-            // character line) degrades to the bare id rather than drawing an
+            // A prefix too long for the first line (`id  Terminal NN  PORT`
+            // is 23 characters; the line is 24 at the narrowest rung and 32 at
+            // the base card since req #3693) degrades to the bare id rather than drawing an
             // id string wider than the box the overlap sweep measured.
             const fullPrefix = reqPillPrefix(ids[i], reqPills);
             const prefix = fullPrefix.text.length <= lines[0].length

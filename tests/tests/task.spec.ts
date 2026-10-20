@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { getIdToken, apiCall, apiDelete, uniqueName } from '../helpers/api';
-import { dragAndDrop } from '../helpers/react-dnd-drag';
+import { dndKitDrag } from '../helpers/dnd-kit-drag';
 
 test.describe('Task Management', () => {
   // Production can be slow due to Lambda cold starts + many domains
@@ -187,7 +187,7 @@ test.describe('Task Management', () => {
     await expect(taskRow).not.toBeVisible({ timeout: 5000 });
   });
 
-  test('TASK-05: DnD task between areas (react-dnd)', async ({ page }) => {
+  test('TASK-05: DnD task between areas (dnd-kit)', async ({ page }) => {
     // Create a task in area 1 (include sort_order to avoid lazy-fill race)
     const sub = process.env.E2E_TEST_COGNITO_SUB!;
     const taskDesc = uniqueName('DragTask');
@@ -212,7 +212,7 @@ test.describe('Task Management', () => {
       res => res.request().method() === 'PUT' && res.url().includes('/tasks'),
       { timeout: 10000 }
     );
-    await dragAndDrop(page, sourceTask, targetCard);
+    await dndKitDrag(page, sourceTask, targetCard);
 
     // Verify task moved to area 2 (should appear in the target card)
     const taskInTarget = targetCard.getByTestId(`task-${taskId}`);
