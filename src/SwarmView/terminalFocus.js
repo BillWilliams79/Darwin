@@ -116,11 +116,11 @@ export const terminalFocusUrl = (session, machines) => {
     if (session.id != null) params.set('session', String(session.id));
     const label = session.title || session.task_name;
     if (label) params.set('label', String(label));
-    // `title` is the session's own title, sent so a handler can VERIFY the window
-    // it found is this session's: Windows Terminal slot names (swarm-N) are reused
-    // by later sessions. `label` stays message-only text (the NavBar sends its own
-    // wording there), so it cannot double as an identity check. Handlers that do
-    // not know the parameter ignore it.
+    // `title` is the session's own title. The Windows handler uses it only to find
+    // a window launched before its title carried a "[swarm-N s<id>]" tag; identity
+    // is checked with `session` against that tag, since swarm-N slots are reused.
+    // `label` stays message-only text (the NavBar sends its own wording there).
+    // Handlers that do not know the parameter ignore it.
     if (session.title) params.set('title', String(session.title));
     const host = (machines || []).find(m => m.id === session.machine_fk)?.hostname;
     if (host) params.set('host', String(host));

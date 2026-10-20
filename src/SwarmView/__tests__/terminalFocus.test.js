@@ -105,7 +105,7 @@ describe('terminalFocusUrl — the shared click contract', () => {
         expect(new URL(raw).searchParams.get('session')).toBe('2736');
     });
 
-    it('carries the session title as `title` so a handler can verify a reused window slot', () => {
+    it('carries the session title as `title` for the Windows handler untagged-window search', () => {
         const url = new URL(terminalFocusUrl(session({ title: 'Fix A & B' })));
         expect(url.searchParams.get('title')).toBe('Fix A & B');
         expect(new URL(terminalFocusUrl(session({ title: null, task_name: 'tn' })))
