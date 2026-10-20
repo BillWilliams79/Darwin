@@ -51,7 +51,7 @@ import {
     lockedLabel,
 } from '../SwarmView/pipelines/pipelineChipStyles';
 import { machineTitle, pipelinesEmptyMessage } from '../SwarmView/pipelines/pipelineViewModel';
-import { claimForPipeline, holderView } from '../SwarmView/pipelines/orchestrationHolder';
+import { orchestrationView } from '../SwarmView/pipelines/orchestrationHolder';
 import PipelinePlanThumbnail from './PipelinePlanThumbnail';
 
 const EMPTY_SUMMARY = { total: 0, done: 0, open: 0 };
@@ -78,7 +78,7 @@ export default function PipelinesCardsView({ pipelines, summaries, reqCounts,
         <Box className="card" data-testid="pipelines-cards-view">
             {pipelines.map((p) => {
                 const s = summaries.get(p.id) || EMPTY_SUMMARY;
-                const holder = holderView(claimForPipeline(claims, p.id), machines);
+                const holder = orchestrationView(claims, p.id, machines);
                 const counts = showReqCounts ? reqCounts?.get(p.id) : null;
                 // Completeness is the REQUIREMENT tally now, not a step one.
                 const pct = counts && counts.total
