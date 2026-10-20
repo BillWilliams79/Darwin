@@ -121,7 +121,7 @@ import { OrderViolationsAlert } from './PipelinePlanTable';
 import EmptyPlanAddStep from './EmptyPlanAddStep';
 import {
     computePlanLayout, beadStyle, placeEpicChips,
-    epicFocusTransform, stepFocusTransform, stepsFocusTransform,
+    epicFocusTransform, stepFocusTransform, epicWorkFocusTransform,
     factoryDefaultView, clampPlanTransform, planLandingAction,
     // req #3365 — the ruler's own thinning gap, re-applied at draw time
     // against the counter-scaled label widths.
@@ -2603,8 +2603,10 @@ export default function PipelinePlanVisualizer({
     // req #3365 — a SET of steps, not one. `stepsFocusTransform` is what
     // `stepFocusTransform` is now built on, so a one-step epic frames exactly
     // as the single-step focus always did.
-    const focusEpicWork = useCallback((stepIds) => applyFocus(
-        stepsFocusTransform(layout, stepIds, size, kDefault, kZoomFloor)),
+    // req #3685 — the band rides along so the work stop's spare room is spent
+    // on the epic's own cards, not on whatever lies beside the open work.
+    const focusEpicWork = useCallback((band, stepIds) => applyFocus(
+        epicWorkFocusTransform(layout, band, stepIds, size, kDefault, kZoomFloor)),
     [applyFocus, layout, size, kDefault, kZoomFloor]);
 
     // Which STEP each band's SECOND click goes to — computed once per layout
@@ -2663,7 +2665,7 @@ export default function PipelinePlanVisualizer({
         // self-healing: something always happens, and the cycle is never stuck
         // at a level the camera is not actually on.
         let level = next;
-        let moved = next === EPIC_ZOOM_STEP && focusEpicWork(workIds);
+        let moved = next === EPIC_ZOOM_STEP && focusEpicWork(band, workIds);
         if (!moved) {
             level = EPIC_ZOOM_BAND;
             moved = focusEpic(band);

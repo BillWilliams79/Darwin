@@ -6509,6 +6509,64 @@ export function stepsFocusTransform(layout, stepIds, size, kBase, kFloor) {
     return fitTransform(rect, size, kBase, null, kFloor);
 }
 
+// ── THE EPIC NAME'S WORK STOP SPENDS ITS SLACK ON THE EPIC (req #3685) ─────
+// `stepsFocusTransform` picks the scale from whichever axis binds and CENTRES
+// the open work on the other one. For an epic's first click (req #3681) that
+// centring is wrong: the spare room on the non-binding axis is filled with
+// whatever lies either side of the open steps — measured on plan 10's 'Sunday
+// Review' at a 1730×850 panel, the open work is three tall cards in columns
+// 9–10, height binds, and the window ran world x 3546..5886 while the epic's
+// cards span 3321..5181: Infra Prio clipped on the left and ~520px of the empty
+// Oct 20 / future columns on the right, with the whole epic fitting at that
+// very scale.
+//
+// So the SCALE is the work fit's, unchanged — the first click is still the
+// tightest frame that shows the open work, and the second (the band fit) still
+// zooms out from it — and only WHERE the window sits moves: on each axis it is
+// centred on the EPIC'S CARDS (`stepsFitRect` over the band's steps — not the
+// band, whose name strip would push the cards below centre), then clamped so
+// the open work keeps its `FOCUS_PAD` margin, or the pinned ruler's height on
+// top where that is taller. On the binding axis there is no slack to spend,
+// the clamp interval collapses, and the fit's own answer stands.
+//
+// ONE OPEN CARD IS LEFT CENTRED. A single card is framed by the stated
+// steps-across scale and centred on itself (the 2026-08-13 directive above
+// `STEP_FOCUS_STEPS_ACROSS`: "anytime we click and the zoom is to a single
+// card"), and an epic click that resolves to one card is exactly that case.
+function slackCentre(ctx0, ctx1, need0, need1, span, current) {
+    const lo = need1 - span / 2;
+    const hi = need0 + span / 2;
+    if (!(lo <= hi)) return current;
+    return Math.min(Math.max((ctx0 + ctx1) / 2, lo), hi);
+}
+
+/**
+ * The epic name's WORK stop: frame `stepIds` (the epic's unfinished steps) at
+ * `stepsFocusTransform`'s scale, with the window centred on the band's cards
+ * wherever the work leaves room. Falls back to the plain work fit for a single
+ * open card, or when the band has no placed cards.
+ *
+ * @returns {{x:number,y:number,k:number}|null}
+ */
+export function epicWorkFocusTransform(layout, band, stepIds, size, kBase, kFloor) {
+    const tr = stepsFocusTransform(layout, stepIds, size, kBase, kFloor);
+    if (!tr || placedStepCount(layout, stepIds) === 1) return tr;
+    const work = stepsFitRect(layout, stepIds);
+    const epic = stepsFitRect(layout, band?.stepIds);
+    const w = size?.w || 0;
+    const h = size?.h || 0;
+    if (!work || !epic || !(w > 0) || !(h > 0)) return tr;
+    const { k } = tr;
+    const pad = FOCUS_PAD / k;
+    // `rulerScreenMag`'s height: RULER_H screen px below k = 1, RULER_H·k above.
+    const padTop = Math.max(FOCUS_PAD, RULER_H * Math.max(k, 1)) / k;
+    const cx = slackCentre(epic.x, epic.x + epic.w, work.x - pad, work.x + work.w + pad,
+        w / k, (w / 2 - tr.x) / k);
+    const cy = slackCentre(epic.y, epic.y + epic.h, work.y - padTop, work.y + work.h + pad,
+        h / k, (h / 2 - tr.y) / k);
+    return { k, x: w / 2 - cx * k, y: h / 2 - cy * k };
+}
+
 /**
  * How many of `stepIds` are actually PLACED on this layout (req #3498).
  *
