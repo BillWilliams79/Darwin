@@ -3,7 +3,7 @@ import { Page, Locator, CDPSession } from '@playwright/test';
 /**
  * Drive a dnd-kit drag the way a person does (req #3662).
  *
- * The react-dnd helper (`react-dnd-drag.ts`) dispatched synthetic MouseEvents
+ * The react-dnd helper this replaced (deleted with react-dnd, req #3663) dispatched synthetic MouseEvents
  * from inside the page. dnd-kit listens for POINTER and TOUCH events and reads
  * real geometry, so this helper uses real input instead:
  *
@@ -18,7 +18,8 @@ import { Page, Locator, CDPSession } from '@playwright/test';
  * (`then`) is measured after the first, so a panel a tab hover-switch revealed
  * is aimed at where it actually appeared.
  *
- * The old helpers stay until part 3 of the DnD rebuild removes their last user.
+ * Every drag surface in the app is on dnd-kit since req #3663; `pangea-dnd-drag.ts`
+ * still serves the @hello-pangea/dnd editors.
  */
 
 /** Must match Darwin/src/dnd/pressTimeline.js. */

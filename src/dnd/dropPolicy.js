@@ -17,6 +17,9 @@
 //                    target (a domain tab, for a task or an area card) rather
 //                    than a place to land
 //   persist          the surface's write for a resolved move
+//   keepsMovedRows   a row moved OUT of this list stays in it (req #3663: the
+//                    aggregator lists by status, and a requirement moved to
+//                    another category still has that status)
 //
 // Every droppable registered through useDarwinDrag / useDarwinDropZone carries
 //   { kind: 'item' | 'container', type, containerId, policy, sortMode, row }
@@ -44,14 +47,16 @@ const anyRow = () => true;
  * @param {(row: any) => boolean} [p.isTarget]
  * @param {string[]} [p.hoverSwitchFor]
  * @param {Function} [p.persist]
+ * @param {boolean} [p.keepsMovedRows]
  */
 export function defineDropPolicy({
     accepts, orientation = 'vertical', reorderAllowed = noReorder,
-    isTarget = anyRow, hoverSwitchFor = [], persist = null,
+    isTarget = anyRow, hoverSwitchFor = [], persist = null, keepsMovedRows = false,
 }) {
     return Object.freeze({
         accepts: Object.freeze([...accepts]), orientation, reorderAllowed,
         isTarget, hoverSwitchFor: Object.freeze([...hoverSwitchFor]), persist,
+        keepsMovedRows,
     });
 }
 

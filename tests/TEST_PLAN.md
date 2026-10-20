@@ -31,7 +31,8 @@ Darwin/
 │   │   ├── navigation.spec.ts     # NAV-01 (P0)
 │   │   └── error.spec.ts          # ERR-01 (P1)
 │   ├── helpers/
-│   │   ├── react-dnd-drag.ts      # Synthetic DragEvent helper for react-dnd
+│   │   ├── dnd-kit-drag.ts        # Real pointer / CDP touch / keyboard drags (dnd-kit)
+│   │   ├── pangea-dnd-drag.ts     # @hello-pangea/dnd helper
 │   │   ├── auth.ts                # Cognito InitiateAuth token acquisition
 │   │   └── api.ts                 # REST API helper (getIdToken, apiCall, apiDelete, uniqueName)
 │   ├── .auth/                      # Saved auth state (user.json)
@@ -53,14 +54,14 @@ Darwin/
 
 | Library | Views | Testing Approach |
 |---------|-------|-----------------|
-| react-dnd (HTML5Backend) | TaskPlanView, CalendarView | Synthetic `DragEvent` dispatch via `page.evaluate()` with shared `DataTransfer` object |
+| dnd-kit (`src/dnd/`, req #3662/#3663) | TaskPlanView, SwarmView cards + aggregator, Recurring | Real input: `page.mouse` (trusted pointer events), CDP `Input.dispatchTouchEvent` (hold-to-lift), keyboard |
 | @hello-pangea/dnd | AreaEdit | Keyboard: Space (lift) → Arrow keys (move) → Space (drop) |
 
-**react-dnd helper** (`helpers/react-dnd-drag.ts`):
-- Creates `DataTransfer` object
-- Fires: `dragstart` → `dragenter` → `dragover` (×3) → `drop` → `dragend`
-- Must use same `DataTransfer` instance across all events
-- Multiple `dragover` events required (react-dnd checks for continued hovering)
+**dnd-kit helper** (`helpers/dnd-kit-drag.ts`) — react-dnd and its synthetic-event helper are gone (req #3663):
+- `dndKitDrag` — press, travel past the 4 px activation distance, glide to the target, release
+  (`holdOverTargetMs` + `then` for a tab hover-switch; `cancelWithEscape`)
+- `dndKitTouchDrag` — touch press held past the lift delay, then moved (needs `hasTouch`)
+- `touchSwipe` / `touchHold` / `dndKitKeyboardDrag`
 
 **@hello-pangea/dnd keyboard testing**:
 - Focus the draggable element
@@ -146,9 +147,9 @@ Darwin/
 - **Steps**: Click delete icon → confirm in TaskDeleteDialog
 - **Expected**: Task removed, DELETE sent to API
 
-#### TASK-05: DnD task between areas (react-dnd)
+#### TASK-05: DnD task between areas (dnd-kit)
 - **Preconditions**: Authenticated, on TaskPlanView, 2+ areas with tasks
-- **Steps**: Drag task from Area A to Area B (via synthetic DragEvent)
+- **Steps**: Drag task from Area A to Area B (real pointer input, `dndKitDrag`)
 - **Expected**: Task moves to Area B, `area_fk` updated via PUT, persists on reload
 
 #### NAV-01: Navigate between all views
@@ -188,7 +189,7 @@ Darwin/
 - **Steps**: Click delete icon → confirm
 - **Expected**: Area permanently deleted via DELETE
 
-#### AREA-06: DnD area cross-domain (react-dnd)
+#### AREA-06: DnD area cross-domain (dnd-kit)
 - **Preconditions**: Authenticated, on TaskPlanView, 2+ domains with areas
 - **Steps**: Drag area card to different domain tab (hover to switch tab, then drop)
 - **Expected**: Area adopted by new domain, `domain_fk` updated, persists on reload

@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react'
+import React, { memo, useEffect, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom';
-import { useTheme, darken, lighten } from '@mui/material/styles';
+import { useTheme, darken, lighten, alpha } from '@mui/material/styles';
 
-import { useDrag, useDrop } from 'react-dnd';
+import { useDarwinDrag, isLiftBlur } from '../dnd';
 import { useRequirementActions } from '../hooks/useRequirementActions';
 import { elevatorStateFrom } from './detail/requirementSort';
 
@@ -42,14 +42,124 @@ import { watchFocusLoss } from '../utils/focusLossRecorder';
 import { copyFocusCapture } from '../utils/focusCapture';
 
 
-const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryName }) => {
+// One row's height (a single-line title) — the size of the slot a lifted
+// requirement leaves in a hand-sorted card, however long its title is.
+const SLOT_HEIGHT = 40;
+
+/**
+ * A requirement row that lifts (req #3663, on the dnd-kit foundation). The
+ * WHOLE row is the grip — title text included: a quick click still places the
+ * caret, a hold (touch, or a long mouse click) or a 4 px mouse move lifts it.
+ * Which list it belongs to and whether that list honours a position come from
+ * the caller; the row only renders the drag state.
+ *
+ * @param {Object} props.drag  { id, type, containerId, policy, sortMode, disabled }
+ */
+export const SortableRequirementRow = ({ drag, ...props }) => {
+    const { ref, style, attributes, listeners, isDragging } = useDarwinDrag({ ...drag, row: props.requirement });
+    // The sortable hook re-runs on every pointer move of any drag on the page;
+    // the row it feeds only re-renders when something it SHOWS changed.
+    const handle = useMemo(() => ({ ref, style, attributes, listeners, isDragging }),
+        [ref, style, attributes, listeners, isDragging]);
+    return <RequirementRow {...props} drag={handle} honoursPosition={drag.policy.reorderAllowed(drag.sortMode)} />;
+};
+
+/**
+ * One requirement row. Without `drag` it is a plain row (the template add-row,
+ * or an aggregator row while it is carried into a card) and touches no
+ * drag-and-drop context at all. `carriedAway`: this row's requirement is being
+ * carried into a card elsewhere and this list keeps it (the aggregator) — it
+ * shows dimmed in place.
+ */
+const RequirementRow = memo(({ requirement, requirementIndex, categoryId, categoryName,
+                               drag = null, honoursPosition = false, carriedAway = false }) => {
+
+    const { categoryColorMap } = useRequirementActions();
+    // Model + Effort column preferences (req #3029). The columns always render in
+    // the aggregator card; `showOnAllCards` promotes them onto CategoryCard rows
+    // too. Rendering is always a small colored icon in the standard column order
+    // (req #3043 removed the display-mode/column-order choices; req #3046 replaced
+    // the pill with an icon to match Status/Autonomy).
+    const showModelEffortOnAllCards = useModelEffortDisplayStore(s => s.showOnAllCards);
+
+    // req #3029 — whether THIS row renders the Model + Effort columns. Decided at
+    // the card level (aggregator always; category cards only when the user opts
+    // in) so every row in a card agrees, keeping the shared grid template aligned.
+    // The two cells are rendered for the template row too (as empty placeholders)
+    // so its Title/delete stay in the same tracks as the data rows above it.
+    //
+    // The full grid-template is built here (single source of truth in
+    // modelEffortLayout.js) and applied via the `--me-grid` CSS custom property +
+    // the `me-cols` class. It must go through the class, NOT `sx`: `sx` compiles
+    // to a single-class rule (0,1,0) that loses to the base
+    // `.task.requirement-row[.aggregator-row]` templates in index.css (0,2,0 /
+    // 0,3,0). The `.me-cols` selectors there outrank those, so the injected
+    // template actually wins and the track count matches the rendered cells.
+    const isAggregatorRow = Boolean(categoryColorMap);
+    const showModelEffortColumns = isAggregatorRow || showModelEffortOnAllCards;
+    const rowClassName = `task requirement-row${isAggregatorRow ? ' aggregator-row' : ''}${showModelEffortColumns ? ' me-cols' : ''}`;
+    const modelEffortGridColumns = showModelEffortColumns
+        ? modelEffortGridTemplate({ isAggregatorRow })
+        : undefined;
+
+    // The slot this row leaves while it is lifted. Where a position is honoured
+    // it travels with the sort, one row tall and tinted — the insert feedback;
+    // elsewhere it just dims in place.
+    const isLifted = !!drag?.isDragging;
+
+    return (
+        <Box className={rowClassName}
+             data-testid={requirement.id === '' ? 'requirement-template' : `requirement-${requirement.id}`}
+             data-dragging={isLifted ? 'true' : undefined}
+             key={`box-${requirement.id}`}
+             ref={drag?.ref}
+             {...(drag ? { ...drag.attributes, ...drag.listeners } : {})}
+             // req #3029 — inline custom property consumed by the `.me-cols` rules
+             // in index.css (see the grid-template comment above). Set via `style`
+             // (a real inline custom property) rather than `sx` so it reliably
+             // reaches the higher-specificity class selector. The drag style
+             // (slide transform, press cue) rides the same attribute.
+             style={{ ...drag?.style, ...(modelEffortGridColumns && { '--me-grid': modelEffortGridColumns }) }}
+             sx={(theme) => ({
+                 // Smooth every DnD-driven visual change so drops and reorders
+                 // glide instead of snapping. Sibling reflow is the sortable's
+                 // own transform transition (inline style).
+                 transition: 'opacity 160ms ease, background-color 160ms ease, box-shadow 160ms ease',
+                 borderRadius: 1,
+                 ...(drag && { cursor: 'grab', '&:focus-visible': { outline: `2px solid ${theme.palette.primary.main}`, outlineOffset: -2 } }),
+                 ...(isLifted && honoursPosition && {
+                     maxHeight: SLOT_HEIGHT,
+                     overflow: 'hidden',
+                     alignItems: 'start',
+                     backgroundColor: alpha(theme.palette.primary.main, 0.1),
+                     boxShadow: `inset 0 0 0 2px ${alpha(theme.palette.primary.main, 0.45)}`,
+                     '& > *': { opacity: 0.35 },
+                 }),
+                 ...(isLifted && !honoursPosition && { opacity: 0.3 }),
+                 ...(carriedAway && { opacity: 0.3 }),
+             })}
+        >
+            <RequirementRowContent {...{ requirement, requirementIndex, categoryId, categoryName,
+                                         isAggregatorRow, showModelEffortColumns }} />
+        </Box>
+    );
+});
+
+/**
+ * What a row SHOWS, memoized apart from how it MOVES (req #3663, as TaskEdit):
+ * while a drag passes, a sorting row's position style changes many times, and
+ * re-rendering the auto-sizing title field each time forces a layout read per
+ * row per shift.
+ */
+const RequirementRowContent = memo(({ requirement, requirementIndex, categoryId, categoryName,
+                                      isAggregatorRow, showModelEffortColumns }) => {
 
     const navigate = useNavigate();
     const theme = useTheme();
     const { statusClick, coordinationClick, titleChange, titleKeyDown,
         titleOnBlur, deleteClick, sessionStatusMap,
-        categoryColorMap, sortMode, setCrossCardInsertIndex,
-        requirementsArray, setRequirementsArray,
+        categoryColorMap,
+        requirementsArray,
         // req #3419 — the set the visibility toggle hides by, so a row that IS
         // on screen can still be MARKED as plan work. Same set, never a second
         // derivation.
@@ -82,135 +192,11 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
         () => orchestratedMarkSx({ isOrchestrated }),
         [isOrchestrated]);
 
-    // Model + Effort column preferences (req #3029). The columns always render in
-    // the aggregator card; `showOnAllCards` promotes them onto CategoryCard rows
-    // too. Rendering is always a small colored icon in the standard column order
-    // (req #3043 removed the display-mode/column-order choices; req #3046 replaced
-    // the pill with an icon to match Status/Autonomy).
-    const showModelEffortOnAllCards = useModelEffortDisplayStore(s => s.showOnAllCards);
-
-    // Drag rules (req #2417):
-    //   - Drag source is enabled for every non-template row, regardless of
-    //     sortMode. Cross-card moves are valid in process / reverse modes too;
-    //     in those modes the target card simply appends + persists category_fk
-    //     without touching sort_order.
-    //   - Same-card reorder still requires the target card's sortMode === 'hand'
-    //     (gated in CategoryCard.addRequirementToCategory).
-    //   - The aggregator card (SwarmStartCard) provides sortMode === 'created'
-    //     and a no-op setCrossCardInsertIndex; aggregator rows can still be
-    //     drag sources because the underlying requirement lives in some real
-    //     CategoryCard, which is what gets re-categorized on drop.
+    // Drag (req #3663): the row lifts from anywhere on it — see
+    // SortableRequirementRow. The template add-row never drags (its host renders
+    // it without one); only a card whose sort mode honours a position shows its
+    // rows sliding aside, and elsewhere the card highlights as a whole.
     const isTemplate = requirement.id === '';
-    const handSortActive = sortMode === 'hand';
-    const [insertIndicator, setInsertIndicator] = useState(null);
-
-    // Keep the latest requirement + index in refs so the drag `item` factory can
-    // build a fresh payload at drag-start WITHOUT listing volatile fields in the
-    // useDrag dep array. Previously `requirement.title` was a dep, so every
-    // keystroke in the title field recreated the drag spec → new `drag`
-    // connector → `mergedRef` identity churned → React detached/reattached the
-    // row's DOM ref on every character. Reading `.current` at drag time keeps the
-    // payload current without that per-keystroke churn (req #2747).
-    const requirementRef = useRef(requirement);
-    requirementRef.current = requirement;
-    const requirementIndexRef = useRef(requirementIndex);
-    requirementIndexRef.current = requirementIndex;
-
-    const [{ isDragging }, drag] = useDrag(() => ({
-        type: 'requirementRow',
-        item: () => {
-            // Spread the full requirement so cross-card moves carry every
-            // field the target needs to render the row consistently
-            // (coordination_type, started_at, deferred_at, completed_at, etc.)
-            // until the next server refetch. Without this, the moved row
-            // visually loses chips and tooltips for a few frames mid-drop.
-            const rect = rowRef.current?.getBoundingClientRect();
-            return {
-                ...requirementRef.current,
-                requirementIndex: requirementIndexRef.current,
-                sourceWidth: rect?.width || 300,
-                sourceHeight: rect?.height || 40,
-            };
-        },
-        canDrag: () => !isTemplate,
-        end: (item, monitor) => {
-            // Always release the cross-card insert index — same-card splice
-            // already cleared it in addRequirementToCategory; this covers the
-            // no-drop / cancelled-drop / aggregator-drop / cross-card paths.
-            if (setCrossCardInsertIndex) setCrossCardInsertIndex(null);
-
-            const dropResult = monitor.getDropResult();
-            if (!dropResult) return;
-            if (!dropResult.crossCard) return;
-            if (dropResult.requirement !== item.id) return;
-            // Cross-card success: filter the moved row out of the source card's
-            // local state — UNLESS the source is the aggregator. The aggregator
-            // is filtered by status (e.g. swarm_ready), and the moved row still
-            // matches that status, so it should remain visible. The cache
-            // write-through in addRequirementToCategory keeps the byStatus
-            // slice in sync; an explicit filter here would just cause a flicker
-            // before the aggregator's useEffect re-seeds from cache.
-            if (sortMode === 'created') return;
-            if (setRequirementsArray) {
-                setRequirementsArray(prev => prev ? prev.filter(p => p.id !== item.id) : prev);
-            }
-        },
-        collect: (monitor) => ({
-            isDragging: !!monitor.isDragging(),
-        }),
-        // Volatile requirement fields + requirementIndex are intentionally NOT
-        // deps — the `item` factory reads them live from refs at drag-start, so
-        // the spec/connector only needs to be rebuilt when behaviour-affecting
-        // inputs change (canDrag → isTemplate; end → sortMode +
-        // the setters).
-    }), [isTemplate, sortMode, setCrossCardInsertIndex, setRequirementsArray]);
-
-    // Hover-only drop target — sets the insert indicator above/below this row
-    // and writes the splice target into the parent CategoryCard via
-    // setCrossCardInsertIndex. canDrop returns false so the actual drop bubbles
-    // to the card-level useDrop. The indicator only renders when THIS card is
-    // in hand mode — in process / reverse the target card appends to the end,
-    // so a positional indicator would lie.
-    const [{ isRequirementOver }, requirementDrop] = useDrop(() => ({
-        accept: 'requirementRow',
-        canDrop: () => false,
-        hover: (dragItem, monitor) => {
-            if (!handSortActive) return;
-            if (isTemplate) return;
-            // Hovering over the same row → no indicator.
-            if (dragItem.id === requirement.id) return;
-
-            const hoverRect = rowRef.current?.getBoundingClientRect();
-            if (!hoverRect) return;
-            const clientOffset = monitor.getClientOffset();
-            if (!clientOffset) return;
-            const hoverClientY = clientOffset.y - hoverRect.top;
-            const hoverMiddleY = (hoverRect.bottom - hoverRect.top) / 2;
-
-            if (hoverClientY < hoverMiddleY) {
-                setInsertIndicator('above');
-                if (setCrossCardInsertIndex) setCrossCardInsertIndex(requirementIndex);
-            } else {
-                setInsertIndicator('below');
-                if (setCrossCardInsertIndex) setCrossCardInsertIndex(requirementIndex + 1);
-            }
-        },
-        collect: (monitor) => ({
-            isRequirementOver: monitor.isOver(),
-        }),
-    }), [handSortActive, isTemplate, requirement.id, requirementIndex,
-         setCrossCardInsertIndex]);
-
-    useEffect(() => {
-        if (!isRequirementOver) setInsertIndicator(null);
-    }, [isRequirementOver]);
-
-    const rowRef = useRef(null);
-    const mergedRef = useCallback((node) => {
-        rowRef.current = node;
-        drag(node);
-        requirementDrop(node);
-    }, [drag, requirementDrop]);
 
     // req #3632 — ALWAYS-ON capture of the intermittent template-title focus
     // loss (req #2884's opt-in logger recorded nothing in four months: nobody
@@ -312,27 +298,6 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
         planned: 'Planned — click to cycle', implemented: 'Implemented — click to cycle',
         deployed: 'Deployed — click to cycle',
     };
-
-    const isAggregatorRow = Boolean(categoryColorMap);
-
-    // req #3029 — whether THIS row renders the Model + Effort columns. Decided at
-    // the card level (aggregator always; category cards only when the user opts
-    // in) so every row in a card agrees, keeping the shared grid template aligned.
-    // The two cells are rendered for the template row too (as empty placeholders)
-    // so its Title/delete stay in the same tracks as the data rows above it.
-    //
-    // The full grid-template is built here (single source of truth in
-    // modelEffortLayout.js) and applied via the `--me-grid` CSS custom property +
-    // the `me-cols` class. It must go through the class, NOT `sx`: `sx` compiles
-    // to a single-class rule (0,1,0) that loses to the base
-    // `.task.requirement-row[.aggregator-row]` templates in index.css (0,2,0 /
-    // 0,3,0). The `.me-cols` selectors there outrank those, so the injected
-    // template actually wins and the track count matches the rendered cells.
-    const showModelEffortColumns = isAggregatorRow || showModelEffortOnAllCards;
-    const rowClassName = `task requirement-row${isAggregatorRow ? ' aggregator-row' : ''}${showModelEffortColumns ? ' me-cols' : ''}`;
-    const modelEffortGridColumns = showModelEffortColumns
-        ? modelEffortGridTemplate({ isAggregatorRow })
-        : undefined;
 
     // --- Status cell — small icon --------------------------------------------
     // Status, Autonomy, Model and Effort all render as small icons, on every card
@@ -493,31 +458,7 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
     const orderedValueCells = <>{reqIdCell}{statusCell}{autonomyCell}{modelEffortCells}</>;
 
     return (
-        <Box className={rowClassName}
-             data-testid={requirement.id === '' ? 'requirement-template' : `requirement-${requirement.id}`}
-             key={`box-${requirement.id}`}
-             ref={isTemplate ? null : mergedRef}
-             // req #3029 — inline custom property consumed by the `.me-cols` rules
-             // in index.css (see the grid-template comment above). Set via `style`
-             // (a real inline custom property) rather than `sx` so it reliably
-             // reaches the higher-specificity class selector.
-             style={modelEffortGridColumns ? { '--me-grid': modelEffortGridColumns } : undefined}
-             sx={{
-                 // While dragging, collapse the source row in hand mode (so
-                 // the splice preview at the insert indicator is uncluttered).
-                 // In process / reverse modes the row instead fades — there's
-                 // no in-card splice preview to make room for, but feedback
-                 // that THIS row is the one being dragged is still useful.
-                 ...(isDragging && handSortActive && {
-                     height: 0, minHeight: 0, overflow: 'hidden',
-                     padding: 0, margin: 0, opacity: 0,
-                 }),
-                 ...(isDragging && !handSortActive && { opacity: 0.2 }),
-                 ...(!isTemplate && { cursor: 'grab' }),
-                 ...(insertIndicator === 'above' && { borderTop: '4px solid', borderTopColor: 'primary.main' }),
-                 ...(insertIndicator === 'below' && { borderBottom: '4px solid', borderBottomColor: 'primary.main' }),
-             }}
-        >
+        <>
             {/* Col 1 (aggregator only): Category color bar */}
             {isAggregatorRow && (
                 <Box
@@ -555,9 +496,9 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
                         name='title'
                         onChange = {(event) => titleChange(event, requirementIndex) }
                         onKeyDown = {(event) => titleKeyDown(event, requirementIndex, requirement.id)}
-                        onBlur = {(event) => titleOnBlur(event, requirementIndex, requirement.id)}
-                        onMouseDown={(e) => e.stopPropagation()}
-                        onTouchStart={(e) => e.stopPropagation()}
+                        // A blur caused by the lift itself is not an edit ending
+                        // (the press focused the field, then the row lifted).
+                        onBlur = {(event) => { if (!isLiftBlur(event)) titleOnBlur(event, requirementIndex, requirement.id); }}
                         multiline
                         disabled = {categoryId !== '' ? false : categoryName === '' ? true : false}
                         autoComplete ='off'
@@ -613,8 +554,8 @@ const RequirementRow = ({ requirement, requirementIndex, categoryId, categoryNam
                     </Tooltip>
             }
             </Box>
-        </Box>
+        </>
     )
-}
+});
 
 export default RequirementRow

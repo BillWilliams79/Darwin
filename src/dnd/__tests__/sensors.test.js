@@ -4,6 +4,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
     isEditingField, isOwnPress, releaseLiftFocus, isLiftBlur, DarwinTouchSensor, DarwinPointerSensor,
+    captureLiftFocus, restoreLiftFocus,
     TOUCH_SENSOR_OPTIONS, POINTER_SENSOR_OPTIONS, KEYBOARD_CODES,
 } from '../sensors';
 import * as timeline from '../pressTimeline';
@@ -96,6 +97,51 @@ describe('releaseLiftFocus / isLiftBlur', () => {
         releaseLiftFocus(pressed);
         expect(document.activeElement).toBe(other);
         other.remove(); pressed.remove();
+    });
+});
+
+describe('captureLiftFocus / restoreLiftFocus (req #3663 review)', () => {
+    // <div data-testid=scope><div data-testid=item><div data-testid=row><textarea name=title>
+    const build = (html) => {
+        const host = document.createElement('div');
+        host.innerHTML = html;
+        document.body.appendChild(host);
+        return host;
+    };
+    const press = (field) => ({ type: 'pointerdown', target: field });
+
+    it('a press on a card\'s template row restores to THAT row, not the card\'s first title', () => {
+        const host = build(`
+            <div data-testid="category-card-5">
+              <div data-testid="requirement-1"><textarea name="title">first</textarea></div>
+              <div data-testid="requirement-template"><textarea name="title"></textarea></div>
+            </div>`);
+        const card = host.querySelector('[data-testid="category-card-5"]');
+        const template = host.querySelector('[data-testid="requirement-template"] textarea');
+        const spot = captureLiftFocus(press(template), card);
+        restoreLiftFocus(spot);
+        expect(document.activeElement).toBe(template);
+        host.remove();
+    });
+
+    it('a row shown twice (its card and the aggregator) restores in the same kind of list it moved within', () => {
+        const host = build(`
+            <div data-testid="swarm-start-card">
+              <div data-testid="requirement-9"><textarea name="title">agg copy</textarea></div>
+            </div>
+            <div data-testid="category-card-5">
+              <div data-testid="requirement-9"><textarea name="title">card copy</textarea></div>
+            </div>`);
+        const lifted = host.querySelector('[data-testid="category-card-5"] [data-testid="requirement-9"]');
+        const spot = captureLiftFocus(press(lifted.querySelector('textarea')), lifted);
+        // Dropped into another category card: the old card no longer holds it.
+        const other = document.createElement('div');
+        other.setAttribute('data-testid', 'category-card-6');
+        other.appendChild(lifted);
+        host.appendChild(other);
+        restoreLiftFocus(spot);
+        expect(document.activeElement.value).toBe('card copy');
+        host.remove();
     });
 });
 

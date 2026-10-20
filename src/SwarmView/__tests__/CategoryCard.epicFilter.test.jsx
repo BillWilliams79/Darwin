@@ -14,13 +14,12 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { DndProvider } from 'react-dnd';
-import { TouchBackend } from 'react-dnd-touch-backend';
+import { DarwinDndContext } from '../../dnd';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 // The first mounted `it()` in a file absorbs the cold module-compile cost of the
-// component tree (react-dnd + MUI + this page), which on a loaded machine is
+// component tree (dnd-kit + MUI + this page), which on a loaded machine is
 // measured at 5-8s against vitest's 5000ms default — red in CI about half the
 // time, for nothing. File-scoped rather than a global config change, so no other
 // suite's timeout moves.
@@ -77,7 +76,7 @@ function mount(epicReqIds) {
             <QueryClientProvider client={queryClient}>
                 <AppContext.Provider value={{ darwinUri: 'http://test.local' }}>
                     <AuthContext.Provider value={{ idToken: 'tok', profile: { userName: 'tester', timezone: 'UTC' } }}>
-                        <DndProvider backend={TouchBackend} options={{ enableMouseEvents: true }}>
+                        <DarwinDndContext>
                             <CategoryCard
                                 category={CATEGORY}
                                 categoryIndex={0}
@@ -87,14 +86,11 @@ function mount(epicReqIds) {
                                 categoryOnBlur={noop}
                                 clickCardClosed={noop}
                                 clickCardDelete={noop}
-                                moveCard={noop}
-                                persistCategoryOrder={noop}
-                                removeCategory={noop}
                                 isTemplate={false}
                                 showClosed={false}
                                 epicReqIds={epicReqIds}
                             />
-                        </DndProvider>
+                        </DarwinDndContext>
                     </AuthContext.Provider>
                 </AppContext.Provider>
             </QueryClientProvider>

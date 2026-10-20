@@ -14,9 +14,9 @@ import {
 // drags, a touch hold lifts while a quick swipe scrolls, a long press on a tab
 // edits while held, and the page scrolls when a drag nears its edge.
 //
-// Every drag here is real input — trusted pointer, touch (CDP) and key events —
-// on a page where react-dnd's DndProvider is still mounted at the root, which
-// is the coexistence check the requirement asks for in a real browser.
+// Every drag here is real input — trusted pointer, touch (CDP) and key events.
+// (Written while react-dnd's DndProvider was still mounted at the root, as the
+// coexistence check req #3662 asked for; req #3663 removed react-dnd.)
 
 test.describe.serial('Plan view drag and drop (dnd-kit)', () => {
   test.setTimeout(90000);
