@@ -1647,12 +1647,24 @@ export const REQ_ROW_GAP = 9.5 * CARD_TYPE_SCALE;
 // raised to three lines so a long title still arrives whole.
 //
 // Counted against WHAT THE ROW ACTUALLY DRAWS: `reqLabelText`'s
-// `${reqId}   ${title}`, so the prefix is a 4-digit id plus the three-character
-// blank separator (req #3660 — it was " - ") — SEVEN characters, and no '#' anywhere (ids render bare on
-// this surface, production directive).
+// `${reqId}  ${title}`, so the prefix is a 4-digit id plus the two-character
+// blank separator (req #3660 — it was " - "; req #3683 — it was three spaces) —
+// SIX characters, and no '#' anywhere (ids render bare on this surface,
+// production directive).
 export const CARD_TEXT_CHARS = 28;
 export const CARD_ID_CHARS = 4;
-export const CARD_SEP_CHARS = 3;        // three spaces, written by `reqLabelText`
+export const CARD_SEP_CHARS = 2;        // two spaces, written by `reqLabelText`
+// ── THE ID→TITLE GAP IS 1.5 CHARACTERS (req #3683, user directive: "reduce
+// the white space between the requirement # and its description by 50%") ────
+// It was three spaces. Half of that is not a whole number of mono characters,
+// so the TEXT keeps two (every wrap, hanging indent and character offset in
+// this module stays in whole characters) and the RENDERER draws everything
+// after the id this much further left — the title, its continuation lines,
+// the pills and the in-place title editor alike, so the hanging indent's
+// column (req #3575) is still one column. Leftward, never rightward: the drawn
+// line then ends half a character INSIDE the box the layout measured, so no
+// overlap or wrap proof has to be re-made.
+export const REQ_SEP_PULL = 0.5 * CHW_REQ;
 // What is left for the title on the FIRST line. Derived, not stated: the line is
 // the budget now, so a title budget written beside it would be a second number
 // to keep in step.
@@ -1786,6 +1798,9 @@ export const CARD_HEAD_LABEL = 'Requirements';
 // row above the name and became the title line's FIRST control: a chevron-only
 // box the size of the "+" and ↗ buttons, then the count badge, then the name.
 // The head's own row (`CARD_HEAD_BAND`) is no longer charged to the card.
+// Since req #3683 the badge is not on the left any more: it is one cell of the
+// 2x2 control cluster at the title area's right (`CARD_CLUSTER_W`), so the name
+// starts straight after the chevron.
 export const CARD_COLLAPSE_W = 21 * CARD_TYPE_SCALE;      // = CARD_TITLE_BTN
 export const CARD_COLLAPSE_GAP = 4 * CARD_TYPE_SCALE;     // = CARD_TITLE_BTN_GAP
 // The chevron's type on the title line — the "+" button's own glyph scale.
@@ -1824,29 +1839,41 @@ export const CARD_RADIUS = 10 * CARD_TYPE_SCALE;
  * there is no second line to draw and none is reserved (the old code skipped
  * the slot for the same reason).
  */
+//
+// AND IT IS NEVER LESS THAN THE CONTROL CLUSTER (req #3683): the 2x2 cluster
+// on the title area's right is two lines tall, so every card's title area is
+// at least two lines high — "step cards will always be two high". A one-line
+// name, or an id with its subtitle, sits beside the cluster in that room.
 export const cardTitleH = (stepLabel, nameLines = 1) => CARD_PAD_Y
-    + Math.max(1, nameLines) * CARD_LINE_H
-    + (stepLabel === 'title' ? 0 : CARD_SUBTITLE_H);
+    + Math.max(CARD_CLUSTER_H, Math.max(1, nameLines) * CARD_LINE_H
+        + (stepLabel === 'title' ? 0 : CARD_SUBTITLE_H));
 
 // ── THE STEP NAME WRAPS TOO (req #3498, 2026-08-13) ─────────────────────────
 // It has to, and the reason is the same arithmetic that narrowed the card: at a
 // 28-character line the name's own budget — the text column less the
-// title-row reserves (req #3503: the ✓ and the badge and its gap; req #3580:
-// the run pill; req #3582: the "+"), at the LABEL glyph which is wider than the
-// row glyph — is TWELVE characters (measured 2026-10-19 — see
-// `cardChars(CHW_LABEL, CARD_CHECK_W + CARD_STEP_LINK_W + CARD_STEP_ADD_W +
-// CARD_RUN_W + CARD_BADGE_W + CARD_BADGE_GAP)`; ten while req #3503's ↗ link
-// button still took its reserve, which req #3641 zeroed). "Feature Eradication
+// title-row reserves, at the LABEL glyph which is wider than the row glyph —
+// was SEVEN characters at the base card once the chevron, badge, padlock,
+// checkpoint and run pill all shared the one line, and is TWELVE since req
+// #3683 stacked those controls into the 2x2 cluster
+// (`cardChars(CHW_LABEL, CARD_NAME_RESERVE)`). "Feature Eradication
 // - MCP, Scripts, Frontend…" is the actual data, and it truncates well short
 // of one line at that budget.
 //
 // So the card's title area takes up to two lines by the same rule the rows do:
-// wrapped at layout time, RESERVED at every level, and per-step, so a card with
-// a short name stays short.
+// wrapped at layout time, RESERVED at every level, and per-step.
+//
+// Req #3683 moved the controls into the 2x2 cluster (`CARD_NAME_RESERVE`), which
+// is two lines tall on its own — so every card's title area is two lines now
+// (`cardTitleH`), and the name has both of them at the cluster's left.
 export const NAME_MAX_LINES = 2;
 // The fewest name characters the title line must hold beside its controls
-// before the name moves to a line of its own (req #3648).
-export const NAME_INLINE_MIN_CHARS = 4;
+// before the name moves to a line of its own (req #3648). EIGHT since req
+// #3683: beside the 2x2 cluster the narrowest rung (3) leaves six, and a
+// six-character line splits nearly every real word in half ("Featur" / "e
+// Era…") — so below eight the name goes under the cluster at the text column's
+// full width (seventeen there), which is the "more room" the requirement asked
+// for. Rung 4 and wider keep the name beside the cluster.
+export const NAME_INLINE_MIN_CHARS = 8;
 
 /**
  * A card's full height: title area, rule, then one line per requirement.
@@ -1976,23 +2003,24 @@ export const CARD_TITLE_BTN_STROKE = 2;
 // req #3649.)
 
 // ── THE CHECKPOINT FLAG AND THE LOCK (req #3649) ─────────────────────────────
-// Two more title-line buttons, left of the run pill, each sized like the "+"
-// and the ↗ for the same reason and reserved out of the step name's budget
-// the same way: button plus the gap that keeps it off its right-hand
-// neighbour. The checkpoint is the step's `checkpoint` flag (on by default:
+// Two more title-area buttons, each sized like the "+" and the ↗ were for the
+// same reason; since req #3683 they are the bottom row of the 2x2 control
+// cluster (`CARD_CLUSTER_W`, below), under the run pill and the count badge.
+// The checkpoint is the step's `checkpoint` flag (on by default:
 // the step holds everything downstream until it is done; off: a launch
 // priority only) — drawn since req #3673 as a boom barrier, arm down or
 // raised, in place of the ⚑ the user found unreadable. The padlock is the
 // step's `locked` flag, drawn CLOSED whenever the step is effectively locked —
 // by itself, its epic or its plan. Both are HTML buttons on the overlay
 // (req #3673), so this only reserves and places their boxes.
-export const CARD_CHECKPOINT_W = CARD_TITLE_BTN + CARD_TITLE_BTN_GAP;
-export const CARD_LOCK_W = CARD_TITLE_BTN + CARD_TITLE_BTN_GAP;
+// (`CARD_CHECKPOINT_W` / `CARD_LOCK_W` — each button's reserve on the one
+// title line — went in req #3683: the cluster's columns reserve them now.)
 
 
-// ── THE TOTAL REQUIREMENT COUNT, AS A BADGE LEFT OF THE TITLE (req #3503,
-// user directive: "add a count badge to the left of the title — use that
-// green count badge we had before") ─────────────────────────────────────
+// ── THE TOTAL REQUIREMENT COUNT, AS A BADGE (req #3503, user directive: "add
+// a count badge to the left of the title — use that green count badge we had
+// before"; moved to the RIGHT by req #3683, "move the counter badge to the
+// right hand side", as the top-right cell of the 2x2 control cluster) ──────
 // Moved here from the title area's RIGHT edge (where it drew as dim, dead
 // "(N)" text — see the removed `CARD_COUNT_W` block this replaces) to a
 // pill reusing `KonvaSwarmCanvas.jsx`'s day-header "requirements met" badge
@@ -2005,11 +2033,12 @@ export const CARD_LOCK_W = CARD_TITLE_BTN + CARD_TITLE_BTN_GAP;
 // chip's vocabulary and answers a different question; a step's own progress
 // is already on the card as its coloured rows, so restating it as a
 // fraction would be the same fact twice at the same level.
-// Reserved out of the step name's budget the same way the ✓ and the link
-// button are, so a long title starts AFTER the badge rather than under it.
+// Reserved out of the step name's budget as part of the cluster, so a long
+// title stops BEFORE the badge rather than running under it.
 // No parens: a pill's own shape is what used to say "this is a count", so
 // the two characters spent on `()` are room the badge doesn't need back.
-export const CARD_BADGE_GAP = CHW_REQ;
+// (`CARD_BADGE_GAP` — the air between the badge and the name it stood left
+// of — went in req #3683 with that position.)
 // The pill's own height, and — for a one-digit count — its WIDTH too, so it
 // draws as a CIRCLE rather than a stretched capsule (req #3503 review, round
 // 1: the first cut always drew the full RESERVED width regardless of digit
@@ -2022,8 +2051,13 @@ export const CARD_BADGE_GAP = CHW_REQ;
 // single-text-row metric `REQ_TEXT_H` measures. `− 4` leaves 2 world px of
 // margin top and bottom so the pill's round cap clears the line box.
 export const CARD_BADGE_H = CARD_LINE_H - 4;
-// The pill's top, from the card's title-row top (req #3606, user report: the
-// count circle "sits lower than the text by a noticeable amount"). The old
+// The pill's top, from the cluster's top row (req #3683). It is the run pill's
+// own offset now: the badge sits beside the run pill in the cluster's first
+// row, not beside the name, so the two pills share one top and read as one row,
+// and the 3px under them is the air above the padlock and checkpoint below.
+//
+// HISTORY — while the badge stood beside the name it sat at −1 (req #3606, user
+// report: the count circle "sits lower than the text by a noticeable amount"). The old
 // `+ 1` centred the pill on the line BOX, but the name is drawn on a canvas
 // `textBaseline: 'middle'` (em-box centring) and its ink sits ABOVE that box
 // centre: measured in Chromium at CARD_TYPE_SCALE 1.4 with SF Mono, the name's
@@ -2031,9 +2065,9 @@ export const CARD_BADGE_H = CARD_LINE_H - 4;
 // baseline was 31.0 and its centre 22.5 — the circle hung 2 world px below the
 // text it labels. Moving the pill from +1 to -1 (2 world px up) lands the
 // digit's baseline on the name's and the digit's centre on the caps' centre
-// (within 0.5px). Only the count badge moves: the run pill sits beside the
-// "+" and ↗ buttons, not the name, and keeps its own offset.
-export const CARD_BADGE_TOP = -1;
+// (within 0.5px). That alignment was to the NAME, which the badge no longer
+// stands beside.
+export const CARD_BADGE_TOP = 1;
 
 // ── THE RUN-MODE PILL (req #3580, user directives: "have a display circle for
 // step's manual vs auto and let that be a configurable button in the UI", then
@@ -2042,8 +2076,8 @@ export const CARD_BADGE_TOP = -1;
 // and the "+" are, so a long title never draws under it. It carries the
 // WORD, so it is sized for the longer of the two — one fixed width, so the pill
 // does not change size (and the title's room does not move) when it is toggled.
-// The same height as the count badge on the other end of the line, so the two
-// pills read as one row.
+// The same height as the count badge beside it in the cluster's top row, so
+// the two pills read as one row.
 //
 // THE COST, stated: the word takes about three more characters of each title
 // line than the bare A/M circle it replaced.
@@ -2105,9 +2139,47 @@ export const badgeWidthFor = (charCount) =>
 // title — so freeing width only ever opens air on the badge's OWN left,
 // never moves the title. A step that somehow carries 100+ requirements
 // would draw a badge wider than the reserve rather than clip — see
-// `badgeWidthFor`'s own uncapped formula — encroaching on the gap before
-// the title rather than the title itself.
+// `badgeWidthFor`'s own uncapped formula — growing LEFT, over the gap and into
+// the run pill beside it in the cluster (req #3683; before that, the collapse
+// chevron). A third digit's reserve would cost every card on every plan a name
+// character for a count no step reaches.
 export const CARD_BADGE_W = badgeWidthFor(2);
+
+// ── THE 2x2 CONTROL CLUSTER (req #3683, user directive: "move the counter
+// badge to the right hand side and make a 2x2 button cluster … so step cards
+// will always be two high") ─────────────────────────────────────────────────
+// The four title-area controls stood on ONE line — count badge left of the
+// name; padlock, checkpoint and run pill right of it — and between them took
+// two thirds of the line (221 of 338 world px at the base card: an EIGHT
+// character name budget). Stacked two by two at the right they take a third:
+//
+//     [ Auto ][ 3 ]      row 1 — the run pill, the count badge
+//       [🔒] [⛩]        row 2 — the padlock, the checkpoint
+//
+// A GRID, so cards in a column line up: column 1 holds the run pill over the
+// padlock, column 2 the badge over the checkpoint, each item flush right in
+// its column. Each column is as wide as the wider of its two items, so the
+// run pill does not move when the badge gains a digit and no column changes
+// width when a toggle changes a word. Each row is one title line
+// (`CARD_LINE_H`) — the square buttons fill theirs, the pills sit
+// `CARD_BADGE_TOP` into theirs — so the cluster is exactly two lines tall and
+// `cardTitleH` never reserves less.
+export const CARD_CLUSTER_ROWS = 2;
+export const CARD_CLUSTER_H = CARD_CLUSTER_ROWS * CARD_LINE_H;
+export const CARD_CLUSTER_COL1_W = Math.max(CARD_RUN_W, CARD_TITLE_BTN);
+export const CARD_CLUSTER_COL2_W = Math.max(CARD_BADGE_W, CARD_TITLE_BTN);
+export const CARD_CLUSTER_GAP = CARD_TITLE_BTN_GAP;
+export const CARD_CLUSTER_W = CARD_CLUSTER_COL1_W + CARD_CLUSTER_GAP + CARD_CLUSTER_COL2_W;
+// The air between the step name and the cluster — the gap the buttons keep
+// from each other, and no more ("compress the white space for the title so it
+// has more room").
+export const CARD_NAME_CLUSTER_GAP = CARD_TITLE_BTN_GAP;
+// EVERYTHING the step name's line gives up beside the name: the ✓'s room
+// (zero), the chevron and its gap on the left, the cluster and its gap on the
+// right. One expression, so the name budget, the inline check and
+// `stepLabelText`'s default can never count it differently.
+export const CARD_NAME_RESERVE = CARD_CHECK_W + CARD_COLLAPSE_W + CARD_COLLAPSE_GAP
+    + CARD_NAME_CLUSTER_GAP + CARD_CLUSTER_W;
 
 // How many characters of a given mono width fit the card's text column.
 // `reserve` is total room taken off the column, from either edge — the ✓,
@@ -3187,9 +3259,7 @@ const truncate = (s, n) => {
 // `STEP_LABEL_MAX`: one width, measured where it is drawn, so there is no cap
 // left to drift out of step with the room.
 export function stepLabelText(row, stepLabel,
-    maxChars = cardChars(CHW_LABEL, CARD_CHECK_W
-        + CARD_RUN_W + CARD_CHECKPOINT_W + CARD_LOCK_W
-        + CARD_COLLAPSE_W + CARD_COLLAPSE_GAP + CARD_BADGE_W + CARD_BADGE_GAP)) {
+    maxChars = cardChars(CHW_LABEL, CARD_NAME_RESERVE)) {
     return stepLabel === 'title'
         ? truncate(row.title || `step ${row.id}`, Math.max(4, maxChars))
         : String(row.id);
@@ -3478,16 +3548,14 @@ export function computePlanLayout(rows, opts = {}) {
     // so only the cards that need the room pay for it.
     //
     // ── A NAME WITH NO ROOM BESIDE THE CONTROLS GETS ITS OWN LINE (req #3648) ─
-    // The title line carries the chevron and the badge on the left and the
-    // padlock, ⚑ and run pill on the right (req #3649). On a narrow Step Width
-    // that can leave the name under `NAME_INLINE_MIN_CHARS`, and `cardChars`
-    // floors at 3 — so the name would draw UNDER the controls (req #3648 code
-    // review). Below that the control row keeps the line to itself and the name
-    // starts on the next one, at the text column's full width; that extra line
-    // is counted as one of the title area's lines, so every height derived from
-    // the line count reserves it.
-    const nameInlineReserve = CARD_CHECK_W + CARD_RUN_W + CARD_CHECKPOINT_W + CARD_LOCK_W
-        + CARD_COLLAPSE_W + CARD_COLLAPSE_GAP + CARD_BADGE_W + CARD_BADGE_GAP;
+    // The title area carries the chevron on the left and the 2x2 control
+    // cluster on the right (req #3683). On a narrow Step Width that could leave
+    // the name under `NAME_INLINE_MIN_CHARS`, and `cardChars` floors at 3 — so
+    // the name would draw UNDER the controls (req #3648 code review). Below that
+    // the controls keep their rows to themselves and the name starts under the
+    // cluster, at the text column's full width; those rows are counted as title
+    // area lines, so every height derived from the line count reserves them.
+    const nameInlineReserve = CARD_NAME_RESERVE;
     const nameBelow = Math.floor((cardTextW - nameInlineReserve) / CHW_LABEL)
         < NAME_INLINE_MIN_CHARS;
     const nameBudget = cardChars(CHW_LABEL, nameBelow ? 0 : nameInlineReserve, cardTextW);
@@ -3497,9 +3565,9 @@ export function computePlanLayout(rows, opts = {}) {
             stepLabelText(r, stepLabel, nameBudget * NAME_MAX_LINES),
             nameBudget, NAME_MAX_LINES));
     }
-    // Title-area LINES, the control row included when the name is below it.
+    // Title-area LINES, the cluster's rows included when the name is below it.
     const nameLineCount = (r) => (nameLinesOf.get(r.id) || ['']).length
-        + (nameBelow ? 1 : 0);
+        + (nameBelow ? CARD_CLUSTER_ROWS : 0);
 
     // ── Column widths: UNIFORM, AT THE CARD (req #3498) ─────────────────────
     // Every column is one card wide plus the gutter, and that is the whole rule.
@@ -4461,11 +4529,18 @@ export function computePlanLayout(rows, opts = {}) {
     for (const r of safeRows) {
         const n = nodes.get(r.id);
         if (!n) continue;                  // in a folded band (req #3650)
-        // ONE title line (req #3648): the collapse head, the badge and the name
-        // on the left, the run pill, "+" and ↗ on the right, all placed from it.
+        // The title area (req #3648, #3683): the collapse head and the name on
+        // the left, the 2x2 control cluster on the right, all placed from its
+        // top.
         const nameTop = n.top + CARD_PAD_Y;
+        // The cluster's grid (see `CARD_CLUSTER_W`): column 2 flush against
+        // the text column's right edge, column 1 a gap to its left; row 2 one
+        // title line below row 1.
+        const clusterRight = n.right - CARD_PAD_X - CARD_CHECK_W;
+        const col1Right = clusterRight - CARD_CLUSTER_COL2_W - CARD_CLUSTER_GAP;
+        const row2Top = nameTop + CARD_LINE_H;
         // ── THE COLLAPSE HEAD (req #3650) — the title line's first control
-        //    since req #3648, a chevron the size of the "+" beside the badge.
+        //    since req #3648, a chevron the size of the "+" beside the name.
         labels.push({
             kind: 'collapse', stepId: r.id, text: CARD_HEAD_LABEL,
             collapsed: stepFolded(r),
@@ -4480,30 +4555,30 @@ export function computePlanLayout(rows, opts = {}) {
         // title area instead, fitted to the card, LEFT-ALIGNED rather than
         // centred: a row of centred titles over left-aligned requirement rows
         // reads as two different lists, and the title is the thing a reader
-        // scans down a lane. NOT on the requirement rows' own `textLeft` since
-        // req #3503, though — see `titleTextLeft` below for why the title's
-        // line alone is indented past the badge.
-        // The ✓'s, the "+"'s and the run pill's room come off the right
-        // (CARD_CHECK_W, CARD_STEP_ADD_W, CARD_RUN_W — and CARD_STEP_LINK_W, zero
-        // since req #3641); the badge's comes off the left (CARD_BADGE_W,
-        // CARD_BADGE_GAP) — all four drawn on the title area's own line, so a
-        // budget that ignored any of them would put the step name under one.
+        // scans down a lane. NOT on the requirement rows' own `textLeft`,
+        // though — see `titleTextLeft` below for why the name alone is
+        // indented past the chevron.
+        // The chevron's room comes off the left and the cluster's off the right
+        // (`CARD_NAME_RESERVE`, req #3683) — both drawn beside the name, so a
+        // budget that ignored either would put the step name under it.
         const nameLines = nameLinesOf.get(r.id) || [''];
         const label = nameLines.join(' ');
         const lw = Math.max(...nameLines.map((l) => l.length)) * CHW_LABEL;
         const textLeft = n.left + CARD_FRAME_X + CARD_PAD_X;
-        // ONLY the title's own line moves for the badge — the requirement rows
-        // below it, and the reserved L3 title-duplicate line, still start at
-        // the column's own `textLeft`. The badge answers for the title's row
-        // alone (the day-header pill it is copied from sits beside ONE date,
-        // not an indented list under it), and shifting rows that never draw
-        // beside it would cost every card width for no reason on any of them.
-        const badgeLeft = textLeft + CARD_COLLAPSE_W + CARD_COLLAPSE_GAP;
-        // Beside the badge, or — when the controls leave it no room — on its
-        // own line below them, from the text column's left (`nameBelow`).
+        // ONLY the name moves for the chevron — the requirement rows below
+        // it, and the reserved L3 title-duplicate line, still start at the
+        // column's own `textLeft`: the chevron stands on the name's first line
+        // alone, and shifting rows that never draw beside it would cost every
+        // card width for no reason on any of them.
+        // Beside the chevron — straight after it since req #3683 took the
+        // badge from between them — or, when the controls leave it no room,
+        // under the cluster from the text column's left (`nameBelow`).
         const titleTextLeft = nameBelow ? textLeft
-            : badgeLeft + CARD_BADGE_W + CARD_BADGE_GAP;
-        const nameY = nameBelow ? nameTop + CARD_LINE_H : nameTop;
+            : textLeft + CARD_COLLAPSE_W + CARD_COLLAPSE_GAP;
+        // Below the cluster = one line under its second row, written from
+        // `row2Top` exactly as the bottom-row buttons are, so the two edges are
+        // one number rather than two sums that differ in the last bit.
+        const nameY = nameBelow ? row2Top + CARD_LINE_H : nameTop;
         labels.push({
             kind: 'step', stepId: r.id, text: label,
             // The lines AS DRAWN, so the renderer never re-wraps — the same
@@ -4514,12 +4589,12 @@ export function computePlanLayout(rows, opts = {}) {
             x: titleTextLeft,
             y: nameY,
             w: lw, h: nameLines.length * CARD_LINE_H,
-            // req #3580 — the WHOLE room the name may occupy (up to the run
-            // pill's reserve), which is where the in-place editor is drawn.
-            // Not `w`: that is the drawn text's own width, and an editor sized
-            // to a short name would have no room to type a longer one.
-            editW: n.right - CARD_PAD_X - CARD_CHECK_W - titleTextLeft
-                - (nameBelow ? 0 : CARD_RUN_W + CARD_CHECKPOINT_W + CARD_LOCK_W),
+            // req #3580 — the WHOLE room the name may occupy (up to the
+            // cluster's gap, req #3683), which is where the in-place editor is
+            // drawn. Not `w`: that is the drawn text's own width, and an editor
+            // sized to a short name would have no room to type a longer one.
+            editW: clusterRight - titleTextLeft
+                - (nameBelow ? 0 : CARD_CLUSTER_W + CARD_NAME_CLUSTER_GAP),
         });
         const ids = r.reqIds || [];
         // ── THE REQUIREMENT ROWS, TOP TO BOTTOM, IN ORDER ───────────────────
@@ -4649,27 +4724,26 @@ export function computePlanLayout(rows, opts = {}) {
         });
         // ── THE TOTAL REQUIREMENT COUNT, AS A BADGE (req #3503; originally
         // req #3498, "Provide a count") ──────────────────────────────────
-        // LEFT of the title now, in the room `CARD_BADGE_W` + `CARD_BADGE_GAP`
-        // reserved out of the step name's budget — see `CARD_BADGE_W`'s own
-        // comment for why the pill replaced the dim "(N)" text this used to
-        // draw at the title's right edge. Emitted for EVERY card including the
+        // The cluster's top-right cell since req #3683 — column 2, row 1 —
+        // see `CARD_BADGE_W`'s own comment for why the pill replaced the dim
+        // "(N)" text this used to draw. Emitted for EVERY card including the
         // empty one — 0 is a fact about the step, and a count that disappears
         // is a count a reader cannot rely on.
         {
             const countText = String(ids.length);
             // The DRAWN width, not the reserve: `badgeWidthFor` (per-row,
             // real digit count) is almost always narrower than `CARD_BADGE_W`
-            // (worst case), and RIGHT-aligning it against the reserve's own
-            // right edge is what makes a one-digit badge a circle rather
-            // than the reserve's full width stretched into a capsule.
+            // (worst case), and RIGHT-aligning it against its column's right
+            // edge is what makes a one-digit badge a circle rather than the
+            // reserve's full width stretched into a capsule.
             const badgeW = badgeWidthFor(countText.length);
             labels.push({
                 kind: 'badge', stepId: r.id, text: countText,
                 // Generated from a row count, never stored user content — so
                 // the no-'#' audit governs it (the `prose` note on req marks).
                 prose: false,
-                x: badgeLeft + CARD_BADGE_W - badgeW,
-                // On the FIRST name line, whatever the name wrapped to — the
+                x: clusterRight - badgeW,
+                // The cluster's first row, whatever the name wrapped to — the
                 // count belongs to the card, not to the last line of its title.
                 y: nameTop + CARD_BADGE_TOP,
                 w: badgeW, h: CARD_BADGE_H,
@@ -4680,8 +4754,8 @@ export function computePlanLayout(rows, opts = {}) {
         // directive: "I never use the plus … I never use the arrow"); the title
         // line now carries the run pill, the ⚑ and the padlock only.
         // ── THE RUN-MODE PILL (req #3580) ────────────────────────────────────
-        // Rightmost on the title line since req #3649, in the room
-        // `CARD_RUN_W` reserved out of the step name's budget.
+        // The cluster's top-left cell since req #3683 — column 1, row 1, flush
+        // right so it sits a gap off the badge.
         // Emitted for every card: run mode is a fact about every
         // step, and the pill is also the control that changes it. The text is
         // the word drawn inside; the renderer draws it as an HTML overlay, the
@@ -4692,32 +4766,30 @@ export function computePlanLayout(rows, opts = {}) {
                 text: CARD_RUN_WORDS[r.run === 'manual' ? 'manual' : 'auto'],
                 run: r.run === 'manual' ? 'manual' : 'auto',
                 prose: false,
-                x: n.right - CARD_PAD_X - CARD_CHECK_W - CARD_RUN_W,
-                // Centred with the "+" and ↗ buttons beside it, which is why it does
-                // not follow the count badge's CARD_BADGE_TOP (req #3606).
-                y: nameTop + 1,
+                x: col1Right - CARD_RUN_W,
+                // The badge's own top, so the cluster's first row reads as one.
+                y: nameTop + CARD_BADGE_TOP,
                 w: CARD_RUN_W, h: CARD_RUN_H,
             });
         }
         // ── THE CHECKPOINT GATE AND THE PADLOCK (req #3649, #3673) ──────────
-        // Left of the run pill, in their own reserves (`CARD_CHECKPOINT_W`,
-        // `CARD_LOCK_W`), each button flush right in its reserve so the gap
-        // sits between it and its neighbour — the "+"'s own arrangement.
+        // The cluster's bottom row since req #3683: the padlock under the run
+        // pill (column 1), the checkpoint under the badge (column 2), each
+        // flush right in its column so the grid's edges line up down a lane.
         // Emitted for every card: both are facts about every step, and both
         // are the controls that change them (the renderer draws them as HTML
         // icon buttons, `on` deciding the picture — req #3673).
         {
-            const runX = n.right - CARD_PAD_X - CARD_CHECK_W - CARD_RUN_W;
             labels.push({
                 kind: 'checkpoint', stepId: r.id, text: 'Checkpoint', prose: false,
                 on: r.checkpoint !== false,
-                x: runX - CARD_CHECKPOINT_W, y: nameTop,
+                x: clusterRight - CARD_TITLE_BTN, y: row2Top,
                 w: CARD_TITLE_BTN, h: CARD_TITLE_BTN,
             });
             labels.push({
                 kind: 'lock', stepId: r.id, text: 'Lock', prose: false,
                 on: !!r.effectiveLocked, lockedBy: r.lockedBy || null,
-                x: runX - CARD_CHECKPOINT_W - CARD_LOCK_W, y: nameTop,
+                x: col1Right - CARD_TITLE_BTN, y: row2Top,
                 w: CARD_TITLE_BTN, h: CARD_TITLE_BTN,
             });
         }
@@ -4725,8 +4797,14 @@ export function computePlanLayout(rows, opts = {}) {
         // Skipped when the step label already IS the title — it would duplicate,
         // which is why `cardTitleH` does not reserve the line in that mode
         // either. The two agree by reading the same condition.
+        // It lands beside the cluster's second row (req #3683), so it is
+        // fitted to the room left of that row's leftmost control — the padlock,
+        // flush right in column 1 — unless the name, and so this line, already
+        // sits below the cluster.
         if (stepLabel !== 'title') {
-            const t = truncate(r.title || '', cardChars(CHW_TITLE));
+            const t = truncate(r.title || '', cardChars(CHW_TITLE,
+                nameBelow ? 0 : CARD_NAME_CLUSTER_GAP + CARD_TITLE_BTN + CARD_CLUSTER_GAP
+                    + CARD_CLUSTER_COL2_W, cardTextW));
             if (t) {
                 labels.push({
                     kind: 'title', stepId: r.id, text: t,

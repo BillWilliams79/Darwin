@@ -98,6 +98,7 @@ import {
     CARD_RUN_FONT,
     CARD_LINE_H,
     REQ_LINE_H,
+    REQ_SEP_PULL,
     CARD_RADIUS,
     CARD_PAD_X,
     CARD_RULE_GAP,
@@ -405,13 +406,29 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
                                     });
                                     const text = Array.isArray(label.lines)
                                         ? label.lines.join('\n') : label.text;
+                                    // req #3683 — the id→title gap is 1.5
+                                    // characters, as on the plan canvas: the id
+                                    // stays put and the rest is drawn
+                                    // `REQ_SEP_PULL` further left.
+                                    const id = String(label.reqId);
+                                    const font = {
+                                        fontSize: CF.req, fontFamily: MONO,
+                                        lineHeight: REQ_LINE_H / CF.req, fill: rs.fill,
+                                        fontStyle: rs.bold ? 'bold' : 'normal',
+                                    };
+                                    if (text.length <= id.length) {
+                                        return (
+                                            <Text key={`lbl-${i}`} x={label.x} y={label.y}
+                                                  text={text} {...font} />
+                                        );
+                                    }
                                     return (
-                                        <Text key={`lbl-${i}`} x={label.x} y={label.y}
-                                              text={text}
-                                              fontSize={CF.req} fontFamily={MONO}
-                                              lineHeight={REQ_LINE_H / CF.req}
-                                              fill={rs.fill}
-                                              fontStyle={rs.bold ? 'bold' : 'normal'} />
+                                        <Group key={`lbl-${i}`}>
+                                            <Text x={label.x} y={label.y} text={id} {...font} />
+                                            <Text x={label.x - REQ_SEP_PULL} y={label.y}
+                                                  text={' '.repeat(id.length) + text.slice(id.length)}
+                                                  {...font} />
+                                        </Group>
                                     );
                                 }
                                 if (label.kind === 'badge' || label.kind === 'run') {
