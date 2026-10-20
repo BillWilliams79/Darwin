@@ -36,7 +36,7 @@
 // localStorage, wrapped, since it may be unavailable) and written once, on
 // release, only if the box moved. CSS `clamp` keeps a remembered spot inside a
 // pane that has since become smaller, and `minHeight` keeps the title bar whole
-// at the pane's bottom edge. A box dropped in the RIGHT half is remembered by
+// at the pane's bottom edge until the box is lifted (req #3677). A box dropped in the RIGHT half is remembered by
 // its distance from the right edge, so it stays flush right as the zoom resizes
 // it or the window narrows — the same anchoring its home corner has.
 //
@@ -49,10 +49,18 @@
 // and the spot is not remembered. The visualizer asks before writing anything.
 // An empty box has nothing to seat, so it only ever moves.
 //
-// While a carrying move is under way (req #3614) the box turns see-through and
-// folds its list, so the step card it is aimed at can be read; both are undone
-// on release. `onCarryingChange` tells the visualizer, which then draws its
-// seat-target outline above the box.
+// While a carrying move is under way (req #3614) the box turns see-through, so
+// the step card it is aimed at can be read; undone on release.
+// `onCarryingChange` tells the visualizer, which then draws its seat-target
+// outline above the box.
+//
+// ── FULL SIZE THE WHOLE TIME (req #3677, user directive) ──────────────────
+// A move never changes the box's size: the list stays open while carried
+// (#3614 folded it), the grip's strip stays while the grip hides, and the move
+// is clamped by the box's FULL height — not just its title bar — so it cannot
+// be dragged low enough for the pane's `maxHeight` to squeeze it. A placed box
+// that later GROWS (unfolded, zoomed in, more rows, a smaller pane) is lifted
+// to stay whole, and a corner stretch stops where the whole box still fits.
 //
 // ── SIZED LIKE THE REQUIREMENTS (user directive) ───────────────────────────
 // Its TYPE is the
@@ -97,11 +105,10 @@
 // bar — badge, "OR", toggle, nothing else changed — and both the width and the
 // list's height animate, so it shrinks in and out smoothly. The width only
 // transitions for the length of a fold: the zoom resizes the box on every
-// wheel frame, and a transition there would make it trail the plan. A carry
-// (req #3614) still folds the list instantly — that fold is so the step
-// beneath can be read NOW. Reduced motion turns both animations off.
+// wheel frame, and a transition there would make it trail the plan. Reduced
+// motion turns both animations off.
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import Box from '@mui/material/Box';
 import Collapse from '@mui/material/Collapse';
@@ -132,6 +139,11 @@ const STRETCH_HEIGHT_SLOP = 12;
 /** Bounds on a remembered stretch, so a hand-edited value cannot draw nonsense. */
 const MAX_STRETCH_WS = 20;
 const MAX_STRETCH_H_EM = 400;
+/** The list's height cap, in em, when it is not stretched. */
+const LIST_MAX_EM = 26;
+/** Slack, px, between the box's full height and the pane's bottom inset: the
+ *  parts are measured as whole-px `offsetHeight`s of a fractional-em layout. */
+const ROUNDING_SLACK_PX = 2;
 /** How long a fold or unfold animates, ms. */
 export const FOLD_MS = 220;
 /** The folded bar's fixed parts, in em: the title bar's side padding (2 × 0.8),
@@ -152,6 +164,20 @@ const SIZE_STORAGE_KEY = 'darwin-plan-unseated-box-size';
  *  for a value MUI cannot parse (RequirementRow's rule, req #2752). */
 function barEdge(color) {
     try { return lighten(color, 0.45); } catch { return 'rgba(128,128,128,0.5)'; }
+}
+
+/** The box's heights, px (req #3677): `frame` is everything but the list —
+ *  title bar, grip strip, borders — and `full` adds the list at its natural
+ *  height (the stretched one, else its rows up to `LIST_MAX_EM`). Summed from
+ *  the parts, never read off the box, so neither the pane's `maxHeight`
+ *  squeezing it nor a fold mid-animation can make it read short. Border-box. */
+function boxHeights({ box, header, strip, list }, open, { listHeightPx, fontPx }) {
+    const frame = (header?.offsetHeight ?? 0) + (strip?.offsetHeight ?? 0)
+        + box.offsetHeight - box.clientHeight;
+    if (!open || !list) return { frame, full: frame };
+    const natural = listHeightPx ?? Math.min(LIST_MAX_EM * fontPx,
+        list.scrollHeight + list.offsetHeight - list.clientHeight);
+    return { frame, full: frame + natural };
 }
 
 function readPos() {
@@ -212,6 +238,8 @@ export default function UnorchestratedReqBox({
     };
     const listRef = useRef(null);
     const boxRef = useRef(null);
+    const headerRef = useRef(null);
+    const stripRef = useRef(null);
     // `null` = home (top-right); else panel-relative px of the top-left corner.
     const [pos, setPos] = useState(readPos);
     // The gesture lives in a ref; `moving` is state only so the cursor
@@ -219,8 +247,8 @@ export default function UnorchestratedReqBox({
     const moveRef = useRef(null);
     const [moving, setMoving] = useState(false);
     // True from the first move frame of a title-bar move that carries rows
-    // until it ends (req #3614): the box turns see-through and folds its list
-    // so the step card beneath it can be read, and is restored on release.
+    // until it ends (req #3614): the box turns see-through so the step card
+    // beneath it can be read, and is restored on release.
     const [carrying, setCarrying] = useState(false);
     useEffect(() => { onCarryingChange?.(carrying); }, [carrying]);
     const lastMoveEndRef = useRef(0);
@@ -265,8 +293,7 @@ export default function UnorchestratedReqBox({
         const clampTo = (v, hi) => Math.min(Math.max(0, v), Math.max(0, hi));
         m.last = {
             x: Math.round(clampTo(m.left + dx, pane.clientWidth - box.offsetWidth)),
-            y: Math.round(clampTo(m.top + dy,
-                pane.clientHeight - e.currentTarget.offsetHeight)),
+            y: Math.min(Math.round(Math.max(0, m.top + dy)), maxTop(box, pane)),
         };
         setPos(m.last);
         if (m.carries) {
@@ -309,6 +336,34 @@ export default function UnorchestratedReqBox({
     };
     const goHome = () => { setPos(null); writePos(null); };
 
+    const heights = (box) => boxHeights({ box, header: headerRef.current,
+        strip: stripRef.current, list: listRef.current }, open, drawn);
+    // The lowest top at which the WHOLE box still clears the pane's bottom
+    // inset — the one `maxHeight` holds — so it is never squeezed (req #3677).
+    const maxTop = (box, pane) => Math.max(0, Math.floor(
+        pane.clientHeight - CORNER_INSET - ROUNDING_SLACK_PX - heights(box).full));
+    // A placed box that has GROWN since it was dropped — unfolded, zoomed in,
+    // more rows, a smaller pane, a seat sending it back — is lifted so it is
+    // still whole, never squeezed. Not remembered: the spot the reader chose
+    // stays theirs, and a smaller pane re-lifts it on the next load.
+    const reclampRef = useRef(null);
+    reclampRef.current = () => {
+        if (!pos || moveRef.current || resizeRef.current) return;
+        const box = boxRef.current;
+        const pane = box?.offsetParent;
+        if (!box || !pane) return;
+        const top = maxTop(box, pane);
+        if (pos.y > top) setPos({ ...pos, y: top });
+    };
+    useLayoutEffect(() => { reclampRef.current(); });
+    useEffect(() => {
+        const pane = boxRef.current?.offsetParent;
+        if (!pane || typeof ResizeObserver === 'undefined') return undefined;
+        const ro = new ResizeObserver(() => reclampRef.current());
+        ro.observe(pane);
+        return () => ro.disconnect();
+    }, []);
+
     const onGripDown = (e) => {
         if (resizeRef.current || e.button !== 0) return;
         const box = boxRef.current;
@@ -339,9 +394,10 @@ export default function UnorchestratedReqBox({
             // Border-box, like the `height` it becomes.
             w: box.offsetWidth, h: list?.offsetHeight ?? null, right: anchoredRight,
             maxW: Math.min(room, pane.clientWidth - 2 * CORNER_INSET),
-            // To the pane's bottom inset — no taller than can be seen.
-            maxH: list ? pane.clientHeight - CORNER_INSET - box.offsetTop - list.offsetTop
-                : 0,
+            // To the pane's bottom inset with the grip strip and border still
+            // above it — no taller than the WHOLE box can be seen (req #3677).
+            maxH: list ? pane.clientHeight - CORNER_INSET - ROUNDING_SLACK_PX
+                - box.offsetTop - heights(box).frame : 0,
             hEm: size?.hEm ?? null, vertical: false, last: null, rebased,
         };
         setResizing(true);
@@ -421,12 +477,12 @@ export default function UnorchestratedReqBox({
         };
         el.addEventListener('wheel', onWheel, { passive: true });
         return () => el.removeEventListener('wheel', onWheel);
-    }, [open, carrying]);
+    }, [open]);
 
-    const listShown = open && !carrying;
-    // No grip while folded, carried or being moved (its corner follows the
-    // side the box is anchored to, which a move is changing).
-    const gripShown = listShown && !moving;
+    // No grip while folded or being moved (its corner follows the side the
+    // box is anchored to, which a move is changing). A move keeps the grip's
+    // STRIP, so the box stays its full height (req #3677).
+    const gripShown = open && !moving;
     // A grip that goes away mid-stretch ends the stretch.
     useEffect(() => {
         if (gripShown || !resizeRef.current) return;
@@ -467,7 +523,7 @@ export default function UnorchestratedReqBox({
                     opacity: carrying ? 0.35 : 1,
                     // Only while folding — see the header.
                     transition: folding ? `width ${foldMs}ms ease` : 'none' }}>
-            <Box data-testid="pipeline-viz-unseated-header"
+            <Box ref={headerRef} data-testid="pipeline-viz-unseated-header"
                  title={count > 0
                      ? 'Drag to move · drop on a step to seat them all · double-click to put back'
                      : 'Drag to move · double-click to put back'}
@@ -513,93 +569,94 @@ export default function UnorchestratedReqBox({
                 </Box>
             </Box>
 
-            {/* Animated by the toggle; a carry unmounts it outright. Once
-                ENTERED the wrappers are flex columns that may shrink, so a list
-                the pane cuts short still scrolls inside the box. Only then:
-                Collapse measures the wrapper's height to animate to, and a
-                shrinkable wrapper in a flex root measures 0 — the unfold would
-                animate 0 → 0 and then pop (req #3648 code review). */}
-            {!carrying && (
-                <Collapse in={open} timeout={foldMs} unmountOnExit
-                          sx={{ flex: '0 1 auto', minHeight: 0,
-                                '&.MuiCollapse-entered': {
-                                    display: 'flex', flexDirection: 'column',
-                                    '& .MuiCollapse-wrapper': { flex: '0 1 auto', minHeight: 0 },
-                                    '& .MuiCollapse-wrapperInner': {
-                                        display: 'flex', flexDirection: 'column', minHeight: 0 } } }}>
-                <Box ref={listRef} data-testid="pipeline-viz-unseated-list"
-                     // A stretched height, in `style` for the same reason as
-                     // the box's own geometry: it changes on every frame.
-                     style={drawn.listHeightPx == null ? undefined
-                         : { height: `${drawn.listHeightPx}px`, maxHeight: 'none' }}
-                     sx={{ overflowY: 'auto', overscrollBehavior: 'contain',
-                            minHeight: 0, flex: '0 1 auto', maxHeight: '26em',
-                            borderTop: `1px solid ${P.line}`, py: '0.35em' }}>
-                    {isError && (
-                        <Box sx={{ px: '0.8em', py: '0.5em', color: '#ff8a80' }}>
-                            Could not load swarm-ready requirements.
-                        </Box>
-                    )}
-                    {!isError && !isLoading && count === 0 && (
-                        <Box data-testid="pipeline-viz-unseated-empty"
-                             sx={{ px: '0.8em', py: '0.5em', color: P.dim }}>
-                            None
-                        </Box>
-                    )}
-                    {items.map((r) => {
-                        const id = Number(r.id);
-                        const dragging = draggingId === id;
-                        const barColor = categoryColors[r.category_fk];
-                        return (
-                            <Box key={id}
-                                 draggable
-                                 data-testid={`pipeline-viz-unseated-item-${id}`}
-                                 onDragStart={(e) => {
-                                     e.dataTransfer.setData(UNSEATED_REQ_MIME, String(id));
-                                     e.dataTransfer.effectAllowed = 'move';
-                                     // Next tick — see the header: the drag
-                                     // image is snapshotted after this returns.
-                                     setTimeout(() => onDragStartItem?.(id), 0);
-                                 }}
-                                 onDragEnd={() => onDragEndItem?.(id)}
-                                 onClick={() => onOpen?.(id)}
-                                 sx={{ display: 'flex', alignItems: 'baseline', gap: '0.6em',
-                                        px: '0.8em', py: '0.3em',
-                                        cursor: 'grab', opacity: dragging ? 0.3 : 1,
-                                        // An opaque row so the drag image is a
-                                        // solid copy, not a ghost of the canvas.
-                                        background: dragging ? 'transparent' : '#0d1420',
-                                        '&:hover': { background: '#16233a' } }}>
-                                <Box component="span"
-                                     data-testid={`pipeline-viz-unseated-bar-${id}`}
-                                     sx={{ width: '0.45em', alignSelf: 'stretch',
-                                            minHeight: '1.2em', flexShrink: 0,
-                                            borderRadius: '0.25em', boxSizing: 'border-box',
-                                            bgcolor: barColor || 'transparent',
-                                            ...(barColor && {
-                                                border: '0.1em solid',
-                                                borderColor: barEdge(barColor),
-                                            }) }} />
-                                <Box component="span"
-                                     sx={{ color: statusColor, fontWeight: 700, flexShrink: 0 }}>
-                                    {id}
-                                </Box>
-                                <Box component="span"
-                                     sx={{ flex: 1, minWidth: 0, overflow: 'hidden',
-                                            textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                    {r.title}
-                                </Box>
+            {/* Animated by the toggle, and nothing else — a carry keeps it open
+                (req #3677). Once ENTERED the wrappers are flex columns that may
+                shrink, so a list the pane cuts short still scrolls inside the
+                box. Only then: Collapse measures the wrapper's height to
+                animate to, and a shrinkable wrapper in a flex root measures 0
+                — the unfold would animate 0 → 0 and then pop (req #3648 code
+                review). */}
+            <Collapse in={open} timeout={foldMs} unmountOnExit
+                      sx={{ flex: '0 1 auto', minHeight: 0,
+                            '&.MuiCollapse-entered': {
+                                display: 'flex', flexDirection: 'column',
+                                '& .MuiCollapse-wrapper': { flex: '0 1 auto', minHeight: 0 },
+                                '& .MuiCollapse-wrapperInner': {
+                                    display: 'flex', flexDirection: 'column', minHeight: 0 } } }}>
+            <Box ref={listRef} data-testid="pipeline-viz-unseated-list"
+                 // A stretched height, in `style` for the same reason as
+                 // the box's own geometry: it changes on every frame.
+                 style={drawn.listHeightPx == null ? undefined
+                     : { height: `${drawn.listHeightPx}px`, maxHeight: 'none' }}
+                 sx={{ overflowY: 'auto', overscrollBehavior: 'contain',
+                        minHeight: 0, flex: '0 1 auto', maxHeight: `${LIST_MAX_EM}em`,
+                        borderTop: `1px solid ${P.line}`, py: '0.35em' }}>
+                {isError && (
+                    <Box sx={{ px: '0.8em', py: '0.5em', color: '#ff8a80' }}>
+                        Could not load swarm-ready requirements.
+                    </Box>
+                )}
+                {!isError && !isLoading && count === 0 && (
+                    <Box data-testid="pipeline-viz-unseated-empty"
+                         sx={{ px: '0.8em', py: '0.5em', color: P.dim }}>
+                        None
+                    </Box>
+                )}
+                {items.map((r) => {
+                    const id = Number(r.id);
+                    const dragging = draggingId === id;
+                    const barColor = categoryColors[r.category_fk];
+                    return (
+                        <Box key={id}
+                             draggable
+                             data-testid={`pipeline-viz-unseated-item-${id}`}
+                             onDragStart={(e) => {
+                                 e.dataTransfer.setData(UNSEATED_REQ_MIME, String(id));
+                                 e.dataTransfer.effectAllowed = 'move';
+                                 // Next tick — see the header: the drag
+                                 // image is snapshotted after this returns.
+                                 setTimeout(() => onDragStartItem?.(id), 0);
+                             }}
+                             onDragEnd={() => onDragEndItem?.(id)}
+                             onClick={() => onOpen?.(id)}
+                             sx={{ display: 'flex', alignItems: 'baseline', gap: '0.6em',
+                                    px: '0.8em', py: '0.3em',
+                                    cursor: 'grab', opacity: dragging ? 0.3 : 1,
+                                    // An opaque row so the drag image is a
+                                    // solid copy, not a ghost of the canvas.
+                                    background: dragging ? 'transparent' : '#0d1420',
+                                    '&:hover': { background: '#16233a' } }}>
+                            <Box component="span"
+                                 data-testid={`pipeline-viz-unseated-bar-${id}`}
+                                 sx={{ width: '0.45em', alignSelf: 'stretch',
+                                        minHeight: '1.2em', flexShrink: 0,
+                                        borderRadius: '0.25em', boxSizing: 'border-box',
+                                        bgcolor: barColor || 'transparent',
+                                        ...(barColor && {
+                                            border: '0.1em solid',
+                                            borderColor: barEdge(barColor),
+                                        }) }} />
+                            <Box component="span"
+                                 sx={{ color: statusColor, fontWeight: 700, flexShrink: 0 }}>
+                                {id}
                             </Box>
-                        );
-                    })}
-                </Box>
-                </Collapse>
-            )}
+                            <Box component="span"
+                                 sx={{ flex: 1, minWidth: 0, overflow: 'hidden',
+                                        textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {r.title}
+                            </Box>
+                        </Box>
+                    );
+                })}
+            </Box>
+            </Collapse>
 
-            {gripShown && (
+            {open && (
                 // Its own strip under the list, so it never lies over a row.
-                <Box sx={{ display: 'flex', flexShrink: 0, height: '1.3em',
+                <Box ref={stripRef} data-testid="pipeline-viz-unseated-grip-strip"
+                     sx={{ display: 'flex', flexShrink: 0, height: '1.3em',
                             justifyContent: anchoredRight ? 'flex-start' : 'flex-end' }}>
+                {gripShown && (
                 <Box data-testid="pipeline-viz-unseated-grip"
                      data-corner={anchoredRight ? 'bottom-left' : 'bottom-right'}
                      title="Drag to resize · double-click for the default size"
@@ -622,6 +679,7 @@ export default function UnorchestratedReqBox({
                               strokeLinecap="round" fill="none" />
                     </svg>
                 </Box>
+                )}
                 </Box>
             )}
         </Box>

@@ -221,25 +221,26 @@ describe('UnorchestratedReqBox', () => {
         act(() => { fire('pointermove', 410, 220); });
         expect(box.getAttribute('data-pos')).toBe('400,208');
         // (`left` itself is a CSS clamp(), which jsdom's style parser drops.)
-        // Clamped: the box cannot leave the pane.
+        // Clamped: the box stays inside the pane, its bottom above the 8px
+        // inset (req #3677).
         act(() => { fire('pointermove', 5000, 5000); });
-        expect(box.getAttribute('data-pos')).toBe('720,564');
+        expect(box.getAttribute('data-pos')).toBe('720,554');
         act(() => { fire('pointerup', 5000, 5000); });
         expect(getComputedStyle(bar).cursor).toBe('move');
         // Dropped in the right half: remembered from the RIGHT edge (flush = 0).
         expect(JSON.parse(window.localStorage.getItem('darwin-plan-unseated-box-pos')))
-            .toEqual({ r: 0, y: 564 });
-        expect(box.getAttribute('data-pos')).toBe('r0,564');
+            .toEqual({ r: 0, y: 554 });
+        expect(box.getAttribute('data-pos')).toBe('r0,554');
 
         // A double-click straight after the move is the release, not "go home".
         act(() => { bar.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); });
-        expect(box.getAttribute('data-pos')).toBe('r0,564');
+        expect(box.getAttribute('data-pos')).toBe('r0,554');
 
         // Remembered on the next mount.
         act(() => root.unmount());
         root = createRoot(host);
         act(() => root.render(<UnorchestratedReqBox items={items} />));
-        expect(q('pipeline-viz-unseated').getAttribute('data-pos')).toBe('r0,564');
+        expect(q('pipeline-viz-unseated').getAttribute('data-pos')).toBe('r0,554');
 
         // A deliberate double-click sends it home and forgets the spot.
         act(() => { q('pipeline-viz-unseated-header').dispatchEvent(
@@ -315,7 +316,8 @@ describe('UnorchestratedReqBox', () => {
 
     // req #3614 — see-through while carried, restored on release; the outline
     // is cleared when the gesture is cancelled or loses capture mid-carry.
-    it('turns see-through and folds its list while carrying, and restores on release', () => {
+    // req #3677 — the carry no longer folds the list: full size the whole time.
+    it('turns see-through but keeps its list and grip strip while carrying, and restores on release', () => {
         const onCarryingChange = vi.fn();
         act(() => root.render(<UnorchestratedReqBox items={items}
             onCarryingChange={onCarryingChange} onMoveDrop={() => false} />));
@@ -331,13 +333,102 @@ describe('UnorchestratedReqBox', () => {
         act(() => { fire('pointermove', 410, 220); });
         expect(box.getAttribute('data-carrying')).toBe('1');
         expect(Number(getComputedStyle(box).opacity)).toBeLessThan(1);
-        expect(q('pipeline-viz-unseated-list')).toBeNull();
+        expect(q('pipeline-viz-unseated-list')).not.toBeNull();
+        expect(q('pipeline-viz-unseated-item-12')).not.toBeNull();
+        expect(box.getAttribute('data-open')).toBe('1');
+        // The grip hides while moving, but its strip — and so the box's
+        // height — stays.
+        expect(q('pipeline-viz-unseated-grip')).toBeNull();
+        expect(q('pipeline-viz-unseated-grip-strip')).not.toBeNull();
         expect(onCarryingChange).toHaveBeenLastCalledWith(true);
         act(() => { fire('pointerup', 410, 220); });
         expect(box.getAttribute('data-carrying')).toBe('0');
         expect(Number(getComputedStyle(box).opacity)).toBe(1);
         expect(q('pipeline-viz-unseated-list')).not.toBeNull();
         expect(onCarryingChange).toHaveBeenLastCalledWith(false);
+    });
+
+    // req #3677 — a move is clamped by the box's FULL height, never just its
+    // title bar, so the pane's maxHeight can never squeeze it. The parts are
+    // summed: a 36px title bar, a 16px grip strip and 2 × 2px border = 56px
+    // of frame, plus the list's natural height. 2px of rounding slack.
+    const withParts = (box, list, { boxH = 160, scroll = 220 } = {}) => {
+        let scrollH = scroll;
+        Object.defineProperty(box, 'offsetHeight', { get: () => boxH });
+        Object.defineProperty(box, 'clientHeight', { get: () => boxH - 4 });
+        Object.defineProperty(q('pipeline-viz-unseated-grip-strip'), 'offsetHeight',
+            { get: () => 16 });
+        // Squeezed: the list shows 100px of its rows (+1px top border).
+        Object.defineProperty(list, 'offsetHeight', { get: () => 100 });
+        Object.defineProperty(list, 'clientHeight', { get: () => 99 });
+        Object.defineProperty(list, 'scrollHeight', { get: () => scrollH });
+        return (v) => { scrollH = v; };
+    };
+
+    it('is clamped by its full height, so dragging low never squeezes it', () => {
+        act(() => root.render(<UnorchestratedReqBox items={items} />));
+        const box = q('pipeline-viz-unseated');
+        const bar = q('pipeline-viz-unseated-header');
+        withGeometry(box, bar);
+        withParts(box, q('pipeline-viz-unseated-list'));
+        const fire = fireOn(bar);
+        act(() => { fire('pointerdown', 710, 20); });
+        act(() => { fire('pointermove', 710, 5000); });
+        // 600 − 8 inset − 2 slack − (56 + 221) = 313.
+        expect(box.getAttribute('data-pos')).toBe('700,313');
+        act(() => { fire('pointerup', 710, 5000); });
+        expect(box.getAttribute('data-pos')).toBe('r20,313');
+    });
+
+    it('takes the list at its 26em cap, not all its rows', () => {
+        act(() => root.render(<UnorchestratedReqBox items={items} fontPx={12} />));
+        const box = q('pipeline-viz-unseated');
+        const bar = q('pipeline-viz-unseated-header');
+        withGeometry(box, bar);
+        withParts(box, q('pipeline-viz-unseated-list'), { scroll: 1000 });
+        const fire = fireOn(bar);
+        act(() => { fire('pointerdown', 710, 20); });
+        act(() => { fire('pointermove', 710, 5000); });
+        // 600 − 8 − 2 − (56 + 26 × 12) = 222.
+        expect(box.getAttribute('data-pos')).toBe('700,222');
+        act(() => { fire('pointerup', 710, 5000); });
+    });
+
+    it('a stretched list is clamped by its stretched height', () => {
+        window.localStorage.setItem('darwin-plan-unseated-box-size',
+            JSON.stringify({ ws: 1, hEm: 20 }));
+        act(() => root.render(<UnorchestratedReqBox items={items} fontPx={10} />));
+        const box = q('pipeline-viz-unseated');
+        const bar = q('pipeline-viz-unseated-header');
+        withGeometry(box, bar);
+        withParts(box, q('pipeline-viz-unseated-list'));
+        const fire = fireOn(bar);
+        act(() => { fire('pointerdown', 710, 20); });
+        act(() => { fire('pointermove', 710, 5000); });
+        // 600 − 8 − 2 − (56 + 20em × 10) = 334.
+        expect(box.getAttribute('data-pos')).toBe('700,334');
+        act(() => { fire('pointerup', 710, 5000); });
+    });
+
+    it('a dropped box that grows is lifted so it stays whole, and the spot is kept', () => {
+        act(() => root.render(<UnorchestratedReqBox items={items} />));
+        const box = q('pipeline-viz-unseated');
+        const bar = q('pipeline-viz-unseated-header');
+        withGeometry(box, bar);
+        const setScroll = withParts(box, q('pipeline-viz-unseated-list'));
+        const fire = fireOn(bar);
+        act(() => { fire('pointerdown', 710, 20); });
+        act(() => { fire('pointermove', 710, 5000); });
+        act(() => { fire('pointerup', 710, 5000); });
+        expect(box.getAttribute('data-pos')).toBe('r20,313');
+        // More rows arrive: 300px of them now.
+        setScroll(300);
+        act(() => root.render(<UnorchestratedReqBox items={[...items,
+            { id: 13, title: 'Third thing', requirement_status: 'swarm_ready' }]} />));
+        // 600 − 8 − 2 − (56 + 301) = 233.
+        expect(box.getAttribute('data-pos')).toBe('r20,233');
+        expect(JSON.parse(window.localStorage.getItem('darwin-plan-unseated-box-pos')))
+            .toEqual({ r: 20, y: 313 });
     });
 
     it('an empty box never turns see-through — it carries nothing', () => {
@@ -603,13 +694,20 @@ describe('UnorchestratedReqBox', () => {
         const box = q('pipeline-viz-unseated');
         const list = q('pipeline-viz-unseated-list');
         withResizeGeometry(box, list);
+        Object.defineProperty(q('pipeline-viz-unseated-header'), 'offsetHeight',
+            { get: () => 36 });
+        Object.defineProperty(q('pipeline-viz-unseated-grip-strip'), 'offsetHeight',
+            { get: () => 13 });
+        Object.defineProperty(box, 'offsetHeight', { get: () => 153 });
+        Object.defineProperty(box, 'clientHeight', { get: () => 149 });
         const fire = fireOn(q('pipeline-viz-unseated-grip'));
         act(() => { fire('pointerdown', 600, 200); });
         act(() => { fire('pointermove', 600, -500); });
         expect(list.style.height).toBe('35px');
-        // 600 pane − 8 inset − 8 box top − 36 list top.
+        // The WHOLE box stays above the inset (req #3677): 600 pane − 8 inset
+        // − 2 slack − 8 box top − (36 title bar + 13 grip strip + 4 border).
         act(() => { fire('pointermove', 600, 5000); });
-        expect(list.style.height).toBe('548px');
+        expect(list.style.height).toBe('529px');
         act(() => { fire('pointerup', 600, 5000); });
     });
 
