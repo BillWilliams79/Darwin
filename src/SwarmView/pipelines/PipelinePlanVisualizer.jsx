@@ -207,6 +207,7 @@ import { viewportStorageKey } from '../../utils/viewportMemory';
 // req #3583 — the swarm-ready, not-orchestrated box and its drop-to-seat. The
 // contexts, snackbar, query keys and `moveStepRequirement` are req #3581's,
 // imported above.
+import { hideMachineReqs, isMachineHidden } from './planMachineFilter';
 import UnorchestratedReqBox, { UNSEATED_FLOAT_Z } from './UnorchestratedReqBox';
 import { useUnorchestratedRequirements } from './useUnorchestratedRequirements';
 import {
@@ -225,6 +226,8 @@ import { createPressTracker, LONG_PRESS_MS } from './planPressGesture';
 import PlanInPlaceTitleArea from './PlanInPlaceTitleArea';
 import { reqTitleEditorBox, updateRequirementTitle } from './planReqTitleEdit';
 
+// Stable default for the machine filter prop (req #3708).
+const NO_HIDDEN_MACHINES = new Set();
 const MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
 
 // req #3587 — the requirement row's Terminal and Dev Server pills.
@@ -522,6 +525,9 @@ export default function PipelinePlanVisualizer({
     // req #3686 — draw only the OPEN requirements under each step (the closed
     // group and its dashed line are dropped from the layout's input).
     hideClosed = false,
+    // req #3708 — machine ids deselected in the toolbar's machine filter: the
+    // requirements pinned to them are drawn nowhere (step cards, Orchestrables).
+    hiddenMachines = NO_HIDDEN_MACHINES,
     // req #3587 — requirement id -> {terminal, devServer} (`planReqPills.js`),
     // built by the page from reads it owns. Drawn as pills between a row's id
     // and its title; null draws every row exactly as before.
@@ -752,8 +758,12 @@ export default function PipelinePlanVisualizer({
     // req #3686 — `orderStepReqs` puts the closed requirements last, from
     // `reqDoneFrom` on; hiding them is slicing there. Only the LAYOUT's input is
     // trimmed: `rows` (drag, seating, counts) keeps every requirement.
-    const layoutRows = useMemo(
-        () => (hideClosed ? hideClosedReqs(rows) : rows), [rows, hideClosed]);
+    // req #3708 — and the requirements pinned to a deselected machine, in the
+    // same layout-only pass; `reqInfo` already carries each one's `machineFk`.
+    const layoutRows = useMemo(() => {
+        const open = hideClosed ? hideClosedReqs(rows) : rows;
+        return hideMachineReqs(open, hiddenMachines, (id) => reqInfo.get(id)?.machineFk);
+    }, [rows, hideClosed, hiddenMachines, reqInfo]);
     const layoutOpts = useMemo(
         () => ({
             stepLabel, reqLabel, reqTitles: layoutTitles, reqPills,
@@ -948,10 +958,9 @@ export default function PipelinePlanVisualizer({
     const [pendingSeats, setPendingSeats] = useState(() => new Set());
     const [boxCarrying, setBoxCarrying] = useState(false);
     const unseatedItems = useMemo(
-        () => (pendingSeats.size
-            ? unseated.items.filter((r) => !pendingSeats.has(Number(r.id)))
-            : unseated.items),
-        [unseated.items, pendingSeats]);
+        () => unseated.items.filter((r) => !pendingSeats.has(Number(r.id))
+            && !isMachineHidden(r.machine_fk, hiddenMachines)),
+        [unseated.items, pendingSeats, hiddenMachines]);
     // req #3702 — the Orchestrables rows follow the reader's colour preference.
     // The SAME registry, theme and resolver as the canvas ids, built over the
     // box's own rows (they sit on no step, so `model.requirements` lacks them).
@@ -1600,12 +1609,15 @@ export default function PipelinePlanVisualizer({
     // left — handed back while the camera is still there, so hide → expand
     // holds the SAME card both ways and returns exactly.
     const shownLayoutRef = useRef(null);
-    const shownHideClosedRef = useRef(hideClosed);
+    // req #3708 — a machine-filter toggle re-lays the plan out exactly as Hide
+    // closed does, so it rides the same anchor under one combined key.
+    const layoutFilterKey = `${hideClosed ? 1 : 0}|${[...hiddenMachines].sort().join(',')}`;
+    const shownHideClosedRef = useRef(layoutFilterKey);
     const anchorFromRef = useRef(null);
     const lastAnchorRef = useRef(null);
     useEffect(() => {
-        if (shownHideClosedRef.current !== hideClosed) {
-            shownHideClosedRef.current = hideClosed;
+        if (shownHideClosedRef.current !== layoutFilterKey) {
+            shownHideClosedRef.current = layoutFilterKey;
             if (anchorFromRef.current == null) {
                 anchorFromRef.current = { layout: shownLayoutRef.current,
                     t: liveTransformRef.current };
@@ -1743,7 +1755,7 @@ export default function PipelinePlanVisualizer({
         const c = clampPlanTransform(live, size, layout, kZoomFloor, kMax);
         if (c.k !== live.k || c.x !== live.x || c.y !== live.y) apply(live);
     }, [resetView, containerEl, size, layout, kZoomFloor, kDefault, sizeSettled,
-        landKey, viewportKey, viewport, hideClosed]);
+        landKey, viewportKey, viewport, layoutFilterKey]);
 
     // Reset targets the same view the plan lands on (req #3312), so all this
     // adds over `resetView` is the INTENT: an explicit, in-the-moment
