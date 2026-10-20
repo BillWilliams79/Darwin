@@ -68,7 +68,7 @@ import {
     REQ_LINE_H,
     FOCUS_MAX_RATIO, FOCUS_MIN_RATIO, FOCUS_PAD, STEP_DONE, ZOOM_MAX_RATIO, ZOOM_MIN_RATIO, bandFitRect, epicFocusTransform,
     FOCUS_LABEL_H, epicFocusNeighbours,
-    stepFitRect, stepFocusTransform, stepsFitRect, stepsFocusTransform,
+    stepFitRect, stepFocusTransform, stepsFitRect, stepsFocusTransform, epicWorkFocusTransform,
     STEP_FOCUS_STEPS_ACROSS, placedStepCount, centreTransform,
     RULER_H, computeRuler, slotTickText, factoryDefaultScale, factoryDefaultView,
     stickyRulerY, rulerScreenBottom, rulerScreenMag, rulerExcessY,
@@ -9344,5 +9344,113 @@ describe('epic lane reservation (req #3365)', () => {
         // assertions is not vacuous.
         const OLD_EPIC_LANE_H = 62;
         expect(chipBox).toBeGreaterThan(OLD_EPIC_LANE_H * LANDING_K);
+    });
+});
+
+// ── req #3685 — the epic name's WORK stop centres on the EPIC ─────────────────
+// Plan 10 'Sunday Review' (epic 24), measured from the live composed read on
+// 2026-10-20: six cards in columns 7–10, three of them open (329/324/322 in
+// columns 9–10) and tall enough that HEIGHT binds the work fit. The work fit
+// alone centred its spare width on columns 9–10, clipping Infra Prio and
+// leaving the empty Oct 20 / future columns on the right.
+describe('epic work focus spends its slack on the epic (req #3685)', () => {
+    const COL = 465;
+    const colX = Array.from({ length: 13 }, (_, d) => 3321 + COL / 2 + (d - 7) * COL);
+    const colW = colX.map(() => COL);
+    const card = (depth, top, bottom) => ({
+        depth, x: colX[depth], y: (top + bottom) / 2,
+        left: colX[depth] - 187.5, right: colX[depth] + 187.5, top, bottom,
+    });
+    const nodes = new Map([
+        [320, card(7, 1991, 2356.7)], [321, card(8, 2028.8, 2318.9)],
+        [329, card(9, 2517.3, 2883)], [324, card(9, 1898.6, 2449.1)],
+        [323, card(10, 2632.8, 2767.5)], [322, card(10, 1852.4, 2495.3)],
+    ]);
+    const band = { key: 24, y: 1744.4, height: 1160.6, stepIds: [...nodes.keys()] };
+    const layout = { nodes, colX, colW, labels: [], bands: [band], width: 7095 };
+    const work = [329, 324, 322];
+    const size = { w: 1730, h: 850 };
+    const kBase = 0.8;
+    const kFloor = (size.w / layout.width) * ZOOM_MIN_RATIO;
+    const epic = stepsFitRect(layout, band.stepIds);
+    const screen = (tr, r) => ({
+        left: r.x * tr.k + tr.x, right: (r.x + r.w) * tr.k + tr.x,
+        top: r.y * tr.k + tr.y, bottom: (r.y + r.h) * tr.k + tr.y,
+    });
+
+    it('reproduces the defect: the plain work fit clips the epic and leaves empty canvas', () => {
+        const tr = stepsFocusTransform(layout, work, size, kBase, kFloor);
+        const s = screen(tr, epic);
+        expect(s.left).toBeLessThan(0);                       // Infra Prio clipped
+        expect(size.w - s.right).toBeGreaterThan(400);        // empty Oct 20 / future
+    });
+
+    it('keeps the work fit\'s scale, so the click cadence is unchanged', () => {
+        const plain = stepsFocusTransform(layout, work, size, kBase, kFloor);
+        const tr = epicWorkFocusTransform(layout, band, work, size, kBase, kFloor);
+        expect(tr.k).toBeCloseTo(plain.k, 9);
+        // The second stop (the whole band) still zooms OUT from here.
+        expect(epicFocusTransform(layout, band, size, kBase, kFloor).k).toBeLessThan(tr.k);
+    });
+
+    it('centres the epic\'s cards with even margins and clips none', () => {
+        const tr = epicWorkFocusTransform(layout, band, work, size, kBase, kFloor);
+        const s = screen(tr, epic);
+        expect(s.left).toBeGreaterThanOrEqual(FOCUS_PAD);
+        expect(size.w - s.right).toBeGreaterThanOrEqual(FOCUS_PAD);
+        expect(Math.abs(s.left - (size.w - s.right))).toBeLessThan(1);
+        for (const id of band.stepIds) {
+            const c = screen(tr, stepFitRect(layout, id));
+            expect(c.left, `card ${id}`).toBeGreaterThanOrEqual(0);
+            expect(c.right, `card ${id}`).toBeLessThanOrEqual(size.w);
+            expect(c.top, `card ${id}`).toBeGreaterThanOrEqual(0);
+            expect(c.bottom, `card ${id}`).toBeLessThanOrEqual(size.h);
+        }
+    });
+
+    it('never pushes the open work out of frame when the epic is wider than the window', () => {
+        const narrow = { w: 900, h: 850 };
+        const kF = (narrow.w / layout.width) * ZOOM_MIN_RATIO;
+        const tr = epicWorkFocusTransform(layout, band, work, narrow, kBase, kF);
+        const s = screen(tr, stepsFitRect(layout, work));
+        expect(s.left).toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
+        expect(narrow.w - s.right).toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
+        // ...and what is left over is the epic's own cards, not empty canvas.
+        const e = screen(tr, epic);
+        expect(e.left).toBeLessThanOrEqual(0);
+    });
+
+    it('leaves a single open card centred on itself (2026-08-13 directive)', () => {
+        const tr = epicWorkFocusTransform(layout, band, [329], size, kBase, kFloor);
+        expect(tr).toEqual(stepsFocusTransform(layout, [329], size, kBase, kFloor));
+    });
+
+    it('holds for every band of a real layout, over its open work', () => {
+        const real = computePlanLayout(plan.rows, { stepLabel: 'title' });
+        let multi = 0;
+        for (const b of real.bands) {
+            const ids = epicWorkStepIds(plan.rows, real, b);
+            const er = stepsFitRect(real, b.stepIds);
+            if (!ids.length || !er) continue;
+            if (placedStepCount(real, ids) > 1) multi += 1;
+            for (const sz of [{ w: 1730, h: 850 }, { w: 1200, h: 1000 }, { w: 2400, h: 700 }]) {
+                const kb = Math.max(sz.w / real.width, 0.8);
+                const kf = Math.min(sz.w / real.width, kb) * ZOOM_MIN_RATIO;
+                const tr = epicWorkFocusTransform(real, b, ids, sz, kb, kf);
+                const wk = screen(tr, stepsFitRect(real, ids));
+                expect(wk.left, `band ${b.key}`).toBeGreaterThanOrEqual(-1e-6);
+                expect(wk.right, `band ${b.key}`).toBeLessThanOrEqual(sz.w + 1e-6);
+                expect(wk.top, `band ${b.key}`).toBeGreaterThanOrEqual(-1e-6);
+                expect(wk.bottom, `band ${b.key}`).toBeLessThanOrEqual(sz.h + 1e-6);
+                const e = screen(tr, er);
+                if (placedStepCount(real, ids) > 1 && er.w * tr.k <= sz.w - 2 * FOCUS_PAD) {
+                    expect(e.left, `band ${b.key} @${sz.w}`).toBeGreaterThanOrEqual(-1e-6);
+                    expect(e.right, `band ${b.key} @${sz.w}`).toBeLessThanOrEqual(sz.w + 1e-6);
+                    expect(Math.abs(e.left - (sz.w - e.right)), `band ${b.key} @${sz.w}`)
+                        .toBeLessThan(1);
+                }
+            }
+        }
+        expect(multi).toBeGreaterThan(0);       // the sweep exercises the centring
     });
 });
