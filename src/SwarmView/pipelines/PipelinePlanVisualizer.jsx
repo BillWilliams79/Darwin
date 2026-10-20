@@ -206,7 +206,7 @@ import { viewportStorageKey } from '../../utils/viewportMemory';
 // req #3583 — the swarm-ready, not-orchestrated box and its drop-to-seat. The
 // contexts, snackbar, query keys and `moveStepRequirement` are req #3581's,
 // imported above.
-import UnorchestratedReqBox from './UnorchestratedReqBox';
+import UnorchestratedReqBox, { UNSEATED_FLOAT_Z } from './UnorchestratedReqBox';
 import { useUnorchestratedRequirements } from './useUnorchestratedRequirements';
 import {
     UNSEATED_REQ_MIME, bulkSeatRequest, resolveSeatDrop, screenRectOf, unseatedBoxFontPx,
@@ -4765,7 +4765,10 @@ export default function PipelinePlanVisualizer({
                          data-testid="pipeline-viz-req-drag-preview"
                          data-req-id={reqDrag.reqId}
                          style={{ transform: `translate(${reqDrag.x}px, ${reqDrag.y}px)` }}
-                         sx={{ position: 'absolute', left: 0, top: 0, zIndex: 30,
+                         // Over a box parked on the plan, which floats at
+                         // UNSEATED_FLOAT_Z once placed (req #3687).
+                         sx={{ position: 'absolute', left: 0, top: 0,
+                                zIndex: UNSEATED_FLOAT_Z + 2,
                                 pointerEvents: 'none', willChange: 'transform',
                                 px: `${reqDrag.padX}px`, py: `${reqDrag.padY}px`,
                                 borderRadius: '6px',
@@ -5503,15 +5506,19 @@ export default function PipelinePlanVisualizer({
                                     ? `2px solid ${P.accent}` : '2px dashed #ff6b6b',
                                 boxShadow: seatTarget.ok
                                     ? `0 0 0 4px ${P.accent}33` : 'none',
-                                // Above the box (zIndex 2) while it is carried, so
-                                // the outlined step shows through (req #3614);
-                                // it takes no pointer, so hit-testing is unchanged.
-                                zIndex: boxCarrying ? 3 : 1 }} />
+                                // Above the box while it is carried, so the
+                                // outlined step shows through (req #3614) — and a
+                                // carried box is a PLACED one, fixed in the window
+                                // at UNSEATED_FLOAT_Z (req #3687); it takes no
+                                // pointer, so hit-testing is unchanged.
+                                zIndex: boxCarrying ? UNSEATED_FLOAT_Z + 1 : 1 }} />
                 )}
 
-                {/* req #3583 — swarm-ready work no step carries yet, locked to
+                {/* req #3583 — swarm-ready work no step carries yet, opening in
                     the top-right corner the key vacated for the bottom (req
-                    #3255). Its rows drag onto a step card to seat them. Its type
+                    #3255); its title bar moves it anywhere in the window, over
+                    the navbar included (req #3687). Its rows drag onto a step
+                    card to seat them. Its type
                     is the requirement ids' own ON-SCREEN size — the card font
                     `CF.req` (world px) through the live zoom — so it shrinks and
                     grows with the marks it feeds (user directive), held within
@@ -5815,8 +5822,8 @@ export default function PipelinePlanVisualizer({
                     free: the key is bottom-centre and the Orchestration Ready
                     box opens top-right. The box can still be parked or
                     stretched over this corner, so the switch sits ABOVE it
-                    (the box is `zIndex: 2`) — it must never be covered, it is
-                    the only way back. `data-viz-chrome` keeps d3-zoom and the
+                    (a placed box floats at `UNSEATED_FLOAT_Z`, req #3687) — it
+                    must never be covered, it is the only way back. `data-viz-chrome` keeps d3-zoom and the
                     bead hit-test off it. */}
                 {onToggleMaximized && (
                     <Box component="button" type="button"
@@ -5828,7 +5835,8 @@ export default function PipelinePlanVisualizer({
                          title={maximized
                              ? 'Restore the page (Esc)'
                              : 'Maximize — only the plan (Esc to exit)'}
-                         sx={{ position: 'absolute', right: 12, bottom: 12, zIndex: 3,
+                         sx={{ position: 'absolute', right: 12, bottom: 12,
+                                zIndex: UNSEATED_FLOAT_Z + 2,
                                 width: 28, height: 26, p: 0, m: 0,
                                 display: 'flex', alignItems: 'center',
                                 justifyContent: 'center', cursor: 'pointer',
