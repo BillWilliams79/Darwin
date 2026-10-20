@@ -105,6 +105,13 @@ describe('terminalFocusUrl — the shared click contract', () => {
         expect(new URL(raw).searchParams.get('session')).toBe('2736');
     });
 
+    it('carries the session title as `title` so a handler can verify a reused window slot', () => {
+        const url = new URL(terminalFocusUrl(session({ title: 'Fix A & B' })));
+        expect(url.searchParams.get('title')).toBe('Fix A & B');
+        expect(new URL(terminalFocusUrl(session({ title: null, task_name: 'tn' })))
+            .searchParams.has('title')).toBe(false);
+    });
+
     it('falls back to task_name when there is no title, and omits label when neither', () => {
         expect(new URL(terminalFocusUrl(session({ title: null, task_name: 'tn' })))
             .searchParams.get('label')).toBe('tn');
