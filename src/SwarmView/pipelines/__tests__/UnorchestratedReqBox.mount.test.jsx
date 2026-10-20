@@ -47,6 +47,24 @@ describe('UnorchestratedReqBox', () => {
         expect(q('pipeline-viz-unseated').hasAttribute('data-viz-chrome')).toBe(true);
     });
 
+    it('wraps a title to two lines at most, then an ellipsis (req #3684)', () => {
+        act(() => root.render(<UnorchestratedReqBox items={items} />));
+        const title = q('pipeline-viz-unseated-item-title-11');
+        expect(title.textContent).toBe('First thing');
+        // jsdom's computed style drops -webkit-box-orient, so read the rule
+        // emotion emitted for the span's own class.
+        const rule = [...document.styleSheets]
+            .flatMap((s) => [...s.cssRules])
+            .map((r) => r.cssText)
+            .filter((t) => [...title.classList].some((c) => t.startsWith(`.${c} `)))
+            .join(' ');
+        expect(rule).toContain('display: -webkit-box');
+        expect(rule).toContain('-webkit-box-orient: vertical');
+        expect(rule).toContain('-webkit-line-clamp: 2');
+        expect(rule).toContain('overflow: hidden');
+        expect(rule).not.toContain('nowrap');
+    });
+
     it('is outlined in a strong purple (req #3605)', () => {
         act(() => root.render(<UnorchestratedReqBox items={items} />));
         const css = getComputedStyle(q('pipeline-viz-unseated'));
@@ -144,6 +162,39 @@ describe('UnorchestratedReqBox', () => {
             act(() => q('pipeline-viz-unseated-toggle').click());
             expect(q('pipeline-viz-unseated-title').textContent).toBe('Orchestrables');
             expect(box.style.width).toBe('612px');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    // req #3684 — rows wrap, so their height follows the width: through a fold
+    // the list is laid out at the OPEN box's inner width, never the narrowing
+    // box's, so the unfold animates to the height it ends at.
+    it('holds the list at the open width for the length of a fold', () => {
+        vi.useFakeTimers();
+        try {
+            act(() => root.render(<UnorchestratedReqBox items={items} fontPx={12} widthPx={612} />));
+            const box = q('pipeline-viz-unseated');
+            const pane = { clientWidth: 500, clientHeight: 600 };
+            Object.defineProperty(box, 'offsetParent', { get: () => pane });
+            Object.defineProperty(box, 'offsetWidth', { get: () => 100 });
+            Object.defineProperty(box, 'clientWidth', { get: () => 96 });
+            expect(q('pipeline-viz-unseated-list').style.width).toBe('');
+
+            // Fold: still drawn while it animates out, at the open width.
+            act(() => q('pipeline-viz-unseated-toggle').click());
+            act(() => { vi.advanceTimersByTime(FOLD_MS + 100); });
+
+            // Unfold: the pane caps the box (500 − 2 × 8 inset), less a 4px
+            // border, whatever its folded width is mid-transition.
+            act(() => q('pipeline-viz-unseated-toggle').click());
+            const list = q('pipeline-viz-unseated-list');
+            const boxSizing = getComputedStyle(box).boxSizing;
+            expect(list.style.width).toBe(boxSizing === 'border-box' ? '480px' : '484px');
+
+            // At rest it is the box's width again.
+            act(() => { vi.advanceTimersByTime(FOLD_MS + 100); });
+            expect(list.style.width).toBe('');
         } finally {
             vi.useRealTimers();
         }
@@ -689,7 +740,7 @@ describe('UnorchestratedReqBox', () => {
             .toEqual({ ws: 460 / 400, hEm: null });
     });
 
-    it('a stretched height is held between two rows and the pane bottom', () => {
+    it('a stretched height is held between one wrapped row and the pane bottom', () => {
         act(() => root.render(<UnorchestratedReqBox items={items} fontPx={10} widthPx={400} />));
         const box = q('pipeline-viz-unseated');
         const list = q('pipeline-viz-unseated-list');
@@ -703,7 +754,8 @@ describe('UnorchestratedReqBox', () => {
         const fire = fireOn(q('pipeline-viz-unseated-grip'));
         act(() => { fire('pointerdown', 600, 200); });
         act(() => { fire('pointermove', 600, -500); });
-        expect(list.style.height).toBe('35px');
+        // UNSEATED_MIN_LIST_EM (4.5, req #3684) of the 10px type.
+        expect(list.style.height).toBe('45px');
         // The WHOLE box stays above the inset (req #3677): 600 pane − 8 inset
         // − 2 slack − 8 box top − (36 title bar + 13 grip strip + 4 border).
         act(() => { fire('pointermove', 600, 5000); });
