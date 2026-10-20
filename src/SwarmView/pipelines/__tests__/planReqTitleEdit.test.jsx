@@ -105,6 +105,18 @@ describe('reqTitleEditorBox (req #3661)', () => {
         expect(b.top).toBe(50 * 2 + 20 - 4);
     });
 
+    // req #3683 — the renderer draws everything after the id `REQ_SEP_PULL`
+    // left of the layout's characters; the editor's column and line 1 follow.
+    it('a pulled row: column and line 1 both move left by the pull', () => {
+        const label = { ...base, titleStart: 9 };
+        const b = reqTitleEditorBox({
+            label, firstLine: '3661   Terminal', measure, chw: 9, t, lineH: 20, fontSize: 13,
+            pull: 4,
+        });
+        expect(b.left).toBe((100 - 4 + 56) * 2 + 10);
+        expect(b.indent).toBe(`${2 * 8 * 2}px`);
+    });
+
     it('falls back to the layout advance with no canvas to measure', () => {
         const b = reqTitleEditorBox({
             label: base, firstLine: '3661 - edit', measure: () => null, chw: 9, t,
@@ -176,7 +188,7 @@ describe('titleLineStarts — the editor draws the layout\'s lines (req #3661)',
     });
 
     it('a first word too long for line 1 leaves line 1 holding no title', () => {
-        const label = { reqId: 3037, idText: '3037', titleHang: 7, titleRoom: 21 };
+        const label = { reqId: 3037, idText: '3037', titleHang: 6, titleRoom: 22 };
         const t = 'supercalifragilisticexpialidocious rest';
         expect(titleLineStarts(t, label)[0]).toBe(0);
         expect(titleLineStarts(t, label)[1]).toBe(0);
@@ -190,7 +202,7 @@ describe('titleLineStarts — the editor draws the layout\'s lines (req #3661)',
 });
 
 describe('PlanInPlaceTitleArea (req #3661)', () => {
-    const label = { reqId: 3661, idText: '3661', titleHang: 7, titleRoom: 21 };
+    const label = { reqId: 3661, idText: '3661', titleHang: 6, titleRoom: 22 };
     const mount = (props = {}) => {
         const onCommit = vi.fn();
         const onCancel = vi.fn();
@@ -228,8 +240,8 @@ describe('PlanInPlaceTitleArea (req #3661)', () => {
 
     it('opens on the title laid out as the row\'s lines, all selected', () => {
         const { el, getByTestId } = mount();
-        // "3661   edit requirement title in place": 28-char line 1, 21-char hang.
-        expect(lines(el)).toEqual(['edit requirement ', 'title in place']);
+        // "3661  edit requirement title in place": 28-char line 1, 22-char hang.
+        expect(lines(el)).toEqual(['edit requirement title ', 'in place']);
         expect(el.getAttribute('contenteditable')).toBe('plaintext-only');
         expect(getByTestId('ed-box').getAttribute('data-viz-chrome')).toBe('edit');
         expect(window.getSelection().toString()).toBe('edit requirement title in place');
@@ -247,10 +259,10 @@ describe('PlanInPlaceTitleArea (req #3661)', () => {
 
     it('Backspace at a line start deletes the character before, not the break', () => {
         const { el, onDraft } = mount();
-        // caret at the start of line 2 ("title in place")
+        // caret at the start of line 2 ("in place")
         caretAt(el, el.childNodes[2], 0);
         input(el, 'deleteContentBackward');
-        expect(onDraft).toHaveBeenLastCalledWith('edit requirementtitle in place');
+        expect(onDraft).toHaveBeenLastCalledWith('edit requirement titlein place');
     });
 
     it('a pasted line break becomes a space', () => {
@@ -266,7 +278,7 @@ describe('PlanInPlaceTitleArea (req #3661)', () => {
         input(el, 'insertText', 'X');
         input(el, 'historyUndo');
         expect(onDraft).toHaveBeenLastCalledWith('edit requirement title in place');
-        expect(lines(el)).toEqual(['edit requirement ', 'title in place']);
+        expect(lines(el)).toEqual(['edit requirement title ', 'in place']);
     });
 
     it('Cmd/Ctrl+Z undoes and Shift+Cmd+Z redoes, from the keys', () => {
