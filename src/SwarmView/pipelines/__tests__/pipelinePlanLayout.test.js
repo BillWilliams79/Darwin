@@ -1430,7 +1430,8 @@ describe('the requirement title gets 15% more of a fixed card (req #3693)', () =
         // The step name and the Auto/Manual pill keep their pre-#3693 type.
         expect(CARD_FONT.label).toBeCloseTo(PLAN_VIZ_FONT.label * CARD_TYPE_SCALE, 9);
         expect(CARD_RUN_FONT).toBeCloseTo(PLAN_VIZ_FONT.req * CARD_TYPE_SCALE * 0.8, 9);
-        expect(CARD_RUN_W).toBe(Math.ceil(6 * OLD_CHW_REQ * 0.8 + 2 * 5 * CARD_TYPE_SCALE));
+        // req #3709: the pill is one letter now, so it is the CARD_RUN_H circle.
+        expect(CARD_RUN_W).toBe(CARD_RUN_H);
     });
 });
 
@@ -5462,11 +5463,12 @@ describe('the character budget IS the card (req #3498, was the 35-char ceiling)'
         const stepBudget = cardChars(CHW_LABEL, CARD_NAME_RESERVE);
         // req #3683 — "compress the white space for the title so it has more
         // room": the one-line arrangement left the base card a SEVEN character
-        // name line; the cluster leaves it twelve.
-        expect(stepBudget).toBe(12);
+        // name line; the cluster leaves it twelve — and fifteen since req #3709
+        // shrank the run pill to one letter.
+        expect(stepBudget).toBe(15);
         expect(cardChars(CHW_LABEL, CARD_CHECK_W + CARD_RUN_W + 2 * (CARD_TITLE_BTN
             + CARD_TITLE_BTN_GAP) + CARD_COLLAPSE_W + CARD_COLLAPSE_GAP + CARD_BADGE_W
-            + CHW_CARD)).toBe(7);
+            + CHW_CARD)).toBe(10); // 7 before req #3709's one-letter run pill
         for (const view of Object.keys(REQ_VIEWS)) {
             const layout = computePlanLayout(plan.rows,
                 { ...reqViewOptions(view), stepLabel: 'title',
@@ -5823,7 +5825,7 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
                 const name = of('step');
                 expect(run, `step ${row.id} has a run pill`).toBeTruthy();
                 expect(run.run).toBe(row.run === 'manual' ? 'manual' : 'auto');
-                expect(run.text).toBe(row.run === 'manual' ? 'Manual' : 'Auto');
+                expect(run.text).toBe(row.run === 'manual' ? 'M' : 'A');
                 expect(run.w).toBe(CARD_RUN_W);
                 expect(run.h).toBe(CARD_RUN_H);
                 const n = layout.nodes.get(row.id);
@@ -5863,12 +5865,12 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
         expect(drawsLabelKind('run', 'in')).toBe(true);
     });
 
-    it('a manual step\'s pill says Manual, an auto step\'s says Auto (req #3580)', () => {
+    it('a manual step\'s pill says M, an auto step\'s says A (req #3580, #3709)', () => {
         const rows = plan.rows.map((r, i) => ({ ...r, run: i % 2 ? 'manual' : 'auto' }));
         const layout = computePlanLayout(rows, { stepLabel: 'title' });
         rows.forEach((r, i) => {
             const run = layout.labels.find((l) => l.kind === 'run' && l.stepId === r.id);
-            expect(run.text).toBe(i % 2 ? 'Manual' : 'Auto');
+            expect(run.text).toBe(i % 2 ? 'M' : 'A');
             expect(run.run).toBe(i % 2 ? 'manual' : 'auto');
         });
     });
@@ -5878,8 +5880,12 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
         const glyph = CHW_REQ * (CARD_RUN_FONT / CARD_FONT.req);
         const longest = Math.max(...Object.values(CARD_RUN_WORDS).map((w) => w.length));
         expect(CARD_RUN_W).toBeGreaterThanOrEqual(longest * glyph);
-        // And never wider than the word plus a modest pad on each side.
-        expect(CARD_RUN_W).toBeLessThanOrEqual(longest * glyph + 2 * 8 * CARD_TYPE_SCALE);
+        // And never wider than the letter plus a modest pad on each side, or
+        // the circle the pill is when one letter is narrower than it is tall.
+        expect(CARD_RUN_W).toBeLessThanOrEqual(
+            Math.max(CARD_RUN_H, longest * glyph + 2 * 8 * CARD_TYPE_SCALE));
+        // req #3709: a single character, so the pill no longer sets column 1.
+        expect(longest).toBe(1);
     });
 
     it('ONLY the title line shifts for the chevron — req rows and the L3 line do not (req #3503, #3683)', () => {
