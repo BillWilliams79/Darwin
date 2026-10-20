@@ -1166,6 +1166,7 @@ export default function PipelineDetail() {
                              stepWidthLevel={stepWidthLevel}
                              hideClosed={hideClosed}
                              reqPills={reqPills}
+                             sessionStatus={sessionStatus}
                              maximized={maximized}
                              onToggleMaximized={toggleMaximized}
                              />
