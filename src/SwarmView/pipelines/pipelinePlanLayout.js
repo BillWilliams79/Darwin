@@ -135,6 +135,15 @@ export const PLAN_VIZ_PALETTE = {
     // unrelated colour landing on top of it.
     badgeFill: '#6fa86f',
     badgeText: '#0d1420',
+    // The step card's two flag buttons (req #3673) — a control's colours, a
+    // channel of their own. `lockOn` (orange, 9.1:1 on `panel`) is a LOCKED
+    // padlock and is deliberately not `runningFill`'s amber, which a reader
+    // already takes to mean "in flight". `checkpointOn` (red, 5.6:1) is the
+    // striped barrier arm of a step that holds its downstream; `checkpointLight`
+    // is the arm's other stripe.
+    lockOn: '#ffa94d',
+    checkpointOn: '#ff5a5a',
+    checkpointLight: '#ffffff',
 };
 
 // Epic band palette (POC EPAL) — band index cycles through it.
@@ -1943,7 +1952,7 @@ export const CARD_CHECK_W = 0;
 // it up from the count badge's `CARD_LINE_H − 4`; the full line is the
 // ceiling, since anything taller leaves the title area a one-line name
 // reserves and crosses the rule under it), outlined so it reads as a control,
-// its glyph drawn as strokes sized to the box (`CARD_TITLE_BTN_GLYPH`, req #3607), with
+// its picture sized to the box (an HTML icon since req #3673), with
 // `CARD_TITLE_BTN_GAP` between neighbours. The cost is title room, and it is
 // paid knowingly.
 export const CARD_TITLE_BTN = CARD_LINE_H;
@@ -1952,59 +1961,10 @@ export const CARD_TITLE_BTN_GAP = 4 * CARD_TYPE_SCALE;
 // more visible, like 100% more") — 2 world px, double the 1 it shipped with.
 export const CARD_TITLE_BTN_STROKE = 2;
 
-// ── THE GLYPH IS DRAWN, NOT TYPESET (req #3607, user directive: "have the
-// check and arrow centered in the button properly in both directions") ──────
-// Through req #3582 the `+` and `↗` were `Text` with `align="center"
-// verticalAlign="middle"`, which centres the FONT BOX, not the ink: canvas has
-// no glyph-ink centring primitive (the count badge fought the same thing for
-// three rounds before it moved to HTML — see the empty `badge` branch in the
-// renderer), and a mono `+`/`↗` sits off its em box's centre by a different
-// amount in each font the stack falls back to. Two strokes have no font, so
-// the geometry IS the centring: every glyph's ink bounding box is the square
-// `cx ± a, cy ± a` about the button's own centre, and round caps grow it by
-// the same half-stroke on all four sides.
-// Half the glyph's side, as a fraction of the button — `+` arms and the ↗'s
-// diagonal share one square, so the two marks read the same size side by side.
-export const CARD_TITLE_BTN_GLYPH = 0.26;
-// The glyph's own stroke — heavier than the outline so the mark, not the frame,
-// is what the eye lands on.
-export const CARD_TITLE_BTN_GLYPH_STROKE = 2.5;
-
-/**
- * The vector strokes for a card title button's glyph, centred on its box.
- * `kind` is the label kind (`'step-add'` draws `+`; `'step-link'`, the ↗ no
- * longer emitted since req #3641, draws `↗`);
- * returns an array of Konva `Line` point arrays (`[x0, y0, x1, y1, ...]`).
- */
-export function titleBtnGlyph(kind, { x, y, w, h, on }) {
-    const cx = x + w / 2;
-    const cy = y + h / 2;
-    const a = Math.min(w, h) * CARD_TITLE_BTN_GLYPH;
-    if (kind === 'checkpoint') {
-        // ⚑ — a pole with a pennant off its top. The renderer FILLS the pennant
-        // when the flag is on (a checkpoint holds its downstream) and strokes
-        // it alone when off (a launch priority). Same `cx ± a` square.
-        return [
-            [cx - a, cy - a, cx - a, cy + a],
-            [cx - a, cy - a, cx + a, cy - a * 0.4, cx - a, cy + a * 0.2, cx - a, cy - a],
-        ];
-    }
-    if (kind === 'lock') {
-        // A padlock: the body is the lower part of the square, the shackle an
-        // arch over it — swung open on the right when `on` is false.
-        const bodyTop = cy - a * 0.15;
-        const body = [cx - a, bodyTop, cx + a, bodyTop, cx + a, cy + a,
-            cx - a, cy + a, cx - a, bodyTop];
-        const sh = a * 0.62;
-        const shackle = on
-            ? [cx - sh, bodyTop, cx - sh, cy - a * 0.55, cx - sh * 0.55, cy - a,
-                cx + sh * 0.55, cy - a, cx + sh, cy - a * 0.55, cx + sh, bodyTop]
-            : [cx - sh, bodyTop, cx - sh, cy - a * 0.55, cx - sh * 0.55, cy - a,
-                cx + sh * 0.55, cy - a, cx + sh, cy - a * 0.55, cx + sh, cy - a * 0.6];
-        return [body, shackle];
-    }
-    return [];
-}
+// (`titleBtnGlyph` and its `CARD_TITLE_BTN_GLYPH`/`_GLYPH_STROKE` — the
+// strokes the "+", the ↗, and then req #3649's ⚑ and padlock were drawn with,
+// req #3607 — went in req #3673: the ⚑ and padlock moved to the HTML overlay
+// as real icons (`PlanStepFlagIcons.jsx`), and nothing else drawn used them.)
 // (`CARD_STEP_LINK_GAP` / `CARD_STEP_LINK_W` — the ↗'s reserve — went with the
 // ↗ in req #3641 and req #3649.)
 
@@ -2024,10 +1984,13 @@ export function titleBtnGlyph(kind, { x, y, w, h, on }) {
 // Two more title-line buttons, left of the run pill, each sized like the "+"
 // and the ↗ for the same reason and reserved out of the step name's budget
 // the same way: button plus the gap that keeps it off its right-hand
-// neighbour. ⚑ is the step's `checkpoint` flag (on by default: the step holds
-// everything downstream until it is done; off: a launch priority only). The
-// padlock is the step's `locked` flag, drawn CLOSED whenever the step is
-// effectively locked — by itself, its epic or its plan.
+// neighbour. The checkpoint is the step's `checkpoint` flag (on by default:
+// the step holds everything downstream until it is done; off: a launch
+// priority only) — drawn since req #3673 as a boom barrier, arm down or
+// raised, in place of the ⚑ the user found unreadable. The padlock is the
+// step's `locked` flag, drawn CLOSED whenever the step is effectively locked —
+// by itself, its epic or its plan. Both are HTML buttons on the overlay
+// (req #3673), so this only reserves and places their boxes.
 export const CARD_CHECKPOINT_W = CARD_TITLE_BTN + CARD_TITLE_BTN_GAP;
 export const CARD_LOCK_W = CARD_TITLE_BTN + CARD_TITLE_BTN_GAP;
 
@@ -4722,23 +4685,23 @@ export function computePlanLayout(rows, opts = {}) {
                 w: CARD_RUN_W, h: CARD_RUN_H,
             });
         }
-        // ── ⚑ AND THE PADLOCK (req #3649) ───────────────────────────────────
+        // ── THE CHECKPOINT GATE AND THE PADLOCK (req #3649, #3673) ──────────
         // Left of the run pill, in their own reserves (`CARD_CHECKPOINT_W`,
         // `CARD_LOCK_W`), each button flush right in its reserve so the gap
         // sits between it and its neighbour — the "+"'s own arrangement.
         // Emitted for every card: both are facts about every step, and both
-        // are the controls that change them (the renderer draws them as
-        // outlined buttons like the "+" and ↗, `on` deciding the glyph).
+        // are the controls that change them (the renderer draws them as HTML
+        // icon buttons, `on` deciding the picture — req #3673).
         {
             const runX = n.right - CARD_PAD_X - CARD_CHECK_W - CARD_RUN_W;
             labels.push({
-                kind: 'checkpoint', stepId: r.id, text: '⚑', prose: false,
+                kind: 'checkpoint', stepId: r.id, text: 'Checkpoint', prose: false,
                 on: r.checkpoint !== false,
                 x: runX - CARD_CHECKPOINT_W, y: nameTop,
                 w: CARD_TITLE_BTN, h: CARD_TITLE_BTN,
             });
             labels.push({
-                kind: 'lock', stepId: r.id, text: '🔒', prose: false,
+                kind: 'lock', stepId: r.id, text: 'Lock', prose: false,
                 on: !!r.effectiveLocked, lockedBy: r.lockedBy || null,
                 x: runX - CARD_CHECKPOINT_W - CARD_LOCK_W, y: nameTop,
                 w: CARD_TITLE_BTN, h: CARD_TITLE_BTN,
