@@ -3,7 +3,6 @@ import varDump from '../classifier/classifier';
 
 import React, { useState, useEffect, useContext, useRef, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useDrop } from 'react-dnd';
 import call_rest_api from '../RestApi/RestApi';
 import { useOptionalCardStore } from '../stores/useOptionalCardStore';
 import { usePriorityTasks, usePriorityTasksClosed, usePriorityCardOrder } from '../hooks/useDataQueries';
@@ -13,11 +12,13 @@ import { taskKeys, priorityCardOrderKeys } from '../hooks/useQueryKeys';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
-import { TaskActionsContext } from '../hooks/useTaskActions';
+import { TaskActionsContext, useStableTaskActions } from '../hooks/useTaskActions';
 import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
 
-import TaskEdit from '../Components/TaskEdit/TaskEdit';
+import TaskEdit, { SortableTaskEdit } from '../Components/TaskEdit/TaskEdit';
+import { DarwinSortableList, useDarwinDropZone } from '../dnd';
+import { PRIORITY_TASKS, planIds, useRegisterPlanList } from './planDnd';
 import TaskDeleteDialog from '../Components/TaskDeleteDialog/TaskDeleteDialog';
 
 import Box from '@mui/material/Box';
@@ -72,12 +73,6 @@ const PriorityCard = ({ domainId, areaIds, domainActive = true }) => {
     const [cardOrderArray, setCardOrderArray] = useState([]);
     const [menuAnchorEl, setMenuAnchorEl] = useState(null);
     const menuOpen = Boolean(menuAnchorEl);
-
-    // react-dnd: tracks where task should be inserted (set by TaskEdit hover)
-    const crossCardInsertIndexRef = useRef(null);
-    const setCrossCardInsertIndex = useCallback((index) => {
-        crossCardInsertIndexRef.current = index;
-    }, []);
 
     // TanStack Query
     const { data: serverTasks } = usePriorityTasks(profile?.userName, domainId, areaIds, {
@@ -212,51 +207,22 @@ const PriorityCard = ({ domainId, areaIds, domainActive = true }) => {
         }
     };
 
-    // react-dnd: card-level drop target — only accepts priorityTask (not taskPlan)
-    // so tasks from area cards cannot be dropped here, and priority tasks cannot
-    // be dropped on area cards (they drag as priorityTask which other cards don't accept).
-    const [, drop] = useDrop(() => ({
-        accept: 'priorityTask',
-        drop: (item, monitor) => {
-            if (monitor.didDrop()) return;
-
-            const insertIndex = crossCardInsertIndexRef.current;
-            crossCardInsertIndexRef.current = null;
-
-            if (!tasksArray) return { task: null };
-
-            const matchTask = tasksArray.find(t => t.id === item.id);
-
-            if (matchTask !== undefined) {
-                // Same-card drop: reorder if in hand sort mode
-                if (sortMode === 'hand' && insertIndex !== null) {
-                    const draggedIdx = tasksArray.findIndex(t => t.id === item.id);
-                    if (draggedIdx !== -1) {
-                        const adjustedIndex = insertIndex > draggedIdx ? insertIndex - 1 : insertIndex;
-                        if (adjustedIndex !== draggedIdx) {
-                            const updated = [...tasksArray];
-                            const [moved] = updated.splice(draggedIdx, 1);
-                            updated.splice(adjustedIndex, 0, moved);
-                            setTasksArray(updated);
-                            // req #3506 — persist the LIVE order only. A history
-                            // row must never acquire a priority_card_order record.
-                            persistHandSort(splitLiveAndClosed(updated).live);
-                        }
-                    }
-                }
-                return { task: null }; // same-card: source keeps the task
-            }
-
-            // Cross-card drop: reject — tasks can't be dropped into the priority card
-            return { task: null };
-        },
-    }), [tasksArray, sortMode, persistHandSort]);
-
-    const cardRef = useRef(null);
-    const mergedRef = useCallback((node) => {
-        cardRef.current = node;
-        drop(node);
-    }, [drop]);
+    // Drag and drop (req #3662): the card's rows reorder among themselves in
+    // hand sort and go nowhere else — an area task cannot land here and a
+    // priority row cannot land on an area card (PRIORITY_TASKS accepts only
+    // 'ptask'). The page resolves the drop; the write is this card's own.
+    const listId = planIds.ptasks(domainId);
+    useRegisterPlanList(listId, {
+        getItems: () => tasksArray || [],
+        setItems: setTasksArray,
+        ready: !!tasksArray,
+        sortMode,
+        persistOrder: persistHandSort,
+    });
+    const { setNodeRef: dropRef } = useDarwinDropZone({ id: listId, policy: PRIORITY_TASKS, sortMode, disabled: !domainActive });
+    const sortableIds = (tasksArray || [])
+        .filter(PRIORITY_TASKS.isTarget)
+        .map(task => planIds.ptask(task.id));
 
     // Delete confirm dialog
     const taskDelete = useConfirmDialog({
@@ -359,7 +325,7 @@ const PriorityCard = ({ domainId, areaIds, domainActive = true }) => {
             saveFn: updateTask,
         });
 
-    const taskActions = {
+    const taskActions = useStableTaskActions({
         priorityClick,
         doneClick,
         descriptionChange,
@@ -368,14 +334,13 @@ const PriorityCard = ({ domainId, areaIds, domainActive = true }) => {
         deleteClick,
         tasksArray,
         setTasksArray,
-        sortMode,        // real sortMode — enables insert indicators in hand sort
-        setCrossCardInsertIndex,
-    };
+        sortMode,
+    });
 
     return (
         <Card raised={true}
               data-testid="priority-card"
-              ref={mergedRef}
+              ref={dropRef}
               sx={{ border: '2px solid transparent' }}>
             <CardContent>
                 <Box className="card-header" sx={{ marginBottom: 2 }}>
@@ -419,17 +384,17 @@ const PriorityCard = ({ domainId, areaIds, domainActive = true }) => {
                     </Typography>
                 ) : (
                     <TaskActionsContext.Provider value={taskActions}>
-                        {tasksArray.map((task, taskIndex) => (
-                            <TaskEdit
-                                key={task.id}
-                                supportDrag={!isClosedHistory(task)}
-                                dragType="priorityTask"
-                                task={task}
-                                taskIndex={taskIndex}
-                                areaId={String(task.area_fk)}
-                                areaName=""
-                            />
-                        ))}
+                        <DarwinSortableList id={listId} items={sortableIds}
+                                            policy={PRIORITY_TASKS} sortMode={sortMode}>
+                        {tasksArray.map((task, taskIndex) => {
+                            const rowProps = { task, taskIndex, areaId: String(task.area_fk), areaName: '' };
+                            return PRIORITY_TASKS.isTarget(task)
+                                ? <SortableTaskEdit key={task.id} {...rowProps} drag={{
+                                      id: planIds.ptask(task.id), type: 'ptask', disabled: !domainActive,
+                                      containerId: listId, policy: PRIORITY_TASKS, sortMode }} />
+                                : <TaskEdit key={task.id} {...rowProps} />;
+                        })}
+                        </DarwinSortableList>
                     </TaskActionsContext.Provider>
                 )}
             </CardContent>

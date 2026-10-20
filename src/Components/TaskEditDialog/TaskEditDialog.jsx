@@ -55,7 +55,7 @@ const TaskEditDialog = ({ taskEditDialogOpen,
             </DialogTitle>
             <DialogContent>
                 {task &&
-                    <TaskEdit {...{supportDrag: false, task, taskIndex }} />
+                    <TaskEdit {...{ task, taskIndex }} />
                 }
             </DialogContent>
             <DialogActions>
