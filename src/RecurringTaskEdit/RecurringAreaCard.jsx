@@ -1,14 +1,16 @@
 import React, { useState, useEffect, useCallback, useContext, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useDrop } from 'react-dnd';
 import call_rest_api from '../RestApi/RestApi';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { recurringTaskKeys } from '../hooks/useQueryKeys';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
+import { DarwinSortableList, useDarwinDropZone, useRegisterList } from '../dnd';
+import { RECURRING_TASKS, recurringIds, useRecurringDragStore } from './recurringDnd';
 
 import Box from '@mui/material/Box';
+import { alpha } from '@mui/material/styles';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import TextField from '@mui/material/TextField';
@@ -16,7 +18,7 @@ import TextField from '@mui/material/TextField';
 import RecurringTaskRow from './RecurringTaskRow';
 import RecurringDeleteDialog from './RecurringDeleteDialog';
 
-const RecurringAreaCard = ({ area, definitions }) => {
+const RecurringAreaCard = ({ area, definitions, panelActive = true }) => {
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
     const queryClient = useQueryClient();
@@ -41,38 +43,20 @@ const RecurringAreaCard = ({ area, definitions }) => {
         setFocusRecurrenceId(null);
     }, []);
 
-    const handleRemove = useCallback((defId) => {
-        setLocalDefs(prev => prev.filter(d => d.id !== defId));
-    }, []);
-
-    const [{ isOver }, drop] = useDrop(() => ({
-        accept: ['recurringTask'],
-        drop: (item) => {
-            if (String(item.area_fk) === String(area.id)) return { def: null }; // same card, no-op
-
-            // Optimistic: add def to this card immediately
-            setLocalDefs(prev => [...prev, { ...item, area_fk: parseInt(area.id) }]);
-
-            call_rest_api(`${darwinUri}/recurring_tasks`, 'PUT', [{ id: item.id, area_fk: area.id }], idToken)
-                .then(result => {
-                    if (result.httpStatus.httpStatus > 204) {
-                        setLocalDefs(prev => prev.filter(d => d.id !== item.id));
-                        showError(result, 'Unable to move recurring task');
-                    } else {
-                        invalidate();
-                    }
-                })
-                .catch(error => {
-                    setLocalDefs(prev => prev.filter(d => d.id !== item.id));
-                    showError(error, 'Unable to move recurring task');
-                });
-
-            return { def: item.id };
-        },
-        collect: (monitor) => ({
-            isOver: monitor.isOver(),
-        }),
-    }), [area, darwinUri, idToken, showError, queryClient, profile]);
+    // --- Drag and drop (req #3663) ---
+    // The card is a drop zone that takes a recurring task as a whole (they have
+    // no stored order): it highlights while one hovers, and the page's one
+    // onDragEnd (useRecurringDnd) moves the row through this registration. A
+    // hidden domain's cards take no part until a tab hover-switch shows them.
+    const listId = recurringIds.tasks(area.id);
+    useRegisterList(listId, {
+        getItems: () => localDefs,
+        setItems: setLocalDefs,
+        ready: true,
+        areaId: area.id,
+    });
+    const { setNodeRef: dropRef } = useDarwinDropZone({ id: listId, policy: RECURRING_TASKS, disabled: !panelActive });
+    const highlighted = useRecurringDragStore(s => s.highlight === listId);
 
     const handleSave = async (formData) => {
         const result = await call_rest_api(`${darwinUri}/recurring_tasks`, 'POST', formData, idToken);
@@ -107,11 +91,18 @@ const RecurringAreaCard = ({ area, definitions }) => {
     };
 
     return (
-        <Card raised={true} ref={drop} data-testid={`recurring-area-card-${area.id}`}
-              sx={{
-                  border: isOver ? '2px solid' : '2px solid transparent',
-                  borderColor: isOver ? 'primary.main' : 'transparent',
-              }}>
+        <Card raised={true} ref={dropRef} data-testid={`recurring-area-card-${area.id}`}
+              data-drop-highlight={highlighted ? 'true' : undefined}
+              sx={(theme) => ({
+                  transition: 'border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease',
+                  border: '2px solid',
+                  borderColor: highlighted ? 'primary.main' : 'transparent',
+                  // Drop-target affordance: tint + lift while a task hovers.
+                  ...(highlighted && {
+                      backgroundColor: alpha(theme.palette.primary.main, 0.06),
+                      boxShadow: `0 6px 18px ${alpha(theme.palette.primary.main, 0.35)}`,
+                  }),
+              })}>
             <CardContent>
                 {/* Card header — identical to TaskCard */}
                 <Box className="card-header" sx={{ marginBottom: 2 }}>
@@ -129,20 +120,24 @@ const RecurringAreaCard = ({ area, definitions }) => {
                     />
                 </Box>
 
-                {/* Recurring task rows */}
+                {/* Recurring task rows — each lifts; the card takes no position */}
+                <DarwinSortableList id={listId} items={localDefs.map(d => recurringIds.task(d.id))}
+                                    policy={RECURRING_TASKS}>
                 {localDefs.map(def => (
                     <RecurringTaskRow
                         key={def.id}
                         def={def}
                         areaId={area.id}
                         isTemplate={false}
+                        drag={{ id: recurringIds.task(def.id), type: 'recurring', containerId: listId,
+                                policy: RECURRING_TASKS, disabled: !panelActive }}
                         onUpdate={handleUpdate}
                         onDelete={handleDelete}
-                        onRemove={handleRemove}
                         autoFocusRecurrence={focusRecurrenceId === def.id}
                         clearAutoFocusRecurrence={clearAutoFocusRecurrence}
                     />
                 ))}
+                </DarwinSortableList>
 
                 {/* Blank template row */}
                 <RecurringTaskRow

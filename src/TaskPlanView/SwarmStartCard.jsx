@@ -14,10 +14,10 @@
 //     body. Removing text never removes behaviour: the pipeline exclusion below is
 //     untouched and simply goes unexplained on this surface, by design.
 
-import React, { useState, useEffect, useContext, useCallback } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import RequirementRow from '../SwarmView/RequirementRow';
+import RequirementRow, { SortableRequirementRow } from '../SwarmView/RequirementRow';
 import RequirementDeleteDialog from '../SwarmView/RequirementDeleteDialog';
 import call_rest_api from '../RestApi/RestApi';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
@@ -33,7 +33,9 @@ import { tallyRequirementStatuses } from './swarmStartCardUtils';
 import { requirementKeys } from '../hooks/useQueryKeys';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
-import { RequirementActionsContext } from '../hooks/useRequirementActions';
+import { RequirementActionsContext, useStableRequirementActions } from '../hooks/useRequirementActions';
+import { DarwinSortableList } from '../dnd';
+import { AGGREGATOR, swarmIds, useSwarmSession } from '../SwarmView/swarmDnd';
 import { useSwarmStartCardStore } from '../stores/useSwarmStartCardStore';
 import { requirementStatusChipProps, requirementStatusLabel } from '../SwarmView/statusChipStyles';
 import { requirementStatusTimestampFields, requirementStatusTimestampState } from '../utils/requirementStatusTimestamps';
@@ -163,7 +165,10 @@ const computeMetWindow = () => {
 // that survive both are the intersection — and the BADGES are narrowed by the
 // same two passes as the LIST, because a count and a list that disagree is this
 // card's own load-bearing invariant.
-const SwarmStartCard = ({ epicReqIds = null, stepReqIds = null }) => {
+// req #3663 — `projectId` names the panel this aggregator sits in (every
+// project panel mounts its own), so its rows' drag ids are unique on the page;
+// `panelActive` switches its rows' dragging off while the panel is hidden.
+const SwarmStartCard = ({ epicReqIds = null, stepReqIds = null, projectId = null, panelActive = true }) => {
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
     const queryClient = useQueryClient();
@@ -745,8 +750,37 @@ const SwarmStartCard = ({ epicReqIds = null, stepReqIds = null }) => {
         });
     };
 
-    // No same-card DnD reordering for a cross-category aggregation card
-    const setCrossCardInsertIndex = useCallback(() => {}, []);
+    // --- Drag (req #3663) ---
+    // A drag SOURCE only, and its policy says so: AGGREGATOR takes nothing and
+    // keeps a row that moves out (it lists by status, and a requirement moved
+    // to another category still has that status). Dropping a row here is no
+    // drop at all. While one of its rows is carried into a hand-sorted card,
+    // that card renders the row and this list shows it dimmed in place, not
+    // draggable — one node per drag id.
+    const aggregatorId = swarmIds.aggregator(projectId);
+    const { active: dragActive, placement } = useSwarmSession(aggregatorId);
+    const carriedAwayId = placement && dragActive ? dragActive.row.id : null;
+    const sortableRowIds = (requirementsArray || [])
+        .filter(r => r.id !== '' && r.id !== carriedAwayId)
+        .map(r => swarmIds.aggReq(projectId, r.id));
+
+    // Rows re-render when the data changes, not on every pointer move.
+    const requirementActions = useStableRequirementActions({
+        statusClick, coordinationClick,
+        titleChange, titleKeyDown, titleOnBlur,
+        deleteClick,
+        requirementsArray,
+        setRequirementsArray,
+        sessionStatusMap,
+        categoryColorMap,
+        strikethroughMet: false, // req #2584 — recent-Met list, not crossed-off
+        // req #3419 — the SAME set the toggle hides by, so every
+        // row on screen that is plan work is marked. Since req
+        // #3502 that is the ONLY thing standing between the
+        // reader and an orchestrated row here, which is what
+        // makes the mark load-bearing rather than decorative.
+        orchestratedIds: visibility.orchestratedIds,
+    });
 
     return (
         <Card raised={true}
@@ -832,28 +866,7 @@ const SwarmStartCard = ({ epicReqIds = null, stepReqIds = null }) => {
                 {requirementsArray === undefined ? (
                     <CircularProgress size={24} />
                 ) : (
-                    <RequirementActionsContext.Provider value={{
-                        statusClick, coordinationClick,
-                        titleChange, titleKeyDown, titleOnBlur,
-                        deleteClick,
-                        requirementsArray,
-                        setRequirementsArray,
-                        // A SENTINEL, not this card's sort mode (which is
-                        // SORT_OLDEST/SORT_NEWEST since req #3302). `RequirementRow`
-                        // reads it only to suppress the hand-sort insert indicators,
-                        // because the aggregator is not a drop target.
-                        sortMode: 'created',
-                        setCrossCardInsertIndex,
-                        sessionStatusMap,
-                        categoryColorMap,
-                        strikethroughMet: false, // req #2584 — recent-Met list, not crossed-off
-                        // req #3419 — the SAME set the toggle hides by, so every
-                        // row on screen that is plan work is marked. Since req
-                        // #3502 that is the ONLY thing standing between the
-                        // reader and an orchestrated row here, which is what
-                        // makes the mark load-bearing rather than decorative.
-                        orchestratedIds: visibility.orchestratedIds,
-                    }}>
+                    <RequirementActionsContext.Provider value={requirementActions}>
                         {/* req #3286 — THE CARD RENDERS NO MESSAGES. Two used to sit here:
                             the "No <status> requirements" empty state and the req #3180
                             pipelined-exclusion note. Both are gone unconditionally. An empty
@@ -872,16 +885,22 @@ const SwarmStartCard = ({ epicReqIds = null, stepReqIds = null }) => {
                             `swarmStartCardUtils.js`), so there is even less to narrate
                             than there was. Do not reintroduce prose here to explain a
                             filter. */}
-                        {requirementsArray.map((requirement, requirementIndex) => (
-                            <RequirementRow
-                                key={requirement.id}
-                                supportDrag={false}
-                                requirement={requirement}
-                                requirementIndex={requirementIndex}
-                                categoryId={requirement.id === '' ? '' : String(requirement.category_fk)}
-                                categoryName={requirement.id === '' ? 'aggregator' : ''}
-                            />
-                        ))}
+                        <DarwinSortableList id={aggregatorId} items={sortableRowIds} policy={AGGREGATOR}>
+                        {requirementsArray.map((requirement, requirementIndex) => {
+                            const rowProps = {
+                                requirement, requirementIndex,
+                                categoryId: requirement.id === '' ? '' : String(requirement.category_fk),
+                                categoryName: requirement.id === '' ? 'aggregator' : '',
+                            };
+                            if (requirement.id === '') return <RequirementRow key={requirement.id} {...rowProps} />;
+                            if (requirement.id === carriedAwayId) {
+                                return <RequirementRow key={requirement.id} {...rowProps} carriedAway />;
+                            }
+                            return <SortableRequirementRow key={requirement.id} {...rowProps} drag={{
+                                id: swarmIds.aggReq(projectId, requirement.id), type: 'requirement',
+                                containerId: aggregatorId, policy: AGGREGATOR, disabled: !panelActive }} />;
+                        })}
+                        </DarwinSortableList>
                     </RequirementActionsContext.Provider>
                 )}
             </CardContent>

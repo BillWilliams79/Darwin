@@ -1,8 +1,6 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useDrag } from 'react-dnd';
-import { getEmptyImage } from 'react-dnd-html5-backend';
+import React, { useState, useEffect, useRef } from 'react';
 
-import { useDragTabStore } from '../stores/useDragTabStore';
+import { useDarwinDrag, isLiftBlur } from '../dnd';
 
 import Box from '@mui/material/Box';
 import Checkbox from '@mui/material/Checkbox';
@@ -99,51 +97,36 @@ const focusSelect = (ref) => {
     el?.focus();
 };
 
+// A press on a Select opens it — it never lifts the row (its menu opens on the
+// press itself, before anyone knows whether the press will move).
+const keepPressToControl = {
+    onPointerDown: (e) => e.stopPropagation(),
+    onTouchStart: (e) => e.stopPropagation(),
+};
+
+// The template row never drags; its hook registers under an id of its own.
+const templateDrag = (areaId) => ({ id: `recurring-template:${areaId}`, type: 'recurring', disabled: true });
+
 const RecurringTaskRow = ({
-    def, areaId, isTemplate, onSave, onUpdate, onDelete, onRemove,
-    onTabAfterSave, autoFocusRecurrence, clearAutoFocusRecurrence,
+    def, areaId, isTemplate, onSave, onUpdate, onDelete,
+    onTabAfterSave, autoFocusRecurrence, clearAutoFocusRecurrence, drag = null,
 }) => {
     const [local, setLocal] = useState(def ? { ...def } : { ...BLANK });
     const descRef = useRef(null);
-    const rowRef = useRef(null);
     const recurrenceRef = useRef(null);
     const weekdayRef = useRef(null);
     const monthlyDayRef = useRef(null);
     const annualMonthRef = useRef(null);
     const annualDayRef = useRef(null);
     const tabPendingRef = useRef(false);
-    const onRemoveRef = useRef(onRemove);
-    useEffect(() => { onRemoveRef.current = onRemove; }, [onRemove]);
     const weekdayCycleRef = useRef({ key: null, index: 0 });
     const monthCycleRef   = useRef({ key: null, index: 0 });
 
-    const revertDragTabSwitch = useDragTabStore(s => s.revertDragTabSwitch);
-    const clearDragTabSwitch  = useDragTabStore(s => s.clearDragTabSwitch);
-
-    const [{ isDragging }, drag, preview] = useDrag(() => ({
-        type: 'recurringTask',
-        item: () => {
-            const rect = rowRef.current?.getBoundingClientRect();
-            return { ...local, area_fk: areaId, sourceWidth: rect?.width || 500 };
-        },
-        canDrag: () => !isTemplate,
-        end: (item, monitor) => {
-            const dropResult = monitor.getDropResult();
-            if (dropResult?.def !== null && dropResult?.def !== undefined) {
-                clearDragTabSwitch();
-                onRemoveRef.current?.(item.id);
-            } else {
-                revertDragTabSwitch();
-            }
-        },
-        collect: (monitor) => ({
-            isDragging: !!monitor.isDragging(),
-        }),
-    }), [local, areaId, isTemplate]);
-
-    useEffect(() => {
-        preview(getEmptyImage());
-    }, [preview]);
+    // The WHOLE row is the grip (req #3663) — description text included: a
+    // quick click still places the caret, a hold (touch, or a long mouse click)
+    // or a 4 px mouse move lifts it. The Selects stay controls.
+    const sortable = useDarwinDrag({ ...(drag ?? templateDrag(areaId)), row: def });
+    const isDragging = !!drag && sortable.isDragging;
 
     useEffect(() => {
         if (def) setLocal({ ...def });
@@ -266,7 +249,9 @@ const RecurringTaskRow = ({
         commit({ anchor_date: anchor });
     };
 
-    const handleDescBlur = () => {
+    const handleDescBlur = (event) => {
+        // A blur caused by the lift itself is not an edit ending.
+        if (isLiftBlur(event)) return;
         // Read from DOM ref — more reliable than local state in React 18 production
         // mode where state updates from onChange may not flush before onBlur fires.
         const description = descRef.current?.value ?? local.description;
@@ -311,19 +296,17 @@ const RecurringTaskRow = ({
     const needsDay      = local.recurrence === 'monthly';
     const needsMonthDay = local.recurrence === 'annual';
 
-    const mergedRef = useCallback((node) => {
-        rowRef.current = node;
-        if (!isTemplate) drag(node);
-    }, [drag, isTemplate]);
-
     const hasText    = local.description.trim().length > 0;
-    const rowOpacity = isDragging ? 0.2 : (!isTemplate && !local.active) ? 0.45 : 1;
+    const rowOpacity = isDragging ? 0.3 : (!isTemplate && !local.active) ? 0.45 : 1;
 
     return (
         <Box
-            ref={mergedRef}
+            ref={drag ? sortable.ref : undefined}
             data-testid={isTemplate ? 'recurring-template' : `recurring-${local.id}`}
-            sx={{
+            data-dragging={isDragging ? 'true' : undefined}
+            {...(drag ? { ...sortable.attributes, ...sortable.listeners } : {})}
+            style={drag ? sortable.style : undefined}
+            sx={(theme) => ({
                 // Col:  [priority] [accumulate] [active]  [description] [recurrence] [anchor]      [action]
                 display: 'grid',
                 gridTemplateColumns: {
@@ -332,10 +315,13 @@ const RecurringTaskRow = ({
                 },
                 alignItems: 'center',
                 opacity: rowOpacity,
-                cursor: isTemplate ? 'default' : 'grab',
+                cursor: drag ? 'grab' : 'default',
                 bgcolor: 'background.paper',
                 mb: isTemplate ? 0 : 1,
-            }}
+                borderRadius: 1,
+                transition: 'opacity 160ms ease',
+                ...(drag && { '&:focus-visible': { outline: `2px solid ${theme.palette.primary.main}`, outlineOffset: -2 } }),
+            })}
         >
             {/* 1. Priority — ReportGmailerrorredOutlinedIcon / ReportIcon (same as TaskEdit) */}
             <Checkbox
@@ -380,8 +366,6 @@ const RecurringTaskRow = ({
                 onChange={(e) => setLocal(prev => ({ ...prev, description: e.target.value }))}
                 onKeyDown={handleDescKeyDown}
                 onBlur={handleDescBlur}
-                onMouseDown={(e) => e.stopPropagation()}
-                onTouchStart={(e) => e.stopPropagation()}
                 multiline
                 autoComplete="off"
                 size="small"
@@ -391,6 +375,7 @@ const RecurringTaskRow = ({
 
             {/* 5. Recurrence select */}
             <Select
+                {...keepPressToControl}
                 ref={recurrenceRef}
                 value={local.recurrence}
                 onChange={handleRecurrenceChange}
@@ -410,7 +395,7 @@ const RecurringTaskRow = ({
 
             {/* 6. Anchor — direct grid child for single selects; Box only for annual pair */}
             {needsWeekday && (
-                <Select ref={weekdayRef} value={local.anchor_date} onChange={(e) => handleField('anchor_date')(e.target.value)}
+                <Select {...keepPressToControl} ref={weekdayRef} value={local.anchor_date} onChange={(e) => handleField('anchor_date')(e.target.value)}
                     onKeyDown={handleWeekdayKeyDown}
                     size="small" variant="outlined"
                     sx={{ ...selectSx, width: { xs: 105, md: ANCHOR_WIDTH }, gridRow: { xs: 2, md: 'auto' }, gridColumn: { xs: 5, md: 'auto' } }}
@@ -419,7 +404,7 @@ const RecurringTaskRow = ({
                 </Select>
             )}
             {needsDay && (
-                <Select ref={monthlyDayRef} value={local.anchor_date} onChange={(e) => handleField('anchor_date')(e.target.value)}
+                <Select {...keepPressToControl} ref={monthlyDayRef} value={local.anchor_date} onChange={(e) => handleField('anchor_date')(e.target.value)}
                     onKeyDown={handleMonthlyDayKeyDown}
                     size="small" variant="outlined"
                     sx={{ ...selectSx, width: { xs: 105, md: ANCHOR_WIDTH }, gridRow: { xs: 2, md: 'auto' }, gridColumn: { xs: 5, md: 'auto' } }}
@@ -429,13 +414,13 @@ const RecurringTaskRow = ({
             )}
             {needsMonthDay && (
                 <Box sx={{ width: { xs: 105, md: ANCHOR_WIDTH }, display: 'flex', gap: 0.5, gridRow: { xs: 2, md: 'auto' }, gridColumn: { xs: 5, md: 'auto' } }}>
-                    <Select ref={annualMonthRef} value={anchorMonth} onChange={handleAnnualMonth}
+                    <Select {...keepPressToControl} ref={annualMonthRef} value={anchorMonth} onChange={handleAnnualMonth}
                         onKeyDown={handleAnnualMonthKeyDown}
                         size="small" variant="outlined" sx={{ ...selectSx, width: { xs: 57, md: 65 } }}
                         inputProps={{ 'data-testid': `recurring-${local.id}-annual-month` }}>
                         {MONTH_OPTIONS.map(m => <MenuItem key={m.value} value={m.value} sx={menuItemSx}>{m.label}</MenuItem>)}
                     </Select>
-                    <Select ref={annualDayRef} value={anchorDay} onChange={handleAnnualDay}
+                    <Select {...keepPressToControl} ref={annualDayRef} value={anchorDay} onChange={handleAnnualDay}
                         onKeyDown={handleAnnualDayKeyDown}
                         size="small" variant="outlined" sx={{ ...selectSx, width: { xs: 44, md: 53 } }}
                         inputProps={{ 'data-testid': `recurring-${local.id}-annual-day` }}>

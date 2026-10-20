@@ -1,34 +1,43 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, Page } from '@playwright/test';
 import { getIdToken, apiCall, apiDelete, uniqueName } from '../helpers/api';
-import { dragAndDrop } from '../helpers/react-dnd-drag';
+import { dndKitDrag, dndKitTouchDrag, touchSwipe } from '../helpers/dnd-kit-drag';
 
 /**
- * SwarmView Requirement-Row DnD — E2E tests (req #2417).
+ * SwarmView cards — requirement rows, category cards, the aggregator and the
+ * project tabs on the hold-to-lift press timeline (req #3663, dnd-kit; the
+ * rules are req #2417's, memory/architecture.md § SwarmView Requirement-Row DnD):
  *
- * Covers the hand-sort + cross-card drag-and-drop behavior matrix:
- *   1. Hand mode same-card reorder
- *   2. Hand-to-hand cross-card move
- *   3. Hand-to-process cross-card move
- *   4. Process mode same-card (no reorder)
- *   5. Process-to-process / reverse cross-card
- *   6. Drop on aggregator (no-op)
- *   8. Drag FROM aggregator into a category card
- *   9. Template row not draggable
- *  10. Drop on self (no-op)
+ *   SDND-01  hand mode, same card: reorder persists sort_order
+ *   SDND-02  hand → hand across cards: category_fk AND the target's sort_order
+ *   SDND-03  hand → process: category_fk only; the card highlights while hovered
+ *   SDND-04  process mode, same card: no reorder, nothing written
+ *   SDND-05  process → process across cards
+ *   SDND-06  a drop on the aggregator is no drop
+ *   SDND-07  FROM the aggregator into a card: it moves, and stays in the aggregator
+ *   SDND-08  the template row never lifts (a press there lifts its card)
+ *   SDND-09  a drop on itself writes nothing
+ *   SDND-10  pressing ON THE TITLE TEXT lifts the row; the preview is the row
+ *   SDND-11  a quick click on the title only places the caret
+ *   SDND-12  carried onto another project's tab: switches, lands, persists
+ *   SDND-13  Esc after a tab hover-switch: back on the first project, nothing written
+ *   SDND-14  a category card reorders in its project and the order persists
+ *   SDTOUCH  phone: hold lifts and reorders; a quick swipe scrolls
  *
- * Uses serial execution because tests share beforeAll state and modify shared
- * requirement data.
+ * Every drag is real input (trusted pointer, CDP touch). Serial: the tests share
+ * beforeAll data and modify it.
  */
-test.describe.serial('SwarmView DnD — Requirement Row', () => {
-  test.setTimeout(60000);
+test.describe.serial('SwarmView DnD — cards (dnd-kit)', () => {
+  test.setTimeout(90000);
 
   let idToken: string;
-  let testProjectId: string;
+  let projectId: string;
+  let otherProjectId: string;
   let cat1Id: string;
   let cat2Id: string;
-  const testProjectName = uniqueName('DnDProj');
-  const cat1Name = uniqueName('DnDCat1');
-  const cat2Name = uniqueName('DnDCat2');
+  let cat3Id: string;
+  let farCatId: string;
+  const projectName = uniqueName('DnDProj');
+  const otherProjectName = uniqueName('DnDProj2');
 
   // 3 requirements in cat1 for same-card reorder tests
   let req1Id: string;
@@ -37,14 +46,19 @@ test.describe.serial('SwarmView DnD — Requirement Row', () => {
   const req1Title = uniqueName('R1');
   const req2Title = uniqueName('R2');
   const req3Title = uniqueName('R3');
-
-  // 1 requirement in cat2 for cross-card tests
+  // 1 requirement in cat2
   let req4Id: string;
-  const req4Title = uniqueName('R4');
-
-  // Cross-card requirement (created in cat1, will be moved to cat2)
+  // cross-card requirement (created in cat1, moved around)
   let crossReqId: string;
-  const crossReqTitle = uniqueName('Cross');
+  // swarm_ready requirement for the aggregator
+  let readyReqId: string;
+
+  const sub = () => process.env.E2E_TEST_COGNITO_SUB!;
+  const post = async (table: string, body: object) => {
+    const r = await apiCall(table, 'POST', { creator_fk: sub(), ...body }, idToken) as Array<{ id: string }>;
+    if (!r?.length) throw new Error(`Failed to create ${table}`);
+    return r[0].id;
+  };
 
   test.beforeAll(async ({ browser }) => {
     const context = await browser.newContext({ storageState: '.auth/user.json' });
@@ -52,462 +66,360 @@ test.describe.serial('SwarmView DnD — Requirement Row', () => {
     idToken = await getIdToken(page);
     await context.close();
 
-    const sub = process.env.E2E_TEST_COGNITO_SUB!;
-
-    // Create project
-    const projResult = await apiCall('projects', 'POST', {
-      creator_fk: sub, project_name: testProjectName, closed: 0, sort_order: 0,
-    }, idToken) as Array<{ id: string }>;
-    if (!projResult?.length) throw new Error('Failed to create project');
-    testProjectId = projResult[0].id;
-
-    // Create cat1 in hand sort mode
-    const c1 = await apiCall('categories', 'POST', {
-      creator_fk: sub, category_name: cat1Name, project_fk: testProjectId,
-      closed: 0, sort_order: 0, sort_mode: 'hand',
-    }, idToken) as Array<{ id: string }>;
-    if (!c1?.length) throw new Error('Failed to create cat1');
-    cat1Id = c1[0].id;
-
-    // Create cat2 in process sort mode
-    const c2 = await apiCall('categories', 'POST', {
-      creator_fk: sub, category_name: cat2Name, project_fk: testProjectId,
-      closed: 0, sort_order: 1, sort_mode: 'process',
-    }, idToken) as Array<{ id: string }>;
-    if (!c2?.length) throw new Error('Failed to create cat2');
-    cat2Id = c2[0].id;
-
-    // Create 3 requirements in cat1 with explicit sort_order
-    const r1 = await apiCall('requirements', 'POST', {
-      creator_fk: sub, title: req1Title, category_fk: cat1Id,
-      requirement_status: 'authoring', sort_order: 0,
-    }, idToken) as Array<{ id: string }>;
-    if (!r1?.length) throw new Error('Failed to create R1');
-    req1Id = r1[0].id;
-
-    const r2 = await apiCall('requirements', 'POST', {
-      creator_fk: sub, title: req2Title, category_fk: cat1Id,
-      requirement_status: 'authoring', sort_order: 1,
-    }, idToken) as Array<{ id: string }>;
-    if (!r2?.length) throw new Error('Failed to create R2');
-    req2Id = r2[0].id;
-
-    const r3 = await apiCall('requirements', 'POST', {
-      creator_fk: sub, title: req3Title, category_fk: cat1Id,
-      requirement_status: 'authoring', sort_order: 2,
-    }, idToken) as Array<{ id: string }>;
-    if (!r3?.length) throw new Error('Failed to create R3');
-    req3Id = r3[0].id;
-
-    // Create 1 requirement in cat2
-    const r4 = await apiCall('requirements', 'POST', {
-      creator_fk: sub, title: req4Title, category_fk: cat2Id,
-      requirement_status: 'authoring',
-    }, idToken) as Array<{ id: string }>;
-    if (!r4?.length) throw new Error('Failed to create R4');
-    req4Id = r4[0].id;
-
-    // Cross-card requirement in cat1
-    const cr = await apiCall('requirements', 'POST', {
-      creator_fk: sub, title: crossReqTitle, category_fk: cat1Id,
-      requirement_status: 'authoring', sort_order: 10,
-    }, idToken) as Array<{ id: string }>;
-    if (!cr?.length) throw new Error('Failed to create CrossReq');
-    crossReqId = cr[0].id;
+    projectId = await post('projects', { project_name: projectName, closed: 0, sort_order: 990 });
+    otherProjectId = await post('projects', { project_name: otherProjectName, closed: 0, sort_order: 991 });
+    cat1Id = await post('categories', { category_name: uniqueName('DnDCat1'), project_fk: projectId, closed: 0, sort_order: 0, sort_mode: 'hand' });
+    cat2Id = await post('categories', { category_name: uniqueName('DnDCat2'), project_fk: projectId, closed: 0, sort_order: 1, sort_mode: 'process' });
+    cat3Id = await post('categories', { category_name: uniqueName('DnDCat3'), project_fk: projectId, closed: 0, sort_order: 2, sort_mode: 'reverse' });
+    farCatId = await post('categories', { category_name: uniqueName('DnDFar'), project_fk: otherProjectId, closed: 0, sort_order: 0, sort_mode: 'hand' });
+    req1Id = await post('requirements', { title: req1Title, category_fk: cat1Id, requirement_status: 'authoring', sort_order: 0 });
+    req2Id = await post('requirements', { title: req2Title, category_fk: cat1Id, requirement_status: 'authoring', sort_order: 1 });
+    req3Id = await post('requirements', { title: req3Title, category_fk: cat1Id, requirement_status: 'authoring', sort_order: 2 });
+    req4Id = await post('requirements', { title: uniqueName('R4'), category_fk: cat2Id, requirement_status: 'authoring' });
+    crossReqId = await post('requirements', { title: uniqueName('Cross'), category_fk: cat1Id, requirement_status: 'authoring', sort_order: 10 });
+    readyReqId = await post('requirements', { title: uniqueName('Ready'), category_fk: cat3Id, requirement_status: 'swarm_ready' });
   });
 
   test.afterAll(async () => {
-    test.setTimeout(60000);
-    // CASCADE handles categories + requirements when project is deleted
-    try { await apiDelete('projects', testProjectId, idToken); } catch {}
+    // CASCADE handles categories + requirements when a project is deleted
+    try { await apiDelete('projects', projectId, idToken); } catch {}
+    try { await apiDelete('projects', otherProjectId, idToken); } catch {}
   });
 
-  /** Navigate to /swarm, select the test project tab, wait for requirement rows to render. */
-  async function goToTestProject(page: any) {
-    await page.goto('/swarm');
-    await page.waitForSelector('[role="tab"]', { timeout: 15000 });
-    await page.getByRole('tab', { name: testProjectName }).click();
-    await expect(page.getByTestId(`category-card-${cat1Id}`)).toBeVisible({ timeout: 15000 });
-    // Wait for requirements to render inside cat1 (at least the first known requirement)
-    await expect(page.getByTestId(`category-card-${cat1Id}`).getByTestId(`requirement-${req1Id}`)).toBeVisible({ timeout: 15000 });
-  }
-
-  /** Get requirement titles from a category card in DOM order (excluding template). */
-  async function getRequirementTitles(page: any, categoryId: string): Promise<string[]> {
-    const card = page.getByTestId(`category-card-${categoryId}`);
-    const rows = card.locator('[data-testid^="requirement-"]:not([data-testid="requirement-template"])');
-    const count = await rows.count();
-    const titles: string[] = [];
-    for (let i = 0; i < count; i++) {
-      const titleField = rows.nth(i).locator('textarea[name="title"], input[name="title"]').first();
-      titles.push(await titleField.inputValue());
-    }
-    return titles;
-  }
-
-  /** Count non-template requirement rows in a category card. */
-  async function getRequirementCount(page: any, categoryId: string): Promise<number> {
-    const card = page.getByTestId(`category-card-${categoryId}`);
-    return await card.locator('[data-testid^="requirement-"]:not([data-testid="requirement-template"])').count();
-  }
-
-  /** Click a sort mode in a category card's three-dot menu. */
-  async function clickCategorySortMode(page: any, categoryId: string, mode: 'process' | 'hand') {
-    await page.getByTestId(`card-menu-${categoryId}`).click();
-    await page.getByTestId(`sort-${mode}-${categoryId}`).click();
-  }
-
-  /** Reset sort_order for cat1 requirements to known starting state. */
-  async function resetSortOrder() {
+  async function reset() {
+    await apiCall('categories', 'PUT', [
+      { id: cat1Id, sort_mode: 'hand', sort_order: 0, project_fk: parseInt(projectId) },
+      { id: cat2Id, sort_mode: 'process', sort_order: 1, project_fk: parseInt(projectId) },
+      { id: cat3Id, sort_mode: 'reverse', sort_order: 2, project_fk: parseInt(projectId) },
+    ], idToken);
     await apiCall('requirements', 'PUT', [
       { id: req1Id, sort_order: 0, category_fk: parseInt(cat1Id) },
       { id: req2Id, sort_order: 1, category_fk: parseInt(cat1Id) },
       { id: req3Id, sort_order: 2, category_fk: parseInt(cat1Id) },
       { id: crossReqId, sort_order: 10, category_fk: parseInt(cat1Id) },
       { id: req4Id, category_fk: parseInt(cat2Id) },
+      { id: readyReqId, category_fk: parseInt(cat3Id) },
     ], idToken);
   }
 
-  /** Verify no requirement rows are hidden or opacity-collapsed (drag artifact). */
-  async function assertNoHiddenRows(page: any, categoryId: string) {
-    const card = page.getByTestId(`category-card-${categoryId}`);
-    const rows = card.locator('[data-testid^="requirement-"]:not([data-testid="requirement-template"])');
-    const count = await rows.count();
-    for (let i = 0; i < count; i++) {
-      const opacity = await rows.nth(i).evaluate((el: HTMLElement) => getComputedStyle(el).opacity);
-      expect(Number(opacity)).toBeGreaterThan(0.5);
-    }
+  /** Open the cards view on the test project (`?project=` deep link, req #3663). */
+  async function open(page: Page, aggregator = false) {
+    await page.goto(`/swarm?view=cards&project=${projectId}${aggregator ? '&aggregator=1' : ''}`);
+    await expect(card(page, cat1Id).getByTestId(`requirement-${req1Id}`)).toBeVisible({ timeout: 30000 });
   }
 
-  // ─── SDND-01: Hand mode, same-card reorder ─────────────────────────────
+  const card = (page: Page, id: string) => page.getByTestId(`category-card-${id}`);
+  // A requirement row in whichever category card holds it (never its aggregator copy).
+  const row = (page: Page, id: string) =>
+    page.locator(`[data-testid^="category-card-"] [data-testid="requirement-${id}"]`);
+  const aggregator = (page: Page) => page.locator('[role="tabpanel"]:not([hidden])').getByTestId('swarm-start-card');
+  const projectTab = (page: Page, name: string) => page.getByRole('tab', { name, exact: true });
 
-  test('SDND-01: Hand-mode same-card reorder persists sort_order', async ({ page }) => {
-    await resetSortOrder();
-    await goToTestProject(page);
+  /** Requirement titles in a category card in DOM order (excluding the template). */
+  async function titles(page: Page, categoryId: string): Promise<string[]> {
+    return card(page, categoryId)
+      .locator('[data-testid^="requirement-"]:not([data-testid="requirement-template"]) [name="title"]')
+      .evaluateAll(els => els.map(e => (e as HTMLTextAreaElement).value));
+  }
 
-    // Cat1 is created in hand mode — verify initial order
+  const count = (page: Page, categoryId: string) =>
+    card(page, categoryId).locator('[data-testid^="requirement-"]:not([data-testid="requirement-template"])').count();
+
+  const countPuts = async (page: Page, table: string) => {
+    const counter = { puts: 0 };
+    await page.route(`**/${table}*`, r => { if (r.request().method() === 'PUT') counter.puts++; r.continue(); });
+    return counter;
+  };
+
+  const fetchReq = async (id: string) =>
+    ((await apiCall(`requirements?id=${id}`, 'GET', '', idToken)) as Array<Record<string, any>>)[0];
+
+  // ─── Rows ─────────────────────────────────────────────────────────────────
+
+  test('SDND-01: hand mode, same card — reorder persists sort_order', async ({ page }) => {
+    await reset();
+    await open(page);
+    expect(await titles(page, cat1Id)).toEqual(expect.arrayContaining([req1Title, req2Title, req3Title]));
+    const put = page.waitForResponse(r => r.request().method() === 'PUT' && r.url().includes('/requirements'));
+    await dndKitDrag(page, row(page, req1Id), row(page, req3Id));
+    await put;
     await expect.poll(async () => {
-      return await getRequirementTitles(page, cat1Id);
-    }, { timeout: 10000 }).toEqual(
-      expect.arrayContaining([req1Title, req2Title, req3Title])
-    );
-
-    // Verify the first three are in expected order (before cross req)
-    const initialTitles = await getRequirementTitles(page, cat1Id);
-    const idx1 = initialTitles.indexOf(req1Title);
-    const idx2 = initialTitles.indexOf(req2Title);
-    const idx3 = initialTitles.indexOf(req3Title);
-    expect(idx1).toBeLessThan(idx2);
-    expect(idx2).toBeLessThan(idx3);
-
-    // Drag R1 below R3 (reorder within same card in hand mode)
-    const source = page.getByTestId(`requirement-${req1Id}`);
-    const target = page.getByTestId(`requirement-${req3Id}`);
-    await dragAndDrop(page, source, target);
-
-    // Poll until reorder completes
-    await expect.poll(async () => {
-      const titles = await getRequirementTitles(page, cat1Id);
-      const i1 = titles.indexOf(req1Title);
-      const i2 = titles.indexOf(req2Title);
-      const i3 = titles.indexOf(req3Title);
-      // R1 should now be after R2 and near R3
-      return i2 < i1;
-    }, { timeout: 10000, intervals: [200, 500, 1000] }).toBe(true);
-
-    // No duplicates — count should be unchanged
-    const count = await getRequirementCount(page, cat1Id);
-    expect(count).toBe(4); // R1, R2, R3, CrossReq
-
-    await assertNoHiddenRows(page, cat1Id);
+      const t = await titles(page, cat1Id);
+      return [t.indexOf(req2Title), t.indexOf(req3Title), t.indexOf(req1Title)];
+    }, { timeout: 10000 }).toEqual([0, 1, 2]);
+    expect(await count(page, cat1Id)).toBe(4);
+    // Persisted.
+    expect((await fetchReq(req1Id)).sort_order).toBe(2);
+    await expect(page.locator('[data-dragging="true"]')).toHaveCount(0);
   });
 
-  // ─── SDND-02: Hand-to-hand cross-card move ─────────────────────────────
-
-  test('SDND-02: Hand-to-hand cross-card move updates category_fk + sort_order', async ({ page }) => {
-    await resetSortOrder();
-
-    // Set cat2 to hand mode via API for this test
+  test('SDND-02: hand → hand across cards — category_fk AND the target\'s sort_order', async ({ page }) => {
+    await reset();
     await apiCall('categories', 'PUT', [{ id: cat2Id, sort_mode: 'hand' }], idToken);
-
-    await goToTestProject(page);
-
-    // Switch cat2 to hand via menu (in case cached sort_mode differs)
-    await clickCategorySortMode(page, cat2Id, 'hand');
-
-    // Wait for baseline: cat1=4 (R1,R2,R3,Cross), cat2=1 (R4)
-    await expect.poll(() => getRequirementCount(page, cat1Id), { timeout: 10000 }).toBe(4);
-    await expect.poll(() => getRequirementCount(page, cat2Id), { timeout: 10000 }).toBe(1);
-
-    // Drag crossReq from cat1 to cat2 (both in hand mode)
-    const source = page.getByTestId(`requirement-${crossReqId}`);
-    const targetCard = page.getByTestId(`category-card-${cat2Id}`);
-    await dragAndDrop(page, source, targetCard);
-
-    // CrossReq should appear in cat2
-    const cat2Card = page.getByTestId(`category-card-${cat2Id}`);
-    await expect(cat2Card.getByTestId(`requirement-${crossReqId}`)).toBeVisible({ timeout: 10000 });
-
-    // CrossReq should vanish from cat1
-    const cat1Card = page.getByTestId(`category-card-${cat1Id}`);
-    await expect(cat1Card.getByTestId(`requirement-${crossReqId}`)).not.toBeVisible({ timeout: 5000 });
-
-    // Counts should reflect the move: cat1=3, cat2=2
-    await expect.poll(() => getRequirementCount(page, cat1Id), { timeout: 5000 }).toBe(3);
-    await expect.poll(() => getRequirementCount(page, cat2Id), { timeout: 5000 }).toBe(2);
+    await open(page);
+    const put = page.waitForResponse(r => r.request().method() === 'PUT' && r.url().includes('/requirements'));
+    await dndKitDrag(page, row(page, crossReqId), card(page, cat2Id).getByTestId(`requirement-${req4Id}`), { drop: 'upper' });
+    const body = JSON.parse((await put).request().postData() || '[]');
+    await expect(card(page, cat2Id).getByTestId(`requirement-${crossReqId}`)).toBeVisible({ timeout: 10000 });
+    await expect(card(page, cat1Id).getByTestId(`requirement-${crossReqId}`)).toHaveCount(0);
+    // Both rows of the target are renumbered; the moved one carries its new category.
+    expect(body).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: Number(crossReqId), category_fk: Number(cat2Id) }),
+      expect.objectContaining({ id: Number(req4Id), sort_order: expect.any(Number) }),
+    ]));
+    const moved = await fetchReq(crossReqId);
+    expect(String(moved.category_fk)).toBe(String(cat2Id));
   });
 
-  // ─── SDND-03: Hand-to-process cross-card move ──────────────────────────
-
-  test('SDND-03: Hand-to-process cross-card move persists category_fk only', async ({ page }) => {
-    await resetSortOrder();
-
-    // Set cat2 back to process mode
-    await apiCall('categories', 'PUT', [{ id: cat2Id, sort_mode: 'process' }], idToken);
-
-    await goToTestProject(page);
-
-    // Wait for baseline: cat1=4 (R1,R2,R3,Cross), cat2=1 (R4)
-    await expect.poll(() => getRequirementCount(page, cat1Id), { timeout: 10000 }).toBe(4);
-    await expect.poll(() => getRequirementCount(page, cat2Id), { timeout: 10000 }).toBe(1);
-
-    // Drag crossReq from cat1 (hand) to cat2 (process)
-    const source = page.getByTestId(`requirement-${crossReqId}`);
-    const targetCard = page.getByTestId(`category-card-${cat2Id}`);
-    await dragAndDrop(page, source, targetCard);
-
-    // CrossReq should appear in cat2
-    const cat2Card = page.getByTestId(`category-card-${cat2Id}`);
-    await expect(cat2Card.getByTestId(`requirement-${crossReqId}`)).toBeVisible({ timeout: 10000 });
-
-    // CrossReq should vanish from cat1
-    const cat1Card = page.getByTestId(`category-card-${cat1Id}`);
-    await expect(cat1Card.getByTestId(`requirement-${crossReqId}`)).not.toBeVisible({ timeout: 5000 });
-
-    // Counts: cat1=3, cat2=2
-    await expect.poll(() => getRequirementCount(page, cat1Id), { timeout: 5000 }).toBe(3);
-    await expect.poll(() => getRequirementCount(page, cat2Id), { timeout: 5000 }).toBe(2);
+  test('SDND-03: hand → process — category_fk only; the target card highlights while hovered', async ({ page }) => {
+    await reset();
+    await open(page);
+    const before = await fetchReq(crossReqId);
+    const source = row(page, crossReqId);
+    const target = card(page, cat2Id);
+    const s = (await source.boundingBox())!;
+    const t = (await target.boundingBox())!;
+    await page.mouse.move(s.x + s.width / 2, s.y + s.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(s.x + s.width / 2 + 8, s.y + s.height / 2 + 8);
+    for (let i = 1; i <= 12; i++) {
+      await page.mouse.move(s.x + (t.x + t.width / 2 - s.x) * i / 12, s.y + (t.y + t.height / 2 - s.y) * i / 12);
+      await page.waitForTimeout(16);
+    }
+    await expect(target).toHaveAttribute('data-drop-highlight', 'true');
+    const put = page.waitForResponse(r => r.request().method() === 'PUT' && r.url().includes('/requirements'));
+    await page.mouse.up();
+    const body = JSON.parse((await put).request().postData() || '[]');
+    expect(body).toEqual([{ id: Number(crossReqId), category_fk: Number(cat2Id) }]);
+    await expect(card(page, cat2Id).getByTestId(`requirement-${crossReqId}`)).toBeVisible({ timeout: 10000 });
+    await expect.poll(() => count(page, cat1Id)).toBe(3);
+    const after = await fetchReq(crossReqId);
+    expect(after.sort_order).toBe(before.sort_order);
   });
 
-  // ─── SDND-04: Process mode same-card — no reorder ──────────────────────
-
-  test('SDND-04: Process-mode same-card drag does not reorder', async ({ page }) => {
-    await resetSortOrder();
-
-    // Switch cat1 to process mode
+  test('SDND-04: process mode, same card — no reorder, nothing written', async ({ page }) => {
+    await reset();
     await apiCall('categories', 'PUT', [{ id: cat1Id, sort_mode: 'process' }], idToken);
-
-    await goToTestProject(page);
-
-    // Capture initial order
-    const cat1Card = page.getByTestId(`category-card-${cat1Id}`);
-    await expect(cat1Card.getByTestId(`requirement-${req1Id}`)).toBeVisible({ timeout: 10000 });
-    const initialTitles = await getRequirementTitles(page, cat1Id);
-
-    // Intercept PUT calls to requirements
-    let requirementPutCount = 0;
-    await page.route('**/requirements*', (route: any) => {
-      if (route.request().method() === 'PUT') requirementPutCount++;
-      route.continue();
-    });
-
-    // Attempt to drag R1 to R3 within process-mode card
-    const source = page.getByTestId(`requirement-${req1Id}`);
-    const target = page.getByTestId(`requirement-${req3Id}`);
-    await dragAndDrop(page, source, target);
-
-    // Brief wait for potential PUT calls
+    await open(page);
+    const initial = await titles(page, cat1Id);
+    const counter = await countPuts(page, 'requirements');
+    await dndKitDrag(page, row(page, req1Id), row(page, req3Id));
     await page.waitForTimeout(500);
-
-    // No sort_order PUT should have fired for same-card process mode
-    expect(requirementPutCount).toBe(0);
-
-    // Order should be unchanged
-    const afterTitles = await getRequirementTitles(page, cat1Id);
-    expect(afterTitles).toEqual(initialTitles);
-
-    // Restore cat1 to hand mode
-    await apiCall('categories', 'PUT', [{ id: cat1Id, sort_mode: 'hand' }], idToken);
+    expect(counter.puts).toBe(0);
+    expect(await titles(page, cat1Id)).toEqual(initial);
   });
 
-  // ─── SDND-05: Process-to-process cross-card ────────────────────────────
-
-  test('SDND-05: Process-to-process cross-card move works', async ({ page }) => {
-    await resetSortOrder();
-
-    // Both cards in process mode
-    await apiCall('categories', 'PUT', [
-      { id: cat1Id, sort_mode: 'process' },
-      { id: cat2Id, sort_mode: 'process' },
-    ], idToken);
-
-    await goToTestProject(page);
-
-    // Wait for baseline: cat1=4, cat2=1
-    await expect.poll(() => getRequirementCount(page, cat1Id), { timeout: 10000 }).toBe(4);
-    await expect.poll(() => getRequirementCount(page, cat2Id), { timeout: 10000 }).toBe(1);
-
-    // Drag crossReq from cat1 to cat2
-    const source = page.getByTestId(`requirement-${crossReqId}`);
-    const targetCard = page.getByTestId(`category-card-${cat2Id}`);
-    await dragAndDrop(page, source, targetCard);
-
-    const cat2Card = page.getByTestId(`category-card-${cat2Id}`);
-    await expect(cat2Card.getByTestId(`requirement-${crossReqId}`)).toBeVisible({ timeout: 10000 });
-
-    const cat1Card = page.getByTestId(`category-card-${cat1Id}`);
-    await expect(cat1Card.getByTestId(`requirement-${crossReqId}`)).not.toBeVisible({ timeout: 5000 });
-
-    // Counts: cat1=3, cat2=2
-    await expect.poll(() => getRequirementCount(page, cat1Id), { timeout: 5000 }).toBe(3);
-    await expect.poll(() => getRequirementCount(page, cat2Id), { timeout: 5000 }).toBe(2);
-
-    // Restore cat1 to hand mode
-    await apiCall('categories', 'PUT', [{ id: cat1Id, sort_mode: 'hand' }], idToken);
+  test('SDND-05: process → reverse across cards — category_fk only', async ({ page }) => {
+    await reset();
+    await open(page);
+    const put = page.waitForResponse(r => r.request().method() === 'PUT' && r.url().includes('/requirements'));
+    await dndKitDrag(page, card(page, cat2Id).getByTestId(`requirement-${req4Id}`), card(page, cat3Id));
+    const body = JSON.parse((await put).request().postData() || '[]');
+    expect(body).toEqual([{ id: Number(req4Id), category_fk: Number(cat3Id) }]);
+    await expect(card(page, cat3Id).getByTestId(`requirement-${req4Id}`)).toBeVisible({ timeout: 10000 });
+    await expect.poll(() => count(page, cat2Id)).toBe(0);
   });
 
-  // ─── SDND-06: Aggregator not a drop target ─────────────────────────────
-
-  test('SDND-06: Drop on aggregator card is a no-op', async ({ page }) => {
-    await resetSortOrder();
-    await goToTestProject(page);
-
-    // Scope to visible tab panel (MUI renders all panels; hidden ones have `hidden` attribute)
-    const visiblePanel = page.locator('[role="tabpanel"]:not([hidden])').first();
-
-    // Enable SwarmStartCard aggregator
-    const toggleBtn = page.getByTestId('swarm-start-card-toggle');
-    await toggleBtn.click();
-    await expect(visiblePanel.getByTestId('swarm-start-card')).toBeVisible({ timeout: 10000 });
-
-    // Wait for baseline: cat1=4
-    await expect.poll(() => getRequirementCount(page, cat1Id), { timeout: 10000 }).toBe(4);
-
-    // Attempt to drag R1 onto the aggregator card body
-    const source = page.getByTestId(`requirement-${req1Id}`);
-    const aggregator = visiblePanel.getByTestId('swarm-start-card');
-    await dragAndDrop(page, source, aggregator);
-
-    // Brief wait for any potential mutation
+  test('SDND-06: a drop on the aggregator is no drop', async ({ page }) => {
+    await reset();
+    await open(page, true);
+    await expect(aggregator(page)).toBeVisible({ timeout: 10000 });
+    const counter = await countPuts(page, 'requirements');
+    await dndKitDrag(page, row(page, req1Id), aggregator(page));
     await page.waitForTimeout(500);
-
-    // R1 should still be in cat1 — count unchanged at 4
-    await expect.poll(() => getRequirementCount(page, cat1Id), { timeout: 5000 }).toBe(4);
-    await expect(page.getByTestId(`category-card-${cat1Id}`).getByTestId(`requirement-${req1Id}`)).toBeVisible();
-
-    // Hide aggregator for subsequent tests
-    await toggleBtn.click();
+    expect(counter.puts).toBe(0);
+    await expect(card(page, cat1Id).getByTestId(`requirement-${req1Id}`)).toBeVisible();
+    expect(await count(page, cat1Id)).toBe(4);
   });
 
-  // ─── SDND-07: Drag from aggregator into category card ──────────────────
-
-  test('SDND-07: Aggregator rows are drag sources with cursor:grab', async ({ page }) => {
-    await resetSortOrder();
-    await goToTestProject(page);
-
-    // Scope to visible tab panel
-    const visiblePanel = page.locator('[role="tabpanel"]:not([hidden])').first();
-
-    // Enable aggregator and switch to authoring status chip
-    const toggleBtn = page.getByTestId('swarm-start-card-toggle');
-    await toggleBtn.click();
-    const aggregator = visiblePanel.getByTestId('swarm-start-card');
-    await expect(aggregator).toBeVisible({ timeout: 10000 });
-
-    // Default status is swarm_ready — click the authoring chip so our test
-    // requirements (all authoring status) are visible in the aggregator
-    await aggregator.getByTestId('swarm-start-chip-authoring').click();
-    await page.waitForTimeout(500);
-
-    // Wait for aggregator to render our requirement rows
-    const aggRow = aggregator.getByTestId(`requirement-${req1Id}`);
+  test('SDND-07: FROM the aggregator into a card — it moves, and stays in the aggregator', async ({ page }) => {
+    await reset();
+    await open(page, true);
+    await aggregator(page).getByTestId('swarm-start-chip-swarm_ready').click();
+    const aggRow = aggregator(page).getByTestId(`requirement-${readyReqId}`);
     await expect(aggRow).toBeVisible({ timeout: 15000 });
-
-    // Aggregator rows should have cursor:grab (proof they are drag sources).
-    // Template rows have cursor:default and are NOT draggable.
-    const cursor = await aggRow.evaluate((el: HTMLElement) => getComputedStyle(el).cursor);
-    expect(cursor).toBe('grab');
-
-    // Verify the aggregator row has the aggregator-row class (color bar rendered)
-    const hasColorBar = await aggRow.evaluate((el: HTMLElement) => el.classList.contains('aggregator-row'));
-    expect(hasColorBar).toBe(true);
-
-    // Hide aggregator
-    await toggleBtn.click();
+    await expect(card(page, cat3Id).getByTestId(`requirement-${readyReqId}`)).toBeVisible();
+    const put = page.waitForResponse(r => r.request().method() === 'PUT' && r.url().includes('/requirements'));
+    await dndKitDrag(page, aggRow, card(page, cat2Id));
+    const body = JSON.parse((await put).request().postData() || '[]');
+    expect(body).toEqual([{ id: Number(readyReqId), category_fk: Number(cat2Id) }]);
+    await expect(card(page, cat2Id).getByTestId(`requirement-${readyReqId}`)).toBeVisible({ timeout: 10000 });
+    await expect(card(page, cat3Id).getByTestId(`requirement-${readyReqId}`)).toHaveCount(0);
+    // The aggregator lists by status — the moved requirement is still swarm_ready.
+    await expect(aggRow).toBeVisible();
+    expect(String((await fetchReq(readyReqId)).category_fk)).toBe(String(cat2Id));
   });
 
-  // ─── SDND-08: Template row not draggable ───────────────────────────────
-
-  test('SDND-08: Template row is not draggable', async ({ page }) => {
-    await resetSortOrder();
-    await goToTestProject(page);
-
-    // Intercept PUT calls
-    let putCount = 0;
-    await page.route('**/requirements*', (route: any) => {
-      if (route.request().method() === 'PUT') putCount++;
-      route.continue();
-    });
-
-    // The template row has data-testid="requirement-template"
-    const template = page.getByTestId(`category-card-${cat1Id}`).getByTestId('requirement-template');
-    await expect(template).toBeVisible({ timeout: 10000 });
-
-    const target = page.getByTestId(`requirement-${req2Id}`);
-
-    // Attempt drag — template has canDrag: false, so no drag should initiate
-    // Use page.evaluate to dispatch mouse events directly
-    await page.evaluate(async () => {
-      const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-      const templateEl = document.querySelector('[data-testid="requirement-template"]');
-      const targetEl = document.querySelector('[data-testid^="requirement-"]:not([data-testid="requirement-template"])');
-      if (!templateEl || !targetEl) return;
-
-      const tRect = templateEl.getBoundingClientRect();
-      const x = tRect.left + 12;
-      const y = tRect.top + tRect.height / 2;
-
-      templateEl.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons: 1 }));
-      await delay(50);
-      templateEl.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, cancelable: true, clientX: x + 20, clientY: y, button: 0, buttons: 1 }));
-      await delay(100);
-
-      const tgtRect = targetEl.getBoundingClientRect();
-      targetEl.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, cancelable: true, clientX: tgtRect.left + 10, clientY: tgtRect.top + 10, button: 0, buttons: 1 }));
-      await delay(100);
-      targetEl.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientX: tgtRect.left + 10, clientY: tgtRect.top + 10, button: 0, buttons: 0 }));
-    });
-
-    await page.waitForTimeout(500);
-
-    // No PUT should have fired
-    expect(putCount).toBe(0);
+  test('SDND-08: the template row never lifts — a press on it is a press on its card', async ({ page }) => {
+    await reset();
+    await open(page);
+    const counter = await countPuts(page, 'requirements');
+    const template = card(page, cat1Id).getByTestId('requirement-template');
+    const b = (await template.boundingBox())!;
+    const target = (await row(page, req2Id).boundingBox())!;
+    await page.mouse.move(b.x + 12, b.y + b.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(b.x + 30, b.y + b.height / 2, { steps: 4 });
+    await page.mouse.move(target.x + 20, target.y + 10, { steps: 8 });
+    // The template row is never the lifted item (the category card is, as on
+    // the Plan view — the card lifts from anywhere that is not a draggable row).
+    await expect(template).not.toHaveAttribute('data-dragging', 'true');
+    await expect(card(page, cat1Id)).toHaveAttribute('data-dragging', 'true');
+    await page.keyboard.press('Escape');
+    await page.mouse.up();
+    await page.waitForTimeout(400);
+    expect(counter.puts).toBe(0);
+    await expect(page.locator('[data-dragging="true"]')).toHaveCount(0);
   });
 
-  // ─── SDND-09: Drop on self is a no-op ──────────────────────────────────
-
-  test('SDND-09: Drop requirement on itself is a no-op', async ({ page }) => {
-    await resetSortOrder();
-    await goToTestProject(page);
-
-    let putCount = 0;
-    await page.route('**/requirements*', (route: any) => {
-      if (route.request().method() === 'PUT') putCount++;
-      route.continue();
-    });
-
-    // Drag R2 onto itself
-    const row = page.getByTestId(`requirement-${req2Id}`);
-    await dragAndDrop(page, row, row);
-
+  test('SDND-09: a drop on itself writes nothing', async ({ page }) => {
+    await reset();
+    await open(page);
+    const counter = await countPuts(page, 'requirements');
+    await dndKitDrag(page, row(page, req2Id), row(page, req2Id));
     await page.waitForTimeout(500);
+    expect(counter.puts).toBe(0);
+    expect(await titles(page, cat1Id)).toContain(req2Title);
+  });
 
-    // No reorder PUT should fire
-    expect(putCount).toBe(0);
+  test('SDND-10: pressing ON THE TITLE TEXT lifts the row; neighbours slide; the preview is the row', async ({ page }) => {
+    await reset();
+    await open(page);
+    const source = row(page, req1Id);
+    const field = source.locator('[name="title"]');
+    const fb = (await field.boundingBox())!;
+    const target = (await row(page, req3Id).boundingBox())!;
+    const sb = (await source.boundingBox())!;
+    await page.mouse.move(fb.x + fb.width / 2, fb.y + fb.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(fb.x + fb.width / 2 + 3, fb.y + fb.height / 2 + 3);
+    await page.mouse.move(fb.x + fb.width / 2 + 8, fb.y + fb.height / 2 + 8);
+    for (let i = 1; i <= 10; i++) {
+      await page.mouse.move(fb.x + fb.width / 2, fb.y + fb.height / 2 + (target.y - sb.y) * i / 10);
+      await page.waitForTimeout(20);
+    }
+    await page.waitForTimeout(300);
+    const overlay = page.getByTestId('drag-overlay');
+    await expect(overlay).toBeVisible();
+    await expect(overlay.locator('textarea').first()).toHaveValue(req1Title);
+    // A neighbour has slid up into the space the lifted row left.
+    const slid = await row(page, req2Id).evaluate(el => getComputedStyle(el).transform);
+    expect(slid).not.toBe('none');
+    await page.mouse.up();
+    await expect.poll(async () => (await titles(page, cat1Id)).indexOf(req1Title), { timeout: 10000 }).toBe(2);
+  });
 
-    // Order preserved
-    const titles = await getRequirementTitles(page, cat1Id);
-    const idx = titles.indexOf(req2Title);
-    expect(idx).toBeGreaterThanOrEqual(0);
+  test('SDND-11: a quick click on the title only places the caret', async ({ page }) => {
+    await reset();
+    await open(page);
+    const counter = await countPuts(page, 'requirements');
+    const field = row(page, req2Id).locator('[name="title"]');
+    await field.click();
+    await expect(field).toBeFocused();
+    await page.waitForTimeout(400);
+    expect(counter.puts).toBe(0);
+    await expect(page.getByTestId('drag-overlay')).toHaveCount(0);
+  });
+
+  // ─── Across project tabs ──────────────────────────────────────────────────
+
+  test('SDND-12: carried onto another project\'s tab — switches, lands in its card, persists', async ({ page }) => {
+    await reset();
+    await open(page);
+    await projectTab(page, otherProjectName).scrollIntoViewIfNeeded();
+    const put = page.waitForResponse(r => r.request().method() === 'PUT' && r.url().includes('/requirements'));
+    await dndKitDrag(page, row(page, crossReqId), projectTab(page, otherProjectName), {
+      holdOverTargetMs: 900,
+      then: card(page, farCatId),
+    });
+    await put;
+    await expect(projectTab(page, otherProjectName)).toHaveAttribute('aria-selected', 'true');
+    await expect(card(page, farCatId).getByTestId(`requirement-${crossReqId}`)).toBeVisible();
+    expect(String((await fetchReq(crossReqId)).category_fk)).toBe(String(farCatId));
+  });
+
+  test('SDND-13: Esc after a tab hover-switch — back on the first project, nothing written', async ({ page }) => {
+    await reset();
+    await open(page);
+    const counter = await countPuts(page, 'requirements');
+    await projectTab(page, otherProjectName).scrollIntoViewIfNeeded();
+    await dndKitDrag(page, row(page, req2Id), projectTab(page, otherProjectName), {
+      holdOverTargetMs: 900,
+      then: card(page, farCatId),
+      cancelWithEscape: true,
+    });
+    await expect(projectTab(page, projectName)).toHaveAttribute('aria-selected', 'true');
+    await page.waitForTimeout(500);
+    expect(counter.puts).toBe(0);
+    await expect(page.locator('[data-dragging="true"]')).toHaveCount(0);
+  });
+
+  // ─── Category cards ───────────────────────────────────────────────────────
+
+  test('SDND-14: a category card reorders in its project and the order persists', async ({ page }) => {
+    await reset();
+    await open(page);
+    const put = page.waitForResponse(r => r.request().method() === 'PUT' && r.url().includes('/categories'));
+    // Grab the card by its header, not one of its rows (a row lifts itself).
+    await dndKitDrag(page, card(page, cat3Id).locator('.card-header'), card(page, cat1Id), { drop: 'left' });
+    await put;
+    const cats = (await apiCall(`categories?project_fk=${projectId}`, 'GET', '', idToken)) as Array<{ id: string; sort_order: number }>;
+    const order = [...cats].sort((a, b) => a.sort_order - b.sort_order).map(c => String(c.id));
+    expect(order.indexOf(String(cat3Id))).toBeLessThan(order.indexOf(String(cat1Id)));
+  });
+});
+
+test.describe.serial('SwarmView DnD — touch (dnd-kit)', () => {
+  test.use({ hasTouch: true, viewport: { width: 412, height: 780 } });
+  test.setTimeout(90000);
+  let idToken: string;
+  const sub = () => process.env.E2E_TEST_COGNITO_SUB!;
+  let projectId: string, catId: string;
+  const reqs: { id: string; title: string }[] = [];
+
+  test.beforeAll(async ({ browser }) => {
+    const context = await browser.newContext({ storageState: '.auth/user.json' });
+    const page = await context.newPage();
+    idToken = await getIdToken(page);
+    await context.close();
+    const post = async (table: string, body: object) =>
+      ((await apiCall(table, 'POST', { creator_fk: sub(), ...body }, idToken)) as Array<{ id: string }>)[0].id;
+    projectId = await post('projects', { project_name: uniqueName('SwarmTouch'), closed: 0, sort_order: 992 });
+    catId = await post('categories', { category_name: uniqueName('Hand'), project_fk: projectId, closed: 0, sort_order: 0, sort_mode: 'hand' });
+    // Enough rows that the page scrolls at phone height.
+    for (let i = 0; i < 16; i++) {
+      const title = uniqueName(`T${i}`);
+      reqs.push({ id: await post('requirements', { title, category_fk: catId, requirement_status: 'authoring', sort_order: i }), title });
+    }
+  });
+
+  test.afterAll(async () => {
+    try { await apiDelete('projects', projectId, idToken); } catch {}
+  });
+
+  async function open(page: Page) {
+    await page.goto(`/swarm?view=cards&project=${projectId}`);
+    await page.waitForSelector(`[data-testid="requirement-${reqs[0].id}"]`, { timeout: 30000 });
+  }
+  const titles = (page: Page) => page.getByTestId(`category-card-${catId}`)
+    .locator('[data-testid^="requirement-"]:not([data-testid="requirement-template"]) [name="title"]')
+    .evaluateAll(els => els.map(e => (e as HTMLTextAreaElement).value));
+
+  test('SDTOUCH-01: hold still to lift, then drag — the row reorders', async ({ page }) => {
+    await open(page);
+    await dndKitTouchDrag(page, page.getByTestId(`requirement-${reqs[0].id}`), page.getByTestId(`requirement-${reqs[2].id}`));
+    await expect.poll(() => titles(page), { timeout: 10000 }).toEqual(
+      [reqs[1].title, reqs[2].title, reqs[0].title, ...reqs.slice(3).map(r => r.title)]);
+  });
+
+  test('SDTOUCH-02: a quick swipe on a row scrolls the page and never lifts it', async ({ page }) => {
+    await open(page);
+    let puts = 0;
+    await page.route('**/requirements*', r => { if (r.request().method() === 'PUT') puts++; r.continue(); });
+    const before = await page.evaluate(() => window.scrollY);
+    await touchSwipe(page, page.getByTestId(`requirement-${reqs[6].id}`), -260);
+    await expect(page.getByTestId('drag-overlay')).toHaveCount(0);
+    expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(before + 50);
+    expect(puts).toBe(0);
   });
 });

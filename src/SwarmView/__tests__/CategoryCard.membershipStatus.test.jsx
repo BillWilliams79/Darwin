@@ -20,8 +20,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { DndProvider } from 'react-dnd';
-import { TouchBackend } from 'react-dnd-touch-backend';
+import { DarwinDndContext } from '../../dnd';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -77,7 +76,7 @@ function mount(scope = {}) {
             <QueryClientProvider client={queryClient}>
                 <AppContext.Provider value={{ darwinUri: 'http://test.local' }}>
                     <AuthContext.Provider value={{ idToken: 'tok', profile: { userName: 'tester', timezone: 'UTC' } }}>
-                        <DndProvider backend={TouchBackend} options={{ enableMouseEvents: true }}>
+                        <DarwinDndContext>
                             <CategoryCard
                                 category={CATEGORY}
                                 categoryIndex={0}
@@ -87,15 +86,12 @@ function mount(scope = {}) {
                                 categoryOnBlur={noop}
                                 clickCardClosed={noop}
                                 clickCardDelete={clickCardDelete}
-                                moveCard={noop}
-                                persistCategoryOrder={noop}
-                                removeCategory={noop}
                                 isTemplate={false}
                                 showClosed={false}
                                 epicReqIds={epicReqIds}
                                 stepReqIds={stepReqIds}
                             />
-                        </DndProvider>
+                        </DarwinDndContext>
                     </AuthContext.Provider>
                 </AppContext.Provider>
             </QueryClientProvider>

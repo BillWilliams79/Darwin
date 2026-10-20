@@ -13,3 +13,8 @@ export {
 } from './dropPolicy';
 export { useHoverSwitch, useLongPress, mergeHandlers, cancelActiveDrag } from './gestures';
 export { isEditingField, isLiftBlur } from './sensors';
+export {
+    createDragSession, useListSession, DarwinListRegistry, useRegisterList,
+    withPlacement, removeRecord, listIdOf, indexOfId,
+    beginSession, trackPlacement, endSession, settledOrder, commitDrop,
+} from './listSession';

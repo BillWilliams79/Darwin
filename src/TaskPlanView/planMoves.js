@@ -71,8 +71,6 @@ export function appendTaskToCard(targetTasks, task, areaId, sortRows = (rows) =>
     return { tasks, bulk: [{ id: task.id, area_fk: area, sort_order: moved.sort_order }] };
 }
 
-export const removeRecord = (items, id) => items.filter(r => r.id !== id);
-
 // ── Priority card ───────────────────────────────────────────────────────────
 
 /** Reorder the priority card's rows; returns the new rows and the LIVE order to persist. */
@@ -136,29 +134,7 @@ export function reorderDomains(domains, fromIndex, toIndex, activeIndex) {
 }
 
 // ── The drag session's view of a list ───────────────────────────────────────
+// Shared by every list surface since req #3663 — re-exported under the names
+// the Plan view's callers and tests use.
 
-/**
- * The list a container RENDERS during a drag. An item dragged out of its own
- * list into one that honours a position is shown in the new list at its
- * placement (so that list's siblings slide aside) and not in its old one —
- * derived from the session, never written to state, so a cancel has nothing to
- * undo.
- *
- * @param {object[]} items      the container's own records
- * @param {string}   containerId
- * @param {{active: ?object, placement: ?object}} session
- * @param {(row: object) => boolean} isTarget  rows that count as positions
- */
-export function withPlacement(items, containerId, session, isTarget) {
-    const { active, placement } = session;
-    if (!items || !active || !placement || placement.containerId === active.origin) return items;
-    const isActive = (r) => r.id === active.row.id;
-    if (containerId === active.origin) return items.filter(r => !isActive(r));
-    if (containerId !== placement.containerId) return items;
-    const rest = items.filter(r => !isActive(r));
-    const positions = rest.filter(isTarget).length;
-    const at = Math.max(0, Math.min(placement.index, positions));
-    const out = [...rest];
-    out.splice(at, 0, active.row);
-    return out;
-}
+export { withPlacement, removeRecord } from '../dnd/listSession';

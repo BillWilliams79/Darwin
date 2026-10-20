@@ -5,12 +5,13 @@
 // The local arrays stay where they were (seeded from the query in each card,
 // backing every inline-edit handler); a card registers {getItems, setItems,
 // sortMode, ...} under its container id, and the page resolves a drop against
-// those registrations, applies it to both sides and fires one write.
+// those registrations, applies it to both sides and fires one write. The
+// session and registry machinery is the shared one in src/dnd/listSession.js.
 
-import { createContext, useContext, useLayoutEffect, useRef } from 'react';
-import { create } from 'zustand';
 import call_rest_api from '../RestApi/RestApi';
-import { defineDropPolicy } from '../dnd';
+import {
+    defineDropPolicy, createDragSession, useListSession, DarwinListRegistry, useRegisterList,
+} from '../dnd';
 import { isOrderableTask } from './closedTasks';
 
 // ── Ids ─────────────────────────────────────────────────────────────────────
@@ -89,63 +90,23 @@ export const PRIORITY_TASKS = defineDropPolicy({
     persist: (_ctx, live, { entry }) => entry.persistOrder(live),
 });
 
-// ── The drag session ────────────────────────────────────────────────────────
-//
-//   active     { id, type, row, origin } — what lifted and the list it came from
-//   placement  { containerId, index } — the item has been carried into ANOTHER
-//              list that honours a position; that list renders it there
-//   highlight  the container that would take the drop as a whole (a
-//              priority-sorted card), lit while hovered
+// ── The drag session and the registry ───────────────────────────────────────
+// The shared list session (src/dnd/listSession.js, req #3663): the Plan view
+// keeps its names, every list-of-cards surface shares the machinery.
 
-export const usePlanDragStore = create((set) => ({
-    active: null,
-    placement: null,
-    highlight: null,
-    begin: (active) => set({ active, placement: null, highlight: null }),
-    place: (placement) => set({ placement }),
-    setHighlight: (highlight) => set({ highlight }),
-    end: () => set({ active: null, placement: null, highlight: null }),
-}));
+export const usePlanDragStore = createDragSession();
+
+/** The session as ONE list sees it — see `useListSession`. */
+export const usePlanSession = (containerId) => useListSession(usePlanDragStore, containerId);
+
+export const PlanListRegistry = DarwinListRegistry;
 
 /**
- * The session as ONE list sees it: `{active, placement}` only while the item
- * has been carried out of, or into, this list — otherwise nulls, so a drag
- * re-renders the two lists it touches and not every card on the page.
- * (Separate selectors returning store objects: zustand v5 compares by
- * identity, and an object literal would re-render forever.)
- */
-export function usePlanSession(containerId) {
-    const involved = (s) => !!s.placement
-        && (s.active?.origin === containerId || s.placement.containerId === containerId);
-    const active = usePlanDragStore(s => (involved(s) ? s.active : null));
-    const placement = usePlanDragStore(s => (involved(s) ? s.placement : null));
-    return { active, placement };
-}
-
-// ── The registry ────────────────────────────────────────────────────────────
-
-export const PlanListRegistry = createContext(null);
-
-/**
- * Register a list's local state with the page. `entry` is re-read on every
- * render (a ref, not a dependency), so the page always sees current arrays
- * and handlers without re-registering.
+ * Register a list's local state with the page — see `useRegisterList`.
  *
  * @param {string} containerId
  * @param {{ getItems: () => object[], setItems: Function, ready: boolean, sortMode?: string,
  *           sortRows?: Function, persistOrder?: Function, domainId?: any,
  *           areaId?: any }} entry
  */
-export function useRegisterPlanList(containerId, entry) {
-    const registry = useContext(PlanListRegistry);
-    const ref = useRef(entry);
-    ref.current = entry;
-    useLayoutEffect(() => {
-        if (!registry || !containerId) return undefined;
-        const handle = { get current() { return ref.current; } };
-        registry.set(containerId, handle);
-        return () => {
-            if (registry.get(containerId) === handle) registry.delete(containerId);
-        };
-    }, [registry, containerId]);
-}
+export const useRegisterPlanList = useRegisterList;
