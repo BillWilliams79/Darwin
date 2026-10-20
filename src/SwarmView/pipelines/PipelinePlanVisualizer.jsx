@@ -145,7 +145,7 @@ import {
     // border since they moved to HTML, req #3673).
     CARD_TITLE_BTN_STROKE,
     MIN_CARD_H, REQ_LINE_H, CHW_REQ, CARD_SEP_CHARS, REQ_SEP_PULL,
-    // req #3580 — the run pill's word and type.
+    // req #3580 — the run pill's letter and type.
     CARD_RUN_FONT, CARD_RUN_WORDS,
     // req #3650 — the collapse heads' type and the chip head's reserved width.
     CARD_COLLAPSE_FONT, CARD_COLLAPSE_W, CARD_COLLAPSE_GAP, EPIC_CHIP_COLLAPSE_HEAD_W,
@@ -5487,6 +5487,7 @@ export default function PipelinePlanVisualizer({
                                  data-testid={`pipeline-viz-run-${r.stepId}`}
                                  data-run={r.run}
                                  aria-label={`Step ${r.stepId} runs ${r.run} — switch to ${next}`}
+                                 title={`Runs ${r.run} — click to switch to ${next}`}
                                  aria-busy={r.pending || undefined}
                                  onClick={(ev) => {
                                      ev.stopPropagation();
