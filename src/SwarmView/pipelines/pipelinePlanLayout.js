@@ -6865,6 +6865,109 @@ export function clampPlanTransform(t, size, layout, kMin, kMax) {
     };
 }
 
+// ── A RELAYOUT KEEPS THE READER'S PLACE (req #3688) ─────────────────────────
+// Hide closed (req #3686) drops rows from cards, so every card below a shrunk
+// one moves up in WORLD space while the camera keeps its world transform — the
+// cards the reader was looking at slid away under a camera that never moved.
+// The fix anchors on a CARD, not on world coordinates: the card on screen
+// nearest the viewport centre keeps its top-left at the same screen pixel, at
+// the same scale. Its top, not its centre: a card is centred in its lane, so a
+// shrinking card's centre and bottom both move, and the title is what the
+// reader recognises.
+//
+// THE SAME ANCHOR BOTH WAYS. Hiding shrinks the centre card under its pinned
+// top, so the viewport centre often falls below it afterwards; picking afresh
+// on the expand then holds a DIFFERENT card, which moved by a different amount,
+// and hide → expand lands hundreds of px from where it started (review
+// finding, measured 174–560px on live plans). The caller hands the previous
+// toggle's anchor back as `preferKey` while the camera is still where that
+// toggle put it, so a round trip is exact.
+//
+// NOTHING TO HOLD WHEN EVERYTHING IS ON SCREEN. At the overview (the landing
+// and Reset view) every card is visible; anchoring one of them pushes the
+// whole plan down the panel. The answer is null and the caller keeps the
+// world camera — the plan's top stays put, which is the reader's place there.
+//
+// A FOLDED BAND places no cards, so where no card is on screen the band
+// headers are the anchors (keyed by epic, pinned at the band's top).
+const anchorKeyOfBand = (b) => `band:${b.epicId ?? 'none'}`;
+const anchorRects = (layout) => {
+    const out = new Map();
+    for (const [id, n] of (layout?.nodes || [])) {
+        if ([n.left, n.right, n.top, n.bottom].every(Number.isFinite)) {
+            out.set(`step:${id}`, { left: n.left, right: n.right, top: n.top, bottom: n.bottom, card: true });
+        }
+    }
+    for (const b of (layout?.bands || [])) {
+        if (Number.isFinite(b.y) && Number.isFinite(b.height)) {
+            out.set(anchorKeyOfBand(b), { left: 0, right: layout.width || 0,
+                top: b.y, bottom: b.y + b.height, card: false });
+        }
+    }
+    return out;
+};
+/**
+ * The camera that holds the on-screen card nearest the viewport centre in
+ * `prev` at the same screen position in `next`.
+ *
+ * @param {Object} prev the layout the camera `t` was showing
+ * @param {Object} next the layout about to be drawn
+ * @param {{x:number,y:number,k:number}} t
+ * @param {{w:number,h:number}} size the viewport, in screen px
+ * @param {?string} [preferKey] the anchor a previous call returned — held
+ *   again when it is still on screen and still placed
+ * @returns {{x:number,y:number,k:number,anchor:string}|null} null when every
+ *   card is on screen, or nothing of `prev` still placed in `next` is — the
+ *   caller keeps the camera.
+ */
+export function relayoutAnchorTransform(prev, next, t, size, preferKey = null) {
+    if (!prev?.nodes || !next?.nodes || !t || !(t.k > 0)
+        || !(size?.w > 0) || !(size?.h > 0)) return null;
+    const x0 = -t.x / t.k;
+    const y0 = -t.y / t.k;
+    const x1 = (size.w - t.x) / t.k;
+    const y1 = (size.h - t.y) / t.k;
+    const cx = (x0 + x1) / 2;
+    const cy = (y0 + y1) / 2;
+    const from = anchorRects(prev);
+    const to = anchorRects(next);
+    const onScreen = (r) => r.right >= x0 && r.left <= x1 && r.bottom >= y0 && r.top <= y1;
+    let cards = 0;
+    let cardsOn = 0;
+    for (const r of from.values()) {
+        if (!r.card) continue;
+        cards += 1;
+        if (r.left >= x0 && r.right <= x1 && r.top >= y0 && r.bottom <= y1) cardsOn += 1;
+    }
+    if (cards > 0 && cardsOn === cards) return null;
+    let key = null;
+    if (preferKey && from.has(preferKey) && to.has(preferKey) && onScreen(from.get(preferKey))) {
+        key = preferKey;
+    } else {
+        // Cards first; a band only where no card qualifies.
+        for (const wantCard of [true, false]) {
+            let best = Infinity;
+            for (const [k, r] of from) {
+                if (r.card !== wantCard || !to.has(k) || !onScreen(r)) continue;
+                const dx = Math.max(r.left - cx, 0, cx - r.right);
+                const dy = Math.max(r.top - cy, 0, cy - r.bottom);
+                const d = dx * dx + dy * dy;
+                if (d < best) { best = d; key = k; }
+            }
+            if (key) break;
+        }
+    }
+    if (!key) return null;
+    const a = from.get(key);
+    const b = to.get(key);
+    return {
+        k: t.k,
+        x: t.x - (b.left - a.left) * t.k,
+        y: t.y - (b.top - a.top) * t.k,
+        anchor: key,
+    };
+}
+
 /**
  * What the plan canvas does with its camera when it lands (req #3637).
  *
