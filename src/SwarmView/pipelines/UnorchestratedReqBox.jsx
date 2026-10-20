@@ -25,20 +25,34 @@
 // scroll: d3 binds its wheel listener to the container, so a React handler
 // (delegated to the root, an ancestor) would run too late to matter.
 //
-// ── MOVED BY ITS TITLE BAR, FIXED TO THE PANE (user directive) ────────────
+// ── MOVED BY ITS TITLE BAR, ANYWHERE IN THE WINDOW (req #3687) ────────────
 // The box opens in the panel's top-right corner. Drag its TITLE BAR and it is
-// relocated wherever it is dropped, in PANEL coordinates — it never pans or
-// zooms with the plan, it just stays put while the plan moves under it.
+// relocated wherever it is dropped — anywhere in the WINDOW, over the Darwin
+// navbar or the page header as readily as over the plan ("can the orchestrables
+// move outside the viewport and sit atop the darwin navbar or anywhere else").
+// It never pans or zooms with the plan, it just stays put while the plan moves
+// under it. At home it is `absolute` in the pane, so the corner follows the
+// pane; once placed it is `position: fixed` in window coordinates at
+// `UNSEATED_FLOAT_Z` — above the navbar, the bottom nav and the drawer, below
+// the modal layer so the seat dialog still opens over it. It stays a DOM child
+// of the pane (fixed escapes the pane's `overflow: hidden`; nothing between
+// here and the root forms a containing block, and the only stacking context —
+// the maximized page, fixed over the whole window — covers everywhere it can
+// go), so every listener on the pane still sees its events exactly as it did
+// at home. The pane's own controls that must never be covered — the maximize
+// switch, a requirement in flight, the seat-target outline — sit above it.
 // Pointer events with capture, one pointer at a time, a slop before a press
 // counts as a move (so a click that wobbles does not pin it), and the −/+ is
 // its own button so a move never toggles it. Double-click the title bar to
 // send it home. The spot is remembered per browser (a viewer convenience —
 // localStorage, wrapped, since it may be unavailable) and written once, on
 // release, only if the box moved. CSS `clamp` keeps a remembered spot inside a
-// pane that has since become smaller, and `minHeight` keeps the title bar whole
-// at the pane's bottom edge until the box is lifted (req #3677). A box dropped in the RIGHT half is remembered by
-// its distance from the right edge, so it stays flush right as the zoom resizes
-// it or the window narrows — the same anchoring its home corner has.
+// window that has since become smaller, and `minHeight` keeps the title bar
+// whole at the window's bottom edge until the box is lifted (req #3677). A box
+// dropped in the RIGHT half is remembered by its distance from the right edge,
+// so it stays flush right as the zoom resizes it or the window narrows — the
+// same anchoring its home corner has. A wheel over a box parked OFF the plan
+// does not zoom the plan about a point it cannot see.
 //
 // ── DROPPED ON A STEP, IT SEATS THE WHOLE SET (req #3608) ─────────────────
 // The same title-bar move doubles as a drag of EVERY requirement the box
@@ -58,8 +72,8 @@
 // A move never changes the box's size: the list stays open while carried
 // (#3614 folded it), the grip's strip stays while the grip hides, and the move
 // is clamped by the box's FULL height — not just its title bar — so it cannot
-// be dragged low enough for the pane's `maxHeight` to squeeze it. A placed box
-// that later GROWS (unfolded, zoomed in, more rows, a smaller pane) is lifted
+// be dragged low enough for its `maxHeight` to squeeze it. A placed box
+// that later GROWS (unfolded, zoomed in, more rows, a smaller window) is lifted
 // to stay whole, and a corner stretch stops where the whole box still fits.
 //
 // ── SIZED LIKE THE REQUIREMENTS (user directive) ───────────────────────────
@@ -117,7 +131,8 @@ import { lighten } from '@mui/material/styles';
 
 import { CARD_FRAME_W, PLAN_VIZ_PALETTE as P } from './pipelinePlanLayout';
 import {
-    UNSEATED_MIN_LIST_EM, UNSEATED_REQ_MIME, unseatedMinStretchPx, unseatedResizedBox,
+    UNSEATED_MIN_LIST_EM, UNSEATED_REQ_MIME, pointInRect, unseatedMinStretchPx,
+    unseatedResizedBox,
 } from './pipelineUnseated';
 import { usePlanViewSetting } from './planViewSettings';
 
@@ -127,9 +142,15 @@ const MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
  *  neither dark nor pastel). ~4.5:1 against the box's own background. */
 const OUTLINE = '#a64dff';
 
-/** Panel inset of the home corner, px. */
+/** Panel inset of the home corner, px — and a placed box's inset from the
+ *  window's bottom edge. */
 const CORNER_INSET = 8;
-/** The title bar's height in em — what must stay inside the pane. */
+/** A PLACED box's z-index (req #3687): above the navbar, the mobile bottom nav
+ *  (1200) and the drawer (MUI 1200), below the modal layer (MUI 1300), so the
+ *  seat dialog and every menu still open over it. The visualizer lifts the
+ *  seat-target outline one above it while the box is carried. */
+export const UNSEATED_FLOAT_Z = 1201;
+/** The title bar's height in em — what must stay inside the pane or window. */
 const HEADER_EM = 3;
 /** Pointer travel, px, before a title-bar press becomes a move. */
 const MOVE_SLOP = 4;
@@ -141,7 +162,7 @@ const MAX_STRETCH_WS = 20;
 const MAX_STRETCH_H_EM = 400;
 /** The list's height cap, in em, when it is not stretched. */
 const LIST_MAX_EM = 26;
-/** Slack, px, between the box's full height and the pane's bottom inset: the
+/** Slack, px, between the box's full height and the bottom inset: the
  *  parts are measured as whole-px `offsetHeight`s of a fractional-em layout. */
 const ROUNDING_SLACK_PX = 2;
 /** How long a fold or unfold animates, ms. */
@@ -157,8 +178,28 @@ const BADGE_MIN_EM = 1.8;
 /** A double-click this soon after a move ended is the move's own release
  *  pairing with a click, not a request to send the box home. */
 const DBLCLICK_AFTER_MOVE_MS = 500;
-const POS_STORAGE_KEY = 'darwin-plan-unseated-box-pos';
+/** WINDOW coordinates since req #3687. The pane-relative spots stored under
+ *  the old key mean something else now, so they are dropped, not misread. */
+const POS_STORAGE_KEY = 'darwin-plan-unseated-box-window-pos';
+const OLD_POS_STORAGE_KEY = 'darwin-plan-unseated-box-pos';
 const SIZE_STORAGE_KEY = 'darwin-plan-unseated-box-size';
+
+/** Where the box is laid out (req #3687): its containing block's size and the
+ *  box's top-left in it. PLACED, that is the window — a fixed box's `100%` is
+ *  the viewport, scrollbars excluded — and the box's client rect; at HOME it is
+ *  the pane it is absolute in. Null when the pane cannot be found. */
+function layoutIn(box, placed) {
+    if (placed) {
+        const d = document.documentElement;
+        const r = box.getBoundingClientRect();
+        return { w: d.clientWidth || window.innerWidth,
+            h: d.clientHeight || window.innerHeight, left: r.left, top: r.top };
+    }
+    const pane = box.offsetParent;
+    if (!pane) return null;
+    return { w: pane.clientWidth, h: pane.clientHeight,
+        left: box.offsetLeft, top: box.offsetTop };
+}
 
 /** The bar's edge: a same-hue lightened shade of its fill, or a neutral edge
  *  for a value MUI cannot parse (RequirementRow's rule, req #2752). */
@@ -182,6 +223,7 @@ function boxHeights({ box, header, strip, list }, open, { listHeightPx, fontPx }
 
 function readPos() {
     try {
+        window.localStorage.removeItem(OLD_POS_STORAGE_KEY);
         const v = JSON.parse(window.localStorage.getItem(POS_STORAGE_KEY));
         if (!v || !Number.isFinite(v.y)) return null;
         if (Number.isFinite(v.x)) return { x: v.x, y: v.y };
@@ -229,18 +271,41 @@ export default function UnorchestratedReqBox({
     useEffect(() => () => clearTimeout(foldTimerRef.current), []);
     const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
     const foldMs = reduceMotion ? 0 : FOLD_MS;
+    // The list's width, px, held at the OPEN box's inner width for the length
+    // of a fold (req #3684). Titles wrap to two lines, so a row's height now
+    // depends on the width — and Collapse measures the height to unfold to
+    // before the width transition has moved, at the folded width, where every
+    // title wraps: the list would animate to too tall and snap back. Held, it
+    // lays out at the width it ends at and the narrow box just clips it.
+    const [foldListW, setFoldListW] = useState(null);
     const toggleOpen = () => {
         setOpen((v) => !v);
         if (!foldMs) return;
         setFolding(true);
+        setFoldListW(openListWidth());
         clearTimeout(foldTimerRef.current);
-        foldTimerRef.current = setTimeout(() => setFolding(false), foldMs + 50);
+        foldTimerRef.current = setTimeout(() => {
+            setFolding(false);
+            setFoldListW(null);
+        }, foldMs + 50);
     };
     const listRef = useRef(null);
     const boxRef = useRef(null);
+    // The open box's inner width, px: its drawn width capped at its containing
+    // block (the `maxWidth` below), less its border. Null when it cannot be
+    // measured.
+    const openListWidth = () => {
+        const box = boxRef.current;
+        const at = box && layoutIn(box, !!pos);
+        if (!at) return null;
+        const border = box.offsetWidth - box.clientWidth;
+        const outer = Math.min(drawn.widthPx, at.w - 2 * CORNER_INSET);
+        return getComputedStyle(box).boxSizing === 'border-box' ? outer - border : outer;
+    };
     const headerRef = useRef(null);
     const stripRef = useRef(null);
-    // `null` = home (top-right); else panel-relative px of the top-left corner.
+    // `null` = home (the pane's top-right); else WINDOW px of the top-left
+    // corner, or of the top and the distance from the right edge (req #3687).
     const [pos, setPos] = useState(readPos);
     // The gesture lives in a ref; `moving` is state only so the cursor
     // re-renders on press and release.
@@ -267,13 +332,14 @@ export default function UnorchestratedReqBox({
     const onBarDown = (e) => {
         if (moveRef.current || e.button !== 0 || e.target.closest('button')) return;
         const box = boxRef.current;
-        const pane = box?.offsetParent;
-        if (!box || !pane) return;
+        if (!box) return;
         e.preventDefault();
         e.currentTarget.setPointerCapture?.(e.pointerId);
+        // In WINDOW coordinates even from home: the first move frame places it.
+        const at = layoutIn(box, true);
         moveRef.current = {
             id: e.pointerId, sx: e.clientX, sy: e.clientY,
-            left: box.offsetLeft, top: box.offsetTop, last: null,
+            left: at.left, top: at.top, last: null,
             // Where to send the box back to if this drag turns out to be a seat.
             before: pos, carries: items.length > 0,
         };
@@ -288,12 +354,12 @@ export default function UnorchestratedReqBox({
         // Limits read LIVE, every frame: a wheel over the bar still zooms, and
         // the box's em size changes with it mid-drag.
         const box = boxRef.current;
-        const pane = box?.offsetParent;
-        if (!box || !pane) return;
+        if (!box) return;
+        const win = layoutIn(box, true);
         const clampTo = (v, hi) => Math.min(Math.max(0, v), Math.max(0, hi));
         m.last = {
-            x: Math.round(clampTo(m.left + dx, pane.clientWidth - box.offsetWidth)),
-            y: Math.min(Math.round(Math.max(0, m.top + dy)), maxTop(box, pane)),
+            x: Math.round(clampTo(m.left + dx, win.w - box.offsetWidth)),
+            y: Math.min(Math.round(Math.max(0, m.top + dy)), maxTop(box, win)),
         };
         setPos(m.last);
         if (m.carries) {
@@ -323,12 +389,13 @@ export default function UnorchestratedReqBox({
                 return;
             }
         }
-        // Anchor to the nearer side: right half → remembered from the right.
+        // Anchor to the nearer side of the window: right half → remembered
+        // from the right.
         const box = boxRef.current;
-        const pane = box?.offsetParent;
+        const win = box && layoutIn(box, true);
         let final = m.last;
-        if (box && pane && m.last.x + box.offsetWidth / 2 > pane.clientWidth / 2) {
-            final = { r: Math.max(0, pane.clientWidth - m.last.x - box.offsetWidth),
+        if (win && m.last.x + box.offsetWidth / 2 > win.w / 2) {
+            final = { r: Math.max(0, win.w - m.last.x - box.offsetWidth),
                 y: m.last.y };
         }
         setPos(final);
@@ -338,66 +405,62 @@ export default function UnorchestratedReqBox({
 
     const heights = (box) => boxHeights({ box, header: headerRef.current,
         strip: stripRef.current, list: listRef.current }, open, drawn);
-    // The lowest top at which the WHOLE box still clears the pane's bottom
+    // The lowest top at which the WHOLE box still clears the window's bottom
     // inset — the one `maxHeight` holds — so it is never squeezed (req #3677).
-    const maxTop = (box, pane) => Math.max(0, Math.floor(
-        pane.clientHeight - CORNER_INSET - ROUNDING_SLACK_PX - heights(box).full));
+    const maxTop = (box, win) => Math.max(0, Math.floor(
+        win.h - CORNER_INSET - ROUNDING_SLACK_PX - heights(box).full));
     // A placed box that has GROWN since it was dropped — unfolded, zoomed in,
-    // more rows, a smaller pane, a seat sending it back — is lifted so it is
+    // more rows, a smaller window, a seat sending it back — is lifted so it is
     // still whole, never squeezed. Not remembered: the spot the reader chose
-    // stays theirs, and a smaller pane re-lifts it on the next load.
+    // stays theirs, and a smaller window re-lifts it on the next load.
     const reclampRef = useRef(null);
     reclampRef.current = () => {
         if (!pos || moveRef.current || resizeRef.current) return;
         const box = boxRef.current;
-        const pane = box?.offsetParent;
-        if (!box || !pane) return;
-        const top = maxTop(box, pane);
+        if (!box) return;
+        const top = maxTop(box, layoutIn(box, true));
         if (pos.y > top) setPos({ ...pos, y: top });
     };
     useLayoutEffect(() => { reclampRef.current(); });
     useEffect(() => {
-        const pane = boxRef.current?.offsetParent;
-        if (!pane || typeof ResizeObserver === 'undefined') return undefined;
-        const ro = new ResizeObserver(() => reclampRef.current());
-        ro.observe(pane);
-        return () => ro.disconnect();
+        const onResize = () => reclampRef.current();
+        window.addEventListener('resize', onResize);
+        return () => window.removeEventListener('resize', onResize);
     }, []);
 
     const onGripDown = (e) => {
         if (resizeRef.current || e.button !== 0) return;
         const box = boxRef.current;
-        const pane = box?.offsetParent;
-        if (!box || !pane) return;
+        // The pane at home, the window once placed (req #3687).
+        const cb = box && layoutIn(box, !!pos);
+        if (!cb) return;
         e.preventDefault();
         e.stopPropagation();
         e.currentTarget.setPointerCapture?.(e.pointerId);
-        // Re-anchor to where the box is DRAWN. A remembered spot the pane's
+        // Re-anchor to where the box is DRAWN. A remembered spot the window's
         // clamp is overriding (zoomed wide, it no longer fits beside its edge)
         // would otherwise grow from the far edge, not the grip.
         let rebased = null;
         if (pos) {
             const at = anchoredRight
-                ? { r: Math.max(0, pane.clientWidth - box.offsetLeft - box.offsetWidth),
-                    y: box.offsetTop }
-                : { x: box.offsetLeft, y: box.offsetTop };
+                ? { r: Math.max(0, cb.w - cb.left - box.offsetWidth), y: cb.top }
+                : { x: cb.left, y: cb.top };
             if (at.x !== pos.x || at.r !== pos.r || at.y !== pos.y) {
                 rebased = at;
                 setPos(at);
             }
         }
-        const room = anchoredRight ? box.offsetLeft + box.offsetWidth
-            : pane.clientWidth - box.offsetLeft;
+        const room = anchoredRight ? cb.left + box.offsetWidth : cb.w - cb.left;
         const list = listRef.current;
         resizeRef.current = {
             id: e.pointerId, sx: e.clientX, sy: e.clientY,
             // Border-box, like the `height` it becomes.
             w: box.offsetWidth, h: list?.offsetHeight ?? null, right: anchoredRight,
-            maxW: Math.min(room, pane.clientWidth - 2 * CORNER_INSET),
-            // To the pane's bottom inset with the grip strip and border still
-            // above it — no taller than the WHOLE box can be seen (req #3677).
-            maxH: list ? pane.clientHeight - CORNER_INSET - ROUNDING_SLACK_PX
-                - box.offsetTop - heights(box).frame : 0,
+            maxW: Math.min(room, cb.w - 2 * CORNER_INSET),
+            // To the bottom inset with the grip strip and border still above
+            // it — no taller than the WHOLE box can be seen (req #3677).
+            maxH: list ? cb.h - CORNER_INSET - ROUNDING_SLACK_PX
+                - cb.top - heights(box).frame : 0,
             hEm: size?.hEm ?? null, vertical: false, last: null, rebased,
         };
         setResizing(true);
@@ -449,7 +512,7 @@ export default function UnorchestratedReqBox({
 
     // Geometry in `style` (it changes on every move frame — see fontSize below).
     const clampTop = (y) => `clamp(0px, ${y}px, calc(100% - ${HEADER_EM}em))`;
-    // The DRAWN width — `maxWidth` caps it at the pane — so this agrees with
+    // The DRAWN width — `maxWidth` caps it at the pane or window — so this agrees with
     // the move clamp, which reads `offsetWidth`.
     const count = items.length;
     // Folded, the box is exactly its "OR" bar wide: the badge holds the count's
@@ -460,8 +523,11 @@ export default function UnorchestratedReqBox({
     const drawnW = open ? `min(${drawn.widthPx}px, 100% - ${2 * CORNER_INSET}px)`
         : `min(${foldedW}, 100% - ${2 * CORNER_INSET}px)`;
     const clampSide = (v) => `clamp(0px, ${v}px, calc(100% - ${drawnW}))`;
+    // Placed, it is fixed in the WINDOW, so every `100%` below is the window's
+    // (req #3687).
     const placement = pos
-        ? { ...(pos.r != null ? { right: clampSide(pos.r) } : { left: clampSide(pos.x) }),
+        ? { position: 'fixed', zIndex: UNSEATED_FLOAT_Z,
+            ...(pos.r != null ? { right: clampSide(pos.r) } : { left: clampSide(pos.x) }),
             top: clampTop(pos.y),
             // Never below the title bar: parked at the bottom edge it shows
             // the bar whole rather than a squeezed sliver.
@@ -478,6 +544,21 @@ export default function UnorchestratedReqBox({
         el.addEventListener('wheel', onWheel, { passive: true });
         return () => el.removeEventListener('wheel', onWheel);
     }, [open]);
+    // Parked OFF the plan (req #3687), a wheel over the box is not a zoom: it
+    // would reach the pane's d3 listener — the box is still its DOM child,
+    // wherever it is drawn — and zoom about a point outside the canvas.
+    useEffect(() => {
+        const box = boxRef.current;
+        if (!box) return undefined;
+        const onWheel = (ev) => {
+            const pane = box.parentElement;
+            if (pane && !pointInRect(ev.clientX, ev.clientY, pane.getBoundingClientRect())) {
+                ev.stopPropagation();
+            }
+        };
+        box.addEventListener('wheel', onWheel, { passive: true });
+        return () => box.removeEventListener('wheel', onWheel);
+    }, []);
 
     // No grip while folded or being moved (its corner follows the side the
     // box is anchored to, which a move is changing). A move keeps the grip's
@@ -586,8 +667,11 @@ export default function UnorchestratedReqBox({
             <Box ref={listRef} data-testid="pipeline-viz-unseated-list"
                  // A stretched height, in `style` for the same reason as
                  // the box's own geometry: it changes on every frame.
-                 style={drawn.listHeightPx == null ? undefined
-                     : { height: `${drawn.listHeightPx}px`, maxHeight: 'none' }}
+                 style={{
+                     ...(drawn.listHeightPx != null
+                         && { height: `${drawn.listHeightPx}px`, maxHeight: 'none' }),
+                     // Mid-fold only — see `foldListW`.
+                     ...(foldListW > 0 && { width: `${foldListW}px` }) }}
                  sx={{ overflowY: 'auto', overscrollBehavior: 'contain',
                         minHeight: 0, flex: '0 1 auto', maxHeight: `${LIST_MAX_EM}em`,
                         borderTop: `1px solid ${P.line}`, py: '0.35em' }}>
@@ -641,8 +725,13 @@ export default function UnorchestratedReqBox({
                                 {id}
                             </Box>
                             <Box component="span"
+                                 data-testid={`pipeline-viz-unseated-item-title-${id}`}
+                                 // Wraps to two lines at most, then "…"
+                                 // (req #3684). An unbroken run breaks
+                                 // rather than overflowing the clamp.
                                  sx={{ flex: 1, minWidth: 0, overflow: 'hidden',
-                                        textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        display: '-webkit-box', WebkitBoxOrient: 'vertical',
+                                        WebkitLineClamp: 2, overflowWrap: 'anywhere' }}>
                                 {r.title}
                             </Box>
                         </Box>

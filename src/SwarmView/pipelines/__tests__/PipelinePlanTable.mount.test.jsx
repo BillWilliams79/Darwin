@@ -155,6 +155,33 @@ describe('PipelinePlanTable mounts (req #3324)', () => {
         expect(q('pipeline-lock-chip-47')).toBeNull();
     });
 
+    // req #3676 — a step's ids in ORCHESTRATION order (open before complete,
+    // deployed first, then FIFO), with the dashed divider before the first
+    // complete id, the same order the Plan card stacks them in.
+    it('lists a step\'s requirements in orchestration order with a complete divider', () => {
+        const ordered = { ...PLAN, rows: PLAN.rows.map((r) => (r.id === 48
+            ? { ...r, reqIds: [3656, 3641, 3655, 3646] } : r)) };
+        const model = { requirements: [
+            { id: 3656, requirement_status: 'met', coordination_type: 'deployed' },
+            { id: 3641, requirement_status: 'development', coordination_type: 'implemented' },
+            { id: 3655, requirement_status: 'swarm_ready', coordination_type: 'deployed' },
+            { id: 3646, requirement_status: 'met', coordination_type: 'implemented' },
+        ] };
+        render({ plan: ordered, model });
+        const cell = document.querySelector('[data-testid="pipeline-req-link-3655"]').parentElement;
+        const seq = [...cell.children].map((el) => el.getAttribute('data-testid'))
+            .filter(Boolean);
+        expect(seq).toEqual([
+            'pipeline-req-link-3655', 'pipeline-req-link-3641',
+            'pipeline-req-done-rule-48',
+            // complete group: deployed 3656 before implemented 3646
+            'pipeline-req-link-3656', 'pipeline-req-link-3646',
+            'pipeline-step-add-48',
+        ]);
+        // No divider on a step with no complete work.
+        expect(document.querySelector('[data-testid="pipeline-req-done-rule-47"]')).toBeNull();
+    });
+
     // The three optional props, because each one opens a branch — and a hook
     // called inside a branch this test never entered would still be missing.
     it('renders with cost shown, a cost error, and a focused step', () => {
