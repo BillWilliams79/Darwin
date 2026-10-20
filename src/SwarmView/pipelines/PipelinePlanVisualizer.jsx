@@ -123,6 +123,7 @@ import {
     computePlanLayout, beadStyle, placeEpicChips,
     epicFocusTransform, stepFocusTransform, epicWorkFocusTransform,
     factoryDefaultView, clampPlanTransform, planLandingAction,
+    relayoutAnchorTransform,
     // req #3365 — the ruler's own thinning gap, re-applied at draw time
     // against the counter-scaled label widths.
     RULER_LABEL_GAP,
@@ -1545,7 +1546,30 @@ export default function PipelinePlanVisualizer({
     // "this plan's Step Width changed" (the base view: the rescale is the
     // reader's explicit choice and the old camera means nothing on it).
     const landedPlanRef = useRef(null);
+    // req #3688 — the layout the camera was last showing, and — once Hide
+    // closed flips — the layout it was showing BEFORE the flip, held until the
+    // housekeeping branch below consumes it. Held rather than read in the same
+    // run because a run can bail on a readiness guard: the reader's place is
+    // defined by what they saw before the toggle, however many commits later
+    // the camera gets to act on it. The camera at the toggle rides along: if
+    // the reader has moved it by the time the anchor is consumed, the old
+    // layout no longer describes what they are looking at, and it is dropped.
+    // `lastAnchorRef` is the anchor the previous toggle held and the camera it
+    // left — handed back while the camera is still there, so hide → expand
+    // holds the SAME card both ways and returns exactly.
+    const shownLayoutRef = useRef(null);
+    const shownHideClosedRef = useRef(hideClosed);
+    const anchorFromRef = useRef(null);
+    const lastAnchorRef = useRef(null);
     useEffect(() => {
+        if (shownHideClosedRef.current !== hideClosed) {
+            shownHideClosedRef.current = hideClosed;
+            if (anchorFromRef.current == null) {
+                anchorFromRef.current = { layout: shownLayoutRef.current,
+                    t: liveTransformRef.current };
+            }
+        }
+        shownLayoutRef.current = layout;
         const el = containerEl;
         const zb = zoomRef.current;
         if (!el || zb == null || size.w === 0) return;
@@ -1607,6 +1631,8 @@ export default function PipelinePlanVisualizer({
         const saved = landed?.landKey === landKey ? null : viewport.read();
         const action = planLandingAction(landed, next, saved);
         if (action !== 'keep') {
+            // A landing replaces the camera wholesale; there is no place to keep.
+            anchorFromRef.current = null;
             landedKeyRef.current = landKey;
             landedPlanRef.current = viewportKey;
             setLandedKey(landKey);
@@ -1652,10 +1678,30 @@ export default function PipelinePlanVisualizer({
         // otherwise a no-op on the camera.
         const live = liveTransformRef.current;
         if (!live) return;
+        // (b) HIDE CLOSED KEEPS THE READER'S PLACE (req #3688). The toggle
+        // relayouts — cards shrink or grow and everything below them moves —
+        // so holding the WORLD transform slides the cards the reader was on off
+        // to somewhere else. Hold the card nearest the viewport centre at its
+        // screen position instead. A null answer (nothing on screen) falls
+        // through to (a)'s plain re-clamp.
+        const anchorFrom = anchorFromRef.current;
+        anchorFromRef.current = null;
+        const sameCamera = (a, b) => !!a && !!b && a.x === b.x && a.y === b.y && a.k === b.k;
+        if (anchorFrom && sameCamera(anchorFrom.t, live)) {
+            const last = lastAnchorRef.current;
+            const anchored = relayoutAnchorTransform(anchorFrom.layout, layout, live, size,
+                sameCamera(last?.t, live) ? last.key : null);
+            if (anchored) {
+                apply(anchored);
+                lastAnchorRef.current = liveTransformRef.current
+                    ? { key: anchored.anchor, t: liveTransformRef.current } : null;
+                return;
+            }
+        }
         const c = clampPlanTransform(live, size, layout, kZoomFloor, kMax);
         if (c.k !== live.k || c.x !== live.x || c.y !== live.y) apply(live);
     }, [resetView, containerEl, size, layout, kZoomFloor, kDefault, sizeSettled,
-        landKey, viewportKey, viewport]);
+        landKey, viewportKey, viewport, hideClosed]);
 
     // Reset targets the same view the plan lands on (req #3312), so all this
     // adds over `resetView` is the INTENT: an explicit, in-the-moment
