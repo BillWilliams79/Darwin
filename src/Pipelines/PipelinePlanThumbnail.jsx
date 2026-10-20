@@ -87,7 +87,9 @@ import {
     beadStyle,
     reqIdStyle,
     buildReqColorViews,
-    sortReqIdsByColorKey,
+    orderStepReqs,
+    CARD_DONE_RULE_DASH,
+    CARD_DONE_RULE_OPACITY,
     DEFAULT_COLOR_KEY,
     DEFAULT_PLAN_PALETTE,
     PLAN_VIZ_PALETTE,
@@ -96,6 +98,7 @@ import {
     CARD_RUN_FONT,
     CARD_LINE_H,
     REQ_LINE_H,
+    REQ_SEP_PULL,
     CARD_RADIUS,
     CARD_PAD_X,
     CARD_RULE_GAP,
@@ -173,19 +176,13 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
         if (!baseRows || !baseRows.length) return null;
 
         // The requirement rows in each card, in the order the plan page shows
-        // them under its default colour key — the same `sortReqIdsByColorKey`
-        // pass the visualizer runs over the same columns.
+        // them — orchestration order (req #3676), the same `orderStepReqs`
+        // pass the visualizer runs over the same rows.
         const reqById = new Map(model.requirements.map((r) => [r.id, r]));
-        const sortArgs = {
-            colorKey: DEFAULT_COLOR_KEY,
+        const rows = orderStepReqs(baseRows, {
             statusOf: (id) => reqById.get(id)?.requirement_status,
-            sessionOf: (id) => reqById.get(id)?.session_status,
             autonomyOf: (id) => reqById.get(id)?.coordination_type,
-            machineOf: (id) => reqById.get(id)?.machine_fk,
-        };
-        const rows = baseRows.map((r) => ((r.reqIds || []).length > 1
-            ? { ...r, reqIds: sortReqIdsByColorKey(r.reqIds, sortArgs) }
-            : r));
+        });
 
         const reqTitles = new Map(model.requirements.map((r) => [r.id, r.title]));
         const layout = computePlanLayout(rows, {
@@ -370,6 +367,15 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
                                             n.frameLeft + CARD_PAD_X, ruleY,
                                             n.frameLeft + n.frameW - CARD_PAD_X, ruleY,
                                         ]} stroke={P.line} strokeWidth={lineW(1)} />
+                                        {n.doneRule && (
+                                            <Line points={[
+                                                n.frameLeft + CARD_PAD_X, n.doneRule.y,
+                                                n.frameLeft + n.frameW - CARD_PAD_X,
+                                                n.doneRule.y,
+                                            ]} stroke={P.dim} strokeWidth={lineW(1)}
+                                                  dash={CARD_DONE_RULE_DASH}
+                                                  opacity={CARD_DONE_RULE_OPACITY} />
+                                        )}
                                     </Group>
                                 );
                             })}
@@ -400,13 +406,29 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
                                     });
                                     const text = Array.isArray(label.lines)
                                         ? label.lines.join('\n') : label.text;
+                                    // req #3683 — the id→title gap is 1.5
+                                    // characters, as on the plan canvas: the id
+                                    // stays put and the rest is drawn
+                                    // `REQ_SEP_PULL` further left.
+                                    const id = String(label.reqId);
+                                    const font = {
+                                        fontSize: CF.req, fontFamily: MONO,
+                                        lineHeight: REQ_LINE_H / CF.req, fill: rs.fill,
+                                        fontStyle: rs.bold ? 'bold' : 'normal',
+                                    };
+                                    if (text.length <= id.length) {
+                                        return (
+                                            <Text key={`lbl-${i}`} x={label.x} y={label.y}
+                                                  text={text} {...font} />
+                                        );
+                                    }
                                     return (
-                                        <Text key={`lbl-${i}`} x={label.x} y={label.y}
-                                              text={text}
-                                              fontSize={CF.req} fontFamily={MONO}
-                                              lineHeight={REQ_LINE_H / CF.req}
-                                              fill={rs.fill}
-                                              fontStyle={rs.bold ? 'bold' : 'normal'} />
+                                        <Group key={`lbl-${i}`}>
+                                            <Text x={label.x} y={label.y} text={id} {...font} />
+                                            <Text x={label.x - REQ_SEP_PULL} y={label.y}
+                                                  text={' '.repeat(id.length) + text.slice(id.length)}
+                                                  {...font} />
+                                        </Group>
                                     );
                                 }
                                 if (label.kind === 'badge' || label.kind === 'run') {

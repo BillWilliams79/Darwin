@@ -107,8 +107,9 @@ export const UNSEATED_TEXT_RATIO = 1.25;
  *  text step before its text follows. */
 export const UNSEATED_SMALLER_AT = 1 / UNSEATED_TEXT_RATIO;
 export const UNSEATED_BIGGER_AT = UNSEATED_TEXT_RATIO;
-/** The list's shortest stretched height, em of the zoom type: about two rows. */
-export const UNSEATED_MIN_LIST_EM = 3.5;
+/** The list's shortest stretched height, em of the zoom type: room for one
+ *  title wrapped to its two lines (req #3684), or about three short rows. */
+export const UNSEATED_MIN_LIST_EM = 4.5;
 
 /**
  * The text step for a width scale (stretched width ÷ zoom width): −1, 0 or +1.

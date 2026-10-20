@@ -79,6 +79,8 @@ export const SHOW_STEP_WIDTH = false;
  * @param {function} props.onChangeStepWidthLevel receives the level as a string
  * @param {string} props.colorKey               a REQ_COLOR_KEYS value
  * @param {function} props.onChangeColorKey     receives a REQ_COLOR_KEYS value
+ * @param {boolean} props.hideClosed            the closed (met/deferred/wontfix) rows are hidden
+ * @param {function} props.onChangeHideClosed   receives the next boolean
  * @param {string} props.planLevelPref          'auto' | '1' | '2' | '3'
  * @param {?string} props.effectiveLevel        the canvas's 'out'|'mid'|'in'
  * @param {function} props.onChangeLevelPref    receives 'auto' | '1' | '2' | '3'
@@ -90,6 +92,8 @@ export default function PipelinePlanToolbar({
     onChangeStepWidthLevel,
     colorKey,
     onChangeColorKey,
+    hideClosed,
+    onChangeHideClosed,
     planLevelPref,
     effectiveLevel,
     onChangeLevelPref,
@@ -142,6 +146,27 @@ export default function PipelinePlanToolbar({
                     );
                 })}
             </Stack>
+
+            <Divider orientation="vertical" flexItem
+                     sx={{ mx: 0.5, flexShrink: 0 }} />
+
+            {/* ── HIDE CLOSED (req #3686, user directive: "a UI button between
+                color and width") ──────────────────────────────────────────
+                Hides every step card's CLOSED requirements (met / deferred /
+                wontfix — the list under the dashed complete line) AND that line,
+                leaving the open work. A STATE like Colour, so it shows pressed;
+                the cards re-lay out because they are shorter. */}
+            <Tooltip title={hideClosed
+                ? 'Show the closed (met, deferred, wontfix) requirements again'
+                : 'Hide the closed (met, deferred, wontfix) requirements and their dashed line'}>
+                <Chip
+                    label="Hide closed"
+                    aria-label="Hide closed requirements"
+                    onClick={() => onChangeHideClosed?.(!hideClosed)}
+                    {...toolbarChipProps(!!hideClosed, { sx: { flexShrink: 0 } })}
+                    data-testid="pipeline-viz-hide-closed"
+                />
+            </Tooltip>
 
             <Divider orientation="vertical" flexItem
                      sx={{ mx: 0.5, flexShrink: 0 }} />
