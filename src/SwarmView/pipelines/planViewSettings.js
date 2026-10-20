@@ -57,6 +57,11 @@ export const PLAN_VIEW_SETTINGS = Object.freeze({
     // req #3686 — the plan's closed requirements (met / deferred / wontfix),
     // and the dashed line above them, hidden from every step card. Off until asked for.
     hideClosed: { kind: 'flag', storageKey: 'darwin-pipeline-viz-hide-closed', default: false },
+    // req #3708 — the machines the reader has DESELECTED in the toolbar's
+    // machine filter, as `planMachineFilter.js` encodes them. Nothing hidden
+    // until asked for.
+    hiddenMachines: { kind: 'value', storageKey: 'darwin-pipeline-viz-hidden-machines',
+        default: '' },
     // ── Popouts (req #3651 — were component state, reset on every mount) ───
     // The canvas's colour key: collapsed until the reader opens it (req #3633).
     keyOpen: { kind: 'flag', storageKey: 'darwin-pipeline-viz-key-open', default: false },
