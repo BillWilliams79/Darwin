@@ -82,6 +82,7 @@ import { Stage, Layer, Group, Rect, Line, Path, Text } from 'react-konva';
 
 import { useComposedPipeline } from '../hooks/useDataQueries';
 import { adaptComposedPipeline, buildPlanModel } from '../SwarmView/pipelines/pipelineAdapter';
+import { localDayOf } from '../SwarmView/pipelines/pipelinePlanTime';
 import {
     computePlanLayout,
     beadStyle,
@@ -152,10 +153,11 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
     // window resize re-crops without re-running the layout. Each stage is pure
     // and the inputs change only when the payload does, so a card re-rendering
     // for an unrelated reason (a status filter toggle, a sibling's refetch)
-    // re-runs none of it. `todayUtc` is a memo key for `usePlanSources`'
-    // reason: an empty step sits on today, so a render after UTC midnight must
-    // re-place it even when the cached payload object is unchanged.
-    const todayUtc = new Date().toISOString().slice(0, 10);
+    // re-runs none of it. `today` is a memo key for `usePlanSources`'
+    // reason: empty and running steps sit on the reader's local today, so a
+    // render after local midnight must re-place them even when the cached
+    // payload object is unchanged.
+    const today = localDayOf(new Date());
     const drawing = useMemo(() => {
         if (!data) return null;
         let adapted;
@@ -212,7 +214,7 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
             // a later edit here cannot mutate the cached plan object.
             eligible: new Set(adapted?.eligibleStepIds || []),
         };
-    }, [data, machines, todayUtc]);
+    }, [data, machines, today]);
 
     const frame = useMemo(
         () => (drawing && width > 0 ? thumbnailFrame(drawing.layout, width) : null),
