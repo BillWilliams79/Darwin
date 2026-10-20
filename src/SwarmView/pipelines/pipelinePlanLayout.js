@@ -60,7 +60,9 @@
 //      column width. Reserving it unconditionally keeps zoom a pure transform —
 //      level changes never relayout, so the overlap guarantee holds at every k.
 
-import { STEP_DONE, STEP_RUNNING, STEP_PENDING, canFileIntoStep } from './pipelineModel';
+import {
+    STEP_DONE, STEP_RUNNING, STEP_PENDING, canFileIntoStep, TERMINAL_REQUIREMENT_STATUSES,
+} from './pipelineModel';
 // THE LADDER ITSELF, imported rather than passed in (req #3324): `planLevelFor`
 // below is the ONE place the four modes are resolved, and a resolution that took
 // the ladder's answer as an argument would leave half of Auto at the call site —
@@ -394,96 +396,78 @@ export const REQ_STATUS_UNKNOWN_COLOR = PLAN_VIZ_PALETTE.dim;
 export const reqStatusColor = (status) => (Object.hasOwn(REQ_STATUS_COLORS, status)
     ? REQ_STATUS_COLORS[status] : REQ_STATUS_UNKNOWN_COLOR);
 
-// ── Requirement marks: STACK order under a step, DRIVEN BY THE ACTIVE COLOUR
-// KEY (req #3503, supersedes req #3363's fixed ladder) ─────────────────────
-// Until req #3503 this stack sorted ONE fixed way regardless of what the
-// on-screen key showed — met first, then the ladder, deferred/wontfix last —
-// so a reader who turned the Autonomy key on saw ids ordered by a status
-// ladder the key was not even naming. The user's directive: sort the stack
-// "purple to green" for WHICHEVER key is on screen, so the visual ORDER
-// always agrees with the visual MEANING it is reading off the same canvas.
+// ── Requirement marks: STACK order under a step, ORCHESTRATION ORDER, under
+// EVERY colour key (req #3676, supersedes req #3503's colour-key sort) ──────
+// The user's directive: *"Always display the requirements in a step by
+// orchestration sorted order"*. Req #3503 sorted the stack by whichever colour
+// key was on screen, so the same step listed its work in a different order
+// every time the reader changed the key, and none of those orders was the one
+// the plan actually runs in. The order is now one fact about the step, and the
+// key only colours it:
 //
-//   State (the default):  Authoring → Met     — `REQ_STATUS_ORDER` itself,
-//                                                the legend's own reading order.
-//   Session:               no session → completed — `SESSION_STATUS_ORDER`
-//                                                (req #3584).
-//   Autonomy:              Discuss → Deployed  — `AUTONOMY_ORDER` itself.
-//   Machine:                its own order       — ascending `machine_fk`, the
-//                                                same ascending-id order
-//                                                `buildMachineColorView` legends
-//                                                the machines in; a
-//                                                requirement with no machine
-//                                                pinned sinks last.
-//   none (the key off):    falls back to State's ladder — there is no colour
-//                          to sort by, and State is this scale's own default.
+//   1. NOT COMPLETE above COMPLETE — the major split. Complete is
+//      `TERMINAL_REQUIREMENT_STATUSES` (met / deferred / wontfix), the one
+//      definition of terminal used everywhere. A status this build does not
+//      resolve is NOT terminal: unknown work stays with the open work rather
+//      than vanishing below the line.
+//   2. `deployed` first, then every other autonomy — the engine's own
+//      within-step preference (`launch_queue`, req #3597/#3649): full autonomy
+//      closes itself and drains the plan.
+//   3. FIFO — lowest requirement id first, the queue's own tie-break.
 //
-// A status/coordination_type this build does not resolve sinks below every
-// recognised member of ITS ladder — the same discipline the retired fixed
-// sort used. `UNPINNED_MACHINE_RANK` is `Number.MAX_SAFE_INTEGER`, not
-// `Infinity`: two unpinned ids would both rank `Infinity`, and
-// `Infinity - Infinity` is `NaN` — a sort comparator returning `NaN` is
-// unspecified across engines, where the sentinel subtracts to a clean `0`.
-function rankInOrder(order, value) {
-    const i = order.indexOf(value);
-    return i === -1 ? order.length : i;
-}
-const UNPINNED_MACHINE_RANK = Number.MAX_SAFE_INTEGER;
+// The same three keys order the complete group, so a finished step still
+// reads in the order it ran. `doneFrom` is the index of the first complete
+// id (`ids.length` when there is none) — the layout draws the complete line
+// there, which is what keeps the split visible when the active key colours
+// something other than status.
+const TERMINAL_REQ_STATUSES = new Set(TERMINAL_REQUIREMENT_STATUSES);
 
 /**
- * Rank a requirement id for the mark stack under its step (or the plan
- * table's own id list) by the ladder the ACTIVE colour key names (req
- * #3503). `AUTONOMY_ORDER` is declared further down this file — safe to
- * reference here because this is a function BODY, evaluated only when
- * called, never at module-eval time the way an object literal's own
- * properties are (see `REQ_STATUS_COLORS`' own note on that hazard).
- *
- * @param {number} reqId
- * @param {Object} args
- * @param {string} [args.colorKey]                    a REQ_COLOR_KEYS value
- * @param {(id: number) => ?string} [args.statusOf]    id -> requirement_status
- * @param {(id: number) => ?string} [args.sessionOf]   id -> session_status
- * @param {(id: number) => ?string} [args.autonomyOf]  id -> coordination_type
- * @param {(id: number) => ?number} [args.machineOf]   id -> machine_fk
- * @returns {number}
- */
-export function reqSortRank(reqId,
-    { colorKey, statusOf, sessionOf, autonomyOf, machineOf } = {}) {
-    const key = normalizeColorKey(colorKey);
-    if (key === 'session') return rankInOrder(SESSION_STATUS_ORDER, sessionOf?.(reqId));
-    if (key === 'autonomy') return rankInOrder(AUTONOMY_ORDER, autonomyOf?.(reqId));
-    if (key === 'machine') {
-        const m = machineOf?.(reqId);
-        if (m == null) return UNPINNED_MACHINE_RANK;
-        // Coerced, not trusted raw (review finding): a blank/non-numeric
-        // `machine_fk` is not `null`, but it is not a rank either, and
-        // sorting it as `NaN` (or as a string via `<`) reads as "before
-        // every real machine" rather than sinking last like every other
-        // unresolved value here does.
-        const n = Number(m);
-        return Number.isFinite(n) ? n : UNPINNED_MACHINE_RANK;
-    }
-    // 'state' and 'none' both read the status ladder — 'none' because there
-    // is no colour to sort by and State is this scale's own default.
-    return rankInOrder(REQ_STATUS_ORDER, statusOf?.(reqId));
-}
-
-/**
- * Sort a step's linked requirement ids for on-canvas / on-table display (req
- * #3363, generalized to the active colour key by req #3503). Stable: ids
- * sharing a rank keep the order the caller gave them, rather than the sort
- * tie-breaking on id or anything else.
+ * Sort a step's linked requirement ids into orchestration order (req #3676).
+ * Ids are compared numerically, and an id that is not a finite number sorts after every
+ * numeric one in its group, so the comparator never returns `NaN`.
  *
  * @param {number[]} reqIds
- * @param {Object} [args]  see `reqSortRank`
- * @returns {number[]}
+ * @param {Object} [args]
+ * @param {(id: number) => ?string} [args.statusOf]    id -> requirement_status
+ * @param {(id: number) => ?string} [args.autonomyOf]  id -> coordination_type
+ * @returns {{ids: number[], doneFrom: number}}
  */
-export function sortReqIdsByColorKey(reqIds, args = {}) {
+export function sortReqIdsByOrchestration(reqIds, { statusOf, autonomyOf } = {}) {
     const ids = Array.isArray(reqIds) ? reqIds : [];
-    return ids
-        .map((id, i) => [id, i])
-        .sort(([aId, aI], [bId, bI]) =>
-            (reqSortRank(aId, args) - reqSortRank(bId, args)) || (aI - bI))
-        .map(([id]) => id);
+    const keyed = ids.map((id) => {
+        // `Number(null)` is 0, so a null id is caught before the coercion.
+        const n = id == null ? NaN : Number(id);
+        return {
+            id,
+            done: TERMINAL_REQ_STATUSES.has(statusOf?.(id)) ? 1 : 0,
+            auto: autonomyOf?.(id) === 'deployed' ? 0 : 1,
+            fifo: Number.isFinite(n) ? n : Number.MAX_SAFE_INTEGER,
+        };
+    });
+    keyed.sort((a, b) => (a.done - b.done) || (a.auto - b.auto) || (a.fifo - b.fifo));
+    const doneFrom = keyed.findIndex((k) => k.done);
+    return { ids: keyed.map((k) => k.id), doneFrom: doneFrom === -1 ? keyed.length : doneFrom };
+}
+
+/**
+ * The rows a canvas lays out, each with its `reqIds` in orchestration order and
+ * `reqDoneFrom` stamped for the complete line (req #3676). Only the ORDER of
+ * each row's `reqIds` changes. The row array keeps the engine's own order (bead
+ * z-stacking, column and lane placement all key off it), and every other field
+ * (`launchReqIds`, `trackingReqIds`, `swarmStartCommand`) is the engine's answer,
+ * untouched. Re-ordering the display therefore never changes what `/swarm-start`
+ * launches.
+ *
+ * @param {Object[]} rows
+ * @param {Object} [args]  see `sortReqIdsByOrchestration`
+ * @returns {Object[]}
+ */
+export function orderStepReqs(rows, args = {}) {
+    return (rows || []).map((r) => {
+        const { ids, doneFrom } = sortReqIdsByOrchestration(r.reqIds, args);
+        return { ...r, reqIds: ids, reqDoneFrom: doneFrom };
+    });
 }
 
 // ── Requirement-id scale 2 of 3: MACHINE (the 'machine' key) ───────────────
@@ -1810,6 +1794,17 @@ export const CARD_COLLAPSE_FONT = 15 * CARD_TYPE_SCALE;
 export const CARD_RULE_GAP = 7 * CARD_TYPE_SCALE;
 export const CARD_RULE_H = 1;
 export const CARD_RULE_BAND = 2 * CARD_RULE_GAP + CARD_RULE_H;
+// ── THE COMPLETE LINE (req #3676) ───────────────────────────────────────────
+// *"an actual complete line is lowlight type line that separates the two
+// groups and shows all the time esp when the color's are set to non-status
+// settings"*. A LOWLIGHT: dashed and in the palette's `dim`, so it can never be
+// mistaken for the solid title rule above it, and it sits in the
+// gap between two rows rather than taking a row of its own, so drawing it moves no box.
+export const CARD_DONE_RULE_DASH = [4 * CARD_TYPE_SCALE, 3 * CARD_TYPE_SCALE];
+// Full opacity: `dim` is already the low-contrast colour, and the line is drawn at
+// plan scale, so any fade on top of it disappears at zoomed-out L2 and in the
+// thumbnail (review finding).
+export const CARD_DONE_RULE_OPACITY = 1;
 export const CARD_RADIUS = 10 * CARD_TYPE_SCALE;
 
 
@@ -4346,6 +4341,11 @@ export function computePlanLayout(rows, opts = {}) {
                 // bar's width too wide once the bar moved outside the frame.
                 frameLeft: colX[d] - cardW / 2 + CARD_FRAME_X,
                 frameW: cardFrameW,
+                // req #3676 — the COMPLETE LINE between the step's open and
+                // complete requirements, `{ y, idY }`, or null when the card
+                // draws no split. Filled in by the label pass below, which is
+                // where the row positions it sits between are walked.
+                doneRule: null,
                 depth: d,
                 lane,
                 bandIndex,
@@ -4525,7 +4525,7 @@ export function computePlanLayout(rows, opts = {}) {
         // ── THE REQUIREMENT ROWS, TOP TO BOTTOM, IN ORDER ───────────────────
         // *"the requirements listed top to bottom inside the card in the order"*.
         // `reqIds` order is the order — this module does not re-sort it (that is
-        // `sortReqIdsByStatus`' job, and its caller's choice).
+        // `sortReqIdsByOrchestration`'s job, run by the caller, req #3676).
         //
         // There is ONE room now, and it is the card's text column. The old code
         // had to compute a per-mark budget out of the column width, the stagger
@@ -4580,6 +4580,20 @@ export function computePlanLayout(rows, opts = {}) {
             const t = lines.map((l, k) => (k ? l.trimStart() : l)).join(' ');
             const thisY = rowY;
             const thisIdY = idRowY;
+            // ── THE COMPLETE LINE (req #3676) ────────────────────────────
+            // Above the first COMPLETE row, in the middle of the gap that
+            // separates it from the last open one. Every row's glyphs are
+            // centred in their own line slot, so the middle of the gap is
+            // the middle of the visible air, at both packings (`idY` at L1/L2).
+            // Only between two groups: with no open rows above it, the line would
+            // sit a few pixels under the title rule and read as a double
+            // border. An all-complete step already says so with its ✓.
+            if (i > 0 && i === r.reqDoneFrom) {
+                n.doneRule = {
+                    y: thisY - REQ_ROW_GAP / 2,
+                    idY: thisIdY - REQ_ROW_GAP / 2,
+                };
+            }
             // The next row starts below THIS row's lines plus the between-rows
             // gap — the two quantities `reqBlockHeight` charges, walked in the
             // same order so the boxes and the block height cannot disagree.

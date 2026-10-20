@@ -87,7 +87,9 @@ import {
     beadStyle,
     reqIdStyle,
     buildReqColorViews,
-    sortReqIdsByColorKey,
+    orderStepReqs,
+    CARD_DONE_RULE_DASH,
+    CARD_DONE_RULE_OPACITY,
     DEFAULT_COLOR_KEY,
     DEFAULT_PLAN_PALETTE,
     PLAN_VIZ_PALETTE,
@@ -173,19 +175,13 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
         if (!baseRows || !baseRows.length) return null;
 
         // The requirement rows in each card, in the order the plan page shows
-        // them under its default colour key — the same `sortReqIdsByColorKey`
-        // pass the visualizer runs over the same columns.
+        // them — orchestration order (req #3676), the same `orderStepReqs`
+        // pass the visualizer runs over the same rows.
         const reqById = new Map(model.requirements.map((r) => [r.id, r]));
-        const sortArgs = {
-            colorKey: DEFAULT_COLOR_KEY,
+        const rows = orderStepReqs(baseRows, {
             statusOf: (id) => reqById.get(id)?.requirement_status,
-            sessionOf: (id) => reqById.get(id)?.session_status,
             autonomyOf: (id) => reqById.get(id)?.coordination_type,
-            machineOf: (id) => reqById.get(id)?.machine_fk,
-        };
-        const rows = baseRows.map((r) => ((r.reqIds || []).length > 1
-            ? { ...r, reqIds: sortReqIdsByColorKey(r.reqIds, sortArgs) }
-            : r));
+        });
 
         const reqTitles = new Map(model.requirements.map((r) => [r.id, r.title]));
         const layout = computePlanLayout(rows, {
@@ -370,6 +366,15 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
                                             n.frameLeft + CARD_PAD_X, ruleY,
                                             n.frameLeft + n.frameW - CARD_PAD_X, ruleY,
                                         ]} stroke={P.line} strokeWidth={lineW(1)} />
+                                        {n.doneRule && (
+                                            <Line points={[
+                                                n.frameLeft + CARD_PAD_X, n.doneRule.y,
+                                                n.frameLeft + n.frameW - CARD_PAD_X,
+                                                n.doneRule.y,
+                                            ]} stroke={P.dim} strokeWidth={lineW(1)}
+                                                  dash={CARD_DONE_RULE_DASH}
+                                                  opacity={CARD_DONE_RULE_OPACITY} />
+                                        )}
                                     </Group>
                                 );
                             })}
