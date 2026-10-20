@@ -10,6 +10,7 @@ import { act } from 'react';
 
 import UnorchestratedReqBox, { FOLD_MS, UNSEATED_FLOAT_Z } from '../UnorchestratedReqBox';
 import { UNSEATED_REQ_MIME } from '../pipelineUnseated';
+import { buildReqColorViews, reqIdStyle } from '../pipelinePlanLayout';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -901,5 +902,33 @@ describe('UnorchestratedReqBox', () => {
         act(() => { wheel(100, 300); });
         expect(zoom).toHaveBeenCalledTimes(1);
         act(() => paneRoot.unmount());
+    });
+
+    // req #3702 — the ids follow the reader's colour preference.
+    it('paints each id through idStyleOf, bold or regular as the canvas does', () => {
+        const idStyleOf = (id) => (id === 11
+            ? { fill: 'rgb(1, 2, 3)', bold: true }
+            : { fill: 'rgb(4, 5, 6)', bold: false });
+        act(() => root.render(<UnorchestratedReqBox items={items} idStyleOf={idStyleOf} />));
+        const a = q('pipeline-viz-unseated-item-id-11');
+        const b = q('pipeline-viz-unseated-item-id-12');
+        expect(a.textContent).toBe('11');
+        expect(getComputedStyle(a).color).toBe('rgb(1, 2, 3)');
+        expect(getComputedStyle(a).fontWeight).toBe('700');
+        expect(getComputedStyle(b).color).toBe('rgb(4, 5, 6)');
+        expect(getComputedStyle(b).fontWeight).toBe('400');
+    });
+
+    it('with the real registry, two autonomies paint two colours', () => {
+        const rows = [
+            { id: 11, title: 'a', coordination_type: 'discuss' },
+            { id: 12, title: 'b', coordination_type: 'deployed' },
+        ];
+        const views = buildReqColorViews({ requirements: rows });
+        const idStyleOf = (id) => reqIdStyle({ colorKey: 'autonomy', views, reqId: id });
+        act(() => root.render(<UnorchestratedReqBox items={rows} idStyleOf={idStyleOf} />));
+        const ca = getComputedStyle(q('pipeline-viz-unseated-item-id-11')).color;
+        const cb = getComputedStyle(q('pipeline-viz-unseated-item-id-12')).color;
+        expect(ca).not.toBe(cb);
     });
 });
