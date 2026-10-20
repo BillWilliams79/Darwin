@@ -157,7 +157,7 @@ import {
     // req #3649 — the epic chip's padlock.
     EPIC_LOCK_D,
     rulerScreenMag,
-    KEY_GROUP_TITLES, sortReqIdsByColorKey,
+    KEY_GROUP_TITLES, orderStepReqs, CARD_DONE_RULE_DASH, CARD_DONE_RULE_OPACITY,
 } from './pipelinePlanLayout';
 import {
     epicCycleKey, epicZoomStateKey, epicWorkStepIds, nextEpicZoom,
@@ -573,28 +573,21 @@ export default function PipelinePlanVisualizer({
                 machineFk: r.machine_fk, session: r.session_status,
             }])),
         [model]);
-    // req #3363, generalized req #3503 — the requirement marks stacked under a
-    // step sort by whichever colour key is ACTIVE (`sortReqIdsByColorKey`'s own
-    // ladder: State Authoring→Met, Session no session→completed, Autonomy
-    // Discuss→Deployed, Machine its own order), not by a fixed met-first
-    // ladder any more. Only the ORDER of each
-    // row's `reqIds` changes here; the ROW ARRAY keeps the engine's own order
-    // (bead z-stacking, column/lane placement all key off it), and every other
-    // field on a row — `launchReqIds`, `trackingReqIds`, `swarmStartCommand` —
-    // is the engine's answer, computed before this runs and left untouched, so
-    // re-ordering the display never touches what `/swarm-start` launches.
+    // req #3676 — the requirement marks stacked under a step are in
+    // ORCHESTRATION order whatever colour key is on: open work above complete,
+    // `deployed` first within each, then FIFO (`sortReqIdsByOrchestration`).
+    // `orderStepReqs` reorders each row's `reqIds` only and stamps
+    // `reqDoneFrom` for the complete line; every engine field on the row is
+    // left as computed, so the display order never touches what `/swarm-start`
+    // launches.
     const rows = useMemo(() => {
         const base = applyReqMoves(plan.rows || [], pendingMoves);
         if (!base.length) return base;
-        const statusOf = (id) => reqInfo.get(id)?.status;
-        const sessionOf = (id) => reqInfo.get(id)?.session;
-        const autonomyOf = (id) => reqInfo.get(id)?.coordination;
-        const machineOf = (id) => reqInfo.get(id)?.machineFk;
-        return base.map((r) => ((r.reqIds || []).length > 1
-            ? { ...r, reqIds: sortReqIdsByColorKey(r.reqIds,
-                { colorKey, statusOf, sessionOf, autonomyOf, machineOf }) }
-            : r));
-    }, [plan.rows, pendingMoves, reqInfo, colorKey]);
+        return orderStepReqs(base, {
+            statusOf: (id) => reqInfo.get(id)?.status,
+            autonomyOf: (id) => reqInfo.get(id)?.coordination,
+        });
+    }, [plan.rows, pendingMoves, reqInfo]);
     const rowById = useMemo(() => new Map(rows.map((r) => [r.id, r])), [rows]);
 
     // The epics the add-step dialog offers: the payload's own `epics[]` (an
@@ -3835,6 +3828,20 @@ export default function PipelinePlanVisualizer({
                         n.frameLeft + n.frameW - CARD_PAD_X,
                         n.top + n.titleH + CARD_RULE_GAP,
                     ]} stroke={P.line} strokeWidth={1} listening={false} />
+                    {/* req #3676 — the COMPLETE LINE between the step's open and
+                        complete requirements, under every colour key. At the
+                        y of the packing the rows are drawn at: titles at L3,
+                        bare ids at L2. */}
+                    {n.doneRule && (
+                        <Line points={[
+                            n.frameLeft + CARD_PAD_X,
+                            level === 'in' ? n.doneRule.y : n.doneRule.idY,
+                            n.frameLeft + n.frameW - CARD_PAD_X,
+                            level === 'in' ? n.doneRule.y : n.doneRule.idY,
+                        ]} stroke={P.dim} strokeWidth={1} dash={CARD_DONE_RULE_DASH}
+                              opacity={CARD_DONE_RULE_OPACITY}
+                              name="done-rule" listening={false} />
+                    )}
                 </Group>);
         } else {
             worldNodes.push(

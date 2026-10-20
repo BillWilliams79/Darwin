@@ -79,7 +79,7 @@ import {
     // req #3650 — the collapse heads.
     EPIC_CHIP_COLLAPSE_W, CARD_COLLAPSE_W, CARD_COLLAPSE_GAP,
     COLOR_CHANNELS, KEY_GROUP_TITLES,
-    reqSortRank, sortReqIdsByColorKey,
+    sortReqIdsByOrchestration, orderStepReqs, REQ_ROW_GAP,
 } from '../pipelinePlanLayout';
 import { epicWorkStepIds } from '../pipelineEpicZoom';
 
@@ -4388,94 +4388,117 @@ describe('requirement-status colour scale (req #3168, directive 1)', () => {
     });
 });
 
-describe('requirement mark stack order (req #3363, driven by the colour key req #3503)', () => {
-    it('State sorts Authoring→Met — REQ_STATUS_ORDER itself, purple to green', () => {
-        const statuses = {
-            1: 'authoring', 2: 'approved', 3: 'swarm_ready', 4: 'development',
-            5: 'met', 6: 'deferred', 7: 'wontfix',
+describe('requirement mark stack order — ORCHESTRATION order (req #3676)', () => {
+    const status = (m) => (id) => m[id];
+    it('open work above complete, deployed first in each, then FIFO by id', () => {
+        const st = {
+            1: 'met', 2: 'development', 3: 'swarm_ready', 4: 'wontfix',
+            5: 'authoring', 6: 'deferred', 7: 'approved', 8: 'met',
         };
-        const ids = [7, 6, 5, 4, 3, 2, 1];
-        expect(sortReqIdsByColorKey(ids,
-            { colorKey: 'state', statusOf: (id) => statuses[id] }))
-            .toEqual([1, 2, 3, 4, 5, 6, 7]);
+        const au = {
+            1: 'implemented', 2: 'implemented', 3: 'deployed', 4: 'deployed',
+            5: 'discuss', 6: 'planned', 7: 'deployed', 8: 'deployed',
+        };
+        const { ids, doneFrom } = sortReqIdsByOrchestration([8, 7, 6, 5, 4, 3, 2, 1],
+            { statusOf: status(st), autonomyOf: status(au) });
+        // open: deployed 3, 7 | others 2, 5 — complete: deployed 4, 8 | others 1, 6
+        expect(ids).toEqual([3, 7, 2, 5, 4, 8, 1, 6]);
+        expect(doneFrom).toBe(4);
     });
 
-    it('Session sorts no session→completed — SESSION_STATUS_ORDER itself (req #3584)', () => {
-        const session = { 1: 'completed', 2: 'review', 3: 'active', 4: 'no_session', 5: 'bogus' };
-        expect(sortReqIdsByColorKey([1, 2, 3, 4, 5],
-            { colorKey: 'session', sessionOf: (id) => session[id] }))
-            .toEqual([4, 3, 2, 1, 5]);
+    it('autonomy NEVER crosses the complete split — the split is the major key', () => {
+        const st = { 1: 'met', 2: 'development' };
+        const au = { 1: 'deployed', 2: 'discuss' };
+        expect(sortReqIdsByOrchestration([1, 2],
+            { statusOf: status(st), autonomyOf: status(au) }))
+            .toEqual({ ids: [2, 1], doneFrom: 1 });
     });
 
-    it('Autonomy sorts Discuss→Deployed — AUTONOMY_ORDER itself', () => {
-        const autonomy = { 1: 'deployed', 2: 'implemented', 3: 'planned', 4: 'discuss' };
-        const ids = [1, 2, 3, 4];
-        expect(sortReqIdsByColorKey(ids,
-            { colorKey: 'autonomy', autonomyOf: (id) => autonomy[id] }))
-            .toEqual([4, 3, 2, 1]);
+    it('FIFO is numeric, not lexical, and ignores the caller\'s order', () => {
+        const au = () => 'implemented';
+        expect(sortReqIdsByOrchestration([100, 9, 20],
+            { statusOf: () => 'development', autonomyOf: au }).ids).toEqual([9, 20, 100]);
     });
 
-    it('Machine sorts by its own ascending id — the legend\'s own order, unpinned last', () => {
-        const machine = { 1: 30, 2: 10, 3: null, 4: 20 };
-        const ids = [1, 2, 3, 4];
-        expect(sortReqIdsByColorKey(ids,
-            { colorKey: 'machine', machineOf: (id) => machine[id] }))
-            .toEqual([2, 4, 1, 3]);
+    it('doneFrom is the length when nothing is complete, 0 when everything is', () => {
+        expect(sortReqIdsByOrchestration([2, 1], { statusOf: () => 'development' }))
+            .toEqual({ ids: [1, 2], doneFrom: 2 });
+        expect(sortReqIdsByOrchestration([2, 1], { statusOf: () => 'deferred' }))
+            .toEqual({ ids: [1, 2], doneFrom: 0 });
     });
 
-    it('none falls back to State\'s ladder — there is no colour to sort by', () => {
-        const statuses = { 1: 'met', 2: 'authoring' };
-        expect(sortReqIdsByColorKey([1, 2],
-            { colorKey: 'none', statusOf: (id) => statuses[id] }))
-            .toEqual([2, 1]);
-        // A colorKey the registry does not recognise normalizes to the default
-        // ('state'), the same discipline `normalizeColorKey` applies everywhere
-        // else it reads a persisted preference.
-        expect(sortReqIdsByColorKey([1, 2],
-            { colorKey: 'bogus', statusOf: (id) => statuses[id] }))
-            .toEqual([2, 1]);
+    it('an unresolved status stays with the OPEN work, an unresolved autonomy is not deployed', () => {
+        const st = { 1: 'met', 2: 'bogus-status' };
+        const au = { 1: 'deployed', 3: 'deployed' };
+        // 2 (unknown status) and 3 (no status at all) are both open; 3 is
+        // deployed and leads; 1 is complete and sinks below the split.
+        expect(sortReqIdsByOrchestration([1, 2, 3],
+            { statusOf: status(st), autonomyOf: status(au) }))
+            .toEqual({ ids: [3, 2, 1], doneFrom: 2 });
+        // An inherited key is not a status.
+        expect(sortReqIdsByOrchestration([1], { statusOf: () => 'constructor' }).doneFrom)
+            .toBe(1);
     });
 
-    it('is stable within a rank — ties keep the caller\'s order', () => {
-        // development (rank 3) now leads met (rank 4) under the State ladder
-        // — the reverse of the retired met-first order — so the two
-        // development ids surface first, each pair keeping the caller's order.
-        const statuses = { 10: 'development', 11: 'met', 12: 'development', 13: 'met' };
-        expect(sortReqIdsByColorKey([10, 11, 12, 13],
-            { colorKey: 'state', statusOf: (id) => statuses[id] }))
-            .toEqual([10, 12, 11, 13]);
-    });
-
-    it('sinks an unresolved value below every recognised member of the active ladder', () => {
-        // wontfix (rank 6) is the LOWEST recognised State rank, so id 1 must
-        // still lead both unresolved ids — an equals-input assertion here
-        // would pass against a no-op sort and prove nothing.
-        const statuses = { 1: 'wontfix', 2: 'bogus-status' };
-        expect(sortReqIdsByColorKey([2, 3, 1],
-            { colorKey: 'state', statusOf: (id) => statuses[id] }))
-            .toEqual([1, 2, 3]);
-        // No lookup at all — every id is equally unresolved, so the input
-        // order survives untouched (the default accessors `reqIdSummary` — and
-        // any caller that omits one — hand this function).
-        expect(sortReqIdsByColorKey([3, 1, 2], { colorKey: 'state' })).toEqual([3, 1, 2]);
+    it('a null or non-numeric id sorts after every numeric id in its group', () => {
+        expect(sortReqIdsByOrchestration([null, 'x', 9, 3]).ids).toEqual([3, 9, null, 'x']);
     });
 
     it('tolerates a non-array input the way every other reqIds consumer does', () => {
-        expect(sortReqIdsByColorKey(null, { colorKey: 'state', statusOf: () => 'met' }))
-            .toEqual([]);
-        expect(sortReqIdsByColorKey(undefined, { colorKey: 'state', statusOf: () => 'met' }))
-            .toEqual([]);
+        expect(sortReqIdsByOrchestration(null)).toEqual({ ids: [], doneFrom: 0 });
+        expect(sortReqIdsByOrchestration(undefined, { statusOf: () => 'met' }))
+            .toEqual({ ids: [], doneFrom: 0 });
     });
 
-    it('reqSortRank alone reproduces the whole State ladder, in order', () => {
-        const ranks = REQ_STATUS_ORDER.map((status) =>
-            reqSortRank(1, { colorKey: 'state', statusOf: () => status }));
-        expect(ranks).toEqual(REQ_STATUS_ORDER.map((_, i) => i));
+    it('orderStepReqs reorders reqIds and stamps reqDoneFrom, leaving every engine field alone', () => {
+        const row = {
+            id: 1, reqIds: [5, 4], launchReqIds: [5, 4], trackingReqIds: [],
+            swarmStartCommand: '/swarm-start 5 4',
+        };
+        const [out] = orderStepReqs([row], { statusOf: (id) => (id === 4 ? 'met' : 'development') });
+        expect(out.reqIds).toEqual([5, 4]);
+        expect(out.reqDoneFrom).toBe(1);
+        expect(out.launchReqIds).toBe(row.launchReqIds);
+        expect(out.swarmStartCommand).toBe(row.swarmStartCommand);
+        expect(row.reqDoneFrom).toBeUndefined();   // the input is not mutated
+    });
+
+    // ── THE COMPLETE LINE (req #3676) ──────────────────────────────────────
+    const stepRow = (extra) => ({
+        id: 1, title: 's1', run: 'auto', state: 'running',
+        reqIds: [30, 10, 20], depIds: [], timeDeps: [],
+        epicId: null, epic: null, epicLabels: [], featureLabels: [],
+        machineLabels: [], machineLabel: '—', ...extra,
+    });
+
+    it('the complete line sits in the gap between the last open row and the first complete one', () => {
+        const layout = computePlanLayout([stepRow({ reqDoneFrom: 2 })], { reqLayout: 'vertical' });
+        const marks = layout.labels.filter((l) => l.kind === 'req' && l.stepId === 1);
+        const rule = layout.nodes.get(1).doneRule;
+        expect(rule).not.toBeNull();
+        // Midway in the row gap, at both packings.
+        expect(rule.y).toBeCloseTo(marks[2].y - REQ_ROW_GAP / 2);
+        expect(rule.idY).toBeCloseTo(marks[2].idY - REQ_ROW_GAP / 2);
+        // Strictly between the two rows' text boxes — it crosses no lettering.
+        expect(rule.y).toBeGreaterThan(marks[1].y + marks[1].h);
+        expect(rule.y).toBeLessThan(marks[2].y);
+        expect(rule.idY).toBeGreaterThan(marks[1].idY);
+        expect(rule.idY).toBeLessThan(marks[2].idY);
+    });
+
+    it('no complete line without BOTH groups, or on a folded step', () => {
+        for (const reqDoneFrom of [0, 3, undefined]) {
+            const layout = computePlanLayout([stepRow({ reqDoneFrom })], { reqLayout: 'vertical' });
+            expect(layout.nodes.get(1).doneRule, `reqDoneFrom=${reqDoneFrom}`).toBeNull();
+        }
+        const folded = computePlanLayout([stepRow({ reqDoneFrom: 1 })],
+            { reqLayout: 'vertical', collapsedStepIds: new Set([1]) });
+        expect(folded.nodes.get(1).doneRule).toBeNull();
     });
 
     // The reordering itself happens ONE LEVEL UP, in `PipelinePlanVisualizer`'s
     // `rows` memo, which hands `computePlanLayout` a row whose `reqIds` is
-    // ALREADY sorted (`sortReqIdsByColorKey` above is the whole of that logic).
+    // ALREADY sorted (`orderStepReqs` above is the whole of that logic).
     // What closes the loop is proving this module is a faithful PASS-THROUGH —
     // that it stacks/lists the 'req' marks in exactly the order `reqIds`
     // arrives in, never re-deriving an order of its own — in both req layouts.
@@ -5503,7 +5526,7 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
                 const rows = layout.labels.filter(
                     (l) => l.kind === 'req' && l.stepId === row.id);
                 // Emitted in the row's own `reqIds` order — this module never
-                // re-sorts them (that is `sortReqIdsByColorKey`'s job, and its
+                // re-sorts them (that is `sortReqIdsByOrchestration`'s job, and its
                 // caller's choice).
                 expect(rows.map((l) => l.reqId), view).toEqual(ids);
                 for (let i = 1; i < rows.length; i++) {
