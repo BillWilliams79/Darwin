@@ -526,6 +526,10 @@ export default function PipelinePlanVisualizer({
     // built by the page from reads it owns. Drawn as pills between a row's id
     // and its title; null draws every row exactly as before.
     reqPills = null,
+    // req #3702 — requirement id -> latest session status (the page's own
+    // `buildSessionStatusIndex`), so the Orchestrables box can paint its rows by
+    // the Session colour key too. Its rows sit on no step, so `model` has none.
+    sessionStatus = null,
     // req #3658 — the page is maximized (PipelineDetail owns the state, because
     // what it hides — the header row and the navbar — is the page's), and the
     // switch's click. No `onToggleMaximized`, no switch.
@@ -948,6 +952,24 @@ export default function PipelinePlanVisualizer({
             ? unseated.items.filter((r) => !pendingSeats.has(Number(r.id)))
             : unseated.items),
         [unseated.items, pendingSeats]);
+    // req #3702 — the Orchestrables rows follow the reader's colour preference.
+    // The SAME registry, theme and resolver as the canvas ids, built over the
+    // box's own rows (they sit on no step, so `model.requirements` lacks them).
+    // `session_status` is attached exactly as `buildPlanModel` does; with no
+    // index yet the Session scale paints unknown rather than "no session".
+    const unseatedColorViews = useMemo(() => buildReqColorViews({
+        requirements: unseated.items.map((r) => ({
+            ...r, id: Number(r.id),
+            ...(sessionStatus && {
+                session_status: sessionStatus.get(Number(r.id)) ?? 'no_session',
+            }),
+        })),
+        machines: model?.machines,
+        palette: activePalette,
+    }), [unseated.items, sessionStatus, model?.machines, activePalette]);
+    const unseatedIdStyleOf = useCallback((reqId) => reqIdStyle({
+        colorKey: activeColorKey, views: unseatedColorViews, reqId: Number(reqId),
+    }), [activeColorKey, unseatedColorViews]);
     // req #3608 — the whole box dropped on a step: the open confirm dialog's
     // request (`bulkSeatRequest`), null when closed, and whether its writes are
     // in flight.
@@ -5640,6 +5662,7 @@ export default function PipelinePlanVisualizer({
                     widthPx={unseatedBoxWidthPx(layout.cardFrameW,
                         unseatedBoxZoom(t.k, size.w, layout.colPitch))}
                     statusColor={planPalette(activePalette).status?.swarm_ready || P.req}
+                    idStyleOf={unseatedIdStyleOf}
                     draggingId={unseatDragId}
                     onDragStartItem={setUnseatDragId}
                     onDragEndItem={() => { setUnseatDragId(null); setSeatTarget(null); }}
