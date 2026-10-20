@@ -229,15 +229,36 @@ export default function UnorchestratedReqBox({
     useEffect(() => () => clearTimeout(foldTimerRef.current), []);
     const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
     const foldMs = reduceMotion ? 0 : FOLD_MS;
+    // The list's width, px, held at the OPEN box's inner width for the length
+    // of a fold (req #3684). Titles wrap to two lines, so a row's height now
+    // depends on the width — and Collapse measures the height to unfold to
+    // before the width transition has moved, at the folded width, where every
+    // title wraps: the list would animate to too tall and snap back. Held, it
+    // lays out at the width it ends at and the narrow box just clips it.
+    const [foldListW, setFoldListW] = useState(null);
     const toggleOpen = () => {
         setOpen((v) => !v);
         if (!foldMs) return;
         setFolding(true);
+        setFoldListW(openListWidth());
         clearTimeout(foldTimerRef.current);
-        foldTimerRef.current = setTimeout(() => setFolding(false), foldMs + 50);
+        foldTimerRef.current = setTimeout(() => {
+            setFolding(false);
+            setFoldListW(null);
+        }, foldMs + 50);
     };
     const listRef = useRef(null);
     const boxRef = useRef(null);
+    // The open box's inner width, px: its drawn width capped at the pane (the
+    // `maxWidth` below), less its border. Null when it cannot be measured.
+    const openListWidth = () => {
+        const box = boxRef.current;
+        const pane = box?.offsetParent;
+        if (!box || !pane) return null;
+        const border = box.offsetWidth - box.clientWidth;
+        const outer = Math.min(drawn.widthPx, pane.clientWidth - 2 * CORNER_INSET);
+        return getComputedStyle(box).boxSizing === 'border-box' ? outer - border : outer;
+    };
     const headerRef = useRef(null);
     const stripRef = useRef(null);
     // `null` = home (top-right); else panel-relative px of the top-left corner.
@@ -586,8 +607,11 @@ export default function UnorchestratedReqBox({
             <Box ref={listRef} data-testid="pipeline-viz-unseated-list"
                  // A stretched height, in `style` for the same reason as
                  // the box's own geometry: it changes on every frame.
-                 style={drawn.listHeightPx == null ? undefined
-                     : { height: `${drawn.listHeightPx}px`, maxHeight: 'none' }}
+                 style={{
+                     ...(drawn.listHeightPx != null
+                         && { height: `${drawn.listHeightPx}px`, maxHeight: 'none' }),
+                     // Mid-fold only — see `foldListW`.
+                     ...(foldListW > 0 && { width: `${foldListW}px` }) }}
                  sx={{ overflowY: 'auto', overscrollBehavior: 'contain',
                         minHeight: 0, flex: '0 1 auto', maxHeight: `${LIST_MAX_EM}em`,
                         borderTop: `1px solid ${P.line}`, py: '0.35em' }}>
@@ -641,8 +665,13 @@ export default function UnorchestratedReqBox({
                                 {id}
                             </Box>
                             <Box component="span"
+                                 data-testid={`pipeline-viz-unseated-item-title-${id}`}
+                                 // Wraps to two lines at most, then "…"
+                                 // (req #3684). An unbroken run breaks
+                                 // rather than overflowing the clamp.
                                  sx={{ flex: 1, minWidth: 0, overflow: 'hidden',
-                                        textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        display: '-webkit-box', WebkitBoxOrient: 'vertical',
+                                        WebkitLineClamp: 2, overflowWrap: 'anywhere' }}>
                                 {r.title}
                             </Box>
                         </Box>
