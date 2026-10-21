@@ -264,6 +264,9 @@ export default function PipelineDetail() {
     // effect inside the visualizer. 0 is the initial render, deliberately
     // never fired at.
     const [resetViewNonce, setResetViewNonce] = useState(0);
+    // req #3722 — the toolbar chip under the pointer (`{ key, el }`), which the
+    // plan visualizer draws the colour-help popup for. Transient, so state.
+    const [keyHover, setKeyHover] = useState(null);
     // req #3498 — the steps-across buttons reach the canvas the same way Reset
     // does, and for the same reason: the control is in the page's header and the
     // camera is inside the panel. A NONCE rides alongside the number so clicking
@@ -975,6 +978,7 @@ export default function PipelineDetail() {
                         onChangeStepWidthLevel={setStepWidthLevelPref}
                         colorKey={colorKey}
                         onChangeColorKey={handleColorKeyChange}
+                        onKeyHover={setKeyHover}
                         hideClosed={hideClosed}
                         onChangeHideClosed={setHideClosed}
                         machines={filterMachines}
@@ -1185,6 +1189,7 @@ export default function PipelineDetail() {
                              sessionStatus={sessionStatus}
                              maximized={maximized}
                              onToggleMaximized={toggleMaximized}
+                             keyHover={keyHover}
                              />
             )}
         </Box>

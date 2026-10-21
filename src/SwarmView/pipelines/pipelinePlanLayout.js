@@ -1087,9 +1087,12 @@ export function planPalette(key) {
 // Neither is asserted against; both are one look at the rendered key (any
 // narrow window) away from being closed or ruled out.
 //
-// The cap is enforced in the component's `sx` (`maxHeight`, not `maxWidth`)
-// and swept in pipelinePlanLayout.test.js from this constant, so the two
-// cannot drift.
+// HISTORICAL since req #3722: the key left the canvas for a button-local popup,
+// so nothing in the component enforces this cap or measures a keep-out any more
+// (`PipelinePlanVisualizer` passes `keepOut: null`). The constant and the
+// `keepOut` parameter of `placeEpicChips` stay for the sweeps in
+// pipelinePlanLayout.test.js, which still pin the placement pass's behaviour
+// against an arbitrary keep-out rectangle.
 export const PLAN_KEY_MAX_H = 110;
 
 // ── THE SCALE REGISTRY (req #3422) ─────────────────────────────────────────

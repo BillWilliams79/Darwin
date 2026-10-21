@@ -41,8 +41,8 @@ beforeEach(() => { localStorage.clear(); sessionStorage.clear(); api = null; });
 afterEach(() => { localStorage.clear(); sessionStorage.clear(); });
 
 describe('usePlanViewSetting', () => {
-    it('opens a flag at its default — the key collapsed, the unseated list open', () => {
-        mount('keyOpen');
+    it('opens a flag at its default — hide-closed off, the unseated list open', () => {
+        mount('hideClosed');
         expect(api.value).toBe(false);
         unmount();
         mount('unseatedOpen');
@@ -51,21 +51,21 @@ describe('usePlanViewSetting', () => {
     });
 
     it('a toggled popout is still toggled after the component re-mounts', () => {
-        mount('keyOpen');
+        mount('hideClosed');
         act(() => { api.set((v) => !v); });
         expect(api.value).toBe(true);
         unmount();
-        mount('keyOpen');                    // Back, a mode switch, a reload: a mount
+        mount('hideClosed');                    // Back, a mode switch, a reload: a mount
         expect(api.value).toBe(true);
         act(() => { api.set(false); });
         unmount();
-        mount('keyOpen');
+        mount('hideClosed');
         expect(api.value).toBe(false);
         unmount();
     });
 
     it('two updaters in one batch compose, as they would with useState', () => {
-        mount('keyOpen');
+        mount('hideClosed');
         act(() => { api.set((v) => !v); api.set((v) => !v); });
         expect(api.value).toBe(false);
         unmount();
