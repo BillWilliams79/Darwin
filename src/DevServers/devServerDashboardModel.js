@@ -45,6 +45,8 @@ export const DASH_TINY_W = 152;
 export const DASH_WIDE_W = 340;
 /** Content-sized, the panel is as wide as its rows, up to this, px. */
 export const DASH_AUTO_MAX_W = 420;
+/** Its id in the navbar's panel rack (req #3720). */
+export const DASH_RACK_ID = 'devservers';
 
 /** Home: the viewport's bottom-right corner, sized to its content on both
  *  axes (`w`/`ht` null — the minimum, user directive) until reshaped. */
