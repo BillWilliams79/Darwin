@@ -3317,7 +3317,9 @@ export default function PipelinePlanVisualizer({
     // LEAVE WITH its band), which is free to go below `topInset` — the OTHER
     // clamp term is what floors it at the ruler, and the two are a `min()`
     // apart, so the leave-with-band term can win. That drew the name over the
-    // pinned ruler for its last ~26px. Reusing the SAME `rulerScreenBottom(t)`
+    // pinned ruler for its last ~26px. A FOLDED epic's title bar (req #3738)
+    // rides its band's corner and so also slides under the ruler as it scrolls
+    // off — the same clip covers it. Reusing the SAME `rulerScreenBottom(t)`
     // here clips it at the DOM layer instead of re-deriving the edge.
     const epicOverlayTopInset = rulerScreenBottom(t);
 
