@@ -13,6 +13,7 @@ import {
 } from './navCollapse';
 import ProfileDialog from './ProfileDialog';
 import { usePanelRackStore } from '../stores/usePanelRackStore';
+import { RACK_DRAG_Z } from '../Components/AnchoredPanel/panelRack';
 
 import AppBar from '@mui/material/AppBar';
 import BottomNavigation from '@mui/material/BottomNavigation';
@@ -362,7 +363,7 @@ const NavBarSidebar = () => {
                     sx={{ width, flexShrink: 0, transition: 'width 0.2s ease', height: '100vh', position: 'sticky', top: 0,
                           // A racked panel dragged out is drawn fixed from in
                           // here: lift the navbar so it stays above the page.
-                          ...(rackDrag?.fromRack && { zIndex: 1250 }) }}
+                          ...(rackDrag?.fromRack && { zIndex: RACK_DRAG_Z }) }}
                 >
                     <Box sx={{
                         display: 'flex',
