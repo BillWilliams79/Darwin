@@ -108,6 +108,7 @@ import {
     isStepWidthRung, DEFAULT_PLAN_STEP_WIDTH,
 } from './pipelinePlanLayout';
 import { usePlanViewSetting } from './planViewSettings';
+import { parseHiddenMachines, toggleHiddenMachine } from './planMachineFilter';
 import {
     classifyPlanEntry, isPlanLinkConsumed, planEntryFocus,
     PLAN_ENTRY_LINK, PLAN_LINK_CONSUMED_STATE_KEY,
@@ -210,6 +211,13 @@ export default function PipelineDetail() {
     const [colorKeyPref, setColorKeyPref] = usePlanViewSetting('colorKey');
     // req #3686 — hide the closed requirements (and the line above them) on the canvas.
     const [hideClosed, setHideClosed] = usePlanViewSetting('hideClosed');
+    // req #3708 — the machines DESELECTED in the toolbar's machine filter.
+    const [hiddenMachinesRaw, setHiddenMachinesRaw] = usePlanViewSetting('hiddenMachines');
+    const hiddenMachines = useMemo(
+        () => parseHiddenMachines(hiddenMachinesRaw), [hiddenMachinesRaw]);
+    const handleToggleMachine = useCallback(
+        (machineId) => setHiddenMachinesRaw((raw) => toggleHiddenMachine(raw, machineId)),
+        [setHiddenMachinesRaw]);
     // req #3503 — "Step Width": four rungs, 1 the card every existing plan is
     // already sized for, 2-4 each 25% more text room. PERSISTED like every
     // other view preference — a reader who widens the card wants it wide next
@@ -256,6 +264,9 @@ export default function PipelineDetail() {
     // effect inside the visualizer. 0 is the initial render, deliberately
     // never fired at.
     const [resetViewNonce, setResetViewNonce] = useState(0);
+    // req #3722 — the toolbar chip under the pointer (`{ key, el }`), which the
+    // plan visualizer draws the colour-help popup for. Transient, so state.
+    const [keyHover, setKeyHover] = useState(null);
     // req #3498 — the steps-across buttons reach the canvas the same way Reset
     // does, and for the same reason: the control is in the page's header and the
     // camera is inside the panel. A NONCE rides alongside the number so clicking
@@ -543,6 +554,10 @@ export default function PipelineDetail() {
     } = usePlanSources(pipelineId, creatorFk, { machines, costIndex, sessionStatus });
 
     const isLoading = planLoading || machinesLoading || pillsLoading;
+
+    // req #3708 — one filter chip per OPEN machine, in dictionary order.
+    const filterMachines = useMemo(
+        () => machines.filter((m) => !m.closed), [machines]);
 
     // `machines` is this page's own read — 2.0 carries no machines dictionary of
     // its own — so its failure is reported here rather than inside the head.
@@ -963,8 +978,12 @@ export default function PipelineDetail() {
                         onChangeStepWidthLevel={setStepWidthLevelPref}
                         colorKey={colorKey}
                         onChangeColorKey={handleColorKeyChange}
+                        onKeyHover={setKeyHover}
                         hideClosed={hideClosed}
                         onChangeHideClosed={setHideClosed}
+                        machines={filterMachines}
+                        hiddenMachines={hiddenMachines}
+                        onToggleMachine={handleToggleMachine}
                         planLevelPref={activeLevelPref}
                         effectiveLevel={effectiveLevel}
                         onChangeLevelPref={handleLevelPrefChange}
@@ -1165,9 +1184,12 @@ export default function PipelineDetail() {
                              stepsAcross={stepsAcross}
                              stepWidthLevel={stepWidthLevel}
                              hideClosed={hideClosed}
+                             hiddenMachines={hiddenMachines}
                              reqPills={reqPills}
+                             sessionStatus={sessionStatus}
                              maximized={maximized}
                              onToggleMaximized={toggleMaximized}
+                             keyHover={keyHover}
                              />
             )}
         </Box>

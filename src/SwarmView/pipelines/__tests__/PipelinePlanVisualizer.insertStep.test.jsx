@@ -31,6 +31,21 @@ vi.mock('konva', () => ({
     default: { Animation: class { start() {} stop() {} } },
 }));
 
+const createEpic = vi.fn(() => Promise.resolve({ id: 77 }));
+vi.mock('../../../Epics/epicsApi', async (orig) => ({
+    ...(await orig()),
+    createEpic: (...a) => createEpic(...a),
+}));
+const createStep = vi.fn(() => Promise.resolve({ id: 903 }));
+// No network in jsdom: the categories the add-epic dialog offers are stubbed.
+vi.mock('../../../hooks/useDataQueries', async (orig) => ({
+    ...(await orig()),
+    useAllCategories: () => ({ data: [
+        { id: 3, category_name: 'Core', sort_order: 1, closed: 0 },
+        { id: 4, category_name: 'Infra', sort_order: 2, closed: 0 },
+    ] }),
+}));
+
 const insertStepOnEdge = vi.fn(() => Promise.resolve({ id: 900 }));
 const addDependentStep = vi.fn(() => Promise.resolve({ id: 901 }));
 const precedeStepWith = vi.fn(() => Promise.resolve({ id: 902 }));
@@ -39,6 +54,7 @@ vi.mock('../../../Steps/stepsApi', async (orig) => ({
     insertStepOnEdge: (...a) => insertStepOnEdge(...a),
     addDependentStep: (...a) => addDependentStep(...a),
     precedeStepWith: (...a) => precedeStepWith(...a),
+    createStep: (...a) => createStep(...a),
 }));
 
 import { composedFixture } from './pipelineComposedFixture';
@@ -66,6 +82,8 @@ beforeEach(() => {
     insertStepOnEdge.mockClear();
     addDependentStep.mockClear();
     precedeStepWith.mockClear();
+    createEpic.mockClear();
+    createStep.mockClear();
 });
 
 afterEach(() => {
@@ -81,8 +99,8 @@ const step = (id, epic_fk, title) => ({
 
 function render(levelPref = '3') {
     const payload = composedFixture({
-        epics: [{ id: 5, title: 'Build', pipeline_fk: 2, sort_order: 1 },
-            { id: 6, title: 'Ship', pipeline_fk: 2, sort_order: 2 }],
+        epics: [{ id: 5, title: 'Build', pipeline_fk: 2, sort_order: 1, category_fk: 3 },
+            { id: 6, title: 'Ship', pipeline_fk: 2, sort_order: 2, category_fk: 4 }],
         steps: [step(10, 5, 'Design'), step(11, 5, 'Implement')],
         stepDeps: [{ id: 1, step_fk: 11, dep_step_fk: 10 }],
     });
@@ -221,5 +239,40 @@ describe('add-step marks (req #3586)', () => {
         clickMark('dependent-10');
         setInput(document.querySelector('[data-testid="pipeline-viz-insert-title"]'), '   ');
         expect(document.querySelector('[data-testid="pipeline-viz-insert-create"]').disabled).toBe(true);
+    });
+});
+
+// req #3719 — the add-epic "+" right under the bottom of the last epic.
+describe('add-epic mark (req #3719)', () => {
+    it('draws one add-epic "+" at the card level, below every band', () => {
+        render('3');
+        expect(viz().getAttribute('data-insert-epics')).toBe('1');
+        const m = document.querySelector('[data-insert="epic-add"]');
+        expect(m).not.toBeNull();
+        const [, worldH] = viz().getAttribute('data-world').split(',').map(Number);
+        expect(Number(m.dataset.y)).toBeLessThan(worldH);
+    });
+
+    it('draws none at L1, with the other marks', () => {
+        render('1');
+        expect(viz().getAttribute('data-insert-epics')).toBe('0');
+    });
+
+    it('the "+" opens the dialog on the category of the epic it sits under; Create adds the epic and its first step', async () => {
+        render('3');
+        clickMark('epic-add');
+        expect(document.querySelector('[data-testid="pipeline-viz-epic-add-dialog"]')).not.toBeNull();
+        expect(document.querySelector('[data-testid="pipeline-viz-epic-add-category"]').value).toBe('3');
+        setInput(document.querySelector('[data-testid="pipeline-viz-epic-add-title"]'), '  Launch  ');
+        await act(async () => {
+            document.querySelector('[data-testid="pipeline-viz-epic-add-create"]').click();
+        });
+        expect(createEpic).toHaveBeenCalledTimes(1);
+        expect(createEpic.mock.calls[0][2]).toEqual({
+            pipeline_fk: 2, title: 'Launch', category_fk: 3,
+        });
+        expect(createStep).toHaveBeenCalledTimes(1);
+        expect(createStep.mock.calls[0][2]).toEqual({ epic_fk: 77, title: 'New step' });
+        expect(insertStepOnEdge).not.toHaveBeenCalled();
     });
 });

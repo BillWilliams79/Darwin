@@ -1,7 +1,9 @@
 // pipelineStepInsert.js — the pure half of adding steps from the Plan
 // visualizer (req #3586).
 //
-// Three "+" marks, all drawn wherever the cards are:
+// Three "+" marks, all drawn wherever the cards are (a fourth, req #3719, is
+// not on a card at all: the ADD-EPIC "+" under the last epic band — see
+// `epicAddMark`):
 //
 //   EDGE "+"    on every dependency arc A → B. It SPLITS the edge: a new step N
 //               is created depending on A, and B's dependency switches from A
@@ -35,6 +37,9 @@
 // line inside it, so the line reads as running through the "+".
 
 import { CARD_GAP_X, CARD_RADIUS } from './pipelinePlanLayout';
+
+/** Gap between the last epic band's bottom edge and the add-epic mark's rim. */
+const EPIC_ADD_GAP = 8;
 
 /** The mark's world radius at scale `k`: ~7 screen px, never smaller than 7
  * world px (it stays inside the gutter) nor larger than 12 (two marks in one
@@ -214,6 +219,26 @@ export function precedeStub(n, r) {
 export const INSERT_MARK_MAX_R = 12;
 
 /**
+ * The add-epic "+" (req #3719): directly under the bottom of the LAST epic band,
+ * left-aligned with the epic chips (which start at x = 12). Null when the plan
+ * draws no band — the empty-plan panel owns that case. Placed at radius `r`
+ * like every other mark; `computePlanLayout` reserves `EPIC_ADD_RESERVE` below
+ * the last band so the whole disc is inside the world.
+ *
+ * @returns {?{key: 'epic-add', kind: 'epic', fromId: null, toId: null, x: number, y: number}}
+ */
+export function epicAddMark(layout, r = INSERT_MARK_MAX_R) {
+    const bands = layout?.bands || [];
+    if (!bands.length) return null;
+    // The band the mark sits under: its epic seeds the dialog's category.
+    const last = bands.reduce((a, b) => (b.y + b.height > a.y + a.height ? b : a));
+    const bottom = last.y + last.height;
+    return { key: 'epic-add', kind: 'epic', fromId: null, toId: null,
+        afterEpicId: last.epicId ?? null,
+        x: 12 + r, y: bottom + EPIC_ADD_GAP + r };
+}
+
+/**
  * Every add-step mark for a layout, computed ONCE per layout — never per frame
  * and never per zoom. The canvas re-renders on every pan and zoom event, so
  * anything here that ran in the render body ran at pointer rate (the req #3586
@@ -230,11 +255,12 @@ export const INSERT_MARK_MAX_R = 12;
  * (the mark's centre), on either side.
  *
  * @returns {{r: number, edgeCount: number, dependentCount: number, precedeCount: number,
+ *            epicCount: number,
  *            stubs: {x1: number, x2: number, y: number}[],
- *            marks: {key: string, kind: 'edge'|'dependent'|'precede', fromId: ?number,
+ *            marks: {key: string, kind: 'edge'|'dependent'|'precede'|'epic', fromId: ?number,
  *                    toId: ?number, x: number, y: number}[]}}
  */
-export function buildInsertMarks(layout, rows, r = INSERT_MARK_MAX_R) {
+export function buildInsertMarks(layout, rows, r = INSERT_MARK_MAX_R, { epicAdd = true } = {}) {
     const stubs = [];
     const marks = [];
     // From the DEPENDENCY DATA, not from the drawn arcs (req #3650): a folded
@@ -265,7 +291,13 @@ export function buildInsertMarks(layout, rows, r = INSERT_MARK_MAX_R) {
     for (const m of edges) {
         marks.push({ key: `edge-${m.fromId}-${m.toId}`, kind: 'edge', ...m });
     }
-    return { r, stubs, marks, edgeCount: edges.length, dependentCount, precedeCount };
+    // The add-epic "+" (req #3719). Not a step mark, but the same shape, hit
+    // test and hover — so it rides the same list. `epicAdd: false` is the
+    // caller's word that epics cannot be added (a locked plan).
+    const epicMark = epicAdd ? epicAddMark(layout, r) : null;
+    if (epicMark) marks.push(epicMark);
+    return { r, stubs, marks, edgeCount: edges.length, dependentCount, precedeCount,
+        epicCount: epicMark ? 1 : 0 };
 }
 
 /** The mark whose hit circle — at the DRAWN radius `r` — contains world point
@@ -284,6 +316,9 @@ export function insertMarkAt(geom, p, r = geom?.r) {
 
 /** Default title of a step created from the canvas, before the reader edits it. */
 export const NEW_STEP_TITLE = 'New step';
+
+/** Default title of an epic created from the canvas's add-epic "+" (req #3719). */
+export const NEW_EPIC_TITLE = 'New epic';
 
 /**
  * The dialog's request for each action, so the visualizer and its tests agree

@@ -113,6 +113,12 @@
 // dark, so it is the card's dark-mode rule. A row with no color keeps the slot,
 // transparent, so the ids stay in one column.
 //
+// ── THE ID FOLLOWS THE COLOUR PREFERENCE (req #3702) ───────────────────────
+// Each row's id is painted by the same colour key the reader picked for the
+// plan's requirement marks (State, Session, Autonomy, Machine or none), through
+// the visualizer's own resolver (`idStyleOf`), so the box and the canvas say the
+// same thing about a requirement. Without a resolver it keeps `statusColor`.
+//
 // ── FOLDED, IT IS A NARROW "OR" BAR (req #3648, user directive) ───────────
 // The count leads the title bar as a badge, then the name, then the −/+.
 // Folding the box swaps the name for "OR" and narrows the box to exactly that
@@ -129,6 +135,7 @@ import Collapse from '@mui/material/Collapse';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { lighten } from '@mui/material/styles';
 
+import PlusMinusToggle from '../../Components/AnchoredPanel/PlusMinusToggle';
 import { CARD_FRAME_W, PLAN_VIZ_PALETTE as P } from './pipelinePlanLayout';
 import {
     UNSEATED_MIN_LIST_EM, UNSEATED_REQ_MIME, pointInRect, unseatedMinStretchPx,
@@ -257,6 +264,7 @@ function writeSize(size) {
 export default function UnorchestratedReqBox({
     items, categoryColors = {}, isLoading = false, isError = false,
     fontPx = 12, widthPx = CARD_FRAME_W, statusColor = P.req,
+    idStyleOf = null,
     draggingId = null, onDragStartItem, onDragEndItem, onOpen,
     onMoveOver, onMoveDrop, onCarryingChange,
 }) {
@@ -635,19 +643,9 @@ export default function UnorchestratedReqBox({
                             textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {open ? 'Orchestrables' : 'OR'}
                 </Box>
-                <Box component="button" type="button"
-                     onClick={toggleOpen}
-                     aria-expanded={open}
-                     aria-label={open ? 'Collapse the list' : 'Expand the list'}
-                     data-testid="pipeline-viz-unseated-toggle"
-                     sx={{ width: '1.6em', height: '1.6em', p: 0, display: 'flex',
-                            alignItems: 'center', justifyContent: 'center',
-                            background: 'transparent', border: 'none',
-                            borderRadius: '0.4em', color: P.text, cursor: 'pointer',
-                            fontFamily: MONO, fontSize: '1.25em', lineHeight: 1,
-                            '&:hover': { color: P.accent } }}>
-                    {open ? '−' : '+'}
-                </Box>
+                <PlusMinusToggle open={open} onToggle={toggleOpen}
+                                 label={open ? 'Collapse the list' : 'Expand the list'}
+                                 testid="pipeline-viz-unseated-toggle" />
             </Box>
 
             {/* Animated by the toggle, and nothing else — a carry keeps it open
@@ -690,6 +688,10 @@ export default function UnorchestratedReqBox({
                     const id = Number(r.id);
                     const dragging = draggingId === id;
                     const barColor = categoryColors[r.category_fk];
+                    // req #3702 — the id wears the visualizer's colour key;
+                    // without a resolver it keeps the swarm-ready colour.
+                    const idStyle = idStyleOf
+                        ? idStyleOf(id) : { fill: statusColor, bold: true };
                     return (
                         <Box key={id}
                              draggable
@@ -721,7 +723,9 @@ export default function UnorchestratedReqBox({
                                             borderColor: barEdge(barColor),
                                         }) }} />
                             <Box component="span"
-                                 sx={{ color: statusColor, fontWeight: 700, flexShrink: 0 }}>
+                                 data-testid={`pipeline-viz-unseated-item-id-${id}`}
+                                 sx={{ color: idStyle.fill,
+                                        fontWeight: idStyle.bold ? 700 : 400, flexShrink: 0 }}>
                                 {id}
                             </Box>
                             <Box component="span"

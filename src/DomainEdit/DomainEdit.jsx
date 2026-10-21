@@ -1,7 +1,7 @@
 // eslint-disable-next-line no-unused-vars
 import varDump from '../classifier/classifier';
 
-import React, {useState, useContext, useEffect, useRef} from 'react';
+import React, {useState, useContext, useEffect, useMemo, useRef} from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { useWorkingDomainStore } from '../stores/useWorkingDomainStore';
@@ -13,14 +13,14 @@ import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import call_rest_api from '../RestApi/RestApi';
 import AuthContext from '../Context/AuthContext'
 import AppContext from '../Context/AppContext';
-import { DragDropContext, Droppable } from '@hello-pangea/dnd';
+import { ReorderList } from '../dnd';
 
 import Box from '@mui/material/Box';
 import { Typography } from '@mui/material';
 
 import DomainDeleteDialog from './DomainDeleteDialog';
 import DomainTableRow from './DomainTableRow';
-import { DOMAIN_GRID_COLUMNS } from './DomainTableRow';
+import { DOMAIN_GRID_COLUMNS, domainItemId, isOrderableDomain } from './DomainTableRow';
 
 const DomainEdit = ( { domain, domainIndex } ) => {
 
@@ -264,26 +264,23 @@ const DomainEdit = ( { domain, domainIndex } ) => {
         return calcSortOrder;
     }
 
-    const dragEnd = async (result) => {
+    // The rows in the order they render: open domains (the positions) first,
+    // then closed domains and the template.
+    const orderedDomains = useMemo(() => (domainsArray ? [
+        ...domainsArray.filter(isOrderableDomain),
+        ...domainsArray.filter(d => !isOrderableDomain(d)),
+    ] : []), [domainsArray]);
 
-        if ((result.destination === null) || (result.reason !== 'DROP')) {
-            return;
-        }
+    const dragEnd = (fromIndex, toIndex) => {
 
-        // mutate the array - relocate the dragged item to the new location
-        var newDomainsArray = [...domainsArray]
-        const [draggedItem] = newDomainsArray.splice(result.source.index, 1);
-        newDomainsArray.splice(result.destination.index, 0, draggedItem);
+        // relocate the dragged domain, then renumber every open domain by position
+        const moved = [...orderedDomains];
+        const [draggedItem] = moved.splice(fromIndex, 1);
+        moved.splice(toIndex, 0, draggedItem);
 
-        // brute force renumbering of the sort values post drag
-        newDomainsArray = newDomainsArray.map((dom, index) => {
-            if ((dom.id !== '') && (dom.closed !== 1)) {
-                dom.sort_order = index;
-                return dom;
-            } else {
-                return dom;
-            }
-        })
+        // closed and template domains have no sort_order
+        const newDomainsArray = moved.map((dom, index) =>
+            isOrderableDomain(dom) ? { ...dom, sort_order: index } : dom);
 
         // update state
         setDomainsArray(newDomainsArray);
@@ -324,54 +321,31 @@ const DomainEdit = ( { domain, domainIndex } ) => {
                         <Box sx={{ textAlign: 'center' }}><Typography variant="subtitle2">Tasks</Typography></Box>
                         <Box />
                     </Box>
-                    <DragDropContext onDragEnd={dragEnd}>
-                        <Droppable droppableId="domains">
-                            {(provided) => (
-                                <Box {...provided.droppableProps} ref={provided.innerRef}>
-                                { domainsArray
-                                    .filter(d => d.closed === 0 && d.id !== '')
-                                    .map((domain, idx) => (
-                                    <DomainTableRow
-                                        key={domain.id}
-                                        domain={domain}
-                                        domainIndex={idx}
-                                        changeDomainName={changeDomainName}
-                                        keyDownDomainName={keyDownDomainName}
-                                        blurDomainName={blurDomainName}
-                                        clickDomainClosed={clickDomainClosed}
-                                        clickDomainDelete={clickDomainDelete}
-                                        areaCounts={areaCounts}
-                                        taskCounts={taskCounts}
-                                        onRowClick={handleRowClick}
-                                        isSelected={String(domain.id) === selectedId}
-                                        isDraggable
-                                    />
-                                ))}
-                                {provided.placeholder}
-                                </Box>
-                            )}
-                        </Droppable>
-                    </DragDropContext>
-                    { domainsArray
-                        .filter(d => d.closed === 1 || d.id === '')
-                        .map((domain) => (
-                        <DomainTableRow
-                            key={domain.id || 'template'}
-                            domain={domain}
-                            domainIndex={domainsArray.indexOf(domain)}
-                            changeDomainName={changeDomainName}
-                            keyDownDomainName={keyDownDomainName}
-                            blurDomainName={blurDomainName}
-                            clickDomainClosed={clickDomainClosed}
-                            clickDomainDelete={clickDomainDelete}
-                            areaCounts={areaCounts}
-                            taskCounts={taskCounts}
-                            onRowClick={handleRowClick}
-                            isSelected={String(domain.id) === selectedId}
-                            isDraggable={false}
-                            inputRef={domain.id === '' ? templateInputRef : undefined}
-                        />
-                    ))}
+                    {/* req #3664 — one list, every row in it: open domains lift and
+                        take a drop; closed domains and the template are not positions. */}
+                    <ReorderList id="domains" type="domain"
+                                 ids={orderedDomains.map(domainItemId)}
+                                 isTarget={isOrderableDomain}
+                                 onReorder={dragEnd}
+                                 data-testid="domain-edit-list">
+                        { orderedDomains.map((domain) => (
+                            <DomainTableRow
+                                key={domain.id || 'template'}
+                                domain={domain}
+                                domainIndex={domainsArray.indexOf(domain)}
+                                changeDomainName={changeDomainName}
+                                keyDownDomainName={keyDownDomainName}
+                                blurDomainName={blurDomainName}
+                                clickDomainClosed={clickDomainClosed}
+                                clickDomainDelete={clickDomainDelete}
+                                areaCounts={areaCounts}
+                                taskCounts={taskCounts}
+                                onRowClick={handleRowClick}
+                                isSelected={String(domain.id) === selectedId}
+                                inputRef={domain.id === '' ? templateInputRef : undefined}
+                            />
+                        ))}
+                    </ReorderList>
                 </Box>
             }
             <DomainDeleteDialog

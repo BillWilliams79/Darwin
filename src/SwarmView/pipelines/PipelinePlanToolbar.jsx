@@ -36,6 +36,7 @@ import SemanticLevelControl from '../../Components/SemanticLevelControl';
 import { PLAN_LEVEL_NUMBER, REQ_COLOR_SCALES,
     STEPS_ACROSS_OPTIONS, STEP_WIDTH_RUNGS } from './pipelinePlanLayout';
 import { toolbarChipProps } from './pipelineChipStyles';
+import { ANY_MACHINE } from './planMachineFilter';
 
 // Reset's wording, in ONE place: it is both the tooltip and the accessible name
 // (see the chip below for why the two may not drift). It named the level too
@@ -72,16 +73,28 @@ export const SHOW_STEP_WIDTH = false;
 // clicking the pressed one is how the neutral position is reached and that is
 // not discoverable from any one chip.
 
+// Stable defaults, so an omitted prop is not a new identity every render.
+const NO_MACHINES = [];
+const NO_HIDDEN = new Set();
+
 /**
  * @param {Object} props
- * @param {function} props.onStepsAcross        receives the step count to fit
+ * @param {function} props.onStepsAcross       receives the step count to fit
  * @param {number} props.stepWidthLevel         a STEP_WIDTH_RUNGS value (6|5|4|3)
  * @param {function} props.onChangeStepWidthLevel receives the level as a string
  * @param {string} props.colorKey               a REQ_COLOR_KEYS value
  * @param {function} props.onChangeColorKey     receives a REQ_COLOR_KEYS value
+ * @param {function} [props.onKeyHover]         receives `{ key, el }` when the pointer (or focus)
+ *                                              rests on the Step chip (`key` 'step') or a colour
+ *                                              chip (`key` its scale), `null` when it leaves; the
+ *                                              plan visualizer draws the colour-help popup
+ *                                              (req #3722)
  * @param {boolean} props.hideClosed            the closed (met/deferred/wontfix) rows are hidden
  * @param {function} props.onChangeHideClosed   receives the next boolean
- * @param {string} props.planLevelPref          'auto' | '1' | '2' | '3'
+ * @param {Object[]} props.machines             the open machines, one filter chip each (req #3708)
+ * @param {Set<number>} props.hiddenMachines    machine ids whose requirements are hidden
+ * @param {function} props.onToggleMachine      receives a machine id
+ * @param {string} props.planLevelPref         'auto' | '1' | '2' | '3'
  * @param {?string} props.effectiveLevel        the canvas's 'out'|'mid'|'in'
  * @param {function} props.onChangeLevelPref    receives 'auto' | '1' | '2' | '3'
  * @param {function} props.onResetView          the Reset click
@@ -92,13 +105,25 @@ export default function PipelinePlanToolbar({
     onChangeStepWidthLevel,
     colorKey,
     onChangeColorKey,
+    onKeyHover,
     hideClosed,
     onChangeHideClosed,
+    machines = NO_MACHINES,
+    hiddenMachines = NO_HIDDEN,
+    onToggleMachine,
     planLevelPref,
     effectiveLevel,
     onChangeLevelPref,
     onResetView,
 }) {
+    // Hover (and keyboard focus) on a chip reports it so the visualizer can draw
+    // that chip's colour help (req #3722).
+    const hoverKeyProps = (key) => ({
+        onMouseEnter: (e) => onKeyHover?.({ key, el: e.currentTarget }),
+        onMouseLeave: () => onKeyHover?.(null),
+        onFocus: (e) => onKeyHover?.({ key, el: e.currentTarget }),
+        onBlur: () => onKeyHover?.(null),
+    });
     return (
         <>
             {/* The colour key for the REQUIREMENT MARKS, never the beads — the
@@ -131,18 +156,36 @@ export default function PipelinePlanToolbar({
             <Stack direction="row" spacing={0.5} useFlexGap alignItems="center"
                    sx={{ flexShrink: 0 }}
                    data-testid="pipeline-viz-colorkey-toggle">
-                {REQ_COLOR_SCALES.map(({ key, chipLabel, chipTip, chipName }) => {
+                {/* ── STEP (req #3722) ────────────────────────────────────────
+                    HOVER HELP ONLY: resting the pointer on it shows what the
+                    step marks mean, the way a colour chip shows its scale. It is
+                    not a toggle and it changes nothing on the canvas (a version
+                    that took the step colours off the display was tried and
+                    removed on the user's say-so). Outlined, never pressed, and
+                    no `onClick`, so it reads as a label, not a switch. */}
+                <Chip
+                    label="Step"
+                    aria-label="Step marks — hover for their key"
+                    {...hoverKeyProps('step')}
+                    {...toolbarChipProps(false, { pressed: false, sx: { cursor: 'help' } })}
+                    data-testid="pipeline-viz-steps-toggle"
+                />
+                {/* The colour chips explain THEMSELVES on hover — active or not —
+                    so the old Tooltip is gone: two overlays on one chip would
+                    fight. `chipTip` stays the registry's description (the
+                    chip's aria-label carries `chipName`). */}
+                {REQ_COLOR_SCALES.map(({ key, chipLabel, chipName }) => {
                     const on = colorKey === key;
                     return (
-                        <Tooltip key={key} title={chipTip}>
-                            <Chip
-                                label={chipLabel}
-                                aria-label={chipName}
-                                onClick={() => onChangeColorKey(on ? 'none' : key)}
-                                {...toolbarChipProps(on)}
-                                data-testid={`pipeline-viz-colorkey-${key}`}
-                            />
-                        </Tooltip>
+                        <Chip
+                            key={key}
+                            label={chipLabel}
+                            aria-label={chipName}
+                            onClick={() => onChangeColorKey(on ? 'none' : key)}
+                            {...hoverKeyProps(key)}
+                            {...toolbarChipProps(on)}
+                            data-testid={`pipeline-viz-colorkey-${key}`}
+                        />
                     );
                 })}
             </Stack>
@@ -167,6 +210,44 @@ export default function PipelinePlanToolbar({
                     data-testid="pipeline-viz-hide-closed"
                 />
             </Tooltip>
+
+            <Divider orientation="vertical" flexItem
+                     sx={{ mx: 0.5, flexShrink: 0 }} />
+
+            {/* ── MACHINE FILTER (req #3708, user directive: "a machine ID
+                filter for MCHP Windows or Mac Mini, deselecting a filter means
+                machine specific requirements will not be displayed anywhere in
+                the visualizer") ───────────────────────────────────────────
+                One chip per open machine, pressed = its requirements are
+                shown. Every machine starts pressed; deselecting one hides the
+                requirements pinned to it on the step cards AND in the
+                Orchestrables box. A trailing Any chip does the same for
+                requirements pinned to no machine (follow-up user directive:
+                "add an any filter as well"), so the group always has at least
+                that one chip. */}
+            <Stack direction="row" spacing={0.5} useFlexGap alignItems="center"
+                   sx={{ flexShrink: 0 }}
+                   data-testid="pipeline-viz-machine-filter">
+                {[...machines, { id: ANY_MACHINE, title: 'Any' }].map((m) => {
+                    const on = !hiddenMachines.has(m.id);
+                    const name = m.title || `Machine ${m.id}`;
+                    const what = m.id === ANY_MACHINE
+                        ? 'requirements pinned to Any machine' : `${name} requirements`;
+                    return (
+                        <Tooltip key={m.id} title={on
+                            ? `Showing ${what} — click to hide them`
+                            : `Hiding ${what} — click to show them`}>
+                            <Chip
+                                label={name}
+                                aria-label={`${on ? 'Hide' : 'Show'} ${what}`}
+                                onClick={() => onToggleMachine?.(m.id)}
+                                {...toolbarChipProps(on, { sx: { flexShrink: 0 } })}
+                                data-testid={`pipeline-viz-machine-${m.id}`}
+                            />
+                        </Tooltip>
+                    );
+                })}
+            </Stack>
 
             <Divider orientation="vertical" flexItem
                      sx={{ mx: 0.5, flexShrink: 0 }} />

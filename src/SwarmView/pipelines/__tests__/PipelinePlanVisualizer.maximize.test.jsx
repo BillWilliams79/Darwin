@@ -123,27 +123,6 @@ describe('the maximize switch on the canvas (req #3658)', () => {
         expect(q('pipeline-viz-maximize')).toBeNull();
     });
 
-    it('folds an open key on the way in, keeps it openable, and restores it on the way out', () => {
-        mount(<Viz maximized={false} onToggle={() => {}} />);
-        act(() => { q('pipeline-viz-legend-toggle').click(); });       // the reader opens it
-        expect(q('pipeline-viz-legend-toggle').getAttribute('aria-expanded')).toBe('true');
-
-        act(() => { root.render(<Viz maximized onToggle={() => {}} />); });
-        // Folded, not hidden: the panel and its + are still there.
-        expect(q('pipeline-viz-legend')).not.toBeNull();
-        expect(q('pipeline-viz-legend-toggle').getAttribute('aria-expanded')).toBe('false');
-        expect(q('pipeline-viz-legend-reqscale')).toBeNull();
-
-        act(() => { q('pipeline-viz-legend-toggle').click(); });       // opens while maximized
-        expect(q('pipeline-viz-legend-reqscale')).not.toBeNull();
-        act(() => { q('pipeline-viz-legend-toggle').click(); });       // and folds again
-        expect(q('pipeline-viz-legend-reqscale')).toBeNull();
-
-        act(() => { root.render(<Viz maximized={false} onToggle={() => {}} />); });
-        // Back as the reader left it — the folds made while maximized were not remembered.
-        expect(q('pipeline-viz-legend-toggle').getAttribute('aria-expanded')).toBe('true');
-    });
-
     it('leaves the Orchestration Ready box as it is', () => {
         mount(<Viz maximized={false} onToggle={() => {}} />);
         const before = q('pipeline-viz-unseated')?.outerHTML;

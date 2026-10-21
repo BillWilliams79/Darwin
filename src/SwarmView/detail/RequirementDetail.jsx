@@ -501,12 +501,20 @@ const RequirementDetail = () => {
                 .then(result => {
                     if (result.httpStatus.httpStatus === 200) {
                         queryClient.invalidateQueries({ queryKey: requirementKeys.all(profile.userName) });
+                        // req #3706 — the delete CASCADEs the requirement's step seat, so every
+                        // plan read that may show it re-reads (the plan it sat in is unknown here).
+                        queryClient.invalidateQueries({ queryKey: pipelineStepRequirementKeys.all(profile.userName) });
+                        queryClient.invalidateQueries({ queryKey: ['pipeline_compose'] });
                         navigate('/swarm');
                     } else {
                         showError(result, 'Unable to delete requirement');
                     }
                 })
-                .catch(error => showError(error, 'Unable to delete requirement'));
+                .catch(error => {
+                    // req #3706 — a 423 names the locked step/epic/plan holding the seat.
+                    if (error?.httpStatus?.httpStatus === 423) showError(error.httpStatus.httpMessage);
+                    else showError(error, 'Unable to delete requirement');
+                });
         }
     });
 

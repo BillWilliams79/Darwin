@@ -104,6 +104,8 @@ import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
 import MenuItem from '@mui/material/MenuItem';
+import Paper from '@mui/material/Paper';
+import Popper from '@mui/material/Popper';
 import TextField from '@mui/material/TextField';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
@@ -145,13 +147,13 @@ import {
     // border since they moved to HTML, req #3673).
     CARD_TITLE_BTN_STROKE,
     MIN_CARD_H, REQ_LINE_H, CHW_REQ, CARD_SEP_CHARS, REQ_SEP_PULL,
-    // req #3580 — the run pill's word and type.
+    // req #3580 — the run pill's letter and type.
     CARD_RUN_FONT, CARD_RUN_WORDS,
     // req #3650 — the collapse heads' type and the chip head's reserved width.
     CARD_COLLAPSE_FONT, CARD_COLLAPSE_W, CARD_COLLAPSE_GAP, EPIC_CHIP_COLLAPSE_HEAD_W,
-    buildReqColorViews, REQ_COLOR_KEYS, reqIdStyle, reqIdKeyEntries, normalizeColorKey,
+    buildReqColorViews, REQ_COLOR_KEYS, reqColorScale, reqIdStyle, reqIdKeyEntries, normalizeColorKey,
     DEFAULT_PLAN_PALETTE, isPlanPalette, planPalette,
-    DEFAULT_COLOR_KEY, PLAN_KEY_MAX_H, pinnedLevelOf, DEFAULT_PLAN_LEVEL_PREF,
+    DEFAULT_COLOR_KEY, pinnedLevelOf, DEFAULT_PLAN_LEVEL_PREF,
     DEFAULT_STEP_WIDTH_LEVEL,
     EPIC_PAUSE_BUBBLE_D, pauseBubbleColor, stickyRulerY, rulerScreenBottom,
     PAUSE_PAUSED_COLOR,
@@ -183,11 +185,12 @@ import AuthContext from '../../Context/AuthContext';
 import { pipelineComposeKeys, requirementKeys } from '../../hooks/useQueryKeys';
 import {
     pipelineStepRequirementKeys, pipelineStepKeys, pipelineStepDepKeys, epicKeys,
+    useAllCategories,
 } from '../../hooks/useDataQueries';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
 import {
     moveStepRequirement, insertStepOnEdge, addDependentStep, precedeStepWith,
-    isRestNullLiteral, REST_NULL, updateStep,
+    isRestNullLiteral, REST_NULL, updateStep, createStep,
 } from '../../Steps/stepsApi';
 // req #3649 — the epic chip's lock control; req #3673 — the pictures on it and
 // on the step card's checkpoint and lock buttons.
@@ -198,6 +201,7 @@ import {
 // #3617 adds the one off a free left side, for a step this one depends on.
 import {
     insertMarkRadius, buildInsertMarks, insertMarkAt, insertRequest, NEW_STEP_TITLE,
+    NEW_EPIC_TITLE,
 } from './pipelineStepInsert';
 import {
     REQ_DRAG_SLOP, passedDragSlop, dropTargetAt, canDropOn, applyReqMoves,
@@ -207,7 +211,11 @@ import { viewportStorageKey } from '../../utils/viewportMemory';
 // req #3583 — the swarm-ready, not-orchestrated box and its drop-to-seat. The
 // contexts, snackbar, query keys and `moveStepRequirement` are req #3581's,
 // imported above.
+import { hideMachineReqs, isMachineHidden } from './planMachineFilter';
 import UnorchestratedReqBox, { UNSEATED_FLOAT_Z } from './UnorchestratedReqBox';
+// req #3721 — the plan's requirements whose sessions are under way.
+import PlanActiveBox from './PlanActiveBox';
+import { activePlanRequirements } from './planActiveReqs';
 import { useUnorchestratedRequirements } from './useUnorchestratedRequirements';
 import {
     UNSEATED_REQ_MIME, bulkSeatRequest, resolveSeatDrop, screenRectOf, unseatedBoxFontPx,
@@ -218,53 +226,29 @@ import '../../CalendarFC/swarmVisualizer.css';
 // req #3580 — in-place edit. The SAME mutation helpers the Epics and Steps
 // editors use (one gateway path per table); contexts, snackbar and query keys
 // are the ones req #3581 already imports above.
-import { updateEpic } from '../../Epics/epicsApi';
+import { updateEpic, createEpic } from '../../Epics/epicsApi';
 import PlanInPlaceInput, { titleProblem } from './PlanInPlaceInput';
 import { createPressTracker, LONG_PRESS_MS } from './planPressGesture';
 // req #3661 — a requirement's title, edited in place on its own row.
 import PlanInPlaceTitleArea from './PlanInPlaceTitleArea';
 import { reqTitleEditorBox, updateRequirementTitle } from './planReqTitleEdit';
+import {
+    REQ_PILL_FONT, REQ_PILL_FONT_EM, REQ_PILL_H_EM, REQ_PILL_LABEL_PAD_EM, REQ_PILL_STROKE,
+    REQ_PILL_STYLE,
+} from './planReqPills';
 
+// Stable default for the machine filter prop (req #3708).
+const NO_HIDDEN_MACHINES = new Set();
 const MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
 
-// req #3587 — the requirement row's Terminal and Dev Server pills.
+// req #3587 — the requirement row's Terminal and Dev Server pills. Their
+// palette and proportions live in planReqPills.js, shared with the Active box
+// (req #3721), which draws the same pills in HTML.
 //
-// A PILL IS ITS OWN ELEMENT: a rounded box with its label drawn CENTRED inside
-// it (`align`/`verticalAlign`), never an outline behind the row's own glyphs.
-// The first version traced the row's characters, so its centring hung on two
-// independent width measurements agreeing to the sub-pixel, and the token took
-// the row's bold status colour — measured off-centre and heavy (user review,
-// 2026-10-17). Now the row text carries BLANKS where a token sat (the layout
-// still reserves exactly those characters, so wrap and card height are
-// untouched) and the pill owns its label, centred by construction.
-//
-// Each kind has its own quiet palette, independent of the row's colour key: a
-// dark tinted fill, a softened edge and a light label. The terminal is the
-// requirement-id blue (`P.req`, an MUI primary chip's role); the dev server the
-// Swarm visualizer's dark-mode dev-server green, so a port reads the same on
-// both canvases.
-const REQ_PILL_STYLE = {
-    terminal: { fill: '#7fb4ff26', stroke: '#7fb4ff8c', text: '#d3e5ff' },
-    devserver: { fill: '#81c78426', stroke: '#81c7848c', text: '#d5f1d7' },
-};
-const REQ_PILL_STROKE = 1.25;
-const REQ_PILL_H_EM = 1.3;                  // pill height, in req font sizes
-const REQ_PILL_FONT_EM = 0.78;              // label size, in req font sizes
-const REQ_PILL_FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif';
 // Inside the gap before each token (`REQ_PILL_SEP` between pills, the id
 // column's own separator before the first), so neighbours keep clear air.
 // The CEILING on a pill's reach — see `REQ_PILL_LABEL_PAD_EM` for its width.
 const REQ_PILL_PAD_X = CHW_REQ * 0.3;
-// THE PILL HUGS ITS LABEL (user review, 2026-10-17: "the bubble around
-// terminal is too wide — minimize the white space without making it feel
-// cramped"). The box used to span every MONO character the layout reserved,
-// but the label is drawn in the UI sans at `REQ_PILL_FONT_EM` of the row's
-// size — about half the mono advance — so "Terminal 2" sat in a box nearly
-// twice its width. Now the box is the label's own measured width plus this
-// much air each side (0.6em — an MUI small chip's proportion), CENTRED on the
-// reserved characters and never wider than they allow. The same rule for both
-// kinds: a terminal and a port pill differ only in palette.
-const REQ_PILL_LABEL_PAD_EM = 0.6;
 // The pill's BOX is placed over the characters it replaced, MEASURED in the
 // font the row is actually drawn in, so the air between the id, the pills and
 // the title's dash stays even. `CHW_REQ` is a deliberate OVER-estimate of the
@@ -522,15 +506,27 @@ export default function PipelinePlanVisualizer({
     // req #3686 — draw only the OPEN requirements under each step (the closed
     // group and its dashed line are dropped from the layout's input).
     hideClosed = false,
+    // req #3708 — machine ids deselected in the toolbar's machine filter: the
+    // requirements pinned to them are drawn nowhere (step cards, Orchestrables).
+    hiddenMachines = NO_HIDDEN_MACHINES,
     // req #3587 — requirement id -> {terminal, devServer} (`planReqPills.js`),
     // built by the page from reads it owns. Drawn as pills between a row's id
     // and its title; null draws every row exactly as before.
     reqPills = null,
+    // req #3702 — requirement id -> latest session status (the page's own
+    // `buildSessionStatusIndex`), so the Orchestrables box can paint its rows by
+    // the Session colour key too. Its rows sit on no step, so `model` has none.
+    sessionStatus = null,
     // req #3658 — the page is maximized (PipelineDetail owns the state, because
     // what it hides — the header row and the navbar — is the page's), and the
     // switch's click. No `onToggleMaximized`, no switch.
     maximized = false,
     onToggleMaximized = null,
+    // req #3722 — the colour help is a HOVER popup on the toolbar's chips. The
+    // page owns the toolbar, so the chip under the pointer arrives here as
+    // `{ key, el }` (`key` a colour scale, or 'step'; `el` the chip to anchor
+    // to), null when none is hovered.
+    keyHover = null,
 }) {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
@@ -685,6 +681,88 @@ export default function PipelinePlanVisualizer({
         }
     }, [insertReq, inserting, insertTitle, insertEpic, darwinUri, idToken,
         pipeline?.id, profile?.userName, queryClient, showError]);
+
+    // ── Add an epic from the canvas (req #3719) ─────────────────────────────
+    // The "+" under the last epic band. An epic's band is drawn from its STEPS,
+    // so an epic with none would be created and not appear anywhere on this
+    // canvas; the dialog therefore creates the epic AND its first step (the
+    // same placeholder title the add-step dialog starts from), and the band
+    // shows up as soon as the plan re-reads. `epicAddOpen` is the dialog.
+    const [epicAddOpen, setEpicAddOpen] = useState(false);
+    const [epicAddTitle, setEpicAddTitle] = useState(NEW_EPIC_TITLE);
+    const [epicAddCategory, setEpicAddCategory] = useState('');
+    const [epicAdding, setEpicAdding] = useState(false);
+    const epicAddOpenedAtRef = useRef(0);
+    const openEpicAddRef = useRef(null);
+    const { data: categories = [] } = useAllCategories(
+        profile?.userName, { fields: 'id,category_name,sort_order,closed' });
+    const epicAddCategories = useMemo(() => categories
+        .filter((c) => !c.closed)
+        .sort((a, b) => (a.sort_order ?? Infinity) - (b.sort_order ?? Infinity)
+            || String(a.category_name).localeCompare(String(b.category_name))),
+    [categories]);
+    const openEpicAdd = useCallback((afterEpicId) => {
+        // Default to the category of the epic this "+" sits under.
+        const last = (model?.epics || []).find((e) => e.id === afterEpicId) || null;
+        const open = epicAddCategories.some((c) => c.id === last?.category_fk);
+        setEpicAddTitle(NEW_EPIC_TITLE);
+        setEpicAddCategory(open ? last.category_fk : (epicAddCategories[0]?.id ?? ''));
+        epicAddOpenedAtRef.current = Date.now();
+        setEpicAddOpen(true);
+    }, [model, epicAddCategories]);
+    openEpicAddRef.current = openEpicAdd;
+    const closeEpicAdd = useCallback((event, reason) => {
+        if (reason === 'backdropClick' && Date.now() - epicAddOpenedAtRef.current < 600) return;
+        if (!epicAdding) setEpicAddOpen(false);
+    }, [epicAdding]);
+    const commitEpicAdd = useCallback(async () => {
+        if (epicAdding) return;
+        const title = epicAddTitle.trim();
+        if (!title) { showError('Title is required'); return; }
+        if (isRestNullLiteral(title)) {
+            showError(`"${REST_NULL}" is the API's clear-this-column sentinel and cannot `
+                + 'be a title. Try "Null" or another wording.');
+            return;
+        }
+        if (epicAddCategory === '' || epicAddCategory == null) {
+            showError('Category is required');
+            return;
+        }
+        setEpicAdding(true);
+        let epic = null;
+        try {
+            epic = await createEpic(darwinUri, idToken, {
+                pipeline_fk: pipeline.id, title, category_fk: epicAddCategory,
+            });
+            const epicId = Array.isArray(epic) ? epic[0]?.id : epic?.id;
+            setEpicAddOpen(false);
+            if (epicId == null) {
+                // The row was written but not read back (stepsApi documents a
+                // 201 with no body): retrying here would make a second epic.
+                showError('The epic may have been created without a first step — '
+                    + 'check the Epics page before adding it again');
+                return;
+            }
+            try {
+                await createStep(darwinUri, idToken, { epic_fk: epicId, title: NEW_STEP_TITLE });
+            } catch (error) {
+                showError(error, 'Epic created, but its first step could not be added');
+            }
+        } catch (error) {
+            showError(error, 'Could not create the epic');
+        } finally {
+            setEpicAdding(false);
+            if (pipeline?.id != null) {
+                queryClient.invalidateQueries({ queryKey: pipelineComposeKeys.byId(pipeline.id) });
+            }
+            if (profile?.userName) {
+                queryClient.invalidateQueries({ queryKey: epicKeys.all(profile.userName) });
+            }
+            queryClient.invalidateQueries({ queryKey: pipelineStepKeys.all(profile?.userName) });
+            queryClient.invalidateQueries({ queryKey: ['orchestration_index'] });
+        }
+    }, [epicAdding, epicAddTitle, epicAddCategory, darwinUri, idToken, pipeline?.id,
+        profile?.userName, queryClient, showError]);
     const eligibleStepIds = plan.eligibleStepIds || new Set();
     // The requirement TITLE lookup, when that mark is showing (req #3168). Built
     // from `reqInfo`, which the hover card already needed — so the option costs
@@ -748,8 +826,12 @@ export default function PipelinePlanVisualizer({
     // req #3686 — `orderStepReqs` puts the closed requirements last, from
     // `reqDoneFrom` on; hiding them is slicing there. Only the LAYOUT's input is
     // trimmed: `rows` (drag, seating, counts) keeps every requirement.
-    const layoutRows = useMemo(
-        () => (hideClosed ? hideClosedReqs(rows) : rows), [rows, hideClosed]);
+    // req #3708 — and the requirements pinned to a deselected machine, in the
+    // same layout-only pass; `reqInfo` already carries each one's `machineFk`.
+    const layoutRows = useMemo(() => {
+        const open = hideClosed ? hideClosedReqs(rows) : rows;
+        return hideMachineReqs(open, hiddenMachines, (id) => reqInfo.get(id)?.machineFk);
+    }, [rows, hideClosed, hiddenMachines, reqInfo]);
     const layoutOpts = useMemo(
         () => ({
             stepLabel, reqLabel, reqTitles: layoutTitles, reqPills,
@@ -851,41 +933,12 @@ export default function PipelinePlanVisualizer({
         REQ_KEY_SCALES.map((scale) => [scale, reqIdKeyEntries({
             colorKey: scale, views: reqColorViews,
         }).entries])), [reqColorViews]);
-    // Collapsed by default (req #3633, reversing req #3585's expanded default
-    // and restoring req #3309's) and REMEMBERED once the reader opens it (req
-    // #3651) — see the key's own comment below.
-    const [keyOpenStored, setKeyOpenStored] = usePlanViewSetting('keyOpen');
-    // req #3658 — maximized, the key FOLDS on the way in ("default collapse but
-    // don't completely hide supporting text boxes"): it keeps its + toggle and
-    // opens if the reader asks, and on the way out it is back to the reader's
-    // remembered state. The TPU Full screen switch's rule for its panels. So a
-    // fold or unfold made while maximized is held HERE and never written to
-    // the remembered setting, and every switch-on starts it folded again.
-    const [keyOpenMax, setKeyOpenMax] = useState(false);
-    useLayoutEffect(() => { if (maximized) setKeyOpenMax(false); }, [maximized]);
-    const keyOpen = maximized ? keyOpenMax : keyOpenStored;
-    const setKeyOpen = maximized ? setKeyOpenMax : setKeyOpenStored;
-
     // The container is tracked as STATE, not a bare ref: with an empty plan the
     // component returns the empty panel and no container exists — if the first
     // step arrives later (focus refetch on a draft pipeline), effects keyed on
     // a ref would never re-run and the canvas would stay blank forever (review
     // finding). A ref callback re-fires every effect when the node appears.
     const [containerEl, setContainer] = useState(null);
-    // The key is a floating overlay parked at viewport middle-bottom (req
-    // #3255; was the panel's top-right corner), and the epic chips clamp into
-    // the same region whenever a band's header strip or a bottom-pinned sticky
-    // chip reaches it — so the two collided, with the key on top and the epic
-    // name unreadable underneath (req #3168, "epic title collisions"). Its
-    // rect is MEASURED rather than assumed, and measuring is what lets the key
-    // GROW into
-    // the complete vocabulary without anyone re-tuning a constant: its size
-    // depends on the live colour key (every value of the scale since req #3621,
-    // or one entry per machine) and on whether the
-    // reader has collapsed it. Any hard-coded keep-out would be wrong on most
-    // plans in one direction or the other.
-    const [legendEl, setLegendEl] = useState(null);
-    const [legendSize, setLegendSize] = useState(null);
     const stageRef = useRef(null);
     const layerRef = useRef(null);
     const zoomRef = useRef(null);
@@ -944,10 +997,39 @@ export default function PipelinePlanVisualizer({
     const [pendingSeats, setPendingSeats] = useState(() => new Set());
     const [boxCarrying, setBoxCarrying] = useState(false);
     const unseatedItems = useMemo(
-        () => (pendingSeats.size
-            ? unseated.items.filter((r) => !pendingSeats.has(Number(r.id)))
-            : unseated.items),
-        [unseated.items, pendingSeats]);
+        () => unseated.items.filter((r) => !pendingSeats.has(Number(r.id))
+            && !isMachineHidden(r.machine_fk, hiddenMachines)),
+        [unseated.items, pendingSeats, hiddenMachines]);
+    // req #3702 — the Orchestrables rows follow the reader's colour preference.
+    // The SAME registry, theme and resolver as the canvas ids, built over the
+    // box's own rows (they sit on no step, so `model.requirements` lacks them).
+    // `session_status` is attached exactly as `buildPlanModel` does; with no
+    // index yet the Session scale paints unknown rather than "no session".
+    const unseatedColorViews = useMemo(() => buildReqColorViews({
+        requirements: unseated.items.map((r) => ({
+            ...r, id: Number(r.id),
+            ...(sessionStatus && {
+                session_status: sessionStatus.get(Number(r.id)) ?? 'no_session',
+            }),
+        })),
+        machines: model?.machines,
+        palette: activePalette,
+    }), [unseated.items, sessionStatus, model?.machines, activePalette]);
+    // req #3721 — the Active box: this plan's requirements whose latest
+    // session is under way, in the cards' own order, coloured by the canvas's
+    // own resolver. Off rows and requirements already in hand — no new read.
+    const activeItems = useMemo(() => activePlanRequirements({
+        rows, requirements: model?.requirements, hiddenMachines,
+    }), [rows, model?.requirements, hiddenMachines]);
+    const activeIdStyleOf = useCallback((reqId) => reqIdStyle({
+        colorKey: activeColorKey, views: reqColorViews, reqId: Number(reqId),
+    }), [activeColorKey, reqColorViews]);
+    const openActiveReq = useCallback((id) => navigate(`/swarm/requirement/${id}`,
+        pipeline?.id ? { state: planExitState(pipeline.id, 'plan') } : undefined),
+    [navigate, pipeline?.id]);
+    const unseatedIdStyleOf = useCallback((reqId) => reqIdStyle({
+        colorKey: activeColorKey, views: unseatedColorViews, reqId: Number(reqId),
+    }), [activeColorKey, unseatedColorViews]);
     // req #3608 — the whole box dropped on a step: the open confirm dialog's
     // request (`bulkSeatRequest`), null when closed, and whether its writes are
     // in flight.
@@ -1105,22 +1187,6 @@ export default function PipelinePlanVisualizer({
         const o = observedSizeRef.current;
         return o.w === size.w && o.h === size.h;
     }, [size.w, size.h]);
-
-    useLayoutEffect(() => {
-        if (!legendEl) { setLegendSize(null); return undefined; }
-        const ro = new ResizeObserver((entries) => {
-            const cr = entries[0]?.contentRect;
-            if (cr) {
-                setLegendSize({
-                    w: Math.round(legendEl.offsetWidth),
-                    h: Math.round(legendEl.offsetHeight),
-                });
-            }
-        });
-        ro.observe(legendEl);
-        setLegendSize({ w: legendEl.offsetWidth, h: legendEl.offsetHeight });
-        return () => ro.disconnect();
-    }, [legendEl]);
 
     // The canvas fills whatever is left below it, MEASURED (req #3119). A
     // `calc(100vh - Npx)` constant — which is what the swarm canvas can afford,
@@ -1578,12 +1644,15 @@ export default function PipelinePlanVisualizer({
     // left — handed back while the camera is still there, so hide → expand
     // holds the SAME card both ways and returns exactly.
     const shownLayoutRef = useRef(null);
-    const shownHideClosedRef = useRef(hideClosed);
+    // req #3708 — a machine-filter toggle re-lays the plan out exactly as Hide
+    // closed does, so it rides the same anchor under one combined key.
+    const layoutFilterKey = `${hideClosed ? 1 : 0}|${[...hiddenMachines].sort().join(',')}`;
+    const shownHideClosedRef = useRef(layoutFilterKey);
     const anchorFromRef = useRef(null);
     const lastAnchorRef = useRef(null);
     useEffect(() => {
-        if (shownHideClosedRef.current !== hideClosed) {
-            shownHideClosedRef.current = hideClosed;
+        if (shownHideClosedRef.current !== layoutFilterKey) {
+            shownHideClosedRef.current = layoutFilterKey;
             if (anchorFromRef.current == null) {
                 anchorFromRef.current = { layout: shownLayoutRef.current,
                     t: liveTransformRef.current };
@@ -1721,7 +1790,7 @@ export default function PipelinePlanVisualizer({
         const c = clampPlanTransform(live, size, layout, kZoomFloor, kMax);
         if (c.k !== live.k || c.x !== live.x || c.y !== live.y) apply(live);
     }, [resetView, containerEl, size, layout, kZoomFloor, kDefault, sizeSettled,
-        landKey, viewportKey, viewport, hideClosed]);
+        landKey, viewportKey, viewport, layoutFilterKey]);
 
     // Reset targets the same view the plan lands on (req #3312), so all this
     // adds over `resetView` is the INTENT: an explicit, in-the-moment
@@ -1890,7 +1959,8 @@ export default function PipelinePlanVisualizer({
             // stage: the marks are drawn as one non-listening shape.
             const mark = insertHitRef.current?.(e);
             if (mark) {
-                openInsertRef.current?.(mark.kind, { fromId: mark.fromId, toId: mark.toId });
+                if (mark.kind === 'epic') openEpicAddRef.current?.(mark.afterEpicId);
+                else openInsertRef.current?.(mark.kind, { fromId: mark.fromId, toId: mark.toId });
                 return;
             }
             const stage = stageRef.current;
@@ -2467,8 +2537,9 @@ export default function PipelinePlanVisualizer({
     // SETTLED layout, so mid-fold they would float where the cards are going
     // rather than where they are. They return the frame the fold lands.
     const insertGeom = useMemo(
-        () => (insertDrawn && !folding ? buildInsertMarks(layout, rows) : null),
-        [insertDrawn, folding, layout, rows]);
+        () => (insertDrawn && !folding
+            ? buildInsertMarks(layout, rows, undefined, { epicAdd: !plan.locked }) : null),
+        [insertDrawn, folding, layout, rows, plan.locked]);
     insertGeomRef.current = insertGeom;
     openInsertRef.current = openInsert;
     insertHitRef.current = (e) => {
@@ -3211,10 +3282,9 @@ export default function PipelinePlanVisualizer({
         transform: t,
         viewport: size,
         worldWidth: drawLayout.width,
-        keepOut: legendSize
-            ? { x: (size.w - legendSize.w) / 2, y: size.h - 12 - legendSize.h,
-                w: legendSize.w, h: legendSize.h }
-            : null,
+        // No keep-out: the key left the canvas for a popup (req #3722), so
+        // nothing floats over the plan's bottom edge for a name to dodge.
+        keepOut: null,
         // THE HEADER CHROME the name stops just below, never underneath
         // (req #3257 clause 2) — whatever is PINNED above the plan inside this
         // panel. That is the TIME RULER: since req #3254 it draws in a Group
@@ -3254,18 +3324,14 @@ export default function PipelinePlanVisualizer({
     // layout's own card frames.
     const isSeatDrag = (e) => Array.from(e.dataTransfer?.types || [])
         .includes(UNSEATED_REQ_MIME);
-    // What hides a card: the box and the key (chrome), and an epic chip — any
-    // HTML over the canvas except a card's own count badge, which sits ON the
-    // card it counts. The key ignores the pointer, so its events land on the
-    // canvas beneath it and it is excluded by its measured rect instead.
+    // What hides a card: the box (chrome), and an epic chip — any HTML over the
+    // canvas except a card's own count badge, which sits ON the card it counts.
     const overlaysCard = (e) => {
         const target = e.target;
         if (target?.closest?.(`${CHROME_SELECTOR}, [data-viz-unseated]`)) return true;
         if (!(target instanceof HTMLCanvasElement)
             && !target?.closest?.('[data-testid="pipeline-viz-badge-layer"]')) return true;
-        const k = legendEl?.getBoundingClientRect?.();
-        return !!k && e.clientX >= k.left && e.clientX <= k.right
-            && e.clientY >= k.top && e.clientY <= k.bottom;
+        return false;
     };
     const seatTargetFor = (e) => {
         const el = containerEl;
@@ -4699,11 +4765,29 @@ export default function PipelinePlanVisualizer({
             <Shape key="insert-marks" sceneFunc={insertSceneFunc} geom={insertGeom}
                    drawR={insertR}
                    listening={false} perfectDrawEnabled={false} />);
+        // req #3719 — the add-epic "+" is the one mark that is not on a card, so
+        // it is the one that says what it adds.
+        const epicMark = insertGeom.marks.find((m) => m.kind === 'epic');
+        if (epicMark) {
+            worldNodes.push(
+                <Text key="insert-epic-label" x={epicMark.x + insertR + 6}
+                      y={epicMark.y - 6} text="Add epic" fontSize={12}
+                      fontFamily={MONO} fill={P.arc} listening={false} />);
+        }
     }
 
     return (
         <Box>
             <OrderViolationsAlert plan={plan} />
+
+            {/* req #3721 — the Active box. A viewport-fixed AnchoredPanel,
+                mounted OUTSIDE the canvas pane so d3-zoom never sees its
+                pointer or wheel. */}
+            <PlanActiveBox items={activeItems} reqPills={reqPills}
+                           idStyleOf={activeIdStyleOf}
+                           isLoading={sessionStatus == null}
+                           maximized={maximized}
+                           onOpen={openActiveReq} />
 
             {/* Req #3235 — the `?epic=` deep link named an epic no band on THIS
                 plan carries (see focusEpicNotOnPlan above). Saying so beats a
@@ -4782,6 +4866,7 @@ export default function PipelinePlanVisualizer({
                  data-insert-edges={insertGeom ? insertGeom.edgeCount : 0}
                  data-insert-dependents={insertGeom ? insertGeom.dependentCount : 0}
                  data-insert-precedes={insertGeom ? insertGeom.precedeCount : 0}
+                 data-insert-epics={insertGeom ? insertGeom.epicCount : 0}
                  // Full-page canvas (req #3119), the KonvaSwarmCanvas figure
                  // verbatim. The height is MEASURED (`availH` above) rather than
                  // subtracted from a list of known chrome, which is what lets the
@@ -5453,6 +5538,7 @@ export default function PipelinePlanVisualizer({
                                  data-testid={`pipeline-viz-run-${r.stepId}`}
                                  data-run={r.run}
                                  aria-label={`Step ${r.stepId} runs ${r.run} — switch to ${next}`}
+                                 title={`Runs ${r.run} — click to switch to ${next}`}
                                  aria-busy={r.pending || undefined}
                                  onClick={(ev) => {
                                      ev.stopPropagation();
@@ -5640,6 +5726,7 @@ export default function PipelinePlanVisualizer({
                     widthPx={unseatedBoxWidthPx(layout.cardFrameW,
                         unseatedBoxZoom(t.k, size.w, layout.colPitch))}
                     statusColor={planPalette(activePalette).status?.swarm_ready || P.req}
+                    idStyleOf={unseatedIdStyleOf}
                     draggingId={unseatDragId}
                     onDragStartItem={setUnseatDragId}
                     onDragEndItem={() => { setUnseatDragId(null); setSeatTarget(null); }}
@@ -5651,198 +5738,56 @@ export default function PipelinePlanVisualizer({
                             ? { state: planExitState(pipeline.id, 'plan') }
                             : undefined)} />
 
-                {/* ── THE KEY (req #3168, user directives 2026-08-01) ────────
-                    "Have a common key displayed in the upper right", then a
-                    second pass on what it should hold: no "Key" heading, no
-                    small-print footer, no epic-band or launch-unit entries, the
-                    requirement group labelled simply "Requirement", each status
-                    or machine name drawn IN ITS OWN COLOUR rather than beside a
-                    sample id, and — the one with teeth — **one stable footprint
-                    across colour modes**.
+                {/* ── THE COLOUR HELP (req #3722; was THE KEY — req #3168) ───
+                    A HOVER popup on the toolbar's chips. The key used to be a
+                    panel parked at the canvas's bottom centre with a +/− that
+                    read as "add something" (user: *"get that plus sign help off
+                    the bottom of the visualizer"*); then a `?` chip beside the
+                    colour chips (user: *"Remove the ?"*). Now each colour chip
+                    explains ITSELF when the pointer rests on it — active or not
+                    — and the Step chip explains the step marks. The page owns
+                    the toolbar, so the hovered chip arrives as `keyHover`.
 
-                    What is left is the two channels a reader is actually decoding
-                    on this canvas: the STEP marks, and the REQUIREMENT marks
-                    under whichever colour key is live. Every colour comes from
-                    the same pure module the canvas draws from, so the key cannot
-                    describe a colour the plan is not using.
-
-                    THE FOOTPRINT IS RESERVED, NOT MEASURED-AND-SET. The user's
-                    complaint was that "when I select machine view the key gets
-                    too small", so all three requirement scales are stacked in ONE
-                    grid cell with the inactive ones `visibility: hidden`. A
-                    hidden grid item still occupies its cell, so the cell is the
-                    MAX of the three and the box cannot change size when the mode
-                    does — declaratively, with no measurement, no ResizeObserver
-                    feedback loop, and no risk of a scale being clipped to a
-                    footprint that was reserved for a different one.
-
-                    IT IS HEIGHT-CAPPED, NOT WIDTH-CAPPED (req #3374 P6). This
-                    element's measured rect is the keep-out `placeEpicChips`
-                    resolves the floating epic names against — by CLIPPING them
-                    at this box's left edge since req #3257, since a name may
-                    not slide out of its own band's rectangle to dodge it — and
-                    a bottom-anchored box grows UPWARD into more band rows as it
-                    gets TALLER, which `pipelinePlanLayout.js`'s own re-measure
-                    (see `PLAN_KEY_MAX_H`) found costs roughly 5x more per pixel
-                    than the box getting WIDER. `PLAN_KEY_MAX_W` capped the
-                    cheaper axis from the day the key moved to bottom-center
-                    (req #3255) until this requirement; width is now
-                    deliberately uncapped, and the wider key — every plan's
-                    since req #3621 lists every value of every scale — is the
-                    accepted, measured cost of that trade.
-
-                    Collapse is a REMEMBERED SETTING (req #3651), not local
-                    state: as local state every transition — Plan|Table, a step
-                    card into the Table and Back, a requirement round-trip, a
-                    reload — re-mounted it collapsed under a reader who had
-                    opened it. It defaults collapsed (req #3633; req #3585 had it
-                    expanded, req #3309 collapsed), so a reader who never opens
-                    it, and every E2E run (empty storage), sees no change. Its
-                    key and default are one row in `planViewSettings.js`.
-
-                    PARKED AT VIEWPORT MIDDLE BOTTOM (req #3255), not the
-                    top-right corner: that corner sat in the typical down-and-
-                    to-the-right reading flow of the epics, so the key kept
-                    landing under the eye instead of out of its way.
-                    Bottom-center is out of that flow on every plan shape.
-                    Centered with `left: 50%` + `translateX(-50%)` rather than
-                    a fixed width, because the key's own width is content-
-                    driven and, since req #3374 P6, deliberately uncapped. */}
-                <Stack direction="column" spacing={0}
-                       useFlexGap
-                       ref={setLegendEl}
-                       data-testid="pipeline-viz-legend"
-                       sx={{ position: 'absolute', bottom: 12, left: '50%',
-                              transform: 'translateX(-50%)',
-                              // A panel, not a wash: opaque enough that the plan
-                              // never reads through the key's own type, with a
-                              // soft edge so it sits ON the canvas rather than
-                              // being cut out of it.
-                              background: 'rgba(13, 20, 32, 0.94)',
-                              backdropFilter: 'blur(2px)',
-                              px: 1.25, py: 0.9, borderRadius: '10px',
-                              border: `1px solid ${P.line}`,
-                              boxShadow: '0 6px 18px rgba(0, 0, 0, 0.45)',
-                              pointerEvents: 'none', userSelect: 'none',
-                              maxHeight: PLAN_KEY_MAX_H,
-                              // Collapsed, the panel's only child is the
-                              // absolutely-positioned toggle below, which does
-                              // not participate in flex layout — so the panel
-                              // has zero in-flow content. The 20px toggle at
-                              // `top: 3, right: 4` needs a padding box of at
-                              // least 24x23 to stay inside the panel; these
-                              // floors give it room with margin to spare
-                              // (req #3255 review finding).
-                              minWidth: 32, minHeight: 28,
-                              '@keyframes pipeKeyPulse': {
-                                  '0%, 100%': { opacity: 1 },
-                                  '50%': { opacity: 0.45 },
-                              },
-                              '@keyframes pipeKeyBreathe': {
-                                  '0%, 100%': { opacity: 1 },
-                                  '50%': { opacity: 0.25 },
-                              } }}>
-                    {/* No heading (user directive), so the collapse control is
-                        the only chrome. ABSOLUTE, in the panel's own top-right
-                        corner: in the flow it was a lone button on a line of its
-                        own, which is most of what made the key look unfinished.
-                        The sections keep their left edge and the control floats
-                        clear of them.
-
-                        MADE MORE PROMINENT (req #3255): `P.dim` at 0.55 opacity
-                        read as barely-there chrome next to the key's own bright
-                        swatches, so the control most likely to be missed was the
-                        one that changes what the panel shows. `P.text` (the
-                        panel's own body colour, near-white) replaces `P.dim` as
-                        the resting colour, resting opacity goes to 0.85, and the
-                        hit target grows from 15px to 20px with the glyph's font
-                        size scaled to match — still the smallest interactive
-                        element on the canvas, just no longer the one you have to
-                        hunt for.
-
-                        THE '+' READS BRIGHTER THAN THE '−' (req #3309): once the
-                        reader collapses the key, '+' is the one glyph that has
-                        to say "there is more here" with no key content around
-                        it to draw the eye.
-                        Full resting opacity does that; the hover state (opacity
-                        1, `P.accent`) is unchanged and still the stronger of the
-                        two cues. */}
-                    <Box component="button" type="button"
-                         onClick={() => setKeyOpen((v) => !v)}
-                         data-viz-chrome="legend"
-                         data-testid="pipeline-viz-legend-toggle"
-                         aria-expanded={keyOpen}
-                         aria-label={keyOpen ? 'Collapse the key' : 'Expand the key'}
-                         sx={{ pointerEvents: 'auto', cursor: 'pointer',
-                                position: 'absolute', top: 3, right: 4,
-                                width: 20, height: 20, p: 0,
-                                display: 'flex', alignItems: 'center',
-                                justifyContent: 'center',
-                                fontFamily: MONO, fontSize: 15, lineHeight: 1,
-                                color: P.text, background: 'transparent',
-                                border: 'none', borderRadius: '5px',
-                                opacity: keyOpen ? 0.85 : 1,
-                                '&:hover': { opacity: 1, color: P.accent } }}>
-                        {keyOpen ? '−' : '+'}
-                    </Box>
-
-                    {keyOpen && (
-                        <>
-                            {/* THE LEVEL SELECTOR IS GONE FROM HERE (req #3241).
-                                It moved to the page header, left of Width —
-                                which is what req #3214's title asked for and its
-                                work declined, leaving the control here and a
-                                dead import in PipelineDetail.jsx. The reason
-                                recorded for keeping it here was that the key
-                                already says what a mark MEANS and the level says
-                                which marks are drawn; that reading is fine, and
-                                it is not the user's, which is the only one that
-                                decides where a control lives.
-
-                                THE KEY IS RE-PROPORTIONED TO WHAT REMAINS, not
-                                left with a hole: the step channel is now the
-                                FIRST group, so `KeyGroup`'s separating hairline
-                                and its top padding do not survive as an edge
-                                over nothing.
-
-                                No re-measurement was needed for this removal
-                                either, under the WIDTH cap that stood here at
-                                the time (`PLAN_KEY_MAX_W`, since renamed and
-                                moved to height by req #3374 P6 — see
-                                `PLAN_KEY_MAX_H`): it was a CAP, and the box
-                                sizes to its widest line; the 186px control was
-                                never that line (the step channel's five
-                                swatches and names are), and even if it had
-                                been, a NARROWER key only ever gives the
-                                floating epic labels more room. The point
-                                survives the rename — one FEWER row can only
-                                shrink the box on whichever axis is capped now.
-
-                                The pan exemption travelled with the control in
-                                the only sense that matters: the `data-viz-chrome`
-                                Box that wrapped it is gone, and the key keeps its
-                                own on the collapse button below. The header is
-                                outside the container the gesture filters are
-                                bound to, so nothing there needs one. */}
-
-                            {/* THE STEP channel. Running and next-up carry live
-                                motion in the key itself, because naming a rhythm
-                                in words is not the same as showing it. */}
-                            {/* ── THE ORDER IS THE STEP'S OWN LIFECYCLE ──────
-                                User directive, 2026-08-13: read left to right,
-                                *"Manual Scheduled Running Complete Up Next"*.
-
-                                It used to run Complete first and Manual fourth,
-                                which is the order the marks were ADDED in over
-                                #3168/#3299 rather than an order that means
-                                anything. Left to right it now traces what
-                                happens to a step — held for a person, waiting
-                                its turn, in flight, done — with the launch
-                                marker last, because "Up Next" is not a state a
-                                step is IN; it is the plan pointing at what runs
-                                now. That also puts the two marks a reader
-                                compares most (Running and Complete) side by
-                                side. */}
+                    The popup lives HERE because the key's data does (the ids
+                    this plan draws decide whether an `unknown` swatch is
+                    listed; the palette decides every colour), and every colour
+                    still comes from the same pure module the canvas draws from,
+                    so the key cannot describe a colour the plan is not using.
+                    `pointerEvents: none` so the popup never takes the pointer
+                    from the chip that opened it (it would flicker closed).
+                    A Popper and not a Popover: a Popover is a Modal and
+                    aria-hides the whole app, chip included, while open. */}
+                {keyHover?.el?.isConnected && !maximized && (
+                    <Popper
+                        open
+                        anchorEl={keyHover.el}
+                        placement="bottom-start"
+                        // Above the page's modals' floor but not a modal itself:
+                        // a Popover would aria-hide the whole app while open.
+                        sx={{ zIndex: 1400, pointerEvents: 'none' }}>
+                        <Paper
+                            role="tooltip"
+                            data-testid="pipeline-viz-legend"
+                            data-key={keyHover.key}
+                            sx={{
+                                mt: 0.5, px: 1.25, py: 0.9, borderRadius: '10px',
+                                background: 'rgba(13, 20, 32, 0.97)',
+                                backgroundImage: 'none',
+                                border: `1px solid ${P.line}`,
+                                boxShadow: '0 6px 18px rgba(0, 0, 0, 0.45)',
+                                userSelect: 'none', maxWidth: 'calc(100vw - 16px)',
+                                '@keyframes pipeKeyPulse': {
+                                    '0%, 100%': { opacity: 1 },
+                                    '50%': { opacity: 0.45 },
+                                },
+                                '@keyframes pipeKeyBreathe': {
+                                    '0%, 100%': { opacity: 1 },
+                                    '50%': { opacity: 0.25 },
+                                },
+                            }}>
+                        <Stack direction="column" spacing={0} useFlexGap>
+                            {keyHover.key === 'step' ? (
+                                <>
                             <KeyGroup title={KEY_GROUP_TITLES[0]} first>
                                 <LegendDot ring={P.manualRing} label="Manual" />
                                 <LegendDot fill={P.pendingFill} ring="#5b7293"
@@ -5877,40 +5822,22 @@ export default function PipelinePlanVisualizer({
                                     <PlanLockIcon locked sx={{ fontSize: 13, color: P.lockOn }} />
                                 </LegendIcon>
                             </KeyGroup>
-
-                            {/* THE REQUIREMENT channel — EVERY scale in ONE grid
-                                cell so the footprint cannot move when the colour
-                                key does. The swatch IS the word: each name is
-                                drawn in its own colour, which is exactly what the
-                                canvas does to the marks themselves.
-
-                                The list is the registry (req #3422), so a scale
-                                added there renders here — with its own entries
-                                and its own title — without an edit to this
-                                block. */}
-                            <Box sx={{ display: 'grid' }}
-                                 data-testid="pipeline-viz-legend-reqscale">
-                                {REQ_KEY_SCALES.map((scale) => {
-                                    const active = scale === activeColorKey;
-                                    return (
-                                        <Box key={scale}
-                                             data-testid={`pipeline-viz-legend-scale-${scale}`}
-                                             aria-hidden={!active}
-                                             sx={{ gridArea: '1 / 1',
-                                                    visibility: active ? 'visible' : 'hidden' }}>
-                                            <KeyGroup title={KEY_GROUP_TITLES[1]}>
-                                                {reqKeyScales[scale].map((e) => (
-                                                    <LegendWord key={e.key} color={e.color}
-                                                                label={e.label} />
-                                                ))}
-                                            </KeyGroup>
-                                        </Box>
-                                    );
-                                })}
-                            </Box>
-                        </>
-                    )}
-                </Stack>
+                                </>
+                            ) : (reqKeyScales[keyHover.key] && (
+                                <Box data-testid="pipeline-viz-legend-reqscale">
+                                    <KeyGroup title={reqColorScale(keyHover.key)?.keyTitle
+                                        || KEY_GROUP_TITLES[1]} first>
+                                        {reqKeyScales[keyHover.key].map((e) => (
+                                            <LegendWord key={e.key} color={e.color}
+                                                        label={e.label} />
+                                        ))}
+                                    </KeyGroup>
+                                </Box>
+                            ))}
+                        </Stack>
+                        </Paper>
+                    </Popper>
+                )}
 
                 {/* ── MAXIMIZE (req #3658) ──────────────────────────────────
                     The TPU 3D views' Full screen switch, borrowed (user
@@ -5921,7 +5848,7 @@ export default function PipelinePlanVisualizer({
                     states, because maximized there is no header row left to
                     hold it and a switch should not move when clicked. The
                     corner is the one the canvas's other floating panels leave
-                    free: the key is bottom-centre and the Orchestration Ready
+                    free: the key is a hover popup on the toolbar now (req #3722) and the Orchestration Ready
                     box opens top-right. The box can still be parked or
                     stretched over this corner, so the switch sits ABOVE it
                     (a placed box floats at `UNSEATED_FLOAT_Z`, req #3687) — it
@@ -6061,6 +5988,40 @@ export default function PipelinePlanVisualizer({
                             disabled={inserting || !insertTitle.trim()}
                             data-testid="pipeline-viz-insert-create">
                         {inserting ? 'Creating…' : 'Create'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* req #3719 — the add-epic dialog (the "+" under the last epic). */}
+            <Dialog open={epicAddOpen} onClose={closeEpicAdd} fullWidth maxWidth="xs"
+                    data-testid="pipeline-viz-epic-add-dialog">
+                <DialogTitle>Add an epic</DialogTitle>
+                <DialogContent>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                        Added at the end of this plan, with a first step so it shows on the canvas.
+                    </Typography>
+                    <TextField autoFocus fullWidth size="small" label="Title"
+                               value={epicAddTitle}
+                               onFocus={(e) => e.target.select()}
+                               onChange={(e) => setEpicAddTitle(e.target.value)}
+                               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commitEpicAdd(); } }}
+                               inputProps={{ 'data-testid': 'pipeline-viz-epic-add-title' }}
+                               sx={{ mb: 2 }} />
+                    <TextField select fullWidth size="small" label="Category"
+                               value={epicAddCategory}
+                               onChange={(e) => setEpicAddCategory(e.target.value)}
+                               inputProps={{ 'data-testid': 'pipeline-viz-epic-add-category' }}>
+                        {epicAddCategories.map((c) => (
+                            <MenuItem key={c.id} value={c.id}>{c.category_name}</MenuItem>
+                        ))}
+                    </TextField>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => closeEpicAdd()} disabled={epicAdding}>Cancel</Button>
+                    <Button variant="contained" onClick={commitEpicAdd}
+                            disabled={epicAdding || !epicAddTitle.trim() || epicAddCategory === ''}
+                            data-testid="pipeline-viz-epic-add-create">
+                        {epicAdding ? 'Creating…' : 'Create'}
                     </Button>
                 </DialogActions>
             </Dialog>

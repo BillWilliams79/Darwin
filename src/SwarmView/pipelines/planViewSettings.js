@@ -1,7 +1,8 @@
 // planViewSettings.js — every remembered setting of the plan page, in ONE table
 // (req #3651).
 //
-// THE DEFECT THIS EXISTS FOR. The colour key's +/− was component state, so every
+// THE DEFECT THIS EXISTS FOR. The colour key's +/− (a bottom panel until req
+// #3722 made it a popup, which is not remembered) was component state, so every
 // way of leaving the canvas — the Plan|Table toggle, a step card into the Table
 // and Back, a requirement and "Back to Plan", a reload — re-mounted it collapsed:
 // *"I had popped out the text color help at the bottom and it closed that on
@@ -30,7 +31,7 @@
 // tab), so a popout behaves exactly like the colour scale beside it. Defaults
 // are the ones each control had as local state, so a reader who never touched
 // one sees nothing change — and an E2E run, which starts with empty storage,
-// still opens the key collapsed (req #3633).
+// still opens the unseated list as before.
 
 import { useCallback, useRef } from 'react';
 
@@ -57,9 +58,14 @@ export const PLAN_VIEW_SETTINGS = Object.freeze({
     // req #3686 — the plan's closed requirements (met / deferred / wontfix),
     // and the dashed line above them, hidden from every step card. Off until asked for.
     hideClosed: { kind: 'flag', storageKey: 'darwin-pipeline-viz-hide-closed', default: false },
+    // req #3708 — the machines the reader has DESELECTED in the toolbar's
+    // machine filter, as `planMachineFilter.js` encodes them. Nothing hidden
+    // until asked for.
+    hiddenMachines: { kind: 'value', storageKey: 'darwin-pipeline-viz-hidden-machines',
+        default: '' },
     // ── Popouts (req #3651 — were component state, reset on every mount) ───
-    // The canvas's colour key: collapsed until the reader opens it (req #3633).
-    keyOpen: { kind: 'flag', storageKey: 'darwin-pipeline-viz-key-open', default: false },
+    // (The canvas's colour key had a row here until req #3722 turned it into a
+    // button-local popup: an open popup is transient, not a remembered choice.)
     // The swarm-ready, not-orchestrated box's list: open, it exists to be seen
     // next to the plan it feeds (req #3583).
     unseatedOpen: { kind: 'flag', storageKey: 'darwin-pipeline-viz-unseated-open',

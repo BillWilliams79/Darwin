@@ -24,6 +24,10 @@
 // Where it sits, its shape, whether it is expanded and whether it is shown at
 // all are remembered per browser (useDevServerDashboardStore); × hides it and
 // the Dev Servers page's "Show dashboard" chip brings it back.
+//
+// RACKABLE (req #3720): drag its head onto the Darwin navbar and it locks in
+// below the nav buttons at the navbar's width (AnchoredPanel's rack); drag it
+// off again to float it. Whether it is racked is the rack's (usePanelRackStore).
 
 import { useContext, useMemo } from 'react';
 
@@ -32,6 +36,9 @@ import { lighten } from '@mui/material/styles';
 import useMediaQuery from '@mui/material/useMediaQuery';
 
 import AnchoredPanel from '../Components/AnchoredPanel/AnchoredPanel';
+import {
+    INFO_PANEL_BADGE_EM, INFO_PANEL_COLORS, INFO_PANEL_FONT_PX, INFO_PANEL_HEAD_PX, INFO_PANEL_MONO, INFO_PANEL_SX,
+} from '../Components/AnchoredPanel/infoPanelChrome';
 import { validDock } from '../Components/AnchoredPanel/anchoredPanelGeometry';
 import AuthContext from '../Context/AuthContext';
 import { useDevServerRequirementTitles, useDevServerSessionTerminals, useDevServers, useMachines } from '../hooks/useDataQueries';
@@ -39,25 +46,14 @@ import { useDevServerDashboardStore } from '../stores/useDevServerDashboardStore
 import { machineChipProps } from '../SwarmView/machineChipStyles';
 import { PLAN_VIZ_PALETTE as P } from '../SwarmView/pipelines/pipelinePlanLayout';
 import {
-    DASH_AUTO_MAX_W, DASH_HOME, DASH_MIN_H, DASH_MIN_W, DASH_TINY_W, DASH_WIDE_W,
+    DASH_AUTO_MAX_W, DASH_HOME, DASH_MIN_H, DASH_MIN_W, DASH_RACK_ID, DASH_TINY_W, DASH_WIDE_W,
     devServerDashboardRows, withRequirementTitles, withTerminalLinks,
 } from './devServerDashboardModel';
 
-const MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
-/** Type size, px — every dimension inside is in em off it. */
-const FONT_PX = 12;
-/** The head row's height, px: its tallest item (× at 1.54em) plus 0.6em of
- *  padding, plus the 2px frame top and bottom. */
-const HEAD_PX = Math.ceil(2.2 * FONT_PX + 4);
-const LIMITS = { minW: DASH_MIN_W, minH: DASH_MIN_H, autoMaxW: DASH_AUTO_MAX_W, headPx: HEAD_PX };
-const COLORS = {
-    // The Orchestration Ready box's outline (req #3605) and panel.
-    frame: '#a64dff', background: 'rgba(13, 20, 32, 0.94)', line: P.line, text: P.text,
-    // The Topology minimize head's colours (`.tpu3d-head`, req #3570).
-    head: '#7bb8de', headHover: '#cfe4f7',
-};
-/** The count badge's height, and its width for one digit (a circle). */
-const BADGE_EM = '1.45em';
+const MONO = INFO_PANEL_MONO;
+const FONT_PX = INFO_PANEL_FONT_PX;
+const LIMITS = { minW: DASH_MIN_W, minH: DASH_MIN_H, autoMaxW: DASH_AUTO_MAX_W, headPx: INFO_PANEL_HEAD_PX };
+const BADGE_EM = INFO_PANEL_BADGE_EM;
 
 /** The bar's edge: a same-hue lightened shade of its fill (RequirementRow's
  *  rule, req #2752), as the Orchestration Ready box draws it. */
@@ -114,10 +110,9 @@ export default function DevServerDashboard() {
         <AnchoredPanel dock={dock} onDockChange={setDock}
                        open={open} onToggle={toggleOpen}
                        name="Dev Servers" testid="devserver-dashboard"
-                       limits={LIMITS} fontPx={FONT_PX} colors={COLORS}
-                       sx={{ borderRadius: '0.8em', backdropFilter: 'blur(2px)',
-                              boxShadow: '0 0.5em 1.5em rgba(0, 0, 0, 0.45)',
-                              fontFamily: MONO }}
+                       rackId={DASH_RACK_ID}
+                       limits={LIMITS} fontPx={FONT_PX} colors={INFO_PANEL_COLORS}
+                       sx={INFO_PANEL_SX}
                        extras={
                            // The step card's count badge (req #3503): the green
                            // pill, a circle for one digit, a capsule past it.
@@ -177,8 +172,9 @@ export default function DevServerDashboard() {
                                      sx={{ display: 'flex', alignItems: 'baseline', gap: '0.6em',
                                             // A little trailing space, nothing more:
                                             // it is the panel's only slack when it
-                                            // sizes to its rows.
-                                            pl: '0.7em', pr: '1em', py: '0.15em',
+                                            // sizes to its rows. Behind the title it
+                                            // is cut 66% (req #3718).
+                                            pl: '0.7em', pr: tiny ? '1em' : '0.34em', py: '0.15em',
                                             color: 'inherit', textDecoration: 'none',
                                             cursor: r.href ? 'pointer' : 'default',
                                             opacity: r.href ? 1 : 0.6,
@@ -227,8 +223,10 @@ export default function DevServerDashboard() {
                                         {r.terminal != null ? `${wide ? 'Term ' : 'T'}${r.terminal}` : ''}
                                     </Box>
                                     {!tiny && (
+                                        // The gap before the title is halved
+                                        // (req #3718): 0.6em less 0.3em.
                                         <Box component="span"
-                                             sx={{ flex: 1, minWidth: 0, overflow: 'hidden',
+                                             sx={{ flex: 1, minWidth: 0, ml: '-0.3em', overflow: 'hidden',
                                                     textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                             {r.label}
                                         </Box>

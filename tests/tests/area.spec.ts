@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { getIdToken, apiCall, apiDelete, uniqueName } from '../helpers/api';
-import { pangeaDragAndDrop } from '../helpers/pangea-dnd-drag';
+import { dndKitDrag } from '../helpers/dnd-kit-drag';
 
 test.describe.serial('Area Management', () => {
   let idToken: string;
@@ -148,7 +148,7 @@ test.describe.serial('Area Management', () => {
     await expect(areaCard).not.toBeVisible({ timeout: 5000 });
   });
 
-  test('AREA-03: DnD reorder areas in AreaEdit (@hello-pangea/dnd mouse)', async ({ page }) => {
+  test('AREA-03: DnD reorder areas in AreaEdit (dnd-kit mouse)', async ({ page }) => {
     const sub = process.env.E2E_TEST_COGNITO_SUB!;
     const areaName1 = uniqueName('First');
     const areaName2 = uniqueName('Second');
@@ -184,11 +184,15 @@ test.describe.serial('Area Management', () => {
     const initialSecondY = (await secondRow.boundingBox())!.y;
     expect(initialFirstY).toBeLessThan(initialSecondY);
 
-    // Mouse-based DnD: target the row element directly. With CSS grid layout,
-    // the drag handle is on the row itself (@hello-pangea/dnd dragHandleProps).
-    await pangeaDragAndDrop(page, secondRow, firstRow);
+    // Mouse-based DnD: the whole row is the grip (req #3664) — release on the
+    // upper half of the first row so the second lands above it.
+    const saved = page.waitForResponse(r => r.request().method() === 'PUT' && r.url().includes('/areas'));
+    await dndKitDrag(page, secondRow, firstRow, { drop: 'upper' });
+    await saved;
 
     // Verify order changed: Second should now be above First
+    await expect.poll(async () => (await secondRow.boundingBox())!.y < (await firstRow.boundingBox())!.y,
+      { timeout: 5000 }).toBe(true);
     const afterFirstY = (await firstRow.boundingBox())!.y;
     const afterSecondY = (await secondRow.boundingBox())!.y;
     expect(afterSecondY).toBeLessThan(afterFirstY);

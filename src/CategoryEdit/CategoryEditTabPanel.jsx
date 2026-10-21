@@ -1,4 +1,4 @@
-import React, {useState, useContext, useEffect, useRef} from 'react';
+import React, {useState, useContext, useEffect, useMemo, useRef} from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { useCategories, useRequirementCounts } from '../hooks/useDataQueries';
@@ -9,14 +9,14 @@ import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import call_rest_api from '../RestApi/RestApi';
 import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
-import { DragDropContext, Droppable } from '@hello-pangea/dnd';
+import { ReorderList } from '../dnd';
 
 import Box from '@mui/material/Box';
 import { Typography } from '@mui/material';
 
 import CategoryDeleteDialog from './CategoryDeleteDialog';
 import CategoryTableRow from './CategoryTableRow';
-import { CATEGORY_GRID_COLUMNS } from './CategoryTableRow';
+import { CATEGORY_GRID_COLUMNS, categoryItemId, isOrderableCategory } from './CategoryTableRow';
 
 const DEFAULT_CATEGORY_COLOR = '#4A90D9';
 
@@ -229,25 +229,23 @@ const CategoryEditTabPanel = ( { project, projectIndex, activeTab } ) => {
         return calcSortOrder;
     }
 
-    const dragEnd = async (result) => {
+    // The rows in the order they render: open categories (the positions)
+    // first, then closed categories and the template.
+    const orderedCategories = useMemo(() => (categoriesArray ? [
+        ...categoriesArray.filter(isOrderableCategory),
+        ...categoriesArray.filter(c => !isOrderableCategory(c)),
+    ] : []), [categoriesArray]);
 
-        if ((result.destination === null) || (result.reason !== 'DROP')) {
-            return;
-        }
+    const dragEnd = (fromIndex, toIndex) => {
 
-        var newCategoriesArray = [...categoriesArray];
-        const [draggedItem] = newCategoriesArray.splice(result.source.index, 1);
-        newCategoriesArray.splice(result.destination.index, 0, draggedItem);
+        var newCategoriesArray = [...orderedCategories];
+        const [draggedItem] = newCategoriesArray.splice(fromIndex, 1);
+        newCategoriesArray.splice(toIndex, 0, draggedItem);
 
         // Immutable renumber — fresh objects for the open rows whose sort_order changes
         // (req #2865, req #2747): keeps React.memo correct and the TanStack cache clean.
-        newCategoriesArray = newCategoriesArray.map((cat, index) => {
-            if ((cat.id !== '') && (cat.closed !== 1)) {
-                return { ...cat, sort_order: index };
-            } else {
-                return cat;
-            }
-        });
+        newCategoriesArray = newCategoriesArray.map((cat, index) =>
+            isOrderableCategory(cat) ? { ...cat, sort_order: index } : cat);
 
         setCategoriesArray(newCategoriesArray);
 
@@ -282,48 +280,28 @@ const CategoryEditTabPanel = ( { project, projectIndex, activeTab } ) => {
                             <Box sx={{ textAlign: 'center' }}><Typography variant="subtitle2">Requirements</Typography></Box>
                             <Box />
                         </Box>
-                        <DragDropContext onDragEnd={dragEnd}>
-                            <Droppable droppableId="categories">
-                                {(provided) => (
-                                    <Box {...provided.droppableProps} ref={provided.innerRef}>
-                                        { categoriesArray
-                                            .filter(c => c.closed === 0 && c.id !== '')
-                                            .map((category, idx) => (
-                                            <CategoryTableRow
-                                                key = {category.id}
-                                                category = {category}
-                                                categoryIndex = {idx}
-                                                changeCategoryName = {changeCategoryName}
-                                                changeCategoryColor = {changeCategoryColor}
-                                                keyDownCategoryName = {keyDownCategoryName}
-                                                blurCategoryName = {blurCategoryName}
-                                                clickCategoryClosed = {clickCategoryClosed}
-                                                clickCategoryDelete = {clickCategoryDelete}
-                                                requirementCounts = {requirementCounts}
-                                                isDraggable />
-                                        ))}
-                                        {provided.placeholder}
-                                    </Box>
-                                )}
-                            </Droppable>
-                        </DragDropContext>
-                        { categoriesArray
-                            .filter(c => c.closed === 1 || c.id === '')
-                            .map((category) => (
-                            <CategoryTableRow
-                                key = {category.id || 'template'}
-                                category = {category}
-                                categoryIndex = {categoriesArray.indexOf(category)}
-                                changeCategoryName = {changeCategoryName}
-                                changeCategoryColor = {changeCategoryColor}
-                                keyDownCategoryName = {keyDownCategoryName}
-                                blurCategoryName = {blurCategoryName}
-                                clickCategoryClosed = {clickCategoryClosed}
-                                clickCategoryDelete = {clickCategoryDelete}
-                                requirementCounts = {requirementCounts}
-                                isDraggable={false}
-                                inputRef={category.id === '' ? templateInputRef : undefined} />
-                        ))}
+                        {/* req #3664 — one list, every row in it: open categories lift
+                            and take a drop; closed categories and the template are not positions. */}
+                        <ReorderList id={`categories:${project.id}`} type="category"
+                                     ids={orderedCategories.map(categoryItemId)}
+                                     isTarget={isOrderableCategory}
+                                     onReorder={dragEnd}
+                                     data-testid={`category-edit-list-${project.id}`}>
+                            { orderedCategories.map((category) => (
+                                <CategoryTableRow
+                                    key = {category.id || 'template'}
+                                    category = {category}
+                                    categoryIndex = {categoriesArray.indexOf(category)}
+                                    changeCategoryName = {changeCategoryName}
+                                    changeCategoryColor = {changeCategoryColor}
+                                    keyDownCategoryName = {keyDownCategoryName}
+                                    blurCategoryName = {blurCategoryName}
+                                    clickCategoryClosed = {clickCategoryClosed}
+                                    clickCategoryDelete = {clickCategoryDelete}
+                                    requirementCounts = {requirementCounts}
+                                    inputRef={category.id === '' ? templateInputRef : undefined} />
+                            ))}
+                        </ReorderList>
                     </Box>
                 }
             </Box>
