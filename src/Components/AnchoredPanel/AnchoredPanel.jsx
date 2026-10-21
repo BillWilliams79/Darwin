@@ -57,10 +57,14 @@ import { usePanelRack } from './usePanelRack';
 const MOVE_SLOP = 4;
 /** A double-click this soon after a move ended is the move's own release. */
 const DBLCLICK_AFTER_MOVE_MS = 500;
-/** Reshape hit zones, px: an edge's thickness and a corner's square. Small
- *  enough to stay clear of the head row's ▾ and ×, which sit 0.7em in. */
-const EDGE_PX = 5;
-const CORNER_PX = 8;
+/** Reshape hit zones, px (req #3743: "the activation area is tiny" — they were
+ *  5 px / 8 px). Below the head row the sides and bottom are wide and the
+ *  bottom corners generous; the head row's own sides, top edge and top corners
+ *  stay slim so they keep clear of the ▾ and ×, which sit 0.7em in. */
+const EDGE_PX = 10;
+const CORNER_PX = 18;
+const HEAD_EDGE_PX = 5;
+const HEAD_CORNER_PX = 8;
 
 const viewport = () => ({
     vw: document.documentElement.clientWidth || window.innerWidth,
@@ -70,13 +74,28 @@ const viewport = () => ({
 const CURSOR = { n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize',
     nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize' };
 
-function edgeZone(e) {
-    const z = { position: 'absolute', zIndex: 3, touchAction: 'none', cursor: CURSOR[e.id] };
+function edgeZone(e, headPx, frame) {
+    const z = { position: 'absolute', zIndex: 3, touchAction: 'none', cursor: CURSOR[e.id],
+        // The zone shows itself under the pointer, so the reader sees what to grab.
+        '&:hover': { background: `color-mix(in srgb, ${frame} 40%, transparent)` } };
     const corner = e.h && e.v;
-    if (e.v) Object.assign(z, { [e.v === 't' ? 'top' : 'bottom']: 0, height: corner ? CORNER_PX : EDGE_PX });
-    else Object.assign(z, { top: CORNER_PX, bottom: CORNER_PX });
-    if (e.h) Object.assign(z, { [e.h === 'l' ? 'left' : 'right']: 0, width: corner ? CORNER_PX : EDGE_PX });
-    else Object.assign(z, { left: CORNER_PX, right: CORNER_PX });
+    const top = e.v === 't';
+    if (e.v) Object.assign(z, { [top ? 'top' : 'bottom']: 0,
+        height: corner ? (top ? HEAD_CORNER_PX : CORNER_PX) : (top ? HEAD_EDGE_PX : EDGE_PX) });
+    else Object.assign(z, { top: HEAD_CORNER_PX, bottom: CORNER_PX });
+    if (e.h) Object.assign(z, { [e.h === 'l' ? 'left' : 'right']: 0,
+        width: corner ? (top ? HEAD_CORNER_PX : CORNER_PX) : EDGE_PX });
+    else Object.assign(z, { left: top ? HEAD_CORNER_PX : CORNER_PX, right: top ? HEAD_CORNER_PX : CORNER_PX });
+    // A side edge is wide below the head row and slim beside it (clip-path
+    // clips hit-testing too).
+    if (e.h && !e.v) {
+        const l = e.h === 'l';
+        const a = HEAD_EDGE_PX;
+        const h = Math.max(headPx - HEAD_CORNER_PX, 0);
+        z.clipPath = l
+            ? `polygon(0 0, ${a}px 0, ${a}px ${h}px, ${EDGE_PX}px ${h}px, ${EDGE_PX}px 100%, 0 100%)`
+            : `polygon(${EDGE_PX - a}px 0, ${EDGE_PX}px 0, ${EDGE_PX}px 100%, 0 100%, 0 ${h}px, ${EDGE_PX - a}px ${h}px)`;
+    }
     return z;
 }
 
@@ -284,6 +303,7 @@ export default function AnchoredPanel({
                  onDoubleClick={onHeadDoubleClick}
                  sx={{ display: 'flex', alignItems: 'center', gap: '0.6em',
                         px: '0.7em', py: '0.3em', flexShrink: 0, minWidth: 0,
+                        ...(open && { borderBottom: `1px solid ${colors.line}` }),
                         cursor: moving ? 'grabbing' : 'move', touchAction: 'none' }}>
                 <CollapseHead open={open} onToggle={toggle} name={name}
                               testid={`${testid}-toggle`}
@@ -316,8 +336,9 @@ export default function AnchoredPanel({
                         // width as rows come and go.
                         scrollbarGutter: 'stable',
                         minHeight: 0, flex: '1 1 auto',
-                        borderTop: `1px solid ${colors.line}`,
                         py: '0.2em',
+                        // Its scrollbar sits inside the right reshape zone, not under it.
+                        ...(!inRack && { mr: `${EDGE_PX}px` }),
                         ...(!open && { display: 'none' }) }}>
                 {children({ shapedWidth })}
             </Box>
@@ -338,7 +359,7 @@ export default function AnchoredPanel({
                 <Box key={e.id} data-testid={`${testid}-edge-${e.id}`}
                      title="Drag to reshape"
                      {...gesture('resize', { h: e.h, v: e.v })}
-                     sx={edgeZone(e)} />
+                     sx={edgeZone(e, limits.headPx, colors.frame)} />
             ))}
         </Box>
     );
