@@ -895,7 +895,7 @@ export default function UnorchestratedReqBox({
             {open && !inRack && (
                 // Its own strip under the list, so it never lies over a row.
                 <Box ref={stripRef} data-testid="pipeline-viz-unseated-grip-strip"
-                     sx={{ display: 'flex', flexShrink: 0, height: '1.3em',
+                     sx={{ display: 'flex', flexShrink: 0, height: '1.8em',
                             justifyContent: anchoredRight ? 'flex-start' : 'flex-end' }}>
                 {gripShown && (
                 <Box data-testid="pipeline-viz-unseated-grip"
@@ -907,8 +907,8 @@ export default function UnorchestratedReqBox({
                      onPointerCancel={onGripUp}
                      onLostPointerCapture={onGripUp}
                      onDoubleClick={onGripDoubleClick}
-                     sx={{ width: '1.3em', height: '1.3em',
-                            p: '0.2em', boxSizing: 'border-box', touchAction: 'none',
+                     sx={{ width: '1.8em', height: '1.8em',
+                            p: '0.35em', boxSizing: 'border-box', touchAction: 'none',
                             cursor: anchoredRight ? 'nesw-resize' : 'nwse-resize',
                             color: OUTLINE, opacity: resizing ? 1 : 0.75,
                             '&:hover': { opacity: 1 } }}>
