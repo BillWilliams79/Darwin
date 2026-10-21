@@ -58,7 +58,7 @@ const release = (id, at, end = 'pointerUp') => fireEvent[end](head(id), { pointe
 
 describe('AnchoredPanel rack (req #3720)', () => {
     beforeEach(() => {
-        docks.a = []; docks.b = [];
+        docks.a = []; docks.b = []; docks.c = [];
         localStorage.clear();
         usePanelRackStore.setState({ racked: [], slot: null, drag: null });
         Object.defineProperty(document.documentElement, 'clientWidth', { value: 1600, configurable: true });
@@ -129,6 +129,59 @@ describe('AnchoredPanel rack (req #3720)', () => {
         expect(slotNode.contains(b)).toBe(true);
         expect(getComputedStyle(b).order).toBe('0');
         expect(getComputedStyle(screen.getByTestId('p-a')).order).toBe('2');
+    });
+
+    it('dropped on the navbar below the stack, a panel lands first, at the top (req #3729)', () => {
+        usePanelRackStore.setState({ racked: ['a'] });
+        render(<><Panel id="a" /><Panel id="b" /></>);
+        place(screen.getByTestId('p-a'), { left: 0, top: 300, width: 180, height: 100 });
+        place(screen.getByTestId('p-b'), { left: 1200, top: 800, width: 300, height: 180 });
+
+        press('b', [1300, 810]);
+        // Below the stack (it ends at 400): the top.
+        moveTo('b', [90, 800]);
+        expect(usePanelRackStore.getState().drag).toEqual(
+            { id: 'b', fromRack: false, over: true, index: 0, color: COLORS.frame });
+        // Pointed at a's lower half: into position, below it.
+        moveTo('b', [90, 380]);
+        expect(usePanelRackStore.getState().drag.index).toBe(1);
+        moveTo('b', [90, 800]);
+        release('b', [90, 800]);
+        expect(usePanelRackStore.getState().racked).toEqual(['b', 'a']);
+    });
+
+    it('a racked panel dragged up or down the stack reorders it (req #3729)', () => {
+        usePanelRackStore.setState({ racked: ['a', 'b', 'c'] });
+        render(<><Panel id="a" /><Panel id="b" /><Panel id="c" /></>);
+        place(screen.getByTestId('p-a'), { left: 0, top: 300, width: 180, height: 100 });   // mid 350
+        place(screen.getByTestId('p-b'), { left: 0, top: 404, width: 180, height: 100 });   // mid 454
+        place(screen.getByTestId('p-c'), { left: 0, top: 508, width: 180, height: 100 });   // mid 558
+
+        // a, down between b and c.
+        press('a', [60, 310]);
+        moveTo('a', [60, 500]);
+        expect(usePanelRackStore.getState().drag).toEqual(
+            { id: 'a', fromRack: true, over: true, index: 1, color: COLORS.frame });
+        release('a', [60, 500]);
+        expect(usePanelRackStore.getState().racked).toEqual(['b', 'a', 'c']);
+        // Reordered, not floated: still in the slot, its dock untouched.
+        expect(slotNode.contains(screen.getByTestId('p-a'))).toBe(true);
+        expect(screen.getByTestId('p-a').getAttribute('data-racked')).toBe('1');
+        expect(docks.a).toEqual([]);
+
+        // c, dragged up past the top: first.
+        press('c', [60, 520]);
+        moveTo('c', [60, 100]);
+        release('c', [60, 100]);
+        expect(usePanelRackStore.getState().racked).toEqual(['c', 'b', 'a']);
+
+        // c, dragged down past the stack's end: last, not back to the top.
+        press('c', [60, 310]);
+        moveTo('c', [60, 900]);
+        expect(usePanelRackStore.getState().drag.index).toBe(2);
+        release('c', [60, 900]);
+        expect(usePanelRackStore.getState().racked).toEqual(['b', 'a', 'c']);
+        expect(docks.c).toEqual([]);
     });
 
     it('dragged off the navbar, a racked panel floats again, docked where it was dropped', () => {

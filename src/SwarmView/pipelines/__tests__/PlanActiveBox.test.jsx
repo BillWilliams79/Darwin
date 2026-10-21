@@ -39,6 +39,26 @@ describe('PlanActiveBox (req #3721)', () => {
         expect(screen.getByTestId('pipeline-viz-active-count').textContent).toBe('2');
     });
 
+    it('each title is ONE line, cut with "…" (req #3729)', () => {
+        render(<PlanActiveBox items={ITEMS} reqPills={PILLS} idStyleOf={idStyleOf} />);
+        const t = getComputedStyle(screen.getByTestId('pipeline-viz-active-item-title-3721'));
+        expect(t.whiteSpace).toBe('nowrap');
+        expect(t.textOverflow).toBe('ellipsis');
+        expect(t.overflow).toBe('hidden');
+    });
+
+    it('its upper-left control is the Orchestrables box\'s −/+ (req #3729)', () => {
+        render(<PlanActiveBox items={ITEMS} reqPills={PILLS} idStyleOf={idStyleOf} />);
+        const head = screen.getByTestId('pipeline-viz-active-header');
+        const toggle = screen.getByTestId('pipeline-viz-active-toggle');
+        expect(head.firstElementChild).toBe(toggle);
+        expect(toggle.textContent).toBe('−');
+        expect(toggle.getAttribute('aria-expanded')).toBe('true');
+        fireEvent.click(toggle);
+        expect(usePlanActiveBoxStore.getState().open).toBe(false);
+        expect(screen.getByTestId('pipeline-viz-active-toggle').textContent).toBe('+');
+    });
+
     it('draws each row as the card does: coloured id, pills, title', () => {
         render(<PlanActiveBox items={ITEMS} reqPills={PILLS} idStyleOf={idStyleOf} />);
         const row = screen.getByTestId('pipeline-viz-active-item-3721');

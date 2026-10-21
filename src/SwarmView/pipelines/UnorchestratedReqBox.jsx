@@ -135,6 +135,7 @@ import Collapse from '@mui/material/Collapse';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { lighten } from '@mui/material/styles';
 
+import PlusMinusToggle from '../../Components/AnchoredPanel/PlusMinusToggle';
 import { CARD_FRAME_W, PLAN_VIZ_PALETTE as P } from './pipelinePlanLayout';
 import {
     UNSEATED_MIN_LIST_EM, UNSEATED_REQ_MIME, pointInRect, unseatedMinStretchPx,
@@ -642,19 +643,9 @@ export default function UnorchestratedReqBox({
                             textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {open ? 'Orchestrables' : 'OR'}
                 </Box>
-                <Box component="button" type="button"
-                     onClick={toggleOpen}
-                     aria-expanded={open}
-                     aria-label={open ? 'Collapse the list' : 'Expand the list'}
-                     data-testid="pipeline-viz-unseated-toggle"
-                     sx={{ width: '1.6em', height: '1.6em', p: 0, display: 'flex',
-                            alignItems: 'center', justifyContent: 'center',
-                            background: 'transparent', border: 'none',
-                            borderRadius: '0.4em', color: P.text, cursor: 'pointer',
-                            fontFamily: MONO, fontSize: '1.25em', lineHeight: 1,
-                            '&:hover': { color: P.accent } }}>
-                    {open ? '−' : '+'}
-                </Box>
+                <PlusMinusToggle open={open} onToggle={toggleOpen}
+                                 label={open ? 'Collapse the list' : 'Expand the list'}
+                                 testid="pipeline-viz-unseated-toggle" />
             </Box>
 
             {/* Animated by the toggle, and nothing else — a carry keeps it open
