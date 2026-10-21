@@ -18,8 +18,10 @@ import { Page, Locator, CDPSession } from '@playwright/test';
  * (`then`) is measured after the first, so a panel a tab hover-switch revealed
  * is aimed at where it actually appeared.
  *
- * Every drag surface in the app is on dnd-kit since req #3663; `pangea-dnd-drag.ts`
- * still serves the @hello-pangea/dnd editors.
+ * Every DOM drag surface in the app is on dnd-kit — the editors, the Maps view
+ * bar, Test Plans and the phone calendar list since req #3664, which removed
+ * @hello-pangea/dnd and its helper. Only FullCalendar's desktop grid and the
+ * plan canvas drag by other means.
  */
 
 /** Must match Darwin/src/dnd/pressTimeline.js. */

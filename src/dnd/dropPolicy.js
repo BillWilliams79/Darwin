@@ -7,7 +7,7 @@
 // every policy on the page:
 //
 //   accepts          the draggable types this zone takes
-//   orientation      'vertical' | 'horizontal' | 'grid' — the sortable strategy
+//   orientation      'vertical' | 'horizontal' | 'grid' | 'flow' — the sortable strategy
 //   reorderAllowed   (sortMode) => does this zone honour a POSITION? If so its
 //                    rows are targets and siblings slide aside; if not, the zone
 //                    highlights as a whole and a drop appends.
@@ -20,6 +20,10 @@
 //   keepsMovedRows   a row moved OUT of this list stays in it (req #3663: the
 //                    aggregator lists by status, and a requirement moved to
 //                    another category still has that status)
+//   keyboardBetweenLists  the arrow keys step a lifted item from this list to
+//                    the next one that takes it (req #3664: a day of the phone
+//                    calendar) — for lists that take items as a whole, where
+//                    there is no row to step to
 //
 // Every droppable registered through useDarwinDrag / useDarwinDropZone carries
 //   { kind: 'item' | 'container', type, containerId, policy, sortMode, row }
@@ -42,23 +46,29 @@ const anyRow = () => true;
 /**
  * @param {Object} p
  * @param {string[]} p.accepts
- * @param {'vertical'|'horizontal'|'grid'} [p.orientation]
+ * @param {'vertical'|'horizontal'|'grid'|'flow'} [p.orientation]
  * @param {(sortMode?: string) => boolean} [p.reorderAllowed]
  * @param {(row: any) => boolean} [p.isTarget]
  * @param {string[]} [p.hoverSwitchFor]
  * @param {Function} [p.persist]
  * @param {boolean} [p.keepsMovedRows]
+ * @param {boolean} [p.keyboardBetweenLists]
  */
 export function defineDropPolicy({
     accepts, orientation = 'vertical', reorderAllowed = noReorder,
     isTarget = anyRow, hoverSwitchFor = [], persist = null, keepsMovedRows = false,
+    keyboardBetweenLists = false,
 }) {
     return Object.freeze({
         accepts: Object.freeze([...accepts]), orientation, reorderAllowed,
         isTarget, hoverSwitchFor: Object.freeze([...hoverSwitchFor]), persist,
-        keepsMovedRows,
+        keepsMovedRows, keyboardBetweenLists,
     });
 }
+
+/** Lists the keyboard steps a lifted `type` between (see `keyboardBetweenLists`). */
+const isKeyboardList = (data, type) =>
+    data?.kind === 'container' && policyAccepts(data, type) && data.policy.keyboardBetweenLists;
 
 /** Does a zone carrying `data` take a draggable of `type` at all? */
 export function policyAccepts(data, type) {
@@ -113,8 +123,14 @@ export function createDarwinCollisionDetection() {
             return collisions;
         };
 
-        // Keyboard: no pointer — move among the rows of the list the item is in.
+        // Keyboard: no pointer — move among the rows of the list the item is in;
+        // or, between lists that take it as a whole, the list it has been
+        // stepped to (darwinKeyboardCoordinates centres it there).
         if (!pointerCoordinates) {
+            if (activeData.policy?.keyboardBetweenLists) {
+                const lists = live.filter(c => isKeyboardList(c.data.current, type));
+                return answer(lists.length ? closestCenter({ ...args, droppableContainers: lists }).slice(0, 1) : []);
+            }
             const rows = live.filter(c =>
                 c.data.current.containerId === activeData.containerId
                 && isRowTarget(c.data.current, type));
@@ -187,6 +203,7 @@ export const darwinKeyboardCoordinates = (event, args) => {
     const { active, droppableContainers } = args.context;
     const activeData = active?.data?.current;
     if (!activeData) return sortableKeyboardCoordinates(event, args);
+    if (activeData.policy?.keyboardBetweenLists) return stepBetweenLists(event, args, activeData);
     const rows = droppableContainers.getEnabled().filter(c =>
         c.id === active.id
         || (c.data.current?.containerId === activeData.containerId
@@ -199,3 +216,30 @@ export const darwinKeyboardCoordinates = (event, args) => {
         ...args, context: { ...args.context, droppableContainers: scoped },
     });
 };
+
+const STEP = { ArrowDown: 1, ArrowUp: -1 };
+
+/**
+ * Up / Down carry the item to the centre of the previous / next list that
+ * takes it, in screen order; at either end it stays put. Other keys do nothing.
+ */
+function stepBetweenLists(event, { context }, activeData) {
+    const step = STEP[event.code];
+    if (!step) return undefined;
+    event.preventDefault();
+    const { collisionRect, droppableRects, droppableContainers, over } = context;
+    if (!collisionRect) return undefined;
+    const lists = droppableContainers.getEnabled()
+        .filter(c => isKeyboardList(c.data.current, activeData.type))
+        .map(c => ({ id: c.id, rect: droppableRects.get(c.id) }))
+        .filter(l => hasArea(l.rect))
+        .sort((a, b) => a.rect.top - b.rect.top);
+    const currentId = over?.data.current?.kind === 'container' ? over.id : activeData.containerId;
+    const at = lists.findIndex(l => l.id === currentId);
+    const next = lists[at + step];
+    if (at < 0 || !next) return undefined;
+    return {
+        x: collisionRect.left,
+        y: next.rect.top + next.rect.height / 2 - collisionRect.height / 2,
+    };
+}

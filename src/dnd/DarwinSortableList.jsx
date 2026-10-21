@@ -12,11 +12,14 @@ import {
     SortableContext, verticalListSortingStrategy, horizontalListSortingStrategy,
     rectSortingStrategy,
 } from '@dnd-kit/sortable';
+import { flowSortingStrategy } from './flowSortingStrategy';
 
 const STRATEGY = {
     vertical: verticalListSortingStrategy,
     horizontal: horizontalListSortingStrategy,
     grid: rectSortingStrategy,
+    // a wrapping row of items of different widths (the Maps view-chip bar)
+    flow: flowSortingStrategy,
 };
 
 const stayPut = () => null;

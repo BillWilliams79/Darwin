@@ -9,7 +9,8 @@ import { projectKeys } from '../hooks/useQueryKeys';
 import ProjectCloseDialog from '../SwarmView/ProjectCloseDialog';
 import ProjectAddDialog from '../SwarmView/ProjectAddDialog';
 
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 
@@ -30,6 +31,9 @@ const CategoryEdit = () => {
     const [projectsArray, setProjectsArray] = useState();
 
     const [activeTab, setActiveTab] = useState();
+    const [searchParams] = useSearchParams();
+    const linkedId = searchParams.get('project');
+    const linkAppliedRef = useRef(false);
 
     const showError = useSnackBarStore(s => s.showError);
     const getWorkingProject = useWorkingProjectStore(s => s.getWorkingProject);
@@ -49,7 +53,12 @@ const CategoryEdit = () => {
                 return a.sort_order - b.sort_order;
             });
 
-            const storedId = getWorkingProject();
+            // `?project=<id>` opens that project's tab on the first load (req #3664: the
+            // dev server lands on the change); otherwise — and on every refetch
+            // after — the working project, then the first tab.
+            const linked = linkAppliedRef.current ? null : linkedId;
+            linkAppliedRef.current = true;
+            const storedId = linked ?? getWorkingProject();
             let initialTab = 0;
             if (storedId) {
                 const idx = sorted.findIndex(p => String(p.id) === storedId);

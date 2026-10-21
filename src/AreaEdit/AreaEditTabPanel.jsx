@@ -1,7 +1,7 @@
 // eslint-disable-next-line no-unused-vars
 import varDump from '../classifier/classifier';
 
-import React, {useState, useContext, useEffect, useRef} from 'react';
+import React, {useState, useContext, useEffect, useMemo, useRef} from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { useAreas, useTaskCounts } from '../hooks/useDataQueries';
@@ -12,14 +12,14 @@ import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import call_rest_api from '../RestApi/RestApi';
 import AuthContext from '../Context/AuthContext'
 import AppContext from '../Context/AppContext';
-import { DragDropContext, Droppable, /* Draggable */ } from '@hello-pangea/dnd';
+import { ReorderList } from '../dnd';
 
 import Box from '@mui/material/Box';
 import { Typography } from '@mui/material';
 
 import AreaDeleteDialog from './AreaDeleteDialog';
 import AreaTableRow from './AreaTableRow';
-import { AREA_GRID_COLUMNS } from './AreaTableRow';
+import { AREA_GRID_COLUMNS, areaItemId, isOrderableArea } from './AreaTableRow';
 
 const AreaEditTabPanel = ( { domain, domainIndex, activeTab } ) => {
 
@@ -252,31 +252,23 @@ const AreaEditTabPanel = ( { domain, domainIndex, activeTab } ) => {
         return calcSortOrder;
     }
 
-    const dragEnd = async (result) => {
+    // The rows in the order they render: open areas (the positions) first,
+    // then closed areas and the template.
+    const orderedAreas = useMemo(() => (areasArray ? [
+        ...areasArray.filter(isOrderableArea),
+        ...areasArray.filter(a => !isOrderableArea(a)),
+    ] : []), [areasArray]);
 
-        if ((result.destination === null) ||
-            (result.reason !== 'DROP')) {
-            // dropped out of area or was cancelled
-            return;
-        }
+    const dragEnd = (fromIndex, toIndex) => {
 
-        // mutate the array - relocate the dragged item to the new location
-        var newAreasArray = [...areasArray]
-        const [draggedArray] = newAreasArray.splice(result.source.index, 1);
-        newAreasArray.splice(result.destination.index, 0, draggedArray);
+        // relocate the dragged area, then renumber every open area by position
+        const moved = [...orderedAreas];
+        const [draggedArea] = moved.splice(fromIndex, 1);
+        moved.splice(toIndex, 0, draggedArea);
 
-        //brute force renumbering of the sort values post drag
-        newAreasArray = newAreasArray.map((area, index) => {
-
-            // closed and template areas have no sort_order
-            if ((area.id !== '') &&
-                (area.closed !== 1)) {
-                    area.sort_order = index;
-                    return area;
-            } else {
-                return area;
-            }
-        })
+        // closed and template areas have no sort_order
+        const newAreasArray = moved.map((area, index) =>
+            isOrderableArea(area) ? { ...area, sort_order: index } : area);
 
         // update state
         setAreasArray(newAreasArray);
@@ -293,7 +285,6 @@ const AreaEditTabPanel = ( { domain, domainIndex, activeTab } ) => {
                     (result.httpStatus.httpStatus === 204)) {
                     // database value is changed only with a 200 response
                     // or no change was required with a 204 respone
-                    // so only then show snackbar
                 } else {
 
                     showError(result, `Unable to save area sort order`)
@@ -301,8 +292,6 @@ const AreaEditTabPanel = ( { domain, domainIndex, activeTab } ) => {
             }).catch(error => {
                 showError(error, `Unable to save area sort order`)
             });
-
-        return;
     }
 
     return (
@@ -316,46 +305,27 @@ const AreaEditTabPanel = ( { domain, domainIndex, activeTab } ) => {
                             <Box sx={{ textAlign: 'center' }}><Typography variant="subtitle2">Tasks</Typography></Box>
                             <Box />
                         </Box>
-                        <DragDropContext onDragEnd={dragEnd}>
-                            <Droppable droppableId="areas">
-                                {(provided) => (
-                                    <Box {...provided.droppableProps} ref={provided.innerRef}>
-                                        { areasArray
-                                            .filter(a => a.closed === 0 && a.id !== '')
-                                            .map((area, idx) => (
-                                            <AreaTableRow
-                                                key = {area.id}
-                                                area = {area}
-                                                areaIndex = {idx}
-                                                changeAreaName = {changeAreaName}
-                                                keyDownAreaName = {keyDownAreaName}
-                                                blurAreaName = {blurAreaName}
-                                                clickAreaClosed = {clickAreaClosed}
-                                                clickAreaDelete = {clickAreaDelete}
-                                                taskCounts = {taskCounts}
-                                                isDraggable />
-                                        ))}
-                                        {provided.placeholder}
-                                    </Box>
-                                )}
-                            </Droppable>
-                        </DragDropContext>
-                        { areasArray
-                            .filter(a => a.closed === 1 || a.id === '')
-                            .map((area) => (
-                            <AreaTableRow
-                                key = {area.id || 'template'}
-                                area = {area}
-                                areaIndex = {areasArray.indexOf(area)}
-                                changeAreaName = {changeAreaName}
-                                keyDownAreaName = {keyDownAreaName}
-                                blurAreaName = {blurAreaName}
-                                clickAreaClosed = {clickAreaClosed}
-                                clickAreaDelete = {clickAreaDelete}
-                                taskCounts = {taskCounts}
-                                isDraggable={false}
-                                inputRef={area.id === '' ? templateInputRef : undefined} />
-                        ))}
+                        {/* req #3664 — one list, every row in it: open areas lift and
+                            take a drop; closed areas and the template are not positions. */}
+                        <ReorderList id={`areas:${domain.id}`} type="area"
+                                     ids={orderedAreas.map(areaItemId)}
+                                     isTarget={isOrderableArea}
+                                     onReorder={dragEnd}
+                                     data-testid={`area-edit-list-${domain.id}`}>
+                            { orderedAreas.map((area) => (
+                                <AreaTableRow
+                                    key = {area.id || 'template'}
+                                    area = {area}
+                                    areaIndex = {areasArray.indexOf(area)}
+                                    changeAreaName = {changeAreaName}
+                                    keyDownAreaName = {keyDownAreaName}
+                                    blurAreaName = {blurAreaName}
+                                    clickAreaClosed = {clickAreaClosed}
+                                    clickAreaDelete = {clickAreaDelete}
+                                    taskCounts = {taskCounts}
+                                    inputRef={area.id === '' ? templateInputRef : undefined} />
+                            ))}
+                        </ReorderList>
                     </Box>
                 }
             </Box>
