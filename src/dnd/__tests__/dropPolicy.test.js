@@ -121,3 +121,19 @@ describe('createDarwinCollisionDetection', () => {
         expect(detect(args(active, all, { x: 550, y: 135 }))[0].id).toBe('B');
     });
 });
+
+describe('keyboard between lists (req #3664 — the phone calendar\'s days)', () => {
+    const DAY = defineDropPolicy({ accepts: ['ev'], keyboardBetweenLists: true });
+    const day = (id, top) => zone(id, rect(0, top, 300, 80), { kind: 'container', containerId: id, policy: DAY });
+    const item = zone('ev:1', rect(0, 10, 300, 30), { kind: 'item', type: 'ev', containerId: 'd1', policy: DAY, row: { id: 1 } });
+    const active = { id: 'ev:1', data: { current: item.data.current } };
+
+    it('the keyboard answers with the day the item has been stepped to, never a row', () => {
+        const detect = createDarwinCollisionDetection();
+        const days = [day('d1', 0), day('d2', 100), day('d3', 200)];
+        const a = args(active, [...days, item]);
+        // Centred on the second day, as darwinKeyboardCoordinates places it.
+        a.collisionRect = rect(0, 125, 300, 30);
+        expect(detect(a).map(c => c.id)).toEqual(['d2']);
+    });
+});

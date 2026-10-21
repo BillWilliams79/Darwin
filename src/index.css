@@ -83,9 +83,6 @@
     grid-template-columns: auto auto 1fr auto;
     align-items: center;
     background: var(--darwin-task-bg, white);
-    -webkit-user-select: none;
-    user-select: none;
-    -webkit-touch-callout: none;
 }
 
 .task.requirement-row {

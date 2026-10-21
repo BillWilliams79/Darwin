@@ -28,11 +28,11 @@ Darwin/
 │   │   ├── task.spec.ts           # TASK-01 through TASK-05 (P0)
 │   │   ├── task-p1.spec.ts        # TASK-06, TASK-07, TASK-08 (P1)
 │   │   ├── calendar.spec.ts       # CAL-01, CAL-02 (P1)
+│   │   ├── editors-dnd.spec.ts    # EDND/EDTOUCH/VBAR/TPLAN/CALM — editors, view bar, test plans, phone calendar (req #3664)
 │   │   ├── navigation.spec.ts     # NAV-01 (P0)
 │   │   └── error.spec.ts          # ERR-01 (P1)
 │   ├── helpers/
 │   │   ├── dnd-kit-drag.ts        # Real pointer / CDP touch / keyboard drags (dnd-kit)
-│   │   ├── pangea-dnd-drag.ts     # @hello-pangea/dnd helper
 │   │   ├── auth.ts                # Cognito InitiateAuth token acquisition
 │   │   └── api.ts                 # REST API helper (getIdToken, apiCall, apiDelete, uniqueName)
 │   ├── .auth/                      # Saved auth state (user.json)
@@ -54,21 +54,18 @@ Darwin/
 
 | Library | Views | Testing Approach |
 |---------|-------|-----------------|
-| dnd-kit (`src/dnd/`, req #3662/#3663) | TaskPlanView, SwarmView cards + aggregator, Recurring | Real input: `page.mouse` (trusted pointer events), CDP `Input.dispatchTouchEvent` (hold-to-lift), keyboard |
-| @hello-pangea/dnd | AreaEdit | Keyboard: Space (lift) → Arrow keys (move) → Space (drop) |
+| dnd-kit (`src/dnd/`, req #3662/#3663/#3664) | TaskPlanView, SwarmView cards + aggregator, Recurring, the Area/Domain/Category/Project editors, the Maps view bar, Test Plans, the phone calendar list | Real input: `page.mouse` (trusted pointer events), CDP `Input.dispatchTouchEvent` (hold-to-lift), keyboard |
+| FullCalendar interactionPlugin | Desktop calendar month grid | API-verified (CAL-04) |
 
-**dnd-kit helper** (`helpers/dnd-kit-drag.ts`) — react-dnd and its synthetic-event helper are gone (req #3663):
+**dnd-kit helper** (`helpers/dnd-kit-drag.ts`) — react-dnd (req #3663) and @hello-pangea/dnd (req #3664)
+and their helpers are gone:
 - `dndKitDrag` — press, travel past the 4 px activation distance, glide to the target, release
   (`holdOverTargetMs` + `then` for a tab hover-switch; `cancelWithEscape`)
 - `dndKitTouchDrag` — touch press held past the lift delay, then moved (needs `hasTouch`)
-- `touchSwipe` / `touchHold` / `dndKitKeyboardDrag`
+- `touchSwipe` / `touchHold` / `dndKitKeyboardDrag` — Space lifts, arrows move, Space drops, Esc cancels
 
-**@hello-pangea/dnd keyboard testing**:
-- Focus the draggable element
-- `Space` to lift → announcement "You have lifted an item"
-- `ArrowUp`/`ArrowDown` to move → announcement "You have moved the item"
-- `Space` to drop → announcement "You have dropped the item"
-- Deterministic, no pixel coordinates, tests accessibility compliance
+A drag that persists should await the surface's PUT response before a reload — the local
+order updates at once, and a reload fired first aborts the write.
 
 ### Test Data Strategy
 
