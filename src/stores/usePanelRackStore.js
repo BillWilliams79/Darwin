@@ -10,9 +10,10 @@ import { rackInsert, rackRemove } from '../Components/AnchoredPanel/panelRack';
 //   • `slot` — `{ node, width }`: the navbar's rack element and its width,
 //     published by the navbar while it is drawn. null = no rack here (mobile),
 //     so a racked panel floats at its dock instead.
-//   • `drag` — `{ id, over, index, fromRack }` while a rackable panel is being
-//     moved: `over` = the pointer is on the navbar, `index` = where in the stack
-//     it would land. The navbar draws its drop-zone highlight from it.
+//   • `drag` — `{ id, over, index, fromRack, color }` while a rackable panel is
+//     being moved: `over` = the pointer is on the navbar, `index` = where in the
+//     stack it would land, `color` = the panel's frame. The navbar glows in it
+//     while `over` (req #3728).
 export const usePanelRackStore = create(
     persist(
         (set, get) => ({
