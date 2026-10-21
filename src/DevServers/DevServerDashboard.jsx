@@ -24,6 +24,10 @@
 // Where it sits, its shape, whether it is expanded and whether it is shown at
 // all are remembered per browser (useDevServerDashboardStore); × hides it and
 // the Dev Servers page's "Show dashboard" chip brings it back.
+//
+// RACKABLE (req #3720): drag its head onto the Darwin navbar and it locks in
+// below the nav buttons at the navbar's width (AnchoredPanel's rack); drag it
+// off again to float it. Whether it is racked is the rack's (usePanelRackStore).
 
 import { useContext, useMemo } from 'react';
 
@@ -39,7 +43,7 @@ import { useDevServerDashboardStore } from '../stores/useDevServerDashboardStore
 import { machineChipProps } from '../SwarmView/machineChipStyles';
 import { PLAN_VIZ_PALETTE as P } from '../SwarmView/pipelines/pipelinePlanLayout';
 import {
-    DASH_AUTO_MAX_W, DASH_HOME, DASH_MIN_H, DASH_MIN_W, DASH_TINY_W, DASH_WIDE_W,
+    DASH_AUTO_MAX_W, DASH_HOME, DASH_MIN_H, DASH_MIN_W, DASH_RACK_ID, DASH_TINY_W, DASH_WIDE_W,
     devServerDashboardRows, withRequirementTitles, withTerminalLinks,
 } from './devServerDashboardModel';
 
@@ -114,6 +118,7 @@ export default function DevServerDashboard() {
         <AnchoredPanel dock={dock} onDockChange={setDock}
                        open={open} onToggle={toggleOpen}
                        name="Dev Servers" testid="devserver-dashboard"
+                       rackId={DASH_RACK_ID}
                        limits={LIMITS} fontPx={FONT_PX} colors={COLORS}
                        sx={{ borderRadius: '0.8em', backdropFilter: 'blur(2px)',
                               boxShadow: '0 0.5em 1.5em rgba(0, 0, 0, 0.45)',
