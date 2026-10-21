@@ -8,19 +8,21 @@
 // what makes it "go hand in hand with" the visualizer's drag-and-drop (req
 // #3581) — that one moves work between steps, this one feeds new work in.
 //
-// ── NATIVE HTML5 DRAG, NO HANDLE ───────────────────────────────────────────
-// The whole row is draggable. The browser's own drag image is a full-size
-// snapshot of the row, so what follows the cursor looks exactly like what was
-// picked up. The row left behind greys out — set one frame AFTER dragstart,
-// because the browser snapshots the drag image when the handler returns, and
-// greying synchronously would grey the image too. Nothing on the canvas
-// re-lays-out while the requirement is in the air; the drop target is shown
-// by an outline overlay the visualizer draws (see its `seatTarget`).
+// ── A dnd-kit DRAG ON THE SHARED PRESS TIMELINE, NO HANDLE (req #3665) ────
+// The whole row is the grip (`useDarwinDraggable`), and it lifts the way every
+// Darwin drag surface does (`dnd/pressTimeline.js`): a mouse moved a few px or
+// held, a finger HELD STILL — a finger that moves first scrolls the list. The
+// shared DragOverlay carries a faithful copy of the row (its type size and
+// face are set on the row itself, so the copy reads the same outside the box);
+// the row left behind greys out. Nothing on the canvas re-lays-out while the
+// requirement is in the air; the visualizer's collision detection hit-tests
+// the step cards and draws the outline (see its `seatTarget`). It replaced a
+// native HTML5 `draggable`, which touch browsers do not drive.
 //
 // ── IT IS CHROME, NOT CANVAS ───────────────────────────────────────────────
-// `data-viz-chrome` keeps d3-zoom from taking a mousedown here as the start of
-// a pan (which would also `preventDefault` the native drag away), and keeps the
-// world-click hit-test from firing whatever bead lies beneath. The WHEEL is
+// `data-viz-chrome` keeps d3-zoom from taking a press here as the start of a
+// pan, and keeps the world-click hit-test from firing whatever bead lies
+// beneath. The WHEEL is
 // stopped at this element natively, but only when the list can actually
 // scroll: d3 binds its wheel listener to the container, so a React handler
 // (delegated to the root, an ancestor) would run too late to matter.
@@ -41,9 +43,13 @@
 // go), so every listener on the pane still sees its events exactly as it did
 // at home. The pane's own controls that must never be covered — the maximize
 // switch, a requirement in flight, the seat-target outline — sit above it.
-// Pointer events with capture, one pointer at a time, a slop before a press
-// counts as a move (so a click that wobbles does not pin it), and the −/+ is
-// its own button so a move never toggles it. Double-click the title bar to
+// Pointer events with capture, one pointer at a time, on the shared press
+// timeline (req #3665): a mouse moves it past MOUSE_ACTIVATION_PX (so a click
+// that wobbles does not pin it) or lifts it on a LIFT_DELAY_MS hold; a finger
+// lifts it on a hold within TOUCH_TOLERANCE_PX (a haptic tick) and then carries
+// it — a finger that slides off first moves nothing. A lifted box says so (a
+// deeper shadow, a purple glow). The −/+ is its own button so a move never
+// toggles it. Double-click the title bar to
 // send it home. The spot is remembered per browser (a viewer convenience —
 // localStorage, wrapped, since it may be unavailable) and written once, on
 // release, only if the box moved. CSS `clamp` keeps a remembered spot inside a
@@ -137,9 +143,13 @@ import { lighten } from '@mui/material/styles';
 
 import { CARD_FRAME_W, PLAN_VIZ_PALETTE as P } from './pipelinePlanLayout';
 import {
-    UNSEATED_MIN_LIST_EM, UNSEATED_REQ_MIME, pointInRect, unseatedMinStretchPx,
-    unseatedResizedBox,
+    UNSEATED_DRAG_TYPE, UNSEATED_MIN_LIST_EM, pointInRect, unseatedDragId,
+    unseatedMinStretchPx, unseatedResizedBox,
 } from './pipelineUnseated';
+import {
+    useDarwinDraggable, LIFT_DELAY_MS, LIFT_VIBRATE_MS, MOUSE_ACTIVATION_PX,
+    TOUCH_TOLERANCE_PX,
+} from '../../dnd';
 import { usePlanViewSetting } from './planViewSettings';
 
 const MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
@@ -158,8 +168,9 @@ const CORNER_INSET = 8;
 export const UNSEATED_FLOAT_Z = 1201;
 /** The title bar's height in em — what must stay inside the pane or window. */
 const HEADER_EM = 3;
-/** Pointer travel, px, before a title-bar press becomes a move. */
-const MOVE_SLOP = 4;
+/** Pointer travel, px, before a mouse press on the title bar (or the grip)
+ *  becomes a move — the press timeline's (req #3665). */
+const MOVE_SLOP = MOUSE_ACTIVATION_PX;
 /** Vertical travel, px, before a corner stretch takes the height too: a
  *  sideways stretch that drifts a little leaves the list its natural height. */
 const STRETCH_HEIGHT_SLOP = 12;
@@ -263,8 +274,7 @@ function writeSize(size) {
 export default function UnorchestratedReqBox({
     items, categoryColors = {}, isLoading = false, isError = false,
     fontPx = 12, widthPx = CARD_FRAME_W, statusColor = P.req,
-    idStyleOf = null,
-    draggingId = null, onDragStartItem, onDragEndItem, onOpen,
+    idStyleOf = null, onOpen,
     onMoveOver, onMoveDrop, onCarryingChange,
 }) {
     // Open by default: the box exists to be seen next to the plan it feeds.
@@ -318,6 +328,11 @@ export default function UnorchestratedReqBox({
     // re-renders on press and release.
     const moveRef = useRef(null);
     const [moving, setMoving] = useState(false);
+    // True once a title-bar press has LIFTED the box (req #3665) — held still
+    // to LIFT_DELAY_MS — until it ends: the lift cue, and on touch the licence
+    // to move at all.
+    const [lifted, setLifted] = useState(false);
+    useEffect(() => () => clearTimeout(moveRef.current?.liftTimer), []);
     // True from the first move frame of a title-bar move that carries rows
     // until it ends (req #3614): the box turns see-through so the step card
     // beneath it can be read, and is restored on release.
@@ -344,20 +359,49 @@ export default function UnorchestratedReqBox({
         e.currentTarget.setPointerCapture?.(e.pointerId);
         // In WINDOW coordinates even from home: the first move frame places it.
         const at = layoutIn(box, true);
-        moveRef.current = {
+        const m = {
             id: e.pointerId, sx: e.clientX, sy: e.clientY,
             left: at.left, top: at.top, last: null,
             // Where to send the box back to if this drag turns out to be a seat.
             before: pos, carries: items.length > 0,
+            touch: e.pointerType === 'touch', lifted: false,
         };
+        // Held still, it lifts — a finger must, a mouse may (req #3665).
+        m.liftTimer = setTimeout(() => {
+            if (moveRef.current !== m || m.last) return;
+            m.lifted = true;
+            setLifted(true);
+            if (m.touch) navigator.vibrate?.(LIFT_VIBRATE_MS);
+        }, LIFT_DELAY_MS);
+        moveRef.current = m;
         setMoving(true);
+    };
+    // The title-bar press ends, however it ends.
+    const endBarPress = (m, e) => {
+        clearTimeout(m.liftTimer);
+        moveRef.current = null;
+        setMoving(false);
+        setLifted(false);
+        setCarrying(false);
+        if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
+            e.currentTarget.releasePointerCapture(e.pointerId);
+        }
     };
     const onBarMove = (e) => {
         const m = moveRef.current;
         if (!m || e.pointerId !== m.id) return;
         const dx = e.clientX - m.sx;
         const dy = e.clientY - m.sy;
-        if (!m.last && Math.hypot(dx, dy) <= MOVE_SLOP) return;
+        if (!m.last && !m.lifted) {
+            const travel = Math.hypot(dx, dy);
+            if (m.touch) {
+                // A finger that slides off before the lift moves nothing.
+                if (travel > TOUCH_TOLERANCE_PX) endBarPress(m, e);
+                return;
+            }
+            if (travel <= MOVE_SLOP) return;
+        }
+        clearTimeout(m.liftTimer);
         // Limits read LIVE, every frame: a wheel over the bar still zooms, and
         // the box's em size changes with it mid-drag.
         const box = boxRef.current;
@@ -377,12 +421,7 @@ export default function UnorchestratedReqBox({
     const onBarUp = (e) => {
         const m = moveRef.current;
         if (!m || e.pointerId !== m.id) return;
-        moveRef.current = null;
-        setMoving(false);
-        setCarrying(false);
-        if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
-            e.currentTarget.releasePointerCapture(e.pointerId);
-        }
+        endBarPress(m, e);
         if (!m.last) return;
         lastMoveEndRef.current = Date.now();
         if (m.carries) {
@@ -582,6 +621,7 @@ export default function UnorchestratedReqBox({
         <Box ref={boxRef} data-viz-chrome="unseated" data-viz-unseated=""
              data-testid="pipeline-viz-unseated"
              data-carrying={carrying ? '1' : '0'}
+             data-lifted={lifted ? '1' : '0'}
              data-text-step={drawn.step}
              data-stretched={size ? '1' : '0'}
              data-pos={!pos ? 'home'
@@ -603,7 +643,10 @@ export default function UnorchestratedReqBox({
                     background: 'rgba(13, 20, 32, 0.94)',
                     backdropFilter: 'blur(2px)',
                     borderRadius: '0.8em', border: `2px solid ${OUTLINE}`,
-                    boxShadow: '0 0.5em 1.5em rgba(0, 0, 0, 0.45)',
+                    // Lifted by a held title bar (req #3665): picked up.
+                    boxShadow: lifted
+                        ? `0 1em 2.4em rgba(0, 0, 0, 0.6), 0 0 0 0.25em ${OUTLINE}55`
+                        : '0 0.5em 1.5em rgba(0, 0, 0, 0.45)',
                     fontFamily: MONO, color: P.text, userSelect: 'none',
                     overflow: 'hidden', zIndex: 2,
                     // See-through while carried (req #3614) so the outlined
@@ -621,10 +664,12 @@ export default function UnorchestratedReqBox({
                  onPointerCancel={onBarUp}
                  onLostPointerCapture={onBarUp}
                  onDoubleClick={onBarDoubleClick}
+                 // A held finger raises no long-press menu or callout.
+                 onContextMenu={(e) => e.preventDefault()}
                  sx={{ display: 'flex', alignItems: 'center', gap: '0.6em',
                         px: '0.8em', py: '0.45em', flexShrink: 0,
                         cursor: moving ? 'grabbing' : 'move', touchAction: 'none',
-                        fontWeight: 600 }}>
+                        WebkitTouchCallout: 'none', fontWeight: 600 }}>
                 {/* The count is a badge LEFT of the name (req #3648), folded
                     or not. */}
                 <Box component="span" data-testid="pipeline-viz-unseated-count"
@@ -695,59 +740,15 @@ export default function UnorchestratedReqBox({
                 )}
                 {items.map((r) => {
                     const id = Number(r.id);
-                    const dragging = draggingId === id;
-                    const barColor = categoryColors[r.category_fk];
-                    // req #3702 — the id wears the visualizer's colour key;
-                    // without a resolver it keeps the swarm-ready colour.
-                    const idStyle = idStyleOf
-                        ? idStyleOf(id) : { fill: statusColor, bold: true };
                     return (
-                        <Box key={id}
-                             draggable
-                             data-testid={`pipeline-viz-unseated-item-${id}`}
-                             onDragStart={(e) => {
-                                 e.dataTransfer.setData(UNSEATED_REQ_MIME, String(id));
-                                 e.dataTransfer.effectAllowed = 'move';
-                                 // Next tick — see the header: the drag
-                                 // image is snapshotted after this returns.
-                                 setTimeout(() => onDragStartItem?.(id), 0);
-                             }}
-                             onDragEnd={() => onDragEndItem?.(id)}
-                             onClick={() => onOpen?.(id)}
-                             sx={{ display: 'flex', alignItems: 'baseline', gap: '0.6em',
-                                    px: '0.8em', py: '0.3em',
-                                    cursor: 'grab', opacity: dragging ? 0.3 : 1,
-                                    // An opaque row so the drag image is a
-                                    // solid copy, not a ghost of the canvas.
-                                    background: dragging ? 'transparent' : '#0d1420',
-                                    '&:hover': { background: '#16233a' } }}>
-                            <Box component="span"
-                                 data-testid={`pipeline-viz-unseated-bar-${id}`}
-                                 sx={{ width: '0.45em', alignSelf: 'stretch',
-                                        minHeight: '1.2em', flexShrink: 0,
-                                        borderRadius: '0.25em', boxSizing: 'border-box',
-                                        bgcolor: barColor || 'transparent',
-                                        ...(barColor && {
-                                            border: '0.1em solid',
-                                            borderColor: barEdge(barColor),
-                                        }) }} />
-                            <Box component="span"
-                                 data-testid={`pipeline-viz-unseated-item-id-${id}`}
-                                 sx={{ color: idStyle.fill,
-                                        fontWeight: idStyle.bold ? 700 : 400, flexShrink: 0 }}>
-                                {id}
-                            </Box>
-                            <Box component="span"
-                                 data-testid={`pipeline-viz-unseated-item-title-${id}`}
-                                 // Wraps to two lines at most, then "…"
-                                 // (req #3684). An unbroken run breaks
-                                 // rather than overflowing the clamp.
-                                 sx={{ flex: 1, minWidth: 0, overflow: 'hidden',
-                                        display: '-webkit-box', WebkitBoxOrient: 'vertical',
-                                        WebkitLineClamp: 2, overflowWrap: 'anywhere' }}>
-                                {r.title}
-                            </Box>
-                        </Box>
+                        <UnseatedRow key={id} row={r} id={id} fontPx={drawn.fontPx}
+                                     barColor={categoryColors[r.category_fk]}
+                                     // req #3702 — the id wears the visualizer's
+                                     // colour key; without a resolver it keeps
+                                     // the swarm-ready colour.
+                                     idStyle={idStyleOf
+                                         ? idStyleOf(id) : { fill: statusColor, bold: true }}
+                                     onOpen={onOpen} />
                     );
                 })}
             </Box>
@@ -784,6 +785,72 @@ export default function UnorchestratedReqBox({
                 )}
                 </Box>
             )}
+        </Box>
+    );
+}
+
+/**
+ * One box row — the SOURCE of a seat drag (req #3665, dnd-kit). Its type size,
+ * face and colour are set here rather than inherited from the box, so the
+ * DragOverlay's copy (mounted outside the box) reads exactly like the row.
+ */
+function UnseatedRow({ row, id, fontPx, barColor, idStyle, onOpen }) {
+    const { ref, style, attributes, listeners, isDragging } = useDarwinDraggable({
+        id: unseatedDragId(id), type: UNSEATED_DRAG_TYPE, row,
+    });
+    // No keyboard lift: the step it would land on is a canvas card a key
+    // cannot reach (the collision detection needs a pointer). From the keys a
+    // row is a button — Enter or Space opens the requirement.
+    const { onKeyDown: _keyLift, ...pointerListeners } = listeners || {};
+    // ...and is announced as one: no "draggable", no "press space to pick up".
+    const {
+        'aria-roledescription': _role, 'aria-describedby': _howTo, ...buttonAttributes
+    } = attributes;
+    return (
+        <Box ref={ref} {...buttonAttributes} {...pointerListeners}
+             data-testid={`pipeline-viz-unseated-item-${id}`}
+             data-dragging={isDragging ? '1' : '0'}
+             onClick={() => onOpen?.(id)}
+             onKeyDown={(e) => {
+                 if (e.key !== 'Enter' && e.key !== ' ') return;
+                 e.preventDefault();
+                 onOpen?.(id);
+             }}
+             style={{ fontSize: `${fontPx}px`, ...style }}
+             sx={{ display: 'flex', alignItems: 'baseline', gap: '0.6em',
+                    px: '0.8em', py: '0.3em', fontFamily: MONO, color: P.text,
+                    cursor: isDragging ? 'grabbing' : 'grab', opacity: isDragging ? 0.3 : 1,
+                    // An opaque row so the lifted copy is solid, not a ghost
+                    // of the canvas.
+                    background: isDragging ? 'transparent' : '#0d1420',
+                    WebkitTouchCallout: 'none',
+                    '&:hover': { background: '#16233a' },
+                    '&:focus-visible': { outline: `2px solid ${OUTLINE}`, outlineOffset: '-2px' } }}>
+            <Box component="span"
+                 data-testid={`pipeline-viz-unseated-bar-${id}`}
+                 sx={{ width: '0.45em', alignSelf: 'stretch',
+                        minHeight: '1.2em', flexShrink: 0,
+                        borderRadius: '0.25em', boxSizing: 'border-box',
+                        bgcolor: barColor || 'transparent',
+                        ...(barColor && {
+                            border: '0.1em solid',
+                            borderColor: barEdge(barColor),
+                        }) }} />
+            <Box component="span"
+                 data-testid={`pipeline-viz-unseated-item-id-${id}`}
+                 sx={{ color: idStyle.fill,
+                        fontWeight: idStyle.bold ? 700 : 400, flexShrink: 0 }}>
+                {id}
+            </Box>
+            <Box component="span"
+                 data-testid={`pipeline-viz-unseated-item-title-${id}`}
+                 // Wraps to two lines at most, then "…" (req #3684). An
+                 // unbroken run breaks rather than overflowing the clamp.
+                 sx={{ flex: 1, minWidth: 0, overflow: 'hidden',
+                        display: '-webkit-box', WebkitBoxOrient: 'vertical',
+                        WebkitLineClamp: 2, overflowWrap: 'anywhere' }}>
+                {row.title}
+            </Box>
         </Box>
     );
 }

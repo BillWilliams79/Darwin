@@ -1,15 +1,17 @@
 // @vitest-environment jsdom
 //
 // req #3583 — the swarm-ready, not-orchestrated box renders its rows, its
-// empty state, collapses, opens a requirement on click, and puts the
-// requirement id on a native drag under the box's own MIME type.
+// empty state, collapses, opens a requirement on click, and lifts a row
+// through the shared dnd-kit drag surface on the press timeline (req #3665 —
+// it was a native HTML5 drag).
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
 
 import UnorchestratedReqBox, { FOLD_MS, UNSEATED_FLOAT_Z } from '../UnorchestratedReqBox';
-import { UNSEATED_REQ_MIME } from '../pipelineUnseated';
+import { UNSEATED_DRAG_TYPE, unseatedDragId } from '../pipelineUnseated';
+import { DarwinDndContext, LIFT_DELAY_MS, LIFT_VIBRATE_MS, TOUCH_TOLERANCE_PX } from '../../../dnd';
 import { buildReqColorViews, reqIdStyle } from '../pipelinePlanLayout';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -56,7 +58,11 @@ describe('UnorchestratedReqBox', () => {
         expect(q('pipeline-viz-unseated-count').textContent).toBe('2');
         expect(q('pipeline-viz-unseated-title').textContent).toBe('Orchestrables');
         expect(q('pipeline-viz-unseated-item-11').textContent).toContain('First thing');
-        expect(q('pipeline-viz-unseated-item-12').getAttribute('draggable')).toBe('true');
+        // A dnd-kit draggable (req #3665), not a native one — announced as a
+        // plain button, since the keys open it rather than lift it.
+        expect(q('pipeline-viz-unseated-item-12').getAttribute('role')).toBe('button');
+        expect(q('pipeline-viz-unseated-item-12').getAttribute('aria-roledescription')).toBeNull();
+        expect(q('pipeline-viz-unseated-item-12').getAttribute('draggable')).toBeNull();
         // Chrome: d3-zoom and the world-click hit-test both skip it.
         expect(q('pipeline-viz-unseated').hasAttribute('data-viz-chrome')).toBe(true);
     });
@@ -221,31 +227,91 @@ describe('UnorchestratedReqBox', () => {
         expect(onOpen).toHaveBeenCalledWith(12);
     });
 
-    it('carries the id on dragstart and greys the row only after the snapshot', () => {
+    // req #3665 — a row lifts through the shared drag surface: held still, a
+    // mouse press lifts it (the long click), it greys while in the air, and its
+    // drag carries the requirement for the canvas's collision detection.
+    const press = (el, type, { x = 10, y = 10, pointerType = 'mouse' } = {}) => {
+        const ev = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 });
+        Object.defineProperty(ev, 'pointerType', { value: pointerType });
+        Object.defineProperty(ev, 'pointerId', { value: 1 });
+        Object.defineProperty(ev, 'isPrimary', { value: true });
+        el.dispatchEvent(ev);
+    };
+
+    it('a held row lifts through the shared drag surface, carrying its requirement, and greys', () => {
         vi.useFakeTimers();
         try {
-            const onDragStartItem = vi.fn();
+            const onDragStart = vi.fn();
+            const onDragCancel = vi.fn();
             act(() => root.render(
-                <UnorchestratedReqBox items={items} onDragStartItem={onDragStartItem} />));
-            const data = {};
-            const ev = new Event('dragstart', { bubbles: true });
-            ev.dataTransfer = {
-                setData: (k, v) => { data[k] = v; }, effectAllowed: 'all',
-            };
-            act(() => { q('pipeline-viz-unseated-item-11').dispatchEvent(ev); });
-            expect(data[UNSEATED_REQ_MIME]).toBe('11');
-            expect(onDragStartItem).not.toHaveBeenCalled();
-            act(() => { vi.runAllTimers(); });
-            expect(onDragStartItem).toHaveBeenCalledWith(11);
+                <DarwinDndContext onDragStart={onDragStart} onDragCancel={onDragCancel}>
+                    <UnorchestratedReqBox items={items} />
+                </DarwinDndContext>));
+            const row = q('pipeline-viz-unseated-item-11');
+            act(() => { press(row, 'pointerdown'); });
+            expect(onDragStart).not.toHaveBeenCalled();
+            act(() => { vi.advanceTimersByTime(LIFT_DELAY_MS); });
+            expect(onDragStart).toHaveBeenCalledTimes(1);
+            const { active } = onDragStart.mock.calls[0][0];
+            expect(active.id).toBe(unseatedDragId(11));
+            expect(active.data.current.type).toBe(UNSEATED_DRAG_TYPE);
+            expect(Number(active.data.current.row.id)).toBe(11);
+            const lifted = q('pipeline-viz-unseated-item-11');
+            expect(lifted.getAttribute('data-dragging')).toBe('1');
+            expect(Number(getComputedStyle(lifted).opacity)).toBeLessThan(1);
+            expect(q('pipeline-viz-unseated-item-12').getAttribute('data-dragging')).toBe('0');
+            // Escape puts it back.
+            act(() => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true })); });
+            act(() => { vi.runOnlyPendingTimers(); });
+            expect(onDragCancel).toHaveBeenCalled();
+            expect(q('pipeline-viz-unseated-item-11').getAttribute('data-dragging')).toBe('0');
         } finally {
             vi.useRealTimers();
         }
     });
 
-    it('greys the row being dragged', () => {
-        act(() => root.render(<UnorchestratedReqBox items={items} draggingId={11} />));
-        const style = getComputedStyle(q('pipeline-viz-unseated-item-11'));
-        expect(Number(style.opacity)).toBeLessThan(1);
+    it('a quick click lifts nothing and opens the requirement', () => {
+        vi.useFakeTimers();
+        try {
+            const onDragStart = vi.fn();
+            const onOpen = vi.fn();
+            act(() => root.render(
+                <DarwinDndContext onDragStart={onDragStart}>
+                    <UnorchestratedReqBox items={items} onOpen={onOpen} />
+                </DarwinDndContext>));
+            const row = q('pipeline-viz-unseated-item-12');
+            act(() => { press(row, 'pointerdown'); });
+            act(() => { vi.advanceTimersByTime(80); });
+            act(() => { press(row, 'pointerup'); row.click(); });
+            act(() => { vi.advanceTimersByTime(LIFT_DELAY_MS); });
+            expect(onDragStart).not.toHaveBeenCalled();
+            expect(onOpen).toHaveBeenCalledWith(12);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('from the keys a row is a button that opens the requirement, never a lift', () => {
+        const onDragStart = vi.fn();
+        const onOpen = vi.fn();
+        act(() => root.render(
+            <DarwinDndContext onDragStart={onDragStart}>
+                <UnorchestratedReqBox items={items} onOpen={onOpen} />
+            </DarwinDndContext>));
+        const row = q('pipeline-viz-unseated-item-11');
+        act(() => { row.focus(); });
+        act(() => { row.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true })); });
+        expect(onDragStart).not.toHaveBeenCalled();
+        expect(onOpen).toHaveBeenCalledWith(11);
+        act(() => { row.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true })); });
+        expect(onOpen).toHaveBeenCalledTimes(2);
+    });
+
+    it('sets its own type size and face, so the lifted copy reads like the row', () => {
+        act(() => root.render(<UnorchestratedReqBox items={items} fontPx={13} />));
+        const row = q('pipeline-viz-unseated-item-11');
+        expect(row.style.fontSize).toBe('13px');
+        expect(getComputedStyle(row).fontFamily).toMatch(/Mono|Menlo/);
     });
 
     it('takes its type size from fontPx, so it scales with the zoom', () => {
@@ -581,6 +647,84 @@ describe('UnorchestratedReqBox', () => {
         act(() => { fire('pointerup', 102, 101); });
         expect(box.getAttribute('data-pos')).toBe('home');
         expect(window.localStorage.getItem('darwin-plan-unseated-box-window-pos')).toBeNull();
+    });
+
+    // req #3665 — the title bar on the shared press timeline.
+    const fireTouch = (el) => (type, x, y) => {
+        const ev = new MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 });
+        Object.defineProperty(ev, 'pointerType', { value: 'touch' });
+        Object.defineProperty(ev, 'pointerId', { value: 7 });
+        el.dispatchEvent(ev);
+    };
+
+    it('a finger that slides off the title bar before the lift moves nothing', () => {
+        vi.useFakeTimers();
+        try {
+            act(() => root.render(<UnorchestratedReqBox items={items} />));
+            const box = q('pipeline-viz-unseated');
+            const bar = q('pipeline-viz-unseated-header');
+            withGeometry(box, bar);
+            const touch = fireTouch(bar);
+            act(() => { touch('pointerdown', 710, 20); });
+            act(() => { touch('pointermove', 710 + TOUCH_TOLERANCE_PX + 4, 20); });
+            act(() => { touch('pointermove', 410, 220); });
+            act(() => { vi.advanceTimersByTime(LIFT_DELAY_MS); });
+            expect(box.getAttribute('data-pos')).toBe('home');
+            expect(box.getAttribute('data-lifted')).toBe('0');
+            act(() => { touch('pointerup', 410, 220); });
+            expect(window.localStorage.getItem('darwin-plan-unseated-box-window-pos')).toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('a finger held still lifts the box with a haptic tick, then carries it', () => {
+        vi.useFakeTimers();
+        const vibrate = vi.fn();
+        const had = Object.getOwnPropertyDescriptor(navigator, 'vibrate');
+        Object.defineProperty(navigator, 'vibrate', { configurable: true, value: vibrate });
+        try {
+            const onMoveOver = vi.fn();
+            act(() => root.render(<UnorchestratedReqBox items={items} onMoveOver={onMoveOver} />));
+            const box = q('pipeline-viz-unseated');
+            const bar = q('pipeline-viz-unseated-header');
+            withGeometry(box, bar);
+            const touch = fireTouch(bar);
+            act(() => { touch('pointerdown', 710, 20); });
+            act(() => { touch('pointermove', 712, 21); });    // a resting fingertip
+            expect(box.getAttribute('data-lifted')).toBe('0');
+            act(() => { vi.advanceTimersByTime(LIFT_DELAY_MS); });
+            expect(box.getAttribute('data-lifted')).toBe('1');
+            expect(vibrate).toHaveBeenCalledWith(LIFT_VIBRATE_MS);
+            act(() => { touch('pointermove', 410, 220); });
+            expect(box.getAttribute('data-pos')).toBe('400,208');
+            expect(onMoveOver).toHaveBeenLastCalledWith(410, 220);
+            act(() => { touch('pointerup', 410, 220); });
+            expect(box.getAttribute('data-lifted')).toBe('0');
+        } finally {
+            if (had) Object.defineProperty(navigator, 'vibrate', had);
+            else delete navigator.vibrate;
+            vi.useRealTimers();
+        }
+    });
+
+    it('a mouse held on the title bar lifts it without moving it', () => {
+        vi.useFakeTimers();
+        try {
+            act(() => root.render(<UnorchestratedReqBox items={items} />));
+            const box = q('pipeline-viz-unseated');
+            const bar = q('pipeline-viz-unseated-header');
+            withGeometry(box, bar);
+            const fire = fireOn(bar);
+            act(() => { fire('pointerdown', 710, 20); });
+            act(() => { vi.advanceTimersByTime(LIFT_DELAY_MS); });
+            expect(box.getAttribute('data-lifted')).toBe('1');
+            act(() => { fire('pointerup', 710, 20); });
+            expect(box.getAttribute('data-lifted')).toBe('0');
+            expect(box.getAttribute('data-pos')).toBe('home');
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('a press on the collapse button never starts a move', () => {

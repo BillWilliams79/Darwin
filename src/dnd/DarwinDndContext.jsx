@@ -20,8 +20,11 @@
 // Every DOM drag surface mounts it: the Plan view (req #3662), the Swarm cards
 // view with its aggregator and the Recurring page (req #3663), and — through
 // ReorderList — the four editors, the Maps view bar and a test plan's cases,
-// plus the phone calendar list (req #3664). react-dnd and @hello-pangea/dnd
-// are gone from the app; only the plan canvas and FullCalendar's desktop grid
+// plus the phone calendar list (req #3664) — and the plan canvas's
+// Orchestrables box, whose rows drop onto Konva step cards (req #3665).
+// react-dnd and @hello-pangea/dnd are gone from the app; only the requirement
+// marks ON the plan canvas (Konva shapes, not DOM — they keep their own
+// pointer gesture on this same press timeline) and FullCalendar's desktop grid
 // drag by other means.
 
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
@@ -77,10 +80,13 @@ function setPageDragging(on) {
  * @param {Object|Function} [props.overlaySx] a surface's own look for the lifted
  *        item, in place of the pickup (scale, pop, deep shadow) — the editors
  *        keep the look their rows had before the foundation (req #3664)
+ * @param {Function} [props.collisionDetection] a surface whose targets are not
+ *        DOM droppables answers "what is under the pointer" itself — the plan
+ *        canvas hit-tests its Konva step cards (req #3665). Read once, at mount.
  */
 export default function DarwinDndContext({
     children, onDragStart, onDragOver, onDragMove, onDragEnd, onDragCancel,
-    renderOverlay, liftScale, overlaySx,
+    renderOverlay, liftScale, overlaySx, collisionDetection: customCollision,
 }) {
     const sensors = useSensors(
         useSensor(DarwinPointerSensor, POINTER_SENSOR_OPTIONS),
@@ -91,7 +97,8 @@ export default function DarwinDndContext({
         }),
     );
 
-    const collisionDetection = useMemo(() => createDarwinCollisionDetection(), []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const collisionDetection = useMemo(() => customCollision ?? createDarwinCollisionDetection(), []);
 
     const activeRef = useRef(null);
     const copyRef = useRef(null);
@@ -116,7 +123,7 @@ export default function DarwinDndContext({
         const box = liftedNode(event.activatorEvent)?.getBoundingClientRect();
         liftSizeRef.current = box ? { width: box.width, height: box.height } : null;
         overListRef.current = event.active.data.current?.containerId ?? null;
-        collisionDetection.reset();
+        collisionDetection.reset?.();
         setPageDragging(true);
         // Read the clicked field's cursor BEFORE the lift takes its focus away.
         focusSpotRef.current = captureLiftFocus(event.activatorEvent, liftedNode(event.activatorEvent));
@@ -133,7 +140,7 @@ export default function DarwinDndContext({
         const list = data ? (data.kind === 'container' ? event.over.id : data.containerId) : null;
         if (list !== overListRef.current) {
             overListRef.current = list;
-            collisionDetection.noteContainerChange();
+            collisionDetection.noteContainerChange?.();
         }
         onDragOver?.(event);
     }, [collisionDetection, onDragOver]);

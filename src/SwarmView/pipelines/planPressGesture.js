@@ -13,7 +13,9 @@
 // ── THE THREE GESTURES ─────────────────────────────────────────────────────
 //   long press   held still for `LONG_PRESS_MS` — fires WHILE STILL HELD, so
 //                the reader sees the editor open without having to let go; the
-//                release that follows is swallowed.
+//                release that follows is swallowed. It is handed the PRESS
+//                POINT, so the editor can put its caret where the text was
+//                pressed (req #3665, `planCaretPoint.js`).
 //   double click two releases on the SAME target within `DOUBLE_CLICK_MS`.
 //   click        one release, fired once the double-click window has closed
 //                with no second one. That wait is the price of having a double
@@ -83,7 +85,7 @@ export function createPressTracker({
                     press.fired = true;
                     // A long press is never ALSO the second half of a double.
                     if (pending?.key === key) { clearTimeout(pending.timer); pending = null; }
-                    cbs.onLongPress();
+                    cbs.onLongPress({ x, y });
                 }, longMs) : null,
             };
         },

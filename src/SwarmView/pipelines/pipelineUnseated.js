@@ -9,7 +9,7 @@
 // What lives here is every DECISION that gesture makes — which rows the box
 // lists, which step a point lands on, whether that step may take new work, and
 // where a step's card sits on screen — so a test can reach them. The DOM side
-// (native HTML5 drag, the highlight overlay, the write) is in
+// (the dnd-kit drag, the highlight overlay, the write) is in
 // `PipelinePlanVisualizer.jsx` and `UnorchestratedReqBox.jsx`.
 //
 // ── "NOT ORCHESTRATED" IS THE JUNCTION, NOTHING ELSE ───────────────────────
@@ -168,9 +168,14 @@ export function unseatedResizedBox(widthPx, fontPx, size) {
     };
 }
 
-/** The `dataTransfer` type a box row carries. Custom, so a text or file drag
- *  from anywhere else on the page is never mistaken for a requirement. */
-export const UNSEATED_REQ_MIME = 'application/x-darwin-requirement';
+/** The dnd-kit draggable type a box row carries (req #3665), so the canvas's
+ *  collision detection answers for a box row and nothing else. */
+export const UNSEATED_DRAG_TYPE = 'unseated-req';
+
+/** A box row's dnd-kit id — unique on the page, whatever else drags there. */
+export function unseatedDragId(reqId) {
+    return `unseated:${reqId}`;
+}
 
 /**
  * Swarm-ready requirements with no step seat, ascending by id.

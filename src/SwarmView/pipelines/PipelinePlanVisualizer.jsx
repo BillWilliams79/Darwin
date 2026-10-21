@@ -202,9 +202,12 @@ import {
     NEW_EPIC_TITLE,
 } from './pipelineStepInsert';
 import {
-    REQ_DRAG_SLOP, passedDragSlop, dropTargetAt, canDropOn, applyReqMoves,
+    REQ_DRAG_SLOP, reqPressOutcome, stillHeld, dropTargetAt, canDropOn, applyReqMoves,
     edgePanVelocity,
 } from './pipelineReqDrag';
+// req #3665 — the app-wide press timeline and drag surface: the requirement
+// marks read its numbers, the Orchestrables box drags through its context.
+import { DarwinDndContext, LIFT_DELAY_MS, LIFT_VIBRATE_MS } from '../../dnd';
 import { viewportStorageKey } from '../../utils/viewportMemory';
 // req #3583 — the swarm-ready, not-orchestrated box and its drop-to-seat. The
 // contexts, snackbar, query keys and `moveStepRequirement` are req #3581's,
@@ -213,7 +216,7 @@ import { hideMachineReqs, isMachineHidden } from './planMachineFilter';
 import UnorchestratedReqBox, { UNSEATED_FLOAT_Z } from './UnorchestratedReqBox';
 import { useUnorchestratedRequirements } from './useUnorchestratedRequirements';
 import {
-    UNSEATED_REQ_MIME, bulkSeatRequest, resolveSeatDrop, screenRectOf, unseatedBoxFontPx,
+    UNSEATED_DRAG_TYPE, bulkSeatRequest, resolveSeatDrop, screenRectOf, unseatedBoxFontPx,
     unseatedBoxWidthPx, unseatedBoxZoom,
     pointerCanSeat, runBulkSeat, bulkSeatFailureMessage,
 } from './pipelineUnseated';
@@ -316,6 +319,19 @@ const REQ_KEY_SCALES = REQ_COLOR_KEYS;
 // bound to, so a mousedown on them was never reachable as a pan gesture in the
 // first place. Anything added back over the canvas needs the attribute again.
 const CHROME_SELECTOR = '[data-viz-chrome]';
+/** An Orchestrables row in the air (req #3665): highlighted, not popped — the
+ *  same quiet lift the canvas requirement gets, in place of the shared
+ *  pickup's scale-and-bounce (user directive: "it jumps way too much"). */
+const QUIET_LIFT_SX = {
+    borderRadius: '4px',
+    outline: `1px solid ${P.accent}`,
+    boxShadow: '0 10px 28px rgba(0, 0, 0, 0.55)',
+    '@keyframes planRowLift': {
+        '0%': { outlineColor: 'transparent', boxShadow: '0 0 0 rgba(0,0,0,0)' },
+    },
+    animation: 'planRowLift 140ms ease-out',
+    '@media (prefers-reduced-motion: reduce)': { animation: 'none' },
+};
 /** Seat writes in flight at once when the whole box is dropped (req #3608) —
  *  each is its own gateway call and its own database connection. */
 const BULK_SEAT_CONCURRENCY = 4;
@@ -1030,14 +1046,13 @@ export default function PipelinePlanVisualizer({
     const [transform, setTransform] = useState(null);
 
     // ── The swarm-ready, not-orchestrated box (req #3583) ───────────────────
-    // `unseatDragId` is the box row in the air (it greys out), `seatTarget` the
-    // step card under the cursor (`{stepId, ok}`, outlined), and `pendingSeats`
+    // `seatTarget` is the step card under the cursor (`{stepId, ok}`,
+    // outlined), and `pendingSeats`
     // the rows already dropped whose write or refetch has not landed — hidden
     // from the box at once so a drop never shows the row snapping back.
     // (`darwinUri`/`idToken`/`profile`/`queryClient`/`showError` are declared
     // once, at the top of the component, for req #3581.)
     const unseated = useUnorchestratedRequirements(profile?.userName);
-    const [unseatDragId, setUnseatDragId] = useState(null);
     const [seatTarget, setSeatTarget] = useState(null);
     const [pendingSeats, setPendingSeats] = useState(() => new Set());
     const [boxCarrying, setBoxCarrying] = useState(false);
@@ -1078,6 +1093,11 @@ export default function PipelinePlanVisualizer({
     // whenever the transform changes (req #3614) — via a ref because the
     // function is defined below the empty-plan early return, the effect above it.
     const boxPointerRef = useRef(null);
+    // req #3665 — a box ROW in the air: the pointer dnd-kit last reported, and
+    // the collision detection it calls (stable, so the context can keep it).
+    const rowPointerRef = useRef(null);
+    const seatCollideRef = useRef(() => []);
+    const seatCollision = useCallback((args) => seatCollideRef.current(args), []);
     const reseatRef = useRef(null);
     useEffect(() => { reseatRef.current?.(); }, [transform]);
 
@@ -2118,6 +2138,18 @@ export default function PipelinePlanVisualizer({
     // the wheel keeps zooming throughout. Escape, or the window losing focus,
     // puts the requirement back.
     //
+    // ── ON THE SHARED PRESS TIMELINE, BY TOUCH TOO (req #3665) ─────────────
+    // POINTER events, so a finger drives it exactly as a mouse does, read
+    // through `reqPressOutcome` (pipelineReqDrag.js has the table). On touch the
+    // press is SHARED with d3-zoom until it lifts: d3 pans under a finger that
+    // moves first, and the press is dropped; a finger held still lifts the
+    // requirement (a haptic tick), and from then on d3 never sees it move — its
+    // touchmove is stopped on the way down, at the window. Held still past
+    // LONG_PRESS_MS and let go in place, it is the title edit (a mouse held
+    // still opens it while held, and lifts only by moving). A lifted touch swallows
+    // its touchend, so the release never turns into a click that opens the
+    // requirement; a second finger puts the requirement back (the pinch is d3's).
+    //
     // The listeners read everything that changes through `dragWorldRef`, so the
     // effect binds once per container and never tears a gesture down mid-drag
     // because a refetch re-rendered the page.
@@ -2214,6 +2246,9 @@ export default function PipelinePlanVisualizer({
         let raf = 0;
         let lastPoint = null;           // panel-relative, last pointer position
         let guardTimer = 0;
+        // A lifted or long-pressed TOUCH ends in a touchend the browser would
+        // turn into a click — swallowed, once (see `onTouchEnd`).
+        let swallowTouchEnd = false;
 
         const world = () => dragWorldRef.current;
         const panelPoint = (e) => {
@@ -2314,7 +2349,11 @@ export default function PipelinePlanVisualizer({
                 return false;
             }
             const r = (d.snap || d.node).getClientRect();
-            const p0 = panelPoint({ clientX: d.down.x, clientY: d.down.y });
+            // The grab point on the mark. Under a finger d3 panned the canvas
+            // with the resting jitter of the hold, so the mark is where the
+            // finger is now; a mouse moved off a still mark.
+            const p0 = d.pointerType === 'touch' && lastPoint
+                ? lastPoint : panelPoint({ clientX: d.down.x, clientY: d.down.y });
             d.offX = p0.x - r.x + PAD_X;
             d.offY = p0.y - r.y + PAD_Y;
             d.phase = 'drag';
@@ -2325,6 +2364,10 @@ export default function PipelinePlanVisualizer({
                 x: lastPoint.x - d.offX, y: lastPoint.y - d.offY,
             });
             setCursor('grabbing');
+            if (d.pointerType === 'touch') {
+                swallowTouchEnd = true;
+                navigator.vibrate?.(LIFT_VIBRATE_MS);
+            }
             return true;
         };
         const finish = () => {
@@ -2343,46 +2386,101 @@ export default function PipelinePlanVisualizer({
             clearTimeout(guardTimer);
             guardTimer = setTimeout(() => { reqClickGuardRef.current = false; }, 0);
         };
+        const clearTimers = (d) => {
+            clearTimeout(d.liftTimer);
+            clearTimeout(d.longTimer);
+        };
+        // Picked up where the pointer is now — by a move or by the hold.
+        const lift = (d) => {
+            clearTimeout(d.liftTimer);
+            if (!start(d)) {
+                clearTimers(d);
+                reqDragRef.current = null;
+                return false;
+            }
+            placePreview();
+            retarget();
+            if (!raf) raf = requestAnimationFrame(tick);
+            return true;
+        };
+        // Put back, and the rest of the press (until its pointer comes up) is
+        // nobody's — neither a drop nor a click.
+        const cancel = (d) => {
+            clearTimers(d);
+            const lifted = d.phase === 'drag';
+            if (lifted) finish();
+            d.phase = 'cancelled';
+            reqDragRef.current = d;
+        };
 
         const onDown = (e) => {
-            if (e.button !== 0 || e.target?.closest?.(CHROME_SELECTOR)) return;
+            const held = reqDragRef.current;
+            if (held) {
+                // A second pointer — a pinch's second finger — puts back what
+                // the first began, and lets go of the press entirely: the pinch
+                // is d3's, so its touchmoves must reach it. The first finger's
+                // release is still no tap (`swallowTouchEnd`, set at the lift).
+                if (e.pointerId !== held.pointerId) {
+                    clearTimers(held);
+                    if (held.phase === 'drag') finish(); else reqDragRef.current = null;
+                    if (held.phase !== 'press') guardClick();
+                }
+                return;
+            }
+            if (!e.isPrimary || e.button !== 0 || e.target?.closest?.(CHROME_SELECTOR)) return;
             const node = hit(e);
             if (!node) return;
-            e.preventDefault();          // no text selection, no native drag
             const d = {
                 phase: 'press', node,
+                pointerId: e.pointerId, pointerType: e.pointerType,
                 reqId: node.getAttr('dragReqId'),
                 fromStepId: node.getAttr('dragStepId'),
                 down: { x: e.clientX, y: e.clientY },
+                travel: 0,
             };
-            // req #3661 — HELD STILL IS AN EDIT: a press that has not passed
-            // the drag slop after `LONG_PRESS_MS` opens the title's in-place
-            // editor (the gesture the step and epic names already take, req
-            // #3580). It fires while still held, and the press becomes
-            // CANCELLED, so the release that follows is neither a drop nor the
-            // click that opens the requirement page.
-            d.longTimer = setTimeout(() => {
+            lastPoint = panelPoint(e);
+            // HELD STILL, A FINGER LIFTS IT (a mouse lifts by moving).
+            d.liftTimer = setTimeout(() => {
                 if (reqDragRef.current !== d || d.phase !== 'press') return;
-                if (!reqLongPressRef.current?.(d.reqId, d.fromStepId)) return;
-                d.phase = 'cancelled';
+                if (reqPressOutcome(d.pointerType, d.travel, true) === 'lift') lift(d);
+            }, LIFT_DELAY_MS);
+            // req #3661 — A LONG PRESS IS THE TITLE EDIT (pipelineReqDrag.js
+            // has why the two pointers differ). A MOUSE held within the slop
+            // to `LONG_PRESS_MS` opens the in-place editor WHILE STILL HELD, the
+            // caret blinking under the pointer, and the press becomes CANCELLED
+            // so the release is neither a drop nor the click that opens the
+            // requirement page. A FINGER has lifted the requirement by then, so
+            // its edit waits for the release in place (`onUp`); moving past the
+            // slop at any point makes it a drag for good.
+            d.longTimer = setTimeout(() => {
+                if (reqDragRef.current !== d) return;
+                if (d.pointerType === 'touch') { d.heldLong = true; return; }
+                if (d.phase !== 'press' || !stillHeld(d.travel)) return;
+                if (reqLongPressRef.current?.(d.reqId, d.fromStepId, d.down)) cancel(d);
             }, LONG_PRESS_MS);
             reqDragRef.current = d;
         };
         const onMove = (e) => {
             const d = reqDragRef.current;
-            if (!d || d.phase === 'cancelled') return;
-            // The button is up but no mouseup reached us (something swallowed
+            if (!d || e.pointerId !== d.pointerId || d.phase === 'cancelled') return;
+            // The button is up but no pointerup reached us (something swallowed
             // it): a release we never saw is not a drop — put it back.
             if (!(e.buttons & 1)) {        // eslint-disable-line no-bitwise
-                clearTimeout(d.longTimer);
+                clearTimers(d);
                 if (d.phase === 'drag') finish(); else reqDragRef.current = null;
                 return;
             }
+            d.travel = Math.max(d.travel, Math.hypot(e.clientX - d.down.x, e.clientY - d.down.y));
             lastPoint = panelPoint(e);
             if (d.phase === 'press') {
-                if (!passedDragSlop(d.down, e.clientX, e.clientY)) return;
-                clearTimeout(d.longTimer);
-                if (!start(d)) { reqDragRef.current = null; return; }
+                const outcome = reqPressOutcome(d.pointerType, d.travel, false);
+                if (outcome === 'pan') {             // d3 has the finger
+                    clearTimers(d);
+                    reqDragRef.current = null;
+                    return;
+                }
+                if (outcome !== 'lift') return;
+                if (!lift(d)) return;
             }
             placePreview();
             retarget();
@@ -2390,8 +2488,20 @@ export default function PipelinePlanVisualizer({
         };
         const onUp = (e) => {
             const d = reqDragRef.current;
-            if (!d || e.button !== 0) return;      // only the button that lifted it
-            clearTimeout(d.longTimer);
+            if (!d || e.pointerId !== d.pointerId) return;
+            clearTimers(d);
+            // Let go where it was picked up, after the long press: the edit,
+            // and the requirement is put back. Neither a drop nor a click.
+            const travel = Math.max(d.travel, Math.hypot(e.clientX - d.down.x, e.clientY - d.down.y));
+            if (d.heldLong && stillHeld(travel) && d.phase !== 'cancelled'
+                && reqLongPressRef.current?.(d.reqId, d.fromStepId,
+                    { x: e.clientX, y: e.clientY })) {
+                if (d.phase === 'drag') finish();
+                reqDragRef.current = null;
+                guardClick();
+                if (d.pointerType === 'touch') swallowTouchEnd = true;
+                return;
+            }
             if (d.phase === 'press') { reqDragRef.current = null; return; }
             guardClick();
             if (d.phase === 'cancelled') { reqDragRef.current = null; return; }
@@ -2403,30 +2513,83 @@ export default function PipelinePlanVisualizer({
                 world().commit({ reqId: d.reqId, fromStepId: d.fromStepId, toStepId });
             }
         };
+        // The browser took the pointer away (a system gesture): no drop.
+        const onPointerCancel = (e) => {
+            const d = reqDragRef.current;
+            if (!d || e.pointerId !== d.pointerId) return;
+            if (d.pointerType === 'touch') swallowTouchEnd = false;   // no touchend is coming
+            clearTimers(d);
+            if (d.phase === 'drag') finish(); else reqDragRef.current = null;
+        };
         // Escape puts it back. The press stays recorded as CANCELLED until the
         // button comes up, so the release is neither a drop nor a click.
         const onKey = (e) => {
-            if (e.key !== 'Escape' || reqDragRef.current?.phase !== 'drag') return;
+            const d = reqDragRef.current;
+            if (e.key !== 'Escape' || d?.phase !== 'drag') return;
             e.preventDefault();
-            finish();
-            reqDragRef.current = { phase: 'cancelled' };
+            cancel(d);
         };
-        const onBlur = () => { if (reqDragRef.current) finish(); };
+        const onBlur = () => {
+            swallowTouchEnd = false;
+            const d = reqDragRef.current;
+            if (!d) return;
+            clearTimers(d);
+            if (d.phase === 'drag') finish(); else reqDragRef.current = null;
+        };
+        // A mouse press on a mark selects no text and starts no native drag.
+        const onMouseDown = (e) => {
+            if (reqDragRef.current?.pointerType === 'mouse') e.preventDefault();
+        };
+        // A lifted (or edited) finger is the requirement's: d3-zoom's touch pan,
+        // bound to the panel, never sees it move. Stopped at the WINDOW, on the
+        // way down, because d3 stops every listener after its own.
+        const onTouchMove = (e) => {
+            const d = reqDragRef.current;
+            if (d?.pointerType !== 'touch' || d.phase === 'press') return;
+            e.stopPropagation();
+            if (e.cancelable) e.preventDefault();
+        };
+        // ...and its release is not a tap: no click, no compatibility mouse
+        // events. d3 still sees the touchend, which ends its gesture.
+        const onTouchEnd = (e) => {
+            if (!swallowTouchEnd) return;
+            if (e.cancelable) e.preventDefault();
+            if (!e.touches?.length) swallowTouchEnd = false;
+        };
+        // A touch the system took away (an edge swipe, an app switch) ends in
+        // touchcancel, never touchend — nothing is left to swallow, and a
+        // flag left standing would eat the next tap anywhere on the page.
+        const onTouchCancel = (e) => { if (!e.touches?.length) swallowTouchEnd = false; };
+        // The long-press menu / callout a held finger would raise.
+        const onMenu = (e) => { if (reqDragRef.current) e.preventDefault(); };
         reqRetargetRef.current = retarget;
 
-        el.addEventListener('mousedown', onDown);
-        window.addEventListener('mousemove', onMove);
-        window.addEventListener('mouseup', onUp);
+        el.addEventListener('pointerdown', onDown);
+        el.addEventListener('mousedown', onMouseDown);
+        el.addEventListener('contextmenu', onMenu);
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+        window.addEventListener('pointercancel', onPointerCancel);
+        window.addEventListener('touchmove', onTouchMove, { capture: true, passive: false });
+        window.addEventListener('touchend', onTouchEnd, { capture: true, passive: false });
+        window.addEventListener('touchcancel', onTouchCancel, { capture: true });
         window.addEventListener('keydown', onKey);
         window.addEventListener('blur', onBlur);
         return () => {
-            el.removeEventListener('mousedown', onDown);
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
+            el.removeEventListener('pointerdown', onDown);
+            el.removeEventListener('mousedown', onMouseDown);
+            el.removeEventListener('contextmenu', onMenu);
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onUp);
+            window.removeEventListener('pointercancel', onPointerCancel);
+            window.removeEventListener('touchmove', onTouchMove, { capture: true });
+            window.removeEventListener('touchend', onTouchEnd, { capture: true });
+            window.removeEventListener('touchcancel', onTouchCancel, { capture: true });
             window.removeEventListener('keydown', onKey);
             window.removeEventListener('blur', onBlur);
             if (raf) cancelAnimationFrame(raf);
             clearTimeout(guardTimer);
+            clearTimeout(reqDragRef.current?.liftTimer);
             clearTimeout(reqDragRef.current?.longTimer);
             reqHitRef.current = null;
             reqRetargetRef.current = null;
@@ -2541,11 +2704,11 @@ export default function PipelinePlanVisualizer({
     const drawsKind = (kind) => drawsLabelKind(kind, level);
     // req #3661 — only where the title is DRAWN (L3): at L1/L2 the row is the
     // bare id, and an editor there would be editing text the reader cannot see.
-    reqLongPressRef.current = (reqId, stepId) => {
+    reqLongPressRef.current = (reqId, stepId, at = null) => {
         if (level !== 'in' || !drawsKind('req')) return false;
         if (!layout.labels.some((l) => l.kind === 'req' && l.reqId === reqId
             && l.stepId === stepId)) return false;
-        setReqEdit({ reqId, stepId, saving: false });
+        setReqEdit({ reqId, stepId, saving: false, at });
         return true;
     };
     const drawnKinds = ['step', 'req', 'title', 'badge', 'checkpoint', 'lock']
@@ -3085,8 +3248,9 @@ export default function PipelinePlanVisualizer({
             const k2 = Math.min(kDefault * ZOOM_MAX_RATIO, tr.k * 2);
             applyFocus(zoomAboutViewportCentre(tr, size, k2) || tr);
         },
-        onLongPress: () => {
-            setStepEdit({ stepId, saving: false });
+        // `at` — the press point, where the editor puts its caret (req #3665).
+        onLongPress: (at) => {
+            setStepEdit({ stepId, saving: false, at });
         },
     });
 
@@ -3365,15 +3529,14 @@ export default function PipelinePlanVisualizer({
     const epicOverlayTopInset = rulerScreenBottom(t);
 
     // ── Drop-to-seat from the unorchestrated box (req #3583) ────────────────
-    // Native HTML5 drag events on the container. d3-zoom never sees them — it
-    // listens for mouse/pointer events, which the browser suspends for the
-    // length of a native drag — so the plan cannot pan under a drag in flight.
-    // Only a drag carrying `UNSEATED_REQ_MIME` is ours; anything else (a file,
-    // selected text) is ignored. The point is projected through the SAME live
-    // transform the world Group is drawn with, then hit-tested against the
-    // layout's own card frames.
-    const isSeatDrag = (e) => Array.from(e.dataTransfer?.types || [])
-        .includes(UNSEATED_REQ_MIME);
+    // A box row is a dnd-kit draggable (req #3665 — it was a native HTML5 drag,
+    // which touch browsers do not drive): it lifts on the shared press timeline,
+    // the shared DragOverlay carries a copy of it, and the drop is answered by
+    // a CUSTOM collision detection — the step cards are Konva shapes, not DOM
+    // droppables, so "what is under the pointer" is the canvas's own step hit
+    // test, the point projected through the SAME live transform the world Group
+    // is drawn with and tested against the layout's own card frames.
+    //
     // What hides a card: the box and the key (chrome), and an epic chip — any
     // HTML over the canvas except a card's own count badge, which sits ON the
     // card it counts. The key ignores the pointer, so its events land on the
@@ -3387,42 +3550,60 @@ export default function PipelinePlanVisualizer({
         return !!k && e.clientX >= k.left && e.clientX <= k.right
             && e.clientY >= k.top && e.clientY <= k.bottom;
     };
-    const seatTargetFor = (e) => {
+    // The step a client point would seat onto, judged by what lies UNDER it:
+    // never the drag preview riding the pointer, and — for the whole box
+    // carried by its title bar (`throughBox`) — never the box either, since the
+    // card it is aimed at is beneath it. A single row's drop over the box is
+    // over chrome, as any drop on the box is.
+    //
+    // Nothing beneath the pointer is NOT the open canvas (req #3614): pointer
+    // capture keeps delivering events past the window edge, where
+    // `elementsFromPoint` answers [] — and a point outside the plan panel is no
+    // seat either, so both are over-chrome.
+    const seatTargetAtPoint = (clientX, clientY, throughBox) => {
         const el = containerEl;
-        if (!el) return null;
+        if (!el || clientX == null || clientY == null) return null;
+        const overlay = document.querySelector('[data-testid="drag-overlay"]')?.parentElement;
+        const beneath = (document.elementsFromPoint?.(clientX, clientY) || [])
+            .find((n) => !overlay?.contains(n)
+                && !(throughBox && n.closest?.('[data-viz-unseated]')));
         const rect = el.getBoundingClientRect();
+        const canSeat = pointerCanSeat(clientX, clientY, rect, beneath);
         return resolveSeatDrop({
-            point: { x: e.clientX - rect.left, y: e.clientY - rect.top },
-            overChrome: overlaysCard(e),
+            point: { x: clientX - rect.left, y: clientY - rect.top },
+            overChrome: !canSeat || overlaysCard({ target: beneath, clientX, clientY }),
             rulerBottom: epicOverlayTopInset,
             t, nodes: drawLayout.nodes, rowById,
         });
     };
     const sameTarget = (a, b) => (a === b)
         || (!!a && !!b && a.stepId === b.stepId && a.ok === b.ok);
-    const onSeatDragOver = (e) => {
-        if (!isSeatDrag(e)) return;
-        const target = seatTargetFor(e);
-        if (target?.ok) {
-            e.preventDefault();               // this is what makes it droppable
-            e.dataTransfer.dropEffect = 'move';
-        }
+    // The collision detection dnd-kit calls on every pointer frame. Its answer
+    // carries the resolved target, so the move and drop handlers need not ask
+    // again; the pointer is kept so a camera move under a still pointer (a
+    // wheel zoom) re-aims the outline (`reseatRef`). Stable identity, read
+    // through a ref: DarwinDndContext takes it once.
+    seatCollideRef.current = ({ active, pointerCoordinates: p }) => {
+        if (active?.data?.current?.type !== UNSEATED_DRAG_TYPE || !p) return [];
+        rowPointerRef.current = { x: p.x, y: p.y };
+        const target = seatTargetAtPoint(p.x, p.y, false);
+        return target ? [{ id: `seat-step-${target.stepId}`, data: { target } }] : [];
+    };
+    const onUnseatDragMove = (event) => {
+        if (event.active?.data?.current?.type !== UNSEATED_DRAG_TYPE) return;
+        const target = event.collisions?.[0]?.data?.target ?? null;
         setSeatTarget((prev) => (sameTarget(prev, target) ? prev : target));
     };
-    // dragenter is cancelled under the same rule as dragover — the spec's
-    // pairing, so no engine is left to decide the drop is refused.
-    const onSeatDragEnter = (e) => {
-        if (isSeatDrag(e) && seatTargetFor(e)?.ok) e.preventDefault();
-    };
-    const onSeatDragLeave = (e) => {
-        if (!isSeatDrag(e) || !containerEl) return;
-        // Leaving for a child of the panel is not leaving the panel. Judged by
-        // the pointer as well as `relatedTarget`, which Safari leaves null.
-        if (e.relatedTarget && containerEl.contains(e.relatedTarget)) return;
-        const r = containerEl.getBoundingClientRect();
-        if (e.clientX > r.left && e.clientX < r.right
-            && e.clientY > r.top && e.clientY < r.bottom) return;
+    const onUnseatDragCancel = () => {
+        rowPointerRef.current = null;
         setSeatTarget(null);
+    };
+    const onUnseatDragEnd = (event) => {
+        const data = event.active?.data?.current;
+        if (data?.type !== UNSEATED_DRAG_TYPE) return;
+        const target = event.collisions?.[0]?.data?.target ?? null;
+        onUnseatDragCancel();
+        seatUnseated(Number(data.row?.id), target);
     };
     const forgetPending = (reqId) => setPendingSeats((prev) => {
         if (!prev.has(reqId)) return prev;
@@ -3430,13 +3611,7 @@ export default function PipelinePlanVisualizer({
         next.delete(reqId);
         return next;
     });
-    const onSeatDrop = async (e) => {
-        if (!isSeatDrag(e)) return;
-        e.preventDefault();
-        const target = seatTargetFor(e);
-        const reqId = Number(e.dataTransfer.getData(UNSEATED_REQ_MIME));
-        setSeatTarget(null);
-        setUnseatDragId(null);
+    const seatUnseated = async (reqId, target) => {
         if (!target?.ok || !Number.isFinite(reqId) || reqId <= 0) return;
         setPendingSeats((prev) => new Set(prev).add(reqId));
         const junctionKey = pipelineStepRequirementKeys.all(profile?.userName);
@@ -3467,31 +3642,10 @@ export default function PipelinePlanVisualizer({
     };
 
     // ── The whole box dropped on a step (req #3608) ─────────────────────────
-    // The box's title-bar move is a pointer gesture, not a native drag, so the
-    // box reports the pointer itself. The pointer is over the BOX, so the card
-    // it is aimed at is whatever lies beneath it: the first element under the
-    // point that is not part of the box, judged by the same `overlaysCard` rule
-    // a single row's drop uses (the key, an epic chip and the ruler still hide
-    // the card they cover).
-    //
-    // Nothing beneath the pointer is NOT the open canvas (req #3614): pointer
-    // capture keeps delivering events past the window edge, where
-    // `elementsFromPoint` answers [] — and a point outside the plan panel is no
-    // seat either, so both are over-chrome and a release there is a relocation.
-    const boxSeatTargetAt = (clientX, clientY) => {
-        const el = containerEl;
-        if (!el || clientX == null || clientY == null) return null;
-        const beneath = (document.elementsFromPoint?.(clientX, clientY) || [])
-            .find((n) => !n.closest?.('[data-viz-unseated]'));
-        const rect = el.getBoundingClientRect();
-        const canSeat = pointerCanSeat(clientX, clientY, rect, beneath);
-        return resolveSeatDrop({
-            point: { x: clientX - rect.left, y: clientY - rect.top },
-            overChrome: !canSeat || overlaysCard({ target: beneath, clientX, clientY }),
-            rulerBottom: epicOverlayTopInset,
-            t, nodes: drawLayout.nodes, rowById,
-        });
-    };
+    // The box's title-bar move is the box's own pointer gesture, so it reports
+    // the pointer itself. The pointer is over the BOX, so the card it is aimed
+    // at is whatever lies beneath it (`seatTargetAtPoint` through the box).
+    const boxSeatTargetAt = (clientX, clientY) => seatTargetAtPoint(clientX, clientY, true);
     const onBoxMoveOver = (clientX, clientY) => {
         boxPointerRef.current = clientX == null || clientY == null
             ? null : { x: clientX, y: clientY };
@@ -3499,9 +3653,10 @@ export default function PipelinePlanVisualizer({
         setSeatTarget((prev) => (sameTarget(prev, target) ? prev : target));
     };
     reseatRef.current = () => {
-        const p = boxPointerRef.current;
-        if (!p || !boxCarrying) return;
-        const target = boxSeatTargetAt(p.x, p.y);
+        const box = boxCarrying ? boxPointerRef.current : null;
+        const row = rowPointerRef.current;
+        if (!box && !row) return;
+        const target = box ? boxSeatTargetAt(box.x, box.y) : seatTargetAtPoint(row.x, row.y, false);
         setSeatTarget((prev) => (sameTarget(prev, target) ? prev : target));
     };
     // Returns whether the drop was a seat — the box goes back to where it was
@@ -4831,6 +4986,14 @@ export default function PipelinePlanVisualizer({
     }
 
     return (
+        // req #3665 — the drag surface the Orchestrables rows lift through: the
+        // shared sensors, press timeline and overlay, with the canvas's own
+        // step hit test as its collision detection.
+        <DarwinDndContext collisionDetection={seatCollision}
+                          overlaySx={QUIET_LIFT_SX}
+                          onDragMove={onUnseatDragMove}
+                          onDragEnd={onUnseatDragEnd}
+                          onDragCancel={onUnseatDragCancel}>
         <Box>
             <OrderViolationsAlert plan={plan} />
 
@@ -4934,11 +5097,15 @@ export default function PipelinePlanVisualizer({
                         borderRadius: maximized ? 0 : '8px',
                         border: maximized ? 'none' : `1px solid ${P.line}`,
                         background: P.panel,
-                        touchAction: 'none' }}
-                 onDragEnter={onSeatDragEnter}
-                 onDragOver={onSeatDragOver}
-                 onDragLeave={onSeatDragLeave}
-                 onDrop={onSeatDrop}>
+                        touchAction: 'none',
+                        // req #3665 — a finger held on the plan lifts a
+                        // requirement or opens an editor; never the iOS
+                        // text loupe or link callout.
+                        userSelect: 'none', WebkitUserSelect: 'none',
+                        WebkitTouchCallout: 'none',
+                        // ...except in the in-place editors, which are text.
+                        '& input, & textarea, & [contenteditable="true"], & [contenteditable=""]': {
+                            userSelect: 'text', WebkitUserSelect: 'text' } }}>
                 {size.w > 0 && (
                     <Stage ref={stageRef} width={size.w} height={size.h}>
                         <Layer ref={layerRef}>
@@ -4989,7 +5156,18 @@ export default function PipelinePlanVisualizer({
                                 // edge the grab offset was computed against.
                                 outline: `1px solid ${P.accent}`,
                                 boxShadow: `0 10px 28px rgba(0, 0, 0, 0.55), 0 0 0 3px ${rgba(P.accent, 0.12)}`,
-                                cursor: 'grabbing' }}>
+                                cursor: 'grabbing',
+                                // req #3665 — THE LIFT IS A HIGHLIGHT, NOT A
+                                // JUMP (user directive: "it should more just
+                                // become highlighted or show its preview rather
+                                // than jump"). The copy appears exactly over the
+                                // mark, at its size, and only its outline and
+                                // shadow fade in; it moves when the pointer does.
+                                '@keyframes planReqLift': {
+                                    '0%': { outlineColor: 'transparent', boxShadow: '0 0 0 rgba(0,0,0,0)' },
+                                },
+                                animation: 'planReqLift 140ms ease-out',
+                                '@media (prefers-reduced-motion: reduce)': { animation: 'none' } }}>
                         <img src={reqDrag.src} alt="" draggable={false}
                              width={reqDrag.w} height={reqDrag.h}
                              style={{ display: 'block' }} />
@@ -5044,7 +5222,9 @@ export default function PipelinePlanVisualizer({
                         const editing = renamable && epicEdit?.key === e.key;
                         const zoomLabel = `Zoom pipeline epic ${e.name ?? e.text}`
                             + epicZoomHintSuffix(epicWorkByEpic.get(e.key));
-                        const startEdit = () => setEpicEdit({ key: e.key, saving: false });
+                        // A long press hands the press point (the caret goes
+                        // there); F2 hands none (the name is selected).
+                        const startEdit = (at = null) => setEpicEdit({ key: e.key, saving: false, at });
                         const gestures = {
                             onClick: () => activateEpicName(e.band),
                             onDoubleClick: () => activateEpicName(e.band, { deep: true }),
@@ -5244,6 +5424,7 @@ export default function PipelinePlanVisualizer({
                                     testId={`pipeline-viz-epic-edit-${e.key}`}
                                     onCommit={(raw) => commitEpicTitle(e.band, raw)}
                                     onCancel={() => setEpicEdit(null)}
+                                    caretAt={epicEdit?.at}
                                     growCh
                                     style={{ fontSize: e.fontSize, height: e.h - 4 }}
                                     sx={{ color: e.color }}
@@ -5670,6 +5851,7 @@ export default function PipelinePlanVisualizer({
                             testId={`pipeline-viz-step-edit-${stepEditor.row.id}`}
                             onCommit={(raw) => commitStepTitle(stepEditor.row, raw)}
                             onCancel={() => setStepEdit(null)}
+                            caretAt={stepEdit?.at}
                             style={{
                                 position: 'absolute',
                                 left: stepEditor.left,
@@ -5693,6 +5875,7 @@ export default function PipelinePlanVisualizer({
                             saving={!!reqEdit?.saving}
                             ariaLabel={`Rename requirement ${reqEditor.reqId}`}
                             testId={`pipeline-viz-req-edit-${reqEditor.reqId}`}
+                            caretAt={reqEdit?.at}
                             onDraft={(title) => {
                                 const reqId = reqEditor.reqId;
                                 startTransition(() => setReqDrafts(
@@ -5772,9 +5955,6 @@ export default function PipelinePlanVisualizer({
                         unseatedBoxZoom(t.k, size.w, layout.colPitch))}
                     statusColor={planPalette(activePalette).status?.swarm_ready || P.req}
                     idStyleOf={unseatedIdStyleOf}
-                    draggingId={unseatDragId}
-                    onDragStartItem={setUnseatDragId}
-                    onDragEndItem={() => { setUnseatDragId(null); setSeatTarget(null); }}
                     onMoveOver={onBoxMoveOver}
                     onMoveDrop={onBoxMoveDrop}
                     onCarryingChange={setBoxCarrying}
@@ -6231,5 +6411,6 @@ export default function PipelinePlanVisualizer({
                 </DialogActions>
             </Dialog>
         </Box>
+        </DarwinDndContext>
     );
 }

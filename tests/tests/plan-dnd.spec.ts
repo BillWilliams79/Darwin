@@ -12,7 +12,8 @@ import {
 // exist (req #3524's two defects), cards and tabs reorder, a task crosses to
 // another domain by hover-switch and the switch reverts on cancel, the keyboard
 // drags, a touch hold lifts while a quick swipe scrolls, a long press on a tab
-// edits while held, and the page scrolls when a drag nears its edge.
+// edits once let go in place (req #3665), and the page scrolls when a drag
+// nears its edge.
 //
 // Every drag here is real input — trusted pointer, touch (CDP) and key events.
 // (Written while react-dnd's DndProvider was still mounted at the root, as the
@@ -450,7 +451,7 @@ test.describe.serial('Plan view drag and drop — touch (dnd-kit)', () => {
     await expect(page.locator('[data-dragging="true"]')).toHaveCount(0);
   });
 
-  test('PTOUCH-04: a long press on a domain tab renames it while still held', async ({ page }) => {
+  test('PTOUCH-04: a long press on a domain tab, let go in place, renames it', async ({ page }) => {
     await open(page);
     const t = page.getByRole('tab', { name: dom });
     await t.scrollIntoViewIfNeeded();

@@ -9,6 +9,7 @@ import {
 } from '../sensors';
 import * as timeline from '../pressTimeline';
 import * as planPress from '../../SwarmView/pipelines/planPressGesture';
+import { REQ_DRAG_SLOP } from '../../SwarmView/pipelines/pipelineReqDrag';
 
 describe('one press timeline', () => {
     it('the sensors read their numbers from pressTimeline', () => {
@@ -27,6 +28,8 @@ describe('one press timeline', () => {
         expect(planPress.LONG_PRESS_MS).toBe(timeline.LONG_PRESS_MS);
         expect(planPress.PRESS_SLOP_PX).toBe(timeline.PRESS_SLOP_PX);
         expect(planPress.DOUBLE_CLICK_MS).toBe(timeline.DOUBLE_CLICK_MS);
+        // ...and its requirement drag (req #3665).
+        expect(REQ_DRAG_SLOP).toBe(timeline.MOUSE_ACTIVATION_PX);
     });
 
     it('lift comes before the long press', () => {

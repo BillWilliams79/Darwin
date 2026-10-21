@@ -36,6 +36,7 @@ import { PLAN_VIZ_PALETTE as P } from './pipelinePlanLayout';
 import {
     titleLineStarts, prevCharIndex, nextCharIndex, wordStartBefore, wordEndAfter,
 } from './planReqTitleEdit';
+import { domCaretAt } from './planCaretPoint';
 
 // A title is one line of text that merely wraps: a line break that gets in
 // (a paste, a drop) is a space, and a non-breaking space is stored as a space.
@@ -53,7 +54,7 @@ const splice = (text, a, b, data) => {
 
 export default function PlanInPlaceTitleArea({
     initial, label, onCommit, onCancel, onDraft, saving, ariaLabel, testId, style,
-    indent = '0px', lineHeight, color, bold = false,
+    indent = '0px', lineHeight, color, bold = false, caretAt = null,
 }) {
     const boxRef = useRef(null);
     const ref = useRef(null);
@@ -202,9 +203,20 @@ export default function PlanInPlaceTitleArea({
     // can tell "unchanged" from "changed back to what is stored now".
     const finish = useInPlaceEnding({
         onCommit: (value) => onCommit(value, openedRef.current), onCancel, valueRef: textRef,
+        // A long press puts the caret where the title was pressed (req
+        // #3665): the editor lies over the very lines that were drawn, so the
+        // press point is a place in this text. Short of the title (the id
+        // beside it) is its start, past it its end.
         focusSelect: () => {
-            ref.current?.focus();
-            select(0, textRef.current.length);
+            const el = ref.current;
+            if (!el) return;
+            el.focus();
+            if (!caretAt) { select(0, textRef.current.length); return; }
+            const hit = domCaretAt(caretAt);
+            if (hit && el.contains(hit[0])) { select(offsetOf(hit[0], hit[1])); return; }
+            const r = el.getBoundingClientRect();
+            select(caretAt.y < r.top || (caretAt.y <= r.bottom && caretAt.x < r.left)
+                ? 0 : textRef.current.length);
         },
     });
 

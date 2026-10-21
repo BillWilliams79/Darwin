@@ -7,7 +7,7 @@ export { default as DarwinDndContext } from './DarwinDndContext';
 export { default as DarwinSortableList, RemeasureOnChange } from './DarwinSortableList';
 export { default as DragClone } from './DragClone';
 export { default as ReorderList, useReorderItem, reorderRowSx, resolveReorder, ROW_LIFT_SX } from './ReorderList';
-export { useDarwinDrag, useDarwinDropZone } from './useDarwinDrag';
+export { useDarwinDrag, useDarwinDropZone, useDarwinDraggable } from './useDarwinDrag';
 export {
     defineDropPolicy, policyAccepts, isHoverSwitch, honoursPosition, isRowTarget,
     createDarwinCollisionDetection, darwinKeyboardCoordinates,

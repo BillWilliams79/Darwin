@@ -20,15 +20,28 @@ import { Page, Locator, CDPSession } from '@playwright/test';
  *
  * Every DOM drag surface in the app is on dnd-kit — the editors, the Maps view
  * bar, Test Plans and the phone calendar list since req #3664, which removed
- * @hello-pangea/dnd and its helper. Only FullCalendar's desktop grid and the
- * plan canvas drag by other means.
+ * @hello-pangea/dnd and its helper, and the plan canvas's Orchestrables box
+ * since req #3665. Only FullCalendar's desktop grid and the requirement marks
+ * ON the plan canvas (Konva shapes) drag by other means — and those marks are
+ * on the same press timeline, so this helper's touch input drives them too:
+ * a source or target may be a client POINT instead of a locator (req #3665).
  */
 
 /** Must match Darwin/src/dnd/pressTimeline.js. */
 export const LIFT_DELAY_MS = 375;
 export const TAB_HOVER_SWITCH_MS = 500;
+export const LONG_PRESS_MS = 500;
 
 type Where = 'center' | 'upper' | 'lower' | 'left' | 'right';
+
+/** A client point — a spot on a canvas, where there is no element to aim at. */
+export interface Point { x: number; y: number }
+
+/** Where a drag starts or ends: an element, or a point on a canvas. */
+export type Spot = Locator | Point;
+
+const isPoint = (spot: Spot): spot is Point =>
+  typeof (spot as Point).x === 'number' && typeof (spot as Point).y === 'number';
 
 export interface DragOptions {
   /** Where on the source to press. Default 'center' — on the row's text. */
@@ -47,8 +60,9 @@ export interface DragOptions {
   cancelWithEscape?: boolean;
 }
 
-async function pointIn(locator: Locator, where: Where = 'center') {
-  const box = await locator.boundingBox();
+async function pointIn(spot: Spot, where: Where = 'center') {
+  if (isPoint(spot)) return { x: spot.x, y: spot.y };
+  const box = await spot.boundingBox();
   if (!box) throw new Error('dnd-kit-drag: element has no box (not visible?)');
   const x = where === 'left' ? box.x + Math.min(12, box.width / 4)
     : where === 'right' ? box.x + box.width - Math.min(12, box.width / 4)
@@ -136,16 +150,16 @@ export interface TouchDragOptions extends DragOptions {
 }
 
 /** Press-and-hold, then drag, with real touch events. */
-export async function dndKitTouchDrag(page: Page, source: Locator, target: Locator, opts: TouchDragOptions = {}) {
+export async function dndKitTouchDrag(page: Page, source: Spot, target: Spot, opts: TouchDragOptions = {}) {
   await settle(page);
-  await source.scrollIntoViewIfNeeded();
+  if (!isPoint(source)) await source.scrollIntoViewIfNeeded();
   const cdp = await page.context().newCDPSession(page);
   const steps = opts.steps ?? 14;
   const start = await pointIn(source, opts.grab);
   await touch(cdp, 'touchStart', start.x, start.y);
   await pause(page, opts.holdMs ?? LIFT_DELAY_MS + 120);
 
-  const glide = async (to: Locator, where: Where | undefined, from: { x: number; y: number }) => {
+  const glide = async (to: Spot, where: Where | undefined, from: { x: number; y: number }) => {
     let last = from;
     // Aim where the target IS when the glide begins — siblings slide aside as
     // the item passes, and chasing the moving target lands one slot short.
@@ -180,12 +194,12 @@ export async function dndKitTouchDrag(page: Page, source: Locator, target: Locat
  * A quick swipe that starts on a draggable and moves immediately — the case
  * that must SCROLL, never lift. Returns nothing; assert on scroll position.
  */
-export async function touchSwipe(page: Page, on: Locator, dy: number) {
+export async function touchSwipe(page: Page, on: Spot, dy: number, dx = 0) {
   const cdp = await page.context().newCDPSession(page);
   const start = await pointIn(on);
   await touch(cdp, 'touchStart', start.x, start.y);
   for (let i = 1; i <= 10; i++) {
-    await touch(cdp, 'touchMove', start.x, start.y + (dy * i) / 10);
+    await touch(cdp, 'touchMove', start.x + (dx * i) / 10, start.y + (dy * i) / 10);
     await pause(page, 16);
   }
   await touch(cdp, 'touchEnd');
@@ -194,7 +208,7 @@ export async function touchSwipe(page: Page, on: Locator, dy: number) {
 }
 
 /** Press and hold in place with touch for `ms`, then release where pressed. */
-export async function touchHold(page: Page, on: Locator, ms: number) {
+export async function touchHold(page: Page, on: Spot, ms: number) {
   const cdp = await page.context().newCDPSession(page);
   const start = await pointIn(on);
   await touch(cdp, 'touchStart', start.x, start.y);
