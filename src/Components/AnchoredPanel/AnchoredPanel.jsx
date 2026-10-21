@@ -33,21 +33,23 @@
 // buttons, at the navbar's width, content-sized in height, nothing to reshape.
 // Dragging a racked panel's head up or down the stack reorders it; off the
 // navbar, it floats again, docked where it was dropped. Where the reader racks it is the rack's (pure half in
-// panelRack.js); the host's own `dock` is left alone while it is racked.
+// panelRack.js, DOM half in usePanelRack.js — shared with the Orchestrables box,
+// req #3735); the host's own `dock` is left alone while it is racked. While a
+// page covers the navbar (usePanelRackStore `covered`), the panel floats.
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import Box from '@mui/material/Box';
 
-import { usePanelRackStore } from '../../stores/usePanelRackStore';
 import CollapseHead from './CollapseHead';
 import PlusMinusToggle from './PlusMinusToggle';
 import {
     RESIZE_EDGES, dockAfterToggle, dockForToggle, dockFromMove, dockFromResize, dockedStyle, freeCorner,
     moveRect, resizeRect,
 } from './anchoredPanelGeometry';
-import { RACK_NARROW_PX, pointInRect, rackDropIndex, rackOrder } from './panelRack';
+import { rackOrder } from './panelRack';
+import { usePanelRack } from './usePanelRack';
 
 /** Pointer travel, px, before a head press becomes a move. */
 const MOVE_SLOP = 4;
@@ -65,39 +67,6 @@ const viewport = () => ({
 
 const CURSOR = { n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize',
     nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize' };
-
-/** Where the rack would put a panel released at (x, y): `over` the navbar's
- *  drop zone, and at which `index` of the other racked panels — the top,
- *  unless pointed into the stack (req #3729, `rackDropIndex`). */
-function rackTarget(rackId, x, y, fromRack) {
-    const zone = document.querySelector('[data-panel-rack-zone]');
-    const { slot, racked } = usePanelRackStore.getState();
-    if (!zone || !slot?.node || !pointInRect(x, y, zone.getBoundingClientRect())) {
-        return { over: false, index: null };
-    }
-    const mids = new Map();
-    let bottom = -Infinity;
-    slot.node.querySelectorAll('[data-rack-id]').forEach((el) => {
-        const id = el.getAttribute('data-rack-id');
-        if (id === rackId) return;
-        const r = el.getBoundingClientRect();
-        mids.set(id, r.top + r.height / 2);
-        bottom = Math.max(bottom, r.bottom);
-    });
-    // A stack taller than the rack scrolls: below the rack's visible edge is
-    // below the stack, whatever is scrolled out of sight there.
-    const rack = slot.node.parentElement;
-    if (rack) bottom = Math.min(bottom, rack.getBoundingClientRect().bottom);
-    return { over: true, index: rackDropIndex(racked.filter(id => id !== rackId), mids, y, bottom, fromRack) };
-}
-
-/** Publish a rack drag, writing only when it changed (a move fires per pixel). */
-function publishDrag(next) {
-    const { drag, setDrag } = usePanelRackStore.getState();
-    if (drag === next) return;
-    if (drag && next && ['id', 'over', 'index', 'fromRack', 'color'].every(k => drag[k] === next[k])) return;
-    setDrag(next);
-}
 
 function edgeZone(e) {
     const z = { position: 'absolute', zIndex: 3, touchAction: 'none', cursor: CURSOR[e.id] };
@@ -146,20 +115,11 @@ export default function AnchoredPanel({
     const gestureRef = useRef(null);
     const [live, setLive] = useState(null);
     const lastMoveEndRef = useRef(0);
-    // Its place in the rack's stack; -1 = not racked.
-    const rackPos = usePanelRackStore(s => (rackId ? s.racked.indexOf(rackId) : -1));
-    const racked = rackPos !== -1;
-    const slot = usePanelRackStore(s => s.slot);
-    const overRack = usePanelRackStore(s => !!rackId && s.drag?.id === rackId && s.drag.over);
-    // Racked AND the navbar is drawn to hold it; with no rack (mobile) it floats.
-    const inRack = racked && !!slot?.node;
-    // Unmounted mid-gesture, the release never comes — nor the drag's end.
-    useEffect(() => () => {
-        if (gestureRef.current && rackId && usePanelRackStore.getState().drag?.id === rackId) {
-            usePanelRackStore.getState().setDrag(null);
-        }
-        gestureRef.current = null;
-    }, [rackId]);
+    // Its place in the rack's stack (-1 = not racked), and whether it is drawn
+    // there: racked, a navbar to hold it, the navbar not covered.
+    const rackApi = usePanelRack(rackId);
+    const { rackPos, inRack, slot, overRack, narrow } = rackApi;
+    useEffect(() => () => { gestureRef.current = null; }, []);
 
     const begin = (kind, edge = null) => (e) => {
         if (gestureRef.current || e.button !== 0) return;
@@ -191,11 +151,7 @@ export default function AnchoredPanel({
             ? moveRect(g.r0, dx, dy, vw, vh)
             : resizeRect(g.r0, dx, dy, g.edge, vw, vh, limits.minW, limits.minH);
         setLive({ ...g.last, edge: g.edge });
-        if (g.kind === 'move' && rackId) {
-            // `color` — its frame: the navbar glows in it while it is over (req #3728).
-            publishDrag({ id: rackId, fromRack: g.fromRack, color: colors.frame,
-                ...rackTarget(rackId, e.clientX, e.clientY, g.fromRack) });
-        }
+        if (g.kind === 'move') rackApi.track(e.clientX, e.clientY, g.fromRack, colors.frame);
     };
     const onUp = (e) => {
         const g = gestureRef.current;
@@ -205,23 +161,22 @@ export default function AnchoredPanel({
             e.currentTarget.releasePointerCapture(e.pointerId);
         }
         setLive(null);
-        const racking = g.kind === 'move' && !!rackId;
-        if (racking) publishDrag(null);
         // Only a release places it: a cancelled pointer (or capture lost
         // without one) puts the panel back where it was.
-        if (!g.last || e.type !== 'pointerup') return;
+        if (!g.last || e.type !== 'pointerup') {
+            if (g.kind === 'move') rackApi.cancel();
+            return;
+        }
         lastMoveEndRef.current = Date.now();
-        if (racking) {
-            const target = rackTarget(rackId, e.clientX, e.clientY, g.fromRack);
-            const { rack, unrack } = usePanelRackStore.getState();
+        if (g.kind === 'move') {
+            const placed = rackApi.release(e.clientX, e.clientY, g.fromRack);
             // Dropped on the navbar: into the stack where the pointer is.
             // Its floating dock is kept for the day it is dragged back out.
-            if (target.over) { rack(rackId, target.index); return; }
+            if (placed === 'racked') return;
             // Dragged off the navbar: floats where it was dropped. Its floating
             // size is not the navbar's, so — like a toggle — pin its left and
             // top, and re-dock once that size has drawn (the effect below).
-            if (g.fromRack) {
-                unrack(rackId);
+            if (placed === 'unracked') {
                 pinRef.current = { left: g.last.left, top: g.last.top };
                 onDockChange(dockForToggle(dock, g.last));
                 return;
@@ -291,8 +246,7 @@ export default function AnchoredPanel({
             : dockedStyle(dock, { open, headPx: limits.headPx, autoMaxW: limits.autoMaxW,
                 minW: limits.minW });
     const shapedWidth = reshapingH ? live.width : (inRack ? slot.width : dock.w);
-    // The icon-only navbar has room for the ▾ and the host's extras alone.
-    const narrow = inRack && slot.width < RACK_NARROW_PX;
+    // The icon-only navbar (`narrow`) has room for the ▾ and the host's extras alone.
     const grip = freeCorner(dock);
     const moving = live && !live.edge;
     // Folded, the panel is its head row, tight: nothing to reshape. Racked,

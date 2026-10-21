@@ -212,7 +212,9 @@ import { viewportStorageKey } from '../../utils/viewportMemory';
 // contexts, snackbar, query keys and `moveStepRequirement` are req #3581's,
 // imported above.
 import { hideMachineReqs, isMachineHidden } from './planMachineFilter';
-import UnorchestratedReqBox, { UNSEATED_FLOAT_Z } from './UnorchestratedReqBox';
+import UnorchestratedReqBox, { ORCHESTRABLES_RACK_ID, UNSEATED_FLOAT_Z } from './UnorchestratedReqBox';
+import { usePanelRackStore } from '../../stores/usePanelRackStore';
+import { RACK_DRAG_Z } from '../../Components/AnchoredPanel/panelRack';
 // req #3721 — the plan's requirements whose sessions are under way.
 import PlanActiveBox from './PlanActiveBox';
 import { activePlanRequirements } from './planActiveReqs';
@@ -996,6 +998,11 @@ export default function PipelinePlanVisualizer({
     const [seatTarget, setSeatTarget] = useState(null);
     const [pendingSeats, setPendingSeats] = useState(() => new Set());
     const [boxCarrying, setBoxCarrying] = useState(false);
+    // req #3735 — a box carried OUT OF the navbar rack is drawn from inside the
+    // navbar, which lifts itself to RACK_DRAG_Z for the drag; the seat-target
+    // outline must clear that, not just the box's own UNSEATED_FLOAT_Z.
+    const boxFromRack = usePanelRackStore(
+        (s) => s.drag?.id === ORCHESTRABLES_RACK_ID && !!s.drag.fromRack);
     const unseatedItems = useMemo(
         () => unseated.items.filter((r) => !pendingSeats.has(Number(r.id))
             && !isMachineHidden(r.machine_fk, hiddenMachines)),
@@ -3310,7 +3317,9 @@ export default function PipelinePlanVisualizer({
     // LEAVE WITH its band), which is free to go below `topInset` — the OTHER
     // clamp term is what floors it at the ruler, and the two are a `min()`
     // apart, so the leave-with-band term can win. That drew the name over the
-    // pinned ruler for its last ~26px. Reusing the SAME `rulerScreenBottom(t)`
+    // pinned ruler for its last ~26px. A FOLDED epic's title bar (req #3738)
+    // rides its band's corner and so also slides under the ruler as it scrolls
+    // off — the same clip covers it. Reusing the SAME `rulerScreenBottom(t)`
     // here clips it at the DOM layer instead of re-deriving the edge.
     const epicOverlayTopInset = rulerScreenBottom(t);
 
@@ -5699,13 +5708,15 @@ export default function PipelinePlanVisualizer({
                                 // carried box is a PLACED one, fixed in the window
                                 // at UNSEATED_FLOAT_Z (req #3687); it takes no
                                 // pointer, so hit-testing is unchanged.
-                                zIndex: boxCarrying ? UNSEATED_FLOAT_Z + 1 : 1 }} />
+                                zIndex: boxCarrying
+                                    ? (boxFromRack ? RACK_DRAG_Z + 1 : UNSEATED_FLOAT_Z + 1) : 1 }} />
                 )}
 
                 {/* req #3583 — swarm-ready work no step carries yet, opening in
                     the top-right corner the key vacated for the bottom (req
                     #3255); its title bar moves it anywhere in the window, over
-                    the navbar included (req #3687). Its rows drag onto a step
+                    the navbar included (req #3687), and dropped ON the navbar it
+                    racks there with the other information windows (req #3735). Its rows drag onto a step
                     card to seat them. Its type
                     is the requirement ids' own ON-SCREEN size — the card font
                     `CF.req` (world px) through the live zoom — so it shrinks and

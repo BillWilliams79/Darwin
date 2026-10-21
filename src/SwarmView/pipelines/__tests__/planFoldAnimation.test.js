@@ -141,6 +141,41 @@ describe('a folded epic is a floating title bar (req #3695)', () => {
     });
 });
 
+describe('a folded epic scrolls off instead of pinning (req #3738)', () => {
+    const viewport = { w: 1600, h: 900 };
+    const bandOf = (over) => ({
+        key: 5, epicId: 5, epic: 'Build', epicLabel: 'Build', color: '#4488cc',
+        y: 0, height: 108, headerH: 108, epicLaneH: 108, ...over,
+    });
+    // Panned up 60px: the band's top is above the content area, its bottom
+    // still on screen.
+    const chipAt = (over, ty = -60) => placeEpicChips({
+        bands: [bandOf(over)], transform: { x: 0, y: ty, k: 1 }, viewport,
+        worldWidth: 1600, topInset: 0 })[0];
+
+    it('an open epic\'s name still pins below the ruler', () => {
+        expect(chipAt({ collapsed: false, reveal: 1 }).y).toBeGreaterThan(0);
+    });
+
+    it('a folded epic\'s name moves with its band\'s own top corner', () => {
+        const a = chipAt({ collapsed: true, reveal: 0 }, -4);
+        const b = chipAt({ collapsed: true, reveal: 0 }, -12);
+        expect(b.y - a.y).toBeCloseTo(-8, 6);
+        expect(a.y).toBeLessThan(0);
+    });
+
+    it('is gone once its band\'s corner has passed off the top', () => {
+        expect(chipAt({ collapsed: true, reveal: 0 }, -60)).toBeUndefined();
+    });
+
+    it('blends with the fold so the animation never jumps the name', () => {
+        const open = chipAt({ collapsed: false, reveal: 1 }, -10).y;
+        const folded = chipAt({ collapsed: true, reveal: 0 }, -10).y;
+        const half = chipAt({ collapsed: true, reveal: 0.5 }, -10).y;
+        expect(half).toBeCloseTo((open + folded) / 2, 6);
+    });
+});
+
 describe('the fold animation\'s arithmetic (req #3695)', () => {
     it('eases from 0 to 1, symmetric about the middle', () => {
         expect(easeInOutCubic(0)).toBe(0);

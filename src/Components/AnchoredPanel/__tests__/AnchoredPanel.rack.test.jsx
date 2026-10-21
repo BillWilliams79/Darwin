@@ -60,7 +60,7 @@ describe('AnchoredPanel rack (req #3720)', () => {
     beforeEach(() => {
         docks.a = []; docks.b = []; docks.c = [];
         localStorage.clear();
-        usePanelRackStore.setState({ racked: [], slot: null, drag: null });
+        usePanelRackStore.setState({ racked: [], slot: null, drag: null, covered: false });
         Object.defineProperty(document.documentElement, 'clientWidth', { value: 1600, configurable: true });
         Object.defineProperty(document.documentElement, 'clientHeight', { value: 1000, configurable: true });
         mountRack();
@@ -267,5 +267,26 @@ describe('AnchoredPanel rack (req #3720)', () => {
         expect(usePanelRackStore.getState().racked).toEqual([]);
         expect(onDock).toHaveBeenCalledTimes(1);
         expect(p.hasAttribute('data-rack-id')).toBe(false);
+    });
+
+    // req #3735 — a page drawn over the navbar (the Plan page maximized) suspends
+    // the rack for EVERY window, the app-wide ones included.
+    it('while the navbar is covered, a racked panel floats and the navbar takes no drop', () => {
+        usePanelRackStore.setState({ racked: ['a'], covered: true });
+        render(<Panel id="a" />);
+        const panel = screen.getByTestId('p-a');
+        expect(panel.getAttribute('data-racked')).toBe('0');
+        expect(slotNode.contains(panel)).toBe(false);
+        act(() => usePanelRackStore.setState({ racked: [] }));
+        place(screen.getByTestId('p-a'), { left: 1200, top: 800, width: 300, height: 180 });
+        press('a', [1300, 810]);
+        moveTo('a', [90, 300]);
+        expect(usePanelRackStore.getState().drag).toEqual(expect.objectContaining({ over: false }));
+        release('a', [90, 300]);
+        expect(usePanelRackStore.getState().racked).toEqual([]);
+        expect(usePanelRackStore.getState().drag).toBeNull();
+        // Uncovered, a racked panel is back in the navbar.
+        act(() => usePanelRackStore.setState({ racked: ['a'], covered: false }));
+        expect(slotNode.contains(screen.getByTestId('p-a'))).toBe(true);
     });
 });
