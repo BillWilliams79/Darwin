@@ -1,5 +1,5 @@
 import React from 'react'
-import { Draggable } from '@hello-pangea/dnd';
+import { useReorderItem, reorderRowSx, isLiftBlur } from '../dnd';
 
 import Box from '@mui/material/Box';
 import { Checkbox, Typography } from '@mui/material';
@@ -15,117 +15,115 @@ export const CATEGORY_GRID_COLUMNS = {
     md: '28px 36px 220px 70px 80px 48px',
 };
 
-// Memoized (req #2865) — @hello-pangea/dnd re-renders rows on every drag-movement
-// update; without React.memo each non-moving row would needlessly rebuild its MUI
-// subtree (color input / TextField / Checkbox / IconButton) per frame, which lagged
-// behind rapid mouse movement. Props are referentially stable during a drag (the parent
-// does not re-render mid-drag), so memo skips the unaffected rows. This is the library's
-// primary performance recommendation for draggable list items.
-const CategoryTableRow = React.memo(({category, categoryIndex, changeCategoryName, changeCategoryColor, keyDownCategoryName, blurCategoryName, clickCategoryClosed, clickCategoryDelete, requirementCounts, isDraggable, inputRef}) => {
+export const categoryItemId = (category) => (category.id === '' ? 'category:template' : `category:${category.id}`);
 
-    const row = (provided = {}, snapshot = {}) => (
+/** Open categories are the positions; closed categories and the template neither lift nor take a drop. */
+export const isOrderableCategory = (category) => category.id !== '' && category.closed === 0;
+
+// Memoized (req #2865): the cells re-render when the category does, not on
+// every pointer move of a drag — the row around them re-renders with the drag.
+const CategoryCells = React.memo(({category, categoryIndex, changeCategoryName, changeCategoryColor, keyDownCategoryName, blurCategoryName, clickCategoryClosed, clickCategoryDelete, requirementCount, draggable, inputRef}) => (
+    <>
+        {/* The grip mark: the whole row is the grip (req #3664 — a press on the
+            colour, the name or the box lifts it too, while a quick click still
+            uses them), the mark just says so. */}
         <Box
-            ref={provided.innerRef}
-            data-testid={category.id === '' ? 'category-row-template' : `category-row-${category.id}`}
-            {...provided.draggableProps}
+            data-testid={draggable ? `category-drag-handle-${category.id}` : undefined}
             sx={{
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                color: 'text.disabled',
+            }}
+        >
+            { draggable ? <DragIndicatorIcon fontSize="small" /> : null }
+        </Box>
+        <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+            <input
+                type="color"
+                value={category.color || '#4A90D9'}
+                onChange={(event) => changeCategoryColor(event, categoryIndex, category.id)}
+                style={{
+                    width: 28,
+                    height: 28,
+                    padding: 0,
+                    border: 'none',
+                    borderRadius: '50%',
+                    cursor: 'pointer',
+                    backgroundColor: 'transparent',
+                }}
+            />
+        </Box>
+        <Box sx={{ px: 1 }}>
+            <TextField variant="outlined"
+                       value={category.category_name || ''}
+                       name='category-name'
+                       onChange= { (event) => changeCategoryName(event, categoryIndex) }
+                       onKeyDown = {(event) => keyDownCategoryName(event, categoryIndex, category.id)}
+                       onBlur = {(event) => { if (!isLiftBlur(event)) blurCategoryName(event, categoryIndex, category.id); }}
+                       autoComplete='off'
+                       size = 'small'
+                       fullWidth
+                       slotProps={{ htmlInput: { maxLength: 128, ref: inputRef } }}
+                       key={`name-${category.id}`} />
+        </Box>
+        <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+            <Checkbox checked = {(category.closed === 1) ? true : false }
+                      onClick = {(event) => clickCategoryClosed(event, categoryIndex, category.id) }
+                      key={`checked-${category.id}`} />
+        </Box>
+        <Box sx={{ textAlign: 'center' }}>
+            <Typography variant='body1'>
+                { category.id === '' ? '' :
+                    requirementCount === undefined ? 0 :
+                        requirementCount === '' ? '' : requirementCount
+                }
+            </Typography>
+        </Box>
+        <Box>
+            { category.id === '' ?
+                    <IconButton aria-label="Save category">
+                        <SavingsIcon />
+                    </IconButton>
+                :
+                    <IconButton aria-label="Delete category" onClick={(event) => clickCategoryDelete(event, category.id, category.category_name)} >
+                        <DeleteIcon />
+                    </IconButton>
+            }
+        </Box>
+    </>
+));
+
+CategoryCells.displayName = 'CategoryCells';
+
+// One row of the editor's ReorderList (req #3664): the whole row is the grip
+// on an open category — a quick click still edits, a hold (touch, or a long
+// mouse click) or a 4 px mouse move lifts it.
+const CategoryTableRow = ({category, requirementCounts, ...cellProps}) => {
+    const { ref, style, attributes, listeners, isDragging, draggable } = useReorderItem(categoryItemId(category), category);
+
+    return (
+        <Box
+            ref={ref}
+            data-testid={category.id === '' ? 'category-row-template' : `category-row-${category.id}`}
+            data-dragging={isDragging ? 'true' : undefined}
+            {...(draggable ? { ...attributes, ...listeners } : {})}
+            style={style}
+            sx={(theme) => ({
                 display: 'grid',
                 gridTemplateColumns: CATEGORY_GRID_COLUMNS,
                 alignItems: 'center',
                 py: 0.5,
-                ...(snapshot.isDragging && {
-                    backgroundColor: 'background.paper',
-                    boxShadow: 3,
-                    opacity: 0.9,
-                    borderRadius: 1,
-                }),
-            }}
+                borderRadius: 1,
+                ...reorderRowSx(theme, { draggable, isDragging }),
+            })}
         >
-            {/* Dedicated drag handle — a non-interactive grip. @hello-pangea/dnd refuses to
-                start a drag from an interactive element (input/button/etc., its default
-                canDragInteractiveElements=false), so the whole-row handle caught on the
-                color picker / name field / checkbox / delete button and dragging was
-                erratic (req #2865). A dedicated grip gives a deterministic drag origin. */}
-            <Box
-                {...(isDraggable ? provided.dragHandleProps : {})}
-                data-testid={isDraggable ? `category-drag-handle-${category.id}` : undefined}
-                sx={{
-                    display: 'flex',
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    color: 'text.disabled',
-                    cursor: isDraggable ? (snapshot.isDragging ? 'grabbing' : 'grab') : 'default',
-                }}
-            >
-                { isDraggable ? <DragIndicatorIcon fontSize="small" /> : null }
-            </Box>
-            <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-                <input
-                    type="color"
-                    value={category.color || '#4A90D9'}
-                    onChange={(event) => changeCategoryColor(event, categoryIndex, category.id)}
-                    style={{
-                        width: 28,
-                        height: 28,
-                        padding: 0,
-                        border: 'none',
-                        borderRadius: '50%',
-                        cursor: 'pointer',
-                        backgroundColor: 'transparent',
-                    }}
-                />
-            </Box>
-            <Box sx={{ px: 1 }}>
-                <TextField variant="outlined"
-                           value={category.category_name || ''}
-                           name='category-name'
-                           onChange= { (event) => changeCategoryName(event, categoryIndex) }
-                           onKeyDown = {(event) => keyDownCategoryName(event, categoryIndex, category.id)}
-                           onBlur = {(event) => blurCategoryName(event, categoryIndex, category.id)}
-                           autoComplete='off'
-                           size = 'small'
-                           fullWidth
-                           slotProps={{ htmlInput: { maxLength: 128, ref: inputRef } }}
-                           key={`name-${category.id}`} />
-            </Box>
-            <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-                <Checkbox checked = {(category.closed === 1) ? true : false }
-                          onClick = {(event) => clickCategoryClosed(event, categoryIndex, category.id) }
-                          key={`checked-${category.id}`} />
-            </Box>
-            <Box sx={{ textAlign: 'center' }}>
-                <Typography variant='body1'>
-                    { category.id === '' ? '' :
-                        requirementCounts[`${category.id}`] === undefined ? 0 :
-                            requirementCounts[`${category.id}`] === '' ? '' : requirementCounts[`${category.id}`]
-                    }
-                </Typography>
-            </Box>
-            <Box>
-                { category.id === '' ?
-                        <IconButton aria-label="Save category">
-                            <SavingsIcon />
-                        </IconButton>
-                    :
-                        <IconButton aria-label="Delete category" onClick={(event) => clickCategoryDelete(event, category.id, category.category_name)} >
-                            <DeleteIcon />
-                        </IconButton>
-                }
-            </Box>
+            <CategoryCells category={category}
+                           requirementCount={requirementCounts[`${category.id}`]}
+                           draggable={draggable}
+                           {...cellProps} />
         </Box>
     );
-
-    if (!isDraggable) {
-        return row();
-    }
-
-    return (
-        <Draggable draggableId={`categoryId-${category.id}`} index={categoryIndex}>
-            {(provided, snapshot) => row(provided, snapshot)}
-        </Draggable>
-    );
-});
-
-CategoryTableRow.displayName = 'CategoryTableRow';
+};
 
 export default CategoryTableRow;
