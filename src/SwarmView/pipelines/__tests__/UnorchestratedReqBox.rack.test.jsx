@@ -13,7 +13,6 @@ import { createRoot } from 'react-dom/client';
 import { act } from 'react';
 
 import UnorchestratedReqBox, { ORCHESTRABLES_RACK_ID } from '../UnorchestratedReqBox';
-import { UNSEATED_REQ_MIME } from '../pipelineUnseated';
 import { usePanelRackStore } from '../../../stores/usePanelRackStore';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -132,13 +131,12 @@ describe('UnorchestratedReqBox — the navbar rack (req #3735)', () => {
         expect(box().style.position).toBe('relative');
         expect(q('pipeline-viz-unseated-grip-strip')).toBeNull();
         expect(q('pipeline-viz-unseated-grip')).toBeNull();
-        // Its rows still feed the plan from the navbar.
+        // Its rows still feed the plan from the navbar: each is still the
+        // dnd-kit drag source (req #3665), not a native draggable.
         const row = q('pipeline-viz-unseated-item-11');
-        const ev = new Event('dragstart', { bubbles: true });
-        const data = {};
-        ev.dataTransfer = { setData: (k, v) => { data[k] = v; }, effectAllowed: '' };
-        act(() => { row.dispatchEvent(ev); });
-        expect(data[UNSEATED_REQ_MIME]).toBe('11');
+        expect(row.getAttribute('role')).toBe('button');
+        expect(row.getAttribute('data-dragging')).toBe('0');
+        expect(row.getAttribute('draggable')).toBeNull();
     });
 
     it('folded in the rack it keeps its whole name, and double-click does nothing', () => {

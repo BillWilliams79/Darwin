@@ -24,12 +24,14 @@ const FORM_FIELDS = 'input, textarea, select';
 /**
  * The node a drag lifted, found from the event that lifted it: the innermost
  * draggable around the press (useDarwinDrag makes every item its own keyboard
- * activator, so a keyboard lift's target IS the node).
+ * activator, so a keyboard lift's target IS the node). A draggable that drops
+ * dnd-kit's `aria-roledescription` to be announced as a plain button marks
+ * itself `data-darwin-drag` instead, or it would lift an empty copy.
  */
 export function liftedNode(activatorEvent) {
     const target = activatorEvent?.target;
     return target && typeof target.closest === 'function'
-        ? target.closest('[aria-roledescription]')
+        ? target.closest('[aria-roledescription], [data-darwin-drag]')
         : null;
 }
 
