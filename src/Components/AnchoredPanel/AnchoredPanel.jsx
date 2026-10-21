@@ -3,7 +3,8 @@
 // memory/anchored-collapse-pattern.md; geometry in anchoredPanelGeometry.js.
 //
 // ── THE HEAD IS THE ANCHOR ─────────────────────────────────────────────────
-// The head row is always the panel's top row: the CollapseHead (▾), then the
+// The head row is always the panel's top row: the CollapseHead (▾) — or, for a
+// `plusMinus` host, the Orchestrables box's −/+ (req #3729) — then the
 // host's `extras` (a count badge), then the title — left-aligned — and the
 // host's `actions`: at the far right while open; folded, right after the
 // title, with the panel's right edge pulled in so the whole package is tight
@@ -26,11 +27,12 @@
 // A host that names a `rackId` can drop its panel onto the Darwin navbar: while
 // the head is dragged, the pointer is hit-tested against the navbar's drop zone
 // (`[data-panel-rack-zone]`) and the drag published to usePanelRackStore, so the
-// navbar lights up and shows where in the stack it would land. Released there,
+// navbar lights up and shows where in the stack it would land: the top, unless
+// pointed into the stack (req #3729). Released there,
 // the panel is RACKED — portalled into the navbar's rack slot below its nav
 // buttons, at the navbar's width, content-sized in height, nothing to reshape.
-// Dragging a racked panel's head off the navbar floats it again, docked where it
-// was dropped. Where the reader racks it is the rack's (pure half in
+// Dragging a racked panel's head up or down the stack reorders it; off the
+// navbar, it floats again, docked where it was dropped. Where the reader racks it is the rack's (pure half in
 // panelRack.js); the host's own `dock` is left alone while it is racked.
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -40,6 +42,7 @@ import Box from '@mui/material/Box';
 
 import { usePanelRackStore } from '../../stores/usePanelRackStore';
 import CollapseHead from './CollapseHead';
+import PlusMinusToggle from './PlusMinusToggle';
 import {
     RESIZE_EDGES, dockAfterToggle, dockForToggle, dockFromMove, dockFromResize, dockedStyle, freeCorner,
     moveRect, resizeRect,
@@ -64,19 +67,31 @@ const CURSOR = { n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize',
     nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize' };
 
 /** Where the rack would put a panel released at (x, y): `over` the navbar's
- *  drop zone, and at which `index` of the other racked panels. */
-function rackTarget(rackId, x, y) {
+ *  drop zone, and at which `index` of the other racked panels — the top,
+ *  unless pointed into the stack (req #3729, `rackDropIndex`). */
+function rackTarget(rackId, x, y, fromRack) {
     const zone = document.querySelector('[data-panel-rack-zone]');
     const { slot, racked } = usePanelRackStore.getState();
     if (!zone || !slot?.node || !pointInRect(x, y, zone.getBoundingClientRect())) {
         return { over: false, index: null };
     }
     const mids = new Map();
+    let bottom = -Infinity;
     slot.node.querySelectorAll('[data-rack-id]').forEach((el) => {
+        const id = el.getAttribute('data-rack-id');
+        if (id === rackId) return;
         const r = el.getBoundingClientRect();
-        mids.set(el.getAttribute('data-rack-id'), r.top + r.height / 2);
+        mids.set(id, r.top + r.height / 2);
+        bottom = Math.max(bottom, r.bottom);
     });
-    return { over: true, index: rackDropIndex(racked.filter(id => id !== rackId), mids, y) };
+    // The placeholder is part of the stack: pointed at, it stays put.
+    const drop = zone.querySelector('[data-rack-placeholder]');
+    if (drop) bottom = Math.max(bottom, drop.getBoundingClientRect().bottom);
+    // A stack taller than the rack scrolls: below the rack's visible edge is
+    // below the stack, whatever is scrolled out of sight there.
+    const rack = slot.node.parentElement;
+    if (rack) bottom = Math.min(bottom, rack.getBoundingClientRect().bottom);
+    return { over: true, index: rackDropIndex(racked.filter(id => id !== rackId), mids, y, bottom, fromRack) };
 }
 
 /** Publish a rack drag, writing only when it changed (a move fires per pixel). */
@@ -117,10 +132,12 @@ function edgeZone(e) {
  * @param {number} [props.zIndex]
  * @param {string} [props.rackId]        names the panel in the navbar rack;
  *   absent = it never racks (req #3720)
+ * @param {boolean} [props.plusMinus]    the fold control is the Orchestrables
+ *   box's −/+ (PlusMinusToggle) instead of the ▾ (req #3729)
  */
 export default function AnchoredPanel({
     dock, onDockChange, open, onToggle, name, testid, extras, actions, children,
-    limits, fontPx = 12, border = 2, colors, sx, zIndex = 1250, rackId,
+    limits, fontPx = 12, border = 2, colors, sx, zIndex = 1250, rackId, plusMinus = false,
 }) {
     const boxRef = useRef(null);
     const bodyRef = useRef(null);
@@ -177,7 +194,7 @@ export default function AnchoredPanel({
             : resizeRect(g.r0, dx, dy, g.edge, vw, vh, limits.minW, limits.minH);
         setLive({ ...g.last, edge: g.edge });
         if (g.kind === 'move' && rackId) {
-            publishDrag({ id: rackId, fromRack: g.fromRack, ...rackTarget(rackId, e.clientX, e.clientY) });
+            publishDrag({ id: rackId, fromRack: g.fromRack, ...rackTarget(rackId, e.clientX, e.clientY, g.fromRack) });
         }
     };
     const onUp = (e) => {
@@ -195,7 +212,7 @@ export default function AnchoredPanel({
         if (!g.last || e.type !== 'pointerup') return;
         lastMoveEndRef.current = Date.now();
         if (racking) {
-            const target = rackTarget(rackId, e.clientX, e.clientY);
+            const target = rackTarget(rackId, e.clientX, e.clientY, g.fromRack);
             const { rack, unrack } = usePanelRackStore.getState();
             // Dropped on the navbar: into the stack where the drop zone showed.
             // Its floating dock is kept for the day it is dragged back out.
@@ -301,17 +318,21 @@ export default function AnchoredPanel({
                     ...(racking && { order: rackOrder(rackPos),
                         flexShrink: 0, borderRadius: 0, boxShadow: 'none' }) }}>
             <Box data-testid={`${testid}-header`}
-                 title={inRack ? 'Drag off the navbar to float it'
+                 title={inRack ? 'Drag to reorder · drag off the navbar to float it'
                      : `Drag to move · double-click to put back${rackId ? ' · drop on the navbar to rack it' : ''}`}
                  {...gesture('move')}
                  onDoubleClick={onHeadDoubleClick}
                  sx={{ display: 'flex', alignItems: 'center', gap: '0.6em',
                         px: '0.7em', py: '0.3em', flexShrink: 0, minWidth: 0,
                         cursor: moving ? 'grabbing' : 'move', touchAction: 'none' }}>
-                <CollapseHead open={open} onToggle={toggle} name={name}
-                              testid={`${testid}-toggle`}
-                              color={colors.head} hoverColor={colors.headHover}
-                              fontSize="0.9em" showName={false} />
+                {plusMinus
+                    ? <PlusMinusToggle open={open} onToggle={toggle} label={name}
+                                       title={`${open ? 'Collapse' : 'Expand'} ${name.toLowerCase()}`}
+                                       testid={`${testid}-toggle`} />
+                    : <CollapseHead open={open} onToggle={toggle} name={name}
+                                    testid={`${testid}-toggle`}
+                                    color={colors.head} hoverColor={colors.headHover}
+                                    fontSize="0.9em" showName={false} />}
                 {extras}
                 {/* The title, in the head's own small caps. Not a button:
                     pressing it starts a move, like the rest of the row. */}

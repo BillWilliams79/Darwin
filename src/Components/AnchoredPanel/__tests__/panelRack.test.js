@@ -34,6 +34,26 @@ describe('panelRack (req #3720)', () => {
         expect(rackDropIndex(['h', 'b'], new Map([['b', 200]]), 50)).toBe(1);
     });
 
+    it('below the stack, a panel from off the navbar lands first; a reorder goes to the bottom (req #3729)', () => {
+        const mids = new Map([['a', 100], ['b', 200]]);
+        // The stack (a, b, the placeholder) ends at 250.
+        // Pointed into it: where the pointer is, either way.
+        expect(rackDropIndex(['a', 'b'], mids, 150, 250)).toBe(1);
+        expect(rackDropIndex(['a', 'b'], mids, 240, 250)).toBe(2);
+        expect(rackDropIndex(['a', 'b'], mids, 240, 250, true)).toBe(2);
+        // Above it (the nav buttons): the top, either way.
+        expect(rackDropIndex(['a', 'b'], mids, 20, 250)).toBe(0);
+        expect(rackDropIndex(['a', 'b'], mids, 20, 250, true)).toBe(0);
+        // Below it: first in, at the top — unless it is a racked panel being
+        // dragged down the stack, which goes to the bottom.
+        expect(rackDropIndex(['a', 'b'], mids, 600, 250)).toBe(0);
+        expect(rackDropIndex(['a', 'b'], mids, 600, 250, true)).toBe(2);
+        // Nothing drawn: the top — even pointed above a placeholder that has
+        // already drawn (only hidden panels racked on this page).
+        expect(rackDropIndex(['h'], new Map(), 600, -Infinity)).toBe(0);
+        expect(rackDropIndex(['h'], new Map(), 20, 250)).toBe(0);
+    });
+
     it('stack orders are even, the placeholder the odd slot before its panel', () => {
         expect(rackOrder(0)).toBe(0);
         expect(rackOrder(2)).toBe(4);

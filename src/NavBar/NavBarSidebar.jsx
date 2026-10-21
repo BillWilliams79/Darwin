@@ -489,7 +489,7 @@ const NavBarSidebar = () => {
                                         '&:has([data-rack-id], [data-testid="navbar-rack-drop"])': { pt: '6px' } }}>
                                 <Box ref={setRackNode} data-testid="navbar-rack-slot" sx={{ display: 'contents' }} />
                                 {rackOver && (
-                                    <Box data-testid="navbar-rack-drop"
+                                    <Box data-testid="navbar-rack-drop" data-rack-placeholder=""
                                          sx={{ order: placeholderOrder(racked, rackDrag.id, rackDrag.index),
                                                 flexShrink: 0, height: 30, boxSizing: 'border-box',
                                                 display: 'flex', alignItems: 'center', justifyContent: 'center',

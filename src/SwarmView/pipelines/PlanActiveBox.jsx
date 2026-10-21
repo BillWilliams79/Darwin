@@ -8,8 +8,9 @@
 // of the step card"): the id in the reader's colour key (the canvas's own
 // resolver, `idStyleOf`), then the Terminal and Dev Server pills in the card's
 // own palette (`REQ_PILL_*`, planReqPills.js) — clickable exactly as the card's
-// are — then the title, in the id's colour, two lines at most. The head carries
-// the card's green count badge. A click on the row opens the requirement, with
+// are — then the title, in the id's colour, on ONE line, cut with "…" (req
+// #3729). The head carries the card's green count badge, led by the
+// Orchestrables box's −/+ fold button (req #3729: "the same as orchestrables"). A click on the row opens the requirement, with
 // the plan as Back's target, as a click on the card's row does.
 //
 // ── A POP-UP INFORMATION WINDOW ────────────────────────────────────────────
@@ -45,9 +46,9 @@ import {
 const MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
 /** Type size, px — every dimension inside is in em off it. */
 const FONT_PX = 12;
-/** The head row's height, px: its tallest item (the 1.4em button) plus 0.6em
- *  of padding, plus the 2px frame top and bottom. */
-const HEAD_PX = Math.ceil(2.2 * FONT_PX + 4);
+/** The head row's height, px: its tallest item (the 2em −/+) plus 0.6em of
+ *  padding, plus the 2px frame top and bottom. */
+const HEAD_PX = Math.ceil(2.6 * FONT_PX + 4);
 /** Smallest panel the edges will shape, px: an id and a pill. */
 export const ACTIVE_MIN_W = 120;
 export const ACTIVE_MIN_H = 64;
@@ -125,7 +126,7 @@ function PlanActiveBox({ items, reqPills = null, idStyleOf, isLoading = false, o
     return (
         <AnchoredPanel dock={dock} onDockChange={setDock}
                        open={open} onToggle={toggleOpen}
-                       name="Active" testid="pipeline-viz-active" rackId="active"
+                       name="Active" testid="pipeline-viz-active" rackId="active" plusMinus
                        limits={LIMITS} fontPx={FONT_PX} colors={COLORS}
                        sx={{ borderRadius: '0.8em', backdropFilter: 'blur(2px)',
                               boxShadow: '0 0.5em 1.5em rgba(0, 0, 0, 0.45)',
@@ -189,7 +190,7 @@ function PlanActiveBox({ items, reqPills = null, idStyleOf, isLoading = false, o
                                              if (e.key === 'Enter' && e.target === e.currentTarget) onOpen(id);
                                          },
                                      } : {})}
-                                     sx={{ display: 'flex', alignItems: 'flex-start', gap: '0.5em',
+                                     sx={{ display: 'flex', alignItems: 'center', gap: '0.5em',
                                             pl: '0.7em', pr: tiny ? '1em' : '0.5em', py: '0.2em',
                                             cursor: onOpen ? 'pointer' : 'default',
                                             fontFamily: MONO, color: rs.fill,
@@ -214,13 +215,11 @@ function PlanActiveBox({ items, reqPills = null, idStyleOf, isLoading = false, o
                                               } : null} />
                                     )}
                                     {!tiny && (
-                                        // Two lines at most, then "…" — the card's
-                                        // own wrap (req #3684).
+                                        // One line, then "…" (req #3729).
                                         <Box component="span" data-testid={`pipeline-viz-active-item-title-${id}`}
                                              sx={{ flex: 1, minWidth: 0, overflow: 'hidden',
                                                     lineHeight: `${REQ_PILL_H_EM}em`,
-                                                    display: '-webkit-box', WebkitBoxOrient: 'vertical',
-                                                    WebkitLineClamp: 2, overflowWrap: 'anywhere' }}>
+                                                    whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
                                             {r.title}
                                         </Box>
                                     )}
