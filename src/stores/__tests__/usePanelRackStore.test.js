@@ -14,6 +14,9 @@ describe('usePanelRackStore (req #3720)', () => {
         const s = usePanelRackStore.getState();
         s.setSlot({ node: document.createElement('div'), width: 180 });
         s.setDrag({ id: 'devservers', over: true, index: 0, fromRack: false });
+        // req #3735 — a covered navbar is the live page's fact, never stored.
+        s.setCovered(true);
+        expect(usePanelRackStore.getState().covered).toBe(true);
         s.rack('devservers', 0);
         s.rack('other', 0);
         expect(usePanelRackStore.getState().racked).toEqual(['other', 'devservers']);

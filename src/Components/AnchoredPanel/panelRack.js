@@ -16,6 +16,12 @@
  *  ▾ and the host's extras in a racked panel's head. */
 export const RACK_NARROW_PX = 120;
 
+/** The navbar's z-index while a RACKED window is dragged out of it: the window
+ *  is drawn `position: fixed` from inside the navbar's stacking context, so the
+ *  navbar lifts itself above the page (and anything a page draws over the
+ *  dragged window — the plan's seat-target outline — must clear this). */
+export const RACK_DRAG_Z = 1250;
+
 /** The rack order with `id` placed at `index` of the OTHER panels (clamped). */
 export function rackInsert(racked, id, index) {
     const without = racked.filter(x => x !== id);

@@ -19,6 +19,11 @@ import { rackInsert, rackRemove } from '../Components/AnchoredPanel/panelRack';
 //     racks such a panel the first time it mounts in this browser, at the
 //     bottom of the stack; after that where it sits is the reader's, so one
 //     dragged off the navbar stays floating. Persisted with `racked`.
+//   • `covered` — a page is drawn OVER the navbar (the Plan page maximized,
+//     req #3735): the navbar is still mounted underneath, so the rack is
+//     SUSPENDED for every window — no drop zone, a racked window floats —
+//     rather than portalling windows into a navbar nobody can see. Published
+//     by the covering page while it covers; live only, never persisted.
 const ids = (v) => (Array.isArray(v) ? v.filter(x => typeof x === 'string') : []);
 
 export const usePanelRackStore = create(
@@ -28,6 +33,7 @@ export const usePanelRackStore = create(
             slot: null,
             drag: null,
             seeded: [],
+            covered: false,
             seed: (id) => {
                 const { seeded, racked } = get();
                 if (seeded.includes(id)) return;
@@ -37,6 +43,7 @@ export const usePanelRackStore = create(
             unrack: (id) => set({ racked: rackRemove(get().racked, id) }),
             setSlot: (slot) => set({ slot }),
             setDrag: (drag) => set({ drag }),
+            setCovered: (covered) => set({ covered: !!covered }),
         }),
         {
             name: 'darwin_panel_rack',

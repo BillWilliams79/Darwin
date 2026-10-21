@@ -1,7 +1,8 @@
 // infoPanelChrome.js — the look of Darwin's pop-up information windows: the
-// AnchoredPanel hosts that float over every page and rack in the navbar (the
-// Dev Servers dashboard, req #3643; the navbar's own Dev Server panel, req
-// #3727). One place, so the windows read as one family.
+// windows that float over a page and rack in the navbar (the Dev Servers
+// dashboard, req #3643; the navbar's own Dev Server panel, req #3727; the Plan
+// visualizer's Active box, req #3721, and Orchestrables box, which racks in this
+// type, req #3735). One place, so the windows read as one family.
 
 import { PLAN_VIZ_PALETTE as P } from '../../SwarmView/pipelines/pipelinePlanLayout';
 

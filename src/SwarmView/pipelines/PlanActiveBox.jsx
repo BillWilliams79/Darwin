@@ -17,7 +17,9 @@
 // Floating, docking, reshaping and collapsing are AnchoredPanel's — the Dev
 // Servers dashboard's type (pattern doc memory/anchored-collapse-pattern.md),
 // with its `rackId` so it racks onto the Darwin navbar alongside the other
-// information windows (req #3720). It is drawn only while the visualizer is.
+// information windows (req #3720) — floating instead while the page is
+// maximized over the navbar (the rack's `covered`, req #3735). It is drawn only
+// while the visualizer is.
 // Mounted OUTSIDE the canvas pane, so d3-zoom never sees its pointer or wheel.
 //
 // ── THE SMALL VIEW ─────────────────────────────────────────────────────────

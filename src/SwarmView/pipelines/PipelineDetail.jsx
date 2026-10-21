@@ -22,7 +22,7 @@
 // refetchInterval — a poll here would be the POC's manual regenerate step wearing
 // a different hat.
 
-import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useNavigationType, useParams, useSearchParams } from 'react-router-dom';
 
 import Alert from '@mui/material/Alert';
@@ -52,6 +52,7 @@ import AppContext from '../../Context/AppContext';
 import AuthContext from '../../Context/AuthContext';
 // req #3649 — the plan's own lock, toggled from its header.
 import { updatePipeline } from '../../Pipelines/pipelinesApi';
+import { usePanelRackStore } from '../../stores/usePanelRackStore';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
 import '../../CalendarFC/CalendarFC.css';
 import {
@@ -574,6 +575,14 @@ export default function PipelineDetail() {
     // must take the maximize with it.
     const { maximized, toggle: toggleMaximized } =
         usePlanMaximize(activeMode === 'plan' && canRenderPlan);
+    // req #3735 — maximized, this page is drawn OVER the navbar, so the panel
+    // rack is suspended for every pop-up window until it is not (before paint,
+    // so nothing is portalled into the covered navbar for a frame).
+    useLayoutEffect(() => {
+        if (!maximized) return undefined;
+        usePanelRackStore.getState().setCovered(true);
+        return () => usePanelRackStore.getState().setCovered(false);
+    }, [maximized]);
 
     // req #3225 — the whole-plan met/total, read straight off the composed
     // read's own derivation. `plan` is null while a diagnostic is set, so this
