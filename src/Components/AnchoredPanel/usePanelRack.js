@@ -37,8 +37,8 @@ import { usePanelRackStore } from '../../stores/usePanelRackStore';
 import { RACK_NARROW_PX, pointInRect, rackDropIndex } from './panelRack';
 
 /** Where the rack would put a window released at (x, y): `over` the navbar's
- *  drop zone, and at which `index` of the other racked windows — the top,
- *  unless pointed into the stack (req #3729, `rackDropIndex`). */
+ *  drop zone, and at which `index` of the other racked windows — the
+ *  bottom, unless pointed into the stack (req #3744, `rackDropIndex`). */
 export function rackTarget(rackId, x, y, fromRack) {
     const zone = document.querySelector('[data-panel-rack-zone]');
     const { slot, racked } = usePanelRackStore.getState();
@@ -47,18 +47,25 @@ export function rackTarget(rackId, x, y, fromRack) {
     }
     const mids = new Map();
     let bottom = -Infinity;
+    let top = Infinity;
     slot.node.querySelectorAll('[data-rack-id]').forEach((el) => {
         const id = el.getAttribute('data-rack-id');
         if (id === rackId) return;
         const r = el.getBoundingClientRect();
         mids.set(id, r.top + r.height / 2);
         bottom = Math.max(bottom, r.bottom);
+        top = Math.min(top, r.top);
     });
     // A stack taller than the rack scrolls: below the rack's visible edge is
     // below the stack, whatever is scrolled out of sight there.
     const rack = slot.node.parentElement;
-    if (rack) bottom = Math.min(bottom, rack.getBoundingClientRect().bottom);
-    return { over: true, index: rackDropIndex(racked.filter(id => id !== rackId), mids, y, bottom, fromRack) };
+    if (rack) {
+        const rr = rack.getBoundingClientRect();
+        bottom = Math.min(bottom, rr.bottom);
+        top = Math.max(top, rr.top);
+    }
+    // Above the stack (the nav buttons) is not "in the list" either (req #3744).
+    return { over: true, index: rackDropIndex(racked.filter(id => id !== rackId), mids, y, bottom, fromRack, top === Infinity ? -Infinity : top) };
 }
 
 /** Publish a rack drag, writing only when it changed (a move fires per pixel). */
