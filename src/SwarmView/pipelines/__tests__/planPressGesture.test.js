@@ -43,6 +43,17 @@ describe('createPressTracker (req #3580)', () => {
         tr.up('a');
         vi.advanceTimersByTime(1000);
         expect(c.onClick).not.toHaveBeenCalled();
+    });
+
+    it('hands the long press its PRESS point, for the editor\'s caret (req #3665)', () => {
+        const c = cbs();
+        tr.down('a', 120, 48, c);
+        tr.move(122, 49);
+        vi.advanceTimersByTime(LONG_PRESS_MS);
+        expect(c.onLongPress).toHaveBeenCalledWith({ x: 120, y: 48 });
+        tr.up('a');
+        vi.advanceTimersByTime(1000);
+        expect(c.onClick).not.toHaveBeenCalled();
         expect(c.onDoubleClick).not.toHaveBeenCalled();
     });
 

@@ -8,6 +8,7 @@ import Box from '@mui/material/Box';
 
 import { isRestNullLiteral, REST_NULL } from '../../Steps/stepsApi';
 import { PLAN_VIZ_PALETTE as P } from './pipelinePlanLayout';
+import { inputCaretAt } from './planCaretPoint';
 
 export const MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
 
@@ -80,8 +81,12 @@ export function useInPlaceEnding({ onCommit, onCancel, valueRef, focusSelect }) 
 
 // `growCh` (the epic chip): the box widens with what is typed rather than
 // staying the width of the name it opened on.
+// `caretAt` (req #3665): the client point a long press opened the editor at —
+// the caret goes there, as a click into a field puts it. Without one (F2) the
+// name opens selected.
 export default function PlanInPlaceInput({
     initial, onCommit, onCancel, saving, ariaLabel, testId, style, sx, growCh = false,
+    caretAt = null,
 }) {
     const [value, setValue] = useState(initial);
     const ref = useRef(null);
@@ -89,7 +94,14 @@ export default function PlanInPlaceInput({
     valueRef.current = value;
     const finish = useInPlaceEnding({
         onCommit, onCancel, valueRef,
-        focusSelect: () => { ref.current?.focus(); ref.current?.select(); },
+        focusSelect: () => {
+            const input = ref.current;
+            if (!input) return;
+            input.focus();
+            const at = caretAt ? inputCaretAt(input, caretAt) : null;
+            if (at == null) input.select();
+            else input.setSelectionRange(at, at);
+        },
     });
     return (
         <Box component="input" ref={ref} data-viz-chrome="edit" data-testid={testId}

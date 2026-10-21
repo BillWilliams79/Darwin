@@ -4,23 +4,50 @@
 import { describe, it, expect } from 'vitest';
 import {
     REQ_DRAG_SLOP, REQ_DRAG_EDGE_PX, REQ_DRAG_EDGE_MAX_SPEED,
-    passedDragSlop, dropTargetAt, canDropOn, applyReqMoves, edgePanVelocity,
+    reqPressOutcome, stillHeld, dropTargetAt, canDropOn, applyReqMoves, edgePanVelocity,
 } from '../pipelineReqDrag';
+import {
+    MOUSE_ACTIVATION_PX, TOUCH_TOLERANCE_PX, PRESS_SLOP_PX,
+} from '../../../dnd/pressTimeline';
 
 const row = (id, reqIds, extra = {}) => ({
     id, reqIds, trackingReqIds: [], launchReqIds: reqIds.slice(), completedAt: null, ...extra,
 });
 
-describe('passedDragSlop', () => {
-    it('is a click up to and including the slop, a drag past it', () => {
-        const down = { x: 100, y: 100 };
-        expect(passedDragSlop(down, 100 + REQ_DRAG_SLOP, 100)).toBe(false);
-        expect(passedDragSlop(down, 100 + REQ_DRAG_SLOP + 0.5, 100)).toBe(true);
-        expect(passedDragSlop(down, 103, 103)).toBe(true);   // hypot 4.24
+// req #3665 — the shared press timeline, read by the canvas's own gesture.
+describe('reqPressOutcome', () => {
+    it('takes the mouse slop from the app-wide press timeline', () => {
+        expect(REQ_DRAG_SLOP).toBe(MOUSE_ACTIVATION_PX);
     });
 
-    it('never starts without a press', () => {
-        expect(passedDragSlop(null, 500, 500)).toBe(false);
+    it('mouse and pen: a move past the slop lifts at once; a hold never does — it is the edit', () => {
+        for (const type of ['mouse', 'pen']) {
+            expect(reqPressOutcome(type, REQ_DRAG_SLOP, false)).toBe('press');
+            expect(reqPressOutcome(type, REQ_DRAG_SLOP + 0.5, false)).toBe('lift');
+            expect(reqPressOutcome(type, 0, true)).toBe('press');
+            expect(reqPressOutcome(type, REQ_DRAG_SLOP + 0.5, true)).toBe('lift');
+        }
+    });
+
+    it('touch: moving before the lift is a pan, never a lift', () => {
+        expect(reqPressOutcome('touch', TOUCH_TOLERANCE_PX + 0.5, false)).toBe('pan');
+        // Past the mouse slop but within the fingertip tolerance: still a press.
+        expect(reqPressOutcome('touch', MOUSE_ACTIVATION_PX + 1, false)).toBe('press');
+        expect(reqPressOutcome('touch', 50, false)).toBe('pan');
+    });
+
+    it('touch: held still to the lift delay, it lifts', () => {
+        expect(reqPressOutcome('touch', 0, true)).toBe('lift');
+        expect(reqPressOutcome('touch', TOUCH_TOLERANCE_PX, true)).toBe('lift');
+        expect(reqPressOutcome('touch', TOUCH_TOLERANCE_PX + 1, true)).toBe('pan');
+    });
+});
+
+describe('stillHeld', () => {
+    it('is a long-press candidate within the press slop, lifted or not', () => {
+        expect(stillHeld(0)).toBe(true);
+        expect(stillHeld(PRESS_SLOP_PX)).toBe(true);
+        expect(stillHeld(PRESS_SLOP_PX + 0.5)).toBe(false);
     });
 });
 

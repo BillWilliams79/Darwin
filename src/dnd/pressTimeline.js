@@ -5,12 +5,27 @@
 //
 //   touch   moved before LIFT_DELAY_MS ........ a SCROLL — never stolen
 //           held still to LIFT_DELAY_MS ........ the item LIFTS (shadow, scale, haptic tick)
-//           lifted, then moved ................. a DRAG
-//           still held at LONG_PRESS_MS ........ long-press EDIT fires while held, on the
-//                                                surfaces that have one (domain tabs)
+//           lifted, then moved ................. a DRAG — however long the hold was
+//           held still past LONG_PRESS_MS,
+//             then RELEASED in place ........... long-press EDIT, on the surfaces that
+//                                                have one (domain tabs, a plan requirement)
 //   mouse   moved MOUSE_ACTIVATION_PX .......... a DRAG at once
-//           held still to LIFT_DELAY_MS ........ the item LIFTS, as with touch
+//           held still to LIFT_DELAY_MS ........ the item LIFTS, as with touch — and the
+//                                                same long click released in place EDITS
+//           (the plan canvas's requirement marks differ, by user directive: a mouse
+//           there lifts only by moving, and its hold opens the title editor WHILE
+//           held — `SwarmView/pipelines/pipelineReqDrag.js` has why)
 //   keys    Space lifts, arrows move, Space drops, Esc cancels
+//
+// ── WHY THE EDIT WAITS FOR THE RELEASE (req #3665 review) ─────────────────
+// On an item that lifts, the edit used to fire at LONG_PRESS_MS while still
+// held. The lift comes first (LIFT_DELAY_MS), and a person who holds to drag
+// waits to SEE it lift before moving — longer than the 125 ms between the two —
+// so the edit took the press away from nearly every hold-to-drag ("it will long
+// press to move but then drop into the edit requirement title every time"). A
+// lifted item now belongs to the drag; only letting go where it was picked up,
+// after LONG_PRESS_MS, makes it an edit. A target that never lifts (a plan step
+// name, `planPressGesture.js`) has no race and still fires while held.
 //
 // Every number lives here and nowhere else — `SwarmView/pipelines/planPressGesture.js`
 // imports its long-press / slop / double-click values from this file, so the
@@ -33,7 +48,8 @@ export const TOUCH_TOLERANCE_PX = 6;
 /** Mouse / pen: travel that turns a press into a drag. */
 export const MOUSE_ACTIVATION_PX = 4;
 
-/** Held still this long, a press is a long press (fires while still held). */
+/** Held still this long, a press is a long press — on a target that cannot
+ *  lift it fires while still held; on one that can, on the release in place. */
 export const LONG_PRESS_MS = 500;
 
 /** Movement that turns a press into a pan / drag rather than a click or long press. */
