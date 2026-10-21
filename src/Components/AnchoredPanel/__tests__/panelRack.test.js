@@ -1,10 +1,10 @@
 // Req #3720 — the panel rack's pure half: the stack order, where a drop lands,
-// and the CSS order the navbar draws the stack and its placeholder with.
+// and the CSS order the navbar draws the stack with.
 
 import { describe, it, expect } from 'vitest';
 
 import {
-    placeholderOrder, pointInRect, rackDropIndex, rackInsert, rackOrder, rackRemove,
+    pointInRect, rackDropIndex, rackInsert, rackOrder, rackRemove,
 } from '../panelRack';
 
 describe('panelRack (req #3720)', () => {
@@ -34,16 +34,9 @@ describe('panelRack (req #3720)', () => {
         expect(rackDropIndex(['h', 'b'], new Map([['b', 200]]), 50)).toBe(1);
     });
 
-    it('stack orders are even, the placeholder the odd slot before its panel', () => {
+    it('stack orders follow rack order', () => {
         expect(rackOrder(0)).toBe(0);
         expect(rackOrder(2)).toBe(4);
-        // Dragging 'x' (not racked) over a stack of a, b.
-        expect(placeholderOrder(['a', 'b'], 'x', 0)).toBe(-1);
-        expect(placeholderOrder(['a', 'b'], 'x', 1)).toBe(1);
-        expect(placeholderOrder(['a', 'b'], 'x', 2)).toBe(5);
-        // Dragging racked 'a' itself: indexes count the others only.
-        expect(placeholderOrder(['a', 'b', 'c'], 'a', 1)).toBe(3);
-        expect(placeholderOrder(['a', 'b', 'c'], 'a', 0)).toBe(1);
     });
 
     it('pointInRect includes edges and refuses no rect', () => {

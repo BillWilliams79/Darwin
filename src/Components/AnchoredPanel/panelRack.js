@@ -9,8 +9,7 @@
 // the pointer against the stacked panels' midpoints.
 //
 // The stack is drawn by CSS `order` so a panel's DOM position (wherever its
-// host mounts it) never matters: a racked panel is order 2·i, and the drop
-// placeholder the odd slot just before the panel it would land above.
+// host mounts it) never matters: a racked panel is order 2·i.
 
 /** A rack slot narrower than this, px (the icon-only sidebar), keeps only the
  *  ▾ and the host's extras in a racked panel's head. */
@@ -45,14 +44,6 @@ export function rackDropIndex(others, midById, y) {
 /** The CSS `order` of the panel at `index` of the rack order. */
 export function rackOrder(index) {
     return 2 * index;
-}
-
-/** The drop placeholder's CSS `order`: just before the panel at `index` of the
- *  others (`id` excluded), or after every panel. */
-export function placeholderOrder(racked, id, index) {
-    const without = racked.filter(x => x !== id);
-    return index < without.length ? rackOrder(racked.indexOf(without[index])) - 1
-        : rackOrder(racked.length) + 1;
 }
 
 /** The point lies inside the rect (edges included). */

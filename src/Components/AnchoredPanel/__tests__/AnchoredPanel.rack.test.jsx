@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
 // Req #3720 — a rackable AnchoredPanel: dragged onto the navbar's drop zone it
-// publishes the drag (so the navbar lights up), and released there it racks —
+// publishes the drag (so the navbar glows), and released there it racks —
 // portalled into the navbar's rack slot at the navbar's width, nothing to
 // reshape — with its floating dock untouched. More than one stack in rack
 // order, a drop landing where the pointer is. Dragged off the navbar it floats
@@ -75,12 +75,13 @@ describe('AnchoredPanel rack (req #3720)', () => {
 
         press('a', [1300, 810]);
         moveTo('a', [900, 600]);
-        // Moving, not over: the drop zone is armed, not lit.
+        // Moving, not over: the navbar is not lit. The drag carries the
+        // panel's frame colour, which the navbar glows in once over (req #3728).
         expect(usePanelRackStore.getState().drag).toEqual(
-            { id: 'a', fromRack: false, over: false, index: null });
+            { id: 'a', fromRack: false, over: false, index: null, color: COLORS.frame });
         moveTo('a', [90, 400]);
         expect(usePanelRackStore.getState().drag).toEqual(
-            { id: 'a', fromRack: false, over: true, index: 0 });
+            { id: 'a', fromRack: false, over: true, index: 0, color: COLORS.frame });
         release('a', [90, 400]);
 
         expect(usePanelRackStore.getState().drag).toBe(null);
@@ -138,7 +139,7 @@ describe('AnchoredPanel rack (req #3720)', () => {
         press('a', [60, 310]);
         moveTo('a', [860, 510]);
         expect(usePanelRackStore.getState().drag).toEqual(
-            { id: 'a', fromRack: true, over: false, index: null });
+            { id: 'a', fromRack: true, over: false, index: null, color: COLORS.frame });
         // Mid-drag it is drawn fixed under the pointer, at the navbar's width.
         const live = screen.getByTestId('p-a');
         expect(getComputedStyle(live).position).toBe('fixed');
