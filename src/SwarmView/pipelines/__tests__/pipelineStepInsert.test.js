@@ -2,10 +2,10 @@
 // a real layout so the marks are tested on the arcs the canvas actually draws.
 
 import { describe, it, expect } from 'vitest';
-import { computePlanLayout, CARD_GAP_X, CARD_RADIUS } from '../pipelinePlanLayout';
+import { computePlanLayout, CARD_GAP_X, CARD_RADIUS, EPIC_ADD_RESERVE } from '../pipelinePlanLayout';
 import {
     insertMarkRadius, arcInsertCandidates, edgeInsertMarks, dependentStub, precedeStub, insertRequest,
-    buildInsertMarks, insertMarkAt, INSERT_HIT_SCALE, INSERT_MARK_MAX_R, arcPathPoints,
+    buildInsertMarks, insertMarkAt, epicAddMark, INSERT_HIT_SCALE, INSERT_MARK_MAX_R, arcPathPoints,
 } from '../pipelineStepInsert';
 
 const row = (id, depIds = [], epicId = 1) => ({
@@ -201,3 +201,35 @@ function inCardOf(ly) {
     return (p) => [...ly.nodes.values()].some((n) =>
         p.x >= n.left && p.x <= n.right && p.y >= n.top && p.y <= n.bottom);
 }
+
+describe('epicAddMark (req #3719)', () => {
+    const two = computePlanLayout([row(1, [], 1), row(2, [], 2)]);
+
+    it('sits under the bottom of the last band, left-aligned with the epic chips', () => {
+        const m = epicAddMark(two);
+        const last = [...two.bands].sort((a, b) => b.y - a.y)[0];
+        expect(m.kind).toBe('epic');
+        expect(m.y - INSERT_MARK_MAX_R).toBeGreaterThanOrEqual(last.y + last.height);
+        expect(m.x - INSERT_MARK_MAX_R).toBe(12);
+    });
+
+    it('lies wholly inside the world, so the reserve is charged', () => {
+        const m = epicAddMark(two);
+        expect(m.y + INSERT_MARK_MAX_R).toBeLessThanOrEqual(two.height);
+        const last = [...two.bands].sort((a, b) => b.y - a.y)[0];
+        expect(two.height).toBeGreaterThanOrEqual(last.y + last.height + EPIC_ADD_RESERVE);
+    });
+
+    it('is null for a plan with no band, and absent when epicAdd is off', () => {
+        expect(epicAddMark(computePlanLayout([]))).toBeNull();
+        expect(buildInsertMarks(two, [row(1, [], 1), row(2, [], 2)], undefined, { epicAdd: false })
+            .marks.some((m) => m.kind === 'epic')).toBe(false);
+        expect(buildInsertMarks(two, [row(1, [], 1), row(2, [], 2)]).epicCount).toBe(1);
+    });
+
+    it('is hit by insertMarkAt like every other mark', () => {
+        const g = buildInsertMarks(two, [row(1, [], 1), row(2, [], 2)]);
+        const m = g.marks.find((x) => x.kind === 'epic');
+        expect(insertMarkAt(g, { x: m.x, y: m.y }, INSERT_MARK_MAX_R)).toBe(m);
+    });
+});

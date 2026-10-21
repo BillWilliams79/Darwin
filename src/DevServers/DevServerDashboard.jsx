@@ -177,8 +177,9 @@ export default function DevServerDashboard() {
                                      sx={{ display: 'flex', alignItems: 'baseline', gap: '0.6em',
                                             // A little trailing space, nothing more:
                                             // it is the panel's only slack when it
-                                            // sizes to its rows.
-                                            pl: '0.7em', pr: '1em', py: '0.15em',
+                                            // sizes to its rows. Behind the title it
+                                            // is cut 66% (req #3718).
+                                            pl: '0.7em', pr: tiny ? '1em' : '0.34em', py: '0.15em',
                                             color: 'inherit', textDecoration: 'none',
                                             cursor: r.href ? 'pointer' : 'default',
                                             opacity: r.href ? 1 : 0.6,
@@ -227,8 +228,10 @@ export default function DevServerDashboard() {
                                         {r.terminal != null ? `${wide ? 'Term ' : 'T'}${r.terminal}` : ''}
                                     </Box>
                                     {!tiny && (
+                                        // The gap before the title is halved
+                                        // (req #3718): 0.6em less 0.3em.
                                         <Box component="span"
-                                             sx={{ flex: 1, minWidth: 0, overflow: 'hidden',
+                                             sx={{ flex: 1, minWidth: 0, ml: '-0.3em', overflow: 'hidden',
                                                     textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                             {r.label}
                                         </Box>

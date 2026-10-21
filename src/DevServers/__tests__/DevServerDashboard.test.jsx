@@ -140,6 +140,16 @@ describe('DevServerDashboard (req #3643)', () => {
         expect(screen.getByTestId('devserver-dashboard-term-7').getAttribute('data-terminal-href')).toBeNull();
     });
 
+    it('the title drops below 152 px — 190 cut 20% (req #3718)', () => {
+        useDevServerDashboardStore.setState({ dock: { h: 'r', x: 16, v: 'b', y: 16, w: 152, ht: null } });
+        renderDash();
+        expect(cells(7)).toEqual(['', '3002', 'T3', 'dev servers as dashboard']);
+        cleanup();
+        useDevServerDashboardStore.setState({ dock: { h: 'r', x: 16, v: 'b', y: 16, w: 151, ht: null } });
+        renderDash();
+        expect(cells(7)).toEqual(['', '3002', 'T3']);
+    });
+
     it('shaped narrow but above the smallest, a row keeps its title and shows no bug #', () => {
         useDevServerDashboardStore.setState({ dock: { h: 'r', x: 16, v: 'b', y: 16, w: 200, ht: null } });
         renderDash();

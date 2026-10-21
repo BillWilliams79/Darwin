@@ -30,7 +30,7 @@ import { filterToStepReqIds } from '../utils/pipelineMembership';
 // `aggregatorRowVisible` is GONE (req #3502 — the aggregator has no rule of
 // its own any more; see `swarmStartCardUtils.js`'s own header).
 import { tallyRequirementStatuses } from './swarmStartCardUtils';
-import { requirementKeys } from '../hooks/useQueryKeys';
+import { requirementKeys, pipelineStepRequirementKeys } from '../hooks/useQueryKeys';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { RequirementActionsContext, useStableRequirementActions } from '../hooks/useRequirementActions';
@@ -593,10 +593,18 @@ const SwarmStartCard = ({ epicReqIds = null, stepReqIds = null, projectId = null
                     if (result.httpStatus.httpStatus === 200) {
                         setRequirementsArray(prev => prev ? prev.filter(p => p.id !== requirementId) : prev);
                         queryClient.invalidateQueries({ queryKey: requirementKeys.all(profile.userName) });
+                        // req #3706 — the delete CASCADEs the requirement's step seat, so every
+                        // plan read that may show it re-reads (the plan it sat in is unknown here).
+                        queryClient.invalidateQueries({ queryKey: pipelineStepRequirementKeys.all(profile.userName) });
+                        queryClient.invalidateQueries({ queryKey: ['pipeline_compose'] });
                     } else {
                         showError(result, 'Unable to delete requirement');
                     }
-                }).catch(error => showError(error, 'Unable to delete requirement'));
+                }).catch(error => {
+                    // req #3706 — a 423 names the locked step/epic/plan holding the seat.
+                    if (error?.httpStatus?.httpStatus === 423) showError(error.httpStatus.httpMessage);
+                    else showError(error, 'Unable to delete requirement');
+                });
         }
     });
 

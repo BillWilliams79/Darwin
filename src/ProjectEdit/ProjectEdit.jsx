@@ -1,4 +1,4 @@
-import React, {useState, useContext, useEffect, useRef} from 'react';
+import React, {useState, useContext, useEffect, useMemo, useRef} from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { useWorkingProjectStore } from '../stores/useWorkingProjectStore';
@@ -10,14 +10,14 @@ import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import call_rest_api from '../RestApi/RestApi';
 import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
-import { DragDropContext, Droppable } from '@hello-pangea/dnd';
+import { ReorderList } from '../dnd';
 
 import Box from '@mui/material/Box';
 import { Typography } from '@mui/material';
 
 import ProjectDeleteDialog from './ProjectDeleteDialog';
 import ProjectTableRow from './ProjectTableRow';
-import { PROJECT_GRID_COLUMNS } from './ProjectTableRow';
+import { PROJECT_GRID_COLUMNS, projectItemId, isOrderableProject } from './ProjectTableRow';
 
 const ProjectEdit = () => {
 
@@ -227,24 +227,21 @@ const ProjectEdit = () => {
         return calcSortOrder;
     }
 
-    const dragEnd = async (result) => {
+    // The rows in the order they render: open projects (the positions) first,
+    // then closed projects and the template.
+    const orderedProjects = useMemo(() => (projectsArray ? [
+        ...projectsArray.filter(isOrderableProject),
+        ...projectsArray.filter(p => !isOrderableProject(p)),
+    ] : []), [projectsArray]);
 
-        if ((result.destination === null) || (result.reason !== 'DROP')) {
-            return;
-        }
+    const dragEnd = (fromIndex, toIndex) => {
 
-        var newProjectsArray = [...projectsArray];
-        const [draggedItem] = newProjectsArray.splice(result.source.index, 1);
-        newProjectsArray.splice(result.destination.index, 0, draggedItem);
+        var newProjectsArray = [...orderedProjects];
+        const [draggedItem] = newProjectsArray.splice(fromIndex, 1);
+        newProjectsArray.splice(toIndex, 0, draggedItem);
 
-        newProjectsArray = newProjectsArray.map((proj, index) => {
-            if ((proj.id !== '') && (proj.closed !== 1)) {
-                proj.sort_order = index;
-                return proj;
-            } else {
-                return proj;
-            }
-        });
+        newProjectsArray = newProjectsArray.map((proj, index) =>
+            isOrderableProject(proj) ? { ...proj, sort_order: index } : proj);
 
         setProjectsArray(newProjectsArray);
 
@@ -282,54 +279,31 @@ const ProjectEdit = () => {
                         <Box sx={{ textAlign: 'center' }}><Typography variant="subtitle2">Requirements</Typography></Box>
                         <Box />
                     </Box>
-                    <DragDropContext onDragEnd={dragEnd}>
-                        <Droppable droppableId="projects">
-                            {(provided) => (
-                                <Box {...provided.droppableProps} ref={provided.innerRef}>
-                                { projectsArray
-                                    .filter(p => p.closed === 0 && p.id !== '')
-                                    .map((project, idx) => (
-                                    <ProjectTableRow
-                                        key={project.id}
-                                        project={project}
-                                        projectIndex={idx}
-                                        changeProjectName={changeProjectName}
-                                        keyDownProjectName={keyDownProjectName}
-                                        blurProjectName={blurProjectName}
-                                        clickProjectClosed={clickProjectClosed}
-                                        clickProjectDelete={clickProjectDelete}
-                                        categoryCounts={categoryCounts}
-                                        requirementCounts={requirementCounts}
-                                        onRowClick={handleRowClick}
-                                        isSelected={String(project.id) === selectedId}
-                                        isDraggable
-                                    />
-                                ))}
-                                {provided.placeholder}
-                                </Box>
-                            )}
-                        </Droppable>
-                    </DragDropContext>
-                    { projectsArray
-                        .filter(p => p.closed === 1 || p.id === '')
-                        .map((project) => (
-                        <ProjectTableRow
-                            key={project.id || 'template'}
-                            project={project}
-                            projectIndex={projectsArray.indexOf(project)}
-                            changeProjectName={changeProjectName}
-                            keyDownProjectName={keyDownProjectName}
-                            blurProjectName={blurProjectName}
-                            clickProjectClosed={clickProjectClosed}
-                            clickProjectDelete={clickProjectDelete}
-                            categoryCounts={categoryCounts}
-                            requirementCounts={requirementCounts}
-                            onRowClick={handleRowClick}
-                            isSelected={String(project.id) === selectedId}
-                            isDraggable={false}
-                            inputRef={project.id === '' ? templateInputRef : undefined}
-                        />
-                    ))}
+                    {/* req #3664 — one list, every row in it: open projects lift and
+                        take a drop; closed projects and the template are not positions. */}
+                    <ReorderList id="projects" type="project"
+                                 ids={orderedProjects.map(projectItemId)}
+                                 isTarget={isOrderableProject}
+                                 onReorder={dragEnd}
+                                 data-testid="project-edit-list">
+                        { orderedProjects.map((project) => (
+                            <ProjectTableRow
+                                key={project.id || 'template'}
+                                project={project}
+                                projectIndex={projectsArray.indexOf(project)}
+                                changeProjectName={changeProjectName}
+                                keyDownProjectName={keyDownProjectName}
+                                blurProjectName={blurProjectName}
+                                clickProjectClosed={clickProjectClosed}
+                                clickProjectDelete={clickProjectDelete}
+                                categoryCounts={categoryCounts}
+                                requirementCounts={requirementCounts}
+                                onRowClick={handleRowClick}
+                                isSelected={String(project.id) === selectedId}
+                                inputRef={project.id === '' ? templateInputRef : undefined}
+                            />
+                        ))}
+                    </ReorderList>
                 </Box>
             }
             <ProjectDeleteDialog

@@ -183,11 +183,12 @@ import AuthContext from '../../Context/AuthContext';
 import { pipelineComposeKeys, requirementKeys } from '../../hooks/useQueryKeys';
 import {
     pipelineStepRequirementKeys, pipelineStepKeys, pipelineStepDepKeys, epicKeys,
+    useAllCategories,
 } from '../../hooks/useDataQueries';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
 import {
     moveStepRequirement, insertStepOnEdge, addDependentStep, precedeStepWith,
-    isRestNullLiteral, REST_NULL, updateStep,
+    isRestNullLiteral, REST_NULL, updateStep, createStep,
 } from '../../Steps/stepsApi';
 // req #3649 — the epic chip's lock control; req #3673 — the pictures on it and
 // on the step card's checkpoint and lock buttons.
@@ -198,6 +199,7 @@ import {
 // #3617 adds the one off a free left side, for a step this one depends on.
 import {
     insertMarkRadius, buildInsertMarks, insertMarkAt, insertRequest, NEW_STEP_TITLE,
+    NEW_EPIC_TITLE,
 } from './pipelineStepInsert';
 import {
     REQ_DRAG_SLOP, passedDragSlop, dropTargetAt, canDropOn, applyReqMoves,
@@ -219,7 +221,7 @@ import '../../CalendarFC/swarmVisualizer.css';
 // req #3580 — in-place edit. The SAME mutation helpers the Epics and Steps
 // editors use (one gateway path per table); contexts, snackbar and query keys
 // are the ones req #3581 already imports above.
-import { updateEpic } from '../../Epics/epicsApi';
+import { updateEpic, createEpic } from '../../Epics/epicsApi';
 import PlanInPlaceInput, { titleProblem } from './PlanInPlaceInput';
 import { createPressTracker, LONG_PRESS_MS } from './planPressGesture';
 // req #3661 — a requirement's title, edited in place on its own row.
@@ -695,6 +697,88 @@ export default function PipelinePlanVisualizer({
         }
     }, [insertReq, inserting, insertTitle, insertEpic, darwinUri, idToken,
         pipeline?.id, profile?.userName, queryClient, showError]);
+
+    // ── Add an epic from the canvas (req #3719) ─────────────────────────────
+    // The "+" under the last epic band. An epic's band is drawn from its STEPS,
+    // so an epic with none would be created and not appear anywhere on this
+    // canvas; the dialog therefore creates the epic AND its first step (the
+    // same placeholder title the add-step dialog starts from), and the band
+    // shows up as soon as the plan re-reads. `epicAddOpen` is the dialog.
+    const [epicAddOpen, setEpicAddOpen] = useState(false);
+    const [epicAddTitle, setEpicAddTitle] = useState(NEW_EPIC_TITLE);
+    const [epicAddCategory, setEpicAddCategory] = useState('');
+    const [epicAdding, setEpicAdding] = useState(false);
+    const epicAddOpenedAtRef = useRef(0);
+    const openEpicAddRef = useRef(null);
+    const { data: categories = [] } = useAllCategories(
+        profile?.userName, { fields: 'id,category_name,sort_order,closed' });
+    const epicAddCategories = useMemo(() => categories
+        .filter((c) => !c.closed)
+        .sort((a, b) => (a.sort_order ?? Infinity) - (b.sort_order ?? Infinity)
+            || String(a.category_name).localeCompare(String(b.category_name))),
+    [categories]);
+    const openEpicAdd = useCallback((afterEpicId) => {
+        // Default to the category of the epic this "+" sits under.
+        const last = (model?.epics || []).find((e) => e.id === afterEpicId) || null;
+        const open = epicAddCategories.some((c) => c.id === last?.category_fk);
+        setEpicAddTitle(NEW_EPIC_TITLE);
+        setEpicAddCategory(open ? last.category_fk : (epicAddCategories[0]?.id ?? ''));
+        epicAddOpenedAtRef.current = Date.now();
+        setEpicAddOpen(true);
+    }, [model, epicAddCategories]);
+    openEpicAddRef.current = openEpicAdd;
+    const closeEpicAdd = useCallback((event, reason) => {
+        if (reason === 'backdropClick' && Date.now() - epicAddOpenedAtRef.current < 600) return;
+        if (!epicAdding) setEpicAddOpen(false);
+    }, [epicAdding]);
+    const commitEpicAdd = useCallback(async () => {
+        if (epicAdding) return;
+        const title = epicAddTitle.trim();
+        if (!title) { showError('Title is required'); return; }
+        if (isRestNullLiteral(title)) {
+            showError(`"${REST_NULL}" is the API's clear-this-column sentinel and cannot `
+                + 'be a title. Try "Null" or another wording.');
+            return;
+        }
+        if (epicAddCategory === '' || epicAddCategory == null) {
+            showError('Category is required');
+            return;
+        }
+        setEpicAdding(true);
+        let epic = null;
+        try {
+            epic = await createEpic(darwinUri, idToken, {
+                pipeline_fk: pipeline.id, title, category_fk: epicAddCategory,
+            });
+            const epicId = Array.isArray(epic) ? epic[0]?.id : epic?.id;
+            setEpicAddOpen(false);
+            if (epicId == null) {
+                // The row was written but not read back (stepsApi documents a
+                // 201 with no body): retrying here would make a second epic.
+                showError('The epic may have been created without a first step — '
+                    + 'check the Epics page before adding it again');
+                return;
+            }
+            try {
+                await createStep(darwinUri, idToken, { epic_fk: epicId, title: NEW_STEP_TITLE });
+            } catch (error) {
+                showError(error, 'Epic created, but its first step could not be added');
+            }
+        } catch (error) {
+            showError(error, 'Could not create the epic');
+        } finally {
+            setEpicAdding(false);
+            if (pipeline?.id != null) {
+                queryClient.invalidateQueries({ queryKey: pipelineComposeKeys.byId(pipeline.id) });
+            }
+            if (profile?.userName) {
+                queryClient.invalidateQueries({ queryKey: epicKeys.all(profile.userName) });
+            }
+            queryClient.invalidateQueries({ queryKey: pipelineStepKeys.all(profile?.userName) });
+            queryClient.invalidateQueries({ queryKey: ['orchestration_index'] });
+        }
+    }, [epicAdding, epicAddTitle, epicAddCategory, darwinUri, idToken, pipeline?.id,
+        profile?.userName, queryClient, showError]);
     const eligibleStepIds = plan.eligibleStepIds || new Set();
     // The requirement TITLE lookup, when that mark is showing (req #3168). Built
     // from `reqInfo`, which the hover card already needed — so the option costs
@@ -1924,7 +2008,8 @@ export default function PipelinePlanVisualizer({
             // stage: the marks are drawn as one non-listening shape.
             const mark = insertHitRef.current?.(e);
             if (mark) {
-                openInsertRef.current?.(mark.kind, { fromId: mark.fromId, toId: mark.toId });
+                if (mark.kind === 'epic') openEpicAddRef.current?.(mark.afterEpicId);
+                else openInsertRef.current?.(mark.kind, { fromId: mark.fromId, toId: mark.toId });
                 return;
             }
             const stage = stageRef.current;
@@ -2501,8 +2586,9 @@ export default function PipelinePlanVisualizer({
     // SETTLED layout, so mid-fold they would float where the cards are going
     // rather than where they are. They return the frame the fold lands.
     const insertGeom = useMemo(
-        () => (insertDrawn && !folding ? buildInsertMarks(layout, rows) : null),
-        [insertDrawn, folding, layout, rows]);
+        () => (insertDrawn && !folding
+            ? buildInsertMarks(layout, rows, undefined, { epicAdd: !plan.locked }) : null),
+        [insertDrawn, folding, layout, rows, plan.locked]);
     insertGeomRef.current = insertGeom;
     openInsertRef.current = openInsert;
     insertHitRef.current = (e) => {
@@ -4733,6 +4819,15 @@ export default function PipelinePlanVisualizer({
             <Shape key="insert-marks" sceneFunc={insertSceneFunc} geom={insertGeom}
                    drawR={insertR}
                    listening={false} perfectDrawEnabled={false} />);
+        // req #3719 — the add-epic "+" is the one mark that is not on a card, so
+        // it is the one that says what it adds.
+        const epicMark = insertGeom.marks.find((m) => m.kind === 'epic');
+        if (epicMark) {
+            worldNodes.push(
+                <Text key="insert-epic-label" x={epicMark.x + insertR + 6}
+                      y={epicMark.y - 6} text="Add epic" fontSize={12}
+                      fontFamily={MONO} fill={P.arc} listening={false} />);
+        }
     }
 
     return (
@@ -4816,6 +4911,7 @@ export default function PipelinePlanVisualizer({
                  data-insert-edges={insertGeom ? insertGeom.edgeCount : 0}
                  data-insert-dependents={insertGeom ? insertGeom.dependentCount : 0}
                  data-insert-precedes={insertGeom ? insertGeom.precedeCount : 0}
+                 data-insert-epics={insertGeom ? insertGeom.epicCount : 0}
                  // Full-page canvas (req #3119), the KonvaSwarmCanvas figure
                  // verbatim. The height is MEASURED (`availH` above) rather than
                  // subtracted from a list of known chrome, which is what lets the
@@ -6097,6 +6193,40 @@ export default function PipelinePlanVisualizer({
                             disabled={inserting || !insertTitle.trim()}
                             data-testid="pipeline-viz-insert-create">
                         {inserting ? 'Creating…' : 'Create'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* req #3719 — the add-epic dialog (the "+" under the last epic). */}
+            <Dialog open={epicAddOpen} onClose={closeEpicAdd} fullWidth maxWidth="xs"
+                    data-testid="pipeline-viz-epic-add-dialog">
+                <DialogTitle>Add an epic</DialogTitle>
+                <DialogContent>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                        Added at the end of this plan, with a first step so it shows on the canvas.
+                    </Typography>
+                    <TextField autoFocus fullWidth size="small" label="Title"
+                               value={epicAddTitle}
+                               onFocus={(e) => e.target.select()}
+                               onChange={(e) => setEpicAddTitle(e.target.value)}
+                               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commitEpicAdd(); } }}
+                               inputProps={{ 'data-testid': 'pipeline-viz-epic-add-title' }}
+                               sx={{ mb: 2 }} />
+                    <TextField select fullWidth size="small" label="Category"
+                               value={epicAddCategory}
+                               onChange={(e) => setEpicAddCategory(e.target.value)}
+                               inputProps={{ 'data-testid': 'pipeline-viz-epic-add-category' }}>
+                        {epicAddCategories.map((c) => (
+                            <MenuItem key={c.id} value={c.id}>{c.category_name}</MenuItem>
+                        ))}
+                    </TextField>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => closeEpicAdd()} disabled={epicAdding}>Cancel</Button>
+                    <Button variant="contained" onClick={commitEpicAdd}
+                            disabled={epicAdding || !epicAddTitle.trim() || epicAddCategory === ''}
+                            data-testid="pipeline-viz-epic-add-create">
+                        {epicAdding ? 'Creating…' : 'Create'}
                     </Button>
                 </DialogActions>
             </Dialog>

@@ -2,12 +2,13 @@
 // Cards + Table views (matching exemplar).
 // Table: checkboxSelection + bulk-close + bulk-set-category.
 // Cards: one card per category, plan rows with Start Run / Edit / Delete.
-// Plan Detail modal: drag-reorder plan cases (@hello-pangea/dnd).
+// Plan Detail modal: drag-reorder plan cases (dnd-kit ReorderList, req #3664);
+// `?plan=<id>` opens it on that plan.
 
 import { useState, useMemo, useContext, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
+import { ReorderList, useReorderItem, reorderRowSx } from '../dnd';
 
 import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
@@ -78,6 +79,22 @@ export default function TestPlansPage() {
 
     const creatorFk = profile?.userName;
     const { data: plans = [], isLoading } = useAllTestPlans(creatorFk);
+
+    // `?plan=<id>` opens that plan's detail once the plans are known.
+    const [searchParams, setSearchParams] = useSearchParams();
+    const linkedPlanId = searchParams.get('plan');
+    useEffect(() => {
+        if (!linkedPlanId || !plans.length) return;
+        const linked = plans.find(p => String(p.id) === linkedPlanId);
+        if (linked) setDetailPlan(linked);
+    }, [linkedPlanId, plans]);
+    const closeDetail = () => {
+        setDetailPlan(null);
+        if (linkedPlanId) {
+            searchParams.delete('plan');
+            setSearchParams(searchParams, { replace: true });
+        }
+    };
     const { data: categories = [] } = useAllCategories(creatorFk, {
         fields: 'id,category_name,color,project_fk,closed', closed: 0,
     });
@@ -268,7 +285,7 @@ export default function TestPlansPage() {
             {detailPlan && (
                 <TestPlanDetail
                     plan={detailPlan}
-                    onClose={() => setDetailPlan(null)} />
+                    onClose={closeDetail} />
             )}
 
             {/* Bulk edit + confirm */}
@@ -487,6 +504,44 @@ function TestPlanEditDialog({ open, onClose, onSave, initial, categories }) {
     );
 }
 
+// One stable empty list while a plan's cases load — a fresh `[]` each render
+// would re-run the effect that seeds the local order, every render.
+const NO_CASES = [];
+
+const planCaseItemId = (caseId) => `plan-case:${caseId}`;
+
+// One case of a plan's ReorderList (req #3664): the whole row is the grip — a
+// hold (touch, or a long mouse click) or a 4 px mouse move lifts it; the grip
+// mark just says so. The remove button still clicks.
+function PlanCaseRow({ caseId, testCase, onRemove }) {
+    const { ref, style, attributes, listeners, isDragging } = useReorderItem(planCaseItemId(caseId), caseId);
+    return (
+        <Box ref={ref} {...attributes} {...listeners} style={style}
+             data-dragging={isDragging ? 'true' : undefined}
+             sx={(theme) => ({ display: 'flex', alignItems: 'center', gap: 1,
+                    p: 1, border: 1, borderColor: 'divider',
+                    borderRadius: 1, mb: 0.5,
+                    bgcolor: 'background.paper',
+                    ...reorderRowSx(theme, { draggable: true, isDragging }) })}
+             data-testid={`plan-case-${caseId}`}>
+            <Box data-testid={`plan-case-handle-${caseId}`}
+                 sx={{ display: 'flex', alignItems: 'center', color: 'text.disabled' }}>
+                <DragIndicatorIcon fontSize="small" />
+            </Box>
+            <Typography sx={{ flex: 1 }}>
+                {testCase?.title || `(Test case ${caseId})`}
+            </Typography>
+            {testCase?.test_type &&
+                <Chip label={testCase.test_type} size="small" />}
+            <IconButton size="small" aria-label="Remove test case from plan"
+                        onClick={() => onRemove(caseId)}
+                        data-testid={`remove-case-${caseId}`}>
+                <DeleteIcon fontSize="small" />
+            </IconButton>
+        </Box>
+    );
+}
+
 function TestPlanDetail({ plan, onClose }) {
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
@@ -494,7 +549,7 @@ function TestPlanDetail({ plan, onClose }) {
     const showError = useSnackBarStore(s => s.showError);
     const creatorFk = profile?.userName;
 
-    const { data: planCases = [], isLoading } = useTestPlanCases(creatorFk, plan.id);
+    const { data: planCases = NO_CASES, isLoading } = useTestPlanCases(creatorFk, plan.id);
     const { data: allTestCases = [] } = useAllTestCases(creatorFk, {
         fields: 'id,title,category_fk,test_type',
     });
@@ -516,11 +571,10 @@ function TestPlanDetail({ plan, onClose }) {
         queryClient.invalidateQueries({ queryKey: testPlanCaseKeys.byPlan(creatorFk, plan.id) });
     };
 
-    const onDragEnd = async (result) => {
-        if (!result.destination) return;
+    const onDragEnd = async (fromIndex, toIndex) => {
         const next = Array.from(localOrder);
-        const [moved] = next.splice(result.source.index, 1);
-        next.splice(result.destination.index, 0, moved);
+        const [moved] = next.splice(fromIndex, 1);
+        next.splice(toIndex, 0, moved);
         setLocalOrder(next);
         try {
             await reorderTestPlanCases(darwinUri, idToken, plan.id, next);
@@ -534,6 +588,8 @@ function TestPlanDetail({ plan, onClose }) {
             invalidate();
         }
     };
+
+    const caseIds = useMemo(() => localOrder.map(planCaseItemId), [localOrder]);
 
     const handleRemoveCase = async (caseId) => {
         try {
@@ -578,53 +634,19 @@ function TestPlanDetail({ plan, onClose }) {
                     </Button>
                 </Box>
                 {isLoading ? <CircularProgress />
-                    : <DragDropContext onDragEnd={onDragEnd}>
-                        <Droppable droppableId="plan-cases">
-                            {(provided) => (
-                                <Box ref={provided.innerRef} {...provided.droppableProps}
-                                     data-testid="plan-case-dnd-list">
-                                    {localOrder.map((caseId, index) => {
-                                        const tc = testCasesById[caseId];
-                                        return (
-                                            <Draggable key={caseId} draggableId={String(caseId)} index={index}>
-                                                {(dprov) => (
-                                                    <Box ref={dprov.innerRef} {...dprov.draggableProps}
-                                                         sx={{ display: 'flex', alignItems: 'center', gap: 1,
-                                                                p: 1, border: 1, borderColor: 'divider',
-                                                                borderRadius: 1, mb: 0.5,
-                                                                bgcolor: 'background.paper' }}
-                                                         data-testid={`plan-case-${caseId}`}>
-                                                        <Box {...dprov.dragHandleProps}
-                                                             data-testid={`plan-case-handle-${caseId}`}
-                                                             sx={{ display: 'flex', alignItems: 'center',
-                                                                    cursor: 'grab' }}>
-                                                            <DragIndicatorIcon fontSize="small" />
-                                                        </Box>
-                                                        <Typography sx={{ flex: 1 }}>
-                                                            {tc?.title || `(Test case ${caseId})`}
-                                                        </Typography>
-                                                        {tc?.test_type &&
-                                                            <Chip label={tc.test_type} size="small" />}
-                                                        <IconButton size="small" aria-label="Remove test case from plan"
-                                                                    onClick={() => handleRemoveCase(caseId)}
-                                                                    data-testid={`remove-case-${caseId}`}>
-                                                            <DeleteIcon fontSize="small" />
-                                                        </IconButton>
-                                                    </Box>
-                                                )}
-                                            </Draggable>
-                                        );
-                                    })}
-                                    {provided.placeholder}
-                                    {localOrder.length === 0 &&
-                                        <Typography sx={{ p: 2, color: 'text.secondary' }}>
-                                            No cases in this plan yet. Click "Add cases" to add some.
-                                        </Typography>
-                                    }
-                                </Box>
-                            )}
-                        </Droppable>
-                    </DragDropContext>
+                    : <ReorderList id={`plan-cases:${plan.id}`} type="plan-case" ids={caseIds}
+                                   onReorder={onDragEnd}
+                                   data-testid="plan-case-dnd-list">
+                        {localOrder.map((caseId) => (
+                            <PlanCaseRow key={caseId} caseId={caseId} testCase={testCasesById[caseId]}
+                                         onRemove={handleRemoveCase} />
+                        ))}
+                        {localOrder.length === 0 &&
+                            <Typography sx={{ p: 2, color: 'text.secondary' }}>
+                                No cases in this plan yet. Click "Add cases" to add some.
+                            </Typography>
+                        }
+                    </ReorderList>
                 }
                 {priorRuns.length > 0 && (
                     <>

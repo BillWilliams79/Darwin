@@ -18,8 +18,11 @@
 //                    tick on a touch lift where the platform has one
 //
 // Every DOM drag surface mounts it: the Plan view (req #3662), the Swarm cards
-// view with its aggregator and the Recurring page (req #3663). react-dnd is
-// gone from the app.
+// view with its aggregator and the Recurring page (req #3663), and — through
+// ReorderList — the four editors, the Maps view bar and a test plan's cases,
+// plus the phone calendar list (req #3664). react-dnd and @hello-pangea/dnd
+// are gone from the app; only the plan canvas and FullCalendar's desktop grid
+// drag by other means.
 
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
@@ -56,6 +59,9 @@ function setPageDragging(on) {
     const { style } = document.body;
     style.userSelect = on ? 'none' : '';
     style.webkitUserSelect = on ? 'none' : '';
+    // iOS: no text-selection loupe or link callout under a finger that is
+    // carrying an item (once every surface's own patch, req #3664).
+    style.webkitTouchCallout = on ? 'none' : '';
     style.cursor = on ? 'grabbing' : '';
 }
 
@@ -68,10 +74,13 @@ function setPageDragging(on) {
  * @param {(active: object) => React.ReactNode} [props.renderOverlay] a surface
  *        may supply its own preview for some items; null falls back to the clone
  * @param {(active: object) => number} [props.liftScale] per-item lift scale
+ * @param {Object|Function} [props.overlaySx] a surface's own look for the lifted
+ *        item, in place of the pickup (scale, pop, deep shadow) — the editors
+ *        keep the look their rows had before the foundation (req #3664)
  */
 export default function DarwinDndContext({
     children, onDragStart, onDragOver, onDragMove, onDragEnd, onDragCancel,
-    renderOverlay, liftScale,
+    renderOverlay, liftScale, overlaySx,
 }) {
     const sensors = useSensors(
         useSensor(DarwinPointerSensor, POINTER_SENSOR_OPTIONS),
@@ -174,7 +183,12 @@ export default function DarwinDndContext({
                 {children}
                 <DragOverlay dropAnimation={DROP_ANIMATION} zIndex={1500}
                              style={liftSizeRef.current ?? undefined}>
-                    {active ? (
+                    {active && overlaySx ? (
+                        <Box data-testid="drag-overlay"
+                             sx={[{ width: '100%', height: '100%', overflow: 'hidden', cursor: 'grabbing' }, overlaySx]}>
+                            {custom ?? <DragClone copy={copyRef.current} />}
+                        </Box>
+                    ) : active ? (
                         <Box data-testid="drag-overlay"
                              sx={{
                                  width: '100%', height: '100%',

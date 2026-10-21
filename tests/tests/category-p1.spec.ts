@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { getIdToken, apiCall, apiDelete, uniqueName } from '../helpers/api';
-import { pangeaDragAndDrop } from '../helpers/pangea-dnd-drag';
+import { dndKitDrag } from '../helpers/dnd-kit-drag';
 
 test.describe.serial('Category Management P1', () => {
   test.setTimeout(90_000);
@@ -202,14 +202,15 @@ test.describe.serial('Category Management P1', () => {
     const initialSecondY = (await secondRow.boundingBox())!.y;
     expect(initialFirstY).toBeLessThan(initialSecondY);
 
-    // DnD: drag second row above first row, gripping the dedicated drag handle.
-    // The handle is a non-interactive grip (req #2865) — @hello-pangea/dnd refuses to
-    // start a drag from the row body's interactive controls (color input / name field).
-    const secondHandle = panel.getByTestId(`category-drag-handle-${r2[0].id}`);
-    await expect(secondHandle).toBeVisible({ timeout: 5000 });
-    await pangeaDragAndDrop(page, secondHandle, firstRow);
+    // DnD: drag second row above first row. The whole row is the grip (req #3664)
+    // — pressing on the name field lifts it like any other part of the row.
+    const saved = page.waitForResponse(r => r.request().method() === 'PUT' && r.url().includes('/categories'));
+    await dndKitDrag(page, secondRow, firstRow, { drop: 'upper' });
+    await saved;
 
     // Verify order changed
+    await expect.poll(async () => (await secondRow.boundingBox())!.y < (await firstRow.boundingBox())!.y,
+      { timeout: 5000 }).toBe(true);
     const afterFirstY = (await firstRow.boundingBox())!.y;
     const afterSecondY = (await secondRow.boundingBox())!.y;
     expect(afterSecondY).toBeLessThan(afterFirstY);
