@@ -124,6 +124,8 @@
 // plan's requirement marks (State, Session, Autonomy, Machine or none), through
 // the visualizer's own resolver (`idStyleOf`), so the box and the canvas say the
 // same thing about a requirement. Without a resolver it keeps `statusColor`.
+// The title takes the id's colour too (req #3745), in regular weight — only
+// the id goes bold.
 //
 // ── FOLDED, IT IS A NARROW "OR" BAR (req #3648, user directive) ───────────
 // The title bar is every pop-up window's (req #3741): the ▾ (CollapseHead) at
@@ -953,6 +955,8 @@ function UnseatedRow({ row, id, fontPx, barColor, idStyle, narrow, onOpen }) {
     return (
         <Box ref={ref} {...buttonAttributes} {...pointerListeners}
              data-testid={`pipeline-viz-unseated-item-${id}`}
+             // The drag copy finds the row by this, its roledescription gone.
+             data-darwin-drag=""
              data-dragging={isDragging ? '1' : '0'}
              onClick={() => onOpen?.(id)}
              onKeyDown={(e) => {
@@ -992,7 +996,7 @@ function UnseatedRow({ row, id, fontPx, barColor, idStyle, narrow, onOpen }) {
                  data-testid={`pipeline-viz-unseated-item-title-${id}`}
                  // Wraps to two lines at most, then "…" (req #3684). An
                  // unbroken run breaks rather than overflowing the clamp.
-                 sx={{ flex: 1, minWidth: 0, overflow: 'hidden',
+                 sx={{ flex: 1, minWidth: 0, overflow: 'hidden', color: idStyle.fill,
                         display: '-webkit-box', WebkitBoxOrient: 'vertical',
                         WebkitLineClamp: 2, overflowWrap: 'anywhere' }}>
                 {row.title}

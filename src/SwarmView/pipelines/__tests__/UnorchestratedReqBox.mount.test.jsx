@@ -267,6 +267,8 @@ describe('UnorchestratedReqBox', () => {
             expect(lifted.getAttribute('data-dragging')).toBe('1');
             expect(Number(getComputedStyle(lifted).opacity)).toBeLessThan(1);
             expect(q('pipeline-viz-unseated-item-12').getAttribute('data-dragging')).toBe('0');
+            // The overlay carries a copy of the row, not an empty box.
+            expect(document.querySelector('[data-testid="drag-overlay-clone"]')?.textContent).toContain('First thing');
             // Escape puts it back.
             act(() => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true })); });
             act(() => { vi.runOnlyPendingTimers(); });
@@ -1158,6 +1160,12 @@ describe('UnorchestratedReqBox', () => {
         expect(getComputedStyle(a).fontWeight).toBe('700');
         expect(getComputedStyle(b).color).toBe('rgb(4, 5, 6)');
         expect(getComputedStyle(b).fontWeight).toBe('400');
+        // req #3745 — the title takes the id's colour, never its weight.
+        const ta = getComputedStyle(q('pipeline-viz-unseated-item-title-11'));
+        const tb = getComputedStyle(q('pipeline-viz-unseated-item-title-12'));
+        expect(ta.color).toBe('rgb(1, 2, 3)');
+        expect(ta.fontWeight).not.toBe('700');
+        expect(tb.color).toBe('rgb(4, 5, 6)');
     });
 
     it('with the real registry, two autonomies paint two colours', () => {
