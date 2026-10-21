@@ -34,23 +34,24 @@ describe('panelRack (req #3720)', () => {
         expect(rackDropIndex(['h', 'b'], new Map([['b', 200]]), 50)).toBe(1);
     });
 
-    it('below the stack, a panel from off the navbar lands first; a reorder goes to the bottom (req #3729)', () => {
+    it('off the stack, a panel from off the navbar lands last; a reorder goes where it is dragged (req #3744)', () => {
         const mids = new Map([['a', 100], ['b', 200]]);
-        // The stack (a, b) ends at 250.
+        // The stack (a, b) spans 60 → 250.
         // Pointed into it: where the pointer is, either way.
-        expect(rackDropIndex(['a', 'b'], mids, 150, 250)).toBe(1);
-        expect(rackDropIndex(['a', 'b'], mids, 240, 250)).toBe(2);
-        expect(rackDropIndex(['a', 'b'], mids, 240, 250, true)).toBe(2);
-        // Above it (the nav buttons): the top, either way.
-        expect(rackDropIndex(['a', 'b'], mids, 20, 250)).toBe(0);
-        expect(rackDropIndex(['a', 'b'], mids, 20, 250, true)).toBe(0);
-        // Below it: first in, at the top — unless it is a racked panel being
-        // dragged down the stack, which goes to the bottom.
-        expect(rackDropIndex(['a', 'b'], mids, 600, 250)).toBe(0);
-        expect(rackDropIndex(['a', 'b'], mids, 600, 250, true)).toBe(2);
-        // Nothing drawn (only hidden panels racked on this page): the top.
-        expect(rackDropIndex(['h'], new Map(), 600, -Infinity)).toBe(0);
-        expect(rackDropIndex(['h'], new Map(), 20, 250)).toBe(0);
+        expect(rackDropIndex(['a', 'b'], mids, 150, 250, false, 60)).toBe(1);
+        expect(rackDropIndex(['a', 'b'], mids, 70, 250, false, 60)).toBe(0);
+        expect(rackDropIndex(['a', 'b'], mids, 240, 250, false, 60)).toBe(2);
+        expect(rackDropIndex(['a', 'b'], mids, 240, 250, true, 60)).toBe(2);
+        // Above it (the nav buttons): a newcomer goes last; a reorder, the top.
+        expect(rackDropIndex(['a', 'b'], mids, 20, 250, false, 60)).toBe(2);
+        expect(rackDropIndex(['a', 'b'], mids, 20, 250, true, 60)).toBe(0);
+        // Below it: last, either way.
+        expect(rackDropIndex(['a', 'b'], mids, 600, 250, false, 60)).toBe(2);
+        expect(rackDropIndex(['a', 'b'], mids, 600, 250, true, 60)).toBe(2);
+        // Nothing drawn (only hidden panels racked on this page): last.
+        expect(rackDropIndex(['h'], new Map(), 600, -Infinity)).toBe(1);
+        expect(rackDropIndex(['h'], new Map(), 20, 250)).toBe(1);
+        expect(rackDropIndex([], new Map(), 20, -Infinity)).toBe(0);
     });
 
     it('stack orders follow rack order', () => {

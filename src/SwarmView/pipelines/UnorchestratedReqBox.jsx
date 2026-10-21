@@ -758,6 +758,7 @@ export default function UnorchestratedReqBox({
              data-testid="pipeline-viz-unseated"
              data-rack-id={ORCHESTRABLES_RACK_ID}
              data-racked={inRack ? '1' : '0'}
+             data-rack-open={inRack && open ? '1' : '0'}
              data-carrying={carrying ? '1' : '0'}
              data-lifted={barLifted ? '1' : '0'}
              data-text-step={drawn.step}
@@ -791,9 +792,11 @@ export default function UnorchestratedReqBox({
                     opacity: overRack ? 0.75 : (carrying ? 0.35 : 1),
                     // Only while folding — see the header.
                     transition: folding && !inRack ? `width ${foldMs}ms ease` : 'none',
-                    // In the stack: square, flat, never squeezed by its
-                    // neighbours (the rack scrolls instead).
-                    ...(racking && { flexShrink: 0, borderRadius: 0, boxShadow: 'none' }) }}>
+                    // In the stack: square, flat. Open, it takes its share of
+                    // the rack's free height and its list scrolls inside it
+                    // (req #3744); folded, it is its title bar.
+                    ...(racking && { flex: open ? '1 1 auto' : '0 0 auto',
+                        borderRadius: 0, boxShadow: 'none' }) }}>
             <Box ref={headerRef} data-testid="pipeline-viz-unseated-header"
                  title={inRack
                      ? `Drag to reorder · drag off the navbar to float it${count > 0 ? ' · drop on a step to seat them all' : ''}`
@@ -849,10 +852,10 @@ export default function UnorchestratedReqBox({
                 — the unfold would animate 0 → 0 and then pop (req #3648 code
                 review). */}
             <Collapse in={open} timeout={foldMs} unmountOnExit
-                      sx={{ flex: '0 1 auto', minHeight: 0,
+                      sx={{ flex: racking ? '1 1 auto' : '0 1 auto', minHeight: 0,
                             '&.MuiCollapse-entered': {
                                 display: 'flex', flexDirection: 'column',
-                                '& .MuiCollapse-wrapper': { flex: '0 1 auto', minHeight: 0 },
+                                '& .MuiCollapse-wrapper': { flex: racking ? '1 1 auto' : '0 1 auto', minHeight: 0 },
                                 '& .MuiCollapse-wrapperInner': {
                                     display: 'flex', flexDirection: 'column', minHeight: 0 } } }}>
             <Box ref={listRef} data-testid="pipeline-viz-unseated-list"
@@ -864,7 +867,9 @@ export default function UnorchestratedReqBox({
                      // Mid-fold only — see `foldListW`.
                      ...(foldListW > 0 && { width: `${foldListW}px` }) }}
                  sx={{ overflowY: 'auto', overscrollBehavior: 'contain',
-                        minHeight: 0, flex: '0 1 auto', maxHeight: `${LIST_MAX_EM}em`,
+                        minHeight: 0, flex: racking ? '1 1 auto' : '0 1 auto',
+                        // Racked, the navbar's free height is the cap (req #3744).
+                        maxHeight: racking ? 'none' : `${LIST_MAX_EM}em`,
                         borderTop: `1px solid ${P.line}`, py: '0.35em' }}>
                 {isError && (
                     <Box sx={{ px: '0.8em', py: '0.5em', color: '#ff8a80' }}>
@@ -897,7 +902,7 @@ export default function UnorchestratedReqBox({
             {open && !inRack && (
                 // Its own strip under the list, so it never lies over a row.
                 <Box ref={stripRef} data-testid="pipeline-viz-unseated-grip-strip"
-                     sx={{ display: 'flex', flexShrink: 0, height: '1.3em',
+                     sx={{ display: 'flex', flexShrink: 0, height: '1.8em',
                             justifyContent: anchoredRight ? 'flex-start' : 'flex-end' }}>
                 {gripShown && (
                 <Box data-testid="pipeline-viz-unseated-grip"
@@ -909,8 +914,8 @@ export default function UnorchestratedReqBox({
                      onPointerCancel={onGripUp}
                      onLostPointerCapture={onGripUp}
                      onDoubleClick={onGripDoubleClick}
-                     sx={{ width: '1.3em', height: '1.3em',
-                            p: '0.2em', boxSizing: 'border-box', touchAction: 'none',
+                     sx={{ width: '1.8em', height: '1.8em',
+                            p: '0.35em', boxSizing: 'border-box', touchAction: 'none',
                             cursor: anchoredRight ? 'nesw-resize' : 'nwse-resize',
                             color: OUTLINE, opacity: resizing ? 1 : 0.75,
                             '&:hover': { opacity: 1 } }}>

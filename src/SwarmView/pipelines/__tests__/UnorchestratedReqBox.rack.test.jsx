@@ -197,7 +197,7 @@ describe('UnorchestratedReqBox — the navbar rack (req #3735)', () => {
         expect(usePanelRackStore.getState().drag).toBeNull();
     });
 
-    it('lands first in the stack, at the top of the other racked windows', () => {
+    it('lands last in the stack, at the bottom of the other racked windows (req #3744)', () => {
         // Another window already racked and drawn below the nav buttons.
         const other = document.createElement('div');
         other.setAttribute('data-rack-id', 'devservers');
@@ -207,8 +207,8 @@ describe('UnorchestratedReqBox — the navbar rack (req #3735)', () => {
         act(() => root.render(<UnorchestratedReqBox items={[]} />));
         withGeometry();
         drag([710, 20], [90, 550]);
-        expect(usePanelRackStore.getState().racked).toEqual([ORCHESTRABLES_RACK_ID, 'devservers']);
-        expect(box().style.order).toBe('0');
+        expect(usePanelRackStore.getState().racked).toEqual(['devservers', ORCHESTRABLES_RACK_ID]);
+        expect(box().style.order).toBe('2');
     });
 
     it('in the icon-only navbar it keeps its ▾ and badge, and its rows their ids', () => {

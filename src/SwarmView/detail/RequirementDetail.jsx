@@ -313,7 +313,7 @@ const RequirementDetail = () => {
     const requirementStatusFilter = useShowClosedStore(s => s.requirementStatusFilter);
 
     const { data: allCategoriesData } = useAllCategories(profile?.userName, {
-        fields: 'id,category_name,sort_order,closed',
+        fields: 'id,category_name,sort_order,closed,color',
         closed: 0,
     });
     // Req #3015 — match the card view's ordering (CategoryTabPanel) rather than
@@ -1008,6 +1008,7 @@ const RequirementDetail = () => {
     if (!requirement) return <Typography>Requirement not found.</Typography>;
 
     const categoryUnset = !requirement.category_fk;
+    const selectedCategoryColor = allCategories?.find(c => c.id === requirement.category_fk)?.color || null;
 
     // Req #2836 — page is wider than the prose column so the Linked Sessions
     // DataGrid (~770px of columns) fits without a horizontal scrollbar. The
@@ -1082,6 +1083,21 @@ const RequirementDetail = () => {
                 color: categoryUnset ? 'error.main' : 'text.secondary',
                 fontWeight: 'bold', fontSize: '1.25rem',
             }}>
+                {/* Req #3746 — the selected category's color bar, left of "Category -"
+                    (same 6px rounded bar the requirement rows draw). Rendered only
+                    when the category has a color. */}
+                {selectedCategoryColor && (
+                    <Box
+                        component="span"
+                        data-testid="requirement-category-color-bar"
+                        sx={{
+                            width: 6, alignSelf: 'stretch', minHeight: 24, mr: 1,
+                            bgcolor: selectedCategoryColor,
+                            border: '1px solid', borderColor: 'divider',
+                            borderRadius: '3px', flexShrink: 0,
+                        }}
+                    />
+                )}
                 <Box component="span">Category -&nbsp;</Box>
                 {allCategories ? (
                     <Select
