@@ -871,4 +871,64 @@ describe('RequirementDetail Orchestration box (req #3435)', { timeout: 30000 }, 
         expect(testid(container, 'orchestration-step-select').textContent).toBe('Select a step');
     });
 
+    // Req #3706 — a SEATED requirement deletes (the gateway CASCADEs its seat)
+    // and every plan read that could still show the seat is re-read.
+    it('deletes a seated requirement and re-reads the plan caches', async () => {
+        const { default: callRestApi } = await import('../../../RestApi/RestApi');
+        const invalidate = vi.spyOn(QueryClient.prototype, 'invalidateQueries');
+        try {
+            const { container } = mount();
+            await flush();
+            expect(testid(container, 'orchestration-step-select').textContent).toBe('Orchestration Box');
+            await act(async () => { testid(container, 'btn-delete-requirement').click(); });
+            await flush();
+            const confirm = Array.from(document.querySelectorAll(
+                '[data-testid="requirement-delete-dialog"] button'))
+                .find((b) => b.textContent === 'Delete');
+            await act(async () => { confirm.click(); });
+            await flush();
+            const deletes = callRestApi.mock.calls.filter(([uri, method]) =>
+                method === 'DELETE' && uri.endsWith('/requirements'));
+            expect(deletes.map(([, , body]) => body)).toEqual([{ id: 3435 }]);
+            expect(seatCalls).toEqual([]);
+            const keys = invalidate.mock.calls.map(([arg]) => JSON.stringify(arg.queryKey));
+            expect(keys).toEqual(expect.arrayContaining([
+                JSON.stringify(['pipeline_step_requirements', 'tester']),
+                JSON.stringify(['pipeline_compose']),
+            ]));
+            expect(snackMessages).toEqual([]);
+        } finally {
+            invalidate.mockRestore();
+        }
+    });
+
+    it('names the lock when a seated requirement delete is refused (423)', async () => {
+        const { default: callRestApi } = await import('../../../RestApi/RestApi');
+        const lockMessage = 'cannot delete requirements 3435: it is seated on step 100, '
+            + 'locked by epic 20 — unlock it first';
+        const original = callRestApi.getMockImplementation();
+        callRestApi.mockImplementation(async (uri, method, ...rest) => {
+            if (method === 'DELETE' && uri.endsWith('/requirements')) {
+                // eslint-disable-next-line no-throw-literal
+                throw { data: null, httpStatus: { httpStatus: 423, httpMessage: lockMessage } };
+            }
+            return original(uri, method, ...rest);
+        });
+        try {
+            const { container } = mount();
+            await flush();
+            await act(async () => { testid(container, 'btn-delete-requirement').click(); });
+            await flush();
+            const confirm = Array.from(document.querySelectorAll(
+                '[data-testid="requirement-delete-dialog"] button'))
+                .find((b) => b.textContent === 'Delete');
+            await act(async () => { confirm.click(); });
+            await flush();
+            expect(snackMessages).toEqual([lockMessage]);
+        } finally {
+            callRestApi.mockImplementation(original);
+        }
+    });
+
 });
+
