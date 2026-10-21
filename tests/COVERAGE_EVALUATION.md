@@ -38,7 +38,7 @@
 | DOM-02 | Close domain tab | domain.spec.ts | Pass |
 | AREA-01 | Create area via template | area.spec.ts | Pass |
 | AREA-02 | Close area card | area.spec.ts | Pass |
-| AREA-03 | DnD reorder areas (keyboard) | area.spec.ts | **Skipped** |
+| AREA-03 | DnD reorder areas (dnd-kit mouse) | area.spec.ts | Pass |
 | TASK-01 | Create task via template | task.spec.ts | Pass |
 | TASK-02 | Toggle task done | task.spec.ts | Pass |
 | TASK-03 | Toggle task priority | task.spec.ts | Pass |
@@ -46,7 +46,7 @@
 | TASK-05 | DnD task between areas | task.spec.ts | Pass |
 | NAV-01 | Navigate between all views | navigation.spec.ts | Pass |
 
-**P0 Coverage: 12/13 (92%)** — AREA-03 skipped due to @hello-pangea/dnd keyboard DnD flakiness in parallel headless Chromium.
+**P0 Coverage: 13/13 (100%)** — AREA-03 runs on dnd-kit with real pointer input since req #3664 (it was skipped while AreaEdit was on @hello-pangea/dnd).
 
 ### P1 — Important (13 planned)
 
@@ -157,21 +157,13 @@ These 13 tests were added in sessions after the original TEST_PLAN.md was writte
    - Out of scope for single-user E2E
    - **Priority: Skip**
 
-## AREA-03 Skip Analysis
+## AREA-03 (formerly skipped)
 
-**Test**: AREA-03 — DnD reorder areas in AreaEdit via @hello-pangea/dnd keyboard API
-
-**Why skipped**: @hello-pangea/dnd keyboard DnD requires:
-1. Focus on drag handle
-2. Space to lift (triggers screen reader announcement)
-3. Arrow keys to move
-4. Space to drop
-
-In parallel headless Chromium, the Space key event sometimes fails to initiate the drag lift, causing intermittent failures. The DnD library's internal state machine depends on focus/blur events that behave differently in headless mode.
-
-**Workaround attempted**: Longer timeouts, sequential test execution — still flaky (~30% failure rate).
-
-**Recommendation**: Keep skipped. The area reorder functionality is tested indirectly via API-based sort_order verification in AREA-07 (sort-order.spec.ts). The actual DnD UI interaction is a library-level concern.
+AREA-03 was skipped while AreaEdit dragged through @hello-pangea/dnd, whose keyboard lift failed
+intermittently in headless Chromium. Req #3664 moved every editor onto the dnd-kit foundation and
+removed @hello-pangea/dnd; AREA-03 now drives a real pointer drag and runs, and
+`editors-dnd.spec.ts` covers the editors' lift, reflow, persistence, keyboard reorder, closed-row
+and template non-targets, edge auto-scroll and touch.
 
 ## Component Coverage Summary
 
@@ -179,7 +171,7 @@ In parallel headless Chromium, the Space key event sometimes fails to initiate t
 |-----------|------|-------|----------|
 | TaskCard | TaskPlanView | TASK-01–05, DND-03–07 | Excellent |
 | DroppableTab | TaskPlanView | DOM-01, DOM-02, AREA-06 | Good |
-| AreaTableRow | AreaEdit | AREA-01–05, AREA-07 | Good (minus DnD) |
+| AreaTableRow | AreaEdit | AREA-01–05, AREA-07, EDND-01–05, EDTOUCH-01–02 | Excellent |
 | DomainEdit | DomainEdit | DOM-03–07 | Excellent |
 | CalendarView | CalendarView | CAL-01, CAL-02 | Good |
 | TaskEditDialog | CalendarView | TASK-07 | Minimal |

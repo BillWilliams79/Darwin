@@ -18,7 +18,8 @@ import { TaskActionsContext } from '../hooks/useTaskActions';
 import { useTasksDone, useRequirementsDone, useCategoryColors, useAllCategories, useMapRunsDone, useMapRoutes } from '../hooks/useDataQueries';
 import { taskKeys, requirementKeys } from '../hooks/useQueryKeys';
 import TaskEditDialog from '../Components/TaskEditDialog/TaskEditDialog';
-import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
+import { DarwinDndContext } from '../dnd';
+import { CalendarDayZone, CalendarDragRow, calendarDragHandlers, calendarIds, CALENDAR_LIFT_SX } from './calendarDnd';
 import DayView from './DayView';
 import PeriodSummaryView from './PeriodSummaryView';
 import { periodDateRange, shiftPeriod, currentPeriodStart, formatPeriodLabel, formatDate } from '../utils/dateFormat';
@@ -473,15 +474,13 @@ const CalendarFC = () => {
         navigate(`/maps/${rawId}`, { state: { from: 'calendar' } });
     }, [navigate]);
 
-    // ── Mobile drag-and-drop handler ───────────────────────────────────────────
-    const handleMobileDragEnd = useCallback((result) => {
-        const { source, destination, draggableId } = result;
-        if (!destination || source.droppableId === destination.droppableId) return;
-
-        // draggableId is prefixed (t-123, p-456) — extract type and raw ID
-        const isTask = draggableId.startsWith('t-');
-        const rawId = draggableId.slice(2);
-        const newDate = destination.droppableId;
+    // ── Mobile drag-and-drop handler (req #3664) ───────────────────────────────
+    // A task or requirement carried onto another day of the phone list moves
+    // to that date (204 = success, req #2329).
+    const handleMobileDragEnd = useCallback((ev, newDate) => {
+        // ev.id is prefixed (t-123, p-456) — extract type and raw ID
+        const isTask = ev.id.startsWith('t-');
+        const rawId = ev.id.slice(2);
         const newTs = newDate + 'T12:00:00';
 
         if (isTask) {
@@ -514,6 +513,8 @@ const CalendarFC = () => {
                 });
         }
     }, [darwinUri, idToken, showError, queryClient, profile]);
+
+    const mobileDragHandlers = useMemo(() => calendarDragHandlers(handleMobileDragEnd), [handleMobileDragEnd]);
 
     // ── TaskActionsContext callbacks ───────────────────────────────────────────
     const priorityClick = (taskIndex, taskId) => {
@@ -674,7 +675,7 @@ const CalendarFC = () => {
                         </ToggleButtonGroup>
                     </Box>
                     {/* Scrollable list */}
-                    <DragDropContext onDragEnd={handleMobileDragEnd}>
+                    <DarwinDndContext {...mobileDragHandlers} overlaySx={CALENDAR_LIFT_SX}>
                     <Box ref={mobileScrollContainerRef} sx={{ flex: 1, overflowY: 'auto' }}>
                         <div ref={topSentinelRef} style={{ height: 1 }} />
                         {mode.length === 0 ? (
@@ -691,7 +692,9 @@ const CalendarFC = () => {
                             const activityEvents = dayEvents.filter(ev => ev.extendedProps?.sourceType === 'activities');
                             const requirementEvents = dayEvents.filter(ev => ev.extendedProps?.sourceType === 'requirements');
                             return (
-                            <Box key={date} data-date={date}>
+                            // The whole day — header included — takes a carried task or requirement.
+                            <CalendarDayZone key={date} date={date} data-date={date} disabled={!hasDraggable}
+                                             draggableIds={[...taskEvents, ...requirementEvents].map(ev => calendarIds.event(ev.id))}>
                                 {/* Day header */}
                                 <Box sx={{
                                     bgcolor: date === todayStr ? 'success.light' : 'action.hover',
@@ -707,33 +710,23 @@ const CalendarFC = () => {
                                 </Box>
                                 {/* Events for the day — grouped: tasks, activities, requirements */}
                                 {hasDraggable ? (
-                                    <Droppable droppableId={date}>
-                                        {(provided) => (
-                                            <div ref={provided.innerRef} {...provided.droppableProps}
-                                                 style={{ minHeight: 4 }}>
+                                    <div style={{ minHeight: 4 }}>
                                                 {/* Tasks (draggable) */}
-                                                {taskEvents.map((ev, i) => (
-                                                    <Draggable key={ev.id} draggableId={ev.id} index={i}>
-                                                        {(provided, snapshot) => (
-                                                            <Box ref={provided.innerRef}
-                                                                 {...provided.draggableProps}
-                                                                 {...provided.dragHandleProps}
-                                                                 onClick={() => handleMobileTaskClick(ev.extendedProps?.rawId)}
-                                                                 sx={{ px: 2, py: 1, borderBottom: '1px solid', borderColor: 'divider',
-                                                                       cursor: 'pointer',
-                                                                       bgcolor: snapshot.isDragging ? 'action.selected'
-                                                                           : (ev.extendedProps?.priority === 1 ? PRIORITY_STYLE.bg : 'inherit'),
-                                                                       '&:active': { bgcolor: 'action.hover' } }}>
-                                                                <Typography variant="body2" sx={{
-                                                                    fontSize: '0.9rem',
-                                                                    color: ev.extendedProps?.priority === 1 ? PRIORITY_STYLE.textColor : 'text.primary',
-                                                                    fontWeight: ev.extendedProps?.priority === 1 ? 700 : 'normal',
-                                                                }}>
-                                                                    {ev.title}
-                                                                </Typography>
-                                                            </Box>
-                                                        )}
-                                                    </Draggable>
+                                                {taskEvents.map((ev) => (
+                                                    <CalendarDragRow key={ev.id} ev={ev} date={date}
+                                                                     onClick={() => handleMobileTaskClick(ev.extendedProps?.rawId)}
+                                                                     sx={{ px: 2, py: 1, borderBottom: '1px solid', borderColor: 'divider',
+                                                                           cursor: 'pointer',
+                                                                           bgcolor: ev.extendedProps?.priority === 1 ? PRIORITY_STYLE.bg : 'inherit',
+                                                                           '&:active': { bgcolor: 'action.hover' } }}>
+                                                        <Typography variant="body2" sx={{
+                                                            fontSize: '0.9rem',
+                                                            color: ev.extendedProps?.priority === 1 ? PRIORITY_STYLE.textColor : 'text.primary',
+                                                            fontWeight: ev.extendedProps?.priority === 1 ? 700 : 'normal',
+                                                        }}>
+                                                            {ev.title}
+                                                        </Typography>
+                                                    </CalendarDragRow>
                                                 ))}
                                                 {/* Activities (non-draggable) */}
                                                 {activityEvents.map((ev) => (
@@ -751,31 +744,21 @@ const CalendarFC = () => {
                                                     </Box>
                                                 ))}
                                                 {/* Requirements (draggable) */}
-                                                {requirementEvents.map((ev, i) => (
-                                                    <Draggable key={ev.id} draggableId={ev.id} index={taskEvents.length + i}>
-                                                        {(provided, snapshot) => (
-                                                            <Box ref={provided.innerRef}
-                                                                 {...provided.draggableProps}
-                                                                 {...provided.dragHandleProps}
-                                                                 onClick={() => handleMobileRequirementClick(ev.extendedProps?.rawId)}
-                                                                 sx={{ px: 2, py: 1, borderBottom: '1px solid', borderColor: 'divider',
-                                                                       cursor: 'pointer',
-                                                                       bgcolor: snapshot.isDragging ? 'action.selected' : 'inherit',
-                                                                       ...(ev.extendedProps?.catColor && {
-                                                                           borderLeft: `3px solid ${ev.extendedProps.catColor}`,
-                                                                       }),
-                                                                       '&:active': { bgcolor: 'action.hover' } }}>
-                                                                <Typography variant="body2" sx={{ fontSize: '0.9rem' }}>
-                                                                    {ev.title}
-                                                                </Typography>
-                                                            </Box>
-                                                        )}
-                                                    </Draggable>
+                                                {requirementEvents.map((ev) => (
+                                                    <CalendarDragRow key={ev.id} ev={ev} date={date}
+                                                                     onClick={() => handleMobileRequirementClick(ev.extendedProps?.rawId)}
+                                                                     sx={{ px: 2, py: 1, borderBottom: '1px solid', borderColor: 'divider',
+                                                                           cursor: 'pointer',
+                                                                           ...(ev.extendedProps?.catColor && {
+                                                                               borderLeft: `3px solid ${ev.extendedProps.catColor}`,
+                                                                           }),
+                                                                           '&:active': { bgcolor: 'action.hover' } }}>
+                                                        <Typography variant="body2" sx={{ fontSize: '0.9rem' }}>
+                                                            {ev.title}
+                                                        </Typography>
+                                                    </CalendarDragRow>
                                                 ))}
-                                                {provided.placeholder}
-                                            </div>
-                                        )}
-                                    </Droppable>
+                                    </div>
                                 ) : (
                                     <div style={{ minHeight: 4 }}>
                                         {activityEvents.map((ev) => (
@@ -793,12 +776,12 @@ const CalendarFC = () => {
                                         ))}
                                     </div>
                                 )}
-                            </Box>
+                            </CalendarDayZone>
                             );
                         })}
                         <div ref={bottomSentinelRef} style={{ height: 1 }} />
                     </Box>
-                    </DragDropContext>
+                    </DarwinDndContext>
                 </Box>
             ) : (
                 /* ── Desktop ── */
