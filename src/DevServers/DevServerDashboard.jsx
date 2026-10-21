@@ -36,6 +36,9 @@ import { lighten } from '@mui/material/styles';
 import useMediaQuery from '@mui/material/useMediaQuery';
 
 import AnchoredPanel from '../Components/AnchoredPanel/AnchoredPanel';
+import {
+    INFO_PANEL_BADGE_EM, INFO_PANEL_COLORS, INFO_PANEL_FONT_PX, INFO_PANEL_HEAD_PX, INFO_PANEL_MONO, INFO_PANEL_SX,
+} from '../Components/AnchoredPanel/infoPanelChrome';
 import { validDock } from '../Components/AnchoredPanel/anchoredPanelGeometry';
 import AuthContext from '../Context/AuthContext';
 import { useDevServerRequirementTitles, useDevServerSessionTerminals, useDevServers, useMachines } from '../hooks/useDataQueries';
@@ -47,21 +50,10 @@ import {
     devServerDashboardRows, withRequirementTitles, withTerminalLinks,
 } from './devServerDashboardModel';
 
-const MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
-/** Type size, px — every dimension inside is in em off it. */
-const FONT_PX = 12;
-/** The head row's height, px: its tallest item (× at 1.54em) plus 0.6em of
- *  padding, plus the 2px frame top and bottom. */
-const HEAD_PX = Math.ceil(2.2 * FONT_PX + 4);
-const LIMITS = { minW: DASH_MIN_W, minH: DASH_MIN_H, autoMaxW: DASH_AUTO_MAX_W, headPx: HEAD_PX };
-const COLORS = {
-    // The Orchestration Ready box's outline (req #3605) and panel.
-    frame: '#a64dff', background: 'rgba(13, 20, 32, 0.94)', line: P.line, text: P.text,
-    // The Topology minimize head's colours (`.tpu3d-head`, req #3570).
-    head: '#7bb8de', headHover: '#cfe4f7',
-};
-/** The count badge's height, and its width for one digit (a circle). */
-const BADGE_EM = '1.45em';
+const MONO = INFO_PANEL_MONO;
+const FONT_PX = INFO_PANEL_FONT_PX;
+const LIMITS = { minW: DASH_MIN_W, minH: DASH_MIN_H, autoMaxW: DASH_AUTO_MAX_W, headPx: INFO_PANEL_HEAD_PX };
+const BADGE_EM = INFO_PANEL_BADGE_EM;
 
 /** The bar's edge: a same-hue lightened shade of its fill (RequirementRow's
  *  rule, req #2752), as the Orchestration Ready box draws it. */
@@ -119,10 +111,8 @@ export default function DevServerDashboard() {
                        open={open} onToggle={toggleOpen}
                        name="Dev Servers" testid="devserver-dashboard"
                        rackId={DASH_RACK_ID}
-                       limits={LIMITS} fontPx={FONT_PX} colors={COLORS}
-                       sx={{ borderRadius: '0.8em', backdropFilter: 'blur(2px)',
-                              boxShadow: '0 0.5em 1.5em rgba(0, 0, 0, 0.45)',
-                              fontFamily: MONO }}
+                       limits={LIMITS} fontPx={FONT_PX} colors={INFO_PANEL_COLORS}
+                       sx={INFO_PANEL_SX}
                        extras={
                            // The step card's count badge (req #3503): the green
                            // pill, a circle for one digit, a capsule past it.

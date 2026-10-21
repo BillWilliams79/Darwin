@@ -20,6 +20,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { sessionPipelineLink } from '../sessionPipelineLink';
+import { buildOrchestrationIndex } from '../detail/orchestrationIndex';
 
 const PIPELINES = [{ id: 7, title: 'FP Pipeline - Agent Harness (2.0)' }];
 
@@ -73,6 +74,68 @@ describe('sessionPipelineLink', () => {
     // era back by accident on one caller.
     it('reports no era field — there is one plan surface', () => {
         expect(Object.keys(sessionPipelineLink({ pipeline_fk: 7 }, PIPELINES)))
-            .toEqual(['state', 'planId', 'label', 'title', 'href']);
+            .toEqual(['state', 'planId', 'label', 'title', 'href', 'epicLabel', 'stepLabel']);
+    });
+});
+
+// req #3724 — the sessions table's pill names plan › epic › step.
+describe('sessionPipelineLink — epic and step placement', () => {
+    const INDEX = buildOrchestrationIndex({
+        pipelines: [{ id: 7, title: 'Plan A', pipeline_status: 'active' },
+                    { id: 8, title: 'Plan B', pipeline_status: 'active' }],
+        epics: [{ id: 30, pipeline_fk: 7, title: 'Epic One' },
+                { id: 31, pipeline_fk: 7, title: 'Epic Two' },
+                { id: 40, pipeline_fk: 8, title: 'Other Epic' }],
+        steps: [{ id: 300, epic_fk: 30, title: 'Step Alpha' },
+                { id: 310, epic_fk: 31, title: 'Step Beta' },
+                { id: 400, epic_fk: 40, title: 'Step Elsewhere' }],
+        stepRequirements: [{ step_fk: 300, requirement_fk: 1001 },
+                           { step_fk: 310, requirement_fk: 1002 },
+                           { step_fk: 400, requirement_fk: 1003 }],
+    });
+    const PL = [{ id: 7, title: 'Plan A' }, { id: 8, title: 'Plan B' }];
+
+    it('names the stamped epic and the requirement seat step', () => {
+        const r = sessionPipelineLink({ pipeline_fk: 7, epic_fk: 30 }, PL,
+            { index: INDEX, requirementId: '1001' });
+        expect(r.label).toBe('Plan A');
+        expect(r.epicLabel).toBe('Epic One');
+        expect(r.stepLabel).toBe('Step Alpha');
+        expect(r.title).toBe('Open plan Plan A — Epic: Epic One · Step: Step Alpha');
+    });
+
+    it('falls back to the seat epic when the session carries no epic stamp', () => {
+        const r = sessionPipelineLink({ pipeline_fk: 7, epic_fk: null }, PL,
+            { index: INDEX, requirementId: 1002 });
+        expect(r.epicLabel).toBe('Epic Two');
+        expect(r.stepLabel).toBe('Step Beta');
+    });
+
+    it('omits a step seated in a different plan', () => {
+        const r = sessionPipelineLink({ pipeline_fk: 7, epic_fk: 30 }, PL,
+            { index: INDEX, requirementId: 1003 });
+        expect(r.epicLabel).toBe('Epic One');
+        expect(r.stepLabel).toBeNull();
+    });
+
+    it('omits a step seated under a different epic than the stamped one', () => {
+        const r = sessionPipelineLink({ pipeline_fk: 7, epic_fk: 30 }, PL,
+            { index: INDEX, requirementId: 1002 });
+        expect(r.epicLabel).toBe('Epic One');
+        expect(r.stepLabel).toBeNull();
+    });
+
+    it('falls back to id labels for unread epic rows', () => {
+        const r = sessionPipelineLink({ pipeline_fk: 7, epic_fk: 99 }, PL,
+            { index: INDEX, requirementId: null });
+        expect(r.epicLabel).toBe('Epic #99');
+        expect(r.stepLabel).toBeNull();
+    });
+
+    it('reports no placement without an index — plan fields unchanged', () => {
+        const r = sessionPipelineLink({ pipeline_fk: 7, epic_fk: 30 }, PL);
+        expect(r.epicLabel).toBeNull();
+        expect(r.stepLabel).toBeNull();
+        expect(r.title).toBe('Open plan Plan A');
     });
 });

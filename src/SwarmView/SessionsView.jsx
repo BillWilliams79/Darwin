@@ -10,6 +10,7 @@ import { swarmStatusChipProps, swarmStatusLabel } from './swarmStatusChipProps';
 import { machineChipProps, machineLabel, UNASSIGNED_MACHINE } from './machineChipStyles';
 import { terminalFocusState } from './terminalFocus';
 import { sessionPipelineLink } from './sessionPipelineLink';
+import { useOrchestrationIndex } from './detail/useOrchestrationIndex';
 import TerminalChip from './TerminalChip';
 import ModelEffortPill from './ModelEffortPill';
 import ChipFilter from '../Components/ChipFilter';
@@ -276,27 +277,65 @@ const getSessionColumns = (navigate, timezone, showCompleted) => [
         // with nothing gained.
         field: 'pipeline_title',
         headerName: 'Pipeline',
-        width: 170,
-        valueGetter: (value, row) => row.pipeline?.label ?? '',
+        width: 240,
+        // req #3724 — sort/filter text is the whole placement, so the quick
+        // filter finds a session by its epic or step name as well as its plan.
+        valueGetter: (value, row) => [row.pipeline?.label, row.pipeline?.epicLabel,
+                                      row.pipeline?.stepLabel].filter(Boolean).join(' › '),
         renderCell: (params) => {
             const plan = params.row.pipeline;
             if (!plan || plan.state === 'none') return '—';
             const clickable = plan.state === 'link';
+            // req #3724 — one pill, three lines: plan (bold), then epic and
+            // step beneath it, each a single ellipsised line so the pill fits
+            // the fixed ROW_HEIGHT. A level that does not resolve is omitted.
+            const lines = [
+                { key: 'epic', label: 'Epic', value: plan.epicLabel },
+                { key: 'step', label: 'Step', value: plan.stepLabel },
+            ].filter(l => l.value);
+            const lineSx = { overflow: 'hidden', textOverflow: 'ellipsis',
+                             whiteSpace: 'nowrap', lineHeight: 1.3 };
             return (
-                <Tooltip title={plan.title || ''}>
-                    {/* span wrapper — a non-clickable Chip fires no events for
-                        the Tooltip to hang off. */}
-                    <span>
-                        <Chip label={plan.label} size="small" variant="outlined"
-                              color={clickable ? 'primary' : 'default'}
-                              {...(clickable ? {
-                                  onClick: (e) => { e.stopPropagation(); navigate(plan.href); },
-                                  sx: { cursor: 'pointer' },
-                              } : {})}
-                              data-pipeline-state={plan.state}
-                              data-testid={`session-pipeline-${params.row.id}`} />
-                    </span>
-                </Tooltip>
+                <Box sx={CLAMP_WRAP_SX}>
+                    <Tooltip title={plan.title || ''}>
+                        <Box
+                            role={clickable ? 'link' : undefined}
+                            tabIndex={clickable ? 0 : undefined}
+                            onClick={clickable
+                                ? (e) => { e.stopPropagation(); navigate(plan.href); }
+                                : undefined}
+                            onKeyDown={clickable
+                                ? (e) => {
+                                    if (e.key !== 'Enter' && e.key !== ' ') return;
+                                    e.preventDefault(); e.stopPropagation(); navigate(plan.href);
+                                }
+                                : undefined}
+                            data-pipeline-state={plan.state}
+                            data-testid={`session-pipeline-${params.row.id}`}
+                            sx={{
+                                maxWidth: '100%', minWidth: 0,
+                                px: 1.25, py: 0.25,
+                                border: 1, borderRadius: 2,
+                                borderColor: clickable ? 'primary.main' : 'divider',
+                                color: clickable ? 'primary.main' : 'text.primary',
+                                cursor: clickable ? 'pointer' : 'default',
+                                ...(clickable ? { '&:hover': { bgcolor: 'action.hover' } } : {}),
+                            }}>
+                            <Box sx={{ ...lineSx, fontSize: '0.8125rem', fontWeight: 600 }}
+                                 data-testid={`session-pipeline-plan-${params.row.id}`}>
+                                {plan.label}
+                            </Box>
+                            {lines.map(l => (
+                                <Box key={l.key}
+                                     sx={{ ...lineSx, fontSize: '0.75rem', color: 'text.secondary' }}
+                                     data-testid={`session-pipeline-${l.key}-${params.row.id}`}>
+                                    <Box component="span" sx={{ fontWeight: 600, mr: 0.5 }}>{l.label}</Box>
+                                    {l.value}
+                                </Box>
+                            ))}
+                        </Box>
+                    </Tooltip>
+                </Box>
             );
         },
     },
@@ -451,6 +490,10 @@ const SessionsView = () => {
     // is not called here any more, and with it went the `pipelineTitleById` map
     // that only ever fed a dead grid field (see `pipeline_title` below).
     const { data: pipelinesData } = useAllPipelines(profile?.userName);
+    // req #3724 — epic and step names for the same pill. The orchestration
+    // index's four list reads are the plan pages' own cache entries (the plan
+    // list among them, so this adds three reads, shared, not per row).
+    const { index: orchestrationIndex } = useOrchestrationIndex(profile?.userName);
 
     // req #2943 — machine id → friendly name for the Machine column.
     const machineNameById = useMemo(() => {
@@ -536,7 +579,8 @@ const SessionsView = () => {
             // column overrides the row value with a `valueGetter` reading
             // `row.pipeline.label`, and its `renderCell` reads `row.pipeline`.
             // The column keeps its `field` name; only the dead value is gone.
-            pipeline: sessionPipelineLink(s, pipelinesData),
+            pipeline: sessionPipelineLink(s, pipelinesData, {
+                index: orchestrationIndex, requirementId: reqIdOf(s.source_ref) }),
             // req #3455 — computed here rather than in the column renderer
             // because it needs the machines list to answer "is this terminal on
             // the machine this browser is running on?", and a DataGrid renderCell
@@ -549,7 +593,7 @@ const SessionsView = () => {
             requirement_label: requirementLabel(s),
           })),
         [sessionsArray, devServerMap, swarmStartBySession, machineNameById,
-         machinesData, pipelinesData]);
+         machinesData, pipelinesData, orchestrationIndex]);
 
     // req #2992 — a session's machine filter key. Anything without a chip of its
     // own (NULL machine_fk, or an fk pointing at a closed/deleted machine) maps
