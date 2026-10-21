@@ -1,5 +1,5 @@
 import React from 'react'
-import { Draggable } from '@hello-pangea/dnd';
+import { useReorderItem, reorderRowSx, isLiftBlur } from '../dnd';
 
 import Box from '@mui/material/Box';
 import { Checkbox, Typography } from '@mui/material';
@@ -14,93 +14,97 @@ export const DOMAIN_GRID_COLUMNS = {
     md: '220px 70px 60px 60px 48px',
 };
 
-const DomainTableRow = ({
+export const domainItemId = (domain) => (domain.id === '' ? 'domain:template' : `domain:${domain.id}`);
+
+/** Open domains are the positions; closed domains and the template neither lift nor take a drop. */
+export const isOrderableDomain = (domain) => domain.id !== '' && domain.closed === 0;
+
+// The cells re-render when the domain does, not on every pointer move of a drag.
+const DomainCells = React.memo(({
     domain, domainIndex,
     changeDomainName, keyDownDomainName, blurDomainName,
     clickDomainClosed, clickDomainDelete,
-    areaCounts, taskCounts,
-    onRowClick, isSelected,
-    isDraggable, inputRef
-}) => {
+    areaCount, taskCount, inputRef
+}) => (
+    <>
+        <Box sx={{ px: 1 }}>
+            <TextField variant="outlined"
+                       value={domain.domain_name || ''}
+                       name='domain-name'
+                       onChange={ (event) => changeDomainName(event, domainIndex) }
+                       onKeyDown={(event) => keyDownDomainName(event, domainIndex, domain.id)}
+                       onBlur={(event) => { if (!isLiftBlur(event)) blurDomainName(event, domainIndex, domain.id); }}
+                       autoComplete='off'
+                       size='small'
+                       fullWidth
+                       slotProps={{ htmlInput: { maxLength: 32, ref: inputRef } }}
+                       key={`name-${domain.id}`}
+            />
+        </Box>
+        <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+            <Checkbox checked={(domain.closed === 1) ? true : false}
+                      onClick={(event) => clickDomainClosed(event, domainIndex, domain.id)}
+                      key={`checked-${domain.id}`}
+            />
+        </Box>
+        <Box sx={{ textAlign: 'center' }}>
+            <Typography variant='body1' data-testid={domain.id ? `area-count-${domain.id}` : undefined}>
+            {  domain.id === '' ? '' :
+                areaCount === undefined ? 0 :
+                  areaCount === '' ? '' : areaCount }
+             </Typography>
+        </Box>
+        <Box sx={{ textAlign: 'center' }}>
+            <Typography variant='body1' data-testid={domain.id ? `task-count-${domain.id}` : undefined}>
+            {  domain.id === '' ? '' :
+                taskCount === undefined ? 0 :
+                  taskCount === '' ? '' : taskCount }
+             </Typography>
+        </Box>
+        <Box>
+            { domain.id === '' ?
+                <IconButton aria-label="Save domain">
+                    <SavingsIcon />
+                </IconButton>
+                :
+                <IconButton aria-label="Delete domain" onClick={(event) => clickDomainDelete(event, domain.id, domain.domain_name)}>
+                    <DeleteIcon />
+                </IconButton>
+            }
+        </Box>
+    </>
+));
 
-    const row = (provided = {}, snapshot = {}) => (
+// One row of the editor's ReorderList (req #3664): the whole row is the grip
+// on an open domain — a click still selects the row, edits the name or ticks
+// the box; a hold (touch, or a long mouse click) or a 4 px mouse move lifts it.
+const DomainTableRow = ({ domain, areaCounts, taskCounts, onRowClick, isSelected, ...cellProps }) => {
+    const { ref, style, attributes, listeners, isDragging, draggable } = useReorderItem(domainItemId(domain), domain);
+
+    return (
         <Box
-            ref={provided.innerRef}
+            ref={ref}
             data-testid={domain.id === '' ? 'domain-row-template' : `domain-row-${domain.id}`}
-            {...provided.draggableProps}
-            {...provided.dragHandleProps}
+            data-dragging={isDragging ? 'true' : undefined}
+            {...(draggable ? { ...attributes, ...listeners } : {})}
             onClick={() => onRowClick(domain.id)}
-            sx={{
+            style={style}
+            sx={(theme) => ({
                 display: 'grid',
                 gridTemplateColumns: DOMAIN_GRID_COLUMNS,
                 alignItems: 'center',
                 py: 0.5,
+                borderRadius: 1,
                 cursor: 'pointer',
                 backgroundColor: isSelected ? 'action.selected' : 'inherit',
-                ...(snapshot.isDragging && {
-                    backgroundColor: 'background.paper',
-                    boxShadow: 3,
-                    opacity: 0.9,
-                    borderRadius: 1,
-                }),
-            }}
+                ...reorderRowSx(theme, { draggable, isDragging }),
+            })}
         >
-            <Box sx={{ px: 1 }}>
-                <TextField variant="outlined"
-                           value={domain.domain_name || ''}
-                           name='domain-name'
-                           onChange={ (event) => changeDomainName(event, domainIndex) }
-                           onKeyDown={(event) => keyDownDomainName(event, domainIndex, domain.id)}
-                           onBlur={(event) => blurDomainName(event, domainIndex, domain.id)}
-                           autoComplete='off'
-                           size='small'
-                           fullWidth
-                           slotProps={{ htmlInput: { maxLength: 32, ref: inputRef } }}
-                           key={`name-${domain.id}`}
-                />
-            </Box>
-            <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-                <Checkbox checked={(domain.closed === 1) ? true : false}
-                          onClick={(event) => clickDomainClosed(event, domainIndex, domain.id)}
-                          key={`checked-${domain.id}`}
-                />
-            </Box>
-            <Box sx={{ textAlign: 'center' }}>
-                <Typography variant='body1' data-testid={domain.id ? `area-count-${domain.id}` : undefined}>
-                {  domain.id === '' ? '' :
-                    areaCounts[`${domain.id}`] === undefined ? 0 :
-                      areaCounts[`${domain.id}`] === '' ? '' : areaCounts[`${domain.id}`] }
-                 </Typography>
-            </Box>
-            <Box sx={{ textAlign: 'center' }}>
-                <Typography variant='body1' data-testid={domain.id ? `task-count-${domain.id}` : undefined}>
-                {  domain.id === '' ? '' :
-                    taskCounts[`${domain.id}`] === undefined ? 0 :
-                      taskCounts[`${domain.id}`] === '' ? '' : taskCounts[`${domain.id}`] }
-                 </Typography>
-            </Box>
-            <Box>
-                { domain.id === '' ?
-                    <IconButton aria-label="Save domain">
-                        <SavingsIcon />
-                    </IconButton>
-                    :
-                    <IconButton aria-label="Delete domain" onClick={(event) => clickDomainDelete(event, domain.id, domain.domain_name)}>
-                        <DeleteIcon />
-                    </IconButton>
-                }
-            </Box>
+            <DomainCells domain={domain}
+                         areaCount={areaCounts[`${domain.id}`]}
+                         taskCount={taskCounts[`${domain.id}`]}
+                         {...cellProps} />
         </Box>
-    );
-
-    if (!isDraggable) {
-        return row();
-    }
-
-    return (
-        <Draggable draggableId={`domainId-${domain.id}`} index={domainIndex}>
-            {(provided, snapshot) => row(provided, snapshot)}
-        </Draggable>
     );
 }
 

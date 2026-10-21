@@ -10,7 +10,8 @@ import { domainKeys } from '../hooks/useQueryKeys';
 import DomainCloseDialog from '../Components/DomainClose/DomainCloseDialog';
 import DomainAddDialog from '../Components/DomainAdd/DomainAddDialog';
 
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 
@@ -32,6 +33,9 @@ const AreaEdit = () => {
 
     // Domain Tabs state
     const [activeTab, setActiveTab] = useState();
+    const [searchParams] = useSearchParams();
+    const linkedId = searchParams.get('domain');
+    const linkAppliedRef = useRef(false);
 
     const showError = useSnackBarStore(s => s.showError);
     const getWorkingDomain = useWorkingDomainStore(s => s.getWorkingDomain);
@@ -52,7 +56,12 @@ const AreaEdit = () => {
             });
 
             // Restore working domain from localStorage, fall back to first tab
-            const storedId = getWorkingDomain();
+            // `?domain=<id>` opens that domain's tab on the first load (req #3664: the
+            // dev server lands on the change); otherwise — and on every refetch
+            // after — the working domain, then the first tab.
+            const linked = linkAppliedRef.current ? null : linkedId;
+            linkAppliedRef.current = true;
+            const storedId = linked ?? getWorkingDomain();
             let initialTab = 0;
             if (storedId) {
                 const idx = sorted.findIndex(d => String(d.id) === storedId);

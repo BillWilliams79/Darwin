@@ -213,6 +213,9 @@ import { viewportStorageKey } from '../../utils/viewportMemory';
 // imported above.
 import { hideMachineReqs, isMachineHidden } from './planMachineFilter';
 import UnorchestratedReqBox, { UNSEATED_FLOAT_Z } from './UnorchestratedReqBox';
+// req #3721 — the plan's requirements whose sessions are under way.
+import PlanActiveBox from './PlanActiveBox';
+import { activePlanRequirements } from './planActiveReqs';
 import { useUnorchestratedRequirements } from './useUnorchestratedRequirements';
 import {
     UNSEATED_REQ_MIME, bulkSeatRequest, resolveSeatDrop, screenRectOf, unseatedBoxFontPx,
@@ -229,49 +232,23 @@ import { createPressTracker, LONG_PRESS_MS } from './planPressGesture';
 // req #3661 — a requirement's title, edited in place on its own row.
 import PlanInPlaceTitleArea from './PlanInPlaceTitleArea';
 import { reqTitleEditorBox, updateRequirementTitle } from './planReqTitleEdit';
+import {
+    REQ_PILL_FONT, REQ_PILL_FONT_EM, REQ_PILL_H_EM, REQ_PILL_LABEL_PAD_EM, REQ_PILL_STROKE,
+    REQ_PILL_STYLE,
+} from './planReqPills';
 
 // Stable default for the machine filter prop (req #3708).
 const NO_HIDDEN_MACHINES = new Set();
 const MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
 
-// req #3587 — the requirement row's Terminal and Dev Server pills.
+// req #3587 — the requirement row's Terminal and Dev Server pills. Their
+// palette and proportions live in planReqPills.js, shared with the Active box
+// (req #3721), which draws the same pills in HTML.
 //
-// A PILL IS ITS OWN ELEMENT: a rounded box with its label drawn CENTRED inside
-// it (`align`/`verticalAlign`), never an outline behind the row's own glyphs.
-// The first version traced the row's characters, so its centring hung on two
-// independent width measurements agreeing to the sub-pixel, and the token took
-// the row's bold status colour — measured off-centre and heavy (user review,
-// 2026-10-17). Now the row text carries BLANKS where a token sat (the layout
-// still reserves exactly those characters, so wrap and card height are
-// untouched) and the pill owns its label, centred by construction.
-//
-// Each kind has its own quiet palette, independent of the row's colour key: a
-// dark tinted fill, a softened edge and a light label. The terminal is the
-// requirement-id blue (`P.req`, an MUI primary chip's role); the dev server the
-// Swarm visualizer's dark-mode dev-server green, so a port reads the same on
-// both canvases.
-const REQ_PILL_STYLE = {
-    terminal: { fill: '#7fb4ff26', stroke: '#7fb4ff8c', text: '#d3e5ff' },
-    devserver: { fill: '#81c78426', stroke: '#81c7848c', text: '#d5f1d7' },
-};
-const REQ_PILL_STROKE = 1.25;
-const REQ_PILL_H_EM = 1.3;                  // pill height, in req font sizes
-const REQ_PILL_FONT_EM = 0.78;              // label size, in req font sizes
-const REQ_PILL_FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif';
 // Inside the gap before each token (`REQ_PILL_SEP` between pills, the id
 // column's own separator before the first), so neighbours keep clear air.
 // The CEILING on a pill's reach — see `REQ_PILL_LABEL_PAD_EM` for its width.
 const REQ_PILL_PAD_X = CHW_REQ * 0.3;
-// THE PILL HUGS ITS LABEL (user review, 2026-10-17: "the bubble around
-// terminal is too wide — minimize the white space without making it feel
-// cramped"). The box used to span every MONO character the layout reserved,
-// but the label is drawn in the UI sans at `REQ_PILL_FONT_EM` of the row's
-// size — about half the mono advance — so "Terminal 2" sat in a box nearly
-// twice its width. Now the box is the label's own measured width plus this
-// much air each side (0.6em — an MUI small chip's proportion), CENTRED on the
-// reserved characters and never wider than they allow. The same rule for both
-// kinds: a terminal and a port pill differ only in palette.
-const REQ_PILL_LABEL_PAD_EM = 0.6;
 // The pill's BOX is placed over the characters it replaced, MEASURED in the
 // font the row is actually drawn in, so the air between the id, the pills and
 // the title's dash stays even. `CHW_REQ` is a deliberate OVER-estimate of the
@@ -1038,6 +1015,18 @@ export default function PipelinePlanVisualizer({
         machines: model?.machines,
         palette: activePalette,
     }), [unseated.items, sessionStatus, model?.machines, activePalette]);
+    // req #3721 — the Active box: this plan's requirements whose latest
+    // session is under way, in the cards' own order, coloured by the canvas's
+    // own resolver. Off rows and requirements already in hand — no new read.
+    const activeItems = useMemo(() => activePlanRequirements({
+        rows, requirements: model?.requirements, hiddenMachines,
+    }), [rows, model?.requirements, hiddenMachines]);
+    const activeIdStyleOf = useCallback((reqId) => reqIdStyle({
+        colorKey: activeColorKey, views: reqColorViews, reqId: Number(reqId),
+    }), [activeColorKey, reqColorViews]);
+    const openActiveReq = useCallback((id) => navigate(`/swarm/requirement/${id}`,
+        pipeline?.id ? { state: planExitState(pipeline.id, 'plan') } : undefined),
+    [navigate, pipeline?.id]);
     const unseatedIdStyleOf = useCallback((reqId) => reqIdStyle({
         colorKey: activeColorKey, views: unseatedColorViews, reqId: Number(reqId),
     }), [activeColorKey, unseatedColorViews]);
@@ -4790,6 +4779,15 @@ export default function PipelinePlanVisualizer({
     return (
         <Box>
             <OrderViolationsAlert plan={plan} />
+
+            {/* req #3721 — the Active box. A viewport-fixed AnchoredPanel,
+                mounted OUTSIDE the canvas pane so d3-zoom never sees its
+                pointer or wheel. */}
+            <PlanActiveBox items={activeItems} reqPills={reqPills}
+                           idStyleOf={activeIdStyleOf}
+                           isLoading={sessionStatus == null}
+                           maximized={maximized}
+                           onOpen={openActiveReq} />
 
             {/* Req #3235 — the `?epic=` deep link named an epic no band on THIS
                 plan carries (see focusEpicNotOnPlan above). Saying so beats a

@@ -27,6 +27,7 @@ vi.mock('@mui/material/useMediaQuery', () => ({ default: () => mobile }));
 
 import DevServerDashboard from '../DevServerDashboard';
 import { useDevServerDashboardStore } from '../../stores/useDevServerDashboardStore';
+import { usePanelRackStore } from '../../stores/usePanelRackStore';
 
 const renderDash = (profile = { userName: 'u', app_swarm: 1 }) => render(
     <AuthContext.Provider value={{ idToken: 't', profile }}>
@@ -213,5 +214,26 @@ describe('DevServerDashboard (req #3643)', () => {
         useDevServerDashboardStore.setState({ dock: { h: 'l', x: 0, v: 't', y: 0, w: 0 } });
         renderDash();
         expect(screen.getByTestId('devserver-dashboard').getAttribute('data-dock')).toBe('r16,b16');
+    });
+    it('is rackable (req #3720): racked, it sits in the navbar slot at the navbar\'s width', () => {
+        const slotNode = document.createElement('div');
+        document.body.appendChild(slotNode);
+        usePanelRackStore.setState({ racked: [], slot: { node: slotNode, width: 180 }, drag: null });
+        const { unmount } = renderDash();
+        const floating = screen.getByTestId('devserver-dashboard');
+        expect(floating.getAttribute('data-rack-id')).toBe('devservers');
+        expect(floating.getAttribute('data-racked')).toBe('0');
+        unmount();
+
+        usePanelRackStore.setState({ racked: ['devservers'] });
+        renderDash();
+        const racked = screen.getByTestId('devserver-dashboard');
+        expect(slotNode.contains(racked)).toBe(true);
+        expect(racked.getAttribute('data-racked')).toBe('1');
+        expect(racked.style.width).toBe('100%');
+        // 180px is not "tiny": the title column stays.
+        expect(cells(7)).toEqual(['', '3002', 'T3', 'dev servers as dashboard']);
+        usePanelRackStore.setState({ racked: [], slot: null });
+        slotNode.remove();
     });
 });

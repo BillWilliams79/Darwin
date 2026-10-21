@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { getIdToken, apiCall, apiDelete, uniqueName, navigateToProjectEdit, waitForProjectTable, findProjectIndex, getAllProjectNames } from '../helpers/api';
-import { pangeaDragAndDrop } from '../helpers/pangea-dnd-drag';
+import { dndKitDrag } from '../helpers/dnd-kit-drag';
 
 test.describe.serial('Project Management P1', () => {
   test.setTimeout(90_000);
@@ -191,10 +191,14 @@ test.describe.serial('Project Management P1', () => {
     const initialSecondY = (await secondRow.boundingBox())!.y;
     expect(initialFirstY).toBeLessThan(initialSecondY);
 
-    // DnD: drag second row above first row
-    await pangeaDragAndDrop(page, secondRow, firstRow);
+    // DnD: drag second row above first row (the whole row is the grip, req #3664)
+    const saved = page.waitForResponse(r => r.request().method() === 'PUT' && r.url().includes('/projects'));
+    await dndKitDrag(page, secondRow, firstRow, { drop: 'upper' });
+    await saved;
 
     // Verify order changed
+    await expect.poll(async () => (await secondRow.boundingBox())!.y < (await firstRow.boundingBox())!.y,
+      { timeout: 5000 }).toBe(true);
     const afterFirstY = (await firstRow.boundingBox())!.y;
     const afterSecondY = (await secondRow.boundingBox())!.y;
     expect(afterSecondY).toBeLessThan(afterFirstY);
