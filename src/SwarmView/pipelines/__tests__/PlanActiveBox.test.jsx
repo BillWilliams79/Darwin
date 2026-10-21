@@ -11,6 +11,7 @@ import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 
 import PlanActiveBox from '../PlanActiveBox';
 import { usePlanActiveBoxStore } from '../../../stores/usePlanActiveBoxStore';
+import { usePanelRackStore } from '../../../stores/usePanelRackStore';
 import { REQ_PILL_FONT_EM, REQ_PILL_H_EM, REQ_PILL_STYLE } from '../planReqPills';
 
 const ITEMS = [
@@ -87,6 +88,22 @@ describe('PlanActiveBox (req #3721)', () => {
         expect(screen.getByTestId('pipeline-viz-active-term-3721')).toBeTruthy();
         fireEvent.click(screen.getByTestId('pipeline-viz-active-small'));
         expect(screen.getByTestId('pipeline-viz-active-item-title-3721')).toBeTruthy();
+    });
+
+    it('racks onto the navbar like the other information windows (req #3720)', () => {
+        const slot = document.createElement('div');
+        document.body.appendChild(slot);
+        usePanelRackStore.setState({ racked: ['active'], slot: { node: slot, width: 180 }, drag: null });
+        try {
+            render(<PlanActiveBox items={ITEMS} reqPills={PILLS} idStyleOf={idStyleOf} />);
+            const panel = screen.getByTestId('pipeline-viz-active');
+            expect(panel.getAttribute('data-rack-id')).toBe('active');
+            expect(panel.getAttribute('data-racked')).toBe('1');
+            expect(slot.contains(panel)).toBe(true);
+        } finally {
+            usePanelRackStore.setState({ racked: [], slot: null, drag: null });
+            slot.remove();
+        }
     });
 
     it('says None running when nothing is, and … while sessions load', () => {
