@@ -125,10 +125,14 @@ export default function DevServerInfoPanel() {
                            </Box>
                        }>
             {({ shapedWidth }) => (shapedWidth != null && shapedWidth < RACK_NARROW_PX) ? (
-                // The icon-only navbar: one short row — the terminal (still a
-                // link to its window) and PROD when dev points at production.
+                // The icon-only navbar (req #3739): every field the full panel
+                // shows — terminal, database, requirement, title, port — in
+                // short form at a smaller size, wrapped rather than clipped,
+                // each with its full label as a tooltip.
                 <Box data-testid="devserver-info-compact"
-                     sx={{ ...ROW_SX, px: '0.4em', display: 'flex', flexDirection: 'column' }}>
+                     sx={{ px: '0.4em', py: '0.15em', fontSize: '0.8em', lineHeight: 1.35,
+                            display: 'flex', flexDirection: 'column', gap: '0.25em',
+                            whiteSpace: 'normal', overflowWrap: 'anywhere' }}>
                     {(terminalNumber != null || terminalHref) && (
                         <Box component={terminalHref ? 'a' : 'span'}
                              {...(terminalHref ? { href: terminalHref } : {})}
@@ -137,7 +141,28 @@ export default function DevServerInfoPanel() {
                             T{terminalNumber ?? '↗'}
                         </Box>
                     )}
-                    {prod && <Box sx={{ color: DEV_ORANGE, fontWeight: 700 }}>PROD</Box>}
+                    <Box data-testid="navbar-dev-database" title={`DB - ${database}${prod ? ' (PROD)' : ''}`}
+                         sx={{ color: prod ? DEV_ORANGE : 'inherit', fontWeight: prod ? 700 : 400 }}>
+                        {database}{prod ? ' PROD' : ''}
+                    </Box>
+                    {DEV_REQ_ID && (
+                        <a href={prodRequirementUrl(DEV_REQ_ID)}
+                           target="_blank" rel="noopener noreferrer" title={`Req - ${DEV_REQ_ID}`}
+                           style={{ color: '#90CAF9', textDecoration: 'none' }}
+                           data-testid="navbar-dev-req-link">
+                            #{DEV_REQ_ID}
+                        </a>
+                    )}
+                    {DEV_REQ_TITLE && (
+                        <Box data-testid="navbar-dev-req-title" title={DEV_REQ_TITLE}
+                             sx={{ overflow: 'hidden',
+                                    // Four short lines — about the original
+                                    // badge's 35 characters; the tooltip has the rest.
+                                    display: '-webkit-box', WebkitLineClamp: 4, WebkitBoxOrient: 'vertical' }}>
+                            {DEV_REQ_TITLE}
+                        </Box>
+                    )}
+                    <Box data-testid="navbar-dev-port" title={`Port - ${port}`}>:{port}</Box>
                 </Box>
             ) : (
                 <>
@@ -182,12 +207,17 @@ export default function DevServerInfoPanel() {
                     )}
                     {DEV_REQ_TITLE && (
                         <Box data-testid="navbar-dev-req-title" title={DEV_REQ_TITLE}
-                             sx={{ ...ROW_SX, whiteSpace: 'normal', wordBreak: 'break-word', pb: '0.3em',
+                             sx={{ ...ROW_SX, whiteSpace: 'normal', wordBreak: 'break-word',
                                     // Three lines at most; the tooltip has the rest.
                                     display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
                             {DEV_REQ_TITLE}
                         </Box>
                     )}
+                    {/* The original badge's last line (req #3739) — the head
+                        badge alone is a bare number. */}
+                    <Box data-testid="navbar-dev-port" sx={{ ...ROW_SX, pb: '0.3em' }}>
+                        Port - {port}
+                    </Box>
                 </>
             )}
         </AnchoredPanel>

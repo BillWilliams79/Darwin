@@ -15,6 +15,8 @@ vi.mock('../../hooks/useDataQueries', () => ({
 let desktop = true;
 vi.mock('@mui/material/useMediaQuery', () => ({ default: () => desktop }));
 
+import { prodRequirementUrl } from '../../utils/prodUrl';
+
 let DevServerInfoPanel, DEV_INFO_RACK_ID, usePanelRackStore, AuthContext, AppContext;
 async function load(mode) {
     vi.resetModules();
@@ -60,7 +62,10 @@ describe('DevServerInfoPanel (req #3727)', () => {
         expect(screen.getByTestId('navbar-dev-terminal').textContent).toBe('Terminal - 7');
         expect(screen.getByTestId('navbar-dev-database').textContent).toBe('DB - darwin_dev');
         expect(screen.getByTestId('navbar-dev-req-link').textContent).toBe('Req - 3727');
+        expect(screen.getByTestId('navbar-dev-req-link').getAttribute('href')).toBe(prodRequirementUrl('3727'));
         expect(screen.getByTestId('navbar-dev-req-title').textContent).toBe('Dev Server bar dockable');
+        // req #3739 — the original badge's port line, not just the head badge.
+        expect(screen.getByTestId('navbar-dev-port').textContent).toBe('Port - 3000');
     });
 
     it('floats once taken off the rack, and stays off on the next mount', async () => {
@@ -79,12 +84,18 @@ describe('DevServerInfoPanel (req #3727)', () => {
         expect(usePanelRackStore.getState().racked).toEqual([]);
     });
 
-    it('is one short row in the icon-only navbar', async () => {
+    it('keeps every field in the icon-only navbar (req #3739)', async () => {
         await load('development');
         usePanelRackStore.setState({ racked: [], seeded: [], slot: { node: slotNode, width: 64 } });
         renderPanel('darwin');
-        expect(screen.getByTestId('devserver-info-compact').textContent).toBe('T7PROD');
-        expect(screen.queryByTestId('navbar-dev-database')).toBe(null);
+        const compact = screen.getByTestId('devserver-info-compact');
+        expect(compact.contains(screen.getByTestId('navbar-dev-terminal'))).toBe(true);
+        expect(screen.getByTestId('navbar-dev-terminal').textContent).toBe('T7');
+        expect(screen.getByTestId('navbar-dev-database').textContent).toBe('darwin PROD');
+        expect(screen.getByTestId('navbar-dev-req-link').textContent).toBe('#3727');
+        expect(screen.getByTestId('navbar-dev-req-link').getAttribute('href')).toBe(prodRequirementUrl('3727'));
+        expect(screen.getByTestId('navbar-dev-req-title').textContent).toBe('Dev Server bar dockable');
+        expect(screen.getByTestId('navbar-dev-port').textContent).toBe(':3000');
         expect(screen.queryByTestId('devserver-info-title')).toBe(null);
         expect(screen.getByTestId('devserver-info-port').textContent).toBe('3000');
     });
