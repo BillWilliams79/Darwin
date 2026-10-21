@@ -505,7 +505,9 @@ const RequirementDetail = () => {
                         // plan read that may show it re-reads (the plan it sat in is unknown here).
                         queryClient.invalidateQueries({ queryKey: pipelineStepRequirementKeys.all(profile.userName) });
                         queryClient.invalidateQueries({ queryKey: ['pipeline_compose'] });
-                        navigate('/swarm');
+                        // req #3737 — leave the way Back would: a requirement opened from a
+                        // plan returns to that plan's view (camera restores, req #3637).
+                        handleBack();
                     } else {
                         showError(result, 'Unable to delete requirement');
                     }
