@@ -1568,6 +1568,10 @@ const BAND_HEADER = 108;
 // that wants the height a lane is CONNECTED at reads `band.laneCardH` and takes
 // half of it: that is the midpoint the arcs anchor on.
 const BAND_GAP = 8;
+// req #3719 — the strip under the last epic band that carries the add-epic "+"
+// (`buildInsertMarks` centres the mark in it), so the mark is inside the world
+// rather than clipped by it. Charged only when the plan has a band.
+export const EPIC_ADD_RESERVE = 24;
 // ── THE COLUMN FLOORS AND THE TITLE SLOT ARE GONE (req #3498) ───────────────
 // `COL_MIN_W_HORIZONTAL` / `COL_MIN_W_VERTICAL` were the floor a CONTENT-SIZED
 // column could not shrink below. Columns are no longer content-sized — every
@@ -4427,7 +4431,7 @@ export function computePlanLayout(rows, opts = {}) {
         band.height = band.headerH + band.laneY[band.sub];
         y += band.height + BAND_GAP;
     }
-    const totalH = y + 8;
+    const totalH = y + 8 + (bands.length ? EPIC_ADD_RESERVE : 0);
 
     // ── Node positions: A NODE IS A BOX (req #3498) ─────────────────────────
     // `x`/`y` remain the node's CENTRE, and that is deliberate rather than
