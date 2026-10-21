@@ -9,9 +9,12 @@
 // resolver, `idStyleOf`), then the Terminal and Dev Server pills in the card's
 // own palette (`REQ_PILL_*`, planReqPills.js) — clickable exactly as the card's
 // are — then the title, in the id's colour, on ONE line, cut with "…" (req
-// #3729). The head carries the card's green count badge, led by the
-// Orchestrables box's −/+ fold button (req #3729: "the same as orchestrables"). A click on the row opens the requirement, with
-// the plan as Back's target, as a click on the card's row does.
+// #3729). The head is every pop-up window's (req #3741): the ▾ at the upper
+// left, the card's green count badge, the title — and the upper right blank,
+// since the box has no close (its small-view button went with req #3741,
+// user directive). A click on the
+// row opens the requirement, with the plan as Back's target, as a click on the
+// card's row does.
 //
 // ── A POP-UP INFORMATION WINDOW ────────────────────────────────────────────
 // Floating, docking, reshaping and collapsing are AnchoredPanel's — the Dev
@@ -23,20 +26,19 @@
 // Mounted OUTSIDE the canvas pane, so d3-zoom never sees its pointer or wheel.
 //
 // ── THE SMALL VIEW ─────────────────────────────────────────────────────────
-// The head's small-view button drops every title: each row is its id and
-// pills, and the panel pulls in to them. Shaped narrower than ACTIVE_TINY_W
-// it does the same on its own (the Dev Servers dashboard's rule). Where it
-// sits, its shape, whether it is open and whether it is small are remembered
-// per browser (usePlanActiveBoxStore).
+// Shaped narrower than ACTIVE_TINY_W, every title goes: each row is its id
+// and pills (the Dev Servers dashboard's rule). Where it sits, its shape and
+// whether it is open are remembered per browser (usePlanActiveBoxStore).
 
 import { memo } from 'react';
 
 import Box from '@mui/material/Box';
-import CloseFullscreenIcon from '@mui/icons-material/CloseFullscreen';
-import OpenInFullIcon from '@mui/icons-material/OpenInFull';
 
 import AnchoredPanel from '../../Components/AnchoredPanel/AnchoredPanel';
 import { validDock } from '../../Components/AnchoredPanel/anchoredPanelGeometry';
+import {
+    INFO_PANEL_BADGE_EM, INFO_PANEL_COLORS, INFO_PANEL_FONT_PX, INFO_PANEL_HEAD_PX, INFO_PANEL_MONO, INFO_PANEL_SX,
+} from '../../Components/AnchoredPanel/infoPanelChrome';
 import { SIDEBAR_WIDTH } from '../../NavBar/navConfig';
 import { usePlanActiveBoxStore } from '../../stores/usePlanActiveBoxStore';
 import { PLAN_VIZ_PALETTE as P } from './pipelinePlanLayout';
@@ -45,12 +47,7 @@ import {
     REQ_PILL_STYLE,
 } from './planReqPills';
 
-const MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
-/** Type size, px — every dimension inside is in em off it. */
-const FONT_PX = 12;
-/** The head row's height, px: its tallest item (the 2em −/+) plus 0.6em of
- *  padding, plus the 2px frame top and bottom. */
-const HEAD_PX = Math.ceil(2.6 * FONT_PX + 4);
+const MONO = INFO_PANEL_MONO;
 /** Smallest panel the edges will shape, px: an id and a pill. */
 export const ACTIVE_MIN_W = 120;
 export const ACTIVE_MIN_H = 64;
@@ -58,7 +55,7 @@ export const ACTIVE_MIN_H = 64;
 export const ACTIVE_TINY_W = 170;
 /** Content-sized, the panel is as wide as its rows, up to this, px. */
 export const ACTIVE_AUTO_MAX_W = 420;
-const LIMITS = { minW: ACTIVE_MIN_W, minH: ACTIVE_MIN_H, autoMaxW: ACTIVE_AUTO_MAX_W, headPx: HEAD_PX };
+const LIMITS = { minW: ACTIVE_MIN_W, minH: ACTIVE_MIN_H, autoMaxW: ACTIVE_AUTO_MAX_W, headPx: INFO_PANEL_HEAD_PX };
 /** Home: the viewport's bottom-left, just clear of the full-width navbar —
  *  the plan's one free corner (the key is bottom-centre, the maximize switch
  *  bottom-right, the Orchestrables box top-right, the epic names top-left) —
@@ -67,15 +64,7 @@ export const ACTIVE_HOME = Object.freeze({
     h: 'l', x: SIDEBAR_WIDTH + 16, v: 'b', y: 16, w: null, ht: null,
 });
 const ACTIVE_HOME_MAXIMIZED = Object.freeze({ ...ACTIVE_HOME, x: 16 });
-const COLORS = {
-    // The Orchestrables box's outline and panel (req #3605), as the Dev
-    // Servers dashboard draws them.
-    frame: '#a64dff', background: 'rgba(13, 20, 32, 0.94)', line: P.line, text: P.text,
-    // The Topology minimize head's colours (`.tpu3d-head`, req #3570).
-    head: '#7bb8de', headHover: '#cfe4f7',
-};
-/** The count badge's height, and its width for one digit (a circle). */
-const BADGE_EM = '1.45em';
+const BADGE_EM = INFO_PANEL_BADGE_EM;
 
 const SESSION_LABEL = {
     starting: 'Starting', waiting: 'Waiting', planning: 'Planning', active: 'Implementing',
@@ -119,20 +108,17 @@ function Pill({ kind, label, title, onActivate, testid }) {
  */
 function PlanActiveBox({ items, reqPills = null, idStyleOf, isLoading = false, onOpen, maximized = false }) {
     const open = usePlanActiveBoxStore(s => s.open);
-    const small = usePlanActiveBoxStore(s => s.small);
     const storedDock = usePlanActiveBoxStore(s => s.dock);
-    const { toggleOpen, toggleSmall, setDock } = usePlanActiveBoxStore.getState();
+    const { toggleOpen, setDock } = usePlanActiveBoxStore.getState();
     const dock = validDock(storedDock, ACTIVE_MIN_W, ACTIVE_MIN_H) || (maximized ? ACTIVE_HOME_MAXIMIZED : ACTIVE_HOME);
     const count = items.length;
 
     return (
         <AnchoredPanel dock={dock} onDockChange={setDock}
                        open={open} onToggle={toggleOpen}
-                       name="Active" testid="pipeline-viz-active" rackId="active" plusMinus
-                       limits={LIMITS} fontPx={FONT_PX} colors={COLORS}
-                       sx={{ borderRadius: '0.8em', backdropFilter: 'blur(2px)',
-                              boxShadow: '0 0.5em 1.5em rgba(0, 0, 0, 0.45)',
-                              fontFamily: MONO }}
+                       name="Active" testid="pipeline-viz-active" rackId="active"
+                       limits={LIMITS} fontPx={INFO_PANEL_FONT_PX} colors={INFO_PANEL_COLORS}
+                       sx={INFO_PANEL_SX}
                        extras={
                            // The step card's count badge (req #3503).
                            <Box component="span" data-testid="pipeline-viz-active-count"
@@ -144,27 +130,10 @@ function PlanActiveBox({ items, reqPills = null, idStyleOf, isLoading = false, o
                                        fontFamily: MONO, fontWeight: 700, lineHeight: 1 }}>
                                {isLoading ? '…' : count}
                            </Box>
-                       }
-                       actions={
-                           <Box component="button" type="button"
-                                onClick={toggleSmall}
-                                aria-pressed={small}
-                                aria-label={small ? 'Full view' : 'Small view'}
-                                title={small ? 'Full view — show the titles' : 'Small view — ids and pills only'}
-                                data-testid="pipeline-viz-active-small"
-                                sx={{ width: '1.4em', height: '1.4em', p: 0, display: 'flex',
-                                       alignItems: 'center', justifyContent: 'center',
-                                       background: 'transparent', border: 'none',
-                                       borderRadius: '0.4em', color: P.text, cursor: 'pointer',
-                                       '&:hover': { color: P.accent } }}>
-                               {small
-                                   ? <OpenInFullIcon sx={{ fontSize: '1.05em' }} />
-                                   : <CloseFullscreenIcon sx={{ fontSize: '1.05em' }} />}
-                           </Box>
                        }>
             {({ shapedWidth }) => {
                 // Content-sized (null) is never cut.
-                const tiny = small || (shapedWidth != null && shapedWidth < ACTIVE_TINY_W);
+                const tiny = shapedWidth != null && shapedWidth < ACTIVE_TINY_W;
                 return (
                     <Box data-testid="pipeline-viz-active-list" data-small={tiny ? '1' : '0'}>
                         {!isLoading && count === 0 && (

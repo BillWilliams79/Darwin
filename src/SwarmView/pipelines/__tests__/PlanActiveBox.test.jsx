@@ -29,7 +29,7 @@ describe('PlanActiveBox (req #3721)', () => {
     beforeEach(() => {
         Object.defineProperty(document.documentElement, 'clientWidth', { value: 1600, configurable: true });
         Object.defineProperty(document.documentElement, 'clientHeight', { value: 1000, configurable: true });
-        usePlanActiveBoxStore.setState({ open: true, small: false, dock: null });
+        usePlanActiveBoxStore.setState({ open: true, dock: null });
     });
     afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
@@ -47,16 +47,19 @@ describe('PlanActiveBox (req #3721)', () => {
         expect(t.overflow).toBe('hidden');
     });
 
-    it('its upper-left control is the Orchestrables box\'s −/+ (req #3729)', () => {
+    it('has every pop-up window\'s controls: ▾ upper left, upper right blank (req #3741)', () => {
         render(<PlanActiveBox items={ITEMS} reqPills={PILLS} idStyleOf={idStyleOf} />);
         const head = screen.getByTestId('pipeline-viz-active-header');
         const toggle = screen.getByTestId('pipeline-viz-active-toggle');
         expect(head.firstElementChild).toBe(toggle);
-        expect(toggle.textContent).toBe('−');
+        expect(toggle.textContent).toBe('▾');
         expect(toggle.getAttribute('aria-expanded')).toBe('true');
+        // No small-view button (req #3741); the upper right is empty.
+        expect(screen.queryByTestId('pipeline-viz-active-small')).toBeNull();
+        expect(head.lastElementChild.childElementCount).toBe(0);
         fireEvent.click(toggle);
         expect(usePlanActiveBoxStore.getState().open).toBe(false);
-        expect(screen.getByTestId('pipeline-viz-active-toggle').textContent).toBe('+');
+        expect(screen.getByTestId('pipeline-viz-active-toggle').getAttribute('aria-expanded')).toBe('false');
     });
 
     it('draws each row as the card does: coloured id, pills, title', () => {
@@ -99,15 +102,19 @@ describe('PlanActiveBox (req #3721)', () => {
         expect(screen.getByTestId('pipeline-viz-active-term-3720').getAttribute('role')).toBeNull();
     });
 
-    it('the small view drops the titles, and is remembered', () => {
+    it('shaped narrow it drops the titles; a remembered small view is ignored (req #3741)', () => {
+        // The small-view button is gone, so a browser that had it on must
+        // not be left in it with no way out.
+        usePlanActiveBoxStore.setState({ small: true });
+        const { unmount } = render(<PlanActiveBox items={ITEMS} reqPills={PILLS} idStyleOf={idStyleOf} />);
+        expect(screen.getByTestId('pipeline-viz-active-list').dataset.small).toBe('0');
+        expect(screen.getByTestId('pipeline-viz-active-item-title-3721')).toBeTruthy();
+        unmount();
+        usePlanActiveBoxStore.setState({ dock: { h: 'l', x: 100, v: 'b', y: 16, w: 150, ht: null } });
         render(<PlanActiveBox items={ITEMS} reqPills={PILLS} idStyleOf={idStyleOf} />);
-        fireEvent.click(screen.getByTestId('pipeline-viz-active-small'));
-        expect(usePlanActiveBoxStore.getState().small).toBe(true);
         expect(screen.getByTestId('pipeline-viz-active-list').dataset.small).toBe('1');
         expect(screen.queryByTestId('pipeline-viz-active-item-title-3721')).toBeNull();
         expect(screen.getByTestId('pipeline-viz-active-term-3721')).toBeTruthy();
-        fireEvent.click(screen.getByTestId('pipeline-viz-active-small'));
-        expect(screen.getByTestId('pipeline-viz-active-item-title-3721')).toBeTruthy();
     });
 
     it('racks onto the navbar like the other information windows (req #3720)', () => {
