@@ -27,8 +27,8 @@
 // A host that names a `rackId` can drop its panel onto the Darwin navbar: while
 // the head is dragged, the pointer is hit-tested against the navbar's drop zone
 // (`[data-panel-rack-zone]`) and the drag published to usePanelRackStore, so the
-// navbar lights up and shows where in the stack it would land: the top, unless
-// pointed into the stack (req #3729). Released there,
+// navbar glows in the panel's frame colour while it is over (req #3728). It
+// lands at the top, unless pointed into the stack (req #3729). Released there,
 // the panel is RACKED — portalled into the navbar's rack slot below its nav
 // buttons, at the navbar's width, content-sized in height, nothing to reshape.
 // Dragging a racked panel's head up or down the stack reorders it; off the
@@ -84,9 +84,6 @@ function rackTarget(rackId, x, y, fromRack) {
         mids.set(id, r.top + r.height / 2);
         bottom = Math.max(bottom, r.bottom);
     });
-    // The placeholder is part of the stack: pointed at, it stays put.
-    const drop = zone.querySelector('[data-rack-placeholder]');
-    if (drop) bottom = Math.max(bottom, drop.getBoundingClientRect().bottom);
     // A stack taller than the rack scrolls: below the rack's visible edge is
     // below the stack, whatever is scrolled out of sight there.
     const rack = slot.node.parentElement;
@@ -98,7 +95,7 @@ function rackTarget(rackId, x, y, fromRack) {
 function publishDrag(next) {
     const { drag, setDrag } = usePanelRackStore.getState();
     if (drag === next) return;
-    if (drag && next && ['id', 'over', 'index', 'fromRack'].every(k => drag[k] === next[k])) return;
+    if (drag && next && ['id', 'over', 'index', 'fromRack', 'color'].every(k => drag[k] === next[k])) return;
     setDrag(next);
 }
 
@@ -128,6 +125,7 @@ function edgeZone(e) {
  * @param {number} [props.fontPx]        everything inside is in em off it
  * @param {number} [props.border]        the frame's width, px
  * @param {{frame, background, line, head, headHover, text}} props.colors
+ *   `frame` is a concrete CSS colour: the navbar's drop glow mixes it (req #3728)
  * @param {Object} [props.sx]            more panel chrome
  * @param {number} [props.zIndex]
  * @param {string} [props.rackId]        names the panel in the navbar rack;
@@ -194,7 +192,9 @@ export default function AnchoredPanel({
             : resizeRect(g.r0, dx, dy, g.edge, vw, vh, limits.minW, limits.minH);
         setLive({ ...g.last, edge: g.edge });
         if (g.kind === 'move' && rackId) {
-            publishDrag({ id: rackId, fromRack: g.fromRack, ...rackTarget(rackId, e.clientX, e.clientY, g.fromRack) });
+            // `color` — its frame: the navbar glows in it while it is over (req #3728).
+            publishDrag({ id: rackId, fromRack: g.fromRack, color: colors.frame,
+                ...rackTarget(rackId, e.clientX, e.clientY, g.fromRack) });
         }
     };
     const onUp = (e) => {
@@ -214,7 +214,7 @@ export default function AnchoredPanel({
         if (racking) {
             const target = rackTarget(rackId, e.clientX, e.clientY, g.fromRack);
             const { rack, unrack } = usePanelRackStore.getState();
-            // Dropped on the navbar: into the stack where the drop zone showed.
+            // Dropped on the navbar: into the stack where the pointer is.
             // Its floating dock is kept for the day it is dragged back out.
             if (target.over) { rack(rackId, target.index); return; }
             // Dragged off the navbar: floats where it was dropped. Its floating

@@ -10,9 +10,10 @@ import { rackInsert, rackRemove } from '../Components/AnchoredPanel/panelRack';
 //   • `slot` — `{ node, width }`: the navbar's rack element and its width,
 //     published by the navbar while it is drawn. null = no rack here (mobile),
 //     so a racked panel floats at its dock instead.
-//   • `drag` — `{ id, over, index, fromRack }` while a rackable panel is being
-//     moved: `over` = the pointer is on the navbar, `index` = where in the stack
-//     it would land. The navbar draws its drop-zone highlight from it.
+//   • `drag` — `{ id, over, index, fromRack, color }` while a rackable panel is
+//     being moved: `over` = the pointer is on the navbar, `index` = where in the
+//     stack it would land, `color` = the panel's frame. The navbar glows in it
+//     while `over` (req #3728).
 //   • `seeded` — the ids of panels that are racked BY DEFAULT (req #3727 — the
 //     navbar's Dev Server panel) and have been racked once already. `seed(id)`
 //     racks such a panel the first time it mounts in this browser, at the

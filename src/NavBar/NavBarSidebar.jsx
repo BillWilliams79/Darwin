@@ -13,7 +13,6 @@ import {
 } from './navCollapse';
 import ProfileDialog from './ProfileDialog';
 import { usePanelRackStore } from '../stores/usePanelRackStore';
-import { placeholderOrder } from '../Components/AnchoredPanel/panelRack';
 
 import AppBar from '@mui/material/AppBar';
 import BottomNavigation from '@mui/material/BottomNavigation';
@@ -45,9 +44,10 @@ import IndeterminateCheckBoxOutlinedIcon from '@mui/icons-material/Indeterminate
 const ACCENT = '#E91E63';
 const BG_ACTIVE = 'rgba(233, 30, 99, 0.12)';
 const DEV_ORANGE = '#FF6B35';
-// The panel rack's drop zone (req #3720) is drawn in the racked panels' own
-// frame purple (AnchoredPanel hosts — the Dev Servers dashboard, and in a dev
-// build the Dev Server panel, which is racked here by default — req #3727).
+// The panel rack's drop glow (req #3728) is the dragged panel's own frame
+// colour; this is the rackable hosts' frame purple (the Dev Servers dashboard,
+// and in a dev build the Dev Server panel, racked here by default — req #3727),
+// for a drag that names none.
 const RACK_PURPLE = '#a64dff';
 
 const isDev = import.meta.env.MODE === 'development';
@@ -71,8 +71,11 @@ const NavBarSidebar = () => {
     // hosts naming a rackId — the Dev Servers dashboard) dragged onto the
     // navbar lock in below the nav buttons, at the navbar's width, stacked in
     // rack order. The navbar publishes its rack slot while it is drawn (before
-    // paint, so a racked panel never flashes at its floating dock first) and
-    // draws the drop zone from the drag the panel publishes.
+    // paint, so a racked panel never flashes at its floating dock first). A
+    // drag changes nothing here until the panel is over the navbar; then, and
+    // only then, its edges glow in the panel's frame colour (req #3728).
+    // No text, no landing zone, no outline: the drop lands where the pointer
+    // is against the stack (rackDropIndex).
     const [rackNode, setRackNode] = useState(null);
     const setRackSlot = usePanelRackStore(s => s.setSlot);
     useLayoutEffect(() => {
@@ -80,7 +83,6 @@ const NavBarSidebar = () => {
     }, [rackNode, sidebarWidth, setRackSlot]);
     useLayoutEffect(() => () => setRackSlot(null), [setRackSlot]);
     const rackDrag = usePanelRackStore(s => s.drag);
-    const racked = usePanelRackStore(s => s.racked);
     const rackOver = !!rackDrag?.over;
 
     // Per-group collapsed state (req #2869). Clicking a group header hides/shows
@@ -366,17 +368,14 @@ const NavBarSidebar = () => {
                         display: 'flex',
                         flexDirection: 'column',
                         height: '100vh',
-                        bgcolor: rackOver ? '#140a22' : 'black',
+                        bgcolor: 'black',
                         color: 'white',
                         overflow: 'hidden',
                         width,
-                        transition: 'width 0.2s ease, background-color 0.12s',
-                        // The drop zone: dashed while a rackable panel is
-                        // moving anywhere, solid and lit once it is over us.
-                        ...(rackDrag && {
-                            outline: `2px ${rackOver ? 'solid' : 'dashed'} ${RACK_PURPLE}`,
-                            outlineOffset: '-2px',
-                            boxShadow: rackOver ? `inset 0 0 18px rgba(166, 77, 255, 0.45)` : 'none',
+                        transition: 'width 0.2s ease, box-shadow 0.12s',
+                        // The drop glow: a panel over us, eligible to drop.
+                        ...(rackOver && {
+                            boxShadow: `inset 0 0 16px 2px color-mix(in srgb, ${rackDrag.color || RACK_PURPLE} 75%, transparent)`,
                         }),
                     }}>
                             {/* Bicycle menu trigger + Darwin title (+ header collapse chevron) */}
@@ -475,31 +474,18 @@ const NavBarSidebar = () => {
                             </List>
 
                             {/* The panel rack (req #3720): racked panels portal
-                                into the `display: contents` slot, so they and the
-                                drop placeholder are all flex items here and CSS
-                                `order` stacks them in rack order. It keeps its full
-                                height (the nav list above gives way) up to 60vh,
-                                then scrolls. */}
+                                into the `display: contents` slot, so they are flex
+                                items here and CSS `order` stacks them in rack
+                                order. It keeps its full height (the nav list
+                                above gives way) up to 60vh, then scrolls. */}
                             <Box data-testid="navbar-rack"
                                  sx={{ display: 'flex', flexDirection: 'column', gap: '4px',
                                         flex: '0 0 auto', maxHeight: '60vh',
                                         overflowY: 'auto', overflowX: 'hidden', scrollbarWidth: 'thin',
                                         // Spaced off the nav list only while it
                                         // holds something drawn.
-                                        '&:has([data-rack-id], [data-testid="navbar-rack-drop"])': { pt: '6px' } }}>
+                                        '&:has([data-rack-id])': { pt: '6px' } }}>
                                 <Box ref={setRackNode} data-testid="navbar-rack-slot" sx={{ display: 'contents' }} />
-                                {rackOver && (
-                                    <Box data-testid="navbar-rack-drop" data-rack-placeholder=""
-                                         sx={{ order: placeholderOrder(racked, rackDrag.id, rackDrag.index),
-                                                flexShrink: 0, height: 30, boxSizing: 'border-box',
-                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                                border: `2px dashed ${RACK_PURPLE}`,
-                                                bgcolor: 'rgba(166, 77, 255, 0.18)', color: '#d7b8ff',
-                                                fontSize: 11, fontWeight: 700, letterSpacing: 1,
-                                                textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                                        {showText ? 'Drop to rack' : '+'}
-                                    </Box>
-                                )}
                             </Box>
 
                     </Box>

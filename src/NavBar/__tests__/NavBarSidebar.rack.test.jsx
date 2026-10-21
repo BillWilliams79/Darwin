@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 //
 // Req #3720 — the navbar is the panel rack's drop zone: it publishes its rack
-// slot (below the nav buttons) and width while drawn, and draws the drop zone
-// from the drag a rackable panel publishes — dashed while one moves anywhere,
-// lit with a placeholder at the landing slot once it is over the navbar.
+// slot (below the nav buttons) and width while drawn. A rackable panel's drag
+// leaves it untouched until the panel is over it; then its edges glow
+// in the panel's frame colour — no text, no landing zone, no outline (req #3728).
 
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -56,29 +56,37 @@ describe('NavBarSidebar panel rack (req #3720)', () => {
         expect(usePanelRackStore.getState().slot.width).toBe(SIDEBAR_COLLAPSED_WIDTH);
     });
 
-    it('draws the drop zone from the drag: off, armed (dashed), over (lit, with a placeholder)', () => {
+    it('is untouched by a drag until the panel is over it, then only glows in its frame colour (req #3728)', () => {
         usePanelRackStore.setState({ racked: ['a', 'b'] });
         renderNav();
         const zone = screen.getByTestId('navbar-rack-zone');
+        const look = () => {
+            const cs = getComputedStyle(zone.firstChild);
+            return { outline: cs.outline, bg: cs.backgroundColor, glow: cs.boxShadow };
+        };
         expect(zone.getAttribute('data-rack-drop')).toBe('off');
-        expect(screen.queryByTestId('navbar-rack-drop')).toBe(null);
+        const idle = look();
+        const idleText = zone.textContent;
 
-        act(() => usePanelRackStore.getState().setDrag({ id: 'x', over: false, index: null, fromRack: false }));
+        // Moving anywhere: the navbar does not change in any way.
+        act(() => usePanelRackStore.getState().setDrag({ id: 'x', over: false, index: null, fromRack: false, color: '#123456' }));
         expect(zone.getAttribute('data-rack-drop')).toBe('armed');
-        expect(getComputedStyle(zone.firstChild).outline).toContain('dashed');
-        expect(screen.queryByTestId('navbar-rack-drop')).toBe(null);
+        expect(look()).toEqual(idle);
 
-        act(() => usePanelRackStore.getState().setDrag({ id: 'x', over: true, index: 1, fromRack: false }));
+        // Over it: no text, no landing zone, no outline or background change —
+        // a glow in the dragged panel's frame colour, and nothing else.
+        act(() => usePanelRackStore.getState().setDrag({ id: 'x', over: true, index: 1, fromRack: false, color: '#123456' }));
         expect(zone.getAttribute('data-rack-drop')).toBe('over');
-        expect(getComputedStyle(zone.firstChild).outline).toContain('solid');
-        const drop = screen.getByTestId('navbar-rack-drop');
-        expect(drop.textContent).toBe('Drop to rack');
-        // Between a (order 0) and b (order 2).
-        expect(getComputedStyle(drop).order).toBe('1');
+        const over = look();
+        expect(over.outline).toBe(idle.outline);
+        expect(over.bg).toBe(idle.bg);
+        expect(over.glow).toContain('#123456');
+        expect(zone.textContent).toBe(idleText);
+        expect(screen.queryByTestId('navbar-rack-drop')).toBe(null);
 
         act(() => usePanelRackStore.getState().setDrag(null));
         expect(zone.getAttribute('data-rack-drop')).toBe('off');
-        expect(screen.queryByTestId('navbar-rack-drop')).toBe(null);
+        expect(look()).toEqual(idle);
     });
 
     it('lifts itself above the page while a racked panel is dragged out of it', () => {

@@ -130,8 +130,9 @@ test.describe('Dev Servers View', () => {
     await expect(page.getByTestId('devserver-dashboard')).toHaveCount(0);
   });
   // Req #3720 — the dashboard is RACKABLE: dragged onto the Darwin navbar, the
-  // navbar lights up as a drop zone; dropped, the panel takes the navbar's
-  // width and locks in below the nav buttons; dragged back off, it floats.
+  // navbar glows in the panel's frame colour (req #3728); dropped, the
+  // panel takes the navbar's width and locks in below the nav buttons; dragged
+  // back off, it floats.
   test('DEV-05: Dev Servers dashboard racks into the navbar and floats back out', async ({ page }) => {
     const rows = [3001, 3002].map((port, i) => ({
       id: 950 + i, port, pid: 1, machine_fk: null, session_fk: null, terminal_number: 20 + i,
@@ -157,12 +158,36 @@ test.describe('Dev Servers View', () => {
     await page.mouse.move(grabX, grabY);
     await page.mouse.down();
     await page.mouse.move(600, 400, { steps: 6 });
-    // Moving anywhere: the drop zone is armed.
+    // Moving anywhere: the navbar does not change in any way (req #3728).
     await expect(zone).toHaveAttribute('data-rack-drop', 'armed');
+    const navLook = () => zone.evaluate(el => {
+      const cs = getComputedStyle(el.firstElementChild!);
+      return { outline: cs.outlineStyle, bg: cs.backgroundColor, glow: cs.boxShadow };
+    });
+    const idle = await navLook();
+    expect(idle.glow).toBe('none');
     await page.mouse.move(nav.x + nav.width / 2, nav.y + nav.height * 0.8, { steps: 8 });
-    // Over the navbar: lit, with the placeholder showing where it lands.
+    // Over the navbar: only a glow in the panel's frame purple — no
+    // text, no landing zone, no outline or background change.
     await expect(zone).toHaveAttribute('data-rack-drop', 'over');
-    await expect(page.getByTestId('navbar-rack-drop')).toBeVisible();
+    // The glow's colour is the dashboard's own frame colour at 75%:
+    // resolved by the browser the same way on a probe, compared once the
+    // glow's transition has settled.
+    const glowColour = (shadow: string) => shadow.match(/^\w+\([^)]*\)/)?.[0] ?? shadow;
+    const expected = await dash.evaluate(el => {
+      const probe = document.createElement('div');
+      probe.style.boxShadow = `inset 0 0 1px color-mix(in srgb, ${getComputedStyle(el).borderTopColor} 75%, transparent)`;
+      document.body.appendChild(probe);
+      const shadow = getComputedStyle(probe).boxShadow;
+      probe.remove();
+      return shadow;
+    });
+    await expect.poll(async () => glowColour((await navLook()).glow)).toBe(glowColour(expected));
+    const over = await navLook();
+    expect(over.outline).toBe(idle.outline);
+    expect(over.bg).toBe(idle.bg);
+    await expect(page.getByTestId('navbar-rack-drop')).toHaveCount(0);
+    await expect(zone.getByText('Drop to rack', { exact: true })).toHaveCount(0);
     await page.mouse.up();
     await expect(zone).toHaveAttribute('data-rack-drop', 'off');
 
@@ -272,7 +297,7 @@ test.describe('Dev Servers View', () => {
     await page.mouse.down();
     const ib = (await info.boundingBox())!;
     await page.mouse.move(gx, ib.y + ib.height - 4, { steps: 10 });
-    await expect(page.getByTestId('navbar-rack-drop')).toBeVisible();
+    await expect(zone).toHaveAttribute('data-rack-drop', 'over');
     await page.mouse.up();
     await expect(dash).toHaveAttribute('data-racked', '1');
     expect((await order()).slice(0, 2)).toEqual(['devserver-info', 'devservers']);

@@ -1,10 +1,10 @@
 // Req #3720 — the panel rack's pure half: the stack order, where a drop lands,
-// and the CSS order the navbar draws the stack and its placeholder with.
+// and the CSS order the navbar draws the stack with.
 
 import { describe, it, expect } from 'vitest';
 
 import {
-    placeholderOrder, pointInRect, rackDropIndex, rackInsert, rackOrder, rackRemove,
+    pointInRect, rackDropIndex, rackInsert, rackOrder, rackRemove,
 } from '../panelRack';
 
 describe('panelRack (req #3720)', () => {
@@ -36,7 +36,7 @@ describe('panelRack (req #3720)', () => {
 
     it('below the stack, a panel from off the navbar lands first; a reorder goes to the bottom (req #3729)', () => {
         const mids = new Map([['a', 100], ['b', 200]]);
-        // The stack (a, b, the placeholder) ends at 250.
+        // The stack (a, b) ends at 250.
         // Pointed into it: where the pointer is, either way.
         expect(rackDropIndex(['a', 'b'], mids, 150, 250)).toBe(1);
         expect(rackDropIndex(['a', 'b'], mids, 240, 250)).toBe(2);
@@ -48,22 +48,14 @@ describe('panelRack (req #3720)', () => {
         // dragged down the stack, which goes to the bottom.
         expect(rackDropIndex(['a', 'b'], mids, 600, 250)).toBe(0);
         expect(rackDropIndex(['a', 'b'], mids, 600, 250, true)).toBe(2);
-        // Nothing drawn: the top — even pointed above a placeholder that has
-        // already drawn (only hidden panels racked on this page).
+        // Nothing drawn (only hidden panels racked on this page): the top.
         expect(rackDropIndex(['h'], new Map(), 600, -Infinity)).toBe(0);
         expect(rackDropIndex(['h'], new Map(), 20, 250)).toBe(0);
     });
 
-    it('stack orders are even, the placeholder the odd slot before its panel', () => {
+    it('stack orders follow rack order', () => {
         expect(rackOrder(0)).toBe(0);
         expect(rackOrder(2)).toBe(4);
-        // Dragging 'x' (not racked) over a stack of a, b.
-        expect(placeholderOrder(['a', 'b'], 'x', 0)).toBe(-1);
-        expect(placeholderOrder(['a', 'b'], 'x', 1)).toBe(1);
-        expect(placeholderOrder(['a', 'b'], 'x', 2)).toBe(5);
-        // Dragging racked 'a' itself: indexes count the others only.
-        expect(placeholderOrder(['a', 'b', 'c'], 'a', 1)).toBe(3);
-        expect(placeholderOrder(['a', 'b', 'c'], 'a', 0)).toBe(1);
     });
 
     it('pointInRect includes edges and refuses no rect', () => {

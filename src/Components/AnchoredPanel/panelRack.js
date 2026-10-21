@@ -10,8 +10,7 @@
 // midpoints decides; a racked panel is reordered the same way (req #3729).
 //
 // The stack is drawn by CSS `order` so a panel's DOM position (wherever its
-// host mounts it) never matters: a racked panel is order 2·i, and the drop
-// placeholder the odd slot just before the panel it would land above.
+// host mounts it) never matters: a racked panel is order 2·i.
 
 /** A rack slot narrower than this, px (the icon-only sidebar), keeps only the
  *  ▾ and the host's extras in a racked panel's head. */
@@ -35,7 +34,7 @@ export function rackRemove(racked, id) {
  * into position.
  *
  * Pointed INTO the stack (above `stackBottom`, the lowest drawn edge of the
- * other panels and the drop placeholder), it lands above the first DRAWN panel
+ * other panels), it lands above the first DRAWN panel
  * whose midpoint lies below the pointer — so the nav buttons above the stack
  * mean the top, and the lower half of the last panel the bottom. Anywhere on
  * the navbar BELOW the stack, a panel arriving from off the navbar lands
@@ -61,14 +60,6 @@ export function rackDropIndex(others, midById, y, stackBottom = Infinity, fromRa
 /** The CSS `order` of the panel at `index` of the rack order. */
 export function rackOrder(index) {
     return 2 * index;
-}
-
-/** The drop placeholder's CSS `order`: just before the panel at `index` of the
- *  others (`id` excluded), or after every panel. */
-export function placeholderOrder(racked, id, index) {
-    const without = racked.filter(x => x !== id);
-    return index < without.length ? rackOrder(racked.indexOf(without[index])) - 1
-        : rackOrder(racked.length) + 1;
 }
 
 /** The point lies inside the rect (edges included). */
