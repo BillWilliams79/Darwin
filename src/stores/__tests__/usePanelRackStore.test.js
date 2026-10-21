@@ -18,7 +18,7 @@ describe('usePanelRackStore (req #3720)', () => {
         s.rack('other', 0);
         expect(usePanelRackStore.getState().racked).toEqual(['other', 'devservers']);
         const stored = JSON.parse(localStorage.getItem('darwin_panel_rack'));
-        expect(stored.state).toEqual({ racked: ['other', 'devservers'] });
+        expect(stored.state).toEqual({ racked: ['other', 'devservers'], seeded: [] });
         s.unrack('other');
         expect(usePanelRackStore.getState().racked).toEqual(['devservers']);
     });
@@ -36,6 +36,31 @@ describe('usePanelRackStore (req #3720)', () => {
         vi.resetModules();
         ({ usePanelRackStore } = await import('../usePanelRackStore'));
         await usePanelRackStore.persist.rehydrate();
+        expect(usePanelRackStore.getState().racked).toEqual([]);
+    });
+
+    it('seeds a racked-by-default panel once, at the bottom, and never again (req #3727)', async () => {
+        const { usePanelRackStore } = await import('../usePanelRackStore');
+        const s = usePanelRackStore.getState();
+        s.rack('devservers', 0);
+        s.seed('devserver-info');
+        expect(usePanelRackStore.getState().racked).toEqual(['devservers', 'devserver-info']);
+        // Dragged off, it stays off: a later mount does not re-rack it.
+        s.unrack('devserver-info');
+        s.seed('devserver-info');
+        expect(usePanelRackStore.getState().racked).toEqual(['devservers']);
+        const stored = JSON.parse(localStorage.getItem('darwin_panel_rack'));
+        expect(stored.state.seeded).toEqual(['devserver-info']);
+    });
+
+    it('loads a stored seeded list, and a malformed one as empty (req #3727)', async () => {
+        localStorage.setItem('darwin_panel_rack', JSON.stringify({
+            state: { racked: [], seeded: ['devserver-info', 3] }, version: 1 }));
+        const { usePanelRackStore } = await import('../usePanelRackStore');
+        await usePanelRackStore.persist.rehydrate();
+        expect(usePanelRackStore.getState().seeded).toEqual(['devserver-info']);
+        // Already seeded and not racked: the reader floated it — seed leaves it be.
+        usePanelRackStore.getState().seed('devserver-info');
         expect(usePanelRackStore.getState().racked).toEqual([]);
     });
 });
