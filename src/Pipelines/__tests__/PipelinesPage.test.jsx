@@ -37,7 +37,12 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
+
+// Renders the router's live query string, so a test can see `?view=` drop.
+function LocationProbe() {
+    return <span data-testid="location-probe">{useLocation().search}</span>;
+}
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -148,7 +153,7 @@ import { useSnackBarStore } from '../../stores/useSnackBarStore';
 
 let mountedRoots = [];
 
-function mount() {
+function mount(entry = '/swarm/pipelines') {
     const container = document.createElement('div');
     document.body.appendChild(container);
     const queryClient = new QueryClient({
@@ -157,11 +162,12 @@ function mount() {
     const root = createRoot(container);
     act(() => {
         root.render(
-            <MemoryRouter initialEntries={['/swarm/pipelines']}>
+            <MemoryRouter initialEntries={[entry]}>
                 <QueryClientProvider client={queryClient}>
                     <AppContext.Provider value={{ darwinUri: 'http://test.local/darwin' }}>
                         <AuthContext.Provider value={{ idToken: 'tok', profile: { userName: 'tester', timezone: 'UTC' } }}>
                             <PipelinesPage2 />
+                            <LocationProbe />
                         </AuthContext.Provider>
                     </AppContext.Provider>
                 </QueryClientProvider>
@@ -199,7 +205,8 @@ beforeEach(() => {
         { id: 7, title: 'Plan Seven', description: 'Existing goal.', pipeline_status: 'active',
           execution_mode: 'parallel', machine_fk: 4, started_at: '2026-08-01 00:00:00', completed_at: null },
         { id: 8, title: 'Plan Eight', description: null, pipeline_status: 'draft',
-          execution_mode: 'serial', machine_fk: null, started_at: null, completed_at: null },
+          execution_mode: 'serial', locked: 1, machine_fk: null, started_at: null,
+          completed_at: null },
     ];
     machines = [{ id: 4, title: 'Mac mini' }];
     epics = [
@@ -346,6 +353,39 @@ describe('PipelinesPage2 — view toggle', () => {
         click(node('view-toggle-cards'));
         expect(node('pipelines-cards-view')).not.toBeNull();
     });
+
+    // req #3641 — `?view=` names the panel, over the stored preference,
+    // without rewriting it.
+    it('opens the panel a ?view= link names, without persisting it', () => {
+        localStorage.setItem('darwin-swarm-pipelines-view', 'table');
+        mount('/swarm/pipelines?view=cards');
+        expect(node('pipelines-cards-view')).not.toBeNull();
+        expect(node('pipelines-grid')).toBeNull();
+        expect(sessionStorage.getItem('darwin-swarm-pipelines-view')).toBe('table');
+    });
+
+    it('ignores an unknown ?view= and keeps the stored preference', () => {
+        localStorage.setItem('darwin-swarm-pipelines-view', 'table');
+        mount('/swarm/pipelines?view=bogus');
+        expect(node('pipelines-grid')).not.toBeNull();
+    });
+
+    it('a hand-picked view replaces the link view and drops ?view=', () => {
+        mount('/swarm/pipelines?view=cards&keep=1');
+        expect(node('location-probe').textContent).toBe('?view=cards&keep=1');
+        switchToTable();
+        expect(node('pipelines-grid')).not.toBeNull();
+        expect(node('pipelines-cards-view')).toBeNull();
+        expect(sessionStorage.getItem('darwin-swarm-pipelines-view')).toBe('table');
+        expect(node('location-probe').textContent).toBe('?keep=1');
+    });
+
+    it('clicking the already-active view keeps the link view and its ?view=', () => {
+        mount('/swarm/pipelines?view=cards');
+        click(node('view-toggle-cards'));
+        expect(node('pipelines-cards-view')).not.toBeNull();
+        expect(node('location-probe').textContent).toBe('?view=cards');
+    });
 });
 
 describe('PipelinesPage2 — opening the visualizer, Table view (req #3463/#3372)', () => {
@@ -417,6 +457,41 @@ describe('PipelinesPage2 execution_mode toggle (Table view)', () => {
         click(node('pipelines-execmode-chip-8'));
         await flush();
         expect(restCalls[0].body).toEqual([{ id: 8, execution_mode: 'parallel' }]);
+    });
+});
+
+// req #3649 — the Lock column flips `locked` with a one-field PUT; the Cards
+// view shows a display-only lock chip on a locked plan and nothing on an open one.
+describe('PipelinesPage2 lock toggle (Table view)', () => {
+    it('locks an open plan', async () => {
+        mount();
+        switchToTable();
+        expect(node('pipelines-lock-chip-7').textContent).toBe('Open');
+        click(node('pipelines-lock-chip-7'));
+        await flush();
+        expect(restCalls).toEqual([{
+            uri: 'http://test.local/darwin/pipelines',
+            method: 'PUT',
+            body: [{ id: 7, locked: 1 }],
+        }]);
+        expect(navigations).toEqual([]);
+    });
+
+    it('unlocks a locked plan', async () => {
+        mount();
+        switchToTable();
+        expect(node('pipelines-lock-chip-8').textContent).toBe('Locked');
+        click(node('pipelines-lock-chip-8'));
+        await flush();
+        expect(restCalls[0].body).toEqual([{ id: 8, locked: 0 }]);
+    });
+});
+
+describe('PipelinesPage2 lock chip (Cards view)', () => {
+    it('marks only the locked plan', () => {
+        mount();
+        expect(node('pipelines-card-locked-8')).not.toBeNull();
+        expect(node('pipelines-card-locked-7')).toBeNull();
     });
 });
 

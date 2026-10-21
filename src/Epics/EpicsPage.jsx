@@ -67,7 +67,9 @@ import {
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import ChipFilter from '../Components/ChipFilter/ChipFilter';
 import { formatDate } from '../utils/dateFormat';
-import { epicStatus2ChipProps, epicStatus2Label } from '../SwarmView/pipelines/pipelineChipStyles';
+import {
+    epicStatus2ChipProps, epicStatus2Label, lockedChipProps, lockedLabel,
+} from '../SwarmView/pipelines/pipelineChipStyles';
 import { createEpic, updateEpic, deleteEpic, isRestNullLiteral, REST_NULL } from './epicsApi';
 
 // Same projection 1.0's EpicsPage requests — a NAME DICTIONARY, no `closed`
@@ -316,6 +318,16 @@ export default function EpicsPage() {
         }
     };
 
+    // req #3649 — a locked epic freezes itself and its steps (gateway 423).
+    const toggleLock = async (row) => {
+        try {
+            await updateEpic(darwinUri, idToken, row.id, { locked: row.locked ? 0 : 1 });
+            invalidateEpics();
+        } catch (err) {
+            showError(err, 'Could not change the epic lock');
+        }
+    };
+
     const handleDelete = async (row) => {
         const count = row.step_count;
         const consequence = count
@@ -403,6 +415,24 @@ export default function EpicsPage() {
                         clickable
                         onClick={() => toggleEpicStatus(params.row)}
                         data-testid={`epic2-pause-chip-${params.row.id}`}
+                    />
+                </Tooltip>
+            ),
+        },
+        {
+            // req #3649 — the lock cascades: a locked epic freezes its steps.
+            field: 'locked', headerName: 'Lock', width: 100, sortable: false,
+            renderCell: (params) => (
+                <Tooltip title={params.value
+                    ? 'Locked — this epic and its steps are frozen as a record. Click to unlock.'
+                    : 'Open — editable. Click to lock this epic and freeze its steps.'}>
+                    <Chip
+                        label={lockedLabel(params.value)}
+                        size="small"
+                        {...lockedChipProps(params.value)}
+                        clickable
+                        onClick={() => toggleLock(params.row)}
+                        data-testid={`epic2-lock-chip-${params.row.id}`}
                     />
                 </Tooltip>
             ),

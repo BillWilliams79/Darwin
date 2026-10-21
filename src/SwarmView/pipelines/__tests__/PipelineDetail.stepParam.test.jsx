@@ -3,15 +3,13 @@
 // Req #3140 — the RECEIVING end of the Steps editor's row link.
 //
 // `pipelineStepLink.test.js` pins the two pure functions. This pins the React
-// half, which is where the property that actually matters lives: a `?step=` link
-// seeds `focusStepId` and forces the table, and NEITHER of those may survive a
-// manual mode pick. The mode-override machinery is shared with the req #3115
-// bead-click handshake and with `?mode=`, so an edit to that effect's dependency
-// list would break all three at once and silently.
+// half: a `?step=` link seeds `focusStepId` on the plan visualizer. Since req
+// #3641 the Plan visualizer is the ONLY panel (the Table was withdrawn), so a
+// named step always lands on the plan — whatever `?mode=` an older link
+// carries — and there is no mode switcher on the page at all.
 //
-// The two mode panels are STUBBED: the real Plan mode is react-konva, which needs
-// a canvas jsdom does not provide, and none of this requirement's behaviour is in
-// either panel. The stub reports the props the handshake is made of.
+// The panel is STUBBED: the real Plan mode is react-konva, which needs a canvas
+// jsdom does not provide. The stub reports the props the handshake is made of.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import React from 'react';
@@ -25,8 +23,9 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 // The panel factory lives INSIDE the factory: vi.mock is hoisted above every
 // top-level binding in this file, so a `const Panel` outside is a TDZ error.
 vi.mock('../pipelineDetailModes', () => {
-    const Panel = (name) => function ModeStub({ focusStepId, levelPref }) {
+    const Panel = (name) => function ModeStub({ focusStepId, levelPref, stepWidthLevel }) {
         return <div data-testid={`mode-${name}`}
+                    data-step-width={stepWidthLevel == null ? '' : String(stepWidthLevel)}
                     data-focus={focusStepId == null ? '' : String(focusStepId)}
                     // Req #3253 — the level the panel is told to draw at. The
                     // canvas is react-konva and cannot mount here, so the only
@@ -41,14 +40,14 @@ vi.mock('../pipelineDetailModes', () => {
     // asked for it, so there is nothing left for the stub to observe. Emitting
     // it anyway would have made three assertions read `'0'` — the only value it
     // could still produce — which is a green test asserting nothing.
+    // The real registry's shape since req #3641: ONE mode.
     const MODES = [
-        { value: 'table', label: 'Table', icon: () => null, Component: Panel('table') },
         { value: 'plan', label: 'Plan', icon: () => null, Component: Panel('plan') },
     ];
     return {
         PIPELINE_DETAIL_MODES: MODES,
         PIPELINE_DETAIL_MODE_STORAGE_KEY: 'darwin-swarm-pipeline-detail-mode',
-        DEFAULT_PIPELINE_DETAIL_MODE: 'table',
+        DEFAULT_PIPELINE_DETAIL_MODE: 'plan',
         findPipelineDetailMode: (v) => MODES.find((m) => m.value === v),
         default: MODES,
     };
@@ -145,80 +144,57 @@ afterEach(() => {
 describe('PipelineDetail — ?step= (req #3140)', () => {
     it('seeds the focus on the FIRST render, not after an effect', () => {
         // `useState(linkStepId)` rather than a `useState(null)` an effect corrects:
-        // the table scrolls to the focused row in its own layout effect, and a
-        // focus that arrives a paint later can miss that.
-        mount('/swarm/pipeline/2?mode=table&step=47');
-        expect(focusOf('table')).toBe('47');
-    });
-
-    // REVERSED BY REQ #3253, deliberately. The old rule forced the table even on
-    // `?mode=plan&step=`, and its stated reason was that only the table consumed
-    // `focusStepId` — a plan landing would have highlighted nothing. The plan
-    // visualizer now consumes it (it centres and zooms on the bead), so the
-    // reason is gone and an explicit `?mode=plan` is honoured.
-    it('honours ?mode=plan when the link explicitly asks for it', () => {
+        // a focus that arrives a paint later can miss the panel's own effect.
         mount('/swarm/pipeline/2?mode=plan&step=47');
-        expect(node('mode-plan')).not.toBeNull();
-        expect(node('mode-table')).toBeNull();
         expect(focusOf('plan')).toBe('47');
     });
 
-    it('still defaults a bare ?step= to the TABLE', () => {
-        // The Steps editor's row link carries `mode=table` explicitly, but a
-        // hand-typed or truncated URL must not silently change surface.
-        mount('/swarm/pipeline/2?step=47');
-        expect(node('mode-table')).not.toBeNull();
-        expect(focusOf('table')).toBe('47');
+    it('honours ?mode=plan when the link explicitly asks for it', () => {
+        mount('/swarm/pipeline/2?mode=plan&step=47');
+        expect(node('mode-plan')).not.toBeNull();
+        expect(focusOf('plan')).toBe('47');
     });
 
-    it('forces the table over a STORED preference of plan', () => {
-        storePreference('plan');
+    // REQ #3641 — a bare `?step=` used to default to the Table. The Table is
+    // gone, so it lands on the plan, which centres and zooms on that step.
+    it('lands a bare ?step= on the PLAN, focused', () => {
         mount('/swarm/pipeline/2?step=47');
-        expect(node('mode-table')).not.toBeNull();
-        expect(focusOf('table')).toBe('47');
+        expect(node('mode-plan')).not.toBeNull();
+        expect(focusOf('plan')).toBe('47');
     });
 
-    it('leaves the stored preference in charge when there is no ?step=', () => {
-        storePreference('plan');
+    it('lands an old ?mode=table&step= link on the plan, focused', () => {
+        mount('/swarm/pipeline/2?mode=table&step=47');
+        expect(node('mode-plan')).not.toBeNull();
+        expect(focusOf('plan')).toBe('47');
+    });
+
+    it('opens the plan for a reader whose STORED preference says table', () => {
+        storePreference('table');
         mount('/swarm/pipeline/2');
         expect(node('mode-plan')).not.toBeNull();
         expect(focusOf('plan')).toBe('');
+        // …and never rewrites it (`normalizeView` never writes back).
+        expect(localStorage.getItem('darwin-swarm-pipeline-detail-mode')).toBe('table');
+    });
+
+    it('renders no mode switcher — the visualizer is the only view (req #3641)', () => {
+        mount('/swarm/pipeline/2');
+        expect(node('pipeline-detail-mode-toggle')).toBeNull();
+        expect(node('pipeline-mode-table')).toBeNull();
+        expect(node('pipeline-mode-plan')).toBeNull();
     });
 
     it('carries no focus when the parameter is absent or unusable', () => {
-        mount('/swarm/pipeline/2?mode=table');
-        expect(focusOf('table')).toBe('');
+        mount('/swarm/pipeline/2?mode=plan');
+        expect(focusOf('plan')).toBe('');
     });
 
     it('ignores a non-integer ?step=, rather than focusing NaN or 0', () => {
-        mount('/swarm/pipeline/2?mode=table&step=12abc');
-        expect(focusOf('table')).toBe('');
-        mount('/swarm/pipeline/2?mode=table&step=');
-        expect(focusOf('table')).toBe('');
-    });
-
-    // THE PROPERTY A DEPENDENCY-LIST EDIT WOULD BREAK SILENTLY. The link asks to
-    // see one thing once; picking a mode by hand must clear both the override and
-    // the focus and must never be resurrected by a re-render.
-    it('a manual mode pick clears the focus and survives re-render', () => {
-        mount('/swarm/pipeline/2?mode=table&step=47');
-        expect(focusOf('table')).toBe('47');
-        click(node('pipeline-mode-plan'));
-        expect(node('mode-plan')).not.toBeNull();
+        mount('/swarm/pipeline/2?mode=plan&step=12abc');
         expect(focusOf('plan')).toBe('');
-        // Re-render via an unrelated state change on the same page — the
-        // colour-key toggle. The URL is untouched, so the seeding effect must
-        // not fire again and drag the reader back to the table.
-        click(node('pipeline-viz-colorkey-state'));
-        expect(node('mode-plan')).not.toBeNull();
+        mount('/swarm/pipeline/2?mode=plan&step=');
         expect(focusOf('plan')).toBe('');
-    });
-
-    it('a manual pick back to table does not resurrect the link focus', () => {
-        mount('/swarm/pipeline/2?mode=table&step=47');
-        click(node('pipeline-mode-plan'));
-        click(node('pipeline-mode-table'));
-        expect(focusOf('table')).toBe('');
     });
 });
 
@@ -277,16 +253,6 @@ describe('PipelineDetail — ?level= (req #3253)', () => {
         // Re-render via an unrelated state change — the pin must not come back.
         click(node('pipeline-viz-colorkey-state'));
         expect(levelOf('plan')).toBe('3');
-    });
-
-    it('a manual MODE pick clears the link pin too', () => {
-        storeLevel('auto');
-        mount('/swarm/pipeline/2?mode=plan&step=47&level=2');
-        expect(levelOf('plan')).toBe('2');
-        click(node('pipeline-mode-table'));
-        click(node('pipeline-mode-plan'));
-        expect(levelOf('plan')).toBe('auto');
-        expect(focusOf('plan')).toBe('');
     });
 });
 
@@ -353,6 +319,28 @@ describe('PipelineDetail — the level is fixed until Auto (req #3324)', () => {
         expect(levelOf('plan')).toBe('2');
         click(node('pipeline-viz-reset'));
         expect(levelOf('plan')).toBe('2');
+    });
+
+    // req #3648 — Step Width is a rung in quarters of the base card; the plan
+    // opens at 5 (25% wider), a level stored under the OLD key is not read, and
+    // the title has no tooltip.
+    it('opens at Step Width 5 and ignores a level stored under the old key', () => {
+        window.localStorage.setItem('darwin-pipeline-viz-step-width', '1');
+        mount('/swarm/pipeline/2?mode=plan');
+        expect(node('mode-plan').getAttribute('data-step-width')).toBe('5');
+    });
+
+    it('a stored rung is not drawn while the Step Width control is hidden', () => {
+        window.localStorage.setItem('darwin-pipeline-viz-step-width-q', '6');
+        mount('/swarm/pipeline/2?mode=plan');
+        expect(node('mode-plan').getAttribute('data-step-width')).toBe('5');
+    });
+
+    it('the title carries no tooltip', () => {
+        mount('/swarm/pipeline/2?mode=plan');
+        const title = node('pipeline-title');
+        expect(title.hasAttribute('aria-label')).toBe(false);
+        expect(title.getAttribute('aria-describedby')).toBeNull();
     });
 
     it('AUTO is the one control that clears a pin', () => {

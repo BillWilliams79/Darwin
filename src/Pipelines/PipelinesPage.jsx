@@ -48,7 +48,7 @@
 // has no decoration on this surface any more.
 
 import { useContext, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 
 import Alert from '@mui/material/Alert';
@@ -84,6 +84,8 @@ import {
     pipelineStatusChipProps,
     executionModeChipProps,
     executionModeLabel,
+    lockedChipProps,
+    lockedLabel,
     PIPELINE_STATUS_VALUES,
 } from '../SwarmView/pipelines/pipelineChipStyles';
 import {
@@ -131,7 +133,8 @@ const DEFAULT_PIPELINE_STATUSES = ['draft', 'active', 'paused'];
 // against production plan 7's 454-character description. Own cache entry
 // (`pipelines` has `fieldsInKey: true`), so this does not collide with req
 // #3463's own narrower read of the same table.
-const PIPELINES_FIELDS = 'id,title,description,pipeline_status,execution_mode,'
+// req #3649 — `locked` added so the Lock column reads the stored flag.
+const PIPELINES_FIELDS = 'id,title,description,pipeline_status,execution_mode,locked,'
     + 'machine_fk,started_at,completed_at,creator_fk,create_ts,update_ts';
 
 const pipelineStatusOptions = PIPELINE_STATUS_VALUES.map((status) => ({
@@ -180,7 +183,26 @@ export default function PipelinesPage() {
     const timezone = profile?.timezone;
 
     const [view, setView] = useViewPreference(VIEW_STORAGE_KEY, 'cards');
-    const activeView = normalizeView(view, VIEWS);
+    // ── `?view=` MAKES THE PANEL ADDRESSABLE (req #3641) ────────────────────
+    // A dev-server deep link or a pasted link names the panel it means; the
+    // stored preference would otherwise decide. PipelineDetail's `?mode=`
+    // contract: validated against VIEWS (a typo leaves the preference in
+    // charge), TRANSIENT (it never rewrites the stored choice), and dropped
+    // from the address the moment the reader picks a view by hand, so a reload
+    // does not resurrect the panel they just left.
+    const [searchParams, setSearchParams] = useSearchParams();
+    const requestedView = searchParams.get('view');
+    const linkView = VIEWS.some((v) => v.value === requestedView) ? requestedView : null;
+    const activeView = linkView ?? normalizeView(view, VIEWS);
+    const changeView = (next) => {
+        if (next == null) return;
+        if (searchParams.has('view')) {
+            const rest = new URLSearchParams(searchParams);
+            rest.delete('view');
+            setSearchParams(rest, { replace: true });
+        }
+        setView(next);
+    };
     const [showReqCountsPref] = useViewPreference(REQ_COUNTS_STORAGE_KEY, DEFAULT_REQ_COUNTS);
     const showReqCounts = showReqCountsPref === 'on';
 
@@ -273,6 +295,16 @@ export default function PipelinesPage() {
         }
     };
 
+    // req #3649 — a locked plan freezes its epics and steps (gateway 423).
+    const toggleLock = async (row) => {
+        try {
+            await updatePipeline(darwinUri, idToken, row.id, { locked: row.locked ? 0 : 1 });
+            invalidatePipelines();
+        } catch (err) {
+            showError(err, 'Could not change the plan lock');
+        }
+    };
+
     const columns = [
         { field: 'id', headerName: 'ID', width: 70 },
         {
@@ -334,6 +366,24 @@ export default function PipelinesPage() {
             ),
         },
         {
+            // req #3649 — the lock cascades to every epic and step in the plan.
+            field: 'locked', headerName: 'Lock', width: 100, sortable: false,
+            renderCell: (params) => (
+                <Tooltip title={params.value
+                    ? 'Locked — this plan, its epics and steps are frozen as a record. Click to unlock.'
+                    : 'Open — editable. Click to lock this plan and freeze everything in it.'}>
+                    <Chip
+                        label={lockedLabel(params.value)}
+                        size="small"
+                        {...lockedChipProps(params.value)}
+                        clickable
+                        onClick={(e) => { e.stopPropagation(); toggleLock(params.row); }}
+                        data-testid={`pipelines-lock-chip-${params.row.id}`}
+                    />
+                </Tooltip>
+            ),
+        },
+        {
             field: 'machine_fk', headerName: 'Machine', width: 140,
             valueGetter: (_v, row) => (row.machine_fk == null
                 ? '' : (machineById.get(row.machine_fk)?.title || `#${row.machine_fk}`)),
@@ -381,7 +431,7 @@ export default function PipelinesPage() {
                     title="Pipelines"
                     views={VIEWS}
                     view={activeView}
-                    onViewChange={setView}
+                    onViewChange={changeView}
                     testIdPrefix="pipelines"
                     filters={
                         <ChipFilter

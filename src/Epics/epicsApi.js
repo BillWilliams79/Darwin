@@ -94,8 +94,30 @@ export async function updateEpic(darwinUri, idToken, id, fields) {
  */
 export async function deleteEpic(darwinUri, idToken, id) {
     const stepRows = await fetchEntity(
-        `${darwinUri}/pipeline_steps?epic_fk=${id}&fields=id`, idToken);
-    const stepIds = (Array.isArray(stepRows) ? stepRows : []).map((r) => r.id);
+        `${darwinUri}/pipeline_steps?epic_fk=${id}&fields=id,locked`, idToken);
+    const steps = Array.isArray(stepRows) ? stepRows : [];
+    const stepIds = steps.map((r) => r.id);
+
+    // NOTHING IS WRITTEN WHILE ANYTHING IN THE CHAIN IS LOCKED (req #3649).
+    // The gateway refuses each locked row's own delete, but the intra-epic
+    // dependency rows go first below — so a lock found only there would leave
+    // the epic alive with its gates stripped. The epic, its plan and its
+    // steps are checked BEFORE the first write.
+    const epicRows = await fetchEntity(
+        `${darwinUri}/epics?id=${id}&fields=id,pipeline_fk,locked`, idToken);
+    const epic = (Array.isArray(epicRows) ? epicRows : [])[0] || {};
+    const planRows = epic.pipeline_fk != null ? await fetchEntity(
+        `${darwinUri}/pipelines?id=${epic.pipeline_fk}&fields=id,locked`, idToken) : [];
+    const plan = (Array.isArray(planRows) ? planRows : [])[0] || {};
+    const lockedSteps = steps.filter((s) => Number(s.locked) === 1).map((s) => s.id);
+    if (Number(plan.locked) === 1 || Number(epic.locked) === 1 || lockedSteps.length) {
+        const held = Number(plan.locked) === 1 ? `its plan ${plan.id}`
+            : Number(epic.locked) === 1 ? 'the epic itself'
+                : `step${lockedSteps.length === 1 ? '' : 's'} ${lockedSteps.join(', ')} under it`;
+        const error = new Error(`Epic ${id} cannot be deleted: ${held} is locked — unlock it first.`);
+        error.httpStatus = { httpStatus: 423, httpMessage: 'Locked' };
+        throw error;
+    }
 
     if (stepIds.length) {
         // `field=(a,b,c)` is Lambda-Rest's IN-list filter syntax — the

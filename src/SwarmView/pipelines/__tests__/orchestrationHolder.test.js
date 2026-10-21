@@ -17,9 +17,12 @@ import {
     holderView,
     humanDuration,
     isStale,
+    orchestrationView,
     parseUtc,
+    resolveRoles,
     scopeLabel,
 } from '../orchestrationHolder';
+import corpus from './claimRolesCorpus.json';
 
 const MACHINES = [
     { id: 4, title: 'Mac mini', hostname: 'mac-mini' },
@@ -214,5 +217,82 @@ describe('holderView', () => {
         // be a claim about the world; a blank is the absence of one.
         expect(holderView(null, MACHINES, NOW)).toBeNull();
         expect(holderView(undefined, MACHINES, NOW)).toBeNull();
+    });
+});
+
+
+// ── req #3678 — machine-aware orchestration ─────────────────────────────────
+
+describe('resolveRoles — the service\'s answer on every corpus case', () => {
+    // Generated from darwin-mcp/services/orchestration_claims.py `resolve_roles`
+    // (darwin-mcp/tests/unit/test_claim_roles_corpus.py --write), which also
+    // checks the dry-run copy. Drift in this copy fails HERE.
+    it.each(corpus.map((c, i) => [i, c]))('case %i', (_, { claims, roles }) => {
+        const got = Object.fromEntries([...resolveRoles(claims)].map(([k, v]) => [String(k), v]));
+        expect(got).toEqual(roles);
+    });
+});
+
+describe('orchestrationView', () => {
+    it('names the lead and every machine subscribed to it', () => {
+        const view = orchestrationView([
+            claim({ id: 1, machine_fk: 4 }),
+            claim({ id: 2, machine_fk: 5, epic_fk: 9, claimed_at: '2026-08-01 11:30:00' }),
+        ], 2, MACHINES, NOW);
+        expect(view.role).toBe('lead');
+        expect(view.machine).toBe('Mac mini');
+        expect(view.subscribers.map((s) => [s.machine, s.role])).toEqual([['wsl-box', 'subscriber']]);
+        expect(view.label).toBe('Mac mini · 2h 00m + wsl-box');
+        expect(view.title).toContain('Mac mini LEADS');
+        expect(view.title).toContain('wsl-box (epic:9@2) subscribes');
+        expect(view.title).toContain('held 30m');
+    });
+
+    it('says when an earlier epic claim on another machine leads its epic', () => {
+        const view = orchestrationView([
+            claim({ id: 1, machine_fk: 5, epic_fk: 9 }),
+            claim({ id: 2, machine_fk: 4 }),
+        ], 2, MACHINES, NOW);
+        expect(view.machine).toBe('Mac mini');
+        expect(view.title).toContain('everywhere except epic 9');
+        expect(view.title).toContain('wsl-box (epic:9@2) LEADS that epic');
+    });
+
+    it('says plainly when no other machine has joined', () => {
+        const view = orchestrationView([claim({ id: 1 })], 2, MACHINES, NOW);
+        expect(view.subscribers).toEqual([]);
+        expect(view.label).toBe('Mac mini · 2h 00m');
+        expect(view.title).toContain('No other machine has joined');
+    });
+
+    it('picks the LEAD when two machines hold the same whole-plan scope', () => {
+        // Rows arrive in any order; the lead is the lowest id, not the first row.
+        const view = orchestrationView([
+            claim({ id: 6, machine_fk: 5 }),
+            claim({ id: 3, machine_fk: 4 }),
+        ], 2, MACHINES, NOW);
+        expect(view.machine).toBe('Mac mini');
+        expect(view.subscribers.map((s) => s.machine)).toEqual(['wsl-box']);
+    });
+
+    it('PROMOTES the subscriber once the lead has gone stale', () => {
+        const view = orchestrationView([
+            claim({ id: 1, machine_fk: 4, update_ts: '2026-08-01 10:00:00' }),
+            claim({ id: 2, machine_fk: 5 }),
+        ], 2, MACHINES, NOW);
+        expect(view.machine).toBe('wsl-box');
+        expect(view.role).toBe('lead');
+    });
+
+    it('still shows a stale whole-plan claim when nobody live leads', () => {
+        const view = orchestrationView([
+            claim({ id: 1, update_ts: '2026-08-01 10:00:00' }),
+        ], 2, MACHINES, NOW);
+        expect(view.stale).toBe(true);
+        expect(view.label).toBe('Mac mini (stale)');
+    });
+
+    it('is null for a plan nobody is orchestrating', () => {
+        expect(orchestrationView([claim({ pipeline_fk: 3 })], 2, MACHINES, NOW)).toBeNull();
     });
 });

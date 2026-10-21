@@ -47,9 +47,11 @@ import {
     pipelineStatusChipProps,
     executionModeChipProps,
     executionModeLabel,
+    lockedChipProps,
+    lockedLabel,
 } from '../SwarmView/pipelines/pipelineChipStyles';
 import { machineTitle, pipelinesEmptyMessage } from '../SwarmView/pipelines/pipelineViewModel';
-import { claimForPipeline, holderView } from '../SwarmView/pipelines/orchestrationHolder';
+import { orchestrationView } from '../SwarmView/pipelines/orchestrationHolder';
 import PipelinePlanThumbnail from './PipelinePlanThumbnail';
 
 const EMPTY_SUMMARY = { total: 0, done: 0, open: 0 };
@@ -76,7 +78,7 @@ export default function PipelinesCardsView({ pipelines, summaries, reqCounts,
         <Box className="card" data-testid="pipelines-cards-view">
             {pipelines.map((p) => {
                 const s = summaries.get(p.id) || EMPTY_SUMMARY;
-                const holder = holderView(claimForPipeline(claims, p.id), machines);
+                const holder = orchestrationView(claims, p.id, machines);
                 const counts = showReqCounts ? reqCounts?.get(p.id) : null;
                 // Completeness is the REQUIREMENT tally now, not a step one.
                 const pct = counts && counts.total
@@ -157,6 +159,15 @@ export default function PipelinesCardsView({ pipelines, summaries, reqCounts,
                                               {...executionModeChipProps(p.execution_mode)}
                                               label={executionModeLabel(p.execution_mode)} />
                                     </Tooltip>
+                                    {/* req #3649 — display-only; the Table view toggles it. */}
+                                    {Boolean(Number(p.locked)) && (
+                                        <Tooltip title="Locked — this plan, its epics and steps are frozen as a record">
+                                            <Chip size="small"
+                                                  {...lockedChipProps(p.locked)}
+                                                  label={lockedLabel(p.locked)}
+                                                  data-testid={`pipelines-card-locked-${p.id}`} />
+                                        </Tooltip>
+                                    )}
                                     {holder && (
                                         <Tooltip title={holder.title}>
                                             <Chip size="small"

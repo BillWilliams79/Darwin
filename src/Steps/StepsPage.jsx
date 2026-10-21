@@ -77,7 +77,10 @@ import {
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import ChipFilter from '../Components/ChipFilter/ChipFilter';
 import { formatDateTime } from '../utils/dateFormat';
-import { runChipProps, runLabel } from '../SwarmView/pipelines/pipelineChipStyles';
+import {
+    runChipProps, runLabel,
+    checkpointChipProps, checkpointLabel, lockedChipProps, lockedLabel,
+} from '../SwarmView/pipelines/pipelineChipStyles';
 // req #3463 built the reachable 2.0 visualizer at planDetailPath(// id) — the "no 2.0 plan detail page to deep-link into" gap this file used to
 // note is closed. The Epic column links there via the SAME builder the router
 // uses, never a literal string (planEra.js's own guard forbids one).
@@ -322,6 +325,27 @@ export default function StepsPage() {
         }
     };
 
+    // req #3649 — the checkpoint and lock flags, toggled exactly as `run` is.
+    // A NULL/absent `checkpoint` is the column default (1), so it flips to 0.
+    const toggleCheckpoint = async (row) => {
+        try {
+            await updateStep(darwinUri, idToken, row.id,
+                { checkpoint: (row.checkpoint ?? 1) ? 0 : 1 });
+            invalidateSteps();
+        } catch (err) {
+            showError(err, 'Could not change the step checkpoint');
+        }
+    };
+
+    const toggleLock = async (row) => {
+        try {
+            await updateStep(darwinUri, idToken, row.id, { locked: row.locked ? 0 : 1 });
+            invalidateSteps();
+        } catch (err) {
+            showError(err, 'Could not change the step lock');
+        }
+    };
+
     const completeFlow = async (row) => {
         if (planDataError) {
             showError(`Step ${row.id} cannot be completed: the ${failedReadsText} did not `
@@ -494,6 +518,46 @@ export default function StepsPage() {
                         clickable
                         onClick={() => toggleRun(params.row)}
                         data-testid={`step2-run-chip-${params.row.id}`}
+                    />
+                </Tooltip>
+            ),
+        },
+        {
+            // req #3649 — a checkpoint HOLDS every downstream step until it is
+            // done; a priority step only goes out first and holds nothing.
+            field: 'checkpoint', headerName: 'Checkpoint', width: 120, sortable: false,
+            renderCell: (params) => {
+                const on = params.value ?? 1;
+                return (
+                    <Tooltip title={Number(on)
+                        ? 'Checkpoint — every step downstream waits until this step is done. Click for Priority.'
+                        : 'Priority — this step\'s work launches first, but nothing waits on it. Click for Checkpoint.'}>
+                        <Chip
+                            label={checkpointLabel(on)}
+                            size="small"
+                            {...checkpointChipProps(on)}
+                            clickable
+                            onClick={() => toggleCheckpoint(params.row)}
+                            data-testid={`step2-checkpoint-chip-${params.row.id}`}
+                        />
+                    </Tooltip>
+                );
+            },
+        },
+        {
+            // req #3649 — a locked step is frozen; the gateway refuses edits (423).
+            field: 'locked', headerName: 'Lock', width: 100, sortable: false,
+            renderCell: (params) => (
+                <Tooltip title={params.value
+                    ? 'Locked — frozen as a record; edits are refused. Click to unlock.'
+                    : 'Open — editable. Click to lock this step.'}>
+                    <Chip
+                        label={lockedLabel(params.value)}
+                        size="small"
+                        {...lockedChipProps(params.value)}
+                        clickable
+                        onClick={() => toggleLock(params.row)}
+                        data-testid={`step2-lock-chip-${params.row.id}`}
                     />
                 </Tooltip>
             ),

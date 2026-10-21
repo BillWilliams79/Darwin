@@ -9,7 +9,10 @@ import { STEP_DONE } from './pipelineModel';
 //   level 1 (req #3204)  "where is this epic?"        → the whole band
 //   level 2 (req #3365)  "what is LEFT to do here?"   → its unfinished work
 //
-// and a third click returns to level 1, so the same input reverses the move and
+// REQ #3681 REVERSED THE ORDER OF THE TWO STOPS: the first click on an epic
+// name now frames its unfinished work and the second frames the whole band.
+// `nextEpicZoom` is the only place that knows the order; the level names
+// (band / step) are unchanged, and a third click returns to the first stop, so the same input reverses the move and
 // there is no dead end. Everything here is the SELECTION half — which step, and
 // which level the next activation lands on. The GEOMETRY half is
 // `stepFocusTransform` in pipelinePlanLayout.js, and the camera move itself is
@@ -228,18 +231,16 @@ export function gestureMovedCamera(from, to) {
  *
  * Three rules, and they are the whole of it:
  *
- *   1. A DIFFERENT epic always starts at the band (requirement item 2). The
- *      state is per-epic and never global — a reader who has drilled into epic
- *      A's next launch and then clicks epic B is asking "where is B", not "what
- *      does B launch next", and answering the second question would drop them
- *      into a corner of a band they have never seen.
- *   2. From the band, the next launch STEP — IF there is one. Where there is
- *      not, the answer stays the band, which is the control's own pre-#3297
- *      behaviour; see the ruling below for why that is not the "do nothing" it
- *      looks like it should be.
- *   3. From the step, back to the band. The same input reverses the move, so
- *      the control is never a dead end and the reader never has to find another
- *      way out of the zoom it put them in.
+ *   1. A DIFFERENT epic (or no state) always starts at the WORK — the smallest
+ *      frame showing the epic's unfinished steps (req #3681 swapped the order:
+ *      the first click used to be the whole band). The state is per-epic and
+ *      never global.
+ *   2. From the work, the whole BAND. The same input reverses the move, so the
+ *      control is never a dead end.
+ *   3. From the band, back to the work — IF there is any. Where an epic has no
+ *      unfinished work, every click answers the band, which is the control's
+ *      own pre-#3297 behaviour; see the ruling below for why that is not the
+ *      "do nothing" it looks like it should be.
  *
  * `state` is whatever this function last returned, paired with the epic it was
  * returned for — and it is also what a `?epic=` LANDING seeds (requirement item
@@ -270,9 +271,9 @@ export function gestureMovedCamera(from, to) {
  * @returns {'band'|'step'}
  */
 export function nextEpicZoom(state, key, hasNextStep) {
-    if (!state || state.key !== key) return EPIC_ZOOM_BAND;
-    if (state.level === EPIC_ZOOM_STEP) return EPIC_ZOOM_BAND;
-    return hasNextStep ? EPIC_ZOOM_STEP : EPIC_ZOOM_BAND;
+    if (!hasNextStep) return EPIC_ZOOM_BAND;
+    if (!state || state.key !== key) return EPIC_ZOOM_STEP;
+    return state.level === EPIC_ZOOM_STEP ? EPIC_ZOOM_BAND : EPIC_ZOOM_STEP;
 }
 
 // ── WHAT THE CONTROL SAYS IT DOES (requirement item 7) ──────────────────────
@@ -294,13 +295,10 @@ const EPIC_ZOOM_HINT = 'Zoom pipeline epic';
  * @param {number[]} workIds  `epicWorkStepIds`'s answer for this band
  */
 export function epicZoomHintSuffix(workIds) {
-    const n = Array.isArray(workIds) ? workIds.length : 0;
-    if (!n) return '';
-    // NAMES THE SUBJECT, NOT A STEP ID (req #3365). It said "click again for
-    // launch step 3383" because level 2 was one step; it is now the epic's
-    // unfinished work, and a control that named one step while framing nine
-    // would be worse than one that names none.
-    return ` — click again to frame its ${n} unfinished step${n === 1 ? '' : 's'}`;
+    if (!Array.isArray(workIds) || !workIds.length) return '';
+    // Req #3681 swapped the order: the first click already frames the unfinished
+    // work, so the label wording must hold in both states (a `?epic=` landing leaves the reader on the whole epic), so it names the toggle.
+    return ' — click again to toggle unfinished work / whole epic';
 }
 
 /**

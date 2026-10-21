@@ -11,13 +11,16 @@ import { useModelEffortDisplayStore } from '../stores/useModelEffortDisplayStore
 import { useCategoryCountDisplayStore } from '../stores/useCategoryCountDisplayStore';
 import { useRequirementDrillStore } from '../stores/useRequirementDrillStore';
 import { useProjects, useAllEpics, useAllCategories, useEpicRequirementIds, useAllPipelineSteps, useStepRequirementIds } from '../hooks/useDataQueries';
-import { projectKeys } from '../hooks/useQueryKeys';
+import { projectKeys, categoryKeys } from '../hooks/useQueryKeys';
 import { firstProjectIndexWithEpicWork } from '../utils/epicMembership';
 
 import ProjectCloseDialog from './ProjectCloseDialog';
 import ProjectAddDialog from './ProjectAddDialog';
 import CategoryTabPanel from './CategoryTabPanel';
-import RequirementDragLayer from './RequirementDragLayer';
+import SwarmProjectTab from './SwarmProjectTab';
+import { DarwinDndContext, DarwinSortableList, RemeasureOnChange, useDarwinDropZone, DarwinListRegistry } from '../dnd';
+import { PROJECT_TABS, swarmIds } from './swarmDnd';
+import { useSwarmDnd } from './useSwarmDnd';
 import RequirementsTableView, { SWARM_TABLE_WIDTH } from './RequirementsTableView';
 import SwarmVisualizerView from './SwarmVisualizerView';
 import RequirementsTrendsView from './RequirementsTrendsView';
@@ -73,6 +76,21 @@ const SWARM_VIEW_CHROME = {
     trends:     { label: 'Trends View',     Icon: TimelineIcon },
 };
 
+// The project tab strip as a drop zone (req #3663): it tells the collision
+// rule where the tabs are SHOWN, so a tab scrolled out of the strip never
+// switches the page from under the controls beside it.
+const ProjectStripZone = ({ children }) => {
+    const { setNodeRef } = useDarwinDropZone({ id: swarmIds.projects, policy: PROJECT_TABS });
+    return (
+        <Box ref={setNodeRef} sx={{ display: 'flex', flexShrink: 1, minWidth: 0 }}>
+            {children}
+        </Box>
+    );
+};
+
+// A lifted row or card grows only slightly — they are big.
+const liftScale = () => 1.02;
+
 const SwarmView = () => {
 
     const { idToken, profile } = useContext(AuthContext);
@@ -110,8 +128,8 @@ const SwarmView = () => {
     // exclusion the launch-offering surfaces apply.
     const hidePipelined = useShowClosedStore(s => s.hidePipelinedRequirements);
     const toggleHidePipelined = useShowClosedStore(s => s.toggleHidePipelinedRequirements);
-    const showSwarmStartCard = useSwarmStartCardStore(s => s.show);
-    const toggleSwarmStartCard = useSwarmStartCardStore(s => s.toggle);
+    const savedShowSwarmStartCard = useSwarmStartCardStore(s => s.show);
+    const toggleSavedSwarmStartCard = useSwarmStartCardStore(s => s.toggle);
     // Model/Effort column display preference (req #3029) — surfaced in the gear
     // Settings menu (req #3064 retired the standalone Tune icon+menu; the
     // aggregator card is now always the usual width, same as every other card).
@@ -317,6 +335,30 @@ const SwarmView = () => {
     }, [stepFilterEngaged, stepId, projectsArray, allCategories, stepScopeRequirements, stepReqIds]);
 
     // TanStack Query — fetch projects (open only or with closed based on chip filter)
+    const linkedProjectId = searchParams.get('project');
+    const projectLinkAppliedRef = useRef(false);
+    // `&aggregator=1` shows the Swarm-Start card for THIS visit without
+    // touching the reader's saved preference (a persisted store): the first
+    // click on the rocket hides it again and leaves the saved choice as it was.
+    const [aggregatorLinked, setAggregatorLinked] = useState(() => searchParams.get('aggregator') === '1');
+    const showSwarmStartCard = savedShowSwarmStartCard || aggregatorLinked;
+    const toggleSwarmStartCard = () => {
+        if (aggregatorLinked) {
+            setAggregatorLinked(false);
+            if (!savedShowSwarmStartCard) return;
+        }
+        toggleSavedSwarmStartCard();
+    };
+
+    // req #3663 — every card registers its local array here; the page's one
+    // onDragEnd resolves a drop against them.
+    const swarmListRegistry = useRef(new Map()).current;
+    const dragHandlers = useSwarmDnd({
+        registry: swarmListRegistry,
+        writeCtx: { darwinUri, idToken, showError, queryClient, userName: profile?.userName },
+        invalidateCategories: () => queryClient.invalidateQueries({ queryKey: categoryKeys.all(profile.userName) }),
+    });
+
     const { data: serverProjects } = useProjects(profile?.userName, {
         closed: showClosed ? undefined : 0,
     });
@@ -332,9 +374,19 @@ const SwarmView = () => {
                 return a.sort_order - b.sort_order;
             });
 
+            // A deep link may name the project to open (`?project=<id>`; the
+            // aggregator's `&aggregator=1` is read above), so a link lands on
+            // one exact board (req #3663: the dev server opens on the change).
+            // Honoured on the FIRST seed only — a later refetch must leave the
+            // user on the tab they chose. Otherwise the working project.
             const storedId = getWorkingProject();
             let initialTab = 0;
-            if (storedId) {
+            const linkedIdx = linkedProjectId && !projectLinkAppliedRef.current
+                ? sorted.findIndex(d => String(d.id) === linkedProjectId) : -1;
+            projectLinkAppliedRef.current = true;
+            if (linkedIdx >= 0) {
+                initialTab = linkedIdx;
+            } else if (storedId) {
                 const idx = sorted.findIndex(d => String(d.id) === storedId);
                 if (idx >= 0) initialTab = idx;
             }
@@ -460,7 +512,9 @@ const SwarmView = () => {
     ] : [];
 
     return (
-        <>
+        <DarwinListRegistry.Provider value={swarmListRegistry}>
+        <DarwinDndContext {...dragHandlers} liftScale={liftScale}>
+        <RemeasureOnChange value={activeTab} />
         {projectsArray ?
             projectsArray.length === 0 ?
             <Box className="app-content-planpage" sx={{ p: 3, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
@@ -538,13 +592,20 @@ const SwarmView = () => {
                         </ToggleButtonGroup>
                         <RequirementJumpInput />
                         {view === 'cards' && (
+                            <ProjectStripZone>
+                            <DarwinSortableList id={swarmIds.projects}
+                                                items={projectsArray.map(p => swarmIds.project(p.id))}
+                                                policy={PROJECT_TABS}>
                             <Tabs value={activeTab.toString()}
                                   onChange={changeActiveTab}
                                   variant="scrollable"
                                   scrollButtons="auto"
                                   sx={{ flexShrink: 1, minWidth: 0 }} >
                                 {projectsArray.map( (project, projectIndex) =>
-                                    <Tab key={project.id}
+                                    <SwarmProjectTab key={project.id}
+                                         project={project}
+                                         projectIndex={projectIndex}
+                                         isActiveTab={String(activeTab) === String(projectIndex)}
                                          icon={<CloseIcon onClick={(event) => projectCloseClick(event, project.project_name, project.id, projectIndex)}/>}
                                          label={project.project_name}
                                          value={projectIndex.toString()}
@@ -556,6 +617,8 @@ const SwarmView = () => {
                                      value={9999}
                                 />
                             </Tabs>
+                            </DarwinSortableList>
+                            </ProjectStripZone>
                         )}
                         {view === 'visualizer' && <VisualizerToolbar />}
                         <Box sx={{ flexGrow: 1 }} />
@@ -785,8 +848,8 @@ const SwarmView = () => {
                          newProjectInfo={projectAdd.infoObject}
                          setNewProjectInfo={projectAdd.setInfoObject}
                          setAddConfirmed={projectAdd.setConfirmed} />
-        <RequirementDragLayer />
-        </>
+        </DarwinDndContext>
+        </DarwinListRegistry.Provider>
     );
 
 }

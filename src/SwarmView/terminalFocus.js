@@ -11,9 +11,9 @@
 //
 // Deliberately PLATFORM-NEUTRAL: the scheme, the action and the parameters are
 // identical on every machine, and only the OS-side handler differs. Nothing in
-// this file knows about iTerm2. The Windows Terminal handler (machine 3) is a
-// follow-on and speaks the same URL, so this builder never needs to learn which
-// backend it is addressing.
+// this file knows about iTerm2. The Windows Terminal handler (machine 3,
+// focus-terminal.ps1, req #3671) speaks the same URL, so this builder never
+// needs to learn which backend it is addressing.
 //
 // The handler is scripts/swarm/terminal-focus/ in DarwinAI-Config. The two sides
 // cannot share code — one is a browser bundle, the other is a shell script on a
@@ -116,6 +116,12 @@ export const terminalFocusUrl = (session, machines) => {
     if (session.id != null) params.set('session', String(session.id));
     const label = session.title || session.task_name;
     if (label) params.set('label', String(label));
+    // `title` is the session's own title. The Windows handler uses it only to find
+    // a window launched before its title carried a "[swarm-N s<id>]" tag; identity
+    // is checked with `session` against that tag, since swarm-N slots are reused.
+    // `label` stays message-only text (the NavBar sends its own wording there).
+    // Handlers that do not know the parameter ignore it.
+    if (session.title) params.set('title', String(session.title));
     const host = (machines || []).find(m => m.id === session.machine_fk)?.hostname;
     if (host) params.set('host', String(host));
     return `${TERMINAL_FOCUS_SCHEME}://focus?${params.toString()}`;

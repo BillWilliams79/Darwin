@@ -206,3 +206,36 @@ export const executionModeLabel = (mode) => (mode === 'serial' ? 'Serial' : 'Par
 export const executionModeChipProps = (mode) => ({
     sx: EXECUTION_MODE_CHIP[mode] || EXECUTION_MODE_CHIP.parallel,
 });
+
+// ---------------------------------------------------------------------------
+// req #3649 — the step CHECKPOINT flag and the plan-layer LOCKED flag.
+// ---------------------------------------------------------------------------
+
+// pipeline_steps.checkpoint — 1 (the column default) HOLDS every step
+// downstream of this one until it is done; 0 makes it a launch PRIORITY only
+// (its work goes out first, nothing waits on it). Amber for a hold — a
+// deliberately warmer hue than the run chip's blue/magenta and the execution
+// chip's teal/amber-brown — and a quiet grey for priority. `undefined`/`null`
+// reads as a checkpoint, because that is the column default.
+const CHECKPOINT_CHIP = {
+    on: { bgcolor: '#5c3d00', color: '#ffcf70' },
+    off: { bgcolor: '#33393f', color: '#c3cbd3' },
+};
+
+const isCheckpoint = (flag) => flag == null || Boolean(Number(flag));
+
+export const checkpointLabel = (flag) => (isCheckpoint(flag) ? 'Checkpoint' : 'Priority');
+
+export const checkpointChipProps = (flag) => ({
+    sx: isCheckpoint(flag) ? CHECKPOINT_CHIP.on : CHECKPOINT_CHIP.off,
+});
+
+// locked — 1 freezes the row (and, cascading, everything under it) as a relic
+// in time; enforcement is the gateway's (HTTP 423), these chips only show it.
+// Locked is a dim grey FILL; Open is a plain outlined chip, so an unlocked row
+// reads as the ordinary case.
+export const lockedLabel = (flag) => (Number(flag) ? 'Locked' : 'Open');
+
+export const lockedChipProps = (flag) => (Number(flag)
+    ? { sx: { bgcolor: '#3a3f47', color: '#d7dde5' } }
+    : { variant: 'outlined', sx: { bgcolor: 'transparent', color: '#9fb0c4', borderColor: '#4a5868' } });

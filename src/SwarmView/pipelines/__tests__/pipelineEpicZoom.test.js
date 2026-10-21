@@ -163,31 +163,31 @@ describe('epicWorkStepIds — what a second click frames (req #3365)', () => {
 });
 
 describe('nextEpicZoom — the cycle', () => {
-    it('starts at the band', () => {
-        expect(nextEpicZoom(null, 11, true)).toBe(EPIC_ZOOM_BAND);
+    it('starts at the work (req #3681)', () => {
+        expect(nextEpicZoom(null, 11, true)).toBe(EPIC_ZOOM_STEP);
     });
 
-    it('goes band → step → band on the same epic', () => {
+    it('goes step → band → step on the same epic', () => {
         let state = null;
         const click = (key, hasStep) => {
             const next = nextEpicZoom(state, key, hasStep);
             state = { key, level: next };
             return next;
         };
-        expect(click(11, true)).toBe(EPIC_ZOOM_BAND);
         expect(click(11, true)).toBe(EPIC_ZOOM_STEP);
         expect(click(11, true)).toBe(EPIC_ZOOM_BAND);
         expect(click(11, true)).toBe(EPIC_ZOOM_STEP);
+        expect(click(11, true)).toBe(EPIC_ZOOM_BAND);
     });
 
     // Requirement item 2. The state is per-epic: a reader who has drilled into
     // epic 11's next launch and clicks epic 12 is asking where 12 is, not what
     // it launches next.
-    it('resets to the band on a different epic', () => {
-        expect(nextEpicZoom({ key: 11, level: EPIC_ZOOM_STEP }, 12, true))
-            .toBe(EPIC_ZOOM_BAND);
-        expect(nextEpicZoom({ key: 11, level: EPIC_ZOOM_BAND }, 'none', true))
-            .toBe(EPIC_ZOOM_BAND);
+    it('resets to the work on a different epic', () => {
+        expect(nextEpicZoom({ key: 11, level: EPIC_ZOOM_BAND }, 12, true))
+            .toBe(EPIC_ZOOM_STEP);
+        expect(nextEpicZoom({ key: 11, level: EPIC_ZOOM_STEP }, 'none', true))
+            .toBe(EPIC_ZOOM_STEP);
     });
 
     // Requirement item 4. A `?epic=` landing leaves the reader at band focus and
@@ -276,9 +276,9 @@ describe('what the control says it does (item 7)', () => {
         // id — a control that named one step while framing nine would be worse
         // than one that names none.
         expect(epicZoomHint([4, 5, 6]))
-            .toBe('Zoom pipeline epic — click again to frame its 3 unfinished steps');
+            .toBe('Zoom pipeline epic — click again to toggle unfinished work / whole epic');
         expect(epicZoomHintSuffix([71]))
-            .toBe(' — click again to frame its 1 unfinished step');
+            .toBe(' — click again to toggle unfinished work / whole epic');
     });
 
     it('promises no zoom that cannot happen', () => {
@@ -306,9 +306,6 @@ describe('what the control says it does (item 7)', () => {
             const workIds = epicWorkStepIds(plan.rows, layout, band);
             const announced = epicZoomHint(workIds).includes('click again');
             expect(announced).toBe(workIds.length > 0);
-            if (workIds.length) {
-                expect(epicZoomHint(workIds)).toContain(String(workIds.length));
-            }
         }
     });
 });

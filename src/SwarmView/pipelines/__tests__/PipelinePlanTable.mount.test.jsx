@@ -138,6 +138,50 @@ describe('PipelinePlanTable mounts (req #3324)', () => {
             .toBeNull();
     });
 
+    // req #3649 — the checkpoint chip on every row (absent = the column
+    // default, a checkpoint) and the lock chip only on an effectively-locked row.
+    // Row 48 becomes a PRIORITY step frozen by its epic's lock; row 47 carries
+    // none of the flags, which is the adapter's absent default. A per-test plan,
+    // because a locked row also withholds the "+" the tests below rely on.
+    it('renders the checkpoint/priority chip and the inherited lock chip', () => {
+        const locked = { ...PLAN, rows: PLAN.rows.map((r) => (r.id === 48
+            ? { ...r, checkpoint: false, locked: false, effectiveLocked: true, lockedBy: 'epic' }
+            : r)) };
+        render({ plan: locked });
+        const q = (id) => document.querySelector(`[data-testid="${id}"]`);
+        expect(q('pipeline-checkpoint-chip-47').textContent).toBe('Checkpoint');
+        expect(q('pipeline-checkpoint-chip-48').textContent).toBe('Priority');
+        expect(q('pipeline-lock-chip-48').textContent).toBe('Locked');
+        expect(q('pipeline-lock-chip-47')).toBeNull();
+    });
+
+    // req #3676 — a step's ids in ORCHESTRATION order (open before complete,
+    // deployed first, then FIFO), with the dashed divider before the first
+    // complete id, the same order the Plan card stacks them in.
+    it('lists a step\'s requirements in orchestration order with a complete divider', () => {
+        const ordered = { ...PLAN, rows: PLAN.rows.map((r) => (r.id === 48
+            ? { ...r, reqIds: [3656, 3641, 3655, 3646] } : r)) };
+        const model = { requirements: [
+            { id: 3656, requirement_status: 'met', coordination_type: 'deployed' },
+            { id: 3641, requirement_status: 'development', coordination_type: 'implemented' },
+            { id: 3655, requirement_status: 'swarm_ready', coordination_type: 'deployed' },
+            { id: 3646, requirement_status: 'met', coordination_type: 'implemented' },
+        ] };
+        render({ plan: ordered, model });
+        const cell = document.querySelector('[data-testid="pipeline-req-link-3655"]').parentElement;
+        const seq = [...cell.children].map((el) => el.getAttribute('data-testid'))
+            .filter(Boolean);
+        expect(seq).toEqual([
+            'pipeline-req-link-3655', 'pipeline-req-link-3641',
+            'pipeline-req-done-rule-48',
+            // complete group: deployed 3656 before implemented 3646
+            'pipeline-req-link-3656', 'pipeline-req-link-3646',
+            'pipeline-step-add-48',
+        ]);
+        // No divider on a step with no complete work.
+        expect(document.querySelector('[data-testid="pipeline-req-done-rule-47"]')).toBeNull();
+    });
+
     // The three optional props, because each one opens a branch — and a hook
     // called inside a branch this test never entered would still be missing.
     it('renders with cost shown, a cost error, and a focused step', () => {

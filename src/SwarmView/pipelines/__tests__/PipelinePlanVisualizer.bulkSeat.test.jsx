@@ -39,7 +39,8 @@ let boxProps = null;
 vi.mock('../useUnorchestratedRequirements', () => ({
     useUnorchestratedRequirements: () => ({ items: boxItems, isLoading: false, isError: false }),
 }));
-vi.mock('../UnorchestratedReqBox', () => ({
+vi.mock('../UnorchestratedReqBox', async (orig) => ({
+    ...(await orig()),
     default: (props) => { boxProps = props; return <div data-testid="box-stub" />; },
 }));
 
@@ -60,6 +61,8 @@ vi.mock('../pipelineUnseated', async (orig) => {
 import { composedFixture } from './pipelineComposedFixture';
 import { adaptComposedPipeline, buildPlanModel } from '../pipelineAdapter';
 import PipelinePlanVisualizer from '../PipelinePlanVisualizer';
+import { UNSEATED_FLOAT_Z } from '../UnorchestratedReqBox';
+import { rulerExcessY } from '../pipelinePlanLayout';
 import { useSnackBarStore } from '../../../stores/useSnackBarStore';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -335,10 +338,33 @@ describe('whole-box drop — only on the plan panel', () => {
     });
 });
 
+// req #3648 — the landing (= Default) camera pulls the plan down by the ruler's
+// screen excess, so the pinned date strip never covers the top band's header.
+describe('the base view clears the ruler (req #3648)', () => {
+    it('lands with y equal to the ruler excess at its scale', () => {
+        // A short panel, so the vertical fit lands below k = 1 where the
+        // excess is non-zero (at 700px this plan lands at k ≈ 1.02, excess 0).
+        Object.defineProperty(HTMLElement.prototype, 'clientHeight',
+            { configurable: true, get: () => 200 });
+        // First visit: no camera remembered by an earlier test to restore.
+        window.localStorage.clear();
+        window.sessionStorage.clear();
+        render();
+        const panel = document.querySelector('[data-insert-edges]');
+        const [x, y, k] = panel.getAttribute('data-transform').split(',').map(Number);
+        expect(k).toBeLessThan(1);
+        expect(rulerExcessY(k)).toBeGreaterThan(1);
+        expect(x).toBe(0);
+        expect(y).toBeCloseTo(rulerExcessY(k), 1);
+    });
+});
+
 describe('whole-box drop — the outline while carrying', () => {
     const outline = () => document.querySelector('[data-testid="pipeline-viz-seat-target"]');
 
-    it('is drawn above the box (zIndex over the box\'s 2) only while the box is carried', () => {
+    // A carried box is a placed one, fixed in the window at UNSEATED_FLOAT_Z
+    // (req #3687).
+    it('is drawn above the box (zIndex over the placed box\'s) only while the box is carried', () => {
         render();
         seatOn(10);
         act(() => { boxProps.onMoveOver(300, 300); });
@@ -346,7 +372,7 @@ describe('whole-box drop — the outline while carrying', () => {
         expect(outline().getAttribute('data-step-id')).toBe('10');
         expect(getComputedStyle(outline()).zIndex).toBe('1');
         act(() => { boxProps.onCarryingChange(true); });
-        expect(Number(getComputedStyle(outline()).zIndex)).toBeGreaterThan(2);
+        expect(Number(getComputedStyle(outline()).zIndex)).toBeGreaterThan(UNSEATED_FLOAT_Z);
         act(() => { boxProps.onCarryingChange(false); });
         expect(getComputedStyle(outline()).zIndex).toBe('1');
     });

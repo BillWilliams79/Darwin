@@ -57,8 +57,9 @@
 // ── Data discipline ────────────────────────────────────────────────────────
 // Requirement-centric: every mark derives from plan rows + hierarchy (design
 // rule 9 — no session data). Generated labels carry NO '#'. Click targets
-// (production directives): requirement id → /swarm/requirement/:id; bead →
-// Table mode scrolled/highlighted to the row (onStepFocus); epic status light
+// (production directives): requirement id → /swarm/requirement/:id; bead or
+// card title → frame that step on this canvas (req #3641 — it opened the Table
+// mode, which is gone; `onStepFocus` went with it); epic status light
 // and closure count → FOCUS the band (req #3204; moved off the name by req
 // #3580, which made the epic name, the step name and the step's run circle
 // in-place editors), with /swarm/steps?epic=<id> — the req #3119
@@ -80,7 +81,8 @@
 // The geometry itself is pure and lives in pipelinePlanLayout.js.
 
 import {
-    useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState,
+    startTransition, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef,
+    useState,
 } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useIsFetching, useQueryClient } from '@tanstack/react-query';
@@ -119,8 +121,9 @@ import { OrderViolationsAlert } from './PipelinePlanTable';
 import EmptyPlanAddStep from './EmptyPlanAddStep';
 import {
     computePlanLayout, beadStyle, placeEpicChips,
-    epicFocusTransform, stepFocusTransform, stepsFocusTransform,
-    factoryDefaultScale, clampPlanTransform, planLandingAction,
+    epicFocusTransform, stepFocusTransform, epicWorkFocusTransform,
+    factoryDefaultView, clampPlanTransform, planLandingAction,
+    relayoutAnchorTransform,
     // req #3365 — the ruler's own thinning gap, re-applied at draw time
     // against the counter-scaled label widths.
     RULER_LABEL_GAP,
@@ -132,26 +135,30 @@ import {
     nextHaloMagnify, nextMarkIsDot, nextMarkDotRadius,
     clusterNextMarks, NEXT_MARK_COUNT_FONT_PX,
     planLevelFor, drawsLabelKind, stepsAcrossScale, zoomAboutViewportCentre,
+    stepsAcrossTransform,
     snapZoomScale, zoomAboutPoint,
     // req #3498 — the step is a CARD. The renderer draws the box the layout
     // measured; it never measures one of its own.
     CARD_RADIUS, CARD_PAD_X, CARD_PAD_Y, CARD_LINE_H, CARD_RULE_GAP,
     CARD_STATE_BAR_W, CARD_BADGE_FONT,
-    // req #3607 — the title buttons' outline and their drawn (not typeset) glyphs.
-    CARD_TITLE_BTN_STROKE, CARD_TITLE_BTN_GLYPH_STROKE, titleBtnGlyph,
-    MIN_CARD_H, REQ_LINE_H, CHW_REQ,
-    // req #3580 — the run pill's word and type.
+    // req #3607 — the title buttons' outline (the checkpoint and lock buttons'
+    // border since they moved to HTML, req #3673).
+    CARD_TITLE_BTN_STROKE,
+    MIN_CARD_H, REQ_LINE_H, CHW_REQ, CARD_SEP_CHARS, REQ_SEP_PULL,
+    // req #3580 — the run pill's letter and type.
     CARD_RUN_FONT, CARD_RUN_WORDS,
     // req #3650 — the collapse heads' type and the chip head's reserved width.
-    CARD_HEAD_FONT, CARD_HEAD_H, EPIC_CHIP_COLLAPSE_HEAD_W,
+    CARD_COLLAPSE_FONT, CARD_COLLAPSE_W, CARD_COLLAPSE_GAP, EPIC_CHIP_COLLAPSE_HEAD_W,
     buildReqColorViews, REQ_COLOR_KEYS, reqIdStyle, reqIdKeyEntries, normalizeColorKey,
     DEFAULT_PLAN_PALETTE, isPlanPalette, planPalette,
     DEFAULT_COLOR_KEY, PLAN_KEY_MAX_H, pinnedLevelOf, DEFAULT_PLAN_LEVEL_PREF,
     DEFAULT_STEP_WIDTH_LEVEL,
     EPIC_PAUSE_BUBBLE_D, pauseBubbleColor, stickyRulerY, rulerScreenBottom,
     PAUSE_PAUSED_COLOR,
+    // req #3649 — the epic chip's padlock.
+    EPIC_LOCK_D,
     rulerScreenMag,
-    KEY_GROUP_TITLES, sortReqIdsByColorKey,
+    KEY_GROUP_TITLES, orderStepReqs, hideClosedReqs, CARD_DONE_RULE_DASH, CARD_DONE_RULE_OPACITY,
 } from './pipelinePlanLayout';
 import {
     epicCycleKey, epicZoomStateKey, epicWorkStepIds, nextEpicZoom,
@@ -161,7 +168,7 @@ import {
 // req #3428 — the epic chip's second destination. The URL contract lives with
 // the rest of `/swarm`'s query string, so this file names no query key itself.
 import { swarmEpicLinkTo, swarmStepLinkTo } from '../swarmViewLink';
-import { newRequirementSeatState, planExitState } from './pipelineStepLink';
+import { planExitState } from './pipelineStepLink';
 import { useSavedViewport } from '../../hooks/useSavedViewport';
 import { usePlanViewSetting } from './planViewSettings';
 // req #3650 — every epic chip's and step card's own fold.
@@ -169,10 +176,11 @@ import {
     parseCollapsed, toggleEpicCollapsed, toggleStepCollapsed, expandEpic, expandStep,
 } from './planCollapse';
 import PlanCollapseHead from './PlanCollapseHead';
+import { useFoldAnimation, foldContentAlpha } from './planFoldAnimation';
 // req #3581 — dragging a requirement between steps writes its seat.
 import AppContext from '../../Context/AppContext';
 import AuthContext from '../../Context/AuthContext';
-import { pipelineComposeKeys } from '../../hooks/useQueryKeys';
+import { pipelineComposeKeys, requirementKeys } from '../../hooks/useQueryKeys';
 import {
     pipelineStepRequirementKeys, pipelineStepKeys, pipelineStepDepKeys, epicKeys,
 } from '../../hooks/useDataQueries';
@@ -181,6 +189,11 @@ import {
     moveStepRequirement, insertStepOnEdge, addDependentStep, precedeStepWith,
     isRestNullLiteral, REST_NULL, updateStep,
 } from '../../Steps/stepsApi';
+// req #3649 — the epic chip's lock control; req #3673 — the pictures on it and
+// on the step card's checkpoint and lock buttons.
+import {
+    CheckpointGateIcon, PlanLockIcon, checkpointTitle, lockTitle,
+} from './PlanStepFlagIcons';
 // req #3586 — the "+" marks that add a step on an edge or a dependent step; req
 // #3617 adds the one off a free left side, for a step this one depends on.
 import {
@@ -194,11 +207,12 @@ import { viewportStorageKey } from '../../utils/viewportMemory';
 // req #3583 — the swarm-ready, not-orchestrated box and its drop-to-seat. The
 // contexts, snackbar, query keys and `moveStepRequirement` are req #3581's,
 // imported above.
-import UnorchestratedReqBox from './UnorchestratedReqBox';
+import { hideMachineReqs, isMachineHidden } from './planMachineFilter';
+import UnorchestratedReqBox, { UNSEATED_FLOAT_Z } from './UnorchestratedReqBox';
 import { useUnorchestratedRequirements } from './useUnorchestratedRequirements';
 import {
     UNSEATED_REQ_MIME, bulkSeatRequest, resolveSeatDrop, screenRectOf, unseatedBoxFontPx,
-    unseatedBoxWidthPx,
+    unseatedBoxWidthPx, unseatedBoxZoom,
     pointerCanSeat, runBulkSeat, bulkSeatFailureMessage,
 } from './pipelineUnseated';
 import '../../CalendarFC/swarmVisualizer.css';
@@ -207,8 +221,13 @@ import '../../CalendarFC/swarmVisualizer.css';
 // are the ones req #3581 already imports above.
 import { updateEpic } from '../../Epics/epicsApi';
 import PlanInPlaceInput, { titleProblem } from './PlanInPlaceInput';
-import { createPressTracker } from './planPressGesture';
+import { createPressTracker, LONG_PRESS_MS } from './planPressGesture';
+// req #3661 — a requirement's title, edited in place on its own row.
+import PlanInPlaceTitleArea from './PlanInPlaceTitleArea';
+import { reqTitleEditorBox, updateRequirementTitle } from './planReqTitleEdit';
 
+// Stable default for the machine filter prop (req #3708).
+const NO_HIDDEN_MACHINES = new Set();
 const MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
 
 // req #3587 — the requirement row's Terminal and Dev Server pills.
@@ -325,6 +344,17 @@ const RUN_PILL_SX = {
     '&:hover, &:focus-visible': { outline: 'none', boxShadow: `0 0 0 2px ${P.text}` },
 };
 
+// req #3673 — the checkpoint and lock buttons' static chrome; geometry and the
+// state's colours ride `style`, for the run pill's per-frame reason.
+const FLAG_BTN_SX = {
+    position: 'absolute', p: 0, m: 0,
+    pointerEvents: 'auto', cursor: 'pointer',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    borderRadius: '4px', boxSizing: 'border-box', lineHeight: 1,
+    transition: 'box-shadow 120ms',
+    '&:hover, &:focus-visible': { outline: 'none', boxShadow: `0 0 0 2px ${P.text}` },
+};
+
 // Duration of the epic-focus camera move (req #3204). Long enough to read as a
 // move, short enough that a second click never feels queued.
 const FOCUS_MS = 420;
@@ -388,6 +418,18 @@ function LegendWord({ color, label }) {
     );
 }
 
+// req #3673 — a key entry whose swatch is a control's own picture: the icon
+// the card draws, then its word in the state's colour.
+function LegendIcon({ color, label, children }) {
+    return (
+        <Box component="span" data-testid="pipeline-viz-legend-icon"
+             sx={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+            {children}
+            <LegendWord color={color} label={label} />
+        </Box>
+    );
+}
+
 // The key's own section heading — dim, uppercase, and narrow, so a section costs
 // the corner ~54px rather than a row of its own.
 // ONE SHAPE FOR EVERY SECTION (user directive 2026-08-01: "the key is a
@@ -421,7 +463,7 @@ function KeyGroup({ title, children, first = false }) {
 }
 
 export default function PipelinePlanVisualizer({
-    plan, model, pipeline, onStepFocus, focusEpicId,
+    plan, model, pipeline, focusEpicId,
     // Req #3253 — the deep link's OTHER target. This prop has always travelled
     // here (PipelineDetail hands the same page state to both panels); until now
     // the canvas ignored it, because a step was a ROW and only the table had one
@@ -473,16 +515,32 @@ export default function PipelinePlanVisualizer({
     // toggling it never rebuilds the zoom behaviour (which would drop the
     // reader's camera).
     snapZoom = false,
-    // req #3503 — "Step Width". 1-4, `STEP_WIDTH_SCALES`' own index+1. The ONE
+    // req #3503 — "Step Width". A `STEP_WIDTH_RUNGS` value (6 5 4 3, quarters
+    // of the base card since req #3648). The ONE
     // toolbar control that RELAYOUTS rather than just moving the camera —
     // every column, every card, every wrap point in `layout` below depends on
     // it, so it rides in `computePlanLayout`'s own options rather than being
     // applied as a post-hoc transform the way every other control here is.
     stepWidthLevel = DEFAULT_STEP_WIDTH_LEVEL,
+    // req #3686 — draw only the OPEN requirements under each step (the closed
+    // group and its dashed line are dropped from the layout's input).
+    hideClosed = false,
+    // req #3708 — machine ids deselected in the toolbar's machine filter: the
+    // requirements pinned to them are drawn nowhere (step cards, Orchestrables).
+    hiddenMachines = NO_HIDDEN_MACHINES,
     // req #3587 — requirement id -> {terminal, devServer} (`planReqPills.js`),
     // built by the page from reads it owns. Drawn as pills between a row's id
     // and its title; null draws every row exactly as before.
     reqPills = null,
+    // req #3702 — requirement id -> latest session status (the page's own
+    // `buildSessionStatusIndex`), so the Orchestrables box can paint its rows by
+    // the Session colour key too. Its rows sit on no step, so `model` has none.
+    sessionStatus = null,
+    // req #3658 — the page is maximized (PipelineDetail owns the state, because
+    // what it hides — the header row and the navbar — is the page's), and the
+    // switch's click. No `onToggleMaximized`, no switch.
+    maximized = false,
+    onToggleMaximized = null,
 }) {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
@@ -530,28 +588,21 @@ export default function PipelinePlanVisualizer({
                 machineFk: r.machine_fk, session: r.session_status,
             }])),
         [model]);
-    // req #3363, generalized req #3503 — the requirement marks stacked under a
-    // step sort by whichever colour key is ACTIVE (`sortReqIdsByColorKey`'s own
-    // ladder: State Authoring→Met, Session no session→completed, Autonomy
-    // Discuss→Deployed, Machine its own order), not by a fixed met-first
-    // ladder any more. Only the ORDER of each
-    // row's `reqIds` changes here; the ROW ARRAY keeps the engine's own order
-    // (bead z-stacking, column/lane placement all key off it), and every other
-    // field on a row — `launchReqIds`, `trackingReqIds`, `swarmStartCommand` —
-    // is the engine's answer, computed before this runs and left untouched, so
-    // re-ordering the display never touches what `/swarm-start` launches.
+    // req #3676 — the requirement marks stacked under a step are in
+    // ORCHESTRATION order whatever colour key is on: open work above complete,
+    // `deployed` first within each, then FIFO (`sortReqIdsByOrchestration`).
+    // `orderStepReqs` reorders each row's `reqIds` only and stamps
+    // `reqDoneFrom` for the complete line; every engine field on the row is
+    // left as computed, so the display order never touches what `/swarm-start`
+    // launches.
     const rows = useMemo(() => {
         const base = applyReqMoves(plan.rows || [], pendingMoves);
         if (!base.length) return base;
-        const statusOf = (id) => reqInfo.get(id)?.status;
-        const sessionOf = (id) => reqInfo.get(id)?.session;
-        const autonomyOf = (id) => reqInfo.get(id)?.coordination;
-        const machineOf = (id) => reqInfo.get(id)?.machineFk;
-        return base.map((r) => ((r.reqIds || []).length > 1
-            ? { ...r, reqIds: sortReqIdsByColorKey(r.reqIds,
-                { colorKey, statusOf, sessionOf, autonomyOf, machineOf }) }
-            : r));
-    }, [plan.rows, pendingMoves, reqInfo, colorKey]);
+        return orderStepReqs(base, {
+            statusOf: (id) => reqInfo.get(id)?.status,
+            autonomyOf: (id) => reqInfo.get(id)?.coordination,
+        });
+    }, [plan.rows, pendingMoves, reqInfo]);
     const rowById = useMemo(() => new Map(rows.map((r) => [r.id, r])), [rows]);
 
     // The epics the add-step dialog offers: the payload's own `epics[]` (an
@@ -652,6 +703,23 @@ export default function PipelinePlanVisualizer({
     // `reqLabelText` in the layout module.
     const reqTitles = useMemo(
         () => new Map([...reqInfo].map(([id, info]) => [id, info.title])), [reqInfo]);
+    // req #3661 — the requirement title open in its in-place editor
+    // (`{ reqId, stepId, saving }` — the row, not just the requirement), and
+    // what has been typed (`reqId -> title`). Declared here, not with the other
+    // in-place edits below, because the LAYOUT reads the drafts: the card is
+    // laid out around the title being typed — wrapped, and grown or shrunk a
+    // line, exactly as it will be drawn once saved — so the editor is always
+    // the size of what it will become. A draft stays until its save's re-read
+    // lands, so a save never flashes the old title back — including one whose
+    // editor was closed by opening the next row's (several drafts at once).
+    const [reqEdit, setReqEdit] = useState(null);
+    const [reqDrafts, setReqDrafts] = useState(() => new Map());
+    const layoutTitles = useMemo(() => {
+        if (!reqDrafts.size) return reqTitles;
+        const out = new Map(reqTitles);
+        reqDrafts.forEach((title, id) => out.set(id, title));
+        return out;
+    }, [reqTitles, reqDrafts]);
     // req #3225 — the epic->{met,total} lookup `computePlanLayout` measures
     // into the band label. Built from `plan.requirementCounts.byEpic`, the
     // SAME derivation `orderedPlan` already ran (design rule 5: no second
@@ -675,27 +743,58 @@ export default function PipelinePlanVisualizer({
     // and coming back, exactly as the key's popout does (req #3651).
     const [collapsedRaw, setCollapsedRaw] = usePlanViewSetting('collapsed');
     const collapsed = useMemo(() => parseCollapsed(collapsedRaw), [collapsedRaw]);
-    const toggleEpicFold = useCallback(
-        (epicId) => setCollapsedRaw((raw) => toggleEpicCollapsed(raw, epicId)),
-        [setCollapsedRaw]);
+    // req #3695 — the fold flips at once; its DRAWING animates (see
+    // `planFoldAnimation.js`): a folding box shrinks to its title bar, an
+    // unfolding one grows to the size it needs.
+    const { foldReveal, animateFold } = useFoldAnimation();
+    const folding = foldReveal != null;
+    const toggleEpicFold = useCallback((epicId) => {
+        animateFold(epicId, collapsed.epicIds.has(epicId));
+        setCollapsedRaw((raw) => toggleEpicCollapsed(raw, epicId));
+    }, [setCollapsedRaw, animateFold, collapsed]);
     const toggleStepFold = useCallback(
         (stepId) => setCollapsedRaw((raw) => toggleStepCollapsed(raw, stepId)),
         [setCollapsedRaw]);
-    const layout = useMemo(
-        () => computePlanLayout(rows, {
-            stepLabel, reqLabel, reqTitles, reqPills,
+    // req #3686 — `orderStepReqs` puts the closed requirements last, from
+    // `reqDoneFrom` on; hiding them is slicing there. Only the LAYOUT's input is
+    // trimmed: `rows` (drag, seating, counts) keeps every requirement.
+    // req #3708 — and the requirements pinned to a deselected machine, in the
+    // same layout-only pass; `reqInfo` already carries each one's `machineFk`.
+    const layoutRows = useMemo(() => {
+        const open = hideClosed ? hideClosedReqs(rows) : rows;
+        return hideMachineReqs(open, hiddenMachines, (id) => reqInfo.get(id)?.machineFk);
+    }, [rows, hideClosed, hiddenMachines, reqInfo]);
+    const layoutOpts = useMemo(
+        () => ({
+            stepLabel, reqLabel, reqTitles: layoutTitles, reqPills,
             palette: activePalette,
             timeAxis: plan.timeAxis || null, epicCounts,
             // req #3226 — `plan.pause` comes from the composed derivation (same
             // provenance as `requirementCounts`/`timeAxis` above): one
             // derivation, read here rather than recomputed.
             pauseInfo: plan.pause || null,
+            // req #3649 — which bands are LOCKED (their own epic, or the plan).
+            lockInfo: { planLocked: !!plan.locked,
+                        lockedEpicIds: [...(plan.lockedEpicIds || [])] },
             stepWidthLevel,
             collapsedEpicIds: collapsed.epicIds, collapsedStepIds: collapsed.stepIds,
         }),
-        [rows, plan.timeAxis, stepLabel,
-            reqLabel, reqTitles, reqPills, epicCounts, plan.pause, activePalette, stepWidthLevel,
-            collapsed]);
+        [plan.timeAxis, stepLabel,
+            reqLabel, layoutTitles, reqPills, epicCounts, plan.pause, plan.locked,
+            plan.lockedEpicIds, activePalette, stepWidthLevel, collapsed]);
+    const layout = useMemo(
+        () => computePlanLayout(layoutRows, layoutOpts), [layoutRows, layoutOpts]);
+    // req #3695 — THE LAYOUT THE CANVAS DRAWS. While an epic's fold animates it
+    // is re-laid out every frame with that band part-way open; otherwise it IS
+    // `layout`. Only the drawing reads it: the camera, the zoom behaviour's
+    // pan bound and every focus fit keep the SETTLED `layout` — the plan the
+    // animation is arriving at — so a fold never rebuilds the zoom behaviour
+    // sixty times or interrupts a camera move in flight.
+    const drawLayout = useMemo(
+        () => (foldReveal
+            ? computePlanLayout(layoutRows, { ...layoutOpts, foldReveal })
+            : layout),
+        [foldReveal, layout, layoutRows, layoutOpts]);
     // A LINK INTO A FOLDED BOX UNFOLDS IT (req #3650). `?epic=` and `?step=`
     // name a place on the plan to land on, and a folded band draws no cards —
     // so the fit would have nothing to fit. `?step=` is how the requirement
@@ -769,7 +868,17 @@ export default function PipelinePlanVisualizer({
     // Collapsed by default (req #3633, reversing req #3585's expanded default
     // and restoring req #3309's) and REMEMBERED once the reader opens it (req
     // #3651) — see the key's own comment below.
-    const [keyOpen, setKeyOpen] = usePlanViewSetting('keyOpen');
+    const [keyOpenStored, setKeyOpenStored] = usePlanViewSetting('keyOpen');
+    // req #3658 — maximized, the key FOLDS on the way in ("default collapse but
+    // don't completely hide supporting text boxes"): it keeps its + toggle and
+    // opens if the reader asks, and on the way out it is back to the reader's
+    // remembered state. The TPU Full screen switch's rule for its panels. So a
+    // fold or unfold made while maximized is held HERE and never written to
+    // the remembered setting, and every switch-on starts it folded again.
+    const [keyOpenMax, setKeyOpenMax] = useState(false);
+    useLayoutEffect(() => { if (maximized) setKeyOpenMax(false); }, [maximized]);
+    const keyOpen = maximized ? keyOpenMax : keyOpenStored;
+    const setKeyOpen = maximized ? setKeyOpenMax : setKeyOpenStored;
 
     // The container is tracked as STATE, not a bare ref: with an empty plan the
     // component returns the empty panel and no container exists — if the first
@@ -811,6 +920,11 @@ export default function PipelinePlanVisualizer({
     // behaviour, built once, sees the current stage without being rebuilt.
     const reqDragRef = useRef(null);
     const reqHitRef = useRef(null);
+    // req #3661 — opens a requirement's title editor from a long press on its
+    // row, or answers false when this frame draws no title to edit. Rebound
+    // every render (below `drawsKind`) so the press listeners read this frame's
+    // level.
+    const reqLongPressRef = useRef(null);
     // Re-aims the drop outline after the camera moves under a still pointer —
     // a wheel zoom or an edge auto-pan mid-drag. Called from the zoom
     // behaviour's own 'zoom' handler, the one place every camera move passes
@@ -844,10 +958,27 @@ export default function PipelinePlanVisualizer({
     const [pendingSeats, setPendingSeats] = useState(() => new Set());
     const [boxCarrying, setBoxCarrying] = useState(false);
     const unseatedItems = useMemo(
-        () => (pendingSeats.size
-            ? unseated.items.filter((r) => !pendingSeats.has(Number(r.id)))
-            : unseated.items),
-        [unseated.items, pendingSeats]);
+        () => unseated.items.filter((r) => !pendingSeats.has(Number(r.id))
+            && !isMachineHidden(r.machine_fk, hiddenMachines)),
+        [unseated.items, pendingSeats, hiddenMachines]);
+    // req #3702 — the Orchestrables rows follow the reader's colour preference.
+    // The SAME registry, theme and resolver as the canvas ids, built over the
+    // box's own rows (they sit on no step, so `model.requirements` lacks them).
+    // `session_status` is attached exactly as `buildPlanModel` does; with no
+    // index yet the Session scale paints unknown rather than "no session".
+    const unseatedColorViews = useMemo(() => buildReqColorViews({
+        requirements: unseated.items.map((r) => ({
+            ...r, id: Number(r.id),
+            ...(sessionStatus && {
+                session_status: sessionStatus.get(Number(r.id)) ?? 'no_session',
+            }),
+        })),
+        machines: model?.machines,
+        palette: activePalette,
+    }), [unseated.items, sessionStatus, model?.machines, activePalette]);
+    const unseatedIdStyleOf = useCallback((reqId) => reqIdStyle({
+        colorKey: activeColorKey, views: unseatedColorViews, reqId: Number(reqId),
+    }), [activeColorKey, unseatedColorViews]);
     // req #3608 — the whole box dropped on a step: the open confirm dialog's
     // request (`bulkSeatRequest`), null when closed, and whether its writes are
     // in flight.
@@ -869,9 +1000,8 @@ export default function PipelinePlanVisualizer({
     // ── The camera survives leaving the page (req #3252) ────────────────────
     // `transform` above is component state, and EVERY way of leaving this panel
     // unmounts the component: a requirement label, an epic chip's ↗, the
-    // breadcrumb, a bead click (which pushes the step's Table link, req #3637),
-    // the Table|Plan toggle (a return with no navigation at all), browser Back,
-    // a reload. The comment on the
+    // breadcrumb, browser Back, a reload (and, until req #3641 withdrew the
+    // Table, a bead click into it and the Table|Plan toggle). The comment on the
     // requirement label below used to end "only pan/zoom re-fits"; this is that
     // sentence being retired.
     //
@@ -898,7 +1028,10 @@ export default function PipelinePlanVisualizer({
     // the restore path. Step Width is different in kind — every card, column
     // and wrap point is re-scaled, so a camera from another rung points at
     // unrelated content and is refused.
-    const viewportFingerprint = `sw${stepWidthLevel}`;
+    // `q` since req #3648 — the rungs became quarters of the base card (6 5 4
+    // 3), so a camera saved under the old `sw1`-`sw4` was taken at a different
+    // width than the same number means now.
+    const viewportFingerprint = `q${stepWidthLevel}`;
     const viewport = useSavedViewport(viewportKey, viewportFingerprint);
     // The live camera, mirrored out of the d3-zoom 'zoom' handler so the commit
     // on unmount has something to write. A ref, not state: this is read only by
@@ -1059,10 +1192,20 @@ export default function PipelinePlanVisualizer({
         // "fill the rest of the window" intent actually means. Where the scroller
         // is an inner element instead of the document, scrollY is 0 and this is
         // the old expression exactly.
-        const top = containerEl.getBoundingClientRect().top + (window.scrollY || 0);
-        const next = Math.max(480, Math.round(window.innerHeight - top - 14));
+        //
+        // req #3658 — MAXIMIZED, the page is a fixed full-window layer, so its
+        // top is the window's and the document's scroll is not in it, and the
+        // canvas runs to the window's bottom edge with no 14px gutter — and with
+        // no 480px floor either: the overlay clips, so on a short window (a
+        // phone in landscape) a floor would push the restore switch and the
+        // key off the bottom of the screen.
+        const top = containerEl.getBoundingClientRect().top
+            + (maximized ? 0 : (window.scrollY || 0));
+        const next = maximized
+            ? Math.max(0, Math.round(window.innerHeight - top))
+            : Math.max(480, Math.round(window.innerHeight - top - 14));
         setAvailH((prev) => (prev === next ? prev : next));
-    }, [containerEl]);
+    }, [containerEl, maximized]);
     useLayoutEffect(measureAvailH);                     // after every render
     useEffect(() => {
         window.addEventListener('resize', measureAvailH);
@@ -1115,7 +1258,11 @@ export default function PipelinePlanVisualizer({
     // used to sit: the two fallbacks below are "the view the page opens in"
     // for the frames before the zoom behavior has emitted anything, and they
     // can only be that if the number exists by then.
-    const kFactoryDefault = factoryDefaultScale(layout, size, kFit, kZoomFloor);
+    // req #3648 — the base view is a whole camera, not just a scale: below
+    // k = 1 it is pulled down so the pinned ruler clears the top band's header.
+    const factoryView = factoryDefaultView(layout, size, kFit, kZoomFloor);
+    const kFactoryDefault = factoryView.k;
+    const yFactoryDefault = factoryView.y;
     // The camera's live scale, or — before the first transform — the one the
     // landing effect is about to apply. Reading `kDefault` here made the very
     // first frame report `mid` on a plan that opens at Overview, a level the
@@ -1336,8 +1483,9 @@ export default function PipelinePlanVisualizer({
             // Detaching the listeners does NOT stop a running focus transition
             // (req #3204): it would keep ticking on a detached container for the
             // rest of its 420ms, calling setTransform into an unmounted
-            // tree and holding the node. Reachable — a bead click switches the
-            // page to Table mode, which unmounts this component.
+            // tree and holding the node. Reachable whenever the page navigates
+            // away mid-transition (a requirement click, the nav rail) — it was
+            // first reached by a bead click opening the Table (gone, req #3641).
             sel.interrupt();
         };
     }, [containerEl, size.w, size.h, kFit, kDefault, kZoomFloor, layout.width, layout.height,
@@ -1375,8 +1523,9 @@ export default function PipelinePlanVisualizer({
         const el = containerEl;
         const zb = zoomRef.current;
         if (!el || !zb || size.w === 0) return;
-        select(el).call(zb.transform, zoomIdentity.scale(kFactoryDefault));
-    }, [containerEl, size.w, kFactoryDefault]);
+        select(el).call(zb.transform,
+            zoomIdentity.translate(0, yFactoryDefault).scale(kFactoryDefault));
+    }, [containerEl, size.w, kFactoryDefault, yFactoryDefault]);
     // ── THE LANDING VIEW (req #3252) ────────────────────────────────────────
     // What this canvas shows when it arrives at a plan. Two answers, in order:
     // the camera the reader left on this plan at THIS Step Width (req #3637), or
@@ -1448,7 +1597,33 @@ export default function PipelinePlanVisualizer({
     // "this plan's Step Width changed" (the base view: the rescale is the
     // reader's explicit choice and the old camera means nothing on it).
     const landedPlanRef = useRef(null);
+    // req #3688 — the layout the camera was last showing, and — once Hide
+    // closed flips — the layout it was showing BEFORE the flip, held until the
+    // housekeeping branch below consumes it. Held rather than read in the same
+    // run because a run can bail on a readiness guard: the reader's place is
+    // defined by what they saw before the toggle, however many commits later
+    // the camera gets to act on it. The camera at the toggle rides along: if
+    // the reader has moved it by the time the anchor is consumed, the old
+    // layout no longer describes what they are looking at, and it is dropped.
+    // `lastAnchorRef` is the anchor the previous toggle held and the camera it
+    // left — handed back while the camera is still there, so hide → expand
+    // holds the SAME card both ways and returns exactly.
+    const shownLayoutRef = useRef(null);
+    // req #3708 — a machine-filter toggle re-lays the plan out exactly as Hide
+    // closed does, so it rides the same anchor under one combined key.
+    const layoutFilterKey = `${hideClosed ? 1 : 0}|${[...hiddenMachines].sort().join(',')}`;
+    const shownHideClosedRef = useRef(layoutFilterKey);
+    const anchorFromRef = useRef(null);
+    const lastAnchorRef = useRef(null);
     useEffect(() => {
+        if (shownHideClosedRef.current !== layoutFilterKey) {
+            shownHideClosedRef.current = layoutFilterKey;
+            if (anchorFromRef.current == null) {
+                anchorFromRef.current = { layout: shownLayoutRef.current,
+                    t: liveTransformRef.current };
+            }
+        }
+        shownLayoutRef.current = layout;
         const el = containerEl;
         const zb = zoomRef.current;
         if (!el || zb == null || size.w === 0) return;
@@ -1510,6 +1685,8 @@ export default function PipelinePlanVisualizer({
         const saved = landed?.landKey === landKey ? null : viewport.read();
         const action = planLandingAction(landed, next, saved);
         if (action !== 'keep') {
+            // A landing replaces the camera wholesale; there is no place to keep.
+            anchorFromRef.current = null;
             landedKeyRef.current = landKey;
             landedPlanRef.current = viewportKey;
             setLandedKey(landKey);
@@ -1524,8 +1701,8 @@ export default function PipelinePlanVisualizer({
             // *"the pipelines viewport should be pretty damn sticky. refresh,
             // reload, should not change the viewport"* — and every other way
             // back: browser Back/Forward, the requirement page's Back to Plan,
-            // the Plan|Table toggle, a bead click into the Table and back. They
-            // all arrive HERE, as a mount, so one read covers every one of them
+            // (and, until req #3641 withdrew the Table, the Plan|Table toggle and
+            // a bead click into the Table and back). They all arrive HERE, as a mount, so one read covers every one of them
             // without a list of return paths.
             //
             // This REVERSES req #3365's "the landing is the Reset view, always",
@@ -1555,10 +1732,30 @@ export default function PipelinePlanVisualizer({
         // otherwise a no-op on the camera.
         const live = liveTransformRef.current;
         if (!live) return;
+        // (b) HIDE CLOSED KEEPS THE READER'S PLACE (req #3688). The toggle
+        // relayouts — cards shrink or grow and everything below them moves —
+        // so holding the WORLD transform slides the cards the reader was on off
+        // to somewhere else. Hold the card nearest the viewport centre at its
+        // screen position instead. A null answer (nothing on screen) falls
+        // through to (a)'s plain re-clamp.
+        const anchorFrom = anchorFromRef.current;
+        anchorFromRef.current = null;
+        const sameCamera = (a, b) => !!a && !!b && a.x === b.x && a.y === b.y && a.k === b.k;
+        if (anchorFrom && sameCamera(anchorFrom.t, live)) {
+            const last = lastAnchorRef.current;
+            const anchored = relayoutAnchorTransform(anchorFrom.layout, layout, live, size,
+                sameCamera(last?.t, live) ? last.key : null);
+            if (anchored) {
+                apply(anchored);
+                lastAnchorRef.current = liveTransformRef.current
+                    ? { key: anchored.anchor, t: liveTransformRef.current } : null;
+                return;
+            }
+        }
         const c = clampPlanTransform(live, size, layout, kZoomFloor, kMax);
         if (c.k !== live.k || c.x !== live.x || c.y !== live.y) apply(live);
     }, [resetView, containerEl, size, layout, kZoomFloor, kDefault, sizeSettled,
-        landKey, viewportKey, viewport]);
+        landKey, viewportKey, viewport, layoutFilterKey]);
 
     // Reset targets the same view the plan lands on (req #3312), so all this
     // adds over `resetView` is the INTENT: an explicit, in-the-moment
@@ -1593,18 +1790,18 @@ export default function PipelinePlanVisualizer({
         factoryResetRef.current();
     }, [resetViewNonce]);
 
-    // ── FIT N STEPS ACROSS, ABOUT THE VIEWPORT'S CENTRE (req #3498) ─────────
+    // ── FIT N STEPS ACROSS, ON THE ACTIVE STEPS (req #3498, #3648) ──────────
     // The scale and the transform are both `pipelinePlanLayout`'s (see
-    // `stepsAcrossScale` / `zoomAboutViewportCentre`) — this effect only drives
+    // `stepsAcrossScale` / `stepsAcrossTransform`) — this effect only drives
     // d3-zoom with the answer, so the arithmetic stays testable without a canvas
     // and the "2 is the loose one" rule lives beside the option list rather than
     // in a component.
     //
     // Through `zb.transform`, not by setting state: d3-zoom owns the gesture and
     // a transform written behind its back is reverted by the next wheel event.
-    // It applies `scaleExtent` itself, so a request past either end of the zoom
-    // range is clamped rather than refused — asking for 2 across on a plan too
-    // small to need it lands at the ceiling, which is the honest answer.
+    // `zb.transform` does NOT apply `scaleExtent` (only `scale()` does), so the
+    // clamp is `stepsAcrossTransform`'s, through `centreTransform`; the
+    // viewport-centre fallback is only reached on a plan with nothing placed.
     //
     // Keyed on the NONCE alone, read through a ref: `size` and the layout change
     // on every resize and every toggle, and depending on them would re-fire a
@@ -1620,7 +1817,11 @@ export default function PipelinePlanVisualizer({
         // per-column array this scalar was built from.
         const nextK = stepsAcrossScale(stepsAcross?.n, size.w, layout.colPitch);
         if (!nextK) return;
-        const next = zoomAboutViewportCentre(t, size, nextK);
+        // req #3648 — centred on the ACTIVE steps (`activeStepIds`), not on
+        // wherever the viewport happens to be; the viewport centre is only the
+        // fallback for a plan with nothing placed.
+        const next = stepsAcrossTransform(layout, rows, stepsAcross?.n, size,
+            kDefault, kZoomFloor) || zoomAboutViewportCentre(t, size, nextK);
         if (!next) return;
         // The reader moved the camera deliberately, so a pending `?epic=` re-fit
         // must not fight them for it — the same stand-down `factoryReset` does.
@@ -1703,8 +1904,9 @@ export default function PipelinePlanVisualizer({
             // and it would then fire an `activate` on whatever Konva node
             // happens to lie beneath the overlay. That was harmless only while
             // the epic chip navigated away from this page; now that the chip
-            // focuses and stays, a chip parked over a bead would ALSO switch
-            // the page to Table mode. React's stopPropagation cannot fix it:
+            // focuses and stays, a chip parked over a bead would ALSO activate
+            // the bead (it switched the page to Table mode until req #3641; it
+            // frames the step now). React's stopPropagation cannot fix it:
             // React 18 delegates to its root, which is an ANCESTOR of this
             // node, so this listener runs first regardless.
             if (!(e.target instanceof HTMLCanvasElement)) return;
@@ -1715,7 +1917,7 @@ export default function PipelinePlanVisualizer({
             // second click (a different epic, or the same one again) lands on
             // BARE CANVAS at an interpolated transform. That resolves against
             // whatever bead or requirement id happens to be under the cursor at
-            // that instant and switches to Table mode or navigates away. The
+            // that instant and frames a step or navigates away. The
             // window is new: the chip used to leave the page immediately.
             if (focusingRef.current) return;
             // req #3586 — an add-step "+" is resolved by geometry, not by the
@@ -1912,7 +2114,7 @@ export default function PipelinePlanVisualizer({
     useLayoutEffect(() => {
         dragWorldRef.current = {
             layout, rowById, size, pendingMoves, commit: commitReqMove,
-            t: liveTransformRef.current || transform || { x: 0, y: 0, k: kFactoryDefault },
+            t: liveTransformRef.current || transform || { x: 0, y: yFactoryDefault, k: kFactoryDefault },
         };
     });
 
@@ -2062,12 +2264,24 @@ export default function PipelinePlanVisualizer({
             const node = hit(e);
             if (!node) return;
             e.preventDefault();          // no text selection, no native drag
-            reqDragRef.current = {
+            const d = {
                 phase: 'press', node,
                 reqId: node.getAttr('dragReqId'),
                 fromStepId: node.getAttr('dragStepId'),
                 down: { x: e.clientX, y: e.clientY },
             };
+            // req #3661 — HELD STILL IS AN EDIT: a press that has not passed
+            // the drag slop after `LONG_PRESS_MS` opens the title's in-place
+            // editor (the gesture the step and epic names already take, req
+            // #3580). It fires while still held, and the press becomes
+            // CANCELLED, so the release that follows is neither a drop nor the
+            // click that opens the requirement page.
+            d.longTimer = setTimeout(() => {
+                if (reqDragRef.current !== d || d.phase !== 'press') return;
+                if (!reqLongPressRef.current?.(d.reqId, d.fromStepId)) return;
+                d.phase = 'cancelled';
+            }, LONG_PRESS_MS);
+            reqDragRef.current = d;
         };
         const onMove = (e) => {
             const d = reqDragRef.current;
@@ -2075,12 +2289,14 @@ export default function PipelinePlanVisualizer({
             // The button is up but no mouseup reached us (something swallowed
             // it): a release we never saw is not a drop — put it back.
             if (!(e.buttons & 1)) {        // eslint-disable-line no-bitwise
+                clearTimeout(d.longTimer);
                 if (d.phase === 'drag') finish(); else reqDragRef.current = null;
                 return;
             }
             lastPoint = panelPoint(e);
             if (d.phase === 'press') {
                 if (!passedDragSlop(d.down, e.clientX, e.clientY)) return;
+                clearTimeout(d.longTimer);
                 if (!start(d)) { reqDragRef.current = null; return; }
             }
             placePreview();
@@ -2090,6 +2306,7 @@ export default function PipelinePlanVisualizer({
         const onUp = (e) => {
             const d = reqDragRef.current;
             if (!d || e.button !== 0) return;      // only the button that lifted it
+            clearTimeout(d.longTimer);
             if (d.phase === 'press') { reqDragRef.current = null; return; }
             guardClick();
             if (d.phase === 'cancelled') { reqDragRef.current = null; return; }
@@ -2125,6 +2342,7 @@ export default function PipelinePlanVisualizer({
             window.removeEventListener('blur', onBlur);
             if (raf) cancelAnimationFrame(raf);
             clearTimeout(guardTimer);
+            clearTimeout(reqDragRef.current?.longTimer);
             reqHitRef.current = null;
             reqRetargetRef.current = null;
             reqDragRef.current = null;
@@ -2207,7 +2425,10 @@ export default function PipelinePlanVisualizer({
             // holding a dead layer. Nothing to redraw is also a reason not to.
             if (dirty && layer.getStage()) layer.batchDraw();
         };
-    }, [rows, hasRunning, hasNext, size.w]);
+    // `folding` (req #3695): a card mid-fold is wrapped in a fade Group, which
+    // remounts its nodes as the fold starts and again as it lands — so the
+    // nodes captured above are re-found on both edges.
+    }, [rows, hasRunning, hasNext, size.w, folding]);
 
     // ── The level ladder, as ONE predicate ──────────────────────────────────
     // Every label kind asks this and nothing else, and the container publishes
@@ -2233,7 +2454,16 @@ export default function PipelinePlanVisualizer({
     // in no dependency array — so the wrapper only read as if it memoised
     // something.
     const drawsKind = (kind) => drawsLabelKind(kind, level);
-    const drawnKinds = ['step', 'req', 'title', 'badge', 'step-link', 'step-add']
+    // req #3661 — only where the title is DRAWN (L3): at L1/L2 the row is the
+    // bare id, and an editor there would be editing text the reader cannot see.
+    reqLongPressRef.current = (reqId, stepId) => {
+        if (level !== 'in' || !drawsKind('req')) return false;
+        if (!layout.labels.some((l) => l.kind === 'req' && l.reqId === reqId
+            && l.stepId === stepId)) return false;
+        setReqEdit({ reqId, stepId, saving: false });
+        return true;
+    };
+    const drawnKinds = ['step', 'req', 'title', 'badge', 'checkpoint', 'lock']
         .filter(drawsKind).join(',');
 
     // Report the level being rendered so the toolbar's selector can softly mark
@@ -2252,9 +2482,9 @@ export default function PipelinePlanVisualizer({
     // The frames before the zoom behavior has emitted anything draw the view
     // the landing effect is about to apply, not the readable scale it used to
     // name — otherwise the plan paints once zoomed in and then jumps out to
-    // where it actually opens (req #3312). `x`/`y` stay at the origin because
-    // that is what `resetView` applies.
-    const t = transform || { x: 0, y: 0, k: kFactoryDefault };
+    // where it actually opens (req #3312). `x` stays at the origin and `y` at
+    // the ruler's excess, because that is what `resetView` applies (req #3648).
+    const t = transform || { x: 0, y: yFactoryDefault, k: kFactoryDefault };
 
     // ── The add-step marks' geometry (req #3586) ────────────────────────────
     // PLACED once per LAYOUT (at the largest radius, so spacing holds at every
@@ -2267,9 +2497,12 @@ export default function PipelinePlanVisualizer({
     const insertR = insertMarkRadius(curK);
     const insertRRef = useRef(insertR);
     insertRRef.current = insertR;
+    // req #3695 — not while an epic's fold animates: the marks sit on the
+    // SETTLED layout, so mid-fold they would float where the cards are going
+    // rather than where they are. They return the frame the fold lands.
     const insertGeom = useMemo(
-        () => (insertDrawn ? buildInsertMarks(layout, rows) : null),
-        [insertDrawn, layout, rows]);
+        () => (insertDrawn && !folding ? buildInsertMarks(layout, rows) : null),
+        [insertDrawn, folding, layout, rows]);
     insertGeomRef.current = insertGeom;
     openInsertRef.current = openInsert;
     insertHitRef.current = (e) => {
@@ -2484,8 +2717,10 @@ export default function PipelinePlanVisualizer({
     // req #3365 — a SET of steps, not one. `stepsFocusTransform` is what
     // `stepFocusTransform` is now built on, so a one-step epic frames exactly
     // as the single-step focus always did.
-    const focusEpicWork = useCallback((stepIds) => applyFocus(
-        stepsFocusTransform(layout, stepIds, size, kDefault, kZoomFloor)),
+    // req #3685 — the band rides along so the work stop's spare room is spent
+    // on the epic's own cards, not on whatever lies beside the open work.
+    const focusEpicWork = useCallback((band, stepIds) => applyFocus(
+        epicWorkFocusTransform(layout, band, stepIds, size, kDefault, kZoomFloor)),
     [applyFocus, layout, size, kDefault, kZoomFloor]);
 
     // Which STEP each band's SECOND click goes to — computed once per layout
@@ -2531,6 +2766,9 @@ export default function PipelinePlanVisualizer({
             toggleEpicFold(band.epicId ?? null);
             return;
         }
+        // req #3695 — the chip carries the band as DRAWN, which mid-fold is
+        // part-way open; the camera fits the band the fold is arriving at.
+        band = layout.bands.find((b) => b.key === band?.key) || band;
         const key = epicZoomStateKey(pipeline?.id, band);
         const workIds = epicWorkByEpic.get(epicCycleKey(band)) || [];
         const next = deep && workIds.length > 0
@@ -2544,13 +2782,13 @@ export default function PipelinePlanVisualizer({
         // self-healing: something always happens, and the cycle is never stuck
         // at a level the camera is not actually on.
         let level = next;
-        let moved = next === EPIC_ZOOM_STEP && focusEpicWork(workIds);
+        let moved = next === EPIC_ZOOM_STEP && focusEpicWork(band, workIds);
         if (!moved) {
             level = EPIC_ZOOM_BAND;
             moved = focusEpic(band);
         }
         if (moved) epicZoomRef.current = { key, level };
-    }, [epicWorkByEpic, focusEpicWork, focusEpic, pipeline?.id, toggleEpicFold]);
+    }, [epicWorkByEpic, focusEpicWork, focusEpic, pipeline?.id, toggleEpicFold, layout]);
 
     // ── IN-PLACE EDIT (req #3580) ───────────────────────────────────────────
     // Three edits, straight from the canvas: an epic's NAME, a step's NAME, and
@@ -2583,43 +2821,142 @@ export default function PipelinePlanVisualizer({
         ]);
     }, [queryClient, pipeline?.id, profile?.userName]);
 
-    // One commit path for both names. An unchanged name closes the editor
+    // One commit path for every name — epic, step and (req #3661) requirement
+    // title. An unchanged name closes the editor
     // without a write; a refused one says why and keeps the stored name.
+    //
+    // EVERY state write is to THIS editor only. An editor can commit after the
+    // reader has already opened another — a long press on the next row takes
+    // the first editor away, and its unmount is a commit — so an unconditional
+    // `setEdit` would mark, or close, the editor the reader just asked for.
     const commitTitle = useCallback(async ({ current, raw, setEdit, editState, write, what }) => {
+        const mine = (cur) => !!cur && cur.key === editState.key
+            && cur.stepId === editState.stepId && cur.reqId === editState.reqId;
+        const close = () => setEdit((cur) => (mine(cur) ? null : cur));
         const next = String(raw ?? '').trim();
-        if (next === current) { setEdit(null); return; }
+        if (next === current) { close(); return; }
         const problem = titleProblem(next);
-        if (problem) { showError(problem); setEdit(null); return; }
-        setEdit({ ...editState, saving: true });
+        if (problem) { showError(problem); close(); return; }
+        setEdit((cur) => (mine(cur) ? { ...cur, saving: true } : cur));
         try {
             await write(next);
             await refreshPlan();
         } catch (err) {
             showError(err, `Could not rename the ${what}`);
         } finally {
-            // Only THIS editor. While the write was in flight the reader may
-            // have opened another name — that editor is not this save's to close.
-            setEdit((cur) => (cur && cur.key === editState.key
-                && cur.stepId === editState.stepId ? null : cur));
+            close();
         }
     }, [refreshPlan, showError]);
 
-    const commitEpicTitle = useCallback((band, raw) => commitTitle({
-        current: band.epic, raw, what: 'epic',
-        setEdit: setEpicEdit, editState: { key: epicCycleKey(band) },
-        write: (title) => updateEpic(darwinUri, idToken, band.epicId, { title }),
-    }), [commitTitle, darwinUri, idToken]);
+    // req #3649 — A LOCKED ROW IS A RELIC IN TIME. The gateway refuses the
+    // write (423) whatever the UI does; these say so BEFORE the attempt, in
+    // the lock's own words, and name the level to unlock. `lockedBy` is the
+    // OUTERMOST lock, which is the one that must be lifted first.
+    const lockedMessage = (what, lockedBy) => (
+        `This ${what} is locked${lockedBy && lockedBy !== what
+            ? ` by its ${lockedBy}` : ''} — unlock it first`);
+    const refuseIfLocked = useCallback((what, lockedBy) => {
+        if (!lockedBy) return false;
+        showError(lockedMessage(what, lockedBy));
+        return true;
+    }, [showError]);
 
-    const commitStepTitle = useCallback((row, raw) => commitTitle({
-        current: row.title || '', raw, what: 'step',
-        setEdit: setStepEdit, editState: { stepId: row.id },
-        write: (title) => updateStep(darwinUri, idToken, row.id, { title }),
-    }), [commitTitle, darwinUri, idToken]);
+    const commitEpicTitle = useCallback((band, raw) => {
+        if (refuseIfLocked('epic', band.lockedBy)) { setEpicEdit(null); return undefined; }
+        return commitTitle({
+            current: band.epic, raw, what: 'epic',
+            setEdit: setEpicEdit, editState: { key: epicCycleKey(band) },
+            write: (title) => updateEpic(darwinUri, idToken, band.epicId, { title }),
+        });
+    }, [commitTitle, darwinUri, idToken, refuseIfLocked]);
+
+    const commitStepTitle = useCallback((row, raw) => {
+        if (refuseIfLocked('step', row.lockedBy)) { setStepEdit(null); return undefined; }
+        return commitTitle({
+            current: row.title || '', raw, what: 'step',
+            setEdit: setStepEdit, editState: { stepId: row.id },
+            write: (title) => updateStep(darwinUri, idToken, row.id, { title }),
+        });
+    }, [commitTitle, darwinUri, idToken, refuseIfLocked]);
+
+    // req #3649 — ONE write path for the step's two flags and the three locks:
+    // write, re-read, surface the gateway's own refusal. The lock toggle is the
+    // one authoring write a locked row still accepts (it is how a lock is
+    // lifted), so it never asks `refuseIfLocked` — except when the lock is an
+    // ANCESTOR's, where flipping this row's own flag would change nothing the
+    // reader can see.
+    const writeFlag = useCallback(async (write, failure) => {
+        try {
+            await write();
+            await refreshPlan();
+        } catch (err) {
+            showError(err, failure);
+        }
+    }, [refreshPlan, showError]);
+
+    const toggleCheckpoint = useCallback((row) => {
+        if (refuseIfLocked('step', row.lockedBy)) return;
+        writeFlag(() => updateStep(darwinUri, idToken, row.id,
+            { checkpoint: row.checkpoint === false ? 1 : 0 }),
+        'Could not change the step checkpoint flag');
+    }, [writeFlag, refuseIfLocked, darwinUri, idToken]);
+
+    const toggleStepLock = useCallback((row) => {
+        if (row.lockedBy && row.lockedBy !== 'step') {
+            showError(lockedMessage('step', row.lockedBy));
+            return;
+        }
+        writeFlag(() => updateStep(darwinUri, idToken, row.id,
+            { locked: row.locked ? 0 : 1 }),
+        'Could not change the step lock');
+    }, [writeFlag, showError, darwinUri, idToken]);
+
+    const toggleEpicLock = useCallback((band) => {
+        if (band.lockedBy === 'pipeline') {
+            showError(lockedMessage('epic', 'pipeline'));
+            return;
+        }
+        writeFlag(() => updateEpic(darwinUri, idToken, band.epicId,
+            { locked: band.lockedBy === 'epic' ? 0 : 1 }),
+        'Could not change the epic lock');
+    }, [writeFlag, showError, darwinUri, idToken]);
+
+    // req #3661 — the requirement title. The composed plan read carries the
+    // titles the canvas draws; the requirements lists carry them everywhere else.
+    //
+    // "Unchanged" is judged against the text the editor OPENED on, not the
+    // latest stored title: if somebody else renamed it meanwhile, closing this
+    // editor untouched must not write the old name back over theirs.
+    const dropReqDraft = useCallback((reqId, title) => setReqDrafts((m) => {
+        if (!m.has(reqId) || (title !== undefined && m.get(reqId) !== title)) return m;
+        const out = new Map(m);
+        out.delete(reqId);
+        return out;
+    }), []);
+    const commitReqTitle = useCallback(async (reqId, stepId, raw, opened) => {
+        try {
+            await commitTitle({
+                current: opened, raw, what: 'requirement',
+                setEdit: setReqEdit, editState: { reqId, stepId },
+                write: async (title) => {
+                    await updateRequirementTitle(darwinUri, idToken, reqId, title);
+                    if (profile?.userName) {
+                        queryClient.invalidateQueries({
+                            queryKey: requirementKeys.all(profile.userName) });
+                    }
+                },
+            });
+        } finally {
+            // Unless the reader has since typed something newer for it.
+            dropReqDraft(reqId, raw);
+        }
+    }, [commitTitle, dropReqDraft, darwinUri, idToken, queryClient, profile?.userName]);
 
     // The run circle's click. A second click while the first write is in flight
     // is ignored rather than queued — it would race the first one's re-read.
     const toggleRun = useCallback(async (stepId, current) => {
         if (runPending.has(stepId)) return;
+        if (refuseIfLocked('step', rowById.get(stepId)?.lockedBy)) return;
         const next = current === 'manual' ? 'auto' : 'manual';
         setRunPending((m) => new Map(m).set(stepId, next));
         try {
@@ -2634,7 +2971,7 @@ export default function PipelinePlanVisualizer({
                 return out;
             });
         }
-    }, [runPending, darwinUri, idToken, refreshPlan, showError]);
+    }, [runPending, darwinUri, idToken, refreshPlan, showError, refuseIfLocked, rowById]);
 
     // ── QUICK CLICK / DOUBLE CLICK / LONG PRESS (req #3580) ────────────────
     // User directive: "fast click to zoom, long click to edit, double click to
@@ -2904,10 +3241,10 @@ export default function PipelinePlanVisualizer({
     // The sx block below is the other half of that contract — its `fontSize` and
     // padding must stay in step with the module's constants.
     const floatingEpics = placeEpicChips({
-        bands: layout.bands,
+        bands: drawLayout.bands,
         transform: t,
         viewport: size,
-        worldWidth: layout.width,
+        worldWidth: drawLayout.width,
         keepOut: legendSize
             ? { x: (size.w - legendSize.w) / 2, y: size.h - 12 - legendSize.h,
                 w: legendSize.w, h: legendSize.h }
@@ -2972,7 +3309,7 @@ export default function PipelinePlanVisualizer({
             point: { x: e.clientX - rect.left, y: e.clientY - rect.top },
             overChrome: overlaysCard(e),
             rulerBottom: epicOverlayTopInset,
-            t, nodes: layout.nodes, rowById,
+            t, nodes: drawLayout.nodes, rowById,
         });
     };
     const sameTarget = (a, b) => (a === b)
@@ -3066,7 +3403,7 @@ export default function PipelinePlanVisualizer({
             point: { x: clientX - rect.left, y: clientY - rect.top },
             overChrome: !canSeat || overlaysCard({ target: beneath, clientX, clientY }),
             rulerBottom: epicOverlayTopInset,
-            t, nodes: layout.nodes, rowById,
+            t, nodes: drawLayout.nodes, rowById,
         });
     };
     const onBoxMoveOver = (clientX, clientY) => {
@@ -3131,7 +3468,7 @@ export default function PipelinePlanVisualizer({
     };
     const closeBulkSeat = () => { if (!bulkSeating) setBulkSeatOpen(false); };
 
-    const seatTargetNode = seatTarget ? layout.nodes.get(seatTarget.stepId) : null;
+    const seatTargetNode = seatTarget ? drawLayout.nodes.get(seatTarget.stepId) : null;
     const seatTargetRect = seatTargetNode ? screenRectOf(seatTargetNode, t) : null;
 
     const chipBg = rgba(P.panel, EPIC_CHIP_BG_ALPHA);
@@ -3148,7 +3485,11 @@ export default function PipelinePlanVisualizer({
     // needed — unlike the epic chip there is no lane-fit, no clamp, no
     // collision to resolve, because a badge answers for exactly one card and
     // never competes with a neighbour for room.
-    const floatingBadges = layout.labels
+    // req #3695 — a card's HTML controls fade with its card while its epic's
+    // fold animates, and take no clicks until it lands. Null when settled.
+    const foldStyle = (l) => (l.reveal == null ? null
+        : { opacity: foldContentAlpha(l.reveal), pointerEvents: 'none' });
+    const floatingBadges = drawLayout.labels
         .filter((l) => l.kind === 'badge' && drawsKind('badge'))
         .map((l) => ({
             key: `badge-${l.stepId}`,
@@ -3164,6 +3505,7 @@ export default function PipelinePlanVisualizer({
             height: l.h * t.k,
             fontSize: CARD_BADGE_FONT * t.k,
             text: l.text,
+            fold: foldStyle(l),
         }));
 
     // ── THE RUN-MODE PILL, AS AN HTML OVERLAY (req #3580) ──────────────────
@@ -3171,7 +3513,7 @@ export default function PipelinePlanVisualizer({
     // layer, inset under the ruler the same way). The layout reserved its box
     // in the card's title row (`CARD_RUN_W`); this only projects it to screen.
     // A pending write draws the mode being WRITTEN, so the click answers now.
-    const floatingRuns = layout.labels
+    const floatingRuns = drawLayout.labels
         .filter((l) => l.kind === 'run' && drawsKind('run'))
         .map((l) => ({
             key: `run-${l.stepId}`,
@@ -3183,13 +3525,34 @@ export default function PipelinePlanVisualizer({
             width: l.w * t.k,
             height: l.h * t.k,
             fontSize: CARD_RUN_FONT * t.k,
+            fold: foldStyle(l),
+        }));
+
+    // ── THE CHECKPOINT GATE AND THE PADLOCK, AS HTML OVERLAYS (req #3673) ──
+    // Buttons, so HTML for the run pill's reason, on the run pill's layer —
+    // and for the pictures: real icons (`PlanStepFlagIcons.jsx`) rather than
+    // the stroked ⚑ and padlock req #3649 drew in Konva, which the user could
+    // not read. The layout reserved both boxes on the title line; this only
+    // projects them to screen.
+    const floatingFlags = drawLayout.labels
+        .filter((l) => (l.kind === 'checkpoint' || l.kind === 'lock') && drawsKind(l.kind))
+        .map((l) => ({
+            key: `${l.kind}-${l.stepId}`,
+            kind: l.kind,
+            stepId: l.stepId,
+            on: !!l.on,
+            lockedBy: l.lockedBy || null,
+            left: l.x * t.k + t.x,
+            top: l.y * t.k + t.y,
+            size: l.w * t.k,
+            fold: foldStyle(l),
         }));
 
     // ── THE STEP CARD'S COLLAPSE HEAD, AS AN HTML OVERLAY (req #3650) ──────
     // A button, so HTML for the run pill's reason, on the run pill's layer. The
-    // layout reserved its row at the card's top-left (`CARD_HEAD_W` ×
-    // `CARD_HEAD_H`); this only projects it to screen.
-    const floatingCollapses = layout.labels
+    // layout reserved its box at the title line's left (`CARD_COLLAPSE_W`,
+    // req #3648); this only projects it to screen.
+    const floatingCollapses = drawLayout.labels
         .filter((l) => l.kind === 'collapse' && drawsKind('collapse'))
         .map((l) => ({
             key: `collapse-${l.stepId}`,
@@ -3200,16 +3563,17 @@ export default function PipelinePlanVisualizer({
             top: l.y * t.k + t.y,
             width: l.w * t.k,
             height: l.h * t.k,
-            fontSize: CARD_HEAD_FONT * t.k,
+            fontSize: CARD_COLLAPSE_FONT * t.k,
+            fold: foldStyle(l),
         }));
 
     // ── THE STEP-NAME EDITOR'S BOX (req #3580) ──────────────────────────────
     // The name's own world rect, widened to the whole room the layout reserved
-    // for it (`editW`, up to the run pill), projected through `t`. Only while
+    // for it (`editW`, up to the control cluster's gap), projected through `t`. Only while
     // that step's name is actually drawn — an editor floating where no name is
     // would be editing something the reader cannot see.
     const stepEditLabel = stepEdit != null && drawsKind('step')
-        ? layout.labels.find((l) => l.kind === 'step' && l.stepId === stepEdit.stepId)
+        ? drawLayout.labels.find((l) => l.kind === 'step' && l.stepId === stepEdit.stepId)
         : null;
     const stepEditRow = stepEditLabel ? rowById.get(stepEditLabel.stepId) : null;
     const stepEditor = stepEditLabel && stepEditRow ? {
@@ -3234,14 +3598,23 @@ export default function PipelinePlanVisualizer({
     // content they mark rather than to viewport chrome.
     const stickyRulerNodes = [];
 
-    layout.bands.forEach((band) => {
-        worldNodes.push(
-            <Rect key={`band-${band.key}`} x={2} y={band.y} width={layout.width - 4}
-                  height={band.height} cornerRadius={8}
-                  fill={band.color} opacity={0.06} />,
-            <Rect key={`bandstroke-${band.key}`} x={2} y={band.y} width={layout.width - 4}
-                  height={band.height} cornerRadius={8}
-                  stroke={band.color} strokeWidth={1} opacity={0.35} />);
+    drawLayout.bands.forEach((band) => {
+        // req #3695 — A FOLDED EPIC HAS NO RECTANGLE: its floating title bar
+        // (the chip) is all of it, so it gives way to the epics that are open.
+        // Mid-fold the box is drawn at the band's animated height and its wash
+        // and outline come in (or go out) with it, so the rectangle visibly
+        // grows out of the title bar and back into it.
+        const rv = band.reveal ?? (band.collapsed ? 0 : 1);
+        if (rv > 0) {
+            worldNodes.push(
+                <Rect key={`band-${band.key}`} x={2} y={band.y} width={drawLayout.width - 4}
+                      height={band.height} cornerRadius={8}
+                      fill={band.color} opacity={0.06 * rv} />,
+                <Rect key={`bandstroke-${band.key}`} x={2} y={band.y} width={drawLayout.width - 4}
+                      height={band.height} cornerRadius={8}
+                      stroke={band.color} strokeWidth={1} opacity={0.35 * rv} />);
+        }
+        const wireAlpha = foldContentAlpha(rv);
         for (let l = 0; l < band.sub; l++) {
             // band.laneY, not l × pitch — lanes have individual heights since
             // req #3119 and a constant-pitch wire would drift off its cards.
@@ -3268,8 +3641,8 @@ export default function PipelinePlanVisualizer({
                 + (band.laneCardH?.get(l) ?? MIN_CARD_H) / 2;
             worldNodes.push(
                 <Line key={`wire-${band.key}-${l}`}
-                      points={[36, wy, layout.width - 14, wy]}
-                      stroke={P.wire} strokeWidth={1.2} opacity={0.18} />);
+                      points={[36, wy, drawLayout.width - 14, wy]}
+                      stroke={P.wire} strokeWidth={1.2} opacity={0.18 * wireAlpha} />);
         }
     });
 
@@ -3282,15 +3655,15 @@ export default function PipelinePlanVisualizer({
     // label loop below with every other piece of text on the surface — into
     // `stickyRulerNodes`, same as the baseline and ticks here, not `worldNodes`.
     {
-        const R = layout.ruler || { h: 0, slots: [], futureX: null };
+        const R = drawLayout.ruler || { h: 0, slots: [], futureX: null };
         // The FUTURE REGION, first, so the rules draw on top of its edge. A rule
         // alone says where the boundary is; it does not say which side of it has
         // not happened yet. WORLD space — it tints the whole plan's height, not
         // just the header strip.
-        if (R.futureX != null && R.futureX < layout.width) {
+        if (R.futureX != null && R.futureX < drawLayout.width) {
             worldNodes.push(
                 <Rect key="ruler-future" x={R.futureX} y={0}
-                      width={layout.width - R.futureX} height={layout.height}
+                      width={drawLayout.width - R.futureX} height={drawLayout.height}
                       fill={P.wire} opacity={0.07} listening={false} />);
         }
         // The strip's OWN opaque backing (req #3254, code-review finding): once
@@ -3334,9 +3707,13 @@ export default function PipelinePlanVisualizer({
         // HTML chips already clamped below `rulerScreenBottom(t)`. At k ≥ 1,
         // where that region does hold drawn text, `rulerScreenMag` is 1 and the
         // geometry is bit-for-bit what it was.
+        // REPAID BY req #3648: below k = 1 the strip now hangs from its BOTTOM
+        // edge (`stickyRulerY`) and the base view pulls the plan down by the
+        // excess, so on landing/Default it no longer hides band 0's header —
+        // that hidden header is what parked the top epic's name on its cards.
         const rulerMag = rulerScreenMag(t);
         stickyRulerNodes.push(
-            <Rect key="ruler-sticky-bg" x={0} y={0} width={layout.width}
+            <Rect key="ruler-sticky-bg" x={0} y={0} width={drawLayout.width}
                   height={R.h * rulerMag}
                   fill={P.panel} listening={false} />);
         // The strip's baseline — what makes the ticks read as one ruler rather
@@ -3344,7 +3721,7 @@ export default function PipelinePlanVisualizer({
         stickyRulerNodes.push(
             <Line key="ruler-baseline"
                   points={[0, (R.h - 2) * rulerMag,
-                      layout.width, (R.h - 2) * rulerMag]}
+                      drawLayout.width, (R.h - 2) * rulerMag]}
                   stroke={P.line} strokeWidth={rulerMag} opacity={0.7}
                   listening={false} />);
         R.slots.forEach((s, i) => {
@@ -3361,7 +3738,7 @@ export default function PipelinePlanVisualizer({
             if (i > 0) {
                 worldNodes.push(
                     <Line key={`ruler-rule-${s.key}`}
-                          points={[s.x, 6, s.x, layout.height - 6]}
+                          points={[s.x, 6, s.x, drawLayout.height - 6]}
                           stroke={gapped ? P.dim : P.line} strokeWidth={1}
                           dash={gapped ? [5, 5] : undefined}
                           opacity={gapped ? 0.5 : 0.55} listening={false} />);
@@ -3383,7 +3760,11 @@ export default function PipelinePlanVisualizer({
         });
     }
 
-    layout.arcs.forEach((arc, i) => {
+    drawLayout.arcs.forEach((arc, i) => {
+        // req #3695 — an arc into a card mid-fold fades with the card; full
+        // opacity everywhere else, exactly as before.
+        const arcAlpha = foldContentAlpha(arc.reveal);
+        if (arcAlpha <= 0) return;
         if (arc.straight) {
             worldNodes.push(
                 // FULL OPACITY and a slightly heavier stroke (req #3365 user
@@ -3392,11 +3773,11 @@ export default function PipelinePlanVisualizer({
                 // 6.9:1 line, and the arcs were already the faintest marks on a
                 // panel whose beads and bands are both brighter.
                 <Line key={`arc-${i}`} points={[arc.x1, arc.y1, arc.x2, arc.y2]}
-                      stroke={P.arc} strokeWidth={1.4}
+                      stroke={P.arc} strokeWidth={1.4} opacity={arcAlpha}
                       listening={false} />);
         } else {
             worldNodes.push(
-                <Path key={`arc-${i}`} data={arc.path} stroke={P.arc}
+                <Path key={`arc-${i}`} data={arc.path} stroke={P.arc} opacity={arcAlpha}
                       strokeWidth={1.4} listening={false} />);
         }
     });
@@ -3465,16 +3846,36 @@ export default function PipelinePlanVisualizer({
     // both bound to geometry that cannot overlap a neighbour's.
     const dotClusters = (!drawsCard && haloIsDot)
         ? clusterNextMarks(rows.filter((r) => {
-            const n = layout.nodes.get(r.id);
-            return n && eligibleStepIds.has(r.id);
+            const n = drawLayout.nodes.get(r.id);
+            // Not for a card mid-fold (req #3695): its dot returns as it lands.
+            return n && n.reveal == null && eligibleStepIds.has(r.id);
         }).map((r) => {
-            const n = layout.nodes.get(r.id);
+            const n = drawLayout.nodes.get(r.id);
             return { id: r.id, x: n.x, y: n.y, suppressed: r.launchSuppressed };
         }), dotRadius)
         : null;
 
-    rows.forEach((row) => {
-        const n = layout.nodes.get(row.id);
+    // req #3695 — whatever a card mid-fold pushed onto the world is wrapped in
+    // ONE Group carrying the card's fade, rather than an opacity threaded
+    // through every mark it draws: the card, its halo, its rows and its text
+    // fade together because they are one thing. Settled layouts carry no
+    // reveal, so this never wraps anything outside an animation.
+    // Clipped to the band's animated box, so the box REVEALS its cards as it
+    // grows and swallows them as it shrinks — nothing hangs over the next epic.
+    const fadeFoldFrom = (mark, node, key) => {
+        const reveal = node?.reveal;
+        if (reveal == null || reveal >= 1 || worldNodes.length === mark) return;
+        const items = worldNodes.splice(mark);
+        const band = drawLayout.bands[node.bandIndex];
+        const clip = band ? { clipX: 0, clipY: band.y, clipWidth: drawLayout.width,
+            clipHeight: band.height } : null;
+        worldNodes.push(
+            <Group key={`fold-${key}`} opacity={foldContentAlpha(reveal)} {...clip}>
+                {items}
+            </Group>);
+    };
+    const drawRow = (row) => {
+        const n = drawLayout.nodes.get(row.id);
         if (!n) return;
         const style = beadStyle(row, eligibleStepIds.has(row.id), row.launchSuppressed);
         // ── Highlight for next steps (req #3168) ────────────────────────────
@@ -3587,6 +3988,20 @@ export default function PipelinePlanVisualizer({
                         n.frameLeft + n.frameW - CARD_PAD_X,
                         n.top + n.titleH + CARD_RULE_GAP,
                     ]} stroke={P.line} strokeWidth={1} listening={false} />
+                    {/* req #3676 — the COMPLETE LINE between the step's open and
+                        complete requirements, under every colour key. At the
+                        y of the packing the rows are drawn at: titles at L3,
+                        bare ids at L2. */}
+                    {n.doneRule && (
+                        <Line points={[
+                            n.frameLeft + CARD_PAD_X,
+                            level === 'in' ? n.doneRule.y : n.doneRule.idY,
+                            n.frameLeft + n.frameW - CARD_PAD_X,
+                            level === 'in' ? n.doneRule.y : n.doneRule.idY,
+                        ]} stroke={P.dim} strokeWidth={1} dash={CARD_DONE_RULE_DASH}
+                              opacity={CARD_DONE_RULE_OPACITY}
+                              name="done-rule" listening={false} />
+                    )}
                 </Group>);
         } else {
             worldNodes.push(
@@ -3610,33 +4025,28 @@ export default function PipelinePlanVisualizer({
                 </Group>);
         }
         // ── HOVER IS THE WHOLE CARD; ACTIVATE IS THE TITLE AREA ─────────────
-        // `onActivate` switches the page to Table mode, which unmounts the
-        // visualizer and discards the reader's pan and zoom — so how much of the
-        // world fires it is a real decision, and this file already has a ruling
-        // on it: req #3213 REFUSED to put `onActivate` on the step-name hit rect
-        // because it would grow the click-to-leave surface from 0.22% of the
-        // world to 1.25%. A whole-card target measures **7.0%**, five times the
-        // number that was rejected.
+        // ACTIVATE FRAMES THE STEP ON THIS CANVAS (req #3641). It used to call
+        // `onStepFocus`, which switched the page to the Table and discarded the
+        // reader's pan and zoom; the Table is gone (user directive: the
+        // visualizer is the only way to look at a pipeline), so a click on a
+        // step now does what a quick click on its name already did (req #3580)
+        // — `stepFocusTransform`, the `?step=` link's own framing.
         //
-        // So the two jobs are split. HOVER — which costs nothing and is what a
-        // card is for — takes the whole card. ACTIVATE takes the TITLE AREA: the
-        // step's own name, a deliberate target rather than 400px of open card,
-        // and it lands at **2.7%**. It also closes the hole the split would
-        // otherwise leave, because the step-label hit rect below sits ON TOP of
-        // this one and the manual hit test does not bubble — clicking the step's
-        // name would have done nothing while clicking 3px under it left the page.
-        // The requirement ROWS keep their own `onActivate` (navigate to the
-        // requirement), and they sit below the rule, outside this box.
-        //
-        // At L1 the bead's hit circle is unchanged. Its radius is a LAYOUT
-        // constant since req #3213 — the label hit regions below are pushed
-        // above these nodes, so the clearance between the two is an invariant
-        // the layout tests assert.
+        // The split req #3213 drew still stands: HOVER takes the whole card;
+        // ACTIVATE takes the TITLE AREA, so a click on open card between the
+        // requirement rows does not move the camera. The requirement ROWS keep
+        // their own `onActivate` (navigate to the requirement), below the rule,
+        // outside this box. At L1 the bead's hit circle frames the same way;
+        // its radius is a LAYOUT constant since req #3213 — the label hit
+        // regions below are pushed above these nodes, so the clearance between
+        // the two is an invariant the layout tests assert.
         const stepHover = {
             onMouseEnter: (e) => cursorPointer(e, true),
             onMouseLeave: (e) => cursorPointer(e, false),
         };
-        const stepActivate = { ...stepHover, onActivate: () => onStepFocus?.(row.id) };
+        const stepActivate = {
+            ...stepHover, onActivate: () => stepPressRef.current?.(row.id).onClick(),
+        };
         if (drawsCard) {
             // Both regions are the FRAME's, not the node box's: the strip the
             // state bar stands in belongs to no control, and a hit rect drawn
@@ -3646,18 +4056,27 @@ export default function PipelinePlanVisualizer({
                 <Rect key={`hit-${row.id}`} x={n.frameLeft} y={n.top}
                       width={n.frameW} height={n.h} cornerRadius={CARD_RADIUS}
                       fill="transparent" {...stepHover} />,
-                // Starts BELOW the collapse head's row (req #3650), so a
-                // near-miss beside "REQS" never leaves for the Table — the
-                // head's row adds nothing to req #3213's click-to-leave area.
-                <Rect key={`hitact-${row.id}`} x={n.frameLeft}
-                      y={n.top + CARD_PAD_Y + CARD_HEAD_H}
-                      width={n.frameW} height={n.titleH - CARD_PAD_Y - CARD_HEAD_H}
+                // From the NAME rightward since req #3648 put the collapse
+                // head on the title line (the badge stood there until req
+                // #3683): a near-miss beside the chevron must
+                // not also activate the step (req #3650's own rule for the
+                // head; since req #3641 activation frames the step on canvas).
+                <Rect key={`hitact-${row.id}`}
+                      x={n.frameLeft + CARD_PAD_X + CARD_COLLAPSE_W + CARD_COLLAPSE_GAP}
+                      y={n.top + CARD_PAD_Y}
+                      width={n.frameW - CARD_PAD_X - CARD_COLLAPSE_W - CARD_COLLAPSE_GAP}
+                      height={n.titleH - CARD_PAD_Y}
                       fill="transparent" {...stepActivate} />);
         } else {
             worldNodes.push(
                 <Circle key={`hit-${row.id}`} x={n.x} y={n.y} radius={BEAD_HIT_RADIUS}
                         fill="transparent" {...stepActivate} />);
         }
+    };
+    rows.forEach((row) => {
+        const mark = worldNodes.length;
+        drawRow(row);
+        fadeFoldFrom(mark, drawLayout.nodes.get(row.id), `row-${row.id}`);
     });
 
     // ── THE DROP TARGET (req #3581) ─────────────────────────────────────────
@@ -3669,7 +4088,7 @@ export default function PipelinePlanVisualizer({
     // own frame, the same one `dropTargetAt` tests, so what lights up is what
     // the drop will hit — at every level, including Overview where the card
     // itself is not painted.
-    const dropNode = dropStepId != null ? layout.nodes.get(dropStepId) : null;
+    const dropNode = dropStepId != null ? drawLayout.nodes.get(dropStepId) : null;
     if (dropNode) {
         const sw = 2.5 / curK;
         worldNodes.push(
@@ -3765,7 +4184,7 @@ export default function PipelinePlanVisualizer({
     // so the strip cannot thin one way at layout time and another way here.
     const visibleRulerLabels = new Set();
     {
-        const R = layout.ruler || { slots: [] };
+        const R = drawLayout.ruler || { slots: [] };
         let lastRight = -Infinity;
         for (const s of R.slots) {
             if (!s.showLabel) continue;          // the layout already refused it
@@ -3776,7 +4195,10 @@ export default function PipelinePlanVisualizer({
         }
     }
 
-    layout.labels.forEach((label, i) => {
+    // req #3661 — the requirement title editor's box, found while its row is
+    // drawn below (it needs the row's own pill packing to place line 1).
+    let reqEditor = null;
+    const drawLabel = (label, i) => {
         if (!drawsKind(label.kind)) return;
         if (label.kind === 'step') {
             // Wrapped at layout time (req #3498) — the step name takes a
@@ -3795,8 +4217,9 @@ export default function PipelinePlanVisualizer({
             }
             // HOVER ONLY — deliberately NOT the bead's third handler (review
             // finding). The bead's hit circle also carries `onActivate`, which
-            // switches the whole page to Table mode and, because the visualizer
-            // unmounts, discards the reader's pan and zoom. Mirroring it here
+            // (until req #3641 made it frame the step instead) switched the
+            // whole page to Table mode and, because the visualizer unmounted,
+            // discarded the reader's pan and zoom. Mirroring it here
             // would grow the click-to-leave surface from 0.22% of the world to
             // 1.25% — measured on the live 97-step plan — and make the step
             // name the largest click target on the canvas, while the manual
@@ -3861,8 +4284,15 @@ export default function PipelinePlanVisualizer({
             // the box the overlap sweep measured.
             const reqLines = showTitle && Array.isArray(label.lines)
                 ? label.lines : null;
-            const reqText = reqLines ? reqLines.join('\n')
-                : (showTitle ? label.text : (label.idText ?? label.text));
+            // req #3661 — a row whose title is open in its in-place editor
+            // draws everything BUT the title (id, pills, separator): the editor
+            // draws the title itself, in the room the layout gave it.
+            const editingTitle = showTitle && reqEdit?.reqId === label.reqId
+                && reqEdit?.stepId === label.stepId;
+            const reqText = editingTitle
+                ? `${label.idText ?? label.reqId}${' '.repeat(CARD_SEP_CHARS)}`
+                : reqLines ? reqLines.join('\n')
+                    : (showTitle ? label.text : (label.idText ?? label.text));
             // ── LEFT-ANCHORED, NOT CENTRED IN THE TITLE'S BOX (req #3498) ───
             // The id used to be centred inside the room the title reserved,
             // because the layout centred the title on the node's x. A card's
@@ -3889,6 +4319,16 @@ export default function PipelinePlanVisualizer({
             // crosses the L2/L3 line, only where the ids sit inside a box that
             // was always this tall.
             const reqY = showTitle ? label.y : label.idY;
+            // ── THE ID→TITLE GAP IS 1.5 CHARACTERS (req #3683) ──────────────
+            // The layout's text carries a two-space separator; everything after
+            // the id — the title, its continuation lines, the pills, the editor
+            // — is drawn `REQ_SEP_PULL` (half a character) further left, so the
+            // gap reads as half the three spaces it was. The id itself stays on
+            // the text column and is drawn as its own Text. A bare id (L1/L2
+            // with no pills) has nothing after it to pull.
+            const idStr = String(label.reqId);
+            const pull = reqText.length > idStr.length ? REQ_SEP_PULL : 0;
+            const restX = reqX - pull;
             // req #3581 — the mark the reader has picked up stays where it was,
             // GREYED OUT, until the drop: the copy riding the cursor is the
             // requirement in flight, and this is the hole it left.
@@ -3908,6 +4348,10 @@ export default function PipelinePlanVisualizer({
             // The first line's text AFTER the last pill, redrawn flush against
             // it (see the packing note below); null leaves it in the row Text.
             let rowTail = null;
+            // req #3661 — the same packed position for a row whose title is
+            // open in the editor: its tail is the blank separator alone, which
+            // draws nothing, but the editor's line 1 starts where it ends.
+            let editTail = null;
             if (pillsHere.length) {
                 const rowLines = reqText.split('\n');
                 const firstLine = rowLines[0];
@@ -3927,7 +4371,7 @@ export default function PipelinePlanVisualizer({
                     const maxW = spanW + 2 * REQ_PILL_PAD_X;
                     const w = labelW == null ? maxW
                         : Math.min(maxW, labelW + 2 * labelSize * REQ_PILL_LABEL_PAD_EM);
-                    const slotX = reqX + (lead ?? pl.start * CHW_REQ);
+                    const slotX = restX + (lead ?? pl.start * CHW_REQ);
                     return {
                         ...pl,
                         text,
@@ -3950,13 +4394,13 @@ export default function PipelinePlanVisualizer({
                 // A pill hugs its sans label (`REQ_PILL_LABEL_PAD_EM`) but the
                 // layout reserves the label's MONO width, so a pill centred in its
                 // slot left the slack beside it — between the last pill and the
-                // title's dash most visibly. So when every width is measurable the
+                // title most visibly. So when every width is measurable the
                 // pills are laid one after another — the first with its left edge
                 // ON THE TITLE COLUMN the layout put its range on (req #3601: never
                 // inside the id's column), then ONE SPACE of air from each other
                 // and from the title — and the first line's tail
-                // (` - Title…`, which starts with its own space) is redrawn flush
-                // after the last pill. The row Text keeps the layout's characters
+                // (`   Title…`, the layout's blank gap — redrawn here with ONE
+                // space, req #3660) is redrawn flush after the last pill. The row Text keeps the layout's characters
                 // (tail blanked) and so stays the hover/click/drag target over the
                 // whole row; the layout's reservation is an upper bound the packed
                 // line never exceeds, so wrap, card height and overlap are untouched.
@@ -3967,7 +4411,7 @@ export default function PipelinePlanVisualizer({
                 const measured = spaceW != null && pillsHere.every((pl, j) =>
                     pl.start > 0 && pillBoxes[j].measured);
                 if (measured) {
-                    let x = reqX + measureReqText(firstLine.slice(0, pillsHere[0].start),
+                    let x = restX + measureReqText(firstLine.slice(0, pillsHere[0].start),
                         CF.req, rs.bold);
                     pillBoxes = pillBoxes.map((b) => {
                         const placed = { ...b, x };
@@ -3983,7 +4427,7 @@ export default function PipelinePlanVisualizer({
                     // characters do.
                     const reservedW = measureReqText(firstLine.slice(0, tailStart),
                         CF.req, rs.bold);
-                    const reservedEnd = reservedW == null ? null : reqX + reservedW;
+                    const reservedEnd = reservedW == null ? null : restX + reservedW;
                     const lastPacked = pillBoxes[pillBoxes.length - 1];
                     if (reservedEnd != null && lastPacked.x + lastPacked.w > reservedEnd) {
                         pillBoxes[pillBoxes.length - 1] = {
@@ -3991,23 +4435,57 @@ export default function PipelinePlanVisualizer({
                         };
                     }
                     const lastBox = pillBoxes[pillBoxes.length - 1];
+                    const tailLead = tailText.length - tailText.trimStart().length;
+                    const tail = {
+                        x: lastBox.x + lastBox.w,
+                        text: ` ${tailText.trimStart()}`,
+                        // req #3661 — the line-1 character index `text` begins
+                        // at (its one space is the last of the lead it
+                        // replaced), so the title editor can find where the
+                        // title starts inside it.
+                        start: tailStart + Math.max(0, tailLead - 1),
+                    };
+                    if (editingTitle) editTail = tail;
                     if (tailText.trim()) {
-                        rowTail = { x: lastBox.x + lastBox.w, text: tailText };
+                        rowTail = tail;
                         rowLines[0] = rowLines[0].slice(0, tailStart)
                             + ' '.repeat(tailText.length);
                     }
                 }
                 rowText = rowLines.join('\n');
             }
+            // The id is drawn by its own Text at `reqX`; the row Text, pulled
+            // left, carries blanks in its place — still the row's hover, click
+            // and drag target over the id, since a Text's hit box is its
+            // whole run, blanks included.
+            if (pull) rowText = ' '.repeat(idStr.length) + rowText.slice(idStr.length);
+            if (editingTitle) {
+                reqEditor = {
+                    reqId: label.reqId,
+                    stepId: label.stepId,
+                    label,
+                    color: rs.fill,
+                    bold: rs.bold,
+                    box: reqTitleEditorBox({
+                        label, firstLine: reqText.split('\n')[0],
+                        measure: (str) => measureReqText(str, CF.req, rs.bold),
+                        chw: CHW_REQ, tail: rowTail || editTail, t, pull,
+                        lineH: REQ_LINE_H, fontSize: CF.req,
+                        insetTop: epicOverlayTopInset,
+                    }),
+                };
+            }
             // A row that carries pills is drawn as ONE Group — text, pills and
             // their targets — so the drag ghost (req #3581, a snapshot of the
             // node under the pointer) shows the row as the reader sees it,
             // pills included, rather than the bare text with blanks in it.
             // `dragRowGroup` on the text is what tells the snapshot to take the
-            // parent. A pill-less row stays a lone Text, exactly as before.
+            // parent. So does a row whose id is drawn apart from its title
+            // (req #3683). A bare id stays a lone Text, exactly as before.
+            const rowGroup = pillBoxes.length > 0 || pull > 0;
             const rowNodes = [];
             rowNodes.push(
-                <Text key={`lbl-${i}`} x={reqX} y={reqY} text={rowText}
+                <Text key={`lbl-${i}`} x={restX} y={reqY} text={rowText}
                       fontSize={CF.req} fontFamily={MONO}
                       lineHeight={REQ_LINE_H / CF.req}
                       fill={lifted ? P.dim : rs.fill}
@@ -4017,7 +4495,7 @@ export default function PipelinePlanVisualizer({
                       // (req #3581): the mark IS the handle.
                       dragReqId={label.reqId}
                       dragStepId={label.stepId}
-                      dragRowGroup={pillBoxes.length > 0}
+                      dragRowGroup={rowGroup}
                       onMouseEnter={(e) => cursorPointer(e, true)}
                       onMouseLeave={(e) => cursorPointer(e, false)}
                       // Carry the plan's identity so the requirement page's Back
@@ -4049,6 +4527,16 @@ export default function PipelinePlanVisualizer({
                           pipeline?.id
                               ? { state: planExitState(pipeline.id, 'plan') }
                               : undefined)} />);
+            if (pull) {
+                rowNodes.push(
+                    <Text key={`lbl-${i}-id`} x={reqX} y={reqY} text={idStr}
+                          fontSize={CF.req} fontFamily={MONO}
+                          lineHeight={REQ_LINE_H / CF.req}
+                          fill={lifted ? P.dim : rs.fill}
+                          opacity={lifted ? 0.4 : 1}
+                          fontStyle={rs.bold ? 'bold' : 'normal'}
+                          wrap="none" listening={false} />);
+            }
             if (rowTail) {
                 rowNodes.push(
                     <Text key={`lbl-${i}-tail`} x={rowTail.x} y={reqY} text={rowTail.text}
@@ -4095,7 +4583,7 @@ export default function PipelinePlanVisualizer({
                           onMouseLeave={(e) => cursorPointer(e, false)}
                           onActivate={action} />);
             });
-            if (pillBoxes.length) {
+            if (rowGroup) {
                 worldNodes.push(<Group key={`lbl-${i}-row`}>{rowNodes}</Group>);
             } else {
                 worldNodes.push(...rowNodes);
@@ -4111,43 +4599,12 @@ export default function PipelinePlanVisualizer({
             // branch is kept, EMPTY, so a `badge` label is a deliberate no-op
             // here rather than an unhandled kind silently falling through the
             // chain below to whatever the next `else if` happens to match.
-        } else if (label.kind === 'step-link' || label.kind === 'step-add') {
-            // The card title's two buttons, framed, drawn and hovered alike:
-            //  ↗ — "view in table, highlighted" (req #3503), the epic chip's ↗
-            //      pattern given to the SAME action the title area's hit rect
-            //      has carried since req #3213 (`onStepFocus`);
-            //  + — file a new requirement INTO this step (req #3582). Opens the
-            //      requirement editor's "new" mode (req #2414, the aggregator
-            //      template's own path) carrying the step; nothing is written
-            //      until the user picks a category, and that first save seats
-            //      it here.
-            // An OUTLINED SQUARE so it reads as a button (req #3582), its
-            // outline doubled by req #3607 (`CARD_TITLE_BTN_STROKE`). The frame
-            // IS the hit target — a transparent fill hit-tests its whole box,
-            // the pill targets' own move. The glyph is two or three strokes
-            // centred on that box by geometry (`titleBtnGlyph`, req #3607),
-            // never a `Text` whose font box is what gets centred, and it is
-            // `P.text` rather than `P.dim` — the "this is live" brightness.
-            const btnRow = rowById.get(label.stepId);
-            const activate = label.kind === 'step-link'
-                ? () => onStepFocus?.(label.stepId)
-                : () => navigate('/swarm/requirement/new', {
-                    state: newRequirementSeatState(pipeline?.id, 'plan', btnRow),
-                });
-            worldNodes.push(
-                <Rect key={`lbl-${i}`} x={label.x} y={label.y}
-                      width={label.w} height={label.h} cornerRadius={4}
-                      fill="transparent"
-                      stroke={P.dim} strokeWidth={CARD_TITLE_BTN_STROKE}
-                      onMouseEnter={(e) => cursorPointer(e, true)}
-                      onMouseLeave={(e) => cursorPointer(e, false)}
-                      onActivate={activate} />);
-            titleBtnGlyph(label.kind, label).forEach((points, j) => {
-                worldNodes.push(
-                    <Line key={`lbl-${i}-glyph-${j}`} points={points}
-                          stroke={P.text} strokeWidth={CARD_TITLE_BTN_GLYPH_STROKE}
-                          lineCap="round" lineJoin="round" listening={false} />);
-            });
+        } else if (label.kind === 'checkpoint' || label.kind === 'lock') {
+            // req #3673 — drawn as HTML icon buttons now (`floatingFlags`
+            // below), not in Konva: the user found the stroked ⚑ and padlock
+            // unreadable, and a real icon, a hover title and a focusable
+            // button are all HTML's. Kept, EMPTY, for the `badge` branch's
+            // reason — a deliberate no-op, never a fall-through.
         } else if (label.kind === 'title') {
             worldNodes.push(
                 <Text key={`lbl-${i}`} x={label.x} y={label.y} text={label.text}
@@ -4192,7 +4649,8 @@ export default function PipelinePlanVisualizer({
             // it did before), but the sweep's guarantee is a LAYOUT-time one:
             // it does NOT extend across a live pan, because this is now the
             // one label kind whose SCREEN position is `stickyRulerY(t)` where
-            // every other label's is `t.y`. Once the strip pins (`t.y < 0`),
+            // every other label's is `t.y`. Once the strip pins (`t.y` below the
+            // ruler's excess, `rulerExcessY` — 0 at k ≥ 1),
             // a step or requirement label scrolled up near the viewport top
             // can land under it on screen — the same trade-off the sticky
             // epic chips already accept (their own comment: "a sticky chip
@@ -4256,6 +4714,12 @@ export default function PipelinePlanVisualizer({
         // a defensive `else`: a case no data can reach is a case no test can
         // cover, and the zero-overlap label contract is narrower by exactly
         // one text kind rather than looser by an unreachable one.
+    };
+    drawLayout.labels.forEach((label, i) => {
+        const mark = worldNodes.length;
+        drawLabel(label, i);
+        fadeFoldFrom(mark, label.reveal != null ? drawLayout.nodes.get(label.stepId) : null,
+            `lbl-${i}`);
     });
 
     // ── THE ADD-STEP MARKS (req #3586) ──────────────────────────────────────
@@ -4368,8 +4832,12 @@ export default function PipelinePlanVisualizer({
                  // zero-padding tab panel; this makes the two match.
                  sx={{ position: 'relative', mx: -3, mb: -3,
                         height: availH ? `${availH}px` : 'calc(100vh - 260px)',
-                        minHeight: 480, overflow: 'hidden', borderRadius: '8px',
-                        border: `1px solid ${P.line}`, background: P.panel,
+                        minHeight: maximized ? 0 : 480, overflow: 'hidden',
+                        // req #3658 — maximized, the canvas IS the window: no
+                        // rounded frame drawn inside the screen's edge.
+                        borderRadius: maximized ? 0 : '8px',
+                        border: maximized ? 'none' : `1px solid ${P.line}`,
+                        background: P.panel,
                         touchAction: 'none' }}
                  onDragEnter={onSeatDragEnter}
                  onDragOver={onSeatDragOver}
@@ -4412,7 +4880,10 @@ export default function PipelinePlanVisualizer({
                          data-testid="pipeline-viz-req-drag-preview"
                          data-req-id={reqDrag.reqId}
                          style={{ transform: `translate(${reqDrag.x}px, ${reqDrag.y}px)` }}
-                         sx={{ position: 'absolute', left: 0, top: 0, zIndex: 30,
+                         // Over a box parked on the plan, which floats at
+                         // UNSEATED_FLOAT_Z once placed (req #3687).
+                         sx={{ position: 'absolute', left: 0, top: 0,
+                                zIndex: UNSEATED_FLOAT_Z + 2,
                                 pointerEvents: 'none', willChange: 'transform',
                                 px: `${reqDrag.padX}px`, py: `${reqDrag.padY}px`,
                                 borderRadius: '6px',
@@ -4515,6 +4986,7 @@ export default function PipelinePlanVisualizer({
                             key={e.key}
                             data-testid={`pipeline-viz-epic-${e.key}`}
                             data-editing={editing ? 'true' : undefined}
+                            data-bar={e.bar > 0 ? e.bar.toFixed(2) : undefined}
                             sx={{
                                 // `e.y` is screen-absolute (panel-origin), but
                                 // this chip's containing block now starts at
@@ -4557,6 +5029,17 @@ export default function PipelinePlanVisualizer({
                                 ...(e.clipped && !editing
                                     ? { maxWidth: e.w, overflow: 'hidden' }
                                     : null),
+                                // req #3695 — A FOLDED EPIC IS A FLOATING TITLE
+                                // BAR: no rectangle beneath it, so the chip is
+                                // drawn at the bar width `placeEpicChips`
+                                // measured (never narrower than its name), in
+                                // the epic's own colour, lifted off the plan by
+                                // a shadow. `e.bar` is the band's folded
+                                // fraction, so the bar grows out of the chip and
+                                // back into it with the fold's animation.
+                                ...(e.bar > 0 && !e.clipped && !editing
+                                    ? { minWidth: e.w }
+                                    : null),
                                 display: 'flex', alignItems: 'center', gap: '4px',
                                 fontFamily: MONO, fontSize: e.fontSize,
                                 fontWeight: 700,
@@ -4566,7 +5049,12 @@ export default function PipelinePlanVisualizer({
                                 // the plan; the band's own colour now tints
                                 // through while the name still wins over what it
                                 // crosses.
-                                background: chipBg,
+                                background: e.bar > 0
+                                    ? `linear-gradient(90deg, ${rgba(e.color, 0.3 * e.bar)}, `
+                                        + `${rgba(e.color, 0.08 * e.bar)}), ${chipBg}`
+                                    : chipBg,
+                                boxShadow: e.bar > 0
+                                    ? `0 2px 10px rgba(0, 0, 0, ${0.35 * e.bar})` : 'none',
                                 px: 0.9, py: 0, borderRadius: '5px',
                                 border: `1px solid ${e.color}55`,
                                 whiteSpace: 'nowrap', userSelect: 'none',
@@ -4613,16 +5101,18 @@ export default function PipelinePlanVisualizer({
                             {/* req #3650 — THE CHIP'S COLLAPSE HEAD, leading it:
                                 its upper-left, where the TPU 3D panels keep
                                 theirs. Folds THIS epic's steps and nothing
-                                else. Its width is reserved in `placeEpicChips`
+                                else. The chevron alone since req #3648 — no
+                                "STEPS" word. Its width is reserved in `placeEpicChips`
                                 (`EPIC_CHIP_COLLAPSE_W`) and drawn at exactly
                                 that, at the TPU head's own unscaled 10px. */}
                             <PlanCollapseHead
                                 open={!e.band?.collapsed}
                                 onToggle={() => toggleEpicFold(e.epicId ?? null)}
-                                label="Steps"
+                                label={null}
                                 name={`Steps of epic ${e.name ?? e.text}`}
                                 testId={`pipeline-viz-epic-collapse-${e.key}`}
-                                style={{ width: EPIC_CHIP_COLLAPSE_HEAD_W, fontSize: 10 }}
+                                style={{ width: EPIC_CHIP_COLLAPSE_HEAD_W, fontSize: 10,
+                                    justifyContent: 'center' }}
                             />
                             <Box
                                 component="span"
@@ -4817,6 +5307,49 @@ export default function PipelinePlanVisualizer({
                                     <ViewModuleIcon sx={{ fontSize: EPIC_CHIP_FONT + 2 }} />
                                 </Box>
                             )}
+                            {/* req #3649 — THE EPIC'S PADLOCK, the chip's one
+                                authoring control. Reserved in `placeEpicChips`
+                                (`EPIC_LOCK_W`) under the same `epicId != null`
+                                condition. Closed when the epic is locked in
+                                its own right OR under a locked plan; a click
+                                flips the epic's own flag, and names the plan
+                                when that is what holds it. */}
+                            {e.epicId != null && (
+                                <Box
+                                    component="span"
+                                    role="button"
+                                    tabIndex={0}
+                                    aria-pressed={!!e.band?.locked}
+                                    aria-label={e.band?.locked
+                                        ? `Epic ${e.text} is locked${e.band?.lockedBy === 'pipeline'
+                                            ? ' by its plan' : ''} — unlock`
+                                        : `Lock epic ${e.text}`}
+                                    data-testid={`pipeline-viz-epic-lock-${e.key}`}
+                                    data-locked={e.band?.locked ? '1' : '0'}
+                                    onClick={(ev) => {
+                                        ev.stopPropagation();
+                                        toggleEpicLock(e.band);
+                                    }}
+                                    onKeyDown={(ev) => {
+                                        if (ev.key !== 'Enter') return;
+                                        ev.stopPropagation();
+                                        ev.preventDefault();
+                                        toggleEpicLock(e.band);
+                                    }}
+                                    sx={{
+                                        display: 'inline-flex', alignItems: 'center',
+                                        lineHeight: 1, px: '2px', cursor: 'pointer',
+                                        opacity: e.band?.locked ? 1 : 0.6,
+                                        // req #3673 — the step card's padlock
+                                        // colours: orange shut, chip colour open.
+                                        color: e.band?.locked ? P.lockOn : undefined,
+                                        '&:hover': { opacity: 1 },
+                                    }}
+                                >
+                                    <PlanLockIcon locked={!!e.band?.locked}
+                                                  sx={{ fontSize: EPIC_LOCK_D }} />
+                                </Box>
+                            )}
                         </Box>
                         );
                     })}
@@ -4839,8 +5372,8 @@ export default function PipelinePlanVisualizer({
                     THE LAYER STAYS `pointerEvents: 'none'` AND THE BADGE TURNS
                     IT BACK ON (req #3503). The layer is a full-viewport div: any
                     pointer state on IT swallows every click on the canvas
-                    beneath, which is the card's own `onStepFocus` hit rect (req
-                    #3213). Only the badge itself — a ~20px pill sitting on its
+                    beneath, which is the card's own title-area hit rect (req
+                    #3213; it frames the step since req #3641). Only the badge itself — a ~20px pill sitting on its
                     own card — takes `pointerEvents: 'auto'`, the same one-clickable-
                     thing-inside-a-transparent-container override the epic layer
                     above uses for its chips.
@@ -4895,6 +5428,7 @@ export default function PipelinePlanVisualizer({
                                  top: b.top - epicOverlayTopInset,
                                  width: b.width, height: b.height,
                                  fontSize: b.fontSize,
+                                 ...b.fold,
                              }}
                              sx={{
                                  position: 'absolute',
@@ -4912,6 +5446,31 @@ export default function PipelinePlanVisualizer({
                             {b.text}
                         </Box>
                     ))}
+                    {/* req #3650 — EVERY STEP CARD'S COLLAPSE HEAD, in the
+                        box the layout reserved at the title line's left. Folds
+                        THIS step's requirement rows and nothing else. The
+                        chevron alone since req #3648 — `text` names it for
+                        assistive tech only. Rendered BEFORE the run pills so
+                        keyboard focus reaches a card's chevron first, the way
+                        the line reads. */}
+                    {floatingCollapses.map((c) => (
+                        <PlanCollapseHead key={c.key}
+                            open={c.open}
+                            onToggle={() => toggleStepFold(c.stepId)}
+                            label={null}
+                            name={`${c.text} of step ${c.stepId}`}
+                            testId={`pipeline-viz-step-collapse-${c.stepId}`}
+                            style={{
+                                position: 'absolute',
+                                left: c.left,
+                                top: c.top - epicOverlayTopInset,
+                                width: c.width, height: c.height,
+                                fontSize: c.fontSize,
+                                justifyContent: 'center',
+                                ...c.fold,
+                            }}
+                        />
+                    ))}
                     {/* req #3580 — THE RUN-MODE PILL. Displays the step's run
                         mode as the word and IS the control that changes it:
                         green "auto", blue "manual" (user directive). Geometry
@@ -4928,6 +5487,7 @@ export default function PipelinePlanVisualizer({
                                  data-testid={`pipeline-viz-run-${r.stepId}`}
                                  data-run={r.run}
                                  aria-label={`Step ${r.stepId} runs ${r.run} — switch to ${next}`}
+                                 title={`Runs ${r.run} — click to switch to ${next}`}
                                  aria-busy={r.pending || undefined}
                                  onClick={(ev) => {
                                      ev.stopPropagation();
@@ -4939,7 +5499,8 @@ export default function PipelinePlanVisualizer({
                                      width: r.width, height: r.height,
                                      fontSize: r.fontSize,
                                      background: manual ? P.runManual : P.runAuto,
-                                     opacity: r.pending ? 0.55 : 1,
+                                     ...r.fold,
+                                     opacity: (r.pending ? 0.55 : 1) * (r.fold?.opacity ?? 1),
                                  }}
                                  sx={RUN_PILL_SX}
                             >
@@ -4947,25 +5508,61 @@ export default function PipelinePlanVisualizer({
                             </Box>
                         );
                     })}
-                    {/* req #3650 — EVERY STEP CARD'S COLLAPSE HEAD, in the
-                        row the layout reserved at the card's top-left. Folds
-                        THIS step's requirement rows and nothing else. */}
-                    {floatingCollapses.map((c) => (
-                        <PlanCollapseHead key={c.key}
-                            open={c.open}
-                            onToggle={() => toggleStepFold(c.stepId)}
-                            label={c.text}
-                            name={`${c.text} of step ${c.stepId}`}
-                            testId={`pipeline-viz-step-collapse-${c.stepId}`}
-                            style={{
-                                position: 'absolute',
-                                left: c.left,
-                                top: c.top - epicOverlayTopInset,
-                                width: c.width, height: c.height,
-                                fontSize: c.fontSize,
-                            }}
-                        />
-                    ))}
+                    {/* req #3673 — THE CHECKPOINT GATE AND THE PADLOCK. Each
+                        shows its state as a picture that differs in SHAPE and
+                        COLOUR — barrier arm down (red/white) or raised (grey),
+                        padlock shut (orange) or open (grey) — and IS the
+                        control that flips it. The hover title says what the
+                        state means and what a click does. A lock held by the
+                        epic or plan has a DASHED border: this button cannot
+                        lift it. */}
+                    {floatingFlags.map((f) => {
+                        const checkpoint = f.kind === 'checkpoint';
+                        const row = rowById.get(f.stepId);
+                        const onColor = checkpoint ? P.checkpointOn : P.lockOn;
+                        const color = f.on ? onColor : P.dim;
+                        const title = checkpoint
+                            ? checkpointTitle(f.on, row?.lockedBy) : lockTitle(f.on, f.lockedBy);
+                        const inherited = !checkpoint && f.on
+                            && f.lockedBy && f.lockedBy !== 'step';
+                        return (
+                            <Box key={f.key}
+                                 component="button"
+                                 type="button"
+                                 data-testid={`pipeline-viz-${f.kind}-${f.stepId}`}
+                                 data-on={f.on ? '1' : '0'}
+                                 aria-pressed={f.on}
+                                 aria-label={`Step ${f.stepId}: ${title}`}
+                                 title={title}
+                                 onClick={(ev) => {
+                                     ev.stopPropagation();
+                                     if (!row) return;
+                                     if (checkpoint) toggleCheckpoint(row);
+                                     else toggleStepLock(row);
+                                 }}
+                                 style={{
+                                     left: f.left,
+                                     top: f.top - epicOverlayTopInset,
+                                     width: f.size, height: f.size,
+                                     fontSize: f.size * 0.74,
+                                     color,
+                                     borderColor: f.on ? onColor : rgba(P.dim, 0.8),
+                                     borderStyle: inherited ? 'dashed' : 'solid',
+                                     borderWidth: Math.max(1, CARD_TITLE_BTN_STROKE * t.k),
+                                     background: f.on ? rgba(onColor, 0.16) : 'transparent',
+                                     ...f.fold,
+                                 }}
+                                 sx={FLAG_BTN_SX}
+                            >
+                                {checkpoint
+                                    ? <CheckpointGateIcon closed={f.on}
+                                                          stripe={P.checkpointOn}
+                                                          light={P.checkpointLight}
+                                                          fontSize="inherit" />
+                                    : <PlanLockIcon locked={f.on} fontSize="inherit" />}
+                            </Box>
+                        );
+                    })}
                     {/* req #3580 — THE STEP-NAME EDITOR, over the name's own
                         reserved room on its card. */}
                     {stepEditor && (
@@ -4988,6 +5585,44 @@ export default function PipelinePlanVisualizer({
                             sx={{ pointerEvents: 'auto', fontWeight: 400 }}
                         />
                     )}
+                    {/* req #3661 — THE REQUIREMENT TITLE EDITOR, on the title's
+                        own room in its row: same font, colour and lines as the
+                        row draws, so editing changes nothing on screen but the
+                        caret and the outline. */}
+                    {reqEditor && (
+                        <PlanInPlaceTitleArea
+                            key={`req-edit-${reqEditor.reqId}-${reqEditor.stepId}`}
+                            initial={layoutTitles.get(reqEditor.reqId) || ''}
+                            label={reqEditor.label}
+                            saving={!!reqEdit?.saving}
+                            ariaLabel={`Rename requirement ${reqEditor.reqId}`}
+                            testId={`pipeline-viz-req-edit-${reqEditor.reqId}`}
+                            onDraft={(title) => {
+                                const reqId = reqEditor.reqId;
+                                startTransition(() => setReqDrafts(
+                                    (m) => new Map(m).set(reqId, title)));
+                            }}
+                            onCommit={(raw, opened) => commitReqTitle(
+                                reqEditor.reqId, reqEditor.stepId, raw, opened)}
+                            onCancel={() => {
+                                dropReqDraft(reqEditor.reqId);
+                                setReqEdit(null);
+                            }}
+                            indent={reqEditor.box.indent}
+                            lineHeight={reqEditor.box.lineHeight}
+                            color={reqEditor.color}
+                            bold={reqEditor.bold}
+                            style={{
+                                position: 'absolute',
+                                left: reqEditor.box.left,
+                                top: reqEditor.box.top,
+                                width: reqEditor.box.width,
+                                height: reqEditor.box.height,
+                                fontSize: reqEditor.box.fontSize,
+                                pointerEvents: 'auto',
+                            }}
+                        />
+                    )}
                 </Box>
 
                 {/* req #3583 — the step card a box row would land on. An HTML
@@ -5008,15 +5643,19 @@ export default function PipelinePlanVisualizer({
                                     ? `2px solid ${P.accent}` : '2px dashed #ff6b6b',
                                 boxShadow: seatTarget.ok
                                     ? `0 0 0 4px ${P.accent}33` : 'none',
-                                // Above the box (zIndex 2) while it is carried, so
-                                // the outlined step shows through (req #3614);
-                                // it takes no pointer, so hit-testing is unchanged.
-                                zIndex: boxCarrying ? 3 : 1 }} />
+                                // Above the box while it is carried, so the
+                                // outlined step shows through (req #3614) — and a
+                                // carried box is a PLACED one, fixed in the window
+                                // at UNSEATED_FLOAT_Z (req #3687); it takes no
+                                // pointer, so hit-testing is unchanged.
+                                zIndex: boxCarrying ? UNSEATED_FLOAT_Z + 1 : 1 }} />
                 )}
 
-                {/* req #3583 — swarm-ready work no step carries yet, locked to
+                {/* req #3583 — swarm-ready work no step carries yet, opening in
                     the top-right corner the key vacated for the bottom (req
-                    #3255). Its rows drag onto a step card to seat them. Its type
+                    #3255); its title bar moves it anywhere in the window, over
+                    the navbar included (req #3687). Its rows drag onto a step
+                    card to seat them. Its type
                     is the requirement ids' own ON-SCREEN size — the card font
                     `CF.req` (world px) through the live zoom — so it shrinks and
                     grows with the marks it feeds (user directive), held within
@@ -5024,15 +5663,19 @@ export default function PipelinePlanVisualizer({
                     ruling). Its WIDTH is a step card's on-screen frame width,
                     whatever the Step Width rung and zoom (req #3620). The
                     reader may stretch it by its corner on top of that, its text
-                    stepping one size up or down — the box owns that (req #3654). */}
+                    stepping one size up or down — the box owns that (req #3654).
+                    Never bigger than at six steps across (req #3648 —
+                    `unseatedBoxZoom`). */}
                 <UnorchestratedReqBox
                     items={unseatedItems}
                     categoryColors={unseated.categoryColors}
                     isLoading={unseated.isLoading}
                     isError={unseated.isError}
-                    fontPx={unseatedBoxFontPx(t.k)}
-                    widthPx={unseatedBoxWidthPx(layout.cardFrameW, t.k)}
+                    fontPx={unseatedBoxFontPx(unseatedBoxZoom(t.k, size.w, layout.colPitch))}
+                    widthPx={unseatedBoxWidthPx(layout.cardFrameW,
+                        unseatedBoxZoom(t.k, size.w, layout.colPitch))}
                     statusColor={planPalette(activePalette).status?.swarm_ready || P.req}
+                    idStyleOf={unseatedIdStyleOf}
                     draggingId={unseatDragId}
                     onDragStartItem={setUnseatDragId}
                     onDragEndItem={() => { setUnseatDragId(null); setSeatTarget(null); }}
@@ -5256,6 +5899,19 @@ export default function PipelinePlanVisualizer({
                                     swatch for it. */}
                                 <LegendDot ring={P.eligibleRing} label="Up Next"
                                            dashed animated="pipeKeyBreathe" />
+                                {/* req #3649 — the two title-line buttons,
+                                    drawn with the card's own pictures since
+                                    req #3673: barrier arm down = a checkpoint
+                                    (the step holds its downstream until done);
+                                    padlock shut = frozen (step, epic or plan). */}
+                                <LegendIcon label="Checkpoint" color={P.checkpointOn}>
+                                    <CheckpointGateIcon closed stripe={P.checkpointOn}
+                                                        light={P.checkpointLight}
+                                                        sx={{ fontSize: 13, color: P.checkpointOn }} />
+                                </LegendIcon>
+                                <LegendIcon label="Locked" color={P.lockOn}>
+                                    <PlanLockIcon locked sx={{ fontSize: 13, color: P.lockOn }} />
+                                </LegendIcon>
                             </KeyGroup>
 
                             {/* THE REQUIREMENT channel — EVERY scale in ONE grid
@@ -5291,6 +5947,53 @@ export default function PipelinePlanVisualizer({
                         </>
                     )}
                 </Stack>
+
+                {/* ── MAXIMIZE (req #3658) ──────────────────────────────────
+                    The TPU 3D views' Full screen switch, borrowed (user
+                    direction: "Borrow the button"): the same corner-arrows
+                    glyph — out when it would maximize, in when it would
+                    restore — in the TPU header's colours, with its rim. It
+                    lives ON the canvas, in the bottom-right corner, in BOTH
+                    states, because maximized there is no header row left to
+                    hold it and a switch should not move when clicked. The
+                    corner is the one the canvas's other floating panels leave
+                    free: the key is bottom-centre and the Orchestration Ready
+                    box opens top-right. The box can still be parked or
+                    stretched over this corner, so the switch sits ABOVE it
+                    (a placed box floats at `UNSEATED_FLOAT_Z`, req #3687) — it
+                    must never be covered, it is the only way back. `data-viz-chrome` keeps d3-zoom and the
+                    bead hit-test off it. */}
+                {onToggleMaximized && (
+                    <Box component="button" type="button"
+                         onClick={onToggleMaximized}
+                         data-viz-chrome="maximize"
+                         data-testid="pipeline-viz-maximize"
+                         aria-pressed={maximized}
+                         aria-label={maximized ? 'Restore the page' : 'Maximize the plan'}
+                         title={maximized
+                             ? 'Restore the page (Esc)'
+                             : 'Maximize — only the plan (Esc to exit)'}
+                         sx={{ position: 'absolute', right: 12, bottom: 12,
+                                zIndex: UNSEATED_FLOAT_Z + 2,
+                                width: 28, height: 26, p: 0, m: 0,
+                                display: 'flex', alignItems: 'center',
+                                justifyContent: 'center', cursor: 'pointer',
+                                color: '#7bb8de',
+                                background: 'rgba(13, 20, 32, 0.94)',
+                                border: '1px solid #2d5a85', borderRadius: '4px',
+                                boxShadow: '0 6px 18px rgba(0, 0, 0, 0.45)',
+                                '&:hover, &:focus-visible': {
+                                    color: '#cfe4f7', borderColor: '#5fa3d4',
+                                    outline: 'none',
+                                } }}>
+                        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                            <path d={maximized
+                                      ? 'M6 1v5H1M15 6h-5V1M10 15v-5h5M1 10h5v5'
+                                      : 'M1 6V1h5M10 1h5v5M15 10v5h-5M6 15H1v-5'}
+                                  fill="none" stroke="currentColor" strokeWidth="2" />
+                        </svg>
+                    </Box>
+                )}
 
                 {/* The bottom-right reset button + status chip stack is GONE
                     (req #3216). Reset moved to the header's zoom control group
