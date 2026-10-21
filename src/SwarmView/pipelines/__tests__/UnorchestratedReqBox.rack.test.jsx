@@ -213,7 +213,7 @@ describe('UnorchestratedReqBox — the navbar rack (req #3735)', () => {
         expect(box().style.order).toBe('0');
     });
 
-    it('in the icon-only navbar it keeps its badge and −/+, and its rows their ids', () => {
+    it('in the icon-only navbar it keeps its ▾ and badge, and its rows their ids', () => {
         act(() => usePanelRackStore.getState().setSlot({ node: slotNode, width: 64 }));
         usePanelRackStore.setState({ racked: [ORCHESTRABLES_RACK_ID] });
         act(() => root.render(<UnorchestratedReqBox items={items} />));

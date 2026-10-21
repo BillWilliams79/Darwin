@@ -3,12 +3,13 @@
 // memory/anchored-collapse-pattern.md; geometry in anchoredPanelGeometry.js.
 //
 // ── THE HEAD IS THE ANCHOR ─────────────────────────────────────────────────
-// The head row is always the panel's top row: the CollapseHead (▾) — or, for a
-// `plusMinus` host, the Orchestrables box's −/+ (req #3729) — then the
+// The head row is always the panel's top row: the CollapseHead (▾) at the
+// upper left — every pop-up window's, one control (req #3741) — then the
 // host's `extras` (a count badge), then the title — left-aligned — and the
 // host's `actions`: at the far right while open; folded, right after the
 // title, with the panel's right edge pulled in so the whole package is tight
-// (user directives). Clicking ▾ never moves it: the panel is pinned at its
+// (user directives). The upper right is blank, or × where the host supports
+// closing (req #3741). Clicking ▾ never moves it: the panel is pinned at its
 // current left and top first (`dockForToggle`), so the right and bottom edges
 // do the moving, then re-docked where it is drawn (`dockAfterToggle`).
 
@@ -43,7 +44,6 @@ import { createPortal } from 'react-dom';
 import Box from '@mui/material/Box';
 
 import CollapseHead from './CollapseHead';
-import PlusMinusToggle from './PlusMinusToggle';
 import {
     RESIZE_EDGES, dockAfterToggle, dockForToggle, dockFromMove, dockFromResize, dockedStyle, freeCorner,
     moveRect, resizeRect,
@@ -87,7 +87,8 @@ function edgeZone(e) {
  * @param {string} props.name            the CollapseHead's name
  * @param {string} props.testid          root testid; parts are suffixed
  * @param {React.ReactNode} [props.extras]   left-aligned after the head
- * @param {React.ReactNode} [props.actions]  right-aligned
+ * @param {React.ReactNode} [props.actions]  right-aligned: blank, or × where
+ *   the host supports closing (req #3741)
  * @param {function} props.children      ({ shapedWidth }) → body; shapedWidth
  *   is the reader's width (live while reshaping), null when content-sized
  * @param {{minW, minH, autoMaxW, headPx}} props.limits
@@ -99,12 +100,10 @@ function edgeZone(e) {
  * @param {number} [props.zIndex]
  * @param {string} [props.rackId]        names the panel in the navbar rack;
  *   absent = it never racks (req #3720)
- * @param {boolean} [props.plusMinus]    the fold control is the Orchestrables
- *   box's −/+ (PlusMinusToggle) instead of the ▾ (req #3729)
  */
 export default function AnchoredPanel({
     dock, onDockChange, open, onToggle, name, testid, extras, actions, children,
-    limits, fontPx = 12, border = 2, colors, sx, zIndex = 1250, rackId, plusMinus = false,
+    limits, fontPx = 12, border = 2, colors, sx, zIndex = 1250, rackId,
 }) {
     const boxRef = useRef(null);
     const bodyRef = useRef(null);
@@ -279,14 +278,10 @@ export default function AnchoredPanel({
                  sx={{ display: 'flex', alignItems: 'center', gap: '0.6em',
                         px: '0.7em', py: '0.3em', flexShrink: 0, minWidth: 0,
                         cursor: moving ? 'grabbing' : 'move', touchAction: 'none' }}>
-                {plusMinus
-                    ? <PlusMinusToggle open={open} onToggle={toggle} label={name}
-                                       title={`${open ? 'Collapse' : 'Expand'} ${name.toLowerCase()}`}
-                                       testid={`${testid}-toggle`} />
-                    : <CollapseHead open={open} onToggle={toggle} name={name}
-                                    testid={`${testid}-toggle`}
-                                    color={colors.head} hoverColor={colors.headHover}
-                                    fontSize="0.9em" showName={false} />}
+                <CollapseHead open={open} onToggle={toggle} name={name}
+                              testid={`${testid}-toggle`}
+                              color={colors.head} hoverColor={colors.headHover}
+                              fontSize="0.9em" showName={false} />
                 {extras}
                 {/* The title, in the head's own small caps. Not a button:
                     pressing it starts a move, like the rest of the row. */}

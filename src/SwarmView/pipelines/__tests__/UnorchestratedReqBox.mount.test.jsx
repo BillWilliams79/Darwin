@@ -148,12 +148,19 @@ describe('UnorchestratedReqBox', () => {
 
     // req #3648 — the count badge leads the title bar; folded, the bar reads
     // "OR" and the box narrows to it, animating only for the fold itself.
-    it('leads with the count badge, and folds to a narrow "OR" bar', () => {
+    it('leads with the ▾ then the count badge, and folds to a narrow "OR" bar', () => {
         vi.useFakeTimers();
         try {
             act(() => root.render(<UnorchestratedReqBox items={items} fontPx={12} widthPx={612} />));
             const header = q('pipeline-viz-unseated-header');
-            expect(header.firstElementChild).toBe(q('pipeline-viz-unseated-count'));
+            // Every pop-up window's controls (req #3741): ▾ upper left, the
+            // upper right blank — the title is the bar's last item.
+            const toggle = q('pipeline-viz-unseated-toggle');
+            expect(header.firstElementChild).toBe(toggle);
+            expect(toggle.textContent).toBe('▾');
+            expect(toggle.getAttribute('aria-label')).toBe('Orchestrables');
+            expect(toggle.nextElementSibling).toBe(q('pipeline-viz-unseated-count'));
+            expect(header.lastElementChild).toBe(q('pipeline-viz-unseated-title'));
             const box = q('pipeline-viz-unseated');
             expect(box.style.width).toBe('612px');
             expect(getComputedStyle(box).transitionProperty || 'none').not.toContain('width');
@@ -161,13 +168,13 @@ describe('UnorchestratedReqBox', () => {
             act(() => q('pipeline-viz-unseated-toggle').click());
             expect(q('pipeline-viz-unseated-title').textContent).toBe('OR');
             expect(box.getAttribute('data-open')).toBe('0');
-            // Narrow: badge + "OR" + toggle, not the step width.
+            // Narrow: toggle + badge + "OR", not the step width.
             expect(box.style.width).toMatch(/^calc\(.*em.*ch.*\)$/);
             expect(box.style.width).not.toContain('612');
             expect(getComputedStyle(box).transition).toContain('width');
             // The other controls are unchanged.
             expect(q('pipeline-viz-unseated-count').textContent).toBe('2');
-            expect(q('pipeline-viz-unseated-toggle')).not.toBeNull();
+            expect(q('pipeline-viz-unseated-toggle').getAttribute('aria-expanded')).toBe('false');
 
             // The width transitions only while folding — never on a zoom frame.
             act(() => { vi.advanceTimersByTime(FOLD_MS + 100); });
@@ -541,6 +548,96 @@ describe('UnorchestratedReqBox', () => {
         expect(onMoveOver).toHaveBeenLastCalledWith(null, null);
         expect(onMoveDrop).not.toHaveBeenCalled();
         expect(box.getAttribute('data-carrying')).toBe('0');
+    });
+
+    // req #3741 — the ▾ leads the bar, so the box folds toward its LEFT edge.
+    it('a fold holds the box\'s left: pinned while the width animates', () => {
+        vi.useFakeTimers();
+        try {
+            act(() => root.render(<UnorchestratedReqBox items={items} widthPx={280} />));
+            const box = q('pipeline-viz-unseated');
+            withGeometry(box, q('pipeline-viz-unseated-header'));
+            expect(box.style.left).toBe('');
+            // jsdom's style parser drops a min()/clamp() value, so record what
+            // React writes to `right`.
+            let right = null;
+            Object.defineProperty(box.style, 'right', { configurable: true,
+                get: () => right ?? '', set: (v) => { right = v; } });
+            act(() => q('pipeline-viz-unseated-toggle').click());
+            // At home it is anchored right; mid-fold it is held at its left.
+            expect(box.style.left).toBe('700px');
+            act(() => { vi.advanceTimersByTime(FOLD_MS + 100); });
+            expect(box.style.left).toBe('');
+            expect(box.getAttribute('data-pos')).toBe('home');
+            // Folded, it is drawn where the open box's ▾ is: its right offset
+            // plus the width the fold shed.
+            expect(right).toMatch(/^calc\(8px \+ min\(280px, 100% - 16px\) - min\(calc\(.*em.*ch.*\), 100% - 16px\)\)$/);
+            // Unfolding holds the same left.
+            act(() => q('pipeline-viz-unseated-toggle').click());
+            expect(box.style.left).toBe('700px');
+            act(() => { vi.advanceTimersByTime(FOLD_MS + 100); });
+            expect(box.style.left).toBe('');
+            expect(right).toBe('8px');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('an unfold with no room to its right is pinned where the open box fits', () => {
+        vi.useFakeTimers();
+        try {
+            window.localStorage.setItem('darwin-plan-unseated-box-window-pos',
+                JSON.stringify({ x: 900, y: 100 }));
+            // Folded, dropped where the open box would not fit right-anchored.
+            window.localStorage.setItem('darwin-pipeline-viz-unseated-open', '0');
+            act(() => root.render(<UnorchestratedReqBox items={items} widthPx={280} />));
+            const box = q('pipeline-viz-unseated');
+            expect(box.getAttribute('data-open')).toBe('0');
+            withWindow(box, { left: 900, top: 100 });
+            act(() => q('pipeline-viz-unseated-toggle').click());
+            expect(box.getAttribute('data-open')).toBe('1');
+            expect(box.style.left).toBe('720px');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('a fold re-bases a box anchored left to where it is drawn', () => {
+        window.localStorage.setItem('darwin-plan-unseated-box-window-pos',
+            JSON.stringify({ x: 950, y: 100 }));
+        act(() => root.render(<UnorchestratedReqBox items={items} widthPx={280} />));
+        const box = q('pipeline-viz-unseated');
+        // The window's clamp draws it at 720, not the remembered 950.
+        withWindow(box, { left: 720, top: 100 });
+        act(() => q('pipeline-viz-unseated-toggle').click());
+        expect(box.getAttribute('data-pos')).toBe('720,100');
+        expect(JSON.parse(window.localStorage.getItem('darwin-plan-unseated-box-window-pos')))
+            .toEqual({ x: 720, y: 100 });
+    });
+
+    it('a folded bar dropped in the right half is remembered by its OPEN box\'s right edge', () => {
+        act(() => root.render(<UnorchestratedReqBox items={items} widthPx={280} />));
+        act(() => q('pipeline-viz-unseated-toggle').click());
+        const box = q('pipeline-viz-unseated');
+        const bar = q('pipeline-viz-unseated-header');
+        // The folded bar (90) is narrower than the open box (280).
+        Object.defineProperty(box, 'offsetWidth', { get: () => 90 });
+        Object.defineProperty(bar, 'offsetHeight', { get: () => 36 });
+        withWindow(box, { left: 700, top: 8 });
+        const fire = fireOn(bar);
+        act(() => { fire('pointerdown', 710, 20); });
+        act(() => { fire('pointermove', 610, 120); });
+        act(() => { fire('pointerup', 610, 120); });
+        // Its left is 600; the open box (280) ends 120 short of the edge.
+        expect(JSON.parse(window.localStorage.getItem('darwin-plan-unseated-box-window-pos')))
+            .toEqual({ r: 120, y: 108 });
+        // Nearer the edge than the open box fits, it is remembered by its left.
+        // (The mocked rect still reads 700, so the press starts there.)
+        act(() => { fire('pointerdown', 710, 20); });
+        act(() => { fire('pointermove', 910, 120); });
+        act(() => { fire('pointerup', 910, 120); });
+        expect(JSON.parse(window.localStorage.getItem('darwin-plan-unseated-box-window-pos')))
+            .toEqual({ x: 900, y: 108 });
     });
 
     it('a box dropped in the left half is remembered from the left', () => {
