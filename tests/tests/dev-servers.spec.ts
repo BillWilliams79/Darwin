@@ -129,4 +129,93 @@ test.describe('Dev Servers View', () => {
     await page.getByTestId('devserver-dashboard-close').click();
     await expect(page.getByTestId('devserver-dashboard')).toHaveCount(0);
   });
+  // Req #3720 — the dashboard is RACKABLE: dragged onto the Darwin navbar, the
+  // navbar lights up as a drop zone; dropped, the panel takes the navbar's
+  // width and locks in below the nav buttons; dragged back off, it floats.
+  test('DEV-05: Dev Servers dashboard racks into the navbar and floats back out', async ({ page }) => {
+    const rows = [3001, 3002].map((port, i) => ({
+      id: 950 + i, port, pid: 1, machine_fk: null, session_fk: null, terminal_number: 20 + i,
+      workspace_path: `/x/sessions/37${20 + i}-make-dev-server-rackable-${i}`,
+      started_at: '2026-10-20T00:00:00', create_ts: '2026-10-20T00:00:00',
+    }));
+    await page.route(/\/dev_servers(\?|$)/, r => r.request().method() === 'GET'
+      ? r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(rows) })
+      : r.continue());
+    await page.goto('/devservers');
+    const chip = page.getByTestId('dev-servers-page-dashboard-chip');
+    await expect(chip).toBeVisible({ timeout: 10000 });
+    if ((await chip.getAttribute('aria-pressed')) === 'false') await chip.click();
+    const dash = page.getByTestId('devserver-dashboard');
+    await expect(dash).toHaveAttribute('data-racked', '0');
+    const zone = page.getByTestId('navbar-rack-zone');
+    await expect(zone).toHaveAttribute('data-rack-drop', 'off');
+
+    const badge = (await page.getByTestId('devserver-dashboard-count').boundingBox())!;
+    const grabX = badge.x + badge.width + 6;
+    const grabY = badge.y + badge.height / 2;
+    const nav = (await zone.boundingBox())!;
+    await page.mouse.move(grabX, grabY);
+    await page.mouse.down();
+    await page.mouse.move(600, 400, { steps: 6 });
+    // Moving anywhere: the drop zone is armed.
+    await expect(zone).toHaveAttribute('data-rack-drop', 'armed');
+    await page.mouse.move(nav.x + nav.width / 2, nav.y + nav.height * 0.8, { steps: 8 });
+    // Over the navbar: lit, with the placeholder showing where it lands.
+    await expect(zone).toHaveAttribute('data-rack-drop', 'over');
+    await expect(page.getByTestId('navbar-rack-drop')).toBeVisible();
+    await page.mouse.up();
+    await expect(zone).toHaveAttribute('data-rack-drop', 'off');
+
+    // Racked: the navbar's width, below the nav buttons, inside the navbar.
+    await expect(dash).toHaveAttribute('data-racked', '1');
+    const racked = (await dash.boundingBox())!;
+    expect(Math.abs(racked.x - nav.x)).toBeLessThan(1);
+    expect(Math.abs(racked.width - nav.width)).toBeLessThan(1);
+    const navLinks = (await page.locator('[data-testid="navbar-rack"]').evaluate(
+      el => el.previousElementSibling!.getBoundingClientRect().bottom));
+    expect(racked.y).toBeGreaterThanOrEqual(navLinks - 1);
+    // Whole and on top: nothing in the navbar covers it, however long the nav list.
+    expect(racked.y + racked.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+    const hit = async () => page.getByTestId('devserver-dashboard-count').evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const at = document.elementFromPoint(r.left + r.width + 6, r.top + r.height / 2);
+      return !!at?.closest('[data-testid="devserver-dashboard"]');
+    });
+    expect(await hit()).toBe(true);
+    await expect(page.getByTestId('devserver-dashboard-count')).toHaveText('2');
+
+    // It stays racked across a page change.
+    await page.goto('/taskcards');
+    await expect(page.getByTestId('devserver-dashboard')).toHaveAttribute('data-racked', '1', { timeout: 10000 });
+    await expect(page.getByTestId('devserver-dashboard-count')).toHaveText('2');
+    // The navbar is still settling (its groups load and open): grab the head
+    // only once it has stopped moving.
+    let last = '';
+    await expect.poll(async () => {
+      const b = await page.getByTestId('devserver-dashboard-count').boundingBox();
+      const now = JSON.stringify(b);
+      const still = now === last;
+      last = now;
+      return still;
+    }, { intervals: [250] }).toBe(true);
+    expect(await hit()).toBe(true);
+
+    // Dragged off the navbar, it floats again where it was dropped.
+    const b2 = (await page.getByTestId('devserver-dashboard-count').boundingBox())!;
+    const inRack = (await page.getByTestId('devserver-dashboard').boundingBox())!;
+    const gx = b2.x + b2.width + 6;
+    const gy = b2.y + b2.height / 2;
+    await page.mouse.move(gx, gy);
+    await page.mouse.down();
+    await page.mouse.move(700, 300, { steps: 8 });
+    await page.mouse.up();
+    const out = page.getByTestId('devserver-dashboard');
+    await expect(out).toHaveAttribute('data-racked', '0');
+    // Drawn where it was dropped — its left and top under the pointer as it
+    // was grabbed — whichever sides it then docks to.
+    await expect(out).toHaveAttribute('data-dock', /^[lr]\d+,[tb]\d+$/);
+    const floated = (await out.boundingBox())!;
+    expect(Math.abs(floated.x - (700 - (gx - inRack.x)))).toBeLessThan(3);
+    expect(Math.abs(floated.y - (300 - (gy - inRack.y)))).toBeLessThan(3);
+  });
 });
