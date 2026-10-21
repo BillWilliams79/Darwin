@@ -29,9 +29,11 @@
 // the head is dragged, the pointer is hit-tested against the navbar's drop zone
 // (`[data-panel-rack-zone]`) and the drag published to usePanelRackStore, so the
 // navbar glows in the panel's frame colour while it is over (req #3728). It
-// lands at the top, unless pointed into the stack (req #3729). Released there,
+// lands at the bottom, unless pointed into the stack (req #3744). Released there,
 // the panel is RACKED — portalled into the navbar's rack slot below its nav
-// buttons, at the navbar's width, content-sized in height, nothing to reshape.
+// buttons, at the navbar's width, nothing to reshape. Open, it grows to share
+// the navbar's free height with the other racked panels (req #3744); folded, it
+// is its head row.
 // Dragging a racked panel's head up or down the stack reorders it; off the
 // navbar, it floats again, docked where it was dropped. Where the reader racks it is the rack's (pure half in
 // panelRack.js, DOM half in usePanelRack.js — shared with the Orchestrables box,
@@ -255,7 +257,8 @@ export default function AnchoredPanel({
     const panel = (
         <Box ref={boxRef} data-testid={testid}
              data-dock={`${dock.h}${dock.x},${dock.v}${dock.y}`}
-             {...(rackId ? { 'data-rack-id': rackId, 'data-racked': inRack ? '1' : '0' } : {})}
+             {...(rackId ? { 'data-rack-id': rackId, 'data-racked': inRack ? '1' : '0',
+                 'data-rack-open': inRack && open ? '1' : '0' } : {})}
              style={{ fontSize: `${fontPx}px`, ...placement }}
              sx={{ position: racking ? 'relative' : 'fixed', zIndex,
                     minHeight: `${limits.headPx}px`,
@@ -267,9 +270,13 @@ export default function AnchoredPanel({
                     // Over the navbar, see the drop zone through it.
                     ...(overRack && { opacity: 0.75 }),
                     // In the stack: square, flat, never squeezed by its
-                    // neighbours (the rack scrolls instead).
+                    // neighbours (the rack scrolls instead). Open, it takes its
+                    // share of the rack's free height (req #3744) and, like the
+                    // Orchestrables box, gives way when the rack is short: its
+                    // body scrolls. Folded, it is its head.
                     ...(racking && { order: rackOrder(rackPos),
-                        flexShrink: 0, borderRadius: 0, boxShadow: 'none' }) }}>
+                        flex: open ? '1 1 auto' : '0 0 auto',
+                        borderRadius: 0, boxShadow: 'none' }) }}>
             <Box data-testid={`${testid}-header`}
                  title={inRack ? 'Drag to reorder · drag off the navbar to float it'
                      : `Drag to move · double-click to put back${rackId ? ' · drop on the navbar to rack it' : ''}`}
