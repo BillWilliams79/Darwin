@@ -48,7 +48,7 @@
 // that wobbles does not pin it) or lifts it on a LIFT_DELAY_MS hold; a finger
 // lifts it on a hold within TOUCH_TOLERANCE_PX (a haptic tick) and then carries
 // it — a finger that slides off first moves nothing. A lifted box says so (a
-// deeper shadow, a purple glow). The −/+ is its own button so a move never
+// deeper shadow, a purple glow). The ▾ is its own button so a move never
 // toggles it. Double-click the title bar to
 // send it home. The spot is remembered per browser (a viewer convenience —
 // localStorage, wrapped, since it may be unavailable) and written once, on
@@ -126,21 +126,58 @@
 // same thing about a requirement. Without a resolver it keeps `statusColor`.
 //
 // ── FOLDED, IT IS A NARROW "OR" BAR (req #3648, user directive) ───────────
-// The count leads the title bar as a badge, then the name, then the −/+.
-// Folding the box swaps the name for "OR" and narrows the box to exactly that
-// bar — badge, "OR", toggle, nothing else changed — and both the width and the
-// list's height animate, so it shrinks in and out smoothly. The width only
-// transitions for the length of a fold: the zoom resizes the box on every
-// wheel frame, and a transition there would make it trail the plan. Reduced
-// motion turns both animations off.
+// The title bar is every pop-up window's (req #3741): the ▾ (CollapseHead) at
+// the upper left, then the count as a badge, then the name — and the upper
+// right blank, since the box has no close. Folding swaps the name for "OR" and
+// narrows the box to exactly that bar — ▾, badge, "OR", nothing else changed —
+// and both the width and the list's height animate, so it shrinks in and out
+// smoothly. The width only transitions for the length of a fold: the zoom
+// resizes the box on every wheel frame, and a transition there would make it
+// trail the plan. Reduced motion turns both animations off.
+//
+// THE ▾ IS THE ANCHOR (memory/anchored-collapse-pattern.md): the box folds
+// toward its LEFT edge, whichever side it is anchored to. A box anchored right
+// (home, or dropped in the right half) draws its folded bar where the open
+// box's ▾ is — its right offset is the open box's plus the width it shed — and
+// a folded bar dropped there is remembered by its OPEN box's right edge, so
+// unfolding grows it rightward again. While the width animates the left is
+// pinned in px, since the right offset would otherwise jump at once. A box
+// anchored left is re-based to where it is drawn on every toggle. The one
+// exception is the pattern's: an unfold with no room to its right moves the
+// box left just far enough to show it.
+//
+// ── IT DOCKS TO THE DARWIN NAVBAR TOO (req #3735) ─────────────────────────
+// It is one of Darwin's pop-up information windows, so it racks like the rest
+// (the Dev Servers dashboard, the Dev Server panel, the Active box — pattern doc
+// memory/anchored-collapse-pattern.md § The rack). It draws its own frame rather
+// than being an AnchoredPanel — its zoom-following type, step-card width, text
+// sizes and carry-to-seat are its own — so it takes the rack from the SAME hook
+// AnchoredPanel does (`usePanelRack`): its title-bar move hit-tests the navbar,
+// the navbar glows in its purple while the pointer is over, and released there
+// it is RACKED — portalled into the navbar's rack slot at the navbar's width, in
+// the info windows' 12px type, its title whole even folded, no grip, stacked and
+// reordered with the others. Its rows still drag onto step cards from there, and
+// a carried move released over a step still seats the whole set — and leaves it
+// racked: that gesture was a seat, not a relocation. Dragged off the navbar it
+// floats again where it was dropped. In the icon-only navbar it keeps its badge
+// and ▾, and its rows their ids. While the page is MAXIMIZED the navbar is
+// covered, so the rack is suspended and the box floats at its own spot. Racking
+// re-mounts its DOM (inline ↔ portal, or a new rack slot), so every native
+// listener is bound per mount. Lifted out of the rack it stays FULL SIZE, as
+// every move of this box does (req #3677) — an AnchoredPanel shrinks to its head.
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 import Box from '@mui/material/Box';
 import Collapse from '@mui/material/Collapse';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { lighten } from '@mui/material/styles';
 
+import CollapseHead from '../../Components/AnchoredPanel/CollapseHead';
+import { INFO_PANEL_COLORS, INFO_PANEL_FONT_PX } from '../../Components/AnchoredPanel/infoPanelChrome';
+import { rackOrder } from '../../Components/AnchoredPanel/panelRack';
+import { usePanelRack } from '../../Components/AnchoredPanel/usePanelRack';
 import { CARD_FRAME_W, PLAN_VIZ_PALETTE as P } from './pipelinePlanLayout';
 import {
     UNSEATED_DRAG_TYPE, UNSEATED_MIN_LIST_EM, pointInRect, unseatedDragId,
@@ -158,6 +195,9 @@ const MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
  *  neither dark nor pastel). ~4.5:1 against the box's own background. */
 const OUTLINE = '#a64dff';
 
+/** Its id in the navbar's panel rack (req #3735). */
+export const ORCHESTRABLES_RACK_ID = 'orchestrables';
+
 /** Panel inset of the home corner, px — and a placed box's inset from the
  *  window's bottom edge. */
 const CORNER_INSET = 8;
@@ -166,8 +206,10 @@ const CORNER_INSET = 8;
  *  seat dialog and every menu still open over it. The visualizer lifts the
  *  seat-target outline one above it while the box is carried. */
 export const UNSEATED_FLOAT_Z = 1201;
-/** The title bar's height in em — what must stay inside the pane or window. */
-const HEADER_EM = 3;
+/** The title bar's height — what must stay inside the pane or window: its
+ *  padding (2 × 0.45em) and its tallest item, the 1.45em badge, plus the 2px
+ *  frame top and bottom. */
+const HEADER_H = 'calc(2.35em + 4px)';
 /** Pointer travel, px, before a mouse press on the title bar (or the grip)
  *  becomes a move — the press timeline's (req #3665). */
 const MOVE_SLOP = MOUSE_ACTIVATION_PX;
@@ -185,9 +227,9 @@ const ROUNDING_SLACK_PX = 2;
 /** How long a fold or unfold animates, ms. */
 export const FOLD_MS = 220;
 /** The folded bar's fixed parts, in em: the title bar's side padding (2 × 0.8),
- *  its two gaps (2 × 0.6), the toggle (1.6em of its own 1.25em type = 2.0) and
- *  a little slack. The badge and "OR" itself are added in `ch`. */
-const FOLDED_FIXED_EM = 1.6 + 1.2 + 2.0 + 0.6;
+ *  its two gaps (2 × 0.6), the ▾ (1em of its own 0.9em type = 0.9) and a
+ *  little slack. The badge and "OR" itself are added in `ch`. */
+const FOLDED_FIXED_EM = 1.6 + 1.2 + 0.9 + 0.6;
 /** The count badge's side padding (2 × 0.45) and its floor, in em. */
 const BADGE_PAD_EM = 0.9;
 const BADGE_MIN_EM = 1.8;
@@ -277,6 +319,13 @@ export default function UnorchestratedReqBox({
     idStyleOf = null, onOpen,
     onMoveOver, onMoveDrop, onCarryingChange,
 }) {
+    // The navbar rack (req #3735) — suspended while a page covers the navbar.
+    const rack = usePanelRack(ORCHESTRABLES_RACK_ID);
+    const { inRack, rackPos, overRack, narrow, slot, suspended } = rack;
+    // True from the first frame of a move that started in the rack until its
+    // release: drawn fixed under the pointer, still portalled (a re-mount would
+    // lose the pointer capture).
+    const [lifted, setLifted] = useState(false);
     // Open by default: the box exists to be seen next to the plan it feeds.
     // REMEMBERED across every transition (req #3651) — it was local state, so a
     // reader who folded it found it open again after any Back or mode switch.
@@ -295,15 +344,41 @@ export default function UnorchestratedReqBox({
     // title wraps: the list would animate to too tall and snap back. Held, it
     // lays out at the width it ends at and the narrow box just clips it.
     const [foldListW, setFoldListW] = useState(null);
+    // The box's left, px in its containing block, held for the length of a
+    // fold (req #3741 — the ▾ is the anchor; see the header). Null otherwise.
+    const [foldLeft, setFoldLeft] = useState(null);
     const toggleOpen = () => {
+        const unfolding = !open;
+        const box = boxRef.current;
+        const at = box && !inRack && layoutIn(box, !!pos);
+        // Where the ▾ will be once this toggle has drawn: where it is — unless
+        // an unfold has no room to its right, the pattern's one exception.
+        let left = null;
+        if (at) {
+            left = Math.round(at.left);
+            if (unfolding) {
+                const openW = Math.min(drawn.widthPx, at.w - 2 * CORNER_INSET);
+                left = Math.max(0, Math.min(left, at.w - openW));
+            }
+            // Anchored left, the box is re-based to where it is drawn, so a
+            // spot the window's clamp is overriding does not move it on fold.
+            if (!unfolding && pos?.x != null && left !== pos.x) {
+                const rebased = { x: left, y: pos.y };
+                setPos(rebased);
+                writePos(rebased);
+            }
+        }
         setOpen((v) => !v);
         if (!foldMs) return;
         setFolding(true);
-        setFoldListW(openListWidth());
+        // Racked, the width never changes: nothing to hold.
+        setFoldListW(inRack ? null : openListWidth());
+        setFoldLeft(left);
         clearTimeout(foldTimerRef.current);
         foldTimerRef.current = setTimeout(() => {
             setFolding(false);
             setFoldListW(null);
+            setFoldLeft(null);
         }, foldMs + 50);
     };
     const listRef = useRef(null);
@@ -330,8 +405,9 @@ export default function UnorchestratedReqBox({
     const [moving, setMoving] = useState(false);
     // True once a title-bar press has LIFTED the box (req #3665) — held still
     // to LIFT_DELAY_MS — until it ends: the lift cue, and on touch the licence
-    // to move at all.
-    const [lifted, setLifted] = useState(false);
+    // to move at all. (Not `lifted`, which is a racked box carried out of the
+    // navbar, req #3735.)
+    const [barLifted, setBarLifted] = useState(false);
     useEffect(() => () => clearTimeout(moveRef.current?.liftTimer), []);
     // True from the first move frame of a title-bar move that carries rows
     // until it ends (req #3614): the box turns see-through so the step card
@@ -362,15 +438,16 @@ export default function UnorchestratedReqBox({
         const m = {
             id: e.pointerId, sx: e.clientX, sy: e.clientY,
             left: at.left, top: at.top, last: null,
-            // Where to send the box back to if this drag turns out to be a seat.
-            before: pos, carries: items.length > 0,
+            // Where to send the box back to if this drag turns out to be a seat
+            // (or a rack, or a move that started in the rack and stays there).
+            before: pos, carries: items.length > 0, fromRack: inRack,
             touch: e.pointerType === 'touch', lifted: false,
         };
         // Held still, it lifts — a finger must, a mouse may (req #3665).
         m.liftTimer = setTimeout(() => {
             if (moveRef.current !== m || m.last) return;
             m.lifted = true;
-            setLifted(true);
+            setBarLifted(true);
             if (m.touch) navigator.vibrate?.(LIFT_VIBRATE_MS);
         }, LIFT_DELAY_MS);
         moveRef.current = m;
@@ -381,6 +458,7 @@ export default function UnorchestratedReqBox({
         clearTimeout(m.liftTimer);
         moveRef.current = null;
         setMoving(false);
+        setBarLifted(false);
         setLifted(false);
         setCarrying(false);
         if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
@@ -396,7 +474,7 @@ export default function UnorchestratedReqBox({
             const travel = Math.hypot(dx, dy);
             if (m.touch) {
                 // A finger that slides off before the lift moves nothing.
-                if (travel > TOUCH_TOLERANCE_PX) endBarPress(m, e);
+                if (travel > TOUCH_TOLERANCE_PX) { endBarPress(m, e); rack.cancel(); }
                 return;
             }
             if (travel <= MOVE_SLOP) return;
@@ -408,11 +486,13 @@ export default function UnorchestratedReqBox({
         if (!box) return;
         const win = layoutIn(box, true);
         const clampTo = (v, hi) => Math.min(Math.max(0, v), Math.max(0, hi));
+        if (!m.last && m.fromRack) setLifted(true);
         m.last = {
             x: Math.round(clampTo(m.left + dx, win.w - box.offsetWidth)),
             y: Math.min(Math.round(Math.max(0, m.top + dy)), maxTop(box, win)),
         };
         setPos(m.last);
+        rack.track(e.clientX, e.clientY, m.fromRack, OUTLINE);
         if (m.carries) {
             setCarrying(true);
             onMoveOver?.(e.clientX, e.clientY);
@@ -422,8 +502,20 @@ export default function UnorchestratedReqBox({
         const m = moveRef.current;
         if (!m || e.pointerId !== m.id) return;
         endBarPress(m, e);
-        if (!m.last) return;
+        if (!m.last) { rack.cancel(); return; }
         lastMoveEndRef.current = Date.now();
+        const released = e.type === 'pointerup';
+        // The navbar first (req #3735): released over it, the box is racked
+        // whatever it carries — the navbar is no step. Its floating spot is
+        // kept for the day it is dragged back out. A cancelled move that
+        // started in the rack stays there.
+        if (released ? rack.isOver(e.clientX, e.clientY, m.fromRack) : m.fromRack) {
+            if (released) rack.release(e.clientX, e.clientY, m.fromRack);
+            else rack.cancel();
+            if (m.carries) onMoveOver?.(null, null);
+            setPos(m.before);
+            return;
+        }
         if (m.carries) {
             // A cancelled pointer (or lost capture) is no drop: clear the
             // outline and keep the box wherever it got to.
@@ -431,9 +523,20 @@ export default function UnorchestratedReqBox({
                 && !!onMoveDrop?.(e.clientX, e.clientY);
             if (!seated) onMoveOver?.(null, null);
             if (seated) {
+                // Seated from the rack, it stays racked.
+                rack.cancel();
                 setPos(m.before);
                 return;
             }
+        }
+        // Dragged off the navbar, it floats again — where it was dropped,
+        // anchored by its left: its floating width is not the navbar's.
+        if (!released) rack.cancel();
+        else if (rack.release(e.clientX, e.clientY, m.fromRack) === 'unracked') {
+            const final = { x: m.last.x, y: m.last.y };
+            setPos(final);
+            writePos(final);
+            return;
         }
         // Anchor to the nearer side of the window: right half → remembered
         // from the right.
@@ -441,8 +544,13 @@ export default function UnorchestratedReqBox({
         const win = box && layoutIn(box, true);
         let final = m.last;
         if (win && m.last.x + box.offsetWidth / 2 > win.w / 2) {
-            final = { r: Math.max(0, win.w - m.last.x - box.offsetWidth),
-                y: m.last.y };
+            // Folded, by the OPEN box's right edge (req #3741), so the bar is
+            // drawn where it was dropped and unfolds rightward from its ▾ —
+            // or by its left, when the open box would not fit there.
+            const w = open ? box.offsetWidth
+                : Math.min(drawn.widthPx, win.w - 2 * CORNER_INSET);
+            const r = win.w - m.last.x - w;
+            if (open || r >= 0) final = { r: Math.max(0, r), y: m.last.y };
         }
         setPos(final);
         writePos(final);
@@ -461,7 +569,7 @@ export default function UnorchestratedReqBox({
     // stays theirs, and a smaller window re-lifts it on the next load.
     const reclampRef = useRef(null);
     reclampRef.current = () => {
-        if (!pos || moveRef.current || resizeRef.current) return;
+        if (inRack || !pos || moveRef.current || resizeRef.current) return;
         const box = boxRef.current;
         if (!box) return;
         const top = maxTop(box, layoutIn(box, true));
@@ -551,13 +659,15 @@ export default function UnorchestratedReqBox({
         writeSize(null);
     };
     const onBarDoubleClick = (e) => {
+        // Racked, it has no home to go to: it is dragged out instead.
+        if (inRack) return;
         if (e.target.closest('button')) return;
         if (Date.now() - lastMoveEndRef.current < DBLCLICK_AFTER_MOVE_MS) return;
         goHome();
     };
 
     // Geometry in `style` (it changes on every move frame — see fontSize below).
-    const clampTop = (y) => `clamp(0px, ${y}px, calc(100% - ${HEADER_EM}em))`;
+    const clampTop = (y) => `clamp(0px, ${y}px, calc(100% - ${HEADER_H}))`;
     // The DRAWN width — `maxWidth` caps it at the pane or window — so this agrees with
     // the move clamp, which reads `offsetWidth`.
     const count = items.length;
@@ -566,19 +676,35 @@ export default function UnorchestratedReqBox({
     const badgeChars = isError || isLoading ? 1 : String(count).length;
     const foldedW = `calc(${FOLDED_FIXED_EM}em + 2ch`
         + ` + max(${BADGE_MIN_EM}em, ${badgeChars}ch + ${BADGE_PAD_EM}em) + 4px)`;
-    const drawnW = open ? `min(${drawn.widthPx}px, 100% - ${2 * CORNER_INSET}px)`
-        : `min(${foldedW}, 100% - ${2 * CORNER_INSET}px)`;
+    const openDrawnW = `min(${drawn.widthPx}px, 100% - ${2 * CORNER_INSET}px)`;
+    const drawnW = open ? openDrawnW : `min(${foldedW}, 100% - ${2 * CORNER_INSET}px)`;
     const clampSide = (v) => `clamp(0px, ${v}px, calc(100% - ${drawnW}))`;
+    // Anchored right, the folded bar sits where the open box's ▾ is: the open
+    // box's right offset plus the width the fold shed (req #3741).
+    const rightOf = (openRight) => (open ? openRight
+        : `calc(${openRight} + ${openDrawnW} - ${drawnW})`);
+    // Mid-fold, the left is pinned instead (see `foldLeft`).
+    const side = (anchor) => (foldLeft != null ? { left: `${foldLeft}px`, right: 'auto' } : anchor);
     // Placed, it is fixed in the WINDOW, so every `100%` below is the window's
     // (req #3687).
-    const placement = pos
+    // RACKED (req #3735): at rest, in the navbar's flow at its width; lifted
+    // out, fixed under the pointer at that width until released.
+    const placement = inRack
+        ? (lifted
+            ? { position: 'fixed', zIndex: UNSEATED_FLOAT_Z,
+                left: `${pos?.x ?? 0}px`, top: `${pos?.y ?? 0}px`,
+                maxHeight: `calc(100% - ${pos?.y ?? 0}px)` }
+            : { position: 'relative', order: rackOrder(rackPos) })
+        : pos
         ? { position: 'fixed', zIndex: UNSEATED_FLOAT_Z,
-            ...(pos.r != null ? { right: clampSide(pos.r) } : { left: clampSide(pos.x) }),
+            ...side(pos.r != null
+                ? { right: rightOf(`clamp(0px, ${pos.r}px, calc(100% - ${openDrawnW}))`) }
+                : { left: clampSide(pos.x) }),
             top: clampTop(pos.y),
             // Never below the title bar: parked at the bottom edge it shows
             // the bar whole rather than a squeezed sliver.
-            maxHeight: `max(${HEADER_EM}em, calc(100% - ${clampTop(pos.y)} - ${CORNER_INSET}px))` }
-        : { top: CORNER_INSET, right: CORNER_INSET,
+            maxHeight: `max(${HEADER_H}, calc(100% - ${clampTop(pos.y)} - ${CORNER_INSET}px))` }
+        : { top: CORNER_INSET, ...side({ right: rightOf(`${CORNER_INSET}px`) }),
             maxHeight: `calc(100% - ${2 * CORNER_INSET}px)` };
 
     useEffect(() => {
@@ -589,13 +715,14 @@ export default function UnorchestratedReqBox({
         };
         el.addEventListener('wheel', onWheel, { passive: true });
         return () => el.removeEventListener('wheel', onWheel);
-    }, [open]);
+    }, [open, inRack, slot?.node]);
     // Parked OFF the plan (req #3687), a wheel over the box is not a zoom: it
     // would reach the pane's d3 listener — the box is still its DOM child,
     // wherever it is drawn — and zoom about a point outside the canvas.
+    // Racked, it is not in the pane at all: d3 never sees its wheel.
     useEffect(() => {
         const box = boxRef.current;
-        if (!box) return undefined;
+        if (!box || inRack) return undefined;
         const onWheel = (ev) => {
             const pane = box.parentElement;
             if (pane && !pointInRect(ev.clientX, ev.clientY, pane.getBoundingClientRect())) {
@@ -604,12 +731,13 @@ export default function UnorchestratedReqBox({
         };
         box.addEventListener('wheel', onWheel, { passive: true });
         return () => box.removeEventListener('wheel', onWheel);
-    }, []);
+    }, [inRack, slot?.node]);
 
     // No grip while folded or being moved (its corner follows the side the
     // box is anchored to, which a move is changing). A move keeps the grip's
     // STRIP, so the box stays its full height (req #3677).
-    const gripShown = open && !moving;
+    // Racked, the navbar sets its width and its rows its height: no grip.
+    const gripShown = open && !moving && !inRack;
     // A grip that goes away mid-stretch ends the stretch.
     useEffect(() => {
         if (gripShown || !resizeRef.current) return;
@@ -617,11 +745,19 @@ export default function UnorchestratedReqBox({
         setResizing(false);
     }, [gripShown]);
 
-    return (
+    // Racked, the info windows' type and the navbar's width (req #3735).
+    const typePx = inRack ? INFO_PANEL_FONT_PX : drawn.fontPx;
+    const boxW = inRack ? (lifted ? `${slot.width}px` : '100%')
+        : (open ? `${drawn.widthPx}px` : foldedW);
+    const racking = inRack && !lifted;
+
+    const panel = (
         <Box ref={boxRef} data-viz-chrome="unseated" data-viz-unseated=""
              data-testid="pipeline-viz-unseated"
+             data-rack-id={ORCHESTRABLES_RACK_ID}
+             data-racked={inRack ? '1' : '0'}
              data-carrying={carrying ? '1' : '0'}
-             data-lifted={lifted ? '1' : '0'}
+             data-lifted={barLifted ? '1' : '0'}
              data-text-step={drawn.step}
              data-stretched={size ? '1' : '0'}
              data-pos={!pos ? 'home'
@@ -631,33 +767,36 @@ export default function UnorchestratedReqBox({
              // through `sx` makes Emotion mint (and never free) a new rule —
              // the badge layer's own "geometry in style" rule.
              data-open={open ? '1' : '0'}
-             style={{ fontSize: `${drawn.fontPx}px`,
-                      width: open ? `${drawn.widthPx}px` : foldedW,
-                      ...placement }}
+             style={{ fontSize: `${typePx}px`, width: boxW, ...placement }}
              sx={{ position: 'absolute',
-                    maxWidth: `calc(100% - ${2 * CORNER_INSET}px)`,
+                    maxWidth: inRack ? 'none' : `calc(100% - ${2 * CORNER_INSET}px)`,
                     // Beats max-height: the title bar is always whole.
-                    minHeight: `${HEADER_EM}em`,
+                    minHeight: HEADER_H,
                     display: 'flex', flexDirection: 'column',
                     // The key's own panel treatment, outlined in purple.
                     background: 'rgba(13, 20, 32, 0.94)',
                     backdropFilter: 'blur(2px)',
                     borderRadius: '0.8em', border: `2px solid ${OUTLINE}`,
                     // Lifted by a held title bar (req #3665): picked up.
-                    boxShadow: lifted
+                    boxShadow: barLifted
                         ? `0 1em 2.4em rgba(0, 0, 0, 0.6), 0 0 0 0.25em ${OUTLINE}55`
                         : '0 0.5em 1.5em rgba(0, 0, 0, 0.45)',
                     fontFamily: MONO, color: P.text, userSelect: 'none',
                     overflow: 'hidden', zIndex: 2,
                     // See-through while carried (req #3614) so the outlined
-                    // step beneath can be read.
-                    opacity: carrying ? 0.35 : 1,
+                    // step beneath can be read; over the navbar, the drop
+                    // zone shows through, as it does for every rackable window.
+                    opacity: overRack ? 0.75 : (carrying ? 0.35 : 1),
                     // Only while folding — see the header.
-                    transition: folding ? `width ${foldMs}ms ease` : 'none' }}>
+                    transition: folding && !inRack ? `width ${foldMs}ms ease` : 'none',
+                    // In the stack: square, flat, never squeezed by its
+                    // neighbours (the rack scrolls instead).
+                    ...(racking && { flexShrink: 0, borderRadius: 0, boxShadow: 'none' }) }}>
             <Box ref={headerRef} data-testid="pipeline-viz-unseated-header"
-                 title={count > 0
-                     ? 'Drag to move · drop on a step to seat them all · double-click to put back'
-                     : 'Drag to move · double-click to put back'}
+                 title={inRack
+                     ? `Drag to reorder · drag off the navbar to float it${count > 0 ? ' · drop on a step to seat them all' : ''}`
+                     : `Drag to move${count > 0 ? ' · drop on a step to seat them all' : ''}`
+                         + `${suspended ? '' : ' · drop on the navbar to rack it'} · double-click to put back`}
                  onPointerDown={onBarDown}
                  onPointerMove={onBarMove}
                  onPointerUp={onBarUp}
@@ -670,6 +809,12 @@ export default function UnorchestratedReqBox({
                         px: '0.8em', py: '0.45em', flexShrink: 0,
                         cursor: moving ? 'grabbing' : 'move', touchAction: 'none',
                         WebkitTouchCallout: 'none', fontWeight: 600 }}>
+                {/* The ▾ at the upper left, as every pop-up window has it
+                    (req #3741); the upper right is left blank. */}
+                <CollapseHead open={open} onToggle={toggleOpen} name="Orchestrables"
+                              testid="pipeline-viz-unseated-toggle"
+                              color={INFO_PANEL_COLORS.head} hoverColor={INFO_PANEL_COLORS.headHover}
+                              fontSize="0.9em" showName={false} />
                 {/* The count is a badge LEFT of the name (req #3648), folded
                     or not. */}
                 <Box component="span" data-testid="pipeline-viz-unseated-count"
@@ -680,26 +825,18 @@ export default function UnorchestratedReqBox({
                             textAlign: 'center' }}>
                     {isError ? '!' : (isLoading ? '…' : count)}
                 </Box>
+                {/* Folded, "OR" never gives way: the bar is sized to it. Racked,
+                    the navbar sets the width, so the name stays whole — and the
+                    icon-only navbar has room for the ▾ and badge alone. */}
+                {!narrow && (
                 <Box component="span" data-testid="pipeline-viz-unseated-title"
-                     // Folded, "OR" never gives way: the bar is sized to it.
-                     sx={{ flex: open ? 1 : '1 0 auto', minWidth: open ? 0 : 'auto',
+                     sx={{ flex: open || inRack ? 1 : '1 0 auto',
+                            minWidth: open || inRack ? 0 : 'auto',
                             overflow: 'hidden',
                             textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {open ? 'Orchestrables' : 'OR'}
+                    {open || inRack ? 'Orchestrables' : 'OR'}
                 </Box>
-                <Box component="button" type="button"
-                     onClick={toggleOpen}
-                     aria-expanded={open}
-                     aria-label={open ? 'Collapse the list' : 'Expand the list'}
-                     data-testid="pipeline-viz-unseated-toggle"
-                     sx={{ width: '1.6em', height: '1.6em', p: 0, display: 'flex',
-                            alignItems: 'center', justifyContent: 'center',
-                            background: 'transparent', border: 'none',
-                            borderRadius: '0.4em', color: P.text, cursor: 'pointer',
-                            fontFamily: MONO, fontSize: '1.25em', lineHeight: 1,
-                            '&:hover': { color: P.accent } }}>
-                    {open ? '−' : '+'}
-                </Box>
+                )}
             </Box>
 
             {/* Animated by the toggle, and nothing else — a carry keeps it open
@@ -741,20 +878,21 @@ export default function UnorchestratedReqBox({
                 {items.map((r) => {
                     const id = Number(r.id);
                     return (
-                        <UnseatedRow key={id} row={r} id={id} fontPx={drawn.fontPx}
+                        <UnseatedRow key={id} row={r} id={id} fontPx={typePx}
                                      barColor={categoryColors[r.category_fk]}
                                      // req #3702 — the id wears the visualizer's
                                      // colour key; without a resolver it keeps
                                      // the swarm-ready colour.
                                      idStyle={idStyleOf
                                          ? idStyleOf(id) : { fill: statusColor, bold: true }}
+                                     narrow={narrow}
                                      onOpen={onOpen} />
                     );
                 })}
             </Box>
             </Collapse>
 
-            {open && (
+            {open && !inRack && (
                 // Its own strip under the list, so it never lies over a row.
                 <Box ref={stripRef} data-testid="pipeline-viz-unseated-grip-strip"
                      sx={{ display: 'flex', flexShrink: 0, height: '1.3em',
@@ -787,6 +925,7 @@ export default function UnorchestratedReqBox({
             )}
         </Box>
     );
+    return inRack ? createPortal(panel, slot.node) : panel;
 }
 
 /**
@@ -794,7 +933,7 @@ export default function UnorchestratedReqBox({
  * face and colour are set here rather than inherited from the box, so the
  * DragOverlay's copy (mounted outside the box) reads exactly like the row.
  */
-function UnseatedRow({ row, id, fontPx, barColor, idStyle, onOpen }) {
+function UnseatedRow({ row, id, fontPx, barColor, idStyle, narrow, onOpen }) {
     const { ref, style, attributes, listeners, isDragging } = useDarwinDraggable({
         id: unseatedDragId(id), type: UNSEATED_DRAG_TYPE, row,
     });
@@ -842,6 +981,8 @@ function UnseatedRow({ row, id, fontPx, barColor, idStyle, onOpen }) {
                         fontWeight: idStyle.bold ? 700 : 400, flexShrink: 0 }}>
                 {id}
             </Box>
+            {/* The icon-only navbar keeps the ids alone (req #3735). */}
+            {!narrow && (
             <Box component="span"
                  data-testid={`pipeline-viz-unseated-item-title-${id}`}
                  // Wraps to two lines at most, then "…" (req #3684). An
@@ -851,6 +992,7 @@ function UnseatedRow({ row, id, fontPx, barColor, idStyle, onOpen }) {
                         WebkitLineClamp: 2, overflowWrap: 'anywhere' }}>
                 {row.title}
             </Box>
+            )}
         </Box>
     );
 }

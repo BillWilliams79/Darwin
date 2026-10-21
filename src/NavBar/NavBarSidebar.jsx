@@ -1,7 +1,6 @@
-import React, { useContext, useState, useMemo, useEffect, useRef } from 'react';
+import React, { useContext, useState, useMemo, useEffect, useLayoutEffect, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import AuthContext from '../Context/AuthContext';
-import AppContext from '../Context/AppContext';
 import { useDevServers } from '../hooks/useDataQueries';
 import {
     NAV_GROUPS, NAV_LINKS, PROFILE_LINK, flattenNavLinks, DEV_HOME_ROUTE,
@@ -13,13 +12,13 @@ import {
     devCollapsedGroupsKey, defaultCollapsedGroups, iconModeLinks,
 } from './navCollapse';
 import ProfileDialog from './ProfileDialog';
-import { prodRequirementUrl } from '../utils/prodUrl';
+import { usePanelRackStore } from '../stores/usePanelRackStore';
+import { RACK_DRAG_Z } from '../Components/AnchoredPanel/panelRack';
 
 import AppBar from '@mui/material/AppBar';
 import BottomNavigation from '@mui/material/BottomNavigation';
 import BottomNavigationAction from '@mui/material/BottomNavigationAction';
 import Box from '@mui/material/Box';
-import Chip from '@mui/material/Chip';
 import Collapse from '@mui/material/Collapse';
 import IconButton from '@mui/material/IconButton';
 import List from '@mui/material/List';
@@ -46,24 +45,46 @@ import IndeterminateCheckBoxOutlinedIcon from '@mui/icons-material/Indeterminate
 const ACCENT = '#E91E63';
 const BG_ACTIVE = 'rgba(233, 30, 99, 0.12)';
 const DEV_ORANGE = '#FF6B35';
+// The panel rack's drop glow (req #3728) is the dragged panel's own frame
+// colour; this is the rackable hosts' frame purple (the Dev Servers dashboard,
+// and in a dev build the Dev Server panel, racked here by default — req #3727),
+// for a drag that names none.
+const RACK_PURPLE = '#a64dff';
 
 const isDev = import.meta.env.MODE === 'development';
 const DEV_BORDER = isDev ? `4px solid ${DEV_ORANGE}` : 'none';
 const DEV_REQ_ID = isDev ? (import.meta.env.VITE_DEV_REQ_ID || '') : '';
-const DEV_REQ_TITLE = isDev ? (import.meta.env.VITE_DEV_REQ_TITLE || '') : '';
 // Req #3589 — a dev server keeps its group map under a per-session key (see
 // navCollapse.js) and seeds it collapsed-except-the-working-area.
 const COLLAPSED_GROUPS_STORAGE_KEY = isDev ? devCollapsedGroupsKey(DEV_REQ_ID, DEV_HOME_ROUTE) : undefined;
 
 const NavBarSidebar = () => {
     const { idToken, profile } = useContext(AuthContext);
-    const { database } = useContext(AppContext);
     const location = useLocation();
     const navigate = useNavigate();
     const isDesktop = useMediaQuery('(min-width:900px)');
 
     const [collapsed, setCollapsed] = useState(false);
     const [profileDialogOpen, setProfileDialogOpen] = useState(false);
+    const sidebarWidth = collapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_WIDTH;
+
+    // The panel rack (req #3720): pop-up information windows (AnchoredPanel
+    // hosts naming a rackId — the Dev Servers dashboard) dragged onto the
+    // navbar lock in below the nav buttons, at the navbar's width, stacked in
+    // rack order. The navbar publishes its rack slot while it is drawn (before
+    // paint, so a racked panel never flashes at its floating dock first). A
+    // drag changes nothing here until the panel is over the navbar; then, and
+    // only then, its edges glow in the panel's frame colour (req #3728).
+    // No text, no landing zone, no outline: the drop lands where the pointer
+    // is against the stack (rackDropIndex).
+    const [rackNode, setRackNode] = useState(null);
+    const setRackSlot = usePanelRackStore(s => s.setSlot);
+    useLayoutEffect(() => {
+        setRackSlot(rackNode ? { node: rackNode, width: sidebarWidth } : null);
+    }, [rackNode, sidebarWidth, setRackSlot]);
+    useLayoutEffect(() => () => setRackSlot(null), [setRackSlot]);
+    const rackDrag = usePanelRackStore(s => s.drag);
+    const rackOver = !!rackDrag?.over;
 
     // Per-group collapsed state (req #2869). Clicking a group header hides/shows
     // its child links — purely visual, routes are unaffected. Seeded from and
@@ -95,15 +116,10 @@ const NavBarSidebar = () => {
         setExpandedItems((prev) => toggleItemExpanded(prev, path));
     };
 
-    // Dev-only: surface this dev server's terminal_number in the sidebar InfoBlock.
-    // Match by current browser port; works in both worker and primary dev sessions.
-    // staleTime: terminal_number is effectively immutable for the lifetime of a
-    // dev server claim, so a 60s staleTime trades immediate freshness for one
-    // refetch per minute instead of one per render (req #2419 W2 polish).
-    // Enabled in ALL environments (not just dev): production also needs to know
-    // whether the dev-server table is empty so the Dev Servers nav link can grey
-    // out (req #3005). Lightweight, user-scoped GET; 60s staleTime keeps it to
-    // roughly one refetch per minute.
+    // Whether the dev-server table is empty, so the Dev Servers nav link can
+    // grey out (req #3005) — in ALL environments. Lightweight, user-scoped GET;
+    // 60s staleTime keeps it to roughly one refetch per minute. (This dev
+    // server's own details are the Dev Server panel's — DevServerInfoPanel.)
     const { data: devServersArray } = useDevServers(profile?.userName, {
         enabled: !!profile?.userName,
         staleTime: 60_000,
@@ -113,30 +129,6 @@ const NavBarSidebar = () => {
     // running" — the only nav item that behaves this way. `undefined` (loading)
     // is deliberately NOT treated as empty to avoid a grey flash on first paint.
     const devServersEmpty = Array.isArray(devServersArray) && devServersArray.length === 0;
-    const currentDevTerminal = useMemo(() => {
-        if (!isDev || !devServersArray) return null;
-        const port = parseInt(window.location.port || '0', 10);
-        if (!port) return null;
-        const row = devServersArray.find(s => s.port === port);
-        return row?.terminal_number ?? null;
-    }, [devServersArray]);
-
-    // req #3455 — the window handle comes from the dev server's OWN launching
-    // shell, injected by scripts/devserver-start.sh as a Vite env var, NOT from
-    // the database: `dev_servers` is pinned to production while sessions follow
-    // the dev/prod split, so a DB join would be right only by coincidence.
-    // The NUMBER still prefers the dev_servers row (it is the claim of record)
-    // and falls back to the env var.
-    const devTerminalWindowId = import.meta.env.VITE_DEV_TERMINAL_WINDOW_ID || null;
-    const devTerminalNumber = currentDevTerminal
-        ?? (import.meta.env.VITE_DEV_TERMINAL_NUMBER || null);
-    const devTerminalLabel = devTerminalNumber != null
-        ? `Terminal - ${devTerminalNumber}`
-        : (devTerminalWindowId ? 'Focus terminal' : null);
-    const devTerminalHref = (isDev && devTerminalWindowId)
-        ? `darwin-term://focus?window=${encodeURIComponent(devTerminalWindowId)}`
-          + `&label=${encodeURIComponent(devTerminalLabel || 'dev server')}`
-        : null;
 
     // Filter nav groups/links based on profile app toggle settings. Per-key
     // default lives in GROUP_PROFILE_DEFAULT so Swarm Validate (default 0)
@@ -358,14 +350,20 @@ const NavBarSidebar = () => {
     // ── Desktop: sidebar with in-navbar collapse control ──
     if (isDesktop) {
         const showText = !collapsed;
-        const width = collapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_WIDTH;
+        const width = sidebarWidth;
 
         return (
             <>
                 {isDev && <Box sx={{ position: 'fixed', top: 0, left: 0, right: 0, height: '4px', bgcolor: DEV_ORANGE, zIndex: 1300 }} />}
                 <Box
                     className="app-navbar"
-                    sx={{ width, flexShrink: 0, transition: 'width 0.2s ease', height: '100vh', position: 'sticky', top: 0 }}
+                    data-panel-rack-zone=""
+                    data-testid="navbar-rack-zone"
+                    data-rack-drop={rackDrag ? (rackOver ? 'over' : 'armed') : 'off'}
+                    sx={{ width, flexShrink: 0, transition: 'width 0.2s ease', height: '100vh', position: 'sticky', top: 0,
+                          // A racked panel dragged out is drawn fixed from in
+                          // here: lift the navbar so it stays above the page.
+                          ...(rackDrag?.fromRack && { zIndex: RACK_DRAG_Z }) }}
                 >
                     <Box sx={{
                         display: 'flex',
@@ -375,7 +373,11 @@ const NavBarSidebar = () => {
                         color: 'white',
                         overflow: 'hidden',
                         width,
-                        transition: 'width 0.2s ease',
+                        transition: 'width 0.2s ease, box-shadow 0.12s',
+                        // The drop glow: a panel over us, eligible to drop.
+                        ...(rackOver && {
+                            boxShadow: `inset 0 0 16px 2px color-mix(in srgb, ${rackDrag.color || RACK_PURPLE} 75%, transparent)`,
+                        }),
                     }}>
                             {/* Bicycle menu trigger + Darwin title (+ header collapse chevron) */}
                             <Box sx={{
@@ -414,7 +416,10 @@ const NavBarSidebar = () => {
                                 the full-width sidebar does — collapsed groups and
                                 unexpanded L3s stay hidden — as a flat icon strip
                                 (req #3590). */}
-                            <List sx={{ pt: 0, pb: 0 }}>
+                            {/* Crowded, the nav list scrolls — never the racked
+                                panels below it, which stay whole (req #3720). */}
+                            <List sx={{ pt: 0, pb: 0, flex: '0 1 auto', minHeight: 0,
+                                        overflowY: 'auto', overflowX: 'hidden', scrollbarWidth: 'thin' }}>
                                 {!showText && iconModeLinks(visibleGroups, visibleLinks, collapsedGroups, expandedItems)
                                     .map((link) => renderNavItem(link, showText))}
                                 {showText && visibleGroups.map((group) => {
@@ -469,118 +474,20 @@ const NavBarSidebar = () => {
                                 })}
                             </List>
 
-                            {/* Dev server indicator — dev builds only, never included in production */}
-                            {isDev && showText && (
-                                <Box sx={{
-                                    mx: 1.5,
-                                    mb: 1.5,
-                                    mt: 1,
-                                    px: 1.25,
-                                    py: 0.75,
-                                    border: `1px solid ${DEV_ORANGE}`,
-                                    borderRadius: 1,
-                                    flexShrink: 0,
-                                }}>
-                                    <Typography sx={{
-                                        fontSize: 15,
-                                        fontWeight: 700,
-                                        color: DEV_ORANGE,
-                                        letterSpacing: 0.5,
-                                        textTransform: 'uppercase',
-                                        lineHeight: 1.4,
-                                    }}>
-                                        Dev Server
-                                    </Typography>
-                                    {/* req #3455 — a working pill, not a label.
-                                        This card already knew WHICH terminal the
-                                        dev server runs in; it just could not take
-                                        you there. Clicking focuses that iTerm2
-                                        window. Falls back to plain text when no
-                                        window handle was captured (a dev server
-                                        started outside iterm-launch.sh), because
-                                        a pill that cannot be clicked is a worse
-                                        lie than a label that never promised to. */}
-                                    {devTerminalLabel != null && (
-                                        devTerminalHref ? (
-                                            <Chip
-                                                component="a"
-                                                href={devTerminalHref}
-                                                clickable
-                                                size="small"
-                                                label={devTerminalLabel}
-                                                data-testid="navbar-dev-terminal"
-                                                variant="outlined"
-                                                sx={{
-                                                    alignSelf: 'flex-start',
-                                                    height: 22,
-                                                    // 13px — one point up from the 12px the
-                                                    // surrounding card text uses, so the one
-                                                    // interactive line in the block reads as
-                                                    // the primary one.
-                                                    fontSize: 13,
-                                                    fontWeight: 700,
-                                                    // CLEAR in the centre: the ring and the
-                                                    // label carry the orange, the fill stays
-                                                    // transparent so the pill sits ON the dark
-                                                    // card instead of punching a block out of it.
-                                                    color: DEV_ORANGE,
-                                                    bgcolor: 'transparent',
-                                                    borderColor: DEV_ORANGE,
-                                                    '& .MuiChip-label': { px: 1 },
-                                                    '&:hover': {
-                                                        bgcolor: 'rgba(255,255,255,0.08)',
-                                                        borderColor: DEV_ORANGE,
-                                                    },
-                                                }}
-                                            />
-                                        ) : (
-                                            <Typography sx={{ fontSize: 12, color: 'rgba(255,255,255,0.9)', lineHeight: 1.4 }}
-                                                        data-testid="navbar-dev-terminal">
-                                                {devTerminalLabel}
-                                            </Typography>
-                                        )
-                                    )}
-                                    {/* Active DB — orange + (PROD) suffix when dev is pointing at production (req #2683) */}
-                                    <Typography sx={{
-                                        fontSize: 12,
-                                        color: database === 'darwin' ? DEV_ORANGE : 'rgba(255,255,255,0.9)',
-                                        fontWeight: database === 'darwin' ? 700 : 400,
-                                        lineHeight: 1.4,
-                                    }} data-testid="navbar-dev-database">
-                                        DB - {database}{database === 'darwin' ? ' (PROD)' : ''}
-                                    </Typography>
-                                    {DEV_REQ_ID && (
-                                        <Typography sx={{ fontSize: 12, lineHeight: 1.4 }}>
-                                            {/* Dev servers run against the darwin_dev debug DB where this
-                                                requirement may not exist, so link to production darwin.one
-                                                (req #2757) instead of the relative — local — origin. */}
-                                            <a href={prodRequirementUrl(DEV_REQ_ID)}
-                                               target="_blank" rel="noopener noreferrer"
-                                               style={{ color: '#90CAF9', textDecoration: 'none' }}
-                                               data-testid="navbar-dev-req-link">
-                                                Req - {DEV_REQ_ID}
-                                            </a>
-                                        </Typography>
-                                    )}
-                                    {DEV_REQ_TITLE && (
-                                        <Typography sx={{
-                                            fontSize: 12,
-                                            color: 'rgba(255,255,255,0.9)',
-                                            lineHeight: 1.4,
-                                            whiteSpace: 'normal',
-                                            wordBreak: 'break-word',
-                                            mt: 1.4,
-                                            mb: 1.4,
-                                            px: 0.5,
-                                        }}>
-                                            {DEV_REQ_TITLE.slice(0, 35)}
-                                        </Typography>
-                                    )}
-                                    <Typography sx={{ fontSize: 12, color: 'rgba(255,255,255,0.9)', lineHeight: 1.4 }}>
-                                        Port - {window.location.port || '3000'}
-                                    </Typography>
-                                </Box>
-                            )}
+                            {/* The panel rack (req #3720): racked panels portal
+                                into the `display: contents` slot, so they are flex
+                                items here and CSS `order` stacks them in rack
+                                order. It keeps its full height (the nav list
+                                above gives way) up to 60vh, then scrolls. */}
+                            <Box data-testid="navbar-rack"
+                                 sx={{ display: 'flex', flexDirection: 'column', gap: '4px',
+                                        flex: '0 0 auto', maxHeight: '60vh',
+                                        overflowY: 'auto', overflowX: 'hidden', scrollbarWidth: 'thin',
+                                        // Spaced off the nav list only while it
+                                        // holds something drawn.
+                                        '&:has([data-rack-id])': { pt: '6px' } }}>
+                                <Box ref={setRackNode} data-testid="navbar-rack-slot" sx={{ display: 'contents' }} />
+                            </Box>
 
                     </Box>
                 </Box>

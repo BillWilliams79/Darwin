@@ -1087,9 +1087,12 @@ export function planPalette(key) {
 // Neither is asserted against; both are one look at the rendered key (any
 // narrow window) away from being closed or ruled out.
 //
-// The cap is enforced in the component's `sx` (`maxHeight`, not `maxWidth`)
-// and swept in pipelinePlanLayout.test.js from this constant, so the two
-// cannot drift.
+// HISTORICAL since req #3722: the key left the canvas for a button-local popup,
+// so nothing in the component enforces this cap or measures a keep-out any more
+// (`PipelinePlanVisualizer` passes `keepOut: null`). The constant and the
+// `keepOut` parameter of `placeEpicChips` stay for the sweeps in
+// pipelinePlanLayout.test.js, which still pin the placement pass's behaviour
+// against an arbitrary keep-out rectangle.
 export const PLAN_KEY_MAX_H = 110;
 
 // ── THE SCALE REGISTRY (req #3422) ─────────────────────────────────────────
@@ -5280,7 +5283,9 @@ export const EPIC_BAR_W = 420;
  * ONE RULE — see this section's header comment: the top-left corner of the
  * INTERSECTION of the band's rectangle with the visible content area, plus the
  * margin the name would carry from the band's own corner, clamped so the name
- * never escapes its rectangle on the far edge of either axis.
+ * never escapes its rectangle on the far edge of either axis. A FOLDED band
+ * (req #3738) is the exception: its title bar rides its band's own corner and
+ * scrolls off under the pinned chrome rather than holding the top.
  *
  * @param {Object} [args]
  * @param {Object[]} [args.bands] `computePlanLayout().bands`, top-to-bottom
@@ -5456,8 +5461,21 @@ export function placeEpicChips({
         // band is in view and slides up and off with that corner as the band
         // leaves, which is the same push-off, taken from the other edge because
         // that is the only edge the name can still be anchored to.
-        const yNatural = Math.min(iy0 + CHIP_MARGIN_Y,
+        // req #3695 — how far FOLDED the band is drawn: 1 for a folded epic, 0
+        // for an open one, between while its fold animates. Hand-built bands
+        // with no `reveal` answer from `collapsed`.
+        const folded = 1 - (Number.isFinite(band.reveal) ? band.reveal
+            : (band.collapsed ? 0 : 1));
+        // req #3738 — A FOLDED EPIC DOES NOT HOLD THE TOP. Its title bar is all
+        // that is left of it, so it scrolls with its band's own corner and goes
+        // off under the ruler like any other row (the overlay's inset clips it),
+        // instead of pinning at the content area's top while the open epic below
+        // scrolls up. User direction: "when that top one is collapsed, it doesn't
+        // have to hook the top of the screen and hold. scroll it bye bye".
+        // Blended by `folded` so the fold animation never jumps the name.
+        const ySticky = Math.min(iy0 + CHIP_MARGIN_Y,
             Math.max(top + CHIP_MARGIN_Y, bottom - CHIP_MARGIN_Y - h));
+        const yNatural = ySticky + folded * (top + CHIP_MARGIN_Y - ySticky);
         let y = yNatural;
 
         // A DEGENERATE BAND POISONS THE PASS, so it is refused here rather than
@@ -5588,11 +5606,7 @@ export function placeEpicChips({
             w = room;
             clipped = true;
         }
-        // req #3695 — THE TITLE BAR. How far FOLDED the band is drawn: 1 for a
-        // folded epic, 0 for an open one, between while its fold animates.
-        // Hand-built bands with no `reveal` answer from `collapsed`.
-        const folded = 1 - (Number.isFinite(band.reveal) ? band.reveal
-            : (band.collapsed ? 0 : 1));
+        // req #3695 — THE TITLE BAR, widened by `folded` (computed above).
         let bar = 0;
         if (!clipped && folded > 0) {
             bar = folded;

@@ -45,6 +45,41 @@ describe('PipelinePlanToolbar (req #3648)', () => {
         expect(across.compareDocumentPosition(view) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
+    // req #3722 — the Step chip leads the colour group as HOVER HELP ONLY: not a
+    // toggle, never pressed, no `?` chip or slot.
+    it('leads the colour group with a Step chip that is a label, not a switch', () => {
+        const color = q('pipeline-viz-colorkey-toggle');
+        const step = q('pipeline-viz-steps-toggle');
+        expect(step).not.toBeNull();
+        expect(color.firstElementChild).toBe(step);
+        expect(step.hasAttribute('aria-pressed')).toBe(false);
+        expect(step.className).not.toMatch(/clickable/);
+        expect(q('pipeline-viz-colorkey-help-slot')).toBeNull();
+        expect(q('pipeline-viz-legend-toggle')).toBeNull();
+    });
+
+    it('reports the hovered chip — the Step chip and any colour chip, active or not', () => {
+        const events = [];
+        act(() => root.render(
+            <PipelinePlanToolbar onStepsAcross={() => {}} stepWidthLevel={5}
+                                 onChangeStepWidthLevel={() => {}} colorKey="state"
+                                 onChangeColorKey={() => {}} planLevelPref="auto"
+                                 effectiveLevel="out" onChangeLevelPref={() => {}}
+                                 onResetView={() => {}}
+                                 onKeyHover={(h) => events.push(h && h.key)} />));
+        const enter = (el) => act(() => {
+            el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+        });
+        const leave = (el) => act(() => {
+            el.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+        });
+        enter(q('pipeline-viz-steps-toggle'));
+        leave(q('pipeline-viz-steps-toggle'));
+        enter(q('pipeline-viz-colorkey-machine'));       // not the active scale
+        leave(q('pipeline-viz-colorkey-machine'));
+        expect(events).toEqual(['step', null, 'machine', null]);
+    });
+
     // req #3686 — the Hide closed chip sits between the colour chips and the ladder.
     it('draws Hide closed between the colour chips and the steps-across ladder', () => {
         const color = q('pipeline-viz-colorkey-toggle');

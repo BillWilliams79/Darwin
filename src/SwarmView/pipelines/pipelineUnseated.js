@@ -59,7 +59,7 @@ export function unseatedBoxFontPx(k) {
 }
 
 /** The box's narrowest width, in em of its own type: room for the whole title
- *  bar — the count badge, "Orchestrables" and the −/+ — and an id plus a slice
+ *  bar — the ▾, the count badge and "Orchestrables" — and an id plus a slice
  *  of title. Under the base card's own ~21.4em (req #3693's narrower requirement
  *  type), so at Step Width 4 and up it binds only once the type is held at its
  *  9px floor; a Step Width 3 card (0.75x, ~16.4em, req #3648) is narrower than the title bar itself, so there
@@ -75,7 +75,7 @@ export const UNSEATED_MIN_WIDTH_EM = 18;
  *
  * FLOORED SO ITS TITLE BAR FITS. Zoomed out, a card is a few dozen px wide —
  * plan 7 opens at k≈0.04–0.08, a 21–31px card — and a box that narrow clips its
- * own title and −/+ toggle away. So it never goes below
+ * own ▾ and title away. So it never goes below
  * `UNSEATED_MIN_WIDTH_EM` of its own type, which is narrower than every rung's
  * card at any zoom where the type tracks the ids: the box is exactly the card
  * everywhere except zoomed out past the type's 9px floor (162px there). The

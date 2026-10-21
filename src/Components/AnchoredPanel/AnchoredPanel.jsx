@@ -3,11 +3,13 @@
 // memory/anchored-collapse-pattern.md; geometry in anchoredPanelGeometry.js.
 //
 // ── THE HEAD IS THE ANCHOR ─────────────────────────────────────────────────
-// The head row is always the panel's top row: the CollapseHead (▾), then the
+// The head row is always the panel's top row: the CollapseHead (▾) at the
+// upper left — every pop-up window's, one control (req #3741) — then the
 // host's `extras` (a count badge), then the title — left-aligned — and the
 // host's `actions`: at the far right while open; folded, right after the
 // title, with the panel's right edge pulled in so the whole package is tight
-// (user directives). Clicking ▾ never moves it: the panel is pinned at its
+// (user directives). The upper right is blank, or × where the host supports
+// closing (req #3741). Clicking ▾ never moves it: the panel is pinned at its
 // current left and top first (`dockForToggle`), so the right and bottom edges
 // do the moving, then re-docked where it is drawn (`dockAfterToggle`).
 
@@ -21,8 +23,23 @@
 //
 // It owns no state: `dock`/`open` come in, `onDockChange`/`onToggle` go out,
 // so the host decides where they persist.
+//
+// ── RACKABLE (req #3720) ───────────────────────────────────────────────────
+// A host that names a `rackId` can drop its panel onto the Darwin navbar: while
+// the head is dragged, the pointer is hit-tested against the navbar's drop zone
+// (`[data-panel-rack-zone]`) and the drag published to usePanelRackStore, so the
+// navbar glows in the panel's frame colour while it is over (req #3728). It
+// lands at the top, unless pointed into the stack (req #3729). Released there,
+// the panel is RACKED — portalled into the navbar's rack slot below its nav
+// buttons, at the navbar's width, content-sized in height, nothing to reshape.
+// Dragging a racked panel's head up or down the stack reorders it; off the
+// navbar, it floats again, docked where it was dropped. Where the reader racks it is the rack's (pure half in
+// panelRack.js, DOM half in usePanelRack.js — shared with the Orchestrables box,
+// req #3735); the host's own `dock` is left alone while it is racked. While a
+// page covers the navbar (usePanelRackStore `covered`), the panel floats.
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 import Box from '@mui/material/Box';
 
@@ -31,6 +48,8 @@ import {
     RESIZE_EDGES, dockAfterToggle, dockForToggle, dockFromMove, dockFromResize, dockedStyle, freeCorner,
     moveRect, resizeRect,
 } from './anchoredPanelGeometry';
+import { rackOrder } from './panelRack';
+import { usePanelRack } from './usePanelRack';
 
 /** Pointer travel, px, before a head press becomes a move. */
 const MOVE_SLOP = 4;
@@ -68,19 +87,23 @@ function edgeZone(e) {
  * @param {string} props.name            the CollapseHead's name
  * @param {string} props.testid          root testid; parts are suffixed
  * @param {React.ReactNode} [props.extras]   left-aligned after the head
- * @param {React.ReactNode} [props.actions]  right-aligned
+ * @param {React.ReactNode} [props.actions]  right-aligned: blank, or × where
+ *   the host supports closing (req #3741)
  * @param {function} props.children      ({ shapedWidth }) → body; shapedWidth
  *   is the reader's width (live while reshaping), null when content-sized
  * @param {{minW, minH, autoMaxW, headPx}} props.limits
  * @param {number} [props.fontPx]        everything inside is in em off it
  * @param {number} [props.border]        the frame's width, px
  * @param {{frame, background, line, head, headHover, text}} props.colors
+ *   `frame` is a concrete CSS colour: the navbar's drop glow mixes it (req #3728)
  * @param {Object} [props.sx]            more panel chrome
  * @param {number} [props.zIndex]
+ * @param {string} [props.rackId]        names the panel in the navbar rack;
+ *   absent = it never racks (req #3720)
  */
 export default function AnchoredPanel({
     dock, onDockChange, open, onToggle, name, testid, extras, actions, children,
-    limits, fontPx = 12, border = 2, colors, sx, zIndex = 1250,
+    limits, fontPx = 12, border = 2, colors, sx, zIndex = 1250, rackId,
 }) {
     const boxRef = useRef(null);
     const bodyRef = useRef(null);
@@ -91,7 +114,10 @@ export default function AnchoredPanel({
     const gestureRef = useRef(null);
     const [live, setLive] = useState(null);
     const lastMoveEndRef = useRef(0);
-    // Unmounted mid-gesture, the release never comes.
+    // Its place in the rack's stack (-1 = not racked), and whether it is drawn
+    // there: racked, a navbar to hold it, the navbar not covered.
+    const rackApi = usePanelRack(rackId);
+    const { rackPos, inRack, slot, overRack, narrow } = rackApi;
     useEffect(() => () => { gestureRef.current = null; }, []);
 
     const begin = (kind, edge = null) => (e) => {
@@ -105,8 +131,12 @@ export default function AnchoredPanel({
         const r = box.getBoundingClientRect();
         gestureRef.current = {
             kind, edge, id: e.pointerId, sx: e.clientX, sy: e.clientY,
-            r0: { left: r.left, top: r.top, width: r.width, height: r.height },
-            last: null,
+            // Dragged out of the rack, a tall stack-sized panel would be held
+            // high by the viewport clamp: only its head need stay on screen
+            // (the drawn height is capped below the pointer anyway).
+            r0: { left: r.left, top: r.top, width: r.width,
+                height: kind === 'move' && inRack ? Math.min(r.height, limits.headPx) : r.height },
+            last: null, fromRack: inRack,
         };
     };
     const onMove = (e) => {
@@ -120,6 +150,7 @@ export default function AnchoredPanel({
             ? moveRect(g.r0, dx, dy, vw, vh)
             : resizeRect(g.r0, dx, dy, g.edge, vw, vh, limits.minW, limits.minH);
         setLive({ ...g.last, edge: g.edge });
+        if (g.kind === 'move') rackApi.track(e.clientX, e.clientY, g.fromRack, colors.frame);
     };
     const onUp = (e) => {
         const g = gestureRef.current;
@@ -131,8 +162,25 @@ export default function AnchoredPanel({
         setLive(null);
         // Only a release places it: a cancelled pointer (or capture lost
         // without one) puts the panel back where it was.
-        if (!g.last || e.type !== 'pointerup') return;
+        if (!g.last || e.type !== 'pointerup') {
+            if (g.kind === 'move') rackApi.cancel();
+            return;
+        }
         lastMoveEndRef.current = Date.now();
+        if (g.kind === 'move') {
+            const placed = rackApi.release(e.clientX, e.clientY, g.fromRack);
+            // Dropped on the navbar: into the stack where the pointer is.
+            // Its floating dock is kept for the day it is dragged back out.
+            if (placed === 'racked') return;
+            // Dragged off the navbar: floats where it was dropped. Its floating
+            // size is not the navbar's, so — like a toggle — pin its left and
+            // top, and re-dock once that size has drawn (the effect below).
+            if (placed === 'unracked') {
+                pinRef.current = { left: g.last.left, top: g.last.top };
+                onDockChange(dockForToggle(dock, g.last));
+                return;
+            }
+        }
         const { vw, vh } = viewport();
         onDockChange(g.kind === 'move'
             ? dockFromMove(g.last, vw, vh, dock)
@@ -147,9 +195,10 @@ export default function AnchoredPanel({
     });
     // THE HEAD IS THE ANCHOR: pin the panel at its current left and top before
     // it folds or unfolds, so the ▾ stays put and the far edges move.
+    // Racked, the navbar holds it: nothing to pin, the stack below just moves.
     const toggle = () => {
         const box = boxRef.current;
-        if (box) {
+        if (box && !inRack) {
             const r = box.getBoundingClientRect();
             pinRef.current = { left: r.left, top: r.top };
             onDockChange(dockForToggle(dock, r));
@@ -172,8 +221,10 @@ export default function AnchoredPanel({
         const { vw, vh } = viewport();
         const next = dockAfterToggle(pin, { width: r.width, height }, vw, vh, dock);
         if (['h', 'x', 'v', 'y'].some(k => next[k] !== dock[k])) onDockChange(next);
-    }, [open, dock]);
+    }, [open, dock, inRack]);
     const onHeadDoubleClick = (e) => {
+        // Racked, it has no home to go to: it is dragged out instead.
+        if (inRack) return;
         if (e.target.closest('button, a')) return;
         if (Date.now() - lastMoveEndRef.current < DBLCLICK_AFTER_MOVE_MS) return;
         onDockChange(null);
@@ -181,33 +232,47 @@ export default function AnchoredPanel({
 
     const reshapingH = !!live?.edge?.h;
     const reshapingV = !!live?.edge?.v;
+    // Racked and at rest, it is in the navbar's flow at the navbar's width;
+    // dragged out, it is drawn fixed under the pointer like any move.
+    const racking = inRack && !live;
     const placement = live
         ? { left: `${live.left}px`, top: `${live.top}px`,
             ...((reshapingH || dock.w != null || !live.edge)
                 ? { width: `${live.width}px` } : { width: 'max-content', maxWidth: `${limits.autoMaxW}px` }),
             maxHeight: `calc(100% - ${live.top}px)`,
-            ...((reshapingV || (open && dock.ht != null)) ? { height: `${live.height}px` } : {}) }
-        : dockedStyle(dock, { open, headPx: limits.headPx, autoMaxW: limits.autoMaxW,
-            minW: limits.minW });
-    const shapedWidth = reshapingH ? live.width : dock.w;
+            ...((reshapingV || (open && dock.ht != null && !inRack)) ? { height: `${live.height}px` } : {}) }
+        : racking ? { width: '100%' }
+            : dockedStyle(dock, { open, headPx: limits.headPx, autoMaxW: limits.autoMaxW,
+                minW: limits.minW });
+    const shapedWidth = reshapingH ? live.width : (inRack ? slot.width : dock.w);
+    // The icon-only navbar (`narrow`) has room for the ▾ and the host's extras alone.
     const grip = freeCorner(dock);
     const moving = live && !live.edge;
-    // Folded, the panel is its head row, tight: nothing to reshape.
-    const edges = open ? RESIZE_EDGES : [];
+    // Folded, the panel is its head row, tight: nothing to reshape. Racked,
+    // the navbar sets its width and its rows its height.
+    const edges = open && !inRack ? RESIZE_EDGES : [];
 
-    return (
+    const panel = (
         <Box ref={boxRef} data-testid={testid}
              data-dock={`${dock.h}${dock.x},${dock.v}${dock.y}`}
+             {...(rackId ? { 'data-rack-id': rackId, 'data-racked': inRack ? '1' : '0' } : {})}
              style={{ fontSize: `${fontPx}px`, ...placement }}
-             sx={{ position: 'fixed', zIndex,
+             sx={{ position: racking ? 'relative' : 'fixed', zIndex,
                     minHeight: `${limits.headPx}px`,
                     display: 'flex', flexDirection: 'column',
                     background: colors.background,
                     border: `${border}px solid ${colors.frame}`,
                     color: colors.text, userSelect: 'none',
-                    overflow: 'hidden', boxSizing: 'border-box', ...sx }}>
+                    overflow: 'hidden', boxSizing: 'border-box', ...sx,
+                    // Over the navbar, see the drop zone through it.
+                    ...(overRack && { opacity: 0.75 }),
+                    // In the stack: square, flat, never squeezed by its
+                    // neighbours (the rack scrolls instead).
+                    ...(racking && { order: rackOrder(rackPos),
+                        flexShrink: 0, borderRadius: 0, boxShadow: 'none' }) }}>
             <Box data-testid={`${testid}-header`}
-                 title="Drag to move · double-click to put back"
+                 title={inRack ? 'Drag to reorder · drag off the navbar to float it'
+                     : `Drag to move · double-click to put back${rackId ? ' · drop on the navbar to rack it' : ''}`}
                  {...gesture('move')}
                  onDoubleClick={onHeadDoubleClick}
                  sx={{ display: 'flex', alignItems: 'center', gap: '0.6em',
@@ -220,17 +285,17 @@ export default function AnchoredPanel({
                 {extras}
                 {/* The title, in the head's own small caps. Not a button:
                     pressing it starts a move, like the rest of the row. */}
-                <Box component="span" data-testid={`${testid}-title`}
+                {!narrow && <Box component="span" data-testid={`${testid}-title`}
                      sx={{ color: colors.head, fontSize: '0.9em', fontWeight: 700,
                             letterSpacing: '0.06em', textTransform: 'uppercase',
                             whiteSpace: 'nowrap', overflow: 'hidden',
                             textOverflow: 'ellipsis', minWidth: 0 }}>
                     {name}
-                </Box>
+                </Box>}
                 {/* Open: far right. Folded: right after the title. */}
-                <Box sx={{ ml: open ? 'auto' : 0, display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+                {!narrow && <Box sx={{ ml: open ? 'auto' : 0, display: 'flex', alignItems: 'center', flexShrink: 0 }}>
                     {actions}
-                </Box>
+                </Box>}
             </Box>
 
             {/* Folded, the body takes no room at all — the panel is its head
@@ -250,7 +315,7 @@ export default function AnchoredPanel({
                 {children({ shapedWidth })}
             </Box>
 
-            {open && (
+            {open && !inRack && (
                 <Box data-testid={`${testid}-grip`} aria-hidden="true"
                      data-corner={`${grip.v}${grip.h}`}
                      sx={{ position: 'absolute', width: '0.8em', height: '0.8em',
@@ -270,4 +335,5 @@ export default function AnchoredPanel({
             ))}
         </Box>
     );
+    return inRack ? createPortal(panel, slot.node) : panel;
 }
