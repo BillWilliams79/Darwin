@@ -36,6 +36,43 @@
 
 import { terminalFocusState, TERMINAL_VISIBLE, resolveThisMachineId } from '../terminalFocus';
 
+// req #3587 — the requirement row's Terminal and Dev Server pills: how they
+// LOOK, shared by the step card (Konva) and the Active box (HTML, req #3721).
+//
+// A PILL IS ITS OWN ELEMENT: a rounded box with its label drawn CENTRED inside
+// it (`align`/`verticalAlign`), never an outline behind the row's own glyphs.
+// The first version traced the row's characters, so its centring hung on two
+// independent width measurements agreeing to the sub-pixel, and the token took
+// the row's bold status colour — measured off-centre and heavy (user review,
+// 2026-10-17). Now the row text carries BLANKS where a token sat (the layout
+// still reserves exactly those characters, so wrap and card height are
+// untouched) and the pill owns its label, centred by construction.
+//
+// Each kind has its own quiet palette, independent of the row's colour key: a
+// dark tinted fill, a softened edge and a light label. The terminal is the
+// requirement-id blue (`P.req`, an MUI primary chip's role); the dev server the
+// Swarm visualizer's dark-mode dev-server green, so a port reads the same on
+// both canvases.
+export const REQ_PILL_STYLE = {
+    terminal: { fill: '#7fb4ff26', stroke: '#7fb4ff8c', text: '#d3e5ff' },
+    devserver: { fill: '#81c78426', stroke: '#81c7848c', text: '#d5f1d7' },
+};
+export const REQ_PILL_STROKE = 1.25;
+export const REQ_PILL_H_EM = 1.3;                  // pill height, in req font sizes
+export const REQ_PILL_FONT_EM = 0.78;              // label size, in req font sizes
+export const REQ_PILL_FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif';
+
+// THE PILL HUGS ITS LABEL (user review, 2026-10-17: "the bubble around
+// terminal is too wide — minimize the white space without making it feel
+// cramped"). The box used to span every MONO character the layout reserved,
+// but the label is drawn in the UI sans at `REQ_PILL_FONT_EM` of the row's
+// size — about half the mono advance — so "Terminal 2" sat in a box nearly
+// twice its width. Now the box is the label's own measured width plus this
+// much air each side (0.6em — an MUI small chip's proportion), CENTRED on the
+// reserved characters and never wider than they allow. The same rule for both
+// kinds: a terminal and a port pill differ only in palette.
+export const REQ_PILL_LABEL_PAD_EM = 0.6;
+
 // Session statuses whose terminal is no longer the worker's.
 export const NOT_LIVE_SESSION_STATUSES = ['completed', 'paused'];
 

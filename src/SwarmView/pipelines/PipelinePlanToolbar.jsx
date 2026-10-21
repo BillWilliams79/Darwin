@@ -84,6 +84,11 @@ const NO_HIDDEN = new Set();
  * @param {function} props.onChangeStepWidthLevel receives the level as a string
  * @param {string} props.colorKey               a REQ_COLOR_KEYS value
  * @param {function} props.onChangeColorKey     receives a REQ_COLOR_KEYS value
+ * @param {function} [props.onKeyHover]         receives `{ key, el }` when the pointer (or focus)
+ *                                              rests on the Step chip (`key` 'step') or a colour
+ *                                              chip (`key` its scale), `null` when it leaves; the
+ *                                              plan visualizer draws the colour-help popup
+ *                                              (req #3722)
  * @param {boolean} props.hideClosed            the closed (met/deferred/wontfix) rows are hidden
  * @param {function} props.onChangeHideClosed   receives the next boolean
  * @param {Object[]} props.machines             the open machines, one filter chip each (req #3708)
@@ -100,6 +105,7 @@ export default function PipelinePlanToolbar({
     onChangeStepWidthLevel,
     colorKey,
     onChangeColorKey,
+    onKeyHover,
     hideClosed,
     onChangeHideClosed,
     machines = NO_MACHINES,
@@ -110,6 +116,14 @@ export default function PipelinePlanToolbar({
     onChangeLevelPref,
     onResetView,
 }) {
+    // Hover (and keyboard focus) on a chip reports it so the visualizer can draw
+    // that chip's colour help (req #3722).
+    const hoverKeyProps = (key) => ({
+        onMouseEnter: (e) => onKeyHover?.({ key, el: e.currentTarget }),
+        onMouseLeave: () => onKeyHover?.(null),
+        onFocus: (e) => onKeyHover?.({ key, el: e.currentTarget }),
+        onBlur: () => onKeyHover?.(null),
+    });
     return (
         <>
             {/* The colour key for the REQUIREMENT MARKS, never the beads — the
@@ -142,18 +156,36 @@ export default function PipelinePlanToolbar({
             <Stack direction="row" spacing={0.5} useFlexGap alignItems="center"
                    sx={{ flexShrink: 0 }}
                    data-testid="pipeline-viz-colorkey-toggle">
-                {REQ_COLOR_SCALES.map(({ key, chipLabel, chipTip, chipName }) => {
+                {/* ── STEP (req #3722) ────────────────────────────────────────
+                    HOVER HELP ONLY: resting the pointer on it shows what the
+                    step marks mean, the way a colour chip shows its scale. It is
+                    not a toggle and it changes nothing on the canvas (a version
+                    that took the step colours off the display was tried and
+                    removed on the user's say-so). Outlined, never pressed, and
+                    no `onClick`, so it reads as a label, not a switch. */}
+                <Chip
+                    label="Step"
+                    aria-label="Step marks — hover for their key"
+                    {...hoverKeyProps('step')}
+                    {...toolbarChipProps(false, { pressed: false, sx: { cursor: 'help' } })}
+                    data-testid="pipeline-viz-steps-toggle"
+                />
+                {/* The colour chips explain THEMSELVES on hover — active or not —
+                    so the old Tooltip is gone: two overlays on one chip would
+                    fight. `chipTip` stays the registry's description (the
+                    chip's aria-label carries `chipName`). */}
+                {REQ_COLOR_SCALES.map(({ key, chipLabel, chipName }) => {
                     const on = colorKey === key;
                     return (
-                        <Tooltip key={key} title={chipTip}>
-                            <Chip
-                                label={chipLabel}
-                                aria-label={chipName}
-                                onClick={() => onChangeColorKey(on ? 'none' : key)}
-                                {...toolbarChipProps(on)}
-                                data-testid={`pipeline-viz-colorkey-${key}`}
-                            />
-                        </Tooltip>
+                        <Chip
+                            key={key}
+                            label={chipLabel}
+                            aria-label={chipName}
+                            onClick={() => onChangeColorKey(on ? 'none' : key)}
+                            {...hoverKeyProps(key)}
+                            {...toolbarChipProps(on)}
+                            data-testid={`pipeline-viz-colorkey-${key}`}
+                        />
                     );
                 })}
             </Stack>

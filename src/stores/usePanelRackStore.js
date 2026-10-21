@@ -13,12 +13,25 @@ import { rackInsert, rackRemove } from '../Components/AnchoredPanel/panelRack';
 //   • `drag` — `{ id, over, index, fromRack }` while a rackable panel is being
 //     moved: `over` = the pointer is on the navbar, `index` = where in the stack
 //     it would land. The navbar draws its drop-zone highlight from it.
+//   • `seeded` — the ids of panels that are racked BY DEFAULT (req #3727 — the
+//     navbar's Dev Server panel) and have been racked once already. `seed(id)`
+//     racks such a panel the first time it mounts in this browser, at the
+//     bottom of the stack; after that where it sits is the reader's, so one
+//     dragged off the navbar stays floating. Persisted with `racked`.
+const ids = (v) => (Array.isArray(v) ? v.filter(x => typeof x === 'string') : []);
+
 export const usePanelRackStore = create(
     persist(
         (set, get) => ({
             racked: [],
             slot: null,
             drag: null,
+            seeded: [],
+            seed: (id) => {
+                const { seeded, racked } = get();
+                if (seeded.includes(id)) return;
+                set({ seeded: [...seeded, id], racked: rackInsert(racked, id, racked.length) });
+            },
             rack: (id, index) => set({ racked: rackInsert(get().racked, id, index) }),
             unrack: (id) => set({ racked: rackRemove(get().racked, id) }),
             setSlot: (slot) => set({ slot }),
@@ -27,11 +40,11 @@ export const usePanelRackStore = create(
         {
             name: 'darwin_panel_rack',
             version: 1,
-            partialize: (s) => ({ racked: s.racked }),
+            partialize: (s) => ({ racked: s.racked, seeded: s.seeded }),
             merge: (persisted, current) => ({
                 ...current,
-                racked: Array.isArray(persisted?.racked)
-                    ? persisted.racked.filter(x => typeof x === 'string') : [],
+                racked: ids(persisted?.racked),
+                seeded: ids(persisted?.seeded),
             }),
         }
     )
