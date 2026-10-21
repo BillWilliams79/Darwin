@@ -40,25 +40,74 @@
 
 import { planDetailPath } from './pipelines/planEra';
 
+const toId = (v) => {
+    if (v == null || v === '') return null;
+    const n = Number(v);
+    return Number.isInteger(n) ? n : null;
+};
+
+const placement = (session, planId, index, requirementId) => {
+    if (!index) return { epicLabel: null, stepLabel: null };
+    const rid = toId(requirementId);
+    const seat = rid != null ? index.requirementSeat?.get(rid) : null;
+    const seatInPlan = seat && seat.pipelineId === planId ? seat : null;
+
+    const epicId = toId(session?.epic_fk) ?? seatInPlan?.epicId ?? null;
+    const epicLabel = epicId == null ? null
+        : (index.epicsById?.get(epicId)?.title || `Epic #${epicId}`);
+
+    // Same rule one level down: a requirement since moved to another epic of
+    // this plan sits on a step that is not under the epic shown, so no step.
+    const seatInEpic = seatInPlan && (seatInPlan.epicId == null || seatInPlan.epicId === epicId)
+        ? seatInPlan : null;
+    const stepId = seatInEpic?.stepId ?? null;
+    const stepLabel = stepId == null ? null
+        : (index.stepsById?.get(stepId)?.title || `Step #${stepId}`);
+
+    return { epicLabel, stepLabel };
+};
+
 /**
  * @param session   a swarm_sessions row (needs pipeline_fk)
  * @param pipelines the `pipelines` list — title resolution
- * @returns {state, planId, label, title, href} — href non-null only when
+ * @returns {state, planId, label, title, href, epicLabel, stepLabel} — href non-null only when
  *          navigable. `planId` is the SEATED plan, so a caller rendering the
  *          bare id shows the one that matches the link.
  *
  * The `era` field this used to return went with req #3356: there is one plan
  * surface, so every id it reports belongs to it and no consumer had to choose.
+ *
+ * req #3724 — `epicLabel` / `stepLabel` name WHERE in the plan the session sat,
+ * so the sessions table can show plan › epic › step in one pill. Both are
+ * optional extras: with no `options.index` (the detail page) they are null and
+ * the plan fields are exactly what they always were.
+ *
+ *   epic — `session.epic_fk` first: it is the stamped HISTORY (req #3350) and
+ *          is what the session detail page shows. Only when the session carries
+ *          no epic stamp does the requirement's current seat supply one, and
+ *          only when that seat is in the SAME plan the session names.
+ *   step — sessions carry no step column, so the step is the requirement's
+ *          current seat (`index.requirementSeat`), again only when it is in the
+ *          session's own plan. A seat in a different plan describes other work,
+ *          and naming it here would put a step of plan B under plan A's title;
+ *          likewise a seat under a different epic than the one shown.
+ *
+ * @param options.index          an OrchestrationIndex (`buildOrchestrationIndex`)
+ * @param options.requirementId  the session's requirement id
  */
-export const sessionPipelineLink = (session, pipelines) => {
+export const sessionPipelineLink = (session, pipelines, { index = null, requirementId = null } = {}) => {
     const seated = session?.pipeline_fk ?? null;
 
     if (seated == null) {
-        return { state: 'none', planId: null, label: null, title: null, href: null };
+        return { state: 'none', planId: null, label: null, title: null, href: null,
+                 epicLabel: null, stepLabel: null };
     }
 
     const title = (pipelines || []).find(p => p.id === seated)?.title ?? null;
     const label = title || `#${seated}`;
+    const { epicLabel, stepLabel } = placement(session, toId(seated), index, requirementId);
+    const where = [epicLabel && `Epic: ${epicLabel}`, stepLabel && `Step: ${stepLabel}`]
+        .filter(Boolean).join(' · ');
 
     const planId = seated;
     const href = planDetailPath(planId);
@@ -74,8 +123,11 @@ export const sessionPipelineLink = (session, pipelines) => {
             planId,
             label,
             title: `${label} — this session names plan ${JSON.stringify(planId)}, `
-                 + 'which is not a usable plan id. Nothing to open from here.',
+                 + 'which is not a usable plan id. Nothing to open from here.'
+                 + (where ? ` ${where}` : ''),
             href: null,
+            epicLabel,
+            stepLabel,
         };
     }
 
@@ -83,7 +135,9 @@ export const sessionPipelineLink = (session, pipelines) => {
         state: 'link',
         planId,
         label,
-        title: `Open plan ${label}`,
+        title: where ? `Open plan ${label} — ${where}` : `Open plan ${label}`,
         href,
+        epicLabel,
+        stepLabel,
     };
 };
