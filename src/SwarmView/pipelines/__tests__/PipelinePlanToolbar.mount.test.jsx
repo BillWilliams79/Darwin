@@ -110,4 +110,54 @@ describe('PipelinePlanToolbar (req #3648)', () => {
         expect(q('pipeline-viz-reset').getAttribute('aria-label')).toBe(RESET_LABEL);
         expect(RESET_LABEL.startsWith('Default')).toBe(true);
     });
+
+    // req #3708 — the machine filter: one chip per machine, pressed = shown.
+    it('draws one machine chip each, pressed unless deselected, and reports the machine id', () => {
+        const got = [];
+        const machines = [{ id: 2, title: 'Mac Mini' }, { id: 3, title: 'MCHP Windows' }];
+        act(() => root.render(
+            <PipelinePlanToolbar onStepsAcross={() => {}} stepWidthLevel={5}
+                                 onChangeStepWidthLevel={() => {}} colorKey="state"
+                                 onChangeColorKey={() => {}} planLevelPref="auto"
+                                 effectiveLevel="out" onChangeLevelPref={() => {}}
+                                 onResetView={() => {}} machines={machines}
+                                 hiddenMachines={new Set([3])}
+                                 onToggleMachine={(id) => got.push(id)} />));
+        const mac = q('pipeline-viz-machine-2');
+        const win = q('pipeline-viz-machine-3');
+        expect(mac.textContent).toBe('Mac Mini');
+        expect(win.textContent).toBe('MCHP Windows');
+        expect(mac.getAttribute('aria-pressed')).toBe('true');
+        expect(win.getAttribute('aria-pressed')).toBe('false');
+        act(() => win.click());
+        act(() => mac.click());
+        expect(got).toEqual([3, 2]);
+    });
+
+    // Follow-up: Any is a chip of its own, last, pressed unless 0 is deselected.
+    it('draws a trailing Any chip that toggles id 0', () => {
+        const got = [];
+        const render = (hidden) => act(() => root.render(
+            <PipelinePlanToolbar onStepsAcross={() => {}} stepWidthLevel={5}
+                                 onChangeStepWidthLevel={() => {}} colorKey="state"
+                                 onChangeColorKey={() => {}} planLevelPref="auto"
+                                 effectiveLevel="out" onChangeLevelPref={() => {}}
+                                 onResetView={() => {}}
+                                 machines={[{ id: 2, title: 'Mac Mini' }]}
+                                 hiddenMachines={hidden}
+                                 onToggleMachine={(id) => got.push(id)} />));
+        render(new Set());
+        const chips = [...q('pipeline-viz-machine-filter')
+            .querySelectorAll('[data-testid^="pipeline-viz-machine-"]')];
+        expect(chips.map((c) => c.textContent)).toEqual(['Mac Mini', 'Any']);
+        expect(q('pipeline-viz-machine-0').getAttribute('aria-pressed')).toBe('true');
+        act(() => q('pipeline-viz-machine-0').click());
+        expect(got).toEqual([0]);
+        render(new Set([0]));
+        expect(q('pipeline-viz-machine-0').getAttribute('aria-pressed')).toBe('false');
+    });
+
+    it('still draws the Any chip when there are no machines', () => {
+        expect(q('pipeline-viz-machine-0')).not.toBeNull();
+    });
 });

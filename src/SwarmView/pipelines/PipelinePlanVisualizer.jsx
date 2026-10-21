@@ -145,7 +145,7 @@ import {
     // border since they moved to HTML, req #3673).
     CARD_TITLE_BTN_STROKE,
     MIN_CARD_H, REQ_LINE_H, CHW_REQ, CARD_SEP_CHARS, REQ_SEP_PULL,
-    // req #3580 — the run pill's word and type.
+    // req #3580 — the run pill's letter and type.
     CARD_RUN_FONT, CARD_RUN_WORDS,
     // req #3650 — the collapse heads' type and the chip head's reserved width.
     CARD_COLLAPSE_FONT, CARD_COLLAPSE_W, CARD_COLLAPSE_GAP, EPIC_CHIP_COLLAPSE_HEAD_W,
@@ -183,11 +183,12 @@ import AuthContext from '../../Context/AuthContext';
 import { pipelineComposeKeys, requirementKeys } from '../../hooks/useQueryKeys';
 import {
     pipelineStepRequirementKeys, pipelineStepKeys, pipelineStepDepKeys, epicKeys,
+    useAllCategories,
 } from '../../hooks/useDataQueries';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
 import {
     moveStepRequirement, insertStepOnEdge, addDependentStep, precedeStepWith,
-    isRestNullLiteral, REST_NULL, updateStep,
+    isRestNullLiteral, REST_NULL, updateStep, createStep,
 } from '../../Steps/stepsApi';
 // req #3649 — the epic chip's lock control; req #3673 — the pictures on it and
 // on the step card's checkpoint and lock buttons.
@@ -198,6 +199,7 @@ import {
 // #3617 adds the one off a free left side, for a step this one depends on.
 import {
     insertMarkRadius, buildInsertMarks, insertMarkAt, insertRequest, NEW_STEP_TITLE,
+    NEW_EPIC_TITLE,
 } from './pipelineStepInsert';
 import {
     REQ_DRAG_SLOP, passedDragSlop, dropTargetAt, canDropOn, applyReqMoves,
@@ -207,6 +209,7 @@ import { viewportStorageKey } from '../../utils/viewportMemory';
 // req #3583 — the swarm-ready, not-orchestrated box and its drop-to-seat. The
 // contexts, snackbar, query keys and `moveStepRequirement` are req #3581's,
 // imported above.
+import { hideMachineReqs, isMachineHidden } from './planMachineFilter';
 import UnorchestratedReqBox, { UNSEATED_FLOAT_Z } from './UnorchestratedReqBox';
 import { useUnorchestratedRequirements } from './useUnorchestratedRequirements';
 import {
@@ -218,13 +221,15 @@ import '../../CalendarFC/swarmVisualizer.css';
 // req #3580 — in-place edit. The SAME mutation helpers the Epics and Steps
 // editors use (one gateway path per table); contexts, snackbar and query keys
 // are the ones req #3581 already imports above.
-import { updateEpic } from '../../Epics/epicsApi';
+import { updateEpic, createEpic } from '../../Epics/epicsApi';
 import PlanInPlaceInput, { titleProblem } from './PlanInPlaceInput';
 import { createPressTracker, LONG_PRESS_MS } from './planPressGesture';
 // req #3661 — a requirement's title, edited in place on its own row.
 import PlanInPlaceTitleArea from './PlanInPlaceTitleArea';
 import { reqTitleEditorBox, updateRequirementTitle } from './planReqTitleEdit';
 
+// Stable default for the machine filter prop (req #3708).
+const NO_HIDDEN_MACHINES = new Set();
 const MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
 
 // req #3587 — the requirement row's Terminal and Dev Server pills.
@@ -522,10 +527,17 @@ export default function PipelinePlanVisualizer({
     // req #3686 — draw only the OPEN requirements under each step (the closed
     // group and its dashed line are dropped from the layout's input).
     hideClosed = false,
+    // req #3708 — machine ids deselected in the toolbar's machine filter: the
+    // requirements pinned to them are drawn nowhere (step cards, Orchestrables).
+    hiddenMachines = NO_HIDDEN_MACHINES,
     // req #3587 — requirement id -> {terminal, devServer} (`planReqPills.js`),
     // built by the page from reads it owns. Drawn as pills between a row's id
     // and its title; null draws every row exactly as before.
     reqPills = null,
+    // req #3702 — requirement id -> latest session status (the page's own
+    // `buildSessionStatusIndex`), so the Orchestrables box can paint its rows by
+    // the Session colour key too. Its rows sit on no step, so `model` has none.
+    sessionStatus = null,
     // req #3658 — the page is maximized (PipelineDetail owns the state, because
     // what it hides — the header row and the navbar — is the page's), and the
     // switch's click. No `onToggleMaximized`, no switch.
@@ -685,6 +697,88 @@ export default function PipelinePlanVisualizer({
         }
     }, [insertReq, inserting, insertTitle, insertEpic, darwinUri, idToken,
         pipeline?.id, profile?.userName, queryClient, showError]);
+
+    // ── Add an epic from the canvas (req #3719) ─────────────────────────────
+    // The "+" under the last epic band. An epic's band is drawn from its STEPS,
+    // so an epic with none would be created and not appear anywhere on this
+    // canvas; the dialog therefore creates the epic AND its first step (the
+    // same placeholder title the add-step dialog starts from), and the band
+    // shows up as soon as the plan re-reads. `epicAddOpen` is the dialog.
+    const [epicAddOpen, setEpicAddOpen] = useState(false);
+    const [epicAddTitle, setEpicAddTitle] = useState(NEW_EPIC_TITLE);
+    const [epicAddCategory, setEpicAddCategory] = useState('');
+    const [epicAdding, setEpicAdding] = useState(false);
+    const epicAddOpenedAtRef = useRef(0);
+    const openEpicAddRef = useRef(null);
+    const { data: categories = [] } = useAllCategories(
+        profile?.userName, { fields: 'id,category_name,sort_order,closed' });
+    const epicAddCategories = useMemo(() => categories
+        .filter((c) => !c.closed)
+        .sort((a, b) => (a.sort_order ?? Infinity) - (b.sort_order ?? Infinity)
+            || String(a.category_name).localeCompare(String(b.category_name))),
+    [categories]);
+    const openEpicAdd = useCallback((afterEpicId) => {
+        // Default to the category of the epic this "+" sits under.
+        const last = (model?.epics || []).find((e) => e.id === afterEpicId) || null;
+        const open = epicAddCategories.some((c) => c.id === last?.category_fk);
+        setEpicAddTitle(NEW_EPIC_TITLE);
+        setEpicAddCategory(open ? last.category_fk : (epicAddCategories[0]?.id ?? ''));
+        epicAddOpenedAtRef.current = Date.now();
+        setEpicAddOpen(true);
+    }, [model, epicAddCategories]);
+    openEpicAddRef.current = openEpicAdd;
+    const closeEpicAdd = useCallback((event, reason) => {
+        if (reason === 'backdropClick' && Date.now() - epicAddOpenedAtRef.current < 600) return;
+        if (!epicAdding) setEpicAddOpen(false);
+    }, [epicAdding]);
+    const commitEpicAdd = useCallback(async () => {
+        if (epicAdding) return;
+        const title = epicAddTitle.trim();
+        if (!title) { showError('Title is required'); return; }
+        if (isRestNullLiteral(title)) {
+            showError(`"${REST_NULL}" is the API's clear-this-column sentinel and cannot `
+                + 'be a title. Try "Null" or another wording.');
+            return;
+        }
+        if (epicAddCategory === '' || epicAddCategory == null) {
+            showError('Category is required');
+            return;
+        }
+        setEpicAdding(true);
+        let epic = null;
+        try {
+            epic = await createEpic(darwinUri, idToken, {
+                pipeline_fk: pipeline.id, title, category_fk: epicAddCategory,
+            });
+            const epicId = Array.isArray(epic) ? epic[0]?.id : epic?.id;
+            setEpicAddOpen(false);
+            if (epicId == null) {
+                // The row was written but not read back (stepsApi documents a
+                // 201 with no body): retrying here would make a second epic.
+                showError('The epic may have been created without a first step — '
+                    + 'check the Epics page before adding it again');
+                return;
+            }
+            try {
+                await createStep(darwinUri, idToken, { epic_fk: epicId, title: NEW_STEP_TITLE });
+            } catch (error) {
+                showError(error, 'Epic created, but its first step could not be added');
+            }
+        } catch (error) {
+            showError(error, 'Could not create the epic');
+        } finally {
+            setEpicAdding(false);
+            if (pipeline?.id != null) {
+                queryClient.invalidateQueries({ queryKey: pipelineComposeKeys.byId(pipeline.id) });
+            }
+            if (profile?.userName) {
+                queryClient.invalidateQueries({ queryKey: epicKeys.all(profile.userName) });
+            }
+            queryClient.invalidateQueries({ queryKey: pipelineStepKeys.all(profile?.userName) });
+            queryClient.invalidateQueries({ queryKey: ['orchestration_index'] });
+        }
+    }, [epicAdding, epicAddTitle, epicAddCategory, darwinUri, idToken, pipeline?.id,
+        profile?.userName, queryClient, showError]);
     const eligibleStepIds = plan.eligibleStepIds || new Set();
     // The requirement TITLE lookup, when that mark is showing (req #3168). Built
     // from `reqInfo`, which the hover card already needed — so the option costs
@@ -748,8 +842,12 @@ export default function PipelinePlanVisualizer({
     // req #3686 — `orderStepReqs` puts the closed requirements last, from
     // `reqDoneFrom` on; hiding them is slicing there. Only the LAYOUT's input is
     // trimmed: `rows` (drag, seating, counts) keeps every requirement.
-    const layoutRows = useMemo(
-        () => (hideClosed ? hideClosedReqs(rows) : rows), [rows, hideClosed]);
+    // req #3708 — and the requirements pinned to a deselected machine, in the
+    // same layout-only pass; `reqInfo` already carries each one's `machineFk`.
+    const layoutRows = useMemo(() => {
+        const open = hideClosed ? hideClosedReqs(rows) : rows;
+        return hideMachineReqs(open, hiddenMachines, (id) => reqInfo.get(id)?.machineFk);
+    }, [rows, hideClosed, hiddenMachines, reqInfo]);
     const layoutOpts = useMemo(
         () => ({
             stepLabel, reqLabel, reqTitles: layoutTitles, reqPills,
@@ -944,10 +1042,27 @@ export default function PipelinePlanVisualizer({
     const [pendingSeats, setPendingSeats] = useState(() => new Set());
     const [boxCarrying, setBoxCarrying] = useState(false);
     const unseatedItems = useMemo(
-        () => (pendingSeats.size
-            ? unseated.items.filter((r) => !pendingSeats.has(Number(r.id)))
-            : unseated.items),
-        [unseated.items, pendingSeats]);
+        () => unseated.items.filter((r) => !pendingSeats.has(Number(r.id))
+            && !isMachineHidden(r.machine_fk, hiddenMachines)),
+        [unseated.items, pendingSeats, hiddenMachines]);
+    // req #3702 — the Orchestrables rows follow the reader's colour preference.
+    // The SAME registry, theme and resolver as the canvas ids, built over the
+    // box's own rows (they sit on no step, so `model.requirements` lacks them).
+    // `session_status` is attached exactly as `buildPlanModel` does; with no
+    // index yet the Session scale paints unknown rather than "no session".
+    const unseatedColorViews = useMemo(() => buildReqColorViews({
+        requirements: unseated.items.map((r) => ({
+            ...r, id: Number(r.id),
+            ...(sessionStatus && {
+                session_status: sessionStatus.get(Number(r.id)) ?? 'no_session',
+            }),
+        })),
+        machines: model?.machines,
+        palette: activePalette,
+    }), [unseated.items, sessionStatus, model?.machines, activePalette]);
+    const unseatedIdStyleOf = useCallback((reqId) => reqIdStyle({
+        colorKey: activeColorKey, views: unseatedColorViews, reqId: Number(reqId),
+    }), [activeColorKey, unseatedColorViews]);
     // req #3608 — the whole box dropped on a step: the open confirm dialog's
     // request (`bulkSeatRequest`), null when closed, and whether its writes are
     // in flight.
@@ -1578,12 +1693,15 @@ export default function PipelinePlanVisualizer({
     // left — handed back while the camera is still there, so hide → expand
     // holds the SAME card both ways and returns exactly.
     const shownLayoutRef = useRef(null);
-    const shownHideClosedRef = useRef(hideClosed);
+    // req #3708 — a machine-filter toggle re-lays the plan out exactly as Hide
+    // closed does, so it rides the same anchor under one combined key.
+    const layoutFilterKey = `${hideClosed ? 1 : 0}|${[...hiddenMachines].sort().join(',')}`;
+    const shownHideClosedRef = useRef(layoutFilterKey);
     const anchorFromRef = useRef(null);
     const lastAnchorRef = useRef(null);
     useEffect(() => {
-        if (shownHideClosedRef.current !== hideClosed) {
-            shownHideClosedRef.current = hideClosed;
+        if (shownHideClosedRef.current !== layoutFilterKey) {
+            shownHideClosedRef.current = layoutFilterKey;
             if (anchorFromRef.current == null) {
                 anchorFromRef.current = { layout: shownLayoutRef.current,
                     t: liveTransformRef.current };
@@ -1721,7 +1839,7 @@ export default function PipelinePlanVisualizer({
         const c = clampPlanTransform(live, size, layout, kZoomFloor, kMax);
         if (c.k !== live.k || c.x !== live.x || c.y !== live.y) apply(live);
     }, [resetView, containerEl, size, layout, kZoomFloor, kDefault, sizeSettled,
-        landKey, viewportKey, viewport, hideClosed]);
+        landKey, viewportKey, viewport, layoutFilterKey]);
 
     // Reset targets the same view the plan lands on (req #3312), so all this
     // adds over `resetView` is the INTENT: an explicit, in-the-moment
@@ -1890,7 +2008,8 @@ export default function PipelinePlanVisualizer({
             // stage: the marks are drawn as one non-listening shape.
             const mark = insertHitRef.current?.(e);
             if (mark) {
-                openInsertRef.current?.(mark.kind, { fromId: mark.fromId, toId: mark.toId });
+                if (mark.kind === 'epic') openEpicAddRef.current?.(mark.afterEpicId);
+                else openInsertRef.current?.(mark.kind, { fromId: mark.fromId, toId: mark.toId });
                 return;
             }
             const stage = stageRef.current;
@@ -2467,8 +2586,9 @@ export default function PipelinePlanVisualizer({
     // SETTLED layout, so mid-fold they would float where the cards are going
     // rather than where they are. They return the frame the fold lands.
     const insertGeom = useMemo(
-        () => (insertDrawn && !folding ? buildInsertMarks(layout, rows) : null),
-        [insertDrawn, folding, layout, rows]);
+        () => (insertDrawn && !folding
+            ? buildInsertMarks(layout, rows, undefined, { epicAdd: !plan.locked }) : null),
+        [insertDrawn, folding, layout, rows, plan.locked]);
     insertGeomRef.current = insertGeom;
     openInsertRef.current = openInsert;
     insertHitRef.current = (e) => {
@@ -4699,6 +4819,15 @@ export default function PipelinePlanVisualizer({
             <Shape key="insert-marks" sceneFunc={insertSceneFunc} geom={insertGeom}
                    drawR={insertR}
                    listening={false} perfectDrawEnabled={false} />);
+        // req #3719 — the add-epic "+" is the one mark that is not on a card, so
+        // it is the one that says what it adds.
+        const epicMark = insertGeom.marks.find((m) => m.kind === 'epic');
+        if (epicMark) {
+            worldNodes.push(
+                <Text key="insert-epic-label" x={epicMark.x + insertR + 6}
+                      y={epicMark.y - 6} text="Add epic" fontSize={12}
+                      fontFamily={MONO} fill={P.arc} listening={false} />);
+        }
     }
 
     return (
@@ -4782,6 +4911,7 @@ export default function PipelinePlanVisualizer({
                  data-insert-edges={insertGeom ? insertGeom.edgeCount : 0}
                  data-insert-dependents={insertGeom ? insertGeom.dependentCount : 0}
                  data-insert-precedes={insertGeom ? insertGeom.precedeCount : 0}
+                 data-insert-epics={insertGeom ? insertGeom.epicCount : 0}
                  // Full-page canvas (req #3119), the KonvaSwarmCanvas figure
                  // verbatim. The height is MEASURED (`availH` above) rather than
                  // subtracted from a list of known chrome, which is what lets the
@@ -5453,6 +5583,7 @@ export default function PipelinePlanVisualizer({
                                  data-testid={`pipeline-viz-run-${r.stepId}`}
                                  data-run={r.run}
                                  aria-label={`Step ${r.stepId} runs ${r.run} — switch to ${next}`}
+                                 title={`Runs ${r.run} — click to switch to ${next}`}
                                  aria-busy={r.pending || undefined}
                                  onClick={(ev) => {
                                      ev.stopPropagation();
@@ -5640,6 +5771,7 @@ export default function PipelinePlanVisualizer({
                     widthPx={unseatedBoxWidthPx(layout.cardFrameW,
                         unseatedBoxZoom(t.k, size.w, layout.colPitch))}
                     statusColor={planPalette(activePalette).status?.swarm_ready || P.req}
+                    idStyleOf={unseatedIdStyleOf}
                     draggingId={unseatDragId}
                     onDragStartItem={setUnseatDragId}
                     onDragEndItem={() => { setUnseatDragId(null); setSeatTarget(null); }}
@@ -6061,6 +6193,40 @@ export default function PipelinePlanVisualizer({
                             disabled={inserting || !insertTitle.trim()}
                             data-testid="pipeline-viz-insert-create">
                         {inserting ? 'Creating…' : 'Create'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* req #3719 — the add-epic dialog (the "+" under the last epic). */}
+            <Dialog open={epicAddOpen} onClose={closeEpicAdd} fullWidth maxWidth="xs"
+                    data-testid="pipeline-viz-epic-add-dialog">
+                <DialogTitle>Add an epic</DialogTitle>
+                <DialogContent>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                        Added at the end of this plan, with a first step so it shows on the canvas.
+                    </Typography>
+                    <TextField autoFocus fullWidth size="small" label="Title"
+                               value={epicAddTitle}
+                               onFocus={(e) => e.target.select()}
+                               onChange={(e) => setEpicAddTitle(e.target.value)}
+                               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commitEpicAdd(); } }}
+                               inputProps={{ 'data-testid': 'pipeline-viz-epic-add-title' }}
+                               sx={{ mb: 2 }} />
+                    <TextField select fullWidth size="small" label="Category"
+                               value={epicAddCategory}
+                               onChange={(e) => setEpicAddCategory(e.target.value)}
+                               inputProps={{ 'data-testid': 'pipeline-viz-epic-add-category' }}>
+                        {epicAddCategories.map((c) => (
+                            <MenuItem key={c.id} value={c.id}>{c.category_name}</MenuItem>
+                        ))}
+                    </TextField>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => closeEpicAdd()} disabled={epicAdding}>Cancel</Button>
+                    <Button variant="contained" onClick={commitEpicAdd}
+                            disabled={epicAdding || !epicAddTitle.trim() || epicAddCategory === ''}
+                            data-testid="pipeline-viz-epic-add-create">
+                        {epicAdding ? 'Creating…' : 'Create'}
                     </Button>
                 </DialogActions>
             </Dialog>

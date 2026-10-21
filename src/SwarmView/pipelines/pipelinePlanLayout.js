@@ -1568,6 +1568,10 @@ const BAND_HEADER = 108;
 // that wants the height a lane is CONNECTED at reads `band.laneCardH` and takes
 // half of it: that is the midpoint the arcs anchor on.
 const BAND_GAP = 8;
+// req #3719 — the strip under the last epic band that carries the add-epic "+"
+// (`buildInsertMarks` centres the mark in it), so the mark is inside the world
+// rather than clipped by it. Charged only when the plan has a band.
+export const EPIC_ADD_RESERVE = 24;
 // ── THE COLUMN FLOORS AND THE TITLE SLOT ARE GONE (req #3498) ───────────────
 // `COL_MIN_W_HORIZONTAL` / `COL_MIN_W_VERTICAL` were the floor a CONTENT-SIZED
 // column could not shrink below. Columns are no longer content-sized — every
@@ -2123,25 +2127,33 @@ export const CARD_BADGE_TOP = 1;
 // "make it say auto or manual and be green auto and blue manual") ──────────
 // Left of the "+", reserved out of the step name's budget exactly the way the ✓
 // and the "+" are, so a long title never draws under it. It carries the
-// WORD, so it is sized for the longer of the two — one fixed width, so the pill
-// does not change size (and the title's room does not move) when it is toggled.
+// LETTER (A / M since req #3709), so it is sized for the longer of the two — one
+// fixed width, so the pill does not change size (and the title's room does not
+// move) when it is toggled.
 // The same height as the count badge beside it in the cluster's top row, so
 // the two pills read as one row.
 //
-// THE COST, stated: the word takes about three more characters of each title
-// line than the bare A/M circle it replaced.
-// The word is set at 80% of the requirement-row type (`CARD_RUN_FONT`, below
+// HISTORY: while it carried the full word ("Auto"/"Manual") it took about three
+// more characters of each title line than the bare A/M circle; req #3709 went
+// back to the single letter, so that cost is gone.
+// The letter is set at 80% of the requirement-row type (`CARD_RUN_FONT`, below
 // `CARD_FONT`), so its glyph width is that same fraction of the row's.
 // Measured against the CARD's glyph (`CHW_CARD`), not the requirement row's, so
 // req #3693's narrower requirement type leaves the pill exactly as it was.
 const CARD_RUN_TYPE_RATIO = 0.8;
-export const CARD_RUN_WORDS = { auto: 'Auto', manual: 'Manual' };
+// req #3709 (user directive: "shrink the auto vs manual button down to a
+// single character … make sure the 2x2 button grid is therefore horizontally
+// narrower making space for more step title"): one letter, A / M. The full
+// word stays on the button's aria-label and hover title. One character fits
+// inside the circle `CARD_BADGE_H` already makes, so the pill is that circle
+// and column 1 of the cluster falls to the square buttons' width.
+export const CARD_RUN_WORDS = { auto: 'A', manual: 'M' };
 const CHW_RUN = CHW_CARD * CARD_RUN_TYPE_RATIO;
 const CARD_RUN_PAD_X = 5 * CARD_TYPE_SCALE;
-export const CARD_RUN_W = Math.ceil(
-    Math.max(...Object.values(CARD_RUN_WORDS).map((w) => w.length)) * CHW_RUN
-    + 2 * CARD_RUN_PAD_X);
 export const CARD_RUN_H = CARD_BADGE_H;
+export const CARD_RUN_W = Math.max(CARD_RUN_H, Math.ceil(
+    Math.max(...Object.values(CARD_RUN_WORDS).map((w) => w.length)) * CHW_RUN
+    + 2 * CARD_RUN_PAD_X));
 // The digit's own font size — the TITLE's size, not the row glyph's (round
 // 1's choice, and part of why round 2 was needed): the badge sits beside
 // the title on its own line, not among the requirement rows below, and
@@ -2204,7 +2216,7 @@ export const CARD_BADGE_W = badgeWidthFor(2);
 // two thirds of the line (221 of 338 world px at the base card: an EIGHT
 // character name budget). Stacked two by two at the right they take a third:
 //
-//     [ Auto ][ 3 ]      row 1 — the run pill, the count badge
+//     [ A ][ 3 ]         row 1 — the run pill, the count badge
 //       [🔒] [⛩]        row 2 — the padlock, the checkpoint
 //
 // A GRID, so cards in a column line up: column 1 holds the run pill over the
@@ -2368,7 +2380,7 @@ export const CARD_FONT = {
     req: PLAN_VIZ_FONT.req * CARD_TYPE_SCALE / REQ_TITLE_WIDEN,
     title: PLAN_VIZ_FONT.title * CARD_TYPE_SCALE,
 };
-// req #3580 — the run pill's word; see `CARD_RUN_W`. The card's own requirement
+// req #3580 — the run pill's letter; see `CARD_RUN_W`. The card's own requirement
 // size before req #3693, so the pill is unchanged.
 export const CARD_RUN_FONT = PLAN_VIZ_FONT.req * CARD_TYPE_SCALE * CARD_RUN_TYPE_RATIO;
 
@@ -4419,7 +4431,7 @@ export function computePlanLayout(rows, opts = {}) {
         band.height = band.headerH + band.laneY[band.sub];
         y += band.height + BAND_GAP;
     }
-    const totalH = y + 8;
+    const totalH = y + 8 + (bands.length ? EPIC_ADD_RESERVE : 0);
 
     // ── Node positions: A NODE IS A BOX (req #3498) ─────────────────────────
     // `x`/`y` remain the node's CENTRE, and that is deliberate rather than

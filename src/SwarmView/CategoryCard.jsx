@@ -8,7 +8,7 @@ import call_rest_api from '../RestApi/RestApi';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { useRequirements, useSessions } from '../hooks/useDataQueries';
 import { useRequirementVisibility } from '../hooks/useRequirementVisibility';
-import { requirementKeys, categoryKeys } from '../hooks/useQueryKeys';
+import { requirementKeys, categoryKeys, pipelineStepRequirementKeys } from '../hooks/useQueryKeys';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { useShowClosedStore } from '../stores/useShowClosedStore';
@@ -85,11 +85,17 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                         newRequirementsArray = newRequirementsArray.filter(p => p.id !== requirementId );
                         setRequirementsArray(newRequirementsArray);
                         queryClient.invalidateQueries({ queryKey: requirementKeys.all(profile.userName) });
+                        // req #3706 — the delete CASCADEs the requirement's step seat, so every
+                        // plan read that may show it re-reads (the plan it sat in is unknown here).
+                        queryClient.invalidateQueries({ queryKey: pipelineStepRequirementKeys.all(profile.userName) });
+                        queryClient.invalidateQueries({ queryKey: ['pipeline_compose'] });
                     } else {
                         showError(result, 'Unable to delete requirement')
                     }
                 }).catch(error => {
-                    showError(error, 'Unable to delete requirement')
+                    // req #3706 — a 423 names the locked step/epic/plan holding the seat.
+                    if (error?.httpStatus?.httpStatus === 423) showError(error.httpStatus.httpMessage);
+                    else showError(error, 'Unable to delete requirement');
                 });
         }
     });
