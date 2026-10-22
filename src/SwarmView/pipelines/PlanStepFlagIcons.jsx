@@ -1,15 +1,15 @@
-// Req #3673 — the picture on the step card's checkpoint button, and on the
+// Req #3673 — the picture on the step card's barrier button, and on the
 // epic chip's padlock. (The step card's own padlock button went in req #3742;
 // a locked step's card has a red perimeter instead.)
 //
 // User directive: "lock and unlock should show an icon with a locked lock for
 // locked state and unlocked icon for unlocked state. the pics should be
 // clear" — and the ⚑ was "unclear … either all white or [with] a dark
-// center", so the checkpoint gets a different picture altogether.
+// center", so the barrier gets a different picture altogether.
 //
-// THE CHECKPOINT IS A BOOM BARRIER — the striped arm at a road checkpoint.
+// THE BARRIER IS DRAWN AS A BOOM BARRIER — the striped arm across a road.
 // The metaphor is the flag's own meaning: arm DOWN, orange-and-white, is a
-// checkpoint (the steps after this one are held until it is done); arm RAISED
+// barrier (the steps after this one are held until it is done); arm RAISED
 // and grey is not (they may start before it). The two states differ in SHAPE
 // and COLOUR, never only in fill, which is what made the flag unreadable.
 //
@@ -35,14 +35,14 @@ const STRIPE = ARM_LEN / 4;
 const RAISED_DEG = -40;
 
 /**
- * A boom barrier: `closed` draws the arm across (a checkpoint), otherwise
+ * A boom barrier: `closed` draws the arm across (a barrier), otherwise
  * raised. `stripe`/`light` colour a closed arm; an open one is drawn in
  * `currentColor` with alternating strengths so it still reads as a barrier.
  *
  * Memoised: every card's button re-renders on every pan/zoom frame, and every
  * prop here is a primitive (MUI's own `Lock`/`LockOpen` are memoised likewise).
  */
-export const CheckpointGateIcon = memo(function CheckpointGateIcon({
+export const BarrierGateIcon = memo(function BarrierGateIcon({
     closed, stripe, light, ...props
 }) {
     const y0 = PIVOT_Y - ARM_T / 2;
@@ -72,17 +72,17 @@ export function PlanLockIcon({ locked, ...props }) {
         : <LockOpenIcon data-lock="open" {...props} />;
 }
 
-// What the checkpoint button says on hover and to assistive tech: the state,
+// What the barrier button says on hover and to assistive tech: the state,
 // what it means, and what a click will do.
-// A locked step refuses the checkpoint click, so its title says that instead of
+// A locked step refuses the barrier click, so its title says that instead of
 // promising a change.
-export function checkpointTitle(on, lockedBy) {
+export function barrierTitle(on, lockedBy) {
     const state = on
-        ? 'Checkpoint ON — the steps after this one wait until it is done.'
-        : 'Checkpoint OFF — the steps after this one may start before it is done.';
+        ? 'Barrier ON — Dependent steps may start requirements only when all requirements in this step are met, wontfix, deferred, or paused.'
+        : 'Barrier OFF — Dependent steps may start requirements only when all requirements in this step have been started or are met, wontfix, deferred or paused.';
     if (lockedBy) {
         return `${state} ${lockedBy === 'step' ? 'This step is locked'
             : `Locked by its ${lockedBy}`} — unlock it to change this.`;
     }
-    return `${state} ${on ? 'Click to turn it off.' : 'Click to make it a checkpoint.'}`;
+    return `${state} ${on ? 'Click to turn it off.' : 'Click to make it a barrier.'}`;
 }

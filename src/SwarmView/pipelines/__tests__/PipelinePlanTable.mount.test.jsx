@@ -138,19 +138,19 @@ describe('PipelinePlanTable mounts (req #3324)', () => {
             .toBeNull();
     });
 
-    // req #3649 — the checkpoint chip on every row (absent = the column
-    // default, a checkpoint) and the lock chip only on an effectively-locked row.
+    // req #3649 — the barrier chip on every row (absent = the column
+    // default, a barrier) and the lock chip only on an effectively-locked row.
     // Row 48 becomes a PRIORITY step frozen by its epic's lock; row 47 carries
     // none of the flags, which is the adapter's absent default. A per-test plan,
     // because a locked row also withholds the "+" the tests below rely on.
-    it('renders the checkpoint/priority chip and the inherited lock chip', () => {
+    it('renders the barrier/priority chip and the inherited lock chip', () => {
         const locked = { ...PLAN, rows: PLAN.rows.map((r) => (r.id === 48
             ? { ...r, checkpoint: false, locked: false, effectiveLocked: true, lockedBy: 'epic' }
             : r)) };
         render({ plan: locked });
         const q = (id) => document.querySelector(`[data-testid="${id}"]`);
-        expect(q('pipeline-checkpoint-chip-47').textContent).toBe('Checkpoint');
-        expect(q('pipeline-checkpoint-chip-48').textContent).toBe('Priority');
+        expect(q('pipeline-barrier-chip-47').textContent).toBe('Barrier');
+        expect(q('pipeline-barrier-chip-48').textContent).toBe('Priority');
         expect(q('pipeline-lock-chip-48').textContent).toBe('Locked');
         expect(q('pipeline-lock-chip-47')).toBeNull();
     });
