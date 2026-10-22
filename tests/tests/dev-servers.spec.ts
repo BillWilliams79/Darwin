@@ -391,4 +391,50 @@ test.describe('Dev Servers View', () => {
     expect(many.rack).toBeGreaterThan(nav.y + nav.height - 20);
     expect(many.last).toBeLessThanOrEqual(nav.y + nav.height + 1);
   });
+
+  // Req #3748 — each row's terminal and port are ONE two-sided pill, and the
+  // dashboard must show both halves in full at every width it can be shaped
+  // to: "Term N" content-sized or from 210px, "TN" narrower, stacked below
+  // 144px. jsdom has no layout, so the fit is checked here: no row overflows
+  // the body, and the port halves line up row to row.
+  test('DEV-07: Dev Servers dashboard terminal|port pill fits at every width (req #3748)', async ({ page }) => {
+    const rows = [[3001, 10], [3002, 3], [3003, null]].map(([port, terminal], i) => ({
+      id: 970 + i, port, pid: 1, machine_fk: null, session_fk: null, terminal_number: terminal,
+      workspace_path: `/x/sessions/37${48 + i}-trial-t2-3000-combo-button-${i}`,
+      started_at: '2026-10-21T00:00:00', create_ts: '2026-10-21T00:00:00',
+    }));
+    await page.route(/\/dev_servers(\?|$)/, r => r.request().method() === 'GET'
+      ? r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(rows) })
+      : r.continue());
+    const cases: Array<[number | null, string]> = [
+      [null, 'wide'], [420, 'wide'], [210, 'wide'], [209, 'short'], [152, 'short'],
+      [144, 'short'], [143, 'stacked'], [120, 'stacked'],
+    ];
+    await page.goto('/devservers');
+    for (const [w, size] of cases) {
+      await page.evaluate((width) => {
+        localStorage.setItem('darwin_devserver_dashboard', JSON.stringify({
+          state: { show: true, open: true,
+                   dock: width == null ? null : { h: 'r', x: 16, v: 'b', y: 16, w: width, ht: null } },
+          version: 2 }));
+        localStorage.setItem('darwin_panel_rack',
+          JSON.stringify({ state: { racked: [], seeded: [] }, version: 1 }));
+      }, w);
+      await page.reload();
+      const pills = page.locator('[data-testid^="devserver-dashboard-pill-"]');
+      await expect(pills).toHaveCount(3, { timeout: 10000 });
+      for (const pill of await pills.all()) await expect(pill).toHaveAttribute('data-size', size);
+      const fit = await page.getByTestId('devserver-dashboard-body').evaluate((body) => {
+        const right = body.getBoundingClientRect().left + body.clientWidth;
+        const halves = [...body.querySelectorAll('[data-testid^="devserver-dashboard-port-"]')]
+          .map(el => el.getBoundingClientRect());
+        return { overflow: body.scrollWidth - body.clientWidth,
+                 portRight: Math.max(...halves.map(r => r.right)) - right,
+                 portLeft: halves.map(r => Math.round(r.left * 10) / 10) };
+      });
+      expect(fit.overflow, `width ${w}`).toBeLessThanOrEqual(0);
+      expect(fit.portRight, `width ${w}`).toBeLessThanOrEqual(0.5);
+      expect(new Set(fit.portLeft).size, `width ${w}: ports line up`).toBe(1);
+    }
+  });
 });

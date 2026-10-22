@@ -83,34 +83,59 @@ describe('DevServerDashboard (req #3643)', () => {
         expect(screen.getByTestId('devserver-dashboard-count').textContent).toBe('2');
     });
 
-    it('rows in port order: bar · port (the link) · terminal · requirement title, in columns — no bug # (req #3689)', () => {
+    it('rows in port order: terminal|port pill (the row is the port link) · requirement title — no colour bar, no bug # (req #3689, #3748)', () => {
         renderDash();
         const items = screen.getAllByTestId(/^devserver-dashboard-item-/);
         expect(items.map(i => i.getAttribute('data-testid')))
             .toEqual(['devserver-dashboard-item-5', 'devserver-dashboard-item-7']);
         expect(items[1].getAttribute('href')).toBe('https://localhost:3002');
-        expect(cells(7)).toEqual(['', '3002', 'T3', 'dev servers as dashboard']);
+        // Content-sized, the pill spells the terminal out: the panel is
+        // always big enough to show both halves in full (req #3748).
+        expect(cells(7)).toEqual(['Term 33002', 'dev servers as dashboard']);
+        expect(screen.getByTestId('devserver-dashboard-term-7').textContent).toBe('Term 3');
+        expect(screen.getByTestId('devserver-dashboard-port-7').textContent).toBe('3002');
+        expect(items[1].contains(screen.getByTestId('devserver-dashboard-pill-7'))).toBe(true);
         expect(titleReads.at(-1)).toEqual([3643]);
-        // An absent terminal keeps its slot, so the columns hold.
-        expect(cells(5)).toEqual(['', '3000', '', 'primary']);
+        // An absent terminal is a dim dash, so the pills hold their columns.
+        expect(cells(5)).toEqual(['—3000', 'primary']);
         expect(screen.queryByTestId(/^devserver-dashboard-req-/)).toBeNull();
+        expect(screen.queryByTestId(/^devserver-dashboard-bar-/)).toBeNull();
     });
 
-    it('at its smallest, a row is just bar, port and terminal', () => {
-        useDevServerDashboardStore.setState({ dock: { h: 'r', x: 16, v: 'b', y: 16, w: 140, ht: null } });
+    it('at its smallest, a row is just the pill, short-labelled', () => {
+        useDevServerDashboardStore.setState({ dock: { h: 'r', x: 16, v: 'b', y: 16, w: 150, ht: null } });
         renderDash();
-        expect(cells(7)).toEqual(['', '3002', 'T3']);
-        expect(cells(5)).toEqual(['', '3000', '']);
+        expect(cells(7)).toEqual(['T33002']);
+        expect(cells(5)).toEqual(['—3000']);
+        expect(screen.getByTestId('devserver-dashboard-pill-7').getAttribute('data-size')).toBe('short');
     });
 
-    it('shaped wide, T3 spells out as Term 3; shaped narrower keeps T3 (req #3668)', () => {
-        useDevServerDashboardStore.setState({ dock: { h: 'r', x: 16, v: 'b', y: 16, w: 400, ht: null } });
+    it('the pill reads Term 3 content-sized or shaped from 210 px, T3 narrower, stacked below 144 (req #3748)', () => {
+        const at = (w) => {
+            cleanup();
+            useDevServerDashboardStore.setState({ dock: w == null ? null
+                : { h: 'r', x: 16, v: 'b', y: 16, w, ht: null } });
+            renderDash();
+            return [screen.getByTestId('devserver-dashboard-pill-7').getAttribute('data-size'),
+                    screen.getByTestId('devserver-dashboard-term-7').textContent];
+        };
+        expect(at(null)).toEqual(['wide', 'Term 3']);
+        expect(at(210)).toEqual(['wide', 'Term 3']);
+        expect(at(209)).toEqual(['short', 'T3']);
+        expect(at(144)).toEqual(['short', 'T3']);
+        expect(at(143)).toEqual(['stacked', 'T3']);
+        expect(at(120)).toEqual(['stacked', 'T3']);
+    });
+
+    it('racked in the icon-only navbar, the pill stacks so both halves fit (req #3748)', () => {
+        const slotNode = document.createElement('div');
+        document.body.appendChild(slotNode);
+        usePanelRackStore.setState({ racked: ['devservers'], slot: { node: slotNode, width: 64 }, drag: null });
         renderDash();
-        expect(cells(7)[2]).toBe('Term 3');
-        cleanup();
-        useDevServerDashboardStore.setState({ dock: { h: 'r', x: 16, v: 'b', y: 16, w: 300, ht: null } });
-        renderDash();
-        expect(cells(7)[2]).toBe('T3');
+        expect(screen.getByTestId('devserver-dashboard-pill-7').getAttribute('data-size')).toBe('stacked');
+        expect(cells(7)).toEqual(['T33002']);
+        usePanelRackStore.setState({ racked: [], slot: null });
+        slotNode.remove();
     });
 
     it('the terminal links to its window when the session has a handle here (req #3668)', () => {
@@ -144,21 +169,21 @@ describe('DevServerDashboard (req #3643)', () => {
     it('the title drops below 152 px — 190 cut 20% (req #3718)', () => {
         useDevServerDashboardStore.setState({ dock: { h: 'r', x: 16, v: 'b', y: 16, w: 152, ht: null } });
         renderDash();
-        expect(cells(7)).toEqual(['', '3002', 'T3', 'dev servers as dashboard']);
+        expect(cells(7)).toEqual(['T33002', 'dev servers as dashboard']);
         cleanup();
         useDevServerDashboardStore.setState({ dock: { h: 'r', x: 16, v: 'b', y: 16, w: 151, ht: null } });
         renderDash();
-        expect(cells(7)).toEqual(['', '3002', 'T3']);
+        expect(cells(7)).toEqual(['T33002']);
     });
 
     it('shaped narrow but above the smallest, a row keeps its title and shows no bug #', () => {
         useDevServerDashboardStore.setState({ dock: { h: 'r', x: 16, v: 'b', y: 16, w: 200, ht: null } });
         renderDash();
-        expect(cells(7)).toEqual(['', '3002', 'T3', 'dev servers as dashboard']);
+        expect(cells(7)).toEqual(['T33002', 'dev servers as dashboard']);
         cleanup();
         useDevServerDashboardStore.setState({ dock: { h: 'r', x: 16, v: 'b', y: 16, w: 300, ht: null } });
         renderDash();
-        expect(cells(7)).toEqual(['', '3002', 'T3', 'dev servers as dashboard']);
+        expect(cells(7)).toEqual(['Term 33002', 'dev servers as dashboard']);
     });
 
     it('until the title arrives (or for a requirement it cannot find) a row shows its task name', () => {
@@ -231,8 +256,8 @@ describe('DevServerDashboard (req #3643)', () => {
         expect(slotNode.contains(racked)).toBe(true);
         expect(racked.getAttribute('data-racked')).toBe('1');
         expect(racked.style.width).toBe('100%');
-        // 180px is not "tiny": the title column stays.
-        expect(cells(7)).toEqual(['', '3002', 'T3', 'dev servers as dashboard']);
+        // 180px is not "tiny": the title column stays, beside the short pill.
+        expect(cells(7)).toEqual(['T33002', 'dev servers as dashboard']);
         usePanelRackStore.setState({ racked: [], slot: null });
         slotNode.remove();
     });
