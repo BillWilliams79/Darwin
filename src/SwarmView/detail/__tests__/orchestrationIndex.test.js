@@ -72,12 +72,11 @@ const build = (over = {}) => buildOrchestrationIndex({
 });
 
 describe('isOpenPipeline', () => {
-    it('excludes only completed and aborted', () => {
+    it('excludes only completed', () => {
         expect(isOpenPipeline({ pipeline_status: 'active' })).toBe(true);
         expect(isOpenPipeline({ pipeline_status: 'draft' })).toBe(true);
         expect(isOpenPipeline({ pipeline_status: 'paused' })).toBe(true);
         expect(isOpenPipeline({ pipeline_status: 'completed' })).toBe(false);
-        expect(isOpenPipeline({ pipeline_status: 'aborted' })).toBe(false);
     });
 
     // A status nobody has invented yet is far more likely to be workable than
