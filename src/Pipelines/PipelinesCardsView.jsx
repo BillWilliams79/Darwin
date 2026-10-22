@@ -21,7 +21,7 @@
 // `if (step.completed_at)`. That was never a state a step reliably had:
 // `pipeline_steps` carries no status column at all, `completed_at` was stamped
 // only where a step had NO gating requirements — and since req #3750 a step
-// has no state whatsoever (the column is dropped; a step only holds
+// has no state whatsoever (req #3752 dropped the column; a step only holds
 // requirements). Measured on plan 7: **0 of 71 steps carried
 // one**, so the card read "0 complete · 71 open" for a plan whose real state
 // was 49 done / 21 pending / 1 running.
