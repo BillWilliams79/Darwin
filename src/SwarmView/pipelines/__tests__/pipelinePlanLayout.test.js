@@ -736,17 +736,17 @@ describe('bead vocabulary (POC roles)', () => {
     });
 
     // req #3742 — "simplify the step color": ONE colour per step, on the
-    // ring and the card frame, first match wins: locked, manual, checkpoint,
+    // ring and the card frame, first match wins: locked, manual, barrier,
     // else will-run. Eligibility and state no longer touch it.
-    it('the step colour: red locked > orange manual > yellow checkpoint > green will-run', () => {
+    it('the step colour: red locked > orange manual > yellow barrier > green will-run', () => {
         const P = PLAN_VIZ_PALETTE;
         const manual = rowById.get(17); // manual run in the fixture
         expect(manual.run).toBe('manual');
         const base = { ...manual, run: 'auto', checkpoint: false, effectiveLocked: false };
         expect(stepColorOf(base)).toBe(P.stepWillRun);
-        expect(stepColorOf({ ...base, checkpoint: true })).toBe(P.stepCheckpoint);
-        // An absent flag is the column default — a checkpoint.
-        expect(stepColorOf({ ...base, checkpoint: undefined })).toBe(P.stepCheckpoint);
+        expect(stepColorOf({ ...base, checkpoint: true })).toBe(P.stepBarrier);
+        // An absent flag is the column default — a barrier.
+        expect(stepColorOf({ ...base, checkpoint: undefined })).toBe(P.stepBarrier);
         expect(stepColorOf({ ...base, checkpoint: true, run: 'manual' })).toBe(P.stepManual);
         expect(stepColorOf({ ...base, checkpoint: true, run: 'manual', effectiveLocked: true }))
             .toBe(P.lockedFrame);
@@ -758,7 +758,7 @@ describe('bead vocabulary (POC roles)', () => {
             expect(st.ringWidth).toBe(2.5);
         }
         // Four distinct colours.
-        expect(new Set([P.lockedFrame, P.stepManual, P.stepCheckpoint, P.stepWillRun]).size)
+        expect(new Set([P.lockedFrame, P.stepManual, P.stepBarrier, P.stepWillRun]).size)
             .toBe(4);
     });
 
@@ -1379,10 +1379,10 @@ describe('Step Width — the card scales, four rungs (req #3503)', () => {
                 { stepLabel: 'title', stepWidthLevel: level });
             for (const row of plan.rows) {
                 const n = layout.nodes.get(row.id);
-                // The run pill and the checkpoint are the control column since
-                // req #3742 (the badge and the checkpoint were the 2x2
+                // The run pill and the barrier are the control column since
+                // req #3742 (the badge and the barrier were the 2x2
                 // cluster's right-hand column from req #3683 until then).
-                for (const kind of ['run', 'checkpoint']) {
+                for (const kind of ['run', 'barrier']) {
                     const [c] = layout.labels.filter(
                         (l) => l.kind === kind && l.stepId === row.id);
                     expect(c.x + c.w, `level ${level} step ${row.id} ${kind}`)
@@ -3052,8 +3052,7 @@ describe('epic band label counts, behind a toggle (req #3225)', () => {
         // A bead with no epic has no requirement set to count against — a
         // stray "0/0" would claim an answer that does not exist.
         const reads = {
-            steps: [{ id: 1, pipeline_fk: 1, title: 'req-less', run: 'auto',
-                notes: null, completed_at: '2026-07-01T00:00:00' }],
+            steps: [{ id: 1, pipeline_fk: 1, title: 'req-less', run: 'auto', notes: null }],
             stepRequirements: [], stepDeps: [], requirements: [],
             features: [], epics: [], machines: MACHINES,
         };
@@ -5823,11 +5822,11 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
         expect(CARD_TITLE_BTN_STROKE).toBe(2);
     });
 
-    it('reserves a square title-area box for the checkpoint, and none for a padlock (req #3649, #3673, #3742)', () => {
+    it('reserves a square title-area box for the barrier, and none for a padlock (req #3649, #3673, #3742)', () => {
         const layout = computePlanLayout(plan.rows, { stepLabel: 'title' });
         // req #3673 — the picture is an HTML icon now (PlanStepFlagIcons.jsx),
         // centred by flexbox; the layout's part is a square box.
-        const buttons = layout.labels.filter((l) => l.kind === 'checkpoint');
+        const buttons = layout.labels.filter((l) => l.kind === 'barrier');
         expect(buttons).toHaveLength(plan.rows.length);
         // req #3742 — "remove the lock button from the title row".
         expect(layout.labels.some((l) => l.kind === 'lock')).toBe(false);
@@ -5837,7 +5836,7 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
         }
     });
 
-    it('stacks the run-mode pill over the checkpoint in the control column, clear of the step name (req #3580, #3649, #3742)', () => {
+    it('stacks the run-mode pill over the barrier in the control column, clear of the step name (req #3580, #3649, #3742)', () => {
         for (const stepLabel of ['title', 'id']) {
             const layout = computePlanLayout(plan.rows, { stepLabel });
             const n0 = (row) => layout.nodes.get(row.id);
@@ -5865,8 +5864,8 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
                 expect(name.x + name.editW)
                     .toBeCloseTo(right - CARD_CLUSTER_W - CARD_NAME_CLUSTER_GAP, 6);
                 expect(name.editW).toBeGreaterThanOrEqual(name.w - 1e-6);
-                // The checkpoint is the column's second row, under the pill.
-                const flag = of('checkpoint');
+                // The barrier is the column's second row, under the pill.
+                const flag = of('barrier');
                 expect(flag.x + flag.w).toBeCloseTo(right, 6);
                 expect(flag.y).toBeGreaterThanOrEqual(run.y + run.h - 1e-6);
                 expect(flag.x).toBeGreaterThanOrEqual(name.x + name.editW - 1e-6);
@@ -5875,7 +5874,7 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
             }
         }
         expect(drawsLabelKind('run', 'out')).toBe(false);
-        expect(drawsLabelKind('checkpoint', 'out')).toBe(false);
+        expect(drawsLabelKind('barrier', 'out')).toBe(false);
         expect(drawsLabelKind('run', 'mid')).toBe(true);
         expect(drawsLabelKind('run', 'in')).toBe(true);
     });
@@ -6394,16 +6393,16 @@ const TIMED_MODEL = {
     ],
     machines: [],
     steps: [
-        { id: 1, pipeline_fk: 500, title: 'Ship A', run: 'auto', completed_at: null },
-        { id: 2, pipeline_fk: 500, title: 'Ship B', run: 'auto', completed_at: null },
-        { id: 3, pipeline_fk: 500, title: 'Flight A', run: 'auto', completed_at: null },
+        { id: 1, pipeline_fk: 500, title: 'Ship A', run: 'auto' },
+        { id: 2, pipeline_fk: 500, title: 'Ship B', run: 'auto' },
+        { id: 3, pipeline_fk: 500, title: 'Flight A', run: 'auto' },
         // The step-97 shape: no dep edges at all, work begun on the LATEST day.
-        { id: 4, pipeline_fk: 500, title: 'Flight late, ungated', run: 'auto', completed_at: null },
-        { id: 5, pipeline_fk: 500, title: 'Backlog A', run: 'auto', completed_at: null },
-        { id: 6, pipeline_fk: 500, title: 'Backlog B', run: 'auto', completed_at: null },
+        { id: 4, pipeline_fk: 500, title: 'Flight late, ungated', run: 'auto' },
+        { id: 5, pipeline_fk: 500, title: 'Backlog A', run: 'auto' },
+        { id: 6, pipeline_fk: 500, title: 'Backlog B', run: 'auto' },
         // Backward in time: its own work completed on day 1, but it is gated on
         // step 3, whose work began on day 3.
-        { id: 7, pipeline_fk: 500, title: 'Ship C, late gate', run: 'auto', completed_at: null },
+        { id: 7, pipeline_fk: 500, title: 'Ship C, late gate', run: 'auto' },
     ],
     stepDeps: [
         { id: 1, step_fk: 2, dep_step_fk: 1, time_at: null },
@@ -8253,7 +8252,6 @@ describe('time axis — review regressions', () => {
             machines: [],
             steps: rows.map((r) => ({
                 id: r.id, pipeline_fk: 900, title: `s${r.id}`, run: 'auto',
-                completed_at: r.completedAt || null,
             })),
             stepDeps: rows.flatMap((r) => (r.depIds || []).map((d, i) => ({
                 id: r.id * 100 + i, step_fk: r.id, dep_step_fk: d, time_at: null,

@@ -68,7 +68,7 @@
 // @property {boolean} eligible          may this step's work go out now — it
 //                                       carries launch-ready ids and its gate is
 //                                       open (no dependency holds open work, time
-//                                       gate passed, no checkpoint upstream
+//                                       gate passed, no barrier upstream
 //                                       holding). The eligible-now ring is drawn
 //                                       from this and nothing else
 // @property {boolean} gateOpen          req #3597 — the gate REPORTED: no
@@ -81,12 +81,12 @@
 //                                       whatever its dependencies say. The
 //                                       engine fills free slots from these,
 //                                       gate-open first, then down the chain
-// @property {number[]} checkpointBlockedBy  req #3597 amendment — CHECKPOINT
+// @property {number[]} checkpointBlockedBy  req #3597 amendment — BARRIER
 //                                       steps upstream (`checkpoint` flag, on by
 //                                       default since req #3649) still holding
 //                                       open work, holding this step; a
-//                                       checkpoint stays a real gate
-// @property {boolean} checkpoint       req #3649 — this step holds its downstream
+//                                       barrier stays a real gate
+// @property {boolean} checkpoint       req #3649 — the BARRIER flag: this step holds its downstream
 //                                       while it holds open work (true) or is a
 //                                       priority only
 // @property {boolean} locked           req #3649 — the step's own lock flag

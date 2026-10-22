@@ -142,14 +142,14 @@ export const PLAN_VIZ_PALETTE = {
     // The step card's two flag buttons (req #3673) — a control's colours, a
     // channel of their own. `lockOn` (orange, 9.1:1 on `panel`) is a LOCKED
     // padlock and is deliberately not `runningFill`'s amber, which a reader
-    // already takes to mean "in flight". `checkpointOn` is the striped barrier
-    // arm of a step that holds its downstream; `checkpointLight` is the arm's
+    // already takes to mean "in flight". `barrierOn` is the striped barrier
+    // arm of a step that holds its downstream; `barrierLight` is the arm's
     // other stripe. YELLOW since req #3742 — the button is the control for the
-    // step colour `stepCheckpoint`, so it wears it (it was red, then briefly
+    // step colour `stepBarrier`, so it wears it (it was red, then briefly
     // orange in the same requirement).
     lockOn: '#ffa94d',
-    checkpointOn: '#ffd43b',
-    checkpointLight: '#ffffff',
+    barrierOn: '#ffd43b',
+    barrierLight: '#ffffff',
     // A LOCKED step's card perimeter (req #3742, user directive: "a locked step
     // has a red perimeter") — it replaced the card's padlock button. Its own
     // entry, a step-level channel: the card's frame is otherwise the run-mode /
@@ -161,7 +161,7 @@ export const PLAN_VIZ_PALETTE = {
     // answering "will the work placed here run on its own?":
     //   red     `lockedFrame`     locked — by the step, its epic or its plan
     //   orange  `stepManual`      manual — reported, never launched
-    //   yellow  `stepCheckpoint`  a checkpoint — holds the steps after it
+    //   yellow  `stepBarrier`     a barrier — holds the steps after it
     //   green   `stepWillRun`     none of those: it will run
     // First match wins, in that order (`stepColorOf`). Every one clears WCAG AA
     // on `panel`: 5.3, 6.6, 12.1 and 9.9:1. The state (Scheduled / Running /
@@ -169,7 +169,7 @@ export const PLAN_VIZ_PALETTE = {
     // Next" on its dashed halo — separate channels, so nothing they said is
     // lost to the border.
     stepWillRun: '#4ade80',
-    stepCheckpoint: '#ffd43b',
+    stepBarrier: '#ffd43b',
     stepManual: '#ff7a1a',
 };
 
@@ -1933,7 +1933,7 @@ export const cardTitleH = (stepLabel, nameLines = 1) => CARD_PAD_Y
 // 28-character line the name's own budget — the text column less the
 // title-row reserves, at the LABEL glyph which is wider than the row glyph —
 // was SEVEN characters at the base card once the chevron, badge, padlock,
-// checkpoint and run pill all shared the one line, and is TWELVE since req
+// barrier and run pill all shared the one line, and is TWELVE since req
 // #3683 stacked those controls into the 2x2 cluster
 // (`cardChars(CHW_LABEL, CARD_NAME_RESERVE)`). "Feature Eradication
 // - MCP, Scripts, Frontend…" is the actual data, and it truncates well short
@@ -2082,7 +2082,7 @@ export const CARD_TITLE_BTN_STROKE = 2;
 // (`CARD_STEP_ADD_W` — the "+"'s reserve — was deleted with the button by
 // req #3649.)
 
-// ── THE CHECKPOINT FLAG (req #3649) ──────────────────────────────────────────
+// ── THE BARRIER FLAG (req #3649) ─────────────────────────────────────────────
 // A title-area button sized like the "+" and the ↗ were for the same reason;
 // the bottom cell of the control column (`CARD_CLUSTER_W`, below), under the
 // run pill. It is the step's `checkpoint` flag (on by default: the step holds
@@ -2145,7 +2145,7 @@ export const CARD_BADGE_H = CARD_LINE_H - 4;
 // centre (within 0.5px).
 export const CARD_BADGE_TOP = -1;
 // The run pill's top, from the control column's first row (req #3683): centred
-// on that row's line box, so the 3px under it is the air above the checkpoint.
+// on that row's line box, so the 3px under it is the air above the barrier.
 // It was the badge's offset while the two pills shared the cluster's first row.
 export const CARD_RUN_TOP = 1;
 
@@ -2244,7 +2244,7 @@ export const CARD_BADGE_W = badgeWidthFor(2);
 // padlock was removed — and what is left stacks in ONE column:
 //
 //     [ A ]        row 1 — the run pill
-//     [⛩]         row 2 — the checkpoint
+//     [⛩]         row 2 — the barrier
 //
 // Still two rows, each one title line (`CARD_LINE_H`) — the square button
 // fills its row, the pill sits `CARD_RUN_TOP` into its own — so the column is
@@ -2913,7 +2913,7 @@ export function drawsLabelKind(kind, level) {
     // too and ride the card the same way.
     // `collapse` (req #3650) is the card's own fold, on its title line.
     if (kind === 'step' || kind === 'req' || kind === 'badge'
-        || kind === 'run' || kind === 'checkpoint'
+        || kind === 'run' || kind === 'barrier'
         || kind === 'collapse') {
         return level !== 'out';
     }
@@ -4894,7 +4894,7 @@ export function computePlanLayout(rows, opts = {}) {
         // The "view in table" ↗ (req #3503) and the "+" that filed a
         // requirement into the step (req #3582) were REMOVED by req #3649 (user
         // directive: "I never use the plus … I never use the arrow"); the title
-        // line now carries the run pill and the checkpoint only (req #3742
+        // line now carries the run pill and the barrier only (req #3742
         // removed the padlock).
         // ── THE RUN-MODE PILL (req #3580) ────────────────────────────────────
         // The control column's first row (req #3683, #3742), flush right.
@@ -4913,7 +4913,7 @@ export function computePlanLayout(rows, opts = {}) {
                 w: CARD_RUN_W, h: CARD_RUN_H,
             });
         }
-        // ── THE CHECKPOINT GATE (req #3649, #3673) ──────────────────────────
+        // ── THE BARRIER GATE (req #3649, #3673) ─────────────────────────────
         // The control column's second row, under the run pill, flush right so
         // the column's edge lines up down a lane. Emitted for every card: it is
         // a fact about every step, and the control that changes it (the
@@ -4921,7 +4921,7 @@ export function computePlanLayout(rows, opts = {}) {
         // req #3673). The padlock that stood beside it went in req #3742; a
         // locked step is drawn with a red perimeter instead.
         labels.push({
-            kind: 'checkpoint', stepId: r.id, text: 'Checkpoint', prose: false,
+            kind: 'barrier', stepId: r.id, text: 'Barrier', prose: false,
             on: r.checkpoint !== false,
             x: clusterRight - CARD_TITLE_BTN, y: row2Top,
             w: CARD_TITLE_BTN, h: CARD_TITLE_BTN,
@@ -5696,15 +5696,15 @@ export function placeEpicChips({
 // side by side, never one replacing the other.
 /**
  * The step colour (req #3742) — see `stepWillRun` in `PLAN_VIZ_PALETTE`.
- * Locked outranks manual outranks checkpoint: each answers "will it run?"
- * more finally than the next. A step is a checkpoint unless its flag is
+ * Locked outranks manual outranks barrier: each answers "will it run?"
+ * more finally than the next. A step is a barrier unless its flag is
  * explicitly off (the column defaults to 1).
  */
 export function stepColorOf(row) {
     const P = PLAN_VIZ_PALETTE;
     if (row.effectiveLocked) return P.lockedFrame;
     if (row.run === 'manual') return P.stepManual;
-    if (row.checkpoint !== false && row.checkpoint !== 0) return P.stepCheckpoint;
+    if (row.checkpoint !== false && row.checkpoint !== 0) return P.stepBarrier;
     return P.stepWillRun;
 }
 

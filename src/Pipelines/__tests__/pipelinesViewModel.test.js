@@ -19,16 +19,11 @@ const steps = [
 
 describe('pipelineSummaries', () => {
     // req #3750 — a step has no state, so the summary is a COUNT only: no
-    // done/open tally, and a stale `completed_at` on a row is never read.
+    // done/open tally.
     it('counts steps per pipeline via epic_fk -> pipeline_fk', () => {
         const out = pipelineSummaries({ pipelines, steps, epics });
         expect(out.get(7)).toEqual({ total: 2 });
         expect(out.get(8)).toEqual({ total: 1 });
-    });
-
-    it('carries no done/open tally, whatever a row says', () => {
-        const stale = steps.map((st) => ({ ...st, completed_at: '2026-08-01 00:00:00' }));
-        expect(pipelineSummaries({ pipelines, steps: stale, epics }).get(7)).toEqual({ total: 2 });
     });
 
     it('seeds an entry for every pipeline, even one with no steps', () => {

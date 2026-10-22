@@ -68,7 +68,7 @@
 // 3. **An EMPTY step sits on TODAY when the plan has active work, else in the
 //    FUTURE (req #3618, the user's rule).** An empty step — no linked
 //    requirements — has no stamp of any kind (a step carries no time of its
-//    own: req #3750 dropped `pipeline_steps.completed_at`), so it used
+//    own: req #3752 dropped `pipeline_steps.completed_at`), so it used
 //    to be UNKNOWN, and an UNKNOWN step at the head of a chain has nothing
 //    upstream to take a time from: it fell into the plan's EARLIEST slot, the
 //    far-left edge, days before the work it was just added in front of. It is
@@ -160,7 +160,7 @@ export function requirementLastActivity(req) {
  * Resolution order, first hit wins:
  *   1. the MAXIMUM of `requirementLastActivity` over its linked requirements
  *      → dated. Requirement timestamps are the ONLY time source: a step has no
- *      time of its own (req #3750 dropped `pipeline_steps.completed_at`);
+ *      time of its own (req #3752 dropped `pipeline_steps.completed_at`);
  *   2. every classifiable linked requirement is not-yet-started → FUTURE;
  *   3. otherwise UNKNOWN.
  *

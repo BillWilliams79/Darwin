@@ -58,9 +58,12 @@ export const VALID_RUN2_MODES = ['auto', 'manual'];
  * `moveStepRequirement` records for seats.
  */
 export async function createStep(darwinUri, idToken,
-    { epic_fk, title, run = 'auto', notes = null, not_before = null }) {
+    { epic_fk, title, run = 'auto', notes = null, not_before = null, checkpoint }) {
+    // `checkpoint` (the barrier, req #3767) is sent only when the caller sets
+    // it; omitted, the column DEFAULT (1, a barrier) applies.
     const r = await call_rest_api(`${darwinUri}/pipeline_steps`, 'POST',
-        { epic_fk, title, run, notes, not_before }, idToken);
+        { epic_fk, title, run, notes, not_before,
+          ...(checkpoint == null ? {} : { checkpoint }) }, idToken);
     return assertOk(r, 'createStep');
 }
 

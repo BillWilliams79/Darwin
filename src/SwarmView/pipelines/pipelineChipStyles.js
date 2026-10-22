@@ -208,7 +208,7 @@ export const executionModeChipProps = (mode) => ({
 });
 
 // ---------------------------------------------------------------------------
-// req #3649 — the step CHECKPOINT flag and the plan-layer LOCKED flag.
+// req #3649 — the step BARRIER flag and the plan-layer LOCKED flag.
 // ---------------------------------------------------------------------------
 
 // pipeline_steps.checkpoint — 1 (the column default) HOLDS every step
@@ -216,18 +216,18 @@ export const executionModeChipProps = (mode) => ({
 // (its work goes out first, nothing waits on it). Amber for a hold — a
 // deliberately warmer hue than the run chip's blue/magenta and the execution
 // chip's teal/amber-brown — and a quiet grey for priority. `undefined`/`null`
-// reads as a checkpoint, because that is the column default.
-const CHECKPOINT_CHIP = {
+// reads as a barrier, because that is the column default.
+const BARRIER_CHIP = {
     on: { bgcolor: '#5c3d00', color: '#ffcf70' },
     off: { bgcolor: '#33393f', color: '#c3cbd3' },
 };
 
-const isCheckpoint = (flag) => flag == null || Boolean(Number(flag));
+const isBarrier = (flag) => flag == null || Boolean(Number(flag));
 
-export const checkpointLabel = (flag) => (isCheckpoint(flag) ? 'Checkpoint' : 'Priority');
+export const barrierLabel = (flag) => (isBarrier(flag) ? 'Barrier' : 'Priority');
 
-export const checkpointChipProps = (flag) => ({
-    sx: isCheckpoint(flag) ? CHECKPOINT_CHIP.on : CHECKPOINT_CHIP.off,
+export const barrierChipProps = (flag) => ({
+    sx: isBarrier(flag) ? BARRIER_CHIP.on : BARRIER_CHIP.off,
 });
 
 // locked — 1 freezes the row (and, cascading, everything under it) as a relic

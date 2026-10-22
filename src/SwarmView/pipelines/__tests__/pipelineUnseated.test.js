@@ -70,8 +70,7 @@ describe('seatTargetAt', () => {
 
     // req #3750 — a step has no state, so finished work never closes it.
     it('accepts a step whose work is all finished', () => {
-        expect(stepAcceptsNewWork({ id: 3, state: 'done', completedAt: '2026-10-01T00:00:00' }))
-            .toBe(true);
+        expect(stepAcceptsNewWork({ id: 3, state: 'done' })).toBe(true);
     });
 
     it('answers null between cards and without a point', () => {
