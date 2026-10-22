@@ -31,9 +31,9 @@
 // navbar glows in the panel's frame colour while it is over (req #3728). It
 // lands at the bottom, unless pointed into the stack (req #3744). Released there,
 // the panel is RACKED — portalled into the navbar's rack slot below its nav
-// buttons, at the navbar's width, nothing to reshape. Open, it grows to share
-// the navbar's free height with the other racked panels (req #3744); folded, it
-// is its head row.
+// buttons, at the navbar's width, nothing to reshape. Open, it is as tall as
+// its rows need and no taller, sharing a short navbar fairly with the other
+// racked panels (req #3747); folded, it is its head row.
 // Dragging a racked panel's head up or down the stack reorders it; off the
 // navbar, it floats again, docked where it was dropped. Where the reader racks it is the rack's (pure half in
 // panelRack.js, DOM half in usePanelRack.js — shared with the Orchestrables box,
@@ -288,13 +288,11 @@ export default function AnchoredPanel({
                     overflow: 'hidden', boxSizing: 'border-box', ...sx,
                     // Over the navbar, see the drop zone through it.
                     ...(overRack && { opacity: 0.75 }),
-                    // In the stack: square, flat, never squeezed by its
-                    // neighbours (the rack scrolls instead). Open, it takes its
-                    // share of the rack's free height (req #3744) and, like the
-                    // Orchestrables box, gives way when the rack is short: its
-                    // body scrolls. Folded, it is its head.
+                    // In the stack: square, flat. The rack's row sizes it: open,
+                    // the height its rows need and no more (req #3747), giving
+                    // way fairly when the rack is short — its body scrolls.
+                    // Folded, it is its head.
                     ...(racking && { order: rackOrder(rackPos),
-                        flex: open ? '1 1 auto' : '0 0 auto',
                         borderRadius: 0, boxShadow: 'none' }) }}>
             <Box data-testid={`${testid}-header`}
                  title={inRack ? 'Drag to reorder · drag off the navbar to float it'
@@ -333,8 +331,11 @@ export default function AnchoredPanel({
                  aria-hidden={open ? undefined : 'true'}
                  sx={{ overflowY: 'auto', overscrollBehavior: 'contain',
                         // A classic scrollbar must not change the open
-                        // width as rows come and go.
-                        scrollbarGutter: 'stable',
+                        // width as rows come and go. Racked, the navbar sets
+                        // the width, so nothing to hold — and a reserved gutter
+                        // there is only a blank strip inside the right frame
+                        // (req #3748).
+                        scrollbarGutter: inRack ? 'auto' : 'stable',
                         minHeight: 0, flex: '1 1 auto',
                         py: '0.2em',
                         // Its scrollbar sits inside the right reshape zone, not under it.

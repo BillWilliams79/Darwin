@@ -169,15 +169,13 @@ describe('per-box collapse heads on the plan canvas (req #3650)', () => {
         expect(epicHead(5).getAttribute('aria-expanded')).toBe('false');
     });
 
-    it('the name of a folded epic unfolds it rather than doing nothing', () => {
+    // The NAME opens the epic's editor since req #3742; the status light keeps
+    // the zoom, and on a folded epic that zoom unfolds it.
+    it('the status light of a folded epic unfolds it rather than doing nothing', () => {
         render();
         click(epicHead(5));
-        const name = q('pipeline-viz-epic-name-5');
-        act(() => {
-            name.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 }));
-            name.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, button: 0 }));
-        });
-        act(() => { name.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+        const light = q('pipeline-viz-epic-pause-5');
+        act(() => { light.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
         expect(epicHead(5).getAttribute('aria-expanded')).toBe('true');
     });
 

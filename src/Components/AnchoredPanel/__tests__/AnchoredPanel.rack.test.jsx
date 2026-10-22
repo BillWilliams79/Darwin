@@ -131,13 +131,16 @@ describe('AnchoredPanel rack (req #3720)', () => {
         expect(getComputedStyle(screen.getByTestId('p-a')).order).toBe('2');
     });
 
-    it('open, a racked panel grows into the rack\'s free height; folded, it is its head (req #3744)', () => {
+    it('open or folded, a racked panel never grows past its content: the rack row sizes it (req #3747)', () => {
         usePanelRackStore.setState({ racked: ['a'] });
         render(<Panel id="a" />);
         const a = screen.getByTestId('p-a');
-        expect(getComputedStyle(a).flexGrow).toBe('1');
+        expect(a.getAttribute('data-rack-open')).toBe('1');
+        expect(getComputedStyle(a).flexGrow).not.toBe('1');
+        expect(a.style.height).toBe('');
         fireEvent.click(screen.getByTestId('p-a-toggle'));
-        expect(getComputedStyle(a).flexGrow).toBe('0');
+        expect(a.getAttribute('data-rack-open')).toBe('0');
+        expect(getComputedStyle(a).flexGrow).not.toBe('1');
     });
 
     it('dropped on the navbar off the stack, a panel lands last, at the bottom (req #3744)', () => {

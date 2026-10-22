@@ -102,7 +102,7 @@ export function dropBlockers2(stepId, stepDeps) {
  * @param {Object[]} args.stepDeps            pipeline_step_deps rows
  * @param {Object[]} args.requirements        any superset (needs `id`, `tracking`)
  * @param {Object[]} args.epics               epics rows (for the label/pipeline_fk dictionary)
- * @param {Object[]} [args.pipelines]         pipelines rows (for the pipeline label)
+ * @param {Object[]} [args.pipelines]         pipelines rows (`id`, `title`, `locked`)
  * @returns {Object[]}
  */
 export function buildStepRows({
@@ -110,6 +110,8 @@ export function buildStepRows({
 } = {}) {
     const epicById = new Map(asArray(epics).map((e) => [e.id, e]));
     const pipelineById = new Map(asArray(pipelines).map((p) => [p.id, p]));
+    const pipelineLocked = new Set(asArray(pipelines)
+        .filter((p) => p && Number(p.locked)).map((p) => p.id));
 
     const linksByStep = new Map();
     for (const link of asArray(stepRequirements)) {
@@ -130,6 +132,14 @@ export function buildStepRows({
             epicTitle: epic ? epic.title : null,
             pipelineFk: epic ? epic.pipeline_fk : null,
             pipelineTitle: pipeline ? pipeline.title : null,
+            // req #3742 — the OUTERMOST lock holding this step (the level that
+            // must be lifted first, as the gateway's `plan_lock.py` names it),
+            // or null. The plan canvas draws any of the three as a red frame,
+            // so the editor that frame's click opens must know an ancestor's
+            // lock too, not only the step's own flag.
+            lockedBy: (epic && pipelineLocked.has(epic.pipeline_fk)) ? 'pipeline'
+                : (epic && Number(epic.locked)) ? 'epic'
+                    : Number(step.locked) ? 'step' : null,
             reqIds,
             gatingReqIds,
             trackingReqIds,

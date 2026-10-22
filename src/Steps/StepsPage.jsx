@@ -33,7 +33,7 @@
 //   - The toolbar filters by Pipeline, then Epic, and the two cascade: a
 //     pipeline narrows the epic list; an epic implies its pipeline.
 
-import { useContext, useMemo, useState } from 'react';
+import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -46,11 +46,6 @@ import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
 import CircularProgress from '@mui/material/CircularProgress';
-import Dialog from '@mui/material/Dialog';
-import DialogTitle from '@mui/material/DialogTitle';
-import DialogContent from '@mui/material/DialogContent';
-import DialogActions from '@mui/material/DialogActions';
-import TextField from '@mui/material/TextField';
 import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
 import InputLabel from '@mui/material/InputLabel';
@@ -73,6 +68,7 @@ import {
     pipelineStepDepKeys,
     useAllRequirements,
 } from '../hooks/useDataQueries';
+import { pipelineComposeKeys } from '../hooks/useQueryKeys';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { formatDateTime } from '../utils/dateFormat';
 import {
@@ -81,18 +77,11 @@ import {
 } from '../SwarmView/pipelines/pipelineChipStyles';
 // Plan routes come from the SAME builders the router uses, never a literal
 // string (planEra.js's own guard forbids one).
-import { planDetailPath } from '../SwarmView/pipelines/planEra';
 import { epicLinkTo } from '../SwarmView/pipelines/pipelineEpicLink';
-import { backToPlanQuery } from '../SwarmView/pipelines/pipelineStepLink';
+import { planOriginOf, planReturnPath } from '../SwarmView/pipelines/pipelineStepLink';
+import StepEditDialog from './StepEditDialog';
 import { buildStepRows } from './stepsModel';
-import {
-    REST_NULL,
-    VALID_RUN2_MODES,
-    createStep,
-    deleteStep,
-    isRestNullLiteral,
-    updateStep,
-} from './stepsApi';
+import { deleteStep, updateStep } from './stepsApi';
 
 // `tracking` splits a step's links into gating vs container ids for the Reqs
 // tooltip; `title` rides along. Deliberately NOT 1.0's
@@ -100,8 +89,6 @@ import {
 // — a narrower, page-owned projection, same file-isolation rule as everywhere
 // else in this feature.
 const STEP_REQUIREMENT_FIELDS = 'id,title,tracking';
-
-const TITLE_MAX = 256;
 
 const ALL_PIPELINES = '';
 const ALL_EPICS = '';
@@ -121,27 +108,6 @@ const blockerClause = (row) => {
     return ids.length === 1
         ? `step ${ids[0]} depends on it`
         : `steps ${ids.join(', ')} depend on it`;
-};
-
-// HTML `<input type="datetime-local">` reads/writes local wall-clock time with
-// no timezone — `YYYY-MM-DDTHH:mm`. `not_before` is stored as a naive-UTC
-// string (`YYYY-MM-DD HH:mm:ss`, the same convention `sqlNow()` in
-// stepsApi.js writes and `formatDateTime` reads — see that file's header).
-// These two helpers are the one place that conversion happens.
-const notBeforeToInputValue = (naiveUtc) => {
-    if (!naiveUtc) return '';
-    const d = new Date(`${naiveUtc.replace(' ', 'T')}Z`);
-    if (Number.isNaN(d.getTime())) return '';
-    const pad = (n) => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-        + `T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-};
-
-const inputValueToNotBefore = (localValue) => {
-    if (!localValue) return null;
-    const d = new Date(localValue);
-    if (Number.isNaN(d.getTime())) return null;
-    return d.toISOString().slice(0, 19).replace('T', ' ');
 };
 
 export default function StepsPage() {
@@ -166,6 +132,9 @@ export default function StepsPage() {
     const { data: requirements = [], isLoading: reqsLoading, isError: reqsError } =
         useAllRequirements(creatorFk, { fields: STEP_REQUIREMENT_FIELDS });
 
+    // `pipelinesLoading` too: the `?id=` deep link snapshots its row once
+    // loading ends, and a row built before the plan list arrived would miss a
+    // plan-level lock (req #3742).
     const isLoading = pipelinesLoading || epicsLoading || stepsLoading || linksLoading
         || depsLoading || reqsLoading;
 
@@ -195,14 +164,8 @@ export default function StepsPage() {
     const pipelineFilter = parseIdParam(searchParams.get('pipeline')) ?? ALL_PIPELINES;
     const epicFilter = parseIdParam(searchParams.get('epic')) ?? ALL_EPICS;
 
-    const [dialogOpen, setDialogOpen] = useState(false);
-    const [editTarget, setEditTarget] = useState(null);
-    const [formEpicFk, setFormEpicFk] = useState('');
-    const [formTitle, setFormTitle] = useState('');
-    const [formNotes, setFormNotes] = useState('');
-    const [formRun, setFormRun] = useState('auto');
-    const [formNotBefore, setFormNotBefore] = useState('');
-    const [submitting, setSubmitting] = useState(false);
+    // The editor dialog: `key` changes per open so the form seeds afresh.
+    const [dialog, setDialog] = useState({ key: 0, open: false, step: null, defaultEpicFk: '' });
 
     const pipelineById = useMemo(() => new Map(pipelines.map(p => [p.id, p])), [pipelines]);
     const epicById = useMemo(() => new Map(epics.map(e => [e.id, e])), [epics]);
@@ -261,74 +224,44 @@ export default function StepsPage() {
         writeFilterParams(nextPipeline, value);
     };
 
-    const invalidateSteps = () =>
+    // A step write also invalidates the composed plan reads (req #3742), so a
+    // plan open elsewhere — or opened next — never draws the pre-save card.
+    const invalidateSteps = () => {
         queryClient.invalidateQueries({ queryKey: pipelineStepKeys.all(creatorFk) });
-
-    const openCreate = () => {
-        setEditTarget(null);
-        // Inside the filter only: a pipeline with no epics leaves the field
-        // empty rather than pre-picking an epic from some other plan.
-        setFormEpicFk(activeEpic !== ALL_EPICS ? activeEpic : (epicOptions[0]?.id ?? ''));
-        setFormTitle('');
-        setFormNotes('');
-        setFormRun('auto');
-        setFormNotBefore('');
-        setDialogOpen(true);
+        queryClient.invalidateQueries({ queryKey: pipelineComposeKeys.all });
     };
 
-    const openEdit = (row) => {
-        setEditTarget(row);
-        setFormEpicFk(row.epic_fk);
-        setFormTitle(row.title || '');
-        setFormNotes(row.notes || '');
-        setFormRun(VALID_RUN2_MODES.includes(row.run) ? row.run : 'auto');
-        setFormNotBefore(notBeforeToInputValue(row.not_before));
-        setDialogOpen(true);
-    };
+    // A new step starts in the chosen epic, else the first epic of the chosen
+    // pipeline; a pipeline with no epics leaves the field empty rather than
+    // pre-picking an epic from some other plan.
+    const openCreate = () => setDialog((d) => ({
+        key: d.key + 1, open: true, step: null,
+        defaultEpicFk: activeEpic !== ALL_EPICS ? activeEpic : (epicOptions[0]?.id ?? ''),
+    }));
 
-    const handleSubmit = async () => {
-        const title = formTitle.trim();
-        const notes = formNotes.trim();
-        if (!title) {
-            showError('Title is required');
-            return;
-        }
-        if (isRestNullLiteral(title)) {
-            showError(`"${REST_NULL}" is the API's clear-this-column sentinel and cannot `
-                + 'be a title. Try "Null" or another wording.');
-            return;
-        }
-        if (!editTarget && (formEpicFk === '' || formEpicFk == null)) {
-            showError('Epic is required');
-            return;
-        }
-        const notBeforeValue = inputValueToNotBefore(formNotBefore);
-        setSubmitting(true);
-        try {
-            if (editTarget) {
-                await updateStep(darwinUri, idToken, editTarget.id, {
-                    title,
-                    notes: notes || REST_NULL,
-                    run: formRun,
-                    not_before: notBeforeValue || REST_NULL,
-                });
-            } else {
-                await createStep(darwinUri, idToken, {
-                    epic_fk: formEpicFk,
-                    title,
-                    notes: notes || null,
-                    run: formRun,
-                    not_before: notBeforeValue,
-                });
-            }
-            invalidateSteps();
-            setDialogOpen(false);
-        } catch (err) {
-            showError(err, editTarget ? 'Could not save step' : 'Could not create step');
-        } finally {
-            setSubmitting(false);
-        }
-    };
+    const openEdit = (row) => setDialog((d) => ({
+        key: d.key + 1, open: true, step: row, defaultEpicFk: '',
+    }));
+
+    // Deep-link via ?id=<id> (req #3742), matching EpicsPage's own `?id=`
+    // contract. The param is consumed once; the router state rides along on
+    // the replace so the page's Back to Plan survives it.
+    const autoOpenedIdRef = useRef(null);
+    useEffect(() => {
+        if (isLoading) return;
+        const raw = searchParams.get('id');
+        if (!raw || !/^\d+$/.test(raw.trim())) return;
+        const targetId = Number(raw.trim());
+        if (autoOpenedIdRef.current === targetId) return;
+        const target = allRows.find(r => r.id === targetId);
+        if (!target) return;
+        autoOpenedIdRef.current = targetId;
+        openEdit(target);
+        const next = new URLSearchParams(searchParams);
+        next.delete('id');
+        setSearchParams(next, { replace: true, state: location.state });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isLoading, allRows, searchParams]);
 
     const toggleRun = async (row) => {
         try {
@@ -552,18 +485,8 @@ export default function StepsPage() {
 
     // Where the reader came FROM, if anywhere. Same vocabulary the requirement
     // page reads (req #3252): `from:'pipeline'` plus the plan's id and the panel
-    // they were looking at. `mode` is charset-checked rather than validated
-    // against the panel list, for the reason that page states — the receiving
-    // page owns that vocabulary and falls back to the stored preference on
-    // anything it does not recognise; all this end needs is that the value
-    // cannot corrupt the URL it is interpolated into.
-    const planOrigin = (() => {
-        if (location.state?.from !== 'pipeline') return null;
-        const id = Number(location.state?.pipelineId);
-        if (!Number.isFinite(id) || id <= 0) return null;
-        const raw = location.state?.mode;
-        return { id, mode: typeof raw === 'string' && /^[a-z]{1,16}$/.test(raw) ? raw : null };
-    })();
+    // they were looking at — `planOriginOf` says how it is validated.
+    const planOrigin = planOriginOf(location.state);
 
     return (
         <Box sx={{ gridArea: 'content', p: 3, width: '100%', minWidth: 0, overflow: 'auto' }}
@@ -589,8 +512,7 @@ export default function StepsPage() {
                 {planOrigin && (
                     <Button size="small" variant="outlined"
                             startIcon={<ArrowBackIcon />}
-                            onClick={() => navigate(planDetailPath(planOrigin.id,
-                                backToPlanQuery(location.state)))}
+                            onClick={() => navigate(planReturnPath(location.state))}
                             data-testid="steps-back-to-plan">
                         Back to Plan
                     </Button>
@@ -669,88 +591,17 @@ export default function StepsPage() {
                 </Box>
             )}
 
-            <Dialog open={dialogOpen} onClose={() => !submitting && setDialogOpen(false)}
-                    maxWidth="md" fullWidth data-testid="step2-edit-dialog">
-                <DialogTitle>{editTarget ? `Edit step ${editTarget.id}` : 'New step'}</DialogTitle>
-                <DialogContent>
-                    <Stack spacing={2} sx={{ mt: 1 }}>
-                        <FormControl fullWidth required disabled={!!editTarget}>
-                            <InputLabel>Epic</InputLabel>
-                            <Select label="Epic" value={formEpicFk}
-                                    onChange={(e) => setFormEpicFk(e.target.value)}
-                                    data-testid="step2-epic-select">
-                                {allEpicOptions.map(e => (
-                                    <MenuItem key={e.id} value={e.id}>{e.title}</MenuItem>
-                                ))}
-                            </Select>
-                        </FormControl>
-                        {editTarget && (
-                            <Typography variant="caption" sx={{ color: 'text.secondary', mt: -1 }}>
-                                A step&apos;s epic is its identity. To move this step, delete it
-                                and create it in the other epic — that forces its dependencies to
-                                be answered rather than silently broken.
-                            </Typography>
-                        )}
-                        <TextField
-                            label="Title"
-                            value={formTitle}
-                            onChange={(e) => setFormTitle(e.target.value)}
-                            helperText={'The step\'s short NAME — "Session Drain", not a sentence.'}
-                            autoFocus required fullWidth
-                            slotProps={{ htmlInput: {
-                                'data-testid': 'step2-title-input', maxLength: TITLE_MAX } }}
-                        />
-                        <TextField
-                            label="Notes"
-                            value={formNotes}
-                            onChange={(e) => setFormNotes(e.target.value)}
-                            helperText={'What this step must achieve and why. Never its dependencies, '
-                                + 'status, membership or ordinal — those are rows, and prose that '
-                                + 'restates them goes stale. Replaces on save; it does not append.'}
-                            fullWidth multiline minRows={5}
-                            slotProps={{ htmlInput: { 'data-testid': 'step2-notes-input' } }}
-                        />
-                        <FormControl fullWidth>
-                            <InputLabel>Run</InputLabel>
-                            <Select label="Run" value={formRun}
-                                    onChange={(e) => setFormRun(e.target.value)}
-                                    data-testid="step2-run-select">
-                                <MenuItem value="auto">Auto — the orchestrator launches it</MenuItem>
-                                <MenuItem value="manual">Manual — reported eligible, never launched</MenuItem>
-                            </Select>
-                        </FormControl>
-                        <TextField
-                            label="Not before"
-                            type="datetime-local"
-                            value={formNotBefore}
-                            onChange={(e) => setFormNotBefore(e.target.value)}
-                            helperText={'The one instant before which this step does not start. '
-                                + 'Leave blank for no time gate.'}
-                            fullWidth
-                            slotProps={{
-                                inputLabel: { shrink: true },
-                                htmlInput: { 'data-testid': 'step2-not-before-input' },
-                            }}
-                        />
-                        {formNotBefore && (
-                            <Button size="small" onClick={() => setFormNotBefore('')}
-                                    data-testid="step2-not-before-clear"
-                                    sx={{ alignSelf: 'flex-start', mt: -1 }}>
-                                Clear time gate
-                            </Button>
-                        )}
-                    </Stack>
-                </DialogContent>
-                <DialogActions>
-                    <Button onClick={() => setDialogOpen(false)} disabled={submitting}>Cancel</Button>
-                    <Button variant="contained" onClick={handleSubmit}
-                            disabled={submitting || !formTitle.trim()
-                                || (!editTarget && formEpicFk === '')}
-                            data-testid="step2-save">
-                        {editTarget ? 'Save' : 'Create'}
-                    </Button>
-                </DialogActions>
-            </Dialog>
+            {/* req #3742 — the shared step editor; the plan canvas opens the
+                same one over itself when a step is clicked. */}
+            <StepEditDialog
+                key={dialog.key}
+                open={dialog.open}
+                step={dialog.step}
+                epicOptions={allEpicOptions}
+                defaultEpicFk={dialog.defaultEpicFk}
+                onClose={() => setDialog((d) => ({ ...d, open: false }))}
+                onSaved={invalidateSteps}
+            />
         </Box>
     );
 }

@@ -10,8 +10,9 @@ import {
     computePlanLayout, cardHeight, cardTitleH, drawsLabelKind,
     CARD_PAD_Y, CARD_PAD_X, CARD_FRAME_X, CARD_COLLAPSE_W, CARD_TITLE_BTN,
     CARD_HEAD_LABEL, CARD_LINE_H, STEP_WIDTH_RUNGS, NAME_INLINE_MIN_CHARS, CHW_LABEL,
-    CARD_COLLAPSE_GAP, CARD_CLUSTER_H, CARD_CLUSTER_W, CARD_CLUSTER_COL2_W, CARD_CLUSTER_GAP,
-    CARD_NAME_CLUSTER_GAP, CARD_RUN_W, CARD_BADGE_TOP,
+    CARD_COLLAPSE_GAP, CARD_CLUSTER_H, CARD_CLUSTER_W,
+    CARD_NAME_CLUSTER_GAP, CARD_RUN_W, CARD_RUN_TOP, CARD_BADGE_TOP, CARD_BADGE_W,
+    CARD_BADGE_GAP, CARD_NAME_LEFT_RESERVE,
 } from '../pipelinePlanLayout';
 
 const mk = (id, epicId, depIds = [], reqIds = []) => ({
@@ -48,58 +49,65 @@ describe('the step card\'s collapse head (req #3650)', () => {
         }
     });
 
-    it('shares the title line, LEFT of the name, overlapping nothing (req #3648, #3683)', () => {
+    it('shares the title line, LEFT of the name, overlapping nothing (req #3648, #3742)', () => {
         for (const r of ROWS) {
             const head = layout.labels.find((l) => l.kind === 'collapse' && l.stepId === r.id);
             const others = layout.labels.filter((l) => l.stepId === r.id && l !== head);
             for (const o of others) expect(rectsOverlap(head, o)).toBe(false);
             const name = others.find((l) => l.kind === 'step');
             expect(name.y).toBeCloseTo(head.y, 6);
-            // req #3683 — the name starts straight after the chevron's gap: the
-            // badge no longer stands between them.
-            expect(name.x).toBeCloseTo(head.x + head.w + CARD_COLLAPSE_GAP, 6);
-            // The badge, run pill, padlock and ⚑ all sit right of the name.
-            for (const k of ['badge', 'run', 'checkpoint', 'lock']) {
+            // req #3742 — "badge counter between collapse/expand and title":
+            // the badge stands in its reserve right after the chevron's gap,
+            // flush against the gap before the name.
+            const badge = others.find((l) => l.kind === 'badge');
+            expect(badge.x).toBeGreaterThanOrEqual(head.x + head.w + CARD_COLLAPSE_GAP - 1e-6);
+            expect(badge.x + badge.w)
+                .toBeCloseTo(head.x + head.w + CARD_COLLAPSE_GAP + CARD_BADGE_W, 6);
+            expect(badge.y).toBeCloseTo(head.y + CARD_BADGE_TOP, 6);
+            expect(name.x).toBeCloseTo(badge.x + badge.w + CARD_BADGE_GAP, 6);
+            expect(name.x).toBeCloseTo(head.x + CARD_NAME_LEFT_RESERVE, 6);
+            // The run pill and the checkpoint sit right of the name.
+            for (const k of ['run', 'checkpoint']) {
                 const c = others.find((l) => l.kind === k);
                 expect(c.x, k).toBeGreaterThanOrEqual(name.x + name.w - 1e-6);
             }
         }
     });
 
-    // req #3683 — "move the counter badge to the right hand side and make a 2x2
-    // button cluster … so step cards will always be two high".
-    it('lays the badge, run pill, padlock and checkpoint out as a 2x2 grid at the right', () => {
+    it('draws no padlock on the card (req #3742 — "remove the lock button from the title row")', () => {
+        const locked = ROWS.map((r) => ({ ...r, locked: true, effectiveLocked: true, lockedBy: 'step' }));
+        const l = computePlanLayout(locked);
+        expect(l.labels.some((x) => x.kind === 'lock')).toBe(false);
+    });
+
+    // req #3683's 2x2 cluster, down to one column by req #3742 — the badge
+    // moved left of the name and the padlock was removed; cards stay two high.
+    it('stacks the run pill over the checkpoint in one column at the right', () => {
         for (const rung of STEP_WIDTH_RUNGS) {
             for (const stepLabel of ['title', 'id']) {
                 const l = computePlanLayout(ROWS, { stepLabel, stepWidthLevel: rung });
                 for (const r of ROWS) {
                     const n = l.nodes.get(r.id);
                     const get = (k) => l.labels.find((x) => x.kind === k && x.stepId === r.id);
-                    const [badge, run, lock, cp] = ['badge', 'run', 'lock', 'checkpoint'].map(get);
+                    const [run, cp] = ['run', 'checkpoint'].map(get);
                     const right = n.right - CARD_PAD_X;
-                    const col1Right = right - CARD_CLUSTER_COL2_W - CARD_CLUSTER_GAP;
                     const top = n.top + CARD_PAD_Y;
-                    // Column 2: the badge over the checkpoint, flush right.
-                    expect(badge.x + badge.w).toBeCloseTo(right, 6);
+                    // One column: the run pill over the checkpoint, flush right.
+                    expect(run.x + run.w).toBeCloseTo(right, 6);
                     expect(cp.x + cp.w).toBeCloseTo(right, 6);
-                    // Column 1: the run pill over the padlock, flush right.
-                    expect(run.x + run.w).toBeCloseTo(col1Right, 6);
-                    expect(lock.x + lock.w).toBeCloseTo(col1Right, 6);
                     expect(run.w).toBe(CARD_RUN_W);
-                    // Row 1: the pills, on one top; row 2: the buttons, one line down.
-                    expect(badge.y).toBeCloseTo(top + CARD_BADGE_TOP, 6);
-                    expect(run.y).toBeCloseTo(badge.y, 6);
-                    expect(lock.y).toBeCloseTo(top + CARD_LINE_H, 6);
-                    expect(cp.y).toBeCloseTo(lock.y, 6);
-                    // The whole cluster is two lines tall and inside the title area,
+                    // Row 1: the pill; row 2: the button, one line down.
+                    expect(run.y).toBeCloseTo(top + CARD_RUN_TOP, 6);
+                    expect(cp.y).toBeCloseTo(top + CARD_LINE_H, 6);
+                    // The whole column is two lines tall and inside the title area,
                     // its left edge where the name's reserve ends.
-                    for (const c of [badge, run, lock, cp]) {
+                    for (const c of [run, cp]) {
                         expect(c.y + c.h).toBeLessThanOrEqual(top + CARD_CLUSTER_H + 1e-6);
                         expect(c.x).toBeGreaterThanOrEqual(right - CARD_CLUSTER_W - 1e-6);
                     }
                     expect(n.titleH).toBeGreaterThanOrEqual(CARD_PAD_Y + CARD_CLUSTER_H - 1e-6);
-                    // Nothing in the cluster overlaps anything else in it.
-                    const cl = [badge, run, lock, cp];
+                    // Nothing in the title area overlaps anything else in it.
+                    const cl = [get('collapse'), get('badge'), run, cp];
                     for (let i = 0; i < cl.length; i += 1) {
                         for (let j = i + 1; j < cl.length; j += 1) {
                             expect(rectsOverlap(cl[i], cl[j])).toBe(false);

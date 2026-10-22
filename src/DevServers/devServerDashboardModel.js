@@ -34,15 +34,21 @@ import { resolveThisMachineId, terminalFocusState, TERMINAL_STATE } from '../Swa
 
 /** Viewport inset of the home corner, px. */
 export const DASH_INSET = 16;
-/** Smallest panel the edges will shape, px: a row's bar, port and terminal. */
+/** Smallest panel the edges will shape, px: a row's terminal/port pill,
+ *  stacked (req #3748). */
 export const DASH_MIN_W = 120;
+/** Narrower than this, the terminal/port pill stacks its halves (req #3748):
+ *  side by side, "T10 | 3001" needs ~140px once a floating
+ *  panel reserves a classic scrollbar's gutter. The icon-only navbar rack (64px) is here. */
+export const DASH_STACK_W = 144;
+/** At least this wide (or content-sized), the pill reads "Term 4" rather than
+ *  "T4" (req #3748, which reversed #3668's 340px and its content-sized short
+ *  form): wide enough that the title keeps ~6 characters beside it. */
+export const DASH_PILL_WIDE_W = 210;
 export const DASH_MIN_H = 64;
-/** Narrower than this, it drops the title too: bar, port and terminal only
- *  (user directive: "at its smallest"; 190 cut 20% by req #3718). */
+/** Narrower than this, it drops the title too: the terminal/port pill
+ *  only (user directive: "at its smallest"; 190 cut 20% by req #3718). */
 export const DASH_TINY_W = 152;
-/** At least this wide (shaped), the terminal reads "Term 4" rather than "T4"
- *  (req #3668). Content-sized is never "wider": it keeps the short form. */
-export const DASH_WIDE_W = 340;
 /** Content-sized, the panel is as wide as its rows, up to this, px. */
 export const DASH_AUTO_MAX_W = 420;
 /** Its id in the navbar's panel rack (req #3720). */

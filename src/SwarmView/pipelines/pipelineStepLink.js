@@ -288,6 +288,33 @@ export function backToPlanQuery(state) {
     return parts.length ? parts.join('&') : null;
 }
 
+/**
+ * The plan a page was opened FROM, out of its router state: `{ id, mode }` when
+ * the state is a `planExitState` record (`from: 'pipeline'` and a usable plan
+ * id), else null. `mode` is charset-checked, not validated against the panel
+ * list — the receiving page owns that vocabulary and falls back on anything it
+ * does not recognise; all this end needs is that the value cannot corrupt the
+ * URL it is interpolated into. Moved here from StepsPage by req #3742 so the
+ * Epics and Steps editors read it identically.
+ */
+export function planOriginOf(state) {
+    if (state?.from !== 'pipeline') return null;
+    const id = Number(state?.pipelineId);
+    if (!Number.isFinite(id) || id <= 0) return null;
+    const raw = state?.mode;
+    return { id, mode: typeof raw === 'string' && /^[a-z]{1,16}$/.test(raw) ? raw : null };
+}
+
+/**
+ * Where "Back to Plan" goes from a page opened with `state`: the plan's own
+ * path with every view override the exit carried, or null when the page was
+ * not opened from a plan (req #3742 — the editors' close uses it too).
+ */
+export function planReturnPath(state) {
+    const origin = planOriginOf(state);
+    return origin ? planDetailPath(origin.id, backToPlanQuery(state)) : null;
+}
+
 /** The step a new requirement is to be seated on, or null when the state names
  * none (or names something that is not a step id). */
 export function readNewRequirementSeat(state) {

@@ -91,15 +91,15 @@ import { useSnackBarStore } from '../../stores/useSnackBarStore';
 
 let mountedRoots = [];
 let queryClient;
-
-// Renders the router location so a test can read what the page wrote to it,
-// and keeps the REAL navigate (the module mock replaces `useNavigate` for the
-// page) so a test can change the URL from OUTSIDE the page.
+// Renders the router location so a test can read what the page wrote to it
+// (the req #3742 return-to-plan tests and the req #3750 filter tests), and
+// keeps the REAL navigate (the module mock replaces `useNavigate` for the page)
+// so a test can change the URL from OUTSIDE the page.
 const actualRouter = await vi.importActual('react-router-dom');
-let lastLocation = null;
+let currentLocation = null;
 let outsideNavigate = null;
 function LocationProbe() {
-    lastLocation = useLocation();
+    currentLocation = useLocation();
     outsideNavigate = actualRouter.useNavigate();
     return null;
 }
@@ -316,11 +316,11 @@ describe('StepsPage2 pipeline → epic cascade', () => {
             state: { from: 'pipeline', pipelineId: 7, mode: 'plan' } }]);
         expect(node('steps-back-to-plan')).not.toBeNull();
         await pickOption('steps-epic-filter', 'Surface polish');
-        expect(lastLocation.search).toBe('?epic=5&pipeline=7');
-        expect(lastLocation.state).toEqual({ from: 'pipeline', pipelineId: 7, mode: 'plan' });
+        expect(currentLocation.search).toBe('?epic=5&pipeline=7');
+        expect(currentLocation.state).toEqual({ from: 'pipeline', pipelineId: 7, mode: 'plan' });
         expect(node('steps-back-to-plan')).not.toBeNull();
         await pickOption('steps-pipeline-filter', 'All pipelines');
-        expect(lastLocation.search).toBe('');
+        expect(currentLocation.search).toBe('');
     });
 
     it('re-filters when a link changes the URL while the page is open', async () => {
@@ -384,8 +384,9 @@ describe('StepsPage2 edit', () => {
     });
 
     it("clears notes with the REST 'NULL' sentinel", async () => {
+        steps[0].notes = 'Some notes';
         mount();
-        click(node('step2-edit-101'));
+        click(node('step2-edit-100'));
         type(node('step2-notes-input'), '');
         click(node('step2-save'));
         await flush();
@@ -410,6 +411,122 @@ describe('StepsPage2 edit', () => {
         click(node('step2-save'));
         await flush();
         expect(restCalls[0].body[0].not_before).toBe('NULL');
+    });
+});
+
+// req #3742 — the step card's padlock is gone, so the lock is set in the
+// editor. A step that stays locked takes no authoring write (the gateway would
+// answer 423); lifting or setting the lock rides the same PUT as the fields.
+const pickLock = (value) => {
+    const combo = node('step2-locked-select').querySelector('[role="combobox"]');
+    act(() => { combo.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 })); });
+    click(document.body.querySelector(`li[data-value="${value}"]`));
+};
+
+describe('StepsPage2 editor lock (req #3742)', () => {
+    it('a locked step opens read-only and Save writes nothing', async () => {
+        mount();
+        click(node('step2-edit-101'));
+        expect(node('step2-title-input').disabled).toBe(true);
+        expect(node('step2-notes-input').disabled).toBe(true);
+        click(node('step2-save'));
+        await flush();
+        expect(restCalls).toEqual([]);
+    });
+
+    it('unlocking writes locked=0 with the fields, in one PUT', async () => {
+        mount();
+        click(node('step2-edit-101'));
+        pickLock('unlocked');
+        expect(node('step2-title-input').disabled).toBe(false);
+        type(node('step2-title-input'), 'Renamed');
+        click(node('step2-save'));
+        await flush();
+        expect(restCalls).toHaveLength(1);
+        expect(restCalls[0].body[0]).toMatchObject({ id: 101, title: 'Renamed', locked: 0 });
+    });
+
+    it('locking an open step writes locked=1; an unchanged lock is not sent', async () => {
+        mount();
+        click(node('step2-edit-100'));
+        click(node('step2-save'));
+        await flush();
+        expect(restCalls[0].body[0]).not.toHaveProperty('locked');
+        restCalls.length = 0;
+        click(node('step2-edit-100'));
+        pickLock('locked');
+        click(node('step2-save'));
+        await flush();
+        expect(restCalls[0].body[0]).toMatchObject({ id: 100, locked: 1 });
+    });
+});
+
+// req #3742 — a single click on a plan's step card lands here as ?id=<id>
+// with the plan-exit state; the dialog opens and its close returns to the plan.
+describe('StepsPage2 editor — a lock held by the epic or plan (req #3742)', () => {
+    afterEach(() => { pipelines = []; });
+
+    it('a step under a locked epic opens read-only, names the epic, and writes nothing', async () => {
+        epics.find((e) => e.id === 4).locked = 1;
+        mount();
+        click(node('step2-edit-100'));
+        expect(node('step2-inherited-lock').textContent).toContain('Locked by its epic');
+        expect(node('step2-title-input').disabled).toBe(true);
+        expect(node('step2-locked-select').className).toContain('Mui-disabled');
+        click(node('step2-save'));
+        await flush();
+        expect(restCalls).toEqual([]);
+    });
+
+    it('a locked plan outranks the epic', () => {
+        pipelines = [{ id: 7, locked: 1 }];
+        mount();
+        click(node('step2-edit-100'));
+        expect(node('step2-inherited-lock').textContent).toContain('Locked by its pipeline');
+    });
+
+    it('re-locking over unsaved edits refuses rather than dropping them', async () => {
+        mount();
+        click(node('step2-edit-101'));
+        pickLock('unlocked');
+        type(node('step2-title-input'), 'Renamed');
+        pickLock('locked');
+        click(node('step2-save'));
+        await flush();
+        expect(restCalls).toEqual([]);
+        expect(snackMessage()).toContain('Unlock the step to save');
+    });
+});
+
+// The plan canvas opens the editor over itself since req #3742; the page's own
+// `?id=` link still opens the step's editor, and closes onto the grid.
+describe('StepsPage2 ?id= deep link (req #3742)', () => {
+    const fromPlan = { from: 'pipeline', pipelineId: 7, mode: 'plan' };
+
+    it('opens the step\'s editor, consumes ?id= and keeps the router state', () => {
+        mount([{ pathname: '/swarm/steps', search: '?id=100', state: fromPlan }]);
+        expect(node('step2-edit-dialog')).not.toBeNull();
+        expect(node('step2-title-input').value).toBe('Free step');
+        expect(currentLocation.search).toBe('');
+        expect(currentLocation.state).toEqual(fromPlan);
+        expect(node('steps-back-to-plan')).not.toBeNull();
+    });
+
+    it('Save refreshes every plan\'s composed read, so the plan never shows the pre-save card', async () => {
+        mount([{ pathname: '/swarm/steps', search: '?id=100', state: fromPlan }]);
+        click(node('step2-save'));
+        await flush();
+        expect(restCalls).toHaveLength(1);
+        expect(queryClient.invalidateQueries)
+            .toHaveBeenCalledWith({ queryKey: ['pipeline_compose'] });
+    });
+
+    it('opened from the grid, the dialog closes onto the grid', () => {
+        mount();
+        click(node('step2-edit-100'));
+        click([...document.body.querySelectorAll('button')]
+            .find((b) => b.textContent === 'Cancel'));
+        expect(currentLocation.pathname).toBe('/swarm/steps');
     });
 });
 
