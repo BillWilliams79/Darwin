@@ -792,11 +792,10 @@ export default function UnorchestratedReqBox({
                     opacity: overRack ? 0.75 : (carrying ? 0.35 : 1),
                     // Only while folding — see the header.
                     transition: folding && !inRack ? `width ${foldMs}ms ease` : 'none',
-                    // In the stack: square, flat. Open, it takes its share of
-                    // the rack's free height and its list scrolls inside it
-                    // (req #3744); folded, it is its title bar.
-                    ...(racking && { flex: open ? '1 1 auto' : '0 0 auto',
-                        borderRadius: 0, boxShadow: 'none' }) }}>
+                    // In the stack: square, flat. The rack's row sizes it: open,
+                    // the height its rows need and no more, its list scrolling
+                    // when the rack is short (req #3747); folded, its title bar.
+                    ...(racking && { borderRadius: 0, boxShadow: 'none' }) }}>
             <Box ref={headerRef} data-testid="pipeline-viz-unseated-header"
                  title={inRack
                      ? `Drag to reorder · drag off the navbar to float it${count > 0 ? ' · drop on a step to seat them all' : ''}`
@@ -860,15 +859,18 @@ export default function UnorchestratedReqBox({
                                     display: 'flex', flexDirection: 'column', minHeight: 0 } } }}>
             <Box ref={listRef} data-testid="pipeline-viz-unseated-list"
                  // A stretched height, in `style` for the same reason as
-                 // the box's own geometry: it changes on every frame.
+                 // the box's own geometry: it changes on every frame. Racked,
+                 // the reader's stretch is ignored: the list is its rows
+                 // (req #3747).
                  style={{
-                     ...(drawn.listHeightPx != null
+                     ...(drawn.listHeightPx != null && !racking
                          && { height: `${drawn.listHeightPx}px`, maxHeight: 'none' }),
                      // Mid-fold only — see `foldListW`.
                      ...(foldListW > 0 && { width: `${foldListW}px` }) }}
                  sx={{ overflowY: 'auto', overscrollBehavior: 'contain',
                         minHeight: 0, flex: racking ? '1 1 auto' : '0 1 auto',
-                        // Racked, the navbar's free height is the cap (req #3744).
+                        // Racked, the rack's row is the cap: its rows, or its
+                        // fair share of a short navbar (req #3747).
                         maxHeight: racking ? 'none' : `${LIST_MAX_EM}em`,
                         borderTop: `1px solid ${P.line}`, py: '0.35em' }}>
                 {isError && (
