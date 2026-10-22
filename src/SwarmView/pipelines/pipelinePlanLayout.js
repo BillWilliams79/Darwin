@@ -98,7 +98,11 @@ export const PLAN_VIZ_PALETTE = {
     doneFill: '#2e7d32',
     doneRing: '#7ee08a',
     doneCheck: '#c9f7cf',
-    runningFill: '#FFB300',
+    // `runningFill` (#FFB300) is GONE (req #3775, user directive: "Flashing
+    // yellow for doing work should be eradicated from the pipeline area"). A
+    // running step pulses its bar (the bead's fill at L1) in its own STEP
+    // COLOUR now — see `beadStyle`. `runningRing` stays: it is the static
+    // `development` requirement colour, not a step mark.
     runningRing: '#ffd769',
     pendingFill: '#22314b',
     eligibleRing: '#7ee08a',
@@ -141,7 +145,7 @@ export const PLAN_VIZ_PALETTE = {
     badgeText: '#0d1420',
     // The step card's two flag buttons (req #3673) — a control's colours, a
     // channel of their own. `lockOn` (orange, 9.1:1 on `panel`) is a LOCKED
-    // padlock and is deliberately not `runningFill`'s amber, which a reader
+    // padlock and is deliberately not `runningRing`'s amber, which a reader
     // already takes to mean "in flight". `barrierOn` is the striped barrier
     // arm of a step that holds its downstream; `barrierLight` is the arm's
     // other stripe. YELLOW since req #3742 — the button is the control for the
@@ -164,10 +168,10 @@ export const PLAN_VIZ_PALETTE = {
     //   yellow  `stepBarrier`     a barrier — holds the steps after it
     //   green   `stepWillRun`     none of those: it will run
     // First match wins, in that order (`stepColorOf`). Every one clears WCAG AA
-    // on `panel`: 5.3, 6.6, 12.1 and 9.9:1. The state (Scheduled / Running /
-    // Complete) stays on the card's state bar and the bead's fill, and "Up
-    // Next" on its dashed halo — separate channels, so nothing they said is
-    // lost to the border.
+    // on `panel`: 5.3, 6.6, 12.1 and 9.9:1. The card's state bar wears it too
+    // (req #3775) and PULSES while the step is running; the bead's fill keeps
+    // Scheduled / Complete at L1 and pulses in this colour while running. "Up
+    // Next" stays on its dashed halo.
     stepWillRun: '#4ade80',
     stepBarrier: '#ffd43b',
     stepManual: '#ff7a1a',
@@ -635,8 +639,9 @@ export function buildMachineColorView({ requirements = [], machines = [] } = {})
 // pairwise CIE76 ΔE across all four rungs 38.5 (`planned`/`implemented` —
 // UP from the prior scale's 45.9 low, still clear of the 20 floor by a wide
 // margin); `discuss`/`planned` themselves 44.6. Nearest RESERVED state hue
-// (`runningFill`/`runningRing`/`doneFill`/`doneRing`) 89.1, against a 25
-// floor — this pair reads nothing like a step's own running or done colour.
+// (`runningFill`/`runningRing`/`doneFill`/`doneRing`; `runningFill` since
+// deleted, req #3775) 89.1, against a 25 floor — this pair reads nothing like
+// a step's own running or done colour.
 // `deployed` is untouched, so its own history (green chosen ΔE 26.4 from
 // `doneRing`, the widest separation any recognisable green achieves here)
 // still stands and is not repeated.
@@ -1761,10 +1766,17 @@ export const CARD_TITLE_CHARS = CARD_REQ_CHARS - CARD_ID_CHARS - CARD_SEP_CHARS;
 // the FILL becomes this — a state bar down the card's leading edge.
 //
 // A BAR RATHER THAN A TINTED TITLE AREA, and that is a contrast decision, not a
-// taste one: `runningFill` is `#FFB300` and the label colour is `#d7e3f4`, so
-// filling the title area with the state colour would have put ~1.6:1 text on
-// the one card a reader most needs to read. A bar carries the same colour at
-// full saturation next to text that keeps its own contrast.
+// taste one: the bright step colours (`stepBarrier` is `#ffd43b`) under the
+// `#d7e3f4` label would put ~1.5:1 text on the card. A bar carries the colour
+// at full saturation next to text that keeps its own contrast.
+//
+// ── THE BAR IS THE STEP COLOUR, ALWAYS (req #3775, user directive) ────────
+// *"have the color bar always be the same color as the perimeter of the
+// step."* It used to carry the state fill — Running amber, Complete green,
+// Scheduled navy — and the amber, pulsing, was the one yellow flash on the
+// surface that meant "work in progress". The bar now takes `beadStyle`'s
+// `bar`, which IS the frame colour, and still PULSES while the step runs:
+// the motion says running, the colour says what the border says.
 //
 // ── OUTSIDE THE FRAME, ON THE LEFT (user directive, 2026-08-13) ────────────
 // It began flush INSIDE the card's left border, where it ate into the text
@@ -5712,15 +5724,19 @@ export function beadStyle(row, eligible, suppressed = false) {
     const P = PLAN_VIZ_PALETTE;
     const done = row.state === STEP_DONE;
     const running = row.state === STEP_RUNNING;
-    const fill = done ? P.doneFill : running ? P.runningFill : P.pendingFill;
     // req #3742 — the ring and the card's frame are the STEP COLOUR alone.
     // They used to carry run mode (a magenta manual ring), eligibility (a
-    // green ring) and state (done/running/pending tints); state is the fill
-    // and the card's state bar, and eligibility is the dashed halo, so the
-    // border is free to say one thing.
+    // green ring) and state (done/running/pending tints); eligibility is the
+    // dashed halo, so the border is free to say one thing.
     const color = stepColorOf(row);
+    // req #3775 — no amber for "running" anywhere on the surface. The card's
+    // state `bar` is the frame colour in EVERY state, and the L1 bead's fill
+    // is that colour while running; both pulse (`pulse`) — the motion is the
+    // running mark, never a hue of its own.
+    const fill = done ? P.doneFill : running ? color : P.pendingFill;
     return {
         fill,
+        bar: color,
         ring: color,
         ringWidth: BEAD_RING_W_EMPHASIS,
         frame: color,
