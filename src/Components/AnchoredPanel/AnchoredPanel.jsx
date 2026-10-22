@@ -33,7 +33,15 @@
 // the panel is RACKED — portalled into the navbar's rack slot below its nav
 // buttons, at the navbar's width, nothing to reshape. Open, it is as tall as
 // its rows need and no taller, sharing a short navbar fairly with the other
-// racked panels (req #3747); folded, it is its head row.
+// racked panels (req #3747); folded, it is its head row. The rack is the
+// navbar's — or, on a page that shows its own toolbar, that toolbar's (req #3792:
+// AI Architecture's, in its iframe), by the same rules. A head drag that starts
+// in a rack in another document is worked in Darwin's viewport px (`slotOffset`)
+// and, once the pointer is off that rack, LIFTS the panel into Darwin's page, so
+// it follows the pointer over the whole page — an iframe would clip it — the way
+// a panel dragged out of the navbar does; a reorder inside the rack stays where
+// it is. Its pointer is followed on both documents (no element capture survives
+// the lift), and its body's scroll position is carried across the remount.
 // Dragging a racked panel's head up or down the stack reorders it; off the
 // navbar, it floats again, docked where it was dropped. Where the reader racks it is the rack's (pure half in
 // panelRack.js, DOM half in usePanelRack.js — shared with the Orchestrables box,
@@ -41,7 +49,6 @@
 // page covers the navbar (usePanelRackStore `covered`), the panel floats.
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 
 import Box from '@mui/material/Box';
 
@@ -51,7 +58,7 @@ import {
     moveRect, resizeRect,
 } from './anchoredPanelGeometry';
 import { rackOrder } from './panelRack';
-import { usePanelRack } from './usePanelRack';
+import { rackPortal, slotOffset, usePanelRack } from './usePanelRack';
 
 /** Pointer travel, px, before a head press becomes a move. */
 const MOVE_SLOP = 4;
@@ -65,6 +72,9 @@ const EDGE_PX = 10;
 const CORNER_PX = 18;
 const HEAD_EDGE_PX = 5;
 const HEAD_CORNER_PX = 8;
+
+const NO_OFFSET = { left: 0, top: 0 };
+const POINTER_EVENTS = ['pointermove', 'pointerup', 'pointercancel'];
 
 const viewport = () => ({
     vw: document.documentElement.clientWidth || window.innerWidth,
@@ -139,7 +149,13 @@ export default function AnchoredPanel({
     // there: racked, a navbar to hold it, the navbar not covered.
     const rackApi = usePanelRack(rackId);
     const { rackPos, inRack, slot, overRack, narrow } = rackApi;
-    useEffect(() => () => { gestureRef.current = null; }, []);
+    // What the rack is called on the page: the navbar, or a page's toolbar.
+    const rackName = slot?.name || 'navbar';
+    useEffect(() => () => { gestureRef.current?.unlisten?.(); gestureRef.current = null; }, []);
+    // The body's scroll position, kept across a remount (a lift out of a rack in
+    // another document and back) — not written while a gesture reshapes it.
+    const scrollRef = useRef(0);
+    const onBodyScroll = (e) => { if (!gestureRef.current?.last) scrollRef.current = e.currentTarget.scrollTop; };
 
     const begin = (kind, edge = null) => (e) => {
         if (gestureRef.current || e.button !== 0) return;
@@ -148,35 +164,71 @@ export default function AnchoredPanel({
         if (!box) return;
         e.preventDefault();
         e.stopPropagation();
-        e.currentTarget.setPointerCapture?.(e.pointerId);
         const r = box.getBoundingClientRect();
+        // Racked in a page toolbar's iframe, its pointer and rect are in that
+        // document's px: the gesture is worked in Darwin's (req #3792), and the
+        // panel is lifted into Darwin's page once it moves — so the pointer is
+        // followed on both documents rather than captured by an element the
+        // lift unmounts.
+        const slotDoc = inRack ? slot.node.ownerDocument : null;
+        const foreign = !!slotDoc && slotDoc !== document;
+        const off = foreign ? slotOffset(slot) : NO_OFFSET;
+        let unlisten = null;
+        if (foreign) {
+            const docs = [slotDoc, document];
+            const on = (ev) => (ev.type === 'pointermove' ? onMove(ev) : onUp(ev));
+            docs.forEach(d => POINTER_EVENTS.forEach(t => d.addEventListener(t, on)));
+            unlisten = () => docs.forEach(d => POINTER_EVENTS.forEach(t => d.removeEventListener(t, on)));
+        } else {
+            e.currentTarget.setPointerCapture?.(e.pointerId);
+        }
         gestureRef.current = {
-            kind, edge, id: e.pointerId, sx: e.clientX, sy: e.clientY,
+            kind, edge, id: e.pointerId, off, slotDoc: foreign ? slotDoc : null, unlisten,
+            sx: e.clientX + off.left, sy: e.clientY + off.top,
             // Dragged out of the rack, a tall stack-sized panel would be held
             // high by the viewport clamp: only its head need stay on screen
             // (the drawn height is capped below the pointer anyway).
-            r0: { left: r.left, top: r.top, width: r.width,
+            r0: { left: r.left + off.left, top: r.top + off.top, width: r.width,
                 height: kind === 'move' && inRack ? Math.min(r.height, limits.headPx) : r.height },
             last: null, fromRack: inRack,
         };
     };
+    // The pointer in Darwin's viewport px — offset when it reports in the
+    // slot's document. A gesture followed on the documents ignores its
+    // element's own handlers (the same event, bubbling).
+    const ownEvent = (g, e) => !g.unlisten || e.currentTarget?.nodeType === 9;
+    const at = (g, e) => {
+        const t = e.currentTarget;
+        const off = (t?.nodeType === 9 ? t : t?.ownerDocument) === g.slotDoc ? g.off : NO_OFFSET;
+        return { x: e.clientX + off.left, y: e.clientY + off.top };
+    };
     const onMove = (e) => {
         const g = gestureRef.current;
-        if (!g || e.pointerId !== g.id) return;
-        const dx = e.clientX - g.sx;
-        const dy = e.clientY - g.sy;
+        if (!g || e.pointerId !== g.id || !ownEvent(g, e)) return;
+        // No capture backs a gesture followed on the documents: a release that
+        // never arrived (outside the window) ends it as a cancel.
+        if (g.unlisten && e.buttons === 0) {
+            onUp({ type: 'pointercancel', pointerId: e.pointerId, currentTarget: e.currentTarget,
+                clientX: e.clientX, clientY: e.clientY });
+            return;
+        }
+        const { x, y } = at(g, e);
+        const dx = x - g.sx;
+        const dy = y - g.sy;
         if (!g.last && g.kind === 'move' && Math.hypot(dx, dy) <= MOVE_SLOP) return;
         const { vw, vh } = viewport();
         g.last = g.kind === 'move'
             ? moveRect(g.r0, dx, dy, vw, vh)
             : resizeRect(g.r0, dx, dy, g.edge, vw, vh, limits.minW, limits.minH);
-        setLive({ ...g.last, edge: g.edge });
-        if (g.kind === 'move') rackApi.track(e.clientX, e.clientY, g.fromRack, colors.frame);
+        // Lifted only off the rack: a reorder inside it is drawn where it is.
+        setLive({ ...g.last, edge: g.edge, lifted: !!g.slotDoc && !rackApi.isOver(x, y, g.fromRack) });
+        if (g.kind === 'move') rackApi.track(x, y, g.fromRack, colors.frame);
     };
     const onUp = (e) => {
         const g = gestureRef.current;
-        if (!g || e.pointerId !== g.id) return;
+        if (!g || e.pointerId !== g.id || !ownEvent(g, e)) return;
         gestureRef.current = null;
+        g.unlisten?.();
         if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
             e.currentTarget.releasePointerCapture(e.pointerId);
         }
@@ -189,7 +241,8 @@ export default function AnchoredPanel({
         }
         lastMoveEndRef.current = Date.now();
         if (g.kind === 'move') {
-            const placed = rackApi.release(e.clientX, e.clientY, g.fromRack);
+            const { x, y } = at(g, e);
+            const placed = rackApi.release(x, y, g.fromRack);
             // Dropped on the navbar: into the stack where the pointer is.
             // Its floating dock is kept for the day it is dragged back out.
             if (placed === 'racked') return;
@@ -243,6 +296,12 @@ export default function AnchoredPanel({
         const next = dockAfterToggle(pin, { width: r.width, height }, vw, vh, dock);
         if (['h', 'x', 'v', 'y'].some(k => next[k] !== dock[k])) onDockChange(next);
     }, [open, dock, inRack]);
+    // Remounted (lifted out of a rack in another document, or back): its rows
+    // keep their scroll position.
+    const lifted = !!live?.lifted;
+    useLayoutEffect(() => {
+        if (bodyRef.current && scrollRef.current) bodyRef.current.scrollTop = scrollRef.current;
+    }, [lifted, inRack, slot?.node]);
     const onHeadDoubleClick = (e) => {
         // Racked, it has no home to go to: it is dragged out instead.
         if (inRack) return;
@@ -256,11 +315,14 @@ export default function AnchoredPanel({
     // Racked and at rest, it is in the navbar's flow at the navbar's width;
     // dragged out, it is drawn fixed under the pointer like any move.
     const racking = inRack && !live;
+    // Dragged within a rack in another document, it is still drawn there: in
+    // that document's px.
+    const drawnOff = live && inRack && !live.lifted ? slotOffset(slot) : NO_OFFSET;
     const placement = live
-        ? { left: `${live.left}px`, top: `${live.top}px`,
+        ? { left: `${live.left - drawnOff.left}px`, top: `${live.top - drawnOff.top}px`,
             ...((reshapingH || dock.w != null || !live.edge)
                 ? { width: `${live.width}px` } : { width: 'max-content', maxWidth: `${limits.autoMaxW}px` }),
-            maxHeight: `calc(100% - ${live.top}px)`,
+            maxHeight: `calc(100% - ${live.top - drawnOff.top}px)`,
             ...((reshapingV || (open && dock.ht != null && !inRack)) ? { height: `${live.height}px` } : {}) }
         : racking ? { width: '100%' }
             : dockedStyle(dock, { open, headPx: limits.headPx, autoMaxW: limits.autoMaxW,
@@ -295,8 +357,8 @@ export default function AnchoredPanel({
                     ...(racking && { order: rackOrder(rackPos),
                         borderRadius: 0, boxShadow: 'none' }) }}>
             <Box data-testid={`${testid}-header`}
-                 title={inRack ? 'Drag to reorder · drag off the navbar to float it'
-                     : `Drag to move · double-click to put back${rackId ? ' · drop on the navbar to rack it' : ''}`}
+                 title={inRack ? `Drag to reorder · drag off the ${rackName} to float it`
+                     : `Drag to move · double-click to put back${rackId ? ` · drop on the ${rackName} to rack it` : ''}`}
                  {...gesture('move')}
                  onDoubleClick={onHeadDoubleClick}
                  sx={{ display: 'flex', alignItems: 'center', gap: '0.6em',
@@ -326,7 +388,7 @@ export default function AnchoredPanel({
             {/* Folded, the body takes no room at all — the panel is its head
                 row, tight. (The ▾ cannot slide: the toggle pinned the left.)
                 It stays mounted so the list keeps its scroll position. */}
-            <Box ref={bodyRef} data-testid={`${testid}-body`}
+            <Box ref={bodyRef} data-testid={`${testid}-body`} onScroll={onBodyScroll}
                  data-folded={open ? '0' : '1'}
                  aria-hidden={open ? undefined : 'true'}
                  sx={{ overflowY: 'auto', overscrollBehavior: 'contain',
@@ -364,5 +426,6 @@ export default function AnchoredPanel({
             ))}
         </Box>
     );
-    return inRack ? createPortal(panel, slot.node) : panel;
+    // Lifted out of a rack in another document, it is drawn in Darwin's page.
+    return inRack && !lifted ? rackPortal(panel, slot) : panel;
 }
