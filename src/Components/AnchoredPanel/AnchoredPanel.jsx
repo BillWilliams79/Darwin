@@ -333,8 +333,11 @@ export default function AnchoredPanel({
                  aria-hidden={open ? undefined : 'true'}
                  sx={{ overflowY: 'auto', overscrollBehavior: 'contain',
                         // A classic scrollbar must not change the open
-                        // width as rows come and go.
-                        scrollbarGutter: 'stable',
+                        // width as rows come and go. Racked, the navbar sets
+                        // the width, so nothing to hold — and a reserved gutter
+                        // there is only a blank strip inside the right frame
+                        // (req #3748).
+                        scrollbarGutter: inRack ? 'auto' : 'stable',
                         minHeight: 0, flex: '1 1 auto',
                         py: '0.2em',
                         // Its scrollbar sits inside the right reshape zone, not under it.
