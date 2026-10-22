@@ -4,8 +4,9 @@
 // dashboard, rather than a box fixed to the bottom of the navbar.
 //
 // It is an AnchoredPanel (Components/AnchoredPanel) in the dashboard's own
-// chrome (infoPanelChrome.js): the ▾ head, an orange port badge and the
-// DEV SERVER title, then its rows. RACKED BY DEFAULT — the first time it mounts
+// chrome (infoPanelChrome.js): the ▾ head and the DEV SERVER title, then its
+// rows — the terminal pill with the port pill below it (req #3748), the
+// requirement, the database. RACKED BY DEFAULT — the first time it mounts
 // in a browser it is seeded into the navbar's panel rack (usePanelRackStore
 // .seed), so it sits docked in the navbar as the old box did, stacked with any
 // other racked panel. Drag its head off the navbar and it floats, moves,
@@ -22,7 +23,7 @@ import useMediaQuery from '@mui/material/useMediaQuery';
 import AnchoredPanel from '../Components/AnchoredPanel/AnchoredPanel';
 import { validDock } from '../Components/AnchoredPanel/anchoredPanelGeometry';
 import {
-    INFO_PANEL_BADGE_EM, INFO_PANEL_COLORS, INFO_PANEL_FONT_PX, INFO_PANEL_HEAD_PX, INFO_PANEL_SX,
+    INFO_PANEL_COLORS, INFO_PANEL_FONT_PX, INFO_PANEL_HEAD_PX, INFO_PANEL_SX,
 } from '../Components/AnchoredPanel/infoPanelChrome';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
@@ -46,8 +47,47 @@ const LIMITS = { minW: MIN_W, minH: MIN_H, autoMaxW: 320, headPx: INFO_PANEL_HEA
 /** Floating home: bottom-left, just clear of the full-width navbar. */
 const HOME = Object.freeze({ h: 'l', x: SIDEBAR_WIDTH + 16, v: 'b', y: 16, w: null, ht: null });
 
-const ROW_SX = { px: '0.7em', py: '0.15em', lineHeight: 1.45, whiteSpace: 'nowrap',
+// Half the right padding of the left (req #3748): the title then reads wide
+// right up to the frame.
+const ROW_SX = { pl: '0.7em', pr: '0.35em', py: '0.15em', lineHeight: 1.45, whiteSpace: 'nowrap',
     overflow: 'hidden', textOverflow: 'ellipsis' };
+/** Half a row's line (1.45em) — the space between the requirement and the DB
+ *  line below it (req #3748). */
+const HALF_LINE = '0.725em';
+const HAS_REQ = !!(DEV_REQ_ID || DEV_REQ_TITLE);
+
+/** The info-window chrome, framed in the dev server's own orange rather than
+ *  the family purple (req #3748) — the colour of its pills. */
+const FRAME_COLORS = { ...INFO_PANEL_COLORS, frame: DEV_ORANGE };
+
+const PILL_SX = { display: 'inline-block', px: '0.6em', py: '0.1em',
+    border: `1px solid ${DEV_ORANGE}`, borderRadius: '999px',
+    color: DEV_ORANGE, fontWeight: 700, textDecoration: 'none',
+    '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' } };
+
+/** The requirement as one line of text, `3748 - title` (req #3748): the id
+ *  links to production darwin.one — dev servers run against darwin_dev, where
+ *  the requirement may not exist (req #2757). */
+function RequirementLine({ sx, lines }) {
+    if (!HAS_REQ) return null;
+    return (
+        <Box data-testid="navbar-dev-req-title"
+             title={[DEV_REQ_ID, DEV_REQ_TITLE].filter(Boolean).join(' - ')}
+             sx={{ ...sx, whiteSpace: 'normal', overflowWrap: 'anywhere', overflow: 'hidden',
+                    // A few lines at most; the tooltip has the rest.
+                    display: '-webkit-box', WebkitLineClamp: lines, WebkitBoxOrient: 'vertical' }}>
+            {DEV_REQ_ID && (
+                <a href={prodRequirementUrl(DEV_REQ_ID)}
+                   target="_blank" rel="noopener noreferrer"
+                   style={{ color: '#90CAF9', textDecoration: 'none' }}
+                   data-testid="navbar-dev-req-link">
+                    {DEV_REQ_ID}
+                </a>
+            )}
+            {DEV_REQ_ID && DEV_REQ_TITLE ? ' - ' : ''}{DEV_REQ_TITLE}
+        </Box>
+    );
+}
 
 export default function DevServerInfoPanel() {
     const { profile } = useContext(AuthContext);
@@ -99,6 +139,15 @@ export default function DevServerInfoPanel() {
           + `&label=${encodeURIComponent(terminalLabel || 'dev server')}`
         : null;
     const prod = database === 'darwin';
+    // req #3748 — the dev server pill: below the terminal pill, opening this
+    // dev server in a new tab (the Sessions list's Dev Server chip does the same).
+    const portPill = (compact) => (
+        <Box component="a" href={`https://localhost:${port}`} target="_blank" rel="noopener noreferrer"
+             title={`Open port ${port} in a new tab`} data-testid="navbar-dev-port"
+             sx={compact ? { ...PILL_SX, alignSelf: 'flex-start', px: '0.35em', py: 0 } : PILL_SX}>
+            {compact ? port : `Port - ${port}`}
+        </Box>
+    );
 
     return (
         <AnchoredPanel dock={dock} onDockChange={setDock}
@@ -106,29 +155,13 @@ export default function DevServerInfoPanel() {
                        name="Dev Server" testid="devserver-info"
                        rackId={DEV_INFO_RACK_ID}
                        limits={LIMITS} fontPx={INFO_PANEL_FONT_PX}
-                       colors={INFO_PANEL_COLORS}
-                       sx={INFO_PANEL_SX}
-                       extras={
-                           // The port is what names a dev server everywhere in
-                           // Darwin — the badge stays even in the icon-only navbar.
-                           <Box component="span" data-testid="devserver-info-port"
-                                title={`Port ${port}`}
-                                sx={{ display: 'inline-flex', alignItems: 'center',
-                                       justifyContent: 'center', flexShrink: 0,
-                                       // Tight enough for four digits in the
-                                       // icon-only navbar's 64px.
-                                       height: INFO_PANEL_BADGE_EM, px: '0.15em', fontSize: '0.9em',
-                                       boxSizing: 'border-box', borderRadius: '999px',
-                                       border: `1px solid ${DEV_ORANGE}`, color: DEV_ORANGE,
-                                       fontWeight: 700, lineHeight: 1 }}>
-                               {port}
-                           </Box>
-                       }>
+                       colors={FRAME_COLORS}
+                       sx={INFO_PANEL_SX}>
             {({ shapedWidth }) => (shapedWidth != null && shapedWidth < RACK_NARROW_PX) ? (
                 // The icon-only navbar (req #3739): every field the full panel
-                // shows — terminal, database, requirement, title, port — in
-                // short form at a smaller size, wrapped rather than clipped,
-                // each with its full label as a tooltip.
+                // shows — terminal, port, requirement, database — in short form at a
+                // smaller size, wrapped rather than clipped, each with its full
+                // label as a tooltip.
                 <Box data-testid="devserver-info-compact"
                      sx={{ px: '0.4em', py: '0.15em', fontSize: '0.8em', lineHeight: 1.35,
                             display: 'flex', flexDirection: 'column', gap: '0.25em',
@@ -141,28 +174,14 @@ export default function DevServerInfoPanel() {
                             T{terminalNumber ?? '↗'}
                         </Box>
                     )}
+                    {portPill(true)}
+                    <RequirementLine lines={4} />
+                    {/* The DB last, half a line below the requirement (req #3748). */}
                     <Box data-testid="navbar-dev-database" title={`DB - ${database}${prod ? ' (PROD)' : ''}`}
-                         sx={{ color: prod ? DEV_ORANGE : 'inherit', fontWeight: prod ? 700 : 400 }}>
+                         // Half its 1.35 line, less the column's 0.25em gap.
+                         sx={{ mt: HAS_REQ ? '0.425em' : 0, color: prod ? DEV_ORANGE : 'inherit', fontWeight: prod ? 700 : 400 }}>
                         {database}{prod ? ' PROD' : ''}
                     </Box>
-                    {DEV_REQ_ID && (
-                        <a href={prodRequirementUrl(DEV_REQ_ID)}
-                           target="_blank" rel="noopener noreferrer" title={`Req - ${DEV_REQ_ID}`}
-                           style={{ color: '#90CAF9', textDecoration: 'none' }}
-                           data-testid="navbar-dev-req-link">
-                            #{DEV_REQ_ID}
-                        </a>
-                    )}
-                    {DEV_REQ_TITLE && (
-                        <Box data-testid="navbar-dev-req-title" title={DEV_REQ_TITLE}
-                             sx={{ overflow: 'hidden',
-                                    // Four short lines — about the original
-                                    // badge's 35 characters; the tooltip has the rest.
-                                    display: '-webkit-box', WebkitLineClamp: 4, WebkitBoxOrient: 'vertical' }}>
-                            {DEV_REQ_TITLE}
-                        </Box>
-                    )}
-                    <Box data-testid="navbar-dev-port" title={`Port - ${port}`}>:{port}</Box>
                 </Box>
             ) : (
                 <>
@@ -171,52 +190,25 @@ export default function DevServerInfoPanel() {
                         no window handle was captured (a dev server started
                         outside iterm-launch.sh), because a pill that cannot be
                         clicked is a worse lie than a label that never promised to. */}
-                    {terminalLabel != null && (
-                        <Box sx={{ ...ROW_SX, py: '0.3em' }}>
-                            {terminalHref ? (
-                                <Box component="a" href={terminalHref}
-                                     data-testid="navbar-dev-terminal"
-                                     sx={{ display: 'inline-block', px: '0.6em', py: '0.1em',
-                                            border: `1px solid ${DEV_ORANGE}`, borderRadius: '999px',
-                                            color: DEV_ORANGE, fontWeight: 700, textDecoration: 'none',
-                                            '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' } }}>
-                                    {terminalLabel}
-                                </Box>
-                            ) : (
-                                <Box component="span" data-testid="navbar-dev-terminal">{terminalLabel}</Box>
-                            )}
-                        </Box>
-                    )}
-                    {/* Active DB — orange + (PROD) when dev points at production (req #2683) */}
-                    <Box data-testid="navbar-dev-database"
-                         sx={{ ...ROW_SX, color: prod ? DEV_ORANGE : 'inherit', fontWeight: prod ? 700 : 400 }}>
-                        DB - {database}{prod ? ' (PROD)' : ''}
+                    <Box sx={{ ...ROW_SX, py: '0.3em', display: 'flex', flexDirection: 'column',
+                               alignItems: 'flex-start', gap: '0.3em' }}>
+                        {terminalLabel != null && (terminalHref ? (
+                            <Box component="a" href={terminalHref}
+                                 data-testid="navbar-dev-terminal" sx={PILL_SX}>
+                                {terminalLabel}
+                            </Box>
+                        ) : (
+                            <Box component="span" data-testid="navbar-dev-terminal">{terminalLabel}</Box>
+                        ))}
+                        {portPill(false)}
                     </Box>
-                    {DEV_REQ_ID && (
-                        <Box sx={ROW_SX}>
-                            {/* Dev servers run against darwin_dev, where this
-                                requirement may not exist, so it links to
-                                production darwin.one (req #2757). */}
-                            <a href={prodRequirementUrl(DEV_REQ_ID)}
-                               target="_blank" rel="noopener noreferrer"
-                               style={{ color: '#90CAF9', textDecoration: 'none' }}
-                               data-testid="navbar-dev-req-link">
-                                Req - {DEV_REQ_ID}
-                            </a>
-                        </Box>
-                    )}
-                    {DEV_REQ_TITLE && (
-                        <Box data-testid="navbar-dev-req-title" title={DEV_REQ_TITLE}
-                             sx={{ ...ROW_SX, whiteSpace: 'normal', wordBreak: 'break-word',
-                                    // Three lines at most; the tooltip has the rest.
-                                    display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
-                            {DEV_REQ_TITLE}
-                        </Box>
-                    )}
-                    {/* The original badge's last line (req #3739) — the head
-                        badge alone is a bare number. */}
-                    <Box data-testid="navbar-dev-port" sx={{ ...ROW_SX, pb: '0.3em' }}>
-                        Port - {port}
+                    <RequirementLine sx={ROW_SX} lines={3} />
+                    {/* Active DB — orange + (PROD) when dev points at production
+                        (req #2683). Last, half a line below the requirement (req #3748). */}
+                    <Box data-testid="navbar-dev-database"
+                         sx={{ ...ROW_SX, mt: HAS_REQ ? HALF_LINE : 0, pb: '0.3em',
+                                color: prod ? DEV_ORANGE : 'inherit', fontWeight: prod ? 700 : 400 }}>
+                        DB - {database}{prod ? ' (PROD)' : ''}
                     </Box>
                 </>
             )}

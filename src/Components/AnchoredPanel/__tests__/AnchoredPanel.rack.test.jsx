@@ -131,23 +131,38 @@ describe('AnchoredPanel rack (req #3720)', () => {
         expect(getComputedStyle(screen.getByTestId('p-a')).order).toBe('2');
     });
 
-    it('dropped on the navbar below the stack, a panel lands first, at the top (req #3729)', () => {
+    it('open or folded, a racked panel never grows past its content: the rack row sizes it (req #3747)', () => {
+        usePanelRackStore.setState({ racked: ['a'] });
+        render(<Panel id="a" />);
+        const a = screen.getByTestId('p-a');
+        expect(a.getAttribute('data-rack-open')).toBe('1');
+        expect(getComputedStyle(a).flexGrow).not.toBe('1');
+        expect(a.style.height).toBe('');
+        fireEvent.click(screen.getByTestId('p-a-toggle'));
+        expect(a.getAttribute('data-rack-open')).toBe('0');
+        expect(getComputedStyle(a).flexGrow).not.toBe('1');
+    });
+
+    it('dropped on the navbar off the stack, a panel lands last, at the bottom (req #3744)', () => {
         usePanelRackStore.setState({ racked: ['a'] });
         render(<><Panel id="a" /><Panel id="b" /></>);
         place(screen.getByTestId('p-a'), { left: 0, top: 300, width: 180, height: 100 });
         place(screen.getByTestId('p-b'), { left: 1200, top: 800, width: 300, height: 180 });
 
         press('b', [1300, 810]);
-        // Below the stack (it ends at 400): the top.
+        // Below the stack (it ends at 400): the bottom.
         moveTo('b', [90, 800]);
         expect(usePanelRackStore.getState().drag).toEqual(
-            { id: 'b', fromRack: false, over: true, index: 0, color: COLORS.frame });
-        // Pointed at a's lower half: into position, below it.
-        moveTo('b', [90, 380]);
+            { id: 'b', fromRack: false, over: true, index: 1, color: COLORS.frame });
+        // Above it (the nav buttons): not in the list either, the bottom.
+        moveTo('b', [90, 100]);
         expect(usePanelRackStore.getState().drag.index).toBe(1);
+        // Pointed at a's upper half: into position, above it.
+        moveTo('b', [90, 320]);
+        expect(usePanelRackStore.getState().drag.index).toBe(0);
         moveTo('b', [90, 800]);
         release('b', [90, 800]);
-        expect(usePanelRackStore.getState().racked).toEqual(['b', 'a']);
+        expect(usePanelRackStore.getState().racked).toEqual(['a', 'b']);
     });
 
     it('a racked panel dragged up or down the stack reorders it (req #3729)', () => {

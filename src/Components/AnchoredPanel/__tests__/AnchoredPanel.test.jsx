@@ -122,6 +122,20 @@ describe('AnchoredPanel (req #3643)', () => {
         expect(screen.getByTestId('ap-content').getAttribute('data-w')).toBe('484');
     });
 
+    it('the grab zones below the head row are easy to hit (req #3743)', () => {
+        render(<Harness />);
+        const px = (id, prop) => parseFloat(getComputedStyle(screen.getByTestId(`ap-edge-${id}`))[prop]);
+        expect(px('e', 'width')).toBeGreaterThanOrEqual(10);
+        expect(px('s', 'height')).toBeGreaterThanOrEqual(10);
+        expect(px('se', 'width')).toBeGreaterThanOrEqual(18);
+        expect(px('se', 'height')).toBeGreaterThanOrEqual(18);
+        // The head row stays slim so the ▾ and × keep their clicks.
+        expect(px('n', 'height')).toBeLessThanOrEqual(6);
+        expect(px('nw', 'height')).toBeLessThanOrEqual(8);
+        expect(px('nw', 'width')).toBeLessThanOrEqual(8);
+        expect(screen.getByTestId('ap-edge-e').style.clipPath || getComputedStyle(screen.getByTestId('ap-edge-e')).clipPath).toContain('polygon(5px 0');
+    });
+
     it('the live width reaches the body while reshaping', () => {
         render(<Harness />);
         place(screen.getByTestId('ap'), { left: 1200, top: 700, width: 384, height: 284 });

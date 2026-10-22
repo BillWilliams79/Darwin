@@ -124,6 +124,8 @@
 // plan's requirement marks (State, Session, Autonomy, Machine or none), through
 // the visualizer's own resolver (`idStyleOf`), so the box and the canvas say the
 // same thing about a requirement. Without a resolver it keeps `statusColor`.
+// The title takes the id's colour too (req #3745), in regular weight — only
+// the id goes bold.
 //
 // ── FOLDED, IT IS A NARROW "OR" BAR (req #3648, user directive) ───────────
 // The title bar is every pop-up window's (req #3741): the ▾ (CollapseHead) at
@@ -756,6 +758,7 @@ export default function UnorchestratedReqBox({
              data-testid="pipeline-viz-unseated"
              data-rack-id={ORCHESTRABLES_RACK_ID}
              data-racked={inRack ? '1' : '0'}
+             data-rack-open={inRack && open ? '1' : '0'}
              data-carrying={carrying ? '1' : '0'}
              data-lifted={barLifted ? '1' : '0'}
              data-text-step={drawn.step}
@@ -789,9 +792,10 @@ export default function UnorchestratedReqBox({
                     opacity: overRack ? 0.75 : (carrying ? 0.35 : 1),
                     // Only while folding — see the header.
                     transition: folding && !inRack ? `width ${foldMs}ms ease` : 'none',
-                    // In the stack: square, flat, never squeezed by its
-                    // neighbours (the rack scrolls instead).
-                    ...(racking && { flexShrink: 0, borderRadius: 0, boxShadow: 'none' }) }}>
+                    // In the stack: square, flat. The rack's row sizes it: open,
+                    // the height its rows need and no more, its list scrolling
+                    // when the rack is short (req #3747); folded, its title bar.
+                    ...(racking && { borderRadius: 0, boxShadow: 'none' }) }}>
             <Box ref={headerRef} data-testid="pipeline-viz-unseated-header"
                  title={inRack
                      ? `Drag to reorder · drag off the navbar to float it${count > 0 ? ' · drop on a step to seat them all' : ''}`
@@ -847,22 +851,27 @@ export default function UnorchestratedReqBox({
                 — the unfold would animate 0 → 0 and then pop (req #3648 code
                 review). */}
             <Collapse in={open} timeout={foldMs} unmountOnExit
-                      sx={{ flex: '0 1 auto', minHeight: 0,
+                      sx={{ flex: racking ? '1 1 auto' : '0 1 auto', minHeight: 0,
                             '&.MuiCollapse-entered': {
                                 display: 'flex', flexDirection: 'column',
-                                '& .MuiCollapse-wrapper': { flex: '0 1 auto', minHeight: 0 },
+                                '& .MuiCollapse-wrapper': { flex: racking ? '1 1 auto' : '0 1 auto', minHeight: 0 },
                                 '& .MuiCollapse-wrapperInner': {
                                     display: 'flex', flexDirection: 'column', minHeight: 0 } } }}>
             <Box ref={listRef} data-testid="pipeline-viz-unseated-list"
                  // A stretched height, in `style` for the same reason as
-                 // the box's own geometry: it changes on every frame.
+                 // the box's own geometry: it changes on every frame. Racked,
+                 // the reader's stretch is ignored: the list is its rows
+                 // (req #3747).
                  style={{
-                     ...(drawn.listHeightPx != null
+                     ...(drawn.listHeightPx != null && !racking
                          && { height: `${drawn.listHeightPx}px`, maxHeight: 'none' }),
                      // Mid-fold only — see `foldListW`.
                      ...(foldListW > 0 && { width: `${foldListW}px` }) }}
                  sx={{ overflowY: 'auto', overscrollBehavior: 'contain',
-                        minHeight: 0, flex: '0 1 auto', maxHeight: `${LIST_MAX_EM}em`,
+                        minHeight: 0, flex: racking ? '1 1 auto' : '0 1 auto',
+                        // Racked, the rack's row is the cap: its rows, or its
+                        // fair share of a short navbar (req #3747).
+                        maxHeight: racking ? 'none' : `${LIST_MAX_EM}em`,
                         borderTop: `1px solid ${P.line}`, py: '0.35em' }}>
                 {isError && (
                     <Box sx={{ px: '0.8em', py: '0.5em', color: '#ff8a80' }}>
@@ -895,7 +904,7 @@ export default function UnorchestratedReqBox({
             {open && !inRack && (
                 // Its own strip under the list, so it never lies over a row.
                 <Box ref={stripRef} data-testid="pipeline-viz-unseated-grip-strip"
-                     sx={{ display: 'flex', flexShrink: 0, height: '1.3em',
+                     sx={{ display: 'flex', flexShrink: 0, height: '1.8em',
                             justifyContent: anchoredRight ? 'flex-start' : 'flex-end' }}>
                 {gripShown && (
                 <Box data-testid="pipeline-viz-unseated-grip"
@@ -907,8 +916,8 @@ export default function UnorchestratedReqBox({
                      onPointerCancel={onGripUp}
                      onLostPointerCapture={onGripUp}
                      onDoubleClick={onGripDoubleClick}
-                     sx={{ width: '1.3em', height: '1.3em',
-                            p: '0.2em', boxSizing: 'border-box', touchAction: 'none',
+                     sx={{ width: '1.8em', height: '1.8em',
+                            p: '0.35em', boxSizing: 'border-box', touchAction: 'none',
                             cursor: anchoredRight ? 'nesw-resize' : 'nwse-resize',
                             color: OUTLINE, opacity: resizing ? 1 : 0.75,
                             '&:hover': { opacity: 1 } }}>
@@ -948,6 +957,8 @@ function UnseatedRow({ row, id, fontPx, barColor, idStyle, narrow, onOpen }) {
     return (
         <Box ref={ref} {...buttonAttributes} {...pointerListeners}
              data-testid={`pipeline-viz-unseated-item-${id}`}
+             // The drag copy finds the row by this, its roledescription gone.
+             data-darwin-drag=""
              data-dragging={isDragging ? '1' : '0'}
              onClick={() => onOpen?.(id)}
              onKeyDown={(e) => {
@@ -987,7 +998,7 @@ function UnseatedRow({ row, id, fontPx, barColor, idStyle, narrow, onOpen }) {
                  data-testid={`pipeline-viz-unseated-item-title-${id}`}
                  // Wraps to two lines at most, then "…" (req #3684). An
                  // unbroken run breaks rather than overflowing the clamp.
-                 sx={{ flex: 1, minWidth: 0, overflow: 'hidden',
+                 sx={{ flex: 1, minWidth: 0, overflow: 'hidden', color: idStyle.fill,
                         display: '-webkit-box', WebkitBoxOrient: 'vertical',
                         WebkitLineClamp: 2, overflowWrap: 'anywhere' }}>
                 {row.title}
