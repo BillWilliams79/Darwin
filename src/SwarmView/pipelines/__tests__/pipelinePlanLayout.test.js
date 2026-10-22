@@ -720,19 +720,43 @@ describe('zero label overlap — every layout/label combination', () => {
 describe('bead vocabulary (POC roles)', () => {
     const rowById = new Map(plan.rows.map((r) => [r.id, r]));
 
-    it('done = green fill + check, running = amber + pulse, pending = hollow', () => {
+    it('done = green fill + check, running = step colour + pulse, pending = hollow', () => {
         const done = beadStyle(rowById.get(1), false);
         expect(done.fill).toBe(PLAN_VIZ_PALETTE.doneFill);
         expect(done.check).toBe(true);
         expect(done.pulse).toBe(false);
 
+        // req #3775 — no amber flash for "running": the bead pulses in the
+        // step's own colour, the colour of its ring.
         const running = beadStyle(rowById.get(38), false);
-        expect(running.fill).toBe(PLAN_VIZ_PALETTE.runningFill);
+        expect(running.fill).toBe(stepColorOf(rowById.get(38)));
+        expect(running.fill).toBe(running.ring);
         expect(running.pulse).toBe(true);
 
         const pending = beadStyle(rowById.get(39), false);
         expect(pending.fill).toBe(PLAN_VIZ_PALETTE.pendingFill);
         expect(pending.check).toBe(false);
+    });
+
+    // req #3775 — "have the color bar always be the same color as the
+    // perimeter of the step", and no yellow flash for work in progress.
+    it('the card state bar is ALWAYS the frame colour, in every state and step colour', () => {
+        const variants = [
+            {}, { run: 'manual' }, { checkpoint: 0 }, { checkpoint: 1 },
+            { effectiveLocked: true },
+        ];
+        for (const id of [1, 38, 39]) {
+            for (const v of variants) {
+                const row = { ...rowById.get(id), ...v };
+                const st = beadStyle(row, false);
+                expect(st.bar, `step ${id} ${JSON.stringify(v)}`).toBe(st.frame);
+                expect(st.bar).toBe(stepColorOf(row));
+            }
+        }
+        expect(PLAN_VIZ_PALETTE).not.toHaveProperty('runningFill');
+        const running = beadStyle(rowById.get(38), false);
+        expect(running.pulse).toBe(true);
+        expect(running.bar).not.toBe('#FFB300');
     });
 
     // req #3742 — "simplify the step color": ONE colour per step, on the
@@ -4203,7 +4227,7 @@ describe('the pause status bubble (req #3226)', () => {
 
     it('does not collide with the reserved STEP-state hues (rule: one meaning, '
         + 'one colour)', () => {
-        const reserved = [PLAN_VIZ_PALETTE.runningFill, PLAN_VIZ_PALETTE.runningRing,
+        const reserved = [PLAN_VIZ_PALETTE.runningRing,
             PLAN_VIZ_PALETTE.doneFill, PLAN_VIZ_PALETTE.doneRing];
         expect(reserved).not.toContain(PAUSE_ACTIVE_COLOR);
         expect(reserved).not.toContain(PAUSE_PAUSED_COLOR);
@@ -4434,7 +4458,7 @@ describe('requirement-status colour scale (req #3168, directive 1)', () => {
         // different reason than `development` is: it borrows an AUTONOMY hue,
         // not a bead-state one, and happens not to collide with either —
         // checked directly in "SHARES", not by exclusion from this loop.
-        const reserved = [PLAN_VIZ_PALETTE.runningFill, PLAN_VIZ_PALETTE.runningRing,
+        const reserved = [PLAN_VIZ_PALETTE.runningRing,
             PLAN_VIZ_PALETTE.doneFill, PLAN_VIZ_PALETTE.doneRing];
         for (const status of REQ_STATUS_ORDER) {
             if (status === 'development') continue;
@@ -4807,7 +4831,6 @@ describe('the AUTONOMY colour scale (req #3422)', () => {
         // CalendarFC COORDINATION_COLORS paints `implemented` yellow, which on
         // this panel is Running.
         const reserved = {
-            runningFill: PLAN_VIZ_PALETTE.runningFill,
             runningRing: PLAN_VIZ_PALETTE.runningRing,
             doneFill: PLAN_VIZ_PALETTE.doneFill,
             doneRing: PLAN_VIZ_PALETTE.doneRing,

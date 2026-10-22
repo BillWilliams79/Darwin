@@ -4198,17 +4198,17 @@ export default function PipelinePlanVisualizer({
                           fill={P.panel} stroke={style.frame}
                           strokeWidth={style.frameWidth}
                           name={row.effectiveLocked ? 'locked-frame' : undefined} />
-                    {/* The bead's FILL channel — see CARD_STATE_BAR_W. It sits
-                        BESIDE the frame on the LEFT, in the strip `CARD_W`
-                        reserves for it, so it never crowds the lettering (user
-                        directive). Free-standing, it takes its own full-height
-                        rounded ends: there is no card border for a clamped
-                        corner radius to poke out of any more. */}
+                    {/* The state bar — see CARD_STATE_BAR_W. It sits BESIDE the
+                        frame on the LEFT, in the strip `CARD_W` reserves for
+                        it, so it never crowds the lettering (user directive).
+                        Free-standing, it takes its own full-height rounded
+                        ends. Always the FRAME's colour (req #3775); it pulses
+                        while the step runs. */}
                     <Rect name={style.pulse ? 'pulse-bead' : undefined}
                           x={n.left} y={n.top}
                           width={CARD_STATE_BAR_W} height={n.h}
                           cornerRadius={CARD_STATE_BAR_W / 2}
-                          fill={style.fill} listening={false} />
+                          fill={style.bar} listening={false} />
                     {/* *"Separate the step name with a horizontal line"* — the
                         rule under the title area, inset to the text column so it
                         reads as a divider and not as a second border. */}
@@ -6036,11 +6036,18 @@ export default function PipelinePlanVisualizer({
                                                        border: `2px solid ${color}` }} />
                                         </LegendIcon>
                                     ))}
+                                {/* Scheduled / Complete are the L1 bead's
+                                    fill only — a card's bar is always its
+                                    border colour (req #3775). */}
                                 <LegendDot fill={P.pendingFill} ring="#5b7293"
-                                           label="Scheduled" />
-                                <LegendDot fill={P.runningFill} label="Running"
+                                           label="Scheduled (dot)" />
+                                {/* req #3775 — Running is the MOTION, not a
+                                    hue: the card's bar (the bead at L1)
+                                    pulses in the step's own colour above, so
+                                    the swatch is neutral and pulses. */}
+                                <LegendDot fill={P.text} label="Running (pulses)"
                                            animated="pipeKeyPulse" />
-                                <LegendDot fill={P.doneFill} label="Complete" />
+                                <LegendDot fill={P.doneFill} label="Complete (dot)" />
                                 {/* "Up Next" and not "eligible now" because the
                                     mark answers the question in the plan's own
                                     words: these are the steps that run next.
