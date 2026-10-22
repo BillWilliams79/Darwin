@@ -39,7 +39,9 @@ vi.mock('../../../hooks/factory/createEntityQueries', async (importOriginal) => 
 
 const restCalls = [];
 let seatPostStatus = 200;
-let stepCompletedAt = null;
+let stepLocked = 0;
+let epicLocked = 0;
+let planLocked = 0;
 vi.mock('../../../RestApi/RestApi', () => ({
     default: vi.fn((uri, method, body) => {
         restCalls.push({ uri: String(uri), method, body });
@@ -48,7 +50,15 @@ vi.mock('../../../RestApi/RestApi', () => ({
         }
         if (String(uri).includes('/pipeline_steps?id=') && method === 'GET') {
             return Promise.resolve({ httpStatus: { httpStatus: 200 },
-                data: [{ id: 412, completed_at: stepCompletedAt }] });
+                data: [{ id: 412, locked: stepLocked, epic_fk: 55 }] });
+        }
+        if (String(uri).includes('/epics?id=55') && method === 'GET') {
+            return Promise.resolve({ httpStatus: { httpStatus: 200 },
+                data: [{ id: 55, locked: epicLocked, pipeline_fk: 7 }] });
+        }
+        if (String(uri).includes('/pipelines?id=7') && method === 'GET') {
+            return Promise.resolve({ httpStatus: { httpStatus: 200 },
+                data: [{ id: 7, locked: planLocked }] });
         }
         if (String(uri).endsWith('/pipeline_step_requirements') && method === 'POST') {
             return Promise.resolve({ httpStatus: { httpStatus: seatPostStatus }, data: [] });
@@ -125,7 +135,9 @@ describe('RequirementDetail new mode filed from a plan step (req #3582)', { time
         navigateCalls.length = 0;
         snackMessages.length = 0;
         seatPostStatus = 200;
-        stepCompletedAt = null;
+        stepLocked = 0;
+        epicLocked = 0;
+        planLocked = 0;
         locationState = { seatStepId: 412, seatStepName: 'Seat UI',
             from: 'pipeline', pipelineId: 7, mode: 'plan', backStepId: 412 };
     });
@@ -176,17 +188,46 @@ describe('RequirementDetail new mode filed from a plan step (req #3582)', { time
             { replace: true, state: undefined }]);
     });
 
-    it('creates nothing when the step was stamped complete since the plan rendered', async () => {
-        stepCompletedAt = '2026-10-17 12:00:00';
+    // A step has no state (req #3750) — what can close it to new work is a
+    // LOCK (req #3649), which the gateway would enforce with a 423 on the seat.
+    it('creates nothing when the step was locked since the plan rendered', async () => {
+        stepLocked = 1;
         const { container } = mount();
         await flush();
         await pickCategory(container, 'Darwin');
         expect(writes()).toEqual([]);
-        expect(snackMessages).toEqual(['Step 412 is complete — it takes no new work; nothing was created']);
+        expect(snackMessages).toEqual(['Step 412 is locked — it takes no new work; nothing was created']);
+        // The re-read names only columns that exist — `completed_at` is dropped.
+        const stepRead = restCalls.find((c) => c.uri.includes('/pipeline_steps?id=412'));
+        expect(stepRead.uri).toContain('fields=id,locked,epic_fk');
         expect(navigateCalls).toEqual([]);
         // The draft is left uncategorized, so the user can see nothing saved.
         expect(container.querySelector('[data-testid="requirement-category-select"]').textContent)
             .toBe('Must Select');
+    });
+
+    // The lock CASCADES (req #3649): a locked EPIC or PLAN refuses the seat
+    // with a 423 too, so the pre-check walks step -> epic -> plan, or the
+    // requirement would be created and left unseated.
+    it('creates nothing when the step\'s EPIC is locked', async () => {
+        epicLocked = 1;
+        const { container } = mount();
+        await flush();
+        await pickCategory(container, 'Darwin');
+        expect(writes()).toEqual([]);
+        expect(snackMessages).toEqual(["Step 412's epic is locked — it takes no new work; nothing was created"]);
+        expect(navigateCalls).toEqual([]);
+    });
+
+    it('creates nothing when the step\'s PLAN is locked, naming the outermost lock', async () => {
+        planLocked = 1;
+        epicLocked = 1;
+        const { container } = mount();
+        await flush();
+        await pickCategory(container, 'Darwin');
+        expect(writes()).toEqual([]);
+        expect(snackMessages).toEqual(["Step 412's plan is locked — it takes no new work; nothing was created"]);
+        expect(restCalls.some((c) => c.uri.includes('/pipelines?id=7&fields=id,locked'))).toBe(true);
     });
 
     it('Back returns to the plan, not zoomed onto the card (req #3637 — camera restores)', async () => {

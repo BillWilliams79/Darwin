@@ -25,7 +25,7 @@
 // the visualizer/session ops tables, `dev_servers` is live machine state that
 // is NEVER a seeded fixture: `/devops-devserver-start` claims a row via the MCP
 // `claim_dev_server` tool, and the daemon writes it to production `darwin`. The
-// NavBar dev-server callout (NavBarSidebar.jsx "Terminal - N") matches the live
+// NavBar dev-server callout (NavBarSidebar.jsx "Terminal N") matches the live
 // browser's `window.location.port` against those rows, so the READ must hit the
 // same schema the claim WROTE. Routing `dev_servers` reads through `darwinUri`
 // (→ `darwin_dev` in dev) made a dev browser match seeded fixtures instead of
@@ -46,7 +46,7 @@ export const devServers = createEntityQueries({
     // Req #2871 — pin reads to production `darwin` (via darwinOpsUri). dev_servers
     // is live machine state written by the MCP claim_dev_server tool to production;
     // a dev browser must read from where the claim wrote, not seeded darwin_dev
-    // fixtures, so the NavBar "Terminal - N" callout matches the real port claim.
+    // fixtures, so the NavBar "Terminal N" callout matches the real port claim.
     ops: true,
     foreignKeys: [
         // `keyParam: 'sessionId'` preserves the legacy `devServerKeys.bySession(id)`
@@ -523,8 +523,10 @@ export const epics = createEntityQueries({
 export const pipelineSteps = createEntityQueries({
     entity: 'pipeline_steps',
     // req #3649 — `checkpoint` (holds downstream launches) and `locked`.
+    // req #3750 — no `completed_at`: a step has no state and the column is
+    // dropped, so naming it would 400 the whole read.
     defaultFields:
-        'id,epic_fk,title,run,checkpoint,locked,notes,not_before,completed_at,creator_fk',
+        'id,epic_fk,title,run,checkpoint,locked,notes,not_before,creator_fk',
     fieldsInKey: true,
     defaultSort: 'id:asc',
 });

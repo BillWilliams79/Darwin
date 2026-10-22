@@ -94,7 +94,7 @@ afterEach(() => {
 });
 
 const step = (id, epic_fk, title) => ({
-    id, epic_fk, title, run: 'auto', notes: null, completed_at: null, not_before: null,
+    id, epic_fk, title, run: 'auto', notes: null, not_before: null,
 });
 
 function render(levelPref = '3') {

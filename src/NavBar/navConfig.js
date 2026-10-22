@@ -143,9 +143,10 @@ export const NAV_LINKS = [
             { path: '/swarm/swarm-starts', label: 'Starts', icon: RocketLaunchIcon, group: 'swarm' },
             { path: '/swarm/swarm-completes', label: 'Completes', icon: CheckCircleIcon, group: 'swarm' },
             { path: '/swarm/swarm-undos', label: 'Undos', icon: UndoIcon, group: 'swarm' },
+            // Req #3771 — Dev Servers nests last, after Undos. Route unchanged.
+            { path: '/devservers', label: 'Dev Servers', icon: DnsIcon, group: 'swarm' },
         ],
     },
-    { path: '/devservers', label: 'Dev Servers', icon: DnsIcon, group: 'swarm' },
     // Agents is its own top-level group (req #3005), not nested under SWARM.
     // Instructions + Documents listings live under AGENTS (req #3013) — the same
     // icons the Agents page header chips used, kept in that order (Instructions

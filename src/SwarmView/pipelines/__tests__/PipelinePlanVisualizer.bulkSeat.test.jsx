@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
 // Req #3614 (follow-on to #3608) — the WRITING half of the whole-box drop: the
-// confirm dialog opens with the box's snapshot, a stamped step writes nothing,
+// confirm dialog opens with the box's snapshot, a locked step writes nothing,
 // the seat writes run capped, a partial failure names each id with its own
 // status, the dropped rows stay hidden through the write and are released after
 // the refetch, the dialog cannot be dismissed mid-write, and a release outside
@@ -75,8 +75,8 @@ let restoreSize;
 let canvas;
 
 const row = (id, title) => ({ id, title, requirement_status: 'swarm_ready' });
-const step = (id, epic_fk, title, completed_at = null) => ({
-    id, epic_fk, title, run: 'auto', notes: null, completed_at, not_before: null,
+const step = (id, epic_fk, title, locked = 0) => ({
+    id, epic_fk, title, run: 'auto', notes: null, locked, not_before: null,
 });
 
 beforeEach(() => {
@@ -108,7 +108,7 @@ afterEach(() => {
 function render() {
     const payload = composedFixture({
         epics: [{ id: 5, title: 'Build', pipeline_fk: 2, sort_order: 1 }],
-        steps: [step(10, 5, 'Design'), step(11, 5, 'Implement', '2026-10-01T00:00:00')],
+        steps: [step(10, 5, 'Design'), step(11, 5, 'Implement', 1)],
         stepDeps: [{ id: 1, step_fk: 11, dep_step_fk: 10 }],
     });
     const plan = adaptComposedPipeline(payload);
@@ -172,12 +172,13 @@ describe('whole-box drop — the confirm dialog', () => {
         expect(moveStepRequirement).not.toHaveBeenCalled();
     });
 
-    it('a completed step takes no work: a snackbar, no dialog, nothing written', () => {
+    // req #3750 — a step has no state; what refuses work is a LOCK (req #3649).
+    it('a locked step takes no work: a snackbar, no dialog, nothing written', () => {
         render();
         seatOn(11, false);
         expect(drop()).toBe(true);
         expect(dialog()).toBeNull();
-        expect(snackbar()).toBe('"Implement" is completed — it takes no new work');
+        expect(snackbar()).toBe('"Implement" is locked — it takes no new work');
         expect(moveStepRequirement).not.toHaveBeenCalled();
     });
 

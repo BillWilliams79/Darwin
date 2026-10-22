@@ -14,8 +14,9 @@
 // carries the one structural difference: a 2.0 step has NO `pipeline_fk`. Its
 // plan comes through `epic_fk -> epics.pipeline_fk`, so there is an
 // EPICS fixture now and the join is two hops. Everything else — the open/closed
-// status vocabulary, `completed_at`, the id-ascending order — is unchanged,
-// which is why the assertions are.
+// status vocabulary and the id-ascending order — is unchanged. Req #3750 took
+// `completed_at` away: a step has no state, so no step is ever filtered out
+// for being "finished".
 //
 // THE FIXTURE MIRRORS THE LIVE SHAPE rather than an invented one: two open plans
 // (one `active`, one `paused`), one `completed` plan. Every filtering rule in
@@ -46,17 +47,17 @@ const EPICS = [
 ];
 
 const STEPS = [
-    { id: 100, epic_fk: 20,  title: 'Polish A',   completed_at: null },
-    { id: 101, epic_fk: 20,  title: 'FP A',       completed_at: null },
-    { id: 102, epic_fk: 20,  title: 'Polish done', completed_at: '2026-08-01T00:00:00' },
-    { id: 103, epic_fk: 20,  completed_at: null },          // empty: no reqs, no title
-    { id: 200, epic_fk: 790, title: 'FP B',       completed_at: null },
-    { id: 300, epic_fk: 50,  title: 'Retired',    completed_at: null },
+    { id: 100, epic_fk: 20,  title: 'Polish A' },
+    { id: 101, epic_fk: 20,  title: 'FP A' },
+    { id: 102, epic_fk: 20,  title: 'Polish B' },
+    { id: 103, epic_fk: 20 },          // empty: no reqs, no title
+    { id: 200, epic_fk: 790, title: 'FP B' },
+    { id: 300, epic_fk: 50,  title: 'Retired' },
 ];
 
 const STEP_REQUIREMENTS = [
     { step_fk: 100, requirement_fk: 3435 },
-    { step_fk: 102, requirement_fk: 3436 },  // step is DONE
+    { step_fk: 102, requirement_fk: 3436 },  // its work is all met
     { step_fk: 101, requirement_fk: 3400 },
     { step_fk: 200, requirement_fk: 3401 },  // paused plan
     { step_fk: 300, requirement_fk: 3300 },  // the COMPLETED plan only
@@ -155,12 +156,12 @@ describe('buildOrchestrationIndex — requirement seat', () => {
     // dropped rather than invented, because pinning a requirement to a plan that
     // was never read is worse than reporting no seat at all.
     it('drops a seat whose step names an epic the read does not carry', () => {
-        const idx = build({ steps: [{ id: 100, epic_fk: 999, completed_at: null }] });
+        const idx = build({ steps: [{ id: 100, epic_fk: 999 }] });
         expect(idx.requirementSeat.has(3435)).toBe(false);
     });
 
     it('drops a seat whose step names no epic at all', () => {
-        const idx = build({ steps: [{ id: 100, epic_fk: null, completed_at: null }] });
+        const idx = build({ steps: [{ id: 100, epic_fk: null }] });
         expect(idx.requirementSeat.has(3435)).toBe(false);
     });
 });
@@ -169,18 +170,16 @@ const labels = (entries) => entries.map((e) => e.label);
 const stepIds = (entries) => entries.map((e) => e.step.id);
 
 describe('stepOptions', () => {
-    it('offers the open steps of the given plan', () => {
-        // Plan 2: steps 100, 101, 103 are open; 102 is DONE.
+    it('offers every step of the given plan', () => {
         expect(stepIds(stepOptions(build(), { pipelineId: 2 })))
-            .toEqual([100, 101, 103]);
+            .toEqual([100, 101, 102, 103]);
     });
 
-    // A finished step is not a place to put new work, and seating a requirement
-    // on one would contradict design rule 1 — a stamped `completed_at` is valid
-    // only with zero gating requirements.
-    it('never offers a completed step', () => {
-        expect(stepIds(stepOptions(build(), { pipelineId: 2 }))).not.toContain(102);
-        expect(stepIds(stepOptions(build(), {}))).not.toContain(102);
+    // A step has no state (req #3750): one whose work is all met is not
+    // "finished" and still takes new work.
+    it('offers a step whose requirements are all met', () => {
+        expect(stepIds(stepOptions(build(), { pipelineId: 2 }))).toContain(102);
+        expect(stepIds(stepOptions(build(), {}))).toContain(102);
     });
 
     it('excludes steps of another plan', () => {
@@ -192,7 +191,7 @@ describe('stepOptions', () => {
     // control is dead exactly when it is needed.
     it('widens to every open plan when no plan is known', () => {
         // Plan 5 is `completed`, so step 300 stays out.
-        expect(stepIds(stepOptions(build(), {}))).toEqual([100, 101, 103, 200]);
+        expect(stepIds(stepOptions(build(), {}))).toEqual([100, 101, 102, 103, 200]);
     });
 
     // A select whose own list denies its value renders blank, which reads as a
@@ -200,15 +199,15 @@ describe('stepOptions', () => {
     it('always offers the current step, first, whatever the filters say', () => {
         // Step 200 is on another plan.
         expect(stepIds(stepOptions(build(), { pipelineId: 2, currentStepId: 200 })))
-            .toEqual([200, 100, 101, 103]);
-        // ...including a completed one the reader is already seated on.
+            .toEqual([200, 100, 101, 102, 103]);
+        // ...and a step of the plan itself moves to the front.
         expect(stepIds(stepOptions(build(), { pipelineId: 2, currentStepId: 102 })))
             .toEqual([102, 100, 101, 103]);
     });
 
     it('never lists the current step twice', () => {
         const ids = stepIds(stepOptions(build(), { pipelineId: 2, currentStepId: 100 }));
-        expect(ids).toEqual([100, 101, 103]);
+        expect(ids).toEqual([100, 101, 102, 103]);
         expect(new Set(ids).size).toBe(ids.length);
     });
 
@@ -220,7 +219,7 @@ describe('stepOptions', () => {
 
     it('labels by title, falling back to the id', () => {
         const entries = stepOptions(build(), { pipelineId: 2 });
-        expect(labels(entries)).toEqual(['Polish A', 'FP A', 'Step 103']);
+        expect(labels(entries)).toEqual(['Polish A', 'FP A', 'Polish B', 'Step 103']);
     });
 
     // Step id ascending is the canonical stored order (`pipelineSteps` sorts
@@ -228,13 +227,13 @@ describe('stepOptions', () => {
     // display order would mean loading the whole plan to order one dropdown.
     it('orders by step id ascending', () => {
         const idx = build({ steps: [...STEPS].reverse() });
-        expect(stepIds(stepOptions(idx, { pipelineId: 2 }))).toEqual([100, 101, 103]);
+        expect(stepIds(stepOptions(idx, { pipelineId: 2 }))).toEqual([100, 101, 102, 103]);
     });
 
     // A step with no resolvable plan is in NEITHER list: it cannot match a named
     // plan, and nothing can vouch for its plan being open.
     it('never offers a step whose epic did not resolve', () => {
-        const idx = build({ steps: [...STEPS, { id: 400, epic_fk: 999, completed_at: null }] });
+        const idx = build({ steps: [...STEPS, { id: 400, epic_fk: 999 }] });
         expect(stepIds(stepOptions(idx, { pipelineId: 2 }))).not.toContain(400);
         expect(stepIds(stepOptions(idx, {}))).not.toContain(400);
     });
@@ -256,24 +255,24 @@ describe('emptyOrchestrationIndex', () => {
 
 describe('stepOptions epic scoping', () => {
     const epics = [...EPICS, { id: 21, pipeline_fk: 2, title: 'Second' }];
-    const steps = [...STEPS, { id: 104, epic_fk: 21, title: 'Second A', completed_at: null }];
+    const steps = [...STEPS, { id: 104, epic_fk: 21, title: 'Second A' }];
 
     it('narrows to the given epic', () => {
         const idx = build({ epics, steps });
         expect(stepIds(stepOptions(idx, { pipelineId: 2, epicId: 21 }))).toEqual([104]);
-        expect(stepIds(stepOptions(idx, { pipelineId: 2, epicId: 20 }))).toEqual([100, 101, 103]);
+        expect(stepIds(stepOptions(idx, { pipelineId: 2, epicId: 20 }))).toEqual([100, 101, 102, 103]);
     });
 
     it('offers every epic of the plan when no epic is given', () => {
         const idx = build({ epics, steps });
-        expect(stepIds(stepOptions(idx, { pipelineId: 2 }))).toEqual([100, 101, 103, 104]);
+        expect(stepIds(stepOptions(idx, { pipelineId: 2 }))).toEqual([100, 101, 102, 103, 104]);
     });
 
     // "All epics" means the epics the Epic select OFFERS, and it does not offer
     // a closed one.
     it('leaves out steps of a CLOSED epic when no epic is given', () => {
         const idx = build({ epics: [...EPICS, { id: 21, pipeline_fk: 2, closed: 1 }], steps });
-        expect(stepIds(stepOptions(idx, { pipelineId: 2 }))).toEqual([100, 101, 103]);
+        expect(stepIds(stepOptions(idx, { pipelineId: 2 }))).toEqual([100, 101, 102, 103]);
         // Picked explicitly, its steps are still offered.
         expect(stepIds(stepOptions(idx, { pipelineId: 2, epicId: 21 }))).toEqual([104]);
     });

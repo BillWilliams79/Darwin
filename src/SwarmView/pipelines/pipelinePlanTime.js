@@ -67,7 +67,8 @@
 //    module calls future.
 // 3. **An EMPTY step sits on TODAY when the plan has active work, else in the
 //    FUTURE (req #3618, the user's rule).** An empty step — no linked
-//    requirements and no `completed_at` — has no stamp of any kind, so it used
+//    requirements — has no stamp of any kind (a step carries no time of its
+//    own: req #3752 dropped `pipeline_steps.completed_at`), so it used
 //    to be UNKNOWN, and an UNKNOWN step at the head of a chain has nothing
 //    upstream to take a time from: it fell into the plan's EARLIEST slot, the
 //    far-left edge, days before the work it was just added in front of. It is
@@ -80,7 +81,9 @@
 //    slot, so an empty step added in front of older dated work moves that work
 //    to today (or into the future region). The rule applies only when the
 //    caller supplies `now`; without it an empty step stays UNKNOWN.
-// 4. **A RUNNING step sits on TODAY (req #3692).** Running means a linked
+// 4. **A RUNNING step sits on TODAY (req #3692).** Running — the canvas's
+//    colour input (`pipelineAdapter.js::visualizerColourInput`), not a step
+//    state, since a step has none (req #3750) — means a linked
 //    requirement is in flight right now, so the step's last activity IS now,
 //    whatever its stamps say — a requirement stamped `started_at` three days
 //    ago and still in `development` is today's work. This is what stacks every
@@ -156,9 +159,8 @@ export function requirementLastActivity(req) {
  *
  * Resolution order, first hit wins:
  *   1. the MAXIMUM of `requirementLastActivity` over its linked requirements
- *      and the step's own `completedAt` → dated. `completedAt` alone is the
- *      req-less GATE step (the "Green Baseline" shape) whose whole existence is
- *      its stamp;
+ *      → dated. Requirement timestamps are the ONLY time source: a step has no
+ *      time of its own (req #3752 dropped `pipeline_steps.completed_at`);
  *   2. every classifiable linked requirement is not-yet-started → FUTURE;
  *   3. otherwise UNKNOWN.
  *
@@ -167,13 +169,13 @@ export function requirementLastActivity(req) {
  * Time is neither: a container's stamps are real facts about when the plan it
  * holds was worked, and a step is not misplaced by knowing them.
  *
- * @param {Object} row                 a PlanRow (needs `reqIds`, `completedAt`)
+ * @param {Object} row                 a PlanRow (needs `reqIds`)
  * @param {Map<number, Object>} reqsById
  * @returns {{at: ?string, kind: string}}
  */
 export function stepTime(row, reqsById) {
     const ids = (row && row.reqIds) || [];
-    let max = row && row.completedAt ? String(row.completedAt) : null;
+    let max = null;
     let sawFuture = false;
     let sawUnclassifiable = false;
     for (const id of ids) {
@@ -204,8 +206,8 @@ function nowStamp(now) {
 }
 
 /**
- * Rule 3: the start of an EMPTY step (no linked requirements, no
- * `completedAt`), or null when the row is not empty or no `now` was supplied.
+ * Rule 3: the start of an EMPTY step (no linked requirements), or null when
+ * the row is not empty or no `now` was supplied.
  *
  * @param {Object} row
  * @param {?string} today      nowStamp() output
@@ -213,7 +215,7 @@ function nowStamp(now) {
  * @returns {?{at: ?string, kind: string}}
  */
 export function emptyStepStart(row, today, active) {
-    if (!row || row.completedAt || ((row.reqIds || []).length > 0) || today == null) return null;
+    if (!row || ((row.reqIds || []).length > 0) || today == null) return null;
     return active ? { at: today, kind: TIME_DATED } : { at: null, kind: TIME_FUTURE };
 }
 

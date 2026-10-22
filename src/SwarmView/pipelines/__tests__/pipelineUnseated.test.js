@@ -55,8 +55,8 @@ describe('seatTargetAt', () => {
         [2, { frameLeft: 200, frameW: 100, top: 0, h: 50 }],
     ]);
     const rowById = new Map([
-        [1, { id: 1, completedAt: null }],
-        [2, { id: 2, completedAt: '2026-10-01T00:00:00' }],
+        [1, { id: 1 }],
+        [2, { id: 2, effectiveLocked: true }],
     ]);
 
     it('resolves a point inside a card frame, edges inclusive', () => {
@@ -64,8 +64,13 @@ describe('seatTargetAt', () => {
         expect(seatTargetAt(nodes, rowById, { x: 100, y: 50 })).toEqual({ stepId: 1, ok: true });
     });
 
-    it('refuses a step with a stamped completed_at (design rule 1)', () => {
+    it('refuses an effectively locked step (req #3649 — the gateway answers 423)', () => {
         expect(seatTargetAt(nodes, rowById, { x: 250, y: 10 })).toEqual({ stepId: 2, ok: false });
+    });
+
+    // req #3750 — a step has no state, so finished work never closes it.
+    it('accepts a step whose work is all finished', () => {
+        expect(stepAcceptsNewWork({ id: 3, state: 'done' })).toBe(true);
     });
 
     it('answers null between cards and without a point', () => {
@@ -100,7 +105,7 @@ describe('screen <-> world', () => {
 
 describe('resolveSeatDrop', () => {
     const nodes = new Map([[1, { frameLeft: 0, frameW: 100, top: 0, h: 50 }]]);
-    const rowById = new Map([[1, { id: 1, completedAt: null }]]);
+    const rowById = new Map([[1, { id: 1 }]]);
     const t = { x: 10, y: 40, k: 1 };
 
     it('projects the screen point through the transform onto a card', () => {
@@ -271,7 +276,7 @@ describe('bulkSeatRequest', () => {
         });
     });
 
-    it('still answers for a stamped step, marked not ok, so the caller can say why', () => {
+    it('still answers for a locked step, marked not ok, so the caller can say why', () => {
         expect(bulkSeatRequest(items, { stepId: 8, ok: false }, rowById).ok).toBe(false);
     });
 

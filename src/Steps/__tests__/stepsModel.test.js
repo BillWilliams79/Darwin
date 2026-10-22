@@ -1,13 +1,12 @@
 // @vitest-environment node
 //
-// req #3393 — the completion-guard model behind /swarm/steps. Pure functions,
+// req #3393 — the row model behind /swarm/steps. Pure functions,
 // no DOM needed.
 
 import { describe, it, expect } from 'vitest';
 import {
     isTrackingRequirement2,
     gatingRequirementIds2,
-    completionGuard2,
     dropBlockers2,
     buildStepRows,
 } from '../stepsModel';
@@ -50,40 +49,6 @@ describe('gatingRequirementIds2', () => {
     });
 });
 
-describe('completionGuard2', () => {
-    it('allows a link-less step', () => {
-        const result = completionGuard2({ gatingReqIds: [], completedAt: null });
-        expect(result.allowed).toBe(true);
-        expect(result.reason).toContain('Open');
-    });
-
-    it('allows a step whose only links are tracking containers, naming the exemption', () => {
-        const result = completionGuard2({
-            gatingReqIds: [], trackingReqIds: [42], completedAt: null,
-        });
-        expect(result.allowed).toBe(true);
-    });
-
-    it('refuses a step with any real gating requirement, naming the ids', () => {
-        const result = completionGuard2({ gatingReqIds: [10, 11], trackingReqIds: [] });
-        expect(result.allowed).toBe(false);
-        expect(result.reason).toContain('10, 11');
-    });
-
-    it('names exempted tracking containers alongside a refusal', () => {
-        const result = completionGuard2({ gatingReqIds: [10], trackingReqIds: [42] });
-        expect(result.allowed).toBe(false);
-        expect(result.reason).toContain('42');
-        expect(result.reason).toContain('exempt');
-    });
-
-    it('offers to reopen an already-complete step regardless of gating', () => {
-        const result = completionGuard2({ gatingReqIds: [], completedAt: '2026-08-01 00:00:00' });
-        expect(result.allowed).toBe(true);
-        expect(result.reason).toContain('reopen');
-    });
-});
-
 describe('dropBlockers2', () => {
     const deps = [
         { id: 1, step_fk: 20, dep_step_fk: 10 },
@@ -106,9 +71,9 @@ describe('dropBlockers2', () => {
 
 describe('buildStepRows', () => {
     const steps = [
-        { id: 100, epic_fk: 1, title: 'Gated', run: 'auto', completed_at: null, not_before: null },
-        { id: 101, epic_fk: 1, title: 'Free', run: 'manual', completed_at: null, not_before: null },
-        { id: 102, epic_fk: 2, title: 'Done', run: 'auto', completed_at: '2026-08-01 00:00:00', not_before: null },
+        { id: 100, epic_fk: 1, title: 'Gated', run: 'auto', not_before: null },
+        { id: 101, epic_fk: 1, title: 'Free', run: 'manual', not_before: null },
+        { id: 102, epic_fk: 2, title: 'Done', run: 'auto', not_before: null },
     ];
     const stepRequirements = [
         { step_fk: 100, requirement_fk: 1 },
@@ -141,21 +106,25 @@ describe('buildStepRows', () => {
         expect(row.pipelineFk).toBe(9);
     });
 
+    it('resolves the pipeline label through the epic (req #3750)', () => {
+        const pipelines = [{ id: 9, title: 'Plan Nine' }];
+        const rows = buildStepRows({
+            steps, stepRequirements, stepDeps, requirements, epics, pipelines });
+        expect(rows.find(r => r.id === 100).pipelineTitle).toBe('Plan Nine');
+        // No pipelines read supplied → no label, never a throw.
+        const bare = buildStepRows({ steps, stepRequirements, stepDeps, requirements, epics });
+        expect(bare.find(r => r.id === 100).pipelineTitle).toBeNull();
+    });
+
     it('reports blockerStepIds for a step something else depends on', () => {
         const rows = buildStepRows({ steps, stepRequirements, stepDeps, requirements, epics });
         expect(rows.find(r => r.id === 100).blockerStepIds).toEqual([101]);
         expect(rows.find(r => r.id === 101).blockerStepIds).toEqual([]);
     });
 
-    it('normalizes completedAt from completed_at', () => {
-        const rows = buildStepRows({ steps, stepRequirements, stepDeps, requirements, epics });
-        expect(rows.find(r => r.id === 102).completedAt).toBe('2026-08-01 00:00:00');
-        expect(rows.find(r => r.id === 100).completedAt).toBeNull();
-    });
-
     it('handles an unresolved epic gracefully (no throw, null label)', () => {
         const rows = buildStepRows({
-            steps: [{ id: 200, epic_fk: 999, title: 'Orphan', run: 'auto', completed_at: null }],
+            steps: [{ id: 200, epic_fk: 999, title: 'Orphan', run: 'auto' }],
             stepRequirements: [], stepDeps: [], requirements: [], epics,
         });
         expect(rows[0].epicTitle).toBeNull();

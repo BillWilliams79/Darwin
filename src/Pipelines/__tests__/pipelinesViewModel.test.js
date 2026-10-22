@@ -12,29 +12,31 @@ const epics = [
     { id: 41, pipeline_fk: 8 },
 ];
 const steps = [
-    { id: 500, epic_fk: 40, completed_at: '2026-08-01 00:00:00' },
-    { id: 501, epic_fk: 40, completed_at: null },
-    { id: 502, epic_fk: 41, completed_at: null },
+    { id: 500, epic_fk: 40 },
+    { id: 501, epic_fk: 40 },
+    { id: 502, epic_fk: 41 },
 ];
 
 describe('pipelineSummaries', () => {
-    it('tallies done/open per pipeline via epic_fk -> pipeline_fk', () => {
+    // req #3750 — a step has no state, so the summary is a COUNT only: no
+    // done/open tally.
+    it('counts steps per pipeline via epic_fk -> pipeline_fk', () => {
         const out = pipelineSummaries({ pipelines, steps, epics });
-        expect(out.get(7)).toEqual({ total: 2, done: 1, open: 1 });
-        expect(out.get(8)).toEqual({ total: 1, done: 0, open: 1 });
+        expect(out.get(7)).toEqual({ total: 2 });
+        expect(out.get(8)).toEqual({ total: 1 });
     });
 
     it('seeds an entry for every pipeline, even one with no steps', () => {
         const out = pipelineSummaries({ pipelines: [...pipelines, { id: 9 }], steps, epics });
-        expect(out.get(9)).toEqual({ total: 0, done: 0, open: 0 });
+        expect(out.get(9)).toEqual({ total: 0 });
     });
 
     it('drops a step whose epic is unresolved rather than crashing', () => {
         const out = pipelineSummaries({
-            pipelines, steps: [...steps, { id: 999, epic_fk: 12345, completed_at: null }], epics,
+            pipelines, steps: [...steps, { id: 999, epic_fk: 12345 }], epics,
         });
-        expect(out.get(7)).toEqual({ total: 2, done: 1, open: 1 });
-        expect(out.get(8)).toEqual({ total: 1, done: 0, open: 1 });
+        expect(out.get(7)).toEqual({ total: 2 });
+        expect(out.get(8)).toEqual({ total: 1 });
     });
 });
 

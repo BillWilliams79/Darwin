@@ -7,7 +7,7 @@
 // CONSUMES a derived block; it does not derive one" —
 // memory/pipeline-2-visualizer-design.md § 0). `pipeline_compose` /
 // `pipeline2_derive.py` (Lambda-Rest, req #3367) already ran display order,
-// state derivation, eligibility, pause and serial-turn suppression, and
+// open work, eligibility, pause and serial-turn suppression, and
 // requirement counts — server side, ONE producer, consumed identically by the
 // MCP daemon and the browser. Everything below is RESHAPING: snake_case wire
 // keys to the camelCase `PlanRow`/`plan` shapes `pipelinePlanLayout.js`,
@@ -22,7 +22,7 @@
 // WHY A JOIN IS NEEDED AT ALL. `derived.rows[]` is deliberately compact — ids,
 // enums, short id lists (req #3078 payload budget; every per-row field there
 // is "an id, an enum string, a boolean, or a short list of one of those").
-// `title`/`notes`/`completedAt` live on `steps[]`; the epic's title and
+// `title`/`notes`/`not_before` live on `steps[]`; the epic's title and
 // `sort_order` live on `epics[]`; machine labels are derived from
 // `requirements[].machine_fk` (2.0 does not carry a `machines` dictionary of
 // its own — the caller supplies one from `useMachines`, a small whole-app
@@ -39,9 +39,17 @@
 //   - `labelInherited` — 2.0's `epic_fk` is NOT NULL (containment), so a step
 //     never lacks a label to inherit from a dependency the way a req-less 1.0
 //     step could.
+//   - a STEP STATE. A step has no state (req #3750, user ruling 2026-10-21):
+//     it holds requirements and carries orchestration controls, and nothing
+//     completes or reopens it. The one exception to "this module derives
+//     nothing" is `visualizerColourInput` below — a DISPLAY rollup of the
+//     step's requirements that the canvas colours by. Read its header before
+//     treating `row.state` as anything else.
 
 import { planTimeAxis } from './pipelinePlanTime';
-import { sumReqCost } from './pipelineModel';
+import {
+    sumReqCost, STEP_DONE, STEP_RUNNING, STEP_PENDING,
+} from './pipelineModel';
 
 const asArray = (v) => (Array.isArray(v) ? v : []);
 
@@ -143,6 +151,44 @@ function machineLabelsFor(reqIds, trackingReqIds, reqsById, machinesById) {
     return labels;
 }
 
+// ── THE VISUALIZER'S COLOUR INPUT — not a step state (req #3750) ─────────────
+//
+// A step HAS NO STATE: no done/running/pending, never completed, never
+// reopened (req #3750, user ruling 2026-10-21). The orchestration asks every
+// question of the REQUIREMENTS a step holds, through the derived row's
+// `open_req_ids`, and the server sends no `state` at all.
+//
+// The plan visualizer and the plan table still paint a step from a three-value
+// vocabulary (`STEP_DONE`/`STEP_RUNNING`/`STEP_PENDING` — the bead fill, the
+// band colours, the "today" stack, the epic zoom's next-launch skip). The user
+// ruled that changing HOW the visualizer tracks colour belongs to a separate
+// requirement ("let the other requirement change the color tracking in the
+// visualizer"), so this function keeps those consumers drawing exactly as they
+// did by rolling the step's requirements up into that vocabulary, ONCE, here:
+//
+//   running  any GATING (non-tracking) requirement is in `development`;
+//   done     the step has gating requirements and none of them is open
+//            (`open_req_ids` empty);
+//   pending  everything else — including an EMPTY step (no gating work).
+//
+// It is OWNED BY THAT COLOUR-TRACKING REQUIREMENT and exists only as the
+// canvas's colour input. It is NOT a step state the orchestration has: nothing
+// may gate, launch, refuse a seat, or word a step as "completed" from it. A
+// consumer that needs an orchestration fact reads `openReqIds`, `eligible`,
+// `gateOpen`, `launchCandidate` or `checkpointBlockedBy` instead.
+//
+// `open_req_ids` is the server's fact and is read as sent — never recomputed
+// here from the payload's requirement rows (design rule 13: one rule, one
+// implementation, req #3752). A row without it reads every gating requirement
+// as open, so a missing fact never paints a step done.
+export function visualizerColourInput(gatingIds, openReqIds, reqsById) {
+    if (gatingIds.some((rid) => reqsById.get(rid)?.requirement_status === 'development')) {
+        return STEP_RUNNING;
+    }
+    if (gatingIds.length > 0 && openReqIds.length === 0) return STEP_DONE;
+    return STEP_PENDING;
+}
+
 /**
  * `derived.rows[]` (display order, already) joined against `steps[]`/
  * `epics[]`/`requirements[]` into `PlanRow`-shaped objects — the same shape
@@ -176,6 +222,9 @@ export function buildPlanRows(payload, machines = []) {
         const locked = isFlagOn(dr.locked ?? step.locked, false);
         const epicLocked = isFlagOn(epic?.locked, false);
         const lockedBy = planLocked ? 'pipeline' : epicLocked ? 'epic' : locked ? 'step' : null;
+        const tracking = new Set(dr.tracking_req_ids || []);
+        const gatingIds = (dr.req_ids || []).filter((rid) => !tracking.has(rid));
+        const openReqIds = Array.isArray(dr.open_req_ids) ? dr.open_req_ids : gatingIds;
         return {
             id: dr.id,
             title: step.title != null ? step.title : '',
@@ -185,8 +234,12 @@ export function buildPlanRows(payload, machines = []) {
             effectiveLocked: lockedBy != null,
             lockedBy,
             notes: step.notes != null ? step.notes : null,
-            completedAt: step.completed_at != null ? step.completed_at : null,
-            state: dr.state,
+            // req #3750 — the step's open work: gating requirements not yet
+            // met/deferred/wontfix. THE orchestration fact about a step.
+            openReqIds,
+            // The canvas's colour input — a display rollup, NOT a step state
+            // (see `visualizerColourInput`).
+            state: visualizerColourInput(gatingIds, openReqIds, reqsById),
             reqIds: dr.req_ids || [],
             trackingReqIds: dr.tracking_req_ids || [],
             unresolvedReqIds: dr.unresolved_req_ids || [],
@@ -208,24 +261,21 @@ export function buildPlanRows(payload, machines = []) {
             labelInherited: false,
             machineLabels: labels,
             machineLabel: labels.length ? labels.join(' / ') : '—',
+            // req #3750 — may this step's launch-ready work go out now: it
+            // carries launch-ready ids and its gate is open. Covers what
+            // `top_up_eligible` used to answer separately; the eligible-now
+            // ring is drawn from it.
             eligible: Boolean(dr.eligible),
-            // req #3507. `eligible` still means "may BEGIN" — it is what the
-            // visualizer's eligible-now ring is drawn from, and a running step
-            // does not get one. This is the other half of the launch picture:
-            // the step has already started and still carries launch-ready work
-            // the engine will command. Never merged with `eligible`; the two
-            // are disjoint server-side and answer different questions.
-            topUpEligible: Boolean(dr.top_up_eligible),
-            // req #3597 — the gate REPORTED (every dependency done, time gate
-            // passed), and whether this step's work may be announced for launch,
+            // req #3597 — the gate REPORTED (no dependency holds open work,
+            // time gate passed), and whether this step's work may be announced for launch,
             // which no longer requires the gate: a dependency is a launch
             // PRIORITY, not a gate. A payload from a Lambda that predates the
             // fields reads as gate closed / not a candidate — never the reverse.
             gateOpen: Boolean(dr.gate_open),
             launchCandidate: Boolean(dr.launch_candidate),
-            // The user's amendment: checkpoint steps upstream (req #3649: the
-            // flag, on by default) not yet done, holding this step.
-            // Empty = no checkpoint blocks it.
+            // The user's amendment: barrier steps upstream (req #3649: the
+            // flag, on by default) still holding open work, holding this step.
+            // Empty = no barrier blocks it.
             checkpointBlockedBy: dr.checkpoint_blocked_by || [],
             launchSuppressed: Boolean(dr.launch_suppressed),
             suppressedBy: dr.suppressed_by || [],
@@ -331,9 +381,6 @@ export function adaptComposedPipeline(payload, { machines = [], costIndex = null
         batches: [],
         batchLetterByStepId: new Map(),
         eligibleStepIds: new Set(derived.eligible_step_ids || []),
-        // req #3507 — the plan-level companion, kept as its own Set for the
-        // same reason the row field is kept as its own boolean.
-        topUpStepIds: new Set(derived.top_up_step_ids || []),
         // req #3597 — every launch candidate, in launch PRIORITY order (gate-open
         // first, then display order). An array, not a Set: the order IS the fact.
         launchCandidateStepIds: derived.launch_candidate_step_ids || [],

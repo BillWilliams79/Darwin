@@ -4,11 +4,12 @@
 // is colour | steps-across 6 5 4 3 | view, Step Width is hidden (code kept),
 // and Reset reads "Default".
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
 
 import PipelinePlanToolbar, { RESET_LABEL } from '../PipelinePlanToolbar';
+import { LONG_PRESS_MS } from '../../../dnd/pressTimeline';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -78,6 +79,91 @@ describe('PipelinePlanToolbar (req #3648)', () => {
         enter(q('pipeline-viz-colorkey-machine'));       // not the active scale
         leave(q('pipeline-viz-colorkey-machine'));
         expect(events).toEqual(['step', null, 'machine', null]);
+    });
+
+    // req #3766 — a long press on a chip pins its help: hover leaving does not
+    // close it, the release is not a click, and the next press anywhere unpins.
+    describe('long press pins the colour help (req #3766)', () => {
+        let events;
+        let picks;
+        beforeEach(() => {
+            vi.useFakeTimers();
+            events = [];
+            picks = [];
+            act(() => root.render(
+                <PipelinePlanToolbar onStepsAcross={() => {}} stepWidthLevel={5}
+                                     onChangeStepWidthLevel={() => {}} colorKey="state"
+                                     onChangeColorKey={(k) => picks.push(k)} planLevelPref="auto"
+                                     effectiveLevel="out" onChangeLevelPref={() => {}}
+                                     onResetView={() => {}}
+                                     onKeyHover={(h) => events.push(h && `${h.key}${h.pinned ? '*' : ''}`)} />));
+        });
+        afterEach(() => vi.useRealTimers());
+
+        const fire = (el, type, init = {}) => act(() => {
+            el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, ...init }));
+        });
+        const longPress = (el) => {
+            fire(el, 'mouseover');
+            fire(el, 'pointerdown', { clientX: 10, clientY: 10 });
+            act(() => { vi.advanceTimersByTime(LONG_PRESS_MS); });
+            fire(el, 'pointerup', { clientX: 10, clientY: 10 });
+            fire(el, 'click');
+        };
+
+        it('pins on a long press, survives the pointer leaving, and swallows the release click', () => {
+            const chip = q('pipeline-viz-colorkey-machine');
+            longPress(chip);
+            fire(chip, 'mouseout');
+            expect(events).toEqual(['machine', 'machine*']);
+            expect(picks).toEqual([]);           // the release did not toggle the scale
+        });
+
+        it('unpins on the next press anywhere, falling back to the chip under the pointer', () => {
+            const machine = q('pipeline-viz-colorkey-machine');
+            const step = q('pipeline-viz-steps-toggle');
+            longPress(machine);
+            fire(machine, 'mouseout');
+            fire(document.body, 'pointerdown');
+            expect(events).toEqual(['machine', 'machine*', null]);
+            longPress(step);
+            fire(step, 'pointerdown');           // pressing the pinned chip itself
+            fire(step, 'pointerup');
+            expect(events.slice(3)).toEqual(['step', 'step*', 'step']);
+        });
+
+        it('a click on a colour chip while pinned unpins AND does what the chip does', () => {
+            longPress(q('pipeline-viz-colorkey-machine'));
+            const state = q('pipeline-viz-colorkey-state');
+            fire(state, 'mouseover');
+            fire(state, 'pointerdown');
+            fire(state, 'pointerup');
+            fire(state, 'click');
+            expect(events.at(-1)).toBe('state');
+            expect(picks).toEqual(['none']);     // 'state' was on, so the click turns it off
+        });
+
+        it('Escape unpins', () => {
+            const chip = q('pipeline-viz-colorkey-machine');
+            longPress(chip);
+            fire(chip, 'mouseout');
+            act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
+            expect(events.at(-1)).toBe(null);
+        });
+
+        it('a short press or a press that moves does not pin', () => {
+            const chip = q('pipeline-viz-colorkey-machine');
+            fire(chip, 'mouseover');
+            fire(chip, 'pointerdown', { clientX: 10, clientY: 10 });
+            act(() => { vi.advanceTimersByTime(LONG_PRESS_MS - 50); });
+            fire(chip, 'pointerup');
+            fire(chip, 'click');
+            fire(chip, 'pointerdown', { clientX: 10, clientY: 10 });
+            fire(chip, 'pointermove', { clientX: 30, clientY: 10 });
+            act(() => { vi.advanceTimersByTime(LONG_PRESS_MS); });
+            expect(events).toEqual(['machine']);
+            expect(picks).toEqual(['machine']);
+        });
     });
 
     // req #3686 — the Hide closed chip sits between the colour chips and the ladder.

@@ -77,7 +77,7 @@ describe('thumbnailFrame', () => {
     it('frames a real computePlanLayout result with cards inside the frame', () => {
         const steps = [10, 11, 12, 13].map((id, i) => ({
             id, epic_fk: 1, title: `Step ${i}`, run: 'auto',
-            notes: null, completed_at: null, not_before: null,
+            notes: null, not_before: null,
         }));
         const data = composedFixture({
             id: 7,

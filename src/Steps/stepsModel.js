@@ -1,11 +1,11 @@
-// stepsModel.js — the pure completion-guard model behind /swarm/steps (req #3393).
+// stepsModel.js — the pure row model behind /swarm/steps (req #3393).
 //
 // PURE: plain rows in, plain rows out. No React, no MUI, no hooks, no clock —
 // same shape as `Darwin/src/Steps/stepsModel.js`, whose functions this ports a
 // SUBSET of rather than importing (see pipelinesViewModel.js's header for why
 // this file stays a structural copy rather than an import).
 //
-// ## Why this is a guard, not a state engine
+// ## Why there is no state engine here
 //
 // 1.0's `stepsModel.js` deliberately runs the REAL derivation engine
 // (`pipelineModel.js`'s `buildPlanRows`) rather than re-deriving step state a
@@ -23,22 +23,17 @@
 //
 // What this module ports instead is narrower and does not need that engine at
 // all: the design-intent doctrine (memory/pipeline-2-plan-layer-intent.md)
-// states the actual predicate the completion guard needs —
+// states the actual predicate a step's link split needs —
 //
 //   "A step has no state column... The one case that carries a stamp of its
 //   own is a step with no requirement that speaks for its progress — either
 //   none at all, or only ones that stand for a whole programme."
 //
 // — which means GATING is a function of whether any non-container requirement
-// is LINKED at all, never of its live status. That is a join over two small
-// junction/dictionary reads, not a derivation, and it is the identical
-// predicate 1.0's `gatingRequirementIds`/`completionGuard` implement (minus
-// the epic/feature/batch machinery 2.0's containment removed). `StepsPage`
-// therefore renders `completed_at` as a two-state Open/Complete chip rather
-// than 1.0's three-state Pending/Running/Done — see PLAN.md for the full
-// scoping rationale. Full three-state rendering is the 2.0 visualizer's job,
-// once it exists and can share one real implementation with the composed
-// route.
+// is LINKED at all, never of its live status. That split is all this module
+// computes; the grid uses it to mark tracking containers in the Reqs tooltip.
+// It renders no step state at all (req #3750 removed the State column) — step
+// state is the plan visualizer's to show.
 
 const asArray = (v) => (Array.isArray(v) ? v : []);
 
@@ -59,15 +54,12 @@ export function isTrackingRequirement2(req) {
 }
 
 /**
- * The GATING subset of a link set — the guard's input, in one place. Used by
- * `buildStepRows` for the grid and by the page's LIVE re-read before a
- * stamp, so the displayed guard and the enforced guard cannot be two
- * different rules.
+ * The GATING subset of a link set, in one place. Used by `buildStepRows`
+ * for the grid's gating/tracking split.
  *
  * TRACKING CONTAINERS ARE EXEMPT (req #3123): a container is not work and
  * never gates a step. An UNRESOLVED id — one the requirements read did not
- * return — gates, because `isTrackingRequirement2(undefined)` is false and
- * refusing a stamp is the recoverable direction.
+ * return — gates, because `isTrackingRequirement2(undefined)` is false.
  *
  * @param {number[]} reqIds
  * @param {Object[]} requirements  any superset
@@ -76,42 +68,6 @@ export function isTrackingRequirement2(req) {
 export function gatingRequirementIds2(reqIds, requirements) {
     const byId = new Map(asArray(requirements).map((r) => [r.id, r]));
     return asArray(reqIds).filter((rid) => !isTrackingRequirement2(byId.get(rid)));
-}
-
-/**
- * Whether `completed_at` may be stamped on this row.
- *
- * THIS FUNCTION IS THE FAST PATH, NOT THE ENFORCEMENT — it answers from
- * whatever link set the caller's row was built from, which is a ≤30s cache.
- * What actually decides is StepsPage's `completeFlow`, which re-reads the
- * step's links live before any stamp and calls this again on the result.
- *
- * @param {Object} row  a step editor row carrying `gatingReqIds`/`trackingReqIds`/`completedAt`
- * @returns {{allowed: boolean, reason: string}}
- */
-export function completionGuard2(row) {
-    const gating = asArray(row && row.gatingReqIds);
-    if (!gating.length) {
-        return {
-            allowed: true,
-            reason: row && row.completedAt
-                ? 'Complete — click to reopen this step'
-                : 'Open — click to mark this step complete',
-        };
-    }
-    const tracking = asArray(row.trackingReqIds);
-    const one = tracking.length === 1;
-    const exempt = tracking.length
-        ? ` (${tracking.length} tracking container${one ? '' : 's'} `
-          + `${tracking.join(', ')} ${one ? 'is' : 'are'} exempt and `
-          + `${one ? 'was' : 'were'} not counted)`
-        : '';
-    return {
-        allowed: false,
-        reason: `Derived from ${gating.length} gating requirement`
-            + `${gating.length === 1 ? '' : 's'} ${gating.join(', ')}${exempt} — `
-            + 'close or unlink them to control this step by hand.',
-    };
 }
 
 /**
@@ -136,8 +92,8 @@ export function dropBlockers2(stepId, stepDeps) {
 }
 
 /**
- * Every step, decorated for the editor grid with its gating/tracking split
- * and its delete-blocker preview. Pure CPU over rows already fetched — no
+ * Every step, decorated for the editor grid with its plan labels, its
+ * gating/tracking split and its delete-blocker preview. Pure CPU over rows already fetched — no
  * per-step derivation, no gateway read of its own.
  *
  * @param {Object} args
@@ -146,13 +102,14 @@ export function dropBlockers2(stepId, stepDeps) {
  * @param {Object[]} args.stepDeps            pipeline_step_deps rows
  * @param {Object[]} args.requirements        any superset (needs `id`, `tracking`)
  * @param {Object[]} args.epics               epics rows (for the label/pipeline_fk dictionary)
- * @param {Object[]} [args.pipelines]         pipelines rows (only `id`/`locked` read)
+ * @param {Object[]} [args.pipelines]         pipelines rows (`id`, `title`, `locked`)
  * @returns {Object[]}
  */
 export function buildStepRows({
     steps, stepRequirements, stepDeps, requirements, epics, pipelines,
 } = {}) {
     const epicById = new Map(asArray(epics).map((e) => [e.id, e]));
+    const pipelineById = new Map(asArray(pipelines).map((p) => [p.id, p]));
     const pipelineLocked = new Set(asArray(pipelines)
         .filter((p) => p && Number(p.locked)).map((p) => p.id));
 
@@ -165,6 +122,7 @@ export function buildStepRows({
 
     return asArray(steps).filter(Boolean).map((step) => {
         const epic = epicById.get(step.epic_fk) || null;
+        const pipeline = epic ? (pipelineById.get(epic.pipeline_fk) || null) : null;
         const reqIds = (linksByStep.get(step.id) || []).slice().sort((a, b) => a - b);
         const gatingReqIds = gatingRequirementIds2(reqIds, requirements);
         const gatingSet = new Set(gatingReqIds);
@@ -173,6 +131,7 @@ export function buildStepRows({
             ...step,
             epicTitle: epic ? epic.title : null,
             pipelineFk: epic ? epic.pipeline_fk : null,
+            pipelineTitle: pipeline ? pipeline.title : null,
             // req #3742 — the OUTERMOST lock holding this step (the level that
             // must be lifted first, as the gateway's `plan_lock.py` names it),
             // or null. The plan canvas draws any of the three as a red frame,
@@ -181,7 +140,6 @@ export function buildStepRows({
             lockedBy: (epic && pipelineLocked.has(epic.pipeline_fk)) ? 'pipeline'
                 : (epic && Number(epic.locked)) ? 'epic'
                     : Number(step.locked) ? 'step' : null,
-            completedAt: step.completed_at || null,
             reqIds,
             gatingReqIds,
             trackingReqIds,

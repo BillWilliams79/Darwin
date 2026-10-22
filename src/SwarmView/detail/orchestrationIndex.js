@@ -221,9 +221,9 @@ export function emptyOrchestrationIndex() {
 /**
  * The steps the Step row may offer — the ONE settable level of the box.
  *
- * ## Scope: this requirement's own plan, open steps only
+ * ## Scope: this requirement's own plan
  *
- * "Only the current pipeline's steps that are open." Concretely:
+ * Concretely:
  *
  *   * the step's plan — resolved THROUGH ITS EPIC, since a 2.0 step carries no
  *     `pipeline_fk` (req #3356) — is `pipelineId`, when one is known. With no
@@ -232,11 +232,8 @@ export function emptyOrchestrationIndex() {
  *     control is dead exactly when it is needed. A step whose epic did not
  *     resolve is in NEITHER list: it belongs to no plan this read can name, so
  *     it can neither match a named plan nor be vouched for as open.
- *   * `completed_at` is NULL. `pipeline_steps` carries that column exactly as
- *     `pipeline_steps` did, so this filter is unchanged. A finished step is not
- *     a place to put new work, and seating a requirement on one would contradict
- *     design rule 1 — a stamped `completed_at` is valid only with zero gating
- *     requirements.
+ *   * there is NO "open step" filter: a step has no state (req #3750) — it is
+ *     never completed, so every step of an offered plan can take new work.
  *
  * `currentStepId` is always offered, whatever the filters say, on the same rule
  * the rest of this module follows: a select whose own list denies its value
@@ -273,7 +270,6 @@ export function stepOptions(index, { pipelineId = null, epicId = null, currentSt
     const out = [];
     for (const step of stepsById.values()) {
         if (step.id === curStep) continue;          // appended unconditionally below
-        if (step.completed_at) continue;            // open steps only
         if (eid != null) {
             if (epicByStep.get(step.id) !== eid) continue;
         } else if (epicsById.get(epicByStep.get(step.id))?.closed) {
