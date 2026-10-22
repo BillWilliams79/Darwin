@@ -545,7 +545,8 @@ export default function PipelinePlanVisualizer({
     // req #3722 — the colour help is a HOVER popup on the toolbar's chips. The
     // page owns the toolbar, so the chip under the pointer arrives here as
     // `{ key, el }` (`key` a colour scale, or 'step'; `el` the chip to anchor
-    // to), null when none is hovered.
+    // to), null when none is hovered; `pinned: true` when a long press holds it
+    // open (req #3766).
     keyHover = null,
 }) {
     const navigate = useNavigate();
@@ -5972,6 +5973,9 @@ export default function PipelinePlanVisualizer({
                     explains ITSELF when the pointer rests on it — active or not
                     — and the Step chip explains the step marks. The page owns
                     the toolbar, so the hovered chip arrives as `keyHover`.
+                    A LONG PRESS on a chip pins it (req #3766): `keyHover`
+                    arrives with `pinned: true` and the toolbar holds it there
+                    until the next press anywhere — see `useKeyHelp`.
 
                     The popup lives HERE because the key's data does (the ids
                     this plan draws decide whether an `unknown` swatch is
@@ -5994,6 +5998,7 @@ export default function PipelinePlanVisualizer({
                             role="tooltip"
                             data-testid="pipeline-viz-legend"
                             data-key={keyHover.key}
+                            data-pinned={keyHover.pinned ? 'true' : 'false'}
                             sx={{
                                 mt: 0.5, px: 1.25, py: 0.9, borderRadius: '10px',
                                 background: 'rgba(13, 20, 32, 0.97)',
