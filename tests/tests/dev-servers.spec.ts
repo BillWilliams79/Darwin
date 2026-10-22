@@ -243,11 +243,12 @@ test.describe('Dev Servers View', () => {
     expect(Math.abs(floated.x - (700 - (gx - inRack.x)))).toBeLessThan(3);
     expect(Math.abs(floated.y - (300 - (gy - inRack.y)))).toBeLessThan(3);
   });
-  // Req #3729 — "first in, at the top", then drag to reorder. The dev build
-  // racks its own Dev Server panel by default, so the dashboard joins a stack
-  // of one: released BELOW the stack it lands first; its head dragged down onto
-  // the Dev Server panel's lower half moves it under it — still racked.
-  test('DEV-06: a panel racked below the stack lands first, then reorders by drag', async ({ page }) => {
+  // Req #3744 (reversing #3729's top) — "first in, at the bottom", then drag
+  // to reorder. The dev build racks its own Dev Server panel by default, so the
+  // dashboard joins a stack of one: released BELOW the stack it lands last; its
+  // head dragged up onto the Dev Server panel's upper half moves it above it —
+  // still racked.
+  test('DEV-06: a panel racked below the stack lands last, then reorders by drag', async ({ page }) => {
     // Tall enough that the navbar has empty room below the stack.
     await page.setViewportSize({ width: 1280, height: 1200 });
     await page.route(/\/dev_servers(\?|$)/, r => r.request().method() === 'GET'
@@ -272,7 +273,7 @@ test.describe('Dev Servers View', () => {
     // Room in the navbar below the stack (it ends ~720px down).
     const rackBox = (await page.getByTestId('navbar-rack').boundingBox())!;
     expect(rackBox.y + rackBox.height).toBeLessThan(nav.height - 40);
-    // Released below the stack: first, above the Dev Server panel.
+    // Released below the stack: last, under the Dev Server panel.
     let [gx, gy] = await grab();
     await page.mouse.move(gx, gy);
     await page.mouse.down();
@@ -281,10 +282,10 @@ test.describe('Dev Servers View', () => {
     await expect(zone).toHaveAttribute('data-rack-drop', 'over');
     await page.mouse.up();
     await expect(dash).toHaveAttribute('data-racked', '1');
-    expect((await order()).slice(0, 2)).toEqual(['devservers', 'devserver-info']);
-    expect((await dash.boundingBox())!.y).toBeLessThan((await info.boundingBox())!.y);
+    expect((await order()).slice(0, 2)).toEqual(['devserver-info', 'devservers']);
+    expect((await dash.boundingBox())!.y).toBeGreaterThan((await info.boundingBox())!.y);
 
-    // Dragged down onto the Dev Server panel's lower half: reordered under it.
+    // Dragged up onto the Dev Server panel's upper half: reordered above it.
     let last = '';
     await expect.poll(async () => {
       const now = JSON.stringify(await info.boundingBox());
@@ -296,11 +297,98 @@ test.describe('Dev Servers View', () => {
     await page.mouse.move(gx, gy);
     await page.mouse.down();
     const ib = (await info.boundingBox())!;
-    await page.mouse.move(gx, ib.y + ib.height - 4, { steps: 10 });
+    await page.mouse.move(gx, ib.y + 4, { steps: 10 });
     await expect(zone).toHaveAttribute('data-rack-drop', 'over');
     await page.mouse.up();
     await expect(dash).toHaveAttribute('data-racked', '1');
-    expect((await order()).slice(0, 2)).toEqual(['devserver-info', 'devservers']);
-    expect((await dash.boundingBox())!.y).toBeGreaterThan((await info.boundingBox())!.y);
+    expect((await order()).slice(0, 2)).toEqual(['devservers', 'devserver-info']);
+    expect((await dash.boundingBox())!.y).toBeLessThan((await info.boundingBox())!.y);
+  });
+
+  // Req #3747 — a racked panel takes only the space its content needs. Three
+  // dev servers used to stretch across the whole bottom of the navbar; now the
+  // dashboard is as tall as its rows and the rack ends below the last panel.
+  // When the rows outgrow the navbar, the panels share it fairly: the small Dev
+  // Server panel keeps all of its content and the dashboard scrolls the rest.
+  test('DEV-07: racked panels take only the height they need, and share a short navbar fairly', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 1200 });
+    const row = (i: number) => ({
+      id: 970 + i, port: 3001 + i, pid: 1, machine_fk: null, session_fk: null, terminal_number: 30 + i,
+      workspace_path: `/x/sessions/37${47 + i}-info-pop-up-in-navbar-${i}`,
+      started_at: '2026-10-21T00:00:00', create_ts: '2026-10-21T00:00:00',
+    });
+    let rows = [0, 1, 2].map(row);
+    await page.route(/\/dev_servers(\?|$)/, r => r.request().method() === 'GET'
+      ? r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(rows) })
+      : r.continue());
+    await page.goto('/devservers');
+    const info = page.getByTestId('devserver-info');
+    await expect(info).toHaveAttribute('data-racked', '1', { timeout: 10000 });
+    const chip = page.getByTestId('dev-servers-page-dashboard-chip');
+    await expect(chip).toBeVisible({ timeout: 10000 });
+    if ((await chip.getAttribute('aria-pressed')) === 'false') await chip.click();
+    const dash = page.getByTestId('devserver-dashboard');
+    await expect(dash).toHaveAttribute('data-racked', '0');
+    const items = page.locator('[data-testid^="devserver-dashboard-item-"]');
+    await expect(items).toHaveCount(3);
+    const zone = page.getByTestId('navbar-rack-zone');
+    const nav = (await zone.boundingBox())!;
+    const b = (await page.getByTestId('devserver-dashboard-count').boundingBox())!;
+    await page.mouse.move(b.x + b.width + 6, b.y + b.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(600, 400, { steps: 6 });
+    await page.mouse.move(nav.x + nav.width / 2, nav.y + nav.height - 20, { steps: 8 });
+    await expect(zone).toHaveAttribute('data-rack-drop', 'over');
+    await page.mouse.up();
+    await expect(dash).toHaveAttribute('data-racked', '1');
+    await expect(dash).toHaveAttribute('data-rack-open', '1');
+
+    // Each body's drawn height, against the height its rows need — measured
+    // from the rows themselves, not scrollHeight (which never reports less
+    // than the drawn height, so it cannot see empty space).
+    const fit = (testid: string) => page.getByTestId(`${testid}-body`).evaluate(el => {
+      const cs = getComputedStyle(el);
+      const rows = [...el.children].reduce((h, c) => h + c.getBoundingClientRect().height, 0);
+      return { drawn: el.clientHeight,
+        needs: Math.round(rows + parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom)) };
+    });
+    const settle = async () => {
+      let last = '';
+      await expect.poll(async () => {
+        const now = JSON.stringify([await fit('devserver-dashboard'), await fit('devserver-info')]);
+        const still = now === last;
+        last = now;
+        return still;
+      }, { intervals: [250] }).toBe(true);
+    };
+    await settle();
+
+    // Three rows: no empty space inside either panel, none below the stack.
+    for (const id of ['devserver-dashboard', 'devserver-info']) {
+      const f = await fit(id);
+      expect(Math.abs(f.drawn - f.needs), `${id} ${JSON.stringify(f)}`).toBeLessThanOrEqual(2);
+    }
+    const rackEdge = () => page.getByTestId('navbar-rack').evaluate(el => {
+      const panels = [...el.querySelectorAll('[data-rack-id]')].map(p => p.getBoundingClientRect().bottom);
+      return { rack: el.getBoundingClientRect().bottom, last: Math.max(...panels) };
+    });
+    const few = await rackEdge();
+    expect(few.rack - few.last).toBeLessThanOrEqual(8);
+    expect(few.rack).toBeLessThan(nav.y + nav.height - 100);
+
+    // Rows past the navbar's height: the rack fills it, the small panel keeps
+    // all of its content, the dashboard scrolls the rest.
+    rows = Array.from({ length: 80 }, (_, i) => row(i));
+    await page.reload();
+    await expect(dash).toHaveAttribute('data-racked', '1', { timeout: 10000 });
+    await expect(items).toHaveCount(80);
+    await settle();
+    const small = await fit('devserver-info');
+    expect(Math.abs(small.drawn - small.needs), JSON.stringify(small)).toBeLessThanOrEqual(2);
+    const big = await fit('devserver-dashboard');
+    expect(big.needs, JSON.stringify(big)).toBeGreaterThan(big.drawn + 50);
+    const many = await rackEdge();
+    expect(many.rack).toBeGreaterThan(nav.y + nav.height - 20);
+    expect(many.last).toBeLessThanOrEqual(nav.y + nav.height + 1);
   });
 });
