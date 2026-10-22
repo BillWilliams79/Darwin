@@ -59,9 +59,9 @@ describe('PipelinePlanThumbnail — L3 crop (req #3641)', () => {
             epics: [{ id: 1, pipeline_fk: 7, title: 'Polish', sort_order: 1 }],
             steps: [
                 { id: 10, epic_fk: 1, title: 'Visualizer Polish', run: 'auto',
-                    notes: null, completed_at: null, not_before: null },
+                    notes: null, not_before: null },
                 { id: 11, epic_fk: 1, title: 'Cards Polish', run: 'manual',
-                    notes: null, completed_at: null, not_before: null },
+                    notes: null, not_before: null },
             ],
             requirements: [
                 { id: 501, title: 'Brighter arcs', requirement_status: 'met', tracking: 0 },

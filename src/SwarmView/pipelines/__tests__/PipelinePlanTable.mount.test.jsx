@@ -47,7 +47,7 @@ const PLAN = {
     rows: [
         {
             id: 47, title: 'Session Drain', run: 'auto', notes: null,
-            completedAt: null, state: 'running',
+            openReqIds: [3324], state: 'running',
             reqIds: [3324], trackingReqIds: [], unresolvedReqIds: [],
             depIds: [], timeDeps: [],
             epicId: 4, epic: 'Orchestration',
@@ -56,7 +56,7 @@ const PLAN = {
         },
         {
             id: 48, title: 'Pause Enforcement', run: 'manual', notes: null,
-            completedAt: null, state: 'pending',
+            openReqIds: [3223, 3224], state: 'pending',
             reqIds: [3223, 3224], trackingReqIds: [], unresolvedReqIds: [],
             // A step dependency AND a time gate, so `formatTimeGates` runs too.
             depIds: [47], timeDeps: [{ at: '2026-08-04T12:00:00Z' }],
@@ -226,10 +226,19 @@ describe('PipelinePlanTable mounts (req #3324)', () => {
                 from: 'pipeline', pipelineId: 2, mode: 'table', backStepId: 48 });
     });
 
-    it('offers no "+" on a step stamped complete (design rule 1, req #3582)', () => {
-        const stamped = { ...PLAN, rows: PLAN.rows.map((r) => (r.id === 47
-            ? { ...r, completedAt: '2026-10-17 00:00:00', state: 'done' } : r)) };
-        render({ plan: stamped });
+    // req #3750 — a step has no state: one whose work is all finished still
+    // offers its "+". Only a lock (req #3649) withholds it.
+    it('offers the "+" on a step whose work is all finished', () => {
+        const finished = { ...PLAN, rows: PLAN.rows.map((r) => (r.id === 47
+            ? { ...r, openReqIds: [], state: 'done' } : r)) };
+        render({ plan: finished });
+        expect(document.querySelector('[data-testid="pipeline-step-add-47"]')).not.toBeNull();
+    });
+
+    it('offers no "+" on an effectively locked step (req #3649)', () => {
+        const locked = { ...PLAN, rows: PLAN.rows.map((r) => (r.id === 47
+            ? { ...r, effectiveLocked: true, lockedBy: 'step' } : r)) };
+        render({ plan: locked });
         expect(document.querySelector('[data-testid="pipeline-step-add-47"]')).toBeNull();
         expect(document.querySelector('[data-testid="pipeline-step-add-48"]')).not.toBeNull();
     });

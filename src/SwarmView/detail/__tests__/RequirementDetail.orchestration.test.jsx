@@ -76,22 +76,21 @@ const EPICS = [
     { id: 80, pipeline_fk: 80, title: 'Old Epic',         sort_order: 1 },
 ];
 const STEPS = [
-    { id: 100, epic_fk: 20, title: 'Orchestration Box', completed_at: null },
-    { id: 104, epic_fk: 20, title: 'Polish Round 2',    completed_at: null },
-    { id: 105, epic_fk: 20, title: 'Polish Shipped',
-      completed_at: '2026-08-01T00:00:00' },   // DONE — never offerable
-    { id: 101, epic_fk: 20, title: 'Plan Layer',        completed_at: null },
-    { id: 200, epic_fk: 90, title: 'Agent Boot',        completed_at: null },
-    { id: 300, epic_fk: 20, completed_at: null },   // no title, no reqs
-    { id: 106, epic_fk: 21, title: 'Polish Tail',       completed_at: null },
-    { id: 801, epic_fk: 80, title: 'Old Step',          completed_at: '2026-07-01T00:00:00' },
+    { id: 100, epic_fk: 20, title: 'Orchestration Box' },
+    { id: 104, epic_fk: 20, title: 'Polish Round 2' },
+    { id: 105, epic_fk: 20, title: 'Polish Shipped' },   // its work all met
+    { id: 101, epic_fk: 20, title: 'Plan Layer' },
+    { id: 200, epic_fk: 90, title: 'Agent Boot' },
+    { id: 300, epic_fk: 20 },   // no title, no reqs
+    { id: 106, epic_fk: 21, title: 'Polish Tail' },
+    { id: 801, epic_fk: 80, title: 'Old Step' },
 ];
 // MUTABLE: some cases need a requirement seated on NO step.
 let stepRequirements = [];
 const DEFAULT_STEP_REQUIREMENTS = [
     { step_fk: 100, requirement_fk: 3435 },  // this requirement -> plan 2
     { step_fk: 104, requirement_fk: 3437 },
-    { step_fk: 105, requirement_fk: 3438 },  // DONE
+    { step_fk: 105, requirement_fk: 3438 },  // met — the step still takes work
     { step_fk: 101, requirement_fk: 3401 },
     { step_fk: 200, requirement_fk: 3400 },  // plan 79
 ];
@@ -437,29 +436,30 @@ describe('RequirementDetail Orchestration box (req #3435)', { timeout: 30000 }, 
     // ── The menu ────────────────────────────────────────────────────────────
 
     // Scoped to THIS plan alone (req #3357 — no epic scoping left).
-    it('offers only this plan’s OPEN steps', async () => {
+    it('offers only this plan’s steps', async () => {
         const { container } = mount();
         await flush();
         const labels = (await openSelect(container, 'orchestration-step-select'))
             .map((o) => o.textContent);
-        // Current step first, then id ascending. 'Polish Shipped' (105) is done,
-        // 'Agent Boot' (200) is another plan.
-        expect(labels).toEqual(['No step', 'Orchestration Box', 'Plan Layer', 'Polish Round 2', 'Step 300']);
+        // Current step first, then id ascending. 'Agent Boot' (200) is another plan.
+        expect(labels).toEqual(['No step', 'Orchestration Box', 'Plan Layer', 'Polish Round 2',
+            'Polish Shipped', 'Step 300']);
         await closeMenu();
     });
 
-    it('never offers a completed step', async () => {
+    // A step has no state (req #3750): one whose work is all met still takes work.
+    it('offers a step whose requirements are all met', async () => {
         const { container } = mount();
         await flush();
         const labels = (await openSelect(container, 'orchestration-step-select'))
             .map((o) => o.textContent);
-        expect(labels).not.toContain('Polish Shipped');
+        expect(labels).toContain('Polish Shipped');
         await closeMenu();
     });
 
     // A select whose own list denies its value renders blank, which reads as a
     // data bug rather than as a filter.
-    it('offers the current step even when it is finished', async () => {
+    it('offers the current step first', async () => {
         stepRequirements = [{ step_fk: 105, requirement_fk: 3435 },
             ...DEFAULT_STEP_REQUIREMENTS.filter((l) => l.requirement_fk !== 3435)];
         const { container } = mount();
@@ -720,7 +720,7 @@ describe('RequirementDetail Orchestration box (req #3435)', { timeout: 30000 }, 
         expect(seatCalls).toEqual([]);
     });
 
-    it('All epics widens back to every open step of the plan', async () => {
+    it('All epics widens back to every step of the plan', async () => {
         const { container } = mount();
         await flush();
         await chooseOption(container, 'orchestration-epic-select', 'All epics');
@@ -728,7 +728,7 @@ describe('RequirementDetail Orchestration box (req #3435)', { timeout: 30000 }, 
         const labels = (await openSelect(container, 'orchestration-step-select'))
             .map((o) => o.textContent);
         expect(labels).toEqual(['No step', 'Orchestration Box', 'Plan Layer',
-            'Polish Round 2', 'Polish Tail', 'Step 300']);
+            'Polish Round 2', 'Polish Shipped', 'Polish Tail', 'Step 300']);
         await closeMenu();
     });
 

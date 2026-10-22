@@ -523,8 +523,10 @@ export const epics = createEntityQueries({
 export const pipelineSteps = createEntityQueries({
     entity: 'pipeline_steps',
     // req #3649 — `checkpoint` (holds downstream launches) and `locked`.
+    // req #3750 — no `completed_at`: a step has no state and the column is
+    // dropped, so naming it would 400 the whole read.
     defaultFields:
-        'id,epic_fk,title,run,checkpoint,locked,notes,not_before,completed_at,creator_fk',
+        'id,epic_fk,title,run,checkpoint,locked,notes,not_before,creator_fk',
     fieldsInKey: true,
     defaultSort: 'id:asc',
 });

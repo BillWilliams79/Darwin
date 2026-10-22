@@ -2259,7 +2259,7 @@ export default function PipelinePlanVisualizer({
                 d.target = next;
                 setDropStepId(next);
             }
-            // A card that refuses the requirement (a stamped step) says so; its
+            // A card that refuses the requirement (a locked step) says so; its
             // own home card and open canvas just keep the grab.
             setCursor(stepId != null && stepId !== d.fromStepId && !ok
                 ? 'no-drop' : 'grabbing');
@@ -3653,7 +3653,7 @@ export default function PipelinePlanVisualizer({
         setSeatTarget(null);
         if (!req) return false;
         if (!req.ok) {
-            showError(`"${req.stepTitle}" is completed — it takes no new work`);
+            showError(`"${req.stepTitle}" is locked — it takes no new work`);
             return true;
         }
         setBulkSeat(req);
@@ -5905,7 +5905,7 @@ export default function PipelinePlanVisualizer({
                 {/* req #3583 — the step card a box row would land on. An HTML
                     outline over the canvas rather than a Konva shape, so the
                     world draws nothing new mid-drag: accent when the step takes
-                    the requirement, dashed red when it will not (a stamped
+                    the requirement, dashed red when it will not (a locked
                     step). */}
                 {seatTargetRect && (
                     <Box data-testid="pipeline-viz-seat-target"

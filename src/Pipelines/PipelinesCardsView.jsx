@@ -18,12 +18,11 @@
 // meaning and actual status values."*
 //
 // The card used to draw a two-state done/open bar over STEPS, counted by
-// `if (step.completed_at)`. That is not a state a step reliably has:
-// `pipeline_steps` carries no status column at all (verified — its ten columns
-// are id, epic_fk, title, notes, run, not_before, completed_at, create_ts,
-// update_ts, creator_fk), a step's state is DERIVED from its requirements on
-// every read (design rule 1), and `completed_at` is stamped only where a step
-// has NO gating requirements. Measured on plan 7: **0 of 71 steps carried
+// `if (step.completed_at)`. That was never a state a step reliably had:
+// `pipeline_steps` carries no status column at all, `completed_at` was stamped
+// only where a step had NO gating requirements — and since req #3750 a step
+// has no state whatsoever (the column is dropped; a step only holds
+// requirements). Measured on plan 7: **0 of 71 steps carried
 // one**, so the card read "0 complete · 71 open" for a plan whose real state
 // was 49 done / 21 pending / 1 running.
 //
@@ -54,7 +53,7 @@ import { machineTitle, pipelinesEmptyMessage } from '../SwarmView/pipelines/pipe
 import { orchestrationView } from '../SwarmView/pipelines/orchestrationHolder';
 import PipelinePlanThumbnail from './PipelinePlanThumbnail';
 
-const EMPTY_SUMMARY = { total: 0, done: 0, open: 0 };
+const EMPTY_SUMMARY = { total: 0 };
 
 // `lastOpenedId` is GONE (req #3365 user directive — "Remove 'last viewed'
 // entirely"). It drove a chip in the title row AND a primary-coloured border

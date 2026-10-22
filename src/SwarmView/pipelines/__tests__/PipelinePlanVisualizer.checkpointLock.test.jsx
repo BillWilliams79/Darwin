@@ -85,7 +85,7 @@ afterEach(() => {
 });
 
 const step = (id, epic_fk, title, extra = {}) => ({
-    id, epic_fk, title, run: 'auto', notes: null, completed_at: null, not_before: null,
+    id, epic_fk, title, run: 'auto', notes: null, not_before: null,
     checkpoint: 1, locked: 0, ...extra,
 });
 

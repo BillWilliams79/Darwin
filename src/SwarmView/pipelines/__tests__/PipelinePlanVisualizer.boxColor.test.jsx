@@ -77,7 +77,7 @@ function render(props = {}) {
     const payload = composedFixture({
         epics: [{ id: 5, title: 'Build', pipeline_fk: 2, sort_order: 1 }],
         steps: [{ id: 10, epic_fk: 5, title: 'Design', run: 'auto', notes: null,
-            completed_at: null, not_before: null }],
+            not_before: null }],
     });
     const plan = adaptComposedPipeline(payload);
     const model = buildPlanModel(payload, [

@@ -5,17 +5,10 @@
 // surface exists or is needed. Pattern mirrors Steps/stepsApi.js — this is its
 // server-side sibling, not an import of it.
 //
-// ## The invariant this module has to carry itself
+// ## A step has no state (req #3750)
 //
-// The browser does not go through the MCP service, so `pipelines2.py`'s
-// design-rule-1 guard (`completed_at` valid only on a step with zero GATING
-// requirements — tracking containers exempt) is unenforced on this path
-// unless it is reproduced here. It is: `stepsModel.js` holds the decision as
-// a pure tested function (`completionGuard`); `completeStep` below is the
-// only function that stamps the column, and it is the CALLER's job (StepsPage's
-// `completeFlow`) to have just re-read this step's live links before calling it
-// — the two functions below (`fetchStepRequirementIds`,
-// `fetchRequirement2Tracking`) exist for that re-read.
+// A step holds requirements and carries orchestration controls; it is never
+// completed or reopened, and `pipeline_steps.completed_at` no longer exists.
 //
 // Column shape (from darwin-mcp/services/pipelines2.py's create/update
 // functions):
@@ -26,10 +19,8 @@
 //   run           'auto' | 'manual'
 //   notes         nullable TEXT — REPLACES, never appends
 //   not_before    nullable TIMESTAMP, one instant, clearable
-//   completed_at  nullable DATETIME — stamped by completeStep, cleared by reopenStep
 
 import call_rest_api from '../RestApi/RestApi';
-import { fetchEntity } from '../hooks/factory/createEntityQueries';
 
 const isOk = (status) => status === 200 || status === 201 || status === 204;
 
@@ -59,8 +50,7 @@ export const sqlNow = () => new Date().toISOString().slice(0, 19).replace('T', '
 export const VALID_RUN2_MODES = ['auto', 'manual'];
 
 /**
- * Create a step under an epic. `completed_at` is never set here — a step is
- * born incomplete. Requirement links are not created either: seating is
+ * Create a step under an epic. Requirement links are not created either: seating is
  * MCP/Primary-only (see this module's header). Dependency rows are written
  * only by the plan visualizer's add-step actions below (`addDependentStep`,
  * `insertStepOnEdge`, req #3586; `precedeStepWith`, req #3617) — a browser
@@ -70,7 +60,7 @@ export const VALID_RUN2_MODES = ['auto', 'manual'];
 export async function createStep(darwinUri, idToken,
     { epic_fk, title, run = 'auto', notes = null, not_before = null }) {
     const r = await call_rest_api(`${darwinUri}/pipeline_steps`, 'POST',
-        { epic_fk, title, run, notes, not_before, completed_at: null }, idToken);
+        { epic_fk, title, run, notes, not_before }, idToken);
     return assertOk(r, 'createStep');
 }
 
@@ -86,22 +76,6 @@ export async function updateStep(darwinUri, idToken, id, fields) {
 }
 
 /**
- * Stamp `completed_at`. DESIGN RULE 1 IS THE CALLER'S PRECONDITION: call this
- * only for a step whose gating set was just confirmed EMPTY BY A LIVE READ
- * (StepsPage's `completeFlow`, mirroring `Steps/StepsPage.jsx`'s identical
- * guard). The cached `completionGuard` alone is the fast path, not the rule.
- */
-export async function completeStep(darwinUri, idToken, id) {
-    return updateStep(darwinUri, idToken, id, { completed_at: sqlNow() });
-}
-
-/** Clear `completed_at`. Unguarded — reopening only ever moves the stored
- * column towards what a derived step already reports. */
-export async function reopenStep(darwinUri, idToken, id) {
-    return updateStep(darwinUri, idToken, id, { completed_at: REST_NULL });
-}
-
-/**
  * HARD-delete a step, ONE statement — same single-statement rationale
  * `Steps/stepsApi.js`'s `deleteStep` states: `pipeline_step_requirements` and
  * `pipeline_step_deps` rows referencing this step as `step_fk` cascade with
@@ -112,28 +86,6 @@ export async function reopenStep(darwinUri, idToken, id) {
 export async function deleteStep(darwinUri, idToken, id) {
     const r = await call_rest_api(`${darwinUri}/pipeline_steps`, 'DELETE', { id }, idToken);
     return assertOk(r, 'deleteStep');
-}
-
-/**
- * The requirement ids currently linked to a step, read LIVE — the re-read
- * design rule 1 requires before a stamp (see this module's header).
- */
-export async function fetchStepRequirementIds(darwinUri, idToken, stepId) {
-    const rows = await fetchEntity(
-        `${darwinUri}/pipeline_step_requirements?step_fk=${stepId}`, idToken);
-    return (Array.isArray(rows) ? rows : []).map(r => r.requirement_fk);
-}
-
-/**
- * One requirement's `tracking` flag, read LIVE. Returns null when the row is
- * gone — the caller must treat that as gating (see `stepsModel.js`).
- * `requirements` is shared core (it was never era-prefixed —
- * both eras attach to), so this is the same endpoint 1.0's stepsApi.js calls.
- */
-export async function fetchRequirement2Tracking(darwinUri, idToken, requirementId) {
-    const rows = await fetchEntity(
-        `${darwinUri}/requirements?id=${requirementId}&fields=id,tracking`, idToken);
-    return (Array.isArray(rows) && rows.length) ? rows[0] : null;
 }
 
 /**

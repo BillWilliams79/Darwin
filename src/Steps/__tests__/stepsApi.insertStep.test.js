@@ -43,7 +43,9 @@ describe('insertStepOnEdge', () => {
             'POST pipeline_step_deps',
             'DELETE pipeline_step_deps',
         ]);
-        expect(calls[0].body).toMatchObject({ epic_fk: 5, title: 'Mid', completed_at: null });
+        expect(calls[0].body).toMatchObject({ epic_fk: 5, title: 'Mid' });
+        // A step has no state (req #3750): a create never names `completed_at`.
+        expect(calls[0].body).not.toHaveProperty('completed_at');
         expect(calls[1].body).toEqual({ step_fk: 99, dep_step_fk: 1 });
         expect(calls[2].body).toEqual({ step_fk: 2, dep_step_fk: 99 });
         expect(calls[3].body).toEqual({ step_fk: 2, dep_step_fk: 1 });
@@ -116,7 +118,7 @@ describe('precedeStepWith', () => {
     it('creates N, then gates T on N — nothing else', async () => {
         await expect(precedeStepWith(URI, 'tok', args)).resolves.toEqual({ id: 99 });
         expect(brief().slice(1)).toEqual(['POST pipeline_step_deps {"step_fk":2,"dep_step_fk":99}']);
-        expect(calls[0].body).toMatchObject({ epic_fk: 5, title: 'Before', completed_at: null });
+        expect(calls[0].body).toMatchObject({ epic_fk: 5, title: 'Before' });
     });
 
     it('a refused T -> N edge deletes T -> N anyway (it may have landed), then N', async () => {

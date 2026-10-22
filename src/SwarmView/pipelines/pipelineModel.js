@@ -18,7 +18,8 @@
 // file under `src/` imports it.
 //
 // ── WHAT IS LEFT, AND WHY IT IS ERA-NEUTRAL ────────────────────────────────
-// Three step-state strings, the pause string, the terminal-status set, and the
+// The visualizer's three colour-input strings (NOT a step state — req #3750),
+// the pause string, the terminal-status set, and the
 // two cost functions. None of them derives anything: they are the words the plan
 // table, the plan visualizer and the chip-styles module all have to agree on,
 // plus arithmetic over a CostIndex that `pipelineAdapter.js` calls directly.
@@ -28,15 +29,24 @@
 // ── The PlanRow contract ───────────────────────────────────────────────────
 // The shape below is what `pipelineAdapter.js::buildPlanRows` emits and what
 // every render surface consumes. It is documented here because this module is
-// where the state vocabulary lives; NOTHING here builds one.
+// where the colour vocabulary lives; NOTHING here builds one.
 //
 // @typedef {Object} PlanRow
 // @property {number} id
 // @property {string} title
 // @property {('auto'|'manual')} run
 // @property {?string} notes
-// @property {?string} completedAt
-// @property {StepState} state           DERIVED server-side, never stored (rule 1)
+// @property {number[]} openReqIds       req #3750 — the step's OPEN WORK: gating
+//                                       requirements not met/deferred/wontfix
+//                                       (`open_req_ids`). A step has no state;
+//                                       every orchestration question is asked
+//                                       of this
+// @property {VisualizerColour} state    the canvas's COLOUR INPUT, a display
+//                                       rollup of the step's requirements made
+//                                       in `pipelineAdapter.js::
+//                                       visualizerColourInput` — NOT a step
+//                                       state (req #3750); owned by the
+//                                       colour-tracking requirement
 // @property {number[]} reqIds           junction order — the COMPLETE set
 // @property {number[]} trackingReqIds   req #3123 — the subset of reqIds that are
 //                                       CONTAINERS: they neither gate the step
@@ -44,8 +54,7 @@
 //                                       argument list (rule 8)
 // @property {number[]} unresolvedReqIds junction rows whose requirement is missing
 //                                       from the read (truncation / data loss) —
-//                                       render LOUDLY; these rows' state may be
-//                                       under-derived
+//                                       render LOUDLY; they count as open work
 // @property {number[]} launchReqIds     req #3360 — the EXACT /swarm-start argument
 //                                       list for this step
 // @property {string[]} launchExcluded   one entry per linked id NOT in
@@ -56,39 +65,30 @@
 // @property {?string} launchBlock       WHY there is no command, as an enum to
 //                                       branch on: 'no-links' | 'containers' |
 //                                       'not-ready' | null
-// @property {boolean} eligible          may this step BEGIN — every dependency
-//                                       done and its own time gate passed, and
-//                                       PENDING-ONLY. The eligible-now ring is
-//                                       drawn from this and nothing else
-// @property {boolean} topUpEligible     req #3507 — may NEW work be commanded
-//                                       onto a step that has ALREADY started?
-//                                       True only for a RUNNING step carrying
-//                                       launch-ready ids. DISJOINT from
-//                                       `eligible` by construction: a step
-//                                       either may begin or has begun, never
-//                                       both. The engine announces a LAUNCH for
-//                                       one of these exactly as it does for an
-//                                       eligible step, which is what closes req
-//                                       #3195's other half — work seated onto a
-//                                       step after it started used to be
-//                                       unreachable by any auto-launch
-// @property {boolean} gateOpen          req #3597 — the gate REPORTED: every
-//                                       dependency done and the step's own time
+// @property {boolean} eligible          may this step's work go out now — it
+//                                       carries launch-ready ids and its gate is
+//                                       open (no dependency holds open work, time
+//                                       gate passed, no checkpoint upstream
+//                                       holding). The eligible-now ring is drawn
+//                                       from this and nothing else
+// @property {boolean} gateOpen          req #3597 — the gate REPORTED: no
+//                                       dependency holds open work and the step's own time
 //                                       gate passed. A report and a launch
 //                                       PRIORITY, no longer a launch precondition
 // @property {boolean} launchCandidate   req #3597 — may this step's work be
-//                                       ANNOUNCED for launch: not done, carries
+//                                       ANNOUNCED for launch: carries
 //                                       launch-ready ids, time gate passed —
 //                                       whatever its dependencies say. The
 //                                       engine fills free slots from these,
 //                                       gate-open first, then down the chain
 // @property {number[]} checkpointBlockedBy  req #3597 amendment — CHECKPOINT
 //                                       steps upstream (`checkpoint` flag, on by
-//                                       default since req #3649) not yet done,
-//                                       holding this step; a checkpoint stays a
-//                                       real gate
+//                                       default since req #3649) still holding
+//                                       open work, holding this step; a
+//                                       checkpoint stays a real gate
 // @property {boolean} checkpoint       req #3649 — this step holds its downstream
-//                                       until done (true) or is a priority only
+//                                       while it holds open work (true) or is a
+//                                       priority only
 // @property {boolean} locked           req #3649 — the step's own lock flag
 // @property {boolean} effectiveLocked  ...or an ancestor's; `lockedBy` names it
 // @property {?string} swarmStartCommand '/swarm-start <ids>', null when nothing on
@@ -107,12 +107,15 @@
 // @property {StepCost} [cost]          req #3117 — attached by the adapter when a
 //                                      CostIndex is supplied
 //
-// @typedef {('done'|'running'|'pending')} StepState
+// @typedef {('done'|'running'|'pending')} VisualizerColour
 //
 // @typedef {Object} StepCost
 // @property {number} wallSecs
 // @property {number} tokens
 
+// The visualizer's colour vocabulary (req #3750): the values
+// `pipelineAdapter.js::visualizerColourInput` rolls a step's requirements up
+// into, for painting. NOT a step state — a step has none.
 export const STEP_DONE = 'done';
 export const STEP_RUNNING = 'running';
 export const STEP_PENDING = 'pending';
@@ -122,7 +125,8 @@ export const STEP_PENDING = 'pending';
 // tests one constant against both columns rather than two.
 export const PAUSED_STATUS = 'paused';
 
-// Requirement statuses that close a step (rule 1).
+// Requirement statuses that are no longer open work (req #3750: a step whose
+// gating requirements are all here holds no open work — it is not "closed").
 export const TERMINAL_REQUIREMENT_STATUSES = ['met', 'deferred', 'wontfix'];
 
 // ── Cost (req #3117) ────────────────────────────────────────────────────────
@@ -204,15 +208,11 @@ export function sumReqCost(reqIds, index) {
 
 // req #3582 — the plan step "+" (file a new requirement into this step).
 /**
- * May a "+" file new work into this step? Not into one with a stamped
- * `completed_at`: design rule 1 makes a stamp valid only with zero GATING
- * requirements, and every other seat writer refuses it the same way
- * (`pipelineReqDrag.js::canDropOn`, the requirement page's step picker,
- * darwin-mcp's `link_step_requirement`). The editor re-checks LIVE before it
- * writes anything — this is the render-time half.
+ * May a "+" file new work into this step? Always, unless it is effectively
+ * LOCKED (req #3649): the gateway refuses the link (423), so the affordance is
+ * withheld rather than offered and refused. A step has no state (req #3750) —
+ * it never stops taking work because the work it holds is finished.
  */
 export function canFileIntoStep(row) {
-    // ...nor into an effectively LOCKED step (req #3649): the gateway refuses
-    // the link, so the affordance is withheld rather than offered and refused.
-    return !!row && row.completedAt == null && !row.effectiveLocked;
+    return !!row && !row.effectiveLocked;
 }

@@ -18,22 +18,20 @@
 //   - `not_before` (nullable TIMESTAMP, one instant, clearable) is a new
 //     field with no 1.0 equivalent — a native `type="datetime-local"` input
 //     (Darwin carries no `@mui/x-date-pickers` dependency anywhere today).
-//   - `completed_at` renders a TWO-state Open/Complete chip, not 1.0's
-//     three-state Pending/Running/Done. Full state derivation needs the
-//     server-side `pipeline2_derive.py` this session cannot read to verify
-//     against — see `stepsModel.js`'s header for the full rationale. The
-//     guard itself (design rule 1 — a step with any real linked requirement
-//     can never be hand-stamped) is ported faithfully, live re-read
-//     included.
-//   - Gate/link columns (`reqCount`, `gateCount`) are read-only counts with
-//     an id tooltip, exactly like 1.0 — no seat/dependency editor, matching
-//     the requirement's own deliberate-omissions list.
-//   - The Epic cell links to this step's plan at `/swarm/pipeline/:id` (req
-//     #3463/#3372's visualizer) via `planDetailPath` — PLAN.md's "no 2.0 plan
-//     detail page to deep-link into" gap is now closed. It links the PLAN,
-//     not a specific step within it: 2.0's `?step=` focus handshake (the
-//     1.0 `pipelineStepLink.js` equivalent) is that visualizer's own concern,
-//     not this editor's.
+//   - NO STATE COLUMN (req #3750). A step HAS NO STATE: it holds
+//     requirements and carries orchestration controls, and is never completed
+//     or reopened. This editor used to show an Open/Complete chip over
+//     `completed_at`; the concept is gone, not moved elsewhere.
+//   - Reqs is a read-only count with an id tooltip — no seat editor,
+//     matching the requirement's own deliberate-omissions list.
+//   - Column order is the user's (req #3750): ID, Pipeline / Epic, Step,
+//     Lock, Run, Checkpoint, Reqs, then Not before. Notes are edited in the
+//     dialog and never shown in the grid; dependencies are read on the plan
+//     visualizer, not counted here.
+//   - The Pipeline / Epic cell is one chip naming both, linking to the plan
+//     visualizer focused on that epic's band (`epicLinkTo`).
+//   - The toolbar filters by Pipeline, then Epic, and the two cascade: a
+//     pipeline narrows the epic list; an epic implies its pipeline.
 
 import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
@@ -60,8 +58,8 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
 import {
-    useAllEpics,
     useAllPipelines,
+    useAllEpics,
     useAllPipelineSteps,
     useAllPipelineStepRequirements,
     useAllPipelineStepDeps,
@@ -72,47 +70,34 @@ import {
 } from '../hooks/useDataQueries';
 import { pipelineComposeKeys } from '../hooks/useQueryKeys';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
-import ChipFilter from '../Components/ChipFilter/ChipFilter';
 import { formatDateTime } from '../utils/dateFormat';
 import {
     runChipProps, runLabel,
     checkpointChipProps, checkpointLabel, lockedChipProps, lockedLabel,
 } from '../SwarmView/pipelines/pipelineChipStyles';
-// req #3463 built the reachable 2.0 visualizer at planDetailPath(// id) — the "no 2.0 plan detail page to deep-link into" gap this file used to
-// note is closed. The Epic column links there via the SAME builder the router
-// uses, never a literal string (planEra.js's own guard forbids one).
-import { planDetailPath } from '../SwarmView/pipelines/planEra';
+// Plan routes come from the SAME builders the router uses, never a literal
+// string (planEra.js's own guard forbids one).
+import { epicLinkTo } from '../SwarmView/pipelines/pipelineEpicLink';
 import { planOriginOf, planReturnPath } from '../SwarmView/pipelines/pipelineStepLink';
 import StepEditDialog from './StepEditDialog';
-import { buildStepRows, completionGuard2, gatingRequirementIds2 } from './stepsModel';
-import {
-    completeStep,
-    deleteStep,
-    fetchRequirement2Tracking,
-    fetchStepRequirementIds,
-    reopenStep,
-    updateStep,
-} from './stepsApi';
+import { buildStepRows } from './stepsModel';
+import { deleteStep, updateStep } from './stepsApi';
 
-// Only `id` and `tracking` are needed by the completion guard (stepsModel.js);
-// `title` rides along for the requirement-id tooltip. Deliberately NOT 1.0's
+// `tracking` splits a step's links into gating vs container ids for the Reqs
+// tooltip; `title` rides along. Deliberately NOT 1.0's
 // `PLAN_REQUIREMENT_FIELDS` (Darwin/src/SwarmView/pipelines/pipelineViewModel.js)
 // — a narrower, page-owned projection, same file-isolation rule as everywhere
 // else in this feature.
 const STEP_REQUIREMENT_FIELDS = 'id,title,tracking';
 
+const ALL_PIPELINES = '';
 const ALL_EPICS = '';
 
-const COMPLETED_FILTER_OPTIONS = [
-    { value: 'open', label: 'Open', chipProps: { color: 'default' } },
-    { value: 'complete', label: 'Complete', chipProps: { color: 'success' } },
-];
-
-const oneLine = (value) => (value ? String(value).replace(/\s+/g, ' ').trim() : '');
+const parseIdParam = (raw) => (raw && /^\d+$/.test(raw.trim()) ? Number(raw.trim()) : null);
 
 const reqIdSummary = (row) => {
     const ids = row.reqIds || [];
-    if (!ids.length) return 'No requirements linked — this step is completed by hand.';
+    if (!ids.length) return 'No requirements linked — an empty step holds nothing back.';
     const tracking = new Set(row.trackingReqIds || []);
     return ids.map((id) => (tracking.has(id) ? `${id} (tracking)` : String(id))).join(', ');
 };
@@ -124,17 +109,6 @@ const blockerClause = (row) => {
         ? `step ${ids[0]} depends on it`
         : `steps ${ids.join(', ')} depend on it`;
 };
-
-// `timezone` is required, not optional with a silent UTC fallback — code
-// review (req #3393) found the original version interpolated `row.not_before`
-// (naive UTC) verbatim while the Gate COLUMN two cells over renders the same
-// instant through `formatDateTime(value, timezone)`, so one grid showed one
-// gate at two different times with nothing marking either as UTC.
-const gateSummary = (row, timezone) => ((row.depIds || []).length
-    ? `after step${row.depIds.length === 1 ? '' : 's'} ${row.depIds.join(', ')}`
-    : 'No step gate.') + (row.not_before
-        ? ` · not before ${formatDateTime(row.not_before, timezone)}`
-        : '');
 
 export default function StepsPage() {
     const { idToken, profile } = useContext(AuthContext);
@@ -148,9 +122,8 @@ export default function StepsPage() {
     const creatorFk = profile?.userName;
     const timezone = profile?.timezone;
 
-    const { data: epics = [], isLoading: epicsLoading } = useAllEpics(creatorFk);
-    // req #3742 — only for the plan's own lock, which freezes every step in it.
     const { data: pipelines = [], isLoading: pipelinesLoading } = useAllPipelines(creatorFk);
+    const { data: epics = [], isLoading: epicsLoading } = useAllEpics(creatorFk);
     const { data: steps = [], isLoading: stepsLoading } = useAllPipelineSteps(creatorFk);
     const { data: stepRequirements = [], isLoading: linksLoading, isError: linksError } =
         useAllPipelineStepRequirements(creatorFk);
@@ -162,13 +135,12 @@ export default function StepsPage() {
     // `pipelinesLoading` too: the `?id=` deep link snapshots its row once
     // loading ends, and a row built before the plan list arrived would miss a
     // plan-level lock (req #3742).
-    const isLoading = epicsLoading || pipelinesLoading || stepsLoading || linksLoading
+    const isLoading = pipelinesLoading || epicsLoading || stepsLoading || linksLoading
         || depsLoading || reqsLoading;
 
-    // A failed PLAN DATA read is not an empty one — same distinction
-    // StepsPage.jsx draws, and for the same reason: an unread link set reports
-    // zero gating requirements, which would let a manual stamp through on a
-    // step that should have refused it.
+    // A failed PLAN DATA read is not an empty one: an unread link or dependency
+    // set renders as zero Reqs and hides the consequence of a
+    // delete, so the page says which read failed rather than showing zeros.
     const planDataError = linksError || depsError || reqsError;
     const failedReads = [
         linksError && 'requirement links',
@@ -179,45 +151,78 @@ export default function StepsPage() {
         ? `${failedReads.slice(0, -1).join(', ')} and ${failedReads[failedReads.length - 1]}`
         : (failedReads[0] || '');
 
-    const [epicFilter, setEpicFilter] = useState(() => {
-        const raw = searchParams.get('epic');
-        return raw && /^\d+$/.test(raw.trim()) ? Number(raw.trim()) : ALL_EPICS;
-    });
-    const [completedFilter, setCompletedFilter] = useState(null);
-    const toggleCompletedFilter = (value) => setCompletedFilter(current => {
-        const selected = current === null
-            ? COMPLETED_FILTER_OPTIONS.map(o => o.value)
-            : current;
-        return selected.includes(value)
-            ? selected.filter(v => v !== value)
-            : [...selected, value];
-    });
+    // ── PIPELINE → EPIC, CASCADING (req #3750) ────────────────────────────
+    // Two stored choices, one derived truth: an epic belongs to exactly one
+    // pipeline, so a chosen epic IMPLIES its pipeline and the Pipeline select
+    // shows that pipeline whatever was stored — including when the epic arrived
+    // by `?epic=` deep link before any pipeline was picked. Choosing a pipeline
+    // the chosen epic is not in clears the epic. An id that names nothing
+    // (stale link, or a row since deleted) resolves to "All" for both the
+    // select AND the filter, so the grid never filters by a choice the toolbar
+    // does not show. The URL is the ONLY store for both choices, so a link
+    // followed while the page is already open re-filters it.
+    const pipelineFilter = parseIdParam(searchParams.get('pipeline')) ?? ALL_PIPELINES;
+    const epicFilter = parseIdParam(searchParams.get('epic')) ?? ALL_EPICS;
 
     // The editor dialog: `key` changes per open so the form seeds afresh.
     const [dialog, setDialog] = useState({ key: 0, open: false, step: null, defaultEpicFk: '' });
-    const completingRef = useRef(new Set());
+
+    const pipelineById = useMemo(() => new Map(pipelines.map(p => [p.id, p])), [pipelines]);
+    const epicById = useMemo(() => new Map(epics.map(e => [e.id, e])), [epics]);
+
+    const activeEpic = epicById.has(epicFilter) ? epicFilter : ALL_EPICS;
+    const knownPipeline = (id) => (pipelineById.has(id) ? id : ALL_PIPELINES);
+    const activePipeline = knownPipeline(activeEpic !== ALL_EPICS
+        ? epicById.get(activeEpic).pipeline_fk
+        : pipelineFilter);
 
     const allRows = useMemo(() => buildStepRows({
         steps, stepRequirements, stepDeps, requirements, epics, pipelines,
     }), [steps, stepRequirements, stepDeps, requirements, epics, pipelines]);
 
     const rows = useMemo(() => allRows.filter((row) => {
-        if (epicFilter !== ALL_EPICS && row.epic_fk !== epicFilter) return false;
-        if (completedFilter !== null) {
-            const bucket = row.completedAt ? 'complete' : 'open';
-            if (!completedFilter.includes(bucket)) return false;
-        }
+        if (activeEpic !== ALL_EPICS) return row.epic_fk === activeEpic;
+        if (activePipeline !== ALL_PIPELINES) return row.pipelineFk === activePipeline;
         return true;
-    }), [allRows, epicFilter, completedFilter]);
+    }), [allRows, activeEpic, activePipeline]);
 
-    const accounting = useMemo(() => {
-        let done = 0;
-        for (const r of allRows) if (r.completedAt) done += 1;
-        return { total: allRows.length, done, open: allRows.length - done };
-    }, [allRows]);
+    const pipelineOptions = useMemo(() => pipelines.map(
+        p => ({ id: p.id, title: p.title })), [pipelines]);
 
-    const epicOptions = useMemo(() => epics.map(
+    // Every epic — the dialog's parent list, which must hold an edited step's
+    // epic whatever the toolbar is filtered to.
+    const allEpicOptions = useMemo(() => epics.map(
         e => ({ id: e.id, title: e.title })), [epics]);
+
+    // The toolbar's epic list, narrowed by the chosen pipeline.
+    const epicOptions = useMemo(() => epics
+        .filter(e => activePipeline === ALL_PIPELINES || e.pipeline_fk === activePipeline)
+        .map(e => ({ id: e.id, title: e.title })), [epics, activePipeline]);
+
+    // The choice lives in the URL, so a filtered view is a link. The router
+    // state rides along: it is what renders "Back to Plan", and a
+    // filter change must not strand a reader who arrived from the visualizer.
+    const writeFilterParams = (pipelineId, epicId) => {
+        const next = new URLSearchParams(searchParams);
+        if (pipelineId === ALL_PIPELINES) next.delete('pipeline');
+        else next.set('pipeline', String(pipelineId));
+        if (epicId === ALL_EPICS) next.delete('epic');
+        else next.set('epic', String(epicId));
+        setSearchParams(next, { replace: true, state: location.state });
+    };
+
+    const choosePipeline = (value) => {
+        const keepEpic = activeEpic !== ALL_EPICS && value !== ALL_PIPELINES
+            && epicById.get(activeEpic)?.pipeline_fk === value;
+        writeFilterParams(value, keepEpic ? activeEpic : ALL_EPICS);
+    };
+
+    const chooseEpic = (value) => {
+        const nextPipeline = value === ALL_EPICS
+            ? activePipeline
+            : (epicById.get(value)?.pipeline_fk ?? ALL_PIPELINES);
+        writeFilterParams(nextPipeline, value);
+    };
 
     // A step write also invalidates the composed plan reads (req #3742), so a
     // plan open elsewhere — or opened next — never draws the pre-save card.
@@ -226,9 +231,12 @@ export default function StepsPage() {
         queryClient.invalidateQueries({ queryKey: pipelineComposeKeys.all });
     };
 
+    // A new step starts in the chosen epic, else the first epic of the chosen
+    // pipeline; a pipeline with no epics leaves the field empty rather than
+    // pre-picking an epic from some other plan.
     const openCreate = () => setDialog((d) => ({
         key: d.key + 1, open: true, step: null,
-        defaultEpicFk: epicFilter !== ALL_EPICS ? epicFilter : (epicOptions[0]?.id ?? ''),
+        defaultEpicFk: activeEpic !== ALL_EPICS ? activeEpic : (epicOptions[0]?.id ?? ''),
     }));
 
     const openEdit = (row) => setDialog((d) => ({
@@ -286,80 +294,6 @@ export default function StepsPage() {
         }
     };
 
-    const completeFlow = async (row) => {
-        if (planDataError) {
-            showError(`Step ${row.id} cannot be completed: the ${failedReadsText} did not `
-                + 'load, so there is no way to tell whether its state is derived. Reload first.');
-            return;
-        }
-        const cached = completionGuard2(row);
-        if (!cached.allowed) {
-            showError(`Step ${row.id} is derived from its requirements. ${cached.reason}`);
-            return;
-        }
-
-        // THE CACHED GUARD IS NOT ENOUGH — the live re-read StepsPage.jsx's
-        // completeFlow performs, ported unchanged: re-read this step's links
-        // before writing, because the Primary AI may have linked a requirement
-        // onto it while this page's ≤30s cache was still showing the old set.
-        let liveGating;
-        let liveTracking;
-        try {
-            const liveReqIds = await fetchStepRequirementIds(darwinUri, idToken, row.id);
-            liveGating = gatingRequirementIds2(liveReqIds, requirements);
-            liveTracking = liveReqIds.filter((rid) => !liveGating.includes(rid));
-            if (liveTracking.length) {
-                const rows2 = await Promise.all(liveTracking.map(
-                    (rid) => fetchRequirement2Tracking(darwinUri, idToken, rid)));
-                const fresh = rows2.filter(Boolean);
-                liveGating = gatingRequirementIds2(liveReqIds, [...requirements, ...fresh]);
-                for (const rid of liveTracking.filter((_r, i) => rows2[i] == null)) {
-                    if (!liveGating.includes(rid)) liveGating.push(rid);
-                }
-                liveTracking = liveReqIds.filter((rid) => !liveGating.includes(rid));
-            }
-        } catch (err) {
-            showError(err, `Could not verify step ${row.id}'s requirements — not completed`);
-            return;
-        }
-        if (liveGating.length) {
-            showError(`Step ${row.id} is derived from its requirements. `
-                + `${completionGuard2({
-                    ...row, gatingReqIds: liveGating, trackingReqIds: liveTracking,
-                }).reason}`);
-            invalidateSteps();
-            queryClient.invalidateQueries({
-                queryKey: pipelineStepRequirementKeys.all(creatorFk) });
-            return;
-        }
-
-        try {
-            await completeStep(darwinUri, idToken, row.id);
-            invalidateSteps();
-        } catch (err) {
-            showError(err, 'Could not complete the step');
-        }
-    };
-
-    const toggleComplete = async (row) => {
-        if (row.completedAt) {
-            try {
-                await reopenStep(darwinUri, idToken, row.id);
-                invalidateSteps();
-            } catch (err) {
-                showError(err, 'Could not reopen the step');
-            }
-            return;
-        }
-        if (completingRef.current.has(row.id)) return;
-        completingRef.current.add(row.id);
-        try {
-            await completeFlow(row);
-        } finally {
-            completingRef.current.delete(row.id);
-        }
-    };
-
     const handleDelete = async (row) => {
         if (row.blockerStepIds.length) {
             showError(`Step ${row.id} cannot be deleted: ${blockerClause(row)}. `
@@ -394,96 +328,59 @@ export default function StepsPage() {
 
     const columns = [
         { field: 'id', headerName: 'ID', width: 70 },
-        { field: 'title', headerName: 'Step', flex: 1, minWidth: 180 },
         {
-            field: 'epicTitle', headerName: 'Epic', width: 160,
+            // req #3750 — ONE chip naming both levels a step sits under,
+            // pipeline on the first line and epic on the second. The value is
+            // the joined text so sort and quick-filter match either name; the
+            // click opens the plan focused on this epic's band.
+            field: 'planEpic', headerName: 'Pipeline / Epic', width: 280,
+            valueGetter: (_v, row) => [
+                row.pipelineTitle || (row.pipelineFk != null ? `#${row.pipelineFk}` : '—'),
+                row.epicTitle || `#${row.epic_fk}`,
+            ].join(' / '),
             renderCell: (params) => {
-                const label = params.value || `#${params.row.epic_fk}`;
-                const to = planDetailPath(params.row.pipelineFk);
+                const row = params.row;
+                const pipelineLabel = row.pipelineTitle
+                    || (row.pipelineFk != null ? `#${row.pipelineFk}` : '—');
+                const epicLabel = row.epicTitle || `#${row.epic_fk}`;
+                const to = epicLinkTo(row.pipelineFk, row.epic_fk);
                 return (
-                    <Box sx={{ display: 'flex', alignItems: 'center', height: '100%' }}>
-                        <Tooltip title={to ? `Open this step's plan` : label}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', height: '100%', minWidth: 0 }}>
+                        <Tooltip title={to
+                            ? `${params.value} — open this epic in its plan`
+                            : params.value}>
                             <Chip
-                                label={label}
+                                label={(
+                                    <>
+                                        <Box component="span" sx={{ display: 'block',
+                                            color: 'text.secondary' }}>
+                                            {pipelineLabel}
+                                        </Box>
+                                        <Box component="span" sx={{ display: 'block' }}>
+                                            {epicLabel}
+                                        </Box>
+                                    </>
+                                )}
                                 size="small"
                                 variant="outlined"
                                 clickable={!!to}
                                 onClick={(e) => { e.stopPropagation(); if (to) navigate(to); }}
-                                data-testid={`step2-plan-link-${params.row.id}`}
+                                sx={{
+                                    maxWidth: '100%', height: 'auto', borderRadius: 2,
+                                    '& .MuiChip-label': { py: 0.25, lineHeight: 1.3 },
+                                    '& .MuiChip-label > span': {
+                                        overflow: 'hidden', textOverflow: 'ellipsis' },
+                                }}
+                                data-testid={`step2-plan-link-${row.id}`}
                             />
                         </Tooltip>
                     </Box>
                 );
             },
         },
-        {
-            field: 'completedAt', headerName: 'State', width: 130, sortable: false,
-            renderCell: (params) => {
-                const guard = params.row.completedAt
-                    ? { kind: 'reopen', reason: 'Complete — click to reopen this step' }
-                    : planDataError
-                        ? { kind: 'derived',
-                            reason: `The ${failedReadsText} did not load, so there is no way `
-                                + 'to tell whether this step can be completed by hand.' }
-                        : (({ allowed, reason }) => ({
-                            kind: allowed ? 'editable' : 'derived', reason }))(
-                            completionGuard2(params.row));
-                return (
-                    <Tooltip title={guard.reason}>
-                        <Chip
-                            label={params.row.completedAt ? 'Complete' : 'Open'}
-                            size="small"
-                            color={params.row.completedAt ? 'success' : 'default'}
-                            variant={params.row.completedAt ? 'filled' : 'outlined'}
-                            clickable
-                            onClick={() => toggleComplete(params.row)}
-                            aria-label={guard.reason}
-                            data-guard={guard.kind}
-                            data-testid={`step2-completed-chip-${params.row.id}`}
-                        />
-                    </Tooltip>
-                );
-            },
-        },
-        {
-            field: 'run', headerName: 'Run', width: 110, sortable: false,
-            renderCell: (params) => (
-                <Tooltip title={params.value === 'manual'
-                    ? 'Manual — reported eligible, never launched. Click for Auto.'
-                    : 'Auto — the orchestrator launches this step when its gate clears. Click for Manual.'}>
-                    <Chip
-                        label={runLabel(params.value)}
-                        size="small"
-                        {...runChipProps(params.value)}
-                        clickable
-                        onClick={() => toggleRun(params.row)}
-                        data-testid={`step2-run-chip-${params.row.id}`}
-                    />
-                </Tooltip>
-            ),
-        },
-        {
-            // req #3649 — a checkpoint HOLDS every downstream step until it is
-            // done; a priority step only goes out first and holds nothing.
-            field: 'checkpoint', headerName: 'Checkpoint', width: 120, sortable: false,
-            renderCell: (params) => {
-                const on = params.value ?? 1;
-                return (
-                    <Tooltip title={Number(on)
-                        ? 'Checkpoint — every step downstream waits until this step is done. Click for Priority.'
-                        : 'Priority — this step\'s work launches first, but nothing waits on it. Click for Checkpoint.'}>
-                        <Chip
-                            label={checkpointLabel(on)}
-                            size="small"
-                            {...checkpointChipProps(on)}
-                            clickable
-                            onClick={() => toggleCheckpoint(params.row)}
-                            data-testid={`step2-checkpoint-chip-${params.row.id}`}
-                        />
-                    </Tooltip>
-                );
-            },
-        },
+        // Step names are short — a fixed width, not the flex share that used
+        // to take half the page (req #3750: 45% smaller).
+        { field: 'title', headerName: 'Step', width: 420 },
         {
             // req #3649 — a locked step is frozen; the gateway refuses edits (423).
             field: 'locked', headerName: 'Lock', width: 100, sortable: false,
@@ -503,6 +400,45 @@ export default function StepsPage() {
             ),
         },
         {
+            field: 'run', headerName: 'Run', width: 110, sortable: false,
+            renderCell: (params) => (
+                <Tooltip title={params.value === 'manual'
+                    ? 'Manual — reported eligible, never launched. Click for Auto.'
+                    : 'Auto — the orchestrator launches this step when its gate clears. Click for Manual.'}>
+                    <Chip
+                        label={runLabel(params.value)}
+                        size="small"
+                        {...runChipProps(params.value)}
+                        clickable
+                        onClick={() => toggleRun(params.row)}
+                        data-testid={`step2-run-chip-${params.row.id}`}
+                    />
+                </Tooltip>
+            ),
+        },
+        {
+            // req #3649/#3750 — a checkpoint HOLDS every downstream step while it
+            // holds open work; a priority step only goes out first and holds nothing.
+            field: 'checkpoint', headerName: 'Checkpoint', width: 120, sortable: false,
+            renderCell: (params) => {
+                const on = params.value ?? 1;
+                return (
+                    <Tooltip title={Number(on)
+                        ? 'Checkpoint — every step downstream waits while this step holds open work. Click for Priority.'
+                        : 'Priority — this step\'s work launches first, but nothing waits on it. Click for Checkpoint.'}>
+                        <Chip
+                            label={checkpointLabel(on)}
+                            size="small"
+                            {...checkpointChipProps(on)}
+                            clickable
+                            onClick={() => toggleCheckpoint(params.row)}
+                            data-testid={`step2-checkpoint-chip-${params.row.id}`}
+                        />
+                    </Tooltip>
+                );
+            },
+        },
+        {
             field: 'reqCount', headerName: 'Reqs', width: 90, type: 'number',
             valueGetter: (_v, row) => (row.reqIds || []).length,
             renderCell: (params) => (
@@ -514,24 +450,8 @@ export default function StepsPage() {
             ),
         },
         {
-            field: 'gateCount', headerName: 'Gate', width: 90, type: 'number',
-            valueGetter: (_v, row) => (row.depIds || []).length,
-            renderCell: (params) => (
-                <Tooltip title={gateSummary(params.row, timezone)}>
-                    <Box component="span" data-testid={`step2-gate-count-${params.row.id}`}>
-                        {params.value}
-                    </Box>
-                </Tooltip>
-            ),
-        },
-        {
             field: 'not_before', headerName: 'Not before', width: 150,
             valueFormatter: (value) => (value ? formatDateTime(value, timezone) : '—'),
-        },
-        {
-            field: 'notes', headerName: 'Notes', flex: 2, minWidth: 220,
-            valueGetter: (value) => oneLine(value),
-            valueFormatter: (value) => value || '—',
         },
         {
             field: 'actions', headerName: '', width: 100, sortable: false,
@@ -599,17 +519,22 @@ export default function StepsPage() {
                 )}
                 <Typography variant="h5">Steps</Typography>
 
-                <FormControl size="small" sx={{ minWidth: 180 }}>
+                <FormControl size="small" sx={{ minWidth: 200 }}>
+                    <InputLabel>Pipeline</InputLabel>
+                    <Select label="Pipeline" value={activePipeline}
+                            onChange={(e) => choosePipeline(e.target.value)}
+                            data-testid="steps-pipeline-filter">
+                        <MenuItem value={ALL_PIPELINES}>All pipelines</MenuItem>
+                        {pipelineOptions.map(p => (
+                            <MenuItem key={p.id} value={p.id}>{p.title}</MenuItem>
+                        ))}
+                    </Select>
+                </FormControl>
+
+                <FormControl size="small" sx={{ minWidth: 200 }}>
                     <InputLabel>Epic</InputLabel>
-                    <Select label="Epic" value={epicFilter}
-                            onChange={(e) => {
-                                setEpicFilter(e.target.value);
-                                if (searchParams.get('epic')) {
-                                    const next = new URLSearchParams(searchParams);
-                                    next.delete('epic');
-                                    setSearchParams(next, { replace: true });
-                                }
-                            }}
+                    <Select label="Epic" value={activeEpic}
+                            onChange={(e) => chooseEpic(e.target.value)}
                             data-testid="steps-epic-filter">
                         <MenuItem value={ALL_EPICS}>All epics</MenuItem>
                         {epicOptions.map(e => (
@@ -618,24 +543,15 @@ export default function StepsPage() {
                     </Select>
                 </FormControl>
 
-                <ChipFilter
-                    options={COMPLETED_FILTER_OPTIONS}
-                    selected={completedFilter}
-                    onToggle={toggleCompletedFilter}
-                    testId="steps-completed-filter"
-                    chipTestIdPrefix="steps-completed-chip"
-                />
-
                 <Typography variant="caption" sx={{ color: 'text.secondary' }}
                             data-testid="steps-accounting">
-                    {rows.length} of {accounting.total} step{accounting.total === 1 ? '' : 's'} —{' '}
-                    {accounting.done} complete · {accounting.open} open
+                    {rows.length} of {allRows.length} step{allRows.length === 1 ? '' : 's'}
                 </Typography>
 
                 <Box sx={{ flexGrow: 1 }} />
 
                 <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}
-                        disabled={!epicOptions.length}
+                        disabled={!allEpicOptions.length}
                         data-testid="step2-add">
                     New Step
                 </Button>
@@ -644,10 +560,9 @@ export default function StepsPage() {
             {planDataError && (
                 <Box sx={{ mb: 2, p: 1.5, border: 1, borderColor: 'error.main', borderRadius: 1 }}
                      data-testid="steps-plan-data-error">
-                    The {failedReadsText} failed to load. Completing a step is disabled until
-                    this read recovers; reopening one, and edits to title, notes and run mode,
-                    are unaffected, and the database still refuses a delete that would break a
-                    dependency. Reload.
+                    The {failedReadsText} failed to load, so the Reqs counts may be
+                    incomplete. Edits are unaffected, and the database still refuses a delete
+                    that would break a dependency. Reload.
                 </Box>
             )}
 
@@ -663,6 +578,9 @@ export default function StepsPage() {
                         columns={columns}
                         getRowId={(r) => r.id}
                         density="compact"
+                        // Fixed height for the two-line Pipeline / Epic chip —
+                        // never auto (memory/view-switchable-pages.md § D rule 2).
+                        rowHeight={56}
                         slots={{ toolbar: GridToolbar }}
                         slotProps={{ toolbar: { showQuickFilter: true } }}
                         initialState={{ pagination: { paginationModel: { pageSize: 25 } } }}
@@ -679,7 +597,7 @@ export default function StepsPage() {
                 key={dialog.key}
                 open={dialog.open}
                 step={dialog.step}
-                epicOptions={epicOptions}
+                epicOptions={allEpicOptions}
                 defaultEpicFk={dialog.defaultEpicFk}
                 onClose={() => setDialog((d) => ({ ...d, open: false }))}
                 onSaved={invalidateSteps}
