@@ -4,7 +4,7 @@ import AuthContext from '../Context/AuthContext';
 import { useDevServers } from '../hooks/useDataQueries';
 import {
     NAV_GROUPS, NAV_LINKS, PROFILE_LINK, flattenNavLinks, DEV_HOME_ROUTE,
-    SIDEBAR_WIDTH, SIDEBAR_COLLAPSED_WIDTH, GROUP_PROFILE_KEY, GROUP_PROFILE_DEFAULT,
+    SIDEBAR_WIDTH, SIDEBAR_COLLAPSED_WIDTH, isGroupVisible,
 } from './navConfig';
 import {
     loadCollapsedGroups, persistCollapsedGroups, toggleGroupCollapsed,
@@ -130,15 +130,10 @@ const NavBarSidebar = () => {
     // is deliberately NOT treated as empty to avoid a grey flash on first paint.
     const devServersEmpty = Array.isArray(devServersArray) && devServersArray.length === 0;
 
-    // Filter nav groups/links based on profile app toggle settings. Per-key
-    // default lives in GROUP_PROFILE_DEFAULT so Swarm Validate (default 0)
-    // doesn't accidentally light up when the profile row hasn't loaded yet.
-    const isGroupEnabled = (id) => {
-        const key = GROUP_PROFILE_KEY[id];
-        if (!key) return true;
-        const fallback = GROUP_PROFILE_DEFAULT[key] ?? 1;
-        return Number(profile?.[key] ?? fallback) === 1;
-    };
+    // Filter nav groups/links by the profile app toggles — or, on a dev server
+    // scoped to its session's applications, by that scope (req #3790). One
+    // predicate, shared with HomePage and the dev-server dashboard.
+    const isGroupEnabled = (id) => isGroupVisible(profile, id);
     const visibleGroups = useMemo(() =>
         NAV_GROUPS.filter(g => isGroupEnabled(g.id)),
         // eslint-disable-next-line react-hooks/exhaustive-deps

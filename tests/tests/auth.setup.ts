@@ -56,6 +56,11 @@ setup('authenticate', async ({ page }) => {
     document.cookie = `profile=${profileCookie}; path=/; max-age=86100`;
     // Also cache in localStorage for AuthContext's primary refresh path
     localStorage.setItem('darwin-profile', dbProfileJson);
+    // Req #3790 — a session dev server shows only its session's applications;
+    // specs click through every group, so switch every scope off for this
+    // origin (DEV_APPS_OFF_KEY / DEV_APPS_OFF_ALL in src/NavBar/navConfig.js).
+    // No-op in production.
+    localStorage.setItem('darwin-dev-apps-off', '*');
   }, { idToken: tokens.idToken, accessToken: tokens.accessToken, refreshToken: tokens.refreshToken, profileCookie, dbProfileJson });
 
   // Clean up stale E2E data from prior interrupted runs
