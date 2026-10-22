@@ -30,19 +30,52 @@
 // page it belongs to (the app-wide Dev Servers dashboard included): no drop
 // zone, and a racked window floats at its own spot; where it sits in the rack
 // order is kept for when the page is restored.
+//
+// A PAGE'S OWN TOOLBAR (req #3792): a page that shows its own toolbar (AI
+// Architecture's topology navbar, in a same-origin iframe) publishes it as the
+// rack while it is drawn (usePanelRackStore `pageSlot`, Systems/ToolbarRack.jsx).
+// Nothing here changes for it but WHERE: the slot names its own drop `zone`, its
+// document's `offset()` in Darwin's viewport (every rect below is translated by
+// it, so hit tests and gestures stay in Darwin's viewport px), and the emotion
+// `cache` that styles a window portalled into its shadow root (`rackPortal`).
 
-import { useEffect } from 'react';
+import { createElement, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+
+import { CacheProvider } from '@emotion/react';
 
 import { usePanelRackStore } from '../../stores/usePanelRackStore';
 import { RACK_NARROW_PX, pointInRect, rackDropIndex } from './panelRack';
+
+const NO_OFFSET = { left: 0, top: 0 };
+
+/** The slot's document origin in Darwin's viewport, px — {0, 0} for the navbar. */
+export function slotOffset(slot) {
+    return slot?.offset?.() || NO_OFFSET;
+}
+
+/** An element's rect in Darwin's viewport px (`off` = its document's origin). */
+function rectIn(el, off) {
+    const r = el.getBoundingClientRect();
+    return { left: r.left + off.left, right: r.right + off.left,
+        top: r.top + off.top, bottom: r.bottom + off.top, height: r.height, width: r.width };
+}
+
+/** Portal a racked window into the slot — through the slot's emotion cache when
+ *  the slot is a shadow root's (a page toolbar), so its styles land there. */
+export function rackPortal(panel, slot) {
+    return createPortal(slot.cache
+        ? createElement(CacheProvider, { value: slot.cache }, panel) : panel, slot.node);
+}
 
 /** Where the rack would put a window released at (x, y): `over` the navbar's
  *  drop zone, and at which `index` of the other racked windows — the
  *  bottom, unless pointed into the stack (req #3744, `rackDropIndex`). */
 export function rackTarget(rackId, x, y, fromRack) {
-    const zone = document.querySelector('[data-panel-rack-zone]');
     const { slot, racked } = usePanelRackStore.getState();
-    if (!zone || !slot?.node || !pointInRect(x, y, zone.getBoundingClientRect())) {
+    const zone = slot?.zone || document.querySelector('[data-panel-rack-zone]');
+    const off = slotOffset(slot);
+    if (!zone || !slot?.node || !pointInRect(x, y, rectIn(zone, off))) {
         return { over: false, index: null };
     }
     const mids = new Map();
@@ -51,7 +84,7 @@ export function rackTarget(rackId, x, y, fromRack) {
     slot.node.querySelectorAll('[data-rack-id]').forEach((el) => {
         const id = el.getAttribute('data-rack-id');
         if (id === rackId) return;
-        const r = el.getBoundingClientRect();
+        const r = rectIn(el, off);
         mids.set(id, r.top + r.height / 2);
         bottom = Math.max(bottom, r.bottom);
         top = Math.min(top, r.top);
@@ -63,7 +96,7 @@ export function rackTarget(rackId, x, y, fromRack) {
     const rack = slot.node.parentElement;
     [rack, rack?.parentElement?.closest('[data-rack-clip]')].forEach((clip) => {
         if (!clip) return;
-        const cr = clip.getBoundingClientRect();
+        const cr = rectIn(clip, off);
         bottom = Math.min(bottom, cr.bottom);
         top = Math.max(top, cr.top);
     });
