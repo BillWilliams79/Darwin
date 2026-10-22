@@ -57,13 +57,16 @@ export function rackTarget(rackId, x, y, fromRack) {
         top = Math.min(top, r.top);
     });
     // A stack taller than the rack scrolls: below the rack's visible edge is
-    // below the stack, whatever is scrolled out of sight there.
+    // below the stack, whatever is scrolled out of sight there. So does the
+    // column holding the nav list and the rack (`data-rack-clip`), when the
+    // nav list alone outgrows the navbar (req #3751): its edges clip the rack's.
     const rack = slot.node.parentElement;
-    if (rack) {
-        const rr = rack.getBoundingClientRect();
-        bottom = Math.min(bottom, rr.bottom);
-        top = Math.max(top, rr.top);
-    }
+    [rack, rack?.parentElement?.closest('[data-rack-clip]')].forEach((clip) => {
+        if (!clip) return;
+        const cr = clip.getBoundingClientRect();
+        bottom = Math.min(bottom, cr.bottom);
+        top = Math.max(top, cr.top);
+    });
     // Above the stack (the nav buttons) is not "in the list" either (req #3744).
     return { over: true, index: rackDropIndex(racked.filter(id => id !== rackId), mids, y, bottom, fromRack, top === Infinity ? -Infinity : top) };
 }

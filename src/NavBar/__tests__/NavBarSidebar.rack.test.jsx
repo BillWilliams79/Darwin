@@ -62,6 +62,36 @@ describe('NavBarSidebar panel rack (req #3720)', () => {
         expect(usePanelRackStore.getState().slot.width).toBe(SIDEBAR_COLLAPSED_WIDTH);
     });
 
+    it('gives the nav list all the height it wants, open racked panel or not; the rack takes the rest (req #3751)', () => {
+        usePanelRackStore.setState({ racked: ['a'] });
+        renderNav();
+        const list = screen.getByTestId('navbar-nav-list');
+        const rack = screen.getByTestId('navbar-rack');
+        const slot = screen.getByTestId('navbar-rack-slot');
+        const check = () => {
+            const ls = getComputedStyle(list);
+            // Never shrunk, never capped, never scrolled on the rack's account.
+            expect(ls.flexShrink).toBe('0');
+            expect(['', 'none']).toContain(ls.maxHeight);
+            expect(ls.overflowY).not.toBe('auto');
+            // The rack alone gives way, down to nothing.
+            const rs = getComputedStyle(rack);
+            expect(rs.flexShrink).toBe('1');
+            expect(['', 'none']).toContain(rs.maxHeight);
+            expect(parseFloat(rs.minHeight)).toBe(0);
+        };
+        check();
+        // An open racked panel changes nothing about the nav list.
+        const open = document.createElement('div');
+        open.setAttribute('data-rack-id', 'a');
+        open.setAttribute('data-rack-open', '1');
+        act(() => { slot.appendChild(open); });
+        check();
+        // Nav list and rack share one column below the header.
+        expect(list.parentElement).toBe(screen.getByTestId('navbar-body'));
+        expect(rack.parentElement).toBe(screen.getByTestId('navbar-body'));
+    });
+
     it('is untouched by a drag until the panel is over it, then only glows in its frame colour (req #3728)', () => {
         usePanelRackStore.setState({ racked: ['a', 'b'] });
         renderNav();

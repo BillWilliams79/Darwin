@@ -9,9 +9,10 @@
 // it is pointed into the stack, where the pointer against the stacked panels'
 // midpoints decides (req #3744, reversing #3729's top); a racked panel is
 // reordered the same way. Each racked panel takes only the height its content
-// needs, never more (req #3747, reversing #3744's fill); when the navbar is too
-// short for all of them, small panels keep their content and the big ones split
-// the rest evenly (the rack's grid rows, NavBarSidebar).
+// needs, never more (req #3747, reversing #3744's fill). The nav buttons come
+// first: the rack has only the height they leave (req #3751), and when that is
+// too short for all of them, small panels keep their content and the big ones
+// split the rest evenly (the rack's grid rows, NavBarSidebar).
 //
 // The stack is drawn by CSS `order` so a panel's DOM position (wherever its
 // host mounts it) never matters: a racked panel is order 2·i.
