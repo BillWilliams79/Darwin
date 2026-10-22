@@ -52,6 +52,7 @@ import {
 import { machineTitle, pipelinesEmptyMessage } from '../SwarmView/pipelines/pipelineViewModel';
 import { orchestrationView } from '../SwarmView/pipelines/orchestrationHolder';
 import PipelinePlanThumbnail from './PipelinePlanThumbnail';
+import NewPipelineCard from './NewPipelineCard';
 
 const EMPTY_SUMMARY = { total: 0 };
 
@@ -64,12 +65,17 @@ const EMPTY_SUMMARY = { total: 0 };
 export default function PipelinesCardsView({ pipelines, summaries, reqCounts,
     showReqCounts = false, machines, claims = [], onOpen,
     hiddenStatusCounts = [] }) {
+    // The "New pipeline" tile (req #3773) closes the grid, and stays when the
+    // list is empty — an empty list is exactly when a reader needs it.
     if (!pipelines.length) {
         return (
-            <Typography variant="body2" color="text.secondary" sx={{ px: 1, py: 3 }}
-                        data-testid="pipelines-cards-empty">
-                {pipelinesEmptyMessage(hiddenStatusCounts)}
-            </Typography>
+            <>
+                <Typography variant="body2" color="text.secondary" sx={{ px: 1, py: 3 }}
+                            data-testid="pipelines-cards-empty">
+                    {pipelinesEmptyMessage(hiddenStatusCounts)}
+                </Typography>
+                <Box className="card"><NewPipelineCard /></Box>
+            </>
         );
     }
 
@@ -206,6 +212,7 @@ export default function PipelinesCardsView({ pipelines, summaries, reqCounts,
                     </Card>
                 );
             })}
+            <NewPipelineCard />
         </Box>
     );
 }
