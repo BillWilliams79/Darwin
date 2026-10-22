@@ -565,7 +565,7 @@ test.describe('Swarm Orchestration — 12-case mutation replay via MCP (req #337
             expect(rowOf(composed, probe.step.id)?.gate_open,
                 'a dependency holding no open work is clear').toBe(true);
             expect(rowOf(composed, probe.step.id)?.checkpoint_blocked_by,
-                'a checkpoint holding no work holds nothing').toEqual([]);
+                'a barrier holding no work holds nothing').toEqual([]);
             expect(rowOf(composed, step.gate)?.launch_req_ids, '...and announces nothing')
                 .toEqual([]);
             expect(rowOf(composed, step.gate)?.launch_candidate).toBe(false);

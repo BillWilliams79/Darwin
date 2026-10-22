@@ -6,7 +6,7 @@
 //
 // What is pinned: the req #3750 column order (no State, no Notes) and the
 // cascading Pipeline → Epic filter; create/edit send the right body including
-// epic_fk (create only) and the not_before conversion; the run, checkpoint and
+// epic_fk (create only) and the not_before conversion; the run, barrier and
 // lock chips toggle; delete names the blocker/consequence.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -360,7 +360,7 @@ describe('StepsPage2 create', () => {
             method: 'POST',
             body: {
                 epic_fk: 4, title: 'New Step', notes: null, run: 'auto',
-                not_before: null,
+                not_before: null, checkpoint: 1,
             },
         }]);
     });
@@ -402,6 +402,32 @@ describe('StepsPage2 edit', () => {
         // The exact clock offset depends on the test runner's TZ, but the
         // date and HH:MM must survive the round trip in SOME valid form.
         expect(restCalls[0].body[0].not_before).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+    });
+
+    // req #3767 — the barrier is set in the editor too: it seeds from the
+    // row (absent = the column default, on) and rides the same PUT.
+    it('seeds the barrier from the row and writes the choice', async () => {
+        mount();
+        click(node('step2-edit-100'));
+        expect(selectText('step2-barrier-select')).toMatch(/^On — /);
+        const combo = node('step2-barrier-select').querySelector('[role="combobox"]');
+        act(() => { combo.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 })); });
+        click(document.body.querySelector('li[data-value="off"]'));
+        click(node('step2-save'));
+        await flush();
+        expect(restCalls[0].body[0].checkpoint).toBe(0);
+    });
+
+    it('creates a step with its barrier off when chosen', async () => {
+        mount();
+        click(node('step2-add'));
+        type(node('step2-title-input'), 'Priority step');
+        const combo = node('step2-barrier-select').querySelector('[role="combobox"]');
+        act(() => { combo.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 })); });
+        click(document.body.querySelector('li[data-value="off"]'));
+        click(node('step2-save'));
+        await flush();
+        expect(restCalls[0].body.checkpoint).toBe(0);
     });
 
     it("clears not_before with the REST 'NULL' sentinel via the Clear button", async () => {
@@ -543,13 +569,13 @@ describe('StepsPage2 run toggle', () => {
     });
 });
 
-// req #3649 — checkpoint and lock chips flip their flag with a one-field PUT.
+// req #3649 — barrier and lock chips flip their flag with a one-field PUT.
 // Step 100 carries no `checkpoint` at all: that is the column default (1).
-describe('StepsPage2 checkpoint toggle', () => {
-    it('flips a default (absent) checkpoint to priority', async () => {
+describe('StepsPage2 barrier toggle', () => {
+    it('flips a default (absent) barrier to priority', async () => {
         mount();
-        expect(node('step2-checkpoint-chip-100').textContent).toBe('Checkpoint');
-        click(node('step2-checkpoint-chip-100'));
+        expect(node('step2-barrier-chip-100').textContent).toBe('Barrier');
+        click(node('step2-barrier-chip-100'));
         await flush();
         expect(restCalls).toEqual([{
             uri: 'http://test.local/darwin/pipeline_steps',
@@ -558,10 +584,10 @@ describe('StepsPage2 checkpoint toggle', () => {
         }]);
     });
 
-    it('flips priority back to checkpoint', async () => {
+    it('flips priority back to barrier', async () => {
         mount();
-        expect(node('step2-checkpoint-chip-101').textContent).toBe('Priority');
-        click(node('step2-checkpoint-chip-101'));
+        expect(node('step2-barrier-chip-101').textContent).toBe('Priority');
+        click(node('step2-barrier-chip-101'));
         await flush();
         expect(restCalls[0].body).toEqual([{ id: 101, checkpoint: 1 }]);
     });

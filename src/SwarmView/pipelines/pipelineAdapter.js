@@ -273,9 +273,9 @@ export function buildPlanRows(payload, machines = []) {
             // fields reads as gate closed / not a candidate — never the reverse.
             gateOpen: Boolean(dr.gate_open),
             launchCandidate: Boolean(dr.launch_candidate),
-            // The user's amendment: checkpoint steps upstream (req #3649: the
+            // The user's amendment: barrier steps upstream (req #3649: the
             // flag, on by default) still holding open work, holding this step.
-            // Empty = no checkpoint blocks it.
+            // Empty = no barrier blocks it.
             checkpointBlockedBy: dr.checkpoint_blocked_by || [],
             launchSuppressed: Boolean(dr.launch_suppressed),
             suppressedBy: dr.suppressed_by || [],

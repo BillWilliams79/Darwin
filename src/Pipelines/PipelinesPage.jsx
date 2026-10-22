@@ -15,9 +15,11 @@
 // description dialog) — Cards view is `PipelinesCardsView.jsx`, a new file
 // adapted from `PipelineCardsView.jsx`.
 //
-// No create button: pipelines are created via the MCP `create_pipeline` tool
-// by the Primary AI, matching 1.0's PipelinesPage.jsx, which carries no create
-// control of its own either.
+// Two ways to create a pipeline here (req #3773), both writing through
+// `useCreatePipeline`: the header's "New pipeline" button and dialog
+// (`NewPipelineDialog.jsx` — title, goal, execution mode, machine; both views)
+// and the Cards view's "New pipeline" tile (`NewPipelineCard.jsx` — title
+// only, defaults for the rest). A new plan is born `draft` and opens at once.
 //
 // `pipeline_status` renders as a DISPLAY-ONLY chip, not a click-to-cycle
 // control — status transitions carry started_at/completed_at side effects
@@ -105,6 +107,7 @@ import { planDetailPath } from '../SwarmView/pipelines/planEra';
 import { prunePipelineStorage } from '../SwarmView/pipelines/pipelinePlace';
 import { pipelineSummaries, pipelineRequirementCounts } from './pipelinesViewModel';
 import PipelinesCardsView from './PipelinesCardsView';
+import NewPipelineDialog from './NewPipelineDialog';
 import { updatePipeline } from './pipelinesApi';
 
 // req #3356 — the `2` is out of both keys now that there is one plan list.
@@ -442,6 +445,7 @@ export default function PipelinesPage() {
                             chipTestIdPrefix="pipelines-status-chip"
                         />
                     }
+                    actions={<NewPipelineDialog machines={machines} />}
                     accounting={<>
                         {filtered.length} of {pipelines.length} pipeline
                         {pipelines.length === 1 ? '' : 's'} — click a{' '}
