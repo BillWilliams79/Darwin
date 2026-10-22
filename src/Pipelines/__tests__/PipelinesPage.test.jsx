@@ -214,9 +214,9 @@ beforeEach(() => {
         { id: 41, pipeline_fk: 8, title: 'Epic Eight' },
     ];
     steps = [
-        { id: 500, epic_fk: 40, completed_at: '2026-08-01 00:00:00' },
-        { id: 501, epic_fk: 40, completed_at: null },
-        { id: 502, epic_fk: 41, completed_at: null },
+        { id: 500, epic_fk: 40 },
+        { id: 501, epic_fk: 40 },
+        { id: 502, epic_fk: 41 },
     ];
     stepRequirements = [
         { step_fk: 500, requirement_fk: 900 },
@@ -254,9 +254,8 @@ describe('PipelinesPage2 — Cards view (default)', () => {
         mount();
         expect(node('pipelines-card-summary-7').textContent)
             .toBe('1 of 2 requirements met');
-        // The old line counted steps and would have said "0 complete · 1 open"
-        // here; a step carries no status column, so that number was `completed_at`
-        // and nothing else.
+        // The old line counted steps by `completed_at` — a column req #3750
+        // dropped, since a step has no state at all.
         expect(node('pipelines-card-summary-7').textContent).not.toContain('complete ·');
         expect(node('pipelines-card-summary-7').textContent).not.toContain('open');
     });

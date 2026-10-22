@@ -337,7 +337,7 @@ function RequirementLinks({ row, pipelineId, statusOf, autonomyOf }) {
             {/* req #3582 — file a NEW requirement into this step. The editor's
                 "new" mode posts nothing until a category is picked, and that
                 first save seats the requirement on this step. Not offered on a
-                step with a stamped completion (design rule 1). */}
+                locked step (req #3649) — the gateway would refuse the seat. */}
             {canFileIntoStep(row) && <Tooltip title="File a new requirement into this step">
                 <Link
                     component={RouterLink}

@@ -31,7 +31,7 @@
 // `orchestrationHolder.js`, `pipelinePlace.js`) rather than parallel copies —
 // req #3463 established that additive-extension convention first, and this
 // page follows it. `pipelinesViewModel.js` is the one genuinely NEW model
-// here: the done/open summary and the requirement met/total counts, neither
+// here: the step count and the requirement met/total counts, neither
 // of which needs (or fabricates) the unverified 1.0 derivation engine — see
 // that file's header.
 //

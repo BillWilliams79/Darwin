@@ -20,7 +20,7 @@ const req = (o) => ({
     machine_fk: null, coordination_type: 'implemented', tracking: 0,
     started_at: null, completed_at: null, ...o,
 });
-const row = (o) => ({ id: 1, reqIds: [], completedAt: null, epicId: 1, ...o });
+const row = (o) => ({ id: 1, reqIds: [], epicId: 1, ...o });
 const index = (reqs) => new Map(reqs.map((r) => [r.id, r]));
 
 describe('requirementLastActivity (req #3692)', () => {
@@ -67,15 +67,17 @@ describe('stepTime', () => {
             .toEqual({ at: '2026-10-19T00:00:00', kind: TIME_DATED });
     });
 
-    it('uses the STEP\'s own completed_at — the req-less gate step', () => {
+    // req #3750 — a step has no time of its own; requirement stamps are the
+    // only source. A stale `completedAt` on a row is never read.
+    it('ignores any step-level stamp — a req-less step has no time', () => {
         expect(stepTime(row({ reqIds: [], completedAt: '2026-07-25T00:00:00' }), new Map()))
-            .toEqual({ at: '2026-07-25T00:00:00', kind: TIME_DATED });
+            .toEqual({ at: null, kind: TIME_UNKNOWN });
     });
 
-    it('takes the step\'s completed_at when it is later than any requirement stamp', () => {
+    it('dates a step from its requirements alone, containers included', () => {
         const reqs = [req({ id: 1, tracking: 1, completed_at: '2026-07-20T00:00:00' })];
         expect(stepTime(row({ reqIds: [1], completedAt: '2026-07-25T00:00:00' }), index(reqs)))
-            .toEqual({ at: '2026-07-25T00:00:00', kind: TIME_DATED });
+            .toEqual({ at: '2026-07-20T00:00:00', kind: TIME_DATED });
     });
 
     it('is FUTURE when every requirement is positively not-yet-started', () => {
@@ -204,14 +206,16 @@ describe('empty step placement (req #3618)', () => {
         expect(stepStarts.get(2).at).toBe('2026-10-18T07:30:00');
     });
 
-    it('leaves a completed req-less step on its own stamp, and a step WITH requirements alone', () => {
+    // req #3750 — a req-less step is EMPTY whatever a stale stamp says: it
+    // takes rule 3's TODAY, and a step WITH requirements is left alone.
+    it('treats every req-less step as empty, and leaves a step WITH requirements alone', () => {
         const rows = [
-            row({ id: 1, reqIds: [], completedAt: '2026-10-01T00:00:00', state: 'done' }),
+            row({ id: 1, reqIds: [], completedAt: '2026-10-01T00:00:00' }),
             row({ id: 2, reqIds: [5] }),
             row({ id: 3, reqIds: [6], state: 'running' }),   // makes the plan active
         ];
         const { stepStarts } = planTimeAxis(rows, [req({ id: 5, requirement_status: 'authoring' })], NOW);
-        expect(stepStarts.get(1)).toEqual({ at: '2026-10-01T00:00:00', kind: TIME_DATED });
+        expect(stepStarts.get(1)).toEqual({ at: '2026-10-18T07:30:00', kind: TIME_DATED });
         expect(stepStarts.get(2).kind).toBe(TIME_FUTURE);
     });
 

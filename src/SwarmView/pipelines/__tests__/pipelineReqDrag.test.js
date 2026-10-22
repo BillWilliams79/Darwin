@@ -11,7 +11,7 @@ import {
 } from '../../../dnd/pressTimeline';
 
 const row = (id, reqIds, extra = {}) => ({
-    id, reqIds, trackingReqIds: [], launchReqIds: reqIds.slice(), completedAt: null, ...extra,
+    id, reqIds, trackingReqIds: [], launchReqIds: reqIds.slice(), ...extra,
 });
 
 // req #3665 — the shared press timeline, read by the canvas's own gesture.
@@ -80,8 +80,14 @@ describe('canDropOn', () => {
         expect(canDropOn(row(1, [10]), 1)).toBe(false);
     });
 
-    it('refuses a stamped step, as the requirement page\'s picker does', () => {
-        expect(canDropOn(row(2, [], { completedAt: '2026-10-01 00:00:00' }), 1)).toBe(false);
+    // req #3750 — a step has no state: one whose work is all met still takes
+    // a requirement. Only a lock (the step's, its epic's or its plan's) refuses.
+    it('accepts a step whose work is all finished — a step is never closed', () => {
+        expect(canDropOn(row(2, [], { state: 'done', completedAt: '2026-10-01 00:00:00' }), 1)).toBe(true);
+    });
+
+    it('refuses an effectively locked step', () => {
+        expect(canDropOn(row(2, [], { effectiveLocked: true }), 1)).toBe(false);
     });
 
     it('refuses no step at all', () => {

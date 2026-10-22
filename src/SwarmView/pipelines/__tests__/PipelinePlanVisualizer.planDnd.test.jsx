@@ -116,8 +116,8 @@ let panel;
 let vibrate;
 let hadVibrate;
 
-const step = (id, title, completed_at = null) => ({
-    id, epic_fk: 5, title, run: 'auto', notes: null, completed_at, not_before: null,
+const step = (id, title, locked = 0) => ({
+    id, epic_fk: 5, title, run: 'auto', notes: null, locked, not_before: null,
 });
 
 beforeEach(() => {
@@ -157,7 +157,7 @@ afterEach(() => {
 function render() {
     const payload = composedFixture({
         epics: [{ id: 5, title: 'Build', pipeline_fk: 2, sort_order: 1 }],
-        steps: [step(10, 'Design'), step(11, 'Shipped', '2026-10-01T00:00:00'), step(12, 'Implement')],
+        steps: [step(10, 'Design'), step(11, 'Frozen', 1), step(12, 'Implement')],
         stepDeps: [{ id: 1, step_fk: 11, dep_step_fk: 10 }, { id: 2, step_fk: 12, dep_step_fk: 11 }],
         requirements: [{ id: 900, title: 'Move me', requirement_status: 'swarm_ready', tracking: 0 }],
         stepRequirements: [{ step_fk: 10, requirement_fk: 900 }],
@@ -246,7 +246,7 @@ describe('a requirement mark on the press timeline, by touch (req #3665)', () =>
         expect(inFlight()).toBe('900');
     });
 
-    it('a stamped step refuses the drop', async () => {
+    it('a locked step refuses the drop (req #3649 — a step has no state, req #3750)', async () => {
         render();
         pointer('pointerdown', 110, 105);
         await wait(LIFT_DELAY_MS + 40);
@@ -483,7 +483,7 @@ describe('an Orchestrables row seats through the shared drag surface (req #3665)
         await act(async () => { land(); });
     });
 
-    it('a stamped step, or a cancel, writes nothing', async () => {
+    it('a locked step, or a cancel, writes nothing', async () => {
         render();
         seatOverride = () => ({ stepId: 11, ok: false });
         const refused = collide(500, 300);

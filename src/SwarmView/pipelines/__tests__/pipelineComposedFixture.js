@@ -17,7 +17,7 @@ const asArray = (v) => (Array.isArray(v) ? v : []);
  * @param {number} [options.id]
  * @param {string} [options.title]
  * @param {string} [options.pipelineStatus]
- * @param {Object[]} [options.steps]  `{id, epic_fk, title, run, notes, completed_at, not_before}`
+ * @param {Object[]} [options.steps]  `{id, epic_fk, title, run, notes, not_before}`
  * @param {Object[]} [options.epics]
  * @param {Object[]} [options.requirements]
  * @param {Object[]} [options.stepRequirements]  `{step_fk, requirement_fk}`
@@ -30,7 +30,7 @@ export function composedFixture({
     pipelineStatus = 'active',
     steps = [{
         id: 47, epic_fk: null, title: 'Session Drain', run: 'auto',
-        notes: null, completed_at: null, not_before: null,
+        notes: null, not_before: null,
     }],
     epics = [],
     requirements = [],
@@ -49,9 +49,14 @@ export function composedFixture({
         depsByStep.get(dep.step_fk).push(dep.dep_step_fk);
     }
 
+    // req #3750 — a step has no state; the server sends each row's OPEN WORK
+    // (gating requirements not met/deferred/wontfix; an unresolved id is open).
+    const TERMINAL = ['met', 'deferred', 'wontfix'];
+    const statusById = new Map(asArray(requirements).map((r) => [r.id, r.requirement_status]));
+    const openOf = (ids) => ids.filter((rid) => !TERMINAL.includes(statusById.get(rid)));
     const rows = asArray(steps).map((s) => ({
         id: s.id,
-        state: s.completed_at != null ? 'done' : 'pending',
+        open_req_ids: openOf(linksByStep.get(s.id) || []),
         run: s.run || 'auto',
         eligible: false,
         epic_id: s.epic_fk != null ? s.epic_fk : null,

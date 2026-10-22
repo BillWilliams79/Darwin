@@ -9,11 +9,11 @@
 // not have checked out — see `stepsModel.js`'s header for the full
 // rationale, which applies here identically).
 //
-// So this module reports a HONEST, SMALLER fact: done vs. open, the same
-// two-state model `stepsModel.js`'s `completionGuard2` already uses for the
-// editor, never a guessed three-state Pending/Running/Done. A card that said
-// "Running" without a verified definition of Running would be a fabricated
-// number wearing a real one's clothes.
+// So this module reports HONEST, SMALLER facts: how many steps a plan has, and
+// how many of its requirements are met. A step has NO state (req #3750 — it
+// holds requirements and is never completed), so there is no per-step
+// done/open tally to report, and completeness is counted on requirements,
+// whose status is stored.
 //
 // `hiddenPipelineStatusCounts`, `pipelinesEmptyMessage`, `machineTitle` and
 // `PIPELINE_STATUS_VALUES` are NOT re-implemented here — they are pure,
@@ -54,7 +54,8 @@ const asArray = (v) => (Array.isArray(v) ? v : []);
  * @param {Object[]} args.pipelines  pipelines rows
  * @param {Object[]} args.steps      ALL pipeline_steps rows
  * @param {Object[]} args.epics      ALL epics rows (to resolve step -> pipeline)
- * @returns {Map<number, {total: number, done: number, open: number}>}
+ * @returns {Map<number, {total: number}>}  steps per plan — a step has no
+ *          state to tally (req #3750), so the count is the whole summary
  */
 export function pipelineSummaries({ pipelines, steps, epics } = {}) {
     const pipelineByEpic = new Map();
@@ -64,17 +65,14 @@ export function pipelineSummaries({ pipelines, steps, epics } = {}) {
 
     const out = new Map();
     for (const p of asArray(pipelines)) {
-        if (p && p.id != null) out.set(p.id, { total: 0, done: 0, open: 0 });
+        if (p && p.id != null) out.set(p.id, { total: 0 });
     }
 
     for (const step of asArray(steps)) {
         if (!step) continue;
         const pipelineId = pipelineByEpic.get(step.epic_fk);
         if (pipelineId == null || !out.has(pipelineId)) continue;
-        const bucket = out.get(pipelineId);
-        bucket.total += 1;
-        if (step.completed_at) bucket.done += 1;
-        else bucket.open += 1;
+        out.get(pipelineId).total += 1;
     }
 
     return out;

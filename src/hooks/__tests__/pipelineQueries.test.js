@@ -143,6 +143,12 @@ describe('projection + sort contracts', () => {
         expect(pipelineSteps.config.defaultFields).not.toMatch(/\bstate\b|\bstatus\b|\bseq\b|sort_order/);
     });
 
+    it('pipeline_steps projects no completed_at — a step has no state (req #3750)', () => {
+        // The column is DROPPED: naming it would 400 the whole read, which
+        // empties every surface built on `useAllPipelineSteps`.
+        expect(pipelineSteps.config.defaultFields.split(',')).not.toContain('completed_at');
+    });
+
     it('pipeline reads carry no session columns', () => {
         // Design rule 9: requirement-centric views carry NO session data.
         const projections = [
