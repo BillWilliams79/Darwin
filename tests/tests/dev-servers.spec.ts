@@ -134,6 +134,9 @@ test.describe('Dev Servers View', () => {
   // panel takes the navbar's width and locks in below the nav buttons; dragged
   // back off, it floats.
   test('DEV-05: Dev Servers dashboard racks into the navbar and floats back out', async ({ page }) => {
+    // Tall enough for the whole nav list and the panel below it: the nav list
+    // takes all the height it wants, the rack only the rest (req #3751).
+    await page.setViewportSize({ width: 1280, height: 1400 });
     const rows = [3001, 3002].map((port, i) => ({
       id: 950 + i, port, pid: 1, machine_fk: null, session_fk: null, terminal_number: 20 + i,
       workspace_path: `/x/sessions/37${20 + i}-make-dev-server-rackable-${i}`,
@@ -199,7 +202,7 @@ test.describe('Dev Servers View', () => {
     const navLinks = (await page.locator('[data-testid="navbar-rack"]').evaluate(
       el => el.previousElementSibling!.getBoundingClientRect().bottom));
     expect(racked.y).toBeGreaterThanOrEqual(navLinks - 1);
-    // Whole and on top: nothing in the navbar covers it, however long the nav list.
+    // Whole and on top: nothing in the navbar covers it.
     expect(racked.y + racked.height).toBeLessThanOrEqual(page.viewportSize()!.height);
     const hit = async () => page.getByTestId('devserver-dashboard-count').evaluate((el) => {
       const r = el.getBoundingClientRect();
@@ -311,7 +314,9 @@ test.describe('Dev Servers View', () => {
   // When the rows outgrow the navbar, the panels share it fairly: the small Dev
   // Server panel keeps all of its content and the dashboard scrolls the rest.
   test('DEV-07: racked panels take only the height they need, and share a short navbar fairly', async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 1200 });
+    // Room below the whole nav list for three rows (req #3751: the nav list is
+    // never squeezed for the rack).
+    await page.setViewportSize({ width: 1280, height: 1400 });
     const row = (i: number) => ({
       id: 970 + i, port: 3001 + i, pid: 1, machine_fk: null, session_fk: null, terminal_number: 30 + i,
       workspace_path: `/x/sessions/37${47 + i}-info-pop-up-in-navbar-${i}`,
@@ -346,11 +351,15 @@ test.describe('Dev Servers View', () => {
     // Each body's drawn height, against the height its rows need — measured
     // from the rows themselves, not scrollHeight (which never reports less
     // than the drawn height, so it cannot see empty space).
+    // From the body's top to the last row's bottom edge, so gaps and margins
+    // between rows count.
     const fit = (testid: string) => page.getByTestId(`${testid}-body`).evaluate(el => {
       const cs = getComputedStyle(el);
-      const rows = [...el.children].reduce((h, c) => h + c.getBoundingClientRect().height, 0);
+      const top = el.getBoundingClientRect().top + parseFloat(cs.borderTopWidth) - el.scrollTop;
+      const end = Math.max(...[...el.children].map(c =>
+        c.getBoundingClientRect().bottom + parseFloat(getComputedStyle(c).marginBottom)));
       return { drawn: el.clientHeight,
-        needs: Math.round(rows + parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom)) };
+        needs: Math.round(end - top + parseFloat(cs.paddingBottom)) };
     });
     const settle = async () => {
       let last = '';
@@ -390,6 +399,74 @@ test.describe('Dev Servers View', () => {
     const many = await rackEdge();
     expect(many.rack).toBeGreaterThan(nav.y + nav.height - 20);
     expect(many.last).toBeLessThanOrEqual(nav.y + nav.height + 1);
+  });
+
+  // Req #3751 — the navbar's own options come first. An open racked panel used
+  // to cap the nav list at 40vh, so the nav buttons scrolled; now the nav list
+  // takes all the height it wants and the racked panels share what is left.
+  test('DEV-08: the nav buttons take all the height they want; racked panels get the rest', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 1400 });
+    const rows = Array.from({ length: 80 }, (_, i) => ({
+      id: 990 + i, port: 3001 + i, pid: 1, machine_fk: null, session_fk: null, terminal_number: 40 + i,
+      workspace_path: `/x/sessions/3751-darwin-ui-navbar-takes-precedence-${i}`,
+      started_at: '2026-10-21T00:00:00', create_ts: '2026-10-21T00:00:00',
+    }));
+    await page.route(/\/dev_servers(\?|$)/, r => r.request().method() === 'GET'
+      ? r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(rows) })
+      : r.continue());
+    await page.goto('/devservers');
+    await expect(page.getByTestId('devserver-info')).toHaveAttribute('data-racked', '1', { timeout: 10000 });
+    const chip = page.getByTestId('dev-servers-page-dashboard-chip');
+    await expect(chip).toBeVisible({ timeout: 10000 });
+    if ((await chip.getAttribute('aria-pressed')) === 'false') await chip.click();
+    const dash = page.getByTestId('devserver-dashboard');
+    const zone = page.getByTestId('navbar-rack-zone');
+    const nav = (await zone.boundingBox())!;
+    const b = (await page.getByTestId('devserver-dashboard-count').boundingBox())!;
+    await page.mouse.move(b.x + b.width + 6, b.y + b.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(600, 400, { steps: 6 });
+    await page.mouse.move(nav.x + nav.width / 2, nav.y + nav.height - 20, { steps: 8 });
+    await page.mouse.up();
+    await expect(dash).toHaveAttribute('data-racked', '1');
+    await expect(dash).toHaveAttribute('data-rack-open', '1');
+    // A short navbar: the whole nav list and 260px below it — less than the
+    // two open panels need. (Before req #3751 the nav list was cut to 40vh.)
+    const navEnd = await page.getByTestId('navbar-nav-list').evaluate(el => el.getBoundingClientRect().bottom);
+    await page.setViewportSize({ width: 1280, height: Math.round(navEnd) + 260 });
+
+    const look = () => page.evaluate(() => {
+      const q = (id: string) => document.querySelector(`[data-testid="${id}"]`) as HTMLElement;
+      const list = q('navbar-nav-list'), body = q('navbar-body'), rack = q('navbar-rack');
+      const panels = [...rack.querySelectorAll('[data-rack-id]')].map(p => p.getBoundingClientRect());
+      return {
+        listScroll: list.scrollHeight - list.clientHeight,
+        listBottom: list.getBoundingClientRect().bottom,
+        bodyScroll: body.scrollHeight - body.clientHeight,
+        bodyBottom: body.getBoundingClientRect().bottom,
+        rackTop: rack.getBoundingClientRect().top,
+        rackBottom: rack.getBoundingClientRect().bottom,
+        lastPanel: Math.max(...panels.map(r => r.bottom)),
+      };
+    });
+    let last = '';
+    await expect.poll(async () => {
+      const now = JSON.stringify(await look());
+      const still = now === last;
+      last = now;
+      return still;
+    }, { intervals: [250] }).toBe(true);
+    const l = await look();
+    // The nav list is never scrolled or squeezed for the racked panels…
+    expect(l.listScroll, JSON.stringify(l)).toBeLessThanOrEqual(1);
+    expect(l.bodyScroll, JSON.stringify(l)).toBeLessThanOrEqual(1);
+    // …and the rack takes exactly what is left below it, its panels inside it.
+    expect(l.rackTop).toBeGreaterThanOrEqual(l.listBottom - 1);
+    expect(Math.abs(l.rackBottom - l.bodyBottom), JSON.stringify(l)).toBeLessThanOrEqual(1);
+    expect(l.lastPanel).toBeLessThanOrEqual(l.rackBottom + 1);
+    // 80 rows do not fit: the dashboard scrolls inside its share.
+    const big = await page.getByTestId('devserver-dashboard-body').evaluate(el => el.scrollHeight - el.clientHeight);
+    expect(big).toBeGreaterThan(50);
   });
 
   // Req #3748 — each row's terminal and port are ONE two-sided pill, and the

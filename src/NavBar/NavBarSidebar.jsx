@@ -416,91 +416,92 @@ const NavBarSidebar = () => {
                                 the full-width sidebar does — collapsed groups and
                                 unexpanded L3s stay hidden — as a flat icon strip
                                 (req #3590). */}
-                            {/* Crowded, the nav list scrolls — never the racked
-                                panels below it (req #3720). With an open racked panel it
-                                takes at most 40vh, and the rack may use the rest
-                                (req #3744) — only what its panels need (req #3747). */}
-                            <List sx={{ pt: 0, pb: 0, flex: '0 1 auto', minHeight: 0,
-                                        overflowY: 'auto', overflowX: 'hidden', scrollbarWidth: 'thin',
-                                        '&:has(~ [data-testid="navbar-rack"] [data-rack-open="1"])': {
-                                            flexShrink: 0, maxHeight: '40vh' } }}>
-                                {!showText && iconModeLinks(visibleGroups, visibleLinks, collapsedGroups, expandedItems)
-                                    .map((link) => renderNavItem(link, showText))}
-                                {showText && visibleGroups.map((group) => {
-                                    const groupLinks = visibleLinks.filter(l => l.group === group.id);
-                                    // A group is collapsible only when it has a header
-                                    // (non-empty label). The calendar group has no label,
-                                    // so its single link always shows.
-                                    const hasHeader = !!group.label;
-                                    const isCollapsed = hasHeader && !!collapsedGroups[group.id];
-                                    return (
-                                        <React.Fragment key={group.id}>
-                                            {hasHeader && (
-                                                <ListSubheader
-                                                    onClick={() => toggleGroup(group.id)}
-                                                    data-testid={`nav-group-header-${group.id}`}
-                                                    role="button"
-                                                    aria-expanded={!isCollapsed}
-                                                    sx={{
-                                                        bgcolor: 'transparent',
-                                                        color: 'rgba(255,255,255,0.5)',
-                                                        fontSize: 12,
-                                                        fontWeight: 700,
-                                                        letterSpacing: 1.5,
-                                                        lineHeight: '28px',
-                                                        pl: 1.5,
-                                                        pr: 1,
-                                                        mt: 0.5,
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'space-between',
-                                                        cursor: 'pointer',
-                                                        userSelect: 'none',
-                                                        '&:hover': { color: 'rgba(255,255,255,0.85)' },
-                                                    }}
-                                                >
-                                                    {group.label}
-                                                    {isCollapsed
-                                                        ? <ExpandMoreIcon sx={{ fontSize: 16 }} />
-                                                        : <ExpandLessIcon sx={{ fontSize: 16 }} />
-                                                    }
-                                                </ListSubheader>
-                                            )}
-                                            {hasHeader ? (
-                                                <Collapse in={!isCollapsed} timeout="auto" unmountOnExit>
-                                                    {groupLinks.map((link) => renderNavTreeItem(link, showText))}
-                                                </Collapse>
-                                            ) : (
-                                                groupLinks.map((link) => renderNavTreeItem(link, showText))
-                                            )}
-                                        </React.Fragment>
-                                    );
-                                })}
-                            </List>
+                            {/* The nav options come first: the nav list takes all
+                                the height it wants and never scrolls on the racked
+                                panels' account; the rack gets what is left (req #3751,
+                                reversing #3744's 40vh cap). Only a nav list taller than
+                                the navbar itself scrolls: this column, with nothing
+                                left for the rack. */}
+                            <Box data-testid="navbar-body" data-rack-clip=""
+                                 sx={{ flex: '1 1 0', minHeight: 0, display: 'flex', flexDirection: 'column',
+                                       overflowY: 'auto', overflowX: 'hidden', scrollbarWidth: 'thin' }}>
+                                <List data-testid="navbar-nav-list" sx={{ pt: 0, pb: 0, flex: '0 0 auto' }}>
+                                    {!showText && iconModeLinks(visibleGroups, visibleLinks, collapsedGroups, expandedItems)
+                                        .map((link) => renderNavItem(link, showText))}
+                                    {showText && visibleGroups.map((group) => {
+                                        const groupLinks = visibleLinks.filter(l => l.group === group.id);
+                                        // A group is collapsible only when it has a header
+                                        // (non-empty label). The calendar group has no label,
+                                        // so its single link always shows.
+                                        const hasHeader = !!group.label;
+                                        const isCollapsed = hasHeader && !!collapsedGroups[group.id];
+                                        return (
+                                            <React.Fragment key={group.id}>
+                                                {hasHeader && (
+                                                    <ListSubheader
+                                                        onClick={() => toggleGroup(group.id)}
+                                                        data-testid={`nav-group-header-${group.id}`}
+                                                        role="button"
+                                                        aria-expanded={!isCollapsed}
+                                                        sx={{
+                                                            bgcolor: 'transparent',
+                                                            color: 'rgba(255,255,255,0.5)',
+                                                            fontSize: 12,
+                                                            fontWeight: 700,
+                                                            letterSpacing: 1.5,
+                                                            lineHeight: '28px',
+                                                            pl: 1.5,
+                                                            pr: 1,
+                                                            mt: 0.5,
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'space-between',
+                                                            cursor: 'pointer',
+                                                            userSelect: 'none',
+                                                            '&:hover': { color: 'rgba(255,255,255,0.85)' },
+                                                        }}
+                                                    >
+                                                        {group.label}
+                                                        {isCollapsed
+                                                            ? <ExpandMoreIcon sx={{ fontSize: 16 }} />
+                                                            : <ExpandLessIcon sx={{ fontSize: 16 }} />
+                                                        }
+                                                    </ListSubheader>
+                                                )}
+                                                {hasHeader ? (
+                                                    <Collapse in={!isCollapsed} timeout="auto" unmountOnExit>
+                                                        {groupLinks.map((link) => renderNavTreeItem(link, showText))}
+                                                    </Collapse>
+                                                ) : (
+                                                    groupLinks.map((link) => renderNavTreeItem(link, showText))
+                                                )}
+                                            </React.Fragment>
+                                        );
+                                    })}
+                                </List>
 
-                            {/* The panel rack (req #3720): racked panels portal
-                                into the `display: contents` slot, so they are grid
-                                items here and CSS `order` stacks them in rack
-                                order. Each takes only the height its content needs,
-                                never more (req #3747, reversing #3744's fill): a
-                                row is `minmax(auto, max-content)`, so a short rack
-                                gives every panel its content while it fits and,
-                                when it does not, small panels keep theirs and the
-                                big ones split the rest evenly, scrolling inside.
-                                Folded panels keep it content-sized up to 60vh;
-                                with one OPEN it may take the height below the nav
-                                list — as much as its panels need. */}
-                            <Box data-testid="navbar-rack"
-                                 sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)',
-                                        gridAutoRows: 'minmax(auto, max-content)', alignContent: 'start',
-                                        rowGap: '4px',
-                                        flex: '0 0 auto', maxHeight: '60vh', minHeight: 0,
-                                        '&:has([data-rack-open="1"])': { flex: '0 1 auto', maxHeight: 'none' },
-                                        overflowY: 'auto', overflowX: 'hidden', scrollbarWidth: 'thin',
-                                        // Spaced off the nav list only while it
-                                        // holds something drawn.
-                                        '&:has([data-rack-id])': { pt: '6px' } }}>
-                                <Box ref={setRackNode} data-testid="navbar-rack-slot" sx={{ display: 'contents' }} />
+                                {/* The panel rack (req #3720): racked panels portal
+                                    into the `display: contents` slot, so they are grid
+                                    items here and CSS `order` stacks them in rack
+                                    order. Each takes only the height its content needs,
+                                    never more (req #3747, reversing #3744's fill): a
+                                    row is `minmax(auto, max-content)`, so a short rack
+                                    gives every panel its content while it fits and,
+                                    when it does not, small panels keep theirs and the
+                                    big ones split the rest evenly, scrolling inside.
+                                    The rack is content-sized and shrinks — it alone —
+                                    to the height the nav list leaves (req #3751). */}
+                                <Box data-testid="navbar-rack"
+                                     sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)',
+                                            gridAutoRows: 'minmax(auto, max-content)', alignContent: 'start',
+                                            rowGap: '4px',
+                                            flex: '0 1 auto', minHeight: 0,
+                                            overflowY: 'auto', overflowX: 'hidden', scrollbarWidth: 'thin',
+                                            // Spaced off the nav list only while it
+                                            // holds something drawn.
+                                            '&:has([data-rack-id])': { pt: '6px' } }}>
+                                    <Box ref={setRackNode} data-testid="navbar-rack-slot" sx={{ display: 'contents' }} />
+                                </Box>
                             </Box>
 
                     </Box>
