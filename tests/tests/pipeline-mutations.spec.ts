@@ -88,7 +88,7 @@ const REQ_PREFIX = 'e2e-3377-mutation';
 const PAST_GATE = '2020-01-01T00:00:00Z';
 const FUTURE_GATE = '2037-01-01T00:00:00Z';
 
-// No `completed_at`: a step has no state, and req #3750 dropped the column.
+// No `completed_at`: a step has no state (req #3750), and req #3752 dropped the column.
 type Step = {
     id: number; title: string; run: string; notes: string | null;
     not_before: string | null; epic_fk: number;
@@ -550,6 +550,8 @@ test.describe('Swarm Orchestration — 12-case mutation replay via MCP (req #337
                 id: step.gate, notes: disposition,
             });
             expect(noted.step.notes).toBe(disposition);
+            // req #3752 dropped the column: a step has no completion stamp.
+            expect(noted.step).not.toHaveProperty('completed_at');
 
             // DRV-011 — a step with no requirement holds no open work, so a
             // step gated on it sees a CLEAR dependency.

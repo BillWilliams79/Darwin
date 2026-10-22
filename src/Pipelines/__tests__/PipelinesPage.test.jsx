@@ -265,8 +265,8 @@ describe('PipelinesPage2 — Cards view (default)', () => {
         mount();
         expect(node('pipelines-card-summary-7').textContent)
             .toBe('1 of 2 requirements met');
-        // The old line counted steps by `completed_at` — a column req #3750
-        // dropped, since a step has no state at all.
+        // The old line counted steps by `completed_at` — a column req #3752
+        // dropped, since a step has no state at all (req #3750).
         expect(node('pipelines-card-summary-7').textContent).not.toContain('complete ·');
         expect(node('pipelines-card-summary-7').textContent).not.toContain('open');
     });
