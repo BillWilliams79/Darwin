@@ -27,6 +27,34 @@ export const RACK_NARROW_PX = 120;
  *  dragged window — the plan's seat-target outline — must clear this). */
 export const RACK_DRAG_Z = 1250;
 
+/** The frame purple of the info windows, for a drag that names no colour. */
+const RACK_GLOW_DEFAULT = '#a64dff';
+
+/** The drop glow (req #3728): a rack's edges glow in the dragged window's own
+ *  frame colour while the pointer is over it. ONE look for every rack — the
+ *  Darwin navbar and a page's own toolbar (req #3792). */
+export function rackGlow(color) {
+    return `inset 0 0 16px 2px color-mix(in srgb, ${color || RACK_GLOW_DEFAULT} 75%, transparent)`;
+}
+
+/** The rack's own box, for every rack (req #3792 — the navbar's and a page
+ *  toolbar's are one CSS): racked windows portal into a `display: contents`
+ *  slot inside it, so they are its grid items and CSS `order` stacks them in
+ *  rack order. Each takes only the height its content needs, never more (req
+ *  #3747): a row is `minmax(auto, max-content)`, so a short rack gives every
+ *  window its content while it fits and, when it does not, small windows keep
+ *  theirs and the big ones split the rest evenly, scrolling inside. The rack is
+ *  content-sized and shrinks — it alone — to the height the nav buttons leave
+ *  (req #3751). Spaced off the buttons only while it holds something drawn. */
+export const RACK_SX = {
+    display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)',
+    gridAutoRows: 'minmax(auto, max-content)', alignContent: 'start',
+    rowGap: '4px',
+    flex: '0 1 auto', minHeight: 0,
+    overflowY: 'auto', overflowX: 'hidden', scrollbarWidth: 'thin',
+    '&:has([data-rack-id])': { pt: '6px' },
+};
+
 /** The rack order with `id` placed at `index` of the OTHER panels (clamped). */
 export function rackInsert(racked, id, index) {
     const without = racked.filter(x => x !== id);

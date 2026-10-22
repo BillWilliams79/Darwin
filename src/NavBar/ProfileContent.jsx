@@ -4,6 +4,7 @@ import AppContext from '../Context/AppContext';
 import call_rest_api from '../RestApi/RestApi';
 import { fetchExportData, downloadJson } from '../services/exportService';
 import ExportDialog from './ExportDialog';
+import { DEV_APPS, DEV_APPS_SCOPE, DEV_APP_LABELS, setDevAppsOptOut } from './navConfig';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { getTimezoneList } from '../utils/dateFormat';
 
@@ -15,12 +16,18 @@ import { Link, useNavigate } from 'react-router-dom';
 import Autocomplete from '@mui/material/Autocomplete';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
+import MuiLink from '@mui/material/Link';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 import LogoutOutlined from '@mui/icons-material/LogoutOutlined';
 import LoginOutlined from '@mui/icons-material/LoginOutlined';
 import PersonAddOutlined from '@mui/icons-material/PersonAddOutlined';
+
+// Req #3790 — the dev server's application scope, named for the Profile note.
+const devAppsLabel = DEV_APPS_SCOPE
+    ? Object.keys(DEV_APP_LABELS).filter(a => DEV_APPS_SCOPE.has(a)).map(a => DEV_APP_LABELS[a]).join(', ')
+    : '';
 
 const ProfileContent = ({ onClose }) => {
 
@@ -230,6 +237,24 @@ const ProfileContent = ({ onClose }) => {
             {/* Applications selector */}
             <Box>
                 <Typography variant="body2" sx={{ color: 'text.secondary', mb: 1 }}>Applications</Typography>
+                {DEV_APPS_SCOPE && (
+                    // Req #3790 — this dev server is scoped to its session's
+                    // applications, which override these toggles here only.
+                    // The switch is per origin, i.e. per dev server.
+                    <Typography variant="caption" component="p" sx={{ color: 'text.secondary', mb: 1 }}
+                        data-testid="profile-dev-apps-note">
+                        {DEV_APPS
+                            ? `This dev server shows only ${devAppsLabel} — its session's scope. These toggles apply everywhere else. `
+                            : `This dev server's session is scoped to ${devAppsLabel}; showing every application. `}
+                        <MuiLink component="button" type="button" variant="caption" data-testid="profile-dev-apps-switch"
+                            onClick={() => {
+                                setDevAppsOptOut(!!DEV_APPS);
+                                window.location.reload();
+                            }}>
+                            {DEV_APPS ? 'Show all applications' : `Show only ${devAppsLabel}`}
+                        </MuiLink>
+                    </Typography>
+                )}
                 <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }} data-testid="profile-app-toggle">
                     {[
                         { key: 'tasks', label: 'Tasks', value: appTasks, setValue: setAppTasks },
