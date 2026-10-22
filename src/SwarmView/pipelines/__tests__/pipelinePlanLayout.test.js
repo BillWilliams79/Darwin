@@ -3052,8 +3052,7 @@ describe('epic band label counts, behind a toggle (req #3225)', () => {
         // A bead with no epic has no requirement set to count against — a
         // stray "0/0" would claim an answer that does not exist.
         const reads = {
-            steps: [{ id: 1, pipeline_fk: 1, title: 'req-less', run: 'auto',
-                notes: null, completed_at: '2026-07-01T00:00:00' }],
+            steps: [{ id: 1, pipeline_fk: 1, title: 'req-less', run: 'auto', notes: null }],
             stepRequirements: [], stepDeps: [], requirements: [],
             features: [], epics: [], machines: MACHINES,
         };
@@ -6394,16 +6393,16 @@ const TIMED_MODEL = {
     ],
     machines: [],
     steps: [
-        { id: 1, pipeline_fk: 500, title: 'Ship A', run: 'auto', completed_at: null },
-        { id: 2, pipeline_fk: 500, title: 'Ship B', run: 'auto', completed_at: null },
-        { id: 3, pipeline_fk: 500, title: 'Flight A', run: 'auto', completed_at: null },
+        { id: 1, pipeline_fk: 500, title: 'Ship A', run: 'auto' },
+        { id: 2, pipeline_fk: 500, title: 'Ship B', run: 'auto' },
+        { id: 3, pipeline_fk: 500, title: 'Flight A', run: 'auto' },
         // The step-97 shape: no dep edges at all, work begun on the LATEST day.
-        { id: 4, pipeline_fk: 500, title: 'Flight late, ungated', run: 'auto', completed_at: null },
-        { id: 5, pipeline_fk: 500, title: 'Backlog A', run: 'auto', completed_at: null },
-        { id: 6, pipeline_fk: 500, title: 'Backlog B', run: 'auto', completed_at: null },
+        { id: 4, pipeline_fk: 500, title: 'Flight late, ungated', run: 'auto' },
+        { id: 5, pipeline_fk: 500, title: 'Backlog A', run: 'auto' },
+        { id: 6, pipeline_fk: 500, title: 'Backlog B', run: 'auto' },
         // Backward in time: its own work completed on day 1, but it is gated on
         // step 3, whose work began on day 3.
-        { id: 7, pipeline_fk: 500, title: 'Ship C, late gate', run: 'auto', completed_at: null },
+        { id: 7, pipeline_fk: 500, title: 'Ship C, late gate', run: 'auto' },
     ],
     stepDeps: [
         { id: 1, step_fk: 2, dep_step_fk: 1, time_at: null },
@@ -8253,7 +8252,6 @@ describe('time axis — review regressions', () => {
             machines: [],
             steps: rows.map((r) => ({
                 id: r.id, pipeline_fk: 900, title: `s${r.id}`, run: 'auto',
-                completed_at: r.completedAt || null,
             })),
             stepDeps: rows.flatMap((r) => (r.depIds || []).map((d, i) => ({
                 id: r.id * 100 + i, step_fk: r.id, dep_step_fk: d, time_at: null,
