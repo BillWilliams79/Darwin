@@ -110,6 +110,13 @@ describe('the colour help is a hover popup on the toolbar chips (req #3722)', ()
             expect(text).toContain(m);
         }
         expect(document.querySelector('[data-testid="pipeline-viz-legend-reqscale"]')).toBeNull();
+        // req #3742 — Locked is the card's red perimeter now, not a padlock.
+        const swatch = document.querySelector('[data-testid="pipeline-viz-legend-locked-frame"]');
+        expect(swatch).not.toBeNull();
+        expect(swatch.closest('[data-testid="pipeline-viz-legend-icon"]').textContent)
+            .toContain('Locked');
+        expect(swatch.closest('[data-testid="pipeline-viz-legend-icon"]')
+            .querySelector('[data-lock]')).toBeNull();
     });
 
     it('does not hide the app from assistive technology (non-modal)', () => {
