@@ -7,8 +7,8 @@
 // file's sibling. Inlined, these ~250 lines were a large part of why
 // `PipelineDetail.jsx` was 1133 lines, and every one of them is dead in Table
 // mode. The extraction is mechanical: same controls, same behaviour, same
-// preference plumbing, all of it still owned by the page (this component holds
-// no state and reads no storage).
+// preference plumbing, all of it still owned by the page (this component reads
+// no storage, and its only state is the colour help's long-press pin, req #3766).
 //
 // WHY IT RETURNS A FRAGMENT rather than a wrapping Box. The header row is a flex
 // container whose group separators are its OWN children (P2), so these controls
@@ -26,6 +26,7 @@
 // Reset is the one deliberate exception and it is a COLOUR exception, not a
 // widget one (req #3242 user directive — see its own note below).
 
+import { useEffect, useRef, useState } from 'react';
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
 import Divider from '@mui/material/Divider';
@@ -37,6 +38,7 @@ import { PLAN_LEVEL_NUMBER, REQ_COLOR_SCALES,
     STEPS_ACROSS_OPTIONS, STEP_WIDTH_RUNGS } from './pipelinePlanLayout';
 import { toolbarChipProps } from './pipelineChipStyles';
 import { ANY_MACHINE } from './planMachineFilter';
+import { LONG_PRESS_MS, PRESS_SLOP_PX } from '../../dnd/pressTimeline';
 
 // Reset's wording, in ONE place: it is both the tooltip and the accessible name
 // (see the chip below for why the two may not drift). It named the level too
@@ -73,6 +75,104 @@ export const SHOW_STEP_WIDTH = false;
 // clicking the pressed one is how the neutral position is reached and that is
 // not discoverable from any one chip.
 
+// ── THE COLOUR HELP'S LONG-PRESS PIN (req #3766, user directive: "if i long
+// press the color, the color help will stick unless you click any button
+// again") ─────────────────────────────────────────────────────────────────────
+// Hover (and keyboard focus) on a chip reports `{ key, el }` so the visualizer
+// draws that chip's help (req #3722), and leaving reports null. A LONG PRESS —
+// held still for the app's LONG_PRESS_MS, within PRESS_SLOP_PX — PINS it: it
+// fires while still held, reports `{ key, el, pinned: true }`, and from then on
+// hover, focus and blur change nothing. The release that ends the long press is
+// not a click (it would otherwise toggle the colour key it was asking about).
+// The NEXT press anywhere — any button, any chip, the canvas — or Escape unpins
+// it, and the help falls back to whatever chip the pointer rests on, so a press
+// on another colour chip still does what that chip does. The touch context menu
+// a long press would raise on a chip is suppressed for the same press.
+function useKeyHelp(onKeyHover) {
+    const reportRef = useRef(onKeyHover);
+    reportRef.current = onKeyHover;
+    const hoverRef = useRef(null);         // the chip under the pointer / focus
+    const pinnedRef = useRef(null);        // the pinned `{ key, el, pinned }`
+    const pressRef = useRef(null);         // `{ x, y, timer }` of a press in flight
+    const swallowClickRef = useRef(false);
+    const [pinned, setPinned] = useState(null);
+
+    const endPress = () => {
+        if (pressRef.current) clearTimeout(pressRef.current.timer);
+        pressRef.current = null;
+    };
+    const report = (h) => {
+        hoverRef.current = h;
+        if (!pinnedRef.current) reportRef.current?.(h);
+    };
+
+    // While pinned, the next press (capture phase, so nothing under it can stop
+    // it) or Escape unpins. Attached after the pinning press went down, so that
+    // press cannot unpin itself.
+    useEffect(() => {
+        if (!pinned) return undefined;
+        const unpin = () => {
+            pinnedRef.current = null;
+            swallowClickRef.current = false;
+            setPinned(null);
+            reportRef.current?.(hoverRef.current);
+        };
+        const onKey = (e) => { if (e.key === 'Escape') unpin(); };
+        window.addEventListener('pointerdown', unpin, true);
+        window.addEventListener('keydown', onKey, true);
+        return () => {
+            window.removeEventListener('pointerdown', unpin, true);
+            window.removeEventListener('keydown', onKey, true);
+        };
+    }, [pinned]);
+
+    // Unmounting drops a press in flight and a pin with it.
+    useEffect(() => () => {
+        endPress();
+        if (pinnedRef.current) reportRef.current?.(null);
+    }, []);
+
+    return (key) => ({
+        onMouseEnter: (e) => report({ key, el: e.currentTarget }),
+        onMouseLeave: () => report(null),
+        onFocus: (e) => report({ key, el: e.currentTarget }),
+        onBlur: () => report(null),
+        onPointerDown: (e) => {
+            swallowClickRef.current = false;
+            endPress();
+            if (e.button !== 0) return;
+            const el = e.currentTarget;
+            pressRef.current = {
+                x: e.clientX, y: e.clientY,
+                timer: setTimeout(() => {
+                    pressRef.current = null;
+                    swallowClickRef.current = true;
+                    const h = { key, el, pinned: true };
+                    pinnedRef.current = h;
+                    setPinned(h);
+                    reportRef.current?.(h);
+                }, LONG_PRESS_MS),
+            };
+        },
+        onPointerMove: (e) => {
+            const p = pressRef.current;
+            if (p && Math.hypot(e.clientX - p.x, e.clientY - p.y) > PRESS_SLOP_PX) endPress();
+        },
+        onPointerUp: endPress,
+        onPointerCancel: endPress,
+        onPointerLeave: endPress,
+        onContextMenu: (e) => {
+            if (pressRef.current || pinnedRef.current?.el === e.currentTarget) e.preventDefault();
+        },
+        onClickCapture: (e) => {
+            if (!swallowClickRef.current) return;
+            swallowClickRef.current = false;
+            e.stopPropagation();
+            e.preventDefault();
+        },
+    });
+}
+
 // Stable defaults, so an omitted prop is not a new identity every render.
 const NO_MACHINES = [];
 const NO_HIDDEN = new Set();
@@ -88,7 +188,9 @@ const NO_HIDDEN = new Set();
  *                                              rests on the Step chip (`key` 'step') or a colour
  *                                              chip (`key` its scale), `null` when it leaves; the
  *                                              plan visualizer draws the colour-help popup
- *                                              (req #3722)
+ *                                              (req #3722); a long press reports it with
+ *                                              `pinned: true` and holds it until the next
+ *                                              press anywhere (req #3766)
  * @param {boolean} props.hideClosed            the closed (met/deferred/wontfix) rows are hidden
  * @param {function} props.onChangeHideClosed   receives the next boolean
  * @param {Object[]} props.machines             the open machines, one filter chip each (req #3708)
@@ -117,13 +219,8 @@ export default function PipelinePlanToolbar({
     onResetView,
 }) {
     // Hover (and keyboard focus) on a chip reports it so the visualizer can draw
-    // that chip's colour help (req #3722).
-    const hoverKeyProps = (key) => ({
-        onMouseEnter: (e) => onKeyHover?.({ key, el: e.currentTarget }),
-        onMouseLeave: () => onKeyHover?.(null),
-        onFocus: (e) => onKeyHover?.({ key, el: e.currentTarget }),
-        onBlur: () => onKeyHover?.(null),
-    });
+    // that chip's colour help (req #3722); a long press pins it (req #3766).
+    const hoverKeyProps = useKeyHelp(onKeyHover);
     return (
         <>
             {/* The colour key for the REQUIREMENT MARKS, never the beads — the
@@ -165,9 +262,15 @@ export default function PipelinePlanToolbar({
                     no `onClick`, so it reads as a label, not a switch. */}
                 <Chip
                     label="Step"
-                    aria-label="Step marks — hover for their key"
+                    aria-label="Step marks — hover for their key, long press to keep it open"
                     {...hoverKeyProps('step')}
-                    {...toolbarChipProps(false, { pressed: false, sx: { cursor: 'help' } })}
+                    {...toolbarChipProps(false, {
+                        pressed: false,
+                        // Not clickable, so MUI leaves its text selectable — and an
+                        // iOS long press would select "Step" instead of pinning.
+                        sx: { cursor: 'help', userSelect: 'none',
+                              WebkitUserSelect: 'none', WebkitTouchCallout: 'none' },
+                    })}
                     data-testid="pipeline-viz-steps-toggle"
                 />
                 {/* The colour chips explain THEMSELVES on hover — active or not —
