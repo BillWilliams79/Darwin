@@ -418,8 +418,8 @@ const NavBarSidebar = () => {
                                 (req #3590). */}
                             {/* Crowded, the nav list scrolls — never the racked
                                 panels below it (req #3720). With an open racked panel it
-                                takes at most 40vh once a racked panel is open, and the rack gets the rest
-                                (req #3744). */}
+                                takes at most 40vh, and the rack may use the rest
+                                (req #3744) — only what its panels need (req #3747). */}
                             <List sx={{ pt: 0, pb: 0, flex: '0 1 auto', minHeight: 0,
                                         overflowY: 'auto', overflowX: 'hidden', scrollbarWidth: 'thin',
                                         '&:has(~ [data-testid="navbar-rack"] [data-rack-open="1"])': {
@@ -479,16 +479,23 @@ const NavBarSidebar = () => {
                             </List>
 
                             {/* The panel rack (req #3720): racked panels portal
-                                into the `display: contents` slot, so they are flex
+                                into the `display: contents` slot, so they are grid
                                 items here and CSS `order` stacks them in rack
-                                order. Folded panels keep it content-sized up to
-                                60vh; with one OPEN it takes all the height below
-                                the nav list (req #3744) and the open panels share
-                                it, scrolling inside when their rows need more. */}
+                                order. Each takes only the height its content needs,
+                                never more (req #3747, reversing #3744's fill): a
+                                row is `minmax(auto, max-content)`, so a short rack
+                                gives every panel its content while it fits and,
+                                when it does not, small panels keep theirs and the
+                                big ones split the rest evenly, scrolling inside.
+                                Folded panels keep it content-sized up to 60vh;
+                                with one OPEN it may take the height below the nav
+                                list — as much as its panels need. */}
                             <Box data-testid="navbar-rack"
-                                 sx={{ display: 'flex', flexDirection: 'column', gap: '4px',
+                                 sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)',
+                                        gridAutoRows: 'minmax(auto, max-content)', alignContent: 'start',
+                                        rowGap: '4px',
                                         flex: '0 0 auto', maxHeight: '60vh', minHeight: 0,
-                                        '&:has([data-rack-open="1"])': { flex: '1 1 0', maxHeight: 'none' },
+                                        '&:has([data-rack-open="1"])': { flex: '0 1 auto', maxHeight: 'none' },
                                         overflowY: 'auto', overflowX: 'hidden', scrollbarWidth: 'thin',
                                         // Spaced off the nav list only while it
                                         // holds something drawn.

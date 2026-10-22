@@ -51,6 +51,12 @@ describe('NavBarSidebar panel rack (req #3720)', () => {
         // Below the nav buttons: the rack follows the nav list.
         const rack = screen.getByTestId('navbar-rack');
         expect(rack.previousElementSibling.tagName).toBe('UL');
+        // Each racked panel is a grid row sized to its content, never
+        // stretched to fill the navbar (req #3747).
+        const cs = getComputedStyle(rack);
+        expect(cs.display).toBe('grid');
+        expect(cs.gridAutoRows).toBe('minmax(auto, max-content)');
+        expect(cs.alignContent).toBe('start');
         // Collapsing the sidebar republishes the narrower width.
         fireEvent.click(screen.getByTestId('navbar-collapse-toggle'));
         expect(usePanelRackStore.getState().slot.width).toBe(SIDEBAR_COLLAPSED_WIDTH);

@@ -139,6 +139,18 @@ describe('UnorchestratedReqBox — the navbar rack (req #3735)', () => {
         expect(row.getAttribute('draggable')).toBeNull();
     });
 
+    it('racked, its list is its rows: a stretch made while floating never sizes it (req #3747)', () => {
+        window.localStorage.setItem('darwin-plan-unseated-box-size', JSON.stringify({ ws: 1, hEm: 40 }));
+        act(() => root.render(<UnorchestratedReqBox items={items} />));
+        const list = () => q('pipeline-viz-unseated-list');
+        // Floating, the reader's stretch holds.
+        expect(list().style.height).not.toBe('');
+        rackIt();
+        expect(box().getAttribute('data-racked')).toBe('1');
+        expect(list().style.height).toBe('');
+        expect(box().style.height).toBe('');
+    });
+
     it('folded in the rack it keeps its whole name, and double-click does nothing', () => {
         act(() => root.render(<UnorchestratedReqBox items={items} />));
         rackIt();
