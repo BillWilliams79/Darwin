@@ -25,7 +25,7 @@
 //   - Reqs is a read-only count with an id tooltip — no seat editor,
 //     matching the requirement's own deliberate-omissions list.
 //   - Column order is the user's (req #3750): ID, Pipeline / Epic, Step,
-//     Lock, Run, Checkpoint, Reqs, then Not before. Notes are edited in the
+//     Lock, Run, Barrier, Reqs, then Not before. Notes are edited in the
 //     dialog and never shown in the grid; dependencies are read on the plan
 //     visualizer, not counted here.
 //   - The Pipeline / Epic cell is one chip naming both, linking to the plan
@@ -73,7 +73,7 @@ import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { formatDateTime } from '../utils/dateFormat';
 import {
     runChipProps, runLabel,
-    checkpointChipProps, checkpointLabel, lockedChipProps, lockedLabel,
+    barrierChipProps, barrierLabel, lockedChipProps, lockedLabel,
 } from '../SwarmView/pipelines/pipelineChipStyles';
 // Plan routes come from the SAME builders the router uses, never a literal
 // string (planEra.js's own guard forbids one).
@@ -273,15 +273,15 @@ export default function StepsPage() {
         }
     };
 
-    // req #3649 — the checkpoint and lock flags, toggled exactly as `run` is.
+    // req #3649 — the barrier and lock flags, toggled exactly as `run` is.
     // A NULL/absent `checkpoint` is the column default (1), so it flips to 0.
-    const toggleCheckpoint = async (row) => {
+    const toggleBarrier = async (row) => {
         try {
             await updateStep(darwinUri, idToken, row.id,
                 { checkpoint: (row.checkpoint ?? 1) ? 0 : 1 });
             invalidateSteps();
         } catch (err) {
-            showError(err, 'Could not change the step checkpoint');
+            showError(err, 'Could not change the step barrier');
         }
     };
 
@@ -417,22 +417,22 @@ export default function StepsPage() {
             ),
         },
         {
-            // req #3649/#3750 — a checkpoint HOLDS every downstream step while it
+            // req #3649/#3750 — a barrier HOLDS every downstream step while it
             // holds open work; a priority step only goes out first and holds nothing.
-            field: 'checkpoint', headerName: 'Checkpoint', width: 120, sortable: false,
+            field: 'checkpoint', headerName: 'Barrier', width: 120, sortable: false,
             renderCell: (params) => {
                 const on = params.value ?? 1;
                 return (
                     <Tooltip title={Number(on)
-                        ? 'Checkpoint — every step downstream waits while this step holds open work. Click for Priority.'
-                        : 'Priority — this step\'s work launches first, but nothing waits on it. Click for Checkpoint.'}>
+                        ? 'Barrier — Dependent steps may start requirements only when all requirements in this step are met, wontfix, deferred, or paused. Click for Priority.'
+                        : 'Priority (barrier off) — Dependent steps may start requirements only when all requirements in this step have been started or are met, wontfix, deferred or paused. Click for Barrier.'}>
                         <Chip
-                            label={checkpointLabel(on)}
+                            label={barrierLabel(on)}
                             size="small"
-                            {...checkpointChipProps(on)}
+                            {...barrierChipProps(on)}
                             clickable
-                            onClick={() => toggleCheckpoint(params.row)}
-                            data-testid={`step2-checkpoint-chip-${params.row.id}`}
+                            onClick={() => toggleBarrier(params.row)}
+                            data-testid={`step2-barrier-chip-${params.row.id}`}
                         />
                     </Tooltip>
                 );
