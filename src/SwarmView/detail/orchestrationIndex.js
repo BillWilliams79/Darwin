@@ -36,7 +36,7 @@
 // than a box that says "No pipeline".
 //
 // `pipelines.pipeline_status` uses the SAME vocabulary as 1.0's
-// (`draft|active|paused|completed|aborted`, verified in `DarwinSQL/schema.sql`),
+// (`draft|active|paused|completed`, verified in `DarwinSQL/schema.sql`),
 // so `isOpenPipeline` and `rankPipeline` below are unchanged — not adapted, not
 // re-derived.
 //
@@ -57,12 +57,12 @@
 // not delete it on the grounds that the constraint makes it unreachable.
 
 // ── Which plans may be OFFERED, and which may host an offerable step ───────
-// "Open" is every lifecycle state a plan can still do work in. `completed` and
-// `aborted` are the two that cannot, so they are named as the exclusion rather
-// than the three survivors being listed — a future fifth status is far more
+// "Open" is every lifecycle state a plan can still do work in. `completed` is
+// the one that cannot, so it is named as the exclusion rather than the three
+// survivors being listed — a future fifth status is far more
 // likely to be workable than finished, and an unknown status showing up in the
 // list is the safe error.
-const CLOSED_PIPELINE_STATUSES = new Set(['completed', 'aborted']);
+const CLOSED_PIPELINE_STATUSES = new Set(['completed']);
 
 export const isOpenPipeline = (p) =>
     !!p && !CLOSED_PIPELINE_STATUSES.has(p.pipeline_status);

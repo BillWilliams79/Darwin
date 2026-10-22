@@ -43,6 +43,7 @@ import {
 import { validDock } from '../Components/AnchoredPanel/anchoredPanelGeometry';
 import AuthContext from '../Context/AuthContext';
 import { useDevServerRequirementTitles, useDevServerSessionTerminals, useDevServers, useMachines } from '../hooks/useDataQueries';
+import { isGroupVisible } from '../NavBar/navConfig';
 import { useDevServerDashboardStore } from '../stores/useDevServerDashboardStore';
 import { PLAN_VIZ_PALETTE as P } from '../SwarmView/pipelines/pipelinePlanLayout';
 import {
@@ -129,8 +130,9 @@ export default function DevServerDashboard() {
     const dock = validDock(storedDock, DASH_MIN_W, DASH_MIN_H) || DASH_HOME;
 
     // Dev servers are part of the Swarm app: drawn only where its nav item is
-    // (navConfig's GROUP_PROFILE_KEY/DEFAULT — `app_swarm`, default off).
-    const swarmOn = Number(profile?.app_swarm ?? 0) === 1;
+    // (navConfig's isGroupVisible — `app_swarm`, default off, or the dev
+    // server's own application scope, req #3790).
+    const swarmOn = isGroupVisible(profile, 'swarm');
     const visible = show && swarmOn && !isMobile && !!profile?.userName;
     const { data: devServers, isLoading: serversLoading, isError } = useDevServers(profile?.userName, {
         enabled: visible, staleTime: 30_000,
