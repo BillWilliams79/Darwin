@@ -73,6 +73,8 @@ import AuthContext from '../Context/AuthContext';
 import call_rest_api from '../RestApi/RestApi';
 import { fetchEntity } from '../hooks/factory/createEntityQueries';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
+// req #3793 — the visualizers' shared full screen (the Plan's, req #3658).
+import { useVisualizerMaximize } from '../hooks/useVisualizerMaximize';
 
 // Release-date formatter for the release datacard (req #2883 — moved here from
 // the Konva canvas when the release card became a page-owned click pop-up).
@@ -174,6 +176,11 @@ const BuildVisualizerPage = () => {
     const { idToken, profile } = useContext(AuthContext);
     const queryClient = useQueryClient();
     const showError = useSnackBarStore(s => s.showError);
+
+    // req #3793 — full screen. This page IS the visualizer, so the switch is
+    // always live; the hook takes the browser's full screen, leaves on Esc and
+    // suspends the navbar's panel rack while the page covers it.
+    const { maximized, toggle: toggleMaximized } = useVisualizerMaximize(true);
 
     // Customers — for the Perform-Release-Event Dialog.
     const customersQuery = useQuery({
@@ -1165,9 +1172,28 @@ const BuildVisualizerPage = () => {
                 height: '100vh',
                 width: '100%',
                 overflow: 'hidden',
+                // req #3793 — FULL SCREEN: the page becomes a fixed full-window
+                // layer over the Darwin navbar (the drawer's z-index and above)
+                // and under the modal layer, so every menu, popover and dialog
+                // this page opens still shows over it — the Plan page's layer
+                // (PipelineDetail, req #3658). The control row STAYS: the
+                // switch lives in it, and the user's rule puts a visualizer's
+                // switch in its controls' row whenever controls are on screen.
+                // The canvas fills the grid's `1fr` row, and KonvaBuildCanvas
+                // follows its container with a ResizeObserver, so it redraws at
+                // the window's size without being told.
+                ...(maximized && {
+                    position: 'fixed', inset: 0, zIndex: 1250,
+                    height: 'auto', width: 'auto',
+                    bgcolor: 'background.default',
+                }),
             }}
+            data-maximized={maximized ? 'true' : 'false'}
+            data-testid="build-visualizer-page"
         >
             <BuildVisualizerControls
+                maximized={maximized}
+                onToggleMaximized={toggleMaximized}
                 lib={lib}
                 selectedTypes={selectedTypes}
                 onToggleType={toggleType}

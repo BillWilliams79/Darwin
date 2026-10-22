@@ -29,8 +29,9 @@ import { rackInsert, rackRemove } from '../Components/AnchoredPanel/panelRack';
 //     racks such a panel the first time it mounts in this browser, at the
 //     bottom of the stack; after that where it sits is the reader's, so one
 //     dragged off the navbar stays floating. Persisted with `racked`.
-//   • `covered` — a page is drawn OVER the navbar (the Plan page maximized,
-//     req #3735): the navbar is still mounted underneath, so the rack is
+//   • `covered` — a page is drawn OVER the navbar (a visualizer maximized —
+//     Plan, Build or Swarm — req #3735, #3793; `useVisualizerMaximize`
+//     publishes it): the navbar is still mounted underneath, so the rack is
 //     SUSPENDED for every window — no drop zone, a racked window floats —
 //     rather than portalling windows into a navbar nobody can see. Published
 //     by the covering page while it covers; live only, never persisted.
