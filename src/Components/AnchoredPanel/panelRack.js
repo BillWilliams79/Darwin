@@ -5,9 +5,13 @@
 // A racked panel leaves the viewport and locks into the navbar, directly below
 // its nav buttons, at the navbar's own width; more than one stack top to bottom
 // in the RACK ORDER — a list of panel ids, persisted per browser
-// (usePanelRackStore). A panel dropped on the navbar lands at the top unless it
-// is pointed into the stack, where the pointer against the stacked panels'
-// midpoints decides; a racked panel is reordered the same way (req #3729).
+// (usePanelRackStore). A panel dropped on the navbar lands at the BOTTOM unless
+// it is pointed into the stack, where the pointer against the stacked panels'
+// midpoints decides (req #3744, reversing #3729's top); a racked panel is
+// reordered the same way. Each racked panel takes only the height its content
+// needs, never more (req #3747, reversing #3744's fill); when the navbar is too
+// short for all of them, small panels keep their content and the big ones split
+// the rest evenly (the rack's grid rows, NavBarSidebar).
 //
 // The stack is drawn by CSS `order` so a panel's DOM position (wherever its
 // host mounts it) never matters: a racked panel is order 2·i.
@@ -36,18 +40,19 @@ export function rackRemove(racked, id) {
 
 /**
  * Where a panel dropped at pointer `y` lands among the OTHER racked panels
- * (`others`, in rack order) — req #3729: "first in, at the top", then dragged
- * into position.
+ * (`others`, in rack order) — req #3744: "first in, at the bottom", then
+ * dragged into position.
  *
- * Pointed INTO the stack (above `stackBottom`, the lowest drawn edge of the
- * other panels), it lands above the first DRAWN panel
- * whose midpoint lies below the pointer — so the nav buttons above the stack
- * mean the top, and the lower half of the last panel the bottom. Anywhere on
- * the navbar BELOW the stack, a panel arriving from off the navbar lands
- * first, at the top; a racked panel being reordered (`fromRack`) goes to the
- * bottom, the end it was dragged toward. A racked panel its host is not
- * drawing (hidden) has no midpoint and never decides the slot — with none of
- * the others drawn, an arrival lands first.
+ * Pointed INTO the stack (between `stackTop` and `stackBottom`, the highest and
+ * lowest drawn edges of the other panels), it lands above the first DRAWN panel
+ * whose midpoint lies below the pointer — so the upper half of a panel puts it
+ * above, the lower half of the last panel the bottom. Anywhere else on the
+ * navbar (the nav buttons above the stack, or below it), a panel arriving from
+ * off the navbar lands LAST, at the bottom. A racked panel being reordered
+ * (`fromRack`) goes where the pointer is dragged toward: the nav buttons mean the
+ * top, below the stack the bottom. A racked panel its host is not drawing
+ * (hidden) has no midpoint and never decides the slot — with none of the others
+ * drawn, an arrival lands last.
  *
  * @param {string[]} others
  * @param {Map<string, number>} midById  each drawn panel's vertical midpoint.
@@ -56,9 +61,11 @@ export function rackRemove(racked, id) {
  *   -Infinity when nothing is drawn. Omitted (Infinity), only the midpoints
  *   decide.
  * @param {boolean} [fromRack]    the dragged panel is racked: a reorder.
+ * @param {number} [stackTop]     the stack's highest drawn edge; omitted
+ *   (-Infinity), nothing is "above" the stack.
  */
-export function rackDropIndex(others, midById, y, stackBottom = Infinity, fromRack = false) {
-    if (!fromRack && (y > stackBottom || midById.size === 0)) return 0;
+export function rackDropIndex(others, midById, y, stackBottom = Infinity, fromRack = false, stackTop = -Infinity) {
+    if (!fromRack && (y > stackBottom || y < stackTop || midById.size === 0)) return others.length;
     const i = others.findIndex(id => midById.has(id) && y < midById.get(id));
     return i === -1 ? others.length : i;
 }

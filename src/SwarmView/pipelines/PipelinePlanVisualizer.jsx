@@ -121,6 +121,8 @@ import { STEP_RUNNING } from './pipelineViewModel';
 import { planStorageNamespace } from './planEra';
 import { OrderViolationsAlert } from './PipelinePlanTable';
 import EmptyPlanAddStep from './EmptyPlanAddStep';
+import StepEditDialog from '../../Steps/StepEditDialog';
+import EpicEditDialog from '../../Epics/EpicEditDialog';
 import {
     computePlanLayout, beadStyle, placeEpicChips,
     epicFocusTransform, stepFocusTransform, epicWorkFocusTransform,
@@ -195,7 +197,7 @@ import {
 // req #3649 — the epic chip's lock control; req #3673 — the pictures on it and
 // on the step card's checkpoint and lock buttons.
 import {
-    CheckpointGateIcon, PlanLockIcon, checkpointTitle, lockTitle,
+    CheckpointGateIcon, PlanLockIcon, checkpointTitle,
 } from './PlanStepFlagIcons';
 // req #3586 — the "+" marks that add a step on an edge or a dependent step; req
 // #3617 adds the one off a free left side, for a step this one depends on.
@@ -204,9 +206,12 @@ import {
     NEW_EPIC_TITLE,
 } from './pipelineStepInsert';
 import {
-    REQ_DRAG_SLOP, passedDragSlop, dropTargetAt, canDropOn, applyReqMoves,
+    REQ_DRAG_SLOP, reqPressOutcome, stillHeld, dropTargetAt, canDropOn, applyReqMoves,
     edgePanVelocity,
 } from './pipelineReqDrag';
+// req #3665 — the app-wide press timeline and drag surface: the requirement
+// marks read its numbers, the Orchestrables box drags through its context.
+import { DarwinDndContext, LIFT_DELAY_MS, LIFT_VIBRATE_MS } from '../../dnd';
 import { viewportStorageKey } from '../../utils/viewportMemory';
 // req #3583 — the swarm-ready, not-orchestrated box and its drop-to-seat. The
 // contexts, snackbar, query keys and `moveStepRequirement` are req #3581's,
@@ -220,7 +225,7 @@ import PlanActiveBox from './PlanActiveBox';
 import { activePlanRequirements } from './planActiveReqs';
 import { useUnorchestratedRequirements } from './useUnorchestratedRequirements';
 import {
-    UNSEATED_REQ_MIME, bulkSeatRequest, resolveSeatDrop, screenRectOf, unseatedBoxFontPx,
+    UNSEATED_DRAG_TYPE, bulkSeatRequest, resolveSeatDrop, screenRectOf, unseatedBoxFontPx,
     unseatedBoxWidthPx, unseatedBoxZoom,
     pointerCanSeat, runBulkSeat, bulkSeatFailureMessage,
 } from './pipelineUnseated';
@@ -230,7 +235,7 @@ import '../../CalendarFC/swarmVisualizer.css';
 // are the ones req #3581 already imports above.
 import { updateEpic, createEpic } from '../../Epics/epicsApi';
 import PlanInPlaceInput, { titleProblem } from './PlanInPlaceInput';
-import { createPressTracker, LONG_PRESS_MS } from './planPressGesture';
+import { createPressTracker, LONG_PRESS_MS, DOUBLE_CLICK_MS } from './planPressGesture';
 // req #3661 — a requirement's title, edited in place on its own row.
 import PlanInPlaceTitleArea from './PlanInPlaceTitleArea';
 import { reqTitleEditorBox, updateRequirementTitle } from './planReqTitleEdit';
@@ -297,6 +302,19 @@ const REQ_KEY_SCALES = REQ_COLOR_KEYS;
 // bound to, so a mousedown on them was never reachable as a pan gesture in the
 // first place. Anything added back over the canvas needs the attribute again.
 const CHROME_SELECTOR = '[data-viz-chrome]';
+/** An Orchestrables row in the air (req #3665): highlighted, not popped — the
+ *  same quiet lift the canvas requirement gets, in place of the shared
+ *  pickup's scale-and-bounce (user directive: "it jumps way too much"). */
+const QUIET_LIFT_SX = {
+    borderRadius: '4px',
+    outline: `1px solid ${P.accent}`,
+    boxShadow: '0 10px 28px rgba(0, 0, 0, 0.55)',
+    '@keyframes planRowLift': {
+        '0%': { outlineColor: 'transparent', boxShadow: '0 0 0 rgba(0,0,0,0)' },
+    },
+    animation: 'planRowLift 140ms ease-out',
+    '@media (prefers-reduced-motion: reduce)': { animation: 'none' },
+};
 /** Seat writes in flight at once when the whole box is dropped (req #3608) —
  *  each is its own gateway call and its own database connection. */
 const BULK_SEAT_CONCURRENCY = 4;
@@ -987,14 +1005,13 @@ export default function PipelinePlanVisualizer({
     const [transform, setTransform] = useState(null);
 
     // ── The swarm-ready, not-orchestrated box (req #3583) ───────────────────
-    // `unseatDragId` is the box row in the air (it greys out), `seatTarget` the
-    // step card under the cursor (`{stepId, ok}`, outlined), and `pendingSeats`
+    // `seatTarget` is the step card under the cursor (`{stepId, ok}`,
+    // outlined), and `pendingSeats`
     // the rows already dropped whose write or refetch has not landed — hidden
     // from the box at once so a drop never shows the row snapping back.
     // (`darwinUri`/`idToken`/`profile`/`queryClient`/`showError` are declared
     // once, at the top of the component, for req #3581.)
     const unseated = useUnorchestratedRequirements(profile?.userName);
-    const [unseatDragId, setUnseatDragId] = useState(null);
     const [seatTarget, setSeatTarget] = useState(null);
     const [pendingSeats, setPendingSeats] = useState(() => new Set());
     const [boxCarrying, setBoxCarrying] = useState(false);
@@ -1052,6 +1069,11 @@ export default function PipelinePlanVisualizer({
     // whenever the transform changes (req #3614) — via a ref because the
     // function is defined below the empty-plan early return, the effect above it.
     const boxPointerRef = useRef(null);
+    // req #3665 — a box ROW in the air: the pointer dnd-kit last reported, and
+    // the collision detection it calls (stable, so the context can keep it).
+    const rowPointerRef = useRef(null);
+    const seatCollideRef = useRef(() => []);
+    const seatCollision = useCallback((args) => seatCollideRef.current(args), []);
     const reseatRef = useRef(null);
     useEffect(() => { reseatRef.current?.(); }, [transform]);
 
@@ -2076,6 +2098,18 @@ export default function PipelinePlanVisualizer({
     // the wheel keeps zooming throughout. Escape, or the window losing focus,
     // puts the requirement back.
     //
+    // ── ON THE SHARED PRESS TIMELINE, BY TOUCH TOO (req #3665) ─────────────
+    // POINTER events, so a finger drives it exactly as a mouse does, read
+    // through `reqPressOutcome` (pipelineReqDrag.js has the table). On touch the
+    // press is SHARED with d3-zoom until it lifts: d3 pans under a finger that
+    // moves first, and the press is dropped; a finger held still lifts the
+    // requirement (a haptic tick), and from then on d3 never sees it move — its
+    // touchmove is stopped on the way down, at the window. Held still past
+    // LONG_PRESS_MS and let go in place, it is the title edit (a mouse held
+    // still opens it while held, and lifts only by moving). A lifted touch swallows
+    // its touchend, so the release never turns into a click that opens the
+    // requirement; a second finger puts the requirement back (the pinch is d3's).
+    //
     // The listeners read everything that changes through `dragWorldRef`, so the
     // effect binds once per container and never tears a gesture down mid-drag
     // because a refetch re-rendered the page.
@@ -2172,6 +2206,9 @@ export default function PipelinePlanVisualizer({
         let raf = 0;
         let lastPoint = null;           // panel-relative, last pointer position
         let guardTimer = 0;
+        // A lifted or long-pressed TOUCH ends in a touchend the browser would
+        // turn into a click — swallowed, once (see `onTouchEnd`).
+        let swallowTouchEnd = false;
 
         const world = () => dragWorldRef.current;
         const panelPoint = (e) => {
@@ -2272,7 +2309,11 @@ export default function PipelinePlanVisualizer({
                 return false;
             }
             const r = (d.snap || d.node).getClientRect();
-            const p0 = panelPoint({ clientX: d.down.x, clientY: d.down.y });
+            // The grab point on the mark. Under a finger d3 panned the canvas
+            // with the resting jitter of the hold, so the mark is where the
+            // finger is now; a mouse moved off a still mark.
+            const p0 = d.pointerType === 'touch' && lastPoint
+                ? lastPoint : panelPoint({ clientX: d.down.x, clientY: d.down.y });
             d.offX = p0.x - r.x + PAD_X;
             d.offY = p0.y - r.y + PAD_Y;
             d.phase = 'drag';
@@ -2283,6 +2324,10 @@ export default function PipelinePlanVisualizer({
                 x: lastPoint.x - d.offX, y: lastPoint.y - d.offY,
             });
             setCursor('grabbing');
+            if (d.pointerType === 'touch') {
+                swallowTouchEnd = true;
+                navigator.vibrate?.(LIFT_VIBRATE_MS);
+            }
             return true;
         };
         const finish = () => {
@@ -2301,46 +2346,101 @@ export default function PipelinePlanVisualizer({
             clearTimeout(guardTimer);
             guardTimer = setTimeout(() => { reqClickGuardRef.current = false; }, 0);
         };
+        const clearTimers = (d) => {
+            clearTimeout(d.liftTimer);
+            clearTimeout(d.longTimer);
+        };
+        // Picked up where the pointer is now — by a move or by the hold.
+        const lift = (d) => {
+            clearTimeout(d.liftTimer);
+            if (!start(d)) {
+                clearTimers(d);
+                reqDragRef.current = null;
+                return false;
+            }
+            placePreview();
+            retarget();
+            if (!raf) raf = requestAnimationFrame(tick);
+            return true;
+        };
+        // Put back, and the rest of the press (until its pointer comes up) is
+        // nobody's — neither a drop nor a click.
+        const cancel = (d) => {
+            clearTimers(d);
+            const lifted = d.phase === 'drag';
+            if (lifted) finish();
+            d.phase = 'cancelled';
+            reqDragRef.current = d;
+        };
 
         const onDown = (e) => {
-            if (e.button !== 0 || e.target?.closest?.(CHROME_SELECTOR)) return;
+            const held = reqDragRef.current;
+            if (held) {
+                // A second pointer — a pinch's second finger — puts back what
+                // the first began, and lets go of the press entirely: the pinch
+                // is d3's, so its touchmoves must reach it. The first finger's
+                // release is still no tap (`swallowTouchEnd`, set at the lift).
+                if (e.pointerId !== held.pointerId) {
+                    clearTimers(held);
+                    if (held.phase === 'drag') finish(); else reqDragRef.current = null;
+                    if (held.phase !== 'press') guardClick();
+                }
+                return;
+            }
+            if (!e.isPrimary || e.button !== 0 || e.target?.closest?.(CHROME_SELECTOR)) return;
             const node = hit(e);
             if (!node) return;
-            e.preventDefault();          // no text selection, no native drag
             const d = {
                 phase: 'press', node,
+                pointerId: e.pointerId, pointerType: e.pointerType,
                 reqId: node.getAttr('dragReqId'),
                 fromStepId: node.getAttr('dragStepId'),
                 down: { x: e.clientX, y: e.clientY },
+                travel: 0,
             };
-            // req #3661 — HELD STILL IS AN EDIT: a press that has not passed
-            // the drag slop after `LONG_PRESS_MS` opens the title's in-place
-            // editor (the gesture the step and epic names already take, req
-            // #3580). It fires while still held, and the press becomes
-            // CANCELLED, so the release that follows is neither a drop nor the
-            // click that opens the requirement page.
-            d.longTimer = setTimeout(() => {
+            lastPoint = panelPoint(e);
+            // HELD STILL, A FINGER LIFTS IT (a mouse lifts by moving).
+            d.liftTimer = setTimeout(() => {
                 if (reqDragRef.current !== d || d.phase !== 'press') return;
-                if (!reqLongPressRef.current?.(d.reqId, d.fromStepId)) return;
-                d.phase = 'cancelled';
+                if (reqPressOutcome(d.pointerType, d.travel, true) === 'lift') lift(d);
+            }, LIFT_DELAY_MS);
+            // req #3661 — A LONG PRESS IS THE TITLE EDIT (pipelineReqDrag.js
+            // has why the two pointers differ). A MOUSE held within the slop
+            // to `LONG_PRESS_MS` opens the in-place editor WHILE STILL HELD, the
+            // caret blinking under the pointer, and the press becomes CANCELLED
+            // so the release is neither a drop nor the click that opens the
+            // requirement page. A FINGER has lifted the requirement by then, so
+            // its edit waits for the release in place (`onUp`); moving past the
+            // slop at any point makes it a drag for good.
+            d.longTimer = setTimeout(() => {
+                if (reqDragRef.current !== d) return;
+                if (d.pointerType === 'touch') { d.heldLong = true; return; }
+                if (d.phase !== 'press' || !stillHeld(d.travel)) return;
+                if (reqLongPressRef.current?.(d.reqId, d.fromStepId, d.down)) cancel(d);
             }, LONG_PRESS_MS);
             reqDragRef.current = d;
         };
         const onMove = (e) => {
             const d = reqDragRef.current;
-            if (!d || d.phase === 'cancelled') return;
-            // The button is up but no mouseup reached us (something swallowed
+            if (!d || e.pointerId !== d.pointerId || d.phase === 'cancelled') return;
+            // The button is up but no pointerup reached us (something swallowed
             // it): a release we never saw is not a drop — put it back.
             if (!(e.buttons & 1)) {        // eslint-disable-line no-bitwise
-                clearTimeout(d.longTimer);
+                clearTimers(d);
                 if (d.phase === 'drag') finish(); else reqDragRef.current = null;
                 return;
             }
+            d.travel = Math.max(d.travel, Math.hypot(e.clientX - d.down.x, e.clientY - d.down.y));
             lastPoint = panelPoint(e);
             if (d.phase === 'press') {
-                if (!passedDragSlop(d.down, e.clientX, e.clientY)) return;
-                clearTimeout(d.longTimer);
-                if (!start(d)) { reqDragRef.current = null; return; }
+                const outcome = reqPressOutcome(d.pointerType, d.travel, false);
+                if (outcome === 'pan') {             // d3 has the finger
+                    clearTimers(d);
+                    reqDragRef.current = null;
+                    return;
+                }
+                if (outcome !== 'lift') return;
+                if (!lift(d)) return;
             }
             placePreview();
             retarget();
@@ -2348,8 +2448,20 @@ export default function PipelinePlanVisualizer({
         };
         const onUp = (e) => {
             const d = reqDragRef.current;
-            if (!d || e.button !== 0) return;      // only the button that lifted it
-            clearTimeout(d.longTimer);
+            if (!d || e.pointerId !== d.pointerId) return;
+            clearTimers(d);
+            // Let go where it was picked up, after the long press: the edit,
+            // and the requirement is put back. Neither a drop nor a click.
+            const travel = Math.max(d.travel, Math.hypot(e.clientX - d.down.x, e.clientY - d.down.y));
+            if (d.heldLong && stillHeld(travel) && d.phase !== 'cancelled'
+                && reqLongPressRef.current?.(d.reqId, d.fromStepId,
+                    { x: e.clientX, y: e.clientY })) {
+                if (d.phase === 'drag') finish();
+                reqDragRef.current = null;
+                guardClick();
+                if (d.pointerType === 'touch') swallowTouchEnd = true;
+                return;
+            }
             if (d.phase === 'press') { reqDragRef.current = null; return; }
             guardClick();
             if (d.phase === 'cancelled') { reqDragRef.current = null; return; }
@@ -2361,30 +2473,83 @@ export default function PipelinePlanVisualizer({
                 world().commit({ reqId: d.reqId, fromStepId: d.fromStepId, toStepId });
             }
         };
+        // The browser took the pointer away (a system gesture): no drop.
+        const onPointerCancel = (e) => {
+            const d = reqDragRef.current;
+            if (!d || e.pointerId !== d.pointerId) return;
+            if (d.pointerType === 'touch') swallowTouchEnd = false;   // no touchend is coming
+            clearTimers(d);
+            if (d.phase === 'drag') finish(); else reqDragRef.current = null;
+        };
         // Escape puts it back. The press stays recorded as CANCELLED until the
         // button comes up, so the release is neither a drop nor a click.
         const onKey = (e) => {
-            if (e.key !== 'Escape' || reqDragRef.current?.phase !== 'drag') return;
+            const d = reqDragRef.current;
+            if (e.key !== 'Escape' || d?.phase !== 'drag') return;
             e.preventDefault();
-            finish();
-            reqDragRef.current = { phase: 'cancelled' };
+            cancel(d);
         };
-        const onBlur = () => { if (reqDragRef.current) finish(); };
+        const onBlur = () => {
+            swallowTouchEnd = false;
+            const d = reqDragRef.current;
+            if (!d) return;
+            clearTimers(d);
+            if (d.phase === 'drag') finish(); else reqDragRef.current = null;
+        };
+        // A mouse press on a mark selects no text and starts no native drag.
+        const onMouseDown = (e) => {
+            if (reqDragRef.current?.pointerType === 'mouse') e.preventDefault();
+        };
+        // A lifted (or edited) finger is the requirement's: d3-zoom's touch pan,
+        // bound to the panel, never sees it move. Stopped at the WINDOW, on the
+        // way down, because d3 stops every listener after its own.
+        const onTouchMove = (e) => {
+            const d = reqDragRef.current;
+            if (d?.pointerType !== 'touch' || d.phase === 'press') return;
+            e.stopPropagation();
+            if (e.cancelable) e.preventDefault();
+        };
+        // ...and its release is not a tap: no click, no compatibility mouse
+        // events. d3 still sees the touchend, which ends its gesture.
+        const onTouchEnd = (e) => {
+            if (!swallowTouchEnd) return;
+            if (e.cancelable) e.preventDefault();
+            if (!e.touches?.length) swallowTouchEnd = false;
+        };
+        // A touch the system took away (an edge swipe, an app switch) ends in
+        // touchcancel, never touchend — nothing is left to swallow, and a
+        // flag left standing would eat the next tap anywhere on the page.
+        const onTouchCancel = (e) => { if (!e.touches?.length) swallowTouchEnd = false; };
+        // The long-press menu / callout a held finger would raise.
+        const onMenu = (e) => { if (reqDragRef.current) e.preventDefault(); };
         reqRetargetRef.current = retarget;
 
-        el.addEventListener('mousedown', onDown);
-        window.addEventListener('mousemove', onMove);
-        window.addEventListener('mouseup', onUp);
+        el.addEventListener('pointerdown', onDown);
+        el.addEventListener('mousedown', onMouseDown);
+        el.addEventListener('contextmenu', onMenu);
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+        window.addEventListener('pointercancel', onPointerCancel);
+        window.addEventListener('touchmove', onTouchMove, { capture: true, passive: false });
+        window.addEventListener('touchend', onTouchEnd, { capture: true, passive: false });
+        window.addEventListener('touchcancel', onTouchCancel, { capture: true });
         window.addEventListener('keydown', onKey);
         window.addEventListener('blur', onBlur);
         return () => {
-            el.removeEventListener('mousedown', onDown);
-            window.removeEventListener('mousemove', onMove);
-            window.removeEventListener('mouseup', onUp);
+            el.removeEventListener('pointerdown', onDown);
+            el.removeEventListener('mousedown', onMouseDown);
+            el.removeEventListener('contextmenu', onMenu);
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onUp);
+            window.removeEventListener('pointercancel', onPointerCancel);
+            window.removeEventListener('touchmove', onTouchMove, { capture: true });
+            window.removeEventListener('touchend', onTouchEnd, { capture: true });
+            window.removeEventListener('touchcancel', onTouchCancel, { capture: true });
             window.removeEventListener('keydown', onKey);
             window.removeEventListener('blur', onBlur);
             if (raf) cancelAnimationFrame(raf);
             clearTimeout(guardTimer);
+            clearTimeout(reqDragRef.current?.liftTimer);
             clearTimeout(reqDragRef.current?.longTimer);
             reqHitRef.current = null;
             reqRetargetRef.current = null;
@@ -2499,14 +2664,14 @@ export default function PipelinePlanVisualizer({
     const drawsKind = (kind) => drawsLabelKind(kind, level);
     // req #3661 — only where the title is DRAWN (L3): at L1/L2 the row is the
     // bare id, and an editor there would be editing text the reader cannot see.
-    reqLongPressRef.current = (reqId, stepId) => {
+    reqLongPressRef.current = (reqId, stepId, at = null) => {
         if (level !== 'in' || !drawsKind('req')) return false;
         if (!layout.labels.some((l) => l.kind === 'req' && l.reqId === reqId
             && l.stepId === stepId)) return false;
-        setReqEdit({ reqId, stepId, saving: false });
+        setReqEdit({ reqId, stepId, saving: false, at });
         return true;
     };
-    const drawnKinds = ['step', 'req', 'title', 'badge', 'checkpoint', 'lock']
+    const drawnKinds = ['step', 'req', 'title', 'badge', 'checkpoint']
         .filter(drawsKind).join(',');
 
     // Report the level being rendered so the toolbar's selector can softly mark
@@ -2865,6 +3030,47 @@ export default function PipelinePlanVisualizer({
         ]);
     }, [queryClient, pipeline?.id, profile?.userName]);
 
+    // ── THE SINGLE EDITOR, OVER THE CANVAS (req #3742) ─────────────────────
+    // User directives: "single click of epic and step to take you to the single
+    // editor", then "can it just popup over the visualizer instead of switch to
+    // the card view?". So a click opens the SAME dialog the Steps / Epics pages
+    // use (`StepEditDialog`, `EpicEditDialog`) right here, seeded from rows this
+    // canvas already holds — the composed read carries every field the dialogs
+    // edit, so no read is added — and a save re-reads the plan. `key` changes
+    // per open so the form seeds afresh; `kind` outlives the close so the exit
+    // animation has something to draw.
+    const [planEditor, setPlanEditor] = useState({ key: 0, open: false, kind: null, target: null });
+    // When it opened: the second click of a quick double click on the title
+    // area lands on the dialog's backdrop, which must not close it at once (the
+    // add-step dialog's `insertOpenedAtRef` rule).
+    const planEditorOpenedAtRef = useRef(0);
+    const openPlanEditor = useCallback((what, id) => {
+        let target = null;
+        if (what === 'epic') {
+            target = (model?.epics || []).find((e) => e.id === id) || null;
+        } else {
+            const row = rowById.get(id);
+            if (row) {
+                target = {
+                    id: row.id, epic_fk: row.epicId, title: row.title, notes: row.notes,
+                    // A run-mode write still in flight is the mode the step
+                    // has; seeding the stored one would revert it on Save.
+                    run: runPending.get(row.id) ?? row.run,
+                    not_before: row.timeDeps?.[0] ?? null,
+                    locked: row.locked, lockedBy: row.lockedBy,
+                };
+            }
+        }
+        if (!target) return;
+        planEditorOpenedAtRef.current = Date.now();
+        setPlanEditor((ed) => ({ key: ed.key + 1, open: true, kind: what, target }));
+    }, [model?.epics, rowById, runPending]);
+    const closePlanEditor = useCallback((reason) => {
+        if (reason === 'backdropClick'
+            && Date.now() - planEditorOpenedAtRef.current < DOUBLE_CLICK_MS) return;
+        setPlanEditor((ed) => ({ ...ed, open: false }));
+    }, []);
+
     // One commit path for every name — epic, step and (req #3661) requirement
     // title. An unchanged name closes the editor
     // without a write; a refused one says why and keeps the stored name.
@@ -2945,16 +3151,6 @@ export default function PipelinePlanVisualizer({
         'Could not change the step checkpoint flag');
     }, [writeFlag, refuseIfLocked, darwinUri, idToken]);
 
-    const toggleStepLock = useCallback((row) => {
-        if (row.lockedBy && row.lockedBy !== 'step') {
-            showError(lockedMessage('step', row.lockedBy));
-            return;
-        }
-        writeFlag(() => updateStep(darwinUri, idToken, row.id,
-            { locked: row.locked ? 0 : 1 }),
-        'Could not change the step lock');
-    }, [writeFlag, showError, darwinUri, idToken]);
-
     const toggleEpicLock = useCallback((band) => {
         if (band.lockedBy === 'pipeline') {
             showError(lockedMessage('epic', 'pipeline'));
@@ -3027,15 +3223,13 @@ export default function PipelinePlanVisualizer({
 
     // A STEP TITLE's three gestures. Read through a ref by the native canvas
     // listeners (bound once per container), so they always see this render's
-    // layout and camera. A quick click frames the step — the `?step=` deep
-    // link's own framing — and a double click frames it at twice that scale,
-    // about the same centre. A long press opens the name's editor.
+    // layout and camera. A quick click opens the step's single editor (req
+    // #3742 — it framed the step until then); a double click frames it at
+    // twice the `?step=` deep link's own framing, about the same centre. A
+    // long press opens the name's in-place editor.
     const stepPressRef = useRef(null);
     stepPressRef.current = (stepId) => ({
-        onClick: () => {
-            epicZoomRef.current = null;
-            applyFocus(stepFocusTransform(layout, stepId, size, kDefault, kZoomFloor));
-        },
+        onClick: () => openPlanEditor('step', stepId),
         onDoubleClick: () => {
             const tr = stepFocusTransform(layout, stepId, size, kDefault, kZoomFloor);
             if (!tr) return;
@@ -3043,8 +3237,9 @@ export default function PipelinePlanVisualizer({
             const k2 = Math.min(kDefault * ZOOM_MAX_RATIO, tr.k * 2);
             applyFocus(zoomAboutViewportCentre(tr, size, k2) || tr);
         },
-        onLongPress: () => {
-            setStepEdit({ stepId, saving: false });
+        // `at` — the press point, where the editor puts its caret (req #3665).
+        onLongPress: (at) => {
+            setStepEdit({ stepId, saving: false, at });
         },
     });
 
@@ -3324,15 +3519,14 @@ export default function PipelinePlanVisualizer({
     const epicOverlayTopInset = rulerScreenBottom(t);
 
     // ── Drop-to-seat from the unorchestrated box (req #3583) ────────────────
-    // Native HTML5 drag events on the container. d3-zoom never sees them — it
-    // listens for mouse/pointer events, which the browser suspends for the
-    // length of a native drag — so the plan cannot pan under a drag in flight.
-    // Only a drag carrying `UNSEATED_REQ_MIME` is ours; anything else (a file,
-    // selected text) is ignored. The point is projected through the SAME live
-    // transform the world Group is drawn with, then hit-tested against the
-    // layout's own card frames.
-    const isSeatDrag = (e) => Array.from(e.dataTransfer?.types || [])
-        .includes(UNSEATED_REQ_MIME);
+    // A box row is a dnd-kit draggable (req #3665 — it was a native HTML5 drag,
+    // which touch browsers do not drive): it lifts on the shared press timeline,
+    // the shared DragOverlay carries a copy of it, and the drop is answered by
+    // a CUSTOM collision detection — the step cards are Konva shapes, not DOM
+    // droppables, so "what is under the pointer" is the canvas's own step hit
+    // test, the point projected through the SAME live transform the world Group
+    // is drawn with and tested against the layout's own card frames.
+    //
     // What hides a card: the box (chrome), and an epic chip — any HTML over the
     // canvas except a card's own count badge, which sits ON the card it counts.
     const overlaysCard = (e) => {
@@ -3342,42 +3536,60 @@ export default function PipelinePlanVisualizer({
             && !target?.closest?.('[data-testid="pipeline-viz-badge-layer"]')) return true;
         return false;
     };
-    const seatTargetFor = (e) => {
+    // The step a client point would seat onto, judged by what lies UNDER it:
+    // never the drag preview riding the pointer, and — for the whole box
+    // carried by its title bar (`throughBox`) — never the box either, since the
+    // card it is aimed at is beneath it. A single row's drop over the box is
+    // over chrome, as any drop on the box is.
+    //
+    // Nothing beneath the pointer is NOT the open canvas (req #3614): pointer
+    // capture keeps delivering events past the window edge, where
+    // `elementsFromPoint` answers [] — and a point outside the plan panel is no
+    // seat either, so both are over-chrome.
+    const seatTargetAtPoint = (clientX, clientY, throughBox) => {
         const el = containerEl;
-        if (!el) return null;
+        if (!el || clientX == null || clientY == null) return null;
+        const overlay = document.querySelector('[data-testid="drag-overlay"]')?.parentElement;
+        const beneath = (document.elementsFromPoint?.(clientX, clientY) || [])
+            .find((n) => !overlay?.contains(n)
+                && !(throughBox && n.closest?.('[data-viz-unseated]')));
         const rect = el.getBoundingClientRect();
+        const canSeat = pointerCanSeat(clientX, clientY, rect, beneath);
         return resolveSeatDrop({
-            point: { x: e.clientX - rect.left, y: e.clientY - rect.top },
-            overChrome: overlaysCard(e),
+            point: { x: clientX - rect.left, y: clientY - rect.top },
+            overChrome: !canSeat || overlaysCard({ target: beneath, clientX, clientY }),
             rulerBottom: epicOverlayTopInset,
             t, nodes: drawLayout.nodes, rowById,
         });
     };
     const sameTarget = (a, b) => (a === b)
         || (!!a && !!b && a.stepId === b.stepId && a.ok === b.ok);
-    const onSeatDragOver = (e) => {
-        if (!isSeatDrag(e)) return;
-        const target = seatTargetFor(e);
-        if (target?.ok) {
-            e.preventDefault();               // this is what makes it droppable
-            e.dataTransfer.dropEffect = 'move';
-        }
+    // The collision detection dnd-kit calls on every pointer frame. Its answer
+    // carries the resolved target, so the move and drop handlers need not ask
+    // again; the pointer is kept so a camera move under a still pointer (a
+    // wheel zoom) re-aims the outline (`reseatRef`). Stable identity, read
+    // through a ref: DarwinDndContext takes it once.
+    seatCollideRef.current = ({ active, pointerCoordinates: p }) => {
+        if (active?.data?.current?.type !== UNSEATED_DRAG_TYPE || !p) return [];
+        rowPointerRef.current = { x: p.x, y: p.y };
+        const target = seatTargetAtPoint(p.x, p.y, false);
+        return target ? [{ id: `seat-step-${target.stepId}`, data: { target } }] : [];
+    };
+    const onUnseatDragMove = (event) => {
+        if (event.active?.data?.current?.type !== UNSEATED_DRAG_TYPE) return;
+        const target = event.collisions?.[0]?.data?.target ?? null;
         setSeatTarget((prev) => (sameTarget(prev, target) ? prev : target));
     };
-    // dragenter is cancelled under the same rule as dragover — the spec's
-    // pairing, so no engine is left to decide the drop is refused.
-    const onSeatDragEnter = (e) => {
-        if (isSeatDrag(e) && seatTargetFor(e)?.ok) e.preventDefault();
-    };
-    const onSeatDragLeave = (e) => {
-        if (!isSeatDrag(e) || !containerEl) return;
-        // Leaving for a child of the panel is not leaving the panel. Judged by
-        // the pointer as well as `relatedTarget`, which Safari leaves null.
-        if (e.relatedTarget && containerEl.contains(e.relatedTarget)) return;
-        const r = containerEl.getBoundingClientRect();
-        if (e.clientX > r.left && e.clientX < r.right
-            && e.clientY > r.top && e.clientY < r.bottom) return;
+    const onUnseatDragCancel = () => {
+        rowPointerRef.current = null;
         setSeatTarget(null);
+    };
+    const onUnseatDragEnd = (event) => {
+        const data = event.active?.data?.current;
+        if (data?.type !== UNSEATED_DRAG_TYPE) return;
+        const target = event.collisions?.[0]?.data?.target ?? null;
+        onUnseatDragCancel();
+        seatUnseated(Number(data.row?.id), target);
     };
     const forgetPending = (reqId) => setPendingSeats((prev) => {
         if (!prev.has(reqId)) return prev;
@@ -3385,13 +3597,7 @@ export default function PipelinePlanVisualizer({
         next.delete(reqId);
         return next;
     });
-    const onSeatDrop = async (e) => {
-        if (!isSeatDrag(e)) return;
-        e.preventDefault();
-        const target = seatTargetFor(e);
-        const reqId = Number(e.dataTransfer.getData(UNSEATED_REQ_MIME));
-        setSeatTarget(null);
-        setUnseatDragId(null);
+    const seatUnseated = async (reqId, target) => {
         if (!target?.ok || !Number.isFinite(reqId) || reqId <= 0) return;
         setPendingSeats((prev) => new Set(prev).add(reqId));
         const junctionKey = pipelineStepRequirementKeys.all(profile?.userName);
@@ -3422,31 +3628,10 @@ export default function PipelinePlanVisualizer({
     };
 
     // ── The whole box dropped on a step (req #3608) ─────────────────────────
-    // The box's title-bar move is a pointer gesture, not a native drag, so the
-    // box reports the pointer itself. The pointer is over the BOX, so the card
-    // it is aimed at is whatever lies beneath it: the first element under the
-    // point that is not part of the box, judged by the same `overlaysCard` rule
-    // a single row's drop uses (the key, an epic chip and the ruler still hide
-    // the card they cover).
-    //
-    // Nothing beneath the pointer is NOT the open canvas (req #3614): pointer
-    // capture keeps delivering events past the window edge, where
-    // `elementsFromPoint` answers [] — and a point outside the plan panel is no
-    // seat either, so both are over-chrome and a release there is a relocation.
-    const boxSeatTargetAt = (clientX, clientY) => {
-        const el = containerEl;
-        if (!el || clientX == null || clientY == null) return null;
-        const beneath = (document.elementsFromPoint?.(clientX, clientY) || [])
-            .find((n) => !n.closest?.('[data-viz-unseated]'));
-        const rect = el.getBoundingClientRect();
-        const canSeat = pointerCanSeat(clientX, clientY, rect, beneath);
-        return resolveSeatDrop({
-            point: { x: clientX - rect.left, y: clientY - rect.top },
-            overChrome: !canSeat || overlaysCard({ target: beneath, clientX, clientY }),
-            rulerBottom: epicOverlayTopInset,
-            t, nodes: drawLayout.nodes, rowById,
-        });
-    };
+    // The box's title-bar move is the box's own pointer gesture, so it reports
+    // the pointer itself. The pointer is over the BOX, so the card it is aimed
+    // at is whatever lies beneath it (`seatTargetAtPoint` through the box).
+    const boxSeatTargetAt = (clientX, clientY) => seatTargetAtPoint(clientX, clientY, true);
     const onBoxMoveOver = (clientX, clientY) => {
         boxPointerRef.current = clientX == null || clientY == null
             ? null : { x: clientX, y: clientY };
@@ -3454,9 +3639,10 @@ export default function PipelinePlanVisualizer({
         setSeatTarget((prev) => (sameTarget(prev, target) ? prev : target));
     };
     reseatRef.current = () => {
-        const p = boxPointerRef.current;
-        if (!p || !boxCarrying) return;
-        const target = boxSeatTargetAt(p.x, p.y);
+        const box = boxCarrying ? boxPointerRef.current : null;
+        const row = rowPointerRef.current;
+        if (!box && !row) return;
+        const target = box ? boxSeatTargetAt(box.x, box.y) : seatTargetAtPoint(row.x, row.y, false);
         setSeatTarget((prev) => (sameTarget(prev, target) ? prev : target));
     };
     // Returns whether the drop was a seat — the box goes back to where it was
@@ -3569,20 +3755,20 @@ export default function PipelinePlanVisualizer({
             fold: foldStyle(l),
         }));
 
-    // ── THE CHECKPOINT GATE AND THE PADLOCK, AS HTML OVERLAYS (req #3673) ──
-    // Buttons, so HTML for the run pill's reason, on the run pill's layer —
-    // and for the pictures: real icons (`PlanStepFlagIcons.jsx`) rather than
-    // the stroked ⚑ and padlock req #3649 drew in Konva, which the user could
-    // not read. The layout reserved both boxes on the title line; this only
-    // projects them to screen.
+    // ── THE CHECKPOINT GATE, AS AN HTML OVERLAY (req #3673) ────────────────
+    // A button, so HTML for the run pill's reason, on the run pill's layer —
+    // and for the picture: a real icon (`PlanStepFlagIcons.jsx`) rather than
+    // the stroked ⚑ req #3649 drew in Konva, which the user could not read.
+    // The layout reserved its box in the control column; this only projects it
+    // to screen. (The padlock beside it went in req #3742 — a locked step's
+    // card has a red perimeter instead.)
     const floatingFlags = drawLayout.labels
-        .filter((l) => (l.kind === 'checkpoint' || l.kind === 'lock') && drawsKind(l.kind))
+        .filter((l) => l.kind === 'checkpoint' && drawsKind(l.kind))
         .map((l) => ({
             key: `${l.kind}-${l.stepId}`,
             kind: l.kind,
             stepId: l.stepId,
             on: !!l.on,
-            lockedBy: l.lockedBy || null,
             left: l.x * t.k + t.x,
             top: l.y * t.k + t.y,
             size: l.w * t.k,
@@ -4007,8 +4193,9 @@ export default function PipelinePlanVisualizer({
                     <Rect x={n.frameLeft} y={n.top}
                           width={n.frameW} height={n.h}
                           cornerRadius={CARD_RADIUS}
-                          fill={P.panel} stroke={style.ring}
-                          strokeWidth={style.ringWidth} />
+                          fill={P.panel} stroke={style.frame}
+                          strokeWidth={style.frameWidth}
+                          name={row.effectiveLocked ? 'locked-frame' : undefined} />
                     {/* The bead's FILL channel — see CARD_STATE_BAR_W. It sits
                         BESIDE the frame on the LEFT, in the strip `CARD_W`
                         reserves for it, so it never crowds the lettering (user
@@ -4066,18 +4253,17 @@ export default function PipelinePlanVisualizer({
                 </Group>);
         }
         // ── HOVER IS THE WHOLE CARD; ACTIVATE IS THE TITLE AREA ─────────────
-        // ACTIVATE FRAMES THE STEP ON THIS CANVAS (req #3641). It used to call
-        // `onStepFocus`, which switched the page to the Table and discarded the
-        // reader's pan and zoom; the Table is gone (user directive: the
-        // visualizer is the only way to look at a pipeline), so a click on a
-        // step now does what a quick click on its name already did (req #3580)
-        // — `stepFocusTransform`, the `?step=` link's own framing.
+        // ACTIVATE OPENS THE STEP'S SINGLE EDITOR, OVER THE CANVAS (req #3742,
+        // user directive: "single click of epic and step to take you to the
+        // single editor") — exactly what a quick click on its name does. It framed the step on
+        // this canvas from req #3641 until then; the double click on the name
+        // still zooms.
         //
         // The split req #3213 drew still stands: HOVER takes the whole card;
         // ACTIVATE takes the TITLE AREA, so a click on open card between the
         // requirement rows does not move the camera. The requirement ROWS keep
         // their own `onActivate` (navigate to the requirement), below the rule,
-        // outside this box. At L1 the bead's hit circle frames the same way;
+        // outside this box. At L1 the bead's hit circle opens the editor too;
         // its radius is a LAYOUT constant since req #3213 — the label hit
         // regions below are pushed above these nodes, so the clearance between
         // the two is an invariant the layout tests assert.
@@ -4268,12 +4454,12 @@ export default function PipelinePlanVisualizer({
             // a click. D1 asks for the CARD; a click on the words did nothing
             // before this change.
             //
-            // req #3580 — THE WORDS NOW TAKE THREE GESTURES: a quick click
-            // frames the step, a double click frames it closer, a long press
-            // edits the name in place (user directive). `pressStepId` is how
-            // the canvas's pointer listeners find them — see the STEP-TITLE
-            // PRESSES block. None of the three leaves the page, so the
-            // click-to-leave surface the paragraph above measured is unchanged.
+            // req #3580 — THE WORDS TAKE THREE GESTURES: a quick click opens
+            // the step's single editor (req #3742; it framed the step before),
+            // a double click zooms to it, a long press edits the name in place.
+            // `pressStepId` is how the canvas's pointer listeners find them —
+            // see the STEP-TITLE PRESSES block. None of the three leaves the
+            // page: the editor opens over the canvas.
             const row = rowById.get(label.stepId);
             if (row) {
                 worldNodes.push(labelHit(`lblhit-${i}`, label, {
@@ -4640,12 +4826,12 @@ export default function PipelinePlanVisualizer({
             // branch is kept, EMPTY, so a `badge` label is a deliberate no-op
             // here rather than an unhandled kind silently falling through the
             // chain below to whatever the next `else if` happens to match.
-        } else if (label.kind === 'checkpoint' || label.kind === 'lock') {
-            // req #3673 — drawn as HTML icon buttons now (`floatingFlags`
-            // below), not in Konva: the user found the stroked ⚑ and padlock
-            // unreadable, and a real icon, a hover title and a focusable
-            // button are all HTML's. Kept, EMPTY, for the `badge` branch's
-            // reason — a deliberate no-op, never a fall-through.
+        } else if (label.kind === 'checkpoint') {
+            // req #3673 — drawn as an HTML icon button now (`floatingFlags`
+            // below), not in Konva: the user found the stroked ⚑ unreadable,
+            // and a real icon, a hover title and a focusable button are all
+            // HTML's. Kept, EMPTY, for the `badge` branch's reason — a
+            // deliberate no-op, never a fall-through.
         } else if (label.kind === 'title') {
             worldNodes.push(
                 <Text key={`lbl-${i}`} x={label.x} y={label.y} text={label.text}
@@ -4786,6 +4972,14 @@ export default function PipelinePlanVisualizer({
     }
 
     return (
+        // req #3665 — the drag surface the Orchestrables rows lift through: the
+        // shared sensors, press timeline and overlay, with the canvas's own
+        // step hit test as its collision detection.
+        <DarwinDndContext collisionDetection={seatCollision}
+                          overlaySx={QUIET_LIFT_SX}
+                          onDragMove={onUnseatDragMove}
+                          onDragEnd={onUnseatDragEnd}
+                          onDragCancel={onUnseatDragCancel}>
         <Box>
             <OrderViolationsAlert plan={plan} />
 
@@ -4898,11 +5092,15 @@ export default function PipelinePlanVisualizer({
                         borderRadius: maximized ? 0 : '8px',
                         border: maximized ? 'none' : `1px solid ${P.line}`,
                         background: P.panel,
-                        touchAction: 'none' }}
-                 onDragEnter={onSeatDragEnter}
-                 onDragOver={onSeatDragOver}
-                 onDragLeave={onSeatDragLeave}
-                 onDrop={onSeatDrop}>
+                        touchAction: 'none',
+                        // req #3665 — a finger held on the plan lifts a
+                        // requirement or opens an editor; never the iOS
+                        // text loupe or link callout.
+                        userSelect: 'none', WebkitUserSelect: 'none',
+                        WebkitTouchCallout: 'none',
+                        // ...except in the in-place editors, which are text.
+                        '& input, & textarea, & [contenteditable="true"], & [contenteditable=""]': {
+                            userSelect: 'text', WebkitUserSelect: 'text' } }}>
                 {size.w > 0 && (
                     <Stage ref={stageRef} width={size.w} height={size.h}>
                         <Layer ref={layerRef}>
@@ -4953,7 +5151,18 @@ export default function PipelinePlanVisualizer({
                                 // edge the grab offset was computed against.
                                 outline: `1px solid ${P.accent}`,
                                 boxShadow: `0 10px 28px rgba(0, 0, 0, 0.55), 0 0 0 3px ${rgba(P.accent, 0.12)}`,
-                                cursor: 'grabbing' }}>
+                                cursor: 'grabbing',
+                                // req #3665 — THE LIFT IS A HIGHLIGHT, NOT A
+                                // JUMP (user directive: "it should more just
+                                // become highlighted or show its preview rather
+                                // than jump"). The copy appears exactly over the
+                                // mark, at its size, and only its outline and
+                                // shadow fade in; it moves when the pointer does.
+                                '@keyframes planReqLift': {
+                                    '0%': { outlineColor: 'transparent', boxShadow: '0 0 0 rgba(0,0,0,0)' },
+                                },
+                                animation: 'planReqLift 140ms ease-out',
+                                '@media (prefers-reduced-motion: reduce)': { animation: 'none' } }}>
                         <img src={reqDrag.src} alt="" draggable={false}
                              width={reqDrag.w} height={reqDrag.h}
                              style={{ display: 'block' }} />
@@ -4997,18 +5206,23 @@ export default function PipelinePlanVisualizer({
                     {floatingEpics.map((e) => {
                         // req #3580 — THREE GESTURES ON THE NAME (user
                         // directive: "fast click to zoom, long click to edit,
-                        // double click to double zoom"). A quick click walks
-                        // req #3297's band → step cycle exactly as the name
-                        // always did; a double click goes straight to the step
-                        // stop; a long press opens the in-place editor. The
-                        // status light and the closure count zoom the same way
-                        // (they edit nothing). The "No epic" band has no row to
-                        // rename, so it takes no long press.
+                        // double click to double zoom"). Since req #3742 a quick
+                        // click on the name opens the epic's SINGLE EDITOR (user
+                        // directive: "single click of epic and step to take you
+                        // to the single editor"); a double click goes straight
+                        // to the step stop; a long press opens the in-place
+                        // editor. The status light and the closure count keep
+                        // the quick-click zoom — req #3297's band → step cycle
+                        // — and edit nothing. The "No epic" band has no row to
+                        // edit or rename, so its name keeps the zoom and takes
+                        // no long press.
                         const renamable = e.epicId != null;
                         const editing = renamable && epicEdit?.key === e.key;
                         const zoomLabel = `Zoom pipeline epic ${e.name ?? e.text}`
                             + epicZoomHintSuffix(epicWorkByEpic.get(e.key));
-                        const startEdit = () => setEpicEdit({ key: e.key, saving: false });
+                        // A long press hands the press point (the caret goes
+                        // there); F2 hands none (the name is selected).
+                        const startEdit = (at = null) => setEpicEdit({ key: e.key, saving: false, at });
                         const gestures = {
                             onClick: () => activateEpicName(e.band),
                             onDoubleClick: () => activateEpicName(e.band, { deep: true }),
@@ -5208,6 +5422,7 @@ export default function PipelinePlanVisualizer({
                                     testId={`pipeline-viz-epic-edit-${e.key}`}
                                     onCommit={(raw) => commitEpicTitle(e.band, raw)}
                                     onCancel={() => setEpicEdit(null)}
+                                    caretAt={epicEdit?.at}
                                     growCh
                                     style={{ fontSize: e.fontSize, height: e.h - 4 }}
                                     sx={{ color: e.color }}
@@ -5217,10 +5432,17 @@ export default function PipelinePlanVisualizer({
                                      data-testid={`pipeline-viz-epic-name-${e.key}`}
                                      {...zoomHandlers}
                                      {...(renamable ? {
-                                         ...press('name', { ...gestures, onLongPress: startEdit }),
+                                         ...press('name', {
+                                             ...gestures,
+                                             onClick: () => openPlanEditor('epic', e.epicId),
+                                             onLongPress: startEdit,
+                                         }),
                                          // A touch long press would otherwise
                                          // also open the browser's own menu.
                                          onContextMenu: (ev) => ev.preventDefault(),
+                                         // Enter/Space open the editor, as the
+                                         // quick click does; F2 is the keyboard's
+                                         // long press.
                                          onKeyDown: (ev) => {
                                              if (ev.key === 'F2') {
                                                  ev.preventDefault();
@@ -5228,9 +5450,13 @@ export default function PipelinePlanVisualizer({
                                                  startEdit();
                                                  return;
                                              }
-                                             zoomHandlers.onKeyDown(ev);
+                                             if (ev.key !== 'Enter' && ev.key !== ' ') return;
+                                             ev.preventDefault();
+                                             ev.stopPropagation();
+                                             openPlanEditor('epic', e.epicId);
                                          },
-                                         'aria-label': `${zoomLabel} — press F2 to rename`,
+                                         'aria-label': `Edit epic ${e.name ?? e.text}`
+                                             + ' — double click to zoom, press F2 to rename',
                                      } : {
                                          'aria-label': zoomLabel,
                                      })}
@@ -5568,23 +5794,16 @@ export default function PipelinePlanVisualizer({
                             </Box>
                         );
                     })}
-                    {/* req #3673 — THE CHECKPOINT GATE AND THE PADLOCK. Each
-                        shows its state as a picture that differs in SHAPE and
-                        COLOUR — barrier arm down (red/white) or raised (grey),
-                        padlock shut (orange) or open (grey) — and IS the
-                        control that flips it. The hover title says what the
-                        state means and what a click does. A lock held by the
-                        epic or plan has a DASHED border: this button cannot
-                        lift it. */}
+                    {/* req #3673 — THE CHECKPOINT GATE. It shows its state as a
+                        picture that differs in SHAPE and COLOUR — barrier arm
+                        down (orange/white) or raised (grey) — and IS the control
+                        that flips it. The hover title says what the state
+                        means and what a click does. */}
                     {floatingFlags.map((f) => {
-                        const checkpoint = f.kind === 'checkpoint';
                         const row = rowById.get(f.stepId);
-                        const onColor = checkpoint ? P.checkpointOn : P.lockOn;
+                        const onColor = P.checkpointOn;
                         const color = f.on ? onColor : P.dim;
-                        const title = checkpoint
-                            ? checkpointTitle(f.on, row?.lockedBy) : lockTitle(f.on, f.lockedBy);
-                        const inherited = !checkpoint && f.on
-                            && f.lockedBy && f.lockedBy !== 'step';
+                        const title = checkpointTitle(f.on, row?.lockedBy);
                         return (
                             <Box key={f.key}
                                  component="button"
@@ -5596,9 +5815,7 @@ export default function PipelinePlanVisualizer({
                                  title={title}
                                  onClick={(ev) => {
                                      ev.stopPropagation();
-                                     if (!row) return;
-                                     if (checkpoint) toggleCheckpoint(row);
-                                     else toggleStepLock(row);
+                                     if (row) toggleCheckpoint(row);
                                  }}
                                  style={{
                                      left: f.left,
@@ -5607,19 +5824,17 @@ export default function PipelinePlanVisualizer({
                                      fontSize: f.size * 0.74,
                                      color,
                                      borderColor: f.on ? onColor : rgba(P.dim, 0.8),
-                                     borderStyle: inherited ? 'dashed' : 'solid',
+                                     borderStyle: 'solid',
                                      borderWidth: Math.max(1, CARD_TITLE_BTN_STROKE * t.k),
                                      background: f.on ? rgba(onColor, 0.16) : 'transparent',
                                      ...f.fold,
                                  }}
                                  sx={FLAG_BTN_SX}
                             >
-                                {checkpoint
-                                    ? <CheckpointGateIcon closed={f.on}
-                                                          stripe={P.checkpointOn}
-                                                          light={P.checkpointLight}
-                                                          fontSize="inherit" />
-                                    : <PlanLockIcon locked={f.on} fontSize="inherit" />}
+                                <CheckpointGateIcon closed={f.on}
+                                                    stripe={P.checkpointOn}
+                                                    light={P.checkpointLight}
+                                                    fontSize="inherit" />
                             </Box>
                         );
                     })}
@@ -5634,6 +5849,7 @@ export default function PipelinePlanVisualizer({
                             testId={`pipeline-viz-step-edit-${stepEditor.row.id}`}
                             onCommit={(raw) => commitStepTitle(stepEditor.row, raw)}
                             onCancel={() => setStepEdit(null)}
+                            caretAt={stepEdit?.at}
                             style={{
                                 position: 'absolute',
                                 left: stepEditor.left,
@@ -5657,6 +5873,7 @@ export default function PipelinePlanVisualizer({
                             saving={!!reqEdit?.saving}
                             ariaLabel={`Rename requirement ${reqEditor.reqId}`}
                             testId={`pipeline-viz-req-edit-${reqEditor.reqId}`}
+                            caretAt={reqEdit?.at}
                             onDraft={(title) => {
                                 const reqId = reqEditor.reqId;
                                 startTransition(() => setReqDrafts(
@@ -5738,9 +5955,6 @@ export default function PipelinePlanVisualizer({
                         unseatedBoxZoom(t.k, size.w, layout.colPitch))}
                     statusColor={planPalette(activePalette).status?.swarm_ready || P.req}
                     idStyleOf={unseatedIdStyleOf}
-                    draggingId={unseatDragId}
-                    onDragStartItem={setUnseatDragId}
-                    onDragEndItem={() => { setUnseatDragId(null); setSeatTarget(null); }}
                     onMoveOver={onBoxMoveOver}
                     onMoveDrop={onBoxMoveDrop}
                     onCarryingChange={setBoxCarrying}
@@ -5800,7 +6014,22 @@ export default function PipelinePlanVisualizer({
                             {keyHover.key === 'step' ? (
                                 <>
                             <KeyGroup title={KEY_GROUP_TITLES[0]} first>
-                                <LegendDot ring={P.manualRing} label="Manual" />
+                                {/* req #3742 — the STEP COLOUR, the card's
+                                    border: one colour per step, first match
+                                    wins in this order. */}
+                                {[[P.lockedFrame, 'Locked', 'locked'],
+                                    [P.stepManual, 'Manual', 'manual'],
+                                    [P.stepCheckpoint, 'Checkpoint', 'checkpoint'],
+                                    [P.stepWillRun, 'Will run', 'will-run']]
+                                    .map(([color, label, key]) => (
+                                        <LegendIcon key={key} label={label} color={color}>
+                                            <Box component="span" aria-hidden="true"
+                                                 data-testid={`pipeline-viz-legend-${key}-frame`}
+                                                 sx={{ display: 'inline-block', width: 14,
+                                                       height: 10, borderRadius: '3px',
+                                                       border: `2px solid ${color}` }} />
+                                        </LegendIcon>
+                                    ))}
                                 <LegendDot fill={P.pendingFill} ring="#5b7293"
                                            label="Scheduled" />
                                 <LegendDot fill={P.runningFill} label="Running"
@@ -5819,19 +6048,6 @@ export default function PipelinePlanVisualizer({
                                     swatch for it. */}
                                 <LegendDot ring={P.eligibleRing} label="Up Next"
                                            dashed animated="pipeKeyBreathe" />
-                                {/* req #3649 — the two title-line buttons,
-                                    drawn with the card's own pictures since
-                                    req #3673: barrier arm down = a checkpoint
-                                    (the step holds its downstream until done);
-                                    padlock shut = frozen (step, epic or plan). */}
-                                <LegendIcon label="Checkpoint" color={P.checkpointOn}>
-                                    <CheckpointGateIcon closed stripe={P.checkpointOn}
-                                                        light={P.checkpointLight}
-                                                        sx={{ fontSize: 13, color: P.checkpointOn }} />
-                                </LegendIcon>
-                                <LegendIcon label="Locked" color={P.lockOn}>
-                                    <PlanLockIcon locked sx={{ fontSize: 13, color: P.lockOn }} />
-                                </LegendIcon>
                             </KeyGroup>
                                 </>
                             ) : (reqKeyScales[keyHover.key] && (
@@ -5956,6 +6172,27 @@ export default function PipelinePlanVisualizer({
 
             {/* req #3586 — the add-step dialog. Portalled to the body, so a
                 click inside it never reaches the canvas's own click test. */}
+            {/* req #3742 — the single editor a click on a step or an epic opens. */}
+            {planEditor.kind === 'step' && (
+                <StepEditDialog
+                    key={`plan-step-editor-${planEditor.key}`}
+                    open={planEditor.open}
+                    step={planEditor.target}
+                    epicOptions={insertEpicOptions}
+                    onClose={closePlanEditor}
+                    onSaved={refreshPlan}
+                />
+            )}
+            {planEditor.kind === 'epic' && (
+                <EpicEditDialog
+                    key={`plan-epic-editor-${planEditor.key}`}
+                    open={planEditor.open}
+                    epic={planEditor.target}
+                    pipelineOptions={pipeline ? [{ id: pipeline.id, title: pipeline.title }] : []}
+                    onClose={closePlanEditor}
+                    onSaved={refreshPlan}
+                />
+            )}
             <Dialog open={insertReq != null} onClose={closeInsert} fullWidth maxWidth="xs"
                     data-testid="pipeline-viz-insert-dialog">
                 <DialogTitle data-testid="pipeline-viz-insert-heading">
@@ -6037,5 +6274,6 @@ export default function PipelinePlanVisualizer({
                 </DialogActions>
             </Dialog>
         </Box>
+        </DarwinDndContext>
     );
 }

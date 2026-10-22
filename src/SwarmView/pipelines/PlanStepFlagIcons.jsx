@@ -1,5 +1,6 @@
-// Req #3673 — the pictures on the step card's two flag buttons, and on the
-// epic chip's padlock.
+// Req #3673 — the picture on the step card's checkpoint button, and on the
+// epic chip's padlock. (The step card's own padlock button went in req #3742;
+// a locked step's card has a red perimeter instead.)
 //
 // User directive: "lock and unlock should show an icon with a locked lock for
 // locked state and unlocked icon for unlocked state. the pics should be
@@ -7,7 +8,7 @@
 // center", so the checkpoint gets a different picture altogether.
 //
 // THE CHECKPOINT IS A BOOM BARRIER — the striped arm at a road checkpoint.
-// The metaphor is the flag's own meaning: arm DOWN, red-and-white, is a
+// The metaphor is the flag's own meaning: arm DOWN, orange-and-white, is a
 // checkpoint (the steps after this one are held until it is done); arm RAISED
 // and grey is not (they may start before it). The two states differ in SHAPE
 // and COLOUR, never only in fill, which is what made the flag unreadable.
@@ -71,8 +72,8 @@ export function PlanLockIcon({ locked, ...props }) {
         : <LockOpenIcon data-lock="open" {...props} />;
 }
 
-// What each button says on hover and to assistive tech: the state, what it
-// means, and what a click will do. One wording, used by the card buttons.
+// What the checkpoint button says on hover and to assistive tech: the state,
+// what it means, and what a click will do.
 // A locked step refuses the checkpoint click, so its title says that instead of
 // promising a change.
 export function checkpointTitle(on, lockedBy) {
@@ -84,12 +85,4 @@ export function checkpointTitle(on, lockedBy) {
             : `Locked by its ${lockedBy}`} — unlock it to change this.`;
     }
     return `${state} ${on ? 'Click to turn it off.' : 'Click to make it a checkpoint.'}`;
-}
-
-export function lockTitle(on, lockedBy) {
-    if (!on) return 'Unlocked — click to lock this step against edits.';
-    if (lockedBy && lockedBy !== 'step') {
-        return `Locked by its ${lockedBy} — unlock the ${lockedBy} to edit this step.`;
-    }
-    return 'Locked — this step cannot be edited. Click to unlock.';
 }

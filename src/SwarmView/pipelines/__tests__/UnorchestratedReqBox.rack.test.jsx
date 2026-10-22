@@ -13,7 +13,6 @@ import { createRoot } from 'react-dom/client';
 import { act } from 'react';
 
 import UnorchestratedReqBox, { ORCHESTRABLES_RACK_ID } from '../UnorchestratedReqBox';
-import { UNSEATED_REQ_MIME } from '../pipelineUnseated';
 import { usePanelRackStore } from '../../../stores/usePanelRackStore';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -132,13 +131,24 @@ describe('UnorchestratedReqBox — the navbar rack (req #3735)', () => {
         expect(box().style.position).toBe('relative');
         expect(q('pipeline-viz-unseated-grip-strip')).toBeNull();
         expect(q('pipeline-viz-unseated-grip')).toBeNull();
-        // Its rows still feed the plan from the navbar.
+        // Its rows still feed the plan from the navbar: each is still the
+        // dnd-kit drag source (req #3665), not a native draggable.
         const row = q('pipeline-viz-unseated-item-11');
-        const ev = new Event('dragstart', { bubbles: true });
-        const data = {};
-        ev.dataTransfer = { setData: (k, v) => { data[k] = v; }, effectAllowed: '' };
-        act(() => { row.dispatchEvent(ev); });
-        expect(data[UNSEATED_REQ_MIME]).toBe('11');
+        expect(row.getAttribute('role')).toBe('button');
+        expect(row.getAttribute('data-dragging')).toBe('0');
+        expect(row.getAttribute('draggable')).toBeNull();
+    });
+
+    it('racked, its list is its rows: a stretch made while floating never sizes it (req #3747)', () => {
+        window.localStorage.setItem('darwin-plan-unseated-box-size', JSON.stringify({ ws: 1, hEm: 40 }));
+        act(() => root.render(<UnorchestratedReqBox items={items} />));
+        const list = () => q('pipeline-viz-unseated-list');
+        // Floating, the reader's stretch holds.
+        expect(list().style.height).not.toBe('');
+        rackIt();
+        expect(box().getAttribute('data-racked')).toBe('1');
+        expect(list().style.height).toBe('');
+        expect(box().style.height).toBe('');
     });
 
     it('folded in the rack it keeps its whole name, and double-click does nothing', () => {
@@ -199,7 +209,7 @@ describe('UnorchestratedReqBox — the navbar rack (req #3735)', () => {
         expect(usePanelRackStore.getState().drag).toBeNull();
     });
 
-    it('lands first in the stack, at the top of the other racked windows', () => {
+    it('lands last in the stack, at the bottom of the other racked windows (req #3744)', () => {
         // Another window already racked and drawn below the nav buttons.
         const other = document.createElement('div');
         other.setAttribute('data-rack-id', 'devservers');
@@ -209,11 +219,11 @@ describe('UnorchestratedReqBox — the navbar rack (req #3735)', () => {
         act(() => root.render(<UnorchestratedReqBox items={[]} />));
         withGeometry();
         drag([710, 20], [90, 550]);
-        expect(usePanelRackStore.getState().racked).toEqual([ORCHESTRABLES_RACK_ID, 'devservers']);
-        expect(box().style.order).toBe('0');
+        expect(usePanelRackStore.getState().racked).toEqual(['devservers', ORCHESTRABLES_RACK_ID]);
+        expect(box().style.order).toBe('2');
     });
 
-    it('in the icon-only navbar it keeps its badge and −/+, and its rows their ids', () => {
+    it('in the icon-only navbar it keeps its ▾ and badge, and its rows their ids', () => {
         act(() => usePanelRackStore.getState().setSlot({ node: slotNode, width: 64 }));
         usePanelRackStore.setState({ racked: [ORCHESTRABLES_RACK_ID] });
         act(() => root.render(<UnorchestratedReqBox items={items} />));

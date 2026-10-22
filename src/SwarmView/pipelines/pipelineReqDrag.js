@@ -4,9 +4,40 @@
 // The gesture itself — hit-testing the mark, the floating preview, edge
 // auto-pan — is DOM and Konva work and lives in PipelinePlanVisualizer.jsx.
 // What lives here is every DECISION that gesture makes, so a test can reach it:
-// what counts as a drag rather than a click, which step a point lands on,
-// whether that step may take the requirement, and what the plan looks like the
-// instant the requirement is dropped.
+// what a press has become (a pan, a lift, still a press), which step a point
+// lands on, whether that step may take the requirement, and what the plan
+// looks like the instant the requirement is dropped.
+//
+// ── THE SHARED PRESS TIMELINE (req #3665, design req #3645) ───────────────
+// The mark is pressed the way every Darwin drag surface is (`dnd/pressTimeline.js`),
+// through POINTER events so one path serves mouse, pen and touch:
+//
+//   touch  moved past TOUCH_TOLERANCE_PX before LIFT_DELAY_MS .. a PAN — d3-zoom
+//                                                                 has the finger
+//          held still to LIFT_DELAY_MS ......................... the requirement LIFTS
+//          lifted, then moved ................................... a DRAG to another step,
+//                                                                 however long the hold
+//          held past LONG_PRESS_MS, released in place ........... the title EDIT (req #3661)
+//   mouse  moved past MOUSE_ACTIVATION_PX ............................. it LIFTS — a hold never
+//                                                                 does (user directive below)
+//          held still to LONG_PRESS_MS ......................... the title EDIT, while held:
+//                                                                 the caret blinks under the
+//                                                                 pointer before it lets go
+//
+// ── WHY A MOUSE HOLD DOES NOT LIFT HERE (req #3665 review) ────────────────
+// Elsewhere a long mouse click lifts (`pressTimeline.js`). Here the same hold
+// is the title edit, and the two cannot share it: a requirement that lifted at
+// LIFT_DELAY_MS taught people to wait for the lift before moving, and the edit
+// took the press ("it will long press to move but then drop into the edit
+// requirement title every time"); moving the edit to the release lost the
+// editor appearing under the held pointer ("after the long press the cursor
+// would select that area and blink ... let's see that again"). Without the
+// mouse hold-lift both hold: moving drags at once, holding edits. A finger
+// must hold to lift, so on touch the edit stays on the release.
+//
+// The marks are Konva shapes, not DOM nodes, so dnd-kit cannot measure them:
+// the canvas keeps its own hit test and its d3-zoom coexistence, and reads the
+// timeline's NUMBERS rather than its sensors.
 //
 // ── THE SCREEN REDRAWS ONCE, ON DROP ───────────────────────────────────────
 // Nothing re-lays-out while the requirement is in the air (user directive:
@@ -17,13 +48,18 @@
 // The local move is IDEMPOTENT, so it stays applied across that refetch and is
 // dropped only once the server's own rows already say the same thing.
 
+import {
+    MOUSE_ACTIVATION_PX, TOUCH_TOLERANCE_PX, PRESS_SLOP_PX,
+} from '../../dnd/pressTimeline';
+
 /**
- * How far the pointer must travel before a press on a requirement becomes a
- * drag. The SAME number the visualizer's manual click hit-test uses to stop
- * calling a gesture a click — two numbers would leave a band of movement that
- * is neither a click nor a drag, and a press there would silently do nothing.
+ * How far a MOUSE must travel before a press on a requirement becomes a drag —
+ * the app-wide `MOUSE_ACTIVATION_PX`. The SAME number the visualizer's manual
+ * click hit-test uses to stop calling a gesture a click — two numbers would
+ * leave a band of movement that is neither a click nor a drag, and a press
+ * there would silently do nothing.
  */
-export const REQ_DRAG_SLOP = 4;
+export const REQ_DRAG_SLOP = MOUSE_ACTIVATION_PX;
 
 /** Screen pixels from the panel edge inside which a drag auto-pans. */
 export const REQ_DRAG_EDGE_PX = 40;
@@ -31,10 +67,39 @@ export const REQ_DRAG_EDGE_PX = 40;
 /** Fastest auto-pan, in screen pixels per animation frame. */
 export const REQ_DRAG_EDGE_MAX_SPEED = 16;
 
-/** Whether the pointer has left the press far enough to be a drag. */
-export function passedDragSlop(down, x, y) {
-    if (!down) return false;
-    return Math.hypot(x - down.x, y - down.y) > REQ_DRAG_SLOP;
+/**
+ * What a press on a requirement mark has become.
+ *
+ *   'pan'    a touch that moved before it was held long enough — the canvas
+ *            pans under it and the requirement stays where it is
+ *   'lift'   the requirement is picked up (a drag begins)
+ *   'press'  nothing yet
+ *
+ * @param {string} pointerType  the press's `PointerEvent.pointerType`
+ * @param {number} travel       furthest the pointer has been from the press, px
+ * @param {boolean} held        LIFT_DELAY_MS has passed since the press
+ * @returns {'pan' | 'lift' | 'press'}
+ */
+export function reqPressOutcome(pointerType, travel, held) {
+    if (pointerType === 'touch') {
+        if (travel > TOUCH_TOLERANCE_PX) return 'pan';
+        return held ? 'lift' : 'press';
+    }
+    // A mouse or pen lifts by moving only — its hold is the title edit.
+    return travel > REQ_DRAG_SLOP ? 'lift' : 'press';
+}
+
+/**
+ * Has a press stayed a LONG PRESS candidate — never further than the slop
+ * from where it began? A mouse asks at LONG_PRESS_MS, still held; a finger
+ * asks on the release after it — a lifted requirement let go where it was
+ * picked up is an edit (it is put back), one that moved past the slop at any
+ * point is a drag.
+ *
+ * @param {number} travel  furthest the pointer has been from the press, px
+ */
+export function stillHeld(travel) {
+    return travel <= PRESS_SLOP_PX;
 }
 
 /**

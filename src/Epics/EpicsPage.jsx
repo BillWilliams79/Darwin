@@ -29,7 +29,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useContext } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 
 import Box from '@mui/material/Box';
@@ -40,15 +40,6 @@ import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import IconButton from '@mui/material/IconButton';
 import CircularProgress from '@mui/material/CircularProgress';
-import Dialog from '@mui/material/Dialog';
-import DialogTitle from '@mui/material/DialogTitle';
-import DialogContent from '@mui/material/DialogContent';
-import DialogActions from '@mui/material/DialogActions';
-import TextField from '@mui/material/TextField';
-import Select from '@mui/material/Select';
-import MenuItem from '@mui/material/MenuItem';
-import InputLabel from '@mui/material/InputLabel';
-import FormControl from '@mui/material/FormControl';
 import { DataGrid, GridToolbar } from '@mui/x-data-grid';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
@@ -64,44 +55,22 @@ import {
     epicKeys,
     pipelineStepKeys,
 } from '../hooks/useDataQueries';
+import { pipelineComposeKeys } from '../hooks/useQueryKeys';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import ChipFilter from '../Components/ChipFilter/ChipFilter';
 import { formatDate } from '../utils/dateFormat';
 import {
     epicStatus2ChipProps, epicStatus2Label, lockedChipProps, lockedLabel,
 } from '../SwarmView/pipelines/pipelineChipStyles';
-import { createEpic, updateEpic, deleteEpic, isRestNullLiteral, REST_NULL } from './epicsApi';
-
-// Same projection 1.0's EpicsPage requests — a NAME DICTIONARY, no `closed`
-// filter (an epic filed under a since-closed category must still render it).
-const CATEGORY_FIELDS = 'id,category_name,color,sort_order,closed';
+import { updateEpic, deleteEpic } from './epicsApi';
+import EpicEditDialog, { CATEGORY_FIELDS } from './EpicEditDialog';
 
 const CLOSED_FILTER_OPTIONS = [
     { value: 'open', label: 'Open', chipProps: { color: 'success' } },
     { value: 'closed', label: 'Closed', chipProps: { color: 'default' } },
 ];
 
-// SMALLINT — the column's real width. Copied from EpicsPage.jsx rather than
-// imported: a small pure validation function, not a data or style dependency,
-// so it stays a local copy even where the query layer and chip styles now
-// share their 1.0 files directly.
-const SORT_ORDER_MIN = -32768;
-const SORT_ORDER_MAX = 32767;
-
 const oneLine = (value) => (value ? String(value).replace(/\s+/g, ' ').trim() : '');
-
-// sort_order is a nullable SMALLINT fed by a text input — three answers, not
-// two: EMPTY (clear the column), a usable integer, and INVALID.
-const parseSortOrder = (raw) => {
-    const t = (raw ?? '').trim();
-    if (t === '') return { empty: true };
-    const n = Number(t);
-    if (!Number.isInteger(n)) return { invalid: 'Sort order must be a whole number' };
-    if (n < SORT_ORDER_MIN || n > SORT_ORDER_MAX) {
-        return { invalid: `Sort order must be between ${SORT_ORDER_MIN} and ${SORT_ORDER_MAX}` };
-    }
-    return { value: n };
-};
 
 export default function EpicsPage() {
     const { idToken, profile } = useContext(AuthContext);
@@ -109,6 +78,7 @@ export default function EpicsPage() {
     const queryClient = useQueryClient();
     const showError = useSnackBarStore(s => s.showError);
     const navigate = useNavigate();
+    const location = useLocation();
     const [searchParams, setSearchParams] = useSearchParams();
 
     const creatorFk = profile?.userName;
@@ -129,15 +99,8 @@ export default function EpicsPage() {
             : [...current, value]
     ));
 
-    const [dialogOpen, setDialogOpen] = useState(false);
-    const [editTarget, setEditTarget] = useState(null);
-    const [formPipelineFk, setFormPipelineFk] = useState('');
-    const [formTitle, setFormTitle] = useState('');
-    const [formDescription, setFormDescription] = useState('');
-    const [formCategoryFk, setFormCategoryFk] = useState('');
-    const [formSortOrder, setFormSortOrder] = useState('');
-    const [formEpicStatus, setFormEpicStatus] = useState('active');
-    const [submitting, setSubmitting] = useState(false);
+    // The editor dialog: `key` changes per open so the form seeds afresh.
+    const [dialog, setDialog] = useState({ key: 0, open: false, epic: null });
 
     const stepCountByEpic = useMemo(() => {
         const m = {};
@@ -159,20 +122,6 @@ export default function EpicsPage() {
         for (const c of categories) m[c.id] = c;
         return m;
     }, [categories]);
-
-    const categoryOptions = useMemo(() => {
-        const open = categories.filter(c => !c.closed).sort((a, b) => {
-            const ao = a.sort_order == null ? Infinity : a.sort_order;
-            const bo = b.sort_order == null ? Infinity : b.sort_order;
-            return ao - bo || String(a.category_name).localeCompare(String(b.category_name));
-        });
-        const current = editTarget?.category_fk;
-        if (current != null && !open.some(c => c.id === current)) {
-            const row = categoryById[current];
-            if (row) return [...open, row];
-        }
-        return open;
-    }, [categories, categoryById, editTarget]);
 
     // Plans in the same order PipelinesPage shows them (id:desc — newest first).
     const pipelineOptions = useMemo(() => pipelines.map(
@@ -196,30 +145,15 @@ export default function EpicsPage() {
             });
     }, [epics, closedFilter, stepCountByEpic, pipelineById]);
 
-    const invalidateEpics = () =>
+    // An epic write also invalidates the composed plan reads (req #3742), so a
+    // plan open elsewhere — or opened next — never draws the pre-save epic.
+    const invalidateEpics = () => {
         queryClient.invalidateQueries({ queryKey: epicKeys.all(creatorFk) });
-
-    const openCreate = () => {
-        setEditTarget(null);
-        setFormPipelineFk(pipelineOptions[0]?.id ?? '');
-        setFormTitle('');
-        setFormDescription('');
-        setFormCategoryFk(categoryOptions.find(c => !c.closed)?.id ?? '');
-        setFormSortOrder('');
-        setFormEpicStatus('active');
-        setDialogOpen(true);
+        queryClient.invalidateQueries({ queryKey: pipelineComposeKeys.all });
     };
 
-    const openEdit = (row) => {
-        setEditTarget(row);
-        setFormPipelineFk(row.pipeline_fk ?? '');
-        setFormTitle(row.title || '');
-        setFormDescription(row.description || '');
-        setFormCategoryFk(row.category_fk ?? '');
-        setFormSortOrder(row.sort_order == null ? '' : String(row.sort_order));
-        setFormEpicStatus(row.epic_status === 'paused' ? 'paused' : 'active');
-        setDialogOpen(true);
-    };
+    const openCreate = () => setDialog((d) => ({ key: d.key + 1, open: true, epic: null }));
+    const openEdit = (row) => setDialog((d) => ({ key: d.key + 1, open: true, epic: row }));
 
     // Deep-link via ?id=<id>, matching EpicsPage.jsx's own contract.
     const autoOpenedIdRef = useRef(null);
@@ -235,69 +169,9 @@ export default function EpicsPage() {
         openEdit(target);
         const next = new URLSearchParams(searchParams);
         next.delete('id');
-        setSearchParams(next, { replace: true });
+        setSearchParams(next, { replace: true, state: location.state });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isLoading, epics, searchParams]);
-
-    const handleSubmit = async () => {
-        const title = formTitle.trim();
-        const description = formDescription.trim();
-        const sortOrder = parseSortOrder(formSortOrder);
-        if (!title) {
-            showError('Title is required');
-            return;
-        }
-        // `title` is NOT NULL — a typed "NULL" is Lambda-Rest's clear-column
-        // sentinel on BOTH POST and PUT, so it would otherwise reach the
-        // gateway as SQL NULL and fail as an opaque 500 (code review, req
-        // #3393; matches StepsPage's identical guard for its own title field).
-        if (isRestNullLiteral(title)) {
-            showError(`"${REST_NULL}" is the API's clear-this-column sentinel and cannot `
-                + 'be a title. Try "Null" or another wording.');
-            return;
-        }
-        if (!editTarget && (formPipelineFk === '' || formPipelineFk == null)) {
-            showError('Pipeline is required');
-            return;
-        }
-        if (formCategoryFk === '' || formCategoryFk == null) {
-            showError('Category is required');
-            return;
-        }
-        if (sortOrder.invalid) {
-            showError(sortOrder.invalid);
-            return;
-        }
-        setSubmitting(true);
-        try {
-            if (editTarget) {
-                // `pipeline_fk` is deliberately never sent here — the field is
-                // disabled once editing (see this file's header).
-                await updateEpic(darwinUri, idToken, editTarget.id, {
-                    title,
-                    description: description || REST_NULL,
-                    category_fk: formCategoryFk,
-                    sort_order: sortOrder.empty ? REST_NULL : sortOrder.value,
-                    epic_status: formEpicStatus,
-                });
-            } else {
-                await createEpic(darwinUri, idToken, {
-                    pipeline_fk: formPipelineFk,
-                    title,
-                    description: description || null,
-                    category_fk: formCategoryFk,
-                    sort_order: sortOrder.empty ? null : sortOrder.value,
-                    epic_status: formEpicStatus,
-                });
-            }
-            invalidateEpics();
-            setDialogOpen(false);
-        } catch (err) {
-            showError(err, editTarget ? 'Could not save epic' : 'Could not create epic');
-        } finally {
-            setSubmitting(false);
-        }
-    };
 
     const toggleClosed = async (row) => {
         try {
@@ -529,86 +403,16 @@ export default function EpicsPage() {
                 </Box>
             )}
 
-            <Dialog open={dialogOpen} onClose={() => !submitting && setDialogOpen(false)}
-                    maxWidth="md" fullWidth data-testid="epic2-edit-dialog">
-                <DialogTitle>{editTarget ? 'Edit epic' : 'New epic'}</DialogTitle>
-                <DialogContent>
-                    <Stack spacing={2} sx={{ mt: 1 }}>
-                        <FormControl fullWidth required disabled={!!editTarget}>
-                            <InputLabel>Pipeline</InputLabel>
-                            <Select label="Pipeline" value={formPipelineFk}
-                                    onChange={(e) => setFormPipelineFk(e.target.value)}
-                                    data-testid="epic2-pipeline-select">
-                                {pipelineOptions.map(p => (
-                                    <MenuItem key={p.id} value={p.id}>{p.title}</MenuItem>
-                                ))}
-                            </Select>
-                        </FormControl>
-                        {editTarget && (
-                            <Typography variant="caption" sx={{ color: 'text.secondary', mt: -1 }}>
-                                An epic&apos;s plan membership is not editable from this dialog —
-                                use the move tool (MCP `move_epic`) to re-home it.
-                            </Typography>
-                        )}
-                        <TextField
-                            label="Title"
-                            value={formTitle}
-                            onChange={(e) => setFormTitle(e.target.value)}
-                            autoFocus required fullWidth
-                            slotProps={{ htmlInput: { 'data-testid': 'epic2-title-input', maxLength: 256 } }}
-                        />
-                        <TextField
-                            label="Description"
-                            value={formDescription}
-                            onChange={(e) => setFormDescription(e.target.value)}
-                            helperText="What this epic is for — purpose, not a fact a query can answer."
-                            fullWidth multiline minRows={6}
-                            slotProps={{ htmlInput: { 'data-testid': 'epic2-description-input' } }}
-                        />
-                        <FormControl fullWidth required>
-                            <InputLabel>Category</InputLabel>
-                            <Select label="Category" value={formCategoryFk}
-                                    onChange={(e) => setFormCategoryFk(e.target.value)}
-                                    data-testid="epic2-category-select">
-                                {categoryOptions.map(c => (
-                                    <MenuItem key={c.id} value={c.id}>{c.category_name}</MenuItem>
-                                ))}
-                            </Select>
-                        </FormControl>
-                        <FormControl fullWidth>
-                            <InputLabel>Pause state</InputLabel>
-                            <Select label="Pause state" value={formEpicStatus}
-                                    onChange={(e) => setFormEpicStatus(e.target.value)}
-                                    data-testid="epic2-status-select">
-                                <MenuItem value="active">Active — swarm-starts normally</MenuItem>
-                                <MenuItem value="paused">Paused — suppresses swarm-start</MenuItem>
-                            </Select>
-                        </FormControl>
-                        <TextField
-                            label="Sort order"
-                            value={formSortOrder}
-                            onChange={(e) => setFormSortOrder(e.target.value)}
-                            helperText={"Whole number, position among this plan's epics. Leave "
-                                + 'blank for derived order (started epics by start date, '
-                                + 'unstarted after by creation).'}
-                            type="number" fullWidth
-                            slotProps={{ htmlInput: {
-                                'data-testid': 'epic2-sort-order-input',
-                                step: 1, min: SORT_ORDER_MIN, max: SORT_ORDER_MAX,
-                            } }}
-                        />
-                    </Stack>
-                </DialogContent>
-                <DialogActions>
-                    <Button onClick={() => setDialogOpen(false)} disabled={submitting}>Cancel</Button>
-                    <Button variant="contained" onClick={handleSubmit}
-                            disabled={submitting || !formTitle.trim() || formCategoryFk === ''
-                                || (!editTarget && formPipelineFk === '')}
-                            data-testid="epic2-save">
-                        {editTarget ? 'Save' : 'Create'}
-                    </Button>
-                </DialogActions>
-            </Dialog>
+            {/* req #3742 — the shared epic editor; the plan canvas opens the
+                same one over itself when an epic's name is clicked. */}
+            <EpicEditDialog
+                key={dialog.key}
+                open={dialog.open}
+                epic={dialog.epic}
+                pipelineOptions={pipelineOptions}
+                onClose={() => setDialog((d) => ({ ...d, open: false }))}
+                onSaved={invalidateEpics}
+            />
         </Box>
     );
 }

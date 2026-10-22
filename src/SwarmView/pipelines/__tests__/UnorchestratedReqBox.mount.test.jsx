@@ -1,15 +1,17 @@
 // @vitest-environment jsdom
 //
 // req #3583 — the swarm-ready, not-orchestrated box renders its rows, its
-// empty state, collapses, opens a requirement on click, and puts the
-// requirement id on a native drag under the box's own MIME type.
+// empty state, collapses, opens a requirement on click, and lifts a row
+// through the shared dnd-kit drag surface on the press timeline (req #3665 —
+// it was a native HTML5 drag).
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
 
 import UnorchestratedReqBox, { FOLD_MS, UNSEATED_FLOAT_Z } from '../UnorchestratedReqBox';
-import { UNSEATED_REQ_MIME } from '../pipelineUnseated';
+import { UNSEATED_DRAG_TYPE, unseatedDragId } from '../pipelineUnseated';
+import { DarwinDndContext, LIFT_DELAY_MS, LIFT_VIBRATE_MS, TOUCH_TOLERANCE_PX } from '../../../dnd';
 import { buildReqColorViews, reqIdStyle } from '../pipelinePlanLayout';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -56,7 +58,11 @@ describe('UnorchestratedReqBox', () => {
         expect(q('pipeline-viz-unseated-count').textContent).toBe('2');
         expect(q('pipeline-viz-unseated-title').textContent).toBe('Orchestrables');
         expect(q('pipeline-viz-unseated-item-11').textContent).toContain('First thing');
-        expect(q('pipeline-viz-unseated-item-12').getAttribute('draggable')).toBe('true');
+        // A dnd-kit draggable (req #3665), not a native one — announced as a
+        // plain button, since the keys open it rather than lift it.
+        expect(q('pipeline-viz-unseated-item-12').getAttribute('role')).toBe('button');
+        expect(q('pipeline-viz-unseated-item-12').getAttribute('aria-roledescription')).toBeNull();
+        expect(q('pipeline-viz-unseated-item-12').getAttribute('draggable')).toBeNull();
         // Chrome: d3-zoom and the world-click hit-test both skip it.
         expect(q('pipeline-viz-unseated').hasAttribute('data-viz-chrome')).toBe(true);
     });
@@ -148,12 +154,19 @@ describe('UnorchestratedReqBox', () => {
 
     // req #3648 — the count badge leads the title bar; folded, the bar reads
     // "OR" and the box narrows to it, animating only for the fold itself.
-    it('leads with the count badge, and folds to a narrow "OR" bar', () => {
+    it('leads with the ▾ then the count badge, and folds to a narrow "OR" bar', () => {
         vi.useFakeTimers();
         try {
             act(() => root.render(<UnorchestratedReqBox items={items} fontPx={12} widthPx={612} />));
             const header = q('pipeline-viz-unseated-header');
-            expect(header.firstElementChild).toBe(q('pipeline-viz-unseated-count'));
+            // Every pop-up window's controls (req #3741): ▾ upper left, the
+            // upper right blank — the title is the bar's last item.
+            const toggle = q('pipeline-viz-unseated-toggle');
+            expect(header.firstElementChild).toBe(toggle);
+            expect(toggle.textContent).toBe('▾');
+            expect(toggle.getAttribute('aria-label')).toBe('Orchestrables');
+            expect(toggle.nextElementSibling).toBe(q('pipeline-viz-unseated-count'));
+            expect(header.lastElementChild).toBe(q('pipeline-viz-unseated-title'));
             const box = q('pipeline-viz-unseated');
             expect(box.style.width).toBe('612px');
             expect(getComputedStyle(box).transitionProperty || 'none').not.toContain('width');
@@ -161,13 +174,13 @@ describe('UnorchestratedReqBox', () => {
             act(() => q('pipeline-viz-unseated-toggle').click());
             expect(q('pipeline-viz-unseated-title').textContent).toBe('OR');
             expect(box.getAttribute('data-open')).toBe('0');
-            // Narrow: badge + "OR" + toggle, not the step width.
+            // Narrow: toggle + badge + "OR", not the step width.
             expect(box.style.width).toMatch(/^calc\(.*em.*ch.*\)$/);
             expect(box.style.width).not.toContain('612');
             expect(getComputedStyle(box).transition).toContain('width');
             // The other controls are unchanged.
             expect(q('pipeline-viz-unseated-count').textContent).toBe('2');
-            expect(q('pipeline-viz-unseated-toggle')).not.toBeNull();
+            expect(q('pipeline-viz-unseated-toggle').getAttribute('aria-expanded')).toBe('false');
 
             // The width transitions only while folding — never on a zoom frame.
             act(() => { vi.advanceTimersByTime(FOLD_MS + 100); });
@@ -221,31 +234,93 @@ describe('UnorchestratedReqBox', () => {
         expect(onOpen).toHaveBeenCalledWith(12);
     });
 
-    it('carries the id on dragstart and greys the row only after the snapshot', () => {
+    // req #3665 — a row lifts through the shared drag surface: held still, a
+    // mouse press lifts it (the long click), it greys while in the air, and its
+    // drag carries the requirement for the canvas's collision detection.
+    const press = (el, type, { x = 10, y = 10, pointerType = 'mouse' } = {}) => {
+        const ev = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 });
+        Object.defineProperty(ev, 'pointerType', { value: pointerType });
+        Object.defineProperty(ev, 'pointerId', { value: 1 });
+        Object.defineProperty(ev, 'isPrimary', { value: true });
+        el.dispatchEvent(ev);
+    };
+
+    it('a held row lifts through the shared drag surface, carrying its requirement, and greys', () => {
         vi.useFakeTimers();
         try {
-            const onDragStartItem = vi.fn();
+            const onDragStart = vi.fn();
+            const onDragCancel = vi.fn();
             act(() => root.render(
-                <UnorchestratedReqBox items={items} onDragStartItem={onDragStartItem} />));
-            const data = {};
-            const ev = new Event('dragstart', { bubbles: true });
-            ev.dataTransfer = {
-                setData: (k, v) => { data[k] = v; }, effectAllowed: 'all',
-            };
-            act(() => { q('pipeline-viz-unseated-item-11').dispatchEvent(ev); });
-            expect(data[UNSEATED_REQ_MIME]).toBe('11');
-            expect(onDragStartItem).not.toHaveBeenCalled();
-            act(() => { vi.runAllTimers(); });
-            expect(onDragStartItem).toHaveBeenCalledWith(11);
+                <DarwinDndContext onDragStart={onDragStart} onDragCancel={onDragCancel}>
+                    <UnorchestratedReqBox items={items} />
+                </DarwinDndContext>));
+            const row = q('pipeline-viz-unseated-item-11');
+            act(() => { press(row, 'pointerdown'); });
+            expect(onDragStart).not.toHaveBeenCalled();
+            act(() => { vi.advanceTimersByTime(LIFT_DELAY_MS); });
+            expect(onDragStart).toHaveBeenCalledTimes(1);
+            const { active } = onDragStart.mock.calls[0][0];
+            expect(active.id).toBe(unseatedDragId(11));
+            expect(active.data.current.type).toBe(UNSEATED_DRAG_TYPE);
+            expect(Number(active.data.current.row.id)).toBe(11);
+            const lifted = q('pipeline-viz-unseated-item-11');
+            expect(lifted.getAttribute('data-dragging')).toBe('1');
+            expect(Number(getComputedStyle(lifted).opacity)).toBeLessThan(1);
+            expect(q('pipeline-viz-unseated-item-12').getAttribute('data-dragging')).toBe('0');
+            // The overlay carries a copy of the row, not an empty box.
+            expect(document.querySelector('[data-testid="drag-overlay-clone"]')?.textContent).toContain('First thing');
+            // Escape puts it back.
+            act(() => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true })); });
+            act(() => { vi.runOnlyPendingTimers(); });
+            expect(onDragCancel).toHaveBeenCalled();
+            expect(q('pipeline-viz-unseated-item-11').getAttribute('data-dragging')).toBe('0');
         } finally {
             vi.useRealTimers();
         }
     });
 
-    it('greys the row being dragged', () => {
-        act(() => root.render(<UnorchestratedReqBox items={items} draggingId={11} />));
-        const style = getComputedStyle(q('pipeline-viz-unseated-item-11'));
-        expect(Number(style.opacity)).toBeLessThan(1);
+    it('a quick click lifts nothing and opens the requirement', () => {
+        vi.useFakeTimers();
+        try {
+            const onDragStart = vi.fn();
+            const onOpen = vi.fn();
+            act(() => root.render(
+                <DarwinDndContext onDragStart={onDragStart}>
+                    <UnorchestratedReqBox items={items} onOpen={onOpen} />
+                </DarwinDndContext>));
+            const row = q('pipeline-viz-unseated-item-12');
+            act(() => { press(row, 'pointerdown'); });
+            act(() => { vi.advanceTimersByTime(80); });
+            act(() => { press(row, 'pointerup'); row.click(); });
+            act(() => { vi.advanceTimersByTime(LIFT_DELAY_MS); });
+            expect(onDragStart).not.toHaveBeenCalled();
+            expect(onOpen).toHaveBeenCalledWith(12);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('from the keys a row is a button that opens the requirement, never a lift', () => {
+        const onDragStart = vi.fn();
+        const onOpen = vi.fn();
+        act(() => root.render(
+            <DarwinDndContext onDragStart={onDragStart}>
+                <UnorchestratedReqBox items={items} onOpen={onOpen} />
+            </DarwinDndContext>));
+        const row = q('pipeline-viz-unseated-item-11');
+        act(() => { row.focus(); });
+        act(() => { row.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true })); });
+        expect(onDragStart).not.toHaveBeenCalled();
+        expect(onOpen).toHaveBeenCalledWith(11);
+        act(() => { row.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true })); });
+        expect(onOpen).toHaveBeenCalledTimes(2);
+    });
+
+    it('sets its own type size and face, so the lifted copy reads like the row', () => {
+        act(() => root.render(<UnorchestratedReqBox items={items} fontPx={13} />));
+        const row = q('pipeline-viz-unseated-item-11');
+        expect(row.style.fontSize).toBe('13px');
+        expect(getComputedStyle(row).fontFamily).toMatch(/Mono|Menlo/);
     });
 
     it('takes its type size from fontPx, so it scales with the zoom', () => {
@@ -543,6 +618,96 @@ describe('UnorchestratedReqBox', () => {
         expect(box.getAttribute('data-carrying')).toBe('0');
     });
 
+    // req #3741 — the ▾ leads the bar, so the box folds toward its LEFT edge.
+    it('a fold holds the box\'s left: pinned while the width animates', () => {
+        vi.useFakeTimers();
+        try {
+            act(() => root.render(<UnorchestratedReqBox items={items} widthPx={280} />));
+            const box = q('pipeline-viz-unseated');
+            withGeometry(box, q('pipeline-viz-unseated-header'));
+            expect(box.style.left).toBe('');
+            // jsdom's style parser drops a min()/clamp() value, so record what
+            // React writes to `right`.
+            let right = null;
+            Object.defineProperty(box.style, 'right', { configurable: true,
+                get: () => right ?? '', set: (v) => { right = v; } });
+            act(() => q('pipeline-viz-unseated-toggle').click());
+            // At home it is anchored right; mid-fold it is held at its left.
+            expect(box.style.left).toBe('700px');
+            act(() => { vi.advanceTimersByTime(FOLD_MS + 100); });
+            expect(box.style.left).toBe('');
+            expect(box.getAttribute('data-pos')).toBe('home');
+            // Folded, it is drawn where the open box's ▾ is: its right offset
+            // plus the width the fold shed.
+            expect(right).toMatch(/^calc\(8px \+ min\(280px, 100% - 16px\) - min\(calc\(.*em.*ch.*\), 100% - 16px\)\)$/);
+            // Unfolding holds the same left.
+            act(() => q('pipeline-viz-unseated-toggle').click());
+            expect(box.style.left).toBe('700px');
+            act(() => { vi.advanceTimersByTime(FOLD_MS + 100); });
+            expect(box.style.left).toBe('');
+            expect(right).toBe('8px');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('an unfold with no room to its right is pinned where the open box fits', () => {
+        vi.useFakeTimers();
+        try {
+            window.localStorage.setItem('darwin-plan-unseated-box-window-pos',
+                JSON.stringify({ x: 900, y: 100 }));
+            // Folded, dropped where the open box would not fit right-anchored.
+            window.localStorage.setItem('darwin-pipeline-viz-unseated-open', '0');
+            act(() => root.render(<UnorchestratedReqBox items={items} widthPx={280} />));
+            const box = q('pipeline-viz-unseated');
+            expect(box.getAttribute('data-open')).toBe('0');
+            withWindow(box, { left: 900, top: 100 });
+            act(() => q('pipeline-viz-unseated-toggle').click());
+            expect(box.getAttribute('data-open')).toBe('1');
+            expect(box.style.left).toBe('720px');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('a fold re-bases a box anchored left to where it is drawn', () => {
+        window.localStorage.setItem('darwin-plan-unseated-box-window-pos',
+            JSON.stringify({ x: 950, y: 100 }));
+        act(() => root.render(<UnorchestratedReqBox items={items} widthPx={280} />));
+        const box = q('pipeline-viz-unseated');
+        // The window's clamp draws it at 720, not the remembered 950.
+        withWindow(box, { left: 720, top: 100 });
+        act(() => q('pipeline-viz-unseated-toggle').click());
+        expect(box.getAttribute('data-pos')).toBe('720,100');
+        expect(JSON.parse(window.localStorage.getItem('darwin-plan-unseated-box-window-pos')))
+            .toEqual({ x: 720, y: 100 });
+    });
+
+    it('a folded bar dropped in the right half is remembered by its OPEN box\'s right edge', () => {
+        act(() => root.render(<UnorchestratedReqBox items={items} widthPx={280} />));
+        act(() => q('pipeline-viz-unseated-toggle').click());
+        const box = q('pipeline-viz-unseated');
+        const bar = q('pipeline-viz-unseated-header');
+        // The folded bar (90) is narrower than the open box (280).
+        Object.defineProperty(box, 'offsetWidth', { get: () => 90 });
+        Object.defineProperty(bar, 'offsetHeight', { get: () => 36 });
+        withWindow(box, { left: 700, top: 8 });
+        const fire = fireOn(bar);
+        act(() => { fire('pointerdown', 710, 20); });
+        act(() => { fire('pointermove', 610, 120); });
+        act(() => { fire('pointerup', 610, 120); });
+        // Its left is 600; the open box (280) ends 120 short of the edge.
+        expect(JSON.parse(window.localStorage.getItem('darwin-plan-unseated-box-window-pos')))
+            .toEqual({ r: 120, y: 108 });
+        // Nearer the edge than the open box fits, it is remembered by its left.
+        // (The mocked rect still reads 700, so the press starts there.)
+        act(() => { fire('pointerdown', 710, 20); });
+        act(() => { fire('pointermove', 910, 120); });
+        act(() => { fire('pointerup', 910, 120); });
+        expect(JSON.parse(window.localStorage.getItem('darwin-plan-unseated-box-window-pos')))
+            .toEqual({ x: 900, y: 108 });
+    });
+
     it('a box dropped in the left half is remembered from the left', () => {
         act(() => root.render(<UnorchestratedReqBox items={items} />));
         const box = q('pipeline-viz-unseated');
@@ -581,6 +746,84 @@ describe('UnorchestratedReqBox', () => {
         act(() => { fire('pointerup', 102, 101); });
         expect(box.getAttribute('data-pos')).toBe('home');
         expect(window.localStorage.getItem('darwin-plan-unseated-box-window-pos')).toBeNull();
+    });
+
+    // req #3665 — the title bar on the shared press timeline.
+    const fireTouch = (el) => (type, x, y) => {
+        const ev = new MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 });
+        Object.defineProperty(ev, 'pointerType', { value: 'touch' });
+        Object.defineProperty(ev, 'pointerId', { value: 7 });
+        el.dispatchEvent(ev);
+    };
+
+    it('a finger that slides off the title bar before the lift moves nothing', () => {
+        vi.useFakeTimers();
+        try {
+            act(() => root.render(<UnorchestratedReqBox items={items} />));
+            const box = q('pipeline-viz-unseated');
+            const bar = q('pipeline-viz-unseated-header');
+            withGeometry(box, bar);
+            const touch = fireTouch(bar);
+            act(() => { touch('pointerdown', 710, 20); });
+            act(() => { touch('pointermove', 710 + TOUCH_TOLERANCE_PX + 4, 20); });
+            act(() => { touch('pointermove', 410, 220); });
+            act(() => { vi.advanceTimersByTime(LIFT_DELAY_MS); });
+            expect(box.getAttribute('data-pos')).toBe('home');
+            expect(box.getAttribute('data-lifted')).toBe('0');
+            act(() => { touch('pointerup', 410, 220); });
+            expect(window.localStorage.getItem('darwin-plan-unseated-box-window-pos')).toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('a finger held still lifts the box with a haptic tick, then carries it', () => {
+        vi.useFakeTimers();
+        const vibrate = vi.fn();
+        const had = Object.getOwnPropertyDescriptor(navigator, 'vibrate');
+        Object.defineProperty(navigator, 'vibrate', { configurable: true, value: vibrate });
+        try {
+            const onMoveOver = vi.fn();
+            act(() => root.render(<UnorchestratedReqBox items={items} onMoveOver={onMoveOver} />));
+            const box = q('pipeline-viz-unseated');
+            const bar = q('pipeline-viz-unseated-header');
+            withGeometry(box, bar);
+            const touch = fireTouch(bar);
+            act(() => { touch('pointerdown', 710, 20); });
+            act(() => { touch('pointermove', 712, 21); });    // a resting fingertip
+            expect(box.getAttribute('data-lifted')).toBe('0');
+            act(() => { vi.advanceTimersByTime(LIFT_DELAY_MS); });
+            expect(box.getAttribute('data-lifted')).toBe('1');
+            expect(vibrate).toHaveBeenCalledWith(LIFT_VIBRATE_MS);
+            act(() => { touch('pointermove', 410, 220); });
+            expect(box.getAttribute('data-pos')).toBe('400,208');
+            expect(onMoveOver).toHaveBeenLastCalledWith(410, 220);
+            act(() => { touch('pointerup', 410, 220); });
+            expect(box.getAttribute('data-lifted')).toBe('0');
+        } finally {
+            if (had) Object.defineProperty(navigator, 'vibrate', had);
+            else delete navigator.vibrate;
+            vi.useRealTimers();
+        }
+    });
+
+    it('a mouse held on the title bar lifts it without moving it', () => {
+        vi.useFakeTimers();
+        try {
+            act(() => root.render(<UnorchestratedReqBox items={items} />));
+            const box = q('pipeline-viz-unseated');
+            const bar = q('pipeline-viz-unseated-header');
+            withGeometry(box, bar);
+            const fire = fireOn(bar);
+            act(() => { fire('pointerdown', 710, 20); });
+            act(() => { vi.advanceTimersByTime(LIFT_DELAY_MS); });
+            expect(box.getAttribute('data-lifted')).toBe('1');
+            act(() => { fire('pointerup', 710, 20); });
+            expect(box.getAttribute('data-lifted')).toBe('0');
+            expect(box.getAttribute('data-pos')).toBe('home');
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('a press on the collapse button never starts a move', () => {
@@ -917,6 +1160,12 @@ describe('UnorchestratedReqBox', () => {
         expect(getComputedStyle(a).fontWeight).toBe('700');
         expect(getComputedStyle(b).color).toBe('rgb(4, 5, 6)');
         expect(getComputedStyle(b).fontWeight).toBe('400');
+        // req #3745 — the title takes the id's colour, never its weight.
+        const ta = getComputedStyle(q('pipeline-viz-unseated-item-title-11'));
+        const tb = getComputedStyle(q('pipeline-viz-unseated-item-title-12'));
+        expect(ta.color).toBe('rgb(1, 2, 3)');
+        expect(ta.fontWeight).not.toBe('700');
+        expect(tb.color).toBe('rgb(4, 5, 6)');
     });
 
     it('with the real registry, two autonomies paint two colours', () => {

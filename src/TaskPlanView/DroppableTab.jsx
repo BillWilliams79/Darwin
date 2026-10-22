@@ -9,9 +9,10 @@ import { DOMAIN_TABS, planIds } from './planDnd';
 // A domain tab (req #3662, on dnd-kit): it lifts and reorders along the strip,
 // it switches the page to its domain when a task or card hovers it for
 // TAB_HOVER_SWITCH_MS (reverted if that drag is cancelled), and a long press
-// renames it — firing WHILE HELD, on mouse and touch alike. A touch press lifts
-// the tab at LIFT_DELAY_MS; still held at LONG_PRESS_MS, the lift is abandoned
-// for the edit. Double-click still renames on desktop.
+// renames it, on mouse and touch alike. A press lifts the tab at LIFT_DELAY_MS;
+// held past LONG_PRESS_MS and let go in place, the lift is abandoned for the
+// edit — on the release, so a hold that is slow to start moving is still a
+// drag (req #3665, `pressTimeline.js`). Double-click still renames on desktop.
 const DroppableTab = ({ domainIndex, domainId, domain, domainName, isActiveTab, renameDomain, ...tabProps }) => {
 
     const onDragTabSwitch = useDragTabStore(s => s.onDragTabSwitch);

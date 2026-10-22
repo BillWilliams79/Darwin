@@ -15,12 +15,14 @@ vi.mock('../../hooks/useDataQueries', () => ({
 let desktop = true;
 vi.mock('@mui/material/useMediaQuery', () => ({ default: () => desktop }));
 
+import { prodRequirementUrl } from '../../utils/prodUrl';
+
 let DevServerInfoPanel, DEV_INFO_RACK_ID, usePanelRackStore, AuthContext, AppContext;
-async function load(mode) {
+async function load(mode, { reqId = '3727', reqTitle = 'Dev Server bar dockable' } = {}) {
     vi.resetModules();
     vi.stubEnv('MODE', mode);
-    vi.stubEnv('VITE_DEV_REQ_ID', '3727');
-    vi.stubEnv('VITE_DEV_REQ_TITLE', 'Dev Server bar dockable');
+    vi.stubEnv('VITE_DEV_REQ_ID', reqId);
+    vi.stubEnv('VITE_DEV_REQ_TITLE', reqTitle);
     ({ default: DevServerInfoPanel, DEV_INFO_RACK_ID } = await import('../DevServerInfoPanel'));
     ({ usePanelRackStore } = await import('../../stores/usePanelRackStore'));
     // resetModules gives the panel fresh context objects: provide those.
@@ -56,11 +58,26 @@ describe('DevServerInfoPanel (req #3727)', () => {
         expect(slotNode.contains(panel)).toBe(true);
         expect(panel.getAttribute('data-racked')).toBe('1');
         expect(screen.getByTestId('devserver-info-title').textContent).toBe('Dev Server');
-        expect(screen.getByTestId('devserver-info-port').textContent).toBe('3000');
+        // req #3748 — framed in the dev server's orange, not the family purple.
+        expect(getComputedStyle(panel).borderTopColor).toBe('rgb(255, 107, 53)');
+        // req #3748 — the port is a pill below the terminal pill, not a head badge.
+        expect(screen.queryByTestId('devserver-info-port')).toBe(null);
         expect(screen.getByTestId('navbar-dev-terminal').textContent).toBe('Terminal - 7');
+        const portPill = screen.getByTestId('navbar-dev-port');
+        expect(portPill.textContent).toBe('Port - 3000');
+        expect(portPill.getAttribute('href')).toBe('https://localhost:3000');
+        expect(portPill.getAttribute('target')).toBe('_blank');
+        expect(portPill.parentElement).toBe(screen.getByTestId('navbar-dev-terminal').parentElement);
+        expect(screen.getByTestId('navbar-dev-terminal').compareDocumentPosition(portPill)
+            & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
         expect(screen.getByTestId('navbar-dev-database').textContent).toBe('DB - darwin_dev');
-        expect(screen.getByTestId('navbar-dev-req-link').textContent).toBe('Req - 3727');
-        expect(screen.getByTestId('navbar-dev-req-title').textContent).toBe('Dev Server bar dockable');
+        // req #3748 — the requirement is one line, `id - title`, the id the link.
+        expect(screen.getByTestId('navbar-dev-req-link').textContent).toBe('3727');
+        expect(screen.getByTestId('navbar-dev-req-link').getAttribute('href')).toBe(prodRequirementUrl('3727'));
+        expect(screen.getByTestId('navbar-dev-req-title').textContent).toBe('3727 - Dev Server bar dockable');
+        // …the DB line comes last, and the port is only the head badge.
+        const body = screen.getByTestId('devserver-info-body');
+        expect(body.lastElementChild).toBe(screen.getByTestId('navbar-dev-database'));
     });
 
     it('floats once taken off the rack, and stays off on the next mount', async () => {
@@ -79,14 +96,42 @@ describe('DevServerInfoPanel (req #3727)', () => {
         expect(usePanelRackStore.getState().racked).toEqual([]);
     });
 
-    it('is one short row in the icon-only navbar', async () => {
+    it('keeps every field in the icon-only navbar (req #3739, #3748)', async () => {
         await load('development');
         usePanelRackStore.setState({ racked: [], seeded: [], slot: { node: slotNode, width: 64 } });
         renderPanel('darwin');
-        expect(screen.getByTestId('devserver-info-compact').textContent).toBe('T7PROD');
-        expect(screen.queryByTestId('navbar-dev-database')).toBe(null);
+        const compact = screen.getByTestId('devserver-info-compact');
+        expect(compact.contains(screen.getByTestId('navbar-dev-terminal'))).toBe(true);
+        expect(screen.getByTestId('navbar-dev-terminal').textContent).toBe('T7');
+        expect(screen.getByTestId('navbar-dev-database').textContent).toBe('darwin PROD');
+        expect(screen.getByTestId('navbar-dev-req-link').textContent).toBe('3727');
+        expect(screen.getByTestId('navbar-dev-req-link').getAttribute('href')).toBe(prodRequirementUrl('3727'));
+        expect(screen.getByTestId('navbar-dev-req-title').textContent).toBe('3727 - Dev Server bar dockable');
+        expect(compact.lastElementChild).toBe(screen.getByTestId('navbar-dev-database'));
+        expect(screen.getByTestId('navbar-dev-port').textContent).toBe('3000');
+        expect(screen.getByTestId('navbar-dev-terminal').nextElementSibling)
+            .toBe(screen.getByTestId('navbar-dev-port'));
         expect(screen.queryByTestId('devserver-info-title')).toBe(null);
-        expect(screen.getByTestId('devserver-info-port').textContent).toBe('3000');
+        expect(screen.queryByTestId('devserver-info-port')).toBe(null);
+    });
+
+    it('reads the id alone or the title alone, and drops the line with neither (req #3748)', async () => {
+        const racked = () => usePanelRackStore.setState({ racked: [DEV_INFO_RACK_ID],
+            seeded: [DEV_INFO_RACK_ID], slot: { node: slotNode, width: 180 } });
+        await load('development', { reqTitle: '' });
+        racked(); renderPanel();
+        expect(screen.getByTestId('navbar-dev-req-title').textContent).toBe('3727');
+        expect(screen.getByTestId('navbar-dev-req-link').textContent).toBe('3727');
+        cleanup();
+        await load('development', { reqId: '' });
+        racked(); renderPanel();
+        expect(screen.getByTestId('navbar-dev-req-title').textContent).toBe('Dev Server bar dockable');
+        expect(screen.queryByTestId('navbar-dev-req-link')).toBe(null);
+        cleanup();
+        await load('development', { reqId: '', reqTitle: '' });
+        racked(); renderPanel();
+        expect(screen.queryByTestId('navbar-dev-req-title')).toBe(null);
+        expect(screen.getByTestId('navbar-dev-database').textContent).toBe('DB - darwin_dev');
     });
 
     it('is never drawn outside a dev build, nor on mobile', async () => {

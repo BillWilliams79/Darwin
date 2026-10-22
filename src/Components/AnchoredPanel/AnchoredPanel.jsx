@@ -3,12 +3,13 @@
 // memory/anchored-collapse-pattern.md; geometry in anchoredPanelGeometry.js.
 //
 // ── THE HEAD IS THE ANCHOR ─────────────────────────────────────────────────
-// The head row is always the panel's top row: the CollapseHead (▾) — or, for a
-// `plusMinus` host, the Orchestrables box's −/+ (req #3729) — then the
+// The head row is always the panel's top row: the CollapseHead (▾) at the
+// upper left — every pop-up window's, one control (req #3741) — then the
 // host's `extras` (a count badge), then the title — left-aligned — and the
 // host's `actions`: at the far right while open; folded, right after the
 // title, with the panel's right edge pulled in so the whole package is tight
-// (user directives). Clicking ▾ never moves it: the panel is pinned at its
+// (user directives). The upper right is blank, or × where the host supports
+// closing (req #3741). Clicking ▾ never moves it: the panel is pinned at its
 // current left and top first (`dockForToggle`), so the right and bottom edges
 // do the moving, then re-docked where it is drawn (`dockAfterToggle`).
 
@@ -28,9 +29,11 @@
 // the head is dragged, the pointer is hit-tested against the navbar's drop zone
 // (`[data-panel-rack-zone]`) and the drag published to usePanelRackStore, so the
 // navbar glows in the panel's frame colour while it is over (req #3728). It
-// lands at the top, unless pointed into the stack (req #3729). Released there,
+// lands at the bottom, unless pointed into the stack (req #3744). Released there,
 // the panel is RACKED — portalled into the navbar's rack slot below its nav
-// buttons, at the navbar's width, content-sized in height, nothing to reshape.
+// buttons, at the navbar's width, nothing to reshape. Open, it is as tall as
+// its rows need and no taller, sharing a short navbar fairly with the other
+// racked panels (req #3747); folded, it is its head row.
 // Dragging a racked panel's head up or down the stack reorders it; off the
 // navbar, it floats again, docked where it was dropped. Where the reader racks it is the rack's (pure half in
 // panelRack.js, DOM half in usePanelRack.js — shared with the Orchestrables box,
@@ -43,7 +46,6 @@ import { createPortal } from 'react-dom';
 import Box from '@mui/material/Box';
 
 import CollapseHead from './CollapseHead';
-import PlusMinusToggle from './PlusMinusToggle';
 import {
     RESIZE_EDGES, dockAfterToggle, dockForToggle, dockFromMove, dockFromResize, dockedStyle, freeCorner,
     moveRect, resizeRect,
@@ -55,10 +57,14 @@ import { usePanelRack } from './usePanelRack';
 const MOVE_SLOP = 4;
 /** A double-click this soon after a move ended is the move's own release. */
 const DBLCLICK_AFTER_MOVE_MS = 500;
-/** Reshape hit zones, px: an edge's thickness and a corner's square. Small
- *  enough to stay clear of the head row's ▾ and ×, which sit 0.7em in. */
-const EDGE_PX = 5;
-const CORNER_PX = 8;
+/** Reshape hit zones, px (req #3743: "the activation area is tiny" — they were
+ *  5 px / 8 px). Below the head row the sides and bottom are wide and the
+ *  bottom corners generous; the head row's own sides, top edge and top corners
+ *  stay slim so they keep clear of the ▾ and ×, which sit 0.7em in. */
+const EDGE_PX = 10;
+const CORNER_PX = 18;
+const HEAD_EDGE_PX = 5;
+const HEAD_CORNER_PX = 8;
 
 const viewport = () => ({
     vw: document.documentElement.clientWidth || window.innerWidth,
@@ -68,13 +74,28 @@ const viewport = () => ({
 const CURSOR = { n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize',
     nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize' };
 
-function edgeZone(e) {
-    const z = { position: 'absolute', zIndex: 3, touchAction: 'none', cursor: CURSOR[e.id] };
+function edgeZone(e, headPx, frame) {
+    const z = { position: 'absolute', zIndex: 3, touchAction: 'none', cursor: CURSOR[e.id],
+        // The zone shows itself under the pointer, so the reader sees what to grab.
+        '&:hover': { background: `color-mix(in srgb, ${frame} 40%, transparent)` } };
     const corner = e.h && e.v;
-    if (e.v) Object.assign(z, { [e.v === 't' ? 'top' : 'bottom']: 0, height: corner ? CORNER_PX : EDGE_PX });
-    else Object.assign(z, { top: CORNER_PX, bottom: CORNER_PX });
-    if (e.h) Object.assign(z, { [e.h === 'l' ? 'left' : 'right']: 0, width: corner ? CORNER_PX : EDGE_PX });
-    else Object.assign(z, { left: CORNER_PX, right: CORNER_PX });
+    const top = e.v === 't';
+    if (e.v) Object.assign(z, { [top ? 'top' : 'bottom']: 0,
+        height: corner ? (top ? HEAD_CORNER_PX : CORNER_PX) : (top ? HEAD_EDGE_PX : EDGE_PX) });
+    else Object.assign(z, { top: HEAD_CORNER_PX, bottom: CORNER_PX });
+    if (e.h) Object.assign(z, { [e.h === 'l' ? 'left' : 'right']: 0,
+        width: corner ? (top ? HEAD_CORNER_PX : CORNER_PX) : EDGE_PX });
+    else Object.assign(z, { left: top ? HEAD_CORNER_PX : CORNER_PX, right: top ? HEAD_CORNER_PX : CORNER_PX });
+    // A side edge is wide below the head row and slim beside it (clip-path
+    // clips hit-testing too).
+    if (e.h && !e.v) {
+        const l = e.h === 'l';
+        const a = HEAD_EDGE_PX;
+        const h = Math.max(headPx - HEAD_CORNER_PX, 0);
+        z.clipPath = l
+            ? `polygon(0 0, ${a}px 0, ${a}px ${h}px, ${EDGE_PX}px ${h}px, ${EDGE_PX}px 100%, 0 100%)`
+            : `polygon(${EDGE_PX - a}px 0, ${EDGE_PX}px 0, ${EDGE_PX}px 100%, 0 100%, 0 ${h}px, ${EDGE_PX - a}px ${h}px)`;
+    }
     return z;
 }
 
@@ -87,7 +108,8 @@ function edgeZone(e) {
  * @param {string} props.name            the CollapseHead's name
  * @param {string} props.testid          root testid; parts are suffixed
  * @param {React.ReactNode} [props.extras]   left-aligned after the head
- * @param {React.ReactNode} [props.actions]  right-aligned
+ * @param {React.ReactNode} [props.actions]  right-aligned: blank, or × where
+ *   the host supports closing (req #3741)
  * @param {function} props.children      ({ shapedWidth }) → body; shapedWidth
  *   is the reader's width (live while reshaping), null when content-sized
  * @param {{minW, minH, autoMaxW, headPx}} props.limits
@@ -99,12 +121,10 @@ function edgeZone(e) {
  * @param {number} [props.zIndex]
  * @param {string} [props.rackId]        names the panel in the navbar rack;
  *   absent = it never racks (req #3720)
- * @param {boolean} [props.plusMinus]    the fold control is the Orchestrables
- *   box's −/+ (PlusMinusToggle) instead of the ▾ (req #3729)
  */
 export default function AnchoredPanel({
     dock, onDockChange, open, onToggle, name, testid, extras, actions, children,
-    limits, fontPx = 12, border = 2, colors, sx, zIndex = 1250, rackId, plusMinus = false,
+    limits, fontPx = 12, border = 2, colors, sx, zIndex = 1250, rackId,
 }) {
     const boxRef = useRef(null);
     const bodyRef = useRef(null);
@@ -256,7 +276,8 @@ export default function AnchoredPanel({
     const panel = (
         <Box ref={boxRef} data-testid={testid}
              data-dock={`${dock.h}${dock.x},${dock.v}${dock.y}`}
-             {...(rackId ? { 'data-rack-id': rackId, 'data-racked': inRack ? '1' : '0' } : {})}
+             {...(rackId ? { 'data-rack-id': rackId, 'data-racked': inRack ? '1' : '0',
+                 'data-rack-open': inRack && open ? '1' : '0' } : {})}
              style={{ fontSize: `${fontPx}px`, ...placement }}
              sx={{ position: racking ? 'relative' : 'fixed', zIndex,
                     minHeight: `${limits.headPx}px`,
@@ -267,10 +288,12 @@ export default function AnchoredPanel({
                     overflow: 'hidden', boxSizing: 'border-box', ...sx,
                     // Over the navbar, see the drop zone through it.
                     ...(overRack && { opacity: 0.75 }),
-                    // In the stack: square, flat, never squeezed by its
-                    // neighbours (the rack scrolls instead).
+                    // In the stack: square, flat. The rack's row sizes it: open,
+                    // the height its rows need and no more (req #3747), giving
+                    // way fairly when the rack is short — its body scrolls.
+                    // Folded, it is its head.
                     ...(racking && { order: rackOrder(rackPos),
-                        flexShrink: 0, borderRadius: 0, boxShadow: 'none' }) }}>
+                        borderRadius: 0, boxShadow: 'none' }) }}>
             <Box data-testid={`${testid}-header`}
                  title={inRack ? 'Drag to reorder · drag off the navbar to float it'
                      : `Drag to move · double-click to put back${rackId ? ' · drop on the navbar to rack it' : ''}`}
@@ -278,15 +301,12 @@ export default function AnchoredPanel({
                  onDoubleClick={onHeadDoubleClick}
                  sx={{ display: 'flex', alignItems: 'center', gap: '0.6em',
                         px: '0.7em', py: '0.3em', flexShrink: 0, minWidth: 0,
+                        ...(open && { borderBottom: `1px solid ${colors.line}` }),
                         cursor: moving ? 'grabbing' : 'move', touchAction: 'none' }}>
-                {plusMinus
-                    ? <PlusMinusToggle open={open} onToggle={toggle} label={name}
-                                       title={`${open ? 'Collapse' : 'Expand'} ${name.toLowerCase()}`}
-                                       testid={`${testid}-toggle`} />
-                    : <CollapseHead open={open} onToggle={toggle} name={name}
-                                    testid={`${testid}-toggle`}
-                                    color={colors.head} hoverColor={colors.headHover}
-                                    fontSize="0.9em" showName={false} />}
+                <CollapseHead open={open} onToggle={toggle} name={name}
+                              testid={`${testid}-toggle`}
+                              color={colors.head} hoverColor={colors.headHover}
+                              fontSize="0.9em" showName={false} />
                 {extras}
                 {/* The title, in the head's own small caps. Not a button:
                     pressing it starts a move, like the rest of the row. */}
@@ -311,11 +331,15 @@ export default function AnchoredPanel({
                  aria-hidden={open ? undefined : 'true'}
                  sx={{ overflowY: 'auto', overscrollBehavior: 'contain',
                         // A classic scrollbar must not change the open
-                        // width as rows come and go.
-                        scrollbarGutter: 'stable',
+                        // width as rows come and go. Racked, the navbar sets
+                        // the width, so nothing to hold — and a reserved gutter
+                        // there is only a blank strip inside the right frame
+                        // (req #3748).
+                        scrollbarGutter: inRack ? 'auto' : 'stable',
                         minHeight: 0, flex: '1 1 auto',
-                        borderTop: `1px solid ${colors.line}`,
                         py: '0.2em',
+                        // Its scrollbar sits inside the right reshape zone, not under it.
+                        ...(!inRack && { mr: `${EDGE_PX}px` }),
                         ...(!open && { display: 'none' }) }}>
                 {children({ shapedWidth })}
             </Box>
@@ -336,7 +360,7 @@ export default function AnchoredPanel({
                 <Box key={e.id} data-testid={`${testid}-edge-${e.id}`}
                      title="Drag to reshape"
                      {...gesture('resize', { h: e.h, v: e.v })}
-                     sx={edgeZone(e)} />
+                     sx={edgeZone(e, limits.headPx, colors.frame)} />
             ))}
         </Box>
     );

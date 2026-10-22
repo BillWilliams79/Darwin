@@ -6,12 +6,16 @@
 //                 Space lifts only when the item itself has focus.
 // useDarwinDropZone  a list that takes items (a card, a tab strip, a card
 //                 grid). Wraps useDroppable.
+// useDarwinDraggable  an item that lifts but is NOT a position among its
+//                 siblings — it only ever leaves its list (an Orchestrables row
+//                 dropped onto a plan step, req #3665). Wraps useDraggable; the
+//                 source stays put while the overlay travels.
 //
 // Both register `{ kind, type, containerId, policy, sortMode, row }` as data —
 // the vocabulary dropPolicy.js's collision rule reads.
 
 import { useCallback, useMemo } from 'react';
-import { useDroppable } from '@dnd-kit/core';
+import { useDraggable, useDroppable } from '@dnd-kit/core';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { usePressStore } from './pressStore';
@@ -77,4 +81,25 @@ export function useDarwinDropZone({ id, policy, sortMode, row, disabled = false 
         kind: 'container', containerId: id, policy, sortMode, row,
     }), [id, policy, sortMode, row]);
     return useDroppable({ id, data, disabled });
+}
+
+/**
+ * @param {Object} p
+ * @param {string} p.id      unique across the whole surface ('unseated:42')
+ * @param {string} p.type    draggable type
+ * @param {any}    [p.row]   the item's record
+ * @param {boolean}[p.disabled]
+ */
+export function useDarwinDraggable({ id, type, row, disabled = false }) {
+    const data = useMemo(() => ({ kind: 'item', type, row }), [type, row]);
+    const draggable = useDraggable({ id, data, disabled });
+    const pressing = usePressStore(s => s.pressedId === id);
+    const { setNodeRef, setActivatorNodeRef } = draggable;
+
+    const ref = useCallback((node) => {
+        setNodeRef(node);
+        setActivatorNodeRef(node);
+    }, [setNodeRef, setActivatorNodeRef]);
+
+    return { ...draggable, ref, style: pressing ? PRESS_CUE : undefined, pressing };
 }

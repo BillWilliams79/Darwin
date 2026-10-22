@@ -13,11 +13,13 @@
 // default the panel is exactly as big as its rows, on both axes.
 //
 // ── THE SAME BOX ───────────────────────────────────────────────────────────
-// Same dark panel, same strong purple outline, same row anatomy. A row reads
-// (user directive): machine colour bar · port (the link) · terminal (T10) ·
-// the requirement's title, in fixed columns so they line up row to row. No
-// bug # (req #3689) — the title already says which requirement it is. At the
-// smallest, the title goes too. Which rows appear, and which link, is
+// Same dark panel, same strong purple outline. A row reads (user directive):
+// terminal and port as ONE two-sided pill (req #3748, the Sessions list's
+// Model/Effort pill) · the requirement's title, in fixed columns so they line
+// up row to row. No machine colour bar (req #3748): the rows are this
+// machine's, so every bar was the same colour and said nothing. No bug #
+// (req #3689) — the title already says which requirement it is. At the
+// smallest, the title goes too; the pill never does. Which rows appear, and which link, is
 // devServerDashboardRows' rule (see devServerDashboardModel.js). The server
 // this page is served from is the highlighted row.
 //
@@ -32,7 +34,6 @@
 import { useContext, useMemo } from 'react';
 
 import Box from '@mui/material/Box';
-import { lighten } from '@mui/material/styles';
 import useMediaQuery from '@mui/material/useMediaQuery';
 
 import AnchoredPanel from '../Components/AnchoredPanel/AnchoredPanel';
@@ -43,10 +44,10 @@ import { validDock } from '../Components/AnchoredPanel/anchoredPanelGeometry';
 import AuthContext from '../Context/AuthContext';
 import { useDevServerRequirementTitles, useDevServerSessionTerminals, useDevServers, useMachines } from '../hooks/useDataQueries';
 import { useDevServerDashboardStore } from '../stores/useDevServerDashboardStore';
-import { machineChipProps } from '../SwarmView/machineChipStyles';
 import { PLAN_VIZ_PALETTE as P } from '../SwarmView/pipelines/pipelinePlanLayout';
 import {
-    DASH_AUTO_MAX_W, DASH_HOME, DASH_MIN_H, DASH_MIN_W, DASH_RACK_ID, DASH_TINY_W, DASH_WIDE_W,
+    DASH_AUTO_MAX_W, DASH_HOME, DASH_MIN_H, DASH_MIN_W, DASH_PILL_WIDE_W, DASH_RACK_ID,
+    DASH_STACK_W, DASH_TINY_W,
     devServerDashboardRows, withRequirementTitles, withTerminalLinks,
 } from './devServerDashboardModel';
 
@@ -55,10 +56,67 @@ const FONT_PX = INFO_PANEL_FONT_PX;
 const LIMITS = { minW: DASH_MIN_W, minH: DASH_MIN_H, autoMaxW: DASH_AUTO_MAX_W, headPx: INFO_PANEL_HEAD_PX };
 const BADGE_EM = INFO_PANEL_BADGE_EM;
 
-/** The bar's edge: a same-hue lightened shade of its fill (RequirementRow's
- *  rule, req #2752), as the Orchestration Ready box draws it. */
-function barEdge(color) {
-    try { return lighten(color, 0.45); } catch { return 'rgba(128,128,128,0.5)'; }
+const HALF_SX = {
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    // Content-box, so a half's minimum width is its TEXT's and the padding
+    // adds to it: the halves then line up row to row.
+    whiteSpace: 'nowrap',
+};
+const HALF_HOVER = { '&:hover': { bgcolor: 'rgba(255,255,255,0.14)' } };
+
+/**
+ * Terminal and port as ONE pill in two halves (req #3748) — the Sessions
+ * list's Model/Effort pill (ModelEffortPill), outlined for this dark panel.
+ * BOTH halves work: the terminal half focuses its iTerm2 window (req #3668)
+ * and the port half is the row's own link, so it opens the dev server.
+ *
+ * `size` — 'wide' spells "Term 2" (content-sized, or shaped wide enough to
+ * show it beside the title); 'short' says "T2" (shaped narrower); 'stacked'
+ * puts the halves one over the other at a smaller size, for widths too narrow
+ * for them side by side — the icon-only navbar rack among them. Each half
+ * keeps a fixed minimum width so the pills line up row to row; an absent
+ * terminal is a dim dash rather than an empty half.
+ */
+function TerminalPortPill({ r, size }) {
+    const stacked = size === 'stacked';
+    const wide = size === 'wide';
+    const pad = stacked ? '0.25em' : '0.5em';
+    const termText = r.terminal != null ? `${wide ? 'Term ' : 'T'}${r.terminal}` : '—';
+    const focus = (e) => {
+        e.preventDefault(); e.stopPropagation();
+        window.location.assign(r.terminalHref);
+    };
+    return (
+        <Box component="span" data-testid={`devserver-dashboard-pill-${r.key}`}
+             data-size={size}
+             sx={{ display: 'inline-flex', flexDirection: stacked ? 'column' : 'row',
+                    alignItems: 'stretch', flexShrink: 0,
+                    border: `1px solid ${P.dim}`, borderRadius: stacked ? '0.6em' : '999px',
+                    overflow: 'hidden', lineHeight: 1.35, ...(stacked && { fontSize: '0.8em' }) }}>
+            <Box component="span" data-testid={`devserver-dashboard-term-${r.key}`}
+                 {...(r.terminalHref ? {
+                     role: 'link', tabIndex: 0, title: r.terminalTitle,
+                     'data-terminal-href': r.terminalHref,
+                     // Inside the row's own <a>, so a click here
+                     // must not also open the port.
+                     onClick: focus,
+                     onKeyDown: (e) => { if (e.key === 'Enter') focus(e); },
+                 } : {})}
+                 sx={{ ...HALF_SX, px: pad, minWidth: stacked ? 0 : (wide ? '7ch' : '3ch'),
+                        color: r.terminalHref ? P.accent : P.dim,
+                        ...(r.terminalHref && { cursor: 'pointer', ...HALF_HOVER }) }}>
+                {termText}
+            </Box>
+            {/* The seam: a hairline, not a gap — a gap reads as two pills. */}
+            <Box component="span" sx={{ [stacked ? 'height' : 'width']: '1px', flexShrink: 0,
+                                         bgcolor: P.dim }} />
+            <Box component="span" data-testid={`devserver-dashboard-port-${r.key}`}
+                 sx={{ ...HALF_SX, px: pad, minWidth: stacked ? 0 : '4ch',
+                        color: P.req, fontWeight: 700, ...(r.href && HALF_HOVER) }}>
+                {r.port}
+            </Box>
+        </Box>
+    );
 }
 
 export default function DevServerDashboard() {
@@ -141,11 +199,16 @@ export default function DevServerDashboard() {
                            </Box>
                        }>
             {({ shapedWidth }) => {
-                // At the smallest, the title goes — bar, port and terminal.
+                // At the smallest, the title goes — the pill alone.
                 // Content-sized (null) is never cut.
                 const tiny = shapedWidth != null && shapedWidth < DASH_TINY_W;
-                // Shaped wide, "T4" spells out as "Term 4" (req #3668).
-                const wide = shapedWidth != null && shapedWidth >= DASH_WIDE_W;
+                // The pill (req #3748): "Term 4" content-sized — the panel
+                // then sizes to show both halves in full — or shaped wide;
+                // "T4" shaped narrower; stacked where even that would not fit
+                // side by side (the icon-only navbar rack among them).
+                const pillSize = (shapedWidth == null || shapedWidth >= DASH_PILL_WIDE_W) ? 'wide'
+                    : (shapedWidth < DASH_STACK_W ? 'stacked' : 'short');
+                const stacked = pillSize === 'stacked';
                 return (
                     <>
                         {failed && (
@@ -160,8 +223,6 @@ export default function DevServerDashboard() {
                             </Box>
                         )}
                         {rows.map((r) => {
-                            const barColor = r.machineId != null
-                                ? machineChipProps(r.machineId).sx.bgcolor : null;
                             return (
                                 <Box key={r.key}
                                      component={r.href ? 'a' : 'div'}
@@ -169,59 +230,21 @@ export default function DevServerDashboard() {
                                      title={r.title}
                                      data-testid={`devserver-dashboard-item-${r.key}`}
                                      data-current={r.current ? '1' : '0'}
-                                     sx={{ display: 'flex', alignItems: 'baseline', gap: '0.6em',
+                                     sx={{ display: 'flex', alignItems: 'baseline',
+                                            gap: stacked ? '0.3em' : '0.6em',
                                             // A little trailing space, nothing more:
                                             // it is the panel's only slack when it
                                             // sizes to its rows. Behind the title it
                                             // is cut 66% (req #3718).
-                                            pl: '0.7em', pr: tiny ? '1em' : '0.34em', py: '0.15em',
+                                            pl: stacked ? '0.3em' : '0.7em',
+                                            pr: stacked ? '0.15em' : (tiny ? '1em' : '0.34em'),
+                                            py: '0.15em',
                                             color: 'inherit', textDecoration: 'none',
                                             cursor: r.href ? 'pointer' : 'default',
                                             opacity: r.href ? 1 : 0.6,
                                             background: r.current ? '#16233a' : 'transparent',
                                             '&:hover': { background: '#16233a' } }}>
-                                    <Box component="span"
-                                         data-testid={`devserver-dashboard-bar-${r.key}`}
-                                         sx={{ width: '0.45em', alignSelf: 'stretch',
-                                                minHeight: '1.1em', flexShrink: 0,
-                                                borderRadius: '0.25em', boxSizing: 'border-box',
-                                                bgcolor: barColor || 'transparent',
-                                                ...(barColor && {
-                                                    border: '0.1em solid',
-                                                    borderColor: barEdge(barColor),
-                                                }) }} />
-                                    {/* Fixed columns, so ports and terminals
-                                        line up row to row; an absent one
-                                        keeps its slot. */}
-                                    <Box component="span"
-                                         sx={{ color: P.req, fontWeight: 700, flexShrink: 0,
-                                                minWidth: '4ch' }}>
-                                        {r.port}
-                                    </Box>
-                                    <Box component="span" data-testid={`devserver-dashboard-term-${r.key}`}
-                                         {...(r.terminalHref ? {
-                                             role: 'link', tabIndex: 0, title: r.terminalTitle,
-                                             'data-terminal-href': r.terminalHref,
-                                             // Inside the row's own <a>, so a click here
-                                             // must not also open the port.
-                                             onClick: (e) => {
-                                                 e.preventDefault(); e.stopPropagation();
-                                                 window.location.assign(r.terminalHref);
-                                             },
-                                             onKeyDown: (e) => {
-                                                 if (e.key !== 'Enter') return;
-                                                 e.preventDefault(); e.stopPropagation();
-                                                 window.location.assign(r.terminalHref);
-                                             },
-                                         } : {})}
-                                         sx={{ color: r.terminalHref ? P.accent : P.dim, flexShrink: 0,
-                                                minWidth: wide ? '7ch' : '3ch',
-                                                ...(r.terminalHref && {
-                                                    cursor: 'pointer',
-                                                    '&:hover': { textDecoration: 'underline' },
-                                                }) }}>
-                                        {r.terminal != null ? `${wide ? 'Term ' : 'T'}${r.terminal}` : ''}
-                                    </Box>
+                                    <TerminalPortPill r={r} size={pillSize} />
                                     {!tiny && (
                                         // The gap before the title is halved
                                         // (req #3718): 0.6em less 0.3em.

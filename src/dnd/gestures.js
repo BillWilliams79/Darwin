@@ -29,11 +29,12 @@ export function useHoverSwitch({ hovering, onSwitch, delay = TAB_HOVER_SWITCH_MS
 }
 
 /**
- * Long press that fires WHILE STILL HELD (the plan canvas's gesture, req
- * #3580): held within PRESS_SLOP_PX for LONG_PRESS_MS. Pointer events, so one
- * code path serves mouse, pen and touch. If the hold has already lifted the
- * item into a drag (touch lifts at LIFT_DELAY_MS, before this fires), the drag
- * is cancelled first — the press becomes an edit, not a drop.
+ * Long press on an item that can also LIFT: held within PRESS_SLOP_PX for
+ * LONG_PRESS_MS and then RELEASED there (`pressTimeline.js` says why it waits
+ * for the release). Pointer events, so one code path serves mouse, pen and
+ * touch. The hold has already lifted the item into a drag by then (it lifts at
+ * LIFT_DELAY_MS), so the drag is cancelled first — the press becomes an edit,
+ * not a drop. Moving past the slop at any point makes it a drag for good.
  *
  * Returns handlers to spread onto the element; `mergeHandlers` combines them
  * with dnd-kit's listeners.
@@ -44,32 +45,65 @@ export function useLongPress(onLongPress, { enabled = true, ms = LONG_PRESS_MS, 
     callback.current = onLongPress;
 
     const clear = useCallback(() => {
-        if (press.current) clearTimeout(press.current.timer);
+        const p = press.current;
         press.current = null;
+        if (!p) return;
+        clearTimeout(p.timer);
+        p.detach();
     }, []);
 
     useEffect(() => clear, [clear]);
 
+    // The press is followed at the DOCUMENT, in capture: once the item lifts,
+    // the pointer is over the drag preview, not the item, and a mouse release
+    // never reaches the item's own handlers. Capture also runs ahead of
+    // dnd-kit's document listeners, so the drag is cancelled before it drops.
     const onPointerDown = useCallback((event) => {
         clear();
         if (!enabled || !event.isPrimary || event.button !== 0) return;
-        const { clientX: x, clientY: y } = event;
-        press.current = {
-            x, y,
-            timer: setTimeout(() => {
-                press.current = null;
-                cancelActiveDrag(event.target?.ownerDocument);
-                callback.current?.();
-            }, ms),
+        const doc = event.target?.ownerDocument || document;
+        const id = event.pointerId;
+        const p = { x: event.clientX, y: event.clientY, held: false };
+        const away = (e) => Math.hypot(e.clientX - p.x, e.clientY - p.y) > slop;
+        const onMove = (e) => { if (e.pointerId === id && away(e)) clear(); };
+        // Released where it was pressed, after the long press: the edit. A
+        // drag carried off and brought back moved past the slop — a drop.
+        const onUp = (e) => {
+            if (e.pointerId !== id) return;
+            const fire = p.held && !away(e);
+            clear();
+            if (!fire) return;
+            // A finger's release would follow as a TAP — compatibility mouse
+            // events and a click that take the focus straight back out of the
+            // editor this opens. The touch sensor swallows its own touchend,
+            // but cancelling the drag below detaches it first, so it is
+            // swallowed here.
+            if (e.pointerType === 'touch') {
+                const done = () => {
+                    doc.removeEventListener('touchend', swallow, true);
+                    doc.removeEventListener('touchcancel', done, true);
+                };
+                const swallow = (te) => { if (te.cancelable) te.preventDefault(); done(); };
+                doc.addEventListener('touchend', swallow, true);
+                doc.addEventListener('touchcancel', done, true);
+            }
+            cancelActiveDrag(doc);
+            callback.current?.();
         };
-    }, [clear, enabled, ms]);
+        const onCancel = (e) => { if (e.pointerId === id) clear(); };
+        doc.addEventListener('pointermove', onMove, true);
+        doc.addEventListener('pointerup', onUp, true);
+        doc.addEventListener('pointercancel', onCancel, true);
+        p.detach = () => {
+            doc.removeEventListener('pointermove', onMove, true);
+            doc.removeEventListener('pointerup', onUp, true);
+            doc.removeEventListener('pointercancel', onCancel, true);
+        };
+        p.timer = setTimeout(() => { p.held = true; }, ms);
+        press.current = p;
+    }, [clear, enabled, ms, slop]);
 
-    const onPointerMove = useCallback((event) => {
-        const p = press.current;
-        if (p && Math.hypot(event.clientX - p.x, event.clientY - p.y) > slop) clear();
-    }, [clear, slop]);
-
-    return { onPointerDown, onPointerMove, onPointerUp: clear, onPointerCancel: clear };
+    return { onPointerDown };
 }
 
 /** Combine several `{ onX: fn }` handler maps; every handler for an event runs. */

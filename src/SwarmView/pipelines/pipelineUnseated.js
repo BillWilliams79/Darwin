@@ -9,7 +9,7 @@
 // What lives here is every DECISION that gesture makes — which rows the box
 // lists, which step a point lands on, whether that step may take new work, and
 // where a step's card sits on screen — so a test can reach them. The DOM side
-// (native HTML5 drag, the highlight overlay, the write) is in
+// (the dnd-kit drag, the highlight overlay, the write) is in
 // `PipelinePlanVisualizer.jsx` and `UnorchestratedReqBox.jsx`.
 //
 // ── "NOT ORCHESTRATED" IS THE JUNCTION, NOTHING ELSE ───────────────────────
@@ -59,7 +59,7 @@ export function unseatedBoxFontPx(k) {
 }
 
 /** The box's narrowest width, in em of its own type: room for the whole title
- *  bar — the count badge, "Orchestrables" and the −/+ — and an id plus a slice
+ *  bar — the ▾, the count badge and "Orchestrables" — and an id plus a slice
  *  of title. Under the base card's own ~21.4em (req #3693's narrower requirement
  *  type), so at Step Width 4 and up it binds only once the type is held at its
  *  9px floor; a Step Width 3 card (0.75x, ~16.4em, req #3648) is narrower than the title bar itself, so there
@@ -75,7 +75,7 @@ export const UNSEATED_MIN_WIDTH_EM = 18;
  *
  * FLOORED SO ITS TITLE BAR FITS. Zoomed out, a card is a few dozen px wide —
  * plan 7 opens at k≈0.04–0.08, a 21–31px card — and a box that narrow clips its
- * own title and −/+ toggle away. So it never goes below
+ * own ▾ and title away. So it never goes below
  * `UNSEATED_MIN_WIDTH_EM` of its own type, which is narrower than every rung's
  * card at any zoom where the type tracks the ids: the box is exactly the card
  * everywhere except zoomed out past the type's 9px floor (162px there). The
@@ -168,9 +168,14 @@ export function unseatedResizedBox(widthPx, fontPx, size) {
     };
 }
 
-/** The `dataTransfer` type a box row carries. Custom, so a text or file drag
- *  from anywhere else on the page is never mistaken for a requirement. */
-export const UNSEATED_REQ_MIME = 'application/x-darwin-requirement';
+/** The dnd-kit draggable type a box row carries (req #3665), so the canvas's
+ *  collision detection answers for a box row and nothing else. */
+export const UNSEATED_DRAG_TYPE = 'unseated-req';
+
+/** A box row's dnd-kit id — unique on the page, whatever else drags there. */
+export function unseatedDragId(reqId) {
+    return `unseated:${reqId}`;
+}
 
 /**
  * Swarm-ready requirements with no step seat, ascending by id.
