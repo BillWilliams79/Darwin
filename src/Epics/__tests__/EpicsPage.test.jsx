@@ -260,6 +260,36 @@ describe('EpicsPage2 edit', () => {
     });
 });
 
+// req #3742 — the page's own `?id=` link opens the epic's editor, and a save
+// refreshes every plan's composed read (the plan canvas opens the same editor
+// over itself, so nothing navigates back to a plan from here).
+describe('EpicsPage2 ?id= deep link (req #3742)', () => {
+    const cancel = () => click([...document.body.querySelectorAll('button')]
+        .find((b) => b.textContent === 'Cancel'));
+
+    it('opens the epic\'s editor', () => {
+        mount(['/swarm/epics?id=4']);
+        expect(node('epic2-edit-dialog')).not.toBeNull();
+        expect(node('epic2-title-input').value).toBe('Core rebuild');
+    });
+
+    it('Save writes, and refreshes every plan\'s composed read', async () => {
+        mount(['/swarm/epics?id=4']);
+        type(node('epic2-title-input'), 'Renamed');
+        click(node('epic2-save'));
+        await flush();
+        expect(restCalls[0].body[0]).toMatchObject({ id: 4, title: 'Renamed' });
+        expect(queryClient.invalidateQueries)
+            .toHaveBeenCalledWith({ queryKey: ['pipeline_compose'] });
+    });
+
+    it('closes onto the grid — it navigates nowhere', () => {
+        mount(['/swarm/epics?id=4']);
+        cancel();
+        expect(navigations).toEqual([]);
+    });
+});
+
 describe('EpicsPage2 pause toggle', () => {
     it('pauses an active epic with a one-field PUT', async () => {
         mount();

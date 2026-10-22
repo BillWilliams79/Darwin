@@ -141,6 +141,9 @@ export const mapCoordinateKeys = {
 // way `mapCoordinateKeys.byRun` is one per run rather than one per (creator,
 // run).
 export const pipelineComposeKeys = {
+    // Every plan's composed read — the prefix the editors invalidate after a
+    // step or epic write (req #3742), whichever plan it was opened from.
+    all: ['pipeline_compose'],
     byId: (pipelineId) => ['pipeline_compose', { id: pipelineId }],
 };
 

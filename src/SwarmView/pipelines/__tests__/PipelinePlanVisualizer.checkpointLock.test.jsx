@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 //
-// Req #3649 — the plan visualizer's two new title-line buttons (the checkpoint,
-// the padlock) and the epic chip's padlock write the right stepsApi/epicsApi
-// call, and a LOCKED row refuses authoring before any write. jsdom has no
-// canvas, so react-konva is stubbed: a Rect that carries a `name` is rendered
-// as a real button whose click fires the Rect's `onActivate`. The step card's
-// two buttons are HTML since req #3673 and render as themselves.
+// Req #3649 — the step card's checkpoint button and the epic chip's padlock
+// write the right stepsApi/epicsApi call, and a LOCKED row refuses authoring
+// before any write. Req #3742 removed the step card's own padlock: a locked
+// step's card is drawn with a RED PERIMETER instead. jsdom has no canvas, so
+// react-konva is stubbed: a Rect that carries a `name` is rendered as a real
+// button (publishing its stroke) whose click fires the Rect's `onActivate`. The
+// checkpoint is HTML since req #3673 and renders as itself.
 
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { createRoot } from 'react-dom/client';
@@ -18,8 +19,9 @@ vi.mock('react-konva', () => {
     return {
         Stage: ({ children }) => <div><canvas data-testid="stage-canvas" />{children}</div>,
         Layer: Stub, Group: Stub,
-        Rect: ({ name, onActivate }) => (name
-            ? <button type="button" data-testid={name} onClick={() => onActivate?.()} />
+        Rect: ({ name, onActivate, stroke, strokeWidth }) => (name
+            ? <button type="button" data-testid={name} data-stroke={stroke}
+                      data-stroke-width={strokeWidth} onClick={() => onActivate?.()} />
             : null),
         Line: () => null, Text: () => null, Path: () => null, Circle: () => null,
         Shape: () => null,
@@ -48,7 +50,7 @@ vi.mock('../../../stores/useSnackBarStore', () => ({
 
 import { composedFixture } from './pipelineComposedFixture';
 import { adaptComposedPipeline, buildPlanModel } from '../pipelineAdapter';
-import { computePlanLayout } from '../pipelinePlanLayout';
+import { computePlanLayout, PLAN_VIZ_PALETTE, CARD_LOCKED_FRAME_W } from '../pipelinePlanLayout';
 import PipelinePlanVisualizer from '../PipelinePlanVisualizer';
 import AppContext from '../../../Context/AppContext';
 import AuthContext from '../../../Context/AuthContext';
@@ -129,12 +131,13 @@ const click = (testId) => {
 };
 const flush = () => act(async () => { await Promise.resolve(); await Promise.resolve(); });
 
-describe('the step card\'s checkpoint and padlock (req #3649, #3673)', () => {
-    it('draws both buttons on every card and the flag writes checkpoint=0 then 1', async () => {
+describe('the step card\'s checkpoint, and its lock as a red perimeter (req #3649, #3673, #3742)', () => {
+    it('draws the checkpoint on every card and no padlock; the flag writes checkpoint=0', async () => {
         render(payloadFor());
         expect(document.querySelector('[data-testid="pipeline-viz-checkpoint-10"]')).not.toBeNull();
-        expect(document.querySelector('[data-testid="pipeline-viz-lock-10"]')).not.toBeNull();
         expect(document.querySelector('[data-testid="pipeline-viz-checkpoint-11"]')).not.toBeNull();
+        // req #3742 — "remove the lock button from the title row".
+        expect(document.querySelector('[data-testid^="pipeline-viz-lock-"]')).toBeNull();
         click('pipeline-viz-checkpoint-10');
         await flush();
         expect(updateStep).toHaveBeenCalledWith('http://test.local/darwin', 'tok', 10, { checkpoint: 0 });
@@ -147,21 +150,6 @@ describe('the step card\'s checkpoint and padlock (req #3649, #3673)', () => {
         expect(updateStep).toHaveBeenCalledWith('http://test.local/darwin', 'tok', 10, { checkpoint: 1 });
     });
 
-    it('the padlock writes locked=1 on an open step and locked=0 on a locked one', async () => {
-        render(payloadFor());
-        click('pipeline-viz-lock-10');
-        await flush();
-        expect(updateStep).toHaveBeenCalledWith('http://test.local/darwin', 'tok', 10, { locked: 1 });
-        act(() => { root.unmount(); });
-        root = null;
-        document.body.innerHTML = '';
-        updateStep.mockClear();
-        render(payloadFor({ stepFlags: { locked: 1 } }));
-        click('pipeline-viz-lock-10');
-        await flush();
-        expect(updateStep).toHaveBeenCalledWith('http://test.local/darwin', 'tok', 10, { locked: 0 });
-    });
-
     it('a step under a LOCKED epic refuses the flag and names the epic, writing nothing', async () => {
         const plan = render(payloadFor({ epicLocked: 1 }));
         const row = plan.rows.find((r) => r.id === 10);
@@ -171,29 +159,17 @@ describe('the step card\'s checkpoint and padlock (req #3649, #3673)', () => {
         await flush();
         expect(updateStep).not.toHaveBeenCalled();
         expect(showError).toHaveBeenCalledWith(expect.stringMatching(/locked by its epic/));
-        // ...and its own padlock cannot lift an epic's lock either.
-        click('pipeline-viz-lock-10');
-        await flush();
-        expect(updateStep).not.toHaveBeenCalled();
     });
 
-    it('draws the state as a picture: barrier down / padlock shut when on, raised / open when off (req #3673)', () => {
-        render(payloadFor({ stepFlags: { locked: 1 } }));
+    it('draws the checkpoint as a picture: barrier down when on, raised when off (req #3673)', () => {
+        render(payloadFor());
         const btn = (id) => document.querySelector(`[data-testid="${id}"]`);
-        // Step 10: checkpoint on, locked. Step 11: checkpoint on, unlocked.
         expect(btn('pipeline-viz-checkpoint-10').getAttribute('data-on')).toBe('1');
         expect(btn('pipeline-viz-checkpoint-10').querySelector('[data-arm]')
             .getAttribute('data-arm')).toBe('down');
-        expect(btn('pipeline-viz-lock-10').querySelector('[data-lock]')
-            .getAttribute('data-lock')).toBe('closed');
-        expect(btn('pipeline-viz-lock-11').getAttribute('data-on')).toBe('0');
-        expect(btn('pipeline-viz-lock-11').querySelector('[data-lock]')
-            .getAttribute('data-lock')).toBe('open');
         // The hover title says what the state means and what a click does.
         expect(btn('pipeline-viz-checkpoint-10').getAttribute('title'))
             .toMatch(/^Checkpoint ON — the steps after this one wait/);
-        expect(btn('pipeline-viz-lock-10').getAttribute('title')).toMatch(/^Locked —.*unlock/);
-        expect(btn('pipeline-viz-lock-11').getAttribute('title')).toMatch(/^Unlocked — click to lock/);
         act(() => { root.unmount(); });
         root = null;
         document.body.innerHTML = '';
@@ -202,16 +178,39 @@ describe('the step card\'s checkpoint and padlock (req #3649, #3673)', () => {
             .getAttribute('data-arm')).toBe('up');
         expect(btn('pipeline-viz-checkpoint-10').getAttribute('title'))
             .toMatch(/^Checkpoint OFF — the steps after this one may start.*Locked by its epic/);
-        // A lock held by the epic says so, and its border is dashed.
-        expect(btn('pipeline-viz-lock-10').getAttribute('title')).toMatch(/^Locked by its epic/);
-        expect(btn('pipeline-viz-lock-10').style.borderStyle).toBe('dashed');
     });
 
-    it('a locked step draws a closed padlock and takes no requirement drop (layout)', () => {
+    // req #3742 — "a locked step has a red perimeter".
+    const lockedFrames = () => [...document.querySelectorAll('[data-testid="locked-frame"]')];
+
+    it('a locked step\'s card has a red perimeter; an open one does not', () => {
+        render(payloadFor({ stepFlags: { locked: 1 } }));
+        const frames = lockedFrames();
+        expect(frames).toHaveLength(1);
+        expect(frames[0].getAttribute('data-stroke')).toBe(PLAN_VIZ_PALETTE.lockedFrame);
+        expect(Number(frames[0].getAttribute('data-stroke-width'))).toBe(CARD_LOCKED_FRAME_W);
+        act(() => { root.unmount(); });
+        root = null;
+        document.body.innerHTML = '';
+        render(payloadFor());
+        expect(lockedFrames()).toHaveLength(0);
+    });
+
+    it('a lock held by the epic or the plan reddens every card under it', () => {
+        render(payloadFor({ epicLocked: 1 }));
+        expect(lockedFrames()).toHaveLength(1);    // step 10, in epic 5
+        act(() => { root.unmount(); });
+        root = null;
+        document.body.innerHTML = '';
+        render(payloadFor({ planLocked: 1 }));
+        expect(lockedFrames()).toHaveLength(2);
+    });
+
+    it('a locked step takes no requirement drop, and the layout emits no padlock (layout)', () => {
         const plan = adaptComposedPipeline(payloadFor({ stepFlags: { locked: 1 } }));
         const layout = computePlanLayout(plan.rows, { stepLabel: 'title' });
-        expect(layout.labels.find((l) => l.kind === 'lock' && l.stepId === 10).on).toBe(true);
-        expect(layout.labels.find((l) => l.kind === 'lock' && l.stepId === 11).on).toBe(false);
+        expect(layout.labels.some((l) => l.kind === 'lock')).toBe(false);
+        expect(plan.rows.find((r) => r.id === 10).effectiveLocked).toBe(true);
         expect(layout.labels.find((l) => l.kind === 'checkpoint' && l.stepId === 10).on).toBe(true);
     });
 });

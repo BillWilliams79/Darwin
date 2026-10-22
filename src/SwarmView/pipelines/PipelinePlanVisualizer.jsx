@@ -121,6 +121,8 @@ import { STEP_RUNNING } from './pipelineViewModel';
 import { planStorageNamespace } from './planEra';
 import { OrderViolationsAlert } from './PipelinePlanTable';
 import EmptyPlanAddStep from './EmptyPlanAddStep';
+import StepEditDialog from '../../Steps/StepEditDialog';
+import EpicEditDialog from '../../Epics/EpicEditDialog';
 import {
     computePlanLayout, beadStyle, placeEpicChips,
     epicFocusTransform, stepFocusTransform, epicWorkFocusTransform,
@@ -195,7 +197,7 @@ import {
 // req #3649 — the epic chip's lock control; req #3673 — the pictures on it and
 // on the step card's checkpoint and lock buttons.
 import {
-    CheckpointGateIcon, PlanLockIcon, checkpointTitle, lockTitle,
+    CheckpointGateIcon, PlanLockIcon, checkpointTitle,
 } from './PlanStepFlagIcons';
 // req #3586 — the "+" marks that add a step on an edge or a dependent step; req
 // #3617 adds the one off a free left side, for a step this one depends on.
@@ -233,7 +235,7 @@ import '../../CalendarFC/swarmVisualizer.css';
 // are the ones req #3581 already imports above.
 import { updateEpic, createEpic } from '../../Epics/epicsApi';
 import PlanInPlaceInput, { titleProblem } from './PlanInPlaceInput';
-import { createPressTracker, LONG_PRESS_MS } from './planPressGesture';
+import { createPressTracker, LONG_PRESS_MS, DOUBLE_CLICK_MS } from './planPressGesture';
 // req #3661 — a requirement's title, edited in place on its own row.
 import PlanInPlaceTitleArea from './PlanInPlaceTitleArea';
 import { reqTitleEditorBox, updateRequirementTitle } from './planReqTitleEdit';
@@ -2669,7 +2671,7 @@ export default function PipelinePlanVisualizer({
         setReqEdit({ reqId, stepId, saving: false, at });
         return true;
     };
-    const drawnKinds = ['step', 'req', 'title', 'badge', 'checkpoint', 'lock']
+    const drawnKinds = ['step', 'req', 'title', 'badge', 'checkpoint']
         .filter(drawsKind).join(',');
 
     // Report the level being rendered so the toolbar's selector can softly mark
@@ -3028,6 +3030,47 @@ export default function PipelinePlanVisualizer({
         ]);
     }, [queryClient, pipeline?.id, profile?.userName]);
 
+    // ── THE SINGLE EDITOR, OVER THE CANVAS (req #3742) ─────────────────────
+    // User directives: "single click of epic and step to take you to the single
+    // editor", then "can it just popup over the visualizer instead of switch to
+    // the card view?". So a click opens the SAME dialog the Steps / Epics pages
+    // use (`StepEditDialog`, `EpicEditDialog`) right here, seeded from rows this
+    // canvas already holds — the composed read carries every field the dialogs
+    // edit, so no read is added — and a save re-reads the plan. `key` changes
+    // per open so the form seeds afresh; `kind` outlives the close so the exit
+    // animation has something to draw.
+    const [planEditor, setPlanEditor] = useState({ key: 0, open: false, kind: null, target: null });
+    // When it opened: the second click of a quick double click on the title
+    // area lands on the dialog's backdrop, which must not close it at once (the
+    // add-step dialog's `insertOpenedAtRef` rule).
+    const planEditorOpenedAtRef = useRef(0);
+    const openPlanEditor = useCallback((what, id) => {
+        let target = null;
+        if (what === 'epic') {
+            target = (model?.epics || []).find((e) => e.id === id) || null;
+        } else {
+            const row = rowById.get(id);
+            if (row) {
+                target = {
+                    id: row.id, epic_fk: row.epicId, title: row.title, notes: row.notes,
+                    // A run-mode write still in flight is the mode the step
+                    // has; seeding the stored one would revert it on Save.
+                    run: runPending.get(row.id) ?? row.run,
+                    not_before: row.timeDeps?.[0] ?? null,
+                    locked: row.locked, lockedBy: row.lockedBy,
+                };
+            }
+        }
+        if (!target) return;
+        planEditorOpenedAtRef.current = Date.now();
+        setPlanEditor((ed) => ({ key: ed.key + 1, open: true, kind: what, target }));
+    }, [model?.epics, rowById, runPending]);
+    const closePlanEditor = useCallback((reason) => {
+        if (reason === 'backdropClick'
+            && Date.now() - planEditorOpenedAtRef.current < DOUBLE_CLICK_MS) return;
+        setPlanEditor((ed) => ({ ...ed, open: false }));
+    }, []);
+
     // One commit path for every name — epic, step and (req #3661) requirement
     // title. An unchanged name closes the editor
     // without a write; a refused one says why and keeps the stored name.
@@ -3108,16 +3151,6 @@ export default function PipelinePlanVisualizer({
         'Could not change the step checkpoint flag');
     }, [writeFlag, refuseIfLocked, darwinUri, idToken]);
 
-    const toggleStepLock = useCallback((row) => {
-        if (row.lockedBy && row.lockedBy !== 'step') {
-            showError(lockedMessage('step', row.lockedBy));
-            return;
-        }
-        writeFlag(() => updateStep(darwinUri, idToken, row.id,
-            { locked: row.locked ? 0 : 1 }),
-        'Could not change the step lock');
-    }, [writeFlag, showError, darwinUri, idToken]);
-
     const toggleEpicLock = useCallback((band) => {
         if (band.lockedBy === 'pipeline') {
             showError(lockedMessage('epic', 'pipeline'));
@@ -3190,15 +3223,13 @@ export default function PipelinePlanVisualizer({
 
     // A STEP TITLE's three gestures. Read through a ref by the native canvas
     // listeners (bound once per container), so they always see this render's
-    // layout and camera. A quick click frames the step — the `?step=` deep
-    // link's own framing — and a double click frames it at twice that scale,
-    // about the same centre. A long press opens the name's editor.
+    // layout and camera. A quick click opens the step's single editor (req
+    // #3742 — it framed the step until then); a double click frames it at
+    // twice the `?step=` deep link's own framing, about the same centre. A
+    // long press opens the name's in-place editor.
     const stepPressRef = useRef(null);
     stepPressRef.current = (stepId) => ({
-        onClick: () => {
-            epicZoomRef.current = null;
-            applyFocus(stepFocusTransform(layout, stepId, size, kDefault, kZoomFloor));
-        },
+        onClick: () => openPlanEditor('step', stepId),
         onDoubleClick: () => {
             const tr = stepFocusTransform(layout, stepId, size, kDefault, kZoomFloor);
             if (!tr) return;
@@ -3724,20 +3755,20 @@ export default function PipelinePlanVisualizer({
             fold: foldStyle(l),
         }));
 
-    // ── THE CHECKPOINT GATE AND THE PADLOCK, AS HTML OVERLAYS (req #3673) ──
-    // Buttons, so HTML for the run pill's reason, on the run pill's layer —
-    // and for the pictures: real icons (`PlanStepFlagIcons.jsx`) rather than
-    // the stroked ⚑ and padlock req #3649 drew in Konva, which the user could
-    // not read. The layout reserved both boxes on the title line; this only
-    // projects them to screen.
+    // ── THE CHECKPOINT GATE, AS AN HTML OVERLAY (req #3673) ────────────────
+    // A button, so HTML for the run pill's reason, on the run pill's layer —
+    // and for the picture: a real icon (`PlanStepFlagIcons.jsx`) rather than
+    // the stroked ⚑ req #3649 drew in Konva, which the user could not read.
+    // The layout reserved its box in the control column; this only projects it
+    // to screen. (The padlock beside it went in req #3742 — a locked step's
+    // card has a red perimeter instead.)
     const floatingFlags = drawLayout.labels
-        .filter((l) => (l.kind === 'checkpoint' || l.kind === 'lock') && drawsKind(l.kind))
+        .filter((l) => l.kind === 'checkpoint' && drawsKind(l.kind))
         .map((l) => ({
             key: `${l.kind}-${l.stepId}`,
             kind: l.kind,
             stepId: l.stepId,
             on: !!l.on,
-            lockedBy: l.lockedBy || null,
             left: l.x * t.k + t.x,
             top: l.y * t.k + t.y,
             size: l.w * t.k,
@@ -4162,8 +4193,9 @@ export default function PipelinePlanVisualizer({
                     <Rect x={n.frameLeft} y={n.top}
                           width={n.frameW} height={n.h}
                           cornerRadius={CARD_RADIUS}
-                          fill={P.panel} stroke={style.ring}
-                          strokeWidth={style.ringWidth} />
+                          fill={P.panel} stroke={style.frame}
+                          strokeWidth={style.frameWidth}
+                          name={row.effectiveLocked ? 'locked-frame' : undefined} />
                     {/* The bead's FILL channel — see CARD_STATE_BAR_W. It sits
                         BESIDE the frame on the LEFT, in the strip `CARD_W`
                         reserves for it, so it never crowds the lettering (user
@@ -4221,18 +4253,17 @@ export default function PipelinePlanVisualizer({
                 </Group>);
         }
         // ── HOVER IS THE WHOLE CARD; ACTIVATE IS THE TITLE AREA ─────────────
-        // ACTIVATE FRAMES THE STEP ON THIS CANVAS (req #3641). It used to call
-        // `onStepFocus`, which switched the page to the Table and discarded the
-        // reader's pan and zoom; the Table is gone (user directive: the
-        // visualizer is the only way to look at a pipeline), so a click on a
-        // step now does what a quick click on its name already did (req #3580)
-        // — `stepFocusTransform`, the `?step=` link's own framing.
+        // ACTIVATE OPENS THE STEP'S SINGLE EDITOR, OVER THE CANVAS (req #3742,
+        // user directive: "single click of epic and step to take you to the
+        // single editor") — exactly what a quick click on its name does. It framed the step on
+        // this canvas from req #3641 until then; the double click on the name
+        // still zooms.
         //
         // The split req #3213 drew still stands: HOVER takes the whole card;
         // ACTIVATE takes the TITLE AREA, so a click on open card between the
         // requirement rows does not move the camera. The requirement ROWS keep
         // their own `onActivate` (navigate to the requirement), below the rule,
-        // outside this box. At L1 the bead's hit circle frames the same way;
+        // outside this box. At L1 the bead's hit circle opens the editor too;
         // its radius is a LAYOUT constant since req #3213 — the label hit
         // regions below are pushed above these nodes, so the clearance between
         // the two is an invariant the layout tests assert.
@@ -4423,12 +4454,12 @@ export default function PipelinePlanVisualizer({
             // a click. D1 asks for the CARD; a click on the words did nothing
             // before this change.
             //
-            // req #3580 — THE WORDS NOW TAKE THREE GESTURES: a quick click
-            // frames the step, a double click frames it closer, a long press
-            // edits the name in place (user directive). `pressStepId` is how
-            // the canvas's pointer listeners find them — see the STEP-TITLE
-            // PRESSES block. None of the three leaves the page, so the
-            // click-to-leave surface the paragraph above measured is unchanged.
+            // req #3580 — THE WORDS TAKE THREE GESTURES: a quick click opens
+            // the step's single editor (req #3742; it framed the step before),
+            // a double click zooms to it, a long press edits the name in place.
+            // `pressStepId` is how the canvas's pointer listeners find them —
+            // see the STEP-TITLE PRESSES block. None of the three leaves the
+            // page: the editor opens over the canvas.
             const row = rowById.get(label.stepId);
             if (row) {
                 worldNodes.push(labelHit(`lblhit-${i}`, label, {
@@ -4795,12 +4826,12 @@ export default function PipelinePlanVisualizer({
             // branch is kept, EMPTY, so a `badge` label is a deliberate no-op
             // here rather than an unhandled kind silently falling through the
             // chain below to whatever the next `else if` happens to match.
-        } else if (label.kind === 'checkpoint' || label.kind === 'lock') {
-            // req #3673 — drawn as HTML icon buttons now (`floatingFlags`
-            // below), not in Konva: the user found the stroked ⚑ and padlock
-            // unreadable, and a real icon, a hover title and a focusable
-            // button are all HTML's. Kept, EMPTY, for the `badge` branch's
-            // reason — a deliberate no-op, never a fall-through.
+        } else if (label.kind === 'checkpoint') {
+            // req #3673 — drawn as an HTML icon button now (`floatingFlags`
+            // below), not in Konva: the user found the stroked ⚑ unreadable,
+            // and a real icon, a hover title and a focusable button are all
+            // HTML's. Kept, EMPTY, for the `badge` branch's reason — a
+            // deliberate no-op, never a fall-through.
         } else if (label.kind === 'title') {
             worldNodes.push(
                 <Text key={`lbl-${i}`} x={label.x} y={label.y} text={label.text}
@@ -5175,13 +5206,16 @@ export default function PipelinePlanVisualizer({
                     {floatingEpics.map((e) => {
                         // req #3580 — THREE GESTURES ON THE NAME (user
                         // directive: "fast click to zoom, long click to edit,
-                        // double click to double zoom"). A quick click walks
-                        // req #3297's band → step cycle exactly as the name
-                        // always did; a double click goes straight to the step
-                        // stop; a long press opens the in-place editor. The
-                        // status light and the closure count zoom the same way
-                        // (they edit nothing). The "No epic" band has no row to
-                        // rename, so it takes no long press.
+                        // double click to double zoom"). Since req #3742 a quick
+                        // click on the name opens the epic's SINGLE EDITOR (user
+                        // directive: "single click of epic and step to take you
+                        // to the single editor"); a double click goes straight
+                        // to the step stop; a long press opens the in-place
+                        // editor. The status light and the closure count keep
+                        // the quick-click zoom — req #3297's band → step cycle
+                        // — and edit nothing. The "No epic" band has no row to
+                        // edit or rename, so its name keeps the zoom and takes
+                        // no long press.
                         const renamable = e.epicId != null;
                         const editing = renamable && epicEdit?.key === e.key;
                         const zoomLabel = `Zoom pipeline epic ${e.name ?? e.text}`
@@ -5398,10 +5432,17 @@ export default function PipelinePlanVisualizer({
                                      data-testid={`pipeline-viz-epic-name-${e.key}`}
                                      {...zoomHandlers}
                                      {...(renamable ? {
-                                         ...press('name', { ...gestures, onLongPress: startEdit }),
+                                         ...press('name', {
+                                             ...gestures,
+                                             onClick: () => openPlanEditor('epic', e.epicId),
+                                             onLongPress: startEdit,
+                                         }),
                                          // A touch long press would otherwise
                                          // also open the browser's own menu.
                                          onContextMenu: (ev) => ev.preventDefault(),
+                                         // Enter/Space open the editor, as the
+                                         // quick click does; F2 is the keyboard's
+                                         // long press.
                                          onKeyDown: (ev) => {
                                              if (ev.key === 'F2') {
                                                  ev.preventDefault();
@@ -5409,9 +5450,13 @@ export default function PipelinePlanVisualizer({
                                                  startEdit();
                                                  return;
                                              }
-                                             zoomHandlers.onKeyDown(ev);
+                                             if (ev.key !== 'Enter' && ev.key !== ' ') return;
+                                             ev.preventDefault();
+                                             ev.stopPropagation();
+                                             openPlanEditor('epic', e.epicId);
                                          },
-                                         'aria-label': `${zoomLabel} — press F2 to rename`,
+                                         'aria-label': `Edit epic ${e.name ?? e.text}`
+                                             + ' — double click to zoom, press F2 to rename',
                                      } : {
                                          'aria-label': zoomLabel,
                                      })}
@@ -5749,23 +5794,16 @@ export default function PipelinePlanVisualizer({
                             </Box>
                         );
                     })}
-                    {/* req #3673 — THE CHECKPOINT GATE AND THE PADLOCK. Each
-                        shows its state as a picture that differs in SHAPE and
-                        COLOUR — barrier arm down (red/white) or raised (grey),
-                        padlock shut (orange) or open (grey) — and IS the
-                        control that flips it. The hover title says what the
-                        state means and what a click does. A lock held by the
-                        epic or plan has a DASHED border: this button cannot
-                        lift it. */}
+                    {/* req #3673 — THE CHECKPOINT GATE. It shows its state as a
+                        picture that differs in SHAPE and COLOUR — barrier arm
+                        down (orange/white) or raised (grey) — and IS the control
+                        that flips it. The hover title says what the state
+                        means and what a click does. */}
                     {floatingFlags.map((f) => {
-                        const checkpoint = f.kind === 'checkpoint';
                         const row = rowById.get(f.stepId);
-                        const onColor = checkpoint ? P.checkpointOn : P.lockOn;
+                        const onColor = P.checkpointOn;
                         const color = f.on ? onColor : P.dim;
-                        const title = checkpoint
-                            ? checkpointTitle(f.on, row?.lockedBy) : lockTitle(f.on, f.lockedBy);
-                        const inherited = !checkpoint && f.on
-                            && f.lockedBy && f.lockedBy !== 'step';
+                        const title = checkpointTitle(f.on, row?.lockedBy);
                         return (
                             <Box key={f.key}
                                  component="button"
@@ -5777,9 +5815,7 @@ export default function PipelinePlanVisualizer({
                                  title={title}
                                  onClick={(ev) => {
                                      ev.stopPropagation();
-                                     if (!row) return;
-                                     if (checkpoint) toggleCheckpoint(row);
-                                     else toggleStepLock(row);
+                                     if (row) toggleCheckpoint(row);
                                  }}
                                  style={{
                                      left: f.left,
@@ -5788,19 +5824,17 @@ export default function PipelinePlanVisualizer({
                                      fontSize: f.size * 0.74,
                                      color,
                                      borderColor: f.on ? onColor : rgba(P.dim, 0.8),
-                                     borderStyle: inherited ? 'dashed' : 'solid',
+                                     borderStyle: 'solid',
                                      borderWidth: Math.max(1, CARD_TITLE_BTN_STROKE * t.k),
                                      background: f.on ? rgba(onColor, 0.16) : 'transparent',
                                      ...f.fold,
                                  }}
                                  sx={FLAG_BTN_SX}
                             >
-                                {checkpoint
-                                    ? <CheckpointGateIcon closed={f.on}
-                                                          stripe={P.checkpointOn}
-                                                          light={P.checkpointLight}
-                                                          fontSize="inherit" />
-                                    : <PlanLockIcon locked={f.on} fontSize="inherit" />}
+                                <CheckpointGateIcon closed={f.on}
+                                                    stripe={P.checkpointOn}
+                                                    light={P.checkpointLight}
+                                                    fontSize="inherit" />
                             </Box>
                         );
                     })}
@@ -5980,7 +6014,22 @@ export default function PipelinePlanVisualizer({
                             {keyHover.key === 'step' ? (
                                 <>
                             <KeyGroup title={KEY_GROUP_TITLES[0]} first>
-                                <LegendDot ring={P.manualRing} label="Manual" />
+                                {/* req #3742 — the STEP COLOUR, the card's
+                                    border: one colour per step, first match
+                                    wins in this order. */}
+                                {[[P.lockedFrame, 'Locked', 'locked'],
+                                    [P.stepManual, 'Manual', 'manual'],
+                                    [P.stepCheckpoint, 'Checkpoint', 'checkpoint'],
+                                    [P.stepWillRun, 'Will run', 'will-run']]
+                                    .map(([color, label, key]) => (
+                                        <LegendIcon key={key} label={label} color={color}>
+                                            <Box component="span" aria-hidden="true"
+                                                 data-testid={`pipeline-viz-legend-${key}-frame`}
+                                                 sx={{ display: 'inline-block', width: 14,
+                                                       height: 10, borderRadius: '3px',
+                                                       border: `2px solid ${color}` }} />
+                                        </LegendIcon>
+                                    ))}
                                 <LegendDot fill={P.pendingFill} ring="#5b7293"
                                            label="Scheduled" />
                                 <LegendDot fill={P.runningFill} label="Running"
@@ -5999,19 +6048,6 @@ export default function PipelinePlanVisualizer({
                                     swatch for it. */}
                                 <LegendDot ring={P.eligibleRing} label="Up Next"
                                            dashed animated="pipeKeyBreathe" />
-                                {/* req #3649 — the two title-line buttons,
-                                    drawn with the card's own pictures since
-                                    req #3673: barrier arm down = a checkpoint
-                                    (the step holds its downstream until done);
-                                    padlock shut = frozen (step, epic or plan). */}
-                                <LegendIcon label="Checkpoint" color={P.checkpointOn}>
-                                    <CheckpointGateIcon closed stripe={P.checkpointOn}
-                                                        light={P.checkpointLight}
-                                                        sx={{ fontSize: 13, color: P.checkpointOn }} />
-                                </LegendIcon>
-                                <LegendIcon label="Locked" color={P.lockOn}>
-                                    <PlanLockIcon locked sx={{ fontSize: 13, color: P.lockOn }} />
-                                </LegendIcon>
                             </KeyGroup>
                                 </>
                             ) : (reqKeyScales[keyHover.key] && (
@@ -6136,6 +6172,27 @@ export default function PipelinePlanVisualizer({
 
             {/* req #3586 — the add-step dialog. Portalled to the body, so a
                 click inside it never reaches the canvas's own click test. */}
+            {/* req #3742 — the single editor a click on a step or an epic opens. */}
+            {planEditor.kind === 'step' && (
+                <StepEditDialog
+                    key={`plan-step-editor-${planEditor.key}`}
+                    open={planEditor.open}
+                    step={planEditor.target}
+                    epicOptions={insertEpicOptions}
+                    onClose={closePlanEditor}
+                    onSaved={refreshPlan}
+                />
+            )}
+            {planEditor.kind === 'epic' && (
+                <EpicEditDialog
+                    key={`plan-epic-editor-${planEditor.key}`}
+                    open={planEditor.open}
+                    epic={planEditor.target}
+                    pipelineOptions={pipeline ? [{ id: pipeline.id, title: pipeline.title }] : []}
+                    onClose={closePlanEditor}
+                    onSaved={refreshPlan}
+                />
+            )}
             <Dialog open={insertReq != null} onClose={closeInsert} fullWidth maxWidth="xs"
                     data-testid="pipeline-viz-insert-dialog">
                 <DialogTitle data-testid="pipeline-viz-insert-heading">

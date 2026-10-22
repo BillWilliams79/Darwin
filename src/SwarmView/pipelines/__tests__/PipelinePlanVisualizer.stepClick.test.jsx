@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 //
-// Req #3641 — a click on a step FRAMES IT ON THIS CANVAS. It used to call
-// `onStepFocus`, which switched the page to the Table; the Table is gone (user
-// directive: the visualizer is the only way to look at a pipeline), so the
-// card's title area — and the bead at L1 — move the camera onto the step, the
-// same `stepFocusTransform` a quick click on the step's name already ran.
+// Req #3742 — a click on a step OPENS ITS SINGLE EDITOR over the canvas (user
+// directives: "single click of epic and step to take you to the single
+// editor", then "popup over the visualizer instead of switch to the card
+// view"): the card's title area — and the bead at L1 — open the shared step
+// dialog seeded with that step, and the page does not change. From req #3641
+// until then the click framed the step on this canvas (and before that it
+// called `onStepFocus`, which switched the page to the Table).
 //
 // jsdom has no canvas, so react-konva is stubbed: every shape carrying an
 // `onActivate` renders as a button the test can click, publishing its world
@@ -13,7 +15,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { createRoot } from 'react-dom/client';
 import { act } from 'react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 vi.mock('react-konva', () => {
@@ -40,6 +42,12 @@ vi.mock('react-konva', () => {
 
 vi.mock('konva', () => ({
     default: { Animation: class { start() {} stop() {} } },
+}));
+
+const updateStep = vi.fn(() => Promise.resolve({}));
+vi.mock('../../../Steps/stepsApi', async (orig) => ({
+    ...(await orig()),
+    updateStep: (...a) => updateStep(...a),
 }));
 
 import { composedFixture } from './pipelineComposedFixture';
@@ -78,6 +86,12 @@ afterEach(() => {
     document.body.innerHTML = '';
 });
 
+let currentLocation = null;
+function LocationProbe() {
+    currentLocation = useLocation();
+    return null;
+}
+
 const step = (id, title) => ({
     id, epic_fk: 5, title, run: 'auto', notes: null, completed_at: null, not_before: null,
 });
@@ -99,9 +113,10 @@ function render(levelPref) {
     act(() => {
         root.render(
             <QueryClientProvider client={new QueryClient()}>
-                <MemoryRouter>
+                <MemoryRouter initialEntries={['/swarm/pipeline/2?mode=plan']}>
                     <PipelinePlanVisualizer plan={plan} model={model} levelPref={levelPref}
                                             pipeline={payload.pipeline} timezone="UTC" />
+                    <LocationProbe />
                 </MemoryRouter>
             </QueryClientProvider>
         );
@@ -125,41 +140,81 @@ const clickLast = async (kind) => {
     return box;
 };
 
-describe('a click on a step frames it on the canvas (req #3641)', () => {
-    it('L3: the card title area zooms the camera in onto that card', async () => {
+// The editor it opened over the canvas, and the page and camera it left alone.
+const expectEditorOpened = (before) => {
+    const dialog = document.querySelector('[data-testid="step2-edit-dialog"]');
+    expect(dialog).not.toBeNull();
+    const id = Number(dialog.textContent.match(/Edit step (\d+)/)?.[1]);
+    expect([10, 11, 12, 13, 14, 15, 16, 17]).toContain(id);
+    expect(document.querySelector('[data-testid="step2-title-input"]').value).toBe(`Step ${id}`);
+    expect(currentLocation.pathname).toBe('/swarm/pipeline/2');
+    expect(transform()).toEqual(before);
+};
+
+describe('a click on a step opens its single editor (req #3742)', () => {
+    it('L3: the card title area opens the step\'s editor over the canvas', async () => {
         render('3');
         await settle();
-        const [, , k0] = transform();
-        // The title-area activate rect — unstroked, unlike the "+" button; the
-        // whole-card rect is hover-only and has no activate at all.
-        const box = await clickLast('rect');
-        const [tx, ty, k] = transform();
-        expect(k).toBeGreaterThan(k0);
-        // The clicked card is now on screen.
-        const cx = tx + (box.x + box.w / 2) * k;
-        const cy = ty + (box.y + box.h / 2) * k;
-        expect(cx).toBeGreaterThan(0);
-        expect(cx).toBeLessThan(PANEL_W);
-        expect(cy).toBeGreaterThan(0);
-        expect(cy).toBeLessThan(PANEL_H);
+        const before = transform();
+        // The title-area activate rect — unstroked; the whole-card rect is
+        // hover-only and has no activate at all.
+        await clickLast('rect');
+        expectEditorOpened(before);
     });
 
-    it('L1: the bead zooms the camera in onto that step', async () => {
+    it('L1: the bead opens the step\'s editor too', async () => {
         render('1');
         await settle();
-        const [, , k0] = transform();
-        const bead = await clickLast('circle');
-        const [tx, ty, k] = transform();
-        expect(k).toBeGreaterThan(k0);
-        const cx = tx + bead.x * k;
-        const cy = ty + bead.y * k;
-        expect(cx).toBeGreaterThan(0);
-        expect(cx).toBeLessThan(PANEL_W);
-        expect(cy).toBeGreaterThan(0);
-        expect(cy).toBeLessThan(PANEL_H);
+        const before = transform();
+        await clickLast('circle');
+        expectEditorOpened(before);
     });
 
-    it('takes no onStepFocus — a step click never leaves the canvas', () => {
+    it('Save in the editor writes the step it was opened on', async () => {
+        render('3');
+        await settle();
+        updateStep.mockClear();
+        await clickLast('rect');
+        const dialog = document.querySelector('[data-testid="step2-edit-dialog"]');
+        const id = Number(dialog.textContent.match(/Edit step (\d+)/)[1]);
+        const input = document.querySelector('[data-testid="step2-title-input"]');
+        act(() => {
+            Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
+                .set.call(input, 'Renamed');
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+        act(() => { document.querySelector('[data-testid="step2-save"]').click(); });
+        await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+        expect(updateStep).toHaveBeenCalledWith(undefined, undefined, id,
+            { title: 'Renamed', notes: 'NULL', run: 'auto', not_before: 'NULL' });
+    });
+
+    // The second click of a quick double click on the title area lands on the
+    // dialog's backdrop: it must not close the editor it just opened.
+    it('a backdrop click right after opening is ignored; a later one closes the editor', async () => {
+        render('3');
+        await settle();
+        const before = transform();
+        act(() => {
+            [...document.querySelectorAll('[data-act="rect"][data-stroked="0"]')].pop().click();
+        });
+        const backdropClick = () => act(() => {
+            const container = document.querySelector('.MuiDialog-container');
+            container.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+            container.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        });
+        backdropClick();
+        const dialog = () => document.querySelector('[data-testid="step2-edit-dialog"]');
+        expect(dialog()).not.toBeNull();
+        expect(dialog().getAttribute('aria-hidden')).not.toBe('true');
+        expect(transform()).toEqual(before);
+        await settle();
+        backdropClick();
+        await settle();
+        expect(dialog()).toBeNull();
+    });
+
+    it('takes no onStepFocus — a step click never switches the panel', () => {
         const onStepFocus = vi.fn();
         const payload = composedFixture({
             epics: [{ id: 5, title: 'Build', pipeline_fk: 2, sort_order: 1 }],
