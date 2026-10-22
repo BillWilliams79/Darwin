@@ -169,7 +169,6 @@
 // every move of this box does (req #3677) — an AnchoredPanel shrinks to its head.
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 
 import Box from '@mui/material/Box';
 import Collapse from '@mui/material/Collapse';
@@ -179,7 +178,7 @@ import { lighten } from '@mui/material/styles';
 import CollapseHead from '../../Components/AnchoredPanel/CollapseHead';
 import { INFO_PANEL_COLORS, INFO_PANEL_FONT_PX } from '../../Components/AnchoredPanel/infoPanelChrome';
 import { rackOrder } from '../../Components/AnchoredPanel/panelRack';
-import { usePanelRack } from '../../Components/AnchoredPanel/usePanelRack';
+import { rackPortal, usePanelRack } from '../../Components/AnchoredPanel/usePanelRack';
 import { CARD_FRAME_W, PLAN_VIZ_PALETTE as P } from './pipelinePlanLayout';
 import {
     UNSEATED_DRAG_TYPE, UNSEATED_MIN_LIST_EM, pointInRect, unseatedDragId,
@@ -934,7 +933,7 @@ export default function UnorchestratedReqBox({
             )}
         </Box>
     );
-    return inRack ? createPortal(panel, slot.node) : panel;
+    return inRack ? rackPortal(panel, slot) : panel;
 }
 
 /**
