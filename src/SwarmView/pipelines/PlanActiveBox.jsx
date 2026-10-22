@@ -57,8 +57,9 @@ export const ACTIVE_TINY_W = 170;
 export const ACTIVE_AUTO_MAX_W = 420;
 const LIMITS = { minW: ACTIVE_MIN_W, minH: ACTIVE_MIN_H, autoMaxW: ACTIVE_AUTO_MAX_W, headPx: INFO_PANEL_HEAD_PX };
 /** Home: the viewport's bottom-left, just clear of the full-width navbar —
- *  the plan's one free corner (the key is bottom-centre, the maximize switch
- *  bottom-right, the Orchestrables box top-right, the epic names top-left) —
+ *  the plan's free corner (the key is a toolbar popup, the Orchestrables box
+ *  top-right, the epic names and — maximized — the full screen switch
+ *  top-left, req #3793) —
  *  sized to its content on both axes until reshaped. Maximized, no navbar. */
 export const ACTIVE_HOME = Object.freeze({
     h: 'l', x: SIDEBAR_WIDTH + 16, v: 'b', y: 16, w: null, ht: null,

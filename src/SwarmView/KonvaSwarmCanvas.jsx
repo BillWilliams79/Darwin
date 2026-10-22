@@ -177,6 +177,10 @@ const KonvaSwarmCanvas = ({
     costOn = false, devServersOn = true, wide36 = true, resetTick = 0,
     onChipClick, onSwarmStartClick, onUndoClick, onCompleteClick,
     onExtendPast, onLevelChange,
+    // req #3793 — FILL the parent instead of the page-relative height: the
+    // view is maximized and its panel is a flex item sized to the window, so
+    // the canvas takes all of it. The ResizeObserver below follows either.
+    fill = false,
 }) => {
     const theme = useTheme();
     const dark = theme.palette.mode === 'dark';
@@ -845,7 +849,10 @@ const KonvaSwarmCanvas = ({
 
     return (
         <Box ref={containerRef} data-testid="konva-swarm-canvas"
-             style={{ position: 'relative', height: 'calc(100vh - 150px)', minHeight: 480,
+             style={{ position: 'relative',
+                      ...(fill
+                          ? { flexGrow: 1, flexShrink: 1, flexBasis: 0, minHeight: 0 }
+                          : { height: 'calc(100vh - 150px)', minHeight: 480 }),
                       // req #2870: the 16px left margin formerly cleared the floating
                       // sidebar collapse edge-tab that overlapped this canvas's left edge.
                       // That tab moved into the navbar, so the canvas reclaims full width.

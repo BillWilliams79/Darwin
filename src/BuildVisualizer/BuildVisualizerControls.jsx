@@ -13,6 +13,7 @@ import Box from '@mui/material/Box';
 import Tooltip from '@mui/material/Tooltip';
 import CheckIcon from '@mui/icons-material/Check';
 import SemanticLevelControl from '../Components/SemanticLevelControl';
+import FullscreenSwitch from '../Components/FullscreenSwitch';
 import BuildPatternMenu from './BuildPatternMenu';
 import MergeRulesDialog from './MergeRulesDialog';
 import { BRANCH_TYPES, branchTypeChipProps, branchTypeLabel } from './branchTypeChipStyles';
@@ -38,12 +39,16 @@ const STOPLIGHT = {
 // only — a single horizontal control row above the build visualizer canvas.
 // Four groups in left-to-right order:
 //   [ File menu ] | [ Release-type chips ] | [ Stagger toggle ] | [ Theme menu ]
+// The full screen switch (req #3793) rides the File menu's group, right after
+// the project's name — see its own comment below.
 //
 // The Theme menu is **dark-mode-only** (req #2621 follow-up). When Darwin's app
 // theme is light the visualizer always renders light and the picker is hidden
 // — there's only one sensible color scheme to offer in that case. Dark mode
 // exposes the six dark variants.
 const BuildVisualizerControls = ({
+    maximized = false,
+    onToggleMaximized = null,
     lib,
     selectedTypes,
     onToggleType,
@@ -119,6 +124,26 @@ const BuildVisualizerControls = ({
                 data-testid="build-visualizer-controls"
             >
                 <BuildPatternMenu lib={lib} onShowSnack={showSnack} />
+
+                {/* ── FULL SCREEN (req #3793) ─────────────────────────────────
+                    The user's rule: a visualizer whose controls are on screen
+                    keeps its full screen switch in the controls' title row,
+                    just right of the title word — the TPU 3D views put theirs
+                    right of "▾ Controls". This row's title is the project
+                    name (`bv-project-name`, inside the File menu), so the
+                    switch follows it, ahead of the first divider: a control
+                    of the whole view, not of any one group. The row stays on
+                    screen while maximized, so the switch never moves. */}
+                {onToggleMaximized && (
+                    <FullscreenSwitch
+                        on={maximized}
+                        onToggle={onToggleMaximized}
+                        testid="build-viz-fullscreen"
+                        enterLabel="Full screen — only the build visualizer"
+                        leaveLabel="Leave full screen"
+                        enterTitle="Full screen — only the build visualizer and its controls (Esc to exit)"
+                        leaveTitle="Leave full screen (Esc)" />
+                )}
 
                 {selectedTypes && onToggleType && (
                     <>

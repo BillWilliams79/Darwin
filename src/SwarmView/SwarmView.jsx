@@ -30,6 +30,8 @@ import React, { useState, useEffect, useContext, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
+// req #3793 — the visualizers' shared full screen (the Plan's, req #3658).
+import { useVisualizerMaximize } from '../hooks/useVisualizerMaximize';
 
 import Box from '@mui/material/Box';
 import CloseIcon from '@mui/icons-material/Close';
@@ -113,6 +115,15 @@ const SwarmView = () => {
     // persists); `showViewTransiently` is a CROSS-VIEW HANDSHAKE (override only,
     // never persisted).
     const { view, setView, showTransiently: showViewTransiently } = useSwarmViewSelection();
+
+    // req #3793 — the Visualizer view's full screen. Live only while the
+    // visualizer canvas is the panel on screen (a view switch, or no projects to
+    // draw, releases it — the switch is the way back and must not outlive the
+    // canvas). Maximized, this page becomes a fixed full-window layer over the
+    // navbar and the HEADER ROW STAYS, so the switch stays in it (the user's
+    // rule: controls on screen → the switch is in the controls' row).
+    const { maximized: vizMaximized, toggle: toggleVizMaximized } =
+        useVisualizerMaximize(view === 'visualizer' && !!projectsArray?.length);
 
     const activeTab = useSwarmTabStore(s => s.activeTab);
     const setActiveTab = useSwarmTabStore(s => s.setActiveTab);
@@ -527,7 +538,21 @@ const SwarmView = () => {
             </Box>
             :
             <>
-            <Box className="app-content-planpage">
+            {/* req #3793 — MAXIMIZED (Visualizer view only), the page is the
+                Plan page's full-window layer (PipelineDetail, req #3658): fixed
+                over the navbar, under the modal layer. A flex column, not the
+                `.app-content-planpage` grid — the header row keeps its natural
+                height and the visualizer's panel takes the rest, which the
+                canvas fills (KonvaSwarmCanvas's `fill`) and follows with its
+                ResizeObserver. */}
+            <Box className={vizMaximized ? undefined : 'app-content-planpage'}
+                 data-maximized={vizMaximized ? 'true' : 'false'}
+                 data-testid="swarm-view-page"
+                 sx={vizMaximized ? {
+                     position: 'fixed', inset: 0, zIndex: 1250,
+                     display: 'flex', flexDirection: 'column',
+                     overflow: 'hidden', bgcolor: 'background.default',
+                 } : undefined}>
                     {/* Canonical header row (req #2722) — same LTR order in every view:
                         [view toggle] [req# jump input] [project tabs (cards)]
                         [visualizer toolbar (visualizer)] [flex spacer]
@@ -561,7 +586,8 @@ const SwarmView = () => {
                                    minWidth: 0,
                                    overflowX: 'auto',
                                    '& > *': { flexShrink: 0 },
-                               }) }}
+                               }),
+                               ...(vizMaximized && { flexShrink: 0 }) }}
                          data-testid="swarm-view-toggle-row"
                     >
                         <ToggleButtonGroup
@@ -620,7 +646,10 @@ const SwarmView = () => {
                             </DarwinSortableList>
                             </ProjectStripZone>
                         )}
-                        {view === 'visualizer' && <VisualizerToolbar />}
+                        {view === 'visualizer' && (
+                            <VisualizerToolbar maximized={vizMaximized}
+                                               onToggleMaximized={toggleVizMaximized} />
+                        )}
                         <Box sx={{ flexGrow: 1 }} />
                         {/* req #3428 — the epic filter's dismissable pill, first
                             item of the right-hand cluster because that is where
@@ -817,8 +846,12 @@ const SwarmView = () => {
                         `tab-panels` grid area of `.app-content-planpage` (same pattern
                         as table view); otherwise it collapses into an implicit grid cell. */}
                     {view === 'visualizer' && (
-                        <Box className="app-content-tabpanel">
-                            <SwarmVisualizerView />
+                        <Box className="app-content-tabpanel"
+                             sx={vizMaximized ? {
+                                 flex: 1, minHeight: 0,
+                                 display: 'flex', flexDirection: 'column',
+                             } : undefined}>
+                            <SwarmVisualizerView maximized={vizMaximized} />
                         </Box>
                     )}
 

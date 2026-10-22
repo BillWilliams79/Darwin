@@ -77,7 +77,10 @@ export const mondayOf = (dateStr) => {
     return shiftDay(dateStr, -mondayOffset);
 };
 
-const SwarmVisualizerView = () => {
+// `maximized` (req #3793) — SwarmView has raised the full-window layer and this
+// view's panel is a flex item filling it: the view becomes a flex column and
+// the canvas FILLS what the phase key leaves, rather than its page height.
+const SwarmVisualizerView = ({ maximized = false }) => {
     const { profile } = useContext(AuthContext);
     const navigate = useNavigate();
 
@@ -233,9 +236,13 @@ const SwarmVisualizerView = () => {
     // Toolbar moved into the parent SwarmView header row (req #2407); this
     // component now renders only the Konva canvas content (req #2844).
     return (
-        <div>
+        <div style={maximized
+            ? { flex: '1 1 0', minHeight: 0, display: 'flex', flexDirection: 'column' }
+            : undefined}>
             {shouldShowPhaseLegend({ phasesOn, zoomLevel }) && <PhaseLegend />}
-            <Suspense fallback={<Box sx={{ height: 'calc(100vh - 150px)', minHeight: 480 }} />}>
+            <Suspense fallback={<Box sx={maximized
+                ? { flex: '1 1 0', minHeight: 0 }
+                : { height: 'calc(100vh - 150px)', minHeight: 480 }} />}>
             <KonvaSwarmCanvas
                 requirements={requirements}
                 allRequirements={allRequirements}
@@ -265,6 +272,7 @@ const SwarmVisualizerView = () => {
                 onCompleteClick={onCompleteClick}
                 onExtendPast={onExtendPast}
                 onLevelChange={setZoomLevel}
+                fill={maximized}
             />
             </Suspense>
         </div>

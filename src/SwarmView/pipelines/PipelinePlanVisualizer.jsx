@@ -128,9 +128,9 @@ import {
     epicFocusTransform, stepFocusTransform, epicWorkFocusTransform,
     factoryDefaultView, clampPlanTransform, planLandingAction,
     relayoutAnchorTransform,
-    // req #3365 — the ruler's own thinning gap, re-applied at draw time
-    // against the counter-scaled label widths.
-    RULER_LABEL_GAP,
+    // req #3365 — the ruler's own thinning rule, re-applied at draw time
+    // against the counter-scaled label widths (a pure function since req #3793).
+    drawnRulerLabelKeys,
     PLAN_VIZ_PALETTE as P, PLAN_VIZ_FONT as F, CARD_FONT as CF,
     BEAD_RADIUS, BEAD_HIT_RADIUS,
     CHW_EPIC, EPIC_CHIP_FONT, ZOOM_MIN_RATIO, ZOOM_MAX_RATIO,
@@ -222,6 +222,11 @@ import { usePanelRackStore } from '../../stores/usePanelRackStore';
 import { RACK_DRAG_Z } from '../../Components/AnchoredPanel/panelRack';
 // req #3721 — the plan's requirements whose sessions are under way.
 import PlanActiveBox from './PlanActiveBox';
+// req #3793 — the shared full screen switch, and the plan's own words and corner.
+import FullscreenSwitch from '../../Components/FullscreenSwitch';
+import {
+    MAXIMIZE_SWITCH, MAXIMIZE_SWITCH_Z, PLAN_MAXIMIZE_LABELS as MAXIMIZE_LABELS, maximizeSwitchWorldRight,
+} from './planMaximize';
 import { activePlanRequirements } from './planActiveReqs';
 import { useUnorchestratedRequirements } from './useUnorchestratedRequirements';
 import {
@@ -4406,23 +4411,18 @@ export default function PipelinePlanVisualizer({
         : undefined;
 
     const rulerLabelMag = rulerScreenMag(t);
-    // The layout's own greedy thinning rule (`pipelinePlanLayout.js`:
-    // "labelX < lastRight + gap"), re-applied to the widths counter-scaling
-    // actually produces. Cheap — one pass over the slots, which number in the
-    // handfuls — and deliberately a re-application rather than a second rule,
-    // so the strip cannot thin one way at layout time and another way here.
-    const visibleRulerLabels = new Set();
-    {
-        const R = drawLayout.ruler || { slots: [] };
-        let lastRight = -Infinity;
-        for (const s of R.slots) {
-            if (!s.showLabel) continue;          // the layout already refused it
-            const w = (s.labelW || 0) * rulerLabelMag;
-            if (s.labelX < lastRight + RULER_LABEL_GAP * rulerLabelMag) continue;
-            visibleRulerLabels.add(s.key);
-            lastRight = s.labelX + w;
-        }
-    }
+    // The layout's own greedy thinning rule, re-applied to the widths
+    // counter-scaling actually produces (`drawnRulerLabelKeys`). Cheap — one
+    // pass over the slots, which number in the handfuls.
+    //
+    // req #3793 — MAXIMIZED, the full screen switch sits in this strip's
+    // upper-left corner, so it is the strip's first occupant: the pass starts
+    // from its right edge (`maximizeSwitchWorldRight`), and a date that would
+    // begin under it is thinned like any label with no room — back as soon as a
+    // pan clears the corner. Not maximized, the pass starts from nothing.
+    const visibleRulerLabels = drawnRulerLabelKeys(
+        drawLayout.ruler?.slots || [], rulerLabelMag,
+        (maximized && onToggleMaximized) ? maximizeSwitchWorldRight(t) : -Infinity);
 
     // req #3661 — the requirement title editor's box, found while its row is
     // drawn below (it needs the row's own pill packing to place line 1).
@@ -6079,51 +6079,53 @@ export default function PipelinePlanVisualizer({
                     </Popper>
                 )}
 
-                {/* ── MAXIMIZE (req #3658) ──────────────────────────────────
+                {/* ── MAXIMIZE (req #3658; placement req #3793) ─────────────
                     The TPU 3D views' Full screen switch, borrowed (user
-                    direction: "Borrow the button"): the same corner-arrows
-                    glyph — out when it would maximize, in when it would
-                    restore — in the TPU header's colours, with its rim. It
-                    lives ON the canvas, in the bottom-right corner, in BOTH
-                    states, because maximized there is no header row left to
-                    hold it and a switch should not move when clicked. The
-                    corner is the one the canvas's other floating panels leave
-                    free: the key is a hover popup on the toolbar now (req #3722) and the Orchestration Ready
-                    box opens top-right. The box can still be parked or
-                    stretched over this corner, so the switch sits ABOVE it
-                    (a placed box floats at `UNSEATED_FLOAT_Z`, req #3687) — it
-                    must never be covered, it is the only way back. `data-viz-chrome` keeps d3-zoom and the
-                    bead hit-test off it. */}
-                {onToggleMaximized && (
-                    <Box component="button" type="button"
-                         onClick={onToggleMaximized}
-                         data-viz-chrome="maximize"
-                         data-testid="pipeline-viz-maximize"
-                         aria-pressed={maximized}
-                         aria-label={maximized ? 'Restore the page' : 'Maximize the plan'}
-                         title={maximized
-                             ? 'Restore the page (Esc)'
-                             : 'Maximize — only the plan (Esc to exit)'}
-                         sx={{ position: 'absolute', right: 12, bottom: 12,
-                                zIndex: UNSEATED_FLOAT_Z + 2,
-                                width: 28, height: 26, p: 0, m: 0,
-                                display: 'flex', alignItems: 'center',
-                                justifyContent: 'center', cursor: 'pointer',
-                                color: '#7bb8de',
-                                background: 'rgba(13, 20, 32, 0.94)',
-                                border: '1px solid #2d5a85', borderRadius: '4px',
-                                boxShadow: '0 6px 18px rgba(0, 0, 0, 0.45)',
-                                '&:hover, &:focus-visible': {
-                                    color: '#cfe4f7', borderColor: '#5fa3d4',
-                                    outline: 'none',
-                                } }}>
-                        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-                            <path d={maximized
-                                      ? 'M6 1v5H1M15 6h-5V1M10 15v-5h5M1 10h5v5'
-                                      : 'M1 6V1h5M10 1h5v5M15 10v5h-5M6 15H1v-5'}
-                                  fill="none" stroke="currentColor" strokeWidth="2" />
-                        </svg>
-                    </Box>
+                    direction: "Borrow the button"), now the shared
+                    `FullscreenSwitch`. ONE switch, two homes, by the user's
+                    rule (req #3793): with the controls on screen it sits in
+                    the controls' header row (PipelineDetail draws it there,
+                    right of the plan's title); MAXIMIZED the header row is
+                    hidden, so no controls are on screen and it sits HERE, in
+                    the canvas's UPPER-LEFT corner — and only here, so the one
+                    `pipeline-viz-maximize` is always the switch on screen.
+
+                    This SUPERSEDES req #3658's bottom-right corner in both
+                    states, which rested on "a switch should not move when
+                    clicked". The user's placement rule (req #3793) outranks
+                    that: the switch now moves from the header to the corner
+                    as the header goes, as the TPU views' switch stays with
+                    their controls' header.
+
+                    The corner, and why nothing important is under it: it sits
+                    INSIDE the pinned time ruler's strip (`MAXIMIZE_SWITCH`, 5 +
+                    26 px of the strip's ≥ 36 px), which is chrome. The epic
+                    names are clamped below `rulerScreenBottom(t)` (≥ 36 px), so
+                    none reaches it; the one ruler date that could start under
+                    it is THINNED there (`drawnRulerLabelKeys` starts from the
+                    switch's right edge, `maximizeSwitchWorldRight`), the
+                    strip's own rule for a label with no room, and comes back
+                    as soon as a pan clears it. The
+                    Active box is home bottom-left and the Orchestration Ready
+                    box top-right — and either can be dragged here, so the
+                    switch sits ABOVE both (`MAXIMIZE_SWITCH_Z`): it must never
+                    be covered, it is the only way back on screen.
+                    `data-viz-chrome` keeps d3-zoom and the bead hit-test off
+                    it. */}
+                {maximized && onToggleMaximized && (
+                    <FullscreenSwitch
+                        on
+                        onToggle={onToggleMaximized}
+                        variant="floating"
+                        testid="pipeline-viz-maximize"
+                        data-viz-chrome="maximize"
+                        enterLabel={MAXIMIZE_LABELS.enterLabel}
+                        leaveLabel={MAXIMIZE_LABELS.leaveLabel}
+                        enterTitle={MAXIMIZE_LABELS.enterTitle}
+                        leaveTitle={MAXIMIZE_LABELS.leaveTitle}
+                        sx={{ position: 'absolute',
+                              left: MAXIMIZE_SWITCH.left, top: MAXIMIZE_SWITCH.top,
+                              zIndex: MAXIMIZE_SWITCH_Z }} />
                 )}
 
                 {/* The bottom-right reset button + status chip stack is GONE
