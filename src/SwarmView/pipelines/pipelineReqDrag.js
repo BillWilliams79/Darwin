@@ -126,9 +126,9 @@ export function dropTargetAt(nodes, p) {
 /**
  * May this step take a requirement dragged off `fromStepId`? Mirrors the
  * requirement page's own step picker (`orchestrationIndex.js::stepOptions`):
- * a step with a stamped `completed_at` is not a place to put new work — design
- * rule 1 makes a stamp valid only with zero gating requirements — and dropping
- * back onto the step it came from is not a move.
+ * any step takes new work — a step has no state, so finished work on it never
+ * closes it (req #3750) — except an effectively LOCKED one, and dropping back
+ * onto the step it came from is not a move.
  *
  * @param {?Object} row         the target's plan row
  * @param {?number} fromStepId
@@ -138,8 +138,7 @@ export function canDropOn(row, fromStepId) {
     if (row.id === fromStepId) return false;
     // req #3649 — a locked step (or one under a locked epic/plan) takes no
     // seat; the gateway would answer 423, so the target is not offered.
-    if (row.effectiveLocked) return false;
-    return row.completedAt == null;
+    return !row.effectiveLocked;
 }
 
 // Ascending insert: the composed read lists a step's requirements in junction

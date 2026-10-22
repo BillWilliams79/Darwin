@@ -12,6 +12,7 @@ import { useRequirementVisibility } from '../../hooks/useRequirementVisibility';
 import { useOrchestrationIndex } from './useOrchestrationIndex';
 import { stepOptions, pipelineOptions, epicOptions } from './orchestrationIndex';
 import { moveStepRequirement } from '../../Steps/stepsApi';
+import { readStepSeatLock, seatLockMessage } from './stepSeatLock';
 import { planLinkTo, epicLinkTo } from '../pipelines/pipelineEpicLink';
 import { stepPlanLinkTo, readNewRequirementSeat, backToPlanQuery,
     BACK_STEP_STATE_KEY, planViewCarry } from '../pipelines/pipelineStepLink';
@@ -828,21 +829,19 @@ const RequirementDetail = () => {
 
     // New-mode create (req #2414), run by the first category pick. When a plan
     // step's "+" opened the draft (req #3582) the step is re-read LIVE first:
-    // a step stamped complete since the plan rendered must not take new work
-    // (design rule 1 — the same refusal every other seat writer makes), and
-    // finding that out after the POST would strand a requirement it was
-    // created for.
+    // a step deleted or locked (req #3649 — its own lock, its epic's or its
+    // plan's) since the plan rendered cannot take the seat, and finding that
+    // out after the POST would strand a requirement it was created for. A step
+    // has no state (req #3750), so the work it already holds never closes it.
     const createFromDraft = async (newCategoryFk, wasCategoryUnset) => {
         if (newSeat) {
-            const stepRead = await call_rest_api(
-                `${darwinUri}/pipeline_steps?id=${newSeat.stepId}&fields=id,completed_at`,
-                'GET', '', idToken).catch(() => null);
-            const stepRow = stepRead?.httpStatus?.httpStatus === 200 ? stepRead.data?.[0] : null;
-            if (!stepRow || stepRow.completed_at) {
+            const lock = await readStepSeatLock(darwinUri, idToken, newSeat.stepId);
+            if (!lock.ok || lock.lockedBy) {
                 setRequirement(prev => ({ ...prev, category_fk: null }));
-                showError(stepRead && stepRead.httpStatus ? stepRead : { httpStatus: { httpStatus: 'network error' } },
-                    stepRow ? `Step ${newSeat.stepId} is complete — it takes no new work; nothing was created`
-                        : `Unable to read step ${newSeat.stepId}; nothing was created`);
+                if (lock.ok) showError(seatLockMessage(newSeat.stepId, lock.lockedBy));
+                else showError(lock.read && lock.read.httpStatus ? lock.read
+                    : { httpStatus: { httpStatus: 'network error' } },
+                    `Unable to read step ${newSeat.stepId}; nothing was created`);
                 return;
             }
         }

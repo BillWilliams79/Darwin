@@ -8,7 +8,7 @@ import { describe, it, expect } from 'vitest';
 import { NAV_LINKS, NAV_GROUPS, flattenNavLinks } from '../navConfig';
 
 const SESSIONS_PATH = '/swarm/sessions';
-const L3_PATHS = ['/swarm/swarm-starts', '/swarm/swarm-completes', '/swarm/swarm-undos'];
+const L3_PATHS = ['/swarm/swarm-starts', '/swarm/swarm-completes', '/swarm/swarm-undos', '/devservers'];
 
 describe('navConfig — Sessions sub-items', () => {
     const sessions = NAV_LINKS.find(l => l.path === SESSIONS_PATH);
@@ -19,9 +19,9 @@ describe('navConfig — Sessions sub-items', () => {
         expect(sessions.label).toBe('Sessions');
     });
 
-    it('nests Starts / Completes / Undos under Sessions, in that order', () => {
+    it('nests Starts / Completes / Undos / Dev Servers under Sessions, in that order (req #3771)', () => {
         expect(sessions.children.map(c => c.path)).toEqual(L3_PATHS);
-        expect(sessions.children.map(c => c.label)).toEqual(['Starts', 'Completes', 'Undos']);
+        expect(sessions.children.map(c => c.label)).toEqual(['Starts', 'Completes', 'Undos', 'Dev Servers']);
     });
 
     it('every child carries an icon so the collapsed sidebar can render it', () => {

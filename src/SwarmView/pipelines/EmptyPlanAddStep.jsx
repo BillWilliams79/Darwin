@@ -7,8 +7,15 @@
 // of the otherwise-empty panel, opening the same title + epic dialog the "+"
 // marks use. Shared by the canvas and the table, which each return this panel
 // when the plan has no rows.
+//
+// A plan with NO EPIC (req #3773). A step lives in an epic, so this "+" used to
+// be disabled there — and that is exactly the state of every pipeline the
+// Pipelines page creates. It now opens "Add the first epic" (title + category)
+// and creates the epic AND its first step, as the canvas's own epic-add "+"
+// does (an epic with no steps would draw nowhere).
 
-import { useCallback, useContext, useMemo, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { Link as RouterLink } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 
 import Box from '@mui/material/Box';
@@ -18,6 +25,7 @@ import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
 import Fab from '@mui/material/Fab';
+import Link from '@mui/material/Link';
 import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
 import TextField from '@mui/material/TextField';
@@ -27,10 +35,11 @@ import AddIcon from '@mui/icons-material/Add';
 import AppContext from '../../Context/AppContext';
 import AuthContext from '../../Context/AuthContext';
 import { pipelineComposeKeys } from '../../hooks/useQueryKeys';
-import { pipelineStepKeys } from '../../hooks/useDataQueries';
+import { epicKeys, pipelineStepKeys, useAllCategories } from '../../hooks/useDataQueries';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
 import { createStep, isRestNullLiteral, REST_NULL } from '../../Steps/stepsApi';
-import { NEW_STEP_TITLE } from './pipelineStepInsert';
+import { createEpic } from '../../Epics/epicsApi';
+import { NEW_EPIC_TITLE, NEW_STEP_TITLE } from './pipelineStepInsert';
 
 /**
  * The plan's epics, in plan order, for the dialog's picker — the payload's own
@@ -43,6 +52,14 @@ export function emptyPlanEpicOptions(model) {
         .sort((a, b) => (a.sortOrder ?? Infinity) - (b.sortOrder ?? Infinity) || a.id - b.id);
 }
 
+/** Open categories in their own order — the first-epic dialog's Category picker. */
+export function openCategoryOptions(categories) {
+    return (categories || [])
+        .filter((c) => !c.closed)
+        .sort((a, b) => (a.sort_order ?? Infinity) - (b.sort_order ?? Infinity)
+            || String(a.category_name).localeCompare(String(b.category_name)));
+}
+
 export default function EmptyPlanAddStep({ model, pipeline, testId }) {
     const queryClient = useQueryClient();
     const { darwinUri } = useContext(AppContext);
@@ -50,9 +67,14 @@ export default function EmptyPlanAddStep({ model, pipeline, testId }) {
     const showError = useSnackBarStore((st) => st.showError);
 
     const epics = useMemo(() => emptyPlanEpicOptions(model), [model]);
+    const noEpics = epics.length === 0;
+    const { data: categories = [] } = useAllCategories(
+        profile?.userName, { fields: 'id,category_name,sort_order,closed' });
+    const categoryOptions = useMemo(() => openCategoryOptions(categories), [categories]);
     const [open, setOpen] = useState(false);
     const [title, setTitle] = useState(NEW_STEP_TITLE);
     const [epicId, setEpicId] = useState('');
+    const [categoryId, setCategoryId] = useState('');
     const [creating, setCreating] = useState(false);
 
     // When the dialog opened — a double-click on the "+" lands its second click
@@ -60,10 +82,24 @@ export default function EmptyPlanAddStep({ model, pipeline, testId }) {
     const openedAtRef = useRef(0);
     const openDialog = useCallback(() => {
         openedAtRef.current = Date.now();
-        setTitle(NEW_STEP_TITLE);
+        setTitle(noEpics ? NEW_EPIC_TITLE : NEW_STEP_TITLE);
         setEpicId(epics.length === 1 ? epics[0].id : '');
+        setCategoryId(categoryOptions[0]?.id ?? '');
         setOpen(true);
-    }, [epics]);
+    }, [epics, noEpics, categoryOptions]);
+
+    // Opened before the categories read landed — default the picker once
+    // they arrive rather than leaving it blank.
+    useEffect(() => {
+        if (open && noEpics && categoryId === '' && categoryOptions.length) {
+            setCategoryId(categoryOptions[0].id);
+        }
+    }, [open, noEpics, categoryId, categoryOptions]);
+
+    // req #3649 — a locked plan refuses every child write at the gateway (423),
+    // so the "+" says so instead of opening a dialog that cannot succeed (the
+    // canvas hides its own add marks on a locked plan for the same reason).
+    const locked = Boolean(Number(pipeline?.locked));
 
     const commit = useCallback(async () => {
         if (creating) return;
@@ -77,28 +113,52 @@ export default function EmptyPlanAddStep({ model, pipeline, testId }) {
                 + 'be a title. Try "Null" or another wording.');
             return;
         }
-        if (epicId === '' || epicId == null) {
-            showError('Epic is required');
+        if (noEpics ? (categoryId === '' || categoryId == null)
+            : (epicId === '' || epicId == null)) {
+            showError(noEpics ? 'Category is required' : 'Epic is required');
             return;
         }
         setCreating(true);
         try {
-            await createStep(darwinUri, idToken, { epic_fk: epicId, title: trimmed });
-            setOpen(false);
+            if (noEpics) {
+                const epic = await createEpic(darwinUri, idToken, {
+                    pipeline_fk: pipeline.id, title: trimmed, category_fk: categoryId,
+                });
+                const newEpicId = Array.isArray(epic) ? epic[0]?.id : epic?.id;
+                setOpen(false);
+                if (newEpicId == null) {
+                    // Written but not read back: retrying would make a second epic.
+                    showError('The epic may have been created without a first step — '
+                        + 'check the Epics page before adding it again');
+                    return;
+                }
+                try {
+                    await createStep(darwinUri, idToken, { epic_fk: newEpicId, title: NEW_STEP_TITLE });
+                } catch (error) {
+                    showError(error, 'Epic created, but its first step could not be added');
+                }
+            } else {
+                await createStep(darwinUri, idToken, { epic_fk: epicId, title: trimmed });
+                setOpen(false);
+            }
         } catch (error) {
-            showError(error, 'Could not add the step');
+            showError(error, noEpics ? 'Could not create the epic' : 'Could not add the step');
         } finally {
             setCreating(false);
             if (pipeline?.id != null) {
                 queryClient.invalidateQueries({ queryKey: pipelineComposeKeys.byId(pipeline.id) });
             }
+            if (noEpics && profile?.userName) {
+                queryClient.invalidateQueries({ queryKey: epicKeys.all(profile.userName) });
+            }
             queryClient.invalidateQueries({ queryKey: pipelineStepKeys.all(profile?.userName) });
             queryClient.invalidateQueries({ queryKey: ['orchestration_index'] });
         }
-    }, [creating, title, epicId, darwinUri, idToken, pipeline?.id, profile?.userName,
-        queryClient, showError]);
+    }, [creating, title, noEpics, epicId, categoryId, darwinUri, idToken, pipeline?.id,
+        profile?.userName, queryClient, showError]);
 
-    const noEpics = epics.length === 0;
+    const pickerEmpty = noEpics ? categoryId === '' : epicId === '';
+    const dialogTitle = noEpics ? 'Add the first epic' : 'Add the first step';
 
     return (
         <>
@@ -106,19 +166,25 @@ export default function EmptyPlanAddStep({ model, pipeline, testId }) {
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
                     This pipeline has no steps yet.
                 </Typography>
-                <Fab color="primary" size="large" aria-label="Add the first step"
-                     onClick={openDialog} disabled={noEpics}
+                <Fab color="primary" size="large" aria-label={dialogTitle}
+                     onClick={openDialog} disabled={locked}
                      sx={{ width: 80, height: 80 }}
                      data-testid="pipeline-empty-add-step">
                     <AddIcon sx={{ fontSize: 48 }} />
                 </Fab>
                 <Typography variant="body1" sx={{ mt: 2, fontWeight: 500 }}>
-                    {noEpics ? 'Add an epic to this pipeline first' : 'Add the first step'}
+                    {dialogTitle}
                 </Typography>
-                {noEpics && (
+                {locked && (
+                    <Typography variant="body2" color="text.secondary"
+                                data-testid="pipeline-empty-add-step-locked">
+                        This pipeline is locked — unlock it first.
+                    </Typography>
+                )}
+                {!locked && noEpics && (
                     <Typography variant="body2" color="text.secondary"
                                 data-testid="pipeline-empty-add-step-no-epics">
-                        A step lives in an epic, and this pipeline has none yet.
+                        A step lives in an epic — this creates the epic and its first step.
                     </Typography>
                 )}
             </Paper>
@@ -128,7 +194,7 @@ export default function EmptyPlanAddStep({ model, pipeline, testId }) {
                         if (!creating) setOpen(false);
                     }}
                     fullWidth maxWidth="xs" data-testid="pipeline-empty-add-step-dialog">
-                <DialogTitle>Add the first step</DialogTitle>
+                <DialogTitle>{dialogTitle}</DialogTitle>
                 <DialogContent>
                     <Box sx={{ pt: 1 }}>
                         <TextField autoFocus fullWidth size="small" label="Title"
@@ -140,20 +206,40 @@ export default function EmptyPlanAddStep({ model, pipeline, testId }) {
                                    }}
                                    inputProps={{ 'data-testid': 'pipeline-empty-add-step-title' }}
                                    sx={{ mb: 2 }} />
-                        <TextField select fullWidth size="small" label="Epic"
-                                   value={epicId}
-                                   onChange={(e) => setEpicId(e.target.value)}
-                                   inputProps={{ 'data-testid': 'pipeline-empty-add-step-epic' }}>
-                            {epics.map((e) => (
-                                <MenuItem key={e.id} value={e.id}>{e.title || `Epic ${e.id}`}</MenuItem>
-                            ))}
-                        </TextField>
+                        {noEpics && !categoryOptions.length ? (
+                            <Typography variant="body2" color="text.secondary"
+                                        data-testid="pipeline-empty-add-step-no-categories">
+                                An epic is filed under a category, and you have no open
+                                category. <Link component={RouterLink} to="/categoryedit">Create
+                                one first</Link>.
+                            </Typography>
+                        ) : noEpics ? (
+                            <TextField select fullWidth size="small" label="Category"
+                                       value={categoryId}
+                                       onChange={(e) => setCategoryId(e.target.value)}
+                                       inputProps={{ 'data-testid': 'pipeline-empty-add-step-category' }}>
+                                {categoryOptions.map((c) => (
+                                    <MenuItem key={c.id} value={c.id}>
+                                        {c.category_name || `Category ${c.id}`}
+                                    </MenuItem>
+                                ))}
+                            </TextField>
+                        ) : (
+                            <TextField select fullWidth size="small" label="Epic"
+                                       value={epicId}
+                                       onChange={(e) => setEpicId(e.target.value)}
+                                       inputProps={{ 'data-testid': 'pipeline-empty-add-step-epic' }}>
+                                {epics.map((e) => (
+                                    <MenuItem key={e.id} value={e.id}>{e.title || `Epic ${e.id}`}</MenuItem>
+                                ))}
+                            </TextField>
+                        )}
                     </Box>
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={() => setOpen(false)} disabled={creating}>Cancel</Button>
                     <Button variant="contained" onClick={commit}
-                            disabled={creating || !title.trim()}
+                            disabled={creating || !title.trim() || pickerEmpty}
                             data-testid="pipeline-empty-add-step-create">
                         {creating ? 'Creating…' : 'Create'}
                     </Button>

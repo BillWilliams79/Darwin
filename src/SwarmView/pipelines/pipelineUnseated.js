@@ -199,15 +199,15 @@ export function unorchestratedSwarmReady(requirements, stepRequirements) {
 }
 
 /**
- * May this step take a NEW requirement? A step with a stamped `completed_at`
- * may not: design rule 1 makes the stamp valid only with zero gating
- * requirements, and `link_step_requirement` refuses the same write server-side.
- * Mirrors the requirement page's own step picker (`orchestrationIndex.js`).
+ * May this step take a NEW requirement? Always, unless it is effectively LOCKED
+ * (req #3649 — the step, its epic or its plan): the gateway refuses the link
+ * with a 423. A step has no state (req #3750), so the work it already holds
+ * being finished never closes it to more.
  *
  * @param {?Object} row  the step's plan row
  */
 export function stepAcceptsNewWork(row) {
-    return !!row && row.completedAt == null;
+    return !!row && !row.effectiveLocked;
 }
 
 /**
@@ -273,7 +273,7 @@ export function screenRectOf(n, t) {
  * The confirm dialog's request when the WHOLE box is dropped on a step (req
  * #3608): every requirement the box lists at the moment of the drop, bound for
  * that step. Null when there is nothing to ask — no step under the pointer, or
- * an empty box. A stamped step still yields a request with `ok: false`, so the
+ * an empty box. A locked step still yields a request with `ok: false`, so the
  * caller can say why nothing will be written rather than letting the gesture
  * pass silently as a relocation.
  *
