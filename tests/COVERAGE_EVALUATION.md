@@ -200,19 +200,19 @@ in ~2.8 minutes. Test IDs and the fixture strategy are documented in TEST_PLAN.m
 
 | req #3080 rule | Covered by |
 |----------------|------------|
-| 1 — step state is DERIVED, never stored | PIPE-03 (every chip), MUT-05 (a req-less step holds no open work and carries no `completed_at` — req #3750/#3752), MUT-07 (all three derivations) |
-| 2 — a step is a swarm-start (launch unit) | PIPE-04 (the step row's own exact `/swarm-start` command — literally this rule since req #3371 made the step the launch unit; also asserts no condensation advisory, which req #3303 deleted, so the rule is covered by what the STEP launches and never by a proposal to merge), MUT-07 (multi-requirement step) |
+| 1 — DERIVED, never stored (an epic has no state; its open work is derived) | PIPE-03 (every chip), MUT-05 (a req-less epic holds no open work and carries no `completed_at` — req #3750/#3752), MUT-07 (all three derivations) |
+| 2 — an epic is a swarm-start (launch unit) | PIPE-04 (the epic row's own exact `/swarm-start` command — literally this rule since req #3371 made the epic the launch unit; also asserts no condensation advisory, which req #3303 deleted, so the rule is covered by what the EPIC launches and never by a proposal to merge), MUT-07 (multi-requirement epic) |
 | 3 — display order computed + self-verified | PIPE-02 (full sequence vs `displayOrder`), PIPE-12 (loud failure), every MUT case (`verifyOrder` clean after each) |
-| 4 — deps reference stable step ids | MUT-08 (drop refused while referenced, named gate, no residue) |
-| 5 — render path is fast, no N+1 | MUT `readPlan()` uses the single composed read and asserts `epic_count` against the steps returned |
+| 4 — deps reference stable epic ids | MUT-08 (drop refused while referenced, named gate, no residue) |
+| 5 — render path is fast, no N+1 | MUT `readPlan()` uses the single composed read and asserts `epic_count` against the epics returned |
 | 6 — refresh is event-driven | Indirect only — see gaps |
 | 7 — automation that waits fails loud | Out of scope here (the watchdog is a shell script, not a UI surface) |
-| 8 — launch unit visibility | PIPE-04 (exact `/swarm-start` args on the step's own row, and the gate). PIPE-10's dashed rectangle and conditional key were deleted with the multi-step launch grouping (req #3371) |
+| 8 — launch unit visibility | PIPE-04 (exact `/swarm-start` args on the epic's own row, and the gate). PIPE-10's dashed rectangle and conditional key were deleted with the multi-epic launch grouping (req #3371) |
 | 9 — requirement-centric views carry no session data | Structural: the plan reads carry no session table at all |
-| 10 — one initiative/feature label per step | PIPE-03 (contiguous groups compared by ID, not title) |
+| 10 — one initiative/feature label per epic | PIPE-03 (contiguous groups compared by ID, not title) |
 
 Production directives from the POC polish review are covered by PIPE-07 (no '#'),
-PIPE-08 (no horizontal scrollbar, drag-pan), PIPE-11 (steps/requirements/initiatives are
+PIPE-08 (no horizontal scrollbar, drag-pan), PIPE-11 (epics/requirements/initiatives are
 clickable links).
 
 ### Defect found and fixed by this battery
@@ -227,7 +227,7 @@ matching `RequirementsTableView` / `InstructionsTableView`.
 1. **Per-level canvas detail suppression.** PIPE-09 asserts that the level chip
    crosses Overview → Plan → Detail, that `data-transform`'s scale moves in the
    right direction at each, that the canvas redraws, and that the layout really
-   contains the label kinds the ladder gates (`title` at `in`, `step` suppressed
+   contains the label kinds the ladder gates (`title` at `in`, `epic` suppressed
    at `out`). What it does NOT assert is that those labels are absent from the
    rendered BITMAP at the wrong level — Konva draws to a canvas, so proving that
    needs pixel-region comparison or a screenshot baseline.
