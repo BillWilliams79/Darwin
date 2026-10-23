@@ -582,17 +582,18 @@ describe('buildPlanRows — the colour rollup at the join (req #3750)', () => {
         expect(buildPlanRows(p)[0].state).toBe('pending');
     });
 
-    // A Lambda that predates req #3750 sends no `open_req_ids`; the same
-    // definition is applied to the payload's own requirement rows (an
-    // unresolved id counts as open, the server's rule).
-    it('falls back to requirement statuses when open_req_ids is absent', () => {
-        const done = payloadFor([{ id: 7, requirement_status: 'met' }], { req_ids: [7] });
-        delete done.derived.rows[0].open_req_ids;
-        expect(buildPlanRows(done)[0].openReqIds).toEqual([]);
-        expect(buildPlanRows(done)[0].state).toBe('done');
-        const unresolved = payloadFor([], { req_ids: [99] });
-        delete unresolved.derived.rows[0].open_req_ids;
-        expect(buildPlanRows(unresolved)[0].openReqIds).toEqual([99]);
-        expect(buildPlanRows(unresolved)[0].state).toBe('pending');
+    // req #3752 — `open_req_ids` is the server's fact. The browser never
+    // recomputes it from the payload's requirement rows, so the wire value wins
+    // even where those rows would say otherwise, and an absent key is not
+    // rebuilt from them — it reads every gating requirement as open.
+    it('reads open_req_ids as sent — never recomputed from requirement statuses', () => {
+        const open = payloadFor([{ id: 7, requirement_status: 'met' }],
+            { req_ids: [7], open_req_ids: [7] });
+        expect(buildPlanRows(open)[0].openReqIds).toEqual([7]);
+        expect(buildPlanRows(open)[0].state).toBe('pending');
+        const absent = payloadFor([{ id: 7, requirement_status: 'met' }], { req_ids: [7] });
+        delete absent.derived.rows[0].open_req_ids;
+        expect(buildPlanRows(absent)[0].openReqIds).toEqual([7]);
+        expect(buildPlanRows(absent)[0].state).toBe('pending');
     });
 });

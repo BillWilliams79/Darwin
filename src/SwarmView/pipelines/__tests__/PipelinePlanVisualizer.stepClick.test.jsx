@@ -186,7 +186,7 @@ describe('a click on a step opens its single editor (req #3742)', () => {
         act(() => { document.querySelector('[data-testid="step2-save"]').click(); });
         await act(async () => { await Promise.resolve(); await Promise.resolve(); });
         expect(updateStep).toHaveBeenCalledWith(undefined, undefined, id,
-            { title: 'Renamed', notes: 'NULL', run: 'auto', not_before: 'NULL' });
+            { title: 'Renamed', notes: 'NULL', run: 'auto', checkpoint: 1, not_before: 'NULL' });
     });
 
     // The second click of a quick double click on the title area lands on the

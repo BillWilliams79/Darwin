@@ -21,7 +21,7 @@
 // `if (step.completed_at)`. That was never a state a step reliably had:
 // `pipeline_steps` carries no status column at all, `completed_at` was stamped
 // only where a step had NO gating requirements — and since req #3750 a step
-// has no state whatsoever (the column is dropped; a step only holds
+// has no state whatsoever (req #3752 dropped the column; a step only holds
 // requirements). Measured on plan 7: **0 of 71 steps carried
 // one**, so the card read "0 complete · 71 open" for a plan whose real state
 // was 49 done / 21 pending / 1 running.
@@ -52,6 +52,7 @@ import {
 import { machineTitle, pipelinesEmptyMessage } from '../SwarmView/pipelines/pipelineViewModel';
 import { orchestrationView } from '../SwarmView/pipelines/orchestrationHolder';
 import PipelinePlanThumbnail from './PipelinePlanThumbnail';
+import NewPipelineCard from './NewPipelineCard';
 
 const EMPTY_SUMMARY = { total: 0 };
 
@@ -64,12 +65,17 @@ const EMPTY_SUMMARY = { total: 0 };
 export default function PipelinesCardsView({ pipelines, summaries, reqCounts,
     showReqCounts = false, machines, claims = [], onOpen,
     hiddenStatusCounts = [] }) {
+    // The "New pipeline" tile (req #3773) closes the grid, and stays when the
+    // list is empty — an empty list is exactly when a reader needs it.
     if (!pipelines.length) {
         return (
-            <Typography variant="body2" color="text.secondary" sx={{ px: 1, py: 3 }}
-                        data-testid="pipelines-cards-empty">
-                {pipelinesEmptyMessage(hiddenStatusCounts)}
-            </Typography>
+            <>
+                <Typography variant="body2" color="text.secondary" sx={{ px: 1, py: 3 }}
+                            data-testid="pipelines-cards-empty">
+                    {pipelinesEmptyMessage(hiddenStatusCounts)}
+                </Typography>
+                <Box className="card"><NewPipelineCard /></Box>
+            </>
         );
     }
 
@@ -206,6 +212,7 @@ export default function PipelinesCardsView({ pipelines, summaries, reqCounts,
                     </Card>
                 );
             })}
+            <NewPipelineCard />
         </Box>
     );
 }

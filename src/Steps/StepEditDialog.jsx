@@ -58,12 +58,16 @@ const inputValueToNotBefore = (localValue) => {
 };
 
 const runOf = (step) => (VALID_RUN2_MODES.includes(step?.run) ? step.run : 'auto');
+// req #3767 — the barrier is the step's `checkpoint` column. Absent/NULL is the
+// column default (on); the plan canvas passes a boolean, the Steps page 0/1.
+const barrierOf = (step) => step?.checkpoint == null || Boolean(Number(step.checkpoint));
 
 /**
  * @param {Object} props
  * @param {boolean} props.open
  * @param {?Object} props.step     the step being edited — `{ id, epic_fk, title,
- *                                 notes, run, not_before, locked, lockedBy }` —
+ *                                 notes, run, not_before, checkpoint, locked,
+ *                                 lockedBy }` —
  *                                 or null to create one
  * @param {Object[]} props.epicOptions  `{ id, title }` for the Epic select
  * @param {*} [props.defaultEpicFk]     the Epic a NEW step starts in
@@ -82,6 +86,7 @@ export default function StepEditDialog({
     const [formNotes, setFormNotes] = useState(step?.notes || '');
     const [formRun, setFormRun] = useState(runOf(step));
     const [formNotBefore, setFormNotBefore] = useState(notBeforeToInputValue(step?.not_before));
+    const [formBarrier, setFormBarrier] = useState(barrierOf(step));
     const [formLocked, setFormLocked] = useState(!!step?.locked);
     const [submitting, setSubmitting] = useState(false);
 
@@ -98,6 +103,7 @@ export default function StepEditDialog({
         formTitle !== (step.title || '')
         || formNotes !== (step.notes || '')
         || formRun !== runOf(step)
+        || formBarrier !== barrierOf(step)
         || formNotBefore !== notBeforeToInputValue(step.not_before));
 
     const handleSubmit = async () => {
@@ -135,6 +141,7 @@ export default function StepEditDialog({
                     title,
                     notes: notes || REST_NULL,
                     run: formRun,
+                    checkpoint: formBarrier ? 1 : 0,
                     not_before: notBeforeValue || REST_NULL,
                     ...(formLocked !== !!step.locked
                         ? { locked: formLocked ? 1 : 0 } : {}),
@@ -145,6 +152,7 @@ export default function StepEditDialog({
                     title,
                     notes: notes || null,
                     run: formRun,
+                    checkpoint: formBarrier ? 1 : 0,
                     not_before: notBeforeValue,
                 });
             }
@@ -227,6 +235,21 @@ export default function StepEditDialog({
                                 data-testid="step2-run-select">
                             <MenuItem value="auto">Auto — the orchestrator launches it</MenuItem>
                             <MenuItem value="manual">Manual — reported eligible, never launched</MenuItem>
+                        </Select>
+                    </FormControl>
+                    <FormControl fullWidth disabled={lockHeld}>
+                        <InputLabel>Barrier</InputLabel>
+                        <Select label="Barrier" value={formBarrier ? 'on' : 'off'}
+                                onChange={(e) => setFormBarrier(e.target.value === 'on')}
+                                data-testid="step2-barrier-select">
+                            <MenuItem value="on">
+                                On — dependent steps start only when all of this step&apos;s
+                                requirements are met, wontfix, deferred or paused
+                            </MenuItem>
+                            <MenuItem value="off">
+                                Off (priority) — dependent steps may start once this
+                                step&apos;s requirements have been started
+                            </MenuItem>
                         </Select>
                     </FormControl>
                     <TextField

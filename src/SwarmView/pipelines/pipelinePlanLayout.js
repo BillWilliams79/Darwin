@@ -98,7 +98,11 @@ export const PLAN_VIZ_PALETTE = {
     doneFill: '#2e7d32',
     doneRing: '#7ee08a',
     doneCheck: '#c9f7cf',
-    runningFill: '#FFB300',
+    // `runningFill` (#FFB300) is GONE (req #3775, user directive: "Flashing
+    // yellow for doing work should be eradicated from the pipeline area"). A
+    // running step pulses its bar (the bead's fill at L1) in its own STEP
+    // COLOUR now — see `beadStyle`. `runningRing` stays: it is the static
+    // `development` requirement colour, not a step mark.
     runningRing: '#ffd769',
     pendingFill: '#22314b',
     eligibleRing: '#7ee08a',
@@ -141,15 +145,15 @@ export const PLAN_VIZ_PALETTE = {
     badgeText: '#0d1420',
     // The step card's two flag buttons (req #3673) — a control's colours, a
     // channel of their own. `lockOn` (orange, 9.1:1 on `panel`) is a LOCKED
-    // padlock and is deliberately not `runningFill`'s amber, which a reader
-    // already takes to mean "in flight". `checkpointOn` is the striped barrier
-    // arm of a step that holds its downstream; `checkpointLight` is the arm's
+    // padlock and is deliberately not `runningRing`'s amber, which a reader
+    // already takes to mean "in flight". `barrierOn` is the striped barrier
+    // arm of a step that holds its downstream; `barrierLight` is the arm's
     // other stripe. YELLOW since req #3742 — the button is the control for the
-    // step colour `stepCheckpoint`, so it wears it (it was red, then briefly
+    // step colour `stepBarrier`, so it wears it (it was red, then briefly
     // orange in the same requirement).
     lockOn: '#ffa94d',
-    checkpointOn: '#ffd43b',
-    checkpointLight: '#ffffff',
+    barrierOn: '#ffd43b',
+    barrierLight: '#ffffff',
     // A LOCKED step's card perimeter (req #3742, user directive: "a locked step
     // has a red perimeter") — it replaced the card's padlock button. Its own
     // entry, a step-level channel: the card's frame is otherwise the run-mode /
@@ -161,15 +165,15 @@ export const PLAN_VIZ_PALETTE = {
     // answering "will the work placed here run on its own?":
     //   red     `lockedFrame`     locked — by the step, its epic or its plan
     //   orange  `stepManual`      manual — reported, never launched
-    //   yellow  `stepCheckpoint`  a checkpoint — holds the steps after it
+    //   yellow  `stepBarrier`     a barrier — holds the steps after it
     //   green   `stepWillRun`     none of those: it will run
     // First match wins, in that order (`stepColorOf`). Every one clears WCAG AA
-    // on `panel`: 5.3, 6.6, 12.1 and 9.9:1. The state (Scheduled / Running /
-    // Complete) stays on the card's state bar and the bead's fill, and "Up
-    // Next" on its dashed halo — separate channels, so nothing they said is
-    // lost to the border.
+    // on `panel`: 5.3, 6.6, 12.1 and 9.9:1. The card's state bar wears it too
+    // (req #3775) and PULSES while the step is running; the bead's fill keeps
+    // Scheduled / Complete at L1 and pulses in this colour while running. "Up
+    // Next" stays on its dashed halo.
     stepWillRun: '#4ade80',
-    stepCheckpoint: '#ffd43b',
+    stepBarrier: '#ffd43b',
     stepManual: '#ff7a1a',
 };
 
@@ -635,8 +639,9 @@ export function buildMachineColorView({ requirements = [], machines = [] } = {})
 // pairwise CIE76 ΔE across all four rungs 38.5 (`planned`/`implemented` —
 // UP from the prior scale's 45.9 low, still clear of the 20 floor by a wide
 // margin); `discuss`/`planned` themselves 44.6. Nearest RESERVED state hue
-// (`runningFill`/`runningRing`/`doneFill`/`doneRing`) 89.1, against a 25
-// floor — this pair reads nothing like a step's own running or done colour.
+// (`runningFill`/`runningRing`/`doneFill`/`doneRing`; `runningFill` since
+// deleted, req #3775) 89.1, against a 25 floor — this pair reads nothing like
+// a step's own running or done colour.
 // `deployed` is untouched, so its own history (green chosen ΔE 26.4 from
 // `doneRing`, the widest separation any recognisable green achieves here)
 // still stands and is not repeated.
@@ -1761,10 +1766,17 @@ export const CARD_TITLE_CHARS = CARD_REQ_CHARS - CARD_ID_CHARS - CARD_SEP_CHARS;
 // the FILL becomes this — a state bar down the card's leading edge.
 //
 // A BAR RATHER THAN A TINTED TITLE AREA, and that is a contrast decision, not a
-// taste one: `runningFill` is `#FFB300` and the label colour is `#d7e3f4`, so
-// filling the title area with the state colour would have put ~1.6:1 text on
-// the one card a reader most needs to read. A bar carries the same colour at
-// full saturation next to text that keeps its own contrast.
+// taste one: the bright step colours (`stepBarrier` is `#ffd43b`) under the
+// `#d7e3f4` label would put ~1.5:1 text on the card. A bar carries the colour
+// at full saturation next to text that keeps its own contrast.
+//
+// ── THE BAR IS THE STEP COLOUR, ALWAYS (req #3775, user directive) ────────
+// *"have the color bar always be the same color as the perimeter of the
+// step."* It used to carry the state fill — Running amber, Complete green,
+// Scheduled navy — and the amber, pulsing, was the one yellow flash on the
+// surface that meant "work in progress". The bar now takes `beadStyle`'s
+// `bar`, which IS the frame colour, and still PULSES while the step runs:
+// the motion says running, the colour says what the border says.
 //
 // ── OUTSIDE THE FRAME, ON THE LEFT (user directive, 2026-08-13) ────────────
 // It began flush INSIDE the card's left border, where it ate into the text
@@ -1933,7 +1945,7 @@ export const cardTitleH = (stepLabel, nameLines = 1) => CARD_PAD_Y
 // 28-character line the name's own budget — the text column less the
 // title-row reserves, at the LABEL glyph which is wider than the row glyph —
 // was SEVEN characters at the base card once the chevron, badge, padlock,
-// checkpoint and run pill all shared the one line, and is TWELVE since req
+// barrier and run pill all shared the one line, and is TWELVE since req
 // #3683 stacked those controls into the 2x2 cluster
 // (`cardChars(CHW_LABEL, CARD_NAME_RESERVE)`). "Feature Eradication
 // - MCP, Scripts, Frontend…" is the actual data, and it truncates well short
@@ -2082,7 +2094,7 @@ export const CARD_TITLE_BTN_STROKE = 2;
 // (`CARD_STEP_ADD_W` — the "+"'s reserve — was deleted with the button by
 // req #3649.)
 
-// ── THE CHECKPOINT FLAG (req #3649) ──────────────────────────────────────────
+// ── THE BARRIER FLAG (req #3649) ─────────────────────────────────────────────
 // A title-area button sized like the "+" and the ↗ were for the same reason;
 // the bottom cell of the control column (`CARD_CLUSTER_W`, below), under the
 // run pill. It is the step's `checkpoint` flag (on by default: the step holds
@@ -2145,7 +2157,7 @@ export const CARD_BADGE_H = CARD_LINE_H - 4;
 // centre (within 0.5px).
 export const CARD_BADGE_TOP = -1;
 // The run pill's top, from the control column's first row (req #3683): centred
-// on that row's line box, so the 3px under it is the air above the checkpoint.
+// on that row's line box, so the 3px under it is the air above the barrier.
 // It was the badge's offset while the two pills shared the cluster's first row.
 export const CARD_RUN_TOP = 1;
 
@@ -2244,7 +2256,7 @@ export const CARD_BADGE_W = badgeWidthFor(2);
 // padlock was removed — and what is left stacks in ONE column:
 //
 //     [ A ]        row 1 — the run pill
-//     [⛩]         row 2 — the checkpoint
+//     [⛩]         row 2 — the barrier
 //
 // Still two rows, each one title line (`CARD_LINE_H`) — the square button
 // fills its row, the pill sits `CARD_RUN_TOP` into its own — so the column is
@@ -2913,7 +2925,7 @@ export function drawsLabelKind(kind, level) {
     // too and ride the card the same way.
     // `collapse` (req #3650) is the card's own fold, on its title line.
     if (kind === 'step' || kind === 'req' || kind === 'badge'
-        || kind === 'run' || kind === 'checkpoint'
+        || kind === 'run' || kind === 'barrier'
         || kind === 'collapse') {
         return level !== 'out';
     }
@@ -3343,6 +3355,36 @@ export function rulerScreenMag(t) {
 export function rulerScreenBottom(t, rulerH = RULER_H) {
     const k = (t && typeof t.k === 'number' && t.k > 0) ? t.k : 1;
     return stickyRulerY(t) + rulerH * k * rulerScreenMag(t);
+}
+
+// ── THE DRAW-TIME RE-THIN (req #3365; lifted out of the renderer, req #3793) ─
+// The layout's own greedy thinning rule ("labelX < lastRight + gap", in
+// `buildRuler` above), re-applied to the widths counter-scaling actually
+// produces (`mag` = `rulerScreenMag(t)`): the date type is a fixed SCREEN size,
+// so in world units it is `mag` times wider than the layout measured. A
+// re-application rather than a second rule, so the strip cannot thin one way at
+// layout time and another way at draw time.
+//
+// `startRight` (req #3793) is the right edge, in WORLD x, of something already
+// occupying the strip's left end — the maximized Plan page's full screen switch
+// sits there — so a date that would begin under it is thinned like any label
+// with no room. −∞ (the default) is an empty strip, exactly the old pass.
+/**
+ * @param {Object[]} slots `ruler.slots` — `{key, showLabel, labelX, labelW}`
+ * @param {number} mag     `rulerScreenMag(t)`
+ * @param {number} [startRight] world x the first label must clear
+ * @returns {Set<string>} the keys of the slot labels drawn
+ */
+export function drawnRulerLabelKeys(slots = [], mag = 1, startRight = -Infinity) {
+    const drawn = new Set();
+    let lastRight = startRight;
+    for (const s of slots) {
+        if (!s.showLabel) continue;          // the layout already refused it
+        if (s.labelX < lastRight + RULER_LABEL_GAP * mag) continue;
+        drawn.add(s.key);
+        lastRight = s.labelX + (s.labelW || 0) * mag;
+    }
+    return drawn;
 }
 
 const truncate = (s, n) => {
@@ -4894,7 +4936,7 @@ export function computePlanLayout(rows, opts = {}) {
         // The "view in table" ↗ (req #3503) and the "+" that filed a
         // requirement into the step (req #3582) were REMOVED by req #3649 (user
         // directive: "I never use the plus … I never use the arrow"); the title
-        // line now carries the run pill and the checkpoint only (req #3742
+        // line now carries the run pill and the barrier only (req #3742
         // removed the padlock).
         // ── THE RUN-MODE PILL (req #3580) ────────────────────────────────────
         // The control column's first row (req #3683, #3742), flush right.
@@ -4913,7 +4955,7 @@ export function computePlanLayout(rows, opts = {}) {
                 w: CARD_RUN_W, h: CARD_RUN_H,
             });
         }
-        // ── THE CHECKPOINT GATE (req #3649, #3673) ──────────────────────────
+        // ── THE BARRIER GATE (req #3649, #3673) ─────────────────────────────
         // The control column's second row, under the run pill, flush right so
         // the column's edge lines up down a lane. Emitted for every card: it is
         // a fact about every step, and the control that changes it (the
@@ -4921,7 +4963,7 @@ export function computePlanLayout(rows, opts = {}) {
         // req #3673). The padlock that stood beside it went in req #3742; a
         // locked step is drawn with a red perimeter instead.
         labels.push({
-            kind: 'checkpoint', stepId: r.id, text: 'Checkpoint', prose: false,
+            kind: 'barrier', stepId: r.id, text: 'Barrier', prose: false,
             on: r.checkpoint !== false,
             x: clusterRight - CARD_TITLE_BTN, y: row2Top,
             w: CARD_TITLE_BTN, h: CARD_TITLE_BTN,
@@ -5696,15 +5738,15 @@ export function placeEpicChips({
 // side by side, never one replacing the other.
 /**
  * The step colour (req #3742) — see `stepWillRun` in `PLAN_VIZ_PALETTE`.
- * Locked outranks manual outranks checkpoint: each answers "will it run?"
- * more finally than the next. A step is a checkpoint unless its flag is
+ * Locked outranks manual outranks barrier: each answers "will it run?"
+ * more finally than the next. A step is a barrier unless its flag is
  * explicitly off (the column defaults to 1).
  */
 export function stepColorOf(row) {
     const P = PLAN_VIZ_PALETTE;
     if (row.effectiveLocked) return P.lockedFrame;
     if (row.run === 'manual') return P.stepManual;
-    if (row.checkpoint !== false && row.checkpoint !== 0) return P.stepCheckpoint;
+    if (row.checkpoint !== false && row.checkpoint !== 0) return P.stepBarrier;
     return P.stepWillRun;
 }
 
@@ -5712,15 +5754,19 @@ export function beadStyle(row, eligible, suppressed = false) {
     const P = PLAN_VIZ_PALETTE;
     const done = row.state === STEP_DONE;
     const running = row.state === STEP_RUNNING;
-    const fill = done ? P.doneFill : running ? P.runningFill : P.pendingFill;
     // req #3742 — the ring and the card's frame are the STEP COLOUR alone.
     // They used to carry run mode (a magenta manual ring), eligibility (a
-    // green ring) and state (done/running/pending tints); state is the fill
-    // and the card's state bar, and eligibility is the dashed halo, so the
-    // border is free to say one thing.
+    // green ring) and state (done/running/pending tints); eligibility is the
+    // dashed halo, so the border is free to say one thing.
     const color = stepColorOf(row);
+    // req #3775 — no amber for "running" anywhere on the surface. The card's
+    // state `bar` is the frame colour in EVERY state, and the L1 bead's fill
+    // is that colour while running; both pulse (`pulse`) — the motion is the
+    // running mark, never a hue of its own.
+    const fill = done ? P.doneFill : running ? color : P.pendingFill;
     return {
         fill,
+        bar: color,
         ring: color,
         ringWidth: BEAD_RING_W_EMPHASIS,
         frame: color,

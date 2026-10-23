@@ -68,15 +68,15 @@ describe('stepTime', () => {
     });
 
     // req #3750 — a step has no time of its own; requirement stamps are the
-    // only source. A stale `completedAt` on a row is never read.
-    it('ignores any step-level stamp — a req-less step has no time', () => {
-        expect(stepTime(row({ reqIds: [], completedAt: '2026-07-25T00:00:00' }), new Map()))
+    // only source.
+    it('gives a req-less step no time', () => {
+        expect(stepTime(row({ reqIds: [] }), new Map()))
             .toEqual({ at: null, kind: TIME_UNKNOWN });
     });
 
     it('dates a step from its requirements alone, containers included', () => {
         const reqs = [req({ id: 1, tracking: 1, completed_at: '2026-07-20T00:00:00' })];
-        expect(stepTime(row({ reqIds: [1], completedAt: '2026-07-25T00:00:00' }), index(reqs)))
+        expect(stepTime(row({ reqIds: [1] }), index(reqs)))
             .toEqual({ at: '2026-07-20T00:00:00', kind: TIME_DATED });
     });
 
@@ -206,11 +206,11 @@ describe('empty step placement (req #3618)', () => {
         expect(stepStarts.get(2).at).toBe('2026-10-18T07:30:00');
     });
 
-    // req #3750 — a req-less step is EMPTY whatever a stale stamp says: it
-    // takes rule 3's TODAY, and a step WITH requirements is left alone.
+    // req #3750 — a req-less step is EMPTY: it takes rule 3's TODAY, and a
+    // step WITH requirements is left alone.
     it('treats every req-less step as empty, and leaves a step WITH requirements alone', () => {
         const rows = [
-            row({ id: 1, reqIds: [], completedAt: '2026-10-01T00:00:00' }),
+            row({ id: 1, reqIds: [] }),
             row({ id: 2, reqIds: [5] }),
             row({ id: 3, reqIds: [6], state: 'running' }),   // makes the plan active
         ];

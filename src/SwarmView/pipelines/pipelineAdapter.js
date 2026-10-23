@@ -48,7 +48,7 @@
 
 import { planTimeAxis } from './pipelinePlanTime';
 import {
-    sumReqCost, STEP_DONE, STEP_RUNNING, STEP_PENDING, TERMINAL_REQUIREMENT_STATUSES,
+    sumReqCost, STEP_DONE, STEP_RUNNING, STEP_PENDING,
 } from './pipelineModel';
 
 const asArray = (v) => (Array.isArray(v) ? v : []);
@@ -177,18 +177,10 @@ function machineLabelsFor(reqIds, trackingReqIds, reqsById, machinesById) {
 // consumer that needs an orchestration fact reads `openReqIds`, `eligible`,
 // `gateOpen`, `launchCandidate` or `checkpointBlockedBy` instead.
 //
-// `open_req_ids` is the server's fact. A payload from a Lambda that predates
-// req #3750 carries no such key, so the same definition is applied to the
-// requirement rows the payload already holds (terminal = met/deferred/wontfix;
-// an id the read did not resolve counts as open, the server's own rule).
-function openReqIdsOf(dr, gatingIds, reqsById) {
-    if (Array.isArray(dr.open_req_ids)) return dr.open_req_ids;
-    return gatingIds.filter((rid) => {
-        const req = reqsById.get(rid);
-        return !req || !TERMINAL_REQUIREMENT_STATUSES.includes(req.requirement_status);
-    });
-}
-
+// `open_req_ids` is the server's fact and is read as sent — never recomputed
+// here from the payload's requirement rows (design rule 13: one rule, one
+// implementation, req #3752). A row without it reads every gating requirement
+// as open, so a missing fact never paints a step done.
 export function visualizerColourInput(gatingIds, openReqIds, reqsById) {
     if (gatingIds.some((rid) => reqsById.get(rid)?.requirement_status === 'development')) {
         return STEP_RUNNING;
@@ -232,7 +224,7 @@ export function buildPlanRows(payload, machines = []) {
         const lockedBy = planLocked ? 'pipeline' : epicLocked ? 'epic' : locked ? 'step' : null;
         const tracking = new Set(dr.tracking_req_ids || []);
         const gatingIds = (dr.req_ids || []).filter((rid) => !tracking.has(rid));
-        const openReqIds = openReqIdsOf(dr, gatingIds, reqsById);
+        const openReqIds = Array.isArray(dr.open_req_ids) ? dr.open_req_ids : gatingIds;
         return {
             id: dr.id,
             title: step.title != null ? step.title : '',
@@ -281,9 +273,9 @@ export function buildPlanRows(payload, machines = []) {
             // fields reads as gate closed / not a candidate — never the reverse.
             gateOpen: Boolean(dr.gate_open),
             launchCandidate: Boolean(dr.launch_candidate),
-            // The user's amendment: checkpoint steps upstream (req #3649: the
+            // The user's amendment: barrier steps upstream (req #3649: the
             // flag, on by default) still holding open work, holding this step.
-            // Empty = no checkpoint blocks it.
+            // Empty = no barrier blocks it.
             checkpointBlockedBy: dr.checkpoint_blocked_by || [],
             launchSuppressed: Boolean(dr.launch_suppressed),
             suppressedBy: dr.suppressed_by || [],

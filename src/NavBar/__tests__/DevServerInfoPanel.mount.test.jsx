@@ -62,9 +62,9 @@ describe('DevServerInfoPanel (req #3727)', () => {
         expect(getComputedStyle(panel).borderTopColor).toBe('rgb(255, 107, 53)');
         // req #3748 — the port is a pill below the terminal pill, not a head badge.
         expect(screen.queryByTestId('devserver-info-port')).toBe(null);
-        expect(screen.getByTestId('navbar-dev-terminal').textContent).toBe('Terminal - 7');
+        expect(screen.getByTestId('navbar-dev-terminal').textContent).toBe('Terminal 7');
         const portPill = screen.getByTestId('navbar-dev-port');
-        expect(portPill.textContent).toBe('Port - 3000');
+        expect(portPill.textContent).toBe('3000');
         expect(portPill.getAttribute('href')).toBe('https://localhost:3000');
         expect(portPill.getAttribute('target')).toBe('_blank');
         expect(portPill.parentElement).toBe(screen.getByTestId('navbar-dev-terminal').parentElement);
@@ -75,9 +75,11 @@ describe('DevServerInfoPanel (req #3727)', () => {
         expect(screen.getByTestId('navbar-dev-req-link').textContent).toBe('3727');
         expect(screen.getByTestId('navbar-dev-req-link').getAttribute('href')).toBe(prodRequirementUrl('3727'));
         expect(screen.getByTestId('navbar-dev-req-title').textContent).toBe('3727 - Dev Server bar dockable');
-        // …the DB line comes last, and the port is only the head badge.
+        // …the DB line comes last.
         const body = screen.getByTestId('devserver-info-body');
         expect(body.lastElementChild).toBe(screen.getByTestId('navbar-dev-database'));
+        // req #3788 — the requirement leads the window, ahead of the terminal pill.
+        expect(body.firstElementChild).toBe(screen.getByTestId('navbar-dev-req-title'));
     });
 
     it('floats once taken off the rack, and stays off on the next mount', async () => {
@@ -108,6 +110,8 @@ describe('DevServerInfoPanel (req #3727)', () => {
         expect(screen.getByTestId('navbar-dev-req-link').getAttribute('href')).toBe(prodRequirementUrl('3727'));
         expect(screen.getByTestId('navbar-dev-req-title').textContent).toBe('3727 - Dev Server bar dockable');
         expect(compact.lastElementChild).toBe(screen.getByTestId('navbar-dev-database'));
+        // req #3788 — the requirement leads here too.
+        expect(compact.firstElementChild).toBe(screen.getByTestId('navbar-dev-req-title'));
         expect(screen.getByTestId('navbar-dev-port').textContent).toBe('3000');
         expect(screen.getByTestId('navbar-dev-terminal').nextElementSibling)
             .toBe(screen.getByTestId('navbar-dev-port'));

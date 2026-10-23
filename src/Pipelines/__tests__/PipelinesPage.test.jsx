@@ -142,6 +142,10 @@ const restCalls = [];
 vi.mock('../../RestApi/RestApi', () => ({
     default: vi.fn((uri, method, body) => {
         restCalls.push({ uri, method, body });
+        // A POST echoes the created row back, as Lambda-Rest does (req #3773).
+        if (method === 'POST') {
+            return Promise.resolve({ httpStatus: { httpStatus: 201 }, data: [{ id: 99 }] });
+        }
         return Promise.resolve({ httpStatus: { httpStatus: 200 }, data: [] });
     }),
 }));
@@ -180,8 +184,15 @@ function mount(entry = '/swarm/pipelines') {
 
 const node = (testId) => document.body.querySelector(`[data-testid="${testId}"]`);
 const click = (el) => act(() => { el.click(); });
-// `textareaIn`/`type` went with the description-dialog suite (req #3365) —
-// no remaining test types into a field on this page.
+// Types into a React-controlled input/textarea (req #3773's create controls).
+const type = (el, value) => {
+    const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement : HTMLInputElement;
+    const setter = Object.getOwnPropertyDescriptor(proto.prototype, 'value').set;
+    act(() => { setter.call(el, value); el.dispatchEvent(new Event('input', { bubbles: true })); });
+};
+const keyDown = (el, key) => act(() => {
+    el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+});
 // React's onBlur is implemented on the native 'focusout' event (which
 // bubbles) rather than 'blur' (which does not) — dispatching a bare 'blur'
 // never reaches React's synthetic handler.
@@ -254,8 +265,8 @@ describe('PipelinesPage2 — Cards view (default)', () => {
         mount();
         expect(node('pipelines-card-summary-7').textContent)
             .toBe('1 of 2 requirements met');
-        // The old line counted steps by `completed_at` — a column req #3750
-        // dropped, since a step has no state at all.
+        // The old line counted steps by `completed_at` — a column req #3752
+        // dropped, since a step has no state at all (req #3750).
         expect(node('pipelines-card-summary-7').textContent).not.toContain('complete ·');
         expect(node('pipelines-card-summary-7').textContent).not.toContain('open');
     });
@@ -512,3 +523,114 @@ describe('PipelinesPage2 status chip (Table view)', () => {
 // deleted rather than re-pointed: the equivalent dialog on `PipelineDetail.jsx`
 // is a SEPARATE component with its own tests, and pointing these at it would
 // make this file assert another page's behaviour.
+
+const POST_BODY_DEFAULTS = {
+    pipeline_status: 'draft', locked: 0, started_at: null, completed_at: null,
+};
+
+describe('PipelinesPage2 — create trial A: header button + dialog (req #3773)', () => {
+    it('is in the header in both views', () => {
+        mount();
+        expect(node('pipelines-new-button')).not.toBeNull();
+        switchToTable();
+        expect(node('pipelines-new-button')).not.toBeNull();
+    });
+
+    it('creates a draft plan from every field and opens it', async () => {
+        mount();
+        click(node('pipelines-new-button'));
+        expect(node('pipelines-new-dialog')).not.toBeNull();
+        type(node('pipelines-new-title'), '  Fresh Plan  ');
+        type(node('pipelines-new-description'), '  Why it exists.  ');
+        click(node('pipelines-new-execmode-serial'));
+        await act(async () => { node('pipelines-new-create').click(); });
+        await flush();
+        expect(restCalls).toEqual([{
+            uri: 'http://test.local/darwin/pipelines',
+            method: 'POST',
+            body: { title: 'Fresh Plan', description: 'Why it exists.',
+                    execution_mode: 'serial', machine_fk: null, ...POST_BODY_DEFAULTS },
+        }]);
+        expect(navigations).toEqual(['/swarm/pipeline/99']);
+    });
+
+    it('writes nothing without a title', async () => {
+        mount();
+        click(node('pipelines-new-button'));
+        expect(node('pipelines-new-create').disabled).toBe(true);
+        type(node('pipelines-new-title'), '   ');
+        keyDown(node('pipelines-new-title'), 'Enter');
+        await flush();
+        expect(restCalls).toEqual([]);
+        expect(navigations).toEqual([]);
+    });
+
+    it('refuses the NULL sentinel as a title', async () => {
+        mount();
+        click(node('pipelines-new-button'));
+        type(node('pipelines-new-title'), 'NULL');
+        await act(async () => { node('pipelines-new-create').click(); });
+        await flush();
+        expect(restCalls).toEqual([]);
+        expect(useSnackBarStore.getState().message).toMatch(/sentinel/);
+    });
+});
+
+describe('PipelinesPage2 — create trial B: "New pipeline" card (req #3773)', () => {
+    it('closes the Cards grid', () => {
+        mount();
+        const grid = node('pipelines-cards-view');
+        expect(grid.lastElementChild.getAttribute('data-testid')).toBe('pipelines-new-card');
+    });
+
+    it('is still offered when the status filter hides every plan', () => {
+        mount();
+        click(node('pipelines-status-chip-active'));
+        click(node('pipelines-status-chip-draft'));
+        click(node('pipelines-status-chip-paused'));
+        expect(node('pipelines-cards-empty')).not.toBeNull();
+        expect(node('pipelines-new-card')).not.toBeNull();
+    });
+
+    it('turns into a title field, and Enter creates a default draft and opens it', async () => {
+        mount();
+        click(node('pipelines-new-card-open'));
+        const input = node('pipelines-new-card-title');
+        expect(input).not.toBeNull();
+        type(input, 'Quick Plan');
+        await act(async () => { keyDown(input, 'Enter'); });
+        await flush();
+        expect(restCalls).toEqual([{
+            uri: 'http://test.local/darwin/pipelines',
+            method: 'POST',
+            body: { title: 'Quick Plan', description: null, execution_mode: 'parallel',
+                    machine_fk: null, ...POST_BODY_DEFAULTS },
+        }]);
+        expect(navigations).toEqual(['/swarm/pipeline/99']);
+    });
+
+    it('Escape folds the field back into the tile without writing', async () => {
+        mount();
+        click(node('pipelines-new-card-open'));
+        type(node('pipelines-new-card-title'), 'Never mind');
+        keyDown(node('pipelines-new-card-title'), 'Escape');
+        await flush();
+        expect(node('pipelines-new-card-title')).toBeNull();
+        expect(node('pipelines-new-card-open')).not.toBeNull();
+        expect(restCalls).toEqual([]);
+    });
+
+    it('keeps the typed title when the create fails', async () => {
+        const RestApi = (await import('../../RestApi/RestApi')).default;
+        // call_rest_api THROWS `{data, httpStatus}` on any non-2xx.
+        RestApi.mockImplementationOnce(() => Promise.reject(
+            { data: null, httpStatus: { httpStatus: 500, httpMessage: 'boom' } }));
+        mount();
+        click(node('pipelines-new-card-open'));
+        type(node('pipelines-new-card-title'), 'Kept');
+        await act(async () => { node('pipelines-new-card-create').click(); });
+        await flush();
+        expect(node('pipelines-new-card-title').value).toBe('Kept');
+        expect(navigations).toEqual([]);
+    });
+});

@@ -106,7 +106,7 @@ describe('the colour help is a hover popup on the toolbar chips (req #3722)', ()
         render({ keyHover: { key: 'step', el: chip() } });
         const text = legend().textContent;
         for (const m of ['Manual', 'Scheduled', 'Running', 'Complete', 'Up Next',
-            'Checkpoint', 'Locked']) {
+            'Barrier', 'Locked']) {
             expect(text).toContain(m);
         }
         expect(document.querySelector('[data-testid="pipeline-viz-legend-reqscale"]')).toBeNull();

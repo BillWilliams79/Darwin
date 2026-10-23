@@ -1,14 +1,20 @@
 // @vitest-environment jsdom
 //
 // req #3658 — the Plan visualizer's maximize switch, the TPU 3D Full screen
-// switch borrowed. Two halves are pinned here:
+// switch borrowed; req #3793 — where it sits, by the user's rule (controls on
+// screen → the controls' header row; none → the canvas's upper-left corner).
+// Three parts are pinned here:
 //
-//   · the CANVAS half: the switch is on the canvas in both states and says
-//     which one it is in; maximized, the key FOLDS to its + toggle (never
-//     hidden — it still opens) and comes back as the reader left it; the
-//     Orchestration Ready box is untouched;
-//   · the HOOK half (`usePlanMaximize`): the switch, Esc, the browser's own
-//     exit and leaving the Plan mode, plus the browser full screen it takes.
+//   · the CANVAS half: NOT maximized the canvas draws no switch (the header row
+//     holds it — `PipelineDetail.maximize.test.jsx`); MAXIMIZED it draws the
+//     one switch in its UPPER-LEFT corner, as the restore glyph, above every
+//     box that can be dragged there; the Orchestration Ready box is untouched;
+//   · the CORNER's arithmetic: the switch sits inside the pinned time ruler's
+//     strip, and the ruler's first date thins rather than run under it;
+//   · the HOOK half (`useVisualizerMaximize`, shared with the Build and Swarm
+//     visualizers): the switch, Esc, the browser's own exit and leaving the
+//     Plan mode, the browser full screen it takes, and the navbar rack it
+//     suspends while the page covers it.
 //
 // jsdom has no canvas, so react-konva is stubbed as in the key's own test.
 
@@ -35,7 +41,10 @@ import { composedFixture } from './pipelineComposedFixture';
 import { adaptComposedPipeline, buildPlanModel } from '../pipelineAdapter';
 import PipelinePlanVisualizer from '../PipelinePlanVisualizer';
 import { UNSEATED_FLOAT_Z } from '../UnorchestratedReqBox';
-import { usePlanMaximize } from '../usePlanMaximize';
+import { useVisualizerMaximize } from '../../../hooks/useVisualizerMaximize';
+import { usePanelRackStore } from '../../../stores/usePanelRackStore';
+import { MAXIMIZE_SWITCH, MAXIMIZE_SWITCH_Z, maximizeSwitchWorldRight } from '../planMaximize';
+import { drawnRulerLabelKeys, rulerScreenBottom, RULER_LABEL_GAP } from '../pipelinePlanLayout';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 if (!globalThis.ResizeObserver) {
@@ -69,7 +78,7 @@ function Viz({ maximized, onToggle }) {
 
 // The page's half in miniature: the hook's state drives the canvas's prop.
 function Page({ enabled = true }) {
-    const { maximized, toggle } = usePlanMaximize(enabled);
+    const { maximized, toggle } = useVisualizerMaximize(enabled);
     return (
         <div data-testid="page" data-maximized={String(maximized)}>
             <button type="button" data-testid="switch" onClick={toggle} />
@@ -89,37 +98,56 @@ afterEach(() => {
     document.documentElement.style.overflow = '';
 });
 
-describe('the maximize switch on the canvas (req #3658)', () => {
-    it('is drawn, as the maximize glyph, and clicks through to the page', () => {
+describe('the maximize switch on the canvas (req #3658, placed by req #3793)', () => {
+    it('is NOT on the canvas while the page is not maximized — the header row holds it', () => {
+        mount(<Viz maximized={false} onToggle={() => {}} />);
+        expect(q('pipeline-viz-maximize')).toBeNull();
+    });
+
+    it('maximized, is the restore switch, ON the canvas, and clicks through to the page', () => {
         const onToggle = vi.fn();
-        mount(<Viz maximized={false} onToggle={onToggle} />);
+        mount(<Viz maximized onToggle={onToggle} />);
         const sw = q('pipeline-viz-maximize');
         expect(sw).not.toBeNull();
-        expect(sw.getAttribute('aria-pressed')).toBe('false');
-        expect(sw.getAttribute('aria-label')).toBe('Maximize the plan');
+        expect(q('pipeline-plan-visualizer').contains(sw)).toBe(true);
+        expect(document.querySelectorAll('[data-testid="pipeline-viz-maximize"]')).toHaveLength(1);
+        expect(sw.getAttribute('aria-pressed')).toBe('true');
+        expect(sw.getAttribute('aria-label')).toBe('Restore the page');
+        expect(sw.getAttribute('title')).toBe('Restore the page (Esc)');
+        // d3-zoom and the bead hit test leave it alone.
         expect(sw.getAttribute('data-viz-chrome')).toBe('maximize');
+        // The IN arrows — "come back".
+        expect(sw.querySelector('path').getAttribute('d'))
+            .toBe('M6 1v5H1M15 6h-5V1M10 15v-5h5M1 10h5v5');
         act(() => { sw.click(); });
         expect(onToggle).toHaveBeenCalledTimes(1);
     });
 
-    it('reads as restore while maximized', () => {
+    it('maximized, sits in the canvas\'s UPPER-LEFT corner', () => {
         mount(<Viz maximized onToggle={() => {}} />);
-        const sw = q('pipeline-viz-maximize');
-        expect(sw.getAttribute('aria-pressed')).toBe('true');
-        expect(sw.getAttribute('aria-label')).toBe('Restore the page');
+        const cs = getComputedStyle(q('pipeline-viz-maximize'));
+        expect(cs.position).toBe('absolute');
+        expect(cs.left).toBe(`${MAXIMIZE_SWITCH.left}px`);
+        expect(cs.top).toBe(`${MAXIMIZE_SWITCH.top}px`);
+        expect(cs.right).toBe('');
+        expect(cs.bottom).toBe('');
     });
 
-    // req #3687 — a placed Orchestrables box floats at UNSEATED_FLOAT_Z and can
-    // be parked over this corner; the switch is the only way back, so it stays
-    // above the box.
-    it('sits above a placed Orchestrables box', () => {
+    // req #3687 / #3721 — a placed Orchestrables box (UNSEATED_FLOAT_Z) and the
+    // Active box (AnchoredPanel's 1250) can both be dragged over the corner;
+    // the switch is the only way back on screen, so it stays above both — and
+    // under MUI's modal layer, so a dialog still covers it.
+    it('sits above the boxes that can be dragged over it, below the dialogs', () => {
         mount(<Viz maximized onToggle={() => {}} />);
-        expect(Number(getComputedStyle(q('pipeline-viz-maximize')).zIndex))
-            .toBeGreaterThan(UNSEATED_FLOAT_Z);
+        const z = Number(getComputedStyle(q('pipeline-viz-maximize')).zIndex);
+        expect(z).toBe(MAXIMIZE_SWITCH_Z);
+        expect(z).toBeGreaterThan(UNSEATED_FLOAT_Z);
+        expect(z).toBeGreaterThan(1250);
+        expect(z).toBeLessThan(1300);
     });
 
     it('is absent when the page offers no toggle', () => {
-        mount(<Viz maximized={false} onToggle={null} />);
+        mount(<Viz maximized onToggle={null} />);
         expect(q('pipeline-viz-maximize')).toBeNull();
     });
 
@@ -134,7 +162,42 @@ describe('the maximize switch on the canvas (req #3658)', () => {
     });
 });
 
-describe('usePlanMaximize (req #3658)', () => {
+describe('the upper-left corner covers nothing (req #3793)', () => {
+    // The epic names are clamped below the ruler's strip, and the strip is
+    // never shorter than RULER_H (36): the switch ends above it at every zoom.
+    it('fits inside the pinned ruler strip, so no epic name reaches it', () => {
+        for (const k of [0.1, 0.25, 0.5, 0.8, 1, 2, 4]) {
+            expect(MAXIMIZE_SWITCH.top + MAXIMIZE_SWITCH.h)
+                .toBeLessThan(rulerScreenBottom({ x: 0, y: 0, k }));
+        }
+    });
+
+    // The one ruler date that could begin under the switch is thinned, the
+    // strip's own rule for a label with no room; panned clear, it is back.
+    it('thins the ruler date that would start under it, and only that one', () => {
+        const slots = [
+            { key: 'a', showLabel: true, labelX: 10, labelW: 40 },
+            { key: 'b', showLabel: true, labelX: 200, labelW: 40 },
+        ];
+        const t = { x: 0, y: 0, k: 1 };
+        expect([...drawnRulerLabelKeys(slots, 1)]).toEqual(['a', 'b']);
+        expect([...drawnRulerLabelKeys(slots, 1, maximizeSwitchWorldRight(t))]).toEqual(['b']);
+        // Panned right until 'a' starts a gap clear of the switch: drawn again.
+        const clear = MAXIMIZE_SWITCH.left + MAXIMIZE_SWITCH.w + RULER_LABEL_GAP - 10;
+        expect([...drawnRulerLabelKeys(slots, 1,
+            maximizeSwitchWorldRight({ x: clear, y: 0, k: 1 }))]).toEqual(['a', 'b']);
+        // Zoomed out the reserve is in WORLD px: 36 screen px at k = 0.25 is 144.
+        expect(maximizeSwitchWorldRight({ x: 0, y: 0, k: 0.25 }))
+            .toBe((MAXIMIZE_SWITCH.left + MAXIMIZE_SWITCH.w) / 0.25);
+    });
+
+    it('reserves nothing on a degenerate transform', () => {
+        expect(maximizeSwitchWorldRight(null)).toBe(-Infinity);
+        expect(maximizeSwitchWorldRight({ x: 0, k: 0 })).toBe(-Infinity);
+    });
+});
+
+describe('useVisualizerMaximize (req #3658, shared by req #3793)', () => {
     let fsEl;
     beforeEach(() => {
         fsEl = null;
@@ -273,6 +336,21 @@ describe('usePlanMaximize (req #3658)', () => {
         expect(state()).toBe('false');
         act(() => { root.render(<Page enabled />); });
         expect(state()).toBe('false');
+    });
+
+    // req #3735 — the page covers the navbar while maximized, so the rack is
+    // suspended; the hook publishes it, so no covering page can forget it.
+    it('suspends the navbar rack while maximized, and only then', () => {
+        mount(<Page />);
+        expect(usePanelRackStore.getState().covered).toBe(false);
+        act(() => { q('switch').click(); });
+        expect(usePanelRackStore.getState().covered).toBe(true);
+        act(() => { q('switch').click(); });
+        expect(usePanelRackStore.getState().covered).toBe(false);
+        act(() => { q('switch').click(); });
+        act(() => { root.unmount(); });
+        root = null;
+        expect(usePanelRackStore.getState().covered).toBe(false);
     });
 
     it('never exits a full screen it did not take', () => {

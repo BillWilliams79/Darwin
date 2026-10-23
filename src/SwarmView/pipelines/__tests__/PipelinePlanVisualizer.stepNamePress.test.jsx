@@ -83,7 +83,7 @@ afterEach(() => {
 });
 
 const step = (id, title) => ({
-    id, epic_fk: 5, title, run: 'auto', notes: null, completed_at: null, not_before: null,
+    id, epic_fk: 5, title, run: 'auto', notes: null, not_before: null,
 });
 
 function render() {

@@ -75,8 +75,8 @@ import {
     stepStateChipProps,
     runLabel,
     runChipProps,
-    checkpointLabel,
-    checkpointChipProps,
+    barrierLabel,
+    barrierChipProps,
     lockedLabel,
     lockedChipProps,
     ROW_ACCENT,
@@ -109,7 +109,7 @@ const COL = {
     // min-content width regardless of this number.
     status: 104,
     // req #3649 — widened from 132: the cell now also carries the step's
-    // Checkpoint/Priority chip and, when frozen, its Locked chip beside the run
+    // Barrier/Priority chip and, when frozen, its Locked chip beside the run
     // chip and the eligible/held markers.
     run: 300,
     machine: 148,
@@ -659,14 +659,14 @@ export default function PipelinePlanTable({ plan, model, pipeline, timezone, foc
                                                   data-testid={`pipeline-run-chip-${row.id}`} />
                                             {/* req #3649 — display-only. An
                                                 absent flag is the column
-                                                default: a checkpoint. */}
+                                                default: a barrier. */}
                                             <Tooltip title={row.checkpoint === false
-                                                ? 'Priority — this step\'s work launches first; nothing waits on it'
-                                                : 'Checkpoint — every step downstream waits until this step is done'}>
+                                                ? 'Priority (barrier off) — Dependent steps may start requirements only when all requirements in this step have been started or are met, wontfix, deferred or paused.'
+                                                : 'Barrier — Dependent steps may start requirements only when all requirements in this step are met, wontfix, deferred, or paused.'}>
                                                 <Chip size="small"
-                                                      label={checkpointLabel(row.checkpoint !== false)}
-                                                      {...checkpointChipProps(row.checkpoint !== false)}
-                                                      data-testid={`pipeline-checkpoint-chip-${row.id}`} />
+                                                      label={barrierLabel(row.checkpoint !== false)}
+                                                      {...barrierChipProps(row.checkpoint !== false)}
+                                                      data-testid={`pipeline-barrier-chip-${row.id}`} />
                                             </Tooltip>
                                             {row.effectiveLocked && (
                                                 <Tooltip title={row.lockedBy && row.lockedBy !== 'step'

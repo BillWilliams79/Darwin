@@ -194,8 +194,9 @@ function splitLaunchable(reqIds, trackingReqIds, reqsById) {
 
 // Rule 1: STEP STATE IS DERIVED, NEVER STORED-BY-HAND. Any GATING requirement in
 // development → running; all terminal (met/deferred/wontfix) → done; else pending.
-// No gating requirements: the step's own completed_at stamp decides done vs
-// pending — the only place that column means anything.
+// No gating requirements → pending: an empty step holds nothing and has no
+// completion stamp (req #3750; req #3752 dropped `pipeline_steps.completed_at`),
+// the same reading `pipelineAdapter.js::visualizerColourInput` gives the canvas.
 //
 // THE GATING SET EXCLUDES TRACKING CONTAINERS (req #3123). Without that, a plan
 // that tracks itself pins a step Running forever: the container never leaves
@@ -206,9 +207,9 @@ function splitLaunchable(reqIds, trackingReqIds, reqsById) {
 //
 // ORDER MATTERS: the tracking filter runs BEFORE the empty check, and the empty
 // check is the same branch a zero-requirement step takes. So a step whose links
-// are ALL containers falls through to its own completed_at stamp — Complete or
-// Scheduled, never Running — which is precisely a link-less step's behaviour,
-// because a step with nothing to derive from is what it has become.
+// are ALL containers falls through to pending, never Running — which is
+// precisely a link-less step's behaviour, because a step with nothing to derive
+// from is what it has become.
 //
 // A MIXED step subtracts the containers and lets the remaining work decide:
 // fixture step 19 links #3080 (met), #3083 (tracking), #3105 (met), so its
@@ -220,9 +221,7 @@ function splitLaunchable(reqIds, trackingReqIds, reqsById) {
 export function deriveStepState(step, linkedReqs) {
     const reqs = (linkedReqs || []).filter(Boolean);
     const gating = reqs.filter((r) => !isTrackingRequirement(r));
-    if (gating.length === 0) {
-        return step && step.completed_at ? STEP_DONE : STEP_PENDING;
-    }
+    if (gating.length === 0) return STEP_PENDING;
     if (gating.some((r) => r.requirement_status === 'development')) return STEP_RUNNING;
     if (gating.every((r) => TERMINAL_REQUIREMENT_STATUSES.includes(r.requirement_status))) {
         return STEP_DONE;
@@ -403,11 +402,11 @@ export function buildPlanRows(model) {
         else if (d.time_at != null) bucket.timeDeps.push(d.time_at);
     }
     // Rule 10 attaches labels to REQUIREMENTS, so a step that links none derives
-    // no epic at all. For a gate or a baseline — the whole reason `completed_at`
-    // exists — that is technically true and visually wrong: the plan's step 7,
-    // "Green Baseline", recorded the regression baseline for the substrate work
-    // it gates, and banding it under "No epic" put a lone bead in a band of its
-    // own between the epics it belongs between.
+    // no epic at all. For a gate or a baseline that is technically true and
+    // visually wrong: the plan's step 7, "Green Baseline", recorded the
+    // regression baseline for the substrate work it gates, and banding it under
+    // "No epic" put a lone bead in a band of its own between the epics it
+    // belongs between.
     //
     // So a req-less step INHERITS the dominant label of its dependencies, walking
     // back until it finds one. That keeps rule 10 intact where the rule has an
@@ -472,7 +471,6 @@ export function buildPlanRows(model) {
             title: step.title,
             run: step.run || 'auto',
             notes: step.notes != null ? step.notes : null,
-            completedAt: step.completed_at != null ? step.completed_at : null,
             state: deriveStepState(step, linked),
             reqIds,
             trackingReqIds,

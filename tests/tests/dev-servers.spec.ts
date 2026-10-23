@@ -8,6 +8,8 @@ test.describe('Dev Servers View', () => {
 
   test('DEV-02: Dev Servers navbar link navigates correctly', async ({ page }) => {
     await page.goto('/taskcards');
+    // Req #3771 — Dev Servers is an L3 under Sessions, hidden until it is expanded.
+    await page.getByTestId('nav-expand-toggle-swarm-sessions').click();
     await page.getByRole('link', { name: /dev servers/i }).click();
     await expect(page).toHaveURL(/\/devservers/);
     await expect(page.getByTestId('dev-servers-datagrid')).toBeVisible({ timeout: 10000 });

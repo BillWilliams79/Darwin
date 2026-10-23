@@ -66,8 +66,8 @@ describe('the step card\'s collapse head (req #3650)', () => {
             expect(badge.y).toBeCloseTo(head.y + CARD_BADGE_TOP, 6);
             expect(name.x).toBeCloseTo(badge.x + badge.w + CARD_BADGE_GAP, 6);
             expect(name.x).toBeCloseTo(head.x + CARD_NAME_LEFT_RESERVE, 6);
-            // The run pill and the checkpoint sit right of the name.
-            for (const k of ['run', 'checkpoint']) {
+            // The run pill and the barrier sit right of the name.
+            for (const k of ['run', 'barrier']) {
                 const c = others.find((l) => l.kind === k);
                 expect(c.x, k).toBeGreaterThanOrEqual(name.x + name.w - 1e-6);
             }
@@ -82,17 +82,17 @@ describe('the step card\'s collapse head (req #3650)', () => {
 
     // req #3683's 2x2 cluster, down to one column by req #3742 — the badge
     // moved left of the name and the padlock was removed; cards stay two high.
-    it('stacks the run pill over the checkpoint in one column at the right', () => {
+    it('stacks the run pill over the barrier in one column at the right', () => {
         for (const rung of STEP_WIDTH_RUNGS) {
             for (const stepLabel of ['title', 'id']) {
                 const l = computePlanLayout(ROWS, { stepLabel, stepWidthLevel: rung });
                 for (const r of ROWS) {
                     const n = l.nodes.get(r.id);
                     const get = (k) => l.labels.find((x) => x.kind === k && x.stepId === r.id);
-                    const [run, cp] = ['run', 'checkpoint'].map(get);
+                    const [run, cp] = ['run', 'barrier'].map(get);
                     const right = n.right - CARD_PAD_X;
                     const top = n.top + CARD_PAD_Y;
-                    // One column: the run pill over the checkpoint, flush right.
+                    // One column: the run pill over the barrier, flush right.
                     expect(run.x + run.w).toBeCloseTo(right, 6);
                     expect(cp.x + cp.w).toBeCloseTo(right, 6);
                     expect(run.w).toBe(CARD_RUN_W);
@@ -166,7 +166,7 @@ describe('the title line overlaps nothing at any Step Width (req #3648)', () => 
                 const layout = computePlanLayout(LONG, { stepLabel, stepWidthLevel: rung });
                 for (const r of LONG) {
                     const mine = layout.labels.filter((l) => l.stepId === r.id
-                        && ['collapse', 'badge', 'step', 'run', 'checkpoint', 'lock', 'title']
+                        && ['collapse', 'badge', 'step', 'run', 'barrier', 'lock', 'title']
                             .includes(l.kind));
                     for (let i = 0; i < mine.length; i += 1) {
                         for (let j = i + 1; j < mine.length; j += 1) {

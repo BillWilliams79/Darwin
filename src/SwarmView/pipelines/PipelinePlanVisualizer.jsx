@@ -128,9 +128,9 @@ import {
     epicFocusTransform, stepFocusTransform, epicWorkFocusTransform,
     factoryDefaultView, clampPlanTransform, planLandingAction,
     relayoutAnchorTransform,
-    // req #3365 — the ruler's own thinning gap, re-applied at draw time
-    // against the counter-scaled label widths.
-    RULER_LABEL_GAP,
+    // req #3365 — the ruler's own thinning rule, re-applied at draw time
+    // against the counter-scaled label widths (a pure function since req #3793).
+    drawnRulerLabelKeys,
     PLAN_VIZ_PALETTE as P, PLAN_VIZ_FONT as F, CARD_FONT as CF,
     BEAD_RADIUS, BEAD_HIT_RADIUS,
     CHW_EPIC, EPIC_CHIP_FONT, ZOOM_MIN_RATIO, ZOOM_MAX_RATIO,
@@ -145,7 +145,7 @@ import {
     // measured; it never measures one of its own.
     CARD_RADIUS, CARD_PAD_X, CARD_PAD_Y, CARD_LINE_H, CARD_RULE_GAP,
     CARD_STATE_BAR_W, CARD_BADGE_FONT,
-    // req #3607 — the title buttons' outline (the checkpoint and lock buttons'
+    // req #3607 — the title buttons' outline (the barrier and lock buttons'
     // border since they moved to HTML, req #3673).
     CARD_TITLE_BTN_STROKE,
     MIN_CARD_H, REQ_LINE_H, CHW_REQ, CARD_SEP_CHARS, REQ_SEP_PULL,
@@ -195,9 +195,9 @@ import {
     isRestNullLiteral, REST_NULL, updateStep, createStep,
 } from '../../Steps/stepsApi';
 // req #3649 — the epic chip's lock control; req #3673 — the pictures on it and
-// on the step card's checkpoint and lock buttons.
+// on the step card's barrier and lock buttons.
 import {
-    CheckpointGateIcon, PlanLockIcon, checkpointTitle,
+    BarrierGateIcon, PlanLockIcon, barrierTitle,
 } from './PlanStepFlagIcons';
 // req #3586 — the "+" marks that add a step on an edge or a dependent step; req
 // #3617 adds the one off a free left side, for a step this one depends on.
@@ -222,6 +222,11 @@ import { usePanelRackStore } from '../../stores/usePanelRackStore';
 import { RACK_DRAG_Z } from '../../Components/AnchoredPanel/panelRack';
 // req #3721 — the plan's requirements whose sessions are under way.
 import PlanActiveBox from './PlanActiveBox';
+// req #3793 — the shared full screen switch, and the plan's own words and corner.
+import FullscreenSwitch from '../../Components/FullscreenSwitch';
+import {
+    MAXIMIZE_SWITCH, MAXIMIZE_SWITCH_Z, PLAN_MAXIMIZE_LABELS as MAXIMIZE_LABELS, maximizeSwitchWorldRight,
+} from './planMaximize';
 import { activePlanRequirements } from './planActiveReqs';
 import { useUnorchestratedRequirements } from './useUnorchestratedRequirements';
 import {
@@ -345,7 +350,7 @@ const RUN_PILL_SX = {
     '&:hover, &:focus-visible': { outline: 'none', boxShadow: `0 0 0 2px ${P.text}` },
 };
 
-// req #3673 — the checkpoint and lock buttons' static chrome; geometry and the
+// req #3673 — the barrier and lock buttons' static chrome; geometry and the
 // state's colours ride `style`, for the run pill's per-frame reason.
 const FLAG_BTN_SX = {
     position: 'absolute', p: 0, m: 0,
@@ -2672,7 +2677,7 @@ export default function PipelinePlanVisualizer({
         setReqEdit({ reqId, stepId, saving: false, at });
         return true;
     };
-    const drawnKinds = ['step', 'req', 'title', 'badge', 'checkpoint']
+    const drawnKinds = ['step', 'req', 'title', 'badge', 'barrier']
         .filter(drawsKind).join(',');
 
     // Report the level being rendered so the toolbar's selector can softly mark
@@ -3059,6 +3064,7 @@ export default function PipelinePlanVisualizer({
                     run: runPending.get(row.id) ?? row.run,
                     not_before: row.timeDeps?.[0] ?? null,
                     locked: row.locked, lockedBy: row.lockedBy,
+                    checkpoint: row.checkpoint,
                 };
             }
         }
@@ -3145,11 +3151,11 @@ export default function PipelinePlanVisualizer({
         }
     }, [refreshPlan, showError]);
 
-    const toggleCheckpoint = useCallback((row) => {
+    const toggleBarrier = useCallback((row) => {
         if (refuseIfLocked('step', row.lockedBy)) return;
         writeFlag(() => updateStep(darwinUri, idToken, row.id,
             { checkpoint: row.checkpoint === false ? 1 : 0 }),
-        'Could not change the step checkpoint flag');
+        'Could not change the step barrier flag');
     }, [writeFlag, refuseIfLocked, darwinUri, idToken]);
 
     const toggleEpicLock = useCallback((band) => {
@@ -3756,7 +3762,7 @@ export default function PipelinePlanVisualizer({
             fold: foldStyle(l),
         }));
 
-    // ── THE CHECKPOINT GATE, AS AN HTML OVERLAY (req #3673) ────────────────
+    // ── THE BARRIER GATE, AS AN HTML OVERLAY (req #3673) ───────────────────
     // A button, so HTML for the run pill's reason, on the run pill's layer —
     // and for the picture: a real icon (`PlanStepFlagIcons.jsx`) rather than
     // the stroked ⚑ req #3649 drew in Konva, which the user could not read.
@@ -3764,7 +3770,7 @@ export default function PipelinePlanVisualizer({
     // to screen. (The padlock beside it went in req #3742 — a locked step's
     // card has a red perimeter instead.)
     const floatingFlags = drawLayout.labels
-        .filter((l) => l.kind === 'checkpoint' && drawsKind(l.kind))
+        .filter((l) => l.kind === 'barrier' && drawsKind(l.kind))
         .map((l) => ({
             key: `${l.kind}-${l.stepId}`,
             kind: l.kind,
@@ -4197,17 +4203,17 @@ export default function PipelinePlanVisualizer({
                           fill={P.panel} stroke={style.frame}
                           strokeWidth={style.frameWidth}
                           name={row.effectiveLocked ? 'locked-frame' : undefined} />
-                    {/* The bead's FILL channel — see CARD_STATE_BAR_W. It sits
-                        BESIDE the frame on the LEFT, in the strip `CARD_W`
-                        reserves for it, so it never crowds the lettering (user
-                        directive). Free-standing, it takes its own full-height
-                        rounded ends: there is no card border for a clamped
-                        corner radius to poke out of any more. */}
+                    {/* The state bar — see CARD_STATE_BAR_W. It sits BESIDE the
+                        frame on the LEFT, in the strip `CARD_W` reserves for
+                        it, so it never crowds the lettering (user directive).
+                        Free-standing, it takes its own full-height rounded
+                        ends. Always the FRAME's colour (req #3775); it pulses
+                        while the step runs. */}
                     <Rect name={style.pulse ? 'pulse-bead' : undefined}
                           x={n.left} y={n.top}
                           width={CARD_STATE_BAR_W} height={n.h}
                           cornerRadius={CARD_STATE_BAR_W / 2}
-                          fill={style.fill} listening={false} />
+                          fill={style.bar} listening={false} />
                     {/* *"Separate the step name with a horizontal line"* — the
                         rule under the title area, inset to the text column so it
                         reads as a divider and not as a second border. */}
@@ -4405,23 +4411,18 @@ export default function PipelinePlanVisualizer({
         : undefined;
 
     const rulerLabelMag = rulerScreenMag(t);
-    // The layout's own greedy thinning rule (`pipelinePlanLayout.js`:
-    // "labelX < lastRight + gap"), re-applied to the widths counter-scaling
-    // actually produces. Cheap — one pass over the slots, which number in the
-    // handfuls — and deliberately a re-application rather than a second rule,
-    // so the strip cannot thin one way at layout time and another way here.
-    const visibleRulerLabels = new Set();
-    {
-        const R = drawLayout.ruler || { slots: [] };
-        let lastRight = -Infinity;
-        for (const s of R.slots) {
-            if (!s.showLabel) continue;          // the layout already refused it
-            const w = (s.labelW || 0) * rulerLabelMag;
-            if (s.labelX < lastRight + RULER_LABEL_GAP * rulerLabelMag) continue;
-            visibleRulerLabels.add(s.key);
-            lastRight = s.labelX + w;
-        }
-    }
+    // The layout's own greedy thinning rule, re-applied to the widths
+    // counter-scaling actually produces (`drawnRulerLabelKeys`). Cheap — one
+    // pass over the slots, which number in the handfuls.
+    //
+    // req #3793 — MAXIMIZED, the full screen switch sits in this strip's
+    // upper-left corner, so it is the strip's first occupant: the pass starts
+    // from its right edge (`maximizeSwitchWorldRight`), and a date that would
+    // begin under it is thinned like any label with no room — back as soon as a
+    // pan clears the corner. Not maximized, the pass starts from nothing.
+    const visibleRulerLabels = drawnRulerLabelKeys(
+        drawLayout.ruler?.slots || [], rulerLabelMag,
+        (maximized && onToggleMaximized) ? maximizeSwitchWorldRight(t) : -Infinity);
 
     // req #3661 — the requirement title editor's box, found while its row is
     // drawn below (it needs the row's own pill packing to place line 1).
@@ -4827,7 +4828,7 @@ export default function PipelinePlanVisualizer({
             // branch is kept, EMPTY, so a `badge` label is a deliberate no-op
             // here rather than an unhandled kind silently falling through the
             // chain below to whatever the next `else if` happens to match.
-        } else if (label.kind === 'checkpoint') {
+        } else if (label.kind === 'barrier') {
             // req #3673 — drawn as an HTML icon button now (`floatingFlags`
             // below), not in Konva: the user found the stroked ⚑ unreadable,
             // and a real icon, a hover title and a focusable button are all
@@ -5795,16 +5796,16 @@ export default function PipelinePlanVisualizer({
                             </Box>
                         );
                     })}
-                    {/* req #3673 — THE CHECKPOINT GATE. It shows its state as a
+                    {/* req #3673 — THE BARRIER GATE. It shows its state as a
                         picture that differs in SHAPE and COLOUR — barrier arm
                         down (orange/white) or raised (grey) — and IS the control
                         that flips it. The hover title says what the state
                         means and what a click does. */}
                     {floatingFlags.map((f) => {
                         const row = rowById.get(f.stepId);
-                        const onColor = P.checkpointOn;
+                        const onColor = P.barrierOn;
                         const color = f.on ? onColor : P.dim;
-                        const title = checkpointTitle(f.on, row?.lockedBy);
+                        const title = barrierTitle(f.on, row?.lockedBy);
                         return (
                             <Box key={f.key}
                                  component="button"
@@ -5816,7 +5817,7 @@ export default function PipelinePlanVisualizer({
                                  title={title}
                                  onClick={(ev) => {
                                      ev.stopPropagation();
-                                     if (row) toggleCheckpoint(row);
+                                     if (row) toggleBarrier(row);
                                  }}
                                  style={{
                                      left: f.left,
@@ -5832,10 +5833,10 @@ export default function PipelinePlanVisualizer({
                                  }}
                                  sx={FLAG_BTN_SX}
                             >
-                                <CheckpointGateIcon closed={f.on}
-                                                    stripe={P.checkpointOn}
-                                                    light={P.checkpointLight}
-                                                    fontSize="inherit" />
+                                <BarrierGateIcon closed={f.on}
+                                                 stripe={P.barrierOn}
+                                                 light={P.barrierLight}
+                                                 fontSize="inherit" />
                             </Box>
                         );
                     })}
@@ -6024,7 +6025,7 @@ export default function PipelinePlanVisualizer({
                                     wins in this order. */}
                                 {[[P.lockedFrame, 'Locked', 'locked'],
                                     [P.stepManual, 'Manual', 'manual'],
-                                    [P.stepCheckpoint, 'Checkpoint', 'checkpoint'],
+                                    [P.stepBarrier, 'Barrier', 'barrier'],
                                     [P.stepWillRun, 'Will run', 'will-run']]
                                     .map(([color, label, key]) => (
                                         <LegendIcon key={key} label={label} color={color}>
@@ -6035,11 +6036,18 @@ export default function PipelinePlanVisualizer({
                                                        border: `2px solid ${color}` }} />
                                         </LegendIcon>
                                     ))}
+                                {/* Scheduled / Complete are the L1 bead's
+                                    fill only — a card's bar is always its
+                                    border colour (req #3775). */}
                                 <LegendDot fill={P.pendingFill} ring="#5b7293"
-                                           label="Scheduled" />
-                                <LegendDot fill={P.runningFill} label="Running"
+                                           label="Scheduled (dot)" />
+                                {/* req #3775 — Running is the MOTION, not a
+                                    hue: the card's bar (the bead at L1)
+                                    pulses in the step's own colour above, so
+                                    the swatch is neutral and pulses. */}
+                                <LegendDot fill={P.text} label="Running (pulses)"
                                            animated="pipeKeyPulse" />
-                                <LegendDot fill={P.doneFill} label="Complete" />
+                                <LegendDot fill={P.doneFill} label="Complete (dot)" />
                                 {/* "Up Next" and not "eligible now" because the
                                     mark answers the question in the plan's own
                                     words: these are the steps that run next.
@@ -6071,51 +6079,53 @@ export default function PipelinePlanVisualizer({
                     </Popper>
                 )}
 
-                {/* ── MAXIMIZE (req #3658) ──────────────────────────────────
+                {/* ── MAXIMIZE (req #3658; placement req #3793) ─────────────
                     The TPU 3D views' Full screen switch, borrowed (user
-                    direction: "Borrow the button"): the same corner-arrows
-                    glyph — out when it would maximize, in when it would
-                    restore — in the TPU header's colours, with its rim. It
-                    lives ON the canvas, in the bottom-right corner, in BOTH
-                    states, because maximized there is no header row left to
-                    hold it and a switch should not move when clicked. The
-                    corner is the one the canvas's other floating panels leave
-                    free: the key is a hover popup on the toolbar now (req #3722) and the Orchestration Ready
-                    box opens top-right. The box can still be parked or
-                    stretched over this corner, so the switch sits ABOVE it
-                    (a placed box floats at `UNSEATED_FLOAT_Z`, req #3687) — it
-                    must never be covered, it is the only way back. `data-viz-chrome` keeps d3-zoom and the
-                    bead hit-test off it. */}
-                {onToggleMaximized && (
-                    <Box component="button" type="button"
-                         onClick={onToggleMaximized}
-                         data-viz-chrome="maximize"
-                         data-testid="pipeline-viz-maximize"
-                         aria-pressed={maximized}
-                         aria-label={maximized ? 'Restore the page' : 'Maximize the plan'}
-                         title={maximized
-                             ? 'Restore the page (Esc)'
-                             : 'Maximize — only the plan (Esc to exit)'}
-                         sx={{ position: 'absolute', right: 12, bottom: 12,
-                                zIndex: UNSEATED_FLOAT_Z + 2,
-                                width: 28, height: 26, p: 0, m: 0,
-                                display: 'flex', alignItems: 'center',
-                                justifyContent: 'center', cursor: 'pointer',
-                                color: '#7bb8de',
-                                background: 'rgba(13, 20, 32, 0.94)',
-                                border: '1px solid #2d5a85', borderRadius: '4px',
-                                boxShadow: '0 6px 18px rgba(0, 0, 0, 0.45)',
-                                '&:hover, &:focus-visible': {
-                                    color: '#cfe4f7', borderColor: '#5fa3d4',
-                                    outline: 'none',
-                                } }}>
-                        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-                            <path d={maximized
-                                      ? 'M6 1v5H1M15 6h-5V1M10 15v-5h5M1 10h5v5'
-                                      : 'M1 6V1h5M10 1h5v5M15 10v5h-5M6 15H1v-5'}
-                                  fill="none" stroke="currentColor" strokeWidth="2" />
-                        </svg>
-                    </Box>
+                    direction: "Borrow the button"), now the shared
+                    `FullscreenSwitch`. ONE switch, two homes, by the user's
+                    rule (req #3793): with the controls on screen it sits in
+                    the controls' header row (PipelineDetail draws it there,
+                    right of the plan's title); MAXIMIZED the header row is
+                    hidden, so no controls are on screen and it sits HERE, in
+                    the canvas's UPPER-LEFT corner — and only here, so the one
+                    `pipeline-viz-maximize` is always the switch on screen.
+
+                    This SUPERSEDES req #3658's bottom-right corner in both
+                    states, which rested on "a switch should not move when
+                    clicked". The user's placement rule (req #3793) outranks
+                    that: the switch now moves from the header to the corner
+                    as the header goes, as the TPU views' switch stays with
+                    their controls' header.
+
+                    The corner, and why nothing important is under it: it sits
+                    INSIDE the pinned time ruler's strip (`MAXIMIZE_SWITCH`, 5 +
+                    26 px of the strip's ≥ 36 px), which is chrome. The epic
+                    names are clamped below `rulerScreenBottom(t)` (≥ 36 px), so
+                    none reaches it; the one ruler date that could start under
+                    it is THINNED there (`drawnRulerLabelKeys` starts from the
+                    switch's right edge, `maximizeSwitchWorldRight`), the
+                    strip's own rule for a label with no room, and comes back
+                    as soon as a pan clears it. The
+                    Active box is home bottom-left and the Orchestration Ready
+                    box top-right — and either can be dragged here, so the
+                    switch sits ABOVE both (`MAXIMIZE_SWITCH_Z`): it must never
+                    be covered, it is the only way back on screen.
+                    `data-viz-chrome` keeps d3-zoom and the bead hit-test off
+                    it. */}
+                {maximized && onToggleMaximized && (
+                    <FullscreenSwitch
+                        on
+                        onToggle={onToggleMaximized}
+                        variant="floating"
+                        testid="pipeline-viz-maximize"
+                        data-viz-chrome="maximize"
+                        enterLabel={MAXIMIZE_LABELS.enterLabel}
+                        leaveLabel={MAXIMIZE_LABELS.leaveLabel}
+                        enterTitle={MAXIMIZE_LABELS.enterTitle}
+                        leaveTitle={MAXIMIZE_LABELS.leaveTitle}
+                        sx={{ position: 'absolute',
+                              left: MAXIMIZE_SWITCH.left, top: MAXIMIZE_SWITCH.top,
+                              zIndex: MAXIMIZE_SWITCH_Z }} />
                 )}
 
                 {/* The bottom-right reset button + status chip stack is GONE

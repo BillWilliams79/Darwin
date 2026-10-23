@@ -4,7 +4,7 @@ import AuthContext from '../Context/AuthContext';
 import { useDevServers } from '../hooks/useDataQueries';
 import {
     NAV_GROUPS, NAV_LINKS, PROFILE_LINK, flattenNavLinks, DEV_HOME_ROUTE,
-    SIDEBAR_WIDTH, SIDEBAR_COLLAPSED_WIDTH, GROUP_PROFILE_KEY, GROUP_PROFILE_DEFAULT,
+    SIDEBAR_WIDTH, SIDEBAR_COLLAPSED_WIDTH, isGroupVisible,
 } from './navConfig';
 import {
     loadCollapsedGroups, persistCollapsedGroups, toggleGroupCollapsed,
@@ -13,7 +13,7 @@ import {
 } from './navCollapse';
 import ProfileDialog from './ProfileDialog';
 import { usePanelRackStore } from '../stores/usePanelRackStore';
-import { RACK_DRAG_Z } from '../Components/AnchoredPanel/panelRack';
+import { RACK_DRAG_Z, RACK_SX, rackGlow } from '../Components/AnchoredPanel/panelRack';
 
 import AppBar from '@mui/material/AppBar';
 import BottomNavigation from '@mui/material/BottomNavigation';
@@ -45,11 +45,6 @@ import IndeterminateCheckBoxOutlinedIcon from '@mui/icons-material/Indeterminate
 const ACCENT = '#E91E63';
 const BG_ACTIVE = 'rgba(233, 30, 99, 0.12)';
 const DEV_ORANGE = '#FF6B35';
-// The panel rack's drop glow (req #3728) is the dragged panel's own frame
-// colour; this is the rackable hosts' frame purple (the Dev Servers dashboard,
-// and in a dev build the Dev Server panel, racked here by default — req #3727),
-// for a drag that names none.
-const RACK_PURPLE = '#a64dff';
 
 const isDev = import.meta.env.MODE === 'development';
 const DEV_BORDER = isDev ? `4px solid ${DEV_ORANGE}` : 'none';
@@ -83,7 +78,10 @@ const NavBarSidebar = () => {
         setRackSlot(rackNode ? { node: rackNode, width: sidebarWidth } : null);
     }, [rackNode, sidebarWidth, setRackSlot]);
     useLayoutEffect(() => () => setRackSlot(null), [setRackSlot]);
-    const rackDrag = usePanelRackStore(s => s.drag);
+    // A page that shows its own toolbar (AI Architecture) takes the rack while
+    // it is drawn (req #3792): the navbar is then no drop zone — the drag is
+    // that toolbar's to show.
+    const rackDrag = usePanelRackStore(s => (s.pageSlot ? null : s.drag));
     const rackOver = !!rackDrag?.over;
 
     // Per-group collapsed state (req #2869). Clicking a group header hides/shows
@@ -130,15 +128,10 @@ const NavBarSidebar = () => {
     // is deliberately NOT treated as empty to avoid a grey flash on first paint.
     const devServersEmpty = Array.isArray(devServersArray) && devServersArray.length === 0;
 
-    // Filter nav groups/links based on profile app toggle settings. Per-key
-    // default lives in GROUP_PROFILE_DEFAULT so Swarm Validate (default 0)
-    // doesn't accidentally light up when the profile row hasn't loaded yet.
-    const isGroupEnabled = (id) => {
-        const key = GROUP_PROFILE_KEY[id];
-        if (!key) return true;
-        const fallback = GROUP_PROFILE_DEFAULT[key] ?? 1;
-        return Number(profile?.[key] ?? fallback) === 1;
-    };
+    // Filter nav groups/links by the profile app toggles — or, on a dev server
+    // scoped to its session's applications, by that scope (req #3790). One
+    // predicate, shared with HomePage and the dev-server dashboard.
+    const isGroupEnabled = (id) => isGroupVisible(profile, id);
     const visibleGroups = useMemo(() =>
         NAV_GROUPS.filter(g => isGroupEnabled(g.id)),
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -376,7 +369,7 @@ const NavBarSidebar = () => {
                         transition: 'width 0.2s ease, box-shadow 0.12s',
                         // The drop glow: a panel over us, eligible to drop.
                         ...(rackOver && {
-                            boxShadow: `inset 0 0 16px 2px color-mix(in srgb, ${rackDrag.color || RACK_PURPLE} 75%, transparent)`,
+                            boxShadow: rackGlow(rackDrag.color),
                         }),
                     }}>
                             {/* Bicycle menu trigger + Darwin title (+ header collapse chevron) */}
@@ -481,25 +474,12 @@ const NavBarSidebar = () => {
                                 </List>
 
                                 {/* The panel rack (req #3720): racked panels portal
-                                    into the `display: contents` slot, so they are grid
-                                    items here and CSS `order` stacks them in rack
-                                    order. Each takes only the height its content needs,
-                                    never more (req #3747, reversing #3744's fill): a
-                                    row is `minmax(auto, max-content)`, so a short rack
-                                    gives every panel its content while it fits and,
-                                    when it does not, small panels keep theirs and the
-                                    big ones split the rest evenly, scrolling inside.
-                                    The rack is content-sized and shrinks — it alone —
-                                    to the height the nav list leaves (req #3751). */}
-                                <Box data-testid="navbar-rack"
-                                     sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)',
-                                            gridAutoRows: 'minmax(auto, max-content)', alignContent: 'start',
-                                            rowGap: '4px',
-                                            flex: '0 1 auto', minHeight: 0,
-                                            overflowY: 'auto', overflowX: 'hidden', scrollbarWidth: 'thin',
-                                            // Spaced off the nav list only while it
-                                            // holds something drawn.
-                                            '&:has([data-rack-id])': { pt: '6px' } }}>
+                                    into the `display: contents` slot and stack in rack
+                                    order, each only as tall as its content (req #3747),
+                                    the rack shrinking — it alone — to the height the
+                                    nav list leaves (req #3751). RACK_SX: one box for
+                                    every rack, a page toolbar's too (req #3792). */}
+                                <Box data-testid="navbar-rack" sx={RACK_SX}>
                                     <Box ref={setRackNode} data-testid="navbar-rack-slot" sx={{ display: 'contents' }} />
                                 </Box>
                             </Box>

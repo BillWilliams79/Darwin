@@ -112,11 +112,16 @@ test.describe('Navigation', () => {
     await startsLink.click();
     await expect(page).toHaveURL(/\/swarm\/swarm-starts/);
 
+    // Req #3771 — Dev Servers is the last L3 under Sessions (after Undos).
+    await expect(navbar.getByRole('link', { name: /dev servers/i })).toHaveCount(1);
+
     // Collapsing hides them again — the toggle is not one-way.
     await page.getByTestId('nav-expand-toggle-swarm-sessions').click();
     await expect(startsLink).toHaveCount(0);
+    await expect(navbar.getByRole('link', { name: /dev servers/i })).toHaveCount(0);
 
-    // Navigate to Dev Servers
+    // Navigate to Dev Servers (re-expand Sessions first)
+    await page.getByTestId('nav-expand-toggle-swarm-sessions').click();
     await page.getByRole('link', { name: /dev servers/i }).click();
     await expect(page).toHaveURL(/\/devservers/);
   });

@@ -200,7 +200,7 @@ in ~2.8 minutes. Test IDs and the fixture strategy are documented in TEST_PLAN.m
 
 | req #3080 rule | Covered by |
 |----------------|------------|
-| 1 — step state is DERIVED, never stored | PIPE-03 (every chip), MUT-05 (`completed_at` only on a req-less step), MUT-07 (all three derivations) |
+| 1 — step state is DERIVED, never stored | PIPE-03 (every chip), MUT-05 (a req-less step holds no open work and carries no `completed_at` — req #3750/#3752), MUT-07 (all three derivations) |
 | 2 — a step is a swarm-start (launch unit) | PIPE-04 (the step row's own exact `/swarm-start` command — literally this rule since req #3371 made the step the launch unit; also asserts no condensation advisory, which req #3303 deleted, so the rule is covered by what the STEP launches and never by a proposal to merge), MUT-07 (multi-requirement step) |
 | 3 — display order computed + self-verified | PIPE-02 (full sequence vs `displayOrder`), PIPE-12 (loud failure), every MUT case (`verifyOrder` clean after each) |
 | 4 — deps reference stable step ids | MUT-08 (drop refused while referenced, named gate, no residue) |

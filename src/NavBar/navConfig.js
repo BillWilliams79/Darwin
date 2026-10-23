@@ -27,12 +27,6 @@ import RuleIcon from '@mui/icons-material/Rule';
 import DescriptionIcon from '@mui/icons-material/Description';
 import DataUsageIcon from '@mui/icons-material/DataUsage';
 
-// The dev server's working area (req #3589): the route its session deep-links
-// to (req #3242 — devserver-start.sh writes VITE_DEV_DEFAULT_ROUTE into the
-// session's own .env.development.local), else the long-standing /systems2.
-// HomePage lands on it; NavBarSidebar opens the group that owns it.
-export const DEV_HOME_ROUTE = import.meta.env.VITE_DEV_DEFAULT_ROUTE || '/systems2';
-
 export const NAV_GROUPS = [
     { id: 'calendar', label: '' },
     { id: 'tasks', label: 'TASKS' },
@@ -143,9 +137,10 @@ export const NAV_LINKS = [
             { path: '/swarm/swarm-starts', label: 'Starts', icon: RocketLaunchIcon, group: 'swarm' },
             { path: '/swarm/swarm-completes', label: 'Completes', icon: CheckCircleIcon, group: 'swarm' },
             { path: '/swarm/swarm-undos', label: 'Undos', icon: UndoIcon, group: 'swarm' },
+            // Req #3771 — Dev Servers nests last, after Undos. Route unchanged.
+            { path: '/devservers', label: 'Dev Servers', icon: DnsIcon, group: 'swarm' },
         ],
     },
-    { path: '/devservers', label: 'Dev Servers', icon: DnsIcon, group: 'swarm' },
     // Agents is its own top-level group (req #3005), not nested under SWARM.
     // Instructions + Documents listings live under AGENTS (req #3013) — the same
     // icons the Agents page header chips used, kept in that order (Instructions
@@ -170,6 +165,135 @@ export function flattenNavLinks(links) {
     return links.flatMap(link => (
         link.children?.length ? [link, ...link.children] : [link]
     ));
+}
+
+// ── Req #3790: a dev server shows only its session's applications ──────────
+// The applications a dev server can be scoped to, each owning the nav groups
+// it draws. The keys are the Profile "Applications" toggles' own keys plus the
+// dev-only `systems`; Calendar rides with Tasks and Agents with Swarm (req
+// #3553), exactly as their profile columns do. `scripts/devserver-start.sh`
+// validates its APPS argument against these keys — keep the two in step.
+export const DEV_APP_GROUPS = {
+    tasks: ['tasks', 'calendar'],
+    maps: ['maps'],
+    systems: ['systems'],
+    swarm: ['swarm', 'agents'],
+    'swarm-validate': ['swarm-validate'],
+};
+
+// Display names — the Profile toggles' own labels, plus Systems.
+export const DEV_APP_LABELS = {
+    tasks: 'Tasks', maps: 'Maps', systems: 'Systems', swarm: 'Swarm', 'swarm-validate': 'Validate',
+};
+
+const GROUP_DEV_APP = Object.fromEntries(
+    Object.entries(DEV_APP_GROUPS).flatMap(([app, groups]) => groups.map(g => [g, app]))
+);
+
+// Pages an application owns that have no nav link of their own — the editors
+// its pages link out to. Same shape as a nav link, so one lookup serves both.
+export const ROUTE_OWNERS_OFF_NAV = [
+    { path: '/areaedit', group: 'tasks' },
+    { path: '/domainedit', group: 'tasks' },
+    { path: '/projectedit', group: 'swarm' },
+    { path: '/categoryedit', group: 'swarm' },
+];
+
+// The application that owns `route`: the group of the nav link (or off-nav
+// page) with the LONGEST path the route equals or extends at a `/` boundary
+// (so `/swarm/testcases/7` is Swarm Validate's, not the `/swarm` index's).
+// Query and hash are ignored. null when nothing owns the route (`/profile`).
+export function appForRoute(route, links = NAV_LINKS) {
+    if (!route) return null;
+    const path = route.split(/[?#]/)[0];
+    let best = null;
+    for (const link of [...flattenNavLinks(links), ...ROUTE_OWNERS_OFF_NAV]) {
+        if ((path === link.path || path.startsWith(`${link.path}/`))
+                && (!best || link.path.length > best.path.length)) {
+            best = link;
+        }
+    }
+    return best ? (GROUP_DEV_APP[best.group] ?? null) : null;
+}
+
+// The set of applications this dev server shows, or null for "no override —
+// the profile toggles decide". `devserver-start.sh` writes both inputs into
+// the session's own .env.development.local: an explicit APPS list wins (the
+// calling Claude named the impacted areas), else the app that owns the
+// session's deep-link route. A session that passed neither — and production,
+// always — gets null. Unknown names are dropped; a list with nothing known
+// left falls back to the route rather than hiding every application.
+export function resolveDevApps({ dev, apps, route }) {
+    if (!dev) return null;
+    const named = (apps || '').split(',').map(a => a.trim()).filter(a => DEV_APP_GROUPS[a]);
+    if (named.length) return new Set(named);
+    const owner = appForRoute(route);
+    return owner ? new Set([owner]) : null;
+}
+
+// The session's scope, whether or not it is being applied.
+export const DEV_APPS_SCOPE = resolveDevApps({
+    dev: import.meta.env.DEV,
+    apps: import.meta.env.VITE_DEV_APPS,
+    route: import.meta.env.VITE_DEV_DEFAULT_ROUTE,
+});
+
+// The way back to every application on a scoped dev server. localStorage is
+// per ORIGIN and a port outlives its session, so the flag stores WHICH scope
+// it switched off — session, route and apps — and a later session reusing the
+// port is scoped again. `*` switches off every scope on the origin: the E2E
+// auth setup writes it, because specs click through every group.
+export const DEV_APPS_OFF_KEY = 'darwin-dev-apps-off';
+export const DEV_APPS_OFF_ALL = '*';
+export const DEV_APPS_SIGNATURE = [
+    import.meta.env.VITE_DEV_REQ_ID || '',
+    import.meta.env.VITE_DEV_DEFAULT_ROUTE || '',
+    [...(DEV_APPS_SCOPE ?? [])].join(','),
+].join('|');
+
+export function devAppsOptedOut(signature = DEV_APPS_SIGNATURE) {
+    try {
+        const off = localStorage.getItem(DEV_APPS_OFF_KEY);
+        return off === DEV_APPS_OFF_ALL || off === signature;
+    } catch {
+        return false;
+    }
+}
+
+// Switch this dev server's scope off (true) or back on (false). Takes effect
+// on the next load — DEV_APPS is read once, at module evaluation.
+export function setDevAppsOptOut(off, signature = DEV_APPS_SIGNATURE) {
+    try {
+        if (off) localStorage.setItem(DEV_APPS_OFF_KEY, signature);
+        else localStorage.removeItem(DEV_APPS_OFF_KEY);
+    } catch { /* storage blocked — nothing to switch */ }
+}
+
+// The scope actually applied — null when there is none or it is switched off.
+export const DEV_APPS = DEV_APPS_SCOPE && !devAppsOptedOut() ? DEV_APPS_SCOPE : null;
+
+// The dev server's working area (req #3589): the route its session deep-links
+// to (req #3242 — devserver-start.sh writes VITE_DEV_DEFAULT_ROUTE into the
+// session's own .env.development.local), else the first page of its
+// application scope (req #3790 — an apps list with no route must not land on
+// a hidden app), else the long-standing /systems2. HomePage lands on it;
+// NavBarSidebar opens the group that owns it.
+export const DEV_HOME_ROUTE = import.meta.env.VITE_DEV_DEFAULT_ROUTE
+    || (DEV_APPS && NAV_LINKS.find(l => DEV_APPS.has(GROUP_DEV_APP[l.group]))?.path)
+    || '/systems2';
+
+// THE visibility predicate for a nav group — the sidebar, the home redirect
+// and any app-scoped widget all ask this one function. Under a dev-server
+// override the session's apps are shown and nothing else, whatever the
+// profile says (darwin_dev's profile row is shared by every dev server, so it
+// cannot carry one session's scope). Otherwise the profile toggle decides,
+// with the per-key default while the row is loading.
+export function isGroupVisible(profile, groupId, devApps = DEV_APPS) {
+    if (devApps) return devApps.has(GROUP_DEV_APP[groupId]);
+    const key = GROUP_PROFILE_KEY[groupId];
+    if (!key) return true;
+    const fallback = GROUP_PROFILE_DEFAULT[key] ?? 1;
+    return Number(profile?.[key] ?? fallback) === 1;
 }
 
 export const PROFILE_LINK = { path: '/profile', label: 'Profile', icon: PedalBikeIcon };

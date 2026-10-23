@@ -364,7 +364,7 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
                                         <Rect x={n.left} y={n.top}
                                               width={CARD_STATE_BAR_W} height={n.h}
                                               cornerRadius={CARD_STATE_BAR_W / 2}
-                                              fill={style.fill} />
+                                              fill={style.bar} />
                                         <Line points={[
                                             n.frameLeft + CARD_PAD_X, ruleY,
                                             n.frameLeft + n.frameW - CARD_PAD_X, ruleY,

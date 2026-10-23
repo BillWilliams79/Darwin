@@ -83,7 +83,7 @@ describe('canDropOn', () => {
     // req #3750 — a step has no state: one whose work is all met still takes
     // a requirement. Only a lock (the step's, its epic's or its plan's) refuses.
     it('accepts a step whose work is all finished — a step is never closed', () => {
-        expect(canDropOn(row(2, [], { state: 'done', completedAt: '2026-10-01 00:00:00' }), 1)).toBe(true);
+        expect(canDropOn(row(2, [], { state: 'done' }), 1)).toBe(true);
     });
 
     it('refuses an effectively locked step', () => {
