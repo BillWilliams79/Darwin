@@ -99,15 +99,14 @@ export const LAUNCH_ACCENT = {
 export const ELIGIBLE_MARKER_COLOR = '#4caf50';
 
 // pipeline_status is the ONE hand-controlled lifecycle in this feature
-// (req #3111): draft|active|paused|completed|aborted. Human/Primary intent about
+// (req #3111): draft|active|paused|completed. Human/Primary intent about
 // the plan as a whole — deliberately NOT derived, unlike a step's state.
-export const PIPELINE_STATUS_VALUES = ['draft', 'active', 'paused', 'completed', 'aborted'];
+export const PIPELINE_STATUS_VALUES = ['draft', 'active', 'paused', 'completed'];
 
 // req #3220 — default-visible statuses for the list page's status filter.
 // `paused` stays IN: pausing a plan is a normal, reversible operating state the
-// Primary or user can resume any time, not an archival one — unlike `completed`
-// and `aborted`, which are what the default is actually trying to get out of
-// the way. Excluding `paused` would hide a plan the instant someone pauses it.
+// Primary or user can resume any time, not an archival one — unlike `completed`,
+// which is what the default is actually trying to get out of the way. Excluding `paused` would hide a plan the instant someone pauses it.
 export const DEFAULT_PIPELINE_STATUSES = ['draft', 'active', 'paused'];
 
 // ── THE CANVAS TOOLBAR'S ONE CONTROL VOCABULARY (req #3261, S6 + S7) ────────
@@ -163,7 +162,6 @@ export const pipelineStatusChipProps = (status) => {
         case 'active':    return { sx: { bgcolor: '#6b4e00', color: '#ffd769' } };
         case 'paused':    return { sx: { bgcolor: '#ff9800', color: '#000' } };
         case 'completed': return { sx: { bgcolor: '#1b5e20', color: '#a5e5ae' } };
-        case 'aborted':   return { sx: { bgcolor: '#9e9e9e', color: '#fff' } };
         default:          return { color: 'default' };
     }
 };

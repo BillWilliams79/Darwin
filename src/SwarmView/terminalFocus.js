@@ -146,7 +146,7 @@ export const terminalFocusState = (session, machines, nav) => {
 
     // "Terminal 4", not "Window 4" — Darwin already calls this a terminal
     // everywhere else the user meets it (the Sessions column header, the NavBar
-    // "Terminal - N" callout, `dev_servers.terminal_number`), and the number IS
+    // "Terminal N" callout, `dev_servers.terminal_number`), and the number IS
     // the iTerm Window-menu hotkey the user types. One noun for one thing.
     const label = session.terminal_number != null
         ? `Terminal ${session.terminal_number}`

@@ -14,7 +14,7 @@
 // Column shape (from darwin-mcp/services/pipelines2.py's `update_pipeline`):
 //   title           NOT NULL
 //   description     nullable TEXT
-//   pipeline_status draft|active|paused|completed|aborted
+//   pipeline_status draft|active|paused|completed
 //   execution_mode  parallel|serial
 //   machine_fk      nullable
 
