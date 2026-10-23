@@ -111,6 +111,15 @@
 // the box back to its zoom size. The grip has its own strip under the list so
 // it never covers a row, and is hidden while folded, carried or moved.
 //
+// ── …AND FROM EVERY EDGE AND CORNER, LIKE EVERY ACTION POPUP (req #3833) ──
+// The grip only marks a corner: all eight edges and corners stretch it, in the
+// Action Popups' own hit zones (`actionPopupReshapeZone`, req #3743 — wide
+// below the title bar, slim beside it, tinted purple under the pointer). The
+// far side and the bottom stretch it as the grip does, its anchor held. The
+// side it is anchored to and the top carry that anchor with them — the edge
+// not dragged stays put — so a box at home dragged from one of them is placed
+// where it is drawn. Same three text sizes, same memory, same bounds.
+//
 // ── A CATEGORY COLOR BAR ON EVERY ROW (req #3619) ─────────────────────────
 // Like the aggregator card, the box gathers requirements from many categories,
 // so each row leads with the same pill that card draws (RequirementRow, req
@@ -193,8 +202,10 @@ import ActionPopupHead, {
     ACTION_POPUP_TITLE_TRACKING_EM, ActionPopupBadge,
 } from '../../Components/AnchoredPanel/ActionPopupHead';
 import {
-    ACTION_POPUP_BADGE_EM, ACTION_POPUP_COLORS, ACTION_POPUP_FONT_PX, ACTION_POPUP_HEAD_EM, ACTION_POPUP_MONO,
+    ACTION_POPUP_BADGE_EM, ACTION_POPUP_COLORS, ACTION_POPUP_EDGE_PX, ACTION_POPUP_FONT_PX, ACTION_POPUP_HEAD_EM,
+    ACTION_POPUP_MONO, actionPopupReshapeZone,
 } from '../../Components/AnchoredPanel/actionPopupChrome';
+import { RESIZE_EDGES } from '../../Components/AnchoredPanel/anchoredPanelGeometry';
 import { rackOrder } from '../../Components/AnchoredPanel/panelRack';
 import { rackPortal, usePanelRack } from '../../Components/AnchoredPanel/usePanelRack';
 import { CARD_FRAME_W, PLAN_VIZ_PALETTE as P } from './pipelinePlanLayout';
@@ -615,44 +626,66 @@ export default function UnorchestratedReqBox({
         return () => window.removeEventListener('resize', onResize);
     }, []);
 
-    const onGripDown = (e) => {
+    // A stretch from any edge or corner (req #3833) — the grip is one of them.
+    // `edge` is `{h, v}`: the side and/or the top or bottom being dragged.
+    const beginStretch = (edge) => (e) => {
         if (resizeRef.current || e.button !== 0) return;
         const box = boxRef.current;
+        if (!box) return;
+        // The edge on the side the box is anchored to, and the top, carry the
+        // anchor with them; every other edge leaves it where it is. A box at
+        // home stretched from one of those is placed (fixed in the window).
+        const movesAnchor = edge.v === 't' || edge.h === (anchoredRight ? 'r' : 'l');
+        const placed = !!pos || movesAnchor;
         // The pane at home, the window once placed (req #3687).
-        const cb = box && layoutIn(box, !!pos);
+        const cb = layoutIn(box, placed);
         if (!cb) return;
         e.preventDefault();
         e.stopPropagation();
         e.currentTarget.setPointerCapture?.(e.pointerId);
         // Re-anchor to where the box is DRAWN. A remembered spot the window's
         // clamp is overriding (zoomed wide, it no longer fits beside its edge)
-        // would otherwise grow from the far edge, not the grip.
+        // would otherwise grow from the far edge, not the one dragged.
+        const at = placed && (anchoredRight
+            ? { r: Math.max(0, cb.w - cb.left - box.offsetWidth), y: cb.top }
+            : { x: cb.left, y: cb.top });
         let rebased = null;
-        if (pos) {
-            const at = anchoredRight
-                ? { r: Math.max(0, cb.w - cb.left - box.offsetWidth), y: cb.top }
-                : { x: cb.left, y: cb.top };
-            if (at.x !== pos.x || at.r !== pos.r || at.y !== pos.y) {
-                rebased = at;
-                setPos(at);
-            }
+        if (pos && (at.x !== pos.x || at.r !== pos.r || at.y !== pos.y)) {
+            rebased = at;
+            setPos(at);
         }
-        const room = anchoredRight ? cb.left + box.offsetWidth : cb.w - cb.left;
+        const w = box.offsetWidth;
+        // Room on the side the dragged edge travels toward.
+        const room = edge.h === 'l' ? cb.left + w : cb.w - cb.left;
         const list = listRef.current;
+        const h = list?.offsetHeight ?? null;
+        // Placed from home, it leaves the pane — whose `maxWidth`/`maxHeight`
+        // may be holding it smaller than its size — for the window: it keeps
+        // the size it is DRAWN at, so the edges not dragged stay put.
+        let ws = size?.ws ?? 1;
+        let hEm = size?.hEm ?? null;
+        if (movesAnchor && !pos) {
+            if (w < drawn.widthPx - 0.5) ws = w / widthPx;
+            const hs = list && heights(box);
+            if (hs && h < hs.full - hs.frame - 1) hEm = h / fontPx;
+        }
         resizeRef.current = {
-            id: e.pointerId, sx: e.clientX, sy: e.clientY,
+            id: e.pointerId, sx: e.clientX, sy: e.clientY, edge, movesAnchor, at,
             // Border-box, like the `height` it becomes.
-            w: box.offsetWidth, h: list?.offsetHeight ?? null, right: anchoredRight,
-            maxW: Math.min(room, cb.w - 2 * CORNER_INSET),
-            // To the bottom inset with the grip strip and border still above
-            // it — no taller than the WHOLE box can be seen (req #3677).
-            maxH: list ? cb.h - CORNER_INSET - ROUNDING_SLACK_PX
-                - cb.top - heights(box).frame : 0,
-            hEm: size?.hEm ?? null, vertical: false, last: null, rebased,
+            w, h, maxW: Math.min(room, cb.w - 2 * CORNER_INSET),
+            // The bottom: to the bottom inset with the grip strip and border
+            // still above it — no taller than the WHOLE box can be seen (req
+            // #3677). The top: up to the window's top, the bottom held.
+            maxH: !list ? 0 : (edge.v === 't' ? h + cb.top
+                : cb.h - CORNER_INSET - ROUNDING_SLACK_PX - cb.top - heights(box).frame),
+            ws, hEm,
+            // A top or bottom edge takes the height at once; a corner only once
+            // the pointer has gone up or down (see STRETCH_HEIGHT_SLOP).
+            vertical: !!edge.v && !edge.h, last: null, lastPos: null, rebased,
         };
         setResizing(true);
     };
-    const onGripMove = (e) => {
+    const onStretchMove = (e) => {
         const r = resizeRef.current;
         if (!r || e.pointerId !== r.id) return;
         const dx = e.clientX - r.sx;
@@ -660,31 +693,62 @@ export default function UnorchestratedReqBox({
         if (!r.last && Math.hypot(dx, dy) <= MOVE_SLOP) return;
         const clampTo = (v, lo, hi) => Math.min(Math.max(lo, v), Math.max(lo, hi));
         const z = zoomRef.current;
-        const w = clampTo(r.w + (r.right ? -dx : dx), unseatedMinStretchPx(z.fontPx), r.maxW);
+        const { edge } = r;
+        let ws = r.ws;
+        if (edge.h) {
+            const w = clampTo(r.w + (edge.h === 'r' ? dx : -dx), unseatedMinStretchPx(z.fontPx), r.maxW);
+            ws = w / z.widthPx;
+        }
         // Only a gesture that has gone up or down sets the height; a sideways
         // stretch leaves the list its natural height.
-        if (Math.abs(dy) > STRETCH_HEIGHT_SLOP) r.vertical = true;
+        if (edge.v && Math.abs(dy) > STRETCH_HEIGHT_SLOP) r.vertical = true;
         let hEm = r.hEm;
-        if (r.vertical && r.h != null) {
-            hEm = clampTo(r.h + dy, UNSEATED_MIN_LIST_EM * z.fontPx, r.maxH) / z.fontPx;
+        let listH = r.h;
+        if (edge.v && r.vertical && r.h != null) {
+            listH = clampTo(r.h + (edge.v === 'b' ? dy : -dy), UNSEATED_MIN_LIST_EM * z.fontPx, r.maxH);
+            hEm = listH / z.fontPx;
         }
-        r.last = { ws: w / z.widthPx, hEm };
+        r.last = { ws, hEm };
         setSize(r.last);
+        if (!r.movesAnchor) return;
+        // The anchored side follows the pointer by what the box grew there:
+        // the DRAWN width, which the title bar's floor may hold wider.
+        const p = { ...r.at };
+        if (edge.h && edge.h === (r.at.r != null ? 'r' : 'l')) {
+            const grew = unseatedResizedBox(z.widthPx, z.fontPx, r.last).widthPx - r.w;
+            if (r.at.r != null) p.r = Math.max(0, Math.round(r.at.r - grew));
+            else p.x = Math.max(0, Math.round(r.at.x - grew));
+        }
+        if (edge.v === 't' && r.h != null) p.y = Math.max(0, Math.round(r.at.y - (listH - r.h)));
+        r.lastPos = p;
+        setPos(p);
     };
-    const onGripUp = (e) => {
-        const r = resizeRef.current;
-        if (!r || e.pointerId !== r.id) return;
+    // A stretch ends, however it ends: what it drew is remembered.
+    const endStretch = (r) => {
         resizeRef.current = null;
         setResizing(false);
-        if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
-            e.currentTarget.releasePointerCapture(e.pointerId);
-        }
         if (!r.last) return;
         lastResizeEndRef.current = Date.now();
         writeSize(r.last);
         // Remembered with the stretch it made room for.
-        if (r.rebased) writePos(r.rebased);
+        const moved = r.lastPos ?? r.rebased;
+        if (moved) writePos(moved);
     };
+    const onStretchUp = (e) => {
+        const r = resizeRef.current;
+        if (!r || e.pointerId !== r.id) return;
+        if (e.currentTarget.hasPointerCapture?.(e.pointerId)) {
+            e.currentTarget.releasePointerCapture(e.pointerId);
+        }
+        endStretch(r);
+    };
+    const stretch = (edge) => ({
+        onPointerDown: beginStretch(edge),
+        onPointerMove: onStretchMove,
+        onPointerUp: onStretchUp,
+        onPointerCancel: onStretchUp,
+        onLostPointerCapture: onStretchUp,
+    });
     const onGripDoubleClick = (e) => {
         e.stopPropagation();
         if (Date.now() - lastResizeEndRef.current < DBLCLICK_AFTER_MOVE_MS) return;
@@ -770,12 +834,13 @@ export default function UnorchestratedReqBox({
     // box is anchored to, which a move is changing). A move keeps the grip's
     // STRIP, so the box stays its full height (req #3677).
     // Racked, the navbar sets its width and its rows its height: no grip.
+    // The edges follow the grip (req #3833): every edge and corner reshapes.
     const gripShown = open && !moving && !inRack;
+    const stretchEdges = gripShown ? RESIZE_EDGES : [];
     // A grip that goes away mid-stretch ends the stretch.
     useEffect(() => {
         if (gripShown || !resizeRef.current) return;
-        resizeRef.current = null;
-        setResizing(false);
+        endStretch(resizeRef.current);
     }, [gripShown]);
 
     // Racked, the Action Popups' type and the navbar's width (req #3735).
@@ -911,7 +976,11 @@ export default function UnorchestratedReqBox({
                         // Racked, the rack's row is the cap: its rows, or its
                         // fair share of a short navbar (req #3747).
                         maxHeight: racking ? 'none' : `${LIST_MAX_EM}em`,
-                        borderTop: `1px solid ${P.line}`, py: '0.35em' }}>
+                        borderTop: `1px solid ${P.line}`, py: '0.35em',
+                        // Its scrollbar sits inside the right reshape zone, not
+                        // under it (req #3833) — a border, so the rule above
+                        // still runs the full width.
+                        ...(!inRack && { borderRight: `${ACTION_POPUP_EDGE_PX}px solid transparent` }) }}>
                 {isError && (
                     <Box sx={{ px: '0.8em', py: '0.5em', color: '#ff8a80' }}>
                         Could not load swarm-ready requirements.
@@ -949,13 +1018,10 @@ export default function UnorchestratedReqBox({
                 <Box data-testid="pipeline-viz-unseated-grip"
                      data-corner={anchoredRight ? 'bottom-left' : 'bottom-right'}
                      title="Drag to resize · double-click for the default size"
-                     onPointerDown={onGripDown}
-                     onPointerMove={onGripMove}
-                     onPointerUp={onGripUp}
-                     onPointerCancel={onGripUp}
-                     onLostPointerCapture={onGripUp}
+                     {...stretch({ h: anchoredRight ? 'l' : 'r', v: 'b' })}
                      onDoubleClick={onGripDoubleClick}
-                     sx={{ width: '1.8em', height: '1.8em',
+                     // Over its corner's reshape zone, so its double-click is its own.
+                     sx={{ position: 'relative', zIndex: 4, width: '1.8em', height: '1.8em',
                             p: '0.35em', boxSizing: 'border-box', touchAction: 'none',
                             cursor: anchoredRight ? 'nesw-resize' : 'nwse-resize',
                             color: OUTLINE, opacity: resizing ? 1 : 0.75,
@@ -971,6 +1037,15 @@ export default function UnorchestratedReqBox({
                 )}
                 </Box>
             )}
+            {/* Every edge and corner reshapes it, like every Action Popup
+                (req #3833 — AnchoredPanel's zones, req #3743). */}
+            {stretchEdges.map((ed) => (
+                <Box key={ed.id} data-testid={`pipeline-viz-unseated-edge-${ed.id}`}
+                     title="Drag to reshape"
+                     {...stretch({ h: ed.h, v: ed.v })}
+                     // The title bar's height in em: one rule, whatever the zoom.
+                     sx={actionPopupReshapeZone(ed, HEADER_H, OUTLINE)} />
+            ))}
         </Box>
     );
     return inRack ? rackPortal(panel, slot) : panel;

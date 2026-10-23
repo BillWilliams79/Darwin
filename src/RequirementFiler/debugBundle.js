@@ -265,7 +265,10 @@ function countNote(key, v) {
     const plus = (d) => (d ? ` (+${d} dropped)` : '');
     const of = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
     switch (key) {
-    case 'filedFrom': return v.surface ? String(v.surface) : '';
+    case 'filedFrom': {
+        const at = pointedAtLabel(v);
+        return [v.surface && String(v.surface), at && `over ${at.path.split(' > ').pop()}`].filter(Boolean).join(' · ');
+    }
     case 'console': return `${of(n(v.entries), 'line')}${plus(v.dropped)}`;
     case 'errors': return `${of(n(v.entries), 'error')}${plus(v.dropped)}`;
     case 'network': {
@@ -280,6 +283,21 @@ function countNote(key, v) {
     case 'focus': return `${of(n(v.losses), 'loss', 'losses')}, ${of(n(v.timeline), 'event')}`;
     default: return '';
     }
+}
+
+/** What a floating filer pointed at, as the block names it (req #3829): the
+ *  centre's element by its testid path (outermost first) or tag, its text, and
+ *  how many more the bundle holds — null when it pointed at nothing. */
+export function pointedAtLabel(filedFrom) {
+    const all = Array.isArray(filedFrom?.pointedAt) ? filedFrom.pointedAt : [];
+    const p = all[0];
+    if (!p) return null;
+    const path = Array.isArray(p.testidPath) && p.testidPath.length ? [...p.testidPath].reverse().join(' > ') : (p.tag || '?');
+    const more = all.length - 1 + (filedFrom.pointedAtOmitted || 0);
+    // The element's text never carries the block's own grammar (a filer over a
+    // description holding a Debug capture block would nest a fake one).
+    const text = p.text ? oneLine(p.text).replace(/-{3,}/g, '—').replace(/Debug capture:/gi, 'Debug capture -') : '';
+    return { path, text, more };
 }
 
 const isFailed = (e) => e && (e.status === 0 || e.status >= 400);
@@ -410,7 +428,8 @@ export const keepsNothing = (capture, dropped) =>
  * The description's `Debug capture` block for `capture` saved as requirement
  * `requirementId` with `dropped` left out. It always says WHERE it was filed —
  * `Surface:` (a /devops-devserver-start deep link) and `URL:`, from the kept
- * `filedFrom` category — and where the bundle is. When something went wrong
+ * `filedFrom` category, plus `Pointed at:` when the filer floated over an
+ * element (req #3829) — and where the bundle is. When something went wrong
  * (uncaught errors, failed or pending requests, console errors and warnings) it
  * adds the counts and sizes per category and those lines verbatim (≤ 5 of each,
  * ≤ 2 KB together); otherwise it stops there, so a plain requirement reads as
@@ -428,6 +447,11 @@ export function formatDebugBlock(capture, dropped, requirementId) {
     const lines = [DEBUG_BLOCK_BEGIN];
     if (where?.surface) lines.push(`Surface: ${where.surface}`);
     if (where?.url?.full) lines.push(`URL: ${where.url.full}`);
+    const at = pointedAtLabel(where);
+    if (at) {
+        lines.push(clip(`Pointed at: ${at.path}${at.text ? ` "${at.text}"` : ''}`)
+            + (at.more ? ` (+${at.more} more in the bundle)` : ''));
+    }
     lines.push(pointer);
     const detail = detailLines(cats);
     if (detail.length) {
