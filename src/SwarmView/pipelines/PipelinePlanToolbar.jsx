@@ -89,10 +89,14 @@ export const LOCK_RESET_LABEL = 'Default — the whole pipeline on one screen';
 // fires while still held, reports `{ key, el, pinned: true }`, and from then on
 // hover, focus and blur change nothing. The release that ends the long press is
 // not a click (it would otherwise toggle the colour key it was asking about).
-// The NEXT press anywhere — any button, any chip, the canvas — or Escape unpins
-// it, and the help falls back to whatever chip the pointer rests on, so a press
-// on another colour chip still does what that chip does. The touch context menu
-// a long press would raise on a chip is suppressed for the same press.
+// ONLY Escape or a click (press, Enter, Space) on a colour chip (req #3859, user directive: "help to
+// stick until ESC key is hit or we click again on any color button") unpins it
+// — a press anywhere else (panning the canvas, any other button) leaves it up.
+// The help then falls back to whatever chip the pointer rests on, and a press on
+// a colour chip still does what that chip does. A pinned chip that leaves the
+// page (the Lock view swaps the row) unpins too, or hover help would stay muted
+// behind a pin nobody can see. The touch context menu a long press would raise
+// on a chip is suppressed for the same press.
 function useKeyHelp(onKeyHover) {
     const reportRef = useRef(onKeyHover);
     reportRef.current = onKeyHover;
@@ -111,25 +115,26 @@ function useKeyHelp(onKeyHover) {
         if (!pinnedRef.current) reportRef.current?.(h);
     };
 
-    // While pinned, the next press (capture phase, so nothing under it can stop
-    // it) or Escape unpins. Attached after the pinning press went down, so that
-    // press cannot unpin itself.
+    const unpin = () => {
+        pinnedRef.current = null;
+        swallowClickRef.current = false;
+        setPinned(null);
+        const h = hoverRef.current;
+        reportRef.current?.(h?.el?.isConnected ? h : null);
+    };
+
+    // While pinned, Escape unpins (capture phase, so nothing under it can stop it).
     useEffect(() => {
         if (!pinned) return undefined;
-        const unpin = () => {
-            pinnedRef.current = null;
-            swallowClickRef.current = false;
-            setPinned(null);
-            reportRef.current?.(hoverRef.current);
-        };
         const onKey = (e) => { if (e.key === 'Escape') unpin(); };
-        window.addEventListener('pointerdown', unpin, true);
         window.addEventListener('keydown', onKey, true);
-        return () => {
-            window.removeEventListener('pointerdown', unpin, true);
-            window.removeEventListener('keydown', onKey, true);
-        };
+        return () => window.removeEventListener('keydown', onKey, true);
     }, [pinned]);
+
+    // A pinned chip no longer on the page unpins.
+    useEffect(() => {
+        if (pinnedRef.current && !pinnedRef.current.el.isConnected) unpin();
+    });
 
     // Unmounting drops a press in flight and a pin with it.
     useEffect(() => () => {
@@ -146,12 +151,18 @@ function useKeyHelp(onKeyHover) {
             swallowClickRef.current = false;
             endPress();
             if (e.button !== 0) return;
+            if (pinnedRef.current) unpin();
             const el = e.currentTarget;
             pressRef.current = {
                 x: e.clientX, y: e.clientY,
                 timer: setTimeout(() => {
                     pressRef.current = null;
                     swallowClickRef.current = true;
+                    // A release off the chip sends its click elsewhere; drop the
+                    // swallow once that click has had its turn.
+                    window.addEventListener('pointerup', () => setTimeout(() => {
+                        swallowClickRef.current = false;
+                    }, 0), { capture: true, once: true });
                     const h = { key, el, pinned: true };
                     pinnedRef.current = h;
                     setPinned(h);
@@ -162,6 +173,10 @@ function useKeyHelp(onKeyHover) {
         onPointerMove: (e) => {
             const p = pressRef.current;
             if (p && Math.hypot(e.clientX - p.x, e.clientY - p.y) > PRESS_SLOP_PX) endPress();
+        },
+        // MUI activates a chip from the keyboard without a press or a DOM click.
+        onKeyDown: (e) => {
+            if (pinnedRef.current && (e.key === 'Enter' || e.key === ' ')) unpin();
         },
         onPointerUp: endPress,
         onPointerCancel: endPress,
@@ -194,8 +209,8 @@ const NO_HIDDEN = new Set();
  *                                              chip (`key` its scale), `null` when it leaves; the
  *                                              plan visualizer draws the colour-help popup
  *                                              (req #3722); a long press reports it with
- *                                              `pinned: true` and holds it until the next
- *                                              press anywhere (req #3766)
+ *                                              `pinned: true` and holds it until Escape or
+ *                                              a colour-chip press (req #3766, #3859)
  * @param {boolean} props.hideClosed            the closed (met/deferred/wontfix) rows are hidden
  * @param {function} props.onChangeHideClosed   receives the next boolean
  * @param {boolean} props.showTimes             the epic cards' start / end times are drawn
