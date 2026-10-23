@@ -1,11 +1,11 @@
 // pipelineDetailModes.js — the mode registry for /swarm/pipeline/:id (req #3114).
 //
-// ONE ENTRY SINCE REQ #3641. It held Table and Plan; the user withdrew the
-// Table ("just show the visualizer and it's the only way to look at a pipeline
-// for now"), and the page dropped its Table|Plan switcher with it. The registry
-// stays because it is how a second view comes back: a mode is ONE entry here,
-// plus — once there are two — a switcher on PipelineDetail's header row (see
-// its git history for the one req #3641 removed). This is the same split as
+// TWO ENTRIES SINCE REQ #3760 (Plan, Engine). Req #3641 had cut it to one —
+// the user withdrew the Table ("just show the visualizer and it's the only way
+// to look at a pipeline for now") and the page dropped its switcher with it.
+// The registry stayed because it is how a second view comes back: a mode is ONE
+// entry here, and PipelineDetail's header row draws one switch chip per entry
+// whenever there is more than one. This is the same split as
 // instructionSort.js / normalizeView.js: the vocabulary lives outside the
 // component so the component keeps its single job.
 //
@@ -30,17 +30,23 @@
 //   disabled   optional — renders a disabled ToggleButton once there is a
 //              switcher (rule V1: a not-yet-built view is disabled, never
 //              omitted, so the group holds its width)
+//   needsPlan  optional, default true — false for a panel that does not draw
+//              the composed plan read (req #3760's Engine mode reads the engine
+//              tables only), so it renders while the plan's derivation is
+//              withheld instead of disappearing behind the diagnostic
 //
 // NO JSX in this file: it must stay importable by vitest without a DOM, and a
 // component file with non-component exports drops out of React Fast Refresh.
 
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
+import PrecisionManufacturingIcon from '@mui/icons-material/PrecisionManufacturing';
 
+import EngineScopeView from '../engine/EngineScopeView';
 import PipelinePlanVisualizer from './PipelinePlanVisualizer';
 
 export const PIPELINE_DETAIL_MODE_STORAGE_KEY = 'darwin-swarm-pipeline-detail-mode';
 
-// ── ONE MODE (req #3641 user directive) ────────────────────────────────────
+// ── THE PLAN MODE, AND NO TABLE (req #3641 user directive) ─────────────────
 // *"Remove the option to see the epics in the pipeline in a special viewer.
 // Just show the visualizer and it's the only way to look at a pipeline for
 // now."* The Table entry is withdrawn, not deleted: `PipelinePlanTable` and its
@@ -62,6 +68,18 @@ export const PIPELINE_DETAIL_MODES = [
         label: 'Plan',
         icon: AccountTreeIcon,
         Component: PipelinePlanVisualizer,
+    },
+    {
+        // req #3760 — the engines working this plan: what each decided this
+        // cycle (the launch queue with its cut line, every epic's hold in
+        // plain words, the executor's outcome per launch), its health,
+        // location and limits, and a history strip to scrub back through.
+        // The same panels as /swarm/engines, scoped to this plan.
+        value: 'engine',
+        label: 'Engine',
+        icon: PrecisionManufacturingIcon,
+        Component: EngineScopeView,
+        needsPlan: false,
     },
 ];
 

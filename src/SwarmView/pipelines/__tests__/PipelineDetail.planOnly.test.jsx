@@ -6,7 +6,8 @@
 // the two panel bodies are stubbed, for react-konva's canvas), so this proves
 // what the shipped page does: the Plan visualizer renders, the Table never
 // does — not for a stored 'table' preference, not for an old `?mode=table`
-// link — and there is no mode switcher on the header row.
+// link. Since req #3760 the header row switches Plan | Engine; the Table is
+// still not among them.
 //
 // It replaces req #3281's accessible-name coverage of that switcher, which no
 // longer exists to be named.
@@ -29,6 +30,9 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 // of this test: to prove the BUTTON, not the icon, ends up named.
 vi.mock('../PipelinePlanTable', () => ({ default: () => <div data-testid="mode-table" /> }));
 vi.mock('../PipelinePlanVisualizer', () => ({ default: () => <div data-testid="mode-plan" /> }));
+// req #3760 — the Engine mode's body reads the engine tables; stubbed like the
+// other two so this file stays about which panel the page picks.
+vi.mock('../../engine/EngineScopeView', () => ({ default: () => <div data-testid="mode-engine" /> }));
 
 vi.mock('../../../RestApi/RestApi', () => ({ default: vi.fn(() => Promise.resolve({ httpStatus: { httpStatus: 200 }, data: [] })) }));
 
@@ -101,9 +105,9 @@ afterEach(() => {
     vi.restoreAllMocks();
 });
 
-describe('PipelineDetail — the visualizer is the only view (req #3641)', () => {
-    it('registers exactly one mode, the Plan visualizer', () => {
-        expect(PIPELINE_DETAIL_MODES.map((m) => m.value)).toEqual(['plan']);
+describe('PipelineDetail — Plan and Engine, never the Table (req #3641, #3760)', () => {
+    it('registers the Plan visualizer and the Engine view, Plan first', () => {
+        expect(PIPELINE_DETAIL_MODES.map((m) => m.value)).toEqual(['plan', 'engine']);
     });
 
     it.each([
@@ -124,10 +128,44 @@ describe('PipelineDetail — the visualizer is the only view (req #3641)', () =>
         expect(node('mode-table')).toBeNull();
     });
 
-    it('puts no mode switcher on the header row', () => {
+    it('switches Plan | Engine on the header row, and offers no Table', () => {
         mount('/swarm/pipeline/2');
-        expect(node('pipeline-detail-mode-toggle')).toBeNull();
-        expect(node('pipeline-mode-plan')).toBeNull();
+        expect(node('pipeline-mode-switch')).not.toBeNull();
+        expect(node('pipeline-mode-plan').getAttribute('aria-pressed')).toBe('true');
         expect(node('pipeline-mode-table')).toBeNull();
+        expect(node('pipeline-plan-toolbar') || node('mode-plan')).not.toBeNull();
+        act(() => { node('pipeline-mode-engine').click(); });
+        expect(node('mode-engine')).not.toBeNull();
+        expect(node('mode-plan')).toBeNull();
+        expect(node('pipeline-mode-engine').getAttribute('aria-pressed')).toBe('true');
+    });
+
+    it('opens the Engine view from a ?mode=engine link', () => {
+        mount('/swarm/pipeline/2?mode=engine');
+        expect(node('mode-engine')).not.toBeNull();
+        expect(node('mode-plan')).toBeNull();
+    });
+
+    it('an epic link lands on the Plan, whatever mode was stored', () => {
+        sessionStorage.setItem('darwin-swarm-pipeline-detail-mode', 'engine');
+        localStorage.setItem('darwin-swarm-pipeline-detail-mode', 'engine');
+        mount('/swarm/pipeline/2?epic=47');
+        expect(node('mode-plan')).not.toBeNull();
+        expect(node('mode-engine')).toBeNull();
+    });
+
+    it('a stored Engine pick opens the Engine view on a bare plan URL', () => {
+        sessionStorage.setItem('darwin-swarm-pipeline-detail-mode', 'engine');
+        localStorage.setItem('darwin-swarm-pipeline-detail-mode', 'engine');
+        mount('/swarm/pipeline/2');
+        expect(node('mode-engine')).not.toBeNull();
+    });
+
+    it('picking Engine after arriving on an epic link leaves the Plan', () => {
+        mount('/swarm/pipeline/2?mode=plan&epic=47&level=3');
+        expect(node('mode-plan')).not.toBeNull();
+        act(() => { node('pipeline-mode-engine').click(); });
+        expect(node('mode-engine')).not.toBeNull();
+        expect(node('mode-plan')).toBeNull();
     });
 });

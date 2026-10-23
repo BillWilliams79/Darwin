@@ -84,7 +84,8 @@ describe('navConfig — the plan editors nest under Pipelines (req #3236)', () =
     // NavBarSidebar renders exactly two levels (a
     // Pipelines-owns-Initiatives-owns-something L4 shape would be silently dropped),
     // so this array is the only place a plan-editor child can go.
-    const CHILD_PATHS = ['/swarm/initiatives', '/swarm/epics'];
+    // req #3760 — Engines follows the two editors: the engines that run the plans.
+    const CHILD_PATHS = ['/swarm/initiatives', '/swarm/epics', '/swarm/engines'];
 
     const pipelines = NAV_LINKS.find(l => l.path === PIPELINES_PATH);
 
@@ -100,7 +101,7 @@ describe('navConfig — the plan editors nest under Pipelines (req #3236)', () =
         // Unsuffixed since req #3356 — with one era left, an `Initiatives 2.0` label
         // would name a distinction the reader can no longer draw.
         expect(pipelines.children.map(c => c.label))
-            .toEqual(['Initiatives', 'Epics']);
+            .toEqual(['Initiatives', 'Epics', 'Engines']);
     });
 
     it('never gives a child the same path as its parent', () => {

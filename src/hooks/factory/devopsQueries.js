@@ -620,3 +620,66 @@ export const sessionTerminals = createEntityQueries({
     defaultFields: 'id,swarm_status,terminal_number,terminal_window_id,machine_fk,title,task_name',
     fieldsInKey: true,
 });
+
+// ---------------------------------------------------------------------------
+// ORCHESTRATION ENGINE 2 — the data contract the engine view reads (req #3756
+// tables, req #3760 reader). Five tables, one writer each
+// (memory/engine-2-data-contract.md); the browser reads four of them and
+// writes none. Default `darwinUri` (dev/prod split): dev reviews seeded
+// darwin_dev engine rows (`scripts/db/seed-engine-dev.py`), production reads
+// what the live engine publishes.
+//
+// `engine_inputs` is not read: it is replay material (R12), never shown.
+// ---------------------------------------------------------------------------
+
+// One row per scope per machine: the UI's on/off switch and the supervisor's
+// report. A handful of rows — one unfiltered read per page.
+export const engineStates = createEntityQueries({
+    entity: 'engine_states',
+    // NOT `initiative_key`: a VIRTUAL column the scope key is built on, which
+    // names nothing a reader needs.
+    defaultFields:
+        'id,pipeline_fk,initiative_fk,machine_fk,desired_state,desired_reason,desired_at,' +
+        'actual_state,actual_detail,actual_at,create_ts,update_ts',
+    fieldsInKey: true,
+    defaultSort: 'id:asc',
+});
+
+// One row per engine state. `beat_at` is the DB-stamped liveness clock;
+// `health` is the R4 JSON (heartbeat.schema.json), returned as an object
+// because Lambda-Rest builds rows with JSON_OBJECT.
+export const engineHeartbeats = createEntityQueries({
+    entity: 'engine_heartbeats',
+    defaultFields:
+        'id,engine_state_fk,claim_fk,terminal_pid,engine_pid,role,beats,health,create_ts,beat_at',
+    fieldsInKey: true,
+    defaultSort: 'id:asc',
+});
+
+// One row per cycle per scope. The LIGHT projection: everything a history
+// strip needs and none of the `record` JSON, which is ~7 KB a row and comes one
+// at a time by id (`ENGINE_RECORD_FULL_FIELDS`). Retention bounds a scope to
+// its last 60 cycles plus the cycles that admitted something within 14 days
+// (scripts/swarm/engine2/contracts/storage.json), so the list stays small.
+export const ENGINE_RECORD_LIGHT_FIELDS =
+    'id,record_hash,prior_hash,pipeline_fk,initiative_fk,machine_fk,claim_id,seq,cycle_at,' +
+    'verdict,admitted_count,queue_count,cut,create_ts';
+export const ENGINE_RECORD_FULL_FIELDS = `${ENGINE_RECORD_LIGHT_FIELDS},record`;
+export const engineDecisionRecords = createEntityQueries({
+    entity: 'engine_decision_records',
+    defaultFields: ENGINE_RECORD_LIGHT_FIELDS,
+    fieldsInKey: true,
+    defaultSort: 'id:asc',
+    foreignKeys: [{ field: 'pipeline_fk', as: 'pipeline' }],
+});
+
+// One row per admitted item: the executor's pending / landed / failed. Read
+// per record — the record the reader is looking at.
+export const engineOutcomes = createEntityQueries({
+    entity: 'engine_outcomes',
+    defaultFields:
+        'id,record_fk,requirement_fk,epic_fk,outcome_state,session_ids,reason,create_ts,update_ts',
+    fieldsInKey: true,
+    defaultSort: 'id:asc',
+    foreignKeys: [{ field: 'record_fk', as: 'record' }],
+});

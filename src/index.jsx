@@ -69,6 +69,8 @@ import {
 import PipelinesPage from './Pipelines/PipelinesPage';
 import InitiativesPage from './Initiatives/InitiativesPage';
 import EpicsPage from './Epics/EpicsPage';
+import EnginesPage from './SwarmView/engine/EnginesPage';
+import { ENGINES_ROUTE } from './SwarmView/engine/enginePaths';
 import SystemsPage2 from './Systems/SystemsPage2';
 import BuildVisualizerPage from './BuildVisualizer/BuildVisualizerPage';
 import CustomersPage from './Customers/CustomersPage';
@@ -174,6 +176,10 @@ root.render(
                                                          </AuthenticatedRoute>} />
                     <Route path="swarm/epics" element= {<AuthenticatedRoute>
                                                              <EpicsPage />
+                                                         </AuthenticatedRoute>} />
+                    {/* req #3760 — the orchestration engines, machine-wide. */}
+                    <Route path={ENGINES_ROUTE} element= {<AuthenticatedRoute>
+                                                             <EnginesPage />
                                                          </AuthenticatedRoute>} />
                     <Route path="swarm/testcases" element= {<AuthenticatedRoute>
                                                              <TestCasesPage />
