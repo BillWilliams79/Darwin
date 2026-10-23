@@ -145,6 +145,16 @@ describe('PipelineDetail — Plan, Lock and Engine, never the Table (req #3641, 
         expect(node('pipeline-mode-engine').getAttribute('aria-pressed')).toBe('true');
     });
 
+    it.each(['/swarm/pipeline/2', '/swarm/pipeline/2?mode=engine'])(
+        'puts Plan | Engine first on the header row, left of the plan name — %s (req #3875)',
+        (url) => {
+            mount(url);
+            expect(node('pipeline-header-row').firstElementChild)
+                .toBe(node('pipeline-mode-switch'));
+            expect(node('pipeline-mode-switch').compareDocumentPosition(node('pipeline-title'))
+                & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        });
+
     it('opens the Engine view from a ?mode=engine link', () => {
         mount('/swarm/pipeline/2?mode=engine');
         expect(node('mode-engine')).not.toBeNull();

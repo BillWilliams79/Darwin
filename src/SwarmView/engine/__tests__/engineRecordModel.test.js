@@ -177,6 +177,8 @@ describe('scopeText', () => {
     it('names a whole plan or an initiative of one, with titles when known', () => {
         expect(scopeText(10, null)).toBe('whole plan 10');
         expect(scopeText(10, 7, { pipelineTitle: 'Darwin', initiativeTitle: 'Engine' }))
-            .toBe('initiative 7 · Engine of plan 10 · Darwin');
+            .toBe('initiative Engine of plan Darwin');
+        expect(scopeText(10, null, { pipelineTitle: 'Darwin' })).toBe('whole plan Darwin');
+        expect(scopeText(10, 7)).toBe('initiative 7 of plan 10');
     });
 });

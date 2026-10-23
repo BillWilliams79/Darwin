@@ -37,8 +37,10 @@ export const CATEGORY_FIELDS = 'id,category_name,color,sort_order,closed';
 const SORT_ORDER_MIN = -32768;
 const SORT_ORDER_MAX = 32767;
 
-// sort_order is a nullable SMALLINT fed by a text input — three answers, not
-// two: EMPTY (clear the column), a usable integer, and INVALID.
+// sort_order is a SMALLINT fed by a text input — three answers, not two:
+// EMPTY, a usable integer, and INVALID. Initiatives have a HARD order (req
+// #3861), so EMPTY never clears the column: a new initiative is appended to its
+// plan, and an edit leaves the stored place as it is.
 const parseSortOrder = (raw) => {
     const t = (raw ?? '').trim();
     if (t === '') return { empty: true };
@@ -130,7 +132,7 @@ export default function InitiativeEditDialog({ open, initiative, pipelineOptions
                     title,
                     description: description || REST_NULL,
                     category_fk: categoryValue,
-                    sort_order: sortOrder.empty ? REST_NULL : sortOrder.value,
+                    ...(sortOrder.empty ? null : { sort_order: sortOrder.value }),
                     initiative_status: formInitiativeStatus,
                 });
             } else {
@@ -212,9 +214,9 @@ export default function InitiativeEditDialog({ open, initiative, pipelineOptions
                         label="Sort order"
                         value={formSortOrder}
                         onChange={(e) => setFormSortOrder(e.target.value)}
-                        helperText={"Whole number, position among this plan's initiatives. Leave "
-                            + 'blank for derived order (started initiatives by start date, '
-                            + 'unstarted after by creation).'}
+                        helperText={"Whole number, position among this plan's initiatives — "
+                            + "or drag the initiative's name bar on the plan. Leave blank to "
+                            + (initiative ? 'keep its place.' : 'add it at the end.')}
                         type="number" fullWidth
                         slotProps={{ htmlInput: {
                             'data-testid': 'initiative-sort-order-input',

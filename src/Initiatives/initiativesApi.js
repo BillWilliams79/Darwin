@@ -15,11 +15,15 @@
 //   description   nullable TEXT
 //   category_fk   required, ON DELETE RESTRICT
 //   initiative_status   active|paused
-//   sort_order    nullable SMALLINT, NULL = derived order
+//   sort_order    SMALLINT, the plan's HARD initiative order (req #3861). The
+//                 column is nullable, but no writer leaves it NULL: a create
+//                 that names none is appended to its plan (`createInitiative`),
+//                 and the plan canvas re-orders by dragging the name bar.
 //   closed        0 | 1
 
 import call_rest_api from '../RestApi/RestApi';
 import { fetchEntity } from '../hooks/factory/createEntityQueries';
+import { nextInitiativeSortOrder } from '../SwarmView/pipelines/pipelineInitiativeDrag';
 
 const isOk = (status) => status === 200 || status === 201 || status === 204;
 
@@ -46,9 +50,17 @@ export const REST_NULL = 'NULL';
 /** Whether a user-typed value would be swallowed by the REST_NULL sentinel. */
 export const isRestNullLiteral = (value) => String(value ?? '').trim() === REST_NULL;
 
+// An initiative with no `sort_order` given is APPENDED to its plan — one past the
+// plan's highest — so every initiative carries a hard place in the order
+// (req #3861). One extra read, on a create only.
 export async function createInitiative(darwinUri, idToken,
     { pipeline_fk, title, description = null, category_fk, sort_order = null,
       initiative_status = 'active' }) {
+    if (sort_order == null && pipeline_fk != null) {
+        const siblings = await fetchEntity(
+            `${darwinUri}/initiatives?pipeline_fk=${pipeline_fk}&fields=id,sort_order`, idToken);
+        sort_order = nextInitiativeSortOrder(Array.isArray(siblings) ? siblings : []);
+    }
     const r = await call_rest_api(`${darwinUri}/initiatives`, 'POST',
         { pipeline_fk, title, description, category_fk, sort_order, initiative_status },
         idToken);
@@ -62,6 +74,18 @@ export async function updateInitiative(darwinUri, idToken, id, fields) {
     const r = await call_rest_api(`${darwinUri}/initiatives`, 'PUT',
         [{ id, ...fields }], idToken);
     return assertOk(r, 'updateInitiative');
+}
+
+/**
+ * Write a plan's re-ordered initiatives (req #3861) — `[{id, sort_order}]`, the
+ * changed rows only. ONE bulk PUT, which the gateway runs as ONE UPDATE: a lock
+ * on any row refuses the whole request (423), so a re-order never half-lands.
+ */
+export async function reorderInitiatives(darwinUri, idToken, writes) {
+    if (!writes?.length) return null;
+    const r = await call_rest_api(`${darwinUri}/initiatives`, 'PUT',
+        writes.map(({ id, sort_order }) => ({ id, sort_order })), idToken);
+    return assertOk(r, 'reorderInitiatives');
 }
 
 /**

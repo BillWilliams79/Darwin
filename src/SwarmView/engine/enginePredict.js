@@ -30,7 +30,7 @@ import { ROLE_LEAD, ROLE_SUBSCRIBER, resolveRoles } from '../pipelines/orchestra
 
 export const SCHEMA = 'engine2.decision_record/1';
 export const VERDICT_OK = 'OK';
-// core.py SEAT_VIOLATION: the derivation's double-seat violation.
+// The derivation's double-seat violation (core.py SEAT_VIOLATION).
 const SEAT_VIOLATION = 'one-epic-per-requirement';
 
 // core.py WITHHELD_VERDICTS.
@@ -319,12 +319,14 @@ export function predictRecord(payload, capacity, claims, clock) {
 
     const candidates = inScope.filter((row) => Array.isArray(row.open_req_ids) && row.open_req_ids.length);
     const rawQueue = Array.isArray(derived.launch_queue) ? derived.launch_queue : [];
-    // core.py: a requirement seated on two epics is held (ENGINE_HOLD naming the
-    // violation) in every scope; any other repeat keeps its first entry only.
+    // A REQUIREMENT SEATED ON TWO EPICS IS NEVER ADMITTED (core.py, req #3757
+    // review): every seat the derivation reports as a `one-epic-per-requirement`
+    // violation is an ENGINE_HOLD item naming it. Any other repeat keeps its
+    // first entry only.
     const doubleSeated = new Map();
-    for (const v of payloadOk ? asList(derived.violations) : []) {
-        if (isDict(v) && v.invariant === SEAT_VIOLATION) {
-            doubleSeated.set(v.requirement_id ?? null, [...asList(v.epic_ids)]);
+    for (const violation of payloadOk ? asList(derived.violations) : []) {
+        if (isDict(violation) && violation.invariant === SEAT_VIOLATION) {
+            doubleSeated.set(violation.requirement_id ?? null, asList(violation.epic_ids));
         }
     }
     const queueIn = [];
@@ -432,12 +434,19 @@ export function predictRecord(payload, capacity, claims, clock) {
     });
     if (cut == null) cut = items.length;
 
-    const admitted = items.filter((i) => i.code === 'ADMITTED').map((i) => i.requirement_id);
+    const admittedItems = items.filter((i) => i.code === 'ADMITTED');
+    const admitted = admittedItems.map((i) => i.requirement_id);
     limits.in_flight_req_ids = [...new Set(admitted)].sort((a, b) => a - b);
     limits.holding_req_ids = [...new Set([...holdingIds, ...admitted])].sort(byIdThenText);
     limits.holding = limits.holding_req_ids.length;
     limits.waiting = items.filter((i) => i.code === 'CAPACITY' || i.code === 'DEP_PRIORITY').length;
     limits.last_admitted_at = admitted.length && now ? formatTime(now) : null;
+    // The cycle's ONE launch unit (core.launch_unit, req #3865): a first cycle
+    // has no prior, so every id is on its first announcement.
+    const launch = admittedItems.length ? {
+        requirement_ids: admitted,
+        items: admittedItems.map((i) => ({ requirement_id: i.requirement_id, epic_id: i.epic_id, attempt: 1 })),
+    } : null;
 
     // -- epic rollup (R2) ----------------------------------------------------
     const itemsByEpic = new Map();
@@ -458,9 +467,9 @@ export function predictRecord(payload, capacity, claims, clock) {
                 else {
                     const elsewhere = [...new Set(asList(row.launch_req_ids)
                         .filter((r) => queuedUnder.has(r) && queuedUnder.get(r) !== row.id)
-                        .map((r) => queuedUnder.get(r)))].sort(byIdThenText);
+                        .map((r) => queuedUnder.get(r)))].sort((a, b) => a - b);
                     [code, detail] = ['NO_WORK', { reason: elsewhere.length
-                        ? `its launch-ready work is queued under epic ${elsewhere.map(pyStr).join(', ')}`
+                        ? `its launch-ready work is queued under epic ${elsewhere.join(', ')}`
                         : 'launch-ready work absent from launch_queue' }];
                 }
             }
@@ -496,6 +505,7 @@ export function predictRecord(payload, capacity, claims, clock) {
         limits,
         queue: items,
         cut,
+        launch,
         epics,
         events: [],
     };

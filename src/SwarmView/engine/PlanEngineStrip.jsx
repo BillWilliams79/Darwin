@@ -32,7 +32,7 @@ import { agoText, stampText } from './engineModel';
 import { SOURCE_ENGINE } from './engineOverlay';
 import {
     ACTUAL_STATE_WORDS, HEALTH_COLORS, HEALTH_MISSING, HEALTH_STOPPED, HEALTH_WORDS, codeColor,
-    codeLabel, plainWords,
+    codeLabel, epicName, plainWords,
 } from './engineVocabulary';
 import { CUT_RED, launchMachineText } from './PlanEngineBadge';
 
@@ -122,7 +122,7 @@ function QueueChip({ item, machines, overlay }) {
     const outlined = item.belowCut;
     return (
         <Tooltip disableInteractive
-                 title={`#${item.requirementId} on epic ${item.epicId} — ${codeLabel(item.code)}: `
+                 title={`#${item.requirementId} on ${epicName(item.epicId, overlay.names)} — ${codeLabel(item.code)}: `
                      + `${plainWords(item.code)}${item.detail ? ` — ${item.detail}` : ''}`
                      + ` · runs on ${launchMachineText(machines, item.machineId)}`
                      + (item.outcome ? ` · executor: ${item.outcome.state}` : '')}>
