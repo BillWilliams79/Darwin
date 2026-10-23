@@ -17,7 +17,7 @@ export const PLAN_MAXIMIZE_LABELS = Object.freeze({
 /**
  * Maximized, the switch's place on the canvas, screen px from the canvas's
  * top-left. `top + h` (31) stays inside the pinned time ruler's strip, which is
- * never under 36 px (`RULER_H · max(k, 1)`), so the epic names — clamped below
+ * never under 36 px (`RULER_H · max(k, 1)`), so the initiative names — clamped below
  * that strip — never reach it. `w`/`h` are FullscreenSwitch's floating size,
  * read from it so the two cannot disagree.
  */

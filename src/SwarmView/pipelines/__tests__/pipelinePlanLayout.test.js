@@ -10,9 +10,9 @@
 
 import { describe, it, expect } from 'vitest';
 
-import { SUBSTRATE_REBUILD_MODEL, MACHINES, EPICS } from './substrateRebuildFixture';
+import { SUBSTRATE_REBUILD_MODEL, MACHINES, INITIATIVES } from './substrateRebuildFixture';
 import { timedFuzzCorpus, FUZZ_NOW } from './timedFuzzPlans';
-import { EPIC_ZOOM_READS, EPIC_ZOOM_PIPELINE, EPIC_ZOOM_NOW } from './epicZoomFixture';
+import { INITIATIVE_ZOOM_READS, INITIATIVE_ZOOM_PIPELINE, INITIATIVE_ZOOM_NOW } from './initiativeZoomFixture';
 // req #3356 — plan fixtures are minted by `planFixtureEngine.js`, this
 // directory's TEST-ONLY copy of Pipeline 1.0's derivation engine (see its header
 // for why it exists and how it is retired). `../pipelinePlanLayout.js` is
@@ -23,7 +23,7 @@ import { buildPipelineModel, orderedPlan } from './planFixtureEngine';
 import { semanticLevel, SEMANTIC_OUT_MAX } from '../../konvaSwarmModel';
 import {
     computePlanLayout, beadStyle, stepColorOf, stepLabelText, BEAD_RADIUS, BEAD_HIT_RADIUS,
-    PLAN_VIZ_PALETTE, placeEpicChips, EPIC_CHIP_OPEN_LINK_W, EPIC_CHIP_CARDS_LINK_W,
+    PLAN_VIZ_PALETTE, placeInitiativeChips, INITIATIVE_CHIP_OPEN_LINK_W, INITIATIVE_CHIP_CARDS_LINK_W,
     K_READABLE, PLAN_VIZ_FONT, READABLE_MIN_PX,
     CARD_W, CARD_GAP_X, CARD_GAP_Y, CARD_PAD_X, CARD_PAD_Y, CARD_TEXT_W,
     CARD_LINE_H, CARD_SUBTITLE_H, CARD_RULE_BAND, CARD_TITLE_CHARS, CARD_ID_CHARS,
@@ -44,16 +44,16 @@ import {
     cardHeight, cardTitleH, cardChars, MIN_CARD_H,
     PLAN_PALETTES, PLAN_PALETTE_KEYS, DEFAULT_PLAN_PALETTE, planPalette,
     isPlanPalette,
-    NEXT_HALO_RADIUS, NEXT_HALO_STROKE, NEXT_HALO_DASH, EPIC_CHIP_CHAR_W,
+    NEXT_HALO_RADIUS, NEXT_HALO_STROKE, NEXT_HALO_DASH, INITIATIVE_CHIP_CHAR_W,
     NEXT_HALO_SCREEN_RADIUS, NEXT_HALO_MAX_OUTER, NEXT_HALO_MAX_MAGNIFY,
     NEXT_HALO_CLEARANCES, nextHaloMagnify, labelsLegible, drawsLabelKind,
     NEXT_MARK_MIN_STROKE_PX, NEXT_MARK_FLOOR_K, NEXT_MARK_SCREEN_RADIUS,
     nextMarkIsDot, nextMarkDotRadius, clusterNextMarks,
     NEXT_MARK_COUNT_FONT_PX,
     readableDefaultScale, BEAD_RING_W_EMPHASIS, BEAD_OUTER_RADIUS,
-    EPIC_CHIP_FONT, EPIC_CHIP_H, EPIC_CHIP_MIN_H, EPIC_CHIP_MIN_CHARS,
-    EPIC_CHIP_PAD_W, EPIC_CHIP_MIN_FONT,
-    EPIC_LANE_CLEAR_K,
+    INITIATIVE_CHIP_FONT, INITIATIVE_CHIP_H, INITIATIVE_CHIP_MIN_H, INITIATIVE_CHIP_MIN_CHARS,
+    INITIATIVE_CHIP_PAD_W, INITIATIVE_CHIP_MIN_FONT,
+    INITIATIVE_LANE_CLEAR_K,
     REQ_STATUS_COLORS, REQ_STATUS_ORDER, REQ_STATUS_UNKNOWN_COLOR, reqStatusColor,
     MACHINE_MAC_COLOR, MACHINE_WINDOWS_COLOR, MACHINE_ANY_COLOR,
     MACHINE_FALLBACK_PALETTE, machineEcosystem, buildMachineColorView,
@@ -67,25 +67,25 @@ import {
     DEFAULT_PLAN_LEVEL_PREF, isPlanLevelPref, normalizePlanLevelPref, pinnedLevelOf,
     planLevelFor,
     REQ_LINE_H,
-    FOCUS_MAX_RATIO, FOCUS_MIN_RATIO, FOCUS_PAD, STEP_DONE, ZOOM_MAX_RATIO, ZOOM_MIN_RATIO, bandFitRect, epicFocusTransform,
-    FOCUS_LABEL_H, epicFocusNeighbours,
-    stepFitRect, stepFocusTransform, stepsFitRect, stepsFocusTransform, epicWorkFocusTransform,
+    FOCUS_MAX_RATIO, FOCUS_MIN_RATIO, FOCUS_PAD, STEP_DONE, ZOOM_MAX_RATIO, ZOOM_MIN_RATIO, bandFitRect, initiativeFocusTransform,
+    FOCUS_LABEL_H, initiativeFocusNeighbours,
+    stepFitRect, stepFocusTransform, stepsFitRect, stepsFocusTransform, initiativeWorkFocusTransform,
     STEP_FOCUS_STEPS_ACROSS, placedStepCount, centreTransform,
     RULER_H, computeRuler, slotTickText, factoryDefaultScale, factoryDefaultView,
     stickyRulerY, rulerScreenBottom, rulerScreenMag, rulerExcessY,
-    EPIC_PALETTE,
-    PAUSE_ACTIVE_COLOR, PAUSE_PAUSED_COLOR, pauseBubbleColor, EPIC_PAUSE_BUBBLE_W,
-    // req #3649 — the epic chip's padlock.
-    EPIC_LOCK_W,
+    INITIATIVE_PALETTE,
+    PAUSE_ACTIVE_COLOR, PAUSE_PAUSED_COLOR, pauseBubbleColor, INITIATIVE_PAUSE_BUBBLE_W,
+    // req #3649 — the initiative chip's padlock.
+    INITIATIVE_LOCK_W,
     // req #3683, #3742 — the step card's control column and its count badge.
     CARD_NAME_RESERVE, CARD_CLUSTER_W, CARD_CLUSTER_H, CARD_RUN_TOP, CARD_BADGE_GAP,
     CARD_NAME_CLUSTER_GAP,
     // req #3650 — the collapse heads.
-    EPIC_CHIP_COLLAPSE_W, CARD_COLLAPSE_W, CARD_COLLAPSE_GAP,
+    INITIATIVE_CHIP_COLLAPSE_W, CARD_COLLAPSE_W, CARD_COLLAPSE_GAP,
     COLOR_CHANNELS, KEY_GROUP_TITLES,
     sortReqIdsByOrchestration, orderStepReqs, hideClosedReqs, REQ_ROW_GAP,
 } from '../pipelinePlanLayout';
-import { epicWorkStepIds } from '../pipelineEpicZoom';
+import { initiativeWorkStepIds } from '../pipelineInitiativeZoom';
 
 const NOW = '2026-07-27T03:00:00Z';
 const plan = orderedPlan(SUBSTRATE_REBUILD_MODEL, { now: NOW });
@@ -266,13 +266,13 @@ describe('placement fundamentals (Substrate Rebuild fixture)', () => {
         }
     });
 
-    it('groups bands by dominant epic in first-appearance order over display order', () => {
+    it('groups bands by dominant initiative in first-appearance order over display order', () => {
         const expected = [];
         for (const r of plan.rows) {
-            const key = r.epicId != null ? r.epicId : null;
+            const key = r.initiativeId != null ? r.initiativeId : null;
             if (!expected.includes(key)) expected.push(key);
         }
-        expect(layout.bands.map((b) => b.epicId)).toEqual(expected);
+        expect(layout.bands.map((b) => b.initiativeId)).toEqual(expected);
     });
 });
 
@@ -289,10 +289,10 @@ describe('chain lanes with cross-column reservation', () => {
     // through that cell. The corridor check must push 5 onto its other dep's
     // lane instead of drawing the 1→5 wire through bead 8.
     it('does not inherit a lane whose corridor holds an unrelated bead', () => {
-        const mk = (id, depIds, epicId, epic) => ({
+        const mk = (id, depIds, initiativeId, initiative) => ({
             id, title: `s${id}`, run: 'auto', state: 'pending', reqIds: [],
-            depIds, timeDeps: [], epicId, epic,
-            epicLabels: [], featureLabels: [], machineLabels: [], machineLabel: '—',
+            depIds, timeDeps: [], initiativeId, initiative,
+            initiativeLabels: [], featureLabels: [], machineLabels: [], machineLabel: '—',
         });
         const rows = [
             mk(1, [], 1, 'E1'),
@@ -316,10 +316,10 @@ describe('chain lanes with cross-column reservation', () => {
         expect(n25.lane).toBe(n26.lane);
     });
 
-    it('the req-less step bands with the epic it inherits, and its chain holds', () => {
+    it('the req-less step bands with the initiative it inherits, and its chain holds', () => {
         // This assertion used to read the other way: step 7 links no
-        // requirements, derived no epic, and sat alone in a 'No epic' band —
-        // which put a single bead in a band of its own between the two epics it
+        // requirements, derived no initiative, and sat alone in a 'No initiative' band —
+        // which put a single bead in a band of its own between the two initiatives it
         // belongs between, and broke the 6 → 7 chain because lane inheritance is
         // same-band by design. req #3119: a req-less step inherits its
         // dependencies' label, so both the band and the chain now hold.
@@ -327,23 +327,23 @@ describe('chain lanes with cross-column reservation', () => {
         const n7 = layout.nodes.get(7);
         const band6 = layout.bands[n6.bandIndex];
         const band7 = layout.bands[n7.bandIndex];
-        expect(band7.epicId).toBe(band6.epicId);
-        expect(band7.epic).toBe('Swarm Substrate Rebuild');
+        expect(band7.initiativeId).toBe(band6.initiativeId);
+        expect(band7.initiative).toBe('Swarm Substrate Rebuild');
         expect(n7.lane).toBe(n6.lane);
-        // No 'No epic' band survives on this fixture at all.
-        expect(layout.bands.filter((b) => b.epicId == null)).toEqual([]);
+        // No 'No initiative' band survives on this fixture at all.
+        expect(layout.bands.filter((b) => b.initiativeId == null)).toEqual([]);
     });
 });
 
-describe('corridor-aware lanes and adaptive arc routing (epic #6 shape)', () => {
+describe('corridor-aware lanes and adaptive arc routing (initiative #6 shape)', () => {
     // The live plan that forced both rules (user directive, 2026-07-30): four
     // roots, two d1 siblings off root 47, a penultimate step gating on five of
     // them, a capstone gating on the penultimate alone. The POC layout parked
     // 50 under 49 and drew every convergent arc through the main chain's beads.
     const mk = (id, depIds) => ({
         id, title: `s${id}`, run: 'auto', state: 'pending', reqIds: [],
-        depIds, timeDeps: [], epicId: 6, epic: 'Mapping Aggregator Card',
-        epicLabels: [], featureLabels: [], machineLabels: [], machineLabel: '—',
+        depIds, timeDeps: [], initiativeId: 6, initiative: 'Mapping Aggregator Card',
+        initiativeLabels: [], featureLabels: [], machineLabels: [], machineLabel: '—',
     });
     const rows = [
         mk(47, []), mk(48, [47]), mk(49, []), mk(50, [47]),
@@ -399,7 +399,7 @@ describe('corridor-aware lanes and adaptive arc routing (epic #6 shape)', () => 
 
 // ── A CHAIN DOES NOT FRAGMENT AROUND AN UNRELATED SIBLING (req #3512) ───────
 // The live shape, reproduced from the composed read of pipeline 7's "Technical
-// Debt" epic on 2026-08-14 and rebuilt here with the same seven columns:
+// Debt" initiative on 2026-08-14 and rebuilt here with the same seven columns:
 //
 //     root ──┬── p1 ── p2 ── p3 ── p4          one linear chain
 //            └────────────────── w1 ── w2      one unrelated parallel chain
@@ -419,8 +419,8 @@ describe('a dependent step stays in its chain\'s lane (req #3512)', () => {
         '2026-08-14', '2026-08-15'];
     const mk = (id, depIds) => ({
         id, title: `s${id}`, run: 'auto', state: 'pending', reqIds: [],
-        depIds, timeDeps: [], epicId: 21, epic: 'Technical Debt',
-        epicLabels: [], featureLabels: [], machineLabels: [], machineLabel: '—',
+        depIds, timeDeps: [], initiativeId: 21, initiative: 'Technical Debt',
+        initiativeLabels: [], featureLabels: [], machineLabels: [], machineLabel: '—',
     });
     //         root  p1  p2  p3  p4        w1  w2
     const rows = [mk(1, []), mk(2, [1]), mk(3, [2]), mk(4, [3]), mk(5, [4]),
@@ -498,7 +498,7 @@ describe('a dependent step stays in its chain\'s lane (req #3512)', () => {
 });
 
 // ── A NEW BRANCH NEVER DISPLACES THE CHAIN IT BRANCHES OFF (req #3669) ─────
-// The user's own repro, live plan 10's epic 24: 320 → 321 → 324 → 322 was one
+// The user's own repro, live plan 10's initiative 24: 320 → 321 → 324 → 322 was one
 // row, then 329 was added off 321 (with its own child 323). 329 and 324 landed
 // in the same column and 329 came first in display order, so 329 took 321's row
 // and the ORIGINAL continuation 324 → 322 dropped onto a new row. *"I would
@@ -511,8 +511,8 @@ describe('a dependent step stays in its chain\'s lane (req #3512)', () => {
 describe('a new branch never displaces the chain it branches off (req #3669)', () => {
     const mk = (id, depIds) => ({
         id, title: `s${id}`, run: 'auto', state: 'pending', reqIds: [],
-        depIds, timeDeps: [], epicId: 24, epic: 'Sunday Review',
-        epicLabels: [], featureLabels: [], machineLabels: [], machineLabel: '—',
+        depIds, timeDeps: [], initiativeId: 24, initiative: 'Sunday Review',
+        initiativeLabels: [], featureLabels: [], machineLabels: [], machineLabel: '—',
     });
     //          A          B             E (branch)     E's child      C (trunk)      D
     const rows = [mk(320, []), mk(321, [320]), mk(329, [321]), mk(323, [329]),
@@ -584,7 +584,7 @@ describe('a new branch never displaces the chain it branches off (req #3669)', (
         expect(l.nodes.get(7).lane, 'the branch, below its parent').toBe(2);
     });
 
-    it('keeps the user\'s epic whole beside an unrelated thread', () => {
+    it('keeps the user\'s initiative whole beside an unrelated thread', () => {
         const l = computePlanLayout(parse('300:[] 301:[300] 320:[] 321:[320] '
             + '329:[321] 324:[321] 302:[301] 323:[329] 322:[324] 303:[302]'));
         expect(lanes(l, [300, 301, 302, 303]), 'the other thread').toEqual([0, 0, 0, 0]);
@@ -653,11 +653,11 @@ describe('zero label overlap — every layout/label combination', () => {
             ? [3001, 3002, 3003, 3004, 3005] : [3001],
         depIds: i === 0 ? [] : [5000 + i],
         timeDeps: [],
-        epicId: 1,
-        epic: 'E',
+        initiativeId: 1,
+        initiative: 'E',
         featureId: 1,
         feature: 'F',
-        epicLabels: [{ id: 1, title: 'E' }],
+        initiativeLabels: [{ id: 1, title: 'E' }],
         featureLabels: [{ id: 1, title: 'F' }],
         machineLabels: [],
         machineLabel: '',
@@ -1498,7 +1498,7 @@ describe('readable default scale (req #3168)', () => {
     });
 });
 
-// ── The epic name, pinned to its own band (req #3119 → #3168 → req #3257) ──
+// ── The initiative name, pinned to its own band (req #3119 → #3168 → req #3257) ──
 // ONE RULE (user directive 2026-08-02): the name is drawn at the TOP-LEFT
 // CORNER OF THE INTERSECTION of its band's rectangle with the visible content
 // area, carrying the same margin it would have from the band's own top-left
@@ -1506,10 +1506,10 @@ describe('readable default scale (req #3168)', () => {
 //
 // The suite is organised as the requirement states it: the three sweeps that
 // hold at every zoom and pan first, then one test per clause, then the two
-// obstacles that may still bind (the on-screen key, the band's own epic lane),
+// obstacles that may still bind (the on-screen key, the band's own initiative lane),
 // then the guarantee req #3210 used to buy with a special case and this rule
 // has to keep on its own.
-describe('epic name pinned to its band, clamped to the viewport (req #3257)', () => {
+describe('initiative name pinned to its band, clamped to the viewport (req #3257)', () => {
     const layout = computePlanLayout(plan.rows,
         { reqLayout: 'vertical', stepLabel: 'title' });
     const VIEWPORT = { w: 1500, h: 900 };
@@ -1521,7 +1521,7 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
     const MX = 6;
     const MY = 2;
 
-    const chipsAt = (transform, keepOut = null, overrides = {}) => placeEpicChips({
+    const chipsAt = (transform, keepOut = null, overrides = {}) => placeInitiativeChips({
         bands: layout.bands, transform, viewport: VIEWPORT,
         worldWidth: layout.width, keepOut, ...overrides,
     });
@@ -1551,17 +1551,17 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
     //
     // req #3272 — there is NO "too little lane" answer any more. The floor is on
     // the FONT and the box is derived from it, so the chip shrinks into its lane
-    // and then STOPS at `EPIC_CHIP_MIN_H`; a lane shorter than that gets the
+    // and then STOPS at `INITIATIVE_CHIP_MIN_H`; a lane shorter than that gets the
     // chip drawn over it rather than no chip at all.
     const chipMetrics = (band, k) => {
-        const laneH = (band.epicLaneH ?? band.headerH) * k;
-        const h = Math.max(EPIC_CHIP_MIN_H, Math.min(EPIC_CHIP_H, laneH - 2 * MY));
-        const scale = h / EPIC_CHIP_H;
-        const text = band.epicLabel || band.epic;
-        const w = text.length * EPIC_CHIP_CHAR_W * scale + EPIC_CHIP_PAD_W * scale
-            + (band.epicId != null ? EPIC_CHIP_OPEN_LINK_W + EPIC_CHIP_CARDS_LINK_W
-                + EPIC_LOCK_W : 0)
-            + EPIC_PAUSE_BUBBLE_W + EPIC_CHIP_COLLAPSE_W;
+        const laneH = (band.initiativeLaneH ?? band.headerH) * k;
+        const h = Math.max(INITIATIVE_CHIP_MIN_H, Math.min(INITIATIVE_CHIP_H, laneH - 2 * MY));
+        const scale = h / INITIATIVE_CHIP_H;
+        const text = band.initiativeLabel || band.initiative;
+        const w = text.length * INITIATIVE_CHIP_CHAR_W * scale + INITIATIVE_CHIP_PAD_W * scale
+            + (band.initiativeId != null ? INITIATIVE_CHIP_OPEN_LINK_W + INITIATIVE_CHIP_CARDS_LINK_W
+                + INITIATIVE_LOCK_W : 0)
+            + INITIATIVE_PAUSE_BUBBLE_W + INITIATIVE_CHIP_COLLAPSE_W;
         return { w, h };
     };
 
@@ -1603,7 +1603,7 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
         expect(chips.length).toBeGreaterThan(0);
         expect(new Set(chips.map((c) => c.key)).size).toBe(chips.length);
         for (const c of chips) {
-            expect(layout.bands.some((b) => b.epic === c.text)).toBe(true);
+            expect(layout.bands.some((b) => b.initiative === c.text)).toBe(true);
         }
     });
 
@@ -1759,7 +1759,7 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
     // Stated as a biconditional: a band with a name has one, and a band with
     // none fails one of the module's two DOCUMENTED refusals — its rectangle
     // misses the content area, or the rectangle cannot hold a chip at all (too
-    // little epic lane for a legible one, or narrower than the name). Anything
+    // little initiative lane for a legible one, or narrower than the name). Anything
     // else silently missing is the defect this requirement exists to fix.
     it('every band whose rectangle can hold a name returns exactly one chip, '
         + 'and every band without one is refused for a stated reason', () => {
@@ -1783,7 +1783,7 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
                 const chip = chips.find((c) => c.band === band);
                 if (roomy) {
                     named++;
-                    expect(chip, `"${band.epic}" has ${iw.toFixed(0)}×${ih.toFixed(0)}px `
+                    expect(chip, `"${band.initiative}" has ${iw.toFixed(0)}×${ih.toFixed(0)}px `
                         + `of rectangle in view — room for its ${m.w.toFixed(0)}×`
                         + `${m.h.toFixed(0)}px name — but was not drawn at k=${t.k} `
                         + `x=${t.x.toFixed(0)} y=${t.y.toFixed(0)}`)
@@ -1793,7 +1793,7 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
                 } else if (chip) {
                     // The converse: nothing is drawn for a band that is not on
                     // screen at all.
-                    expect(onScreen, `"${band.epic}" drew a chip while off screen `
+                    expect(onScreen, `"${band.initiative}" drew a chip while off screen `
                         + `at k=${t.k}`).toBe(true);
                 }
             }
@@ -1803,7 +1803,7 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
 
     // ── (c) NO CHIP-ON-CHIP OVERLAP ────────────────────────────────────────
     // Was impossible BY CONSTRUCTION under #3257 alone — bands never overlap in
-    // world Y, the chip was sized to its own band's epic lane and clamped inside
+    // world Y, the chip was sized to its own band's initiative lane and clamped inside
     // its own rectangle, so two chips would have had to share a rectangle to
     // touch. **REQ #3272 ENDED THAT PREMISE** by flooring the chip's height, and
     // the guarantee is now carried by an explicit VERTICAL de-collision pass.
@@ -1812,14 +1812,14 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
     // measured colliding (70 hits over k ∈ [0.05, 0.5] under the pre-#3168 rule)
     // — and which, under a floored chip, is the shape the pass exists for.
     const SHORT_BANDS = Array.from({ length: 6 }, (_, i) => ({
-        key: i, epicId: i + 1, epic: `Epic number ${i + 1}`, color: '#8ce99a',
-        y: 8 + i * 158, height: 150, headerH: 83, epicLaneH: 62,
+        key: i, initiativeId: i + 1, initiative: `Initiative number ${i + 1}`, color: '#8ce99a',
+        y: 8 + i * 158, height: 150, headerH: 83, initiativeLaneH: 62,
     }));
     const assertNoChipOverlap = (chips, where) => {
         for (let i = 0; i < chips.length; i++) {
             for (let j = i + 1; j < chips.length; j++) {
                 expect(rectsOverlap(chips[i], chips[j]),
-                    `epic chips overlap ${where}: ${chips[i].text} vs ${chips[j].text}`)
+                    `initiative chips overlap ${where}: ${chips[i].text} vs ${chips[j].text}`)
                     .toBe(false);
             }
         }
@@ -1837,7 +1837,7 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
         let drawn = 0;
         for (let k = 0.05; k <= 0.5; k += 0.01) {
             for (const y of [0, -200, -600, 300]) {
-                const chips = placeEpicChips({
+                const chips = placeInitiativeChips({
                     bands: SHORT_BANDS, transform: { x: 0, y, k },
                     viewport: VIEWPORT, worldWidth: 3000,
                 });
@@ -1899,7 +1899,7 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
         for (const depth of [10, 200, VIEWPORT.h, 2 * VIEWPORT.h]) {
             const t = { x: 0, y: -(band.y * k) - depth, k };
             const chip = chipsAt(t).find((c) => c.band === band);
-            expect(chip, `no name ${depth}px into "${band.epic}"`).toBeTruthy();
+            expect(chip, `no name ${depth}px into "${band.initiative}"`).toBeTruthy();
             expect(chip.y).toBeCloseTo(MY, 6);
             seen.add(chip.x);
         }
@@ -1920,7 +1920,7 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
         // A fixed 400 was only ever meaningful against a band tall enough to
         // spare it. Lane RE-USE made the tallest band 675px (it was multiples of
         // that), so 400 scrolls 59% of it off and the chip is then pushed above
-        // the ruler BY ITS OWN BAND'S BOTTOM — which is `placeEpicChips`' second
+        // the ruler BY ITS OWN BAND'S BOTTOM — which is `placeInitiativeChips`' second
         // clause working exactly as designed ("the name leaves WITH its band"),
         // not the clamp failing. Panning a quarter of the way in keeps the case
         // this test is about — band partly scrolled off, chip parked at the
@@ -1970,7 +1970,7 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
             const chip = chipsAt(t, null, { topInset }).find((c) => c.band === band);
             if (bottom > topInset) {
                 expect(chip, `no name with ${(bottom - topInset).toFixed(0)}px of `
-                    + '"' + band.epic + '" still below the clamp line').toBeTruthy();
+                    + '"' + band.initiative + '" still below the clamp line').toBeTruthy();
             }
             if (!chip) {
                 // Gone — and only once its rectangle is gone.
@@ -2052,11 +2052,11 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
                         // the same scaled units the chip's own width is measured
                         // in: a box clipped to its padding and the pause dot
                         // would show the dot and none of the name.
-                        const scale = chip.h / EPIC_CHIP_H;
+                        const scale = chip.h / INITIATIVE_CHIP_H;
                         expect(chip.w).toBeGreaterThanOrEqual(
-                            EPIC_CHIP_PAD_W * scale + EPIC_PAUSE_BUBBLE_W
-                            + (chip.band.epicId != null ? EPIC_LOCK_W : 0)
-                            + EPIC_CHIP_MIN_CHARS * EPIC_CHIP_CHAR_W * scale - 1e-9);
+                            INITIATIVE_CHIP_PAD_W * scale + INITIATIVE_PAUSE_BUBBLE_W
+                            + (chip.band.initiativeId != null ? INITIATIVE_LOCK_W : 0)
+                            + INITIATIVE_CHIP_MIN_CHARS * INITIATIVE_CHIP_CHAR_W * scale - 1e-9);
                     }
                     // The clip never moves a name out of its rectangle
                     // SIDEWAYS — the axis the key acts on, and the whole of
@@ -2088,16 +2088,16 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
         }
     });
 
-    // ── THE BAND'S OWN EPIC LANE ───────────────────────────────────────────
+    // ── THE BAND'S OWN INITIATIVE LANE ───────────────────────────────────────────
     // The per-band SCALE SHRINK survives #3257 unchanged and is BOUNDED by
     // req #3272: the chip is sized to the reserved strip above lane 0 so it
     // never rides in the top steps' lane — until the lane is shorter than the
     // FONT FLOOR's box, at which point it deliberately draws over them rather
-    // than being dropped. `EPIC_CHIP_MIN_H` is where the two regimes meet.
+    // than being dropped. `INITIATIVE_CHIP_MIN_H` is where the two regimes meet.
     const laneHoldsChip = (band, k) =>
-        (band.epicLaneH ?? band.headerH) * k - 2 * MY >= EPIC_CHIP_MIN_H - 0.01;
+        (band.initiativeLaneH ?? band.headerH) * k - 2 * MY >= INITIATIVE_CHIP_MIN_H - 0.01;
 
-    it('stays inside its own epic lane while the lane can hold the floored chip, '
+    it('stays inside its own initiative lane while the lane can hold the floored chip, '
         + 'scaling down to the floor and no further', () => {
         let inLane = 0;
         let overLane = 0;
@@ -2106,7 +2106,7 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
                 const band = chip.band;
                 const top = t.y + band.y * t.k;
                 if (top < 0) continue;   // clamped — clause 2, tested above
-                const laneBottom = t.y + (band.y + band.epicLaneH) * t.k;
+                const laneBottom = t.y + (band.y + band.initiativeLaneH) * t.k;
                 expect(chip.y, `${chip.text} above its lane at k=${t.k}`)
                     .toBeGreaterThanOrEqual(top - 0.01);
                 if (laneHoldsChip(band, t.k)) {
@@ -2117,11 +2117,11 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
                     overLane++;
                     // The reversal, stated positively: below the floor the chip
                     // is DRAWN — at the floor's own size — instead of dropped.
-                    expect(chip.h).toBeCloseTo(EPIC_CHIP_MIN_H, 6);
+                    expect(chip.h).toBeCloseTo(INITIATIVE_CHIP_MIN_H, 6);
                 }
                 // Scaled, never clipped: the drawn font matches the measured box.
                 expect(chip.fontSize / chip.h)
-                    .toBeCloseTo(EPIC_CHIP_FONT / EPIC_CHIP_H, 6);
+                    .toBeCloseTo(INITIATIVE_CHIP_FONT / INITIATIVE_CHIP_H, 6);
             }
         }
         // BOTH regimes were reached, or the split above proves nothing.
@@ -2144,7 +2144,7 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
                     for (const l of content) {
                         const screen = { x: l.x * k, y: y + l.y * k, w: l.w * k, h: l.h * k };
                         expect(rectsOverlap(chip, screen),
-                            `epic "${chip.text}" collides with ${l.kind} label of `
+                            `initiative "${chip.text}" collides with ${l.kind} label of `
                             + `step ${l.stepId} at k=${k} y=${y}`).toBe(false);
                     }
                 }
@@ -2181,7 +2181,7 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
             + 'which is the pre-#3272 behaviour this requirement removed')
             .toBeGreaterThan(0);
         expect(drawnOverLabels,
-            'the overlap the epic lane exists to prevent was never actually '
+            'the overlap the initiative lane exists to prevent was never actually '
             + 'paid for, so this test is not witnessing the reversal')
             .toBeGreaterThan(0);
     });
@@ -2191,35 +2191,35 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
     // somewhere below the font floor; THIS test does not re-touch that content
     // — it pins the exact `k` the floor itself kicks in at (below which the
     // chip is provably floored and provably escapes its lane; at/above which
-    // it is provably neither), so a future change to `EPIC_CHIP_MIN_H`,
-    // `CHIP_MARGIN_Y` or the epic lane's own height moves this number rather
+    // it is provably neither), so a future change to `INITIATIVE_CHIP_MIN_H`,
+    // `CHIP_MARGIN_Y` or the initiative lane's own height moves this number rather
     // than silently invalidating it. The two combine: this is WHERE, the
     // tests above are THAT. DERIVED, not chosen — the same discipline
     // `NEXT_MARK_FLOOR_K` follows a few hundred lines below.
-    it('pins the exact k where the floored chip starts escaping its own epic '
+    it('pins the exact k where the floored chip starts escaping its own initiative '
         + 'lane (0.2 since req #3365) — the boundary the sibling tests prove overlaps content',
         () => {
-            const epicLaneH = layout.bands[0].epicLaneH ?? layout.bands[0].headerH;
-            const kBoundary = (EPIC_CHIP_MIN_H + 2 * MY) / epicLaneH;
+            const initiativeLaneH = layout.bands[0].initiativeLaneH ?? layout.bands[0].headerH;
+            const kBoundary = (INITIATIVE_CHIP_MIN_H + 2 * MY) / initiativeLaneH;
             // MEASURED 2026-08-10: 21.6 / 62 = 0.34838709...
             // MOVED BY req #3365, which is this test working as designed — its
             // own comment above promises a change to the lane's height "moves
             // this number rather than silently invalidating it". The lane went
             // 62 -> 108 world px (BAND_HEADER 83 -> 129) because the old
             // boundary sat ABOVE the scale the live plan lands in (k = 0.2077),
-            // so the epic name was drawn over lane 0's step labels in the
+            // so the initiative name was drawn over lane 0's step labels in the
             // DEFAULT view rather than only at an extreme zoom-out — reported
             // by the user as "it needs to have a separate swim lane so it
             // doesn't overlap steps/requirements".
-            // 21.6 / 108 = 0.2 exactly, which is `EPIC_LANE_CLEAR_K`.
-            expect(kBoundary).toBeCloseTo(EPIC_LANE_CLEAR_K, 6);
+            // 21.6 / 108 = 0.2 exactly, which is `INITIATIVE_LANE_CLEAR_K`.
+            expect(kBoundary).toBeCloseTo(INITIATIVE_LANE_CLEAR_K, 6);
             for (const band of layout.bands) {
-                expect(band.epicLaneH ?? band.headerH, `band ${band.key}'s own lane`)
-                    .toBe(epicLaneH);
+                expect(band.initiativeLaneH ?? band.headerH, `band ${band.key}'s own lane`)
+                    .toBe(initiativeLaneH);
             }
 
             // BELOW the boundary: `laneHoldsChip` says the lane cannot hold the
-            // floored chip, on EVERY band alike, and the real `placeEpicChips`
+            // floored chip, on EVERY band alike, and the real `placeInitiativeChips`
             // output confirms it — the floor from req #3272 has already kicked
             // in ('never touches ... while its lane can hold it' above is what
             // ties that floor to the actual overlap with lane 0's content).
@@ -2228,11 +2228,11 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
             const chipBelow = chipsAt({ x: 0, y: 0, k: below })
                 .find((c) => c.band === layout.bands[0]);
             expect(chipBelow, `no chip for the boundary band at k=${below}`).toBeTruthy();
-            expect(chipBelow.h).toBeCloseTo(EPIC_CHIP_MIN_H, 6);
+            expect(chipBelow.h).toBeCloseTo(INITIATIVE_CHIP_MIN_H, 6);
 
             // AT OR ABOVE the boundary: every band's lane holds its own
             // (unfloored) chip, and the real chip stays inside it — the
-            // guarantee 'stays inside its own epic lane ...' above proves for
+            // guarantee 'stays inside its own initiative lane ...' above proves for
             // every `laneHoldsChip` band, pinned here at the closest point to
             // the boundary the guarantee is exercised at.
             const above = kBoundary + 0.005;
@@ -2240,7 +2240,7 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
             const chipAbove = chipsAt({ x: 0, y: 0, k: above })
                 .find((c) => c.band === layout.bands[0]);
             expect(chipAbove, `no chip for the boundary band at k=${above}`).toBeTruthy();
-            const laneBottomAbove = layout.bands[0].y * above + epicLaneH * above;
+            const laneBottomAbove = layout.bands[0].y * above + initiativeLaneH * above;
             expect(chipAbove.y + chipAbove.h).toBeLessThanOrEqual(laneBottomAbove + 0.01);
         });
 
@@ -2262,10 +2262,10 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
 
     // ── REQ #3210'S GUARANTEE, RE-VERIFIED ─────────────────────────────────
     // Its neighbour-only sticky pass is gone, subsumed by clause 2 applying to
-    // every band. What it bought — a reader who has focused one epic can still
+    // every band. What it bought — a reader who has focused one initiative can still
     // see its neighbours in the stack — has to still hold under the new rule,
     // and is checked here against the REAL production trigger
-    // (`epicFocusTransform`, req #3204), swept over every band.
+    // (`initiativeFocusTransform`, req #3204), swept over every band.
     it('a focused band\'s neighbours are still named, under the real focus '
         + 'transform, for every band in the stack', () => {
         const kFit = VIEWPORT.w / layout.width;
@@ -2273,32 +2273,32 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
         expect(layout.bands.length).toBeGreaterThanOrEqual(3);
         for (let i = 0; i < layout.bands.length; i++) {
             const band = layout.bands[i];
-            const t = epicFocusTransform(layout, band, VIEWPORT, kDefault, kDefault * FOCUS_MIN_RATIO);
-            expect(t, `band ${i} ("${band.epic}") produced no focus transform`)
+            const t = initiativeFocusTransform(layout, band, VIEWPORT, kDefault, kDefault * FOCUS_MIN_RATIO);
+            expect(t, `band ${i} ("${band.initiative}") produced no focus transform`)
                 .toBeTruthy();
             const chips = chipsAt(t);
             expect(chips.some((c) => c.band === band),
-                `focused band ${i} ("${band.epic}") drew no name for itself`).toBe(true);
+                `focused band ${i} ("${band.initiative}") drew no name for itself`).toBe(true);
             for (const j of [i - 1, i + 1]) {
                 if (j < 0 || j >= layout.bands.length) continue;
                 const neighbour = layout.bands[j];
                 expect(chips.some((c) => c.band === neighbour),
-                    `focusing band ${i} ("${band.epic}") left its neighbour `
-                    + `"${neighbour.epic}" unnamed`).toBe(true);
+                    `focusing band ${i} ("${band.initiative}") left its neighbour `
+                    + `"${neighbour.initiative}" unnamed`).toBe(true);
             }
         }
     });
 
     // ── The metrics the requirement froze ──────────────────────────────────
-    it('leaves the epic label font and its width metric exactly as they were', () => {
-        expect(EPIC_CHIP_FONT).toBe(15);
-        expect(EPIC_CHIP_CHAR_W).toBeCloseTo(9.15, 6);   // CHW_EPIC, font 15
-        expect(EPIC_CHIP_H).toBe(24);
+    it('leaves the initiative label font and its width metric exactly as they were', () => {
+        expect(INITIATIVE_CHIP_FONT).toBe(15);
+        expect(INITIATIVE_CHIP_CHAR_W).toBeCloseTo(9.15, 6);   // CHW_INITIATIVE, font 15
+        expect(INITIATIVE_CHIP_H).toBe(24);
     });
 
     it('measures the chip with the layout module\'s own published metrics', () => {
-        const [chip] = placeEpicChips({
-            bands: [{ key: 1, epicId: 1, epic: 'X'.repeat(20), color: '#fff',
+        const [chip] = placeInitiativeChips({
+            bands: [{ key: 1, initiativeId: 1, initiative: 'X'.repeat(20), color: '#fff',
                 y: 8, height: 400, headerH: 46 }],
             transform: { x: 0, y: 0, k: 1 }, viewport: VIEWPORT, worldWidth: 3000,
         });
@@ -2307,22 +2307,22 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
         // is what keeps the name inside its own rectangle and clear of the key,
         // so 24 unmeasured px is 24 px that hangs past the edge it was clamped to.
         expect(chip.w).toBeCloseTo(
-            20 * EPIC_CHIP_CHAR_W + EPIC_CHIP_PAD_W
-            + EPIC_CHIP_OPEN_LINK_W + EPIC_CHIP_CARDS_LINK_W + EPIC_LOCK_W
-            + EPIC_PAUSE_BUBBLE_W + EPIC_CHIP_COLLAPSE_W, 6);
+            20 * INITIATIVE_CHIP_CHAR_W + INITIATIVE_CHIP_PAD_W
+            + INITIATIVE_CHIP_OPEN_LINK_W + INITIATIVE_CHIP_CARDS_LINK_W + INITIATIVE_LOCK_W
+            + INITIATIVE_PAUSE_BUBBLE_W + INITIATIVE_CHIP_COLLAPSE_W, 6);
         expect(chip.clipped).toBe(false);
     });
 
-    it('omits the ↗ reservation on the "No epic" band, which has no ↗ to draw', () => {
-        const [chip] = placeEpicChips({
-            bands: [{ key: null, epicId: null, epic: 'X'.repeat(20), color: '#fff',
+    it('omits the ↗ reservation on the "No initiative" band, which has no ↗ to draw', () => {
+        const [chip] = placeInitiativeChips({
+            bands: [{ key: null, initiativeId: null, initiative: 'X'.repeat(20), color: '#fff',
                 y: 8, height: 400, headerH: 46 }],
             transform: { x: 0, y: 0, k: 1 }, viewport: VIEWPORT, worldWidth: 3000,
         });
         expect(chip.key).toBe('none');
         expect(chip.w).toBeCloseTo(
-            20 * EPIC_CHIP_CHAR_W + EPIC_CHIP_PAD_W + EPIC_PAUSE_BUBBLE_W
-            + EPIC_CHIP_COLLAPSE_W, 6);
+            20 * INITIATIVE_CHIP_CHAR_W + INITIATIVE_CHIP_PAD_W + INITIATIVE_PAUSE_BUBBLE_W
+            + INITIATIVE_CHIP_COLLAPSE_W, 6);
     });
 
     // ── LEAVING SLIDES OFF; ENTERING WAITS (or is clipped) ─────────────────
@@ -2331,7 +2331,7 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
         const band = layout.bands[0];
         const k = 1;
         // Walk the band's TOP edge up from below the panel. `h` comes from the
-        // lane, so read it off a chip rather than assuming EPIC_CHIP_H.
+        // lane, so read it off a chip rather than assuming INITIATIVE_CHIP_H.
         const settled = chipsAt({ x: 0, y: -(band.y * k), k })
             .find((c) => c.band === band);
         const h = settled.h;
@@ -2373,41 +2373,41 @@ describe('epic name pinned to its band, clamped to the viewport (req #3257)', ()
 
     it('is inert on a degenerate transform, an unmeasured panel or world, or '
         + 'chrome taller than the panel', () => {
-        expect(placeEpicChips({ bands: layout.bands, transform: { x: 0, y: 0, k: 0 },
+        expect(placeInitiativeChips({ bands: layout.bands, transform: { x: 0, y: 0, k: 0 },
             viewport: VIEWPORT, worldWidth: layout.width })).toEqual([]);
-        expect(placeEpicChips({ bands: layout.bands, transform: { x: 0, y: 0, k: 1 },
+        expect(placeInitiativeChips({ bands: layout.bands, transform: { x: 0, y: 0, k: 1 },
             viewport: { w: 0, h: 0 }, worldWidth: layout.width })).toEqual([]);
         // No `worldWidth` means no right edge: every comparison against NaN is
         // false, so without this guard the function emitted chips at `x: NaN`
         // and the renderer turned them into `left: NaN`.
-        expect(placeEpicChips({ bands: layout.bands, transform: { x: 0, y: 0, k: 1 },
+        expect(placeInitiativeChips({ bands: layout.bands, transform: { x: 0, y: 0, k: 1 },
             viewport: VIEWPORT })).toEqual([]);
         expect(chipsAt({ x: 0, y: 0, k: 1 }, null, { topInset: VIEWPORT.h + 10 }))
             .toEqual([]);
         // A nonsense inset is bounded, not honoured.
         expect(chipsAt({ x: 0, y: 0, k: 1 }, null, { topInset: -500 }).length)
             .toBe(chipsAt({ x: 0, y: 0, k: 1 }).length);
-        expect(placeEpicChips()).toEqual([]);
+        expect(placeInitiativeChips()).toEqual([]);
     });
 });
 
 // ── THE LEGIBILITY FLOOR IS ON THE FONT (req #3272) ─────────────────────────
 // The two symptoms this replaces were two branches of the SAME four lines, and
-// both were deliberate: a floor on the BOX (`EPIC_CHIP_MIN_H = 11`) yielding a
+// both were deliberate: a floor on the BOX (`INITIATIVE_CHIP_MIN_H = 11`) yielding a
 // 6.9px font at the floor, and a `continue` one line above it that dropped the
 // name outright when the lane could not hold an 11px box. A screenshot of
-// production on 2026-08-02 shows the whole plan with NO epic labels at all.
+// production on 2026-08-02 shows the whole plan with NO initiative labels at all.
 //
 // The floor is now on the FONT and the box is DERIVED from it. This block
 // asserts the four things the requirement asked for and the two it forbade.
-describe('the epic name holds a legible minimum font (req #3272)', () => {
+describe('the initiative name holds a legible minimum font (req #3272)', () => {
     const layout = computePlanLayout(plan.rows,
         { reqLayout: 'vertical', stepLabel: 'title' });
     const VIEWPORT = { w: 1500, h: 900 };
     const MX = 6;
     const MY = 2;
 
-    const chipsAt = (transform, overrides = {}) => placeEpicChips({
+    const chipsAt = (transform, overrides = {}) => placeInitiativeChips({
         bands: layout.bands, transform, viewport: VIEWPORT,
         worldWidth: layout.width, ...overrides,
     });
@@ -2426,10 +2426,10 @@ describe('the epic name holds a legible minimum font (req #3272)', () => {
     // its shortest band is 197 world px and carries its longest name, so #3257's
     // horizontal refusal drops that chip before the floor can overflow it.
     const SHORT_BANDS = Array.from({ length: 8 }, (_, i) => ({
-        key: i, epicId: i + 1, epic: `Epic ${i + 1}`, color: '#8ce99a',
-        y: 8 + i * 158, height: 150, headerH: 83, epicLaneH: 62,
+        key: i, initiativeId: i + 1, initiative: `Initiative ${i + 1}`, color: '#8ce99a',
+        y: 8 + i * 158, height: 150, headerH: 83, initiativeLaneH: 62,
     }));
-    const shortChipsAt = (transform, overrides = {}) => placeEpicChips({
+    const shortChipsAt = (transform, overrides = {}) => placeInitiativeChips({
         bands: SHORT_BANDS, transform, viewport: VIEWPORT, worldWidth: 3000,
         ...overrides,
     });
@@ -2437,20 +2437,20 @@ describe('the epic name holds a legible minimum font (req #3272)', () => {
     // ── THE FLOOR ITSELF ───────────────────────────────────────────────────
     it('states the floor on the FONT and DERIVES the box from it — the inverse '
         + 'of the pre-#3272 constants', () => {
-        expect(EPIC_CHIP_MIN_FONT).toBe(11);
+        expect(INITIATIVE_CHIP_MIN_FONT).toBe(11);
         // 17.6px. A CONSEQUENCE of the font floor at the chip's own 24/15
         // ratio, not a number anybody picked — that inversion IS the fix.
-        expect(EPIC_CHIP_MIN_H)
-            .toBeCloseTo(EPIC_CHIP_H * (EPIC_CHIP_MIN_FONT / EPIC_CHIP_FONT), 9);
-        expect(EPIC_CHIP_MIN_H).toBeCloseTo(17.6, 6);
+        expect(INITIATIVE_CHIP_MIN_H)
+            .toBeCloseTo(INITIATIVE_CHIP_H * (INITIATIVE_CHIP_MIN_FONT / INITIATIVE_CHIP_FONT), 9);
+        expect(INITIATIVE_CHIP_MIN_H).toBeCloseTo(17.6, 6);
         // The number the OLD floor produced, pinned so the improvement is a
         // measurement rather than a claim: a box floored at 11px drew the name
         // at 15 × 11/24 ≈ 6.875px.
-        expect(EPIC_CHIP_FONT * (11 / EPIC_CHIP_H)).toBeCloseTo(6.875, 3);
+        expect(INITIATIVE_CHIP_FONT * (11 / INITIATIVE_CHIP_H)).toBeCloseTo(6.875, 3);
         // …and it is the same 11px `READABLE_MIN_PX` already uses for the
         // plan's smallest REQUIRED text, so the surface has one legibility
         // floor and not two.
-        expect(EPIC_CHIP_MIN_FONT).toBe(READABLE_MIN_PX);
+        expect(INITIATIVE_CHIP_MIN_FONT).toBe(READABLE_MIN_PX);
     });
 
     it('never renders a name below the font floor, at any zoom or pan, on '
@@ -2469,15 +2469,15 @@ describe('the epic name holds a legible minimum font (req #3272)', () => {
                         expect(chip.fontSize,
                             `"${chip.text}" rendered at ${chip.fontSize.toFixed(2)}px `
                             + `at k=${k.toFixed(3)}`)
-                            .toBeGreaterThanOrEqual(EPIC_CHIP_MIN_FONT - 1e-9);
-                        expect(chip.h).toBeGreaterThanOrEqual(EPIC_CHIP_MIN_H - 1e-9);
+                            .toBeGreaterThanOrEqual(INITIATIVE_CHIP_MIN_FONT - 1e-9);
+                        expect(chip.h).toBeGreaterThanOrEqual(INITIATIVE_CHIP_MIN_H - 1e-9);
                         // The box and the font are ONE decision — the renderer
                         // draws at `fontSize` inside `h`, so a pair that drifted
                         // would be a clamp decided against a box that is not on
                         // screen.
                         expect(chip.fontSize / chip.h)
-                            .toBeCloseTo(EPIC_CHIP_FONT / EPIC_CHIP_H, 9);
-                        if (chip.fontSize <= EPIC_CHIP_MIN_FONT + 1e-9) atTheFloor++;
+                            .toBeCloseTo(INITIATIVE_CHIP_FONT / INITIATIVE_CHIP_H, 9);
+                        if (chip.fontSize <= INITIATIVE_CHIP_MIN_FONT + 1e-9) atTheFloor++;
                     }
                 }
             }
@@ -2502,7 +2502,7 @@ describe('the epic name holds a legible minimum font (req #3272)', () => {
         // while its height barely moved, so fit-to-WIDTH — and with it the zoom
         // floor — fell by the same factor, the whole plan came to 66 SCREEN
         // PIXELS at `kZoomFloor`, and the shortest of four bands could not hold
-        // the floored chip (21.6px). `placeEpicChips` named 3 of 4, and this
+        // the floored chip (21.6px). `placeInitiativeChips` named 3 of 4, and this
         // test was re-stated to start one sample above the floor with the gap
         // pinned separately.
         //
@@ -2517,14 +2517,14 @@ describe('the epic name holds a legible minimum font (req #3272)', () => {
         for (let k = kZoomFloor; k <= kWhole; k += step) {
             const chips = chipsAt({ x: 0, y: 0, k });
             expect(chips.length,
-                `only ${chips.length} of ${layout.bands.length} epic names at `
+                `only ${chips.length} of ${layout.bands.length} initiative names at `
                 + `k=${k.toFixed(3)} — the plan fits the panel here, so every `
                 + 'band has pixels on screen')
                 .toBe(layout.bands.length);
             expect(new Set(chips.map((c) => c.key)).size).toBe(chips.length);
             for (const band of layout.bands) {
                 expect(chips.some((c) => c.band === band),
-                    `"${band.epic}" unnamed at k=${k.toFixed(3)}`).toBe(true);
+                    `"${band.initiative}" unnamed at k=${k.toFixed(3)}`).toBe(true);
             }
             checked++;
         }
@@ -2568,7 +2568,7 @@ describe('the epic name holds a legible minimum font (req #3272)', () => {
     });
 
     // ── WHAT THE REVERSAL MAY NOT COST ─────────────────────────────────────
-    it('never lets two epic names overlap, at any zoom or pan, on either '
+    it('never lets two initiative names overlap, at any zoom or pan, on either '
         + 'geometry — the de-collision pass, since the geometry no longer '
         + 'guarantees it', () => {
         const assertClear = (chips, where) => {
@@ -2607,7 +2607,7 @@ describe('the epic name holds a legible minimum font (req #3272)', () => {
             const t = { x: 0, y: 0, k };
             const together = shortChipsAt(t);
             for (const chip of together) {
-                const [alone] = placeEpicChips({
+                const [alone] = placeInitiativeChips({
                     bands: [chip.band], transform: t, viewport: VIEWPORT,
                     worldWidth: 3000,
                 });
@@ -2630,7 +2630,7 @@ describe('the epic name holds a legible minimum font (req #3272)', () => {
 
     it('keeps the chip\'s POSITION independent of the on-screen key — the push '
         + 'is computed before the clip, so the key still only takes width', () => {
-        // The ordering inside `placeEpicChips` is load-bearing: a stack that
+        // The ordering inside `placeInitiativeChips` is load-bearing: a stack that
         // reserved room only for chips the key had spared would move every name
         // below a dropped one, breaking #3257's "the key never moves a name".
         const keepOut = { x: 500, y: 700, w: 500, h: 180 };
@@ -2660,10 +2660,10 @@ describe('the epic name holds a legible minimum font (req #3272)', () => {
         // comparison and not an assurance: `h = min(labelH, laneH − 2·MY)`,
         // `y = min(iy0 + MY, bottom − MY − h)`, with no floor and no pass.
         const before = (band, t) => {
-            const laneH = Math.max(0, (band.epicLaneH ?? band.headerH) * t.k);
+            const laneH = Math.max(0, (band.initiativeLaneH ?? band.headerH) * t.k);
             if (laneH - 2 * MY < 11) return null;          // the old drop
-            const h = Math.min(EPIC_CHIP_H, laneH - 2 * MY);
-            const scale = h / EPIC_CHIP_H;
+            const h = Math.min(INITIATIVE_CHIP_H, laneH - 2 * MY);
+            const scale = h / INITIATIVE_CHIP_H;
             const top = t.y + band.y * t.k;
             const bottom = t.y + (band.y + band.height) * t.k;
             const left = t.x + 2 * t.k;
@@ -2672,19 +2672,19 @@ describe('the epic name holds a legible minimum font (req #3272)', () => {
             const iy0 = Math.max(top, 0);
             if (Math.min(right, VIEWPORT.w) <= ix0
                 || Math.min(bottom, VIEWPORT.h) <= iy0) return null;
-            const text = band.epicLabel || band.epic;
-            const w = text.length * EPIC_CHIP_CHAR_W * scale
-                + EPIC_CHIP_PAD_W * scale
-                + (band.epicId != null ? EPIC_CHIP_OPEN_LINK_W + EPIC_CHIP_CARDS_LINK_W
-                    + EPIC_LOCK_W : 0)
-                + EPIC_PAUSE_BUBBLE_W + EPIC_CHIP_COLLAPSE_W;
+            const text = band.initiativeLabel || band.initiative;
+            const w = text.length * INITIATIVE_CHIP_CHAR_W * scale
+                + INITIATIVE_CHIP_PAD_W * scale
+                + (band.initiativeId != null ? INITIATIVE_CHIP_OPEN_LINK_W + INITIATIVE_CHIP_CARDS_LINK_W
+                    + INITIATIVE_LOCK_W : 0)
+                + INITIATIVE_PAUSE_BUBBLE_W + INITIATIVE_CHIP_COLLAPSE_W;
             const x = Math.min(ix0 + MX, right - MX - w);
             const y = Math.min(iy0 + MY, bottom - MY - h);
             if (x < left + MX - 0.01) return null;
             if (x + w > VIEWPORT.w) return null;           // pre-clip candidates only
             if (y + h > VIEWPORT.h + 0.01) return null;
             if (x + w <= 0 || y + h <= 0) return null;
-            return { x, y, w, h, fontSize: EPIC_CHIP_FONT * scale };
+            return { x, y, w, h, fontSize: INITIATIVE_CHIP_FONT * scale };
         };
         // Every k at which the lane still holds the floored chip: 62·k − 4 ≥
         // 17.6, i.e. k ≥ 0.348. L2 begins well below that and L3 is above it.
@@ -2715,24 +2715,24 @@ describe('the epic name holds a legible minimum font (req #3272)', () => {
     // by 20–60%. The "rectangle narrower than its own name" test was a DROP, so
     // the fix re-created the vanishing name on the x axis at zooms the reader
     // can reach. The band's own right edge is now a CLIP, like the panel edge
-    // and the key, under the same `EPIC_CHIP_MIN_CHARS` floor.
+    // and the key, under the same `INITIATIVE_CHIP_MIN_CHARS` floor.
     it('CLIPS a name too wide for its own band\'s rectangle rather than dropping '
         + 'it — the vanishing name must not come back on the other axis', () => {
-        // The measured case: a 29-character epic name, a 900px-wide world, a
+        // The measured case: a 29-character initiative name, a 900px-wide world, a
         // 900px panel. `kZoomFloor` there is 0.25, and the pre-fix code refused
         // this name from 0.25 up to 0.29 — i.e. at FULL ZOOM OUT that plan
-        // showed no epic name at all, which is the 2026-08-02 screenshot.
+        // showed no initiative name at all, which is the 2026-08-02 screenshot.
         const NARROW = { w: 900, h: 900 };
-        const band = { key: 1, epicId: 1, epic: 'Orchestration runtime & pause',
-            color: '#8ce99a', y: 8, height: 300, headerH: 83, epicLaneH: 62 };
+        const band = { key: 1, initiativeId: 1, initiative: 'Orchestration runtime & pause',
+            color: '#8ce99a', y: 8, height: 300, headerH: 83, initiativeLaneH: 62 };
         for (let k = 0.25; k <= 0.30; k += 0.01) {
-            const [chip] = placeEpicChips({
+            const [chip] = placeInitiativeChips({
                 bands: [band], transform: { x: 0, y: 0, k }, viewport: NARROW,
                 worldWidth: 900,
             });
-            expect(chip, `"${band.epic}" vanished at k=${k.toFixed(2)}`)
+            expect(chip, `"${band.initiative}" vanished at k=${k.toFixed(2)}`)
                 .toBeTruthy();
-            expect(chip.fontSize).toBeGreaterThanOrEqual(EPIC_CHIP_MIN_FONT - 1e-9);
+            expect(chip.fontSize).toBeGreaterThanOrEqual(INITIATIVE_CHIP_MIN_FONT - 1e-9);
             // Clipped, never MOVED: still at its rectangle's own left margin,
             // and cut off at its rectangle's right edge — #3257's rule.
             const left = 2 * k;
@@ -2740,16 +2740,16 @@ describe('the epic name holds a legible minimum font (req #3272)', () => {
             expect(chip.x).toBeCloseTo(left + MX, 6);
             expect(chip.x + chip.w).toBeLessThanOrEqual(right - MX + 0.01);
             if (chip.clipped) {
-                const scale = chip.h / EPIC_CHIP_H;
+                const scale = chip.h / INITIATIVE_CHIP_H;
                 expect(chip.w).toBeGreaterThanOrEqual(
-                    EPIC_CHIP_PAD_W * scale + EPIC_PAUSE_BUBBLE_W
-                    + (chip.band.epicId != null ? EPIC_LOCK_W : 0)
-                    + EPIC_CHIP_MIN_CHARS * EPIC_CHIP_CHAR_W * scale - 1e-9);
+                    INITIATIVE_CHIP_PAD_W * scale + INITIATIVE_PAUSE_BUBBLE_W
+                    + (chip.band.initiativeId != null ? INITIATIVE_LOCK_W : 0)
+                    + INITIATIVE_CHIP_MIN_CHARS * INITIATIVE_CHIP_CHAR_W * scale - 1e-9);
             }
         }
         // …and the clip is INERT wherever the name already fitted: at a zoom
         // with room to spare nothing is cut.
-        const [roomy] = placeEpicChips({
+        const [roomy] = placeInitiativeChips({
             bands: [band], transform: { x: 0, y: 0, k: 1 }, viewport: NARROW,
             worldWidth: 900,
         });
@@ -2759,13 +2759,13 @@ describe('the epic name holds a legible minimum font (req #3272)', () => {
     // ── THE PUSH IS BOUNDED BY THE BAND (review finding, req #3272) ────────
     // An unbounded push accumulates: MEASURED at a 900px panel's own zoom floor,
     // the worst name landed five whole bands below the band it names — and the
-    // chip is a click target that zooms to its epic, so it also becomes the
-    // wrong control over another epic's beads.
+    // chip is a click target that zooms to its initiative, so it also becomes the
+    // wrong control over another initiative's beads.
     it('never draws a name whose top-left corner is outside its own band, '
         + 'however many short bands are stacked above it', () => {
         const MANY = Array.from({ length: 24 }, (_, i) => ({
-            key: i, epicId: i + 1, epic: `Epic ${i + 1}`, color: '#8ce99a',
-            y: 8 + i * 185, height: 177, headerH: 83, epicLaneH: 62,
+            key: i, initiativeId: i + 1, initiative: `Initiative ${i + 1}`, color: '#8ce99a',
+            y: 8 + i * 185, height: 177, headerH: 83, initiativeLaneH: 62,
         }));
         let drawn = 0;
         let atTheBound = 0;
@@ -2776,7 +2776,7 @@ describe('the epic name holds a legible minimum font (req #3272)', () => {
             for (let k = kFloorHere; k <= 0.4; k *= 1.15) {
                 for (const y of [0, -60, -240]) {
                     const t = { x: 0, y, k };
-                    const chips = placeEpicChips({ bands: MANY, transform: t,
+                    const chips = placeInitiativeChips({ bands: MANY, transform: t,
                         viewport: VIEW, worldWidth: 3620 });
                     for (const chip of chips) {
                         drawn++;
@@ -2795,7 +2795,7 @@ describe('the epic name holds a legible minimum font (req #3272)', () => {
                         expect(chip.y, `"${chip.text}" drifted ${
                             (chip.y - bottom).toFixed(1)}px BELOW its own band at `
                             + `k=${k.toFixed(3)} vw=${vw} — a name over somebody `
-                            + 'else\'s epic')
+                            + 'else\'s initiative')
                             .toBeLessThanOrEqual(Math.max(bottom, top + MY) + 0.02);
                         if (chip.y > bottom - 1) atTheBound++;
                     }
@@ -2828,8 +2828,8 @@ describe('the epic name holds a legible minimum font (req #3272)', () => {
         ['Pipeline', 4550], ['Swarm Cloned Git', 1040], ['Mapping Aggregator Card', 615.8],
         ['Swarm Backlog', 885], ['Agent Polish', 522.5],
     ].reduce((acc, [name, h], i) => {
-        acc.bands.push({ key: i, epicId: i + 1, epic: name, color: '#8ce99a',
-            y: acc.y, height: h, headerH: 101, epicLaneH: 62 });
+        acc.bands.push({ key: i, initiativeId: i + 1, initiative: name, color: '#8ce99a',
+            y: acc.y, height: h, headerH: 101, initiativeLaneH: 62 });
         acc.y += h;
         return acc;
     }, { bands: [], y: 44 }).bands;
@@ -2841,7 +2841,7 @@ describe('the epic name holds a legible minimum font (req #3272)', () => {
             const VIEW = { w: vw, h: 900 };
             const kFit = vw / LIVE_WORLD_W;
             const k = Math.min(kFit, Math.max(kFit, K_READABLE)) * ZOOM_MIN_RATIO;
-            const chips = placeEpicChips({
+            const chips = placeInitiativeChips({
                 bands: LIVE_PIPELINE_2, transform: { x: 0, y: 0, k },
                 viewport: VIEW, worldWidth: LIVE_WORLD_W,
             });
@@ -2851,11 +2851,11 @@ describe('the epic name holds a legible minimum font (req #3272)', () => {
                 `the plan does not fit a ${vw}px panel at its own zoom floor`)
                 .toBe(LIVE_PIPELINE_2.length);
             expect(chips.length,
-                `only ${chips.length} of ${onScreen.length} epic names at full `
+                `only ${chips.length} of ${onScreen.length} initiative names at full `
                 + `zoom out on a ${vw}px panel`)
                 .toBe(onScreen.length);
             for (const chip of chips) {
-                expect(chip.fontSize).toBeCloseTo(EPIC_CHIP_MIN_FONT, 6);
+                expect(chip.fontSize).toBeCloseTo(INITIATIVE_CHIP_MIN_FONT, 6);
             }
         }
     });
@@ -2877,15 +2877,15 @@ describe('the epic name holds a legible minimum font (req #3272)', () => {
     it('degrades by DROPPING names, never by misattributing them, on a plan of '
         + 'uniformly minimum-height bands', () => {
         const MANY = Array.from({ length: 24 }, (_, i) => ({
-            key: i, epicId: i + 1, epic: `Epic ${i + 1}`, color: '#8ce99a',
-            y: 8 + i * 185, height: 177, headerH: 83, epicLaneH: 62,
+            key: i, initiativeId: i + 1, initiative: `Initiative ${i + 1}`, color: '#8ce99a',
+            y: 8 + i * 185, height: 177, headerH: 83, initiativeLaneH: 62,
         }));
         const EXPECTED = { 900: 14, 1200: 18, 1500: 24, 1900: 24 };
         for (const vw of [900, 1200, 1500, 1900]) {
             const VIEW = { w: vw, h: 900 };
             const kFit = vw / 3620;
             const k = Math.min(kFit, Math.max(kFit, K_READABLE)) * ZOOM_MIN_RATIO;
-            const chips = placeEpicChips({ bands: MANY, transform: { x: 0, y: 0, k },
+            const chips = placeInitiativeChips({ bands: MANY, transform: { x: 0, y: 0, k },
                 viewport: VIEW, worldWidth: 3620 });
             expect(chips.length, `the ${vw}px column of the table above is stale`)
                 .toBe(EXPECTED[vw]);
@@ -2903,20 +2903,20 @@ describe('the epic name holds a legible minimum font (req #3272)', () => {
     it('refuses a band with a non-finite rectangle instead of carrying NaN into '
         + 'the next band\'s de-collision', () => {
         const good = Array.from({ length: 4 }, (_, i) => ({
-            key: i, epicId: i + 1, epic: `Epic ${i + 1}`, color: '#8ce99a',
-            y: 8 + i * 158, height: 150, headerH: 83, epicLaneH: 62,
+            key: i, initiativeId: i + 1, initiative: `Initiative ${i + 1}`, color: '#8ce99a',
+            y: 8 + i * 158, height: 150, headerH: 83, initiativeLaneH: 62,
         }));
         const t = { x: 0, y: 0, k: 0.1 };
         const args = { transform: t, viewport: VIEWPORT, worldWidth: 3000 };
-        const control = placeEpicChips({ bands: good, ...args });
-        const poisoned = placeEpicChips({
+        const control = placeInitiativeChips({ bands: good, ...args });
+        const poisoned = placeInitiativeChips({
             bands: [{ ...good[0], height: undefined }, ...good.slice(1)], ...args,
         });
         // The bad band draws nothing…
         expect(poisoned.some((c) => c.key === 0)).toBe(false);
         // …and every SURVIVING chip sits exactly where it does when the bad band
         // is simply absent — the NaN never reached `stackBottom`.
-        const without = placeEpicChips({ bands: good.slice(1), ...args });
+        const without = placeInitiativeChips({ bands: good.slice(1), ...args });
         expect(poisoned.map((c) => [c.key, +c.y.toFixed(6)]))
             .toEqual(without.map((c) => [c.key, +c.y.toFixed(6)]));
         expect(control.length).toBeGreaterThan(without.length);
@@ -2926,8 +2926,8 @@ describe('the epic name holds a legible minimum font (req #3272)', () => {
     it('places a shuffled band list exactly as it places a sorted one — the '
         + 'pass no longer depends on the caller\'s ordering', () => {
         const bands = Array.from({ length: 6 }, (_, i) => ({
-            key: i, epicId: i + 1, epic: `Epic ${i + 1}`, color: '#8ce99a',
-            y: 8 + i * 158, height: 150, headerH: 83, epicLaneH: 62,
+            key: i, initiativeId: i + 1, initiative: `Initiative ${i + 1}`, color: '#8ce99a',
+            y: 8 + i * 158, height: 150, headerH: 83, initiativeLaneH: 62,
         }));
         const shuffled = [bands[3], bands[0], bands[5], bands[1], bands[4], bands[2]];
         for (const k of [0.08, 0.1, 0.15, 0.3, 1]) {
@@ -2935,9 +2935,9 @@ describe('the epic name holds a legible minimum font (req #3272)', () => {
                 worldWidth: 3000 };
             const byKey = (cs) => new Map(cs.map((c) => [c.key,
                 [+c.x.toFixed(6), +c.y.toFixed(6), +c.w.toFixed(6)]]));
-            expect(byKey(placeEpicChips({ bands: shuffled, ...args })),
+            expect(byKey(placeInitiativeChips({ bands: shuffled, ...args })),
                 `a shuffled band list placed differently at k=${k}`)
-                .toEqual(byKey(placeEpicChips({ bands, ...args })));
+                .toEqual(byKey(placeInitiativeChips({ bands, ...args })));
         }
     });
 
@@ -2996,65 +2996,65 @@ describe('the epic name holds a legible minimum font (req #3272)', () => {
         const key = { x: 700, y: 0, w: 800, h: VIEWPORT.h };
         for (const chip of chipsAt({ x: 0, y: 0, k: 0.2 }, { keepOut: key })) {
             if (!chip.clipped) continue;
-            const scale = chip.h / EPIC_CHIP_H;
+            const scale = chip.h / INITIATIVE_CHIP_H;
             expect(chip.w).toBeGreaterThanOrEqual(
-                EPIC_CHIP_PAD_W * scale + EPIC_PAUSE_BUBBLE_W
-                + (chip.band.epicId != null ? EPIC_LOCK_W : 0)
-                + EPIC_CHIP_MIN_CHARS * EPIC_CHIP_CHAR_W * scale - 1e-9);
+                INITIATIVE_CHIP_PAD_W * scale + INITIATIVE_PAUSE_BUBBLE_W
+                + (chip.band.initiativeId != null ? INITIATIVE_LOCK_W : 0)
+                + INITIATIVE_CHIP_MIN_CHARS * INITIATIVE_CHIP_CHAR_W * scale - 1e-9);
         }
     });
 });
 
-describe('epic band label counts, behind a toggle (req #3225)', () => {
+describe('initiative band label counts, behind a toggle (req #3225)', () => {
     const VIEWPORT = { w: 1500, h: 900 };
 
-    it('omitting epicCounts leaves every band label exactly as it reads today', () => {
+    it('omitting initiativeCounts leaves every band label exactly as it reads today', () => {
         const withCounts = computePlanLayout(plan.rows,
             { reqLayout: 'vertical', stepLabel: 'title' });
         for (const band of withCounts.bands) {
-            expect(band.epicLabel).toBe(band.epic);
+            expect(band.initiativeLabel).toBe(band.initiative);
         }
-        const epicLabels = withCounts.labels.filter((l) => l.kind === 'epic');
-        for (const label of epicLabels) {
-            const band = withCounts.bands.find((b) => b.epicId === label.epicId);
-            expect(label.text).toBe(band.epic);
+        const initiativeLabels = withCounts.labels.filter((l) => l.kind === 'initiative');
+        for (const label of initiativeLabels) {
+            const band = withCounts.bands.find((b) => b.initiativeId === label.initiativeId);
+            expect(label.text).toBe(band.initiative);
             expect(label.w).toBeCloseTo(
-                band.epic.length * EPIC_CHIP_CHAR_W + EPIC_PAUSE_BUBBLE_W
-                + EPIC_CHIP_COLLAPSE_W + (band.epicId != null ? EPIC_LOCK_W : 0), 6);
+                band.initiative.length * INITIATIVE_CHIP_CHAR_W + INITIATIVE_PAUSE_BUBBLE_W
+                + INITIATIVE_CHIP_COLLAPSE_W + (band.initiativeId != null ? INITIATIVE_LOCK_W : 0), 6);
         }
     });
 
-    it('leaves a band untouched when the map carries no entry for its epic', () => {
+    it('leaves a band untouched when the map carries no entry for its initiative', () => {
         const layout = computePlanLayout(plan.rows,
-            { epicCounts: new Map([[999999, { met: 1, total: 1 }]]) });
+            { initiativeCounts: new Map([[999999, { met: 1, total: 1 }]]) });
         for (const band of layout.bands) {
-            expect(band.epicLabel).toBe(band.epic);
+            expect(band.initiativeLabel).toBe(band.initiative);
         }
     });
 
     // Restored after req #3371 deleted it as collateral of removing the batch
     // box describe block it happened to sit in — the branch it tests
-    // (`epicBandLabelText`'s `Object.hasOwn` path) is unrelated to batches.
+    // (`initiativeBandLabelText`'s `Object.hasOwn` path) is unrelated to batches.
     it('accepts a plain object as well as a Map, matching the reqTitles convention', () => {
-        const [firstEpicId] = plan.rows.map((r) => r.epicId).filter((id) => id != null);
+        const [firstInitiativeId] = plan.rows.map((r) => r.initiativeId).filter((id) => id != null);
         const layout = computePlanLayout(plan.rows,
-            { epicCounts: { [firstEpicId]: { met: 2, total: 4 } } });
-        const band = layout.bands.find((b) => b.epicId === firstEpicId);
-        expect(band.epicLabel).toBe(`${band.epic} 2/4`);
+            { initiativeCounts: { [firstInitiativeId]: { met: 2, total: 4 } } });
+        const band = layout.bands.find((b) => b.initiativeId === firstInitiativeId);
+        expect(band.initiativeLabel).toBe(`${band.initiative} 2/4`);
     });
 
     // Restored after req #3371 for the same reason — the zero-overlap
-    // invariant with count suffixes on the fixture's longest title (epic 4,
+    // invariant with count suffixes on the fixture's longest title (initiative 4,
     // "Primary and Swarm Agentic Integration", 38 chars) is unrelated to
     // batches and lost its only coverage when that describe block went.
     {
         const WIDE_COUNTS = new Map(
-            EPICS.map((e) => [e.id, { met: 99, total: 100 }]));
+            INITIATIVES.map((e) => [e.id, { met: 99, total: 100 }]));
         for (const opts of COMBOS) {
             const name = `${opts.stepLabel} labels, counts on`;
-            it(`zero label overlap with long epic titles AND count suffixes (${name})`, () => {
+            it(`zero label overlap with long initiative titles AND count suffixes (${name})`, () => {
                 const withCounts = computePlanLayout(plan.rows,
-                    { ...opts, epicCounts: WIDE_COUNTS });
+                    { ...opts, initiativeCounts: WIDE_COUNTS });
                 assertNoLabelOverlap(withCounts, name);
                 // req #3498 — was "no label touches any bead". The card is the
                 // containment boundary now, and it is the stronger claim: a
@@ -3072,33 +3072,33 @@ describe('epic band label counts, behind a toggle (req #3225)', () => {
         }
     }
 
-    it('never suffixes the "No epic" band, even with a non-empty counts map', () => {
-        // A bead with no epic has no requirement set to count against — a
+    it('never suffixes the "No initiative" band, even with a non-empty counts map', () => {
+        // A bead with no initiative has no requirement set to count against — a
         // stray "0/0" would claim an answer that does not exist.
         const reads = {
             steps: [{ id: 1, pipeline_fk: 1, title: 'req-less', run: 'auto', notes: null }],
             stepRequirements: [], stepDeps: [], requirements: [],
-            features: [], epics: [], machines: MACHINES,
+            features: [], initiatives: [], machines: MACHINES,
         };
         const p = orderedPlan(buildPipelineModel({
             pipeline: { id: 1, title: 'x', pipeline_status: 'active' }, ...reads,
         }), { now: NOW });
-        expect(p.rows[0].epicId).toBeNull();
+        expect(p.rows[0].initiativeId).toBeNull();
         const layout = computePlanLayout(p.rows,
-            { epicCounts: new Map([[1, { met: 1, total: 1 }]]) });
-        const noEpicBand = layout.bands.find((b) => b.epicId == null);
-        expect(noEpicBand.epicLabel).toBe(noEpicBand.epic);
+            { initiativeCounts: new Map([[1, { met: 1, total: 1 }]]) });
+        const noInitiativeBand = layout.bands.find((b) => b.initiativeId == null);
+        expect(noInitiativeBand.initiativeLabel).toBe(noInitiativeBand.initiative);
     });
 
-    it('placeEpicChips draws the epicLabel text and measures its width, not the bare name', () => {
+    it('placeInitiativeChips draws the initiativeLabel text and measures its width, not the bare name', () => {
         const baseLayout = computePlanLayout(plan.rows,
             { reqLayout: 'vertical', stepLabel: 'title' });
-        const epicCounts = new Map(baseLayout.bands
-            .filter((b) => b.epicId != null)
-            .map((b) => [b.epicId, { met: 9, total: 99 }]));
+        const initiativeCounts = new Map(baseLayout.bands
+            .filter((b) => b.initiativeId != null)
+            .map((b) => [b.initiativeId, { met: 9, total: 99 }]));
         const withCounts = computePlanLayout(plan.rows,
-            { reqLayout: 'vertical', stepLabel: 'title', epicCounts });
-        const chips = placeEpicChips({
+            { reqLayout: 'vertical', stepLabel: 'title', initiativeCounts });
+        const chips = placeInitiativeChips({
             bands: withCounts.bands, transform: { x: 0, y: 0, k: K_READABLE },
             viewport: VIEWPORT, worldWidth: withCounts.width,
         });
@@ -3106,59 +3106,59 @@ describe('epic band label counts, behind a toggle (req #3225)', () => {
         for (const chip of chips) {
             const band = withCounts.bands.find((b) => b.key === chip.key
                 || (b.key == null && chip.key === 'none'));
-            expect(chip.text).toBe(band.epicLabel);
-            if (band.epicId != null) expect(chip.text).toMatch(/ 9\/99$/);
+            expect(chip.text).toBe(band.initiativeLabel);
+            if (band.initiativeId != null) expect(chip.text).toMatch(/ 9\/99$/);
             // req #3580 — the two drawn pieces, which together are the measured
             // whole: the name (an editor) and the closure count (a zoom control).
-            expect(chip.name).toBe(band.epic);
-            expect(chip.countText).toBe(band.epicId != null ? '9/99' : null);
+            expect(chip.name).toBe(band.initiative);
+            expect(chip.countText).toBe(band.initiativeId != null ? '9/99' : null);
             expect(chip.countText ? `${chip.name} ${chip.countText}` : chip.name)
                 .toBe(chip.text);
         }
     });
 
-    // placeEpicChips is also called directly, in tests and potentially by other
+    // placeInitiativeChips is also called directly, in tests and potentially by other
     // callers, against hand-built band objects that predate this field — the
-    // fallback to `band.epic` must hold so those callers see no behaviour change.
-    it('placeEpicChips falls back to band.epic when a hand-built band omits epicLabel', () => {
-        const [chip] = placeEpicChips({
-            bands: [{ key: 1, epicId: 1, epic: 'X'.repeat(20), color: '#fff',
+    // fallback to `band.initiative` must hold so those callers see no behaviour change.
+    it('placeInitiativeChips falls back to band.initiative when a hand-built band omits initiativeLabel', () => {
+        const [chip] = placeInitiativeChips({
+            bands: [{ key: 1, initiativeId: 1, initiative: 'X'.repeat(20), color: '#fff',
                 y: 8, height: 400, headerH: 46 }],
             transform: { x: 0, y: 0, k: 1 }, viewport: VIEWPORT, worldWidth: 3000,
         });
         expect(chip.text).toBe('X'.repeat(20));
         expect(chip.name).toBe('X'.repeat(20));
         expect(chip.countText).toBeNull();
-        // + EPIC_CHIP_OPEN_LINK_W since req #3257 — the ↗ control's flat
+        // + INITIATIVE_CHIP_OPEN_LINK_W since req #3257 — the ↗ control's flat
         // footprint is reserved on every chip now that the measured box is what
         // keeps the name inside its own rectangle.
-        expect(chip.w).toBeCloseTo(20 * EPIC_CHIP_CHAR_W + 18
-            + EPIC_CHIP_OPEN_LINK_W + EPIC_CHIP_CARDS_LINK_W + EPIC_LOCK_W
-            + EPIC_PAUSE_BUBBLE_W + EPIC_CHIP_COLLAPSE_W, 6);
+        expect(chip.w).toBeCloseTo(20 * INITIATIVE_CHIP_CHAR_W + 18
+            + INITIATIVE_CHIP_OPEN_LINK_W + INITIATIVE_CHIP_CARDS_LINK_W + INITIATIVE_LOCK_W
+            + INITIATIVE_PAUSE_BUBBLE_W + INITIATIVE_CHIP_COLLAPSE_W, 6);
     });
 
     it('the toggle is a pure display transform: the ONLY thing that changes '
-        + 'with epicCounts is band.epicLabel and the label/chip rects built from it', () => {
+        + 'with initiativeCounts is band.initiativeLabel and the label/chip rects built from it', () => {
         const without = computePlanLayout(plan.rows,
             { reqLayout: 'vertical', stepLabel: 'title' });
         const withCounts = computePlanLayout(plan.rows, {
             reqLayout: 'vertical', stepLabel: 'title',
-            epicCounts: new Map(without.bands
-                .filter((b) => b.epicId != null)
-                .map((b) => [b.epicId, { met: 1, total: 2 }])),
+            initiativeCounts: new Map(without.bands
+                .filter((b) => b.initiativeId != null)
+                .map((b) => [b.initiativeId, { met: 1, total: 2 }])),
         });
         // Geometry — bead positions, column widths, world size — is untouched.
         expect(withCounts.width).toBe(without.width);
         expect(withCounts.colW).toEqual(without.colW);
         expect([...withCounts.nodes.values()].map((n) => [n.x, n.y]))
             .toEqual([...without.nodes.values()].map((n) => [n.x, n.y]));
-        // `epicCountText` (req #3580) is the suffix on its own — the label's
-        // other half — so it is excluded alongside `epicLabel`.
-        const strip = (b) => ({ ...b, epicLabel: undefined, epicCountText: undefined });
+        // `initiativeCountText` (req #3580) is the suffix on its own — the label's
+        // other half — so it is excluded alongside `initiativeLabel`.
+        const strip = (b) => ({ ...b, initiativeLabel: undefined, initiativeCountText: undefined });
         expect(withCounts.bands.map(strip)).toEqual(without.bands.map(strip));
         for (const b of withCounts.bands) {
-            expect(b.epicCountText).toBe(b.epicId != null ? '1/2' : null);
-            if (b.epicCountText) expect(b.epicLabel).toBe(`${b.epic} ${b.epicCountText}`);
+            expect(b.initiativeCountText).toBe(b.initiativeId != null ? '1/2' : null);
+            if (b.initiativeCountText) expect(b.initiativeLabel).toBe(`${b.initiative} ${b.initiativeCountText}`);
         }
     });
 });
@@ -3464,7 +3464,7 @@ describe('the next-step halo survives Overview (req #3271)', () => {
     // WHAT STOPS IT GROWING, measured against the furniture ITSELF rather than
     // against the constants the ceiling is derived from. Review found the first
     // two ceilings by doing exactly this by hand: "never reaches another bead"
-    // cleared beads and crossed the epic chip's strip and its own launch-unit
+    // cleared beads and crossed the initiative chip's strip and its own launch-unit
     // box on all four sides, through the whole of Overview.
     //
     // THIS COVERS THE RING ONLY (req #3299). Below `NEXT_MARK_FLOOR_K` the
@@ -3491,7 +3491,7 @@ describe('the next-step halo survives Overview (req #3271)', () => {
             // 30 world px under `horizontal` reqs and 28 (the ceiling's own
             // binding constraint) under `vertical`, so a sweep that ran only
             // the default never touched the binding one (review finding). Req
-            // #3371 deleted that box, and the binding clearance is now the epic
+            // #3371 deleted that box, and the binding clearance is now the initiative
             // chip strip, which does not vary with the requirement layout —
             // but the lane pitches and column widths still do, so both layouts
             // stay swept.
@@ -3517,22 +3517,22 @@ describe('the next-step halo survives Overview (req #3271)', () => {
         const seen = { bands: 0, laneZero: 0 };
         // THE LAUNCH-UNIT BOX'S FOUR EDGES USED TO BE SWEPT HERE, and they were
         // the binding clearance. Req #3371 deleted the box, so what is left is
-        // the epic chip strip — which IS the binding clearance now — plus the
+        // the initiative chip strip — which IS the binding clearance now — plus the
         // bead pairs in the case below.
         for (const { label: where, layout } of layouts) {
             seen.bands += layout.bands.length;
-            // The epic chip's strip, which is the room above a LANE-0 bead.
+            // The initiative chip's strip, which is the room above a LANE-0 bead.
             // Tested UNCONDITIONALLY for every lane-0 bead: the first version
             // skipped on the PASSING condition, so its `expect` could only ever
             // throw and 136 rows sailed past without one comparison running.
             for (const band of layout.bands) {
-                const chipBottom = band.y + (band.epicLaneH ?? band.headerH);
+                const chipBottom = band.y + (band.initiativeLaneH ?? band.headerH);
                 for (const stepId of band.stepIds) {
                     const n = layout.nodes.get(stepId);
                     if (!n || n.lane !== 0) continue;
                     seen.laneZero += 1;
                     if (n.y - worstOuter <= chipBottom) {
-                        bad.push(`${where} step ${stepId}: epic chip strip`);
+                        bad.push(`${where} step ${stepId}: initiative chip strip`);
                     }
                 }
             }
@@ -3550,7 +3550,7 @@ describe('the next-step halo survives Overview (req #3271)', () => {
         // against — 1624 bands, 6000+ lane-0 beads — were double-counting one
         // configuration. The corpus, the plans and the furniture compared are
         // unchanged; only the duplicate pass is gone.
-        expect(seen.bands, 'epic bands swept').toBeGreaterThan(750);
+        expect(seen.bands, 'initiative bands swept').toBeGreaterThan(750);
         expect(seen.laneZero, 'lane-0 beads compared to a chip strip')
             .toBeGreaterThan(3000);
     }, 20000);
@@ -3606,11 +3606,11 @@ describe('the next-step halo survives Overview (req #3271)', () => {
     // at req #3356) — so a retune that is internally consistent but
     // lands away from the measured/documented numbers is still caught.
     // (Not a VIS-005 marker: this is the halo ceiling/floor cascade, unrelated
-    // to the epic-scoped state-banding self-check VIS-005 names — see
+    // to the initiative-scoped state-banding self-check VIS-005 names — see
     // TEST_PLAN.md for why VIS-005 is registered untestable, not covered here.)
     it('the raised ceiling and its downstream floor are MEASURED, not only '
         + 'self-consistent (req #3375, ONE ADDITION)', () => {
-        // 33, not 30, since req #3365: `epicChipStrip` is the BINDING entry and
+        // 33, not 30, since req #3365: `initiativeChipStrip` is the BINDING entry and
         // it is `MIN_CARD_H / 2` (it was `STEP_LABEL_RISE + BEAD_LANE_OFFSET` before req #3498 — the same 34, re-derived from the card), which grew by 3 when the
         // step label was lifted to clear a neighbour's bead hit circle. The
         // ceiling being DERIVED is the point — more room above a lane-0 bead is
@@ -4233,19 +4233,19 @@ describe('the pause status bubble (req #3226)', () => {
     });
 
     it('computePlanLayout: a band is paused when the WHOLE PLAN is paused — '
-        + 'including the "No epic" band', () => {
+        + 'including the "No initiative" band', () => {
         const layout = computePlanLayout(plan.rows,
-            { pauseInfo: { pipelinePaused: true, pausedEpicIds: [] } });
+            { pauseInfo: { pipelinePaused: true, pausedInitiativeIds: [] } });
         expect(layout.bands.length).toBeGreaterThan(0);
         expect(layout.bands.every((b) => b.paused === true)).toBe(true);
     });
 
-    it('computePlanLayout: a band is paused when ITS OWN epic is paused, '
+    it('computePlanLayout: a band is paused when ITS OWN initiative is paused, '
         + 'neighbours untouched', () => {
         const layout = computePlanLayout(plan.rows,
-            { pauseInfo: { pipelinePaused: false, pausedEpicIds: [1] } });
+            { pauseInfo: { pipelinePaused: false, pausedInitiativeIds: [1] } });
         for (const band of layout.bands) {
-            expect(band.paused).toBe(band.epicId === 1);
+            expect(band.paused).toBe(band.initiativeId === 1);
         }
     });
 
@@ -4254,36 +4254,36 @@ describe('the pause status bubble (req #3226)', () => {
         expect(layout.bands.every((b) => b.paused === false)).toBe(true);
     });
 
-    it('placeEpicChips reserves EPIC_PAUSE_BUBBLE_W on every chip, '
+    it('placeInitiativeChips reserves INITIATIVE_PAUSE_BUBBLE_W on every chip, '
         + 'unconditionally — the requirement\'s own "a bubble is width the '
         + 'label did not have before"', () => {
-        const withBubble = placeEpicChips({
-            bands: [{ key: 1, epicId: 1, epic: 'X'.repeat(20), color: '#fff',
+        const withBubble = placeInitiativeChips({
+            bands: [{ key: 1, initiativeId: 1, initiative: 'X'.repeat(20), color: '#fff',
                 y: 8, height: 400, headerH: 46 }],
             transform: { x: 0, y: 0, k: 1 }, viewport: VIEWPORT, worldWidth: 3000,
         });
-        // + EPIC_CHIP_OPEN_LINK_W since req #3257 (see the fallback test above).
-        // + EPIC_LOCK_W since req #3649 — the padlock is reserved the same way.
-        expect(withBubble[0].w).toBeCloseTo(20 * EPIC_CHIP_CHAR_W + 18
-            + EPIC_CHIP_OPEN_LINK_W + EPIC_CHIP_CARDS_LINK_W + EPIC_LOCK_W
-            + EPIC_PAUSE_BUBBLE_W + EPIC_CHIP_COLLAPSE_W, 6);
+        // + INITIATIVE_CHIP_OPEN_LINK_W since req #3257 (see the fallback test above).
+        // + INITIATIVE_LOCK_W since req #3649 — the padlock is reserved the same way.
+        expect(withBubble[0].w).toBeCloseTo(20 * INITIATIVE_CHIP_CHAR_W + 18
+            + INITIATIVE_CHIP_OPEN_LINK_W + INITIATIVE_CHIP_CARDS_LINK_W + INITIATIVE_LOCK_W
+            + INITIATIVE_PAUSE_BUBBLE_W + INITIATIVE_CHIP_COLLAPSE_W, 6);
     });
 
     // "its rectangle belongs in the same label set the zero-overlap invariant
     // is already asserted against" — the requirement's own words. The chip's
-    // OWN width (above) is what `placeEpicChips` displaces around; THIS rect
-    // (`layout.labels`, kind 'epic') is what `assertNoLabelOverlap` actually
+    // OWN width (above) is what `placeInitiativeChips` displaces around; THIS rect
+    // (`layout.labels`, kind 'initiative') is what `assertNoLabelOverlap` actually
     // sweeps, and req #3225 set the precedent that the two must grow together.
-    it('the kind:"epic" label rect ALSO carries the bubble reservation', () => {
+    it('the kind:"initiative" label rect ALSO carries the bubble reservation', () => {
         const layout = computePlanLayout(plan.rows);
-        const epicLabels = layout.labels.filter((l) => l.kind === 'epic');
-        expect(epicLabels.length).toBeGreaterThan(0);
-        for (const label of epicLabels) {
-            const band = layout.bands.find((b) => b.epicId === label.epicId);
-            const bandText = band.epicLabel || band.epic;
+        const initiativeLabels = layout.labels.filter((l) => l.kind === 'initiative');
+        expect(initiativeLabels.length).toBeGreaterThan(0);
+        for (const label of initiativeLabels) {
+            const band = layout.bands.find((b) => b.initiativeId === label.initiativeId);
+            const bandText = band.initiativeLabel || band.initiative;
             expect(label.w).toBeCloseTo(
-                bandText.length * EPIC_CHIP_CHAR_W + EPIC_PAUSE_BUBBLE_W
-                + EPIC_CHIP_COLLAPSE_W + (band.epicId != null ? EPIC_LOCK_W : 0), 6);
+                bandText.length * INITIATIVE_CHIP_CHAR_W + INITIATIVE_PAUSE_BUBBLE_W
+                + INITIATIVE_CHIP_COLLAPSE_W + (band.initiativeId != null ? INITIATIVE_LOCK_W : 0), 6);
         }
     });
 });
@@ -4315,11 +4315,11 @@ describe('the channel table and the on-screen key (req #3374 P3)', () => {
         }
     });
 
-    it('epic identity is the one channel excluded from the key', () => {
-        const epic = COLOR_CHANNELS.find((c) => c.level === 'epic');
-        expect(epic).toBeDefined();
-        expect(epic.inKey).toBe(false);
-        expect(KEY_GROUP_TITLES).not.toContain('epic');
+    it('initiative identity is the one channel excluded from the key', () => {
+        const initiative = COLOR_CHANNELS.find((c) => c.level === 'initiative');
+        expect(initiative).toBeDefined();
+        expect(initiative.inKey).toBe(false);
+        expect(KEY_GROUP_TITLES).not.toContain('initiative');
     });
 });
 
@@ -4370,7 +4370,7 @@ const deltaE = (a, b) => {
     return Math.hypot(A[0] - B[0], A[1] - B[1], A[2] - B[2]);
 };
 // HSL hue (degrees) and saturation (0-1) — standard colorsys-equivalent
-// arithmetic, needed for the epic-palette guard below: WCAG contrast alone
+// arithmetic, needed for the initiative-palette guard below: WCAG contrast alone
 // cannot tell "dark and vivid" from "dark and dirty", which is exactly the axis
 // saturation measures.
 const hueSat = (hex) => {
@@ -4585,7 +4585,7 @@ describe('requirement mark stack order — ORCHESTRATION order (req #3676)', () 
     const stepRow = (extra) => ({
         id: 1, title: 's1', run: 'auto', state: 'running',
         reqIds: [30, 10, 20], depIds: [], timeDeps: [],
-        epicId: null, epic: null, epicLabels: [], featureLabels: [],
+        initiativeId: null, initiative: null, initiativeLabels: [], featureLabels: [],
         machineLabels: [], machineLabel: '—', ...extra,
     });
 
@@ -4624,7 +4624,7 @@ describe('requirement mark stack order — ORCHESTRATION order (req #3676)', () 
         const row = {
             id: 1, title: 's1', run: 'auto', state: 'pending',
             reqIds: [30, 10, 20], depIds: [], timeDeps: [],
-            epicId: null, epic: null, epicLabels: [], featureLabels: [],
+            initiativeId: null, initiative: null, initiativeLabels: [], featureLabels: [],
             machineLabels: [], machineLabel: '—',
         };
         const layout = computePlanLayout([row], { reqLayout: 'vertical' });
@@ -4645,7 +4645,7 @@ describe('requirement mark stack order — ORCHESTRATION order (req #3676)', () 
         const row = {
             id: 1, title: 's1', run: 'auto', state: 'pending',
             reqIds: [30, 10, 20], depIds: [], timeDeps: [],
-            epicId: null, epic: null, epicLabels: [], featureLabels: [],
+            initiativeId: null, initiative: null, initiativeLabels: [], featureLabels: [],
             machineLabels: [], machineLabel: '—',
         };
         const layout = computePlanLayout([row], { reqLayout: 'horizontal' });
@@ -5150,7 +5150,7 @@ describe('the colour key — N scales plus NONE (req #3168 directive 3, req #342
     });
 });
 
-describe("the KEY is a keep-out: what it costs the epic labels (req #3168, re-measured #3257)", () => {
+describe("the KEY is a keep-out: what it costs the initiative labels (req #3168, re-measured #3257)", () => {
     const layout = computePlanLayout(plan.rows,
         { reqLayout: 'vertical', stepLabel: 'title' });
     const VIEWPORT = { w: 1500, h: 900 };
@@ -5177,7 +5177,7 @@ describe("the KEY is a keep-out: what it costs the epic labels (req #3168, re-me
             for (const k of [0.07, 0.2, 0.5, 0.8, 1.5]) {
                 for (const y of [0, -150, -900]) {
                     for (const x of [0, -400, 600, 1200]) {
-                        const chips = placeEpicChips({
+                        const chips = placeInitiativeChips({
                             bands: layout.bands, transform: { x, y, k },
                             viewport: VIEWPORT, worldWidth: layout.width, keepOut,
                         });
@@ -5213,8 +5213,8 @@ describe("the KEY is a keep-out: what it costs the epic labels (req #3168, re-me
                         const args = { bands: layout.bands, transform: { x, y, k },
                             viewport: VIEWPORT, worldWidth: layout.width };
                         const bare = new Map(
-                            placeEpicChips(args).map((c) => [c.key, c]));
-                        for (const chip of placeEpicChips({ ...args, keepOut })) {
+                            placeInitiativeChips(args).map((c) => [c.key, c]));
+                        for (const chip of placeInitiativeChips({ ...args, keepOut })) {
                             checked++;
                             const was = bare.get(chip.key);
                             expect(was, `the ${size.label} key CREATED a chip`).toBeTruthy();
@@ -5233,7 +5233,7 @@ describe("the KEY is a keep-out: what it costs the epic labels (req #3168, re-me
 
     // ── WHAT THE KEY COSTS, RE-MEASURED (req #3257, then req #3374 P6) ─────
     // THE OLD INVARIANT IS FALSE AND IS NOT CARRIED FORWARD. Until #3257 this
-    // block asserted "the key's WIDTH is its entire cost to the epic labels; its
+    // block asserted "the key's WIDTH is its entire cost to the initiative labels; its
     // HEIGHT is free", and the mechanism was displacement: a chip that met the
     // key slid sideways, so a taller key only changed WHICH chips moved. Under
     // clip-or-drop a taller key exposes more band rows to it, and those chips
@@ -5241,7 +5241,7 @@ describe("the KEY is a keep-out: what it costs the epic labels (req #3168, re-me
     //
     // RE-MEASURED AGAIN once req #3255 moved the key to BOTTOM-CENTER, and
     // AGAIN by req #3374 P6 once #3371/#3373 emptied the key's launch-unit and
-    // epic-band rows — each move changed the magnitude, and the #3255 move
+    // initiative-band rows — each move changed the magnitude, and the #3255 move
     // changed WHICH AXIS IS STEEPER, so the numbers could not simply be carried
     // forward either time. MEASURED 2026-08-10 on the Substrate fixture
     // (1500×900 panel), over k ∈ {0.2, 0.35, 0.5, 0.8, 1.2, 1.5, 2} ×
@@ -5255,7 +5255,7 @@ describe("the KEY is a keep-out: what it costs the epic labels (req #3168, re-me
     //               dropped   9    21    30    33    39    57    69
     //
     // RE-MEASURED 2026-08-12 (req #3365). Two things moved and only one of them
-    // is the key: every band gained 46px of header so the epic name could have
+    // is the key: every band gained 46px of header so the initiative name could have
     // its own lane, AND the pan sweep above stopped being four hard-coded
     // offsets and became a function of the world's height. The second is why
     // these numbers are not comparable to the rows above — a denser sweep over
@@ -5293,7 +5293,7 @@ describe("the KEY is a keep-out: what it costs the epic labels (req #3168, re-me
             // ── THE PAN SWEEP IS DERIVED FROM THE WORLD (req #3365) ─────────
             // It was the fixed list [0, -150, -500, -900]. That list is only
             // meaningful relative to the world's HEIGHT, and req #3365 made
-            // every band 46px taller to give the epic name its own lane — which
+            // every band 46px taller to give the initiative name its own lane — which
             // moved the band tops out from under the key at every sampled pan
             // and took this whole sweep to ZERO drops. A cost curve that reads
             // zero everywhere is not a cheaper key, it is a sweep that stopped
@@ -5326,8 +5326,8 @@ describe("the KEY is a keep-out: what it costs the epic labels (req #3168, re-me
                 for (let x = 0; x <= 1400; x += 100) {
                     const args = { bands: layout.bands, transform: { x, y, k },
                         viewport: VIEWPORT, worldWidth: layout.width };
-                    const bare = placeEpicChips(args);
-                    const withKey = placeEpicChips({ ...args,
+                    const bare = placeInitiativeChips(args);
+                    const withKey = placeInitiativeChips({ ...args,
                         keepOut: keepOutOf() });
                     dropped += bare.filter(
                         (c) => !withKey.some((d) => d.key === c.key)).length;
@@ -5341,7 +5341,7 @@ describe("the KEY is a keep-out: what it costs the epic labels (req #3168, re-me
         x: (VIEWPORT.w - w) / 2, y: VIEWPORT.h - 12 - h, w, h,
     }));
 
-    it('costs epic names in BOTH dimensions, monotonically — the pre-#3257 '
+    it('costs initiative names in BOTH dimensions, monotonically — the pre-#3257 '
         + '"height is free" invariant no longer holds', () => {
         // 470 is no longer a cap (req #3374 P6 uncapped width) — it is kept
         // here only as the fixed reference width the measured table above
@@ -5807,7 +5807,7 @@ describe('requirement rows: id or TITLE (req #3168 directive E, req #3498)', () 
                 (l) => l.kind === 'badge' && l.stepId === row.id);
             expect(badge, `step ${row.id} has a badge`).toBeTruthy();
             // TOTAL, not met/total — a step's progress is already on the card as
-            // coloured rows, and met/total is the EPIC chip's vocabulary. No
+            // coloured rows, and met/total is the INITIATIVE chip's vocabulary. No
             // parens now — the pill's own shape says "this is a count".
             expect(badge.text).toBe(String((row.reqIds || []).length));
             const n = layout.nodes.get(row.id);
@@ -6083,7 +6083,7 @@ describe('steps-across zoom (req #3498, user directive 2026-08-13)', () => {
     describe('centred on the active steps (req #3648)', () => {
         const mkRow = (id, state, depIds = []) => ({
             id, title: `step ${id}`, run: 'auto', state, reqIds: [1],
-            depIds, timeDeps: [], epicId: 5, epic: 'e', epicLabels: [],
+            depIds, timeDeps: [], initiativeId: 5, initiative: 'e', initiativeLabels: [],
             featureLabels: [], machineLabels: [], machineLabel: '—',
         });
         const rows = [mkRow(1, 'done'), mkRow(2, 'done', [1]), mkRow(3, 'done', [2]),
@@ -6396,23 +6396,23 @@ describe('the four modes (req #3324)', () => {
 
 // ── The TIME AXIS (req #3201) ───────────────────────────────────────────────
 // A purpose-built model rather than the Substrate fixture, because the shapes
-// under test are shapes that fixture does not contain: an epic that has never
+// under test are shapes that fixture does not contain: an initiative that has never
 // started at all, an UNGATED step whose work began late (the live step-97
 // shape, which is the acceptance case a per-band origin cannot satisfy), a
-// dependency that crosses an epic boundary, and a dependency edge that runs
+// dependency that crosses an initiative boundary, and a dependency edge that runs
 // BACKWARD in time. Every requirement here carries `completed_at` and no
 // `started_at`, which is what the live table overwhelmingly looks like.
 const TIMED_MODEL = {
     pipeline: { id: 500, title: 'Time axis' },
-    epics: [
+    initiatives: [
         { id: 1, title: 'Shipped' },
         { id: 2, title: 'In flight' },
         { id: 3, title: 'Backlog' },
     ],
     features: [
-        { id: 11, title: 'F-shipped', epic_fk: 1 },
-        { id: 12, title: 'F-flight', epic_fk: 2 },
-        { id: 13, title: 'F-backlog', epic_fk: 3 },
+        { id: 11, title: 'F-shipped', initiative_fk: 1 },
+        { id: 12, title: 'F-flight', initiative_fk: 2 },
+        { id: 13, title: 'F-backlog', initiative_fk: 3 },
     ],
     machines: [],
     steps: [
@@ -6429,7 +6429,7 @@ const TIMED_MODEL = {
     ],
     stepDeps: [
         { id: 1, step_fk: 2, dep_step_fk: 1, time_at: null },
-        { id: 2, step_fk: 3, dep_step_fk: 2, time_at: null },   // crosses epic 1 -> 2
+        { id: 2, step_fk: 3, dep_step_fk: 2, time_at: null },   // crosses initiative 1 -> 2
         { id: 3, step_fk: 6, dep_step_fk: 5, time_at: null },
         { id: 4, step_fk: 7, dep_step_fk: 3, time_at: null },   // backward in time
     ],
@@ -6517,18 +6517,18 @@ const timedLayout = computePlanLayout(timedPlan.rows,
 const timedSubstratePlan = orderedPlan(TIMED_SUBSTRATE, { now: NOW });
 const colOfStep = (layout, id) => layout.nodes.get(id).depth;
 
-// ── Epic focus (req #3204) ──────────────────────────────────────────────────
+// ── Initiative focus (req #3204) ──────────────────────────────────────────────────
 // The click sets the viewport ONCE and retains nothing, so the whole feature is
 // falsifiable right here: two pure functions from (layout, band, viewport) to a
 // rectangle and a transform. What the component adds is only the decision to
 // route that transform through the d3-zoom behavior, which is a browser
 // property and is asserted in the E2E (PIPE-13).
-describe('epic focus geometry', () => {
+describe('initiative focus geometry', () => {
     const layout = computePlanLayout(plan.rows,
         { reqLayout: 'horizontal', stepLabel: 'id' });
-    const bandOf = (epic) => {
-        const b = layout.bands.find((x) => x.epic === epic);
-        expect(b, `the fixture has a "${epic}" band`).toBeTruthy();
+    const bandOf = (initiative) => {
+        const b = layout.bands.find((x) => x.initiative === initiative);
+        expect(b, `the fixture has a "${initiative}" band`).toBeTruthy();
         return b;
     };
     const depthsOf = (band) =>
@@ -6550,7 +6550,7 @@ describe('epic focus geometry', () => {
     // internals: FOCUS_PAD everywhere, plus a label strip on each side that has
     // a neighbour, plus the pinned ruler's scaled height on the top one.
     const reserve = (band, tr) => {
-        const n = epicFocusNeighbours(layout, band);
+        const n = initiativeFocusNeighbours(layout, band);
         return {
             // `max(k, 1)`: the strip is screen-sized below k = 1 since req
             // #3365, so the reserve it costs no longer shrinks with zoom.
@@ -6609,16 +6609,16 @@ describe('epic focus geometry', () => {
             const size = { w: 1600, h: 820 };
             const kBase = size.w / lay.width;
             for (const band of lay.bands) {
-                const tr = epicFocusTransform(lay, band, size, kBase, kBase * FOCUS_MIN_RATIO);
-                expect(tr, band.epic).toBeTruthy();
+                const tr = initiativeFocusTransform(lay, band, size, kBase, kBase * FOCUS_MIN_RATIO);
+                expect(tr, band.initiative).toBeTruthy();
                 const d = drawn(band);
-                expect(tr.x + d.left * tr.k, `${band.epic} left`)
+                expect(tr.x + d.left * tr.k, `${band.initiative} left`)
                     .toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
-                expect(size.w - (tr.x + d.right * tr.k), `${band.epic} right`)
+                expect(size.w - (tr.x + d.right * tr.k), `${band.initiative} right`)
                     .toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
-                expect(tr.y + band.y * tr.k, `${band.epic} top`)
+                expect(tr.y + band.y * tr.k, `${band.initiative} top`)
                     .toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
-                expect(size.h - (tr.y + (band.y + band.height) * tr.k), `${band.epic} bottom`)
+                expect(size.h - (tr.y + (band.y + band.height) * tr.k), `${band.initiative} bottom`)
                     .toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
             }
         });
@@ -6627,15 +6627,15 @@ describe('epic focus geometry', () => {
             for (const band of lay.bands) {
                 const r = bandFitRect(lay, band);
                 const d = drawn(band);
-                expect(r.x, `${band.epic} left`).toBeLessThanOrEqual(d.left + 1e-6);
-                expect(r.x + r.w, `${band.epic} right`)
+                expect(r.x, `${band.initiative} left`).toBeLessThanOrEqual(d.left + 1e-6);
+                expect(r.x + r.w, `${band.initiative} right`)
                     .toBeGreaterThanOrEqual(d.right - 1e-6);
             }
         });
     });
 
     it('spans non-contiguous columns rather than skipping the gap', () => {
-        // "Application Backlog" is the fixture's non-contiguous epic: its steps
+        // "Application Backlog" is the fixture's non-contiguous initiative: its steps
         // sit at depths 0, 1 and then 11–13, with nothing between. The fit must
         // cover the whole span — there is no honest view that omits the middle.
         const band = bandOf('Application Backlog');
@@ -6659,7 +6659,7 @@ describe('epic focus geometry', () => {
         expect(after.reverse()).toEqual(before);
     });
 
-    it('does NOT widen to the whole plan — a narrow epic fits its own columns', () => {
+    it('does NOT widen to the whole plan — a narrow initiative fits its own columns', () => {
         const orch = bandFitRect(layout, bandOf('Swarm Orchestration Feature'));
         expect(orch.w).toBeLessThan(layout.width / 2);
         expect(orch.x).toBeGreaterThan(layout.width / 2);
@@ -6669,8 +6669,8 @@ describe('epic focus geometry', () => {
         const size = { w: 1200, h: 700 };
         const kBase = size.w / layout.width;
         for (const band of layout.bands) {
-            const tr = epicFocusTransform(layout, band, size, kBase, kBase * FOCUS_MIN_RATIO);
-            expect(tr, band.epic).toBeTruthy();
+            const tr = initiativeFocusTransform(layout, band, size, kBase, kBase * FOCUS_MIN_RATIO);
+            expect(tr, band.initiative).toBeTruthy();
             const s = onScreen(band, tr);
             const pad = reserve(band, tr);
             // Horizontally still plain centring — req #3274 changed the
@@ -6681,15 +6681,15 @@ describe('epic focus geometry', () => {
             // an asymmetric reserve lands where the neighbour actually is. Where
             // the two reserves are equal this reduces to the old `s.top +
             // s.bottom ≈ h`, which is what the no-neighbour bands below assert.
-            expect(s.top - pad.top, `${band.epic} slack`)
+            expect(s.top - pad.top, `${band.initiative} slack`)
                 .toBeCloseTo((size.h - pad.bottom) - s.bottom, 6);
             // Margin on ALL FOUR sides. `>=` rather than `≈` because the
             // non-binding axis (and any band clamped by the ceiling) gets more.
-            expect(s.left, `${band.epic} left`).toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
-            expect(s.top, `${band.epic} top`).toBeGreaterThanOrEqual(pad.top - 1e-6);
-            expect(size.w - s.right, `${band.epic} right`)
+            expect(s.left, `${band.initiative} left`).toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
+            expect(s.top, `${band.initiative} top`).toBeGreaterThanOrEqual(pad.top - 1e-6);
+            expect(size.w - s.right, `${band.initiative} right`)
                 .toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
-            expect(size.h - s.bottom, `${band.epic} bottom`)
+            expect(size.h - s.bottom, `${band.initiative} bottom`)
                 .toBeGreaterThanOrEqual(pad.bottom - 1e-6);
         }
     });
@@ -6700,19 +6700,19 @@ describe('epic focus geometry', () => {
         // The widest band is not ceiling-clamped, so its fit is the honest one:
         // one axis must land exactly on the pad, or the zoom was not tight.
         const band = bandOf('Swarm Substrate Rebuild');
-        const tr = epicFocusTransform(layout, band, size, kBase, kBase * FOCUS_MIN_RATIO);
+        const tr = initiativeFocusTransform(layout, band, size, kBase, kBase * FOCUS_MIN_RATIO);
         const s = onScreen(band, tr);
         const slackX = s.left - FOCUS_PAD;
         const slackY = s.top - reserve(band, tr).top;
         expect(Math.min(slackX, slackY)).toBeCloseTo(0, 6);
     });
 
-    it('clamps a one-step epic to the ceiling instead of zooming absurdly far', () => {
+    it('clamps a one-step initiative to the ceiling instead of zooming absurdly far', () => {
         const size = { w: 1200, h: 700 };
         const kBase = size.w / layout.width;
         const band = bandOf('Primary and Swarm Agentic Integration');
         expect(band.stepIds).toHaveLength(1);
-        const tr = epicFocusTransform(layout, band, size, kBase, kBase * FOCUS_MIN_RATIO);
+        const tr = initiativeFocusTransform(layout, band, size, kBase, kBase * FOCUS_MIN_RATIO);
         expect(tr.k / kBase).toBeCloseTo(FOCUS_MAX_RATIO, 9);
         // Unclamped this would have been far tighter — the clamp is doing work,
         // not merely agreeing with the fit.
@@ -6722,7 +6722,7 @@ describe('epic focus geometry', () => {
 
     it('the ceiling lands on the Detail semantic level', () => {
         // Req #3204 point 5: confirm the level the fit lands on is the one a
-        // reader wants for "focus on this epic", rather than accepting whatever
+        // reader wants for "focus on this initiative", rather than accepting whatever
         // falls out. semanticLevel() reads the ratio to kBase, which is exactly
         // what FOCUS_MAX_RATIO is expressed in.
         expect(semanticLevel(FOCUS_MAX_RATIO)).toBe('in');
@@ -6742,8 +6742,8 @@ describe('epic focus geometry', () => {
             { w: 3200, h: 900 }, { w: 200, h: 95 }, { w: 60, h: 40 }]) {
             const kBase = size.w / layout.width;
             for (const band of layout.bands) {
-                const tr = epicFocusTransform(layout, band, size, kBase, kBase * FOCUS_MIN_RATIO);
-                expect(tr, `${band.epic} @ ${size.w}×${size.h}`).toBeTruthy();
+                const tr = initiativeFocusTransform(layout, band, size, kBase, kBase * FOCUS_MIN_RATIO);
+                expect(tr, `${band.initiative} @ ${size.w}×${size.h}`).toBeTruthy();
                 expect(tr.k).toBeGreaterThanOrEqual(kBase * ZOOM_MIN_RATIO - 1e-9);
                 expect(tr.k).toBeLessThanOrEqual(kBase * ZOOM_MAX_RATIO);
                 expect(Number.isFinite(tr.x) && Number.isFinite(tr.y)).toBe(true);
@@ -6765,14 +6765,14 @@ describe('epic focus geometry', () => {
         const size = { w: 6400, h: 150 };
         const kBase = size.w / layout.width;
         const band = bandOf('Swarm Substrate Rebuild');
-        const tr = epicFocusTransform(layout, band, size, kBase, kBase * FOCUS_MIN_RATIO);
+        const tr = initiativeFocusTransform(layout, band, size, kBase, kBase * FOCUS_MIN_RATIO);
         expect(tr.k).toBeCloseTo(kBase * FOCUS_MIN_RATIO, 9);
         // The clamp is doing work — the unclamped fit really was tighter. Stated
         // against the req #3274 reserve, which is what the fit now solves: the
         // label strips come off the available height, and the pinned ruler joins
         // the rect on the fitted side.
         const r = bandFitRect(layout, band);
-        const n = epicFocusNeighbours(layout, band);
+        const n = initiativeFocusNeighbours(layout, band);
         const availH = Math.max(size.h * 0.5, size.h - 2 * FOCUS_PAD
             - (n.above ? FOCUS_LABEL_H : 0) - (n.below ? FOCUS_LABEL_H : 0));
         expect(availH / (r.h + (n.above ? RULER_H : 0)))
@@ -6787,7 +6787,7 @@ describe('epic focus geometry', () => {
         const band = bandOf('Swarm Substrate Rebuild');
         let prev = null;
         for (let w = 2 * FOCUS_PAD - 4; w <= 2 * FOCUS_PAD + 4; w++) {
-            const tr = epicFocusTransform(layout, band, { w, h: 600 }, w / layout.width, (w / layout.width) * FOCUS_MIN_RATIO);
+            const tr = initiativeFocusTransform(layout, band, { w, h: 600 }, w / layout.width, (w / layout.width) * FOCUS_MIN_RATIO);
             expect(tr).toBeTruthy();
             if (prev != null) expect(Math.abs(tr.k / prev - 1)).toBeLessThan(0.5);
             prev = tr.k;
@@ -6803,9 +6803,9 @@ describe('epic focus geometry', () => {
         expect(bandFitRect(layout, { ...band, height: 0 })).toBeNull();
         expect(bandFitRect(layout, null)).toBeNull();
         // No viewport yet (the container has not measured) — nothing to fit to.
-        expect(epicFocusTransform(layout, band, { w: 0, h: 0 }, kBase, kBase * FOCUS_MIN_RATIO)).toBeNull();
-        expect(epicFocusTransform(layout, band, undefined, kBase, kBase * FOCUS_MIN_RATIO)).toBeNull();
-        expect(epicFocusTransform(layout, band, { w: 800, h: 600 }, 0, 0.1)).toBeNull();
+        expect(initiativeFocusTransform(layout, band, { w: 0, h: 0 }, kBase, kBase * FOCUS_MIN_RATIO)).toBeNull();
+        expect(initiativeFocusTransform(layout, band, undefined, kBase, kBase * FOCUS_MIN_RATIO)).toBeNull();
+        expect(initiativeFocusTransform(layout, band, { w: 800, h: 600 }, 0, 0.1)).toBeNull();
     });
 
     // ── The neighbour flags, on the REAL fixture ────────────────────────────
@@ -6813,23 +6813,23 @@ describe('epic focus geometry', () => {
         const first = layout.bands[0];
         const last = layout.bands[layout.bands.length - 1];
         expect(layout.bands.length).toBeGreaterThan(2);
-        expect(epicFocusNeighbours(layout, first)).toEqual({ above: false, below: true });
-        expect(epicFocusNeighbours(layout, last)).toEqual({ above: true, below: false });
+        expect(initiativeFocusNeighbours(layout, first)).toEqual({ above: false, below: true });
+        expect(initiativeFocusNeighbours(layout, last)).toEqual({ above: true, below: false });
         for (const band of layout.bands.slice(1, -1)) {
-            expect(epicFocusNeighbours(layout, band), band.epic)
+            expect(initiativeFocusNeighbours(layout, band), band.initiative)
                 .toEqual({ above: true, below: true });
         }
         // Decided from world Y, never from array position — req #3201 reorders
         // the bands and `bandFitRect` keeps the same discipline.
         const shuffled = { ...layout, bands: [...layout.bands].reverse() };
         for (const band of layout.bands) {
-            expect(epicFocusNeighbours(shuffled, band), band.epic)
-                .toEqual(epicFocusNeighbours(layout, band));
+            expect(initiativeFocusNeighbours(shuffled, band), band.initiative)
+                .toEqual(initiativeFocusNeighbours(layout, band));
         }
         // Degenerate inputs answer "nothing to reserve for" rather than throwing.
-        expect(epicFocusNeighbours(null, first)).toEqual({ above: false, below: false });
-        expect(epicFocusNeighbours(layout, null)).toEqual({ above: false, below: false });
-        expect(epicFocusNeighbours({ bands: [first] }, first))
+        expect(initiativeFocusNeighbours(null, first)).toEqual({ above: false, below: false });
+        expect(initiativeFocusNeighbours(layout, null)).toEqual({ above: false, below: false });
+        expect(initiativeFocusNeighbours({ bands: [first] }, first))
             .toEqual({ above: false, below: false });
         // …AND A BAND IS NEVER ITS OWN NEIGHBOUR, at any height (review
         // finding). The 1e-6 tolerance alone let a band shorter than the
@@ -6839,22 +6839,22 @@ describe('epic focus geometry', () => {
         // filtered, so only `(0, 1e-6]` was ever reachable.
         const slivers = [5e-7, 1e-6, 1e-9];
         for (const height of slivers) {
-            const sliver = { epic: 'Sliver', y: 100, height, stepIds: [] };
-            expect(epicFocusNeighbours({ bands: [sliver] }, sliver), `h=${height}`)
+            const sliver = { initiative: 'Sliver', y: 100, height, stepIds: [] };
+            expect(initiativeFocusNeighbours({ bands: [sliver] }, sliver), `h=${height}`)
                 .toEqual({ above: false, below: false });
             // …and a real band above it is still seen, so the fix did not close
             // the window by refusing to answer at all.
-            const over = { epic: 'Over', y: 0, height: 90, stepIds: [] };
-            expect(epicFocusNeighbours({ bands: [over, sliver] }, sliver), `h=${height}`)
+            const over = { initiative: 'Over', y: 0, height: 90, stepIds: [] };
+            expect(initiativeFocusNeighbours({ bands: [over, sliver] }, sliver), `h=${height}`)
                 .toEqual({ above: true, below: false });
         }
     });
 });
 
 // ── Room for the neighbours' names (req #3274) ──────────────────────────────
-// Clicking an epic name fits that epic to the viewport (req #3204), and on a
-// LARGE epic the fit left the bands above and below `FOCUS_PAD` and nothing
-// else — a number that knew nothing about what an epic label needs on screen.
+// Clicking an initiative name fits that initiative to the viewport (req #3204), and on a
+// LARGE initiative the fit left the bands above and below `FOCUS_PAD` and nothing
+// else — a number that knew nothing about what an initiative label needs on screen.
 // The reserve is now derived from the chip's own metrics, charged only on a
 // side that HAS a neighbour, and the pinned time ruler is charged on top of it
 // above (req #3254 pins it; req #3257 stops every name below it).
@@ -6863,9 +6863,9 @@ describe('epic focus geometry', () => {
 // the live plan's 4550px `Pipeline` band, and a plan narrow enough that the
 // vertical fit lands at a scale where the ruler alone swallows the top strip —
 // so both are built by hand here. `bandFitRect` reads only `nodes`/`colX`/
-// `colW`/`labels` and `epicFocusNeighbours` reads only `bands`, so a synthetic
+// `colW`/`labels` and `initiativeFocusNeighbours` reads only `bands`, so a synthetic
 // layout drives the real functions rather than a re-implementation of them.
-describe('epic focus reserves room for the neighbours\' names (req #3274)', () => {
+describe('initiative focus reserves room for the neighbours\' names (req #3274)', () => {
     const COL_W = 180;
     const GAP = 8;
 
@@ -6910,8 +6910,8 @@ describe('epic focus reserves room for the neighbours\' names (req #3274)', () =
                 id += 1;
             }
             bands.push({
-                epic: `Epic ${i + 1}`, epicId: i + 1, epicLabel: `Epic ${i + 1}`,
-                y, height: h, headerH: 83, epicLaneH: 62, stepIds,
+                initiative: `Initiative ${i + 1}`, initiativeId: i + 1, initiativeLabel: `Initiative ${i + 1}`,
+                y, height: h, headerH: 83, initiativeLaneH: 62, stepIds,
             });
             y += h + GAP;
         });
@@ -6943,11 +6943,11 @@ describe('epic focus reserves room for the neighbours\' names (req #3274)', () =
 
     // What the component draws, through the component's own arguments — the
     // pinned ruler's bottom edge is the top of the content area (req #3257).
-    const chipsAt = (lay, tr, size) => placeEpicChips({
+    const chipsAt = (lay, tr, size) => placeInitiativeChips({
         bands: lay.bands, transform: tr, viewport: size, worldWidth: lay.width,
         topInset: rulerScreenBottom(tr),
     });
-    const chipOf = (chips, epic) => chips.find((c) => c.text === epic);
+    const chipOf = (chips, initiative) => chips.find((c) => c.text === initiative);
 
     // "Fully on screen" for a name: inside the panel AND below the pinned ruler,
     // because a name drawn under the ruler is a name the reader cannot read.
@@ -6958,7 +6958,7 @@ describe('epic focus reserves room for the neighbours\' names (req #3274)', () =
     // ── THE REPORTED CASE ───────────────────────────────────────────────────
     // Pipeline 2's band heights, read 2026-08-02 and quoted in the requirement:
     // seven bands, the third of them 4550 world px tall and spanning the width.
-    describe('a LARGE epic — tall and wide, the live `Pipeline` band', () => {
+    describe('a LARGE initiative — tall and wide, the live `Pipeline` band', () => {
         const LIVE_HEIGHTS = [616, 197, 4550, 1040, 616, 885, 522];
         const lay = synth(LIVE_HEIGHTS, 16);
         const big = lay.bands[2];
@@ -6966,7 +6966,7 @@ describe('epic focus reserves room for the neighbours\' names (req #3274)', () =
         const kBase = size.w / lay.width;
 
         it('leaves a full label strip above and below the focused band', () => {
-            const tr = epicFocusTransform(lay, big, size, kBase, kBase * FOCUS_MIN_RATIO);
+            const tr = initiativeFocusTransform(lay, big, size, kBase, kBase * FOCUS_MIN_RATIO);
             const rect = bandFitRect(lay, big);
             const top = tr.y + rect.y * tr.k;
             const bottom = tr.y + (rect.y + rect.h) * tr.k;
@@ -6982,7 +6982,7 @@ describe('epic focus reserves room for the neighbours\' names (req #3274)', () =
                 .toBeGreaterThanOrEqual(FOCUS_PAD + FOCUS_LABEL_H - 1e-6);
             // And the strip is big enough for the chip that goes in it, which is
             // the thing the reserve is derived from. Asserted against what
-            // `placeEpicChips` actually emits rather than against the constant
+            // `placeInitiativeChips` actually emits rather than against the constant
             // the reserve was computed from — a chip that grew past its own
             // reservation is exactly the rot this pair exists to catch.
             for (const chip of chipsAt(lay, tr, size)) {
@@ -6992,18 +6992,18 @@ describe('epic focus reserves room for the neighbours\' names (req #3274)', () =
         });
 
         it('renders BOTH neighbours\' names, fully on screen and clear of the ruler', () => {
-            const tr = epicFocusTransform(lay, big, size, kBase, kBase * FOCUS_MIN_RATIO);
+            const tr = initiativeFocusTransform(lay, big, size, kBase, kBase * FOCUS_MIN_RATIO);
             const chips = chipsAt(lay, tr, size);
-            for (const epic of ['Epic 2', 'Epic 4']) {
-                const chip = chipOf(chips, epic);
-                expect(chip, `${epic} has a name on screen`).toBeTruthy();
-                expect(fullyVisible(chip, tr, size), `${epic} fully visible`).toBe(true);
+            for (const initiative of ['Initiative 2', 'Initiative 4']) {
+                const chip = chipOf(chips, initiative);
+                expect(chip, `${initiative} has a name on screen`).toBeTruthy();
+                expect(fullyVisible(chip, tr, size), `${initiative} fully visible`).toBe(true);
             }
         });
 
         it('IS fitted slightly smaller than the unreserved fit — the trade, stated', () => {
             const rect = bandFitRect(lay, big);
-            const tr = epicFocusTransform(lay, big, size, kBase, kBase * FOCUS_MIN_RATIO);
+            const tr = initiativeFocusTransform(lay, big, size, kBase, kBase * FOCUS_MIN_RATIO);
             const kOld = unreservedK(rect, size, kBase);
             expect(tr.k).toBeLessThan(kOld);
             // "Slightly": orientation costs under a sixth of the magnification.
@@ -7013,7 +7013,7 @@ describe('epic focus reserves room for the neighbours\' names (req #3274)', () =
 
     // ── THE REPORTED CASE, AT THE PANEL THE READER ACTUALLY HAS ─────────────
     // The block above fits the live band heights into an 800px panel and passes
-    // — but it hands `epicFocusTransform` no floor, so it clamps against
+    // — but it hands `initiativeFocusTransform` no floor, so it clamps against
     // `kBase * FOCUS_MIN_RATIO`, and on the LIVE plan that is not the floor the
     // page has. `kDefault = max(kFit, K_READABLE)` (req #3168) and the zoom
     // behaviour is configured with `min(kFit, kDefault) * ZOOM_MIN_RATIO`, so on
@@ -7062,16 +7062,16 @@ describe('epic focus reserves room for the neighbours\' names (req #3274)', () =
             // it, so nothing there could ever have noticed. Refusing turns the
             // same slip into a camera that does not move, which PIPE-14 fails
             // on. Both focus targets, because both take the parameter.
-            expect(epicFocusTransform(lay, big, size, kBase)).toBeNull();
-            expect(epicFocusTransform(lay, big, size, kBase, 0)).toBeNull();
-            expect(epicFocusTransform(lay, big, size, kBase, -1)).toBeNull();
-            expect(epicFocusTransform(lay, big, size, kBase, NaN)).toBeNull();
+            expect(initiativeFocusTransform(lay, big, size, kBase)).toBeNull();
+            expect(initiativeFocusTransform(lay, big, size, kBase, 0)).toBeNull();
+            expect(initiativeFocusTransform(lay, big, size, kBase, -1)).toBeNull();
+            expect(initiativeFocusTransform(lay, big, size, kBase, NaN)).toBeNull();
             const stepId = big.stepIds[0];
             expect(stepFocusTransform(lay, stepId, size, kBase)).toBeNull();
             expect(stepFocusTransform(lay, stepId, size, kBase, 0)).toBeNull();
             // …and a real floor still fits, so the guard refuses the omission
             // rather than the function.
-            expect(epicFocusTransform(lay, big, size, kBase, kFloor)).toBeTruthy();
+            expect(initiativeFocusTransform(lay, big, size, kBase, kFloor)).toBeTruthy();
             expect(stepFocusTransform(lay, stepId, size, kBase, kFloor)).toBeTruthy();
         });
 
@@ -7083,17 +7083,17 @@ describe('epic focus reserves room for the neighbours\' names (req #3274)', () =
 
         it('the RE-DERIVED floor overflows the panel and loses both names', () => {
             // Exactly what shipped before this requirement: no floor handed in.
-            const tr = epicFocusTransform(lay, big, size, kBase, kBase * FOCUS_MIN_RATIO);
+            const tr = initiativeFocusTransform(lay, big, size, kBase, kBase * FOCUS_MIN_RATIO);
             expect(tr.k).toBeCloseTo(kBase * FOCUS_MIN_RATIO, 9);
             const rect = bandFitRect(lay, big);
             expect(rect.h * tr.k).toBeGreaterThan(size.h);    // taller than the panel
             const chips = chipsAt(lay, tr, size);
-            expect(chipOf(chips, 'Epic 2')).toBeFalsy();
-            expect(chipOf(chips, 'Epic 4')).toBeFalsy();
+            expect(chipOf(chips, 'Initiative 2')).toBeFalsy();
+            expect(chipOf(chips, 'Initiative 4')).toBeFalsy();
         });
 
         it('the BEHAVIOUR\'S floor fits it, and both neighbours are named', () => {
-            const tr = epicFocusTransform(lay, big, size, kBase, kFloor);
+            const tr = initiativeFocusTransform(lay, big, size, kBase, kFloor);
             const rect = bandFitRect(lay, big);
             // Neither clamp binds now — this is the honest fit.
             expect(tr.k).toBeGreaterThan(kFloor);
@@ -7106,8 +7106,8 @@ describe('epic focus reserves room for the neighbours\' names (req #3274)', () =
             expect(size.h - bottom)
                 .toBeGreaterThanOrEqual(FOCUS_PAD + FOCUS_LABEL_H - 1e-6);
             const chips = chipsAt(lay, tr, size);
-            for (const epic of ['Epic 2', 'Epic 4']) {
-                expect(fullyVisible(chipOf(chips, epic), tr, size), epic).toBe(true);
+            for (const initiative of ['Initiative 2', 'Initiative 4']) {
+                expect(fullyVisible(chipOf(chips, initiative), tr, size), initiative).toBe(true);
             }
             // …and it is still inside the extent d3-zoom will enforce, so the
             // reader's first wheel gesture does not jump.
@@ -7118,24 +7118,24 @@ describe('epic focus reserves room for the neighbours\' names (req #3274)', () =
         it('every band of the live plan names both its neighbours at this panel', () => {
             for (let i = 1; i < lay.bands.length - 1; i++) {
                 const band = lay.bands[i];
-                const tr = epicFocusTransform(lay, band, size, kBase, kFloor);
+                const tr = initiativeFocusTransform(lay, band, size, kBase, kFloor);
                 const chips = chipsAt(lay, tr, size);
                 for (const j of [i - 1, i + 1]) {
-                    const epic = lay.bands[j].epic;
-                    expect(fullyVisible(chipOf(chips, epic), tr, size),
-                        `${band.epic} → ${epic}`).toBe(true);
+                    const initiative = lay.bands[j].initiative;
+                    expect(fullyVisible(chipOf(chips, initiative), tr, size),
+                        `${band.initiative} → ${initiative}`).toBe(true);
                 }
             }
         });
     });
 
     // ── THE RESERVE IS THE FULL CHIP, NOT THE FLOORED ONE ───────────────────
-    // `FOCUS_LABEL_H` is `EPIC_CHIP_H + 2 · CHIP_MARGIN_Y`, and the block's
+    // `FOCUS_LABEL_H` is `INITIATIVE_CHIP_H + 2 · CHIP_MARGIN_Y`, and the block's
     // headline decision is that it is the FULL chip rather than the
-    // `EPIC_CHIP_MIN_H` one a zoomed-out band actually draws. Pinned at a scale
+    // `INITIATIVE_CHIP_MIN_H` one a zoomed-out band actually draws. Pinned at a scale
     // where the neighbour's chip renders at full size, against the margin the
     // chip itself reports rather than against a hard-coded 2 (review finding:
-    // the LARGE-epic case fits at k = 0.14, where every chip is already floored
+    // the LARGE-initiative case fits at k = 0.14, where every chip is already floored
     // and the assertion had ~10px of slack).
     //
     // ── AND AT A SCALE WHERE THE NEIGHBOUR'S BAND CLEARS THE RULER ──────────
@@ -7156,7 +7156,7 @@ describe('epic focus reserves room for the neighbours\' names (req #3274)', () =
         const mid = lay.bands[1];
         const size = { w: 1400, h: 800 };
         const kBase = size.w / lay.width;
-        const tr = epicFocusTransform(lay, mid, size, kBase, kBase * FOCUS_MIN_RATIO);
+        const tr = initiativeFocusTransform(lay, mid, size, kBase, kBase * FOCUS_MIN_RATIO);
         // The band above is small enough to sit ENTIRELY inside the reserved
         // strip, so its chip anchors on its own band's top corner and the
         // margin below is the chip's own, not a clamp against the panel.
@@ -7165,14 +7165,14 @@ describe('epic focus reserves room for the neighbours\' names (req #3274)', () =
         expect(aboveTop).toBeGreaterThan(rulerScreenBottom(tr));
         expect(tr.y + (above.y + above.height) * tr.k)
             .toBeLessThan(tr.y + mid.y * tr.k);
-        const chip = chipOf(chipsAt(lay, tr, size), 'Epic 1');
+        const chip = chipOf(chipsAt(lay, tr, size), 'Initiative 1');
         expect(chip).toBeTruthy();
         // FULL SIZE — this is the scale regime the constant is chosen for.
-        expect(chip.h).toBeCloseTo(EPIC_CHIP_H, 6);
+        expect(chip.h).toBeCloseTo(INITIATIVE_CHIP_H, 6);
         const marginY = chip.y - aboveTop;
         expect(marginY).toBeGreaterThan(0);
         // The whole box the name occupies inside its band fits the reserve.
-        // A reserve derived from EPIC_CHIP_MIN_H (21.6) fails this by 6.4px.
+        // A reserve derived from INITIATIVE_CHIP_MIN_H (21.6) fails this by 6.4px.
         expect(chip.h + 2 * marginY).toBeLessThanOrEqual(FOCUS_LABEL_H + 1e-6);
     });
 
@@ -7187,7 +7187,7 @@ describe('epic focus reserves room for the neighbours\' names (req #3274)', () =
         const mid = lay.bands[1];
         const size = { w: 1400, h: 800 };
         const kBase = size.w / lay.width;
-        const tr = epicFocusTransform(lay, mid, size, kBase, kBase * FOCUS_MIN_RATIO);
+        const tr = initiativeFocusTransform(lay, mid, size, kBase, kBase * FOCUS_MIN_RATIO);
         // 44 = the layout's own reservation above the first band, `8 + ruler.h`.
         expect(tr.k).toBeLessThan(RULER_H / lay.bands[0].y);
         expect(tr.y).toBeGreaterThanOrEqual(rulerExcessY(tr.k));
@@ -7195,7 +7195,7 @@ describe('epic focus reserves room for the neighbours\' names (req #3274)', () =
         const aboveTop = tr.y + above.y * tr.k;
         const inset = rulerScreenBottom(tr);
         expect(aboveTop).toBeGreaterThanOrEqual(inset - 1e-9);
-        const chip = chipOf(chipsAt(lay, tr, size), 'Epic 1');
+        const chip = chipOf(chipsAt(lay, tr, size), 'Initiative 1');
         expect(chip).toBeTruthy();
         // The name is whole, below the strip, inside its own band, in the panel.
         expect(chip.y).toBeGreaterThanOrEqual(inset);
@@ -7207,7 +7207,7 @@ describe('epic focus reserves room for the neighbours\' names (req #3274)', () =
     // A plan only a few columns wide fits vertically at a scale above 1, and the
     // ruler's height scales with it: at the unreserved fit the band ABOVE ends
     // higher on screen than the ruler's own bottom edge, so its name has no
-    // pixel of content area to sit in and `placeEpicChips` emits nothing for it.
+    // pixel of content area to sit in and `placeInitiativeChips` emits nothing for it.
     // This is the reserve earning its keep, measured both ways.
     describe('a narrow plan, where the pinned ruler alone swallowed the top strip', () => {
         const lay = synth([400, 400, 400], 4);
@@ -7219,30 +7219,30 @@ describe('epic focus reserves room for the neighbours\' names (req #3274)', () =
         it('the unreserved fit drops the name of the band ABOVE', () => {
             const old = unreservedTransform(rect, size, kBase);
             expect(old.k).toBeGreaterThan(1);
-            expect(chipOf(chipsAt(lay, old, size), 'Epic 1')).toBeFalsy();
+            expect(chipOf(chipsAt(lay, old, size), 'Initiative 1')).toBeFalsy();
         });
 
         it('the reserved fit renders it, fully clear of the ruler', () => {
-            const tr = epicFocusTransform(lay, mid, size, kBase, kBase * FOCUS_MIN_RATIO);
-            const chip = chipOf(chipsAt(lay, tr, size), 'Epic 1');
+            const tr = initiativeFocusTransform(lay, mid, size, kBase, kBase * FOCUS_MIN_RATIO);
+            const chip = chipOf(chipsAt(lay, tr, size), 'Initiative 1');
             expect(chip).toBeTruthy();
             expect(fullyVisible(chip, tr, size)).toBe(true);
             // …and the band below keeps its name too.
-            const under = chipOf(chipsAt(lay, tr, size), 'Epic 3');
+            const under = chipOf(chipsAt(lay, tr, size), 'Initiative 3');
             expect(under).toBeTruthy();
             expect(fullyVisible(under, tr, size)).toBe(true);
         });
     });
 
     // ── THE EDGES OF THE PLAN ───────────────────────────────────────────────
-    it('a TOP-of-plan epic does not waste the reserved strip on the missing side', () => {
+    it('a TOP-of-plan initiative does not waste the reserved strip on the missing side', () => {
         // Eight columns, so the VERTICAL axis binds and the pads are what the
         // band's screen position is actually flush against.
         const lay = synth([1200, 900, 900], 8);
         const first = lay.bands[0];
         const size = { w: 1400, h: 800 };
         const kBase = size.w / lay.width;
-        const tr = epicFocusTransform(lay, first, size, kBase, kBase * FOCUS_MIN_RATIO);
+        const tr = initiativeFocusTransform(lay, first, size, kBase, kBase * FOCUS_MIN_RATIO);
         const rect = bandFitRect(lay, first);
         const top = tr.y + rect.y * tr.k;
         const bottom = tr.y + (rect.y + rect.h) * tr.k;
@@ -7251,41 +7251,41 @@ describe('epic focus reserves room for the neighbours\' names (req #3274)', () =
         expect(top).toBeCloseTo(FOCUS_PAD, 6);
         // The band below still gets its strip, and its name.
         expect(size.h - bottom).toBeGreaterThanOrEqual(FOCUS_PAD + FOCUS_LABEL_H - 1e-6);
-        expect(fullyVisible(chipOf(chipsAt(lay, tr, size), 'Epic 2'), tr, size)).toBe(true);
+        expect(fullyVisible(chipOf(chipsAt(lay, tr, size), 'Initiative 2'), tr, size)).toBe(true);
         // And the strip that is not reserved is not lost: the band is fitted
         // LARGER than it would be if both sides were charged for a neighbour.
         const bothSides = synth([1200, 900, 900], 8);
         bothSides.bands.unshift({
-            ...bothSides.bands[0], epic: 'Epic 0', epicId: 0, epicLabel: 'Epic 0',
+            ...bothSides.bands[0], initiative: 'Initiative 0', initiativeId: 0, initiativeLabel: 'Initiative 0',
             y: 0, height: RULER_H, stepIds: [],
         });
-        expect(tr.k).toBeGreaterThan(epicFocusTransform(bothSides, first, size, kBase, kBase * FOCUS_MIN_RATIO).k);
+        expect(tr.k).toBeGreaterThan(initiativeFocusTransform(bothSides, first, size, kBase, kBase * FOCUS_MIN_RATIO).k);
     });
 
-    it('a BOTTOM-of-plan epic likewise, with the reserve above it only', () => {
+    it('a BOTTOM-of-plan initiative likewise, with the reserve above it only', () => {
         const lay = synth([900, 900, 1200], 8);
         const last = lay.bands[2];
         const size = { w: 1400, h: 800 };
         const kBase = size.w / lay.width;
-        const tr = epicFocusTransform(lay, last, size, kBase, kBase * FOCUS_MIN_RATIO);
+        const tr = initiativeFocusTransform(lay, last, size, kBase, kBase * FOCUS_MIN_RATIO);
         const rect = bandFitRect(lay, last);
         const bottom = tr.y + (rect.y + rect.h) * tr.k;
         // Nothing below it to name — flush against the plain pad.
         expect(size.h - bottom).toBeCloseTo(FOCUS_PAD, 6);
         expect(tr.y + rect.y * tr.k - rulerScreenBottom(tr))
             .toBeGreaterThanOrEqual(FOCUS_PAD + FOCUS_LABEL_H - 1e-6);
-        expect(fullyVisible(chipOf(chipsAt(lay, tr, size), 'Epic 2'), tr, size)).toBe(true);
+        expect(fullyVisible(chipOf(chipsAt(lay, tr, size), 'Initiative 2'), tr, size)).toBe(true);
     });
 
-    // ── THE SMALL EPIC IS UNTOUCHED ─────────────────────────────────────────
-    it('a ONE-STEP epic still lands at the focus ceiling, on the Detail level', () => {
+    // ── THE SMALL INITIATIVE IS UNTOUCHED ─────────────────────────────────────────
+    it('a ONE-STEP initiative still lands at the focus ceiling, on the Detail level', () => {
         const layout = computePlanLayout(plan.rows,
             { reqLayout: 'horizontal', stepLabel: 'id' });
         const band = layout.bands.find((b) => b.stepIds.length === 1);
         expect(band, 'the fixture has a one-step band').toBeTruthy();
         const size = { w: 1200, h: 700 };
         const kBase = size.w / layout.width;
-        const tr = epicFocusTransform(layout, band, size, kBase, kBase * FOCUS_MIN_RATIO);
+        const tr = initiativeFocusTransform(layout, band, size, kBase, kBase * FOCUS_MIN_RATIO);
         expect(tr.k / kBase).toBeCloseTo(FOCUS_MAX_RATIO, 9);
         expect(semanticLevel(tr.k / kBase)).toBe('in');
         // The reserve moves the band inside the viewport; it never moves the
@@ -7307,7 +7307,7 @@ describe('epic focus reserves room for the neighbours\' names (req #3274)', () =
         // which is where a conditional would put its cliff. In HALF-pixel steps
         // so a discontinuity has nowhere to hide between samples.
         for (let h = 2 * FOCUS_PAD - 8; h <= 2 * FOCUS_PAD + 2 * FOCUS_LABEL_H + 8; h += 0.5) {
-            const tr = epicFocusTransform(lay, mid, { ...size, h }, kBase, kBase * FOCUS_MIN_RATIO);
+            const tr = initiativeFocusTransform(lay, mid, { ...size, h }, kBase, kBase * FOCUS_MIN_RATIO);
             const where = `h=${h}`;
             expect(tr, where).toBeTruthy();
             expect(Number.isFinite(tr.x) && Number.isFinite(tr.y) && Number.isFinite(tr.k),
@@ -7332,7 +7332,7 @@ describe('epic focus reserves room for the neighbours\' names (req #3274)', () =
             // apportioned — a second mutation run put `y: padTop` 50px out and
             // every assertion above still held. So the apportionment itself is
             // re-derived here, independently of the module.
-            const nb = epicFocusNeighbours(lay, mid);
+            const nb = initiativeFocusNeighbours(lay, mid);
             const padTop = FOCUS_PAD + (nb.above
                 ? FOCUS_LABEL_H + RULER_H * Math.max(tr.k, 1) : 0);
             const padBottom = FOCUS_PAD + (nb.below ? FOCUS_LABEL_H : 0);
@@ -7357,8 +7357,8 @@ describe('epic focus reserves room for the neighbours\' names (req #3274)', () =
                     { w: 3200, h: 900 }, { w: 200, h: 95 }, { w: 60, h: 40 }]) {
                     const kBase = size.w / lay.width;
                     for (const band of lay.bands) {
-                        const tr = epicFocusTransform(lay, band, size, kBase, kBase * FOCUS_MIN_RATIO);
-                        const where = `${band.epic} ${heights}×${cols} @ ${size.w}×${size.h}`;
+                        const tr = initiativeFocusTransform(lay, band, size, kBase, kBase * FOCUS_MIN_RATIO);
+                        const where = `${band.initiative} ${heights}×${cols} @ ${size.w}×${size.h}`;
                         expect(tr, where).toBeTruthy();
                         expect(tr.k, where).toBeGreaterThanOrEqual(kBase * ZOOM_MIN_RATIO - 1e-9);
                         expect(tr.k, where).toBeLessThanOrEqual(kBase * ZOOM_MAX_RATIO);
@@ -7423,15 +7423,15 @@ describe('epic focus reserves room for the neighbours\' names (req #3274)', () =
         const lay = synth([900], 12);
         const size = { w: 1400, h: 800 };
         const kBase = size.w / lay.width;
-        sameTransform(epicFocusTransform(lay, lay.bands[0], size, kBase, kBase * FOCUS_MIN_RATIO),
+        sameTransform(initiativeFocusTransform(lay, lay.bands[0], size, kBase, kBase * FOCUS_MIN_RATIO),
             unreservedTransform(bandFitRect(lay, lay.bands[0]), size, kBase), 'lone band');
     });
 });
 
 // ── Step focus (req #3253) ──────────────────────────────────────────────────
 // The requirement page's "view on plan" link lands on ONE STEP rather than
-// fitting its whole epic, because on a large epic the epic fit IS a zoomed-out
-// view. Same two-pure-functions shape as the epic focus above, and the same
+// fitting its whole initiative, because on a large initiative the initiative fit IS a zoomed-out
+// view. Same two-pure-functions shape as the initiative focus above, and the same
 // division of labour: everything here is falsifiable arithmetic, and the
 // component adds only the decision to route the transform through d3-zoom.
 describe('step focus geometry (req #3253)', () => {
@@ -7492,11 +7492,11 @@ describe('step focus geometry (req #3253)', () => {
         const size = { w: 1400, h: 800 };
         const kBase = size.w / layout.width;
         for (const band of layout.bands) {
-            const bandTr = epicFocusTransform(layout, band, size, kBase, kBase * FOCUS_MIN_RATIO);
+            const bandTr = initiativeFocusTransform(layout, band, size, kBase, kBase * FOCUS_MIN_RATIO);
             for (const id of band.stepIds) {
                 const stepTr = stepFocusTransform(layout, id, size, kBase, kBase * FOCUS_MIN_RATIO);
                 expect(stepTr, `step ${id}`).toBeTruthy();
-                expect(stepTr.k, `step ${id} in ${band.epic}`)
+                expect(stepTr.k, `step ${id} in ${band.initiative}`)
                     .toBeGreaterThanOrEqual(bandTr.k - 1e-9);
             }
         }
@@ -7504,7 +7504,7 @@ describe('step focus geometry (req #3253)', () => {
         // it is not merely "no worse": it is the ceiling against a band that is
         // nowhere near it.
         const big = layout.bands.reduce((a, b) => (b.stepIds.length > a.stepIds.length ? b : a));
-        const bandTr = epicFocusTransform(layout, big, size, kBase, kBase * FOCUS_MIN_RATIO);
+        const bandTr = initiativeFocusTransform(layout, big, size, kBase, kBase * FOCUS_MIN_RATIO);
         const stepTr = stepFocusTransform(layout, big.stepIds[0], size, kBase, kBase * FOCUS_MIN_RATIO);
         expect(stepTr.k / bandTr.k).toBeGreaterThan(2);
         // The ceiling used to be what a single card landed on; req #3498 states
@@ -7548,7 +7548,7 @@ describe('step focus geometry (req #3253)', () => {
     //
     // THE CEILING-BOUND TRAP: at this describe block's usual
     // `kBase = size.w / layout.width`, the fixture's bands sit on the
-    // `FOCUS_MAX_RATIO` ceiling (see 'shares the epic focus's clamp' below),
+    // `FOCUS_MAX_RATIO` ceiling (see 'shares the initiative focus's clamp' below),
     // where a small clustered set is magnified to the ceiling regardless of
     // any margin and this ratio is not observable. The component's REAL
     // `kBase` is `readableDefaultScale(kFit)` (its `kDefault`), which is what
@@ -7558,9 +7558,9 @@ describe('step focus geometry (req #3253)', () => {
         const size = { w: 1730, h: 900 };
         const kFit = size.w / layout.width;
         const kBase = readableDefaultScale(kFit);
-        const band = layout.bands.find((b) => b.epic === 'Swarm Orchestration Feature');
+        const band = layout.bands.find((b) => b.initiative === 'Swarm Orchestration Feature');
         expect(band, 'fixture band').toBeTruthy();
-        const ids = epicWorkStepIds(plan.rows, layout, band);
+        const ids = initiativeWorkStepIds(plan.rows, layout, band);
         const rect = stepsFitRect(layout, ids);
         const columnsRequested = rect.w / (CARD_W + CARD_GAP_X);
         const tr = stepsFocusTransform(layout, ids, size, kBase, kBase * FOCUS_MIN_RATIO);
@@ -7617,7 +7617,7 @@ describe('step focus geometry (req #3253)', () => {
         }
     });
 
-    it('shares the epic focus\'s clamp rather than a second copy of it', () => {
+    it('shares the initiative focus\'s clamp rather than a second copy of it', () => {
         // One clamp, or the two desync from `scaleExtent` independently. No pair
         // may exceed the ceiling, and the TIGHT pairs — adjacent steps, whose
         // rect is small enough for the fit to want more than the ceiling allows
@@ -7727,9 +7727,9 @@ describe('single-card focus (req #3498)', () => {
         }
     });
 
-    it('BOTH entry points take the rule — the ?step= link and a one-step epic', () => {
+    it('BOTH entry points take the rule — the ?step= link and a one-step initiative', () => {
         // `stepFocusTransform` is the requirement editor's deep link;
-        // `stepsFocusTransform` with one id is an epic whose second click
+        // `stepsFocusTransform` with one id is an initiative whose second click
         // resolves to a single step. They must be the same camera, or the rule
         // covers one road to the card and silently misses the other.
         const size = { w: 1400, h: 800 };
@@ -7881,7 +7881,7 @@ describe('the base view = factory default scale (req #3216 D1, req #3312)', () =
     });
 
     // req #3648 — the base view pulls the plan down by the ruler's excess, so on
-    // Reset/landing the top band's header (and its epic name) is never behind
+    // Reset/landing the top band's header (and its initiative name) is never behind
     // the pinned strip, and the whole vertical extent still fits.
     it('the base view clears the ruler above the top band and still fits the plan', () => {
         const size = { w: 1000, h: 900 };
@@ -7955,7 +7955,7 @@ describe('the base view = factory default scale (req #3216 D1, req #3312)', () =
                 // AND IT IS STRICTLY FURTHER OUT THAN THE VIEW IT REPLACED.
                 // `kDefault` is 0.8 on all three panels; at that scale this world
                 // is 1084.8px tall with its origin in the panel's top-left
-                // corner, which is where "zoomed into the top epic's name" came
+                // corner, which is where "zoomed into the top initiative's name" came
                 // from. Asserted rather than described, so the case still means
                 // something if the fixture grows.
                 expect(kLand).toBeLessThan(kDefaultHere);
@@ -8000,37 +8000,37 @@ describe('the base view = factory default scale (req #3216 D1, req #3312)', () =
 });
 
 describe('time axis — vertical band order (req #3201)', () => {
-    it('stacks bands by derived epic start, never-started last', () => {
-        expect(timedLayout.bands.map((b) => b.epic))
+    it('stacks bands by derived initiative start, never-started last', () => {
+        expect(timedLayout.bands.map((b) => b.initiative))
             .toEqual(['Shipped', 'In flight', 'Backlog']);
     });
 
-    it('derives an epic start from completed_at when started_at was never stamped', () => {
+    it('derives an initiative start from completed_at when started_at was never stamped', () => {
         expect(timedPlan.timeAxis.bandStarts.get(1)).toBe('2026-07-25T09:00:00');
-        // Epic 2's two steps are both RUNNING, so both sit on TODAY (req #3692
+        // Initiative 2's two steps are both RUNNING, so both sit on TODAY (req #3692
         // rule 4) — the render clock below, not r103's 07-27 stamp.
         expect(timedPlan.timeAxis.bandStarts.get(2)).toBe('2026-07-28T12:00:00');
         expect(timedPlan.timeAxis.bandStarts.get(3)).toBe(null);
     });
 });
 
-describe('epic bands stack by `epics.sort_order` (req #3430)', () => {
-    // The user sets an epic order and the order the user sets is the order the
+describe('initiative bands stack by `initiatives.sort_order` (req #3430)', () => {
+    // The user sets an initiative order and the order the user sets is the order the
     // user sees (ruling 2026-08-09). THIS is the surface that ruling is about:
     // the band stack is what a person reads off the Pipeline Visualizer as "the
-    // order of the epics", and `displayOrder`'s own epic tie-break never reaches
-    // it — the stack is sorted here, from `epics.sort_order` off the row.
+    // order of the initiatives", and `displayOrder`'s own initiative tie-break never reaches
+    // it — the stack is sorted here, from `initiatives.sort_order` off the row.
     //
     // Built on TIMED_MODEL on purpose: its derived-start order is Shipped, In
     // flight, Backlog (asserted directly above), so every `sort_order` below is
     // deliberately fighting a rule that already has a confident answer.
-    const stackOf = (epics, extra = {}) => {
-        const model = { ...TIMED_MODEL, epics, ...extra };
+    const stackOf = (initiatives, extra = {}) => {
+        const model = { ...TIMED_MODEL, initiatives, ...extra };
         const ordered = orderedPlan(buildPipelineModel(model),
             { now: '2026-07-28T12:00:00Z' });
         const layout = computePlanLayout(ordered.rows,
             { timeAxis: ordered.timeAxis });
-        return layout.bands.map((b) => b.epic);
+        return layout.bands.map((b) => b.initiative);
     };
 
     it('the user order wins outright over the derived start', () => {
@@ -8041,10 +8041,10 @@ describe('epic bands stack by `epics.sort_order` (req #3430)', () => {
         ])).toEqual(['Backlog', 'In flight', 'Shipped']);
     });
 
-    it('an unordered epic falls back to derived start, BELOW every ordered one', () => {
+    it('an unordered initiative falls back to derived start, BELOW every ordered one', () => {
         // Backlog has never started — it sorts LAST under req #3201 and FIRST
         // here, which is the whole point: one explicit position outranks the
-        // derived rule, and the epics the user said nothing about keep it.
+        // derived rule, and the initiatives the user said nothing about keep it.
         expect(stackOf([
             { id: 1, title: 'Shipped' },
             { id: 2, title: 'In flight' },
@@ -8068,7 +8068,7 @@ describe('epic bands stack by `epics.sort_order` (req #3430)', () => {
         ])).toEqual(['Shipped', 'In flight', 'Backlog']);
     });
 
-    it('the label-less "No epic" band is still last of all', () => {
+    it('the label-less "No initiative" band is still last of all', () => {
         // It can never carry a `sort_order`, so it lands among the unordered —
         // and the req #3201 tie-break that put it last still applies there.
         const stack = stackOf([
@@ -8081,7 +8081,7 @@ describe('epic bands stack by `epics.sort_order` (req #3430)', () => {
                 completed_at: null,
             }],
         });
-        expect(stack).toEqual(['Backlog', 'In flight', 'Shipped', 'No epic']);
+        expect(stack).toEqual(['Backlog', 'In flight', 'Shipped', 'No initiative']);
     });
 
     it('a stringly-typed column still stacks numerically', () => {
@@ -8094,20 +8094,20 @@ describe('epic bands stack by `epics.sort_order` (req #3430)', () => {
 });
 
 describe('a band is a plain column read — no re-tallying in this module (req #3372 item 1)', () => {
-    // Bands are keyed on `row.epicId` alone, whatever it holds — this module
-    // never re-derives it from a requirement -> feature -> epic walk (that
+    // Bands are keyed on `row.initiativeId` alone, whatever it holds — this module
+    // never re-derives it from a requirement -> feature -> initiative walk (that
     // tally is upstream, out of this module's scope by req #3372's own
     // boundary: "you own the DRAWING ... consume its output"). Two steps
-    // carrying the SAME `epicId` band together regardless of how many
+    // carrying the SAME `initiativeId` band together regardless of how many
     // requirements either has; two with DIFFERENT ids never merge.
-    const mk = (id, epicId, epic, reqIds = []) => ({
+    const mk = (id, initiativeId, initiative, reqIds = []) => ({
         id, title: `s${id}`, run: 'auto', state: 'pending', reqIds,
-        depIds: [], timeDeps: [], epicId, epic,
-        epicLabels: [], featureLabels: [], machineLabels: [], machineLabel: '—',
+        depIds: [], timeDeps: [], initiativeId, initiative,
+        initiativeLabels: [], featureLabels: [], machineLabels: [], machineLabel: '—',
     });
 
-    it('groups purely by epicId, independent of the requirement count behind it', () => {
-        // The two epic-6 rows deliberately carry DIFFERENT non-empty reqIds
+    it('groups purely by initiativeId, independent of the requirement count behind it', () => {
+        // The two initiative-6 rows deliberately carry DIFFERENT non-empty reqIds
         // sets — if this module were re-tallying instead of reading the
         // column, a requirement-count-driven grouping would split them.
         const rows = [
@@ -8115,64 +8115,64 @@ describe('a band is a plain column read — no re-tallying in this module (req #
             mk(3, 7, 'Backlog', [104, 105, 106]),
         ];
         const layout = computePlanLayout(rows);
-        expect(layout.bands.map((b) => b.epicId).sort((a, b) => a - b)).toEqual([6, 7]);
+        expect(layout.bands.map((b) => b.initiativeId).sort((a, b) => a - b)).toEqual([6, 7]);
         expect(layout.nodes.get(1).bandIndex).toBe(layout.nodes.get(2).bandIndex);
         expect(layout.nodes.get(3).bandIndex).not.toBe(layout.nodes.get(1).bandIndex);
     });
 
     // COVERS: VIS-002
-    it('epic grouping wins over a global topological sort — a cross-epic dep '
+    it('initiative grouping wins over a global topological sort — a cross-initiative dep '
         + 'pointing "backward" through band order does not reorder the bands '
         + '(req #3375)', () => {
-        // Step 1 (epic 6, the FIRST band) depends on step 2 (epic 7, the
+        // Step 1 (initiative 6, the FIRST band) depends on step 2 (initiative 7, the
         // SECOND band) — the opposite direction a global topological sort
-        // would want (it would need epic 7's step rendered before epic 6's).
-        // "Display order is a tree walk: epic order first, then the
-        // dependency graph WITHIN each epic" means this edge affects arc
-        // ROUTING (tested elsewhere as legal/cross-epic) and nothing about
+        // would want (it would need initiative 7's step rendered before initiative 6's).
+        // "Display order is a tree walk: initiative order first, then the
+        // dependency graph WITHIN each initiative" means this edge affects arc
+        // ROUTING (tested elsewhere as legal/cross-initiative) and nothing about
         // which band either step is in or which band comes first.
         const rows = [
             { ...mk(1, 6, 'Mapping'), depIds: [2] },
             mk(2, 7, 'Backlog'),
         ];
         const layout = computePlanLayout(rows);
-        expect(layout.bands.map((b) => b.epicId)).toEqual([6, 7]);
+        expect(layout.bands.map((b) => b.initiativeId)).toEqual([6, 7]);
         expect(layout.nodes.get(1).bandIndex).toBe(0);
         expect(layout.nodes.get(2).bandIndex).toBe(1);
     });
 
-    it('a null epicId still bands on its own — the "No epic" case is not assumed unreachable', () => {
+    it('a null initiativeId still bands on its own — the "No initiative" case is not assumed unreachable', () => {
         // Req #3372's body instructs deleting this branch on the premise that
-        // `epic_fk` is NOT NULL upstream. MEASURED against the live code path
+        // `initiative_fk` is NOT NULL upstream. MEASURED against the live code path
         // (2026-08-10): req #3462 reverted req #3381's composed-read cutover
         // the same day this requirement was worked, so the only live consumer
         // of this module (`PipelineDetail.jsx`, via `pipelineModel.js`) still
-        // derives `epicId` by a requirement -> feature -> epic tally that CAN
+        // derives `initiativeId` by a requirement -> feature -> initiative tally that CAN
         // return null (a step with no linked requirement and nothing to
         // inherit from). Deleting the null-band branch here would misrender —
         // or throw on — that still-live case, so it is kept deliberately. See
         // req #3372's completion report / follow-on for the structural fix.
-        const rows = [mk(1, 6, 'Mapping'), mk(2, null, 'No epic')];
+        const rows = [mk(1, 6, 'Mapping'), mk(2, null, 'No initiative')];
         const layout = computePlanLayout(rows);
         expect(layout.bands).toHaveLength(2);
-        expect(layout.bands.some((b) => b.epicId == null)).toBe(true);
+        expect(layout.bands.some((b) => b.initiativeId == null)).toBe(true);
         expect(layout.nodes.get(1).bandIndex).not.toBe(layout.nodes.get(2).bandIndex);
     });
 });
 
-describe('cross-epic dependency edges stay legal — sameBand keeps routing, reports nothing '
+describe('cross-initiative dependency edges stay legal — sameBand keeps routing, reports nothing '
     + '(req #3372 item 3, gate-delta F1)', () => {
     // Gate-delta F1 (stage-2 review pass, 2026-08-08) supersedes item 3's
     // original "convert sameBand into a reported violation" instruction: a
-    // cross-epic arc is LEGAL and `sameBand` stays a pure boolean routing
+    // cross-initiative arc is LEGAL and `sameBand` stays a pure boolean routing
     // input — no assertion, no reported violation. This fixture is the
     // POSITIVE case the delta calls for: proof the layout draws a normal
     // 'early' arc across a band boundary rather than warning, crashing, or
     // dropping it.
-    const mk = (id, epicId, depIds = []) => ({
+    const mk = (id, initiativeId, depIds = []) => ({
         id, title: `s${id}`, run: 'auto', state: 'pending', reqIds: [],
-        depIds, timeDeps: [], epicId, epic: `epic-${epicId}`,
-        epicLabels: [], featureLabels: [], machineLabels: [], machineLabel: '—',
+        depIds, timeDeps: [], initiativeId, initiative: `initiative-${initiativeId}`,
+        initiativeLabels: [], featureLabels: [], machineLabels: [], machineLabel: '—',
     });
     const rows = [mk(1, 6), mk(2, 7, [1])];
     const layout = computePlanLayout(rows);
@@ -8202,19 +8202,19 @@ describe('time axis — horizontal position (req #3201)', () => {
         }
     });
 
-    it('renders a NEVER-STARTED epic right of every started epic, with no dep edge', () => {
+    it('renders a NEVER-STARTED initiative right of every started initiative, with no dep edge', () => {
         const started = timedPlan.rows
-            .filter((r) => r.epicId !== 3).map((r) => colOfStep(timedLayout, r.id));
+            .filter((r) => r.initiativeId !== 3).map((r) => colOfStep(timedLayout, r.id));
         const never = timedPlan.rows
-            .filter((r) => r.epicId === 3).map((r) => colOfStep(timedLayout, r.id));
+            .filter((r) => r.initiativeId === 3).map((r) => colOfStep(timedLayout, r.id));
         expect(Math.min(...never)).toBeGreaterThan(Math.max(...started));
         // …and it got there without borrowing anybody's dependency edge.
-        for (const r of timedPlan.rows.filter((x) => x.epicId === 3)) {
-            for (const d of r.depIds) expect(timedPlan.rows.find((x) => x.id === d).epicId).toBe(3);
+        for (const r of timedPlan.rows.filter((x) => x.initiativeId === 3)) {
+            for (const d of r.depIds) expect(timedPlan.rows.find((x) => x.id === d).initiativeId).toBe(3);
         }
     });
 
-    it('puts an UNGATED late step right of the epic that finished before it', () => {
+    it('puts an UNGATED late step right of the initiative that finished before it', () => {
         // The live step-97 case: step 4 has NO dependencies at all, and must
         // still render right of everything whose work happened earlier. This is
         // what removes the need for a synthetic dep edge.
@@ -8249,7 +8249,7 @@ describe('time axis — horizontal position (req #3201)', () => {
     it('starts every slot strictly right of the last column any earlier slot reaches', () => {
         // The property the whole design rests on, asserted from OUTPUT: it is
         // what makes "unstarted renders right of started" true in general, not
-        // just for this fixture's epics.
+        // just for this fixture's initiatives.
         const maxColInSlot = timedLayout.slots.map(() => -1);
         for (const r of timedPlan.rows) {
             const k = timedLayout.slotOf.get(r.id);
@@ -8270,8 +8270,8 @@ describe('time axis — review regressions', () => {
     const build = (rows, reqs) => {
         const model = {
             pipeline: { id: 900, title: 'r' },
-            epics: [{ id: 1, title: 'E' }, { id: 2, title: 'F' }],
-            features: [{ id: 21, title: 'fe', epic_fk: 1 }, { id: 22, title: 'ff', epic_fk: 2 }],
+            initiatives: [{ id: 1, title: 'E' }, { id: 2, title: 'F' }],
+            features: [{ id: 21, title: 'fe', initiative_fk: 1 }, { id: 22, title: 'ff', initiative_fk: 2 }],
             machines: [],
             steps: rows.map((r) => ({
                 id: r.id, pipeline_fk: 900, title: `s${r.id}`, run: 'auto',
@@ -8411,19 +8411,19 @@ describe('time axis — review regressions', () => {
     });
 
     // Warning: a NULL start meant both "not begun" and "begun but unstamped",
-    // so a pure BACKLOG epic could stack above an ACTIVE one on an id tie-break.
-    it('stacks an unstamped ACTIVE epic above a never-started backlog epic', () => {
+    // so a pure BACKLOG initiative could stack above an ACTIVE one on an id tie-break.
+    it('stacks an unstamped ACTIVE initiative above a never-started backlog initiative', () => {
         const { layout } = build(
             [
-                { id: 1, depIds: [], reqIds: [1] },   // epic 2 — in flight, unstamped
-                { id: 2, depIds: [], reqIds: [2] },   // epic 1 — untouched backlog
+                { id: 1, depIds: [], reqIds: [1] },   // initiative 2 — in flight, unstamped
+                { id: 2, depIds: [], reqIds: [2] },   // initiative 1 — untouched backlog
             ],
             [
                 r({ id: 1, requirement_status: 'development', feature_fk: 22 }),
                 r({ id: 2, requirement_status: 'authoring', feature_fk: 21 }),
             ],
         );
-        expect(layout.bands.map((b) => b.epic)).toEqual(['F', 'E']);
+        expect(layout.bands.map((b) => b.initiative)).toEqual(['F', 'E']);
     });
 });
 
@@ -8758,7 +8758,7 @@ describe('sticky ruler pin (req #3254)', () => {
 
     it("rulerScreenBottom is the pinned Y plus the strip's own scaled height", () => {
         // Scrolled past — pinned to 0, so the bottom edge is exactly RULER_H
-        // scaled by k, the number req #3257 clamps epic names below.
+        // scaled by k, the number req #3257 clamps initiative names below.
         expect(rulerScreenBottom({ x: 0, y: -400, k: 1 })).toBe(RULER_H);
         expect(rulerScreenBottom({ x: 0, y: -400, k: 2 })).toBe(RULER_H * 2);
         // Not yet scrolled past — natural position adds to the strip height.
@@ -8779,7 +8779,7 @@ describe('sticky ruler pin (req #3254)', () => {
 
 // ── The strip's vertical axis is SCREEN space (req #3365) ──────────────────
 //
-// The user directive: *"as the pipeline is moved to see the lower epics, the
+// The user directive: *"as the pipeline is moved to see the lower initiatives, the
 // pipeline visualized will scroll up and go below the time part which is still
 // transparent and this causes clutter."* The strip HAD an opaque plate; what it
 // did not have was a plate as tall as its own type, because req #3365's first
@@ -8842,7 +8842,7 @@ describe('screen-sized ruler strip (req #3365)', () => {
 
     it('is the SAME number rulerScreenBottom reports, not a parallel copy', () => {
         // Three call sites share this derivation (plate, type, and the inset
-        // req #3257 clamps epic names below). A literal in any of them would
+        // req #3257 clamps initiative names below). A literal in any of them would
         // let the strip and its own reported edge disagree.
         for (const k of [0.2, 1, 2.5]) {
             const t = { x: 0, y: -750, k };
@@ -8852,7 +8852,7 @@ describe('screen-sized ruler strip (req #3365)', () => {
     });
 });
 
-// ── The epic band palette (req #3219, "no brown, no muddy tones on dark") ───
+// ── The initiative band palette (req #3219, "no brown, no muddy tones on dark") ───
 //
 // DIRT NEVER COMES BACK. Two dimensions, per the requirement: every entry must
 // clear a contrast floor against the ACTUAL panel (read from PLAN_VIZ_PALETTE,
@@ -8877,29 +8877,29 @@ describe('screen-sized ruler strip (req #3365)', () => {
 //     requirement names. The new orange (7.75, 1.00) clears the raised floor
 //     with margin; brown fails it far more decisively than the general floor
 //     alone (0.26 saturation against an 0.85 requirement).
-const EPIC_PANEL = PLAN_VIZ_PALETTE.panel;
-const EPIC_GENERAL_MIN_CONTRAST = 2.7;
-const EPIC_GENERAL_MIN_SAT = 0.55;
-const EPIC_WARM_HUE_MIN = 10;
-const EPIC_WARM_HUE_MAX = 70;
-const EPIC_WARM_MIN_CONTRAST = 6.5;
-const EPIC_WARM_MIN_SAT = 0.85;
+const INITIATIVE_PANEL = PLAN_VIZ_PALETTE.panel;
+const INITIATIVE_GENERAL_MIN_CONTRAST = 2.7;
+const INITIATIVE_GENERAL_MIN_SAT = 0.55;
+const INITIATIVE_WARM_HUE_MIN = 10;
+const INITIATIVE_WARM_HUE_MAX = 70;
+const INITIATIVE_WARM_MIN_CONTRAST = 6.5;
+const INITIATIVE_WARM_MIN_SAT = 0.85;
 
 // Returns null if `hex` clears the guard, else a human-readable reason naming
 // the value and the numbers it failed on — a bare assertion failure teaches
 // nobody, per the requirement's own instruction.
-function epicPaletteViolation(hex, label) {
+function initiativePaletteViolation(hex, label) {
     // `channels()` decodes only 6-digit `#rrggbb` — a shorthand, an 8-digit
     // alpha hex or an rgb() string would silently measure the WRONG bytes
     // (e.g. `#7c4dffcc` decodes as `#4dffcc`, a different colour) rather than
     // failing, so an out-of-format entry is rejected here before it is ever
     // measured.
     if (!/^#[0-9a-f]{6}$/i.test(hex)) return `${label} ${hex}: unsupported colour format`;
-    const c = contrast(hex, EPIC_PANEL);
+    const c = contrast(hex, INITIATIVE_PANEL);
     const { h, s } = hueSat(hex);
-    const warm = h >= EPIC_WARM_HUE_MIN && h < EPIC_WARM_HUE_MAX;
-    const minC = warm ? EPIC_WARM_MIN_CONTRAST : EPIC_GENERAL_MIN_CONTRAST;
-    const minS = warm ? EPIC_WARM_MIN_SAT : EPIC_GENERAL_MIN_SAT;
+    const warm = h >= INITIATIVE_WARM_HUE_MIN && h < INITIATIVE_WARM_HUE_MAX;
+    const minC = warm ? INITIATIVE_WARM_MIN_CONTRAST : INITIATIVE_GENERAL_MIN_CONTRAST;
+    const minS = warm ? INITIATIVE_WARM_MIN_SAT : INITIATIVE_GENERAL_MIN_SAT;
     const fails = [];
     if (c < minC) fails.push(`contrast ${c.toFixed(2)} below the ${warm ? 'warm' : 'general'} floor of ${minC}`);
     if (s < minS) fails.push(`saturation ${s.toFixed(2)} below the ${warm ? 'warm' : 'general'} floor of ${minS}`);
@@ -8930,7 +8930,7 @@ describe('palette themes (req #3365)', () => {
         // copy that could drift from the values documented beside them — even
         // though it is no longer what the canvas draws.
         const signal = planPalette('stoplight');
-        expect(signal.epic).toBe(EPIC_PALETTE);
+        expect(signal.initiative).toBe(INITIATIVE_PALETTE);
         expect(signal.status).toBe(REQ_STATUS_COLORS);
         expect(signal.autonomy).toBe(AUTONOMY_COLORS);
     });
@@ -8995,7 +8995,7 @@ describe('palette themes (req #3365)', () => {
                 expect(typeof p[f], `${p.key}.${f}`).toBe('string');
                 expect(p[f].length, `${p.key}.${f}`).toBeGreaterThan(0);
             }
-            expect(p.epic, `${p.key}.epic`).toHaveLength(4);
+            expect(p.initiative, `${p.key}.initiative`).toHaveLength(4);
             // A theme picks HUES; it never re-opens a domain. Missing a member
             // would paint a real status with the unknown swatch and look like a
             // data problem.
@@ -9010,7 +9010,7 @@ describe('palette themes (req #3365)', () => {
         // the surface and unchanged by this requirement).
         for (const p of PLAN_PALETTES) {
             for (const [scale, hexes] of Object.entries({
-                epic: p.epic,
+                initiative: p.initiative,
                 status: Object.values(p.status),
                 autonomy: Object.values(p.autonomy),
                 session: Object.values(p.session),
@@ -9031,7 +9031,7 @@ describe('palette themes (req #3365)', () => {
         // minimum across all three themes: 20.4 (Slate autonomy).
         for (const p of PLAN_PALETTES) {
             for (const [scale, hexes] of Object.entries({
-                epic: p.epic,
+                initiative: p.initiative,
                 status: Object.values(p.status),
                 autonomy: Object.values(p.autonomy),
                 session: Object.entries(p.session)
@@ -9054,7 +9054,7 @@ describe('palette themes (req #3365)', () => {
         // The directive asked for "a more boring business version". Boring is
         // CHROMA here, not hue count — see the registry's own note on why a
         // single-hue ramp does not fit on a dark panel. Measured with THIS
-        // file's own `hueSat` (HSL), the same metric the epic-palette guard
+        // file's own `hueSat` (HSL), the same metric the initiative-palette guard
         // below uses, so the two cannot disagree about what saturation means:
         // Signal 0.851, Slate 0.350, Aurora 0.821. Signal moved from 0.836
         // (was 0.84 here) when req #3503 pushed `discuss`/`planned`/
@@ -9063,7 +9063,7 @@ describe('palette themes (req #3365)', () => {
         // `AUTONOMY_COLORS`/`REQ_STATUS_COLORS`. Aurora moved to 0.821 when
         // req #3588 made `development` yellow-green.
         const meanSat = (p) => {
-            const all = [...p.epic, ...Object.values(p.status),
+            const all = [...p.initiative, ...Object.values(p.status),
                 ...Object.values(p.autonomy)];
             return all.reduce((a, h) => a + hueSat(h).s, 0) / all.length;
         };
@@ -9078,7 +9078,7 @@ describe('palette themes (req #3365)', () => {
             .toBeGreaterThan(meanSat(planPalette('slate')) * 2);
     });
 
-    it('repaints the epic bands, and nothing else about the geometry', () => {
+    it('repaints the initiative bands, and nothing else about the geometry', () => {
         // A theme is INK. If it moved a column or a band the plan would reflow
         // on a colour change, which is the one thing a palette must never do.
         const base = computePlanLayout(plan.rows, { palette: 'stoplight' });
@@ -9092,7 +9092,7 @@ describe('palette themes (req #3365)', () => {
             // …and it DOES repaint, or the control would be inert.
             const pal = planPalette(key);
             expect(themed.bands.map((b) => b.color), key)
-                .toEqual(base.bands.map((b, i) => pal.epic[i % pal.epic.length]));
+                .toEqual(base.bands.map((b, i) => pal.initiative[i % pal.initiative.length]));
         }
     });
 
@@ -9120,11 +9120,11 @@ describe('palette themes (req #3365)', () => {
     });
 });
 
-describe('epic band palette — no brown, no muddy tones (req #3219)', () => {
+describe('initiative band palette — no brown, no muddy tones (req #3219)', () => {
     it('has no browns and no muddy tones — every entry clears the two-dimensional guard, '
         + 'at whatever length the palette ends up', () => {
-        const violations = EPIC_PALETTE
-            .map((hex, i) => epicPaletteViolation(hex, `entry ${i}`))
+        const violations = INITIATIVE_PALETTE
+            .map((hex, i) => initiativePaletteViolation(hex, `entry ${i}`))
             .filter(Boolean);
         expect(violations).toEqual([]);
     });
@@ -9134,9 +9134,9 @@ describe('epic band palette — no brown, no muddy tones (req #3219)', () => {
         // is low enough not to fail on a nudge, high enough that a palette
         // collapsing two entries into one hue cannot pass.
         let worst = { pair: null, d: Infinity };
-        for (let i = 0; i < EPIC_PALETTE.length; i++) {
-            for (let j = i + 1; j < EPIC_PALETTE.length; j++) {
-                const d = deltaE(EPIC_PALETTE[i], EPIC_PALETTE[j]);
+        for (let i = 0; i < INITIATIVE_PALETTE.length; i++) {
+            for (let j = i + 1; j < INITIATIVE_PALETTE.length; j++) {
+                const d = deltaE(INITIATIVE_PALETTE[i], INITIATIVE_PALETTE[j]);
                 if (d < worst.d) worst = { pair: `${i}/${j}`, d };
             }
         }
@@ -9145,79 +9145,79 @@ describe('epic band palette — no brown, no muddy tones (req #3219)', () => {
 
     it('is FOUR entries that repeat, and the repeat is deliberate', () => {
         // This assertion used to be `length >= 7`, on the reasoning that the
-        // palette must cover the live epic count so no two on-screen bands ever
+        // palette must cover the live initiative count so no two on-screen bands ever
         // share a hue. req #3365 REVERSED that trade on the user's directive:
         // seven mutually-distinguishable entries forced two of them into the
-        // dark end of the wheel, where an epic's NAME — drawn in its band's
+        // dark end of the wheel, where an initiative's NAME — drawn in its band's
         // colour — was hard to read. Four bright entries that repeat beat seven
         // where two are unreadable.
         //
         // It is safe to repeat because colour on this surface is BAND POSITION,
-        // never epic identity (the ONE FACT, ONE CHANNEL rule) — an epic gets
-        // `EPIC_PALETTE[i % length]` for its position `i` in the sorted band
-        // list, and nothing anywhere looks a colour up to find an epic.
-        expect(EPIC_PALETTE).toHaveLength(4);
+        // never initiative identity (the ONE FACT, ONE CHANNEL rule) — an initiative gets
+        // `INITIATIVE_PALETTE[i % length]` for its position `i` in the sorted band
+        // list, and nothing anywhere looks a colour up to find an initiative.
+        expect(INITIATIVE_PALETTE).toHaveLength(4);
         // The cycle, asserted directly rather than inferred from the modulo:
         // band 4 wears band 0's colour and that is the intended behaviour.
-        expect(EPIC_PALETTE[4 % EPIC_PALETTE.length]).toBe(EPIC_PALETTE[0]);
+        expect(INITIATIVE_PALETTE[4 % INITIATIVE_PALETTE.length]).toBe(INITIATIVE_PALETTE[0]);
     });
 
     it('rejects the specific values this requirement removed, proving the guard has teeth',
         () => {
             // Brown fails on BOTH dimensions, decisively.
-            expect(epicPaletteViolation('#5d4037', 'brown'))
+            expect(initiativePaletteViolation('#5d4037', 'brown'))
                 .toMatch(/contrast .* below .*, saturation .* below/);
             // The old indigo — "low separation from the panel" — fails BOTH
             // general floors too (contrast 2.23 < 2.7 AND saturation 0.50 <
             // 0.55); pinned exact so a change that quietly dropped the
             // saturation floor would still be caught here.
-            expect(epicPaletteViolation('#3949ab', 'old indigo')).toBe(
+            expect(initiativePaletteViolation('#3949ab', 'old indigo')).toBe(
                 'old indigo #3949ab: hue 231.6°, contrast 2.23 below the general floor of 2.7, '
                 + 'saturation 0.50 below the general floor of 0.55');
             // The old orange is the case that motivates the warm floor at all:
             // it clears the GENERAL floor (a one-dimensional guard would pass
             // it) and fails only the raised warm-hue contrast requirement.
-            expect(epicPaletteViolation('#f57c00', 'old orange'))
+            expect(initiativePaletteViolation('#f57c00', 'old orange'))
                 .toBe('old orange #f57c00: warm hue at 30.4°, contrast 6.39 below the warm floor of 6.5');
-            expect(epicPaletteViolation('#f57c00', 'x')).not.toBeNull();
+            expect(initiativePaletteViolation('#f57c00', 'x')).not.toBeNull();
         });
 
-    it('assigns band colour by POSITION AFTER THE SORT, not by discovery order or epic '
+    it('assigns band colour by POSITION AFTER THE SORT, not by discovery order or initiative '
         + 'identity — the documented, deliberate choice (req #3219)', () => {
-        const mk = (id, epicId, epic) => ({
+        const mk = (id, initiativeId, initiative) => ({
             id, title: `s${id}`, run: 'auto', state: 'pending', reqIds: [],
-            depIds: [], timeDeps: [], epicId, epic,
-            epicLabels: [], featureLabels: [], machineLabels: [], machineLabel: '—',
+            depIds: [], timeDeps: [], initiativeId, initiative,
+            initiativeLabels: [], featureLabels: [], machineLabels: [], machineLabel: '—',
         });
-        const n = EPIC_PALETTE.length + 2; // headroom over the palette length,
-        // so the wrap below is exercised at whatever length EPIC_PALETTE is,
+        const n = INITIATIVE_PALETTE.length + 2; // headroom over the palette length,
+        // so the wrap below is exercised at whatever length INITIATIVE_PALETTE is,
         // rather than the test pinning that length to a literal.
         //
-        // Rows are discovered in DESCENDING epic id (n, n-1, …, 1). With no
+        // Rows are discovered in DESCENDING initiative id (n, n-1, …, 1). With no
         // `timeAxis` every band ties into the same tier (bandTierOf), so the
-        // sort falls through to epic id ASCENDING — the OPPOSITE of discovery
+        // sort falls through to initiative id ASCENDING — the OPPOSITE of discovery
         // order. That inversion is the point: colour is assigned via
-        // `bandKeys.forEach((key, i) => ... EPIC_PALETTE[i % len])` AFTER
+        // `bandKeys.forEach((key, i) => ... INITIATIVE_PALETTE[i % len])` AFTER
         // `bandKeys.sort(...)` runs (pipelinePlanLayout.js, "Colour AFTER the
         // sort"). If that assignment were moved back above the sort — coloured
-        // at discovery time instead — epic id n (discovered first) would take
-        // EPIC_PALETTE[0]. The real code path instead hands EPIC_PALETTE[0] to
-        // epic id 1, which sorts first despite being discovered LAST. Asserting
-        // `bands[].epicId` is ascending is what proves the sort actually ran;
-        // asserting `bands[].color` against `EPIC_PALETTE[i % len]` on THAT
+        // at discovery time instead — initiative id n (discovered first) would take
+        // INITIATIVE_PALETTE[0]. The real code path instead hands INITIATIVE_PALETTE[0] to
+        // initiative id 1, which sorts first despite being discovered LAST. Asserting
+        // `bands[].initiativeId` is ascending is what proves the sort actually ran;
+        // asserting `bands[].color` against `INITIATIVE_PALETTE[i % len]` on THAT
         // (sorted, not discovery) order is what proves colour follows it.
         const rows = Array.from({ length: n }, (_, i) => mk(i + 1, n - i, `E${n - i}`));
         const layout = computePlanLayout(rows);
-        expect(layout.bands.map((b) => b.epicId))
+        expect(layout.bands.map((b) => b.initiativeId))
             .toEqual(Array.from({ length: n }, (_, i) => i + 1));
         expect(layout.bands.map((b) => b.color)).toEqual(
-            Array.from({ length: n }, (_, i) => EPIC_PALETTE[i % EPIC_PALETTE.length]));
+            Array.from({ length: n }, (_, i) => INITIATIVE_PALETTE[i % INITIATIVE_PALETTE.length]));
         // The wrap is real, at whatever length the palette is: the band at
-        // index EPIC_PALETTE.length reuses band 0's colour though they are
-        // different epics.
-        const wrapIdx = EPIC_PALETTE.length;
+        // index INITIATIVE_PALETTE.length reuses band 0's colour though they are
+        // different initiatives.
+        const wrapIdx = INITIATIVE_PALETTE.length;
         expect(layout.bands[wrapIdx].color).toBe(layout.bands[0].color);
-        expect(layout.bands[wrapIdx].epicId).not.toBe(layout.bands[0].epicId);
+        expect(layout.bands[wrapIdx].initiativeId).not.toBe(layout.bands[0].initiativeId);
     });
 });
 
@@ -9225,7 +9225,7 @@ describe('epic band palette — no brown, no muddy tones (req #3219)', () => {
 // "Never two beads on one `(band, column, lane)` cell" is this module's oldest
 // invariant, it has an assertion in the plan-scale block above, and it was still
 // violated in the field. Every fixture this suite owns — Substrate (34 real
-// rows), the timed Substrate, the cross-epic plan — satisfies it, which is why
+// rows), the timed Substrate, the cross-initiative plan — satisfies it, which is why
 // a CORPUS rather than another fixture: 400 deterministic plans (see
 // `timedFuzzPlans.js` for the generator's shape argument), each laid out WITH
 // and WITHOUT a time axis. Deterministic means a failure names a seed and that
@@ -9335,7 +9335,7 @@ describe('cell invariant over a timed fuzz corpus (req #3229)', () => {
     // Lane assignment and arc cleanliness trade against each other: any rule
     // that hands a step a lane it would otherwise have been refused risks
     // putting its bead on somebody's horizontal run, and any rule that refuses
-    // more lanes buys cleanliness with vertical sprawl. The epic #6 case above
+    // more lanes buys cleanliness with vertical sprawl. The initiative #6 case above
     // pins the arc side on ONE eight-step shape; nothing swept either side
     // across the corpus, so req #3512 could relax a lane rule with no
     // mechanical evidence about what it cost.
@@ -9489,43 +9489,43 @@ describe('cell invariant over a timed fuzz corpus (req #3229)', () => {
     });
 });
 
-// ── req #3365 — THE EPIC LANE IS A DERIVED RESERVATION ──────────────────────
+// ── req #3365 — THE INITIATIVE LANE IS A DERIVED RESERVATION ──────────────────────
 // `BAND_HEADER` is a literal inside the module (its own comment gives the
 // temporal-dead-zone reason it cannot be the expression), so the derivation
 // lives HERE. This fails if anyone edits the chip's font, its floor scale or
 // its margin without re-deriving the lane that has to hold it — the exact
-// silent desync the previous hand-set 83 allowed, and which put the epic name
+// silent desync the previous hand-set 83 allowed, and which put the initiative name
 // on top of lane 0's step labels at every scale plan 7 actually opens in.
-describe('epic lane reservation (req #3365)', () => {
+describe('initiative lane reservation (req #3365)', () => {
     const CHIP_MARGIN_Y = 2;   // module-private; the only literal this needs
 
     // The boundary itself is pinned by 'pins the exact k where the floored chip
-    // starts escaping its own epic lane' above, which was already written to
+    // starts escaping its own initiative lane' above, which was already written to
     // move with the lane — this suite adds the SYMPTOM the user reported,
     // which that test does not speak to: the scale the live plan opens in.
     it('holds at the scale plan 7 lands in, which the old 62px lane did not', () => {
         const plan = orderedPlan(buildPipelineModel(SUBSTRATE_REBUILD_MODEL));
         const layout = computePlanLayout(plan.rows);
-        const chipBox = EPIC_CHIP_MIN_H + 2 * CHIP_MARGIN_Y;
+        const chipBox = INITIATIVE_CHIP_MIN_H + 2 * CHIP_MARGIN_Y;
         // Measured landing scale on the live 71-step plan.
         const LANDING_K = 0.2077;
         for (const band of layout.bands) {
-            expect(chipBox).toBeLessThanOrEqual(band.epicLaneH * LANDING_K);
+            expect(chipBox).toBeLessThanOrEqual(band.initiativeLaneH * LANDING_K);
         }
         // And the old reservation genuinely failed there — so this pair of
         // assertions is not vacuous.
-        const OLD_EPIC_LANE_H = 62;
-        expect(chipBox).toBeGreaterThan(OLD_EPIC_LANE_H * LANDING_K);
+        const OLD_INITIATIVE_LANE_H = 62;
+        expect(chipBox).toBeGreaterThan(OLD_INITIATIVE_LANE_H * LANDING_K);
     });
 });
 
-// ── req #3685 — the epic name's WORK stop centres on the EPIC ─────────────────
-// Plan 10 'Sunday Review' (epic 24), measured from the live composed read on
+// ── req #3685 — the initiative name's WORK stop centres on the INITIATIVE ─────────────────
+// Plan 10 'Sunday Review' (initiative 24), measured from the live composed read on
 // 2026-10-20: six cards in columns 7–10, three of them open (329/324/322 in
 // columns 9–10) and tall enough that HEIGHT binds the work fit. The work fit
 // alone centred its spare width on columns 9–10, clipping Infra Prio and
 // leaving the empty Oct 20 / future columns on the right.
-describe('epic work focus spends its slack on the epic (req #3685)', () => {
+describe('initiative work focus spends its slack on the initiative (req #3685)', () => {
     const COL = 465;
     const colX = Array.from({ length: 13 }, (_, d) => 3321 + COL / 2 + (d - 7) * COL);
     const colW = colX.map(() => COL);
@@ -9544,30 +9544,30 @@ describe('epic work focus spends its slack on the epic (req #3685)', () => {
     const size = { w: 1730, h: 850 };
     const kBase = 0.8;
     const kFloor = (size.w / layout.width) * ZOOM_MIN_RATIO;
-    const epic = stepsFitRect(layout, band.stepIds);
+    const initiative = stepsFitRect(layout, band.stepIds);
     const screen = (tr, r) => ({
         left: r.x * tr.k + tr.x, right: (r.x + r.w) * tr.k + tr.x,
         top: r.y * tr.k + tr.y, bottom: (r.y + r.h) * tr.k + tr.y,
     });
 
-    it('reproduces the defect: the plain work fit clips the epic and leaves empty canvas', () => {
+    it('reproduces the defect: the plain work fit clips the initiative and leaves empty canvas', () => {
         const tr = stepsFocusTransform(layout, work, size, kBase, kFloor);
-        const s = screen(tr, epic);
+        const s = screen(tr, initiative);
         expect(s.left).toBeLessThan(0);                       // Infra Prio clipped
         expect(size.w - s.right).toBeGreaterThan(400);        // empty Oct 20 / future
     });
 
     it('keeps the work fit\'s scale, so the click cadence is unchanged', () => {
         const plain = stepsFocusTransform(layout, work, size, kBase, kFloor);
-        const tr = epicWorkFocusTransform(layout, band, work, size, kBase, kFloor);
+        const tr = initiativeWorkFocusTransform(layout, band, work, size, kBase, kFloor);
         expect(tr.k).toBeCloseTo(plain.k, 9);
         // The second stop (the whole band) still zooms OUT from here.
-        expect(epicFocusTransform(layout, band, size, kBase, kFloor).k).toBeLessThan(tr.k);
+        expect(initiativeFocusTransform(layout, band, size, kBase, kFloor).k).toBeLessThan(tr.k);
     });
 
-    it('centres the epic\'s cards with even margins and clips none', () => {
-        const tr = epicWorkFocusTransform(layout, band, work, size, kBase, kFloor);
-        const s = screen(tr, epic);
+    it('centres the initiative\'s cards with even margins and clips none', () => {
+        const tr = initiativeWorkFocusTransform(layout, band, work, size, kBase, kFloor);
+        const s = screen(tr, initiative);
         expect(s.left).toBeGreaterThanOrEqual(FOCUS_PAD);
         expect(size.w - s.right).toBeGreaterThanOrEqual(FOCUS_PAD);
         expect(Math.abs(s.left - (size.w - s.right))).toBeLessThan(1);
@@ -9580,20 +9580,20 @@ describe('epic work focus spends its slack on the epic (req #3685)', () => {
         }
     });
 
-    it('never pushes the open work out of frame when the epic is wider than the window', () => {
+    it('never pushes the open work out of frame when the initiative is wider than the window', () => {
         const narrow = { w: 900, h: 850 };
         const kF = (narrow.w / layout.width) * ZOOM_MIN_RATIO;
-        const tr = epicWorkFocusTransform(layout, band, work, narrow, kBase, kF);
+        const tr = initiativeWorkFocusTransform(layout, band, work, narrow, kBase, kF);
         const s = screen(tr, stepsFitRect(layout, work));
         expect(s.left).toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
         expect(narrow.w - s.right).toBeGreaterThanOrEqual(FOCUS_PAD - 1e-6);
-        // ...and what is left over is the epic's own cards, not empty canvas.
-        const e = screen(tr, epic);
+        // ...and what is left over is the initiative's own cards, not empty canvas.
+        const e = screen(tr, initiative);
         expect(e.left).toBeLessThanOrEqual(0);
     });
 
     it('leaves a single open card centred on itself (2026-08-13 directive)', () => {
-        const tr = epicWorkFocusTransform(layout, band, [329], size, kBase, kFloor);
+        const tr = initiativeWorkFocusTransform(layout, band, [329], size, kBase, kFloor);
         expect(tr).toEqual(stepsFocusTransform(layout, [329], size, kBase, kFloor));
     });
 
@@ -9601,14 +9601,14 @@ describe('epic work focus spends its slack on the epic (req #3685)', () => {
         const real = computePlanLayout(plan.rows, { stepLabel: 'title' });
         let multi = 0;
         for (const b of real.bands) {
-            const ids = epicWorkStepIds(plan.rows, real, b);
+            const ids = initiativeWorkStepIds(plan.rows, real, b);
             const er = stepsFitRect(real, b.stepIds);
             if (!ids.length || !er) continue;
             if (placedStepCount(real, ids) > 1) multi += 1;
             for (const sz of [{ w: 1730, h: 850 }, { w: 1200, h: 1000 }, { w: 2400, h: 700 }]) {
                 const kb = Math.max(sz.w / real.width, 0.8);
                 const kf = Math.min(sz.w / real.width, kb) * ZOOM_MIN_RATIO;
-                const tr = epicWorkFocusTransform(real, b, ids, sz, kb, kf);
+                const tr = initiativeWorkFocusTransform(real, b, ids, sz, kb, kf);
                 const wk = screen(tr, stepsFitRect(real, ids));
                 expect(wk.left, `band ${b.key}`).toBeGreaterThanOrEqual(-1e-6);
                 expect(wk.right, `band ${b.key}`).toBeLessThanOrEqual(sz.w + 1e-6);

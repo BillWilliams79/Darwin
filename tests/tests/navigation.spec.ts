@@ -79,22 +79,22 @@ test.describe('Navigation', () => {
     await page.getByRole('link', { name: /pipelines/i }).click();
     await expect(page).toHaveURL(/\/swarm\/pipelines/);
 
-    // Req #3236 — Epics and Steps nest under Pipelines the same way Sessions'
+    // Req #3236 — Initiatives and Steps nest under Pipelines the same way Sessions'
     // L3s nest under it (req #3209): hidden until the +/- is clicked.
     // Assert absent first so a regression that renders them unconditionally
     // still fails here.
-    const epicsLink = navbar.getByRole('link', { name: /^epics$/i });
-    await expect(epicsLink).toHaveCount(0);
+    const initiativesLink = navbar.getByRole('link', { name: /^initiatives$/i });
+    await expect(initiativesLink).toHaveCount(0);
     await page.getByTestId('nav-expand-toggle-swarm-pipelines').click();
     // Wait explicitly rather than leaning on Playwright's actionability check to
     // ride out MUI's Collapse timeout="auto" animation.
-    await expect(epicsLink).toHaveCount(1);
-    await epicsLink.click();
-    await expect(page).toHaveURL(/\/swarm\/epics/);
+    await expect(initiativesLink).toHaveCount(1);
+    await initiativesLink.click();
+    await expect(page).toHaveURL(/\/swarm\/initiatives/);
 
     // Collapsing hides them again — the toggle is not one-way.
     await page.getByTestId('nav-expand-toggle-swarm-pipelines').click();
-    await expect(epicsLink).toHaveCount(0);
+    await expect(initiativesLink).toHaveCount(0);
 
     // Navigate to Sessions
     await page.getByRole('link', { name: /sessions/i }).click();

@@ -27,7 +27,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 // Mirrors the real column contract closely enough to catch a signature error
-// (the EpicsPage.test.jsx / StepsPage.test.jsx doctrine) — jsdom gives every
+// (the InitiativesPage.test.jsx / StepsPage.test.jsx doctrine) — jsdom gives every
 // DataGrid element a zero-size box, so the real grid virtualizes to nothing.
 vi.mock('@mui/x-data-grid', () => ({
     GridToolbar: () => null,

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
 // req #3393 — the pipelines browser/editor. Structural sibling of the other
-// plan-layer page test files (see the epics page test's header for the
+// plan-layer page test files (see the initiatives page test's header for the
 // DataGrid-stub rationale, copied rather than imported).
 //
 // req #3356 collapsed the plan layer to one era: the visualizer route these
@@ -93,7 +93,7 @@ vi.mock('@mui/x-data-grid', () => ({
 
 let pipelines;
 let machines;
-let epics;
+let initiatives;
 let steps;
 let stepRequirements;
 let requirements;
@@ -106,7 +106,7 @@ vi.mock('../../hooks/useDataQueries', async (importOriginal) => {
         ...actual,
         useAllPipelines: () => ({ data: pipelines, isLoading: loading.pipelines }),
         useMachines: () => ({ data: machines, isLoading: loading.machines }),
-        useAllEpics: () => ({ data: epics, isLoading: loading.epics }),
+        useAllInitiatives: () => ({ data: initiatives, isLoading: loading.initiatives }),
         useAllPipelineSteps: () => ({ data: steps, isLoading: loading.steps }),
         useAllPipelineStepRequirements: () => ({
             data: stepRequirements, isLoading: loading.links }),
@@ -209,7 +209,7 @@ beforeEach(() => {
     sessionStorage.clear();
     localStorage.clear();
     loading = {
-        pipelines: false, machines: false, epics: false, steps: false,
+        pipelines: false, machines: false, initiatives: false, steps: false,
         links: false, requirements: false,
     };
     pipelines = [
@@ -220,14 +220,14 @@ beforeEach(() => {
           completed_at: null },
     ];
     machines = [{ id: 4, title: 'Mac mini' }];
-    epics = [
-        { id: 40, pipeline_fk: 7, title: 'Epic Seven' },
-        { id: 41, pipeline_fk: 8, title: 'Epic Eight' },
+    initiatives = [
+        { id: 40, pipeline_fk: 7, title: 'Initiative Seven' },
+        { id: 41, pipeline_fk: 8, title: 'Initiative Eight' },
     ];
     steps = [
-        { id: 500, epic_fk: 40 },
-        { id: 501, epic_fk: 40 },
-        { id: 502, epic_fk: 41 },
+        { id: 500, initiative_fk: 40 },
+        { id: 501, initiative_fk: 40 },
+        { id: 502, initiative_fk: 41 },
     ];
     stepRequirements = [
         { step_fk: 500, requirement_fk: 900 },
@@ -303,7 +303,7 @@ describe('PipelinesPage2 — Cards view (default)', () => {
         expect(node('pipelines-card-holder-7')).toBeNull();
 
         orchestrationClaims = [{
-            id: 1, pipeline_fk: 7, epic_fk: null, machine_fk: 4,
+            id: 1, pipeline_fk: 7, initiative_fk: null, machine_fk: 4,
             claimed_at: '2026-08-10T10:00:00', update_ts: new Date().toISOString().slice(0, 19),
         }];
         mount();

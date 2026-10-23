@@ -5,6 +5,7 @@ import { describe, it, expect } from 'vitest';
 import {
     REQ_DRAG_SLOP, REQ_DRAG_EDGE_PX, REQ_DRAG_EDGE_MAX_SPEED,
     reqPressOutcome, stillHeld, dropTargetAt, canDropOn, applyReqMoves, edgePanVelocity,
+    canUnseatFrom, reqMoveReflected,
 } from '../pipelineReqDrag';
 import {
     MOUSE_ACTIVATION_PX, TOUCH_TOLERANCE_PX, PRESS_SLOP_PX,
@@ -81,7 +82,7 @@ describe('canDropOn', () => {
     });
 
     // req #3750 — a step has no state: one whose work is all met still takes
-    // a requirement. Only a lock (the step's, its epic's or its plan's) refuses.
+    // a requirement. Only a lock (the step's, its initiative's or its plan's) refuses.
     it('accepts a step whose work is all finished — a step is never closed', () => {
         expect(canDropOn(row(2, [], { state: 'done' }), 1)).toBe(true);
     });
@@ -145,6 +146,47 @@ describe('applyReqMoves', () => {
     it('returns the rows untouched with nothing pending', () => {
         expect(applyReqMoves(rows, [])).toBe(rows);
         expect(applyReqMoves([], [{ reqId: 1, toStepId: 2 }])).toEqual([]);
+    });
+
+    // req #3817 — dropped on the Orchestrables box: off the plan.
+    it('an unseat (toStepId null) takes the requirement off every step and onto none', () => {
+        const withTracker = [row(1, [10, 30], { trackingReqIds: [30] }), row(2, [5]), row(3, [7])];
+        const out = applyReqMoves(withTracker, [{ reqId: 30, fromStepId: 1, toStepId: null }]);
+        expect(out.map((r) => r.reqIds)).toEqual([[10], [5], [7]]);
+        expect(out[0].launchReqIds).toEqual([10]);
+        expect(out[0].trackingReqIds).toEqual([]);
+        expect(out[1]).toBe(withTracker[1]);
+    });
+
+    it('an unseat of a requirement on no step is a no-op, and idempotent', () => {
+        expect(applyReqMoves(rows, [{ reqId: 99, fromStepId: 1, toStepId: null }])).toBe(rows);
+        const once = applyReqMoves(rows, [{ reqId: 30, fromStepId: 1, toStepId: null }]);
+        expect(applyReqMoves(once, [{ reqId: 30, fromStepId: 1, toStepId: null }])).toBe(once);
+    });
+});
+
+describe('canUnseatFrom (req #3817)', () => {
+    it('any step\'s requirement may leave the plan', () => {
+        expect(canUnseatFrom({ id: 1 })).toBe(true);
+    });
+    it('a locked step\'s may not — the gateway would answer 423', () => {
+        expect(canUnseatFrom({ id: 1, effectiveLocked: true })).toBe(false);
+    });
+    it('an unknown source is no drop', () => {
+        expect(canUnseatFrom(undefined)).toBe(false);
+    });
+});
+
+describe('reqMoveReflected (req #3817)', () => {
+    const server = [row(1, [10]), row(2, [5, 30])];
+    it('a move is reflected once its target lists the requirement', () => {
+        expect(reqMoveReflected(server, { reqId: 30, toStepId: 2 })).toBe(true);
+        expect(reqMoveReflected(server, { reqId: 30, toStepId: 1 })).toBe(false);
+    });
+    it('an unseat is reflected once no step lists it', () => {
+        expect(reqMoveReflected(server, { reqId: 30, toStepId: null })).toBe(false);
+        expect(reqMoveReflected(server, { reqId: 77, toStepId: null })).toBe(true);
+        expect(reqMoveReflected(undefined, { reqId: 77, toStepId: null })).toBe(true);
     });
 });
 

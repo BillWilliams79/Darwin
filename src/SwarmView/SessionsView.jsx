@@ -279,18 +279,18 @@ const getSessionColumns = (navigate, timezone, showCompleted) => [
         headerName: 'Pipeline',
         width: 240,
         // req #3724 — sort/filter text is the whole placement, so the quick
-        // filter finds a session by its epic or step name as well as its plan.
-        valueGetter: (value, row) => [row.pipeline?.label, row.pipeline?.epicLabel,
+        // filter finds a session by its initiative or step name as well as its plan.
+        valueGetter: (value, row) => [row.pipeline?.label, row.pipeline?.initiativeLabel,
                                       row.pipeline?.stepLabel].filter(Boolean).join(' › '),
         renderCell: (params) => {
             const plan = params.row.pipeline;
             if (!plan || plan.state === 'none') return '—';
             const clickable = plan.state === 'link';
-            // req #3724 — one pill, three lines: plan (bold), then epic and
+            // req #3724 — one pill, three lines: plan (bold), then initiative and
             // step beneath it, each a single ellipsised line so the pill fits
             // the fixed ROW_HEIGHT. A level that does not resolve is omitted.
             const lines = [
-                { key: 'epic', label: 'Epic', value: plan.epicLabel },
+                { key: 'initiative', label: 'Initiative', value: plan.initiativeLabel },
                 { key: 'step', label: 'Step', value: plan.stepLabel },
             ].filter(l => l.value);
             const lineSx = { overflow: 'hidden', textOverflow: 'ellipsis',
@@ -490,7 +490,7 @@ const SessionsView = () => {
     // is not called here any more, and with it went the `pipelineTitleById` map
     // that only ever fed a dead grid field (see `pipeline_title` below).
     const { data: pipelinesData } = useAllPipelines(profile?.userName);
-    // req #3724 — epic and step names for the same pill. The orchestration
+    // req #3724 — initiative and step names for the same pill. The orchestration
     // index's four list reads are the plan pages' own cache entries (the plan
     // list among them, so this adds three reads, shared, not per row).
     const { index: orchestrationIndex } = useOrchestrationIndex(profile?.userName);

@@ -163,9 +163,9 @@ describe('the maximize switch on the canvas (req #3658, placed by req #3793)', (
 });
 
 describe('the upper-left corner covers nothing (req #3793)', () => {
-    // The epic names are clamped below the ruler's strip, and the strip is
+    // The initiative names are clamped below the ruler's strip, and the strip is
     // never shorter than RULER_H (36): the switch ends above it at every zoom.
-    it('fits inside the pinned ruler strip, so no epic name reaches it', () => {
+    it('fits inside the pinned ruler strip, so no initiative name reaches it', () => {
         for (const k of [0.1, 0.25, 0.5, 0.8, 1, 2, 4]) {
             expect(MAXIMIZE_SWITCH.top + MAXIMIZE_SWITCH.h)
                 .toBeLessThan(rulerScreenBottom({ x: 0, y: 0, k }));

@@ -158,15 +158,15 @@ export default function PipelinesCardsView({ pipelines, summaries, reqCounts,
                                     <Chip size="small" variant="outlined"
                                           label={`${s.total} step${s.total === 1 ? '' : 's'}`} />
                                     <Tooltip title={p.execution_mode === 'serial'
-                                        ? 'Serial — one epic at a time, in sort_order'
-                                        : 'Parallel — every epic runs at once'}>
+                                        ? 'Serial — one initiative at a time, in sort_order'
+                                        : 'Parallel — every initiative runs at once'}>
                                         <Chip size="small"
                                               {...executionModeChipProps(p.execution_mode)}
                                               label={executionModeLabel(p.execution_mode)} />
                                     </Tooltip>
                                     {/* req #3649 — display-only; the Table view toggles it. */}
                                     {Boolean(Number(p.locked)) && (
-                                        <Tooltip title="Locked — this plan, its epics and steps are frozen as a record">
+                                        <Tooltip title="Locked — this plan, its initiatives and steps are frozen as a record">
                                             <Chip size="small"
                                                   {...lockedChipProps(p.locked)}
                                                   label={lockedLabel(p.locked)}

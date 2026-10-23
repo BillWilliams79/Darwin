@@ -75,8 +75,8 @@ let restoreSize;
 let canvas;
 
 const row = (id, title) => ({ id, title, requirement_status: 'swarm_ready' });
-const step = (id, epic_fk, title, locked = 0) => ({
-    id, epic_fk, title, run: 'auto', notes: null, locked, not_before: null,
+const step = (id, initiative_fk, title, locked = 0) => ({
+    id, initiative_fk, title, run: 'auto', notes: null, locked, not_before: null,
 });
 
 beforeEach(() => {
@@ -107,7 +107,7 @@ afterEach(() => {
 
 function render() {
     const payload = composedFixture({
-        epics: [{ id: 5, title: 'Build', pipeline_fk: 2, sort_order: 1 }],
+        initiatives: [{ id: 5, title: 'Build', pipeline_fk: 2, sort_order: 1 }],
         steps: [step(10, 5, 'Design'), step(11, 5, 'Implement', 1)],
         stepDeps: [{ id: 1, step_fk: 11, dep_step_fk: 10 }],
     });

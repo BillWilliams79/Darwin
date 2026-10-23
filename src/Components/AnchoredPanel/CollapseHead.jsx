@@ -9,7 +9,7 @@
 //
 // THE HEAD IS THE ANCHOR: whatever it folds, folds INTO it — the head never
 // moves when it is clicked. In normal flow that holds by putting the head
-// first in its panel; a floating panel gets it from AnchoredPanel.
+// first in its panel; an Action Popup gets it from AnchoredPanel.
 
 import Box from '@mui/material/Box';
 

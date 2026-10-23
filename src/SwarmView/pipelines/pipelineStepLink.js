@@ -60,8 +60,8 @@ import { planDetailPath } from './planEra';
 export const FOCUS_STEP_PARAM = 'step';
 
 // ── The SAME step, seen on the PLAN instead of in the table (req #3253) ──────
-// The requirement page's "view on plan" link used to name the whole EPIC, and
-// `?epic=` fits the entire band — which on a large epic IS a zoomed-out view.
+// The requirement page's "view on plan" link used to name the whole INITIATIVE, and
+// `?initiative=` fits the entire band — which on a large initiative IS a zoomed-out view.
 // The link means "show me where this requirement lives", so it names the STEP.
 //
 // The SAME `?step=` parameter the Table's `stepLinkTo` used — deliberately not
@@ -242,7 +242,7 @@ export const PLAN_VIEW_PARAMS = Object.freeze([
  * "Back to Plan" can return to the SAME view (req #3637): the panel, and each
  * `PLAN_VIEW_PARAMS` override the reader was looking at. The camera, the table
  * scroll and the popouts come back from storage on their own — Back goes to the
- * plain plan URL, never to a `?step=`/`?epic=` link that would move them.
+ * plain plan URL, never to a `?step=`/`?initiative=` link that would move them.
  *
  * Read off `window.location` at click time, the one place both the plan's own
  * panels and their callers agree on, and validated like the URL itself.
@@ -295,7 +295,7 @@ export function backToPlanQuery(state) {
  * list — the receiving page owns that vocabulary and falls back on anything it
  * does not recognise; all this end needs is that the value cannot corrupt the
  * URL it is interpolated into. Moved here from StepsPage by req #3742 so the
- * Epics and Steps editors read it identically.
+ * Initiatives and Steps editors read it identically.
  */
 export function planOriginOf(state) {
     if (state?.from !== 'pipeline') return null;

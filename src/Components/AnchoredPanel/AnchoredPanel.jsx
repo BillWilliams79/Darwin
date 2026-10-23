@@ -1,10 +1,11 @@
-// AnchoredPanel.jsx — a floating panel docked to the Darwin viewport that the
-// reader moves, reshapes and collapses (req #3643). Pattern doc:
-// memory/anchored-collapse-pattern.md; geometry in anchoredPanelGeometry.js.
+// AnchoredPanel.jsx — the frame of an Action Popup: a floating panel docked to
+// the Darwin viewport that the reader moves, reshapes and collapses (req
+// #3643). Pattern doc: memory/anchored-collapse-pattern.md; geometry in
+// anchoredPanelGeometry.js.
 //
 // ── THE HEAD IS THE ANCHOR ─────────────────────────────────────────────────
 // The head row is always the panel's top row: the CollapseHead (▾) at the
-// upper left — every pop-up window's, one control (req #3741) — then the
+// upper left — every Action Popup's, one control (req #3741) — then the
 // host's `extras` (a count badge), then the title — left-aligned — and the
 // host's `actions`: at the far right while open; folded, right after the
 // title, with the panel's right edge pulled in so the whole package is tight

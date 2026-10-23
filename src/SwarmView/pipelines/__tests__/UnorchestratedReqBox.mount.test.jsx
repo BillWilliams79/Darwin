@@ -67,6 +67,28 @@ describe('UnorchestratedReqBox', () => {
         expect(q('pipeline-viz-unseated').hasAttribute('data-viz-chrome')).toBe(true);
     });
 
+    // req #3817 — a drop target for a requirement dragged off a step.
+    it('hands its element to the drag and shows when a requirement is over it', () => {
+        const dropTargetRef = { current: null };
+        act(() => root.render(<UnorchestratedReqBox items={items} dropTargetRef={dropTargetRef} />));
+        const box = q('pipeline-viz-unseated');
+        expect(dropTargetRef.current).toBe(box);
+        expect(box.getAttribute('data-drop-armed')).toBe('');
+        expect(box.getAttribute('data-drop-over')).toBe('0');
+        act(() => root.render(<UnorchestratedReqBox items={items} dropTargetRef={dropTargetRef}
+                                                    dropArmed="ok" />));
+        expect(box.getAttribute('data-drop-armed')).toBe('ok');
+        expect(q('pipeline-viz-unseated-title').textContent).toBe('Orchestrables');
+        act(() => root.render(<UnorchestratedReqBox items={items} dropTargetRef={dropTargetRef}
+                                                    dropArmed="ok" dropOver />));
+        expect(box.getAttribute('data-drop-over')).toBe('1');
+        expect(q('pipeline-viz-unseated-title').textContent).toBe('Drop to un-orchestrate');
+        act(() => root.render(<UnorchestratedReqBox items={items} dropTargetRef={dropTargetRef}
+                                                    dropArmed="refused" />));
+        expect(box.getAttribute('data-drop-armed')).toBe('refused');
+        expect(getComputedStyle(box).cursor).toBe('no-drop');
+    });
+
     it('wraps a title to two lines at most, then an ellipsis (req #3684)', () => {
         act(() => root.render(<UnorchestratedReqBox items={items} />));
         const title = q('pipeline-viz-unseated-item-title-11');
@@ -159,7 +181,7 @@ describe('UnorchestratedReqBox', () => {
         try {
             act(() => root.render(<UnorchestratedReqBox items={items} fontPx={12} widthPx={612} />));
             const header = q('pipeline-viz-unseated-header');
-            // Every pop-up window's controls (req #3741): ▾ upper left, the
+            // Every Action Popup's controls (req #3741): ▾ upper left, the
             // upper right blank — the title is the bar's last item.
             const toggle = q('pipeline-viz-unseated-toggle');
             expect(header.firstElementChild).toBe(toggle);

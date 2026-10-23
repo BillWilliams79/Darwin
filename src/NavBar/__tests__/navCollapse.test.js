@@ -240,13 +240,13 @@ describe('iconModeLinks (req #3590)', () => {
             { path: '/swarm/sessions', group: 'swarm' },
             { path: '/swarm/starts', group: 'swarm' },
         ] },
-        { path: '/swarm/epics', group: 'swarm' },
+        { path: '/swarm/initiatives', group: 'swarm' },
     ];
     const paths = (ls) => ls.map(l => l.path);
 
     it('shows every L2 link but no L3 children by default', () => {
         expect(paths(iconModeLinks(groups, links, {}, {})))
-            .toEqual(['/calview', '/tasks', '/swarm', '/swarm/epics']);
+            .toEqual(['/calview', '/tasks', '/swarm', '/swarm/initiatives']);
     });
 
     it('hides every link of a collapsed group', () => {
@@ -256,12 +256,12 @@ describe('iconModeLinks (req #3590)', () => {
 
     it('never hides an unlabelled group, even with a stray flag', () => {
         expect(paths(iconModeLinks(groups, links, { cal: true }, {})))
-            .toEqual(['/calview', '/tasks', '/swarm', '/swarm/epics']);
+            .toEqual(['/calview', '/tasks', '/swarm', '/swarm/initiatives']);
     });
 
     it('shows L3 children right after their parent only while it is expanded', () => {
         expect(paths(iconModeLinks(groups, links, {}, { '/swarm': true })))
-            .toEqual(['/calview', '/tasks', '/swarm', '/swarm/sessions', '/swarm/starts', '/swarm/epics']);
+            .toEqual(['/calview', '/tasks', '/swarm', '/swarm/sessions', '/swarm/starts', '/swarm/initiatives']);
     });
 
     it('a collapsed group hides an expanded item\'s children too', () => {
@@ -272,7 +272,7 @@ describe('iconModeLinks (req #3590)', () => {
     it('follows group order, not link order', () => {
         const reordered = [groups[2], groups[0], groups[1]];
         expect(paths(iconModeLinks(reordered, links, {}, {})))
-            .toEqual(['/swarm', '/swarm/epics', '/calview', '/tasks']);
+            .toEqual(['/swarm', '/swarm/initiatives', '/calview', '/tasks']);
     });
 
     it('with nothing collapsed or expanded, matches the real config\'s top-level links', () => {

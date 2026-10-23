@@ -40,7 +40,7 @@ vi.mock('../../../hooks/factory/createEntityQueries', async (importOriginal) => 
 const restCalls = [];
 let seatPostStatus = 200;
 let stepLocked = 0;
-let epicLocked = 0;
+let initiativeLocked = 0;
 let planLocked = 0;
 vi.mock('../../../RestApi/RestApi', () => ({
     default: vi.fn((uri, method, body) => {
@@ -50,11 +50,11 @@ vi.mock('../../../RestApi/RestApi', () => ({
         }
         if (String(uri).includes('/pipeline_steps?id=') && method === 'GET') {
             return Promise.resolve({ httpStatus: { httpStatus: 200 },
-                data: [{ id: 412, locked: stepLocked, epic_fk: 55 }] });
+                data: [{ id: 412, locked: stepLocked, initiative_fk: 55 }] });
         }
-        if (String(uri).includes('/epics?id=55') && method === 'GET') {
+        if (String(uri).includes('/initiatives?id=55') && method === 'GET') {
             return Promise.resolve({ httpStatus: { httpStatus: 200 },
-                data: [{ id: 55, locked: epicLocked, pipeline_fk: 7 }] });
+                data: [{ id: 55, locked: initiativeLocked, pipeline_fk: 7 }] });
         }
         if (String(uri).includes('/pipelines?id=7') && method === 'GET') {
             return Promise.resolve({ httpStatus: { httpStatus: 200 },
@@ -136,7 +136,7 @@ describe('RequirementDetail new mode filed from a plan step (req #3582)', { time
         snackMessages.length = 0;
         seatPostStatus = 200;
         stepLocked = 0;
-        epicLocked = 0;
+        initiativeLocked = 0;
         planLocked = 0;
         locationState = { seatStepId: 412, seatStepName: 'Seat UI',
             from: 'pipeline', pipelineId: 7, mode: 'plan', backStepId: 412 };
@@ -199,29 +199,29 @@ describe('RequirementDetail new mode filed from a plan step (req #3582)', { time
         expect(snackMessages).toEqual(['Step 412 is locked — it takes no new work; nothing was created']);
         // The re-read names only columns that exist — `completed_at` is dropped.
         const stepRead = restCalls.find((c) => c.uri.includes('/pipeline_steps?id=412'));
-        expect(stepRead.uri).toContain('fields=id,locked,epic_fk');
+        expect(stepRead.uri).toContain('fields=id,locked,initiative_fk');
         expect(navigateCalls).toEqual([]);
         // The draft is left uncategorized, so the user can see nothing saved.
         expect(container.querySelector('[data-testid="requirement-category-select"]').textContent)
             .toBe('Must Select');
     });
 
-    // The lock CASCADES (req #3649): a locked EPIC or PLAN refuses the seat
-    // with a 423 too, so the pre-check walks step -> epic -> plan, or the
+    // The lock CASCADES (req #3649): a locked INITIATIVE or PLAN refuses the seat
+    // with a 423 too, so the pre-check walks step -> initiative -> plan, or the
     // requirement would be created and left unseated.
-    it('creates nothing when the step\'s EPIC is locked', async () => {
-        epicLocked = 1;
+    it('creates nothing when the step\'s INITIATIVE is locked', async () => {
+        initiativeLocked = 1;
         const { container } = mount();
         await flush();
         await pickCategory(container, 'Darwin');
         expect(writes()).toEqual([]);
-        expect(snackMessages).toEqual(["Step 412's epic is locked — it takes no new work; nothing was created"]);
+        expect(snackMessages).toEqual(["Step 412's initiative is locked — it takes no new work; nothing was created"]);
         expect(navigateCalls).toEqual([]);
     });
 
     it('creates nothing when the step\'s PLAN is locked, naming the outermost lock', async () => {
         planLocked = 1;
-        epicLocked = 1;
+        initiativeLocked = 1;
         const { container } = mount();
         await flush();
         await pickCategory(container, 'Darwin');

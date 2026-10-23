@@ -505,7 +505,7 @@ const RequirementRowContent = memo(({ requirement, requirementIndex, categoryId,
                         // `req-title-`, NOT `requirement-title-`: `requirement-`
                         // is a ROW-level prefix namespace, selected wholesale by
                         // `[data-testid^="requirement-"]` in swarm.spec.ts and in
-                        // req #3428's epic-filter specs. A title testid under it
+                        // req #3428's initiative-filter specs. A title testid under it
                         // makes every such selector return two nodes per row —
                         // caught by those specs, and it would have broken E2E.
                         data-testid={requirement.id === '' ? undefined

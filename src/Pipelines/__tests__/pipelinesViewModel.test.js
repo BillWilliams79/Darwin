@@ -7,33 +7,33 @@ import { describe, it, expect } from 'vitest';
 import { pipelineSummaries, pipelineRequirementCounts } from '../pipelinesViewModel';
 
 const pipelines = [{ id: 7 }, { id: 8 }];
-const epics = [
+const initiatives = [
     { id: 40, pipeline_fk: 7 },
     { id: 41, pipeline_fk: 8 },
 ];
 const steps = [
-    { id: 500, epic_fk: 40 },
-    { id: 501, epic_fk: 40 },
-    { id: 502, epic_fk: 41 },
+    { id: 500, initiative_fk: 40 },
+    { id: 501, initiative_fk: 40 },
+    { id: 502, initiative_fk: 41 },
 ];
 
 describe('pipelineSummaries', () => {
     // req #3750 — a step has no state, so the summary is a COUNT only: no
     // done/open tally.
-    it('counts steps per pipeline via epic_fk -> pipeline_fk', () => {
-        const out = pipelineSummaries({ pipelines, steps, epics });
+    it('counts steps per pipeline via initiative_fk -> pipeline_fk', () => {
+        const out = pipelineSummaries({ pipelines, steps, initiatives });
         expect(out.get(7)).toEqual({ total: 2 });
         expect(out.get(8)).toEqual({ total: 1 });
     });
 
     it('seeds an entry for every pipeline, even one with no steps', () => {
-        const out = pipelineSummaries({ pipelines: [...pipelines, { id: 9 }], steps, epics });
+        const out = pipelineSummaries({ pipelines: [...pipelines, { id: 9 }], steps, initiatives });
         expect(out.get(9)).toEqual({ total: 0 });
     });
 
-    it('drops a step whose epic is unresolved rather than crashing', () => {
+    it('drops a step whose initiative is unresolved rather than crashing', () => {
         const out = pipelineSummaries({
-            pipelines, steps: [...steps, { id: 999, epic_fk: 12345 }], epics,
+            pipelines, steps: [...steps, { id: 999, initiative_fk: 12345 }], initiatives,
         });
         expect(out.get(7)).toEqual({ total: 2 });
         expect(out.get(8)).toEqual({ total: 1 });
@@ -52,20 +52,20 @@ describe('pipelineRequirementCounts', () => {
 
     it('counts met vs total from stored requirement_status, no derivation', () => {
         const out = pipelineRequirementCounts({
-            pipelines, steps, epics, stepRequirements, requirements });
+            pipelines, steps, initiatives, stepRequirements, requirements });
         expect(out.get(7)).toEqual({ met: 1, total: 2 });
         expect(out.get(8)).toEqual({ met: 0, total: 0 });
     });
 
     it('seeds {met:0,total:0} for a plan with no linked requirements', () => {
         const out = pipelineRequirementCounts({
-            pipelines, steps, epics, stepRequirements: [], requirements });
+            pipelines, steps, initiatives, stepRequirements: [], requirements });
         expect(out.get(7)).toEqual({ met: 0, total: 0 });
     });
 
     it('treats an unresolved requirement id as not-met rather than throwing', () => {
         const out = pipelineRequirementCounts({
-            pipelines, steps, epics,
+            pipelines, steps, initiatives,
             stepRequirements: [{ step_fk: 500, requirement_fk: 99999 }],
             requirements,
         });

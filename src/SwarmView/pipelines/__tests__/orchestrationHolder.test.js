@@ -37,7 +37,7 @@ function claim(over = {}) {
     return {
         id: 1,
         pipeline_fk: 2,
-        epic_fk: null,
+        initiative_fk: null,
         machine_fk: 4,
         terminal_pid: 41234,
         engine_pid: 55012,
@@ -110,8 +110,8 @@ describe('heartbeat age', () => {
 
 // req #3356 — `orchestration_claims` CARRIED TWO SCOPE COLUMN PAIRS while the
 // two plan eras ran side by side. Migration 20260812184333 dropped the older
-// pair and renamed the survivor into `pipeline_fk`/`epic_fk`, so a claim row now
-// has exactly one pair and a scope is `(pipeline_fk, epic_fk)` and nothing else.
+// pair and renamed the survivor into `pipeline_fk`/`initiative_fk`, so a claim row now
+// has exactly one pair and a scope is `(pipeline_fk, initiative_fk)` and nothing else.
 //
 // TWO CASES WERE DELETED FROM THE BLOCK BELOW, both era-arbitration:
 //
@@ -122,7 +122,7 @@ describe('heartbeat age', () => {
 //     the case asserted the opposite of the truth. What it really pinned (an id
 //     that matches nothing, and a null id, both answer null) is asserted
 //     directly in the first case below.
-//   * "scopeLabel still renders pipeline:/epic: for a 1.0 claim" drove the
+//   * "scopeLabel still renders pipeline:/initiative: for a 1.0 claim" drove the
 //     second of `scopeLabel`'s two era branches. Both branches ended up reading
 //     the same column after the rename, so one of them was unreachable and
 //     `scopeLabel` collapsed to a single branch — see the label case below.
@@ -133,17 +133,17 @@ describe('heartbeat age', () => {
 // single pair they now are.
 
 describe('scope selection', () => {
-    // A scope is (pipeline_fk, epic_fk): `epic_fk` null means the WHOLE PLAN,
+    // A scope is (pipeline_fk, initiative_fk): `initiative_fk` null means the WHOLE PLAN,
     // which owns every step in it.
     const claims = [
-        claim({ id: 10, pipeline_fk: 6, epic_fk: null }),   // whole plan 6
-        claim({ id: 11, pipeline_fk: 6, epic_fk: 9 }),      // epic 9 of plan 6
-        claim({ id: 12, pipeline_fk: 2, epic_fk: null }),   // whole plan 2
+        claim({ id: 10, pipeline_fk: 6, initiative_fk: null }),   // whole plan 6
+        claim({ id: 11, pipeline_fk: 6, initiative_fk: 9 }),      // initiative 9 of plan 6
+        claim({ id: 12, pipeline_fk: 2, initiative_fk: null }),   // whole plan 2
     ];
 
     it('claimForPipeline finds only the WHOLE-PLAN reservation', () => {
-        // An epic-scoped claim on the SAME plan (id 11) must not satisfy this:
-        // the plan header answers "who owns this whole plan", and an epic
+        // An initiative-scoped claim on the SAME plan (id 11) must not satisfy this:
+        // the plan header answers "who owns this whole plan", and an initiative
         // holder is a different, narrower answer.
         expect(claimForPipeline(claims, 6).id).toBe(10);
         expect(claimForPipeline(claims, 2).id).toBe(12);
@@ -158,9 +158,9 @@ describe('scope selection', () => {
     // always won, and the era-free branch beneath it became unreachable — it
     // could only ever have printed `pipeline:null`. These are the strings the
     // surviving single branch emits.
-    it('scopeLabel names a whole-plan and an epic-scoped claim', () => {
+    it('scopeLabel names a whole-plan and an initiative-scoped claim', () => {
         expect(scopeLabel(claims[0])).toBe('pipeline:6');
-        expect(scopeLabel(claims[1])).toBe('epic:9@6');
+        expect(scopeLabel(claims[1])).toBe('initiative:9@6');
     });
 
     it('scopeLabel answers empty rather than naming a scope it cannot', () => {
@@ -169,7 +169,7 @@ describe('scope selection', () => {
         expect(scopeLabel(null)).toBe('');
         expect(scopeLabel(undefined)).toBe('');
         expect(scopeLabel(claim({ pipeline_fk: null }))).toBe('');
-        expect(scopeLabel(claim({ pipeline_fk: null, epic_fk: 9 }))).toBe('');
+        expect(scopeLabel(claim({ pipeline_fk: null, initiative_fk: 9 }))).toBe('');
     });
 });
 
@@ -239,25 +239,25 @@ describe('orchestrationView', () => {
     it('names the lead and every machine subscribed to it', () => {
         const view = orchestrationView([
             claim({ id: 1, machine_fk: 4 }),
-            claim({ id: 2, machine_fk: 5, epic_fk: 9, claimed_at: '2026-08-01 11:30:00' }),
+            claim({ id: 2, machine_fk: 5, initiative_fk: 9, claimed_at: '2026-08-01 11:30:00' }),
         ], 2, MACHINES, NOW);
         expect(view.role).toBe('lead');
         expect(view.machine).toBe('Mac mini');
         expect(view.subscribers.map((s) => [s.machine, s.role])).toEqual([['wsl-box', 'subscriber']]);
         expect(view.label).toBe('Mac mini · 2h 00m + wsl-box');
         expect(view.title).toContain('Mac mini LEADS');
-        expect(view.title).toContain('wsl-box (epic:9@2) subscribes');
+        expect(view.title).toContain('wsl-box (initiative:9@2) subscribes');
         expect(view.title).toContain('held 30m');
     });
 
-    it('says when an earlier epic claim on another machine leads its epic', () => {
+    it('says when an earlier initiative claim on another machine leads its initiative', () => {
         const view = orchestrationView([
-            claim({ id: 1, machine_fk: 5, epic_fk: 9 }),
+            claim({ id: 1, machine_fk: 5, initiative_fk: 9 }),
             claim({ id: 2, machine_fk: 4 }),
         ], 2, MACHINES, NOW);
         expect(view.machine).toBe('Mac mini');
-        expect(view.title).toContain('everywhere except epic 9');
-        expect(view.title).toContain('wsl-box (epic:9@2) LEADS that epic');
+        expect(view.title).toContain('everywhere except initiative 9');
+        expect(view.title).toContain('wsl-box (initiative:9@2) LEADS that initiative');
     });
 
     it('says plainly when no other machine has joined', () => {
@@ -339,32 +339,32 @@ describe('orchestrationBadges (req #3809)', () => {
         expect(list[1].title).toContain('MCHP Windows is SECONDARY');
     });
 
-    it('an earlier epic lead the plan lead defers to is SECONDARY on the plan', () => {
+    it('an earlier initiative lead the plan lead defers to is SECONDARY on the plan', () => {
         const list = badges([
-            claim({ id: 1, machine_fk: 5, epic_fk: 9 }),
+            claim({ id: 1, machine_fk: 5, initiative_fk: 9 }),
             claim({ id: 2, machine_fk: 4 }),
         ]);
         expect(summary(list)).toEqual([['Mac', 'lead'], ['WSL', 'subscriber']]);
-        expect(list[1].title).toContain('it leads epic:9@2');
+        expect(list[1].title).toContain('it leads initiative:9@2');
     });
 
-    it('with no whole-plan claim, each epic LEAD is the master of its epic', () => {
+    it('with no whole-plan claim, each initiative LEAD is the master of its initiative', () => {
         const list = badges([
-            claim({ id: 1, machine_fk: 4, epic_fk: 9 }),
-            claim({ id: 2, machine_fk: 5, epic_fk: 9 }),
+            claim({ id: 1, machine_fk: 4, initiative_fk: 9 }),
+            claim({ id: 2, machine_fk: 5, initiative_fk: 9 }),
         ]);
         expect(summary(list)).toEqual([['Mac', 'lead'], ['WSL', 'subscriber']]);
-        expect(list[0].title).toContain('MASTER of epic:9@2');
+        expect(list[0].title).toContain('MASTER of initiative:9@2');
     });
 
-    it('ONE badge per machine, even when it holds two epic claims', () => {
+    it('ONE badge per machine, even when it holds two initiative claims', () => {
         const list = badges([
-            claim({ id: 1, machine_fk: 4, epic_fk: 9 }),
-            claim({ id: 2, machine_fk: 4, epic_fk: 10 }),
+            claim({ id: 1, machine_fk: 4, initiative_fk: 9 }),
+            claim({ id: 2, machine_fk: 4, initiative_fk: 10 }),
         ]);
         expect(summary(list)).toEqual([['Mac', 'lead']]);
-        expect(list[0].title).toContain('epic:9@2');
-        expect(list[0].title).toContain('epic:10@2');
+        expect(list[0].title).toContain('initiative:9@2');
+        expect(list[0].title).toContain('initiative:10@2');
     });
 
     it('a REFUSED claim gets no badge', () => {

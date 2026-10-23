@@ -64,6 +64,7 @@ import {
 import { pipelineStatusChipProps } from './pipelineChipStyles';
 import { orchestrationBadges } from './orchestrationHolder';
 import OrchestrationBadges, { orchestrationBadgesWidth } from './OrchestrationBadges';
+import RequirementJumpInput from '../../NavBar/RequirementJumpInput';
 // req #3463 — the era↔route binding. This page never spells a plan route or an
 // entity name.
 //
@@ -85,7 +86,7 @@ import {
     readColorParam, readFocusStepParam, readLevelParam,
     FOCUS_LEVEL_PARAM, FOCUS_COLOR_PARAM,
 } from './pipelineStepLink';
-import { readFocusEpicParam } from './pipelineEpicLink';
+import { readFocusInitiativeParam } from './pipelineInitiativeLink';
 import { writePipelinePlace } from './pipelinePlace';
 // Req #3261 P8 — the Plan mode's own controls, in their own component, exactly
 // as `SwarmView.jsx` renders `<VisualizerToolbar />` for its canvas mode (S4).
@@ -136,6 +137,10 @@ const EMPTY = Object.freeze([]);
 // time somebody names a plan verbosely, and S13's band already handles the
 // overflow.
 const TITLE_MIN_W = 140;
+// The title row's Req # jump field (req #3798): RequirementJumpInput's own width
+// (110) plus the row gap, added to the title slot's floor so it never eats the
+// plan name's stub.
+const REQ_JUMP_W = 118;
 
 /**
  * The plan page (req #3356 — one era).
@@ -175,7 +180,7 @@ export default function PipelineDetail() {
     //
     // ALWAYS ON (req #3242 user directive) — the toggle that used to gate this
     // is gone; requirement counts are now a permanent part of the plan name and
-    // every epic band label, not a preference. No storage key, no setter: there
+    // every initiative band label, not a preference. No storage key, no setter: there
     // is nothing left to persist.
     const showReqCounts = true;
     // ── THE RETIRED VIEW PREFERENCES (no declaration follows — that is the
@@ -308,14 +313,14 @@ export default function PipelineDetail() {
     // owns both halves of the contract so a writer and this reader cannot drift
     // on the key.
     const linkStepId = readFocusStepParam(searchParams);
-    // ── `?epic=` makes ONE EPIC'S LOCATION addressable (req #3235) ───────────
-    // The receiving end of the requirement page's epic-box "view on plan" link.
-    // A `?step=` is more specific than a `?epic=` (a step names one card; an
-    // epic is a whole band a step already belongs to), so if a link somehow
+    // ── `?initiative=` makes ONE INITIATIVE'S LOCATION addressable (req #3235) ───────────
+    // The receiving end of the requirement page's initiative-box "view on plan" link.
+    // A `?step=` is more specific than a `?initiative=` (a step names one card; an
+    // initiative is a whole band a step already belongs to), so if a link somehow
     // carried both, the step wins — the canvas applies that precedence.
-    // `pipelineEpicLink.js` owns both halves of this contract, same split as the
+    // `pipelineInitiativeLink.js` owns both halves of this contract, same split as the
     // step link.
-    const linkEpicId = readFocusEpicParam(searchParams);
+    const linkInitiativeId = readFocusInitiativeParam(searchParams);
     // ── `?level=` PINS THE SEMANTIC LEVEL FOR ONE LANDING (req #3253) ────────
     // The step-on-the-plan link carries `level=3` (req #3498 — it was `2`, and
     // the reason expired when the requirements moved INSIDE the card; the value
@@ -327,14 +332,14 @@ export default function PipelineDetail() {
     // req #3636 — `?color=` picks the colour key for one landing, transiently,
     // by `?level=`'s contract (see `readColorParam`).
     const linkColor = readColorParam(searchParams);
-    // A named step or epic means the PLAN, whatever `?mode=` the link carries
+    // A named step or initiative means the PLAN, whatever `?mode=` the link carries
     // (req #3641). Until then a bare `?step=` meant the Table's row; the Table is
     // gone, and the visualizer has consumed `focusStepId` since req #3253 (it
     // centres and zooms on the step).
-    const linkView = linkStepId != null || linkEpicId != null ? 'plan' : linkMode;
+    const linkView = linkStepId != null || linkInitiativeId != null ? 'plan' : linkMode;
 
     // ── A LINK FIRES ONCE PER HISTORY ENTRY (req #3637) ─────────────────────
-    // `?step=`/`?epic=` move the camera onto one thing.
+    // `?step=`/`?initiative=` move the camera onto one thing.
     // Read straight off the URL they fired AGAIN on every reload and every
     // Back/Forward onto that entry — the URL still carries them — and yanked
     // the reader off wherever they had since panned to: *"refresh, reload,
@@ -363,29 +368,29 @@ export default function PipelineDetail() {
     // the interrupted flight over it: the plan's top-left at scale 1. React's
     // "adjust state when a prop changes" pattern below re-derives the focus in
     // the SAME render the entry changes in, before any child renders, so no
-    // panel can see another entry's focus. `?epic=` rides along for the reason
+    // panel can see another entry's focus. `?initiative=` rides along for the reason
     // req #3235's review gave it a state copy at all: an in-place move between
     // two links must not keep the first. (A manual mode pick cleared both too,
     // until req #3641 withdrew the Table and the switcher with it.)
     const linkConsumed = isPlanLinkConsumed(location);
     const entryKind = classifyPlanEntry({
         consumed: linkConsumed, navigationType,
-        hasFocusLink: linkStepId != null || linkEpicId != null,
+        hasFocusLink: linkStepId != null || linkInitiativeId != null,
     });
     const [focus, setFocus] = useState(() => ({
         entry: location.key,
-        ...planEntryFocus(entryKind, { stepId: linkStepId, epicId: linkEpicId }, null),
+        ...planEntryFocus(entryKind, { stepId: linkStepId, initiativeId: linkInitiativeId }, null),
     }));
     let liveFocus = focus;
     if (focus.entry !== location.key) {
         liveFocus = {
             entry: location.key,
-            ...planEntryFocus(entryKind, { stepId: linkStepId, epicId: linkEpicId }, focus),
+            ...planEntryFocus(entryKind, { stepId: linkStepId, initiativeId: linkInitiativeId }, focus),
         };
         setFocus(liveFocus);
     }
     const focusStepId = liveFocus.stepId;
-    const focusEpicId = liveFocus.epicId;
+    const focusInitiativeId = liveFocus.initiativeId;
     // The panel and the level are the URL's whenever it names them — derived,
     // never a state copy, so a Back/Forward lands on that entry's own panel and
     // a reload keeps it. Never written to the persisted preferences: a link
@@ -591,7 +596,7 @@ export default function PipelineDetail() {
     // The single writer of the remembered place. Req #3311 wrote it from the
     // LIST page's click handler, which recorded a plan opened by clicking a card
     // and no other arrival: not a `?step=` deep link, not the sessions grid's
-    // "view the plan", not the requirement page's epic box, not Back. Recording
+    // "view the plan", not the requirement page's initiative box, not Back. Recording
     // on ARRIVAL covers all of them and every route added later, without any of
     // them being enumerated — the same argument `viewportMemory.js` makes about
     // return paths, pointed the other way.
@@ -688,13 +693,13 @@ export default function PipelineDetail() {
     // The orchestration chip left this group for the title (req #3809).
     const hasStatusChips = pipeline.pipeline_status === 'paused';
 
-    // req #3242 — epics represented in THIS plan (a requirement with no epic
+    // req #3242 — initiatives represented in THIS plan (a requirement with no initiative
     // is excluded by `requirementCounts` itself, so this is never inflated by
-    // a "no epic" bucket).
+    // a "no initiative" bucket).
     // `plan` is null while `diagnostic` is set (req #3381 item 3 — a
     // withheld/absent `derived` block is a hard stop, so there is no
     // requirement-counts derivation to read).
-    const planEpicCount = plan?.requirementCounts?.byEpic?.length ?? 0;
+    const planInitiativeCount = plan?.requirementCounts?.byInitiative?.length ?? 0;
 
     // ── ONE STRING PER ELLIPSIZING LINE ──────────────────────────────────────
     // `noWrap` with a tooltip needs the whole text as a VALUE: CSS
@@ -706,7 +711,7 @@ export default function PipelineDetail() {
     // accounting line that used to carry them; that directive is about WHERE
     // they live and this is about how they READ. Rendered at the title's own
     // weight, size and colour they produced one undifferentiated string —
-    // "FP Pipeline - Agent Harness 4 Epics, 73/115 Requirements" — with nothing
+    // "FP Pipeline - Agent Harness 4 Initiatives, 73/115 Requirements" — with nothing
     // saying where the plan's name ends and the statistics begin, and at 1600px
     // it was the STATISTIC that ellipsized, leaving a broken fraction ("73/115
     // …") as the last thing on the row. Splitting the two lets the eye take the
@@ -722,7 +727,7 @@ export default function PipelineDetail() {
     // spaces are NO-BREAK spaces: the title is `noWrap`, i.e. `white-space:
     // nowrap`, which collapses a run of ordinary spaces to one.
     const countsText = planReqCounts
-        ? `${planEpicCount}\u00a0\u00a0-\u00a0\u00a0`
+        ? `${planInitiativeCount}\u00a0\u00a0-\u00a0\u00a0`
             + `${planReqCounts.met}/${planReqCounts.total}`
         : '';
     // NO TOOLTIP ON THE TITLE (req #3648 user directive, "drop the tooltip for
@@ -891,13 +896,14 @@ export default function PipelineDetail() {
                 {/* The title's SLOT is the spacer (S11 — `flex: 1`, every
                     pixel of slack); the title text sits at its start, shrinking
                     to clip, and the Full screen switch follows the text
-                    directly (req #3793 — "in the title", as the TPU views'
+                    (and the badges and Req # launcher, req #3798) inside the
+                    slot (req #3793 — "in the title", as the TPU views'
                     follows "▾ Controls"), not the slot's far end. */}
                 {/* The floor is the NAME's (req #3809 review): the badges are
                     rigid, so the slot's floor grows by their width rather than
                     letting them eat the name's stub. */}
                 <Box sx={{ flex: 1,
-                           minWidth: TITLE_MIN_W + orchestrationBadgesWidth(
+                           minWidth: TITLE_MIN_W + REQ_JUMP_W + orchestrationBadgesWidth(
                                orchestrationBadgeList.length),
                            display: 'flex', alignItems: 'center', gap: 1 }}>
                 <Typography variant={isMobile ? 'h6' : 'h5'} noWrap
@@ -906,7 +912,7 @@ export default function PipelineDetail() {
                     {pipeline.title}
                     {/* A REAL SPACE, not just the margin below (measured —
                         the first cut had only the margin and the row's
-                        `textContent` read "…Agent Harness4 Epics, 73/115…").
+                        `textContent` read "…Agent Harness4 Initiatives, 73/115…").
                         The margin is what the eye sees; this is what a
                         COPY-PASTE carries, and the two must not disagree.
                         With the tooltip gone (req #3648) the text content
@@ -952,6 +958,17 @@ export default function PipelineDetail() {
                     Rigid, so the plan's name is what clips first; they render
                     only while somebody orchestrates this plan. */}
                 <OrchestrationBadges badges={orchestrationBadgeList} />
+
+                {/* ── REQUIREMENT LAUNCHER (req #3798) ────────────────────────
+                    The Requirements page's title-row "Req #" field, unchanged —
+                    type a number, Enter (or →) opens that requirement in a new
+                    tab — placed immediately LEFT of the Full screen switch.
+                    Rigid, so the plan's name clips first. Hidden with the row
+                    while maximized, as the switch's header copy is. */}
+                <Box sx={{ flexShrink: 0, display: 'flex', alignItems: 'center' }}
+                     data-testid="pipeline-req-launcher">
+                    <RequirementJumpInput />
+                </Box>
 
                 {/* ── FULL SCREEN (req #3793; the switch is req #3658's) ──────
                     The user's rule: with the controls on screen the switch
@@ -1105,7 +1122,7 @@ export default function PipelineDetail() {
             {canRenderPlan && (
             <ActiveComponent plan={plan} model={model} pipeline={pipeline} timezone={timezone}
                              focusStepId={focusStepId}
-                             focusEpicId={focusEpicId}
+                             focusInitiativeId={focusInitiativeId}
                              costError={!!costError}
                              showReqCounts={showReqCounts}
                              stepLabel={stepLabel} colorKey={colorKey}

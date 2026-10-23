@@ -1,7 +1,7 @@
 // planViewEntry.js — what a history entry of the plan page ASKS FOR (req #3651).
 //
 // Every way of arriving at `/swarm/pipeline/:id` is one of THREE transitions,
-// and each has exactly one answer about the one-shot focus (`?step=`/`?epic=`,
+// and each has exactly one answer about the one-shot focus (`?step=`/`?initiative=`,
 // which moves the camera or the table's scroll onto one thing):
 //
 //   LINK    — an entry whose focus link has not been honoured yet: a bead click
@@ -56,17 +56,17 @@ export function classifyPlanEntry({ consumed, navigationType, hasFocusLink }) {
     return hasFocusLink ? PLAN_ENTRY_LINK : PLAN_ENTRY_RETURN;
 }
 
-const NO_FOCUS = Object.freeze({ stepId: null, epicId: null });
+const NO_FOCUS = Object.freeze({ stepId: null, initiativeId: null });
 
 /**
  * The focus the page hands its panels for this entry.
  *
  * @param {string} kind     from `classifyPlanEntry`
- * @param {{stepId: ?number, epicId: ?number}} link  the entry's own `?step=`/`?epic=`
- * @param {?{stepId: ?number, epicId: ?number}} held the focus in hand before it
+ * @param {{stepId: ?number, initiativeId: ?number}} link  the entry's own `?step=`/`?initiative=`
+ * @param {?{stepId: ?number, initiativeId: ?number}} held the focus in hand before it
  */
 export function planEntryFocus(kind, link, held) {
-    if (kind === PLAN_ENTRY_LINK) return { stepId: link.stepId ?? null, epicId: link.epicId ?? null };
-    if (kind === PLAN_ENTRY_REWRITE && held) return { stepId: held.stepId, epicId: held.epicId };
+    if (kind === PLAN_ENTRY_LINK) return { stepId: link.stepId ?? null, initiativeId: link.initiativeId ?? null };
+    if (kind === PLAN_ENTRY_REWRITE && held) return { stepId: held.stepId, initiativeId: held.initiativeId };
     return NO_FOCUS;
 }

@@ -27,10 +27,10 @@ const PROJECTS = [{ id: 1, project_name: 'Darwin', sort_order: 0 }];
 
 vi.mock('../../hooks/useDataQueries', () => ({
     useProjects: () => ({ data: PROJECTS }),
-    useAllEpics: () => ({ data: [] }),
+    useAllInitiatives: () => ({ data: [] }),
     useAllCategories: () => ({ data: [] }),
     useAllPipelineSteps: () => ({ data: [] }),
-    useEpicRequirementIds: () => ({ epicReqIds: null, isError: false, requirements: undefined }),
+    useInitiativeRequirementIds: () => ({ initiativeReqIds: null, isError: false, requirements: undefined }),
     useStepRequirementIds: () => ({ stepReqIds: null, isError: false, requirements: undefined }),
 }));
 

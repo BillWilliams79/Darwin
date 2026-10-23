@@ -28,19 +28,19 @@
 //     browse toggle asks for.
 //
 // req #3419 ADDED a second population — requirements "filed under a BODY OF
-// WORK" through the retired middle tier's own reference to the epic, true of
+// WORK" through the retired middle tier's own reference to the initiative, true of
 // plenty of requirements no step carried yet — and unioned it with the step set so the
-// toggle would not miss epic-filed-but-unseated work.
+// toggle would not miss initiative-filed-but-unseated work.
 //
 // req #3357 RETIRES IT, because Feature (the only mechanism that could file a
-// requirement into an epic without also seating it on a step) leaves the
-// frontend entirely, and re-deriving the same fact off a step's epic is not
-// possible for 1.0: no 1.0 `pipeline_steps` row carries an `epic_fk` — only
+// requirement into an initiative without also seating it on a step) leaves the
+// frontend entirely, and re-deriving the same fact off a step's initiative is not
+// possible for 1.0: no 1.0 `pipeline_steps` row carries an `initiative_fk` — only
 // Pipeline 2.0's `pipeline_steps` does, a disjoint id space unrelated to the
 // live 1.0 "Darwin" plan this toggle filters. So `orchestratedRequirementIds`
 // COLLAPSES to `pipelinedRequirementIds` — every requirement this toggle can
 // still call "part of a plan" is one a step actually carries. The #3419 gap
-// (an epic-filed, unseated requirement staying visible under the toggle) is
+// (an initiative-filed, unseated requirement staying visible under the toggle) is
 // an ACCEPTED, TRANSITIONAL regression: the population it was catching only
 // existed because Feature did.
 //
@@ -52,7 +52,7 @@
 //
 //     approved     2 offered -> 0   (#3172, #3176)
 //     authoring   42 offered -> 33  (#3178 #3304 #3314 #3315 #3385 #3424 #3425 #3426 #3433)
-//     swarm_ready  UNAFFECTED — no swarm_ready requirement was epic-seated
+//     swarm_ready  UNAFFECTED — no swarm_ready requirement was initiative-seated
 //
 // Every id in that table was LEGAL to launch — no step carried it — which is
 // why req #3180's rule (the aggregator's deleted `offersLaunch` branch) was
@@ -99,15 +99,15 @@ export const pipelinedRequirementIds = (stepRequirements) => {
 /**
  * The requirement ids ONE step carries — req #3503.
  *
- * Belongs here rather than in `epicMembership.js` because STEP association is
+ * Belongs here rather than in `initiativeMembership.js` because STEP association is
  * this module's own stated domain. The narrowing is the whole point: everything
  * above answers "is this on ANY step", and this answers "is this on step X".
  *
- * ONE HOP, WHERE THE EPIC ANSWER TAKES TWO. `epicRequirementIds` needs a `steps`
- * argument to resolve `epic_fk -> id` before it can read the junction; a step id
+ * ONE HOP, WHERE THE INITIATIVE ANSWER TAKES TWO. `initiativeRequirementIds` needs a `steps`
+ * argument to resolve `initiative_fk -> id` before it can read the junction; a step id
  * IS the junction's own `step_fk`, so no second read exists to make. That is why
  * the hook behind this (`useStepRequirementIds`) fetches one bounded list where
- * the epic hook fetches two.
+ * the initiative hook fetches two.
  *
  * A null/undefined `stepId` returns an EMPTY set, not every id: the caller that
  * means "no filter" passes null to `filterToStepReqIds` instead, and conflating
@@ -141,8 +141,8 @@ export const stepRequirementIds = (stepRequirements, stepId) => {
 /**
  * Keep only the step's requirements — req #3503.
  *
- * Identical semantics to `epicMembership.js`' `filterToEpic`, and a deliberate
- * duplicate rather than an import: that module is the EPIC answer, and a caller
+ * Identical semantics to `initiativeMembership.js`' `filterToInitiative`, and a deliberate
+ * duplicate rather than an import: that module is the INITIATIVE answer, and a caller
  * reaching across for its filter is one autocomplete away from reaching for its
  * derivation too. `excludeByIds` above is not this function — it DROPS the ids it
  * is given, this KEEPS them, and the two resolve their unknown states in opposite
@@ -153,7 +153,7 @@ export const stepRequirementIds = (stepRequirements, stepId) => {
  * referential-equality dependency.
  *
  * AN EMPTY SET IS A REAL ANSWER, NOT "no filter". While the junction read is in
- * flight the set is empty and this returns an EMPTY LIST — `filterToEpic`'s
+ * flight the set is empty and this returns an EMPTY LIST — `filterToInitiative`'s
  * direction, for its reason: this SELECTS rows, so "unknown" must mean "none
  * yet". Showing the whole unfiltered page for a beat underneath a pill claiming
  * it is filtered is the page lying about what it is showing.
@@ -170,8 +170,8 @@ export const filterToStepReqIds = (rows, stepReqIds) => {
 /**
  * THE browse answer: a requirement is ORCHESTRATED when a pipeline step
  * carries it. Req #3357 retired the second population this used to union in
- * (epic-filed-but-unseated, through the retired middle tier's own reference
- * to the epic) — see the module header; req #3491's later, first-generation-junction union
+ * (initiative-filed-but-unseated, through the retired middle tier's own reference
+ * to the initiative) — see the module header; req #3491's later, first-generation-junction union
  * is retired the same way (see `pipelinedRequirementIds`). Kept as its own
  * named export, distinct from `pipelinedRequirementIds`, so both stay one
  * call site each even though they answer identically today.

@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 //
 // req #3393 — the Pipeline 2.0 steps editor. Structural sibling of the other
-// 2.0 page test files (see EpicsPage2.test.jsx's header for the DataGrid-stub
+// 2.0 page test files (see InitiativesPage2.test.jsx's header for the DataGrid-stub
 // rationale, copied rather than imported).
 //
 // What is pinned: the req #3750 column order (no State, no Notes) and the
-// cascading Pipeline → Epic filter; create/edit send the right body including
-// epic_fk (create only) and the not_before conversion; the run, barrier and
+// cascading Pipeline → Initiative filter; create/edit send the right body including
+// initiative_fk (create only) and the not_before conversion; the run, barrier and
 // lock chips toggle; delete names the blocker/consequence.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -47,7 +47,7 @@ vi.mock('@mui/x-data-grid', () => ({
 }));
 
 let pipelines;
-let epics;
+let initiatives;
 let steps;
 let stepRequirements;
 let stepDeps;
@@ -59,7 +59,7 @@ vi.mock('../../hooks/useDataQueries', async (importOriginal) => {
     return {
         ...actual,
         useAllPipelines: () => ({ data: pipelines, isLoading: loading.pipelines }),
-        useAllEpics: () => ({ data: epics, isLoading: loading.epics }),
+        useAllInitiatives: () => ({ data: initiatives, isLoading: loading.initiatives }),
         useAllPipelineSteps: () => ({ data: steps, isLoading: loading.steps }),
         useAllPipelineStepRequirements: () => ({
             data: stepRequirements, isLoading: loading.links, isError: loading.linksError }),
@@ -149,28 +149,28 @@ beforeEach(() => {
     navigateSpy.mockClear();
     mountedRoots = [];
     loading = {
-        pipelines: false, epics: false, steps: false, links: false, linksError: false,
+        pipelines: false, initiatives: false, steps: false, links: false, linksError: false,
         deps: false, depsError: false, requirements: false, requirementsError: false,
     };
     pipelines = [
         { id: 8, title: 'Side plan' },
         { id: 7, title: 'Main plan' },
     ];
-    epics = [
+    initiatives = [
         { id: 4, title: 'Core rebuild', pipeline_fk: 7 },
         { id: 5, title: 'Surface polish', pipeline_fk: 7 },
         { id: 6, title: 'Side quest', pipeline_fk: 8 },
     ];
     steps = [
-        { id: 100, epic_fk: 4, title: 'Free step', run: 'auto', notes: null,
+        { id: 100, initiative_fk: 4, title: 'Free step', run: 'auto', notes: null,
           not_before: null },
-        { id: 101, epic_fk: 4, title: 'Gated step', run: 'manual', notes: 'Some notes',
+        { id: 101, initiative_fk: 4, title: 'Gated step', run: 'manual', notes: 'Some notes',
           not_before: null, checkpoint: 0, locked: 1 },
-        { id: 102, epic_fk: 5, title: 'Done step', run: 'auto', notes: null,
+        { id: 102, initiative_fk: 5, title: 'Done step', run: 'auto', notes: null,
           not_before: '2026-08-01 12:00:00' },
-        { id: 103, epic_fk: 5, title: 'Blocked step', run: 'auto', notes: null,
+        { id: 103, initiative_fk: 5, title: 'Blocked step', run: 'auto', notes: null,
           not_before: null },
-        { id: 104, epic_fk: 6, title: 'Side step', run: 'auto', notes: null,
+        { id: 104, initiative_fk: 6, title: 'Side step', run: 'auto', notes: null,
           not_before: null },
     ];
     stepRequirements = [
@@ -232,91 +232,91 @@ describe('StepsPage2 rows', () => {
         const fields = [...node('grid-row-100').children].map(
             el => el.dataset.testid.replace(/^cell-/, '').replace(/-100$/, ''));
         expect(fields).toEqual([
-            'id', 'planEpic', 'title', 'locked', 'run', 'checkpoint', 'reqCount',
+            'id', 'planInitiative', 'title', 'locked', 'run', 'checkpoint', 'reqCount',
             'not_before', 'actions',
         ]);
     });
 
-    it('names pipeline and epic in one chip', () => {
+    it('names pipeline and initiative in one chip', () => {
         mount();
         expect(node('step2-plan-link-100').textContent).toBe('Main planCore rebuild');
         expect(node('step2-plan-link-104').textContent).toBe('Side planSide quest');
     });
 
-    it('opens the plan focused on the epic band from the combo chip', () => {
+    it('opens the plan focused on the initiative band from the combo chip', () => {
         mount();
         click(node('step2-plan-link-102'));
-        expect(navigateSpy).toHaveBeenCalledWith('/swarm/pipeline/7?mode=plan&epic=5');
+        expect(navigateSpy).toHaveBeenCalledWith('/swarm/pipeline/7?mode=plan&initiative=5');
     });
 
-    it('pre-selects the epic filter from a ?epic= deep link, and implies its pipeline', () => {
-        mount(['/swarm/steps?epic=5']);
+    it('pre-selects the initiative filter from a ?initiative= deep link, and implies its pipeline', () => {
+        mount(['/swarm/steps?initiative=5']);
         expect(visibleRowIds()).toEqual([102, 103]);
-        expect(selectText('steps-epic-filter')).toBe('Surface polish');
+        expect(selectText('steps-initiative-filter')).toBe('Surface polish');
         expect(selectText('steps-pipeline-filter')).toBe('Main plan');
     });
 
     it('pre-selects the pipeline filter from a ?pipeline= deep link', () => {
         mount(['/swarm/steps?pipeline=8']);
         expect(visibleRowIds()).toEqual([104]);
-        expect(selectText('steps-epic-filter')).toBe('');
+        expect(selectText('steps-initiative-filter')).toBe('');
     });
 
-    it('ignores a deep link naming an epic that does not exist', () => {
-        mount(['/swarm/steps?epic=999']);
+    it('ignores a deep link naming an initiative that does not exist', () => {
+        mount(['/swarm/steps?initiative=999']);
         expect(visibleRowIds()).toEqual([100, 101, 102, 103, 104]);
-        expect(selectText('steps-epic-filter')).toBe('');
+        expect(selectText('steps-initiative-filter')).toBe('');
     });
 
     it('counts the shown steps against the whole set', () => {
-        mount(['/swarm/steps?epic=5']);
+        mount(['/swarm/steps?initiative=5']);
         expect(node('steps-accounting').textContent).toBe('2 of 5 steps');
     });
 });
 
-describe('StepsPage2 pipeline → epic cascade', () => {
-    it('choosing a pipeline narrows rows and the epic list', async () => {
+describe('StepsPage2 pipeline → initiative cascade', () => {
+    it('choosing a pipeline narrows rows and the initiative list', async () => {
         mount();
         await pickOption('steps-pipeline-filter', 'Main plan');
         expect(visibleRowIds()).toEqual([100, 101, 102, 103]);
-        expect(optionTexts('steps-epic-filter')).toEqual(
-            ['All epics', 'Core rebuild', 'Surface polish']);
+        expect(optionTexts('steps-initiative-filter')).toEqual(
+            ['All initiatives', 'Core rebuild', 'Surface polish']);
     });
 
-    it('choosing an epic selects its pipeline', async () => {
+    it('choosing an initiative selects its pipeline', async () => {
         mount();
-        await pickOption('steps-epic-filter', 'Side quest');
+        await pickOption('steps-initiative-filter', 'Side quest');
         expect(visibleRowIds()).toEqual([104]);
         expect(selectText('steps-pipeline-filter')).toBe('Side plan');
     });
 
-    it('choosing a different pipeline clears an epic outside it', async () => {
-        mount(['/swarm/steps?epic=4']);
+    it('choosing a different pipeline clears an initiative outside it', async () => {
+        mount(['/swarm/steps?initiative=4']);
         await pickOption('steps-pipeline-filter', 'Side plan');
-        expect(selectText('steps-epic-filter')).toBe('');
+        expect(selectText('steps-initiative-filter')).toBe('');
         expect(visibleRowIds()).toEqual([104]);
     });
 
-    it('All epics keeps the chosen pipeline', async () => {
-        mount(['/swarm/steps?epic=4']);
-        await pickOption('steps-epic-filter', 'All epics');
+    it('All initiatives keeps the chosen pipeline', async () => {
+        mount(['/swarm/steps?initiative=4']);
+        await pickOption('steps-initiative-filter', 'All initiatives');
         expect(selectText('steps-pipeline-filter')).toBe('Main plan');
         expect(visibleRowIds()).toEqual([100, 101, 102, 103]);
     });
 
-    it('All pipelines clears the epic and shows every step', async () => {
-        mount(['/swarm/steps?epic=4']);
+    it('All pipelines clears the initiative and shows every step', async () => {
+        mount(['/swarm/steps?initiative=4']);
         await pickOption('steps-pipeline-filter', 'All pipelines');
-        expect(selectText('steps-epic-filter')).toBe('');
+        expect(selectText('steps-initiative-filter')).toBe('');
         expect(visibleRowIds()).toEqual([100, 101, 102, 103, 104]);
     });
 
     it('writes the choice to the URL and keeps the router state (Back to Plan)', async () => {
-        mount([{ pathname: '/swarm/steps', search: '?epic=4',
+        mount([{ pathname: '/swarm/steps', search: '?initiative=4',
             state: { from: 'pipeline', pipelineId: 7, mode: 'plan' } }]);
         expect(node('steps-back-to-plan')).not.toBeNull();
-        await pickOption('steps-epic-filter', 'Surface polish');
-        expect(currentLocation.search).toBe('?epic=5&pipeline=7');
+        await pickOption('steps-initiative-filter', 'Surface polish');
+        expect(currentLocation.search).toBe('?initiative=5&pipeline=7');
         expect(currentLocation.state).toEqual({ from: 'pipeline', pipelineId: 7, mode: 'plan' });
         expect(node('steps-back-to-plan')).not.toBeNull();
         await pickOption('steps-pipeline-filter', 'All pipelines');
@@ -324,11 +324,11 @@ describe('StepsPage2 pipeline → epic cascade', () => {
     });
 
     it('re-filters when a link changes the URL while the page is open', async () => {
-        mount(['/swarm/steps?epic=4']);
+        mount(['/swarm/steps?initiative=4']);
         expect(visibleRowIds()).toEqual([100, 101]);
-        // A link elsewhere (the plan visualizer's epic chip) navigating here
-        // again, to another epic, while the page stays mounted.
-        act(() => { outsideNavigate('/swarm/steps?epic=5'); });
+        // A link elsewhere (the plan visualizer's initiative chip) navigating here
+        // again, to another initiative, while the page stays mounted.
+        act(() => { outsideNavigate('/swarm/steps?initiative=5'); });
         await flush();
         expect(visibleRowIds()).toEqual([102, 103]);
         expect(selectText('steps-pipeline-filter')).toBe('Main plan');
@@ -337,18 +337,18 @@ describe('StepsPage2 pipeline → epic cascade', () => {
         expect(visibleRowIds()).toEqual([104]);
     });
 
-    it('New Step defaults to the first epic of the chosen pipeline', async () => {
+    it('New Step defaults to the first initiative of the chosen pipeline', async () => {
         mount(['/swarm/steps?pipeline=8']);
         click(node('step2-add'));
         type(node('step2-title-input'), 'Another');
         click(node('step2-save'));
         await flush();
-        expect(restCalls[0].body.epic_fk).toBe(6);
+        expect(restCalls[0].body.initiative_fk).toBe(6);
     });
 });
 
 describe('StepsPage2 create', () => {
-    it('POSTs epic_fk, trimmed title, run and a null not_before', async () => {
+    it('POSTs initiative_fk, trimmed title, run and a null not_before', async () => {
         mount();
         click(node('step2-add'));
         type(node('step2-title-input'), '  New Step  ');
@@ -359,7 +359,7 @@ describe('StepsPage2 create', () => {
             uri: 'http://test.local/darwin/pipeline_steps',
             method: 'POST',
             body: {
-                epic_fk: 4, title: 'New Step', notes: null, run: 'auto',
+                initiative_fk: 4, title: 'New Step', notes: null, run: 'auto',
                 not_before: null, checkpoint: 1,
             },
         }]);
@@ -377,10 +377,10 @@ describe('StepsPage2 create', () => {
 });
 
 describe('StepsPage2 edit', () => {
-    it('disables the Epic select once editing', () => {
+    it('disables the Initiative select once editing', () => {
         mount();
         click(node('step2-edit-100'));
-        expect(node('step2-epic-select').className).toContain('Mui-disabled');
+        expect(node('step2-initiative-select').className).toContain('Mui-disabled');
     });
 
     it("clears notes with the REST 'NULL' sentinel", async () => {
@@ -489,14 +489,14 @@ describe('StepsPage2 editor lock (req #3742)', () => {
 
 // req #3742 — a single click on a plan's step card lands here as ?id=<id>
 // with the plan-exit state; the dialog opens and its close returns to the plan.
-describe('StepsPage2 editor — a lock held by the epic or plan (req #3742)', () => {
+describe('StepsPage2 editor — a lock held by the initiative or plan (req #3742)', () => {
     afterEach(() => { pipelines = []; });
 
-    it('a step under a locked epic opens read-only, names the epic, and writes nothing', async () => {
-        epics.find((e) => e.id === 4).locked = 1;
+    it('a step under a locked initiative opens read-only, names the initiative, and writes nothing', async () => {
+        initiatives.find((e) => e.id === 4).locked = 1;
         mount();
         click(node('step2-edit-100'));
-        expect(node('step2-inherited-lock').textContent).toContain('Locked by its epic');
+        expect(node('step2-inherited-lock').textContent).toContain('Locked by its initiative');
         expect(node('step2-title-input').disabled).toBe(true);
         expect(node('step2-locked-select').className).toContain('Mui-disabled');
         click(node('step2-save'));
@@ -504,7 +504,7 @@ describe('StepsPage2 editor — a lock held by the epic or plan (req #3742)', ()
         expect(restCalls).toEqual([]);
     });
 
-    it('a locked plan outranks the epic', () => {
+    it('a locked plan outranks the initiative', () => {
         pipelines = [{ id: 7, locked: 1 }];
         mount();
         click(node('step2-edit-100'));

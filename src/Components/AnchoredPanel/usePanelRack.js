@@ -1,9 +1,9 @@
-// usePanelRack.js — the DOM half of the panel RACK (req #3720): what makes a
-// pop-up information window dockable onto the Darwin navbar. Pattern doc:
+// usePanelRack.js — the DOM half of the panel RACK (req #3720): what makes an
+// Action Popup dockable onto the Darwin navbar. Pattern doc:
 // memory/anchored-collapse-pattern.md § The rack; pure half in panelRack.js,
 // shared state in usePanelRackStore.
 //
-// ONE mechanism for every rackable window (req #3735). AnchoredPanel uses it for
+// ONE mechanism for every Action Popup (req #3735). AnchoredPanel uses it for
 // its hosts (the Dev Servers dashboard, the Dev Server panel, the Active box),
 // and a window that draws its own frame — the Plan visualizer's Orchestrables
 // box — uses it directly, so all of them hit-test the same drop zone, glow the

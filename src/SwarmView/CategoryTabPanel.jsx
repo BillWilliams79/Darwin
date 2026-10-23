@@ -19,15 +19,15 @@ import AppContext from '../Context/AppContext';
 
 import Box from '@mui/material/Box';
 
-// req #3428 — `epicReqIds` is the epic filter's SCOPE, passed straight through
+// req #3428 — `initiativeReqIds` is the initiative filter's SCOPE, passed straight through
 // from the page to both card kinds. A Set of requirement ids, or `null` when no
 // filter is active. This panel neither reads the URL nor derives membership: the
 // host owns the filter, and one derivation upstairs is what stops the aggregator
-// and the category cards from disagreeing about what the epic contains.
+// and the category cards from disagreeing about what the initiative contains.
 // req #3503 — `stepReqIds` is the STEP filter's scope, the sibling of the above
 // and threaded the same way. Independent of it: both may be non-null at once and
 // the cards apply them in series.
-const CategoryTabPanel = ( { project, projectIndex, activeTab, showClosed, showSwarmStartCard, epicReqIds = null, stepReqIds = null } ) => {
+const CategoryTabPanel = ( { project, projectIndex, activeTab, showClosed, showSwarmStartCard, initiativeReqIds = null, stepReqIds = null } ) => {
 
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
@@ -202,7 +202,7 @@ const CategoryTabPanel = ( { project, projectIndex, activeTab, showClosed, showS
                     <DarwinSortableList id={categoriesListId} items={sortableCategoryIds} policy={CATEGORY_CARDS}>
                     <Box className="card swarm-card" ref={panelDropRef}>
                         {showSwarmStartCard && <SwarmStartCard projectId={project.id} panelActive={panelActive}
-                                                               epicReqIds={epicReqIds} stepReqIds={stepReqIds} />}
+                                                               initiativeReqIds={initiativeReqIds} stepReqIds={stepReqIds} />}
                         { renderedCategories.map((category) => (
                             <CategoryCard {...{key: category.id,
                                            category,
@@ -220,7 +220,7 @@ const CategoryTabPanel = ( { project, projectIndex, activeTab, showClosed, showS
                                            isTemplate: category.id === '',
                                            showClosed,
                                            panelActive,
-                                           epicReqIds,
+                                           initiativeReqIds,
                                            stepReqIds,}}/>
                         ))}
                     </Box>

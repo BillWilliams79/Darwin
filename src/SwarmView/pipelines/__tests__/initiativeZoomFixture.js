@@ -1,35 +1,35 @@
-// epicZoomFixture.js — the plan the epic name's two-state zoom is pinned
+// initiativeZoomFixture.js — the plan the initiative name's two-state zoom is pinned
 // against (req #3297; re-pointed at the STEP by req #3371).
 //
 // Built rather than borrowed: the Substrate Rebuild fixture has a single
 // eligible step and no interesting band shape, and this feature is entirely
-// about WHICH step a band launches next. Used by `pipelineEpicZoom.test.js`
+// about WHICH step a band launches next. Used by `pipelineInitiativeZoom.test.js`
 // (the selection and the cycle).
 //
 // What it deliberately contains, and why each piece is there:
 //
-//   band 0, epic 11  — SIX steps across two columns, several of them eligible,
+//   band 0, initiative 11  — SIX steps across two columns, several of them eligible,
 //                      so "earliest in display order" has something to choose
 //                      between and a suppression test has a second candidate to
 //                      fall through to. Steps 4 and 5 have no gate at all;
 //                      2 and 3 are gated by an already-Complete step (so they
 //                      are eligible too, one column further right); 6 and 7 are
 //                      gated by the still-pending step 5, so they are NOT.
-//   band 1, epic 12  — ONE step, eligible. The single-candidate case.
-//   band 2, no epic  — the completed gate step (its one requirement is `met`
-//                      and carries no epic label — a step has no completion
+//   band 1, initiative 12  — ONE step, eligible. The single-candidate case.
+//   band 2, no initiative  — the completed gate step (its one requirement is `met`
+//                      and carries no initiative label — a step has no completion
 //                      stamp, req #3750/#3752), and the only band with NOTHING
 //                      eligible: requirement item 6's honest no-op. `band.key`
-//                      is null here, which is the `epicCycleKey` case that has
+//                      is null here, which is the `initiativeCycleKey` case that has
 //                      to be a string.
 //
 // Derived facts, so a reader does not have to run it: display order is
 // 1 · 4 · 5 · 2 · 3 · 6 · 7 · 8, eligible is {4, 5, 2, 3, 8}, so band 11's next
-// launch step is 4, band 12's is 8, and the "No epic" band's is null.
+// launch step is 4, band 12's is 8, and the "No initiative" band's is null.
 
 import { MACHINES } from './substrateRebuildFixture';
 
-export const EPIC_ZOOM_READS = {
+export const INITIATIVE_ZOOM_READS = {
     steps: [
         { id: 1, pipeline_fk: 1, title: 'done gate', run: 'auto', notes: null },
         { id: 2, pipeline_fk: 1, title: 'A one', run: 'auto', notes: null },
@@ -66,18 +66,18 @@ export const EPIC_ZOOM_READS = {
         { id: 907, requirement_status: 'met', machine_fk: 2, feature_fk: null },
     ],
     features: [
-        { id: 101, title: 'Wave One', epic_fk: 11 },
-        { id: 102, title: 'Wave Two', epic_fk: 12 },
+        { id: 101, title: 'Wave One', initiative_fk: 11 },
+        { id: 102, title: 'Wave Two', initiative_fk: 12 },
     ],
-    epics: [
-        { id: 11, title: 'Epic One' },
-        { id: 12, title: 'Epic Two' },
+    initiatives: [
+        { id: 11, title: 'Initiative One' },
+        { id: 12, title: 'Initiative Two' },
     ],
     machines: MACHINES,
 };
 
-export const EPIC_ZOOM_PIPELINE = {
+export const INITIATIVE_ZOOM_PIPELINE = {
     id: 1, title: 'x', pipeline_status: 'active', machine_fk: 2,
 };
 
-export const EPIC_ZOOM_NOW = '2026-07-27T03:00:00Z';
+export const INITIATIVE_ZOOM_NOW = '2026-07-27T03:00:00Z';

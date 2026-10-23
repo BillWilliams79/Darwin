@@ -101,14 +101,14 @@ export function dropBlockers2(stepId, stepDeps) {
  * @param {Object[]} args.stepRequirements    pipeline_step_requirements rows
  * @param {Object[]} args.stepDeps            pipeline_step_deps rows
  * @param {Object[]} args.requirements        any superset (needs `id`, `tracking`)
- * @param {Object[]} args.epics               epics rows (for the label/pipeline_fk dictionary)
+ * @param {Object[]} args.initiatives               initiatives rows (for the label/pipeline_fk dictionary)
  * @param {Object[]} [args.pipelines]         pipelines rows (`id`, `title`, `locked`)
  * @returns {Object[]}
  */
 export function buildStepRows({
-    steps, stepRequirements, stepDeps, requirements, epics, pipelines,
+    steps, stepRequirements, stepDeps, requirements, initiatives, pipelines,
 } = {}) {
-    const epicById = new Map(asArray(epics).map((e) => [e.id, e]));
+    const initiativeById = new Map(asArray(initiatives).map((e) => [e.id, e]));
     const pipelineById = new Map(asArray(pipelines).map((p) => [p.id, p]));
     const pipelineLocked = new Set(asArray(pipelines)
         .filter((p) => p && Number(p.locked)).map((p) => p.id));
@@ -121,24 +121,24 @@ export function buildStepRows({
     }
 
     return asArray(steps).filter(Boolean).map((step) => {
-        const epic = epicById.get(step.epic_fk) || null;
-        const pipeline = epic ? (pipelineById.get(epic.pipeline_fk) || null) : null;
+        const initiative = initiativeById.get(step.initiative_fk) || null;
+        const pipeline = initiative ? (pipelineById.get(initiative.pipeline_fk) || null) : null;
         const reqIds = (linksByStep.get(step.id) || []).slice().sort((a, b) => a - b);
         const gatingReqIds = gatingRequirementIds2(reqIds, requirements);
         const gatingSet = new Set(gatingReqIds);
         const trackingReqIds = reqIds.filter((rid) => !gatingSet.has(rid));
         return {
             ...step,
-            epicTitle: epic ? epic.title : null,
-            pipelineFk: epic ? epic.pipeline_fk : null,
+            initiativeTitle: initiative ? initiative.title : null,
+            pipelineFk: initiative ? initiative.pipeline_fk : null,
             pipelineTitle: pipeline ? pipeline.title : null,
             // req #3742 — the OUTERMOST lock holding this step (the level that
             // must be lifted first, as the gateway's `plan_lock.py` names it),
             // or null. The plan canvas draws any of the three as a red frame,
             // so the editor that frame's click opens must know an ancestor's
             // lock too, not only the step's own flag.
-            lockedBy: (epic && pipelineLocked.has(epic.pipeline_fk)) ? 'pipeline'
-                : (epic && Number(epic.locked)) ? 'epic'
+            lockedBy: (initiative && pipelineLocked.has(initiative.pipeline_fk)) ? 'pipeline'
+                : (initiative && Number(initiative.locked)) ? 'initiative'
                     : Number(step.locked) ? 'step' : null,
             reqIds,
             gatingReqIds,

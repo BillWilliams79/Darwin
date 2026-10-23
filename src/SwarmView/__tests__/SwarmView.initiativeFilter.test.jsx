@@ -2,7 +2,7 @@
 //
 // Req #3428 — the WIRING, which is where this feature's real risk sits.
 //
-// Everything else about the epic filter is pure and pinned elsewhere. What no
+// Everything else about the initiative filter is pure and pinned elsewhere. What no
 // pure suite can catch is the page assembling it wrongly: a pill that renders in
 // a view the filter is not applying to, a scope that never reaches the cards,
 // or — since req #3598 — a control the scope still hides or overrides, when a
@@ -26,17 +26,17 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 // suite's timeout moves.
 vi.setConfig({ testTimeout: 30000 });
 
-// TWO projects, and the epic's work is in the SECOND — so the tab seed has a
+// TWO projects, and the initiative's work is in the SECOND — so the tab seed has a
 // real decision to make and the working-project assertions below are not
 // trivially satisfied by there being nowhere else to go.
 const PROJECTS = [
     { id: 7, project_name: 'Personal', sort_order: 0 },
     { id: 1, project_name: 'Darwin', sort_order: 1 },
 ];
-const EPICS = [{ id: 11, title: "Bill's Polish #1" }];
+const INITIATIVES = [{ id: 11, title: "Bill's Polish #1" }];
 const CATEGORIES = [{ id: 5, project_fk: 1 }];
 const SCOPE_REQUIREMENTS = [{ id: 10, category_fk: 5 }];
-let epicReqIdsFromHook = new Set([10]);
+let initiativeReqIdsFromHook = new Set([10]);
 // MODULE-LEVEL, never an inline `[]`: a fresh array per render churns every memo
 // downstream of it.
 const EMPTY_STEPS = [];
@@ -44,16 +44,16 @@ let scopeReadFails = false;
 
 vi.mock('../../hooks/useDataQueries', () => ({
     useProjects: () => ({ data: PROJECTS }),
-    useAllEpics: () => ({ data: EPICS }),
+    useAllInitiatives: () => ({ data: INITIATIVES }),
     useAllCategories: () => ({ data: CATEGORIES }),
-    useEpicRequirementIds: (_creator, epicId) => {
-        if (epicId == null) return { epicReqIds: null, isError: false, requirements: undefined };
-        if (scopeReadFails) return { epicReqIds: null, isError: true, requirements: undefined };
-        return { epicReqIds: epicReqIdsFromHook, isError: false, requirements: SCOPE_REQUIREMENTS };
+    useInitiativeRequirementIds: (_creator, initiativeId) => {
+        if (initiativeId == null) return { initiativeReqIds: null, isError: false, requirements: undefined };
+        if (scopeReadFails) return { initiativeReqIds: null, isError: true, requirements: undefined };
+        return { initiativeReqIds: initiativeReqIdsFromHook, isError: false, requirements: SCOPE_REQUIREMENTS };
     },
     // req #3503 — the page reads the step filter's two hooks unconditionally
     // (hooks are not conditional), so this suite has to answer them. Both are
-    // stubbed INACTIVE: every assertion here is about the epic filter alone, and
+    // stubbed INACTIVE: every assertion here is about the initiative filter alone, and
     // the step block must be provably invisible to it.
     useAllPipelineSteps: () => ({ data: EMPTY_STEPS }),
     useStepRequirementIds: () => ({ stepReqIds: null, isError: false, requirements: undefined }),
@@ -102,10 +102,10 @@ const mount = (entry) => {
 
 const lastPanelProps = () => panelProps[panelProps.length - 1];
 
-describe('SwarmView under ?epic= (req #3428)', () => {
+describe('SwarmView under ?initiative= (req #3428)', () => {
     beforeEach(() => {
         panelProps = [];
-        epicReqIdsFromHook = new Set([10]);
+        initiativeReqIdsFromHook = new Set([10]);
         scopeReadFails = false;
         localStorage.clear();
         useWorkingProjectStore.setState({ projectId: null, timestamp: null });
@@ -115,97 +115,97 @@ describe('SwarmView under ?epic= (req #3428)', () => {
     });
     afterEach(() => { cleanup(); localStorage.clear(); });
 
-    it('renders the dismissable pill, named after the epic', () => {
-        const { getByTestId } = mount('/swarm?view=cards&epic=11');
-        expect(getByTestId('swarm-epic-filter-chip').textContent).toContain("Bill's Polish #1");
+    it('renders the dismissable pill, named after the initiative', () => {
+        const { getByTestId } = mount('/swarm?view=cards&initiative=11');
+        expect(getByTestId('swarm-initiative-filter-chip').textContent).toContain("Bill's Polish #1");
     });
 
-    it('falls back to the raw id for an epic with no row — not an error state', () => {
-        const { getByTestId } = mount('/swarm?view=cards&epic=99999');
-        expect(getByTestId('swarm-epic-filter-chip').textContent).toContain('99999');
+    it('falls back to the raw id for an initiative with no row — not an error state', () => {
+        const { getByTestId } = mount('/swarm?view=cards&initiative=99999');
+        expect(getByTestId('swarm-initiative-filter-chip').textContent).toContain('99999');
     });
 
     it('leaves the aggregator to its own stored preference (req #3598)', () => {
-        mount('/swarm?view=cards&epic=11');
+        mount('/swarm?view=cards&initiative=11');
         expect(lastPanelProps().showSwarmStartCard).toBe(false);
         expect(useSwarmStartCardStore.getState().show).toBe(false);
     });
 
     it('hands the scope down to the cards', () => {
-        mount('/swarm?view=cards&epic=11');
-        expect(lastPanelProps().epicReqIds).toBe(epicReqIdsFromHook);
+        mount('/swarm?view=cards&initiative=11');
+        expect(lastPanelProps().initiativeReqIds).toBe(initiativeReqIdsFromHook);
     });
 
     it('keeps the pipeline toggle and the aggregator toggle on screen — a scope '
         + 'restricts the rows and overrides no control (req #3598)', () => {
-        const { queryByTestId } = mount('/swarm?view=cards&epic=11');
+        const { queryByTestId } = mount('/swarm?view=cards&initiative=11');
         expect(queryByTestId('hide-pipelined-toggle')).not.toBeNull();
         expect(queryByTestId('swarm-start-card-toggle')).not.toBeNull();
     });
 
     it('keeps the status chips on screen (req #3598)', () => {
-        const { queryByTestId } = mount('/swarm?view=cards&epic=11');
+        const { queryByTestId } = mount('/swarm?view=cards&initiative=11');
         expect(queryByTestId('requirement-status-filter')).not.toBeNull();
     });
 
     it('dismissing the pill clears the filter and restores every control', () => {
-        const { getByTestId, queryByTestId } = mount('/swarm?view=cards&epic=11');
+        const { getByTestId, queryByTestId } = mount('/swarm?view=cards&initiative=11');
         // MUI puts the ✕ in its own button; clicking it fires `onDelete` alone.
-        fireEvent.click(getByTestId('swarm-epic-filter-chip').querySelector('.MuiChip-deleteIcon'));
-        expect(queryByTestId('swarm-epic-filter-chip')).toBeNull();
+        fireEvent.click(getByTestId('swarm-initiative-filter-chip').querySelector('.MuiChip-deleteIcon'));
+        expect(queryByTestId('swarm-initiative-filter-chip')).toBeNull();
         expect(queryByTestId('hide-pipelined-toggle')).not.toBeNull();
         expect(queryByTestId('swarm-start-card-toggle')).not.toBeNull();
         expect(queryByTestId('requirement-status-filter')).not.toBeNull();
-        expect(lastPanelProps().epicReqIds).toBeNull();
+        expect(lastPanelProps().initiativeReqIds).toBeNull();
         expect(lastPanelProps().showSwarmStartCard).toBe(false);
     });
 
     it('dismissing the pill returns to the READER\'S OWN project (req #3503 '
         + 'review — the identical fix the step filter needed)', () => {
         // The reader was working in 'Personal' (project 7, tab 0) before ever
-        // following the epic link. The epic's own work seeds tab 1 ('Darwin')
+        // following the initiative link. The initiative's own work seeds tab 1 ('Darwin')
         // while the filter is engaged; dismissing must read the STORED
         // preference back rather than leave the seeded tab standing once
         // nothing justifies it — the same defect a user report caught on the
         // step filter's identical mechanism.
         useWorkingProjectStore.setState({ projectId: '7', timestamp: Date.now() });
-        const { getByTestId } = mount('/swarm?view=cards&epic=11');
+        const { getByTestId } = mount('/swarm?view=cards&initiative=11');
         expect(lastPanelProps().activeTab).toBe(1);   // seeded to 'Darwin' while engaged
-        fireEvent.click(getByTestId('swarm-epic-filter-chip').querySelector('.MuiChip-deleteIcon'));
+        fireEvent.click(getByTestId('swarm-initiative-filter-chip').querySelector('.MuiChip-deleteIcon'));
         expect(lastPanelProps().activeTab).toBe(0);   // back to 'Personal', the reader's own
     });
 
     it('THE PARAMETER SLEEPS OUTSIDE THE CARDS VIEW: no pill, no scope, controls '
         + 'back — a filter control is on screen exactly when it is applying', () => {
-        const { queryByTestId } = mount('/swarm?view=table&epic=11');
+        const { queryByTestId } = mount('/swarm?view=table&initiative=11');
         expect(queryByTestId('table-view')).not.toBeNull();
-        expect(queryByTestId('swarm-epic-filter-chip')).toBeNull();
+        expect(queryByTestId('swarm-initiative-filter-chip')).toBeNull();
         expect(queryByTestId('hide-pipelined-toggle')).not.toBeNull();
         // Table view never takes the scope, so its status chips stay (req #3598).
         expect(queryByTestId('requirement-status-filter')).not.toBeNull();
     });
 
-    it('with no ?epic= at all, nothing about the page changes', () => {
+    it('with no ?initiative= at all, nothing about the page changes', () => {
         const { queryByTestId } = mount('/swarm?view=cards');
-        expect(queryByTestId('swarm-epic-filter-chip')).toBeNull();
+        expect(queryByTestId('swarm-initiative-filter-chip')).toBeNull();
         expect(queryByTestId('hide-pipelined-toggle')).not.toBeNull();
         expect(queryByTestId('swarm-start-card-toggle')).not.toBeNull();
-        expect(lastPanelProps().epicReqIds).toBeNull();
+        expect(lastPanelProps().initiativeReqIds).toBeNull();
         expect(lastPanelProps().showSwarmStartCard).toBe(false);
     });
 
-    it('an epic link never rewrites the reader\'s stored view preference', () => {
-        mount('/swarm?view=cards&epic=11');
+    it('an initiative link never rewrites the reader\'s stored view preference', () => {
+        mount('/swarm?view=cards&initiative=11');
         expect(localStorage.getItem(SWARM_VIEW_STORAGE_KEY)).toBeNull();
     });
 
     it('NEVER RE-HOMES THE READER: the seeded tab is not written to the persisted '
         + 'working project', () => {
         // `darwin_working_project` lives 90 days. Letting the seed through would
-        // mean glancing at one epic silently changed where bare `/swarm` opens,
+        // mean glancing at one initiative silently changed where bare `/swarm` opens,
         // for months — the same class of defect as the filter writing the view
         // preference, arrived at through a second effect.
-        mount('/swarm?view=cards&epic=11');
+        mount('/swarm?view=cards&initiative=11');
         expect(useWorkingProjectStore.getState().projectId).toBeNull();
         // Read the PERSISTED value, not the key's existence: zustand's `persist`
         // writes the whole state on any change, so the reset in `beforeEach`
@@ -220,13 +220,13 @@ describe('SwarmView under ?epic= (req #3428)', () => {
     });
 
     it('A FAILED MEMBERSHIP READ SHOWS EVERYTHING AND SAYS SO — it must never '
-        + 'render as "this epic has no work"', () => {
+        + 'render as "this initiative has no work"', () => {
         scopeReadFails = true;
-        const { getByTestId, queryByTestId } = mount('/swarm?view=cards&epic=11');
-        const chip = getByTestId('swarm-epic-filter-chip');
+        const { getByTestId, queryByTestId } = mount('/swarm?view=cards&initiative=11');
+        const chip = getByTestId('swarm-initiative-filter-chip');
         expect(chip.textContent).toContain('unavailable');
         // Nothing is filtered, so every control the filter overrides comes back.
-        expect(lastPanelProps().epicReqIds).toBeNull();
+        expect(lastPanelProps().initiativeReqIds).toBeNull();
         expect(lastPanelProps().showSwarmStartCard).toBe(false);
         expect(queryByTestId('hide-pipelined-toggle')).not.toBeNull();
         expect(queryByTestId('swarm-start-card-toggle')).not.toBeNull();

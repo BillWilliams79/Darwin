@@ -15,9 +15,9 @@ import { useShowClosedStore } from '../stores/useShowClosedStore';
 import { useCategoryCountDisplayStore } from '../stores/useCategoryCountDisplayStore';
 import { RequirementActionsContext, useStableRequirementActions } from '../hooks/useRequirementActions';
 import { requirementStatusTimestampFields, requirementStatusTimestampState } from '../utils/requirementStatusTimestamps';
-import { filterToEpic } from '../utils/epicMembership';
+import { filterToInitiative } from '../utils/initiativeMembership';
 // req #3503 — the STEP filter's row predicate. Its own module because step
-// association is `pipelineMembership.js`' stated domain, not the epic module's.
+// association is `pipelineMembership.js`' stated domain, not the initiative module's.
 import { filterToStepReqIds } from '../utils/pipelineMembership';
 
 import AuthContext from '../Context/AuthContext'
@@ -48,7 +48,7 @@ import { CircularProgress } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import { DEFAULT_REQUIREMENT_SPEC } from './requirementSpec';
 
-const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categoryKeyDown, categoryOnBlur, clickCardClosed, clickCardDelete, isTemplate, showClosed, panelActive = true, epicReqIds = null, stepReqIds = null }) => {
+const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categoryKeyDown, categoryOnBlur, clickCardClosed, clickCardDelete, isTemplate, showClosed, panelActive = true, initiativeReqIds = null, stepReqIds = null }) => {
 
     const navigate = useNavigate();
     const { idToken, profile } = useContext(AuthContext);
@@ -66,7 +66,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
     const requirementStatusFilter = useShowClosedStore(s => s.requirementStatusFilter);
     // req #3505 — per-category-card requirement count preference, e.g. "Swarm (17)".
     const showCategoryCount = useCategoryCountDisplayStore(s => s.showCount);
-    // req #3598 — an epic/step scope (`epicReqIds` / `stepReqIds`) RESTRICTS
+    // req #3598 — an initiative/step scope (`initiativeReqIds` / `stepReqIds`) RESTRICTS
     // THE ROWS and changes nothing else: the status chips, the orchestrated
     // toggle, the add-a-requirement row, dragging and the card itself all
     // behave exactly as on the unfiltered page (user ruling, 2026-10-17 —
@@ -93,7 +93,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                         showError(result, 'Unable to delete requirement')
                     }
                 }).catch(error => {
-                    // req #3706 — a 423 names the locked step/epic/plan holding the seat.
+                    // req #3706 — a 423 names the locked step/initiative/plan holding the seat.
                     if (error?.httpStatus?.httpStatus === 423) showError(error.httpStatus.httpMessage);
                     else showError(error, 'Unable to delete requirement');
                 });
@@ -208,7 +208,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
     // req #3419 — THE visibility answer, identical on every browse surface
     // (Table view, the aggregator card, the detail page's up/down elevator).
     // This card derives nothing of its own: `filterVisible` IS the rule, and it
-    // covers step-carried AND epic-filed work (req #3258 covered only the first,
+    // covers step-carried AND initiative-filed work (req #3258 covered only the first,
     // which is the defect req #3419 fixes).
     // `orchestratedIds` is the SAME set `filterVisible` hides by — it is handed
     // to the rows so an orchestrated requirement can be MARKED (gold title box,
@@ -248,14 +248,14 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
             // both private, so the in-place sort below is safe.
             sortedRequirementsArray = filterVisible(sortedRequirementsArray);
 
-            // req #3428 — the epic filter, applied in series after the status
+            // req #3428 — the initiative filter, applied in series after the status
             // chips and the orchestrated toggle, which keep applying under it
-            // (req #3598). A no-op (same array reference) when `epicReqIds` is null.
-            sortedRequirementsArray = filterToEpic(sortedRequirementsArray, epicReqIds);
+            // (req #3598). A no-op (same array reference) when `initiativeReqIds` is null.
+            sortedRequirementsArray = filterToInitiative(sortedRequirementsArray, initiativeReqIds);
 
-            // req #3503 — the STEP filter, applied in series after the epic's. A
+            // req #3503 — the STEP filter, applied in series after the initiative's. A
             // no-op (same array reference) when `stepReqIds` is null, so an
-            // epic-filtered or unfiltered card pays nothing; when both are on,
+            // initiative-filtered or unfiltered card pays nothing; when both are on,
             // the survivors are the intersection, which is what two independent
             // filters on one page must mean.
             sortedRequirementsArray = filterToStepReqIds(sortedRequirementsArray, stepReqIds);
@@ -265,7 +265,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
         } else if (serverRequirements && serverRequirements.length === 0) {
             setRequirementsArray(prev => [buildTemplate(prev)]);
         }
-    }, [serverRequirements, requirementStatusFilter, filterVisible, epicReqIds, stepReqIds]);
+    }, [serverRequirements, requirementStatusFilter, filterVisible, initiativeReqIds, stepReqIds]);
 
     // Build session status map from query data
     useEffect(() => {
@@ -665,7 +665,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                                 handleMenuClose();
                                 // req #3598 — what the delete REMOVES: every requirement
                                 // in the category, not the rows the chips, the toggle or
-                                // an epic/step scope left on screen.
+                                // an initiative/step scope left on screen.
                                 clickCardDelete(event, category.category_name, category.id,
                                     serverRequirements ? serverRequirements.length : requirementCount);
                             }}

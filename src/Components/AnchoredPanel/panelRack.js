@@ -1,6 +1,6 @@
 // panelRack.js — the pure half of the panel RACK (req #3720): the Darwin navbar
-// as a drop zone for AnchoredPanel pop-up information windows (the Dev Servers
-// dashboard first). Pattern doc: memory/anchored-collapse-pattern.md § The rack.
+// as a drop zone for Action Popups (the Dev Servers dashboard first). Pattern
+// doc: memory/anchored-collapse-pattern.md § The rack.
 //
 // A racked panel leaves the viewport and locks into the navbar, directly below
 // its nav buttons, at the navbar's own width; more than one stack top to bottom
@@ -27,7 +27,7 @@ export const RACK_NARROW_PX = 120;
  *  dragged window — the plan's seat-target outline — must clear this). */
 export const RACK_DRAG_Z = 1250;
 
-/** The frame purple of the info windows, for a drag that names no colour. */
+/** The frame purple of the Action Popups, for a drag that names no colour. */
 const RACK_GLOW_DEFAULT = '#a64dff';
 
 /** The drop glow (req #3728): a rack's edges glow in the dragged window's own

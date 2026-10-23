@@ -53,7 +53,7 @@ describe('relayoutAnchorTransform (req #3688)', () => {
         const status = { 1: 'met', 2: 'met', 3: 'met', 4: 'development', 5: 'approved' };
         const mk = (id, reqIds, depIds = []) => ({
             id, title: `step ${id}`, run: 'auto', state: 'pending', reqIds,
-            depIds, timeDeps: [], epicId: 5, epic: 'e', epicLabels: [],
+            depIds, timeDeps: [], initiativeId: 5, initiative: 'e', initiativeLabels: [],
             featureLabels: [], machineLabels: [], machineLabel: '—',
         });
         // Two parallel steps in one column: step 10 (three closed rows) sits
@@ -96,8 +96,8 @@ describe('relayoutAnchorTransform (req #3688)', () => {
         expect({ x: back.x, y: back.y, k: back.k }).toEqual(t0);
     });
 
-    it('falls back to a band header where no card is on screen (folded epics)', () => {
-        const band = (epicId, y, height) => ({ epicId, y, height });
+    it('falls back to a band header where no card is on screen (folded initiatives)', () => {
+        const band = (initiativeId, y, height) => ({ initiativeId, y, height });
         const prev = { width: 800, nodes: new Map([node(1, 0, 0)]),
             bands: [band(1, 0, 200), band(2, 1000, 40)] };
         const next = { width: 800, nodes: new Map([node(1, 0, 0)]),

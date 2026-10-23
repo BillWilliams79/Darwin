@@ -72,7 +72,7 @@ export const PLAN_VIEW_SETTINGS = Object.freeze({
         default: true },
     // The Table's Time / Tokens columns: off until asked for (req #3117).
     showCost: { kind: 'flag', storageKey: 'darwin-pipeline-show-cost', default: false },
-    // The epic bands and step cards folded by their own collapse heads (req
+    // The initiative bands and step cards folded by their own collapse heads (req
     // #3650): a list of tokens `planCollapse.js` owns. Nothing folded until the
     // reader folds it.
     collapsed: { kind: 'value', storageKey: 'darwin-pipeline-viz-collapsed', default: '' },

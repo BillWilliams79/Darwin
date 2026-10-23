@@ -24,8 +24,8 @@
 // `pipelineStatusChipProps` the same way). `PipelinesPage.jsx` imports them
 // directly from `pipelineViewModel.js` / `pipelineChipStyles.js`.
 //
-// THE RULE THIS FEATURE'S STRUCTURAL COPIES (PipelinesPage.jsx/EpicsPage.jsx/
-// StepsPage.jsx as pages, epicsApi.js/stepsApi.js/pipelinesApi.js as write
+// THE RULE THIS FEATURE'S STRUCTURAL COPIES (PipelinesPage.jsx/InitiativesPage.jsx/
+// StepsPage.jsx as pages, initiativesApi.js/stepsApi.js/pipelinesApi.js as write
 // paths, stepsModel.js as the derivation-adjacent guard) POINT AT, stated
 // once here rather than in each of them (code review, req #3393 — the
 // original pointer target, `devopsQueries2.js`, was deleted when the query
@@ -53,14 +53,14 @@ const asArray = (v) => (Array.isArray(v) ? v : []);
  * @param {Object} args
  * @param {Object[]} args.pipelines  pipelines rows
  * @param {Object[]} args.steps      ALL pipeline_steps rows
- * @param {Object[]} args.epics      ALL epics rows (to resolve step -> pipeline)
+ * @param {Object[]} args.initiatives      ALL initiatives rows (to resolve step -> pipeline)
  * @returns {Map<number, {total: number}>}  steps per plan — a step has no
  *          state to tally (req #3750), so the count is the whole summary
  */
-export function pipelineSummaries({ pipelines, steps, epics } = {}) {
-    const pipelineByEpic = new Map();
-    for (const e of asArray(epics)) {
-        if (e && e.id != null) pipelineByEpic.set(e.id, e.pipeline_fk);
+export function pipelineSummaries({ pipelines, steps, initiatives } = {}) {
+    const pipelineByInitiative = new Map();
+    for (const e of asArray(initiatives)) {
+        if (e && e.id != null) pipelineByInitiative.set(e.id, e.pipeline_fk);
     }
 
     const out = new Map();
@@ -70,7 +70,7 @@ export function pipelineSummaries({ pipelines, steps, epics } = {}) {
 
     for (const step of asArray(steps)) {
         if (!step) continue;
-        const pipelineId = pipelineByEpic.get(step.epic_fk);
+        const pipelineId = pipelineByInitiative.get(step.initiative_fk);
         if (pipelineId == null || !out.has(pipelineId)) continue;
         out.get(pipelineId).total += 1;
     }
@@ -88,21 +88,21 @@ export function pipelineSummaries({ pipelines, steps, epics } = {}) {
  * @param {Object} args
  * @param {Object[]} args.pipelines
  * @param {Object[]} args.steps               ALL pipeline_steps rows
- * @param {Object[]} args.epics                ALL epics rows
+ * @param {Object[]} args.initiatives                ALL initiatives rows
  * @param {Object[]} args.stepRequirements    ALL pipeline_step_requirements rows
  * @param {Object[]} args.requirements        any superset (needs `id`, `requirement_status`)
  * @returns {Map<number, {met: number, total: number}>}
  */
-export function pipelineRequirementCounts({ pipelines, steps, epics,
+export function pipelineRequirementCounts({ pipelines, steps, initiatives,
     stepRequirements, requirements } = {}) {
-    const pipelineByEpic = new Map();
-    for (const e of asArray(epics)) {
-        if (e && e.id != null) pipelineByEpic.set(e.id, e.pipeline_fk);
+    const pipelineByInitiative = new Map();
+    for (const e of asArray(initiatives)) {
+        if (e && e.id != null) pipelineByInitiative.set(e.id, e.pipeline_fk);
     }
     const pipelineByStep = new Map();
     for (const s of asArray(steps)) {
         if (!s) continue;
-        const pipelineId = pipelineByEpic.get(s.epic_fk);
+        const pipelineId = pipelineByInitiative.get(s.initiative_fk);
         if (pipelineId != null) pipelineByStep.set(s.id, pipelineId);
     }
     const statusById = new Map();

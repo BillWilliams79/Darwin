@@ -11,8 +11,8 @@
 // Shape follows StepsPage.jsx: one DataGrid, click-to-toggle chips, one
 // dialog for create/edit. Differences from the 1.0 page, all schema-driven:
 //
-//   - The dialog's parent selector is EPIC, not Pipeline (`epic_fk`,
-//     required, disabled on edit — a step's epic is its identity, same
+//   - The dialog's parent selector is INITIATIVE, not Pipeline (`initiative_fk`,
+//     required, disabled on edit — a step's initiative is its identity, same
 //     "delete and recreate to move" doctrine 1.0 states for its own
 //     `pipeline_fk` field).
 //   - `not_before` (nullable TIMESTAMP, one instant, clearable) is a new
@@ -24,14 +24,14 @@
 //     `completed_at`; the concept is gone, not moved elsewhere.
 //   - Reqs is a read-only count with an id tooltip — no seat editor,
 //     matching the requirement's own deliberate-omissions list.
-//   - Column order is the user's (req #3750): ID, Pipeline / Epic, Step,
+//   - Column order is the user's (req #3750): ID, Pipeline / Initiative, Step,
 //     Lock, Run, Barrier, Reqs, then Not before. Notes are edited in the
 //     dialog and never shown in the grid; dependencies are read on the plan
 //     visualizer, not counted here.
-//   - The Pipeline / Epic cell is one chip naming both, linking to the plan
-//     visualizer focused on that epic's band (`epicLinkTo`).
-//   - The toolbar filters by Pipeline, then Epic, and the two cascade: a
-//     pipeline narrows the epic list; an epic implies its pipeline.
+//   - The Pipeline / Initiative cell is one chip naming both, linking to the plan
+//     visualizer focused on that initiative's band (`initiativeLinkTo`).
+//   - The toolbar filters by Pipeline, then Initiative, and the two cascade: a
+//     pipeline narrows the initiative list; an initiative implies its pipeline.
 
 import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
@@ -59,7 +59,7 @@ import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
 import {
     useAllPipelines,
-    useAllEpics,
+    useAllInitiatives,
     useAllPipelineSteps,
     useAllPipelineStepRequirements,
     useAllPipelineStepDeps,
@@ -77,7 +77,7 @@ import {
 } from '../SwarmView/pipelines/pipelineChipStyles';
 // Plan routes come from the SAME builders the router uses, never a literal
 // string (planEra.js's own guard forbids one).
-import { epicLinkTo } from '../SwarmView/pipelines/pipelineEpicLink';
+import { initiativeLinkTo } from '../SwarmView/pipelines/pipelineInitiativeLink';
 import { planOriginOf, planReturnPath } from '../SwarmView/pipelines/pipelineStepLink';
 import StepEditDialog from './StepEditDialog';
 import { buildStepRows } from './stepsModel';
@@ -91,7 +91,7 @@ import { deleteStep, updateStep } from './stepsApi';
 const STEP_REQUIREMENT_FIELDS = 'id,title,tracking';
 
 const ALL_PIPELINES = '';
-const ALL_EPICS = '';
+const ALL_INITIATIVES = '';
 
 const parseIdParam = (raw) => (raw && /^\d+$/.test(raw.trim()) ? Number(raw.trim()) : null);
 
@@ -123,7 +123,7 @@ export default function StepsPage() {
     const timezone = profile?.timezone;
 
     const { data: pipelines = [], isLoading: pipelinesLoading } = useAllPipelines(creatorFk);
-    const { data: epics = [], isLoading: epicsLoading } = useAllEpics(creatorFk);
+    const { data: initiatives = [], isLoading: initiativesLoading } = useAllInitiatives(creatorFk);
     const { data: steps = [], isLoading: stepsLoading } = useAllPipelineSteps(creatorFk);
     const { data: stepRequirements = [], isLoading: linksLoading, isError: linksError } =
         useAllPipelineStepRequirements(creatorFk);
@@ -135,7 +135,7 @@ export default function StepsPage() {
     // `pipelinesLoading` too: the `?id=` deep link snapshots its row once
     // loading ends, and a row built before the plan list arrived would miss a
     // plan-level lock (req #3742).
-    const isLoading = pipelinesLoading || epicsLoading || stepsLoading || linksLoading
+    const isLoading = pipelinesLoading || initiativesLoading || stepsLoading || linksLoading
         || depsLoading || reqsLoading;
 
     // A failed PLAN DATA read is not an empty one: an unread link or dependency
@@ -151,76 +151,76 @@ export default function StepsPage() {
         ? `${failedReads.slice(0, -1).join(', ')} and ${failedReads[failedReads.length - 1]}`
         : (failedReads[0] || '');
 
-    // ── PIPELINE → EPIC, CASCADING (req #3750) ────────────────────────────
-    // Two stored choices, one derived truth: an epic belongs to exactly one
-    // pipeline, so a chosen epic IMPLIES its pipeline and the Pipeline select
-    // shows that pipeline whatever was stored — including when the epic arrived
-    // by `?epic=` deep link before any pipeline was picked. Choosing a pipeline
-    // the chosen epic is not in clears the epic. An id that names nothing
+    // ── PIPELINE → INITIATIVE, CASCADING (req #3750) ────────────────────────────
+    // Two stored choices, one derived truth: an initiative belongs to exactly one
+    // pipeline, so a chosen initiative IMPLIES its pipeline and the Pipeline select
+    // shows that pipeline whatever was stored — including when the initiative arrived
+    // by `?initiative=` deep link before any pipeline was picked. Choosing a pipeline
+    // the chosen initiative is not in clears the initiative. An id that names nothing
     // (stale link, or a row since deleted) resolves to "All" for both the
     // select AND the filter, so the grid never filters by a choice the toolbar
     // does not show. The URL is the ONLY store for both choices, so a link
     // followed while the page is already open re-filters it.
     const pipelineFilter = parseIdParam(searchParams.get('pipeline')) ?? ALL_PIPELINES;
-    const epicFilter = parseIdParam(searchParams.get('epic')) ?? ALL_EPICS;
+    const initiativeFilter = parseIdParam(searchParams.get('initiative')) ?? ALL_INITIATIVES;
 
     // The editor dialog: `key` changes per open so the form seeds afresh.
-    const [dialog, setDialog] = useState({ key: 0, open: false, step: null, defaultEpicFk: '' });
+    const [dialog, setDialog] = useState({ key: 0, open: false, step: null, defaultInitiativeFk: '' });
 
     const pipelineById = useMemo(() => new Map(pipelines.map(p => [p.id, p])), [pipelines]);
-    const epicById = useMemo(() => new Map(epics.map(e => [e.id, e])), [epics]);
+    const initiativeById = useMemo(() => new Map(initiatives.map(e => [e.id, e])), [initiatives]);
 
-    const activeEpic = epicById.has(epicFilter) ? epicFilter : ALL_EPICS;
+    const activeInitiative = initiativeById.has(initiativeFilter) ? initiativeFilter : ALL_INITIATIVES;
     const knownPipeline = (id) => (pipelineById.has(id) ? id : ALL_PIPELINES);
-    const activePipeline = knownPipeline(activeEpic !== ALL_EPICS
-        ? epicById.get(activeEpic).pipeline_fk
+    const activePipeline = knownPipeline(activeInitiative !== ALL_INITIATIVES
+        ? initiativeById.get(activeInitiative).pipeline_fk
         : pipelineFilter);
 
     const allRows = useMemo(() => buildStepRows({
-        steps, stepRequirements, stepDeps, requirements, epics, pipelines,
-    }), [steps, stepRequirements, stepDeps, requirements, epics, pipelines]);
+        steps, stepRequirements, stepDeps, requirements, initiatives, pipelines,
+    }), [steps, stepRequirements, stepDeps, requirements, initiatives, pipelines]);
 
     const rows = useMemo(() => allRows.filter((row) => {
-        if (activeEpic !== ALL_EPICS) return row.epic_fk === activeEpic;
+        if (activeInitiative !== ALL_INITIATIVES) return row.initiative_fk === activeInitiative;
         if (activePipeline !== ALL_PIPELINES) return row.pipelineFk === activePipeline;
         return true;
-    }), [allRows, activeEpic, activePipeline]);
+    }), [allRows, activeInitiative, activePipeline]);
 
     const pipelineOptions = useMemo(() => pipelines.map(
         p => ({ id: p.id, title: p.title })), [pipelines]);
 
-    // Every epic — the dialog's parent list, which must hold an edited step's
-    // epic whatever the toolbar is filtered to.
-    const allEpicOptions = useMemo(() => epics.map(
-        e => ({ id: e.id, title: e.title })), [epics]);
+    // Every initiative — the dialog's parent list, which must hold an edited step's
+    // initiative whatever the toolbar is filtered to.
+    const allInitiativeOptions = useMemo(() => initiatives.map(
+        e => ({ id: e.id, title: e.title })), [initiatives]);
 
-    // The toolbar's epic list, narrowed by the chosen pipeline.
-    const epicOptions = useMemo(() => epics
+    // The toolbar's initiative list, narrowed by the chosen pipeline.
+    const initiativeOptions = useMemo(() => initiatives
         .filter(e => activePipeline === ALL_PIPELINES || e.pipeline_fk === activePipeline)
-        .map(e => ({ id: e.id, title: e.title })), [epics, activePipeline]);
+        .map(e => ({ id: e.id, title: e.title })), [initiatives, activePipeline]);
 
     // The choice lives in the URL, so a filtered view is a link. The router
     // state rides along: it is what renders "Back to Plan", and a
     // filter change must not strand a reader who arrived from the visualizer.
-    const writeFilterParams = (pipelineId, epicId) => {
+    const writeFilterParams = (pipelineId, initiativeId) => {
         const next = new URLSearchParams(searchParams);
         if (pipelineId === ALL_PIPELINES) next.delete('pipeline');
         else next.set('pipeline', String(pipelineId));
-        if (epicId === ALL_EPICS) next.delete('epic');
-        else next.set('epic', String(epicId));
+        if (initiativeId === ALL_INITIATIVES) next.delete('initiative');
+        else next.set('initiative', String(initiativeId));
         setSearchParams(next, { replace: true, state: location.state });
     };
 
     const choosePipeline = (value) => {
-        const keepEpic = activeEpic !== ALL_EPICS && value !== ALL_PIPELINES
-            && epicById.get(activeEpic)?.pipeline_fk === value;
-        writeFilterParams(value, keepEpic ? activeEpic : ALL_EPICS);
+        const keepInitiative = activeInitiative !== ALL_INITIATIVES && value !== ALL_PIPELINES
+            && initiativeById.get(activeInitiative)?.pipeline_fk === value;
+        writeFilterParams(value, keepInitiative ? activeInitiative : ALL_INITIATIVES);
     };
 
-    const chooseEpic = (value) => {
-        const nextPipeline = value === ALL_EPICS
+    const chooseInitiative = (value) => {
+        const nextPipeline = value === ALL_INITIATIVES
             ? activePipeline
-            : (epicById.get(value)?.pipeline_fk ?? ALL_PIPELINES);
+            : (initiativeById.get(value)?.pipeline_fk ?? ALL_PIPELINES);
         writeFilterParams(nextPipeline, value);
     };
 
@@ -231,19 +231,19 @@ export default function StepsPage() {
         queryClient.invalidateQueries({ queryKey: pipelineComposeKeys.all });
     };
 
-    // A new step starts in the chosen epic, else the first epic of the chosen
-    // pipeline; a pipeline with no epics leaves the field empty rather than
-    // pre-picking an epic from some other plan.
+    // A new step starts in the chosen initiative, else the first initiative of the chosen
+    // pipeline; a pipeline with no initiatives leaves the field empty rather than
+    // pre-picking an initiative from some other plan.
     const openCreate = () => setDialog((d) => ({
         key: d.key + 1, open: true, step: null,
-        defaultEpicFk: activeEpic !== ALL_EPICS ? activeEpic : (epicOptions[0]?.id ?? ''),
+        defaultInitiativeFk: activeInitiative !== ALL_INITIATIVES ? activeInitiative : (initiativeOptions[0]?.id ?? ''),
     }));
 
     const openEdit = (row) => setDialog((d) => ({
-        key: d.key + 1, open: true, step: row, defaultEpicFk: '',
+        key: d.key + 1, open: true, step: row, defaultInitiativeFk: '',
     }));
 
-    // Deep-link via ?id=<id> (req #3742), matching EpicsPage's own `?id=`
+    // Deep-link via ?id=<id> (req #3742), matching InitiativesPage's own `?id=`
     // contract. The param is consumed once; the router state rides along on
     // the replace so the page's Back to Plan survives it.
     const autoOpenedIdRef = useRef(null);
@@ -330,24 +330,24 @@ export default function StepsPage() {
         { field: 'id', headerName: 'ID', width: 70 },
         {
             // req #3750 — ONE chip naming both levels a step sits under,
-            // pipeline on the first line and epic on the second. The value is
+            // pipeline on the first line and initiative on the second. The value is
             // the joined text so sort and quick-filter match either name; the
-            // click opens the plan focused on this epic's band.
-            field: 'planEpic', headerName: 'Pipeline / Epic', width: 280,
+            // click opens the plan focused on this initiative's band.
+            field: 'planInitiative', headerName: 'Pipeline / Initiative', width: 280,
             valueGetter: (_v, row) => [
                 row.pipelineTitle || (row.pipelineFk != null ? `#${row.pipelineFk}` : '—'),
-                row.epicTitle || `#${row.epic_fk}`,
+                row.initiativeTitle || `#${row.initiative_fk}`,
             ].join(' / '),
             renderCell: (params) => {
                 const row = params.row;
                 const pipelineLabel = row.pipelineTitle
                     || (row.pipelineFk != null ? `#${row.pipelineFk}` : '—');
-                const epicLabel = row.epicTitle || `#${row.epic_fk}`;
-                const to = epicLinkTo(row.pipelineFk, row.epic_fk);
+                const initiativeLabel = row.initiativeTitle || `#${row.initiative_fk}`;
+                const to = initiativeLinkTo(row.pipelineFk, row.initiative_fk);
                 return (
                     <Box sx={{ display: 'flex', alignItems: 'center', height: '100%', minWidth: 0 }}>
                         <Tooltip title={to
-                            ? `${params.value} — open this epic in its plan`
+                            ? `${params.value} — open this initiative in its plan`
                             : params.value}>
                             <Chip
                                 label={(
@@ -357,7 +357,7 @@ export default function StepsPage() {
                                             {pipelineLabel}
                                         </Box>
                                         <Box component="span" sx={{ display: 'block' }}>
-                                            {epicLabel}
+                                            {initiativeLabel}
                                         </Box>
                                     </>
                                 )}
@@ -494,7 +494,7 @@ export default function StepsPage() {
             <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 2, flexWrap: 'wrap' }}
                    useFlexGap>
                 {/* ── BACK TO THE PLAN THAT SENT YOU (req #3498) ──────────────
-                    The plan visualizer's epic chip carries a steps-editor link,
+                    The plan visualizer's initiative chip carries a steps-editor link,
                     and until now following it was one-way: the reader landed
                     here with the plan, its panel and the camera they had set all
                     to be found again by hand.
@@ -532,12 +532,12 @@ export default function StepsPage() {
                 </FormControl>
 
                 <FormControl size="small" sx={{ minWidth: 200 }}>
-                    <InputLabel>Epic</InputLabel>
-                    <Select label="Epic" value={activeEpic}
-                            onChange={(e) => chooseEpic(e.target.value)}
-                            data-testid="steps-epic-filter">
-                        <MenuItem value={ALL_EPICS}>All epics</MenuItem>
-                        {epicOptions.map(e => (
+                    <InputLabel>Initiative</InputLabel>
+                    <Select label="Initiative" value={activeInitiative}
+                            onChange={(e) => chooseInitiative(e.target.value)}
+                            data-testid="steps-initiative-filter">
+                        <MenuItem value={ALL_INITIATIVES}>All initiatives</MenuItem>
+                        {initiativeOptions.map(e => (
                             <MenuItem key={e.id} value={e.id}>{e.title}</MenuItem>
                         ))}
                     </Select>
@@ -551,7 +551,7 @@ export default function StepsPage() {
                 <Box sx={{ flexGrow: 1 }} />
 
                 <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}
-                        disabled={!allEpicOptions.length}
+                        disabled={!allInitiativeOptions.length}
                         data-testid="step2-add">
                     New Step
                 </Button>
@@ -578,7 +578,7 @@ export default function StepsPage() {
                         columns={columns}
                         getRowId={(r) => r.id}
                         density="compact"
-                        // Fixed height for the two-line Pipeline / Epic chip —
+                        // Fixed height for the two-line Pipeline / Initiative chip —
                         // never auto (memory/view-switchable-pages.md § D rule 2).
                         rowHeight={56}
                         slots={{ toolbar: GridToolbar }}
@@ -597,8 +597,8 @@ export default function StepsPage() {
                 key={dialog.key}
                 open={dialog.open}
                 step={dialog.step}
-                epicOptions={allEpicOptions}
-                defaultEpicFk={dialog.defaultEpicFk}
+                initiativeOptions={allInitiativeOptions}
+                defaultInitiativeFk={dialog.defaultInitiativeFk}
                 onClose={() => setDialog((d) => ({ ...d, open: false }))}
                 onSaved={invalidateSteps}
             />

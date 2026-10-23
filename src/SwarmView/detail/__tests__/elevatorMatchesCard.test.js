@@ -40,7 +40,7 @@ const junction = (rows) => rows.filter(r => r.pipelined).map(r => ({ requirement
 // THE predicate, built exactly the way `useRequirementVisibility` builds it, and
 // then handed to BOTH models below. One predicate is the whole point of req
 // #3419: while the card and the elevator each derived their own, the two could
-// (and did) answer different questions. req #3357 retired the epic-filed
+// (and did) answer different questions. req #3357 retired the initiative-filed
 // population `orchestratedRequirementIds` once unioned in (Feature left the
 // frontend), so it is the step answer alone — see pipelineMembership.js.
 const visibilityFor = (rows, hideOrchestrated) => {

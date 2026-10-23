@@ -209,10 +209,10 @@ in ~2.8 minutes. Test IDs and the fixture strategy are documented in TEST_PLAN.m
 | 7 — automation that waits fails loud | Out of scope here (the watchdog is a shell script, not a UI surface) |
 | 8 — launch unit visibility | PIPE-04 (exact `/swarm-start` args on the step's own row, and the gate). PIPE-10's dashed rectangle and conditional key were deleted with the multi-step launch grouping (req #3371) |
 | 9 — requirement-centric views carry no session data | Structural: the plan reads carry no session table at all |
-| 10 — one epic/feature label per step | PIPE-03 (contiguous groups compared by ID, not title) |
+| 10 — one initiative/feature label per step | PIPE-03 (contiguous groups compared by ID, not title) |
 
 Production directives from the POC polish review are covered by PIPE-07 (no '#'),
-PIPE-08 (no horizontal scrollbar, drag-pan), PIPE-11 (steps/requirements/epics are
+PIPE-08 (no horizontal scrollbar, drag-pan), PIPE-11 (steps/requirements/initiatives are
 clickable links).
 
 ### Defect found and fixed by this battery

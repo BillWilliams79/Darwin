@@ -60,11 +60,11 @@ describe('PipelinePlanThumbnail — L3 crop (req #3641)', () => {
     it('draws step names and requirement titles across the full card width', () => {
         composed = composedFixture({
             id: 7,
-            epics: [{ id: 1, pipeline_fk: 7, title: 'Polish', sort_order: 1 }],
+            initiatives: [{ id: 1, pipeline_fk: 7, title: 'Polish', sort_order: 1 }],
             steps: [
-                { id: 10, epic_fk: 1, title: 'Visualizer Polish', run: 'auto',
+                { id: 10, initiative_fk: 1, title: 'Visualizer Polish', run: 'auto',
                     notes: null, not_before: null },
-                { id: 11, epic_fk: 1, title: 'Cards Polish', run: 'manual',
+                { id: 11, initiative_fk: 1, title: 'Cards Polish', run: 'manual',
                     notes: null, not_before: null },
             ],
             requirements: [
@@ -98,13 +98,13 @@ describe('PipelinePlanThumbnail — L3 crop (req #3641)', () => {
     it('draws every card state bar in its own frame colour', () => {
         composed = composedFixture({
             id: 7,
-            epics: [{ id: 1, pipeline_fk: 7, title: 'Polish', sort_order: 1 }],
+            initiatives: [{ id: 1, pipeline_fk: 7, title: 'Polish', sort_order: 1 }],
             steps: [
-                { id: 10, epic_fk: 1, title: 'Done', run: 'auto', checkpoint: 0,
+                { id: 10, initiative_fk: 1, title: 'Done', run: 'auto', checkpoint: 0,
                     notes: null, not_before: null },
-                { id: 11, epic_fk: 1, title: 'Running', run: 'manual',
+                { id: 11, initiative_fk: 1, title: 'Running', run: 'manual',
                     notes: null, not_before: null },
-                { id: 12, epic_fk: 1, title: 'Pending', run: 'auto', checkpoint: 1,
+                { id: 12, initiative_fk: 1, title: 'Pending', run: 'auto', checkpoint: 1,
                     notes: null, not_before: null },
             ],
             requirements: [

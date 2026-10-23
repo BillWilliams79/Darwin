@@ -12,7 +12,7 @@
 // difference was the whole of this file:
 //
 //   1.0  SEVEN bounded list reads (pipelines, steps, step requirements, step
-//        deps, requirements, the retired middle tier, epics) joined and
+//        deps, requirements, the retired middle tier, initiatives) joined and
 //        derived IN THE BROWSER.
 //   2.0  ONE composed read (`pipeline_compose`, req #3367) — the join AND the
 //        derivation both already ran server-side — reshaped by
@@ -131,7 +131,7 @@ export function usePlanSources(pipelineId, creatorFk,
         plan,
         diagnostic,
         isLoading,
-        // The composed payload carries its own epic labels, so the dictionary
+        // The composed payload carries its own initiative labels, so the dictionary
         // failure 1.0's browser-side join could suffer cannot happen here. The
         // page's `machines` read is separate and is reported by the page itself.
         // Kept as an explicit `false` rather than omitted: the page destructures

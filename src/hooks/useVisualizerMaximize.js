@@ -71,7 +71,7 @@ export function useVisualizerMaximize(enabled) {
     const maximized = want && enabled;
 
     // req #3735 — maximized, the page is drawn OVER the navbar, so the panel
-    // rack is suspended for every pop-up window until it is not (before paint,
+    // rack is suspended for every Action Popup until it is not (before paint,
     // so nothing is portalled into the covered navbar for a frame).
     useLayoutEffect(() => {
         if (!maximized) return undefined;

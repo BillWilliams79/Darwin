@@ -32,7 +32,7 @@ beforeEach(() => {
 });
 
 describe('insertStepOnEdge', () => {
-    const args = { fromStepId: 1, toStepId: 2, epic_fk: 5, title: 'Mid' };
+    const args = { fromStepId: 1, toStepId: 2, initiative_fk: 5, title: 'Mid' };
 
     it('creates N, gates N on A, gates B on N, THEN removes B -> A', async () => {
         const created = await insertStepOnEdge(URI, 'tok', args);
@@ -43,7 +43,7 @@ describe('insertStepOnEdge', () => {
             'POST pipeline_step_deps',
             'DELETE pipeline_step_deps',
         ]);
-        expect(calls[0].body).toMatchObject({ epic_fk: 5, title: 'Mid' });
+        expect(calls[0].body).toMatchObject({ initiative_fk: 5, title: 'Mid' });
         // A step has no state (req #3750): a create never names `completed_at`.
         expect(calls[0].body).not.toHaveProperty('completed_at');
         expect(calls[1].body).toEqual({ step_fk: 99, dep_step_fk: 1 });
@@ -90,13 +90,13 @@ describe('insertStepOnEdge', () => {
 
 describe('addDependentStep', () => {
     it('creates N and gates it on the one step', async () => {
-        await addDependentStep(URI, 'tok', { fromStepId: 7, epic_fk: 5, title: 'Side' });
+        await addDependentStep(URI, 'tok', { fromStepId: 7, initiative_fk: 5, title: 'Side' });
         expect(brief().slice(1)).toEqual(['POST pipeline_step_deps {"step_fk":99,"dep_step_fk":7}']);
     });
 
     it('a refused edge deletes the new step', async () => {
         fail = 1;
-        await expect(addDependentStep(URI, 'tok', { fromStepId: 7, epic_fk: 5, title: 'S' }))
+        await expect(addDependentStep(URI, 'tok', { fromStepId: 7, initiative_fk: 5, title: 'S' }))
             .rejects.toThrow();
         expect(brief().slice(2)).toEqual(['DELETE pipeline_steps {"id":99}']);
     });
@@ -113,12 +113,12 @@ describe('createdRowOf', () => {
 
 // Req #3617 — the PRECEDE "+" off a card's free left side: N -> T.
 describe('precedeStepWith', () => {
-    const args = { toStepId: 2, epic_fk: 5, title: 'Before' };
+    const args = { toStepId: 2, initiative_fk: 5, title: 'Before' };
 
     it('creates N, then gates T on N — nothing else', async () => {
         await expect(precedeStepWith(URI, 'tok', args)).resolves.toEqual({ id: 99 });
         expect(brief().slice(1)).toEqual(['POST pipeline_step_deps {"step_fk":2,"dep_step_fk":99}']);
-        expect(calls[0].body).toMatchObject({ epic_fk: 5, title: 'Before' });
+        expect(calls[0].body).toMatchObject({ initiative_fk: 5, title: 'Before' });
     });
 
     it('a refused T -> N edge deletes T -> N anyway (it may have landed), then N', async () => {

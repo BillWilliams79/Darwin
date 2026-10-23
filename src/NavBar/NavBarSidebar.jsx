@@ -13,6 +13,7 @@ import {
 } from './navCollapse';
 import ProfileDialog from './ProfileDialog';
 import { usePanelRackStore } from '../stores/usePanelRackStore';
+import { useRequirementFilerStore } from '../stores/useRequirementFilerStore';
 import { RACK_DRAG_Z, RACK_SX, rackGlow } from '../Components/AnchoredPanel/panelRack';
 
 import AppBar from '@mui/material/AppBar';
@@ -36,6 +37,7 @@ import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import PostAddIcon from '@mui/icons-material/PostAdd';
 // Req #3209 — boxed +/- marks an ITEM that expands. Deliberately not the
 // ExpandLess/ExpandMore chevrons above: those already mean "group header", and
 // reusing them would make the two nav levels indistinguishable at a glance.
@@ -63,7 +65,7 @@ const NavBarSidebar = () => {
     const [profileDialogOpen, setProfileDialogOpen] = useState(false);
     const sidebarWidth = collapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_WIDTH;
 
-    // The panel rack (req #3720): pop-up information windows (AnchoredPanel
+    // The panel rack (req #3720): Action Popups (AnchoredPanel
     // hosts naming a rackId — the Dev Servers dashboard) dragged onto the
     // navbar lock in below the nav buttons, at the navbar's width, stacked in
     // rack order. The navbar publishes its rack slot while it is drawn (before
@@ -117,7 +119,7 @@ const NavBarSidebar = () => {
     // Whether the dev-server table is empty, so the Dev Servers nav link can
     // grey out (req #3005) — in ALL environments. Lightweight, user-scoped GET;
     // 60s staleTime keeps it to roughly one refetch per minute. (This dev
-    // server's own details are the Dev Server panel's — DevServerInfoPanel.)
+    // server's own details are the Dev Server panel's — DevServerActionPopup.)
     const { data: devServersArray } = useDevServers(profile?.userName, {
         enabled: !!profile?.userName,
         staleTime: 60_000,
@@ -158,7 +160,7 @@ const NavBarSidebar = () => {
         // Every other link matches itself OR a `/`-delimited sub-route of
         // itself (`/swarm/testruns/42` for the `/swarm/testruns` link) —
         // never a mere STRING prefix. A bare `startsWith` matched
-        // `/swarm/epicsN` against the `/swarm/epics` link (code review, req
+        // `/swarm/initiativesN` against the `/swarm/initiatives` link (code review, req
         // #3393): a plan-layer editor whose path happens to extend another
         // link's path by an unrelated suffix lit up both nav rows, and the
         // mobile bottom nav — which takes the FIRST match in flattened order
@@ -321,6 +323,31 @@ const NavBarSidebar = () => {
         : <ChevronLeftIcon sx={{ fontSize: 18 }} />;
     const collapseLabel = collapsed ? 'Expand' : 'Collapse';
 
+    // The Requirement Filer's control (req #3811): opens — or closes — the
+    // Action Popup that files a requirement from whatever page this is.
+    const filerShown = useRequirementFilerStore(s => s.show);
+    const toggleFiler = useRequirementFilerStore(s => s.toggleShow);
+    const filerLabel = filerShown ? 'Close the Requirement Filer' : 'File a requirement';
+    const renderFilerControl = (showText) => (
+        <Tooltip title={filerLabel} placement="right">
+            <IconButton
+                onClick={toggleFiler}
+                size="small"
+                data-testid="navbar-requirement-filer"
+                aria-label={filerLabel}
+                aria-pressed={filerShown}
+                sx={{
+                    p: 0.25,
+                    ml: showText ? 'auto' : 0,
+                    color: filerShown ? ACCENT : 'rgba(255,255,255,0.7)',
+                    '&:hover': { color: 'white', bgcolor: 'rgba(255,255,255,0.08)' },
+                }}
+            >
+                <PostAddIcon sx={{ fontSize: 18 }} />
+            </IconButton>
+        </Tooltip>
+    );
+
     const renderHeaderCollapse = (showText) => (
         <Tooltip title={collapseLabel} placement="right">
             <IconButton
@@ -330,7 +357,6 @@ const NavBarSidebar = () => {
                 aria-label={collapseLabel}
                 sx={{
                     p: 0.25,
-                    ml: showText ? 'auto' : 0,
                     color: 'rgba(255,255,255,0.7)',
                     '&:hover': { color: 'white', bgcolor: 'rgba(255,255,255,0.08)' },
                 }}
@@ -401,6 +427,7 @@ const NavBarSidebar = () => {
                                         </Typography>
                                     </Link>
                                 )}
+                                {renderFilerControl(showText)}
                                 {renderHeaderCollapse(showText)}
                             </Box>
 

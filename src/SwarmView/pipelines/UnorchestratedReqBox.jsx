@@ -2,7 +2,7 @@
 // (req #3583; titled and outlined in purple by req #3605; retitled from
 // "Orchestration Ready" by req #3648).
 //
-// A floating panel in the canvas's top-right corner listing every requirement
+// An Action Popup in the canvas's top-right corner listing every requirement
 // that is ready to run but sits on no plan step. Each row is the SOURCE of a
 // drag: pick it up, drop it on a step card, and it is seated there. That is
 // what makes it "go hand in hand with" the visualizer's drag-and-drop (req
@@ -128,7 +128,7 @@
 // the id goes bold.
 //
 // ── FOLDED, IT IS A NARROW "OR" BAR (req #3648, user directive) ───────────
-// The title bar is every pop-up window's (req #3741): the ▾ (CollapseHead) at
+// The title bar is every Action Popup's (req #3741): the ▾ (CollapseHead) at
 // the upper left, then the count as a badge, then the name — and the upper
 // right blank, since the box has no close. Folding swaps the name for "OR" and
 // narrows the box to exactly that bar — ▾, badge, "OR", nothing else changed —
@@ -149,7 +149,7 @@
 // box left just far enough to show it.
 //
 // ── IT DOCKS TO THE DARWIN NAVBAR TOO (req #3735) ─────────────────────────
-// It is one of Darwin's pop-up information windows, so it racks like the rest
+// It is one of Darwin's Action Popups, so it racks like the rest
 // (the Dev Servers dashboard, the Dev Server panel, the Active box — pattern doc
 // memory/anchored-collapse-pattern.md § The rack). It draws its own frame rather
 // than being an AnchoredPanel — its zoom-following type, step-card width, text
@@ -157,7 +157,7 @@
 // AnchoredPanel does (`usePanelRack`): its title-bar move hit-tests the navbar,
 // the navbar glows in its purple while the pointer is over, and released there
 // it is RACKED — portalled into the navbar's rack slot at the navbar's width, in
-// the info windows' 12px type, its title whole even folded, no grip, stacked and
+// the Action Popups' 12px type, its title whole even folded, no grip, stacked and
 // reordered with the others. Its rows still drag onto step cards from there, and
 // a carried move released over a step still seats the whole set — and leaves it
 // racked: that gesture was a seat, not a relocation. Dragged off the navbar it
@@ -167,6 +167,17 @@
 // re-mounts its DOM (inline ↔ portal, or a new rack slot), so every native
 // listener is bound per mount. Lifted out of the rack it stays FULL SIZE, as
 // every move of this box does (req #3677) — an AnchoredPanel shrinks to its head.
+//
+// ── A REQUIREMENT DROPPED ON IT LEAVES THE PLAN (req #3817) ───────────────
+// The box is a drop TARGET as well as a source: drag a requirement off a step
+// card, release it over the box — home, floated anywhere, or racked in the
+// navbar — and it is un-orchestrated (its step seat deleted), so it is the
+// box's. The gesture is the visualizer's; the box hands it its element
+// (`dropTargetRef`) to hit-test and draws what it is told: while a requirement
+// is in flight (`dropArmed`) a dashed purple outline says it takes drops, and
+// with the requirement over it (`dropOver`) it glows and its title reads
+// "Drop to un-orchestrate". A requirement on a LOCKED step cannot leave it
+// (`dropArmed` 'refused'): no outline, a no-drop cursor.
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
@@ -176,7 +187,7 @@ import useMediaQuery from '@mui/material/useMediaQuery';
 import { lighten } from '@mui/material/styles';
 
 import CollapseHead from '../../Components/AnchoredPanel/CollapseHead';
-import { INFO_PANEL_COLORS, INFO_PANEL_FONT_PX } from '../../Components/AnchoredPanel/infoPanelChrome';
+import { ACTION_POPUP_COLORS, ACTION_POPUP_FONT_PX } from '../../Components/AnchoredPanel/actionPopupChrome';
 import { rackOrder } from '../../Components/AnchoredPanel/panelRack';
 import { rackPortal, usePanelRack } from '../../Components/AnchoredPanel/usePanelRack';
 import { CARD_FRAME_W, PLAN_VIZ_PALETTE as P } from './pipelinePlanLayout';
@@ -319,6 +330,7 @@ export default function UnorchestratedReqBox({
     fontPx = 12, widthPx = CARD_FRAME_W, statusColor = P.req,
     idStyleOf = null, onOpen,
     onMoveOver, onMoveDrop, onCarryingChange,
+    dropTargetRef = null, dropArmed = null, dropOver = false,
 }) {
     // The navbar rack (req #3735) — suspended while a page covers the navbar.
     const rack = usePanelRack(ORCHESTRABLES_RACK_ID);
@@ -384,6 +396,12 @@ export default function UnorchestratedReqBox({
     };
     const listRef = useRef(null);
     const boxRef = useRef(null);
+    // The box's element, shared with the visualizer's requirement drag (req
+    // #3817). A callback ref, since racking re-mounts the element.
+    const setBoxEl = (el) => {
+        boxRef.current = el;
+        if (dropTargetRef) dropTargetRef.current = el;
+    };
     // The open box's inner width, px: its drawn width capped at its containing
     // block (the `maxWidth` below), less its border. Null when it cannot be
     // measured.
@@ -746,15 +764,17 @@ export default function UnorchestratedReqBox({
         setResizing(false);
     }, [gripShown]);
 
-    // Racked, the info windows' type and the navbar's width (req #3735).
-    const typePx = inRack ? INFO_PANEL_FONT_PX : drawn.fontPx;
+    // Racked, the Action Popups' type and the navbar's width (req #3735).
+    const typePx = inRack ? ACTION_POPUP_FONT_PX : drawn.fontPx;
     const boxW = inRack ? (lifted ? `${slot.width}px` : '100%')
         : (open ? `${drawn.widthPx}px` : foldedW);
     const racking = inRack && !lifted;
 
     const panel = (
-        <Box ref={boxRef} data-viz-chrome="unseated" data-viz-unseated=""
+        <Box ref={setBoxEl} data-viz-chrome="unseated" data-viz-unseated=""
              data-testid="pipeline-viz-unseated"
+             data-drop-armed={dropArmed || ''}
+             data-drop-over={dropOver ? '1' : '0'}
              data-rack-id={ORCHESTRABLES_RACK_ID}
              data-racked={inRack ? '1' : '0'}
              data-rack-open={inRack && open ? '1' : '0'}
@@ -779,10 +799,22 @@ export default function UnorchestratedReqBox({
                     background: 'rgba(13, 20, 32, 0.94)',
                     backdropFilter: 'blur(2px)',
                     borderRadius: '0.8em', border: `2px solid ${OUTLINE}`,
-                    // Lifted by a held title bar (req #3665): picked up.
-                    boxShadow: barLifted
-                        ? `0 1em 2.4em rgba(0, 0, 0, 0.6), 0 0 0 0.25em ${OUTLINE}55`
-                        : '0 0.5em 1.5em rgba(0, 0, 0, 0.45)',
+                    // Lifted by a held title bar (req #3665): picked up. A
+                    // requirement over it (req #3817): a strong purple glow.
+                    // Racked, the rack clips anything outside the box, so the
+                    // glow is drawn inside it — on an overlay, since an inset
+                    // shadow would paint under the rows' opaque backgrounds.
+                    boxShadow: dropOver && !inRack
+                        ? `0 0 0 0.3em ${OUTLINE}aa, 0 0 1.6em 0.3em ${OUTLINE}88`
+                        : (barLifted
+                            ? `0 1em 2.4em rgba(0, 0, 0, 0.6), 0 0 0 0.25em ${OUTLINE}55`
+                            : '0 0.5em 1.5em rgba(0, 0, 0, 0.45)'),
+                    // req #3817 — a requirement in flight: the box takes drops.
+                    ...(dropArmed === 'ok' && !dropOver && {
+                        outline: `2px dashed ${OUTLINE}`, outlineOffset: inRack ? '-5px' : '3px' }),
+                    ...(dropArmed && {
+                        cursor: dropArmed === 'ok' ? 'grabbing' : 'no-drop',
+                        '& *': { cursor: 'inherit !important' } }),
                     fontFamily: MONO, color: P.text, userSelect: 'none',
                     overflow: 'hidden', zIndex: 2,
                     // See-through while carried (req #3614) so the outlined
@@ -794,7 +826,11 @@ export default function UnorchestratedReqBox({
                     // In the stack: square, flat. The rack's row sizes it: open,
                     // the height its rows need and no more, its list scrolling
                     // when the rack is short (req #3747); folded, its title bar.
-                    ...(racking && { borderRadius: 0, boxShadow: 'none' }) }}>
+                    ...(racking && { borderRadius: 0, boxShadow: 'none' }),
+                    ...(dropOver && inRack && {
+                        '&::after': { content: '""', position: 'absolute', inset: 0,
+                            borderRadius: 'inherit', pointerEvents: 'none', zIndex: 3,
+                            boxShadow: `inset 0 0 0 0.3em ${OUTLINE}aa, inset 0 0 1.4em ${OUTLINE}88` } }) }}>
             <Box ref={headerRef} data-testid="pipeline-viz-unseated-header"
                  title={inRack
                      ? `Drag to reorder · drag off the navbar to float it${count > 0 ? ' · drop on a step to seat them all' : ''}`
@@ -812,11 +848,11 @@ export default function UnorchestratedReqBox({
                         px: '0.8em', py: '0.45em', flexShrink: 0,
                         cursor: moving ? 'grabbing' : 'move', touchAction: 'none',
                         WebkitTouchCallout: 'none', fontWeight: 600 }}>
-                {/* The ▾ at the upper left, as every pop-up window has it
+                {/* The ▾ at the upper left, as every Action Popup has it
                     (req #3741); the upper right is left blank. */}
                 <CollapseHead open={open} onToggle={toggleOpen} name="Orchestrables"
                               testid="pipeline-viz-unseated-toggle"
-                              color={INFO_PANEL_COLORS.head} hoverColor={INFO_PANEL_COLORS.headHover}
+                              color={ACTION_POPUP_COLORS.head} hoverColor={ACTION_POPUP_COLORS.headHover}
                               fontSize="0.9em" showName={false} />
                 {/* The count is a badge LEFT of the name (req #3648), folded
                     or not. */}
@@ -837,7 +873,8 @@ export default function UnorchestratedReqBox({
                             minWidth: open || inRack ? 0 : 'auto',
                             overflow: 'hidden',
                             textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {open || inRack ? 'Orchestrables' : 'OR'}
+                    {dropOver && (open || inRack) ? 'Drop to un-orchestrate'
+                        : (open || inRack ? 'Orchestrables' : 'OR')}
                 </Box>
                 )}
             </Box>
@@ -944,6 +981,8 @@ export default function UnorchestratedReqBox({
 function UnseatedRow({ row, id, fontPx, barColor, idStyle, narrow, onOpen }) {
     const { ref, style, attributes, listeners, isDragging } = useDarwinDraggable({
         id: unseatedDragId(id), type: UNSEATED_DRAG_TYPE, row,
+        // req #3817 — un-orchestrated a moment ago, its seat not yet deleted.
+        disabled: !!row.unseating,
     });
     // No keyboard lift: the step it would land on is a canvas card a key
     // cannot reach (the collision detection needs a pointer). From the keys a
