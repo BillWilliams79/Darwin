@@ -191,6 +191,33 @@ describe('PipelinePlanToolbar (req #3648)', () => {
         expect(got).toEqual([true, false]);
     });
 
+    // req #3825 — one Time chip, lit while the step cards draw their times.
+    it('draws Time right after Closed, lit when on and dark when off', () => {
+        const got = [];
+        const render = (showTimes) => act(() => root.render(
+            <PipelinePlanToolbar onStepsAcross={() => {}} stepWidthLevel={5}
+                                 onChangeStepWidthLevel={() => {}} colorKey="state"
+                                 onChangeColorKey={() => {}} hideClosed={false}
+                                 onChangeHideClosed={() => {}} showTimes={showTimes}
+                                 onChangeShowTimes={(v) => got.push(v)} planLevelPref="auto"
+                                 effectiveLevel="out" onChangeLevelPref={() => {}}
+                                 onResetView={() => {}} />));
+        render(true);
+        const time = q('pipeline-viz-show-times');
+        expect(time.textContent).toBe('Time');
+        // eslint-disable-next-line no-bitwise
+        expect(q('pipeline-viz-hide-closed').compareDocumentPosition(time)
+            & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(time.getAttribute('aria-pressed')).toBe('true');
+        expect(time.className).not.toMatch(/outlined/i);
+        act(() => q('pipeline-viz-show-times').click());
+        render(false);
+        expect(q('pipeline-viz-show-times').getAttribute('aria-pressed')).toBe('false');
+        expect(q('pipeline-viz-show-times').className).toMatch(/outlined/i);
+        act(() => q('pipeline-viz-show-times').click());
+        expect(got).toEqual([false, true]);
+    });
+
     it('hides the Step Width rungs', () => {
         expect(q('pipeline-viz-stepwidth-toggle')).toBeNull();
     });

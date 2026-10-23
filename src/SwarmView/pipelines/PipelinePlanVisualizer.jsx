@@ -532,6 +532,9 @@ export default function PipelinePlanVisualizer({
     // req #3686 — draw only the OPEN requirements under each step (the closed
     // group and its dashed line are dropped from the layout's input).
     hideClosed = false,
+    // req #3825 — draw the step cards' start / end time line. Off, the line is
+    // dropped from the layout's input, so the cards close up.
+    showTimes = true,
     // req #3708 — machine ids deselected in the toolbar's machine filter: the
     // requirements pinned to them are drawn nowhere (step cards, Orchestrables).
     hiddenMachines = NO_HIDDEN_MACHINES,
@@ -858,8 +861,10 @@ export default function PipelinePlanVisualizer({
     // same layout-only pass; `reqInfo` already carries each one's `machineFk`.
     const layoutRows = useMemo(() => {
         const open = hideClosed ? hideClosedReqs(rows) : rows;
-        return hideMachineReqs(open, hiddenMachines, (id) => reqInfo.get(id)?.machineFk);
-    }, [rows, hideClosed, hiddenMachines, reqInfo]);
+        const timed = showTimes ? open
+            : open.map((r) => (r.stampsReserved ? { ...r, stampsReserved: false } : r));
+        return hideMachineReqs(timed, hiddenMachines, (id) => reqInfo.get(id)?.machineFk);
+    }, [rows, hideClosed, showTimes, hiddenMachines, reqInfo]);
     const layoutOpts = useMemo(
         () => ({
             stepLabel, reqLabel, reqTitles: layoutTitles, reqPills,
@@ -1712,7 +1717,9 @@ export default function PipelinePlanVisualizer({
     const shownLayoutRef = useRef(null);
     // req #3708 — a machine-filter toggle re-lays the plan out exactly as Hide
     // closed does, so it rides the same anchor under one combined key.
-    const layoutFilterKey = `${hideClosed ? 1 : 0}|${[...hiddenMachines].sort().join(',')}`;
+    // req #3825 — the Time toggle re-lays the cards out too, so it rides it.
+    const layoutFilterKey = `${hideClosed ? 1 : 0}|${showTimes ? 1 : 0}|`
+        + `${[...hiddenMachines].sort().join(',')}`;
     const shownHideClosedRef = useRef(layoutFilterKey);
     const anchorFromRef = useRef(null);
     const lastAnchorRef = useRef(null);
@@ -4969,6 +4976,13 @@ export default function PipelinePlanVisualizer({
                     onMouseLeave: (e) => cursorPointer(e, false),
                 }));
             }
+        } else if (label.kind === 'stamp') {
+            // req #3825 — the step's START (bottom-left) and END
+            // (bottom-right), already formatted and placed by the layout.
+            worldNodes.push(
+                <Text key={`lbl-${i}`} x={label.x} y={label.y} text={label.text}
+                      fontSize={CF.title} fontFamily={MONO} fill={P.dim}
+                      listening={false} />);
         } else if (label.kind === 'slot') {
             // Dropped by the draw-time re-thin — see the counter-scale note
             // below. `return`, not `continue`: this sweep is a `forEach`, so

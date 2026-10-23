@@ -117,6 +117,7 @@ import {
     buildSessionStatusIndex,
 } from './pipelineViewModel';
 import { buildReqPills } from './planReqPills';
+import { buildFirstStartIndex } from './planStepTimes';
 
 // A SHARED frozen empty array for the `data = EMPTY` defaults below. A `= []`
 // literal mints a NEW array on every render while `data` is undefined — which is
@@ -208,6 +209,7 @@ export default function PipelineDetail() {
     const [colorKeyPref, setColorKeyPref] = usePlanViewSetting('colorKey');
     // req #3686 — hide the closed requirements (and the line above them) on the canvas.
     const [hideClosed, setHideClosed] = usePlanViewSetting('hideClosed');
+    const [showTimes, setShowTimes] = usePlanViewSetting('showTimes');
     // req #3708 — the machines DESELECTED in the toolbar's machine filter.
     const [hiddenMachinesRaw, setHiddenMachinesRaw] = usePlanViewSetting('hiddenMachines');
     const hiddenMachines = useMemo(
@@ -514,6 +516,13 @@ export default function PipelineDetail() {
         }),
         [requirementSessions, sessionCosts, sessionReadsReady]);
 
+    // Req #3825 — each requirement's FIRST swarm start, for the step cards'
+    // start time, from the SAME two reads (the session read carries
+    // `started_at`). No fetch of its own.
+    const firstStarts = useMemo(
+        () => buildFirstStartIndex({ requirementSessions, sessions: sessionCosts }),
+        [requirementSessions, sessionCosts]);
+
     // Req #3587 — the visualizer's Terminal and Dev Server pills. Two more
     // bounded list reads (a light session projection and `dev_servers`, the
     // latter always production per its req #2871 carve-out), joined against the
@@ -548,7 +557,7 @@ export default function PipelineDetail() {
     const {
         pipeline, model, plan, diagnostic, isLoading: planLoading,
         dictionaryError: planDictionaryError, knownIds,
-    } = usePlanSources(pipelineId, creatorFk, { machines, costIndex, sessionStatus });
+    } = usePlanSources(pipelineId, creatorFk, { machines, costIndex, sessionStatus, firstStarts });
 
     const isLoading = planLoading || machinesLoading || pillsLoading;
 
@@ -1022,6 +1031,8 @@ export default function PipelineDetail() {
                         onKeyHover={setKeyHover}
                         hideClosed={hideClosed}
                         onChangeHideClosed={setHideClosed}
+                        showTimes={showTimes}
+                        onChangeShowTimes={setShowTimes}
                         machines={filterMachines}
                         hiddenMachines={hiddenMachines}
                         onToggleMachine={handleToggleMachine}
@@ -1145,6 +1156,7 @@ export default function PipelineDetail() {
                              stepsAcross={stepsAcross}
                              stepWidthLevel={stepWidthLevel}
                              hideClosed={hideClosed}
+                             showTimes={showTimes}
                              hiddenMachines={hiddenMachines}
                              reqPills={reqPills}
                              sessionStatus={sessionStatus}

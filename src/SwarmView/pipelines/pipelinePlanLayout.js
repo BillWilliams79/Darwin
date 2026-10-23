@@ -70,6 +70,7 @@ import {
 // same ladder the swarm canvas uses, deliberately (`semanticLevel`'s own note).
 import { semanticLevel } from '../konvaSwarmModel';
 import { localDayOf } from './pipelinePlanTime';
+import { formatClock, formatEndClock } from './planStepTimes';
 
 // ── POC design language (viz-generate.py palette, kept verbatim) ────────────
 export const PLAN_VIZ_PALETTE = {
@@ -1905,6 +1906,15 @@ export const CARD_GAP_Y = 22;
 // second line is a property of the LAYOUT and never of the zoom level.
 export const CARD_LINE_H = 21 * CARD_TYPE_SCALE;      // the step-name line
 export const CARD_SUBTITLE_H = 14 * CARD_TYPE_SCALE;  // the step-title line
+// ── THE TIME LINE (req #3825) ───────────────────────────────────────────────
+// The card's last line: the step's START at its bottom-left, its END at its
+// bottom-right, as `hh:mmAM/PM` (`planStepTimes.js` derives and formats both);
+// an END on a later local day than its START carries `+Nd`.
+// Reserved below the requirement block on every card whose work has begun
+// (`row.stampsReserved`), so a card does not grow when its times arrive.
+export const CARD_STAMP_GAP = 4 * CARD_TYPE_SCALE;     // air above the line
+export const CARD_STAMP_TEXT_H = 11 * CARD_TYPE_SCALE; // the line's own box
+export const CARD_STAMP_H = CARD_STAMP_GAP + CARD_STAMP_TEXT_H;
 // ── THE COLLAPSE HEAD (req #3650) ───────────────────────────────────────────
 // The TPU 3D visualizer's collapse head (`.tpu3d-head`) — a ▾ that turns a
 // quarter-turn when folded. It had its own row at the top-left of the title
@@ -2025,9 +2035,11 @@ export const reqBlockHeight = (rowLines) => {
     return lines * REQ_LINE_H + (rows.length - 1) * REQ_ROW_GAP;
 };
 
-export const cardHeight = (reqBlockH, stepLabel, nameLines = 1) =>
+// `stampH` is the time line's reserve (req #3825): `CARD_STAMP_H` on a card
+// whose work has begun, else 0.
+export const cardHeight = (reqBlockH, stepLabel, nameLines = 1, stampH = 0) =>
     Math.max(CARD_MIN_H, cardTitleH(stepLabel, nameLines) + CARD_RULE_BAND
-        + Math.max(0, reqBlockH) + CARD_PAD_Y);
+        + Math.max(0, reqBlockH) + Math.max(0, stampH) + CARD_PAD_Y);
 
 // ── THE FLOOR, AND IT IS DERIVED (req #3498) ────────────────────────────────
 // It binds ONLY the requirement-less card: `cardHeight(0, 'title')` is 52px of
@@ -2956,9 +2968,10 @@ export function drawsLabelKind(kind, level) {
     // `run` (req #3580) and `step-add` (req #3582) are title-area controls
     // too and ride the card the same way.
     // `collapse` (req #3650) is the card's own fold, on its title line.
+    // `stamp` (req #3825) is the card's start/end time line, on its bottom.
     if (kind === 'step' || kind === 'req' || kind === 'badge'
         || kind === 'run' || kind === 'barrier'
-        || kind === 'collapse') {
+        || kind === 'collapse' || kind === 'stamp') {
         return level !== 'out';
     }
     if (kind === 'title') return level === 'in';
@@ -3730,6 +3743,9 @@ export function computePlanLayout(rows, opts = {}) {
     // still in it, so the lane closes up only when nothing beside it is taller.
     const reqBlockOf = (r) => (stepFolded(r) ? 0
         : reqBlockHeight(rowLinesOf.get(r.id) || []));
+    // The time line (req #3825) is the card's, not its rows', so a folded card
+    // keeps it.
+    const stampHOf = (r) => (r.stampsReserved ? CARD_STAMP_H : 0);
     // The card's TITLE AREA, wrapped by the same rule and reserved the same way.
     // `stepLabelText` is asked for the whole name (the budget times the line
     // count) and `wrapReqText` breaks it; a short name still returns one line,
@@ -4471,7 +4487,7 @@ export function computePlanLayout(rows, opts = {}) {
         const laneCardH = new Map();
         for (const r of steps) {
             const lane = laneById.get(r.id);
-            const h = cardHeight(reqBlockOf(r), stepLabel, nameLineCount(r));
+            const h = cardHeight(reqBlockOf(r), stepLabel, nameLineCount(r), stampHOf(r));
             if (h > (laneCardH.get(lane) || 0)) laneCardH.set(lane, h);
         }
         // THE RESPECTFUL GAP (user directive: *"there has to be a respectful gap
@@ -4580,7 +4596,7 @@ export function computePlanLayout(rows, opts = {}) {
         for (const r of band.steps) {
             const d = colOf.get(r.id);
             const lane = laneById.get(r.id);
-            const h = cardHeight(reqBlockOf(r), stepLabel, nameLineCount(r));
+            const h = cardHeight(reqBlockOf(r), stepLabel, nameLineCount(r), stampHOf(r));
             const laneH = band.laneCardH.get(lane) || h;
             // ── THE MIDPOINT IS COMPUTED FIRST, AND THE CORNER FROM IT ──────
             // Algebraically `top + h/2` and `laneTop + laneH/2` are the same
@@ -5024,6 +5040,34 @@ export function computePlanLayout(rows, opts = {}) {
                     x: textLeft,
                     y: nameY + nameLines.length * CARD_LINE_H,
                     w: t.length * CHW_TITLE, h: 11,
+                });
+            }
+        }
+        // ── THE START AND END TIMES (req #3825) ─────────────────────────────
+        // On the line `stampHOf` reserved at the card's bottom: START flush
+        // left on the text column, END flush right against the card's padding.
+        // A time not known yet (no start recorded, or open work left) draws
+        // nothing on its side; the line stays reserved either way.
+        if (r.stampsReserved) {
+            const stampY = n.bottom - CARD_PAD_Y - CARD_STAMP_TEXT_H;
+            const startText = formatClock(r.startedAt);
+            // `+Nd` when the step ran past midnight (`formatEndClock`).
+            const endText = formatEndClock(r.startedAt, r.endedAt);
+            if (startText) {
+                labels.push({
+                    kind: 'stamp', stepId: r.id, side: 'start', text: startText,
+                    at: r.startedAt, prose: false,
+                    x: textLeft, y: stampY,
+                    w: startText.length * CHW_TITLE, h: CARD_STAMP_TEXT_H,
+                });
+            }
+            if (endText) {
+                const w = endText.length * CHW_TITLE;
+                labels.push({
+                    kind: 'stamp', stepId: r.id, side: 'end', text: endText,
+                    at: r.endedAt, prose: false,
+                    x: n.right - CARD_PAD_X - w, y: stampY,
+                    w, h: CARD_STAMP_TEXT_H,
                 });
             }
         }

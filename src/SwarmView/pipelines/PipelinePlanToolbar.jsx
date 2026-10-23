@@ -194,6 +194,8 @@ const NO_HIDDEN = new Set();
  *                                              press anywhere (req #3766)
  * @param {boolean} props.hideClosed            the closed (met/deferred/wontfix) rows are hidden
  * @param {function} props.onChangeHideClosed   receives the next boolean
+ * @param {boolean} props.showTimes             the step cards' start / end times are drawn
+ * @param {function} props.onChangeShowTimes    receives the next boolean
  * @param {Object[]} props.machines             the open machines, one filter chip each (req #3708)
  * @param {Set<number>} props.hiddenMachines    machine ids whose requirements are hidden
  * @param {function} props.onToggleMachine      receives a machine id
@@ -211,6 +213,8 @@ export default function PipelinePlanToolbar({
     onKeyHover,
     hideClosed,
     onChangeHideClosed,
+    showTimes = true,
+    onChangeShowTimes,
     machines = NO_MACHINES,
     hiddenMachines = NO_HIDDEN,
     onToggleMachine,
@@ -297,6 +301,25 @@ export default function PipelinePlanToolbar({
                         '& .MuiChip-label': { px: 0.75, fontSize: '0.7rem' },
                     } })}
                     data-testid="pipeline-viz-hide-closed"
+                />
+            </Tooltip>
+
+            {/* ── TIME (req #3825) ─────────────────────────────────────────
+                Lit: every step card draws its start (bottom-left) and end
+                (bottom-right) time. Dark: the line is gone and the cards close
+                up. On by default. */}
+            <Tooltip title={showTimes
+                ? 'Hide the step start and end times'
+                : 'Show each step\'s start and end time'}>
+                <Chip
+                    label="Time"
+                    aria-label="Show step start and end times"
+                    onClick={() => onChangeShowTimes?.(!showTimes)}
+                    {...toolbarChipProps(!!showTimes, { sx: {
+                        flexShrink: 0, height: 22,
+                        '& .MuiChip-label': { px: 0.75, fontSize: '0.7rem' },
+                    } })}
+                    data-testid="pipeline-viz-show-times"
                 />
             </Tooltip>
 

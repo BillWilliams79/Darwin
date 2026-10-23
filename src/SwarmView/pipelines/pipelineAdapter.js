@@ -47,6 +47,7 @@
 //     treating `row.state` as anything else.
 
 import { planTimeAxis } from './pipelinePlanTime';
+import { stepEndAt, stepStartAt, stepWorkBegun } from './planStepTimes';
 import {
     sumReqCost, STEP_DONE, STEP_RUNNING, STEP_PENDING,
 } from './pipelineModel';
@@ -199,9 +200,11 @@ export function visualizerColourInput(gatingIds, openReqIds, reqsById) {
  * @param {Object} payload    a composed `pipeline_compose` read, derived present
  * @param {Object[]} [machines]  from `useMachines` — 2.0 carries no dictionary
  *                                of its own (module header)
+ * @param {?Map<number, string>} [firstStarts]  `planStepTimes.buildFirstStartIndex`
+ *                                output — each requirement's first swarm start
  * @returns {Object[]} PlanRow[]
  */
-export function buildPlanRows(payload, machines = []) {
+export function buildPlanRows(payload, machines = [], firstStarts = null) {
     const derived = payload.derived || {};
     const stepsById = new Map(asArray(payload.steps).map((s) => [s.id, s]));
     const initiativesById = new Map(asArray(payload.initiatives).map((e) => [e.id, e]));
@@ -240,6 +243,12 @@ export function buildPlanRows(payload, machines = []) {
             // The canvas's colour input — a display rollup, NOT a step state
             // (see `visualizerColourInput`).
             state: visualizerColourInput(gatingIds, openReqIds, reqsById),
+            // req #3825 — the card's START (first swarm start) and END (the
+            // last gating requirement closed, open work none), both derived;
+            // `stampsReserved` keeps their line from the composed read alone.
+            startedAt: stepStartAt(gatingIds, reqsById, firstStarts),
+            endedAt: stepEndAt(gatingIds, openReqIds, reqsById),
+            stampsReserved: stepWorkBegun(gatingIds, reqsById),
             reqIds: dr.req_ids || [],
             trackingReqIds: dr.tracking_req_ids || [],
             unresolvedReqIds: dr.unresolved_req_ids || [],
@@ -311,11 +320,15 @@ export function isFlagOn(value, dflt) {
  * @param {?Object} [options.costIndex]
  * @param {?(Date|string)} [options.now]  the render clock; omitted, an empty step
  *                                        stays UNKNOWN (`pipelinePlanTime.js` rule 3)
+ * @param {?Map<number, string>} [options.firstStarts]  each requirement's first
+ *                                        swarm start, for the cards' START (req #3825)
  * @returns {Object} plan
  */
-export function adaptComposedPipeline(payload, { machines = [], costIndex = null, now = null } = {}) {
+export function adaptComposedPipeline(payload, {
+    machines = [], costIndex = null, now = null, firstStarts = null,
+} = {}) {
     const derived = payload.derived || {};
-    const rows = buildPlanRows(payload, machines);
+    const rows = buildPlanRows(payload, machines, firstStarts);
     for (const r of rows) r.cost = sumReqCost(r.reqIds, costIndex);
 
     const violations = asArray(derived.violations).map((v) => ({

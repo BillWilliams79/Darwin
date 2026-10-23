@@ -21,7 +21,7 @@ import { sessions, requirementSessions, sessionCostRollups } from '../factory/de
 import { sessionKeys, requirementSessionKeys, sessionCostRollupKeys } from '../useQueryKeys';
 import { useAllRequirementSessions, useAllSessionCostRollups } from '../useDataQueries';
 
-const LIGHT_FIELDS = 'id,wall_secs_total,output_tokens_total,swarm_status';
+const LIGHT_FIELDS = 'id,wall_secs_total,output_tokens_total,swarm_status,started_at';
 
 describe('cost read key shapes', () => {
     it('requirementSessionKeys.all(creator) → ["requirement_sessions", creator]', () => {

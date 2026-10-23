@@ -164,6 +164,10 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
         let model;
         try {
             adapted = adaptComposedPipeline(data, { machines, now: new Date() });
+            // req #3825 — no time line on a thumbnail: its START comes from the
+            // plan page's session read, which this card does not make, so it
+            // would disagree with the plan canvas. The cards close up instead.
+            for (const r of adapted.rows) r.stampsReserved = false;
             model = buildPlanModel(data, machines);
         } catch {
             // A payload this component cannot read is a BLANK FRAME, never a
