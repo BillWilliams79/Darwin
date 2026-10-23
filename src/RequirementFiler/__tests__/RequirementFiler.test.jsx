@@ -3,6 +3,8 @@
 // Req #3811 — the Requirement Filer: an Action Popup opened from the navbar
 // whose one button opens the popup requirement editor; the editor's first
 // Save POSTs the requirement, shows its id as a link, and later Saves PUT it.
+// Req #3812 — its DEFAULTS: the same editor without title/description, kept per
+// browser, applied to every New requirement (seat included), stale ones not.
 
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -14,14 +16,27 @@ import AuthContext from '../../Context/AuthContext';
 import AppContext from '../../Context/AppContext';
 
 vi.mock('../../hooks/useDataQueries', () => ({
-    useProjects: () => ({ data: [{ id: 4, project_name: 'Darwin', sort_order: 1 }] }),
+    useProjects: () => projectsQ,
     useCategories: (_u, projectId) => ({
         data: projectId === 4 ? [{ id: 862, category_name: 'Swarm', project_fk: 4 }] : undefined,
     }),
-    useMachines: () => ({ data: [{ id: 2, title: 'Mac', sort_order: 1 }] }),
+    useMachines: () => ({ data: [{ id: 2, title: 'Mac', sort_order: 1 }, { id: 3, title: 'Old PC', closed: 1 }] }),
     useDevServers: () => ({ data: [] }),
+    // The seat's plan layer: plan 2 is active (epic 30 → steps 300, 301), plan 5
+    // is completed (epic 50 → step 500).
+    useAllPipelines: () => q([{ id: 2, title: 'Plan A', pipeline_status: 'active' },
+        { id: 5, title: 'Plan Done', pipeline_status: 'completed' }]),
+    useAllInitiatives: () => q([{ id: 30, title: 'Epic One', pipeline_fk: 2, closed: 0, sort_order: 1 },
+        { id: 50, title: 'Old Epic', pipeline_fk: 5, closed: 0 }]),
+    useAllPipelineSteps: () => q([{ id: 300, title: 'Build', initiative_fk: 30 },
+        { id: 301, title: 'Ship', initiative_fk: 30 }, { id: 500, title: 'Gone', initiative_fk: 50 }]),
+    useAllPipelineStepRequirements: () => q([]),
 }));
+const q = (data) => ({ data, isPending: false, isLoading: false, isError: false });
 let desktop = true;
+// The open-projects read, swappable per test (pending, failed).
+const PROJECTS = { data: [{ id: 4, project_name: 'Darwin', sort_order: 1 }] };
+let projectsQ = PROJECTS;
 vi.mock('@mui/material/useMediaQuery', () => ({ default: () => desktop }));
 const rest = vi.fn();
 vi.mock('../../RestApi/RestApi', () => ({ default: (...a) => rest(...a) }));
@@ -53,13 +68,14 @@ const fill = (testid, value) => fireEvent.change(screen.getByTestId(`requirement
 describe('Requirement Filer (req #3811)', () => {
     beforeEach(() => {
         desktop = true;
+        projectsQ = PROJECTS;
         localStorage.clear();
         rest.mockReset();
         usePanelRackStore.setState({ racked: [], seeded: [], slot: null, navSlot: null, pageSlot: null, drag: null, covered: false });
         useRequirementFilerStore.setState({
             show: false, open: true, dock: null, editorShow: false, editorOpen: true, editorDock: null,
             draft: null, savedId: null, saved: null, lastProjectId: null, lastCategoryId: null,
-            draftKey: 0, orphaned: false, focusPending: false,
+            draftKey: 0, orphaned: false, focusPending: false, editorMode: 'requirement', defaults: {},
         });
     });
     afterEach(cleanup);
@@ -259,5 +275,242 @@ describe('Requirement Filer (req #3811)', () => {
         fireEvent.click(screen.getByTestId('requirement-filer-new'));
         expect(screen.getByTestId('requirement-editor-field-title').value).toBe('');
         confirm.mockRestore();
+    });
+    // ── Req #3812 — Defaults ────────────────────────────────────────────────
+    it('Defaults opens the editor on the defaults: no title or description, the standard values', () => {
+        useRequirementFilerStore.setState({ show: true });
+        renderAll();
+        fireEvent.click(screen.getByTestId('requirement-filer-defaults'));
+        expect(screen.getByTestId('requirement-editor-title').textContent).toBe('Requirement Defaults');
+        expect(screen.getByTestId('requirement-editor-identity').textContent).toContain('Defaults');
+        expect(screen.queryByTestId('requirement-editor-field-title')).toBe(null);
+        expect(screen.queryByTestId('requirement-editor-field-description')).toBe(null);
+        expect(screen.queryByTestId('requirement-editor-save')).toBe(null);
+        expect(screen.getByTestId('requirement-editor-field-status').value).toBe('swarm_ready');
+        expect(screen.getByTestId('requirement-editor-field-autonomy').value).toBe('implemented');
+        expect(screen.getByTestId('requirement-editor-field-model').value).toBe('opus');
+        expect(screen.getByTestId('requirement-editor-field-effort').value).toBe('high');
+        expect(screen.getByTestId('requirement-editor-defaults-reset').disabled).toBe(true);
+    });
+
+    it('ACCEPTANCE: defaults survive a reload and file a requirement seated on the default step', async () => {
+        useRequirementFilerStore.setState({ show: true });
+        const { unmount } = renderAll();
+        fireEvent.click(screen.getByTestId('requirement-filer-defaults'));
+        fill('project', '4');
+        fill('category', '862');
+        fill('autonomy', 'deployed');
+        fill('model', 'sonnet');
+        fill('effort', 'medium');
+        fill('machine', '2');
+        fill('pipeline', '2');
+        // The epic list is the plan's; the step list narrows to the epic.
+        expect([...screen.getByTestId('requirement-editor-field-epic').options].map(o => o.value)).toEqual(['', '30']);
+        fill('epic', '30');
+        expect([...screen.getByTestId('requirement-editor-field-step').options].map(o => o.value))
+            .toEqual(['', '300', '301']);
+        fill('step', '301');
+        expect(useRequirementFilerStore.getState().defaults).toMatchObject({
+            projectId: 4, category_fk: 862, coordination_type: 'deployed', ai_model: 'sonnet',
+            effort: 'medium', machine_fk: 2, seatPipelineId: 2, seatInitiativeId: 30, seatStepId: 301,
+        });
+
+        // Reload: the page goes, the store rehydrates from localStorage.
+        unmount();
+        const stored = localStorage.getItem('darwin_requirement_filer');
+        expect(JSON.parse(stored).state.defaults.seatStepId).toBe(301);
+        // Wipe the in-memory store (which persists the wipe), then put the
+        // browser's copy back as a reload would find it.
+        useRequirementFilerStore.setState({ defaults: {}, editorShow: false, editorMode: 'requirement' });
+        localStorage.setItem('darwin_requirement_filer', stored);
+        await act(async () => { await useRequirementFilerStore.persist.rehydrate(); });
+        expect(useRequirementFilerStore.getState().defaults.seatStepId).toBe(301);
+        renderAll();
+
+        fireEvent.click(screen.getByTestId('requirement-filer-new'));
+        expect(screen.getByTestId('requirement-editor-field-category').value).toBe('862');
+        expect(screen.getByTestId('requirement-editor-field-autonomy').value).toBe('deployed');
+        expect(screen.getByTestId('requirement-editor-field-model').value).toBe('sonnet');
+        expect(screen.getByTestId('requirement-editor-field-effort').value).toBe('medium');
+        expect(screen.getByTestId('requirement-editor-field-status').value).toBe('swarm_ready');
+        expect(screen.getByTestId('requirement-editor-field-machine').value).toBe('2');
+        expect(screen.getByTestId('requirement-editor-field-step').value).toBe('301');
+        expect(screen.queryByTestId('requirement-editor-notice')).toBe(null);
+        fill('title', 'Seated from the popup');
+
+        rest.mockResolvedValueOnce(ok([{ id: 4100 }]));
+        rest.mockResolvedValueOnce(ok([{ step_fk: 301, requirement_fk: 4100 }]));
+        fireEvent.click(screen.getByTestId('requirement-editor-save'));
+        await waitFor(() => expect(screen.getByTestId('requirement-editor-state').textContent).toBe('saved'));
+        expect(rest.mock.calls[0][1]).toBe('POST');
+        expect(rest.mock.calls[0][2]).toMatchObject({
+            title: 'Seated from the popup', category_fk: 862, coordination_type: 'deployed',
+            ai_model: 'sonnet', effort: 'medium', machine_fk: 2,
+        });
+        expect(rest.mock.calls[0][2]).not.toHaveProperty('seatStepId');
+        expect(rest.mock.calls[1]).toEqual(['https://api/darwin_dev/pipeline_step_requirements', 'POST',
+            { step_fk: 301, requirement_fk: 4100 }, 't']);
+    });
+
+    it('the default seat is removable before save', async () => {
+        useRequirementFilerStore.setState({ show: true, defaults: {
+            projectId: 4, category_fk: 862, seatPipelineId: 2, seatInitiativeId: null, seatStepId: 300 } });
+        renderAll();
+        fireEvent.click(screen.getByTestId('requirement-filer-new'));
+        expect(screen.getByTestId('requirement-editor-field-step').value).toBe('300');
+        fill('step', '');
+        fill('title', 'Not seated');
+        rest.mockResolvedValueOnce(ok([{ id: 4200 }]));
+        fireEvent.click(screen.getByTestId('requirement-editor-save'));
+        await waitFor(() => expect(screen.getByTestId('requirement-editor-id-link').textContent).toBe('#4200'));
+        expect(rest).toHaveBeenCalledTimes(1);
+    });
+
+    it('a stale default is shown invalid in Defaults and not applied to a new requirement', () => {
+        useRequirementFilerStore.setState({ show: true, defaults: {
+            projectId: 4, category_fk: 999, machine_fk: 3, seatPipelineId: 5, seatStepId: 500, effort: 'low' } });
+        renderAll();
+        fireEvent.click(screen.getByTestId('requirement-filer-defaults'));
+        expect(screen.getByTestId('requirement-editor-invalid-category').textContent).toMatch(/closed or deleted — not applied/);
+        expect(screen.getByTestId('requirement-editor-invalid-machine').textContent).toMatch(/closed — not applied/);
+        expect(screen.getByTestId('requirement-editor-invalid-step').textContent).toMatch(/pipeline is completed/);
+
+        fireEvent.click(screen.getByTestId('requirement-filer-new'));
+        expect(screen.getByTestId('requirement-editor-field-category').value).toBe('');
+        expect(screen.getByTestId('requirement-editor-field-machine').value).toBe('');
+        expect(screen.getByTestId('requirement-editor-field-step').value).toBe('');
+        // A valid default still applies.
+        expect(screen.getByTestId('requirement-editor-field-effort').value).toBe('low');
+        expect(screen.getByTestId('requirement-editor-notice').textContent)
+            .toBe('Default category closed or deleted; Default machine closed; '
+                + 'Default seat its pipeline is completed or deleted — not applied.');
+    });
+
+    it('a locked step\'s 423 is shown in the editor, and the next Save retries only the seat', async () => {
+        useRequirementFilerStore.setState({ show: true, defaults: {
+            projectId: 4, category_fk: 862, seatPipelineId: 2, seatStepId: 300 } });
+        renderAll();
+        fireEvent.click(screen.getByTestId('requirement-filer-new'));
+        fill('title', 'Locked out');
+        rest.mockResolvedValueOnce(ok([{ id: 4300 }]));
+        rest.mockRejectedValueOnce({ data: null, httpStatus: { httpStatus: 423, httpMessage: 'Step 300 is locked' } });
+        fireEvent.click(screen.getByTestId('requirement-editor-save'));
+        await waitFor(() => expect(screen.getByTestId('requirement-editor-error').textContent)
+            .toBe('#4300 saved, but not seated on step 300 (HTTP 423 Step 300 is locked)'));
+        expect(screen.getByTestId('requirement-editor-id-link').textContent).toBe('#4300');
+        expect(screen.getByTestId('requirement-editor-state').textContent).toBe('unsaved changes');
+        expect(screen.getByTestId('requirement-editor-save').disabled).toBe(false);
+
+        rest.mockResolvedValueOnce(ok([{ step_fk: 300, requirement_fk: 4300 }]));
+        fireEvent.click(screen.getByTestId('requirement-editor-save'));
+        await waitFor(() => expect(screen.getByTestId('requirement-editor-state').textContent).toBe('saved'));
+        expect(rest).toHaveBeenCalledTimes(3);
+        expect(rest.mock.calls[2].slice(0, 3)).toEqual(['https://api/darwin_dev/pipeline_step_requirements', 'POST',
+            { step_fk: 300, requirement_fk: 4300 }]);
+        expect(screen.queryByTestId('requirement-editor-error')).toBe(null);
+    });
+
+    it('moving a saved requirement\'s seat deletes the old seat, then inserts the new', async () => {
+        useRequirementFilerStore.setState({ show: true, defaults: {
+            projectId: 4, category_fk: 862, seatPipelineId: 2, seatStepId: 300 } });
+        renderAll();
+        fireEvent.click(screen.getByTestId('requirement-filer-new'));
+        fill('title', 'Mover');
+        rest.mockResolvedValueOnce(ok([{ id: 4400 }]));
+        rest.mockResolvedValueOnce(ok([{}]));
+        fireEvent.click(screen.getByTestId('requirement-editor-save'));
+        await waitFor(() => expect(screen.getByTestId('requirement-editor-state').textContent).toBe('saved'));
+        fill('step', '301');
+        rest.mockResolvedValueOnce(ok([{}]));
+        rest.mockResolvedValueOnce(ok([{}]));
+        fireEvent.click(screen.getByTestId('requirement-editor-save'));
+        await waitFor(() => expect(rest).toHaveBeenCalledTimes(4));
+        expect(rest.mock.calls[2].slice(1, 3)).toEqual(['DELETE', { step_fk: 300, requirement_fk: 4400 }]);
+        expect(rest.mock.calls[3].slice(1, 3)).toEqual(['POST', { step_fk: 301, requirement_fk: 4400 }]);
+    });
+
+    it('is addressable: ?filer=defaults opens the defaults; Back returns to the draft', () => {
+        renderAll({ at: '/swarm?filer=defaults' });
+        expect(screen.getByTestId('requirement-editor-title').textContent).toBe('Requirement Defaults');
+        expect(screen.queryByTestId('requirement-editor-defaults-done')).toBe(null);
+        fireEvent.click(screen.getByTestId('requirement-filer-new'));
+        fill('title', 'keep me');
+        fireEvent.click(screen.getByTestId('requirement-filer-defaults'));
+        fireEvent.click(screen.getByTestId('requirement-editor-defaults-done'));
+        expect(screen.getByTestId('requirement-editor-field-title').value).toBe('keep me');
+    });
+    it('a project-only default waits for the projects read, and a failed read drops it', () => {
+        useRequirementFilerStore.setState({ show: true, defaults: { projectId: 4, category_fk: null } });
+        projectsQ = { data: undefined, isError: false };
+        renderAll();
+        fireEvent.click(screen.getByTestId('requirement-filer-new'));
+        fill('title', 'x');
+        expect(screen.getByTestId('requirement-editor-problem').textContent).toBe('Checking defaults…');
+        expect(useRequirementFilerStore.getState().draft.defaultsUnchecked).toEqual(['category']);
+        projectsQ = { data: undefined, isError: true };
+        cleanup();
+        renderAll();
+        expect(useRequirementFilerStore.getState().draft.projectId).toBe(null);
+        expect(screen.getByTestId('requirement-editor-notice').textContent)
+            .toBe('Default category could not be checked — not applied.');
+    });
+
+    it('a pipeline-only default pre-scopes the step list; a completed one is not applied', () => {
+        useRequirementFilerStore.setState({ show: true, defaults: { seatPipelineId: 2, seatInitiativeId: 30 } });
+        renderAll();
+        fireEvent.click(screen.getByTestId('requirement-filer-new'));
+        expect(screen.getByTestId('requirement-editor-field-pipeline').value).toBe('2');
+        expect(screen.getByTestId('requirement-editor-field-epic').value).toBe('30');
+        expect(screen.getByTestId('requirement-editor-field-step').value).toBe('');
+        expect(screen.queryByTestId('requirement-editor-notice')).toBe(null);
+
+        act(() => useRequirementFilerStore.setState({ defaults: { seatPipelineId: 5 } }));
+        fireEvent.click(screen.getByTestId('requirement-filer-defaults'));
+        expect(screen.getByTestId('requirement-editor-invalid-step').textContent).toMatch(/pipeline is completed/);
+        fireEvent.click(screen.getByTestId('requirement-filer-new'));
+        expect(screen.getByTestId('requirement-editor-field-pipeline').value).toBe('');
+    });
+
+    it('a default step that moved since opens under where it sits now', () => {
+        // Stored under plan 5 / epic 50, but step 301 sits in plan 2 / epic 30.
+        useRequirementFilerStore.setState({ show: true, defaults: {
+            seatPipelineId: 5, seatInitiativeId: 50, seatStepId: 301 } });
+        renderAll();
+        fireEvent.click(screen.getByTestId('requirement-filer-new'));
+        const d = useRequirementFilerStore.getState().draft;
+        expect([d.seatPipelineId, d.seatInitiativeId, d.seatStepId]).toEqual([2, 30, 301]);
+    });
+
+    it('a move whose new seat is refused says it is now seated nowhere; a refused unseat says it stayed', async () => {
+        useRequirementFilerStore.setState({ show: true, defaults: {
+            projectId: 4, category_fk: 862, seatPipelineId: 2, seatStepId: 300 } });
+        renderAll();
+        fireEvent.click(screen.getByTestId('requirement-filer-new'));
+        fill('title', 'Mover');
+        rest.mockResolvedValueOnce(ok([{ id: 4500 }]));
+        rest.mockResolvedValueOnce(ok([{}]));
+        fireEvent.click(screen.getByTestId('requirement-editor-save'));
+        await waitFor(() => expect(screen.getByTestId('requirement-editor-state').textContent).toBe('saved'));
+
+        // Unseat refused: still on 300.
+        fill('step', '301');
+        rest.mockRejectedValueOnce({ data: null, httpStatus: { httpStatus: 423, httpMessage: 'Step 300 is locked' } });
+        fireEvent.click(screen.getByTestId('requirement-editor-save'));
+        await waitFor(() => expect(screen.getByTestId('requirement-editor-error').textContent)
+            .toBe('#4500 saved, but not taken off step 300 (HTTP 423 Step 300 is locked)'));
+        expect(useRequirementFilerStore.getState().saved.seatStepId).toBe(300);
+
+        // Unseat lands, seat refused: seated nowhere, and the retry only seats.
+        rest.mockResolvedValueOnce(ok([{}]));
+        rest.mockRejectedValueOnce({ data: null, httpStatus: { httpStatus: 423, httpMessage: 'Step 301 is locked' } });
+        fireEvent.click(screen.getByTestId('requirement-editor-save'));
+        await waitFor(() => expect(screen.getByTestId('requirement-editor-error').textContent)
+            .toBe('#4500 saved and taken off step 300, but not seated on step 301 — it is seated nowhere '
+                + '(HTTP 423 Step 301 is locked)'));
+        expect(useRequirementFilerStore.getState().saved.seatStepId).toBe(null);
+        rest.mockResolvedValueOnce(ok([{}]));
+        fireEvent.click(screen.getByTestId('requirement-editor-save'));
+        await waitFor(() => expect(screen.getByTestId('requirement-editor-state').textContent).toBe('saved'));
+        expect(rest.mock.calls.at(-1).slice(1, 3)).toEqual(['POST', { step_fk: 301, requirement_fk: 4500 }]);
     });
 });

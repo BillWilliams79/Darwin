@@ -12,6 +12,14 @@
 // sent — the gateway refuses one (req #3432) — and a status write re-derives
 // the three status timestamps, as every requirement_status writer does
 // (req #3244, utils/requirementStatusTimestamps.js).
+//
+// DEFAULTS (req #3812) — the values every requirement filed from the popup
+// starts with, set in the editor's "defaults" mode and kept per browser
+// (useRequirementFilerStore). A field never set is ABSENT from `defaults` and
+// falls back to DEFAULT_REQUIREMENT_SPEC (the place: to where the last one was
+// filed). The SEAT — pipeline -> epic -> step — is editor-own like `projectId`:
+// never in a requirement body; Save writes it to `pipeline_step_requirements`
+// after the requirement exists (Steps/stepsApi.js::moveStepRequirement).
 
 import { DEFAULT_REQUIREMENT_SPEC } from '../SwarmView/requirementSpec';
 import { AI_MODELS, aiModelLabel } from '../SwarmView/modelChipStyles';
@@ -43,25 +51,126 @@ const ENUMS = ENUM_FIELDS.map(e => e.field);
 
 const blank = (v) => v == null || String(v).trim() === '';
 
-/** A new requirement: SRIOH (DEFAULT_REQUIREMENT_SPEC), Any machine, work
- *  (not a container), filed where the last one was. */
-export function newRequirementDraft(projectId = null, categoryId = null) {
+/** The settable defaults, in the order the Defaults form shows them. The seat's
+ *  pipeline and epic only scope the step list; the step is what seats. */
+export const DEFAULT_FIELDS = Object.freeze([
+    'projectId', 'category_fk', ...ENUMS, 'machine_fk', 'affected_repos', 'tracking',
+    'seatPipelineId', 'seatInitiativeId', 'seatStepId',
+]);
+
+const has = (defaults, f) => !!defaults && Object.prototype.hasOwnProperty.call(defaults, f);
+
+/** What the Defaults form shows: every set default, the standard value for the rest. */
+export function defaultsFormValues(defaults = {}) {
+    const d = defaults || {};
+    const out = {
+        projectId: null, category_fk: null, ...DEFAULT_REQUIREMENT_SPEC,
+        machine_fk: null, affected_repos: '', tracking: 0,
+        seatPipelineId: null, seatInitiativeId: null, seatStepId: null,
+    };
+    for (const f of DEFAULT_FIELDS) {
+        if (has(d, f) && !(ENUMS.includes(f) && blank(d[f]))) out[f] = d[f];
+    }
+    return out;
+}
+
+/** A new requirement: the reader's defaults (requirementFilerModel DEFAULTS),
+ *  SRIOH (DEFAULT_REQUIREMENT_SPEC) for any never set, Any machine, work (not a
+ *  container), filed where the last one was unless a default place is set.
+ *  `defaultsUnchecked` names the references taken from defaults — the editor
+ *  checks each against live data once and drops a stale one, so Save waits. */
+export function newRequirementDraft(projectId = null, categoryId = null, defaults = {}) {
+    const d = defaultsFormValues(defaults);
+    const placeFromDefaults = d.projectId != null;
+    const unchecked = [];
+    if (placeFromDefaults) unchecked.push('category');
+    if (d.machine_fk != null) unchecked.push('machine');
+    if (d.seatStepId != null || d.seatPipelineId != null) unchecked.push('seat');
     return {
         title: '',
         description: '',
-        projectId: projectId ?? null,
-        category_fk: categoryId ?? null,
-        ...DEFAULT_REQUIREMENT_SPEC,
-        machine_fk: null,
-        affected_repos: '',
-        tracking: 0,
+        projectId: placeFromDefaults ? d.projectId : (projectId ?? null),
+        category_fk: placeFromDefaults ? (d.category_fk ?? null) : (categoryId ?? null),
+        requirement_status: d.requirement_status,
+        coordination_type: d.coordination_type,
+        ai_model: d.ai_model,
+        effort: d.effort,
+        machine_fk: d.machine_fk ?? null,
+        affected_repos: d.affected_repos ?? '',
+        tracking: d.tracking ? 1 : 0,
+        // A pipeline (and epic) with no step pre-scopes the step list.
+        seatPipelineId: d.seatPipelineId ?? null,
+        seatInitiativeId: d.seatPipelineId != null ? (d.seatInitiativeId ?? null) : null,
+        seatStepId: d.seatStepId ?? null,
+        defaultsUnchecked: unchecked,
+        notice: null,
     };
+}
+
+const flagOn = (v) => v === true || Number(v) === 1;
+
+/**
+ * Which references in `values` no longer resolve: each of `project`,
+ * `category`, `machine` and `seat` is null (unset or valid), a reason string
+ * (stale), or undefined (its read has not landed — not yet known).
+ *
+ * @param {Object} values   draft or defaults-form values
+ * @param {Object} data
+ * @param {?Object[]} data.projects    OPEN projects
+ * @param {?Object[]} data.categories  OPEN categories of `values.projectId`
+ * @param {?Object[]} data.machines    all machines (closed included)
+ * @param {?Object}   data.index       orchestration index (detail/orchestrationIndex.js),
+ *                                     null until its reads have settled
+ */
+export function staleRefs(values, { projects, categories, machines, index } = {}) {
+    const v = values || {};
+    const out = { project: null, category: null, machine: null, seat: null };
+    if (v.projectId != null) {
+        if (!Array.isArray(projects)) out.project = undefined;
+        else if (!projects.some(p => p.id === v.projectId)) out.project = 'closed or deleted';
+    }
+    // Until the project is known the place is not — even with no category.
+    if (v.projectId != null && out.project === undefined) out.category = undefined;
+    else if (v.category_fk != null) {
+        if (out.project) out.category = `its project is ${out.project}`;
+        else if (!Array.isArray(categories)) out.category = undefined;
+        else if (!categories.some(c => c.id === v.category_fk)) out.category = 'closed or deleted';
+    }
+    if (v.machine_fk != null) {
+        const m = Array.isArray(machines) ? machines.find(x => x.id === v.machine_fk) : undefined;
+        if (!Array.isArray(machines)) out.machine = undefined;
+        else if (!m) out.machine = 'no longer exists';
+        else if (flagOn(m.closed)) out.machine = 'closed';
+    }
+    if (v.seatStepId != null) {
+        if (!index) out.seat = undefined;
+        else {
+            const step = index.stepsById.get(v.seatStepId);
+            const initiative = index.initiativesById.get(index.initiativeByStep.get(v.seatStepId));
+            const plan = index.pipelinesById.get(index.pipelineByStep.get(v.seatStepId));
+            if (!step) out.seat = 'no longer exists';
+            else if (!initiative || flagOn(initiative.closed)) out.seat = 'its epic is closed or deleted';
+            else if (!plan || plan.pipeline_status === 'completed') out.seat = 'its pipeline is completed or deleted';
+        }
+    } else if (v.seatPipelineId != null) {
+        // A scope with no step: the pipeline (and epic) it names must still be open.
+        if (!index) out.seat = undefined;
+        else {
+            const plan = index.pipelinesById.get(v.seatPipelineId);
+            const initiative = v.seatInitiativeId != null ? index.initiativesById.get(v.seatInitiativeId) : null;
+            if (!plan || plan.pipeline_status === 'completed') out.seat = 'its pipeline is completed or deleted';
+            else if (v.seatInitiativeId != null && (!initiative || flagOn(initiative.closed)
+                     || initiative.pipeline_fk !== v.seatPipelineId)) out.seat = 'its epic is closed or deleted';
+        }
+    }
+    return out;
 }
 
 /** Why the draft cannot be saved, or null when it can. */
 export function draftProblem(draft) {
     if (!draft) return 'Nothing to save';
     if (blank(draft.title)) return 'A title is required';
+    if (draft.defaultsUnchecked?.length) return 'Checking defaults…';
     if (draft.category_fk == null) return 'Choose a project and a category';
     for (const f of ENUMS) if (blank(draft[f])) return `Choose a ${f.replace(/_/g, ' ')}`;
     return null;
@@ -82,6 +191,7 @@ export function savedValues(draft) {
         machine_fk: draft.machine_fk ?? null,
         affected_repos: (draft.affected_repos ?? '').trim(),
         tracking: draft.tracking ? 1 : 0,
+        seatStepId: draft.seatStepId ?? null,
     };
 }
 
@@ -116,11 +226,16 @@ export function buildPutBody(id, draft, saved, now = new Date().toISOString()) {
     return [{ id, ...row }];
 }
 
+/** Whether the draft's seat differs from the one last written. */
+export function seatDirty(draft, saved) {
+    return (draft?.seatStepId ?? null) !== (saved?.seatStepId ?? null);
+}
+
 /** Whether Save has anything to send. */
 export function draftDirty(draft, savedId, saved) {
     if (!draft) return false;
     if (savedId == null || !saved) return true;
-    return buildPutBody(savedId, draft, saved) !== null;
+    return buildPutBody(savedId, draft, saved) !== null || seatDirty(draft, saved);
 }
 
 /** The open machines a requirement may be pinned to, in the Machines page's
