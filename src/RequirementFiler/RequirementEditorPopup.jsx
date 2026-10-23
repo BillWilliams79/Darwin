@@ -1,17 +1,8 @@
 // RequirementEditorPopup.jsx — the popup requirement editor (req #3811): the
-// second floating window the Requirement Filer's REQUIREMENT opens. A
-// simple, visualizer-like editor of ONE requirement's directly settable values:
-// title, description, project → category, status, autonomy, model, effort,
-// machine (Any = NULL), affected repos, the tracking (container) flag and its
-// SEAT — pipeline -> epic -> step (req #3812).
-//
-// TWO MODES (req #3812). 'requirement' edits the draft. 'defaults' — the
-// filer's DEFAULTS button — is the same form without title and description,
-// editing the values every new requirement starts with (useRequirementFilerStore
-// `defaults`); each change is the default at once. A default category, machine
-// or step that has since closed or gone is marked invalid there, and a new
-// draft checks the ones it took against live data before Save is offered,
-// dropping a stale one with a visible notice rather than filing into it.
+// second floating window the Requirement Filer opens. A short editor of ONE
+// requirement's directly settable values: title, description, project →
+// category, and — behind its spec-code button — status, autonomy, model,
+// effort, machine (Any = NULL) and the tracking (container) flag.
 //
 // ── A DELIBERATE RULE VIOLATION, RULED BY THE USER ─────────────────────────
 // This DUPLICATES the requirement editing surfaces (CategoryCard,
@@ -20,22 +11,45 @@
 // requirement". Do not refactor those editors to share code with this one,
 // and do not fold this one into them on DRY grounds.
 //
-// The first Save POSTs the requirement through Lambda-Rest (one object); the
-// window then shows its id as a link to /swarm/requirement/<id>, and every
-// later Save PUTs that same row with what changed (requirementFilerModel.js).
-// The seat is written AFTER the requirement exists, through the one browser
-// seat write (Steps/stepsApi.js::moveStepRequirement); a refusal — a locked
-// plan, epic or step answers 423 — is shown here, and the seat stays unsaved so
-// the next Save tries it again.
+// AS SHORT AS POSSIBLE (user rulings 2026-10-23, req #3815): `<id> - <title>`
+// across the whole width; `Project - <project>` with the SPEC-CODE BUTTON at its
+// right — the four launch fields as their five letters (SRDOH, SRIOH …, plus the
+// machine when one is pinned), derived and never stored (requirementFilerModel.js
+// specCode); then
+// `Category - <category>`, a line each; a two-line description that grows; and
+// one row holding CREATE (greyed until it can create — no reason text — then
+// dark green) and, right-justified, the DEBUG CAPTURE button with the capture's
+// size beside it, whose details slide open below. The spec-code button slides
+// the settings open in place:
+// Status and Autonomy chip rows, an AI Settings box (Model, Effort), Machine,
+// Tracking — the requirement page's chips, drawn here under the ruling above.
+// A new requirement starts with the last one's settings (SRDOH before any).
+//
+// THE DEBUG CAPTURE (req #3815) — every draft the filer opens carries one
+// (debugBundle.js), where it was filed from among its categories. The editor
+// shows its size per category behind a Details button and lets the reader drop
+// a category before the first save. That save writes three things, in order:
+// the requirement (POST), the capture row with its id (POST
+// requirement_debug_captures — one per requirement, so a retry that finds it
+// there, a duplicate-key 409, counts as saved), and ONLY when that answers, the
+// description's `Debug capture` block pointing at it (PUT). A failed capture
+// write leaves the requirement filed with no pointer to nothing; the capture
+// stays in memory and the editor offers Retry. Dropping every category files the
+// requirement with no capture.
+//
+// SAVING (user ruling 2026-10-23): the first save is the deliberate CREATE press,
+// so a half-typed title never becomes a row; after that every change saves on
+// its own, LIVE_SAVE_MS after the last edit, like the requirement page. A failed
+// live save is shown with Retry and not re-sent until something changes.
 // Its fields, the saved id and where it floats live in useRequirementFilerStore
 // — racking re-mounts this subtree, and a draft survives a reload.
 //
 // An AnchoredPanel in the Action Popups' chrome, rackable like every other.
-// Native form controls on purpose: they render the same racked in AI
-// Architecture's toolbar (a shadow root in an iframe), where a portalled MUI
-// menu would open in the wrong document.
+// Native controls on purpose — buttons for the chips, <select> for the lists:
+// they render the same racked in AI Architecture's toolbar (a shadow root in an
+// iframe), where a portalled MUI menu would open in the wrong document.
 
-import { useContext, useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -50,31 +64,36 @@ import { validDock } from '../Components/AnchoredPanel/anchoredPanelGeometry';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import { useCategories, useMachines, useProjects } from '../hooks/useDataQueries';
-import { pipelineComposeKeys, pipelineStepRequirementKeys, requirementKeys } from '../hooks/useQueryKeys';
+import { requirementKeys } from '../hooks/useQueryKeys';
 import { SIDEBAR_WIDTH } from '../NavBar/navConfig';
 import call_rest_api from '../RestApi/RestApi';
 import { useRequirementFilerStore } from '../stores/useRequirementFilerStore';
-import { moveStepRequirement } from '../Steps/stepsApi';
 import { PLAN_VIZ_PALETTE as P } from '../SwarmView/pipelines/pipelinePlanLayout';
-import { initiativeOptions, pipelineOptions, stepOptions } from '../SwarmView/detail/orchestrationIndex';
-import { useOrchestrationIndex } from '../SwarmView/detail/useOrchestrationIndex';
-import { ActionPopupClose } from './RequirementFiler';
+import { COORDINATION_COLOR } from '../SwarmView/coordinationChipStyles';
+import { AI_MODEL_COLOR, AI_MODELS, aiModelLabel } from '../SwarmView/modelChipStyles';
+import { EFFORT_COLOR, EFFORTS, effortLabel } from '../SwarmView/effortChipStyles';
 import {
-    ENUM_FIELDS, buildPostBody, buildPutBody, defaultsFormValues, draftDirty, draftProblem,
-    machineOptions, savedValues, staleRefs,
+    DEBUG_CATEGORIES, assembleBundle, debugCaptureUri, formatBytes, formatDebugBlock, keepsNothing, withDebugBlock,
+} from './debugBundle';
+import { ActionPopupClose, BUG_COLOR } from './RequirementFiler';
+import {
+    buildPostBody, buildPutBody, draftDirty, draftProblem, machineOptions, savedValues, specCode, staleCategory,
+    staleMachine,
 } from './requirementFilerModel';
 
 /** Its id in the panel rack. */
 export const EDITOR_RACK_ID = 'requirement-editor';
 const MIN_W = 180;
 const MIN_H = 64;
-const LIMITS = { minW: MIN_W, minH: MIN_H, autoMaxW: 560, headPx: ACTION_POPUP_HEAD_PX };
+const LIMITS = { minW: MIN_W, minH: MIN_H, autoMaxW: 640, headPx: ACTION_POPUP_HEAD_PX };
 /** Floating home: top-left, beside the Requirement Filer's home. */
 export const EDITOR_HOME = Object.freeze({ h: 'l', x: SIDEBAR_WIDTH + 16, v: 't', y: 92, w: null, ht: null });
 /** The form's width while the panel is content-sized. */
-const FORM_EM = 30;
-/** Shaped narrower than this, the selects stack one per row. */
-const TWO_COLUMN_PX = 280;
+const FORM_EM = 44;
+/** A filed requirement's edits save this long after the last one. */
+export const LIVE_SAVE_MS = 600;
+/** The row labels' column, so every row's first chip starts at the same x. */
+const ROW_LABEL_EM = 6.5;
 
 const FIELD_SX = {
     width: '100%', boxSizing: 'border-box', m: 0,
@@ -86,6 +105,8 @@ const FIELD_SX = {
     '& option': { background: '#0b1220', color: P.text },
 };
 const INVALID = '#ff8a80';
+/** Create, once it can create: dark green (user, 2026-10-23) — the Met chip's green. */
+const CREATE_GREEN = '#2e7d32';
 const TEXT_BUTTON_SX = {
     px: '1em', py: '0.3em', border: `1px solid ${P.text}`, borderRadius: '999px',
     background: 'transparent', color: P.text, fontFamily: ACTION_POPUP_MONO,
@@ -96,35 +117,102 @@ const LABEL_SX = {
     display: 'flex', flexDirection: 'column', gap: '0.2em', minWidth: 0,
     color: P.dim, fontSize: '0.85em', letterSpacing: '0.06em', textTransform: 'uppercase',
 };
+/** A slide-open region: a grid row animating 0fr → 1fr is a height transition
+ *  to the content's own height, with no measuring (works racked in a shadow root). */
+const slideSx = (open) => ({ display: 'grid', gridTemplateRows: open ? '1fr' : '0fr',
+    transition: 'grid-template-rows 220ms ease, opacity 220ms ease', opacity: open ? 1 : 0 });
 
-/** `invalid` — why a default it shows no longer applies (req #3812). */
-function Field({ label, children, invalid, testid, wide }) {
-    return (
-        <Box component="label" sx={{ ...LABEL_SX, ...(wide ? { gridColumn: '1 / -1' } : null) }}>
-            <span>{label}</span>
-            {children}
-            {invalid && (
-                <Box component="span" data-testid={`requirement-editor-invalid-${testid}`}
-                     sx={{ color: INVALID, textTransform: 'none', letterSpacing: 0 }}>
-                    {invalid} — not applied
-                </Box>
-            )}
-        </Box>
-    );
-}
-
-function Select({ value, onChange, options, testid, placeholder, disabled, invalid }) {
+function Select({ value, onChange, options, testid, placeholder, disabled, invalid, sx, label }) {
     return (
         <Box component="select" value={value ?? ''} disabled={disabled}
              onChange={(e) => onChange(e.target.value)}
              data-testid={`requirement-editor-field-${testid}`} aria-invalid={invalid ? 'true' : undefined}
-             sx={{ ...FIELD_SX, textTransform: 'none', letterSpacing: 0,
-                    ...(invalid ? { borderColor: INVALID } : null) }}>
+             aria-label={label}
+             sx={{ ...FIELD_SX, textTransform: 'none', letterSpacing: 0, ...sx,
+                    ...(invalid ? { borderColor: INVALID, borderBottomColor: INVALID } : null) }}>
             {placeholder != null && <option value="">{placeholder}</option>}
             {options.map(o => <option key={String(o.value)} value={o.value}>{o.label}</option>)}
         </Box>
     );
 }
+
+// The requirement page's chip labels and colours (RequirementDetail.jsx),
+// written out here under the duplication ruling.
+const STATUS_CHIPS = Object.freeze([
+    { value: 'authoring', label: 'Authoring', bg: '#fbc02d', fg: '#000' },
+    { value: 'approved', label: 'Approved', bg: '#90caf9', fg: '#000' },
+    { value: 'swarm_ready', label: 'Swarm-Start', bg: '#1976d2', fg: '#fff' },
+    { value: 'development', label: 'Dev', bg: '#81c784', fg: '#000' },
+    { value: 'met', label: 'Met', bg: '#2e7d32', fg: '#fff' },
+    { value: 'deferred', label: 'Deferred', bg: '#ff9800', fg: '#fff' },
+    { value: 'wontfix', label: "Won't Fix", bg: '#9e9e9e', fg: '#fff' },
+]);
+const AUTONOMY_CHIPS = Object.freeze([
+    { value: 'discuss', label: 'Discuss Req' }, { value: 'planned', label: 'Planned' },
+    { value: 'implemented', label: 'Implemented' }, { value: 'deployed', label: 'Deployed' },
+].map(o => ({ ...o, bg: COORDINATION_COLOR[o.value], fg: '#000' })));
+const MODEL_CHIPS = Object.freeze(AI_MODELS.map(v => ({ value: v, label: aiModelLabel(v), bg: AI_MODEL_COLOR[v], fg: '#000' })));
+const EFFORT_CHIPS = Object.freeze(EFFORTS.map(v => ({ value: v, label: effortLabel(v), bg: EFFORT_COLOR[v], fg: '#000' })));
+/** The Machine row's chips are neutral, as on the requirement page. */
+const MACHINE_CHIP = { bg: '#3d4554', fg: '#fff' };
+
+const ROW_LABEL_SX = { width: `${ROW_LABEL_EM}em`, flexShrink: 0, color: P.dim,
+    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
+
+/** One choice among a few, as a row of chips. The group carries its value
+ *  (`data-value`, '' for none); each chip is `<testid>-<value>` (`-any` for none). */
+function ChipRow({ label, testid, value, options, onChange, invalid, labelEm = ROW_LABEL_EM }) {
+    return (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: '0.5em', minWidth: 0 }}>
+            <Box component="span" sx={{ ...ROW_LABEL_SX, width: `${labelEm}em` }}>{label}</Box>
+            <Box role="group" aria-label={label} data-chips="1" data-value={value ?? ''}
+                 data-testid={`requirement-editor-field-${testid}`}
+                 sx={{ display: 'flex', flexWrap: 'wrap', gap: '0.3em', minWidth: 0 }}>
+                {options.map((o) => {
+                    const selected = (o.value ?? null) === (value ?? null);
+                    return (
+                        <Box component="button" type="button" key={String(o.value)}
+                             aria-pressed={selected ? 'true' : 'false'}
+                             data-testid={`requirement-editor-field-${testid}-${o.value ?? 'any'}`}
+                             onClick={() => { if (!selected) onChange(o.value ?? null); }}
+                             sx={{ px: '0.65em', py: '0.15em', borderRadius: '999px', cursor: 'pointer',
+                                    fontFamily: ACTION_POPUP_MONO, fontSize: '0.95em', lineHeight: 1.4, whiteSpace: 'nowrap',
+                                    border: `1px solid ${selected ? o.bg : (invalid ? INVALID : P.line)}`,
+                                    background: selected ? o.bg : 'transparent',
+                                    color: selected ? o.fg : P.text, opacity: selected ? 1 : 0.7,
+                                    '&:hover': { opacity: 1 } }}>
+                            {o.label}
+                        </Box>
+                    );
+                })}
+            </Box>
+        </Box>
+    );
+}
+
+/** The requirement page's captioned box: a real <fieldset>/<legend>, so the
+ *  caption sits on the border line. */
+function Fieldset({ legend, testid, children }) {
+    return (
+        <Box component="fieldset" data-testid={testid}
+             sx={{ m: 0, minWidth: 0, alignSelf: 'flex-start', px: '0.8em', pt: '0.1em', pb: '0.5em',
+                    border: `1px solid ${P.text}`, borderRadius: '0.6em',
+                    display: 'flex', flexDirection: 'column', gap: '0.45em' }}>
+            <Box component="legend" sx={{ px: '0.35em', ml: '0.3em', color: P.dim }}>{legend}</Box>
+            {children}
+        </Box>
+    );
+}
+
+/** A <select> that reads as text until it is clicked — the requirement page's
+ *  Category select. */
+const TEXT_SELECT_SX = {
+    border: 'none', borderBottom: '1px solid transparent', borderRadius: 0, background: 'transparent',
+    px: 0, py: '0.05em', width: 'auto', maxWidth: '100%', minWidth: 0, cursor: 'pointer',
+    // No dropdown arrow: it reads as text, as on the requirement page.
+    appearance: 'none', WebkitAppearance: 'none', MozAppearance: 'none',
+    '&:hover:not(:disabled)': { borderBottomColor: P.line }, '&:focus': { borderBottomColor: P.accent },
+};
 
 /** Options for a list read, keeping a current value the list does not hold
  *  (a closed project or category) visible rather than silently showing another. */
@@ -137,6 +225,115 @@ const errorText = (res, fallback) => {
     const s = res?.httpStatus;
     return s ? `${fallback} (HTTP ${s.httpStatus}${s.httpMessage ? ` ${s.httpMessage}` : ''})` : fallback;
 };
+
+/** The store once the draft `key`'s capture is no longer being built — it is
+ *  snapshotted at the press and done within its 250 ms wait, so the bound is
+ *  only a backstop. */
+export function captureSettled(key, timeoutMs = 3000) {
+    const done = (st) => st.draftKey !== key || st.captureStage !== 'capturing';
+    const now = useRequirementFilerStore.getState();
+    if (done(now)) return Promise.resolve(now);
+    return new Promise((resolve) => {
+        const timer = setTimeout(() => { unsub(); resolve(useRequirementFilerStore.getState()); }, timeoutMs);
+        const unsub = useRequirementFilerStore.subscribe((st) => {
+            if (done(st)) { clearTimeout(timer); unsub(); resolve(st); }
+        });
+    });
+}
+
+/** The debug capture's status, as its one line says it. */
+function captureStatus({ stage, savedId, orphaned, total }) {
+    return stage === 'capturing' ? 'capturing…'
+        : orphaned && stage === 'ready' ? 'not saved — the requirement\'s id could not be read back'
+        : stage === 'lost' ? 'lost — the page reloaded before it was filed; this files without one'
+        : stage === 'done' ? 'saved'
+        : stage === 'none' ? 'every category dropped — filed without one'
+        : stage === 'failed' ? 'could not be captured — this files without one'
+        : stage === 'posted' ? 'saved — its description link is not'
+        : savedId != null ? 'not saved' : formatBytes(total);
+}
+
+/** The debug capture's place on the File row (req #3815): a DEBUG CAPTURE
+ *  button — it slides the categories open below (CaptureDetails) — and its size
+ *  beside it (or, off the usual path, what became of it). */
+function CaptureLine({ capture, dropped, stage, savedId, orphaned, expanded, onExpand }) {
+    const total = useMemo(() => (capture ? assembleBundle(capture, dropped).bytes : 0), [capture, dropped]);
+    return (
+        <Box data-testid="requirement-editor-capture"
+             sx={{ ml: 'auto', minWidth: 0, display: 'flex', alignItems: 'center', gap: '0.45em', flexWrap: 'wrap' }}>
+            <Box component="button" type="button" onClick={capture ? onExpand : undefined} disabled={!capture}
+                 aria-expanded={expanded ? 'true' : 'false'} aria-controls="requirement-editor-capture-details"
+                 data-testid="requirement-editor-capture-details-toggle"
+                 sx={{ px: '0.7em', py: '0.1em', border: `1px solid ${expanded ? BUG_COLOR : P.line}`, borderRadius: '999px',
+                        background: 'transparent', color: BUG_COLOR, fontFamily: ACTION_POPUP_MONO, fontSize: '1em',
+                        fontWeight: 700, cursor: capture ? 'pointer' : 'default', whiteSpace: 'nowrap',
+                        '&:hover:not(:disabled)': { borderColor: BUG_COLOR }, '&:disabled': { opacity: 0.6 } }}>
+                Debug Capture
+            </Box>
+            <Box component="span" data-testid="requirement-editor-capture-status"
+                 sx={{ color: P.dim, fontSize: '0.9em' }}>{captureStatus({ stage, savedId, orphaned, total })}</Box>
+        </Box>
+    );
+}
+
+/** What the capture holds, per category, each droppable until it is sent —
+ *  slid open from CaptureLine's Details; with Retry and the saved row's URI. */
+function CaptureDetails({ capture, dropped, stage, savedId, locked, expanded, onToggle, onRetry }) {
+    // Once a save has sent the bundle, the selection is what was sent.
+    const editable = stage === 'ready' && !locked;
+    return (
+        <>
+            {capture && (
+                <Box id="requirement-editor-capture-details" data-testid="requirement-editor-capture-details"
+                     data-open={expanded ? '1' : '0'} aria-hidden={expanded ? undefined : 'true'}
+                     inert={expanded ? undefined : ''} sx={slideSx(expanded)}>
+                    <Box sx={{ overflow: 'hidden', minHeight: 0 }}>
+                        <Box component="ul" sx={{ listStyle: 'none', m: 0, p: 0, display: 'grid',
+                                                  gridTemplateColumns: 'auto minmax(0, 1fr) auto', columnGap: '0.5em',
+                                                  rowGap: '0.1em', alignItems: 'baseline' }}>
+                            {capture.categories.map(({ key, bytes, note }) => {
+                                const label = DEBUG_CATEGORIES.find(c => c.key === key)?.label ?? key;
+                                const kept = !dropped.includes(key);
+                                return (
+                                    <Box component="li" key={key} data-testid={`requirement-editor-capture-${key}`}
+                                         sx={{ display: 'contents', color: kept ? P.text : P.dim }}>
+                                        <input type="checkbox" checked={kept} disabled={!editable}
+                                               onChange={() => onToggle(key)}
+                                               aria-label={`Include ${label}`}
+                                               data-testid={`requirement-editor-capture-toggle-${key}`} />
+                                        <Box component="span" title={note || undefined}
+                                             sx={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                                    textDecoration: kept ? 'none' : 'line-through' }}>
+                                            {label}{note ? <Box component="span" sx={{ color: P.dim }}> · {note}</Box> : null}
+                                        </Box>
+                                        <Box component="span" data-testid={`requirement-editor-capture-bytes-${key}`}
+                                             sx={{ color: P.dim, textAlign: 'right' }}>{formatBytes(bytes)}</Box>
+                                    </Box>
+                                );
+                            })}
+                        </Box>
+                    </Box>
+                </Box>
+            )}
+            {capture?.jwtHits > 0 && expanded && (
+                <Box data-testid="requirement-editor-capture-redacted" sx={{ color: BUG_COLOR }}>
+                    {capture.jwtHits} token-shaped value{capture.jwtHits === 1 ? '' : 's'} redacted
+                </Box>
+            )}
+            {stage === 'done' && savedId != null && expanded && (
+                <Box component="span" data-testid="requirement-editor-capture-uri"
+                     sx={{ color: P.dim, overflowWrap: 'anywhere' }}>{debugCaptureUri(savedId)}</Box>
+            )}
+            {onRetry && (
+                <Box component="button" type="button" onClick={onRetry}
+                     data-testid="requirement-editor-capture-retry"
+                     sx={{ ...TEXT_BUTTON_SX, alignSelf: 'flex-start' }}>
+                    Retry debug capture
+                </Box>
+            )}
+        </>
+    );
+}
 
 export default function RequirementEditorPopup() {
     const { profile, idToken } = useContext(AuthContext);
@@ -152,94 +349,93 @@ export default function RequirementEditorPopup() {
     const draftKey = useRequirementFilerStore(s => s.draftKey);
     const orphaned = useRequirementFilerStore(s => s.orphaned);
     const focusPending = useRequirementFilerStore(s => s.focusPending);
-    const isDefaults = useRequirementFilerStore(s => s.editorMode) === 'defaults';
-    const defaults = useRequirementFilerStore(s => s.defaults);
+    const capture = useRequirementFilerStore(s => s.capture);
+    const captureDropped = useRequirementFilerStore(s => s.captureDropped);
+    const captureStage = useRequirementFilerStore(s => s.captureStage);
+    const captureSentDropped = useRequirementFilerStore(s => s.captureSentDropped);
     const { setEditorShow, toggleEditorOpen, setEditorDock, setFields, markSaved, markOrphaned,
-        clearFocusPending, setDefaults, resetDefaults, showDraft } = useRequirementFilerStore.getState();
-    const dock = validDock(storedDock, MIN_W, MIN_H) || EDITOR_HOME;
+        clearFocusPending, toggleCaptureCategory, setCaptureStage, markCaptureSent } = useRequirementFilerStore.getState();
+    // Always as tall as its content (user, 2026-10-23: "probably 3x too tall"):
+    // a height stored from an earlier, longer form is never applied.
+    const dock = { ...(validDock(storedDock, MIN_W, MIN_H) || EDITOR_HOME), ht: null };
     // Both belong to the draft they were set for (`key`): a save still in flight
     // when another requirement is started reports nothing over the new one.
     const [saving, setSaving] = useState(null);
     const [failure, setFailure] = useState(null);
     const error = failure?.key === draftKey ? failure.text : null;
+    // The settings behind the spec-code button: closed for every new draft.
+    const [settingsOpen, setSettingsOpen] = useState(false);
+    // The capture's per-category details, behind its Details button.
+    const [captureOpen, setCaptureOpen] = useState(false);
+    useEffect(() => { setSettingsOpen(false); setCaptureOpen(false); }, [draftKey]);
     const titleRef = useRef(null);
 
     const user = profile?.userName;
-    const visible = show && isDesktop && !!user && (isDefaults || !!draft);
-    // What the form shows and edits: the draft, or the defaults (req #3812).
-    const values = isDefaults ? defaultsFormValues(defaults) : draft;
-    const setValues = isDefaults ? setDefaults : setFields;
+    const visible = show && isDesktop && !!user && !!draft;
     const { data: projects, isError: projectsError } = useProjects(user, { closed: 0, enabled: visible });
-    const projectId = values?.projectId ?? null;
+    const projectId = draft?.projectId ?? null;
     // Default fields: the open-categories cache key does not carry them, so a
     // narrower read here would hand other readers of that key a narrower row.
     const { data: categories, isError: categoriesError } = useCategories(user, projectId,
         { closed: 0, enabled: visible && projectId != null });
     const { data: machines, isError: machinesError } = useMachines(user, { enabled: visible });
-    // The seat's pipeline -> epic -> step: the requirement page's own four reads
-    // (same hook, same cache entries).
-    const orch = useOrchestrationIndex(user, { enabled: visible });
-    // Disabled (no token) also reports settled — over an empty index that would
-    // call every default step gone.
-    const settledIndex = orch.isSettled && !orch.isError && !!idToken ? orch.index : null;
-    const stale = visible ? staleRefs(values, { projects, categories, machines, index: settledIndex }) : null;
 
-    // A new draft's defaults are checked once against live data: a stale one is
-    // dropped and said so, and Save waits for the verdict (draftProblem). A read
-    // that failed cannot vouch for its default, so that one is dropped too.
-    const unchecked = !isDefaults ? (draft?.defaultsUnchecked ?? []) : [];
+    // What a new draft carried from the last requirement — its place and its
+    // machine — is checked once against live data: a closed or deleted one is
+    // dropped and said so, and File waits for the verdict (draftProblem). A failed
+    // read cannot vouch for it either. An entry this version does not know (an
+    // older version's 'seat') is dropped, never left holding File.
+    const unchecked = draft?.defaultsUnchecked ?? [];
     useEffect(() => {
-        if (!visible || !unchecked.length || !stale) return;
-        const verdict = {
-            category: stale.project ? `project ${stale.project}` : stale.category,
-            machine: stale.machine,
-            seat: stale.seat,
-        };
-        const failed = {
-            category: projectsError || (!stale.project && categoriesError),
-            machine: machinesError,
-            seat: orch.isError,
+        if (!visible || !unchecked.length) return;
+        const verdicts = {
+            category: () => staleCategory(draft, projects, categories, projectsError || categoriesError),
+            machine: () => {
+                const r = staleMachine(draft, machines);
+                return r === undefined && machinesError ? 'could not be checked' : r;
+            },
         };
         const patch = { defaultsUnchecked: [] };
         const notes = [];
         for (const f of unchecked) {
-            let reason = verdict[f];
-            if (reason === undefined) {
-                if (!failed[f]) return;          // its read has not landed yet
-                reason = 'could not be checked';
-            }
+            if (!verdicts[f]) continue;
+            const reason = verdicts[f]();
+            if (reason === undefined) return;     // its read has not landed yet
             if (!reason) continue;
             if (f === 'category') {
-                notes.push(`Default category ${reason}`);
-                patch.category_fk = null;
-                if (stale.project || reason === 'could not be checked') patch.projectId = null;
-            } else if (f === 'machine') {
-                notes.push(`Default machine ${reason}`);
-                patch.machine_fk = null;
+                Object.assign(patch, { category_fk: null, ...(reason.project ? { projectId: null } : null) });
+                notes.push(`The last requirement's ${reason.project ? 'project' : 'category'} ${reason.text} — choose one`);
             } else {
-                notes.push(`Default seat ${reason}`);
-                Object.assign(patch, { seatPipelineId: null, seatInitiativeId: null, seatStepId: null });
+                patch.machine_fk = null;
+                notes.push(`The last requirement's machine ${reason} — Any instead`);
             }
         }
-        // A valid default step shows where it sits NOW — it may have moved since
-        // the default was set; the epic stays unscoped if it was.
-        const stepId = draft.seatStepId;
-        if (unchecked.includes('seat') && !verdict.seat && stepId != null && settledIndex) {
-            patch.seatPipelineId = settledIndex.pipelineByStep.get(stepId) ?? null;
-            if (draft.seatInitiativeId != null) patch.seatInitiativeId = settledIndex.initiativeByStep.get(stepId) ?? null;
-        }
-        patch.notice = notes.length ? `${notes.join('; ')} — not applied.` : null;
+        patch.notice = notes.length ? `${notes.join('; ')}.` : null;
         setFields(patch);
     });
 
     // The title takes focus once, for a requirement just started — never on a
     // reload or a rack/unrack remount, which would pull focus off the page.
     useEffect(() => {
-        if (visible && !isDefaults && focusPending && titleRef.current) {
+        if (visible && focusPending && titleRef.current) {
             titleRef.current.focus();
             clearFocusPending();
         }
     });
+
+    // Live saving once filed: the save itself is defined below the early return,
+    // so the effect calls the newest through a ref. Not gated on the editor being
+    // shown: an edit made just before × still reaches the row — the ref keeps the
+    // last render's closure, and the draft cannot change while the form is hidden.
+    const liveSaveRef = useRef(null);
+    const failedDraftRef = useRef(null);
+    // The key of the save in flight, readable from a hidden editor's stale closure.
+    const savingRef = useRef(null);
+    useEffect(() => {
+        if (savedId == null || saving === draftKey) return undefined;
+        const t = setTimeout(() => liveSaveRef.current?.(), LIVE_SAVE_MS);
+        return () => clearTimeout(t);
+    }, [draft, savedId, saving, draftKey]);
 
     if (!visible) return null;
 
@@ -252,32 +448,17 @@ export default function RequirementEditorPopup() {
     const categoryOpts = withCurrent(
         (Array.isArray(categories) ? [...categories] : []).sort(bySort('category_name'))
             .map(c => ({ value: c.id, label: c.category_name })),
-        values.category_fk, Array.isArray(categories), 'Category');
-    const machineOpts = machineOptions(machines, values.machine_fk);
-    // The seat cascade: a pipeline scopes the epics, both scope the steps.
-    const seatPipelineId = values.seatPipelineId ?? null;
-    const seatInitiativeId = values.seatInitiativeId ?? null;
-    const seatStepId = values.seatStepId ?? null;
-    const indexLoaded = !!settledIndex;
-    const pipelineOpts = withCurrent(pipelineOptions(orch.index, { keepIds: [seatPipelineId] })
-        .map(({ pipeline, label }) => ({ value: pipeline.id, label })), seatPipelineId, indexLoaded, 'Pipeline');
-    const epicOpts = initiativeOptions(orch.index, {
-        pipelineId: seatPipelineId, keepIds: [seatInitiativeId], currentInitiativeId: seatInitiativeId,
-    }).map(({ initiative, label }) => ({ value: initiative.id, label }));
-    const stepOpts = (seatPipelineId == null ? [] : stepOptions(orch.index, {
-        pipelineId: seatPipelineId, initiativeId: seatInitiativeId, currentStepId: seatStepId,
-    })).map(({ step, label }) => ({ value: step.id, label: `${label} · #${step.id}` }));
-    if (seatStepId != null && !stepOpts.some(o => o.value === seatStepId)) {
-        stepOpts.unshift({ value: seatStepId, label: `Step #${seatStepId}` });
-    }
-    // Defaults mode marks a default that no longer resolves; the draft has
-    // already dropped its own (above).
-    const invalid = (f) => (isDefaults && stale ? stale[f] || null : null);
-    const categoryInvalid = isDefaults && stale ? (stale.project ? `Project ${stale.project}` : stale.category) || null : null;
+        draft.category_fk, Array.isArray(categories), 'Category');
+    const machineOpts = machineOptions(machines, draft.machine_fk);
+    const machineLabel = draft.machine_fk == null ? null
+        : (machineOpts.find(o => o.value === draft.machine_fk)?.label ?? `Machine ${draft.machine_fk}`);
+    const categoryColor = (Array.isArray(categories) ? categories : []).find(c => c.id === draft.category_fk)?.color || null;
 
-    const problem = isDefaults ? null : draftProblem(draft);
-    const dirty = isDefaults ? false : draftDirty(draft, savedId, saved);
-    const canSave = !isDefaults && !problem && dirty && saving !== draftKey && !orphaned;
+    const hasCapture = captureStage != null;
+    // File never waits on the capture: the capture save, after the requirement
+    // is filed, waits for it instead (captureSettled).
+    const problem = draftProblem(draft);
+    const canSave = !problem && draftDirty(draft, savedId, saved) && saving !== draftKey && !orphaned;
     const toInt = (v) => (v === '' ? null : parseInt(v, 10));
 
     // The row a 201 (committed, read-back failed) did not return: the newest
@@ -295,43 +476,86 @@ export default function RequirementEditorPopup() {
         }
     };
 
-    // Seats `id` on the draft's step, moving it off `fromStepId`. A refusal —
-    // 423 for a locked plan, epic or step — is shown, never swallowed, and the
-    // seat stays unsaved so the next Save tries it again.
-    const writeSeat = async (key, id, values, fromStepId) => {
-        const toStepId = values.seatStepId;
-        try {
-            await moveStepRequirement(darwinUri, idToken, { requirementId: id, fromStepId, toStepId });
-            markSaved(key, id, values);
-        } catch (e) {
-            // The half that failed says where the requirement sits now.
-            const movedOff = e?.seatStage === 'seat' && fromStepId != null;
-            // An unseat that landed before the seat failed: it is seated nowhere now.
-            if (movedOff) markSaved(key, id, { ...values, seatStepId: null });
-            setFailure({ key, text: errorText(e, movedOff
-                ? `#${id} saved and taken off step ${fromStepId}, but not seated on step ${toStepId} — it is seated nowhere`
-                : e?.seatStage === 'unseat' || toStepId == null
-                    ? `#${id} saved, but not taken off step ${fromStepId}`
-                    : `#${id} saved, but not seated on step ${toStepId}`) });
-        } finally {
-            queryClient.invalidateQueries({ queryKey: pipelineStepRequirementKeys.all(user) });
-            queryClient.invalidateQueries({ queryKey: ['orchestration_index'] });
-            queryClient.invalidateQueries({ queryKey: pipelineComposeKeys.all });
+    // The draft's debug capture, once its requirement `id` exists (req #3815):
+    // the capture row, then the description block that points at it. Each half
+    // that lands advances the stage, so a retry resumes where the last stopped.
+    const saveCapture = async (key, id) => {
+        const st = await captureSettled(key);
+        if (st.draftKey !== key) return;
+        let stage = st.captureStage;
+        if (stage === 'ready') {
+            // The first send fixes the selection: a retry sends, and the block
+            // describes, exactly what that send carried.
+            const sent = st.captureSentDropped ?? st.captureDropped;
+            markCaptureSent(key, sent);
+            // Every category dropped: the requirement files with no capture at all.
+            if (keepsNothing(st.capture, sent)) { setCaptureStage(key, 'none'); return; }
+            const { text, bytes } = assembleBundle(st.capture, sent);
+            let ok = false;
+            try {
+                const res = await call_rest_api(`${darwinUri}/requirement_debug_captures`, 'POST',
+                    { requirement_fk: id, bundle: text, bundle_bytes: bytes, creator_fk: user }, idToken);
+                const status = res?.httpStatus?.httpStatus;
+                ok = status === 200 || status === 201;
+                if (!ok) setFailure({ key, text: errorText(res, `#${id} saved, but its debug capture was not`) });
+            } catch (e) {
+                // One capture per requirement: a DUPLICATE-KEY 409 is the row an
+                // earlier try wrote. A foreign-key 409 (the requirement is gone) is not.
+                ok = e?.httpStatus?.httpStatus === 409 && Number(e?.httpStatus?.httpDetail?.errno) === 1062;
+                if (!ok) setFailure({ key, text: errorText(e, `#${id} saved, but its debug capture was not`) });
+            }
+            if (!ok) return;
+            stage = 'posted';
+            setCaptureStage(key, stage);
         }
+        if (stage !== 'posted') return;
+        const now = useRequirementFilerStore.getState();
+        if (now.draftKey !== key) return;
+        const block = formatDebugBlock(now.capture, now.captureSentDropped ?? now.captureDropped, id);
+        const description = withDebugBlock(now.saved?.description ?? '', block);
+        try {
+            const res = await call_rest_api(`${darwinUri}/requirements`, 'PUT', [{ id, description }], idToken);
+            const status = res?.httpStatus?.httpStatus;
+            if (status !== 200 && status !== 204) {
+                setFailure({ key, text: errorText(res, `#${id}'s debug capture is saved, but its description does not point at it yet`) });
+                return;
+            }
+        } catch (e) {
+            setFailure({ key, text: errorText(e, `#${id}'s debug capture is saved, but its description does not point at it yet`) });
+            return;
+        }
+        queryClient.invalidateQueries({ queryKey: requirementKeys.all(user) });
+        const after = useRequirementFilerStore.getState();
+        if (after.draftKey !== key) return;
+        // The block is now in the row: in the draft too, so a later save keeps it.
+        setFields({ description: withDebugBlock(after.draft?.description ?? '', block) });
+        markSaved(key, id, { ...after.saved, description });
+        setCaptureStage(key, 'done');
+    };
+
+    // Retry: the capture half only, for a requirement already saved.
+    const retryCapture = async () => {
+        if (savedId == null || saving === draftKey) return;
+        const key = draftKey;
+        setSaving(key);
+        setFailure(null);
+        try { await saveCapture(key, savedId); } finally { setSaving(s => (s === key ? null : s)); }
     };
 
     // call_rest_api RESOLVES 200/201/204 and the transport failure (503), and
     // THROWS {data, httpStatus} for every gateway error — both reach the reader.
-    const save = async () => {
-        if (!canSave) return;
+    // `live` — called by live saving, which has already judged the draft from the
+    // store (this closure's `canSave` may be a hidden render's, stale).
+    const save = async (live = false) => {
+        if (!live && !canSave) return;
         const key = draftKey;
-        const fail = (res, text) => setFailure({ key, text: errorText(res, text) });
+        const fail = (res, text) => { failedDraftRef.current = draft; setFailure({ key, text: errorText(res, text) }); };
+        savingRef.current = key;
         setSaving(key);
         setFailure(null);
         const values = savedValues(draft);
         const uri = `${darwinUri}/requirements`;
         const isPost = savedId == null;
-        const fromStepId = isPost ? null : (saved?.seatStepId ?? null);
         let id = savedId;
         try {
             if (isPost) {
@@ -343,10 +567,10 @@ export default function RequirementEditorPopup() {
                 id = res.data?.[0]?.id ?? await findNewId(body);
                 if (id == null) {
                     // Saved, but no id to PUT later edits to: keep what was typed,
-                    // and refuse a second Save that would POST a duplicate.
+                    // and refuse a second save that would POST a duplicate.
                     markOrphaned(key);
                     setFailure({ key, text: 'Saved, but its id could not be read back — find it on /swarm, '
-                        + `or start a new requirement.${values.seatStepId != null ? ' It was not seated.' : ''}` });
+                        + 'or start a new requirement.' });
                     return;
                 }
             } else {
@@ -358,195 +582,208 @@ export default function RequirementEditorPopup() {
                     queryClient.invalidateQueries({ queryKey: requirementKeys.all(user) });
                 }
             }
-            // The row is saved; its seat is the one last written until the seat write lands.
-            markSaved(key, id, { ...values, seatStepId: fromStepId });
-            if (values.seatStepId !== fromStepId) await writeSeat(key, id, values, fromStepId);
+            markSaved(key, id, values);
+            if (useRequirementFilerStore.getState().captureStage) await saveCapture(key, id);
         } catch (e) {
             fail(e, isPost ? 'Requirement not saved' : 'Changes not saved');
         } finally {
+            if (savingRef.current === key) savingRef.current = null;
             setSaving(s => (s === key ? null : s));
         }
     };
 
-    const onKeyDown = (e) => {
-        if (!isDefaults && e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); save(); }
+    // Asked of the store as it is NOW: while the editor is hidden this closure is
+    // the last render's, whose `saved` never moves — trusting it re-sent the same
+    // PUT on every pass. A save that has landed leaves nothing dirty here.
+    // Every input is read live — the closure's own `canSave` would be stale too
+    // (an edit typed while a save was in flight, then ×, would never be sent).
+    // Its PUT is built against the closure's `saved`, which can only be older:
+    // a superset of the changes, never a lost one.
+    liveSaveRef.current = () => {
+        const st = useRequirementFilerStore.getState();
+        if (st.draftKey !== draftKey || st.draft !== draft || savingRef.current === draftKey) return;
+        if (st.savedId == null || st.orphaned || draftProblem(st.draft)) return;
+        if (draftDirty(st.draft, st.savedId, st.saved) && draft !== failedDraftRef.current) save(true);
     };
+    // Retry: the live save the last failure stopped.
+    const retry = () => { failedDraftRef.current = null; save(); };
+
+    const onKeyDown = (e) => {
+        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); save(); }
+    };
+
+    const code = specCode(draft);
+    const spec = machineLabel ? `${code} · ${machineLabel}` : code;
 
     return (
         <AnchoredPanel dock={dock} onDockChange={setEditorDock}
                        open={open} onToggle={toggleEditorOpen}
-                       name={isDefaults ? 'Requirement Defaults' : 'Requirement Editor'} testid="requirement-editor"
+                       name="Requirement Editor" testid="requirement-editor"
                        rackId={EDITOR_RACK_ID}
                        limits={LIMITS} fontPx={ACTION_POPUP_FONT_PX} colors={ACTION_POPUP_COLORS}
                        sx={ACTION_POPUP_SX}
                        actions={<ActionPopupClose onClick={() => setEditorShow(false)}
                                                   label="Close the requirement editor"
                                                   testid="requirement-editor-close" />}>
-            {({ shapedWidth }) => {
-                const twoCol = shapedWidth == null || shapedWidth >= TWO_COLUMN_PX;
-                return (
-                    <Box component="form" data-testid="requirement-editor-form"
-                         onSubmit={(e) => { e.preventDefault(); if (!isDefaults) save(); }} onKeyDown={onKeyDown}
-                         sx={{ width: shapedWidth == null ? `${FORM_EM}em` : '100%', maxWidth: '100%',
-                                boxSizing: 'border-box', px: '0.7em', py: '0.5em',
-                                display: 'flex', flexDirection: 'column', gap: '0.55em' }}>
-                        {/* Which requirement this is: new, or its id as a link — or the defaults. */}
+            {({ shapedWidth }) => (
+                <Box component="form" data-testid="requirement-editor-form"
+                     onSubmit={(e) => { e.preventDefault(); save(); }} onKeyDown={onKeyDown}
+                     sx={{ width: shapedWidth == null ? `${FORM_EM}em` : '100%', maxWidth: '100%',
+                            boxSizing: 'border-box', px: '0.6em', py: '0.35em',
+                            display: 'flex', flexDirection: 'column', gap: '0.3em' }}>
+                    {/* `<id> - <title>`, the whole width. */}
+                    <Box sx={{ display: 'flex', alignItems: 'baseline', gap: '0.45em', minWidth: 0 }}>
                         <Box data-testid="requirement-editor-identity"
-                             sx={{ display: 'flex', alignItems: 'baseline', gap: '0.6em', flexWrap: 'wrap' }}>
-                            {isDefaults ? (
-                                <Box component="span" sx={{ color: P.text, fontWeight: 700 }}>Defaults</Box>
-                            ) : savedId != null ? (
+                             sx={{ flexShrink: 0, fontSize: '1.15em', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                            {savedId != null ? (
                                 <Box component={Link} to={`/swarm/requirement/${savedId}`}
                                      data-testid="requirement-editor-id-link"
-                                     sx={{ color: P.req, fontWeight: 700, textDecoration: 'none',
-                                            '&:hover': { textDecoration: 'underline' } }}>
-                                    #{savedId}
+                                     sx={{ color: P.req, textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}>
+                                    {savedId}
                                 </Box>
                             ) : (
-                                <Box component="span" sx={{ color: P.text, fontWeight: 700 }}>New requirement</Box>
+                                <Box component="span" sx={{ color: P.text }}>New</Box>
                             )}
-                            <Box component="span" data-testid="requirement-editor-state"
-                                 sx={{ color: P.dim, fontSize: '0.9em' }}>
-                                {isDefaults ? 'every Requirement starts with these'
-                                    : saving === draftKey ? 'Saving…' : (orphaned ? 'saved — id unknown'
-                                    : savedId == null ? 'not saved yet'
-                                    : (dirty ? 'unsaved changes' : 'saved'))}
-                            </Box>
+                            <Box component="span" sx={{ color: P.text }}> -</Box>
                         </Box>
-
-                        {!isDefaults && (
-                            <>
-                                <Field label="Title">
-                                    <Box component="input" type="text" value={draft.title} ref={titleRef}
-                                         onChange={(e) => setFields({ title: e.target.value })}
-                                         data-testid="requirement-editor-field-title"
-                                         sx={{ ...FIELD_SX, textTransform: 'none', letterSpacing: 0 }} />
-                                </Field>
-                                <Field label="Description">
-                                    <Box component="textarea" rows={6} value={draft.description ?? ''}
-                                         onChange={(e) => setFields({ description: e.target.value })}
-                                         data-testid="requirement-editor-field-description"
-                                         sx={{ ...FIELD_SX, resize: 'vertical', textTransform: 'none', letterSpacing: 0 }} />
-                                </Field>
-                            </>
-                        )}
-
-                        <Box sx={{ display: 'grid', gap: '0.55em',
-                                   gridTemplateColumns: twoCol ? 'minmax(0, 1fr) minmax(0, 1fr)' : 'minmax(0, 1fr)' }}>
-                            <Field label="Project">
-                                <Select value={projectId} testid="project"
-                                        placeholder={isDefaults ? 'Where the last one was filed' : 'Choose a project'}
-                                        options={projectOpts}
-                                        onChange={(v) => setValues({ projectId: toInt(v), category_fk: null })} />
-                            </Field>
-                            <Field label="Category" invalid={categoryInvalid} testid="category">
-                                <Select value={values.category_fk} testid="category" invalid={!!categoryInvalid}
-                                        placeholder={projectId == null ? 'Choose a project first'
-                                            : (Array.isArray(categories) ? 'Choose a category' : 'Loading…')}
-                                        options={categoryOpts} disabled={projectId == null}
-                                        onChange={(v) => setValues({ category_fk: toInt(v) })} />
-                            </Field>
-                            {ENUM_FIELDS.map(({ field, label, testid, options }) => (
-                                <Field key={field} label={label}>
-                                    <Select value={values[field]} testid={testid} options={options}
-                                            onChange={(v) => setValues({ [field]: v })} />
-                                </Field>
-                            ))}
-                            <Field label="Machine" invalid={invalid('machine')} testid="machine">
-                                <Select value={values.machine_fk} testid="machine" placeholder="Any"
-                                        options={machineOpts} invalid={!!invalid('machine')}
-                                        onChange={(v) => setValues({ machine_fk: toInt(v) })} />
-                            </Field>
-                            <Field label="Affected repos">
-                                <Box component="input" type="text" value={values.affected_repos ?? ''}
-                                     placeholder="e.g. Darwin,Lambda-Rest"
-                                     onChange={(e) => setValues({ affected_repos: e.target.value })}
-                                     data-testid="requirement-editor-field-repos"
-                                     sx={{ ...FIELD_SX, textTransform: 'none', letterSpacing: 0 }} />
-                            </Field>
-                            {/* The seat (req #3812): pipeline and epic scope the step list; the step seats. */}
-                            <Field label="Pipeline">
-                                <Select value={seatPipelineId} testid="pipeline" placeholder="No pipeline"
-                                        options={pipelineOpts}
-                                        onChange={(v) => setValues({ seatPipelineId: toInt(v),
-                                            seatInitiativeId: null, seatStepId: null })} />
-                            </Field>
-                            <Field label="Epic">
-                                <Select value={seatInitiativeId} testid="epic"
-                                        placeholder={seatPipelineId == null ? 'Choose a pipeline first' : 'All epics'}
-                                        options={epicOpts} disabled={seatPipelineId == null}
-                                        onChange={(v) => setValues({ seatInitiativeId: toInt(v), seatStepId: null })} />
-                            </Field>
-                            <Field label="Step" invalid={invalid('seat')} testid="step" wide>
-                                <Select value={seatStepId} testid="step" invalid={!!invalid('seat')}
-                                        placeholder={seatPipelineId == null && seatStepId == null
-                                            ? 'Choose a pipeline first' : 'Not seated'}
-                                        options={stepOpts} disabled={seatPipelineId == null && seatStepId == null}
-                                        onChange={(v) => setValues({ seatStepId: toInt(v) })} />
-                            </Field>
-                        </Box>
-
-                        <Box component="label" title="A container holds a plan or an initiative rather than being work inside it"
-                             sx={{ display: 'flex', alignItems: 'center', gap: '0.5em', color: P.text, cursor: 'pointer' }}>
-                            <input type="checkbox" checked={!!values.tracking}
-                                   onChange={(e) => setValues({ tracking: e.target.checked ? 1 : 0 })}
-                                   data-testid="requirement-editor-field-tracking" />
-                            Tracking (container)
-                        </Box>
-
-                        {!isDefaults && draft.notice && (
-                            <Box data-testid="requirement-editor-notice"
-                                 sx={{ color: P.dim, overflowWrap: 'anywhere' }}>
-                                {draft.notice}
-                            </Box>
-                        )}
-                        {!isDefaults && error && (
-                            <Box role="alert" data-testid="requirement-editor-error"
-                                 sx={{ color: INVALID, overflowWrap: 'anywhere' }}>
-                                {error}
-                            </Box>
-                        )}
-                        {isDefaults ? (
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: '0.6em', flexWrap: 'wrap' }}>
-                                <Box component="button" type="button" onClick={resetDefaults}
-                                     disabled={!Object.keys(defaults || {}).length}
-                                     title="Back to Swarm Ready · Implemented · Opus · High, filed where the last one was"
-                                     data-testid="requirement-editor-defaults-reset"
-                                     sx={{ ...TEXT_BUTTON_SX, '&:disabled': { color: P.dim, borderColor: P.line, cursor: 'default' } }}>
-                                    Reset
-                                </Box>
-                                {draft && (
-                                    <Box component="button" type="button" onClick={showDraft}
-                                         data-testid="requirement-editor-defaults-done"
-                                         sx={TEXT_BUTTON_SX}>
-                                        Back to requirement
-                                    </Box>
-                                )}
-                            </Box>
-                        ) : (
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: '0.6em', flexWrap: 'wrap' }}>
-                            <Box component="button" type="submit" disabled={!canSave}
-                                 title={orphaned ? 'Start a new requirement' : (problem || (dirty ? 'Save (⌘↵)' : 'Nothing to save'))}
-                                 data-testid="requirement-editor-save"
-                                 sx={{ px: '1em', py: '0.3em', border: `1px solid ${P.accent}`,
-                                        borderRadius: '999px', background: canSave ? P.accent : 'transparent',
-                                        color: canSave ? '#0b1220' : P.dim, fontFamily: ACTION_POPUP_MONO,
-                                        fontSize: '1em', fontWeight: 700,
-                                        cursor: canSave ? 'pointer' : 'default',
-                                        '&:disabled': { borderColor: P.line } }}>
-                                {savedId == null ? 'Save' : 'Save changes'}
-                            </Box>
-                            {problem && (
-                                <Box component="span" data-testid="requirement-editor-problem"
-                                     sx={{ color: P.dim, fontSize: '0.9em' }}>
-                                    {problem}
-                                </Box>
-                            )}
-                        </Box>
-                        )}
+                        <Box component="input" type="text" value={draft.title} ref={titleRef}
+                             placeholder="Title" aria-label="Title"
+                             onChange={(e) => setFields({ title: e.target.value })}
+                             data-testid="requirement-editor-field-title"
+                             sx={{ flex: 1, minWidth: 0, fontFamily: ACTION_POPUP_MONO, fontSize: '1.15em',
+                                    fontWeight: 600, color: P.text, background: 'transparent', border: 'none',
+                                    borderBottom: `1px solid ${P.accent}`, outline: 'none', px: 0, py: 0,
+                                    '&::placeholder': { color: P.dim } }} />
                     </Box>
-                );
-            }}
+
+                    {/* Project, then Category, each on its own line (user, 2026-10-23). */}
+                    <Box sx={{ display: 'flex', alignItems: 'baseline', gap: '0.25em', minWidth: 0, fontWeight: 700,
+                               color: projectId == null ? INVALID : P.dim }}>
+                        <Box component="span">Project -</Box>
+                        <Select value={projectId} testid="project" label="Project" sx={TEXT_SELECT_SX}
+                                placeholder="Must select" options={projectOpts}
+                                onChange={(v) => setFields({ projectId: toInt(v), category_fk: null })} />
+                        {/* The spec-code button: here, not on the title's line, so the title has it all. */}
+                        <Box component="button" type="button" onClick={() => setSettingsOpen(o => !o)}
+                             aria-expanded={settingsOpen ? 'true' : 'false'} aria-controls="requirement-editor-settings"
+                             title={`Status · Autonomy · Model · Effort${machineLabel ? ' · Machine' : ''} — click to edit`}
+                             data-testid="requirement-editor-spec"
+                             sx={{ ml: 'auto', flexShrink: 0, alignSelf: 'center', px: '0.6em', py: 0,
+                                    border: `1px solid ${settingsOpen ? P.accent : P.line}`, borderRadius: '999px',
+                                    background: 'transparent', color: P.text, fontFamily: ACTION_POPUP_MONO,
+                                    fontSize: '0.9em', fontWeight: 700, letterSpacing: '0.05em', cursor: 'pointer',
+                                    whiteSpace: 'nowrap', '&:hover': { borderColor: P.accent, color: P.accent } }}>
+                            {spec}
+                        </Box>
+                    </Box>
+                    <Box sx={{ display: 'flex', alignItems: 'baseline', gap: '0.25em', minWidth: 0, fontWeight: 700,
+                               color: draft.category_fk == null ? INVALID : P.dim }}>
+                        {categoryColor && (
+                            <Box component="span" data-testid="requirement-editor-category-color"
+                                 sx={{ width: '0.35em', alignSelf: 'stretch', minHeight: '1em', mr: '0.3em',
+                                        bgcolor: categoryColor, borderRadius: '0.2em', flexShrink: 0 }} />
+                        )}
+                        <Box component="span">Category -</Box>
+                        <Select value={draft.category_fk} testid="category" label="Category" sx={TEXT_SELECT_SX}
+                                placeholder={projectId == null ? 'choose a project first'
+                                    : (Array.isArray(categories) ? 'Must select' : 'Loading…')}
+                                options={categoryOpts} disabled={projectId == null}
+                                onChange={(v) => setFields({ category_fk: toInt(v) })} />
+                    </Box>
+
+                    {/* The settings, slid open from the spec-code button. */}
+                    <Box id="requirement-editor-settings" data-testid="requirement-editor-settings"
+                         data-open={settingsOpen ? '1' : '0'} aria-hidden={settingsOpen ? undefined : 'true'}
+                         inert={settingsOpen ? undefined : ''} sx={slideSx(settingsOpen)}>
+                        <Box sx={{ overflow: 'hidden', minHeight: 0 }}>
+                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: '0.4em', pt: '0.1em', pb: '0.2em' }}>
+                                <ChipRow label="Status" testid="status" value={draft.requirement_status}
+                                         options={STATUS_CHIPS} onChange={(v) => setFields({ requirement_status: v })} />
+                                <ChipRow label="Autonomy" testid="autonomy" value={draft.coordination_type}
+                                         options={AUTONOMY_CHIPS} onChange={(v) => setFields({ coordination_type: v })} />
+                                <Fieldset legend="AI Settings" testid="requirement-editor-ai-settings">
+                                    <ChipRow label="Model" testid="model" value={draft.ai_model} labelEm={4.5}
+                                             options={MODEL_CHIPS} onChange={(v) => setFields({ ai_model: v })} />
+                                    <ChipRow label="Effort" testid="effort" value={draft.effort} labelEm={4.5}
+                                             options={EFFORT_CHIPS} onChange={(v) => setFields({ effort: v })} />
+                                </Fieldset>
+                                <ChipRow label="Machine" testid="machine" value={draft.machine_fk}
+                                         options={[{ value: null, label: 'Any' }, ...machineOpts].map(o => ({ ...o, ...MACHINE_CHIP }))}
+                                         onChange={(v) => setFields({ machine_fk: v })} />
+                                <Box component="label" title="A container holds a plan or an initiative rather than being work inside it"
+                                     sx={{ display: 'flex', alignItems: 'center', gap: '0.4em', color: P.text, cursor: 'pointer' }}>
+                                    <input type="checkbox" checked={!!draft.tracking}
+                                           onChange={(e) => setFields({ tracking: e.target.checked ? 1 : 0 })}
+                                           data-testid="requirement-editor-field-tracking" />
+                                    Tracking (container)
+                                </Box>
+                            </Box>
+                        </Box>
+                    </Box>
+
+                    {/* Two lines until there is more to say: it grows with what is typed. */}
+                    <Box component="textarea" rows={2} value={draft.description ?? ''}
+                         placeholder="Description" aria-label="Description"
+                         onChange={(e) => setFields({ description: e.target.value })}
+                         data-testid="requirement-editor-field-description"
+                         sx={{ ...FIELD_SX, py: '0.2em', resize: 'vertical', fieldSizing: 'content',
+                                minHeight: 'calc(2lh + 0.4em + 2px)', maxHeight: '14em', '&::placeholder': { color: P.dim } }} />
+
+                    {draft.notice && (
+                        <Box data-testid="requirement-editor-notice" sx={{ color: P.dim, overflowWrap: 'anywhere' }}>
+                            {draft.notice}
+                        </Box>
+                    )}
+                    {error && (
+                        <Box role="alert" data-testid="requirement-editor-error"
+                             sx={{ color: INVALID, overflowWrap: 'anywhere' }}>
+                            {error}
+                        </Box>
+                    )}
+                    {problem && savedId != null && (
+                        <Box component="span" data-testid="requirement-editor-problem"
+                             sx={{ color: INVALID, fontSize: '0.9em' }}>
+                            {problem} — not saving
+                        </Box>
+                    )}
+                    {/* CREATE (the first save) — or RETRY for a live save that failed — and the
+                        debug capture's line, on one row; the capture's details slide open below. */}
+                    {(savedId == null || (error && canSave) || hasCapture) && (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: '0.5em', flexWrap: 'wrap' }}>
+                            {savedId == null ? (
+                                <Box component="button" type="submit" disabled={!canSave}
+                                     title={orphaned ? 'Start a new requirement' : (problem || 'Create it (⌘↵)')}
+                                     data-testid="requirement-editor-save"
+                                     sx={{ px: '0.9em', py: '0.1em', borderRadius: '999px',
+                                            border: `1px solid ${canSave ? CREATE_GREEN : P.line}`,
+                                            background: canSave ? CREATE_GREEN : 'transparent',
+                                            color: canSave ? '#fff' : P.dim, fontFamily: ACTION_POPUP_MONO,
+                                            fontSize: '1em', fontWeight: 700, cursor: canSave ? 'pointer' : 'default' }}>
+                                    Create
+                                </Box>
+                            ) : (error && canSave) ? (
+                                <Box component="button" type="button" onClick={retry}
+                                     data-testid="requirement-editor-retry" sx={{ ...TEXT_BUTTON_SX, py: '0.1em' }}>
+                                    Retry
+                                </Box>
+                            ) : null}
+                            {hasCapture && (
+                                <CaptureLine capture={capture} dropped={captureSentDropped ?? captureDropped}
+                                             stage={captureStage} savedId={savedId} orphaned={orphaned}
+                                             expanded={captureOpen} onExpand={() => setCaptureOpen(o => !o)} />
+                            )}
+                        </Box>
+                    )}
+                    {hasCapture && (
+                        <CaptureDetails capture={capture} dropped={captureSentDropped ?? captureDropped}
+                                        stage={captureStage} savedId={savedId} expanded={captureOpen}
+                                        locked={saving === draftKey || captureSentDropped != null}
+                                        onToggle={toggleCaptureCategory}
+                                        onRetry={savedId != null && ['ready', 'posted'].includes(captureStage)
+                                            && saving !== draftKey ? retryCapture : null} />
+                    )}
+                </Box>
+            )}
         </AnchoredPanel>
     );
 }

@@ -1,3 +1,6 @@
+// FIRST, before any app module evaluates: the Bug button's always-on console /
+// error / network / navigation buffers (req #3815) — see utils/debugCapture.js.
+import './utils/debugCapture';
 import './index.css';
 import AuthenticatedRoute from './Components/AuthenticatedRoute/AuthenticatedRoute';
 
