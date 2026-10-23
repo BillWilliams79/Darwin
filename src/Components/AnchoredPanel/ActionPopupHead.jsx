@@ -8,10 +8,16 @@
 //    ▾  (7)  DEV SERVERS ······························· ×
 //    ▾       DEV SERVER
 //
-// THE BADGE SLOT IS ALWAYS THERE (user directive: "Collapse, Badge, Title …
+// THE BADGE SLOT IS THERE BY DEFAULT (user directive: "Collapse, Badge, Title …
 // should all line up"). A popup with no count keeps a blank slot one badge
 // circle wide, so its title starts where a counted popup's does. Only a badge
 // wider than its circle — two digits, a wide glyph — pushes its title on.
+// The one exception is the Requirement Filer (`badgeSlot={false}`, user ruling
+// 2026-10-23, req #3830): it never counts anything, so its title sits against
+// the ▾ and its + follows the title — `▸ REQUIREMENT + ×` folded.
+//
+// THE ▾ IS DRAWN 1.5× THE TITLE'S TYPE (req #3830: "try making the collapse
+// triangle 50% bigger"), in every popup alike, so the family still lines up.
 //
 // THE ROW IS ONE HEIGHT: tall enough for its tallest item (the ×), whatever
 // the popup puts in it, so folded popups in the rack are one height too.
@@ -32,10 +38,12 @@ import { PLAN_VIZ_PALETTE as P } from '../../SwarmView/pipelines/pipelinePlanLay
 /** The head row's side padding and its gap between items, em. */
 export const ACTION_POPUP_HEAD_PAD_EM = 0.7;
 export const ACTION_POPUP_HEAD_GAP_EM = 0.6;
-/** The title's type, in the head's em (the ▾ is drawn at the same size). */
+/** The title's type, in the head's em (the ▾ is drawn 1.5× it, below). */
 export const ACTION_POPUP_TITLE_EM = 0.9;
 /** The title's tracking, in its own em. */
 export const ACTION_POPUP_TITLE_TRACKING_EM = 0.06;
+/** The ▾, against the title's type (req #3830: 50% bigger). */
+export const ACTION_POPUP_CHEVRON_SCALE = 1.5;
 /** A badge's side padding, em: a capsule past one digit. */
 export const ACTION_POPUP_BADGE_PAD_EM = 0.35;
 
@@ -73,6 +81,29 @@ export function ActionPopupClose({ onClick, label, testid }) {
     );
 }
 
+/** The + — a new one of what the popup holds (the Requirement Filer,
+ *  req #3830). Deliberately the biggest mark in the head: bigger than the ×
+ *  and the ▾, and exactly the row's content height (2.2em less 0.3em padding
+ *  top and bottom). It takes the row's type (`font: inherit`) — a button's own
+ *  default is 13.33px, which would make its em, and the row, taller. */
+export function ActionPopupAdd({ onClick, label, testid }) {
+    return (
+        <Box component="button" type="button" onClick={onClick}
+             aria-label={label} title={label} data-testid={testid}
+             sx={{ font: 'inherit', width: '1.6em', height: '1.6em', p: 0, display: 'flex',
+                    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                    background: 'transparent', border: 'none',
+                    borderRadius: '0.4em', color: P.text, cursor: 'pointer',
+                    '&:hover, &:focus-visible': { color: P.accent } }}>
+            <Box component="svg" viewBox="0 0 16 16" aria-hidden="true"
+                 sx={{ width: '1.3em', height: '1.3em', display: 'block' }}>
+                <path d="M8 2v12M2 8h12" stroke="currentColor" strokeWidth="2"
+                      strokeLinecap="round" fill="none" />
+            </Box>
+        </Box>
+    );
+}
+
 /**
  * @param {Object} props
  * @param {boolean} props.open        the popup is showing its body
@@ -81,6 +112,8 @@ export function ActionPopupClose({ onClick, label, testid }) {
  * @param {string} props.testid       the popup's testid; parts are suffixed
  *   (`-toggle`, `-badge` (the slot), `-title`)
  * @param {React.ReactNode} [props.badge]    in the badge slot; blank = none
+ * @param {boolean} [props.badgeSlot]  false = no slot at all, the title
+ *   against the ▾ (the Requirement Filer, req #3830)
  * @param {React.ReactNode} [props.label]    the title as drawn; defaults to `name`
  * @param {React.ReactNode} [props.actions]  open: far right; folded: right
  *   after the title (the whole package tight)
@@ -91,7 +124,7 @@ export function ActionPopupClose({ onClick, label, testid }) {
  * @param {Object} [props.sx]         more row style (cursor)
  */
 const ActionPopupHead = forwardRef(function ActionPopupHead({
-    open, onToggle, name, testid, badge = null, label, actions = null, narrow = false,
+    open, onToggle, name, testid, badge = null, badgeSlot = true, label, actions = null, narrow = false,
     colors = ACTION_POPUP_COLORS, titleSx, sx, ...rowProps
 }, ref) {
     return (
@@ -105,12 +138,15 @@ const ActionPopupHead = forwardRef(function ActionPopupHead({
             <CollapseHead open={open} onToggle={onToggle} name={name}
                           testid={`${testid}-toggle`}
                           color={colors.head} hoverColor={colors.headHover}
-                          fontSize={`${ACTION_POPUP_TITLE_EM}em`} showName={false} />
-            <Box component="span" data-testid={`${testid}-badge`}
-                 sx={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0,
-                        minWidth: ACTION_POPUP_BADGE_EM }}>
-                {badge}
-            </Box>
+                          fontSize={`${ACTION_POPUP_TITLE_EM}em`} showName={false}
+                          chevronScale={ACTION_POPUP_CHEVRON_SCALE} />
+            {badgeSlot && (
+                <Box component="span" data-testid={`${testid}-badge`}
+                     sx={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0,
+                            minWidth: ACTION_POPUP_BADGE_EM }}>
+                    {badge}
+                </Box>
+            )}
             {/* The title, in the head's own small caps. Not a button:
                 pressing it starts a move, like the rest of the row. */}
             {!narrow && (

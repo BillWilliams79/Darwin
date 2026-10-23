@@ -7,7 +7,8 @@
 // The head row is always the panel's top row — ActionPopupHead, the one every
 // Action Popup draws (req #3821): the CollapseHead (▾) at the upper left —
 // one control (req #3741) — then the badge slot holding the host's `extras`
-// (a count badge; blank, it still holds its place, so titles line up), then
+// (a count badge; blank, it still holds its place, so titles line up — unless
+// the host says `badgeSlot={false}`, the Requirement Filer, req #3830), then
 // the title — left-aligned — and the
 // host's `actions`: at the far right while open; folded, right after the
 // title, with the panel's right edge pulled in so the whole package is tight
@@ -88,6 +89,8 @@ const viewport = () => ({
  * @param {string} props.name            the CollapseHead's name
  * @param {string} props.testid          root testid; parts are suffixed
  * @param {React.ReactNode} [props.extras]   the badge slot, after the ▾
+ * @param {boolean} [props.badgeSlot]  false = no badge slot: the title sits
+ *   against the ▾ (the Requirement Filer, req #3830)
  * @param {React.ReactNode} [props.actions]  right-aligned: blank, or × where
  *   the host supports closing (req #3741)
  * @param {function} props.children      ({ shapedWidth }) → body; shapedWidth
@@ -103,7 +106,7 @@ const viewport = () => ({
  *   absent = it never racks (req #3720)
  */
 export default function AnchoredPanel({
-    dock, onDockChange, open, onToggle, name, testid, extras, actions, children,
+    dock, onDockChange, open, onToggle, name, testid, extras, badgeSlot = true, actions, children,
     limits, fontPx = 12, border = 2, colors, sx, zIndex = 1250, rackId,
 }) {
     const boxRef = useRef(null);
@@ -327,7 +330,7 @@ export default function AnchoredPanel({
                     ...(racking && { order: rackOrder(rackPos),
                         borderRadius: 0, boxShadow: 'none' }) }}>
             <ActionPopupHead open={open} onToggle={toggle} name={name} testid={testid}
-                             badge={extras} actions={actions} narrow={narrow} colors={colors}
+                             badge={extras} badgeSlot={badgeSlot} actions={actions} narrow={narrow} colors={colors}
                              title={inRack ? `Drag to reorder · drag off the ${rackName} to float it`
                                  : `Drag to move · double-click to put back${rackId ? ` · drop on the ${rackName} to rack it` : ''}`}
                              {...gesture('move')}

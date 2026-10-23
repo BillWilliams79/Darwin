@@ -97,6 +97,21 @@ export function newRequirementDraft(projectId = null, categoryId = null, default
     };
 }
 
+/** The project a new requirement is filed under when it carries none. */
+export const DEFAULT_PROJECT_NAME = 'Darwin';
+
+/** The project a draft with none starts in (user ruling 2026-10-23, req #3830:
+ *  "don't make me set that one — it's only Darwin"): the open project named
+ *  Darwin, else the only open project, else none. Only a default — the Project
+ *  select still offers every open project (darwin_dev holds many). */
+export function defaultProjectId(projects) {
+    if (!Array.isArray(projects)) return null;
+    const named = projects.find(p => String(p.project_name ?? '').trim().toLowerCase()
+        === DEFAULT_PROJECT_NAME.toLowerCase());
+    if (named) return named.id;
+    return projects.length === 1 ? projects[0].id : null;
+}
+
 const flagOn = (v) => v === true || Number(v) === 1;
 
 /** Whether the carried place still resolves: null (unset or valid),
@@ -127,6 +142,41 @@ export function staleMachine(values, machines) {
     if (!m) return 'no longer exists';
     if (flagOn(m.closed)) return 'closed';
     return null;
+}
+
+/** The columns a filed requirement is read back with, to reopen it. */
+export const REOPEN_FIELDS = Object.freeze(['id', 'title', 'description', 'category_fk', ...ENUMS,
+    'machine_fk', 'affected_repos', 'tracking']);
+
+/** A filed requirement's row, as the editor's draft — under `projectId`, its
+ *  category's project. Nothing in it is carried, so nothing waits on a check. */
+export function draftFromRow(row, projectId) {
+    return {
+        title: row.title ?? '',
+        description: row.description ?? '',
+        projectId: projectId ?? null,
+        category_fk: row.category_fk ?? null,
+        requirement_status: row.requirement_status,
+        coordination_type: row.coordination_type,
+        ai_model: row.ai_model,
+        effort: row.effort,
+        machine_fk: row.machine_fk ?? null,
+        affected_repos: row.affected_repos ?? '',
+        tracking: flagOn(row.tracking) ? 1 : 0,
+        defaultsUnchecked: [],
+        notice: null,
+    };
+}
+
+/** How many filed requirements the filer lists (newest first). */
+export const FILED_LIMIT = 50;
+
+/** The filer's list with `id` (now titled `title`) in it: an entry already
+ *  there keeps its place, a new one goes first; the oldest past FILED_LIMIT go. */
+export function withFiled(filed, id, title) {
+    const list = Array.isArray(filed) ? filed : [];
+    if (list.some(f => f.id === id)) return list.map(f => (f.id === id ? { ...f, title } : f));
+    return [{ id, title }, ...list].slice(0, FILED_LIMIT);
 }
 
 /** Why the draft cannot be saved, or null when it can. */

@@ -2,7 +2,7 @@ import { test, expect, Page } from '@playwright/test';
 import { getIdToken, apiCall, apiDelete, uniqueName } from '../helpers/api';
 
 // Req #3829 — the Requirement Filer records the page element it sits over.
-// Drag the floating filer over a requirement card on /swarm and press Create:
+// Drag the floating filer over a requirement card on /swarm and press its +:
 // the filed requirement's description says `Pointed at:` naming that card (its
 // testid path and title text) and its debug capture carries the element's rect;
 // racked in the navbar the same press records pointedAt null with its reason;
@@ -50,7 +50,7 @@ test.describe('Requirement Filer — pointed at (req #3829)', () => {
     await page.goto('/swarm');
     await page.getByRole('tab', { name: projectName }).click();
     await expect(page.getByTestId(`requirement-${targetId}`)).toBeVisible({ timeout: 15000 });
-    await expect(page.getByTestId('requirement-filer-new')).toBeVisible();
+    await expect(page.getByTestId('requirement-filer-add')).toBeVisible();
   }
 
   /** Drags the floating filer by its head so its centre sits on `target`'s centre. */
@@ -68,9 +68,9 @@ test.describe('Requirement Filer — pointed at (req #3829)', () => {
     await page.mouse.up();
   }
 
-  /** Create → title → Create; returns the filed requirement's id, its description and bundle. */
+  /** + → title → Create; returns the filed requirement's id, its description and bundle. */
   async function fileIt(page: Page, title: string) {
-    await page.getByTestId('requirement-filer-new').click();
+    await page.getByTestId('requirement-filer-add').click();
     await page.getByTestId('requirement-editor-field-title').fill(title);
     await expect(page.getByTestId('requirement-editor-save')).toBeEnabled({ timeout: 15000 });
     await page.getByTestId('requirement-editor-save').click();

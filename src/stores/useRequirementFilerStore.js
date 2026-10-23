@@ -1,16 +1,23 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-import { carriedSettings, newRequirementDraft } from '../RequirementFiler/requirementFilerModel';
+import {
+    carriedSettings, draftFromRow, newRequirementDraft, savedValues, withFiled,
+} from '../RequirementFiler/requirementFilerModel';
 
 // The Requirement Filer (req #3811) — two Action Popups over every page.
 //
-// THE FILER — the navbar control opens it; clicking its body ("Create") starts a
-//   new requirement, recording where it was filed from (req #3813) and a debug
-//   capture (req #3815).
+// THE FILER — the navbar control opens it; its head's + starts a new
+//   requirement, recording where it was filed from (req #3813) and a debug
+//   capture (req #3815); its body lists the requirements it filed, each one
+//   click from the editor again (req #3830).
 //   • `show` — drawn at all (the navbar control toggles it; × hides it).
 //   • `open` — its body is expanded (its ▾ head; folded, the panel is the head).
 //   • `dock` — where it floats and its shape (anchoredPanelGeometry.js); null = home.
+//   • `filed` — `{ id, title }` of each requirement it filed, newest first
+//     (FILED_LIMIT), the title as last saved here.
+//   • `reopened` — the editor holds one of them again (`openFiled`), not a new
+//     one: its saves do not move `lastProjectId`/`lastCategoryId`/`defaults`.
 //
 // THE EDITOR — the popup requirement editor the filer opens.
 //   • `editorShow` / `editorOpen` / `editorDock` — the same three, for it.
@@ -62,6 +69,9 @@ export const useRequirementFilerStore = create(
             setShow: (show) => set({ show }),
             toggleOpen: () => set({ open: !get().open }),
             setDock: (dock) => set({ dock }),
+            filed: [],
+            reopened: false,
+            forgetFiled: (id) => set({ filed: get().filed.filter(f => f.id !== id) }),
 
             editorShow: false,
             editorOpen: true,
@@ -91,9 +101,23 @@ export const useRequirementFilerStore = create(
                 set({
                     draft: newRequirementDraft(lastProjectId, lastCategoryId, defaults),
                     savedId: null, saved: null, editorShow: true, editorOpen: true,
-                    draftKey, orphaned: false, focusPending: true,
+                    draftKey, orphaned: false, focusPending: true, reopened: false,
                     capture: null, captureDropped: [], captureSentDropped: null,
                     captureStage: withCapture ? 'capturing' : null,
+                });
+                return draftKey;
+            },
+            // A filed requirement back in the editor (req #3830): its row as it
+            // is now, already saved — so nothing is sent until it is changed.
+            // Returns the new draft's key.
+            openFiled: (row, projectId) => {
+                const draftKey = get().draftKey + 1;
+                const draft = draftFromRow(row, projectId);
+                set({
+                    draft, savedId: row.id, saved: savedValues(draft), editorShow: true, editorOpen: true,
+                    draftKey, orphaned: false, focusPending: false, reopened: true,
+                    capture: null, captureDropped: [], captureSentDropped: null, captureStage: null,
+                    filed: withFiled(get().filed, row.id, draft.title),
                 });
                 return draftKey;
             },
@@ -118,12 +142,19 @@ export const useRequirementFilerStore = create(
             // A successful save of the draft `key` names: the row's id and the
             // values it now holds — and, for the next one, where it was filed and
             // its settings. Ignored when another draft has been started.
+            // The row joins (or retitles) the filer's list whichever draft is
+            // now current — a save that lands after a reopen is still filed. A
+            // reopened requirement is not the last one filed: its edits leave
+            // the next one's place and settings alone.
             markSaved: (key, id, values) => {
-                if (get().draftKey !== key) return;
+                const filed = withFiled(get().filed, id, values.title);
+                if (get().draftKey !== key) { set({ filed }); return; }
                 set({
-                    savedId: id, saved: values,
-                    lastProjectId: values.projectId ?? null, lastCategoryId: values.category_fk ?? null,
-                    defaults: carriedSettings(values),
+                    savedId: id, saved: values, filed,
+                    ...(!get().reopened && {
+                        lastProjectId: values.projectId ?? null, lastCategoryId: values.category_fk ?? null,
+                        defaults: carriedSettings(values),
+                    }),
                 });
             },
             markOrphaned: (key) => { if (get().draftKey === key) set({ orphaned: true }); },

@@ -25,11 +25,14 @@ import Box from '@mui/material/Box';
  * @param {boolean} [props.showName]  false = the ▾ alone, for a head row that
  *   sets its title apart (AnchoredPanel: ▾ · badge · title); the name is still
  *   the button's accessible name
+ * @param {number} [props.chevronScale]  the ▾ alone, scaled against the name's
+ *   type (the Action Popups' is 1.5×, req #3830) — set solid, so the bigger
+ *   glyph does not grow the row it sits in
  */
 export default function CollapseHead({
     open, onToggle, name, testid,
     color = 'text.secondary', hoverColor = 'text.primary', fontSize = '10px',
-    showName = true,
+    showName = true, chevronScale = 1,
 }) {
     const tip = `${open ? 'Collapse' : 'Expand'} ${name.toLowerCase()}`;
     return (
@@ -51,6 +54,7 @@ export default function CollapseHead({
             <Box component="span" aria-hidden="true"
                  sx={{
                      display: 'inline-block', width: '1em', textAlign: 'center',
+                     ...(chevronScale !== 1 && { fontSize: `${chevronScale}em`, lineHeight: 1 }),
                      transition: 'transform 0.15s',
                      transform: open ? 'none' : 'rotate(-90deg)',
                      '@media (prefers-reduced-motion: reduce)': { transition: 'none' },
