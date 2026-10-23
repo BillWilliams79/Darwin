@@ -63,7 +63,7 @@ const NavBarSidebar = () => {
     const [profileDialogOpen, setProfileDialogOpen] = useState(false);
     const sidebarWidth = collapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_WIDTH;
 
-    // The panel rack (req #3720): pop-up information windows (AnchoredPanel
+    // The panel rack (req #3720): Action Popups (AnchoredPanel
     // hosts naming a rackId — the Dev Servers dashboard) dragged onto the
     // navbar lock in below the nav buttons, at the navbar's width, stacked in
     // rack order. The navbar publishes its rack slot while it is drawn (before
@@ -117,7 +117,7 @@ const NavBarSidebar = () => {
     // Whether the dev-server table is empty, so the Dev Servers nav link can
     // grey out (req #3005) — in ALL environments. Lightweight, user-scoped GET;
     // 60s staleTime keeps it to roughly one refetch per minute. (This dev
-    // server's own details are the Dev Server panel's — DevServerInfoPanel.)
+    // server's own details are the Dev Server panel's — DevServerActionPopup.)
     const { data: devServersArray } = useDevServers(profile?.userName, {
         enabled: !!profile?.userName,
         staleTime: 60_000,

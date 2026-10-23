@@ -5,7 +5,7 @@ import { Outlet, useLocation } from "react-router-dom"
 
 import NavBar from './NavBar/NavBar'
 import DevServerDashboard from './DevServers/DevServerDashboard';
-import DevServerInfoPanel from './NavBar/DevServerInfoPanel';
+import DevServerActionPopup from './NavBar/DevServerActionPopup';
 import { SnackBar } from './Components/SnackBar/SnackBar';
 import { useSnackBarStore } from './stores/useSnackBarStore';
 import { noteRoute } from './utils/routeTrail';
@@ -46,7 +46,7 @@ const App = () => {
             {/* req #3643 — docked to the viewport, over every page */}
             <DevServerDashboard />
             {/* req #3727 — dev builds only; racked in the navbar by default */}
-            <DevServerInfoPanel />
+            <DevServerActionPopup />
             <SnackBar snackBarOpen={snackBarOpen}
                       setSnackBarOpen={setSnackBarOpen}
                       snackBarMessage={snackBarMessage}

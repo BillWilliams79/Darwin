@@ -38,8 +38,8 @@ import useMediaQuery from '@mui/material/useMediaQuery';
 
 import AnchoredPanel from '../Components/AnchoredPanel/AnchoredPanel';
 import {
-    INFO_PANEL_BADGE_EM, INFO_PANEL_COLORS, INFO_PANEL_FONT_PX, INFO_PANEL_HEAD_PX, INFO_PANEL_MONO, INFO_PANEL_SX,
-} from '../Components/AnchoredPanel/infoPanelChrome';
+    ACTION_POPUP_BADGE_EM, ACTION_POPUP_COLORS, ACTION_POPUP_FONT_PX, ACTION_POPUP_HEAD_PX, ACTION_POPUP_MONO, ACTION_POPUP_SX,
+} from '../Components/AnchoredPanel/actionPopupChrome';
 import { validDock } from '../Components/AnchoredPanel/anchoredPanelGeometry';
 import AuthContext from '../Context/AuthContext';
 import { useDevServerRequirementTitles, useDevServerSessionTerminals, useDevServers, useMachines } from '../hooks/useDataQueries';
@@ -52,10 +52,10 @@ import {
     devServerDashboardRows, withRequirementTitles, withTerminalLinks,
 } from './devServerDashboardModel';
 
-const MONO = INFO_PANEL_MONO;
-const FONT_PX = INFO_PANEL_FONT_PX;
-const LIMITS = { minW: DASH_MIN_W, minH: DASH_MIN_H, autoMaxW: DASH_AUTO_MAX_W, headPx: INFO_PANEL_HEAD_PX };
-const BADGE_EM = INFO_PANEL_BADGE_EM;
+const MONO = ACTION_POPUP_MONO;
+const FONT_PX = ACTION_POPUP_FONT_PX;
+const LIMITS = { minW: DASH_MIN_W, minH: DASH_MIN_H, autoMaxW: DASH_AUTO_MAX_W, headPx: ACTION_POPUP_HEAD_PX };
+const BADGE_EM = ACTION_POPUP_BADGE_EM;
 
 const HALF_SX = {
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
@@ -171,8 +171,8 @@ export default function DevServerDashboard() {
                        open={open} onToggle={toggleOpen}
                        name="Dev Servers" testid="devserver-dashboard"
                        rackId={DASH_RACK_ID}
-                       limits={LIMITS} fontPx={FONT_PX} colors={INFO_PANEL_COLORS}
-                       sx={INFO_PANEL_SX}
+                       limits={LIMITS} fontPx={FONT_PX} colors={ACTION_POPUP_COLORS}
+                       sx={ACTION_POPUP_SX}
                        extras={
                            // The step card's count badge (req #3503): the green
                            // pill, a circle for one digit, a capsule past it.

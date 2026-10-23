@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
 // req #3735 — the Orchestrables box docks to the Darwin navbar like every other
-// pop-up information window: its title-bar move publishes the rack drag (so the
+// Action Popup: its title-bar move publishes the rack drag (so the
 // navbar glows in its purple), released over the navbar it racks — portalled
 // into the rack slot at the navbar's width, nothing to stretch — and dragged off
 // it floats again where it was dropped. A carry released over a step still
@@ -125,7 +125,7 @@ describe('UnorchestratedReqBox — the navbar rack (req #3735)', () => {
         // Floating spot kept for the day it is dragged out.
         expect(box().getAttribute('data-pos')).toBe('home');
         expect(window.localStorage.getItem(POS_KEY)).toBeNull();
-        // The navbar's width, the info windows' type, nothing to stretch.
+        // The navbar's width, the Action Popups' type, nothing to stretch.
         expect(box().style.width).toBe('100%');
         expect(box().style.fontSize).toBe('12px');
         expect(box().style.position).toBe('relative');

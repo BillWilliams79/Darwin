@@ -5935,7 +5935,7 @@ export default function PipelinePlanVisualizer({
                     the top-right corner the key vacated for the bottom (req
                     #3255); its title bar moves it anywhere in the window, over
                     the navbar included (req #3687), and dropped ON the navbar it
-                    racks there with the other information windows (req #3735). Its rows drag onto a step
+                    racks there with the other Action Popups (req #3735). Its rows drag onto a step
                     card to seat them. Its type
                     is the requirement ids' own ON-SCREEN size — the card font
                     `CF.req` (world px) through the live zoom — so it shrinks and

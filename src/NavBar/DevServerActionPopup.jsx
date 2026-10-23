@@ -1,10 +1,10 @@
-// DevServerInfoPanel.jsx — the navbar's Dev Server panel (req #3727): what
+// DevServerActionPopup.jsx — the navbar's Dev Server panel (req #3727): what
 // this dev server is — its terminal, its database, the requirement it serves
-// and its port — as a pop-up information window like the Dev Servers
+// and its port — as an Action Popup like the Dev Servers
 // dashboard, rather than a box fixed to the bottom of the navbar.
 //
 // It is an AnchoredPanel (Components/AnchoredPanel) in the dashboard's own
-// chrome (infoPanelChrome.js): the ▾ head and the DEV SERVER title, then its
+// chrome (actionPopupChrome.js): the ▾ head and the DEV SERVER title, then its
 // rows — the requirement first (req #3788), the terminal pill with the port
 // pill below it (req #3748), the database. RACKED BY DEFAULT — the first time it mounts
 // in a browser it is seeded into the navbar's panel rack (usePanelRackStore
@@ -23,8 +23,8 @@ import useMediaQuery from '@mui/material/useMediaQuery';
 import AnchoredPanel from '../Components/AnchoredPanel/AnchoredPanel';
 import { validDock } from '../Components/AnchoredPanel/anchoredPanelGeometry';
 import {
-    INFO_PANEL_COLORS, INFO_PANEL_FONT_PX, INFO_PANEL_HEAD_PX, INFO_PANEL_SX,
-} from '../Components/AnchoredPanel/infoPanelChrome';
+    ACTION_POPUP_COLORS, ACTION_POPUP_FONT_PX, ACTION_POPUP_HEAD_PX, ACTION_POPUP_SX,
+} from '../Components/AnchoredPanel/actionPopupChrome';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import { useDevServers } from '../hooks/useDataQueries';
@@ -43,7 +43,7 @@ const DEV_REQ_TITLE = isDev ? (import.meta.env.VITE_DEV_REQ_TITLE || '') : '';
 export const DEV_INFO_RACK_ID = 'devserver-info';
 const MIN_W = 120;
 const MIN_H = 64;
-const LIMITS = { minW: MIN_W, minH: MIN_H, autoMaxW: 320, headPx: INFO_PANEL_HEAD_PX };
+const LIMITS = { minW: MIN_W, minH: MIN_H, autoMaxW: 320, headPx: ACTION_POPUP_HEAD_PX };
 /** Floating home: bottom-left, just clear of the full-width navbar. */
 const HOME = Object.freeze({ h: 'l', x: SIDEBAR_WIDTH + 16, v: 'b', y: 16, w: null, ht: null });
 
@@ -53,9 +53,9 @@ const ROW_SX = { pl: '0.7em', pr: '0.35em', py: '0.15em', lineHeight: 1.45, whit
     overflow: 'hidden', textOverflow: 'ellipsis' };
 const HAS_REQ = !!(DEV_REQ_ID || DEV_REQ_TITLE);
 
-/** The info-window chrome, framed in the dev server's own orange rather than
+/** The Action Popup chrome, framed in the dev server's own orange rather than
  *  the family purple (req #3748) — the colour of its pills. */
-const FRAME_COLORS = { ...INFO_PANEL_COLORS, frame: DEV_ORANGE };
+const FRAME_COLORS = { ...ACTION_POPUP_COLORS, frame: DEV_ORANGE };
 
 const PILL_SX = { display: 'inline-block', px: '0.75em', py: '0.2em',
     border: `1px solid ${DEV_ORANGE}`, borderRadius: '999px',
@@ -86,7 +86,7 @@ function RequirementLine({ sx, lines }) {
     );
 }
 
-export default function DevServerInfoPanel() {
+export default function DevServerActionPopup() {
     const { profile } = useContext(AuthContext);
     const { database } = useContext(AppContext);
     const isDesktop = useMediaQuery('(min-width:900px)');
@@ -151,9 +151,9 @@ export default function DevServerInfoPanel() {
                        open={open} onToggle={toggleOpen}
                        name="Dev Server" testid="devserver-info"
                        rackId={DEV_INFO_RACK_ID}
-                       limits={LIMITS} fontPx={INFO_PANEL_FONT_PX}
+                       limits={LIMITS} fontPx={ACTION_POPUP_FONT_PX}
                        colors={FRAME_COLORS}
-                       sx={INFO_PANEL_SX}>
+                       sx={ACTION_POPUP_SX}>
             {({ shapedWidth }) => (shapedWidth != null && shapedWidth < RACK_NARROW_PX) ? (
                 // The icon-only navbar (req #3739): every field the full panel
                 // shows — requirement, terminal, port, database — in short form at a

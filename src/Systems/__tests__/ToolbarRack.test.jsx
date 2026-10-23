@@ -54,7 +54,7 @@ describe('ToolbarRack (req #3792)', () => {
     });
     afterEach(() => { cleanup(); frame.remove(); navSlot.remove(); });
 
-    it('racks the info windows below the toolbar\'s buttons, in its own shadow root', () => {
+    it('racks the Action Popups below the toolbar\'s buttons, in its own shadow root', () => {
         render(<Page />);
         const h = host();
         expect(h.parentElement).toBe(toolbar());

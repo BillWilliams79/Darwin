@@ -13,7 +13,7 @@ import { rackInsert, rackRemove } from '../Components/AnchoredPanel/panelRack';
 //       – `navSlot` — the Darwin navbar's, published while it is drawn;
 //       – `pageSlot` — a page's OWN toolbar, published while that toolbar is
 //         drawn (AI Architecture's, Systems/ToolbarRack.jsx). A page that shows
-//         its own toolbar docks the info windows against it, by the navbar's
+//         its own toolbar docks the Action Popups against it, by the navbar's
 //         rules, so while one is drawn it is THE rack: `slot` = `pageSlot ||
 //         navSlot`, and the racked windows move into it and back with it.
 //     A slot may also carry `zone` (its drop zone; default the navbar's

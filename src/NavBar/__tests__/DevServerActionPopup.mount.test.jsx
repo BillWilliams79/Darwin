@@ -17,13 +17,13 @@ vi.mock('@mui/material/useMediaQuery', () => ({ default: () => desktop }));
 
 import { prodRequirementUrl } from '../../utils/prodUrl';
 
-let DevServerInfoPanel, DEV_INFO_RACK_ID, usePanelRackStore, AuthContext, AppContext;
+let DevServerActionPopup, DEV_INFO_RACK_ID, usePanelRackStore, AuthContext, AppContext;
 async function load(mode, { reqId = '3727', reqTitle = 'Dev Server bar dockable' } = {}) {
     vi.resetModules();
     vi.stubEnv('MODE', mode);
     vi.stubEnv('VITE_DEV_REQ_ID', reqId);
     vi.stubEnv('VITE_DEV_REQ_TITLE', reqTitle);
-    ({ default: DevServerInfoPanel, DEV_INFO_RACK_ID } = await import('../DevServerInfoPanel'));
+    ({ default: DevServerActionPopup, DEV_INFO_RACK_ID } = await import('../DevServerActionPopup'));
     ({ usePanelRackStore } = await import('../../stores/usePanelRackStore'));
     // resetModules gives the panel fresh context objects: provide those.
     ({ default: AuthContext } = await import('../../Context/AuthContext'));
@@ -34,12 +34,12 @@ let slotNode;
 const renderPanel = (database = 'darwin_dev') => render(
     <AuthContext.Provider value={{ profile: { userName: 'u' } }}>
         <AppContext.Provider value={{ database }}>
-            <DevServerInfoPanel />
+            <DevServerActionPopup />
         </AppContext.Provider>
     </AuthContext.Provider>
 );
 
-describe('DevServerInfoPanel (req #3727)', () => {
+describe('DevServerActionPopup (req #3727)', () => {
     beforeEach(() => {
         desktop = true;
         localStorage.clear();
