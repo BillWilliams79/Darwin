@@ -8,6 +8,7 @@ import { describe, it, expect } from 'vitest';
 import {
     CARRIED_FIELDS, FILER_DEFAULT_SPEC, SPEC_LETTERS, buildPostBody, buildPutBody, carriedSettings, draftDirty,
     draftProblem, machineOptions, newRequirementDraft, savedValues, specCode, staleCategory, staleMachine,
+    FILED_LIMIT, defaultProjectId, draftFromRow, withFiled,
 } from '../requirementFilerModel';
 
 const NOW = '2026-10-23T10:00:00.000Z';
@@ -146,5 +147,37 @@ describe('the last settings and the spec code (req #3815)', () => {
         expect(staleMachine({ machine_fk: 8 }, machines)).toBe('no longer exists');
         expect(staleMachine({ machine_fk: 2 }, undefined)).toBe(undefined);
         expect(staleMachine({ machine_fk: null }, undefined)).toBe(null);
+    });
+});
+
+describe('the filer\'s default project and its list (req #3830)', () => {
+    it('a draft with no place starts in Darwin, else the only project, else none', () => {
+        expect(defaultProjectId([{ id: 9, project_name: 'Other' }, { id: 4, project_name: ' darwin ' }])).toBe(4);
+        expect(defaultProjectId([{ id: 9, project_name: 'Other' }])).toBe(9);
+        expect(defaultProjectId([{ id: 9, project_name: 'Other' }, { id: 8, project_name: 'More' }])).toBe(null);
+        expect(defaultProjectId([])).toBe(null);
+        expect(defaultProjectId(undefined)).toBe(null);
+    });
+
+    it('a filed row reopens as a draft already saved — nothing to send, nothing to check', () => {
+        const row = { id: 7, title: 'T', description: null, category_fk: 862, requirement_status: 'development',
+            coordination_type: 'implemented', ai_model: 'opus', effort: 'high', machine_fk: null,
+            affected_repos: null, tracking: '1' };
+        const d = draftFromRow(row, 4);
+        expect(d).toMatchObject({ title: 'T', description: '', projectId: 4, category_fk: 862, tracking: 1,
+            affected_repos: '', machine_fk: null, defaultsUnchecked: [], notice: null });
+        expect(draftDirty(d, 7, savedValues(d))).toBe(false);
+        expect(draftProblem(d)).toBe(null);
+    });
+
+    it('the list: a new id first, a known one keeps its place and takes its title, capped', () => {
+        let l = withFiled([], 1, 'a');
+        l = withFiled(l, 2, 'b');
+        expect(l).toEqual([{ id: 2, title: 'b' }, { id: 1, title: 'a' }]);
+        expect(withFiled(l, 1, 'A')).toEqual([{ id: 2, title: 'b' }, { id: 1, title: 'A' }]);
+        let full = [];
+        for (let i = 0; i < FILED_LIMIT + 3; i++) full = withFiled(full, i, `r${i}`);
+        expect(full).toHaveLength(FILED_LIMIT);
+        expect(full[0].id).toBe(FILED_LIMIT + 2);
     });
 });

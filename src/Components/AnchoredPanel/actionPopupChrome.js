@@ -31,3 +31,58 @@ export const ACTION_POPUP_SX = {
 };
 /** A head-row badge's height, and its width for one digit (a circle). */
 export const ACTION_POPUP_BADGE_EM = '1.45em';
+
+// ── RESHAPED FROM ANY EDGE OR CORNER — every Action Popup (req #3743, #3833) ──
+// Hit zones, px (req #3743: "the activation area is tiny" — they were 5 px /
+// 8 px). Below the head row the sides and bottom are wide and the bottom
+// corners generous; the head row's own sides, top edge and top corners stay
+// slim so they keep clear of the ▾ and ×, which sit 0.7em in. AnchoredPanel and
+// the Orchestrables box (which draws its own frame) both draw them from here.
+export const ACTION_POPUP_EDGE_PX = 10;
+export const ACTION_POPUP_CORNER_PX = 18;
+export const ACTION_POPUP_HEAD_EDGE_PX = 5;
+export const ACTION_POPUP_HEAD_CORNER_PX = 8;
+
+/** The resize cursor of each edge and corner (`RESIZE_EDGES` ids). */
+export const ACTION_POPUP_RESHAPE_CURSOR = { n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize',
+    nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize' };
+
+/**
+ * One reshape zone's sx: absolutely placed inside the popup's frame, on top of
+ * its content, tinted in the frame colour under the pointer.
+ *
+ * @param {{id, h: ?string, v: ?string}} e  a `RESIZE_EDGES` entry
+ * @param {number|string} headPx  the head row's height — px, or a CSS length
+ *   (`calc(2.2em + 4px)`) for a popup whose type follows the zoom, so its zones
+ *   mint no style rule per zoom value; a side zone is slim beside it
+ * @param {string} frame   the popup's frame colour
+ */
+export function actionPopupReshapeZone(e, headPx, frame) {
+    const EDGE_PX = ACTION_POPUP_EDGE_PX;
+    const CORNER_PX = ACTION_POPUP_CORNER_PX;
+    const HEAD_EDGE_PX = ACTION_POPUP_HEAD_EDGE_PX;
+    const HEAD_CORNER_PX = ACTION_POPUP_HEAD_CORNER_PX;
+    const z = { position: 'absolute', zIndex: 3, touchAction: 'none', cursor: ACTION_POPUP_RESHAPE_CURSOR[e.id],
+        // The zone shows itself under the pointer, so the reader sees what to grab.
+        '&:hover': { background: `color-mix(in srgb, ${frame} 40%, transparent)` } };
+    const corner = e.h && e.v;
+    const top = e.v === 't';
+    if (e.v) Object.assign(z, { [top ? 'top' : 'bottom']: 0,
+        height: corner ? (top ? HEAD_CORNER_PX : CORNER_PX) : (top ? HEAD_EDGE_PX : EDGE_PX) });
+    else Object.assign(z, { top: HEAD_CORNER_PX, bottom: CORNER_PX });
+    if (e.h) Object.assign(z, { [e.h === 'l' ? 'left' : 'right']: 0,
+        width: corner ? (top ? HEAD_CORNER_PX : CORNER_PX) : EDGE_PX });
+    else Object.assign(z, { left: top ? HEAD_CORNER_PX : CORNER_PX, right: top ? HEAD_CORNER_PX : CORNER_PX });
+    // A side edge is wide below the head row and slim beside it (clip-path
+    // clips hit-testing too).
+    if (e.h && !e.v) {
+        const l = e.h === 'l';
+        const a = HEAD_EDGE_PX;
+        const h = typeof headPx === 'number' ? `${Math.max(headPx - HEAD_CORNER_PX, 0)}px`
+            : `max(0px, calc(${headPx} - ${HEAD_CORNER_PX}px))`;
+        z.clipPath = l
+            ? `polygon(0 0, ${a}px 0, ${a}px ${h}, ${EDGE_PX}px ${h}, ${EDGE_PX}px 100%, 0 100%)`
+            : `polygon(${EDGE_PX - a}px 0, ${EDGE_PX}px 0, ${EDGE_PX}px 100%, 0 100%, 0 ${h}, ${EDGE_PX - a}px ${h})`;
+    }
+    return z;
+}

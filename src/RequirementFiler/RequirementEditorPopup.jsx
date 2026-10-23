@@ -78,8 +78,8 @@ import {
 } from './debugBundle';
 import { BUG_COLOR } from './RequirementFiler';
 import {
-    buildPostBody, buildPutBody, draftDirty, draftProblem, machineOptions, savedValues, specCode, staleCategory,
-    staleMachine,
+    buildPostBody, buildPutBody, defaultProjectId, draftDirty, draftProblem, machineOptions, savedValues, specCode,
+    staleCategory, staleMachine,
 } from './requirementFilerModel';
 
 /** Its id in the panel rack. */
@@ -89,8 +89,12 @@ const MIN_H = 64;
 const LIMITS = { minW: MIN_W, minH: MIN_H, autoMaxW: 640, headPx: ACTION_POPUP_HEAD_PX };
 /** Floating home: top-left, beside the Requirement Filer's home. */
 export const EDITOR_HOME = Object.freeze({ h: 'l', x: SIDEBAR_WIDTH + 16, v: 't', y: 92, w: null, ht: null });
-/** The form's width while the panel is content-sized. */
-const FORM_EM = 44;
+/** The form's width while the panel is content-sized — 44em of fields inside
+ *  FORM_PAD_EM a side. */
+const FORM_PAD_EM = 1.1;
+const FORM_EM = 44 + 2 * (FORM_PAD_EM - 0.6);
+/** The space between the settings' rows, em — the AI Settings box's two as well. */
+const SETTINGS_GAP_EM = 0.9;
 /** A filed requirement's edits save this long after the last one. */
 export const LIVE_SAVE_MS = 600;
 /** The row labels' column, so every row's first chip starts at the same x. */
@@ -196,9 +200,9 @@ function ChipRow({ label, testid, value, options, onChange, invalid, labelEm = R
 function Fieldset({ legend, testid, children }) {
     return (
         <Box component="fieldset" data-testid={testid}
-             sx={{ m: 0, minWidth: 0, alignSelf: 'flex-start', px: '0.8em', pt: '0.1em', pb: '0.5em',
+             sx={{ m: 0, minWidth: 0, alignSelf: 'flex-start', px: '0.8em', pt: '0.1em', pb: '0.8em',
                     border: `1px solid ${P.text}`, borderRadius: '0.6em',
-                    display: 'flex', flexDirection: 'column', gap: '0.45em' }}>
+                    display: 'flex', flexDirection: 'column', gap: `${SETTINGS_GAP_EM}em` }}>
             <Box component="legend" sx={{ px: '0.35em', ml: '0.3em', color: P.dim }}>{legend}</Box>
             {children}
         </Box>
@@ -246,7 +250,6 @@ export function captureSettled(key, timeoutMs = 3000) {
 function captureStatus({ stage, savedId, orphaned, total }) {
     return stage === 'capturing' ? 'capturing…'
         : orphaned && stage === 'ready' ? 'not saved — the requirement\'s id could not be read back'
-        : stage === 'lost' ? 'lost — the page reloaded before it was filed; this files without one'
         : stage === 'done' ? 'saved'
         : stage === 'none' ? 'every category dropped — filed without one'
         : stage === 'failed' ? 'could not be captured — this files without one'
@@ -415,6 +418,15 @@ export default function RequirementEditorPopup() {
         setFields(patch);
     });
 
+    // A draft with no place starts in Darwin (req #3830) — never over a carried
+    // place still being checked, nor over a project the reader chose.
+    const fallbackProject = defaultProjectId(projects);
+    useEffect(() => {
+        if (!visible || projectId != null || draft.category_fk != null
+            || unchecked.includes('category') || fallbackProject == null) return;
+        setFields({ projectId: fallbackProject });
+    }, [visible, projectId, draft?.category_fk, unchecked.length, fallbackProject]);
+
     // The title takes focus once, for a requirement just started — never on a
     // reload or a rack/unrack remount, which would pull focus off the page.
     useEffect(() => {
@@ -455,7 +467,9 @@ export default function RequirementEditorPopup() {
         : (machineOpts.find(o => o.value === draft.machine_fk)?.label ?? `Machine ${draft.machine_fk}`);
     const categoryColor = (Array.isArray(categories) ? categories : []).find(c => c.id === draft.category_fk)?.color || null;
 
-    const hasCapture = captureStage != null;
+    // A capture a reload lost is not shown at all (user ruling 2026-10-23,
+    // req #3830): the requirement simply files without one.
+    const hasCapture = captureStage != null && captureStage !== 'lost';
     // File never waits on the capture: the capture save, after the requirement
     // is filed, waits for it instead (captureSettled).
     const problem = draftProblem(draft);
@@ -630,8 +644,9 @@ export default function RequirementEditorPopup() {
                 <Box component="form" data-testid="requirement-editor-form"
                      onSubmit={(e) => { e.preventDefault(); save(); }} onKeyDown={onKeyDown}
                      sx={{ width: shapedWidth == null ? `${FORM_EM}em` : '100%', maxWidth: '100%',
-                            boxSizing: 'border-box', px: '0.6em', py: '0.35em',
-                            display: 'flex', flexDirection: 'column', gap: '0.3em' }}>
+                            // Room around the fields (req #3830: "it looks cramped").
+                            boxSizing: 'border-box', px: `${FORM_PAD_EM}em`, py: '0.9em',
+                            display: 'flex', flexDirection: 'column', gap: '0.55em' }}>
                     {/* `<id> - <title>`, the whole width. */}
                     <Box sx={{ display: 'flex', alignItems: 'baseline', gap: '0.45em', minWidth: 0 }}>
                         <Box data-testid="requirement-editor-identity"
@@ -697,7 +712,10 @@ export default function RequirementEditorPopup() {
                          data-open={settingsOpen ? '1' : '0'} aria-hidden={settingsOpen ? undefined : 'true'}
                          inert={settingsOpen ? undefined : ''} sx={slideSx(settingsOpen)}>
                         <Box sx={{ overflow: 'hidden', minHeight: 0 }}>
-                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: '0.4em', pt: '0.1em', pb: '0.2em' }}>
+                            {/* Six rows — Status, Autonomy, Model, Effort, Machine, Tracking —
+                                spread out (req #3830: "more white space"). */}
+                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: `${SETTINGS_GAP_EM}em`,
+                                       pt: '0.4em', pb: '0.5em' }}>
                                 <ChipRow label="Status" testid="status" value={draft.requirement_status}
                                          options={STATUS_CHIPS} onChange={(v) => setFields({ requirement_status: v })} />
                                 <ChipRow label="Autonomy" testid="autonomy" value={draft.coordination_type}

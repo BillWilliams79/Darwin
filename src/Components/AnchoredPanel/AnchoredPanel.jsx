@@ -7,7 +7,8 @@
 // The head row is always the panel's top row — ActionPopupHead, the one every
 // Action Popup draws (req #3821): the CollapseHead (▾) at the upper left —
 // one control (req #3741) — then the badge slot holding the host's `extras`
-// (a count badge; blank, it still holds its place, so titles line up), then
+// (a count badge; blank, it still holds its place, so titles line up — unless
+// the host says `badgeSlot={false}`, the Requirement Filer, req #3830), then
 // the title — left-aligned — and the
 // host's `actions`: at the far right while open; folded, right after the
 // title, with the panel's right edge pulled in so the whole package is tight
@@ -56,6 +57,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import Box from '@mui/material/Box';
 
 import ActionPopupHead from './ActionPopupHead';
+import { ACTION_POPUP_EDGE_PX, actionPopupReshapeZone } from './actionPopupChrome';
 import {
     RESIZE_EDGES, dockAfterToggle, dockForToggle, dockFromMove, dockFromResize, dockedStyle, freeCorner,
     moveRect, resizeRect,
@@ -67,14 +69,8 @@ import { rackPortal, slotOffset, usePanelRack } from './usePanelRack';
 const MOVE_SLOP = 4;
 /** A double-click this soon after a move ended is the move's own release. */
 const DBLCLICK_AFTER_MOVE_MS = 500;
-/** Reshape hit zones, px (req #3743: "the activation area is tiny" — they were
- *  5 px / 8 px). Below the head row the sides and bottom are wide and the
- *  bottom corners generous; the head row's own sides, top edge and top corners
- *  stay slim so they keep clear of the ▾ and ×, which sit 0.7em in. */
-const EDGE_PX = 10;
-const CORNER_PX = 18;
-const HEAD_EDGE_PX = 5;
-const HEAD_CORNER_PX = 8;
+/** The body's right margin: its scrollbar sits inside the right reshape zone. */
+const EDGE_PX = ACTION_POPUP_EDGE_PX;
 
 const NO_OFFSET = { left: 0, top: 0 };
 const POINTER_EVENTS = ['pointermove', 'pointerup', 'pointercancel'];
@@ -83,34 +79,6 @@ const viewport = () => ({
     vw: document.documentElement.clientWidth || window.innerWidth,
     vh: document.documentElement.clientHeight || window.innerHeight,
 });
-
-const CURSOR = { n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize',
-    nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize' };
-
-function edgeZone(e, headPx, frame) {
-    const z = { position: 'absolute', zIndex: 3, touchAction: 'none', cursor: CURSOR[e.id],
-        // The zone shows itself under the pointer, so the reader sees what to grab.
-        '&:hover': { background: `color-mix(in srgb, ${frame} 40%, transparent)` } };
-    const corner = e.h && e.v;
-    const top = e.v === 't';
-    if (e.v) Object.assign(z, { [top ? 'top' : 'bottom']: 0,
-        height: corner ? (top ? HEAD_CORNER_PX : CORNER_PX) : (top ? HEAD_EDGE_PX : EDGE_PX) });
-    else Object.assign(z, { top: HEAD_CORNER_PX, bottom: CORNER_PX });
-    if (e.h) Object.assign(z, { [e.h === 'l' ? 'left' : 'right']: 0,
-        width: corner ? (top ? HEAD_CORNER_PX : CORNER_PX) : EDGE_PX });
-    else Object.assign(z, { left: top ? HEAD_CORNER_PX : CORNER_PX, right: top ? HEAD_CORNER_PX : CORNER_PX });
-    // A side edge is wide below the head row and slim beside it (clip-path
-    // clips hit-testing too).
-    if (e.h && !e.v) {
-        const l = e.h === 'l';
-        const a = HEAD_EDGE_PX;
-        const h = Math.max(headPx - HEAD_CORNER_PX, 0);
-        z.clipPath = l
-            ? `polygon(0 0, ${a}px 0, ${a}px ${h}px, ${EDGE_PX}px ${h}px, ${EDGE_PX}px 100%, 0 100%)`
-            : `polygon(${EDGE_PX - a}px 0, ${EDGE_PX}px 0, ${EDGE_PX}px 100%, 0 100%, 0 ${h}px, ${EDGE_PX - a}px ${h}px)`;
-    }
-    return z;
-}
 
 /**
  * @param {Object} props
@@ -121,6 +89,8 @@ function edgeZone(e, headPx, frame) {
  * @param {string} props.name            the CollapseHead's name
  * @param {string} props.testid          root testid; parts are suffixed
  * @param {React.ReactNode} [props.extras]   the badge slot, after the ▾
+ * @param {boolean} [props.badgeSlot]  false = no badge slot: the title sits
+ *   against the ▾ (the Requirement Filer, req #3830)
  * @param {React.ReactNode} [props.actions]  right-aligned: blank, or × where
  *   the host supports closing (req #3741)
  * @param {function} props.children      ({ shapedWidth }) → body; shapedWidth
@@ -136,7 +106,7 @@ function edgeZone(e, headPx, frame) {
  *   absent = it never racks (req #3720)
  */
 export default function AnchoredPanel({
-    dock, onDockChange, open, onToggle, name, testid, extras, actions, children,
+    dock, onDockChange, open, onToggle, name, testid, extras, badgeSlot = true, actions, children,
     limits, fontPx = 12, border = 2, colors, sx, zIndex = 1250, rackId,
 }) {
     const boxRef = useRef(null);
@@ -360,7 +330,7 @@ export default function AnchoredPanel({
                     ...(racking && { order: rackOrder(rackPos),
                         borderRadius: 0, boxShadow: 'none' }) }}>
             <ActionPopupHead open={open} onToggle={toggle} name={name} testid={testid}
-                             badge={extras} actions={actions} narrow={narrow} colors={colors}
+                             badge={extras} badgeSlot={badgeSlot} actions={actions} narrow={narrow} colors={colors}
                              title={inRack ? `Drag to reorder · drag off the ${rackName} to float it`
                                  : `Drag to move · double-click to put back${rackId ? ` · drop on the ${rackName} to rack it` : ''}`}
                              {...gesture('move')}
@@ -404,7 +374,7 @@ export default function AnchoredPanel({
                 <Box key={e.id} data-testid={`${testid}-edge-${e.id}`}
                      title="Drag to reshape"
                      {...gesture('resize', { h: e.h, v: e.v })}
-                     sx={edgeZone(e, limits.headPx, colors.frame)} />
+                     sx={actionPopupReshapeZone(e, limits.headPx, colors.frame)} />
             ))}
         </Box>
     );
