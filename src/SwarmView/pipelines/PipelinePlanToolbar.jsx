@@ -37,7 +37,8 @@ import SemanticLevelControl from '../../Components/SemanticLevelControl';
 import { PLAN_LEVEL_NUMBER, REQ_COLOR_SCALES,
     STEPS_ACROSS_OPTIONS, STEP_WIDTH_RUNGS } from './pipelinePlanLayout';
 import { toolbarChipProps } from './pipelineChipStyles';
-import { ANY_MACHINE } from './planMachineFilter';
+import { ANY_MACHINE, machineChipLabel, orderMachineChips } from './planMachineFilter';
+import { resolveThisMachineId } from '../terminalFocus';
 import { LONG_PRESS_MS, PRESS_SLOP_PX } from '../../dnd/pressTimeline';
 
 // Reset's wording, in ONE place: it is both the tooltip and the accessible name
@@ -185,7 +186,7 @@ const NO_HIDDEN = new Set();
  * @param {string} props.colorKey               a REQ_COLOR_KEYS value
  * @param {function} props.onChangeColorKey     receives a REQ_COLOR_KEYS value
  * @param {function} [props.onKeyHover]         receives `{ key, el }` when the pointer (or focus)
- *                                              rests on the Step chip (`key` 'step') or a colour
+ *                                              rests on a colour
  *                                              chip (`key` its scale), `null` when it leaves; the
  *                                              plan visualizer draws the colour-help popup
  *                                              (req #3722); a long press reports it with
@@ -221,6 +222,8 @@ export default function PipelinePlanToolbar({
     // Hover (and keyboard focus) on a chip reports it so the visualizer can draw
     // that chip's colour help (req #3722); a long press pins it (req #3766).
     const hoverKeyProps = useKeyHelp(onKeyHover);
+    // req #3806 — the machine this browser is on leads the machine chips.
+    const thisMachineId = resolveThisMachineId(machines);
     return (
         <>
             {/* The colour key for the REQUIREMENT MARKS, never the beads — the
@@ -253,26 +256,6 @@ export default function PipelinePlanToolbar({
             <Stack direction="row" spacing={0.5} useFlexGap alignItems="center"
                    sx={{ flexShrink: 0 }}
                    data-testid="pipeline-viz-colorkey-toggle">
-                {/* ── STEP (req #3722) ────────────────────────────────────────
-                    HOVER HELP ONLY: resting the pointer on it shows what the
-                    step marks mean, the way a colour chip shows its scale. It is
-                    not a toggle and it changes nothing on the canvas (a version
-                    that took the step colours off the display was tried and
-                    removed on the user's say-so). Outlined, never pressed, and
-                    no `onClick`, so it reads as a label, not a switch. */}
-                <Chip
-                    label="Step"
-                    aria-label="Step marks — hover for their key, long press to keep it open"
-                    {...hoverKeyProps('step')}
-                    {...toolbarChipProps(false, {
-                        pressed: false,
-                        // Not clickable, so MUI leaves its text selectable — and an
-                        // iOS long press would select "Step" instead of pinning.
-                        sx: { cursor: 'help', userSelect: 'none',
-                              WebkitUserSelect: 'none', WebkitTouchCallout: 'none' },
-                    })}
-                    data-testid="pipeline-viz-steps-toggle"
-                />
                 {/* The colour chips explain THEMSELVES on hover — active or not —
                     so the old Tooltip is gone: two overlays on one chip would
                     fight. `chipTip` stays the registry's description (the
@@ -306,10 +289,13 @@ export default function PipelinePlanToolbar({
                 ? 'Show the closed (met, deferred, wontfix) requirements again'
                 : 'Hide the closed (met, deferred, wontfix) requirements and their dashed line'}>
                 <Chip
-                    label="Hide closed"
+                    label="Closed"
                     aria-label="Hide closed requirements"
                     onClick={() => onChangeHideClosed?.(!hideClosed)}
-                    {...toolbarChipProps(!!hideClosed, { sx: { flexShrink: 0 } })}
+                    {...toolbarChipProps(!!hideClosed, { sx: {
+                        flexShrink: 0, height: 22,
+                        '& .MuiChip-label': { px: 0.75, fontSize: '0.7rem' },
+                    } })}
                     data-testid="pipeline-viz-hide-closed"
                 />
             </Tooltip>
@@ -331,9 +317,9 @@ export default function PipelinePlanToolbar({
             <Stack direction="row" spacing={0.5} useFlexGap alignItems="center"
                    sx={{ flexShrink: 0 }}
                    data-testid="pipeline-viz-machine-filter">
-                {[...machines, { id: ANY_MACHINE, title: 'Any' }].map((m) => {
+                {orderMachineChips(machines, thisMachineId).map((m) => {
                     const on = !hiddenMachines.has(m.id);
-                    const name = m.title || `Machine ${m.id}`;
+                    const name = m.id === ANY_MACHINE ? 'Any' : machineChipLabel(m);
                     const what = m.id === ANY_MACHINE
                         ? 'requirements pinned to Any machine' : `${name} requirements`;
                     return (
@@ -358,7 +344,7 @@ export default function PipelinePlanToolbar({
             {/* ── STEPS ACROSS — the zoom ladder, in the unit a reader thinks
                 in (req #3498, user directive 2026-08-13) ────────────────────
                 BETWEEN the colour chips and the view group since req #3648, as
-                6 5 4 3, centred on the active steps (`stepsAcrossTransform`).
+                6 5 4, centred on the active steps (`stepsAcrossTransform`).
                 Numbers only, all one size — the directive is
                 specific and the reason it works is that the number IS the
                 label: "4" means four steps across, and an explainer beside it
