@@ -224,7 +224,7 @@
  "engine_decision_records": [
   {
    "id": 1001,
-   "record_hash": "sha256:52ab46afc35d36eda3dcb310081a066181cd13b7359b48f96543c4f3054affbc",
+   "record_hash": "sha256:f37817a5809ea4d20743ca253f348bd457e1f90fe91323005427bdd0f0e5ea6a",
    "prior_hash": null,
    "pipeline_fk": 900,
    "initiative_fk": null,
@@ -275,6 +275,18 @@
      }
     ],
     "cut": 1,
+    "launch": {
+     "requirement_ids": [
+      3001
+     ],
+     "items": [
+      {
+       "requirement_id": 3001,
+       "epic_id": 101,
+       "attempt": 1
+      }
+     ]
+    },
     "epics": [
      {
       "epic_id": 101,
@@ -325,13 +337,13 @@
      "clock": "sha256:f95d2ef5020a865d486b1b759774ae25bbef87efa86aa7bd8b163f76bf0d4d7b",
      "prior_record": null
     },
-    "id": "sha256:52ab46afc35d36eda3dcb310081a066181cd13b7359b48f96543c4f3054affbc"
+    "id": "sha256:f37817a5809ea4d20743ca253f348bd457e1f90fe91323005427bdd0f0e5ea6a"
    }
   },
   {
    "id": 1002,
-   "record_hash": "sha256:e11480e35d28213fae8baa1fdd2b3576c99812d23c214f5a1487472230f5ae37",
-   "prior_hash": "sha256:52ab46afc35d36eda3dcb310081a066181cd13b7359b48f96543c4f3054affbc",
+   "record_hash": "sha256:45fd24814fa833f76cb915917144c8feb658b19dede71b5ccb7af2cd0b764b4a",
+   "prior_hash": "sha256:f37817a5809ea4d20743ca253f348bd457e1f90fe91323005427bdd0f0e5ea6a",
    "pipeline_fk": 900,
    "initiative_fk": null,
    "machine_fk": 1,
@@ -345,7 +357,7 @@
    "create_ts": "2026-10-22 08:01:00",
    "record": {
     "schema": "engine2.decision_record/1",
-    "prior_id": "sha256:52ab46afc35d36eda3dcb310081a066181cd13b7359b48f96543c4f3054affbc",
+    "prior_id": "sha256:f37817a5809ea4d20743ca253f348bd457e1f90fe91323005427bdd0f0e5ea6a",
     "location": {
      "machine_fk": 1,
      "terminal_pid": 4101,
@@ -385,6 +397,7 @@
      }
     ],
     "cut": 1,
+    "launch": null,
     "epics": [
      {
       "epic_id": 101,
@@ -437,15 +450,15 @@
      "capacity": "sha256:ee62922965deb680c19f002990f5121fa41247375dee9439b46c8237d0a818b2",
      "claims": "sha256:f44bc3d6d7108cb063c52414b615f1b6de7313f6f31bce8f9b4256bd0a7ffa77",
      "clock": "sha256:b7bb84a85c9c9e8ff4e760aff1bf55164b8d0032248cdd8e154c7f0eede0701b",
-     "prior_record": "sha256:52ab46afc35d36eda3dcb310081a066181cd13b7359b48f96543c4f3054affbc"
+     "prior_record": "sha256:f37817a5809ea4d20743ca253f348bd457e1f90fe91323005427bdd0f0e5ea6a"
     },
-    "id": "sha256:e11480e35d28213fae8baa1fdd2b3576c99812d23c214f5a1487472230f5ae37"
+    "id": "sha256:45fd24814fa833f76cb915917144c8feb658b19dede71b5ccb7af2cd0b764b4a"
    }
   },
   {
    "id": 1003,
-   "record_hash": "sha256:fed69e9b4b2cc9deaddc2b4965b9dc737d0cd43faf16e282588fc788a9cb760e",
-   "prior_hash": "sha256:e11480e35d28213fae8baa1fdd2b3576c99812d23c214f5a1487472230f5ae37",
+   "record_hash": "sha256:7a1656f6ac3cc6eba9afbf6e15a9a0e3176b2cc47b503ff298471a5240d0dd43",
+   "prior_hash": "sha256:45fd24814fa833f76cb915917144c8feb658b19dede71b5ccb7af2cd0b764b4a",
    "pipeline_fk": 900,
    "initiative_fk": null,
    "machine_fk": 1,
@@ -459,7 +472,7 @@
    "create_ts": "2026-10-22 08:02:00",
    "record": {
     "schema": "engine2.decision_record/1",
-    "prior_id": "sha256:e11480e35d28213fae8baa1fdd2b3576c99812d23c214f5a1487472230f5ae37",
+    "prior_id": "sha256:45fd24814fa833f76cb915917144c8feb658b19dede71b5ccb7af2cd0b764b4a",
     "location": {
      "machine_fk": 1,
      "terminal_pid": 4101,
@@ -497,6 +510,18 @@
      }
     ],
     "cut": 1,
+    "launch": {
+     "requirement_ids": [
+      3001
+     ],
+     "items": [
+      {
+       "requirement_id": 3001,
+       "epic_id": 101,
+       "attempt": 2
+      }
+     ]
+    },
     "epics": [
      {
       "epic_id": 101,
@@ -545,15 +570,15 @@
      "capacity": "sha256:ee62922965deb680c19f002990f5121fa41247375dee9439b46c8237d0a818b2",
      "claims": "sha256:f44bc3d6d7108cb063c52414b615f1b6de7313f6f31bce8f9b4256bd0a7ffa77",
      "clock": "sha256:d1c2db90f24d1ebdb448a63d4336970064abe52b739a1fb44cbe8c635cfb1601",
-     "prior_record": "sha256:740da940d19252357999260eef0c4df51f0f9984087dbfc55f4c470a92604300"
+     "prior_record": "sha256:d145a6d3727903427c3be64e0d0de50752102bf5aa88020d6983db077e64b993"
     },
-    "id": "sha256:fed69e9b4b2cc9deaddc2b4965b9dc737d0cd43faf16e282588fc788a9cb760e"
+    "id": "sha256:7a1656f6ac3cc6eba9afbf6e15a9a0e3176b2cc47b503ff298471a5240d0dd43"
    }
   },
   {
    "id": 1004,
-   "record_hash": "sha256:f1de6b76aaa9b27e75d218c3d78c3251024a384eb24e699260ed56b55ea7fff1",
-   "prior_hash": "sha256:fed69e9b4b2cc9deaddc2b4965b9dc737d0cd43faf16e282588fc788a9cb760e",
+   "record_hash": "sha256:7678f6ce2aee1ee1505de44aa504bb43e0270059e55ac4e8a54a1845d784af94",
+   "prior_hash": "sha256:7a1656f6ac3cc6eba9afbf6e15a9a0e3176b2cc47b503ff298471a5240d0dd43",
    "pipeline_fk": 900,
    "initiative_fk": null,
    "machine_fk": 1,
@@ -567,7 +592,7 @@
    "create_ts": "2026-10-22 08:03:00",
    "record": {
     "schema": "engine2.decision_record/1",
-    "prior_id": "sha256:fed69e9b4b2cc9deaddc2b4965b9dc737d0cd43faf16e282588fc788a9cb760e",
+    "prior_id": "sha256:7a1656f6ac3cc6eba9afbf6e15a9a0e3176b2cc47b503ff298471a5240d0dd43",
     "location": {
      "machine_fk": 1,
      "terminal_pid": 4101,
@@ -607,6 +632,7 @@
      }
     ],
     "cut": 1,
+    "launch": null,
     "epics": [
      {
       "epic_id": 101,
@@ -659,15 +685,15 @@
      "capacity": "sha256:ee62922965deb680c19f002990f5121fa41247375dee9439b46c8237d0a818b2",
      "claims": "sha256:f44bc3d6d7108cb063c52414b615f1b6de7313f6f31bce8f9b4256bd0a7ffa77",
      "clock": "sha256:252ceac67a0311c9207041225d46728a3328d304e3c18db726d41c05d92ee20b",
-     "prior_record": "sha256:fed69e9b4b2cc9deaddc2b4965b9dc737d0cd43faf16e282588fc788a9cb760e"
+     "prior_record": "sha256:7a1656f6ac3cc6eba9afbf6e15a9a0e3176b2cc47b503ff298471a5240d0dd43"
     },
-    "id": "sha256:f1de6b76aaa9b27e75d218c3d78c3251024a384eb24e699260ed56b55ea7fff1"
+    "id": "sha256:7678f6ce2aee1ee1505de44aa504bb43e0270059e55ac4e8a54a1845d784af94"
    }
   },
   {
    "id": 1005,
-   "record_hash": "sha256:8cf6607385662f3d4dda994ece20434c453e1135a0435ef1dfafdafe893bf28d",
-   "prior_hash": "sha256:f1de6b76aaa9b27e75d218c3d78c3251024a384eb24e699260ed56b55ea7fff1",
+   "record_hash": "sha256:fac1dd9aba2b56d923c59dae4bf0f948115654acc549335d19d82bedb4805955",
+   "prior_hash": "sha256:7678f6ce2aee1ee1505de44aa504bb43e0270059e55ac4e8a54a1845d784af94",
    "pipeline_fk": 900,
    "initiative_fk": null,
    "machine_fk": 1,
@@ -681,7 +707,7 @@
    "create_ts": "2026-10-22 08:08:30",
    "record": {
     "schema": "engine2.decision_record/1",
-    "prior_id": "sha256:f1de6b76aaa9b27e75d218c3d78c3251024a384eb24e699260ed56b55ea7fff1",
+    "prior_id": "sha256:7678f6ce2aee1ee1505de44aa504bb43e0270059e55ac4e8a54a1845d784af94",
     "location": {
      "machine_fk": 1,
      "terminal_pid": 4101,
@@ -719,6 +745,18 @@
      }
     ],
     "cut": 1,
+    "launch": {
+     "requirement_ids": [
+      3001
+     ],
+     "items": [
+      {
+       "requirement_id": 3001,
+       "epic_id": 101,
+       "attempt": 3
+      }
+     ]
+    },
     "epics": [
      {
       "epic_id": 101,
@@ -767,15 +805,15 @@
      "capacity": "sha256:ee62922965deb680c19f002990f5121fa41247375dee9439b46c8237d0a818b2",
      "claims": "sha256:f44bc3d6d7108cb063c52414b615f1b6de7313f6f31bce8f9b4256bd0a7ffa77",
      "clock": "sha256:6bb7a0f82757a11c3843df43a6061d209f3d45c099263d35493263aeca859376",
-     "prior_record": "sha256:f1de6b76aaa9b27e75d218c3d78c3251024a384eb24e699260ed56b55ea7fff1"
+     "prior_record": "sha256:7678f6ce2aee1ee1505de44aa504bb43e0270059e55ac4e8a54a1845d784af94"
     },
-    "id": "sha256:8cf6607385662f3d4dda994ece20434c453e1135a0435ef1dfafdafe893bf28d"
+    "id": "sha256:fac1dd9aba2b56d923c59dae4bf0f948115654acc549335d19d82bedb4805955"
    }
   },
   {
    "id": 1006,
-   "record_hash": "sha256:c908ed9d5a08a2246a060023c8f4a7b41bd3a3a6f3068a8bbffe27d7304d7405",
-   "prior_hash": "sha256:8cf6607385662f3d4dda994ece20434c453e1135a0435ef1dfafdafe893bf28d",
+   "record_hash": "sha256:bd1762de11b06c801a414df67cf6e020a1179ef8aa74c75e68cab22322211b0f",
+   "prior_hash": "sha256:fac1dd9aba2b56d923c59dae4bf0f948115654acc549335d19d82bedb4805955",
    "pipeline_fk": 900,
    "initiative_fk": null,
    "machine_fk": 1,
@@ -789,7 +827,7 @@
    "create_ts": "2026-10-22 08:09:00",
    "record": {
     "schema": "engine2.decision_record/1",
-    "prior_id": "sha256:8cf6607385662f3d4dda994ece20434c453e1135a0435ef1dfafdafe893bf28d",
+    "prior_id": "sha256:fac1dd9aba2b56d923c59dae4bf0f948115654acc549335d19d82bedb4805955",
     "location": {
      "machine_fk": 1,
      "terminal_pid": 4101,
@@ -827,6 +865,7 @@
      }
     ],
     "cut": 1,
+    "launch": null,
     "epics": [
      {
       "epic_id": 101,
@@ -881,15 +920,15 @@
      "capacity": "sha256:ee62922965deb680c19f002990f5121fa41247375dee9439b46c8237d0a818b2",
      "claims": "sha256:f44bc3d6d7108cb063c52414b615f1b6de7313f6f31bce8f9b4256bd0a7ffa77",
      "clock": "sha256:1c1aadaf912b9179acfd452980d86f6e19b5204a2a1bb61e820773f978abcf24",
-     "prior_record": "sha256:95f3a50ee0d6b7944472a274eb4b7b93c4ac14fbb577a468b4c93c7d908fc350"
+     "prior_record": "sha256:05e66f92d83652a8ad9fd9454fc9ebfafc23a10f421dcc948e727266aa7b8e68"
     },
-    "id": "sha256:c908ed9d5a08a2246a060023c8f4a7b41bd3a3a6f3068a8bbffe27d7304d7405"
+    "id": "sha256:bd1762de11b06c801a414df67cf6e020a1179ef8aa74c75e68cab22322211b0f"
    }
   },
   {
    "id": 1007,
-   "record_hash": "sha256:7014bce04d35e450a622554e50fce4eeac63682ce897d73a4a4538ed8f1b7e7f",
-   "prior_hash": "sha256:c908ed9d5a08a2246a060023c8f4a7b41bd3a3a6f3068a8bbffe27d7304d7405",
+   "record_hash": "sha256:e42c3b327d581482c46d366d650cec76e5a022b2f77e830e2b73b01c73558c78",
+   "prior_hash": "sha256:bd1762de11b06c801a414df67cf6e020a1179ef8aa74c75e68cab22322211b0f",
    "pipeline_fk": 900,
    "initiative_fk": null,
    "machine_fk": 1,
@@ -903,7 +942,7 @@
    "create_ts": "2026-10-22 09:10:00",
    "record": {
     "schema": "engine2.decision_record/1",
-    "prior_id": "sha256:c908ed9d5a08a2246a060023c8f4a7b41bd3a3a6f3068a8bbffe27d7304d7405",
+    "prior_id": "sha256:bd1762de11b06c801a414df67cf6e020a1179ef8aa74c75e68cab22322211b0f",
     "location": {
      "machine_fk": 1,
      "terminal_pid": 4101,
@@ -941,6 +980,7 @@
      }
     ],
     "cut": 1,
+    "launch": null,
     "epics": [
      {
       "epic_id": 101,
@@ -995,14 +1035,14 @@
      "capacity": "sha256:ee62922965deb680c19f002990f5121fa41247375dee9439b46c8237d0a818b2",
      "claims": "sha256:f44bc3d6d7108cb063c52414b615f1b6de7313f6f31bce8f9b4256bd0a7ffa77",
      "clock": "sha256:0230f06e6c489ab00c1aaaad5757380a8d6fdaa190f2388d59d0a420defa992c",
-     "prior_record": "sha256:c908ed9d5a08a2246a060023c8f4a7b41bd3a3a6f3068a8bbffe27d7304d7405"
+     "prior_record": "sha256:bd1762de11b06c801a414df67cf6e020a1179ef8aa74c75e68cab22322211b0f"
     },
-    "id": "sha256:7014bce04d35e450a622554e50fce4eeac63682ce897d73a4a4538ed8f1b7e7f"
+    "id": "sha256:e42c3b327d581482c46d366d650cec76e5a022b2f77e830e2b73b01c73558c78"
    }
   },
   {
    "id": 1008,
-   "record_hash": "sha256:de12aa7c37584c00cf3bf8e25656e52eeb51f1820c5a97c48b5f61ea05985e9c",
+   "record_hash": "sha256:0e8ea23c6fe54e1f2d4fbbe778d053d06591c989e9e6260d92efde040eb1d382",
    "prior_hash": null,
    "pipeline_fk": 900,
    "initiative_fk": null,
@@ -1071,6 +1111,18 @@
      }
     ],
     "cut": 3,
+    "launch": {
+     "requirement_ids": [
+      3002
+     ],
+     "items": [
+      {
+       "requirement_id": 3002,
+       "epic_id": 101,
+       "attempt": 1
+      }
+     ]
+    },
     "epics": [
      {
       "epic_id": 101,
@@ -1133,12 +1185,12 @@
      "clock": "sha256:f95d2ef5020a865d486b1b759774ae25bbef87efa86aa7bd8b163f76bf0d4d7b",
      "prior_record": null
     },
-    "id": "sha256:de12aa7c37584c00cf3bf8e25656e52eeb51f1820c5a97c48b5f61ea05985e9c"
+    "id": "sha256:0e8ea23c6fe54e1f2d4fbbe778d053d06591c989e9e6260d92efde040eb1d382"
    }
   },
   {
    "id": 1009,
-   "record_hash": "sha256:29809593cb1b0bb191a45fa4f2e2cd909f5ce0727c02125e813d5695021abe26",
+   "record_hash": "sha256:0f126ba84aeae53f8d5cbc43b6536f7494f38c511074972ad406e0a4f0e2a630",
    "prior_hash": null,
    "pipeline_fk": 900,
    "initiative_fk": null,
@@ -1189,6 +1241,7 @@
      }
     ],
     "cut": 1,
+    "launch": null,
     "epics": [
      {
       "epic_id": 101,
@@ -1222,13 +1275,13 @@
      "clock": "sha256:f95d2ef5020a865d486b1b759774ae25bbef87efa86aa7bd8b163f76bf0d4d7b",
      "prior_record": null
     },
-    "id": "sha256:29809593cb1b0bb191a45fa4f2e2cd909f5ce0727c02125e813d5695021abe26"
+    "id": "sha256:0f126ba84aeae53f8d5cbc43b6536f7494f38c511074972ad406e0a4f0e2a630"
    }
   },
   {
    "id": 1010,
-   "record_hash": "sha256:f898313f85bb9ffdb8847299ae51afa5a56c6576c3f48c7aa5e6544bae364f1b",
-   "prior_hash": "sha256:29809593cb1b0bb191a45fa4f2e2cd909f5ce0727c02125e813d5695021abe26",
+   "record_hash": "sha256:13766e882521d56ec0282f974f388eebae826695076a1608a4116c9c26d3e2f1",
+   "prior_hash": "sha256:0f126ba84aeae53f8d5cbc43b6536f7494f38c511074972ad406e0a4f0e2a630",
    "pipeline_fk": 900,
    "initiative_fk": null,
    "machine_fk": 3,
@@ -1242,7 +1295,7 @@
    "create_ts": "2026-10-22 08:01:00",
    "record": {
     "schema": "engine2.decision_record/1",
-    "prior_id": "sha256:29809593cb1b0bb191a45fa4f2e2cd909f5ce0727c02125e813d5695021abe26",
+    "prior_id": "sha256:0f126ba84aeae53f8d5cbc43b6536f7494f38c511074972ad406e0a4f0e2a630",
     "location": {
      "machine_fk": 3,
      "terminal_pid": 4101,
@@ -1269,6 +1322,7 @@
     },
     "queue": [],
     "cut": 0,
+    "launch": null,
     "epics": [],
     "events": [],
     "outcomes": {},
@@ -1285,15 +1339,15 @@
      "capacity": "sha256:ee62922965deb680c19f002990f5121fa41247375dee9439b46c8237d0a818b2",
      "claims": "sha256:4192531e7d54f6d7cd0ed7b2e8e68274a94beac05135228262f0f9a84f052ba7",
      "clock": "sha256:b7bb84a85c9c9e8ff4e760aff1bf55164b8d0032248cdd8e154c7f0eede0701b",
-     "prior_record": "sha256:29809593cb1b0bb191a45fa4f2e2cd909f5ce0727c02125e813d5695021abe26"
+     "prior_record": "sha256:0f126ba84aeae53f8d5cbc43b6536f7494f38c511074972ad406e0a4f0e2a630"
     },
-    "id": "sha256:f898313f85bb9ffdb8847299ae51afa5a56c6576c3f48c7aa5e6544bae364f1b"
+    "id": "sha256:13766e882521d56ec0282f974f388eebae826695076a1608a4116c9c26d3e2f1"
    }
   },
   {
    "id": 1011,
-   "record_hash": "sha256:4bf7e408ae5ae07bf9bf310bea37f486a6adf6aa36b79c75ba5ed6b4fd6a0cd7",
-   "prior_hash": "sha256:f898313f85bb9ffdb8847299ae51afa5a56c6576c3f48c7aa5e6544bae364f1b",
+   "record_hash": "sha256:cfc4776557e379686d17cb675f268f80c33117984a969d349bf24b7c8d0a0f60",
+   "prior_hash": "sha256:13766e882521d56ec0282f974f388eebae826695076a1608a4116c9c26d3e2f1",
    "pipeline_fk": 900,
    "initiative_fk": null,
    "machine_fk": 3,
@@ -1307,7 +1361,7 @@
    "create_ts": "2026-10-22 08:02:00",
    "record": {
     "schema": "engine2.decision_record/1",
-    "prior_id": "sha256:f898313f85bb9ffdb8847299ae51afa5a56c6576c3f48c7aa5e6544bae364f1b",
+    "prior_id": "sha256:13766e882521d56ec0282f974f388eebae826695076a1608a4116c9c26d3e2f1",
     "location": {
      "machine_fk": 3,
      "terminal_pid": 4101,
@@ -1343,6 +1397,18 @@
      }
     ],
     "cut": 1,
+    "launch": {
+     "requirement_ids": [
+      3001
+     ],
+     "items": [
+      {
+       "requirement_id": 3001,
+       "epic_id": 101,
+       "attempt": 1
+      }
+     ]
+    },
     "epics": [
      {
       "epic_id": 101,
@@ -1391,15 +1457,15 @@
      "capacity": "sha256:ee62922965deb680c19f002990f5121fa41247375dee9439b46c8237d0a818b2",
      "claims": "sha256:4192531e7d54f6d7cd0ed7b2e8e68274a94beac05135228262f0f9a84f052ba7",
      "clock": "sha256:d1c2db90f24d1ebdb448a63d4336970064abe52b739a1fb44cbe8c635cfb1601",
-     "prior_record": "sha256:f898313f85bb9ffdb8847299ae51afa5a56c6576c3f48c7aa5e6544bae364f1b"
+     "prior_record": "sha256:13766e882521d56ec0282f974f388eebae826695076a1608a4116c9c26d3e2f1"
     },
-    "id": "sha256:4bf7e408ae5ae07bf9bf310bea37f486a6adf6aa36b79c75ba5ed6b4fd6a0cd7"
+    "id": "sha256:cfc4776557e379686d17cb675f268f80c33117984a969d349bf24b7c8d0a0f60"
    }
   },
   {
    "id": 1012,
-   "record_hash": "sha256:0080320b52ae8a8af6549bd665b898f606e77670726a8293eef2476104f57984",
-   "prior_hash": "sha256:4bf7e408ae5ae07bf9bf310bea37f486a6adf6aa36b79c75ba5ed6b4fd6a0cd7",
+   "record_hash": "sha256:1459400aaa1dc10353bafba236e71bc2809f350628b2af6f52833e05b7e8f3dc",
+   "prior_hash": "sha256:cfc4776557e379686d17cb675f268f80c33117984a969d349bf24b7c8d0a0f60",
    "pipeline_fk": 900,
    "initiative_fk": null,
    "machine_fk": 3,
@@ -1413,7 +1479,7 @@
    "create_ts": "2026-10-22 08:03:00",
    "record": {
     "schema": "engine2.decision_record/1",
-    "prior_id": "sha256:4bf7e408ae5ae07bf9bf310bea37f486a6adf6aa36b79c75ba5ed6b4fd6a0cd7",
+    "prior_id": "sha256:cfc4776557e379686d17cb675f268f80c33117984a969d349bf24b7c8d0a0f60",
     "location": {
      "machine_fk": 3,
      "terminal_pid": 4101,
@@ -1451,6 +1517,7 @@
      }
     ],
     "cut": 1,
+    "launch": null,
     "epics": [
      {
       "epic_id": 101,
@@ -1501,15 +1568,15 @@
      "capacity": "sha256:f8065f6e73e44d8d02f31a14f2b24239fb7b15f9d277eff31af75763a79d8b82",
      "claims": "sha256:4192531e7d54f6d7cd0ed7b2e8e68274a94beac05135228262f0f9a84f052ba7",
      "clock": "sha256:252ceac67a0311c9207041225d46728a3328d304e3c18db726d41c05d92ee20b",
-     "prior_record": "sha256:4bf7e408ae5ae07bf9bf310bea37f486a6adf6aa36b79c75ba5ed6b4fd6a0cd7"
+     "prior_record": "sha256:cfc4776557e379686d17cb675f268f80c33117984a969d349bf24b7c8d0a0f60"
     },
-    "id": "sha256:0080320b52ae8a8af6549bd665b898f606e77670726a8293eef2476104f57984"
+    "id": "sha256:1459400aaa1dc10353bafba236e71bc2809f350628b2af6f52833e05b7e8f3dc"
    }
   },
   {
    "id": 1013,
-   "record_hash": "sha256:d926efd928ca66b1008cb55c31daf69ee03000d91f1f2f988f582d06daa08472",
-   "prior_hash": "sha256:0080320b52ae8a8af6549bd665b898f606e77670726a8293eef2476104f57984",
+   "record_hash": "sha256:25407147fae5efe3dd1782f62aedef02bb522b23db7263c144bc9e84d3188e32",
+   "prior_hash": "sha256:1459400aaa1dc10353bafba236e71bc2809f350628b2af6f52833e05b7e8f3dc",
    "pipeline_fk": 900,
    "initiative_fk": null,
    "machine_fk": 3,
@@ -1523,7 +1590,7 @@
    "create_ts": "2026-10-22 08:04:00",
    "record": {
     "schema": "engine2.decision_record/1",
-    "prior_id": "sha256:0080320b52ae8a8af6549bd665b898f606e77670726a8293eef2476104f57984",
+    "prior_id": "sha256:1459400aaa1dc10353bafba236e71bc2809f350628b2af6f52833e05b7e8f3dc",
     "location": {
      "machine_fk": 3,
      "terminal_pid": 4101,
@@ -1552,6 +1619,7 @@
     },
     "queue": [],
     "cut": 0,
+    "launch": null,
     "epics": [],
     "events": [],
     "outcomes": {
@@ -1587,15 +1655,15 @@
      "capacity": "sha256:ee62922965deb680c19f002990f5121fa41247375dee9439b46c8237d0a818b2",
      "claims": "sha256:4192531e7d54f6d7cd0ed7b2e8e68274a94beac05135228262f0f9a84f052ba7",
      "clock": "sha256:e5851a7dbe846dafa559e80020bea8d5f94f755a24f7c2dee632c09c09de6f58",
-     "prior_record": "sha256:0080320b52ae8a8af6549bd665b898f606e77670726a8293eef2476104f57984"
+     "prior_record": "sha256:1459400aaa1dc10353bafba236e71bc2809f350628b2af6f52833e05b7e8f3dc"
     },
-    "id": "sha256:d926efd928ca66b1008cb55c31daf69ee03000d91f1f2f988f582d06daa08472"
+    "id": "sha256:25407147fae5efe3dd1782f62aedef02bb522b23db7263c144bc9e84d3188e32"
    }
   },
   {
    "id": 1014,
-   "record_hash": "sha256:56f0d5bc4a745fcc0557493716801e51169a211c15ae224fcaa8fc32376e4bfe",
-   "prior_hash": "sha256:d926efd928ca66b1008cb55c31daf69ee03000d91f1f2f988f582d06daa08472",
+   "record_hash": "sha256:0d46096effc2e185a3c4bd3c96ca27d108f29ebb749722648923b469e1d71dcc",
+   "prior_hash": "sha256:25407147fae5efe3dd1782f62aedef02bb522b23db7263c144bc9e84d3188e32",
    "pipeline_fk": 900,
    "initiative_fk": null,
    "machine_fk": 3,
@@ -1609,7 +1677,7 @@
    "create_ts": "2026-10-22 08:04:30",
    "record": {
     "schema": "engine2.decision_record/1",
-    "prior_id": "sha256:d926efd928ca66b1008cb55c31daf69ee03000d91f1f2f988f582d06daa08472",
+    "prior_id": "sha256:25407147fae5efe3dd1782f62aedef02bb522b23db7263c144bc9e84d3188e32",
     "location": {
      "machine_fk": 3,
      "terminal_pid": 4101,
@@ -1649,6 +1717,7 @@
      }
     ],
     "cut": 1,
+    "launch": null,
     "epics": [
      {
       "epic_id": 101,
@@ -1701,14 +1770,14 @@
      "capacity": "sha256:ee62922965deb680c19f002990f5121fa41247375dee9439b46c8237d0a818b2",
      "claims": "sha256:4192531e7d54f6d7cd0ed7b2e8e68274a94beac05135228262f0f9a84f052ba7",
      "clock": "sha256:c26b50bb777809f39ca9b2355f2274b5a38f847a3e753f2f743ee510255c2be9",
-     "prior_record": "sha256:d926efd928ca66b1008cb55c31daf69ee03000d91f1f2f988f582d06daa08472"
+     "prior_record": "sha256:25407147fae5efe3dd1782f62aedef02bb522b23db7263c144bc9e84d3188e32"
     },
-    "id": "sha256:56f0d5bc4a745fcc0557493716801e51169a211c15ae224fcaa8fc32376e4bfe"
+    "id": "sha256:0d46096effc2e185a3c4bd3c96ca27d108f29ebb749722648923b469e1d71dcc"
    }
   },
   {
    "id": 1015,
-   "record_hash": "sha256:9db91a89d8ada624807f1c7bb3caf3dad5d86b8447988d6ccd61ba3ad9ad4601",
+   "record_hash": "sha256:1f66a0052dcbe4e82af275ae0ff92c179130ed5576705d5b7e08836496a8992c",
    "prior_hash": null,
    "pipeline_fk": 900,
    "initiative_fk": null,
@@ -1776,6 +1845,24 @@
      }
     ],
     "cut": 2,
+    "launch": {
+     "requirement_ids": [
+      3001,
+      3003
+     ],
+     "items": [
+      {
+       "requirement_id": 3001,
+       "epic_id": 101,
+       "attempt": 1
+      },
+      {
+       "requirement_id": 3003,
+       "epic_id": 103,
+       "attempt": 1
+      }
+     ]
+    },
     "epics": [
      {
       "epic_id": 101,
@@ -1873,13 +1960,13 @@
      "clock": "sha256:f95d2ef5020a865d486b1b759774ae25bbef87efa86aa7bd8b163f76bf0d4d7b",
      "prior_record": null
     },
-    "id": "sha256:9db91a89d8ada624807f1c7bb3caf3dad5d86b8447988d6ccd61ba3ad9ad4601"
+    "id": "sha256:1f66a0052dcbe4e82af275ae0ff92c179130ed5576705d5b7e08836496a8992c"
    }
   },
   {
    "id": 1016,
-   "record_hash": "sha256:71898dae5b0babc492d664dffef6a49ff2cc93a31414f95024542f1e17d19fc1",
-   "prior_hash": "sha256:9db91a89d8ada624807f1c7bb3caf3dad5d86b8447988d6ccd61ba3ad9ad4601",
+   "record_hash": "sha256:46b16b6eb1c023e8630249b3242a8e9a73f2303149d95d750a0a45d043b28843",
+   "prior_hash": "sha256:1f66a0052dcbe4e82af275ae0ff92c179130ed5576705d5b7e08836496a8992c",
    "pipeline_fk": 900,
    "initiative_fk": null,
    "machine_fk": 4,
@@ -1893,7 +1980,7 @@
    "create_ts": "2026-10-22 08:01:00",
    "record": {
     "schema": "engine2.decision_record/1",
-    "prior_id": "sha256:9db91a89d8ada624807f1c7bb3caf3dad5d86b8447988d6ccd61ba3ad9ad4601",
+    "prior_id": "sha256:1f66a0052dcbe4e82af275ae0ff92c179130ed5576705d5b7e08836496a8992c",
     "location": {
      "machine_fk": 4,
      "terminal_pid": 4101,
@@ -1950,6 +2037,7 @@
      }
     ],
     "cut": 1,
+    "launch": null,
     "epics": [
      {
       "epic_id": 101,
@@ -2049,9 +2137,9 @@
      "capacity": "sha256:8516e082a6cda7e861657185196087860563a20b8a232f4c9ffa348837d86083",
      "claims": "sha256:57860789549fe686e3e57349135c233d503472d5cdf1be582279abc1d6694502",
      "clock": "sha256:b7bb84a85c9c9e8ff4e760aff1bf55164b8d0032248cdd8e154c7f0eede0701b",
-     "prior_record": "sha256:9db91a89d8ada624807f1c7bb3caf3dad5d86b8447988d6ccd61ba3ad9ad4601"
+     "prior_record": "sha256:1f66a0052dcbe4e82af275ae0ff92c179130ed5576705d5b7e08836496a8992c"
     },
-    "id": "sha256:71898dae5b0babc492d664dffef6a49ff2cc93a31414f95024542f1e17d19fc1"
+    "id": "sha256:46b16b6eb1c023e8630249b3242a8e9a73f2303149d95d750a0a45d043b28843"
    }
   }
  ],
@@ -2074,7 +2162,7 @@
    "epic_fk": 101,
    "outcome_state": "failed",
    "session_ids": [],
-   "reason": "superseded by record sha256:8cf6607385662f3d4dda994ece20434c453e1135a0435ef1dfafdafe893bf28d",
+   "reason": "superseded by record sha256:fac1dd9aba2b56d923c59dae4bf0f948115654acc549335d19d82bedb4805955",
    "create_ts": "2026-10-22 08:02:00",
    "update_ts": null
   },
