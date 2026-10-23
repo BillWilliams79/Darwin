@@ -194,6 +194,8 @@ const NO_HIDDEN = new Set();
  *                                              press anywhere (req #3766)
  * @param {boolean} props.hideClosed            the closed (met/deferred/wontfix) rows are hidden
  * @param {function} props.onChangeHideClosed   receives the next boolean
+ * @param {boolean} props.showTimes             the epic cards' start / end times are drawn
+ * @param {function} props.onChangeShowTimes    receives the next boolean
  * @param {Object[]} props.machines             the open machines, one filter chip each (req #3708)
  * @param {Set<number>} props.hiddenMachines    machine ids whose requirements are hidden
  * @param {function} props.onToggleMachine      receives a machine id
@@ -211,6 +213,8 @@ export default function PipelinePlanToolbar({
     onKeyHover,
     hideClosed,
     onChangeHideClosed,
+    showTimes = true,
+    onChangeShowTimes,
     machines = NO_MACHINES,
     hiddenMachines = NO_HIDDEN,
     onToggleMachine,
@@ -301,6 +305,23 @@ export default function PipelinePlanToolbar({
                     onClick={() => onChangeHideClosed?.(!hideClosed)}
                     {...toolbarChipProps(!hideClosed, { sx: { flexShrink: 0 } })}
                     data-testid="pipeline-viz-hide-closed"
+                />
+            </Tooltip>
+
+            {/* ── TIME (req #3825) ─────────────────────────────────────────
+                Lit: every epic card draws its start (bottom-left) and end
+                (bottom-right) time. Dark: the line is gone and the cards close
+                up. On by default. Drawn like Closed and the machine chips
+                (req #3816). */}
+            <Tooltip title={showTimes
+                ? 'Hide the epic start and end times'
+                : 'Show each epic\'s start and end time'}>
+                <Chip
+                    label="Time"
+                    aria-label="Show epic start and end times"
+                    onClick={() => onChangeShowTimes?.(!showTimes)}
+                    {...toolbarChipProps(!!showTimes, { sx: { flexShrink: 0 } })}
+                    data-testid="pipeline-viz-show-times"
                 />
             </Tooltip>
 

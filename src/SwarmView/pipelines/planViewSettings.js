@@ -58,6 +58,8 @@ export const PLAN_VIEW_SETTINGS = Object.freeze({
     // req #3686 — the plan's closed requirements (met / deferred / wontfix),
     // and the dashed line above them, hidden from every epic card. Off until asked for.
     hideClosed: { kind: 'flag', storageKey: 'darwin-pipeline-viz-hide-closed', default: false },
+    // req #3825 — the epic cards' start / end time line. On until switched off.
+    showTimes: { kind: 'flag', storageKey: 'darwin-pipeline-viz-show-times', default: true },
     // req #3708 — the machines the reader has DESELECTED in the toolbar's
     // machine filter, as `planMachineFilter.js` encodes them. Nothing hidden
     // until asked for.

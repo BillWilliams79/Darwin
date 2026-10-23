@@ -578,8 +578,9 @@ export const requirementSessions = createEntityQueries({
     fieldsInKey: true,
 });
 
-// swarm_sessions projected to FOUR columns — the id, migration 077's two flat
-// rollups, and `swarm_status` (req #3584). Cost facts that happen to be stored
+// swarm_sessions projected to FIVE columns — the id, migration 077's two flat
+// rollups, `swarm_status` (req #3584), and `started_at` (req #3825 — an epic
+// card's START is its requirements' first session start). Cost facts that happen to be stored
 // on the session row, plus one status per session that the plan visualizer's
 // Session colour key reduces to one value per REQUIREMENT — no session rows,
 // identity or phase reach the plan page (design rule 9, see SESSION_STATUS_ORDER
@@ -601,10 +602,10 @@ export const requirementSessions = createEntityQueries({
 // 58,803 bytes across production's 891 sessions, 66 B/row, versus ~0.56 MB for
 // the full projection (measured before req #3584's `swarm_status`, a short enum
 // that adds a few bytes a row). It is immune to the req #3078 payload problem
-// by construction: none of the four columns can grow.
+// by construction: none of the five columns can grow.
 export const sessionCostRollups = createEntityQueries({
     entity: 'swarm_sessions',
-    defaultFields: 'id,wall_secs_total,output_tokens_total,swarm_status',
+    defaultFields: 'id,wall_secs_total,output_tokens_total,swarm_status,started_at',
     fieldsInKey: true,
 });
 

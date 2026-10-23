@@ -50,6 +50,16 @@ describe('usePlanViewSetting', () => {
         unmount();
     });
 
+    it('opens the epic-card times ON (req #3825) and remembers them off', () => {
+        mount('showTimes');
+        expect(api.value).toBe(true);
+        act(() => { api.set(false); });
+        unmount();
+        mount('showTimes');
+        expect(api.value).toBe(false);
+        unmount();
+    });
+
     it('a toggled popout is still toggled after the component re-mounts', () => {
         mount('hideClosed');
         act(() => { api.set((v) => !v); });

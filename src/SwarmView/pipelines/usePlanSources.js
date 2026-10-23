@@ -60,13 +60,14 @@ const EMPTY = Object.freeze([]);
  * @param {?number} pipelineId
  * @param {?string} creatorFk
  * @param {{enabled?: boolean, machines?: Array, costIndex?: Object,
- *          sessionStatus?: ?Map<number, string>}} options
+ *          sessionStatus?: ?Map<number, string>,
+ *          firstStarts?: ?Map<number, string>}} options
  * @returns {{pipeline: ?Object, model: ?Object, plan: ?Object,
  *            diagnostic: ?Object, isLoading: boolean, dictionaryError: boolean,
  *            knownIds: ?Array<number>}}
  */
 export function usePlanSources(pipelineId, creatorFk,
-    { enabled = true, machines = EMPTY, costIndex, sessionStatus = null } = {}) {
+    { enabled = true, machines = EMPTY, costIndex, sessionStatus = null, firstStarts = null } = {}) {
     const { data: composed, isLoading: composedLoading } =
         useComposedPipeline(pipelineId, { enabled });
 
@@ -117,9 +118,9 @@ export function usePlanSources(pipelineId, creatorFk,
     const today = localDayOf(new Date());
     const plan = useMemo(
         () => (canBuild
-            ? adaptComposedPipeline(composed, { machines, costIndex, now: new Date() })
+            ? adaptComposedPipeline(composed, { machines, costIndex, now: new Date(), firstStarts })
             : null),
-        [canBuild, composed, machines, costIndex, today]);
+        [canBuild, composed, machines, costIndex, today, firstStarts]);
 
     const knownIds = useMemo(
         () => (missed && knownSettled ? known.map((p) => p.id) : null),
