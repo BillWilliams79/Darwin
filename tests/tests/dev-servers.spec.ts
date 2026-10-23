@@ -1,4 +1,24 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
+
+// The dashboard sizes to its rows, and they land over several reads (the dev
+// servers, then the machines, then each row's requirement title), so a
+// content-sized panel docked bottom-right grows up and left while they arrive
+// — and carries its head with it. Measured (req #3783): grabbed while the badge
+// still read "…", the head was at y=1355; ~50ms–1s later the rows had landed
+// and it was at y=1311, so the press fell on a row, no drag began, and the
+// navbar never armed. Start a head gesture only once the count is final and
+// the head has stopped moving.
+async function settledDashboardHead(page: Page, count: string) {
+  const badge = page.getByTestId('devserver-dashboard-count');
+  await expect(badge).toHaveText(count, { timeout: 10000 });
+  let last = '';
+  await expect.poll(async () => {
+    const now = JSON.stringify(await badge.boundingBox());
+    const still = now === last;
+    last = now;
+    return still;
+  }, { intervals: [250] }).toBe(true);
+}
 
 test.describe('Dev Servers View', () => {
   test('DEV-01: /devservers renders DataGrid', async ({ page }) => {
@@ -156,6 +176,7 @@ test.describe('Dev Servers View', () => {
     const zone = page.getByTestId('navbar-rack-zone');
     await expect(zone).toHaveAttribute('data-rack-drop', 'off');
 
+    await settledDashboardHead(page, '2');
     const badge = (await page.getByTestId('devserver-dashboard-count').boundingBox())!;
     const grabX = badge.x + badge.width + 6;
     const grabY = badge.y + badge.height / 2;
@@ -254,7 +275,8 @@ test.describe('Dev Servers View', () => {
   // head dragged up onto the Dev Server panel's upper half moves it above it —
   // still racked.
   test('DEV-06: a panel racked below the stack lands last, then reorders by drag', async ({ page }) => {
-    // Tall enough that the navbar has empty room below the stack.
+    // Tall enough that the navbar has empty room below the stack (re-sized to
+    // the stack below, once it is drawn).
     await page.setViewportSize({ width: 1280, height: 1200 });
     await page.route(/\/dev_servers(\?|$)/, r => r.request().method() === 'GET'
       ? r.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
@@ -268,16 +290,34 @@ test.describe('Dev Servers View', () => {
     const dash = page.getByTestId('devserver-dashboard');
     await expect(dash).toHaveAttribute('data-racked', '0');
     const zone = page.getByTestId('navbar-rack-zone');
-    const nav = (await zone.boundingBox())!;
     const order = () => page.evaluate(() => JSON.parse(localStorage.getItem('darwin_panel_rack') || '{}').state?.racked);
     const grab = async () => {
       const b = (await page.getByTestId('devserver-dashboard-count').boundingBox())!;
       return [b.x + b.width + 6, b.y + b.height / 2];
     };
 
-    // Room in the navbar below the stack (it ends ~720px down).
+    // Room in the navbar below the stack. Where the stack ends is not this
+    // test's to fix: the nav list above it is the account's (its apps, and on
+    // /devservers the Sessions item open on its Dev Servers L3, req #3771) and
+    // the Dev Server panel holds this dev server's own requirement title, up
+    // to three lines. Measured (req #3783): nav list to 996.8px, panel 183.6px
+    // with a three-line title — the stack ended at 1186.4px, past a fixed
+    // 1200px viewport's room. So, as DEV-08 does, size the viewport to the
+    // stack once the navbar has settled (its groups load and open).
+    let lastEdge = '';
+    await expect.poll(async () => {
+      const now = JSON.stringify(await page.getByTestId('navbar-rack').boundingBox());
+      const still = now === lastEdge;
+      lastEdge = now;
+      return still;
+    }, { intervals: [250] }).toBe(true);
+    const stackEnd = await page.getByTestId('navbar-rack').evaluate(el => el.getBoundingClientRect().bottom);
+    await page.setViewportSize({ width: 1280, height: Math.max(1200, Math.ceil(stackEnd) + 240) });
+    const nav = (await zone.boundingBox())!;
+    // The rack stays as tall as its panels: the new room is below it.
     const rackBox = (await page.getByTestId('navbar-rack').boundingBox())!;
     expect(rackBox.y + rackBox.height).toBeLessThan(nav.height - 40);
+    await settledDashboardHead(page, '0');
     // Released below the stack: last, under the Dev Server panel.
     let [gx, gy] = await grab();
     await page.mouse.move(gx, gy);
@@ -338,6 +378,7 @@ test.describe('Dev Servers View', () => {
     await expect(dash).toHaveAttribute('data-racked', '0');
     const items = page.locator('[data-testid^="devserver-dashboard-item-"]');
     await expect(items).toHaveCount(3);
+    await settledDashboardHead(page, '3');
     const zone = page.getByTestId('navbar-rack-zone');
     const nav = (await zone.boundingBox())!;
     const b = (await page.getByTestId('devserver-dashboard-count').boundingBox())!;
@@ -422,6 +463,7 @@ test.describe('Dev Servers View', () => {
     await expect(chip).toBeVisible({ timeout: 10000 });
     if ((await chip.getAttribute('aria-pressed')) === 'false') await chip.click();
     const dash = page.getByTestId('devserver-dashboard');
+    await settledDashboardHead(page, '80');
     const zone = page.getByTestId('navbar-rack-zone');
     const nav = (await zone.boundingBox())!;
     const b = (await page.getByTestId('devserver-dashboard-count').boundingBox())!;

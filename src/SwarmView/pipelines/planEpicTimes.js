@@ -2,7 +2,7 @@
 // rows in, stamps and clock strings out. No React, no clock.
 //
 // AN EPIC HAS NO STATE (req #3750) and no time of its own (req #3752 dropped
-// `pipeline_steps.completed_at`), so both times are DERIVED from the epic's
+// `epics.completed_at`), so both times are DERIVED from the epic's
 // GATING requirements on every render — never stored:
 //
 //   START  the FIRST swarm start of any of them: the earliest `started_at` of a

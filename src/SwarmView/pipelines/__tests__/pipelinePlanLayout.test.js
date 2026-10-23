@@ -3709,7 +3709,7 @@ describe('the next-epic halo survives the level CROSSINGS (req #3280)', () => {
     const LIVE_K_DEFAULT = K_READABLE;
     const LIVE_ZOOM_FLOOR = (1200 / LIVE_WORLD_W) * ZOOM_MIN_RATIO;
     // Every k the camera can reach on that plan, at a resolution fine enough to
-    // see a one-wheel-click epic: 600 samples over [floor, kDefault × 8].
+    // see a one-wheel-click step: 600 samples over [floor, kDefault × 8].
     const REACHABLE = Array.from({ length: 601 }, (_, i) =>
         LIVE_ZOOM_FLOOR + (i / 600) * (LIVE_K_DEFAULT * ZOOM_MAX_RATIO - LIVE_ZOOM_FLOOR));
 
@@ -5245,7 +5245,7 @@ describe("the KEY is a keep-out: what it costs the initiative labels (req #3168,
     // changed WHICH AXIS IS STEEPER, so the numbers could not simply be carried
     // forward either time. MEASURED 2026-08-10 on the Substrate fixture
     // (1500×900 panel), over k ∈ {0.2, 0.35, 0.5, 0.8, 1.2, 1.5, 2} ×
-    // y ∈ {0, −150, −500, −900} × x ∈ 0…1400 epic 50, on the OLD table's own
+    // y ∈ {0, −150, −500, −900} × x ∈ 0…1400 step 50, on the OLD table's own
     // w/h ranges so this and the pre-P6 numbers stay comparable:
     //
     //   at w=470:   h  30    60   100   140   180

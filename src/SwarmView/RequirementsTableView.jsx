@@ -259,7 +259,7 @@ const RequirementsTableView = () => {
 
     const hasBulkChanges = bulkCategory !== NO_CHANGE || bulkStatus !== NO_CHANGE || bulkAutonomy !== NO_CHANGE;
 
-    // Epic 1: Save button opens the confirmation gate (does NOT apply changes yet)
+    // Step 1: Save button opens the confirmation gate (does NOT apply changes yet)
     const handleRequestConfirm = () => {
         if (!hasBulkChanges || selectedCount === 0) return;
         setBulkConfirmOpen(true);
@@ -269,7 +269,7 @@ const RequirementsTableView = () => {
         if (!savingBulk) setBulkConfirmOpen(false);
     };
 
-    // Epic 2: Confirm button in the gate dialog actually applies the changes
+    // Step 2: Confirm button in the gate dialog actually applies the changes
     const handleConfirmBulkSave = async () => {
         const ids = getSelectedIds();
         if (ids.length === 0 || !hasBulkChanges) return;

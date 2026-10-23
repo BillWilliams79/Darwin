@@ -21,7 +21,7 @@
 // view with its aggregator and the Recurring page (req #3663), and — through
 // ReorderList — the four editors, the Maps view bar and a test plan's cases,
 // plus the phone calendar list (req #3664) — and the plan canvas's
-// Orchestrables box, whose rows drop onto Konva step cards (req #3665).
+// Orchestrables box, whose rows drop onto Konva epic cards (req #3665).
 // react-dnd and @hello-pangea/dnd are gone from the app; only the requirement
 // marks ON the plan canvas (Konva shapes, not DOM — they keep their own
 // pointer gesture on this same press timeline) and FullCalendar's desktop grid
@@ -82,7 +82,7 @@ function setPageDragging(on) {
  *        keep the look their rows had before the foundation (req #3664)
  * @param {Function} [props.collisionDetection] a surface whose targets are not
  *        DOM droppables answers "what is under the pointer" itself — the plan
- *        canvas hit-tests its Konva step cards (req #3665). Read once, at mount.
+ *        canvas hit-tests its Konva epic cards (req #3665). Read once, at mount.
  */
 export default function DarwinDndContext({
     children, onDragStart, onDragOver, onDragMove, onDragEnd, onDragCancel,

@@ -8,7 +8,7 @@
 //                 grid). Wraps useDroppable.
 // useDarwinDraggable  an item that lifts but is NOT a position among its
 //                 siblings — it only ever leaves its list (an Orchestrables row
-//                 dropped onto a plan step, req #3665). Wraps useDraggable; the
+//                 dropped onto a plan epic, req #3665). Wraps useDraggable; the
 //                 source stays put while the overlay travels.
 //
 // Both register `{ kind, type, containerId, policy, sortMode, row }` as data —
