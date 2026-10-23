@@ -56,7 +56,7 @@ describe('an engine record → badges and the cut', () => {
         expect(overlay.badges.get(103)).toMatchObject({ text: '2', code: 'ADMITTED', held: false });
         expect(overlay.badges.get(102)).toMatchObject({ text: '3', code: 'DEP_PRIORITY', held: true,
             belowCut: true, cutBefore: true, words: PLAIN_WORDS.DEP_PRIORITY,
-            detail: 'waiting on epic 101' });
+            detail: 'waiting on epic Epic 101' });
         expect(overlay.cut).toBe(2);
         expect(overlay.cutShown).toBe(true);
         expect(overlay.limits).toEqual({ ceiling: 2, live: 0, reserved: 0, free: 2 });
@@ -68,7 +68,7 @@ describe('an engine record → badges and the cut', () => {
         const overlay = engineOverlayOf('A8', 0);
         const barrier = overlay.badges.get(102);
         expect(barrier).toMatchObject({ code: 'BARRIER', text: 'Barrier', held: true, positions: [],
-            words: PLAIN_WORDS.BARRIER, detail: 'held by barrier epic 101' });
+            words: PLAIN_WORDS.BARRIER, detail: 'held by barrier epic Epic 101' });
         expect(overlay.badges.get(101)).toMatchObject({ code: 'ADMITTED', text: '1' });
         expect(overlay.cutShown).toBe(false);
     });

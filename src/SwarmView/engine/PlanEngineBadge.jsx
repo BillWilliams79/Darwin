@@ -35,7 +35,7 @@ function HoldText({ badge, overlay, machines, title }) {
     return (
         <Box data-testid={`plan-engine-hold-${badge.epicId}`} sx={{ maxWidth: 360 }}>
             <Typography variant="caption" component="div" sx={{ fontWeight: 700 }}>
-                Epic {badge.epicId}{title ? ` · ${title}` : ''}
+                {title || `Epic ${badge.epicId}`}
             </Typography>
             <Typography variant="body2" component="div" data-testid={`plan-engine-hold-words-${badge.epicId}`}>
                 <b>{badge.label}</b> — {badge.words}{badge.detail ? ` — ${badge.detail}` : ''}
@@ -85,7 +85,7 @@ export default function PlanEngineBadge({ badge, overlay, machines, thisMachineI
                  data-below-cut={badge.belowCut ? 'true' : 'false'}
                  data-cut-before={badge.cutBefore ? 'true' : 'false'}
                  data-source={overlay.source}
-                 aria-label={`Epic ${badge.epicId}: ${badge.label} — ${badge.words}`}
+                 aria-label={`${title || `Epic ${badge.epicId}`}: ${badge.label} — ${badge.words}`}
                  style={style}
                  sx={{
                      position: 'absolute',

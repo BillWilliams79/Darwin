@@ -87,7 +87,13 @@ export function launchMachineOf(item, { requirements, epicInitiative, lead }) {
  */
 export function planOverlay(record, { source, payload = null, liveClaims = [], outcomes } = {}) {
     if (!record) return null;
-    const view = recordView(record, { outcomes: outcomes || new Map() });
+    // The composed read carries the plan's epics and initiatives, so the
+    // overlay names them by title exactly as the engine view does (req #3878).
+    const names = payload ? {
+        epics: new Map(asArray(payload.epics).map((e) => [e.id, e])),
+        initiatives: new Map(asArray(payload.initiatives).map((i) => [i.id, i])),
+    } : null;
+    const view = recordView(record, { outcomes: outcomes || new Map(), names });
     if (!view) return null;
     const rawQueue = asArray(record.queue);
     const requirements = new Map(asArray(payload && payload.requirements).map((r) => [r.id, r]));
@@ -164,6 +170,7 @@ export function planOverlay(record, { source, payload = null, liveClaims = [], o
         admittedCount: view.admittedCount,
         badges,
         events: view.events,
+        names,
     };
 }
 

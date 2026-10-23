@@ -15,15 +15,14 @@ import { Link as RouterLink } from 'react-router-dom';
 
 import { epicPlanLinkTo } from '../pipelines/pipelineEpicLink';
 import {
-    OUTCOME_COLORS, OUTCOME_FAILED, OUTCOME_LANDED, OUTCOME_WORDS, codeColor, plainWords,
+    OUTCOME_COLORS, OUTCOME_FAILED, OUTCOME_LANDED, OUTCOME_WORDS, codeColor, epicName, plainWords,
 } from './engineVocabulary';
 import { stampText } from './engineModel';
 import { CodeChip, PanelTitle, ToneChip } from './enginePanelParts';
 
 function EpicLink({ pipelineId, epicId, names, testid }) {
-    const epic = names.epics.get(epicId);
     const to = epicPlanLinkTo(pipelineId, epicId);
-    const text = epic && epic.title ? `epic ${epicId} · ${epic.title}` : `epic ${epicId}`;
+    const text = epicName(epicId, names);
     if (!to) return <span>{text}</span>;
     return (
         <Link component={RouterLink} to={to} underline="hover" data-testid={testid}>
