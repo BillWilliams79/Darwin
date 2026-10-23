@@ -51,6 +51,19 @@
 // panelRack.js, DOM half in usePanelRack.js — shared with the Orchestrables box,
 // req #3735); the host's own `dock` is left alone while it is racked. While a
 // page covers the navbar (usePanelRackStore `covered`), the panel floats.
+//
+// ── LOCKED INTO THE TITLE BAR (req #3857) ─────────────────────────────────
+// A host that passes `onTitleLockChange` (the Requirement Filer) can drop its
+// panel on the page's TITLE BAR (`[data-title-bar]`): the bar glows as the rack
+// does, and released there the panel is LOCKED — drawn in the bar where it was
+// dropped, its head on the bar's line, staying there as the bar resizes and
+// scrolls, and only ever in the bar's free space: it never covers the bar's own
+// buttons and text, and they never move for it (titleBarLock.js — a gap
+// narrower than its content narrows it; a bar with no room floats it at its
+// dock until there is). Locked, nothing reshapes it and ▾ folds it in place, its
+// rows dropping below the bar. Dragged along the bar it re-locks where dropped
+// (straight out of the rack, too); off the bar it floats again; onto the navbar
+// it racks (the lock is dropped).
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
@@ -64,6 +77,7 @@ import {
 } from './anchoredPanelGeometry';
 import { rackOrder } from './panelRack';
 import { rackPortal, slotOffset, usePanelRack } from './usePanelRack';
+import { useTitleBarLock } from './useTitleBarLock';
 
 /** Pointer travel, px, before a head press becomes a move. */
 const MOVE_SLOP = 4;
@@ -104,10 +118,14 @@ const viewport = () => ({
  * @param {number} [props.zIndex]
  * @param {string} [props.rackId]        names the panel in the navbar rack;
  *   absent = it never racks (req #3720)
+ * @param {?{side, x}} [props.titleLock] where it is locked into the page's
+ *   title bar; null = not locked (req #3857)
+ * @param {function} [props.onTitleLockChange]  ({side, x} | null); absent =
+ *   it never locks into a title bar
  */
 export default function AnchoredPanel({
     dock, onDockChange, open, onToggle, name, testid, extras, badgeSlot = true, actions, children,
-    limits, fontPx = 12, border = 2, colors, sx, zIndex = 1250, rackId,
+    limits, fontPx = 12, border = 2, colors, sx, zIndex = 1250, rackId, titleLock = null, onTitleLockChange,
 }) {
     const boxRef = useRef(null);
     const bodyRef = useRef(null);
@@ -124,6 +142,12 @@ export default function AnchoredPanel({
     const { rackPos, inRack, slot, overRack, narrow } = rackApi;
     // What the rack is called on the page: the navbar, or a page's toolbar.
     const rackName = slot?.name || 'navbar';
+    // Locked into the page's title bar (req #3857): `titlePlace` is where, or
+    // null — not locked, racked, or no bar with room drawn — and it floats.
+    const titleBar = useTitleBarLock({ lock: titleLock, offered: !!onTitleLockChange, racked: inRack,
+        paused: !!live, boxRef, limits });
+    const titlePlace = titleBar.place;
+    const inTitleBar = !!titlePlace;
     useEffect(() => () => { gestureRef.current?.unlisten?.(); gestureRef.current = null; }, []);
     // The body's scroll position, kept across a remount (a lift out of a rack in
     // another document and back) — not written while a gesture reshapes it.
@@ -195,7 +219,10 @@ export default function AnchoredPanel({
             : resizeRect(g.r0, dx, dy, g.edge, vw, vh, limits.minW, limits.minH);
         // Lifted only off the rack: a reorder inside it is drawn where it is.
         setLive({ ...g.last, edge: g.edge, lifted: !!g.slotDoc && !rackApi.isOver(x, y, g.fromRack) });
-        if (g.kind === 'move') rackApi.track(x, y, g.fromRack, colors.frame);
+        if (g.kind === 'move') {
+            rackApi.track(x, y, g.fromRack, colors.frame);
+            titleBar.track(x, y, colors.frame);
+        }
     };
     const onUp = (e) => {
         const g = gestureRef.current;
@@ -209,7 +236,7 @@ export default function AnchoredPanel({
         // Only a release places it: a cancelled pointer (or capture lost
         // without one) puts the panel back where it was.
         if (!g.last || e.type !== 'pointerup') {
-            if (g.kind === 'move') rackApi.cancel();
+            if (g.kind === 'move') { rackApi.cancel(); titleBar.cancel(); }
             return;
         }
         lastMoveEndRef.current = Date.now();
@@ -218,7 +245,18 @@ export default function AnchoredPanel({
             const placed = rackApi.release(x, y, g.fromRack);
             // Dropped on the navbar: into the stack where the pointer is.
             // Its floating dock is kept for the day it is dragged back out.
-            if (placed === 'racked') return;
+            if (placed === 'racked') {
+                titleBar.cancel();
+                if (titleLock) onTitleLockChange(null);
+                return;
+            }
+            // Dropped on the title bar: locked where it landed (req #3857).
+            // Dragged off it, it floats where it was dropped, as below.
+            if (onTitleLockChange) {
+                const lock = titleBar.release(x, y, g.last);
+                if (lock) { onTitleLockChange(lock); return; }
+                if (titleLock) onTitleLockChange(null);
+            }
             // Dragged off the navbar: floats where it was dropped. Its floating
             // size is not the navbar's, so — like a toggle — pin its left and
             // top, and re-dock once that size has drawn (the effect below).
@@ -243,9 +281,10 @@ export default function AnchoredPanel({
     // THE HEAD IS THE ANCHOR: pin the panel at its current left and top before
     // it folds or unfolds, so the ▾ stays put and the far edges move.
     // Racked, the navbar holds it: nothing to pin, the stack below just moves.
+    // Locked into the title bar, the bar holds it: its rows fold below the bar.
     const toggle = () => {
         const box = boxRef.current;
-        if (box && !inRack) {
+        if (box && !inRack && !inTitleBar) {
             const r = box.getBoundingClientRect();
             pinRef.current = { left: r.left, top: r.top };
             onDockChange(dockForToggle(dock, r));
@@ -276,8 +315,9 @@ export default function AnchoredPanel({
         if (bodyRef.current && scrollRef.current) bodyRef.current.scrollTop = scrollRef.current;
     }, [lifted, inRack, slot?.node]);
     const onHeadDoubleClick = (e) => {
-        // Racked, it has no home to go to: it is dragged out instead.
-        if (inRack) return;
+        // Racked or locked in the title bar, it has no home to go to: it is
+        // dragged out instead.
+        if (inRack || inTitleBar) return;
         if (e.target.closest('button, a')) return;
         if (Date.now() - lastMoveEndRef.current < DBLCLICK_AFTER_MOVE_MS) return;
         onDockChange(null);
@@ -298,21 +338,25 @@ export default function AnchoredPanel({
             maxHeight: `calc(100% - ${live.top - drawnOff.top}px)`,
             ...((reshapingV || (open && dock.ht != null && !inRack)) ? { height: `${live.height}px` } : {}) }
         : racking ? { width: '100%' }
+            : inTitleBar ? { left: `${titlePlace.left}px`, top: `${titlePlace.top}px`,
+                width: `${titlePlace.width}px`,
+                maxHeight: `max(${limits.headPx}px, calc(100% - ${titlePlace.top}px))` }
             : dockedStyle(dock, { open, headPx: limits.headPx, autoMaxW: limits.autoMaxW,
                 minW: limits.minW });
-    const shapedWidth = reshapingH ? live.width : (inRack ? slot.width : dock.w);
+    const shapedWidth = reshapingH ? live.width : (inRack ? slot.width : inTitleBar ? null : dock.w);
     // The icon-only navbar (`narrow`) has room for the ▾ and the host's extras alone.
     const grip = freeCorner(dock);
     const moving = live && !live.edge;
     // Folded, the panel is its head row, tight: nothing to reshape. Racked,
     // the navbar sets its width and its rows its height.
-    const edges = open && !inRack ? RESIZE_EDGES : [];
+    const edges = open && !inRack && !inTitleBar ? RESIZE_EDGES : [];
 
     const panel = (
         <Box ref={boxRef} data-testid={testid}
              data-dock={`${dock.h}${dock.x},${dock.v}${dock.y}`}
              {...(rackId ? { 'data-rack-id': rackId, 'data-racked': inRack ? '1' : '0',
                  'data-rack-open': inRack && open ? '1' : '0' } : {})}
+             {...(onTitleLockChange ? { 'data-title-locked': inTitleBar ? '1' : '0' } : {})}
              style={{ fontSize: `${fontPx}px`, ...placement }}
              sx={{ position: racking ? 'relative' : 'fixed', zIndex,
                     minHeight: `${limits.headPx}px`,
@@ -332,7 +376,9 @@ export default function AnchoredPanel({
             <ActionPopupHead open={open} onToggle={toggle} name={name} testid={testid}
                              badge={extras} badgeSlot={badgeSlot} actions={actions} narrow={narrow} colors={colors}
                              title={inRack ? `Drag to reorder · drag off the ${rackName} to float it`
-                                 : `Drag to move · double-click to put back${rackId ? ` · drop on the ${rackName} to rack it` : ''}`}
+                                 : inTitleBar ? 'Drag along the title bar to move it · drag off it to float it'
+                                     : `Drag to move · double-click to put back${rackId ? ` · drop on the ${rackName} to rack it` : ''}${
+                                         onTitleLockChange ? ' · drop on the title bar to lock it there' : ''}`}
                              {...gesture('move')}
                              onDoubleClick={onHeadDoubleClick}
                              sx={{ cursor: moving ? 'grabbing' : 'move' }} />
@@ -353,12 +399,12 @@ export default function AnchoredPanel({
                         minHeight: 0, flex: '1 1 auto',
                         py: '0.2em',
                         // Its scrollbar sits inside the right reshape zone, not under it.
-                        ...(!inRack && { mr: `${EDGE_PX}px` }),
+                        ...(!inRack && !inTitleBar && { mr: `${EDGE_PX}px` }),
                         ...(!open && { display: 'none' }) }}>
                 {children({ shapedWidth })}
             </Box>
 
-            {open && !inRack && (
+            {open && !inRack && !inTitleBar && (
                 <Box data-testid={`${testid}-grip`} aria-hidden="true"
                      data-corner={`${grip.v}${grip.h}`}
                      sx={{ position: 'absolute', width: '0.8em', height: '0.8em',
