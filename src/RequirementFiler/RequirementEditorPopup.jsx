@@ -318,7 +318,7 @@ export default function RequirementEditorPopup() {
                             </Field>
                         </Box>
 
-                        <Box component="label" title="A container holds a plan or an epic rather than being work inside it"
+                        <Box component="label" title="A container holds a plan or an initiative rather than being work inside it"
                              sx={{ display: 'flex', alignItems: 'center', gap: '0.5em', color: P.text, cursor: 'pointer' }}>
                             <input type="checkbox" checked={!!draft.tracking}
                                    onChange={(e) => setFields({ tracking: e.target.checked ? 1 : 0 })}
