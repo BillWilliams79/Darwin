@@ -1,7 +1,8 @@
 // RequirementFiler.jsx — the Requirement Filer (req #3811): an Action Popup on
 // every page that files a requirement without leaving it. Step one of the
-// in-situ requirement filer: ONE button, "New requirement", which opens the
-// popup requirement editor (RequirementEditorPopup.jsx) on a fresh draft.
+// in-situ requirement filer: "New requirement" opens the popup requirement
+// editor (RequirementEditorPopup.jsx) on a fresh draft; DEFAULTS (req #3812)
+// opens the same editor on the values every new requirement starts with.
 //
 // An AnchoredPanel (Components/AnchoredPanel, pattern doc
 // memory/anchored-collapse-pattern.md) in the Action Popups' own chrome
@@ -16,7 +17,8 @@
 // Desktop only, signed in only — the navbar control is the desktop sidebar's.
 //
 // ADDRESSABLE: any page's `?filer=1` opens the filer, `?filer=new` also starts
-// a new requirement in the editor — a link (or a dev server) can land on it.
+// a new requirement in the editor and `?filer=defaults` opens the defaults —
+// a link (or a dev server) can land on it.
 
 import { useContext, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
@@ -77,7 +79,7 @@ export default function RequirementFiler() {
     const show = useRequirementFilerStore(s => s.show);
     const open = useRequirementFilerStore(s => s.open);
     const storedDock = useRequirementFilerStore(s => s.dock);
-    const { setShow, toggleOpen, setDock } = useRequirementFilerStore.getState();
+    const { setShow, toggleOpen, setDock, openDefaults } = useRequirementFilerStore.getState();
     const dock = validDock(storedDock, MIN_W, MIN_H) || FILER_HOME;
     const filerParam = new URLSearchParams(useLocation().search).get('filer');
     const signedIn = !!profile?.userName;
@@ -85,6 +87,7 @@ export default function RequirementFiler() {
         if (!filerParam || !signedIn) return;
         useRequirementFilerStore.setState({ show: true, open: true });
         if (filerParam === 'new') startNewRequirement();
+        if (filerParam === 'defaults') useRequirementFilerStore.getState().openDefaults();
     }, [filerParam, signedIn]);
 
     if (!show || !isDesktop || !profile?.userName) return null;
@@ -102,20 +105,30 @@ export default function RequirementFiler() {
             {({ shapedWidth }) => {
                 // The icon-only navbar: the button says "+" and its tooltip the rest.
                 const narrow = shapedWidth != null && shapedWidth < RACK_NARROW_PX;
+                const pill = (color) => ({
+                    display: 'inline-flex', alignItems: 'center', gap: '0.4em',
+                    maxWidth: '100%', px: narrow ? '0.5em' : '0.85em', py: '0.3em',
+                    border: `1px solid ${color}`, borderRadius: '999px',
+                    background: 'transparent', color, cursor: 'pointer',
+                    fontFamily: ACTION_POPUP_MONO, fontSize: '1em', fontWeight: 700,
+                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                });
                 return (
-                    <Box sx={{ px: narrow ? '0.3em' : '0.7em', py: '0.5em' }}>
+                    <Box sx={{ px: narrow ? '0.3em' : '0.7em', py: '0.5em',
+                               display: 'flex', flexWrap: 'wrap', gap: '0.4em' }}>
                         <Box component="button" type="button" onClick={startNewRequirement}
                              title="File a new requirement" aria-label="New requirement"
                              data-testid="requirement-filer-new"
-                             sx={{ display: 'inline-flex', alignItems: 'center', gap: '0.4em',
-                                    maxWidth: '100%', px: narrow ? '0.5em' : '0.85em', py: '0.3em',
-                                    border: `1px solid ${P.accent}`, borderRadius: '999px',
-                                    background: 'transparent', color: P.accent, cursor: 'pointer',
-                                    fontFamily: ACTION_POPUP_MONO, fontSize: '1em', fontWeight: 700,
-                                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                                    '&:hover': { bgcolor: 'rgba(74, 217, 200, 0.12)' } }}>
+                             sx={{ ...pill(P.accent), '&:hover': { bgcolor: 'rgba(74, 217, 200, 0.12)' } }}>
                             <span aria-hidden="true">+</span>
                             {!narrow && <span>New requirement</span>}
+                        </Box>
+                        <Box component="button" type="button" onClick={openDefaults}
+                             title="The values every new requirement filed here starts with"
+                             aria-label="Defaults" data-testid="requirement-filer-defaults"
+                             sx={{ ...pill(P.text), '&:hover': { color: P.accent, borderColor: P.accent } }}>
+                            <span aria-hidden="true">⚙</span>
+                            {!narrow && <span>Defaults</span>}
                         </Box>
                     </Box>
                 );
