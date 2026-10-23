@@ -99,6 +99,7 @@ export default function NewPipelineDialog({ machines = [] }) {
                                                    data-testid="pipelines-new-execmode">
                                     {['parallel', 'serial'].map((mode) => (
                                         <ToggleButton key={mode} value={mode}
+                                                      aria-label={executionModeLabel(mode)}
                                                       data-testid={`pipelines-new-execmode-${mode}`}>
                                             {executionModeLabel(mode)}
                                         </ToggleButton>

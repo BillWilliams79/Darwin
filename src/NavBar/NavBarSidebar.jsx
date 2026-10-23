@@ -13,6 +13,7 @@ import {
 } from './navCollapse';
 import ProfileDialog from './ProfileDialog';
 import { usePanelRackStore } from '../stores/usePanelRackStore';
+import { useRequirementFilerStore } from '../stores/useRequirementFilerStore';
 import { RACK_DRAG_Z, RACK_SX, rackGlow } from '../Components/AnchoredPanel/panelRack';
 
 import AppBar from '@mui/material/AppBar';
@@ -36,6 +37,7 @@ import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import PostAddIcon from '@mui/icons-material/PostAdd';
 // Req #3209 — boxed +/- marks an ITEM that expands. Deliberately not the
 // ExpandLess/ExpandMore chevrons above: those already mean "group header", and
 // reusing them would make the two nav levels indistinguishable at a glance.
@@ -321,6 +323,31 @@ const NavBarSidebar = () => {
         : <ChevronLeftIcon sx={{ fontSize: 18 }} />;
     const collapseLabel = collapsed ? 'Expand' : 'Collapse';
 
+    // The Requirement Filer's control (req #3811): opens — or closes — the
+    // Action Popup that files a requirement from whatever page this is.
+    const filerShown = useRequirementFilerStore(s => s.show);
+    const toggleFiler = useRequirementFilerStore(s => s.toggleShow);
+    const filerLabel = filerShown ? 'Close the Requirement Filer' : 'File a requirement';
+    const renderFilerControl = (showText) => (
+        <Tooltip title={filerLabel} placement="right">
+            <IconButton
+                onClick={toggleFiler}
+                size="small"
+                data-testid="navbar-requirement-filer"
+                aria-label={filerLabel}
+                aria-pressed={filerShown}
+                sx={{
+                    p: 0.25,
+                    ml: showText ? 'auto' : 0,
+                    color: filerShown ? ACCENT : 'rgba(255,255,255,0.7)',
+                    '&:hover': { color: 'white', bgcolor: 'rgba(255,255,255,0.08)' },
+                }}
+            >
+                <PostAddIcon sx={{ fontSize: 18 }} />
+            </IconButton>
+        </Tooltip>
+    );
+
     const renderHeaderCollapse = (showText) => (
         <Tooltip title={collapseLabel} placement="right">
             <IconButton
@@ -330,7 +357,6 @@ const NavBarSidebar = () => {
                 aria-label={collapseLabel}
                 sx={{
                     p: 0.25,
-                    ml: showText ? 'auto' : 0,
                     color: 'rgba(255,255,255,0.7)',
                     '&:hover': { color: 'white', bgcolor: 'rgba(255,255,255,0.08)' },
                 }}
@@ -401,6 +427,7 @@ const NavBarSidebar = () => {
                                         </Typography>
                                     </Link>
                                 )}
+                                {renderFilerControl(showText)}
                                 {renderHeaderCollapse(showText)}
                             </Box>
 

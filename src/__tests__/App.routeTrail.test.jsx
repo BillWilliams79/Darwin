@@ -37,6 +37,8 @@ vi.mock('../NavBar/NavBar', () => ({ default: () => null }));
 vi.mock('../Components/SnackBar/SnackBar', () => ({ SnackBar: () => null }));
 vi.mock('../DevServers/DevServerDashboard', () => ({ default: () => null }));
 vi.mock('../NavBar/DevServerActionPopup', () => ({ default: () => null }));
+vi.mock('../RequirementFiler/RequirementFiler', () => ({ default: () => null }));
+vi.mock('../RequirementFiler/RequirementEditorPopup', () => ({ default: () => null }));
 
 import App from '../App';
 import { cameFrom, resetRouteTrail } from '../utils/routeTrail';
