@@ -5636,7 +5636,7 @@ export default function PipelinePlanVisualizer({
                                     component="span"
                                     role="link"
                                     tabIndex={0}
-                                    aria-label={`Open ${e.text}'s epics`}
+                                    aria-label={`Open ${e.name ?? e.text}'s epics`}
                                     data-testid={`pipeline-viz-initiative-open-${e.key}`}
                                     onClick={(ev) => {
                                         ev.stopPropagation();
@@ -5699,7 +5699,7 @@ export default function PipelinePlanVisualizer({
                                     component="span"
                                     role="link"
                                     tabIndex={0}
-                                    aria-label={`Open ${e.text} requirements in the task cards view`}
+                                    aria-label={`Open ${e.name ?? e.text}'s requirements in the task cards view`}
                                     data-testid={`pipeline-viz-initiative-cards-${e.key}`}
                                     onClick={(ev) => {
                                         ev.stopPropagation();
@@ -5736,9 +5736,9 @@ export default function PipelinePlanVisualizer({
                                     tabIndex={0}
                                     aria-pressed={!!e.band?.locked}
                                     aria-label={e.band?.locked
-                                        ? `Initiative ${e.text} is locked${e.band?.lockedBy === 'pipeline'
+                                        ? `Initiative ${e.name ?? e.text} is locked${e.band?.lockedBy === 'pipeline'
                                             ? ' by its plan' : ''} — unlock`
-                                        : `Lock initiative ${e.text}`}
+                                        : `Lock initiative ${e.name ?? e.text}`}
                                     data-testid={`pipeline-viz-initiative-lock-${e.key}`}
                                     data-locked={e.band?.locked ? '1' : '0'}
                                     onClick={(ev) => {

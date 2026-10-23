@@ -839,10 +839,10 @@ export default function PipelinePlanTable({ plan, model, pipeline, timezone, foc
 
             <Typography variant="caption" color="text.secondary"
                         sx={{ display: 'block', mt: 1.5 }}>
-                Hierarchy: Initiative &gt; Story (requirement). Epic state is derived
-                from the linked requirements and is never stored; row order is computed
-                — topological, then Complete before Running before Scheduled — and
-                verified on every render.
+                Hierarchy: Pipeline &gt; Initiative &gt; Epic &gt; Requirement. An epic has
+                no state of its own — what it shows is derived from its requirements and
+                never stored; row order is computed — topological, then grouped by
+                initiative order — and verified on every render.
             </Typography>
         </Box>
     );
