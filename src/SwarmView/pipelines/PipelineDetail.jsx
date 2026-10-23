@@ -22,7 +22,7 @@
 // refetchInterval — a poll here would be the POC's manual regenerate step wearing
 // a different hat.
 
-import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useNavigationType, useParams, useSearchParams } from 'react-router-dom';
 
 import Alert from '@mui/material/Alert';
@@ -41,19 +41,9 @@ import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import useMediaQuery from '@mui/material/useMediaQuery';
 
-import IconButton from '@mui/material/IconButton';
-import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
-import LockOpenOutlinedIcon from '@mui/icons-material/LockOpenOutlined';
-import { useQueryClient } from '@tanstack/react-query';
 
 import call_rest_api from '../../RestApi/RestApi';
-import { pipelineKeys, pipelineComposeKeys } from '../../hooks/useQueryKeys';
-import AppContext from '../../Context/AppContext';
 import AuthContext from '../../Context/AuthContext';
-// req #3649 — the plan's own lock, toggled from its header.
-import { updatePipeline } from '../../Pipelines/pipelinesApi';
-import { usePanelRackStore } from '../../stores/usePanelRackStore';
-import { useSnackBarStore } from '../../stores/useSnackBarStore';
 import '../../CalendarFC/CalendarFC.css';
 import {
     useAllRequirementSessions,
@@ -86,7 +76,10 @@ import {
     planEntityName, planListPath,
 } from './planEra';
 import { usePlanSources } from './usePlanSources';
-import { usePlanMaximize } from './usePlanMaximize';
+import { useVisualizerMaximize } from '../../hooks/useVisualizerMaximize';
+// req #3793 — the shared full screen switch, and the plan's words for it.
+import FullscreenSwitch from '../../Components/FullscreenSwitch';
+import { PLAN_MAXIMIZE_LABELS } from './planMaximize';
 import {
     readColorParam, readFocusStepParam, readLevelParam,
     FOCUS_LEVEL_PARAM, FOCUS_COLOR_PARAM,
@@ -157,13 +150,10 @@ const TITLE_MIN_W = 140;
 export default function PipelineDetail() {
     const { id } = useParams();
     const navigate = useNavigate();
-    const { profile, idToken } = useContext(AuthContext);
-    const { darwinUri } = useContext(AppContext);
+    const { profile } = useContext(AuthContext);
     const creatorFk = profile?.userName;
     const timezone = profile?.timezone;
     const pipelineId = Number(id);
-    const queryClient = useQueryClient();
-    const showError = useSnackBarStore((st) => st.showError);
 
     // Read, never written any more (req #3641 removed the switcher): a stored
     // 'table' from before normalizes to the one registered mode below.
@@ -567,22 +557,16 @@ export default function PipelineDetail() {
     // req #3381 item 3 — a withheld or degraded `derived` block is a HARD STOP,
     // not an empty render.
     const canRenderPlan = !!pipeline && !diagnostic && !!plan;
-    // req #3658 — the Plan visualizer's maximize switch. The switch itself is
-    // on the canvas; this page owns the state because what it hides is HERE:
-    // the header row, and (by covering it) the Darwin navbar. Enabled only while
-    // the canvas is actually drawn — the switch is the only way out on screen,
-    // so a mode, a load or a withheld derivation that takes the canvas away
-    // must take the maximize with it.
-    const { maximized, toggle: toggleMaximized } =
-        usePlanMaximize(activeMode === 'plan' && canRenderPlan);
-    // req #3735 — maximized, this page is drawn OVER the navbar, so the panel
-    // rack is suspended for every pop-up window until it is not (before paint,
-    // so nothing is portalled into the covered navbar for a frame).
-    useLayoutEffect(() => {
-        if (!maximized) return undefined;
-        usePanelRackStore.getState().setCovered(true);
-        return () => usePanelRackStore.getState().setCovered(false);
-    }, [maximized]);
+    // req #3658 — the Plan visualizer's maximize switch. This page owns the
+    // state because what it hides is HERE: the header row, and (by covering
+    // it) the Darwin navbar. The switch is in the header row while that row is
+    // on screen and on the canvas's upper-left corner once it is hidden (req
+    // #3793). Enabled only while the canvas is actually drawn — the switch is
+    // the only way out on screen, so a mode, a load or a withheld derivation
+    // that takes the canvas away must take the maximize with it. The hook also
+    // suspends the panel rack while the page covers the navbar (req #3735).
+    const planMaximizable = activeMode === 'plan' && canRenderPlan;
+    const { maximized, toggle: toggleMaximized } = useVisualizerMaximize(planMaximizable);
 
     // req #3225 — the whole-plan met/total, read straight off the composed
     // read's own derivation. `plan` is null while a diagnostic is set, so this
@@ -910,8 +894,15 @@ export default function PipelineDetail() {
                     spacer and still takes every pixel of slack first.
                     The title's tooltip was dropped by req #3648 (user
                     directive), so a clipped name is read from the plan list. */}
+                {/* The title's SLOT is the spacer (S11 — `flex: 1`, every
+                    pixel of slack); the title text sits at its start, shrinking
+                    to clip, and the Full screen switch follows the text
+                    directly (req #3793 — "in the title", as the TPU views'
+                    follows "▾ Controls"), not the slot's far end. */}
+                <Box sx={{ flex: 1, minWidth: TITLE_MIN_W, display: 'flex',
+                           alignItems: 'center', gap: 1 }}>
                 <Typography variant={isMobile ? 'h6' : 'h5'} noWrap
-                            sx={{ flex: 1, minWidth: TITLE_MIN_W }}
+                            sx={{ flex: '0 1 auto', minWidth: 0 }}
                             data-testid="pipeline-title">
                     {pipeline.title}
                     {/* A REAL SPACE, not just the margin below (measured —
@@ -956,6 +947,25 @@ export default function PipelineDetail() {
                         </Box>
                     )}
                 </Typography>
+
+                {/* ── FULL SCREEN (req #3793; the switch is req #3658's) ──────
+                    The user's rule: with the controls on screen the switch
+                    lives in the controls' title, just right of the title word —
+                    the TPU 3D views put theirs right of "▾ Controls". The
+                    plan's title IS this row's title word, so the switch follows
+                    its text inside the title's slot. Only while the plan
+                    canvas is drawn (the hook's own enable), and only while NOT
+                    maximized — then this row is hidden and the canvas draws the
+                    same switch in its upper-left corner, so exactly one is ever
+                    on the page. */}
+                {planMaximizable && !maximized && (
+                    <FullscreenSwitch
+                        on={false}
+                        onToggle={toggleMaximized}
+                        testid="pipeline-viz-maximize"
+                        {...PLAN_MAXIMIZE_LABELS} />
+                )}
+                </Box>
 
                 {/* ── GROUP SEPARATOR (req #3261 P2, S5) ──────────────────────
                     The single most legible thing the Build Visualizer does, and
@@ -1032,43 +1042,6 @@ export default function PipelineDetail() {
                     ordinary row is unchanged) and it is not a duplicate of the
                     list page's chip — a reader who navigated straight here
                     (a deep link, a bookmark) never saw that page at all. */}
-                {/* req #3649 — THE PLAN'S PADLOCK. Always rendered (unlike the
-                    two conditional chips after it): a plan that is open must
-                    still OFFER the lock. Locked = a relic in time — no epic or
-                    step created, deleted, moved or edited under it, enforced
-                    at the gateway; its status and the lock itself still write. */}
-                {pipeline && (
-                    <Tooltip title={pipeline.locked
-                        ? 'Locked — this plan, its epics and steps cannot be changed. Click to unlock.'
-                        : 'Open — click to lock this plan, its epics and its steps against any change.'}>
-                        <IconButton
-                            size="small"
-                            aria-pressed={!!pipeline.locked}
-                            aria-label={pipeline.locked ? 'Unlock this plan' : 'Lock this plan'}
-                            data-testid="pipeline-detail-lock"
-                            data-locked={pipeline.locked ? '1' : '0'}
-                            sx={{ flexShrink: 0, color: pipeline.locked ? 'warning.main' : 'text.secondary' }}
-                            onClick={async () => {
-                                try {
-                                    await updatePipeline(darwinUri, idToken, pipeline.id,
-                                        { locked: pipeline.locked ? 0 : 1 });
-                                    await Promise.all([
-                                        queryClient.invalidateQueries({
-                                            queryKey: pipelineComposeKeys.byId(pipeline.id) }),
-                                        creatorFk && queryClient.invalidateQueries({
-                                            queryKey: pipelineKeys.all(creatorFk) }),
-                                    ]);
-                                } catch (err) {
-                                    showError(err, 'Could not change the plan lock');
-                                }
-                            }}
-                        >
-                            {pipeline.locked
-                                ? <LockOutlinedIcon fontSize="small" />
-                                : <LockOpenOutlinedIcon fontSize="small" />}
-                        </IconButton>
-                    </Tooltip>
-                )}
                 {pipeline?.pipeline_status === 'paused' && (
                     <Tooltip title="This plan is paused — its steps are not swarm-starting">
                         <Chip

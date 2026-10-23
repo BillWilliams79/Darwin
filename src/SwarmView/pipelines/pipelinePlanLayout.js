@@ -2514,7 +2514,9 @@ export const reqViewOptions = (v) => REQ_VIEWS[normalizeReqView(v)];
 // longer the viewport's but the active steps' (`activeStepIds`).
 // 10 joined the ladder in req #3686 (user directive: "make the width button have 10
 // as well as the other") — the widest look, widest first like the rest.
-export const STEPS_ACROSS_OPTIONS = [10, 6, 5, 4, 3];
+// 10 and 3 came off the toolbar again in req #3806 (user directive, title bar
+// diet): the ladder is 6 5 4.
+export const STEPS_ACROSS_OPTIONS = [6, 5, 4];
 
 // TWO IS THE EXCEPTION THE USER NAMED — *"fitting ... with tight white space
 // except when 2 is selected"*. Every other option fits its columns edge to
@@ -2655,7 +2657,7 @@ export function stepsAcrossTransform(layout, rows, n, size, kBase, kFloor) {
 //
 // EVERY RUNG IS A `stepsAcrossScale`, the buttons' own arithmetic, so the
 // wheel and a button land on the SAME scale wherever they share a count (4 and
-// 6 since req #3648 made the buttons 6 5 4 3). It extends as far as the zoom
+// 6 since req #3648 made the buttons 6 5 4). It extends as far as the zoom
 // extent allows: a toolbar has to stop somewhere, the ladder does not.
 export const SNAP_COLUMNS_STEP = 2;
 // The floor: two steps across — the closest look, below the buttons' 3.
@@ -3355,6 +3357,36 @@ export function rulerScreenMag(t) {
 export function rulerScreenBottom(t, rulerH = RULER_H) {
     const k = (t && typeof t.k === 'number' && t.k > 0) ? t.k : 1;
     return stickyRulerY(t) + rulerH * k * rulerScreenMag(t);
+}
+
+// ── THE DRAW-TIME RE-THIN (req #3365; lifted out of the renderer, req #3793) ─
+// The layout's own greedy thinning rule ("labelX < lastRight + gap", in
+// `buildRuler` above), re-applied to the widths counter-scaling actually
+// produces (`mag` = `rulerScreenMag(t)`): the date type is a fixed SCREEN size,
+// so in world units it is `mag` times wider than the layout measured. A
+// re-application rather than a second rule, so the strip cannot thin one way at
+// layout time and another way at draw time.
+//
+// `startRight` (req #3793) is the right edge, in WORLD x, of something already
+// occupying the strip's left end — the maximized Plan page's full screen switch
+// sits there — so a date that would begin under it is thinned like any label
+// with no room. −∞ (the default) is an empty strip, exactly the old pass.
+/**
+ * @param {Object[]} slots `ruler.slots` — `{key, showLabel, labelX, labelW}`
+ * @param {number} mag     `rulerScreenMag(t)`
+ * @param {number} [startRight] world x the first label must clear
+ * @returns {Set<string>} the keys of the slot labels drawn
+ */
+export function drawnRulerLabelKeys(slots = [], mag = 1, startRight = -Infinity) {
+    const drawn = new Set();
+    let lastRight = startRight;
+    for (const s of slots) {
+        if (!s.showLabel) continue;          // the layout already refused it
+        if (s.labelX < lastRight + RULER_LABEL_GAP * mag) continue;
+        drawn.add(s.key);
+        lastRight = s.labelX + (s.labelW || 0) * mag;
+    }
+    return drawn;
 }
 
 const truncate = (s, n) => {
