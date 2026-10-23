@@ -738,11 +738,20 @@ const KonvaSwarmCanvas = ({
         }
 
         // ── OUT level: density dots only (one mark per completion) ───────────
+        // Each dot keeps the bead's hover datacard + click-to-open (req #3872)
+        // — only the glyphs are dropped at this level, not the session details.
         if (level === 'out') {
             model.placed.forEach((chip) => {
                 const rad = DOT_R_S * 2.25 * inv * (chip.isUndone ? 1 : costMult(chip));
+                const ds = (devServersOn && !chip.isUndone && chip.session)
+                    ? devServerBySession.get(String(chip.session.id)) : null;
+                const tipChip = ds ? { ...chip, devServer: ds } : chip;
                 nodes.push(<Circle key={chip.chipKey || chip.id} x={xWorld(chip.leftPct)} y={laneY(chip.row)}
-                                   radius={rad} fill={beadFill(chip)} opacity={0.85} />);
+                                   radius={rad} fill={beadFill(chip)} opacity={0.85}
+                                   hitStrokeWidth={6 * inv}
+                                   onMouseEnter={(e) => { cursorPointer(e, true); showTip(tipChip, e); }}
+                                   onMouseLeave={(e) => { cursorPointer(e, false); hideTip(); }}
+                                   onActivate={() => handleChipClick(chip)} />);
             });
             return <Group key={date}>{nodes}</Group>;
         }
