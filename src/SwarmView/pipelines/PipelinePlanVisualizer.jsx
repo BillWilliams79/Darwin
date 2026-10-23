@@ -207,6 +207,7 @@ import {
 } from './pipelineStepInsert';
 import {
     REQ_DRAG_SLOP, reqPressOutcome, stillHeld, dropTargetAt, canDropOn, applyReqMoves,
+    canUnseatFrom, reqMoveReflected,
     edgePanVelocity,
 } from './pipelineReqDrag';
 // req #3665 — the app-wide press timeline and drag surface: the requirement
@@ -232,7 +233,7 @@ import { useUnorchestratedRequirements } from './useUnorchestratedRequirements';
 import {
     UNSEATED_DRAG_TYPE, bulkSeatRequest, resolveSeatDrop, screenRectOf, unseatedBoxFontPx,
     unseatedBoxWidthPx, unseatedBoxZoom,
-    pointerCanSeat, runBulkSeat, bulkSeatFailureMessage,
+    pointerCanSeat, runBulkSeat, bulkSeatFailureMessage, pointInRect,
 } from './pipelineUnseated';
 import '../../CalendarFC/swarmVisualizer.css';
 // req #3580 — in-place edit. The SAME mutation helpers the Initiatives and Steps
@@ -559,6 +560,7 @@ export default function PipelinePlanVisualizer({
     const { darwinUri } = useContext(AppContext);
     const { idToken, profile } = useContext(AuthContext);
     const showError = useSnackBarStore((st) => st.showError);
+    const showMessage = useSnackBarStore((st) => st.showMessage);
 
     // ── Requirement drag-and-drop: the moves in flight (req #3581) ──────────
     // A dropped requirement is drawn on its NEW step from the instant of the
@@ -999,6 +1001,15 @@ export default function PipelinePlanVisualizer({
     const dragPreviewRef = useRef(null);
     const [reqDrag, setReqDrag] = useState(null);
     const [dropStepId, setDropStepId] = useState(null);
+    // req #3817 — THE ORCHESTRABLES BOX IS A DROP TARGET TOO. A requirement
+    // dragged off a step and released over the box (wherever it is: home,
+    // floated anywhere in the window, racked in the navbar) is UN-orchestrated
+    // — its seat deleted, so it is the box's. `unseatBoxRef` is the box's own
+    // element (it hands it over through `dropTargetRef`), hit-tested by CLIENT
+    // point before any step card, since it floats above them. `dropOnBox` is
+    // true while the requirement in flight is over it and may leave its step.
+    const unseatBoxRef = useRef(null);
+    const [dropOnBox, setDropOnBox] = useState(false);
     // True only while a focus transition is in flight (req #3204). See the
     // world-click hit-test for why. `focusSeqRef` stamps each transition so a
     // SUPERSEDED one cannot clear the flag out from under its successor: d3
@@ -1026,17 +1037,37 @@ export default function PipelinePlanVisualizer({
     // outline must clear that, not just the box's own UNSEATED_FLOAT_Z.
     const boxFromRack = usePanelRackStore(
         (s) => s.drag?.id === ORCHESTRABLES_RACK_ID && !!s.drag.fromRack);
+    // req #3817 — a requirement dropped on the box from a step is the box's
+    // from the instant of the drop, as a seat leaves it at once: drawn from the
+    // plan's own row until the junction read lists it. Only a SWARM-READY one —
+    // the box lists ready work and nothing else, so any other status simply
+    // leaves the plan.
+    // The row is the one captured AT THE DROP (`commitReqMove`): the plan's
+    // read stops carrying it once its refetch lands, which may be before the
+    // junction's. Until the DELETE is written the row cannot be dragged back
+    // out — its seat still exists, so a seat would collide with it.
+    const boxRows = useMemo(() => {
+        const unseating = pendingMoves.filter((m) => m.toStepId == null
+            && m.req?.requirement_status === 'swarm_ready');
+        if (!unseating.length) return unseated.items;
+        const listed = new Set(unseated.items.map((r) => Number(r.id)));
+        const added = unseating
+            .filter((m) => !listed.has(m.reqId))
+            .map((m) => ({ ...m.req, unseating: m.writtenRows === undefined }));
+        if (!added.length) return unseated.items;
+        return [...unseated.items, ...added].sort((a, b) => Number(a.id) - Number(b.id));
+    }, [unseated.items, pendingMoves]);
     const unseatedItems = useMemo(
-        () => unseated.items.filter((r) => !pendingSeats.has(Number(r.id))
+        () => boxRows.filter((r) => !pendingSeats.has(Number(r.id))
             && !isMachineHidden(r.machine_fk, hiddenMachines)),
-        [unseated.items, pendingSeats, hiddenMachines]);
+        [boxRows, pendingSeats, hiddenMachines]);
     // req #3702 — the Orchestrables rows follow the reader's colour preference.
     // The SAME registry, theme and resolver as the canvas ids, built over the
     // box's own rows (they sit on no step, so `model.requirements` lacks them).
     // `session_status` is attached exactly as `buildPlanModel` does; with no
     // index yet the Session scale paints unknown rather than "no session".
     const unseatedColorViews = useMemo(() => buildReqColorViews({
-        requirements: unseated.items.map((r) => ({
+        requirements: boxRows.map((r) => ({
             ...r, id: Number(r.id),
             ...(sessionStatus && {
                 session_status: sessionStatus.get(Number(r.id)) ?? 'no_session',
@@ -1044,7 +1075,7 @@ export default function PipelinePlanVisualizer({
         })),
         machines: model?.machines,
         palette: activePalette,
-    }), [unseated.items, sessionStatus, model?.machines, activePalette]);
+    }), [boxRows, sessionStatus, model?.machines, activePalette]);
     // req #3721 — the Active box: this plan's requirements whose latest
     // session is under way, in the cards' own order, coloured by the canvas's
     // own resolver. Off rows and requirements already in hand — no new read.
@@ -2124,6 +2155,13 @@ export default function PipelinePlanVisualizer({
     // AFTER the write from the one already on screen.
     const serverRowsRef = useRef(plan.rows);
     const commitReqMove = useCallback(async (move) => {
+        // req #3817 — an unseat keeps the requirement's row as of the drop:
+        // the box draws it from this until the junction read lists it, and the
+        // plan's own read stops carrying it the moment its refetch lands.
+        if (move.toStepId == null) {
+            move.req = (model?.requirements || [])
+                .find((r) => Number(r.id) === move.reqId) || null;
+        }
         setPendingMoves((ms) => [...ms, move]);
         let failed = false;
         try {
@@ -2152,7 +2190,9 @@ export default function PipelinePlanVisualizer({
             showError(error, stranded
                 ? `Requirement ${move.reqId} could not be moved and is now on no step `
                   + '— re-seat it from its requirement page'
-                : `Unable to move requirement ${move.reqId}`);
+                : (move.toStepId == null
+                    ? `Unable to un-orchestrate requirement ${move.reqId}`
+                    : `Unable to move requirement ${move.reqId}`));
         }
         if (failed) {
             // The server's rows ARE the revert, and they are already on screen
@@ -2164,6 +2204,13 @@ export default function PipelinePlanVisualizer({
             // be what clears it.
             move.writtenRows = serverRowsRef.current;
             setPendingMoves((ms) => [...ms]);
+            // req #3817 — the box lists swarm-ready work only, so anything else
+            // un-orchestrated leaves the plan without arriving there: say so.
+            const status = move.req?.requirement_status;
+            if (move.toStepId == null && status && status !== 'swarm_ready') {
+                showMessage(`Requirement ${move.reqId} is no longer orchestrated. `
+                    + `It is ${status}, and Orchestrables lists swarm-ready work only.`);
+            }
         }
         if (pipeline?.id != null) {
             queryClient.invalidateQueries({ queryKey: pipelineComposeKeys.byId(pipeline.id) });
@@ -2171,7 +2218,8 @@ export default function PipelinePlanVisualizer({
         queryClient.invalidateQueries({
             queryKey: pipelineStepRequirementKeys.all(profile?.userName) });
         queryClient.invalidateQueries({ queryKey: ['orchestration_index'] });
-    }, [darwinUri, idToken, profile?.userName, pipeline?.id, queryClient, showError]);
+    }, [darwinUri, idToken, profile?.userName, pipeline?.id, queryClient, showError,
+        showMessage, model?.requirements]);
 
     // ── A WRITTEN MOVE IS DROPPED BY THE DATA, NEVER BY A PROMISE ───────────
     // `invalidateQueries` cancels a refetch already in flight, and a cancelled
@@ -2184,14 +2232,20 @@ export default function PipelinePlanVisualizer({
     // it standing, which is right: the write succeeded.
     const composeFetching = useIsFetching({
         queryKey: pipelineComposeKeys.byId(pipeline?.id ?? null) });
+    // req #3817 — an UNSEAT is also drawn in the Orchestrables box, whose rows
+    // come from the junction read, not the plan's: it is held until that read
+    // has landed too, so the row never blinks out of the box between the two.
+    const junctionFetching = useIsFetching({
+        queryKey: pipelineStepRequirementKeys.all(profile?.userName) });
     useEffect(() => {
         serverRowsRef.current = plan.rows;
         const server = plan.rows || [];
         const settled = pendingMoves.filter((m) => m.writtenRows !== undefined && (
-            server.some((r) => r.id === m.toStepId && (r.reqIds || []).includes(m.reqId))
-            || (server !== m.writtenRows && composeFetching === 0)));
+            reqMoveReflected(server, m)
+            || (server !== m.writtenRows && composeFetching === 0))
+            && (m.toStepId != null || junctionFetching === 0));
         if (settled.length) setPendingMoves((ms) => ms.filter((m) => !settled.includes(m)));
-    }, [plan.rows, pendingMoves, composeFetching]);
+    }, [plan.rows, pendingMoves, composeFetching, junctionFetching]);
 
     const dragWorldRef = useRef(null);
     useLayoutEffect(() => {
@@ -2211,6 +2265,7 @@ export default function PipelinePlanVisualizer({
         const PAD_Y = 3;
         let raf = 0;
         let lastPoint = null;           // panel-relative, last pointer position
+        let lastClient = null;          // the same position in WINDOW coordinates
         let guardTimer = 0;
         // A lifted or long-pressed TOUCH ends in a touchend the browser would
         // turn into a click — swallowed, once (see `onTouchEnd`).
@@ -2252,6 +2307,35 @@ export default function PipelinePlanVisualizer({
             const d = reqDragRef.current;
             if (d?.phase !== 'drag' || !lastPoint) return;
             const w = world();
+            // req #3817 — over the Orchestrables box, the box takes it: the
+            // drop un-orchestrates the requirement, whatever step card lies
+            // beneath the box. Hit-tested in WINDOW coordinates, so a box
+            // parked on the navbar or racked there is a target too. A locked
+            // step's requirement cannot leave it (the gateway answers 423).
+            // The box must be what is SEEN there: racked in a navbar stack
+            // that scrolls, its rect can lie under the nav buttons or past the
+            // rack's visible edge, and other chrome can sit over it. The copy
+            // in flight ignores the pointer, so it is never what is found.
+            const box = unseatBoxRef.current;
+            const seen = box?.isConnected && lastClient
+                && pointInRect(lastClient.x, lastClient.y, box.getBoundingClientRect())
+                && box.contains(document.elementFromPoint?.(lastClient.x, lastClient.y) ?? null);
+            if (seen) {
+                const ok = canUnseatFrom(w.rowById.get(d.fromStepId));
+                if (d.target != null) {
+                    d.target = null;
+                    setDropStepId(null);
+                }
+                if (!!d.unseat !== ok) {
+                    d.unseat = ok;
+                    setDropOnBox(ok);
+                }
+                return;
+            }
+            if (d.unseat) {
+                d.unseat = false;
+                setDropOnBox(false);
+            }
             // ONLY INSIDE THE PANEL (code review C1). The move listeners are on
             // `window`, so a pointer over the page header or past the panel
             // edge still maps to a world point — onto a card clipped out of
@@ -2273,9 +2357,11 @@ export default function PipelinePlanVisualizer({
         const placePreview = () => {
             const d = reqDragRef.current;
             const box = dragPreviewRef.current;
-            if (!d || !box || !lastPoint) return;
+            if (!d || !box || !lastClient) return;
+            // WINDOW coordinates (req #3817): the copy is `position: fixed`, so
+            // it stays visible carried out of the pane to a box on the navbar.
             box.style.transform =
-                `translate(${lastPoint.x - d.offX}px, ${lastPoint.y - d.offY}px)`;
+                `translate(${lastClient.x - d.offX}px, ${lastClient.y - d.offY}px)`;
         };
         // Edge auto-pan, one step per frame while the pointer sits in the edge
         // band. Clamped BEFORE it is applied, with the zoom behaviour's own
@@ -2327,7 +2413,7 @@ export default function PipelinePlanVisualizer({
             setReqDrag({
                 reqId: d.reqId, fromStepId: d.fromStepId, src,
                 w: r.width, h: r.height, padX: PAD_X, padY: PAD_Y,
-                x: lastPoint.x - d.offX, y: lastPoint.y - d.offY,
+                x: lastClient.x - d.offX, y: lastClient.y - d.offY,
             });
             setCursor('grabbing');
             if (d.pointerType === 'touch') {
@@ -2341,8 +2427,10 @@ export default function PipelinePlanVisualizer({
             if (raf) cancelAnimationFrame(raf);
             raf = 0;
             lastPoint = null;
+            lastClient = null;
             setReqDrag(null);
             setDropStepId(null);
+            setDropOnBox(false);
             setCursor('grab');
         };
         // The click that ends a drag is the drag's, not the requirement's —
@@ -2405,6 +2493,7 @@ export default function PipelinePlanVisualizer({
                 travel: 0,
             };
             lastPoint = panelPoint(e);
+            lastClient = { x: e.clientX, y: e.clientY };
             // HELD STILL, A FINGER LIFTS IT (a mouse lifts by moving).
             d.liftTimer = setTimeout(() => {
                 if (reqDragRef.current !== d || d.phase !== 'press') return;
@@ -2438,6 +2527,7 @@ export default function PipelinePlanVisualizer({
             }
             d.travel = Math.max(d.travel, Math.hypot(e.clientX - d.down.x, e.clientY - d.down.y));
             lastPoint = panelPoint(e);
+            lastClient = { x: e.clientX, y: e.clientY };
             if (d.phase === 'press') {
                 const outcome = reqPressOutcome(d.pointerType, d.travel, false);
                 if (outcome === 'pan') {             // d3 has the finger
@@ -2472,10 +2562,15 @@ export default function PipelinePlanVisualizer({
             guardClick();
             if (d.phase === 'cancelled') { reqDragRef.current = null; return; }
             lastPoint = panelPoint(e);
+            lastClient = { x: e.clientX, y: e.clientY };
             retarget();
             const toStepId = d.target;
+            const unseat = !!d.unseat;
             finish();
-            if (toStepId != null) {
+            if (unseat) {
+                // req #3817 — dropped on the Orchestrables box: off the plan.
+                world().commit({ reqId: d.reqId, fromStepId: d.fromStepId, toStepId: null });
+            } else if (toStepId != null) {
                 world().commit({ reqId: d.reqId, fromStepId: d.fromStepId, toStepId });
             }
         };
@@ -3607,6 +3702,16 @@ export default function PipelinePlanVisualizer({
     const seatUnseated = async (reqId, target) => {
         if (!target?.ok || !Number.isFinite(reqId) || reqId <= 0) return;
         setPendingSeats((prev) => new Set(prev).add(reqId));
+        // req #3817 — just un-orchestrated from the canvas (its DELETE is
+        // written, or the row could not be lifted): the unseat no longer
+        // describes it. It becomes a move to the step it now joins, so the
+        // canvas draws it there at once — not back on its old step while the
+        // plan's read still lists it — and settles the same way a move does.
+        const unseat = dragWorldRef.current?.pendingMoves
+            .find((m) => m.toStepId == null && m.reqId === reqId);
+        const carried = unseat
+            ? { reqId, fromStepId: unseat.fromStepId, toStepId: target.stepId } : null;
+        if (carried) setPendingMoves((ms) => ms.map((m) => (m === unseat ? carried : m)));
         const junctionKey = pipelineStepRequirementKeys.all(profile?.userName);
         try {
             // The one seat write (`moveStepRequirement`, req #3581) with no
@@ -3619,9 +3724,14 @@ export default function PipelinePlanVisualizer({
                 { requirementId: reqId, toStepId: target.stepId });
         } catch (error) {
             showError(error, `Unable to add ${reqId} to the step`);
+            if (carried) setPendingMoves((ms) => ms.filter((m) => m !== carried));
             forgetPending(reqId);
             queryClient.invalidateQueries({ queryKey: junctionKey });
             return;
+        }
+        if (carried) {
+            carried.writtenRows = serverRowsRef.current;
+            setPendingMoves((ms) => [...ms]);
         }
         // Held hidden until the refetches land, so the row leaves the box once
         // and the card gains it once — never a flash back in between.
@@ -5141,8 +5251,11 @@ export default function PipelinePlanVisualizer({
                          data-req-id={reqDrag.reqId}
                          style={{ transform: `translate(${reqDrag.x}px, ${reqDrag.y}px)` }}
                          // Over a box parked on the plan, which floats at
-                         // UNSEATED_FLOAT_Z once placed (req #3687).
-                         sx={{ position: 'absolute', left: 0, top: 0,
+                         // UNSEATED_FLOAT_Z once placed (req #3687). FIXED in
+                         // the window (req #3817), like a placed box — it
+                         // escapes the pane's `overflow: hidden` the same way —
+                         // so it can be carried to a box on the navbar.
+                         sx={{ position: 'fixed', left: 0, top: 0,
                                 zIndex: UNSEATED_FLOAT_Z + 2,
                                 pointerEvents: 'none', willChange: 'transform',
                                 px: `${reqDrag.padX}px`, py: `${reqDrag.padY}px`,
@@ -5960,6 +6073,13 @@ export default function PipelinePlanVisualizer({
                     onMoveOver={onBoxMoveOver}
                     onMoveDrop={onBoxMoveDrop}
                     onCarryingChange={setBoxCarrying}
+                    // req #3817 — a requirement dragged off a step drops here
+                    // to leave the plan.
+                    dropTargetRef={unseatBoxRef}
+                    dropArmed={reqDrag
+                        ? (canUnseatFrom(rowById.get(reqDrag.fromStepId)) ? 'ok' : 'refused')
+                        : null}
+                    dropOver={dropOnBox}
                     onOpen={(id) => navigate(`/swarm/requirement/${id}`,
                         pipeline?.id
                             ? { state: planExitState(pipeline.id, 'plan') }
