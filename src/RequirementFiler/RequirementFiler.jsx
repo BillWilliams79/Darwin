@@ -66,6 +66,12 @@ const LIMITS = { minW: MIN_W, minH: MIN_H, autoMaxW: 320, headPx: ACTION_POPUP_H
 /** Floating home: top-left, just clear of the full-width navbar. */
 export const FILER_HOME = Object.freeze({ h: 'l', x: SIDEBAR_WIDTH + 16, v: 't', y: 16, w: null, ht: null });
 
+// What held focus as a press on Create began: the click moves focus to the
+// filer before it files, and the field being typed in is never copied (req #3829).
+// Timed: a press that never became a click (dragged off) is forgotten.
+let focusAtPress = null;
+const PRESS_MS = 2000;
+
 /** Starts a new requirement in the editor — asking first when the one in it
  *  has changes not yet sent (an orphaned draft — committed, id unknown — has
  *  none it can send). `withCapture` — it awaits a debug capture (req #3815).
@@ -113,10 +119,14 @@ export default function RequirementFiler() {
     const signedIn = !!profile?.userName;
     // Where a requirement started now is filed from — read at the press, so it
     // is the page as it is then (req #3813).
-    const filedFrom = () => filedFromNow({
-        location, profile, database, theme, popupId: FILER_RACK_ID,
-        popupStore: { open: useRequirementFilerStore.getState().open, dock },
-    });
+    const filedFrom = () => {
+        const typingIn = focusAtPress && performance.now() - focusAtPress.t < PRESS_MS ? focusAtPress.el : null;
+        focusAtPress = null;
+        return filedFromNow({
+            location, profile, database, theme, popupId: FILER_RACK_ID,
+            popupStore: { open: useRequirementFilerStore.getState().open, dock }, typingIn,
+        });
+    };
     const fileRequirement = () => fileRequirementNow(filedFrom(), profile);
     useEffect(() => {
         if (!filerParam || !signedIn) return;
@@ -146,6 +156,7 @@ export default function RequirementFiler() {
                                                   testid="requirement-filer-close" />}>
             {() => (
                 <Box role="button" tabIndex={0} onClick={fileRequirement} onKeyDown={onKey}
+                     onPointerDownCapture={() => { focusAtPress = { el: document.activeElement, t: performance.now() }; }}
                      aria-label="Create a requirement" data-testid="requirement-filer-new"
                      title="Create a requirement — it starts with the last one's settings and records this page and a debug capture"
                      sx={{ px: '0.7em', py: '0.5em', cursor: 'pointer', color: P.text,
