@@ -38,6 +38,10 @@ import {
 //   • `orphaned` — the POST committed but its id could not be read back: Save is
 //     refused until a new requirement is started, so it cannot POST a duplicate.
 //   • `focusPending` — focus the title once, for a draft just started; live only.
+//   • `creating` — the `draftKey` of a CREATE still being written (its POST,
+//     then its debug capture) while the editor it closed is hidden (req #3860);
+//     null when none is. A new or reopened requirement waits for it, so it never
+//     replaces a draft whose capture is still on its way. Live only.
 //
 // THE DEBUG CAPTURE (req #3815) — FILE starts a draft and snapshots a debug
 //   capture (RequirementFiler/debugBundle.js) for it — where it was filed from
@@ -90,6 +94,7 @@ export const useRequirementFilerStore = create(
             draftKey: 0,
             orphaned: false,
             focusPending: false,
+            creating: null,
             defaults: {},
             capture: null,
             captureDropped: [],
@@ -145,6 +150,8 @@ export const useRequirementFilerStore = create(
             },
             setFields: (patch) => set({ draft: { ...get().draft, ...patch } }),
             clearFocusPending: () => set({ focusPending: false }),
+            setCreating: (creating) => set({ creating }),
+            endCreating: (key) => { if (get().creating === key) set({ creating: null }); },
             // A successful save of the draft `key` names: the row's id and the
             // values it now holds — and, for the next one, where it was filed and
             // its settings. Ignored when another draft has been started.
@@ -182,8 +189,11 @@ export const useRequirementFilerStore = create(
             },
             // The capture stays in memory; a reload that loses it before its
             // row is saved says so ('lost') rather than waiting on it forever.
-            partialize: ({ focusPending, capture, ...persisted }) => ({
+            // A reload mid-create (req #3860) brings its draft back into view —
+            // whether it was filed is then for the reader to see.
+            partialize: ({ focusPending, creating, capture, ...persisted }) => ({
                 ...persisted,
+                editorShow: persisted.editorShow || creating != null,
                 captureStage: ['capturing', 'ready'].includes(persisted.captureStage) ? 'lost' : persisted.captureStage,
             }),
         }

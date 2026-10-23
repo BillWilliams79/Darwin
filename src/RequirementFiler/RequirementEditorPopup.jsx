@@ -41,6 +41,15 @@
 // so a half-typed title never becomes a row; after that every change saves on
 // its own, LIVE_SAVE_MS after the last edit, like the requirement page. A failed
 // live save is shown with Retry and not re-sent until something changes.
+//
+// CREATE CLOSES THE EDITOR AT THE PRESS (req #3860, "try out having the
+// requirement editor close as soon as you click create"): the requirement, its
+// capture and the description's link are written with the editor hidden — this
+// component stays mounted, so the save runs on — and the filer's list shows it
+// filed; a click there brings it back. A create that FAILS brings the editor
+// back on its draft, so what was typed, the error and Retry are never hidden.
+// While it is being written the store's `creating` holds its key, and the
+// filer's + and a reopen wait for it (RequirementFiler.jsx createSettled).
 // Its fields, the saved id and where it floats live in useRequirementFilerStore
 // — racking re-mounts this subtree, and a draft survives a reload.
 //
@@ -358,7 +367,8 @@ export default function RequirementEditorPopup() {
     const captureStage = useRequirementFilerStore(s => s.captureStage);
     const captureSentDropped = useRequirementFilerStore(s => s.captureSentDropped);
     const { setEditorShow, toggleEditorOpen, setEditorDock, setFields, markSaved, markOrphaned,
-        clearFocusPending, toggleCaptureCategory, setCaptureStage, markCaptureSent } = useRequirementFilerStore.getState();
+        clearFocusPending, toggleCaptureCategory, setCaptureStage, markCaptureSent,
+        setCreating, endCreating } = useRequirementFilerStore.getState();
     // Always as tall as its content (user, 2026-10-23: "probably 3x too tall"):
     // a height stored from an earlier, longer form is never applied.
     const dock = { ...(validDock(storedDock, MIN_W, MIN_H) || EDITOR_HOME), ht: null };
@@ -367,6 +377,14 @@ export default function RequirementEditorPopup() {
     const [saving, setSaving] = useState(null);
     const [failure, setFailure] = useState(null);
     const error = failure?.key === draftKey ? failure.text : null;
+    // A failure is shown where it can be read: on a create, Create closed the
+    // editor (req #3860), so it comes back — on that draft only, never over
+    // another, and never for a later save the reader closed it on.
+    const failOpen = (f) => {
+        setFailure(f);
+        const st = useRequirementFilerStore.getState();
+        if (st.draftKey === f.key && st.creating === f.key) setEditorShow(true);
+    };
     // The settings behind the spec-code button: closed for every new draft.
     const [settingsOpen, setSettingsOpen] = useState(false);
     // The capture's per-category details, behind its Details button.
@@ -498,6 +516,9 @@ export default function RequirementEditorPopup() {
         const st = await captureSettled(key);
         if (st.draftKey !== key) return;
         let stage = st.captureStage;
+        // Still being built when its wait ran out: shown with Retry once it is
+        // ready, rather than left unsent behind the closed editor (req #3860).
+        if (stage === 'capturing' && st.creating === key) setEditorShow(true);
         if (stage === 'ready') {
             // The first send fixes the selection: a retry sends, and the block
             // describes, exactly what that send carried.
@@ -512,12 +533,12 @@ export default function RequirementEditorPopup() {
                     { requirement_fk: id, bundle: text, bundle_bytes: bytes, creator_fk: user }, idToken);
                 const status = res?.httpStatus?.httpStatus;
                 ok = status === 200 || status === 201;
-                if (!ok) setFailure({ key, text: errorText(res, `#${id} saved, but its debug capture was not`) });
+                if (!ok) failOpen({ key, text: errorText(res, `#${id} saved, but its debug capture was not`) });
             } catch (e) {
                 // One capture per requirement: a DUPLICATE-KEY 409 is the row an
                 // earlier try wrote. A foreign-key 409 (the requirement is gone) is not.
                 ok = e?.httpStatus?.httpStatus === 409 && Number(e?.httpStatus?.httpDetail?.errno) === 1062;
-                if (!ok) setFailure({ key, text: errorText(e, `#${id} saved, but its debug capture was not`) });
+                if (!ok) failOpen({ key, text: errorText(e, `#${id} saved, but its debug capture was not`) });
             }
             if (!ok) return;
             stage = 'posted';
@@ -532,11 +553,11 @@ export default function RequirementEditorPopup() {
             const res = await call_rest_api(`${darwinUri}/requirements`, 'PUT', [{ id, description }], idToken);
             const status = res?.httpStatus?.httpStatus;
             if (status !== 200 && status !== 204) {
-                setFailure({ key, text: errorText(res, `#${id}'s debug capture is saved, but its description does not point at it yet`) });
+                failOpen({ key, text: errorText(res, `#${id}'s debug capture is saved, but its description does not point at it yet`) });
                 return;
             }
         } catch (e) {
-            setFailure({ key, text: errorText(e, `#${id}'s debug capture is saved, but its description does not point at it yet`) });
+            failOpen({ key, text: errorText(e, `#${id}'s debug capture is saved, but its description does not point at it yet`) });
             return;
         }
         queryClient.invalidateQueries({ queryKey: requirementKeys.all(user) });
@@ -563,15 +584,23 @@ export default function RequirementEditorPopup() {
     // store (this closure's `canSave` may be a hidden render's, stale).
     const save = async (live = false) => {
         if (!live && !canSave) return;
+        // A live save only ever PUTs: a closure from before the create landed
+        // (the editor it closed renders nothing) must never POST it twice.
+        if (live && savedId == null) return;
         const key = draftKey;
-        const fail = (res, text) => { failedDraftRef.current = draft; setFailure({ key, text: errorText(res, text) }); };
+        const isPost = savedId == null;
+        const fail = (res, text) => {
+            failedDraftRef.current = draft;
+            (isPost ? failOpen : setFailure)({ key, text: errorText(res, text) });
+        };
         savingRef.current = key;
         setSaving(key);
         setFailure(null);
         const values = savedValues(draft);
         const uri = `${darwinUri}/requirements`;
-        const isPost = savedId == null;
         let id = savedId;
+        // CREATE closes the editor at the press (req #3860); the rest is written hidden.
+        if (isPost) { setCreating(key); setEditorShow(false); }
         try {
             if (isPost) {
                 const body = buildPostBody(draft);
@@ -584,7 +613,7 @@ export default function RequirementEditorPopup() {
                     // Saved, but no id to PUT later edits to: keep what was typed,
                     // and refuse a second save that would POST a duplicate.
                     markOrphaned(key);
-                    setFailure({ key, text: 'Saved, but its id could not be read back — find it on /swarm, '
+                    failOpen({ key, text: 'Saved, but its id could not be read back — find it on /swarm, '
                         + 'or start a new requirement.' });
                     return;
                 }
@@ -602,6 +631,7 @@ export default function RequirementEditorPopup() {
         } catch (e) {
             fail(e, isPost ? 'Requirement not saved' : 'Changes not saved');
         } finally {
+            if (isPost) endCreating(key);
             if (savingRef.current === key) savingRef.current = null;
             setSaving(s => (s === key ? null : s));
         }
