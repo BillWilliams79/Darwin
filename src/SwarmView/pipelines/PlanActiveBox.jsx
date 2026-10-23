@@ -9,18 +9,18 @@
 // resolver, `idStyleOf`), then the Terminal and Dev Server pills in the card's
 // own palette (`REQ_PILL_*`, planReqPills.js) — clickable exactly as the card's
 // are — then the title, in the id's colour, on ONE line, cut with "…" (req
-// #3729). The head is every pop-up window's (req #3741): the ▾ at the upper
+// #3729). The head is every Action Popup's (req #3741): the ▾ at the upper
 // left, the card's green count badge, the title — and the upper right blank,
 // since the box has no close (its small-view button went with req #3741,
 // user directive). A click on the
 // row opens the requirement, with the plan as Back's target, as a click on the
 // card's row does.
 //
-// ── A POP-UP INFORMATION WINDOW ────────────────────────────────────────────
+// ── AN ACTION POPUP ────────────────────────────────────────────────────────
 // Floating, docking, reshaping and collapsing are AnchoredPanel's — the Dev
 // Servers dashboard's type (pattern doc memory/anchored-collapse-pattern.md),
 // with its `rackId` so it racks onto the Darwin navbar alongside the other
-// information windows (req #3720) — floating instead while the page is
+// Action Popups (req #3720) — floating instead while the page is
 // maximized over the navbar (the rack's `covered`, req #3735). It is drawn only
 // while the visualizer is.
 // Mounted OUTSIDE the canvas pane, so d3-zoom never sees its pointer or wheel.
@@ -37,8 +37,8 @@ import Box from '@mui/material/Box';
 import AnchoredPanel from '../../Components/AnchoredPanel/AnchoredPanel';
 import { validDock } from '../../Components/AnchoredPanel/anchoredPanelGeometry';
 import {
-    INFO_PANEL_BADGE_EM, INFO_PANEL_COLORS, INFO_PANEL_FONT_PX, INFO_PANEL_HEAD_PX, INFO_PANEL_MONO, INFO_PANEL_SX,
-} from '../../Components/AnchoredPanel/infoPanelChrome';
+    ACTION_POPUP_BADGE_EM, ACTION_POPUP_COLORS, ACTION_POPUP_FONT_PX, ACTION_POPUP_HEAD_PX, ACTION_POPUP_MONO, ACTION_POPUP_SX,
+} from '../../Components/AnchoredPanel/actionPopupChrome';
 import { SIDEBAR_WIDTH } from '../../NavBar/navConfig';
 import { usePlanActiveBoxStore } from '../../stores/usePlanActiveBoxStore';
 import { PLAN_VIZ_PALETTE as P } from './pipelinePlanLayout';
@@ -47,7 +47,7 @@ import {
     REQ_PILL_STYLE,
 } from './planReqPills';
 
-const MONO = INFO_PANEL_MONO;
+const MONO = ACTION_POPUP_MONO;
 /** Smallest panel the edges will shape, px: an id and a pill. */
 export const ACTIVE_MIN_W = 120;
 export const ACTIVE_MIN_H = 64;
@@ -55,7 +55,7 @@ export const ACTIVE_MIN_H = 64;
 export const ACTIVE_TINY_W = 170;
 /** Content-sized, the panel is as wide as its rows, up to this, px. */
 export const ACTIVE_AUTO_MAX_W = 420;
-const LIMITS = { minW: ACTIVE_MIN_W, minH: ACTIVE_MIN_H, autoMaxW: ACTIVE_AUTO_MAX_W, headPx: INFO_PANEL_HEAD_PX };
+const LIMITS = { minW: ACTIVE_MIN_W, minH: ACTIVE_MIN_H, autoMaxW: ACTIVE_AUTO_MAX_W, headPx: ACTION_POPUP_HEAD_PX };
 /** Home: the viewport's bottom-left, just clear of the full-width navbar —
  *  the plan's free corner (the key is a toolbar popup, the Orchestrables box
  *  top-right, the epic names and — maximized — the full screen switch
@@ -65,7 +65,7 @@ export const ACTIVE_HOME = Object.freeze({
     h: 'l', x: SIDEBAR_WIDTH + 16, v: 'b', y: 16, w: null, ht: null,
 });
 const ACTIVE_HOME_MAXIMIZED = Object.freeze({ ...ACTIVE_HOME, x: 16 });
-const BADGE_EM = INFO_PANEL_BADGE_EM;
+const BADGE_EM = ACTION_POPUP_BADGE_EM;
 
 const SESSION_LABEL = {
     starting: 'Starting', waiting: 'Waiting', planning: 'Planning', active: 'Implementing',
@@ -118,8 +118,8 @@ function PlanActiveBox({ items, reqPills = null, idStyleOf, isLoading = false, o
         <AnchoredPanel dock={dock} onDockChange={setDock}
                        open={open} onToggle={toggleOpen}
                        name="Active" testid="pipeline-viz-active" rackId="active"
-                       limits={LIMITS} fontPx={INFO_PANEL_FONT_PX} colors={INFO_PANEL_COLORS}
-                       sx={INFO_PANEL_SX}
+                       limits={LIMITS} fontPx={ACTION_POPUP_FONT_PX} colors={ACTION_POPUP_COLORS}
+                       sx={ACTION_POPUP_SX}
                        extras={
                            // The step card's count badge (req #3503).
                            <Box component="span" data-testid="pipeline-viz-active-count"

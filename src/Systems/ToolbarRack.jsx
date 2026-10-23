@@ -2,7 +2,7 @@
 //
 // AI Architecture (/systems2) shows its own toolbar: the topology page's
 // navbar, drawn in a same-origin iframe beside Darwin's. While that toolbar is
-// drawn, every pop-up information window docks against IT, by the Darwin
+// drawn, every Action Popup docks against IT, by the Darwin
 // navbar's rules and with its behaviours — dropped on the toolbar it glows in
 // the window's frame colour, the window locks in below the toolbar's buttons at
 // the toolbar's width, more than one stack in rack order, each only as tall as
@@ -35,8 +35,8 @@
 //   • DRAWN — the toolbar folded to its slim strip (its ‹), or covered by a 3D
 //     view's full screen, is not drawn: the slot is withdrawn and the windows go
 //     back to the Darwin navbar, as they would with no toolbar at all.
-// A floating window dragged over the frame would otherwise lose its pointer to
-// the iframe, so the frame takes no pointer while one is carried.
+// A floating Action Popup dragged over the frame would otherwise lose its
+// pointer to the iframe, so the frame takes no pointer while one is carried.
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -186,7 +186,7 @@ export default function ToolbarRack({ frameRef }) {
         return () => setPageSlot(null);
     }, [host, slotNode, drawn, width, frameRef]);
 
-    // The drop glow on the toolbar, and a carried floating window keeps its
+    // The drop glow on the toolbar, and a carried floating Action Popup keeps its
     // pointer over the frame.
     const drag = usePanelRackStore(s => (s.pageSlot && s.pageSlot.node === slotNode ? s.drag : null));
     const dragging = !!drag;
