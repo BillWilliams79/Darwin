@@ -2,7 +2,8 @@
 // windows that float over a page and rack in the navbar (the Dev Servers
 // dashboard, req #3643; the navbar's own Dev Server panel, req #3727; the Plan
 // visualizer's Active box, req #3721, and Orchestrables box, which racks in this
-// type, req #3735). One place, so the Action Popups read as one family.
+// type, req #3735; the Requirement Filer and its editor, req #3811). One place,
+// so the Action Popups read as one family.
 
 import { PLAN_VIZ_PALETTE as P } from '../../SwarmView/pipelines/pipelinePlanLayout';
 

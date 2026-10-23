@@ -6,6 +6,8 @@ import { Outlet, useLocation } from "react-router-dom"
 import NavBar from './NavBar/NavBar'
 import DevServerDashboard from './DevServers/DevServerDashboard';
 import DevServerActionPopup from './NavBar/DevServerActionPopup';
+import RequirementFiler from './RequirementFiler/RequirementFiler';
+import RequirementEditorPopup from './RequirementFiler/RequirementEditorPopup';
 import { SnackBar } from './Components/SnackBar/SnackBar';
 import { useSnackBarStore } from './stores/useSnackBarStore';
 import { noteRoute } from './utils/routeTrail';
@@ -47,6 +49,9 @@ const App = () => {
             <DevServerDashboard />
             {/* req #3727 — dev builds only; racked in the navbar by default */}
             <DevServerActionPopup />
+            {/* req #3811 — opened from the navbar's filer control, on every page */}
+            <RequirementFiler />
+            <RequirementEditorPopup />
             <SnackBar snackBarOpen={snackBarOpen}
                       setSnackBarOpen={setSnackBarOpen}
                       snackBarMessage={snackBarMessage}
