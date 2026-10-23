@@ -149,15 +149,18 @@ export default function EngineDecisionPanel({ engine, view, names, reqTitles, ti
                 <Box data-testid={`engine-epics-${id}`}>
                     {view.epics.map((e) => (
                         <Box key={e.epicId} data-testid={`engine-epic-${id}-${e.epicId}`} data-code={e.code}
-                             sx={{ display: 'flex', gap: 1, alignItems: 'baseline', flexWrap: 'wrap', py: 0.25 }}>
-                            <CodeChip code={e.code} />
-                            <Typography variant="body2" component="span">
-                                <EpicLink pipelineId={pipelineId} epicId={e.epicId} names={names}
-                                          testid={`engine-epic-row-link-${id}-${e.epicId}`} />
-                            </Typography>
-                            <Typography variant="body2" color="text.secondary" component="span">
-                                {e.words}{e.detail ? ` — ${e.detail}` : ''}
-                            </Typography>
+                             sx={{ display: 'grid', gap: 1, py: 0.5, alignItems: 'start',
+                                   gridTemplateColumns: { xs: '1fr', md: '110px 1fr' } }}>
+                            <Box><CodeChip code={e.code} /></Box>
+                            <Box sx={{ minWidth: 0 }}>
+                                <Typography variant="body2" component="div">
+                                    <EpicLink pipelineId={pipelineId} epicId={e.epicId} names={names}
+                                              testid={`engine-epic-row-link-${id}-${e.epicId}`} />
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary">
+                                    {e.words}{e.detail ? ` — ${e.detail}` : ''}
+                                </Typography>
+                            </Box>
                         </Box>
                     ))}
                 </Box>

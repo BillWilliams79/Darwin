@@ -10,7 +10,7 @@ import Box from '@mui/material/Box';
 
 import {
     ACTUAL_STATE_WORDS, CODE_VERDICT_WORDS, HEALTH_COLORS, HEALTH_MISSING, HEALTH_WORDS,
-    MISSING_AFTER_SECONDS,
+    MISSING_AFTER_SECONDS, desiredReasonText,
 } from './engineVocabulary';
 import { agoText, humanDuration, restartsText, stampText } from './engineModel';
 import { Field, PanelTitle, ToneChip } from './enginePanelParts';
@@ -61,7 +61,7 @@ export default function EngineHealthPanel({ engine, timezone }) {
             </Field>
             <Field label="Wanted" testid={`engine-desired-${engine.id}`}>
                 {state.desired_state || '—'}
-                {state.desired_reason ? ` (${state.desired_reason})` : ''}
+                {state.desired_reason ? ` (${desiredReasonText(state.desired_reason)})` : ''}
             </Field>
         </Box>
     );

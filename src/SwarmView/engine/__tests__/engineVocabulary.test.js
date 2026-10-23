@@ -15,7 +15,8 @@ import { describe, expect, it } from 'vitest';
 import {
     CODE_COLORS, CODE_LABELS, EPIC_CODES, EVENT_CODES, HEALTH_COLORS, HEALTH_STATES, HOLD_CODES,
     SHELL_EVENT_CODES,
-    ITEM_CODES, MISSING_AFTER_SECONDS, PLAIN_WORDS, codeLabel, detailText, eventText, plainWords,
+    ITEM_CODES, MISSING_AFTER_SECONDS, PLAIN_WORDS, codeLabel, desiredReasonText, detailText, eventText,
+    plainWords,
 } from '../engineVocabulary';
 
 const ENGINE2 = path.resolve(__dirname, '../../../../../scripts/swarm/engine2');
@@ -95,6 +96,12 @@ describe('engine vocabulary — every code has a label, a colour and a sentence'
             .toBe('announced 2026-10-22T08:00:00Z, attempt 2, waiting for the executor');
         expect(detailText('ADMITTED', { reannounce: 3 })).toBe('announced again (attempt 3)');
         expect(detailText('ADMITTED', null)).toBe('');
+        // A held-for-a-person epic names the requirements; the plain words already say "for a person".
+        expect(detailText('MANUAL', { requirement_ids: [5585] })).toBe('requirement 5585');
+        // No-work reasons read as a sentence; one in another shape is shown as written.
+        expect(detailText('NO_WORK', { reason: 'nothing launchable — only swarm_ready launches: 3764 development, 3765 approved' }))
+            .toBe('nothing launchable — only swarm_ready work launches; #3764 is development, #3765 is approved');
+        expect(detailText('NO_WORK', { reason: 'every requirement is met' })).toBe('every requirement is met');
         expect(detailText('ENGINE_HOLD', { verdict: 'CAPACITY-UNKNOWN' })).toBe('verdict CAPACITY-UNKNOWN');
     });
 
@@ -124,5 +131,13 @@ describe('engine vocabulary — every code has a label, a colour and a sentence'
             .toBe('new work seated on an epic already under way: epic Foundation gained requirements 7, 8');
         expect(eventText({ code: 'STALL', requirement_id: 7, epic_id: 101 }, names))
             .toBe('open work in development that nobody is working: requirement 7 on epic Alpha');
+    });
+});
+
+describe('engine vocabulary — why the switch is where it is', () => {
+    it('puts a switch reason in words and leaves an unknown one as written', () => {
+        expect(desiredReasonText('pipeline-start')).toBe('by /pipeline-start');
+        expect(desiredReasonText('adopted')).toContain('no switch');
+        expect(desiredReasonText('somebody-new')).toBe('somebody-new');
     });
 });

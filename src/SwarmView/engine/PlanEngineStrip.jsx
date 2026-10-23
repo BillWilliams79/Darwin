@@ -160,7 +160,10 @@ export default function PlanEngineStrip({ ctl, machines, open, onToggleOpen, onP
              // Chrome over the canvas: d3-zoom and the card hit-test pass it by.
              data-viz-chrome="engine"
              sx={{
-                 position: 'absolute', left: 8, bottom: 8, zIndex: 3,
+                 // BOTTOM-RIGHT, not bottom-left (req #3824): the plan's own floating Active
+                 // panel opens bottom-left, and a session running on the plan put it on top
+                 // of this switch — the control was there and could not be reached.
+                 position: 'absolute', right: 8, bottom: 8, zIndex: 3,
                  maxWidth: 'min(820px, calc(100% - 16px))',
                  px: 1.25, py: 0.75, borderRadius: '10px',
                  background: 'rgba(13, 20, 32, 0.94)', color: TEXT,

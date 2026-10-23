@@ -103,7 +103,7 @@ describe('EngineHealthPanel', () => {
     it('reads an engine turned off as stopped, with what it wanted', () => {
         mount(<EngineHealthPanel engine={engine(3)} timezone="UTC" />);
         expect(text('engine-health-state-3')).toBe('stopped');
-        expect(text('engine-desired-3')).toBe('off (user)');
+        expect(text('engine-desired-3')).toBe('off (switched in the app)');
         expect(text('engine-code-3')).toContain('stale');
         expect(text('engine-restarts-3')).toBe('restarted 1 time');
     });
