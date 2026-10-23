@@ -78,17 +78,22 @@ export function defaultsFormValues(defaults = {}) {
  *  SRIOH (DEFAULT_REQUIREMENT_SPEC) for any never set, Any machine, work (not a
  *  container), filed where the last one was unless a default place is set.
  *  `defaultsUnchecked` names the references taken from defaults — the editor
- *  checks each against live data once and drops a stale one, so Save waits. */
-export function newRequirementDraft(projectId = null, categoryId = null, defaults = {}) {
+ *  checks each against live data once and drops a stale one, so Save waits.
+ *  `filedFrom` — the Filed-from block (filedFromContext.js, req #3813): the
+ *  description starts as it, below room for the reader's own words, and
+ *  `startDescription` remembers it so an untouched block is not "changes". */
+export function newRequirementDraft(projectId = null, categoryId = null, defaults = {}, filedFrom = null) {
     const d = defaultsFormValues(defaults);
     const placeFromDefaults = d.projectId != null;
     const unchecked = [];
     if (placeFromDefaults) unchecked.push('category');
     if (d.machine_fk != null) unchecked.push('machine');
     if (d.seatStepId != null || d.seatPipelineId != null) unchecked.push('seat');
+    const description = typeof filedFrom === 'string' && filedFrom ? `\n\n${filedFrom}` : '';
     return {
         title: '',
-        description: '',
+        description,
+        startDescription: description,
         projectId: placeFromDefaults ? d.projectId : (projectId ?? null),
         category_fk: placeFromDefaults ? (d.category_fk ?? null) : (categoryId ?? null),
         requirement_status: d.requirement_status,

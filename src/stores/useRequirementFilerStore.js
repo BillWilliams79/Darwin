@@ -5,12 +5,13 @@ import { newRequirementDraft } from '../RequirementFiler/requirementFilerModel';
 
 // The Requirement Filer (req #3811) — two Action Popups over every page.
 //
-// THE FILER — the navbar control opens it; it holds the "New requirement" button.
+// THE FILER — the navbar control opens it; it holds the REQUIREMENT button
+//   (req #3813 — it records where it was filed from, filedFromContext.js).
 //   • `show` — drawn at all (the navbar control toggles it; × hides it).
 //   • `open` — its body is expanded (its ▾ head; folded, the panel is the head).
 //   • `dock` — where it floats and its shape (anchoredPanelGeometry.js); null = home.
 //
-// THE EDITOR — the popup requirement editor "New requirement" opens.
+// THE EDITOR — the popup requirement editor REQUIREMENT opens.
 //   • `editorShow` / `editorOpen` / `editorDock` — the same three, for it.
 //   • `draft` — the values in the editor's fields (requirementFilerModel.js).
 //   • `savedId` — the requirement's id once the first Save has POSTed it; null
@@ -64,11 +65,12 @@ export const useRequirementFilerStore = create(
             setEditorShow: (editorShow) => set({ editorShow }),
             toggleEditorOpen: () => set({ editorOpen: !get().editorOpen }),
             setEditorDock: (editorDock) => set({ editorDock }),
-            // A fresh requirement in the editor, shown and unfolded.
-            startNew: () => {
+            // A fresh requirement in the editor, shown and unfolded; `filedFrom`
+            // — where it was filed from (req #3813) — opens its description.
+            startNew: (filedFrom = null) => {
                 const { lastProjectId, lastCategoryId, defaults } = get();
                 set({
-                    draft: newRequirementDraft(lastProjectId, lastCategoryId, defaults),
+                    draft: newRequirementDraft(lastProjectId, lastCategoryId, defaults, filedFrom),
                     savedId: null, saved: null, editorShow: true, editorOpen: true,
                     editorMode: 'requirement',
                     draftKey: get().draftKey + 1, orphaned: false, focusPending: true,

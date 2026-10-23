@@ -1,5 +1,5 @@
 // RequirementEditorPopup.jsx — the popup requirement editor (req #3811): the
-// second floating window the Requirement Filer's "New requirement" opens. A
+// second floating window the Requirement Filer's REQUIREMENT opens. A
 // simple, visualizer-like editor of ONE requirement's directly settable values:
 // title, description, project → category, status, autonomy, model, effort,
 // machine (Any = NULL), affected repos, the tracking (container) flag and its
@@ -407,7 +407,7 @@ export default function RequirementEditorPopup() {
                             )}
                             <Box component="span" data-testid="requirement-editor-state"
                                  sx={{ color: P.dim, fontSize: '0.9em' }}>
-                                {isDefaults ? 'every New requirement starts with these'
+                                {isDefaults ? 'every Requirement starts with these'
                                     : saving === draftKey ? 'Saving…' : (orphaned ? 'saved — id unknown'
                                     : savedId == null ? 'not saved yet'
                                     : (dirty ? 'unsaved changes' : 'saved'))}
