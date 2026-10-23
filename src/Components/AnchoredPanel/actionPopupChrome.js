@@ -3,16 +3,20 @@
 // dashboard, req #3643; the navbar's own Dev Server panel, req #3727; the Plan
 // visualizer's Active box, req #3721, and Orchestrables box, which racks in this
 // type, req #3735; the Requirement Filer and its editor, req #3811). One place,
-// so the Action Popups read as one family.
+// so the Action Popups read as one family — and one head row for all of them,
+// ActionPopupHead.jsx (req #3821).
 
 import { PLAN_VIZ_PALETTE as P } from '../../SwarmView/pipelines/pipelinePlanLayout';
 
 export const ACTION_POPUP_MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
 /** Type size, px — every dimension inside is in em off it. */
 export const ACTION_POPUP_FONT_PX = 12;
-/** The head row's height, px: its tallest item (× at 1.54em) plus 0.6em of
- *  padding, plus the 2px frame top and bottom. */
-export const ACTION_POPUP_HEAD_PX = Math.ceil(2.2 * ACTION_POPUP_FONT_PX + 4);
+/** The head row's height, em — every popup's, so folded popups stack evenly
+ *  (req #3821): its tallest item (× at 1.54em) plus 0.6em of padding. */
+export const ACTION_POPUP_HEAD_EM = 2.2;
+/** …in px, plus the 2px frame top and bottom — unrounded, so a folded
+ *  AnchoredPanel is exactly the Orchestrables box's `calc(2.2em + 4px)`. */
+export const ACTION_POPUP_HEAD_PX = Math.round(100 * (ACTION_POPUP_HEAD_EM * ACTION_POPUP_FONT_PX + 4)) / 100;
 export const ACTION_POPUP_COLORS = {
     // The Orchestration Ready box's outline (req #3605) and panel.
     frame: '#a64dff', background: 'rgba(13, 20, 32, 0.94)', line: P.line, text: P.text,
