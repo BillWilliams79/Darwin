@@ -52,7 +52,8 @@ describe('EngineLocationPanel', () => {
     it('names the machine, scope, role, pids and claim age', () => {
         mount(<EngineLocationPanel engine={engine(1)} names={NAMES} />);
         expect(text('engine-machine-1')).toBe('Mac mini');
-        expect(text('engine-scope-1')).toContain('whole plan 900 · Scenario plan');
+        expect(text('engine-scope-1')).toContain('whole plan Scenario plan');
+        expect(text('engine-scope-1')).not.toContain('900');
         expect(text('engine-role-1')).toContain('lead');
         // claim_age_s 3660 at a beat 20 s old → held 1h 01m now.
         expect(text('engine-claim-1')).toBe('#1 · held 1h 01m');
@@ -123,7 +124,7 @@ describe('EngineLimitsPanel', () => {
 describe('EngineDecisionPanel', () => {
     const decide = (row, outcomes = new Map()) => {
         mount(<EngineDecisionPanel engine={engine(row.machine_fk)} names={NAMES} reqTitles={new Map()}
-                                   timezone="UTC" view={recordView(row.record, { outcomes })} />);
+                                   timezone="UTC" view={recordView(row.record, { outcomes, names: NAMES })} />);
     };
 
     it('draws the queue in order, the cut where the record put it, and each epic\'s hold', () => {
@@ -134,7 +135,9 @@ describe('EngineDecisionPanel', () => {
         expect(items.map((i) => i.getAttribute('data-below-cut'))).toEqual(['false', 'false', 'true']);
         expect($('engine-cut-4').nextElementSibling).toBe(items[2]);
         expect(text('engine-queue-item-4-3002')).toContain(
-            'no slot left, and epics it depends on still hold open work — waiting on epic 101');
+            'no slot left, and epics it depends on still hold open work — waiting on epic Epic 101');
+        // Epics are named by title, never by number (req #3878).
+        expect(text('engine-epic-link-4-101-0')).toBe('epic Epic 101');
         expect($('engine-epic-4-102').getAttribute('data-code')).toBe('DEP_PRIORITY');
         expect(text('engine-verdict-4')).toBe('OK');
         expect($('engine-epic-link-4-101-0').getAttribute('href'))
