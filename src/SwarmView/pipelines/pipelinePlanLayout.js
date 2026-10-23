@@ -10,8 +10,10 @@
 //   - Initiative bands stacked vertically, one per DOMINANT initiative (design rule 10), in
 //     `initiatives.sort_order` since req #3430 — the AUTHORITATIVE initiative display order
 //     (user ruling 2026-08-09), and this stack is the surface that ruling is
-//     about. An initiative with NO `sort_order` is UNORDERED and falls back to the
-//     req #3201 rule, below every ordered initiative: DERIVED-START order,
+//     about. Since req #3861 the order is HARD: every creator appends a new initiative to
+//     its plan, the reader re-orders by dragging the name bar, and every live NULL was
+//     backfilled. An initiative with NO `sort_order` (a row cleared by hand) is UNORDERED
+//     and falls back to the req #3201 rule, below every ordered initiative: DERIVED-START order,
 //     earliest-starting initiative on top, never-started initiatives last, initiative id
 //     ascending as the tie-break. (Before #3201 that fallback was
 //     first-appearance over display order, which had two problems: it made a

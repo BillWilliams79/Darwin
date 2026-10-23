@@ -106,4 +106,23 @@ describe('engine vocabulary — every code has a label, a colour and a sentence'
         expect(eventText({ code: 'DRAINED', since: '2026-10-22T08:00:00Z' }))
             .toBe('no epic in scope holds open work since 2026-10-22T08:00:00Z');
     });
+
+    it('names epics and initiatives by title when the names are known (req #3878)', () => {
+        const names = {
+            epics: new Map([[12, { id: 12, title: 'Foundation' }], [101, { id: 101, title: 'Alpha' }]]),
+            initiatives: new Map([[5, { id: 5, title: 'Engine cutover' }]]),
+        };
+        expect(detailText('BARRIER', { barrier_epic_ids: [12] }, names)).toBe('held by barrier epic Foundation');
+        // An untitled id falls back to its number rather than going blank.
+        expect(detailText('DEP_PRIORITY', { waiting_on_epic_ids: [101, 102] }, names))
+            .toBe('waiting on epics Alpha, 102');
+        expect(detailText('SERIAL_TURN', { live_initiative_id: 5 }, names))
+            .toBe('initiative Engine cutover has the turn');
+        expect(eventText({ code: 'LANDED', requirement_id: 7, epic_id: 12, status: 'met' }, names))
+            .toBe('a requirement reached a terminal status: requirement 7 on epic Foundation is met');
+        expect(eventText({ code: 'TOP_UP', epic_id: 12, requirement_ids: [7, 8] }, names))
+            .toBe('new work seated on an epic already under way: epic Foundation gained requirements 7, 8');
+        expect(eventText({ code: 'STALL', requirement_id: 7, epic_id: 101 }, names))
+            .toBe('open work in development that nobody is working: requirement 7 on epic Alpha');
+    });
 });

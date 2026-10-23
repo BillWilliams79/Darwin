@@ -67,16 +67,16 @@ export default function EnginePanel({ engine, names, timezone, now = new Date() 
     const previous = useEngineRecord(previousId, { withOutcomes: false });
 
     const loaded = useMemo(() => (current.record
-        ? recordView(current.record, { outcomes: outcomesByRequirement(current.outcomes, selectedId) })
-        : null), [current.record, current.outcomes, selectedId]);
+        ? recordView(current.record, { outcomes: outcomesByRequirement(current.outcomes, selectedId), names })
+        : null), [current.record, current.outcomes, selectedId, names]);
     // While FOLLOWING, the decision on screen stays until the next record has
     // loaded, so a new cycle replaces it instead of flashing a spinner.
     const lastView = useRef(null);
     if (loaded) lastView.current = loaded;
     const view = loaded || (following ? lastView.current : null);
     const changes = useMemo(() => (current.record && (previousId == null || previous.record)
-        ? recordChanges(previous.record, current.record) : null),
-    [current.record, previous.record, previousId]);
+        ? recordChanges(previous.record, current.record, names) : null),
+    [current.record, previous.record, previousId, names]);
     const reqTitles = useRequirementTitles(view ? view.queue.map((q) => q.requirementId) : []);
 
     const machine = names.machines.get(engine.machineId);
