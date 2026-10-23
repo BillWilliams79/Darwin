@@ -1592,6 +1592,36 @@ export const EPIC_LANE_CLEAR_K = 0.2;
 // own test instead, which recomputes it from those constants and fails if this
 // number stops matching.
 const BAND_HEADER = 108;
+// ── A FOLDED EPIC'S HEADER IS SHORTER (req #3805) ───────────────────────────
+// User direction: "reduce the white space between closed initiatives in up and
+// down directions by 70%". A folded band draws no rectangle and no lanes — its
+// floating title bar (the chip, `EPIC_CHIP_H` = 24 screen px at
+// `CHIP_MARGIN_Y` = 2 below the band's top) is all of it — yet it kept the open
+// band's whole 108px header, so two stacked folded epics stood a full
+// `BAND_HEADER + BAND_GAP` = 116px apart and the gap between their title bars
+// was 116 − 24 = 92px at native scale (k = 1, world px = screen px).
+//
+//   gap' = 0.3 · 92 = 27.6   →   header = 24 + 27.6 − BAND_GAP = 43.6 → 44
+//
+// 44 leaves a 28px gap: −69.6%. A literal pinned by a test for `BAND_HEADER`'s
+// reason (the chip constants are declared below it); the test recomputes it.
+//
+// WHAT IT COSTS. The chip is SCREEN-sized against a WORLD-px band, so this
+// header also sets the lowest scale at which a run of folded names still fits
+// without the de-collision pass pushing them: `epicLaneH` tracks the header, so
+// the chip shrinks into the shorter lane, and every name sits at its band's
+// corner while `(BAND_HEADER_FOLDED + BAND_GAP)·k ≥ EPIC_CHIP_H·EPIC_CHIP_MIN_SCALE
+// + CHIP_STACK_GAP`, i.e. k ≥ 19.6/52 ≈ 0.377. Below that the pass pushes them
+// down, and a run of folded bands SHARES its room (`placeEpicChips`' `runCap`):
+// a name may ride down through the folded bands after it to the bottom of the
+// next open band's header. With no open band after the run (every epic folded,
+// or the run below the open work) nothing is lost at any landing scale. A run
+// ABOVE an open epic is bounded by that epic's header and drops names once it
+// is full — MEASURED on six folded over one open: all named at k = 0.3, one
+// lost at 0.25, two at 0.2, where the old 116px pitch still held all of them at
+// 0.15 (pinned in vitest). The open epic's own name is pushed below the run,
+// onto its own lane 0 when the header is full — its own band, as #3272 allows.
+export const BAND_HEADER_FOLDED = 44;
 // `STEP_LABEL_RISE`, `LANE_BASE_H` and `BEAD_LANE_OFFSET` left with req #3498.
 // The first was how far a floating step label reached above its bead, the second
 // the lane's height before the requirement stack was added, the third where the
@@ -4485,7 +4515,13 @@ export function computePlanLayout(rows, opts = {}) {
         // header — the "off-by-a-reservation" this constant's own history is made
         // of. A card starts AT its lane's top and nothing is drawn above it, so
         // the header's clear strip is now the header itself.
-        const headerH = BAND_HEADER;
+        //
+        // req #3805 — …EXCEPT A FOLDED ONE, whose header is only as tall as its
+        // title bar and a tight gap (`BAND_HEADER_FOLDED`). Blended by the
+        // band's reveal so the fold animation stays continuous; an open band
+        // (`rv` = 1) is exactly `BAND_HEADER`.
+        const headerH = rv >= 1 ? BAND_HEADER
+            : BAND_HEADER_FOLDED + rv * (BAND_HEADER - BAND_HEADER_FOLDED);
         // The EPIC'S OWN LANE: the part of the header no step content can reach.
         // That is the whole header now — kept as a named field because the
         // visualizer's floating epic chip clamps to THIS rather than re-deriving
@@ -5428,6 +5464,29 @@ export function placeEpicChips({
         ? [...bands].sort((a, b) => (a.y || 0) - (b.y || 0))
         : bands;
 
+    // req #3805 — A RUN OF FOLDED EPICS SHARES ITS ROOM. A folded band is only
+    // `BAND_HEADER_FOLDED` tall, so at a plan's landing scale its floored name
+    // no longer fits inside it, and the per-band push bound below would DROP
+    // it — measured, plan 7 landed with one of its two folded epics nameless,
+    // and a folded epic draws no rectangle, so its name IS the epic (and the
+    // control that unfolds it). That bound exists so a pushed name never lands
+    // on another epic's cards; a folded band has none. So a FULLY folded band's
+    // name may be pushed down through the folded bands after it, as far as the
+    // bottom of the next OPEN band's header — its clear strip, which holds no
+    // cards either — and with no open band after it, as far as the panel. One
+    // bottom-up pass, in SCREEN px; an open or mid-fold band keeps its own bound.
+    const foldedOf = (band) => 1 - (Number.isFinite(band.reveal) ? band.reveal
+        : (band.collapsed ? 0 : 1));
+    const runCap = new Map();
+    {
+        let cap = Infinity;
+        for (let i = ordered.length - 1; i >= 0; i -= 1) {
+            const b = ordered[i];
+            if (foldedOf(b) >= 1) { runCap.set(b, cap); continue; }
+            cap = t.y + (b.y + (b.epicLaneH ?? b.headerH ?? 0)) * t.k;
+        }
+    }
+
     for (const band of ordered) {
         const top = t.y + band.y * t.k;
         const bottom = t.y + (band.y + band.height) * t.k;
@@ -5525,8 +5584,7 @@ export function placeEpicChips({
         // req #3695 — how far FOLDED the band is drawn: 1 for a folded epic, 0
         // for an open one, between while its fold animates. Hand-built bands
         // with no `reveal` answer from `collapsed`.
-        const folded = 1 - (Number.isFinite(band.reveal) ? band.reveal
-            : (band.collapsed ? 0 : 1));
+        const folded = foldedOf(band);
         // req #3738 — A FOLDED EPIC DOES NOT HOLD THE TOP. Its title bar is all
         // that is left of it, so it scrolls with its band's own corner and goes
         // off under the ruler like any other row (the overlay's inset clips it),
@@ -5604,7 +5662,15 @@ export function placeEpicChips({
         // them. The full table is in the vitest block, which fails if it rots.
         if (y < stackBottom + CHIP_STACK_GAP) {
             y = stackBottom + CHIP_STACK_GAP;
-            if (y > Math.max(yNatural, bottom) + 0.01) continue;
+            // req #3805 — a folded band's bound is its run's (see `runCap`):
+            // the name's whole box stays above the next open band's cards.
+            // A NaN cap (a hand-built band below with no `y`) falls back to
+            // the band's own bound rather than disabling the check.
+            const cap = runCap.get(band);
+            const bound = cap !== undefined && !Number.isNaN(cap)
+                ? Math.max(yNatural, cap - h)
+                : Math.max(yNatural, bottom);
+            if (y > bound + 0.01) continue;
         }
 
         // HEIGHT IS NOT CLIPPABLE, and it is not shrinkable either since req
