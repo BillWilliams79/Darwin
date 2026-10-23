@@ -325,8 +325,8 @@ describe('orchestrationBadges (req #3809)', () => {
     it('one green MASTER badge for a lone whole-plan lead', () => {
         const list = badges([claim({ id: 1, machine_fk: 4 })]);
         expect(summary(list)).toEqual([['Mac', 'lead']]);
-        expect(list[0].title).toContain('Mac mini is the MASTER');
-        expect(list[0].title).toContain('terminal pid 41234');
+        // The user's sentence (req #3820), in humanDuration's format.
+        expect(list[0].title).toBe('Mac mini is the master. Orchestrating for 2h 00m');
     });
 
     it('master first and green, the subscriber orange', () => {
@@ -336,7 +336,7 @@ describe('orchestrationBadges (req #3809)', () => {
             claim({ id: 3, machine_fk: 4 }),
         ]);
         expect(summary(list)).toEqual([['Mac', 'lead'], ['WSL', 'subscriber']]);
-        expect(list[1].title).toContain('MCHP Windows is SECONDARY');
+        expect(list[1].title).toBe('MCHP Windows is secondary. Orchestrating for 2h 00m');
     });
 
     it('an earlier initiative lead the plan lead defers to is SECONDARY on the plan', () => {
@@ -345,7 +345,7 @@ describe('orchestrationBadges (req #3809)', () => {
             claim({ id: 2, machine_fk: 4 }),
         ]);
         expect(summary(list)).toEqual([['Mac', 'lead'], ['WSL', 'subscriber']]);
-        expect(list[1].title).toContain('it leads initiative:9@2');
+        expect(list[1].title).toBe('MCHP Windows is secondary. Orchestrating for 2h 00m');
     });
 
     it('with no whole-plan claim, each initiative LEAD is the master of its initiative', () => {
@@ -354,17 +354,17 @@ describe('orchestrationBadges (req #3809)', () => {
             claim({ id: 2, machine_fk: 5, initiative_fk: 9 }),
         ]);
         expect(summary(list)).toEqual([['Mac', 'lead'], ['WSL', 'subscriber']]);
-        expect(list[0].title).toContain('MASTER of initiative:9@2');
+        expect(list[0].title).toBe('Mac mini is the master. Orchestrating for 2h 00m');
     });
 
     it('ONE badge per machine, even when it holds two initiative claims', () => {
         const list = badges([
-            claim({ id: 1, machine_fk: 4, initiative_fk: 9 }),
-            claim({ id: 2, machine_fk: 4, initiative_fk: 10 }),
+            claim({ id: 1, machine_fk: 4, initiative_fk: 9, claimed_at: '2026-08-01 11:30:00' }),
+            claim({ id: 2, machine_fk: 4, initiative_fk: 10, claimed_at: '2026-08-01 09:55:00' }),
         ]);
         expect(summary(list)).toEqual([['Mac', 'lead']]);
-        expect(list[0].title).toContain('initiative:9@2');
-        expect(list[0].title).toContain('initiative:10@2');
+        // Orchestrating since its EARLIEST claim, whichever row that is.
+        expect(list[0].title).toBe('Mac mini is the master. Orchestrating for 2h 05m');
     });
 
     it('a REFUSED claim gets no badge', () => {
@@ -387,6 +387,6 @@ describe('orchestrationBadges (req #3809)', () => {
     it('a stale whole-plan claim with nobody live shows as STALE', () => {
         const list = badges([claim({ id: 1, update_ts: '2026-08-01 10:00:00' })]);
         expect(summary(list)).toEqual([['Mac', 'stale']]);
-        expect(list[0].title).toContain('any machine may reclaim this scope');
+        expect(list[0].title).toBe('Mac mini is no longer orchestrating. Last alive 2h 00m ago');
     });
 });

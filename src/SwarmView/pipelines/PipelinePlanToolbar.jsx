@@ -283,19 +283,23 @@ export default function PipelinePlanToolbar({
                 color and width") ──────────────────────────────────────────
                 Hides every step card's CLOSED requirements (met / deferred /
                 wontfix — the list under the dashed complete line) AND that line,
-                leaving the open work. A STATE like Colour, so it shows pressed;
-                the cards re-lay out because they are shorter. */}
+                leaving the open work. The cards re-lay out because they are
+                shorter.
+
+                LIT = SHOWN, like a machine chip, and drawn exactly like one
+                (req #3816, user directive: "the close button should be same look
+                and feel as machine buttons … lit/unlit in the opposite state.
+                show closed is blue"). It was lit while HIDING, at a smaller size
+                of its own; now the default — closed shown — is the filled blue
+                chip, and hiding them leaves it outlined. */}
             <Tooltip title={hideClosed
-                ? 'Show the closed (met, deferred, wontfix) requirements again'
-                : 'Hide the closed (met, deferred, wontfix) requirements and their dashed line'}>
+                ? 'Hiding closed (met, deferred, wontfix) requirements — click to show them'
+                : 'Showing closed (met, deferred, wontfix) requirements — click to hide them and their dashed line'}>
                 <Chip
                     label="Closed"
-                    aria-label="Hide closed requirements"
+                    aria-label={`${hideClosed ? 'Show' : 'Hide'} closed requirements`}
                     onClick={() => onChangeHideClosed?.(!hideClosed)}
-                    {...toolbarChipProps(!!hideClosed, { sx: {
-                        flexShrink: 0, height: 22,
-                        '& .MuiChip-label': { px: 0.75, fontSize: '0.7rem' },
-                    } })}
+                    {...toolbarChipProps(!hideClosed, { sx: { flexShrink: 0 } })}
                     data-testid="pipeline-viz-hide-closed"
                 />
             </Tooltip>

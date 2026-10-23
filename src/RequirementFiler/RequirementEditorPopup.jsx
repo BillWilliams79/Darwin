@@ -57,6 +57,7 @@ import Box from '@mui/material/Box';
 import useMediaQuery from '@mui/material/useMediaQuery';
 
 import AnchoredPanel from '../Components/AnchoredPanel/AnchoredPanel';
+import { ActionPopupClose } from '../Components/AnchoredPanel/ActionPopupHead';
 import {
     ACTION_POPUP_COLORS, ACTION_POPUP_FONT_PX, ACTION_POPUP_HEAD_PX, ACTION_POPUP_MONO, ACTION_POPUP_SX,
 } from '../Components/AnchoredPanel/actionPopupChrome';
@@ -75,7 +76,7 @@ import { EFFORT_COLOR, EFFORTS, effortLabel } from '../SwarmView/effortChipStyle
 import {
     DEBUG_CATEGORIES, assembleBundle, debugCaptureUri, formatBytes, formatDebugBlock, keepsNothing, withDebugBlock,
 } from './debugBundle';
-import { ActionPopupClose, BUG_COLOR } from './RequirementFiler';
+import { BUG_COLOR } from './RequirementFiler';
 import {
     buildPostBody, buildPutBody, draftDirty, draftProblem, machineOptions, savedValues, specCode, staleCategory,
     staleMachine,

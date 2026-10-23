@@ -187,7 +187,8 @@ describe('UnorchestratedReqBox', () => {
             expect(header.firstElementChild).toBe(toggle);
             expect(toggle.textContent).toBe('▾');
             expect(toggle.getAttribute('aria-label')).toBe('Orchestrables');
-            expect(toggle.nextElementSibling).toBe(q('pipeline-viz-unseated-count'));
+            expect(toggle.nextElementSibling).toBe(q('pipeline-viz-unseated-badge'));
+            expect(q('pipeline-viz-unseated-badge').firstChild).toBe(q('pipeline-viz-unseated-count'));
             expect(header.lastElementChild).toBe(q('pipeline-viz-unseated-title'));
             const box = q('pipeline-viz-unseated');
             expect(box.style.width).toBe('612px');

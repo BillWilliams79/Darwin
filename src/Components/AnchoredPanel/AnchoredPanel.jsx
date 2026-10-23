@@ -4,9 +4,11 @@
 // anchoredPanelGeometry.js.
 //
 // ── THE HEAD IS THE ANCHOR ─────────────────────────────────────────────────
-// The head row is always the panel's top row: the CollapseHead (▾) at the
-// upper left — every Action Popup's, one control (req #3741) — then the
-// host's `extras` (a count badge), then the title — left-aligned — and the
+// The head row is always the panel's top row — ActionPopupHead, the one every
+// Action Popup draws (req #3821): the CollapseHead (▾) at the upper left —
+// one control (req #3741) — then the badge slot holding the host's `extras`
+// (a count badge; blank, it still holds its place, so titles line up), then
+// the title — left-aligned — and the
 // host's `actions`: at the far right while open; folded, right after the
 // title, with the panel's right edge pulled in so the whole package is tight
 // (user directives). The upper right is blank, or × where the host supports
@@ -53,7 +55,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import Box from '@mui/material/Box';
 
-import CollapseHead from './CollapseHead';
+import ActionPopupHead from './ActionPopupHead';
 import {
     RESIZE_EDGES, dockAfterToggle, dockForToggle, dockFromMove, dockFromResize, dockedStyle, freeCorner,
     moveRect, resizeRect,
@@ -118,7 +120,7 @@ function edgeZone(e, headPx, frame) {
  * @param {function} props.onToggle
  * @param {string} props.name            the CollapseHead's name
  * @param {string} props.testid          root testid; parts are suffixed
- * @param {React.ReactNode} [props.extras]   left-aligned after the head
+ * @param {React.ReactNode} [props.extras]   the badge slot, after the ▾
  * @param {React.ReactNode} [props.actions]  right-aligned: blank, or × where
  *   the host supports closing (req #3741)
  * @param {function} props.children      ({ shapedWidth }) → body; shapedWidth
@@ -357,34 +359,13 @@ export default function AnchoredPanel({
                     // Folded, it is its head.
                     ...(racking && { order: rackOrder(rackPos),
                         borderRadius: 0, boxShadow: 'none' }) }}>
-            <Box data-testid={`${testid}-header`}
-                 title={inRack ? `Drag to reorder · drag off the ${rackName} to float it`
-                     : `Drag to move · double-click to put back${rackId ? ` · drop on the ${rackName} to rack it` : ''}`}
-                 {...gesture('move')}
-                 onDoubleClick={onHeadDoubleClick}
-                 sx={{ display: 'flex', alignItems: 'center', gap: '0.6em',
-                        px: '0.7em', py: '0.3em', flexShrink: 0, minWidth: 0,
-                        ...(open && { borderBottom: `1px solid ${colors.line}` }),
-                        cursor: moving ? 'grabbing' : 'move', touchAction: 'none' }}>
-                <CollapseHead open={open} onToggle={toggle} name={name}
-                              testid={`${testid}-toggle`}
-                              color={colors.head} hoverColor={colors.headHover}
-                              fontSize="0.9em" showName={false} />
-                {extras}
-                {/* The title, in the head's own small caps. Not a button:
-                    pressing it starts a move, like the rest of the row. */}
-                {!narrow && <Box component="span" data-testid={`${testid}-title`}
-                     sx={{ color: colors.head, fontSize: '0.9em', fontWeight: 700,
-                            letterSpacing: '0.06em', textTransform: 'uppercase',
-                            whiteSpace: 'nowrap', overflow: 'hidden',
-                            textOverflow: 'ellipsis', minWidth: 0 }}>
-                    {name}
-                </Box>}
-                {/* Open: far right. Folded: right after the title. */}
-                {!narrow && <Box sx={{ ml: open ? 'auto' : 0, display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-                    {actions}
-                </Box>}
-            </Box>
+            <ActionPopupHead open={open} onToggle={toggle} name={name} testid={testid}
+                             badge={extras} actions={actions} narrow={narrow} colors={colors}
+                             title={inRack ? `Drag to reorder · drag off the ${rackName} to float it`
+                                 : `Drag to move · double-click to put back${rackId ? ` · drop on the ${rackName} to rack it` : ''}`}
+                             {...gesture('move')}
+                             onDoubleClick={onHeadDoubleClick}
+                             sx={{ cursor: moving ? 'grabbing' : 'move' }} />
 
             {/* Folded, the body takes no room at all — the panel is its head
                 row, tight. (The ▾ cannot slide: the toggle pinned the left.)

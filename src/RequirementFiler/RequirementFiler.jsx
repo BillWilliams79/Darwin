@@ -41,6 +41,7 @@ import Box from '@mui/material/Box';
 import useMediaQuery from '@mui/material/useMediaQuery';
 
 import AnchoredPanel from '../Components/AnchoredPanel/AnchoredPanel';
+import { ActionPopupClose } from '../Components/AnchoredPanel/ActionPopupHead';
 import {
     ACTION_POPUP_COLORS, ACTION_POPUP_FONT_PX, ACTION_POPUP_HEAD_PX, ACTION_POPUP_MONO, ACTION_POPUP_SX,
 } from '../Components/AnchoredPanel/actionPopupChrome';
@@ -64,22 +65,6 @@ const MIN_H = 64;
 const LIMITS = { minW: MIN_W, minH: MIN_H, autoMaxW: 320, headPx: ACTION_POPUP_HEAD_PX };
 /** Floating home: top-left, just clear of the full-width navbar. */
 export const FILER_HOME = Object.freeze({ h: 'l', x: SIDEBAR_WIDTH + 16, v: 't', y: 16, w: null, ht: null });
-
-/** The Action Popups' × (the Dev Servers dashboard's). */
-export function ActionPopupClose({ onClick, label, testid }) {
-    return (
-        <Box component="button" type="button" onClick={onClick}
-             aria-label={label} title={label} data-testid={testid}
-             sx={{ width: '1.4em', height: '1.4em', p: 0, display: 'flex',
-                    alignItems: 'center', justifyContent: 'center',
-                    background: 'transparent', border: 'none',
-                    borderRadius: '0.4em', color: P.text, cursor: 'pointer',
-                    fontFamily: ACTION_POPUP_MONO, fontSize: '1.1em', lineHeight: 1,
-                    '&:hover': { color: P.accent } }}>
-            ×
-        </Box>
-    );
-}
 
 /** Starts a new requirement in the editor — asking first when the one in it
  *  has changes not yet sent (an orphaned draft — committed, id unknown — has
