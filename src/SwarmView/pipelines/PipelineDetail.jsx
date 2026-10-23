@@ -62,7 +62,8 @@ import {
     findPipelineDetailMode,
 } from './pipelineDetailModes';
 import { pipelineStatusChipProps } from './pipelineChipStyles';
-import { orchestrationView } from './orchestrationHolder';
+import { orchestrationBadges } from './orchestrationHolder';
+import OrchestrationBadges, { orchestrationBadgesWidth } from './OrchestrationBadges';
 // req #3463 — the era↔route binding. This page never spells a plan route or an
 // entity name.
 //
@@ -467,7 +468,7 @@ export default function PipelineDetail() {
     // count still grows with the number of TABLES this page draws on and never
     // with the number of steps in the plan (this file's header invariant).
     //
-    // Deliberately NOT in `isLoading`: it feeds an OPTIONAL chip whose absence
+    // Deliberately NOT in `isLoading`: it feeds OPTIONAL badges whose absence
     // means "nobody is orchestrating this", which is also the right reading
     // while the read is in flight. Gating the plan on live process state would
     // make an unreachable ops table a blank plan page.
@@ -573,18 +574,11 @@ export default function PipelineDetail() {
     // is optional.
     const planReqCounts = plan?.requirementCounts?.overall;
 
-    // req #3224 — the WHOLE-PLAN reservation. An epic-scoped one is a different
-    // and weaker claim ("a slice of this plan is being orchestrated") and is the
-    // epics page's answer, not this header's.
-    //
-    // req #3463 — WHICH COLUMN PAIR a claim carries WAS an era fact: a 2.0 claim
-    // has `pipeline_fk`/`epic_fk` and NULL `pipeline_fk`, so asking the 1.0
-    // lookup about a 2.0 plan matched nothing and vice versa. `claimForPipeline`
-    // (the 1.0 half) went with req #3356; this reads the 2.0 columns directly.
-    const orchestrationHolder = useMemo(
-        // req #3678 — machine-aware: the whole-plan LEAD plus every machine
-        // subscribed to it, each of which launches only its own pinned work.
-        () => orchestrationView(orchestrationClaims, pipeline?.id, machines),
+    // req #3809 — who is orchestrating this plan, one circular badge per
+    // machine beside the plan's name: green the master (the first machine in,
+    // req #3678), orange each secondary, the platform printed inside.
+    const orchestrationBadgeList = useMemo(
+        () => orchestrationBadges(orchestrationClaims, pipeline?.id, machines),
         [orchestrationClaims, pipeline?.id, machines]);
 
     // `planMachines` — the distinct machine set behind the header's machine chip
@@ -689,10 +683,10 @@ export default function PipelineDetail() {
         || PIPELINE_DETAIL_MODES[0]).Component;
 
     // req #3261 P2 — the status group's separator renders only when the group
-    // does. Both chips are live-ops conditionals, so this is false on the
+    // does. Its chip is a live-ops conditional, so this is false on the
     // ordinary row and the row is byte-identical to one with no status slot.
-    const hasStatusChips = pipeline.pipeline_status === 'paused'
-        || !!orchestrationHolder;
+    // The orchestration chip left this group for the title (req #3809).
+    const hasStatusChips = pipeline.pipeline_status === 'paused';
 
     // req #3242 — epics represented in THIS plan (a requirement with no epic
     // is excluded by `requirementCounts` itself, so this is never inflated by
@@ -899,8 +893,13 @@ export default function PipelineDetail() {
                     to clip, and the Full screen switch follows the text
                     directly (req #3793 — "in the title", as the TPU views'
                     follows "▾ Controls"), not the slot's far end. */}
-                <Box sx={{ flex: 1, minWidth: TITLE_MIN_W, display: 'flex',
-                           alignItems: 'center', gap: 1 }}>
+                {/* The floor is the NAME's (req #3809 review): the badges are
+                    rigid, so the slot's floor grows by their width rather than
+                    letting them eat the name's stub. */}
+                <Box sx={{ flex: 1,
+                           minWidth: TITLE_MIN_W + orchestrationBadgesWidth(
+                               orchestrationBadgeList.length),
+                           display: 'flex', alignItems: 'center', gap: 1 }}>
                 <Typography variant={isMobile ? 'h6' : 'h5'} noWrap
                             sx={{ flex: '0 1 auto', minWidth: 0 }}
                             data-testid="pipeline-title">
@@ -947,6 +946,12 @@ export default function PipelineDetail() {
                         </Box>
                     )}
                 </Typography>
+
+                {/* ── ORCHESTRATION BADGES (req #3809, user directive: "a
+                    circular badge to the right of your pipeline name") ──────
+                    Rigid, so the plan's name is what clips first; they render
+                    only while somebody orchestrates this plan. */}
+                <OrchestrationBadges badges={orchestrationBadgeList} />
 
                 {/* ── FULL SCREEN (req #3793; the switch is req #3658's) ──────
                     The user's rule: with the controls on screen the switch
@@ -1020,7 +1025,7 @@ export default function PipelineDetail() {
 
                 {/* ── STATUS GROUP (req #3261 P2) ─────────────────────────────
                     CONDITIONAL ON ITS OWN CONTENTS, not rendered unconditionally
-                    like the two dividers around it: both chips below appear only
+                    like the two dividers around it: the chip below appears only
                     in a live ops state, so an unconditional rule here would put
                     two adjacent separators with nothing between them on the
                     ordinary row — a group boundary announcing an empty group,
@@ -1037,7 +1042,7 @@ export default function PipelineDetail() {
 
                 {/* req #3226 — the ONE status this requirement asks to survive
                     here despite the chip-removal directive above, for the same
-                    reason the orchestration-holder chip below does: it is
+                    reason the orchestration badges beside the title do: it is
                     CONDITIONAL (renders only while actually paused, so the
                     ordinary row is unchanged) and it is not a duplicate of the
                     list page's chip — a reader who navigated straight here
@@ -1050,49 +1055,6 @@ export default function PipelineDetail() {
                             {...pipelineStatusChipProps('paused')}
                             sx={{ ...pipelineStatusChipProps('paused').sx, flexShrink: 0 }}
                             data-testid="pipeline-detail-paused"
-                        />
-                    </Tooltip>
-                )}
-                {/* req #3224 — WHO is orchestrating this plan, from WHERE.
-                    Deliberately kept despite the directive above, and the reason
-                    it does not reoffend is that it is CONDITIONAL: it renders
-                    only while a reservation is actually held, so the ordinary
-                    row is byte-identical to today's. It is also not a duplicate
-                    of anything — the status chip was removed because the list
-                    page already carried it, while this fact appears nowhere else
-                    on this page and is exactly what a user opening a plan
-                    somebody else is running needs to see first. */}
-                {orchestrationHolder && (
-                    <Tooltip title={orchestrationHolder.title}>
-                        <Chip
-                            size="small"
-                            color={orchestrationHolder.stale ? 'warning' : 'success'}
-                            variant={orchestrationHolder.stale ? 'outlined' : 'filled'}
-                            label={`Orchestrated by ${orchestrationHolder.label}`}
-                            // ELASTIC, unlike every other occupant of this row
-                            // (req #3241 review finding). It was `flexShrink: 0`
-                            // like the controls, but it is not a control — it is
-                            // ~158px of PROSE that appears only while somebody
-                            // holds a reservation, and as a rigid member it
-                            // raised the row's incompressible width by that much
-                            // exactly when it happened to be showing. That put
-                            // the page into horizontal scroll on a 1152px window
-                            // for one plan and not another, which is the worst
-                            // version of a layout bug: intermittent and tied to
-                            // live ops state. MUI's own Chip label already
-                            // ellipsizes, and the machine's full identity is on
-                            // the tooltip, so shrinking it loses nothing the
-                            // reader cannot get back.
-                            //
-                            // The page-scroll half of that is gone since req
-                            // #3261 (the row scrolls its own band now), but
-                            // shrinking is still the right behaviour for the
-                            // same reason it always was: SCROLLING PAST prose a
-                            // reader has already read to reach a control is a
-                            // worse trade than ellipsizing it, and the tooltip
-                            // is the recovery path either way.
-                            sx={{ flexShrink: 1, minWidth: 0 }}
-                            data-testid="pipeline-detail-holder"
                         />
                     </Tooltip>
                 )}
