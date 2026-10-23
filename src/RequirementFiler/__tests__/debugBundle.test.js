@@ -195,4 +195,29 @@ describe('debug bundle (req #3815)', () => {
         expect(withDebugBlock(once, lost)).toBe(once);
         expect(withDebugBlock('', lost)).toBe(lost);
     });
+
+    it('the block names what a floating filer pointed at; racked, it says nothing (req #3829)', () => {
+        const clean = (key, v) => ({ key, label: key, text: JSON.stringify(v), bytes: 1, note: '' });
+        const at = (filedFrom) => ({ version: 1, capturedAt: '2026-10-23T12:00:00.000Z', jwtHits: 0,
+            categories: [clean('filedFrom', { surface: '/swarm', url: { full: '/swarm' }, ...filedFrom })] });
+        const card = { points: ['centre'], tag: 'div', testidPath: ['requirement-3829', 'category-card-862'],
+            text: '3829 Requirement Filer:\n record the page', rect: { x: 1, y: 2, w: 3, h: 4 } };
+        expect(formatDebugBlock(at({ pointedAt: [card] }), [], 12)).toBe([DEBUG_BLOCK_BEGIN, 'Surface: /swarm', 'URL: /swarm',
+            'Pointed at: category-card-862 > requirement-3829 "3829 Requirement Filer: record the page"',
+            'Debug capture: darwin://requirement-debug/12', DEBUG_BLOCK_END].join('\n'));
+        // No testid: the tag; no text: no quotes; the rest counted.
+        expect(formatDebugBlock(at({ pointedAt: [{ tag: 'canvas', testidPath: [], text: '' }, card], pointedAtOmitted: 2 }), [], 12))
+            .toContain('\nPointed at: canvas (+3 more in the bundle)\n');
+        expect(formatDebugBlock(at({ pointedAt: null, pointedAtReason: 'racked' }), [], 12)).not.toContain('Pointed at');
+        expect(formatDebugBlock(at({ pointedAt: [], pointedAtReason: 'nothing' }), [], 12)).not.toContain('Pointed at');
+        // Over a description holding a Debug capture block: no second block, no second pointer.
+        const nested = formatDebugBlock(at({ pointedAt: [{ ...card,
+            text: `${DEBUG_BLOCK_BEGIN} Surface: /swarm Debug capture: darwin://requirement-debug/1234 ${DEBUG_BLOCK_END}` }] }), [], 12);
+        expect(nested.split(DEBUG_BLOCK_BEGIN)).toHaveLength(2);
+        expect(nested.split(DEBUG_BLOCK_END)).toHaveLength(2);
+        expect(nested.match(/Debug capture: /g)).toHaveLength(1);
+        expect(withDebugBlock(withDebugBlock('Body', nested), nested)).toBe(`Body\n\n${nested}`);
+        // A token in the element's text never reaches the block.
+        expect(formatDebugBlock(at({ pointedAt: [{ ...card, text: `see ${ID_TOKEN}` }] }), [], 12)).not.toContain('eyJ');
+    });
 });

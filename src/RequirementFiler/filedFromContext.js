@@ -15,6 +15,8 @@
 //   • State   — app-level context: visible applications, dev vs prod build and
 //               database, theme, viewport, the reader's other open Action Popups.
 //   • Popup   — the filer's own rack / dock position and size.
+//   • Pointed at — the page element(s) a floating filer sits over (req #3829,
+//               `pointedAt`; null with `pointedAtReason` when racked).
 //
 // `surface` is `<path>?<query>` exactly as /devops-devserver-start takes a deep
 // link, so a worker opens its dev server on the surface the requirement was
@@ -208,6 +210,192 @@ export function openActionPopups(doc = document) {
     return out;
 }
 
+// ── What the filer points at (req #3829) ────────────────────────────────────
+//
+// THE CONVENTION: drag the filer over the thing the requirement is about, then
+// press Create. A floating filer's rect is probed at its centre and four inset
+// corners with elementsFromPoint, skipping every Action Popup; each distinct
+// element found is recorded, in probe order (the centre's first when the centre
+// found one) — the nearest one carrying a data-testid (the
+// element the page names), its testid path, role/aria-label, visible text and
+// rect. A racked filer points at nothing: `pointedAt: null` with the reason.
+//
+// A FIELD'S VALUE (user ruling 2026-10-23, req #3829): an unfocused field is a
+// record's displayed data (a /swarm title is a TextField) and its text is
+// recorded; the field being typed in, and any password/hidden/credential-shaped
+// field, is NAMED and never copied.
+
+/** Each pointed-at element's visible text ceiling, chars. */
+export const POINTED_TEXT_MAX = 160;
+/** Testids kept per path, and each one's ceiling. */
+const POINTED_PATH_MAX = 12;
+const POINTED_TESTID_MAX = 100;
+/** Corner probes sit this far inside the filer's edge, px. */
+const POINT_INSET = 4;
+/** Elements a text walk visits at most — a big container with little early text. */
+const TEXT_WALK_MAX_NODES = 2000;
+
+export const POINTED_AT_REASONS = Object.freeze({
+    racked: 'racked — a filer in the navbar or a toolbar rack points at nothing',
+    notDrawn: 'the filer is not drawn — nothing to point from',
+    nothing: 'nothing under the filer but the page itself',
+    overCap: 'dropped — the capture was over its size cap',
+});
+
+const FIELD_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
+const UNREAD_TAGS = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE']);
+const UNREAD_INPUT_TYPES = new Set(['password', 'hidden', 'file']);
+const CREDENTIAL_AUTOCOMPLETE = /password|one-time-code|cc-/i;
+
+const isField = (el) => FIELD_TAGS.has(el.tagName) || !!el.isContentEditable;
+
+/** Whether a field's text may be recorded: not the one being typed in (focused
+ *  now, or `typingIn` — focused as the press began, since a click moves focus
+ *  to the filer before it files), not a password/hidden/file input, nothing
+ *  credential-shaped in its names. */
+function fieldCopyable(el, typingIn = null) {
+    // Inside a contenteditable, the editing host is what holds focus.
+    let host = el;
+    while (host.isContentEditable && host.parentElement?.isContentEditable) host = host.parentElement;
+    const holds = (f) => !!f && (f === host || (typeof host.contains === 'function' && host.contains(f)));
+    if (holds(el.ownerDocument?.activeElement) || holds(typingIn)) return false;
+    if (el.tagName === 'INPUT' && UNREAD_INPUT_TYPES.has((el.type || 'text').toLowerCase())) return false;
+    if (CREDENTIAL_AUTOCOMPLETE.test(el.getAttribute('autocomplete') || '')) return false;
+    if (['name', 'id', 'aria-label', 'placeholder'].some(a => SECRET_NAME.test(el.getAttribute(a) || ''))) return false;
+    // Its visible label too (an MUI TextField's is a <label for>, not an attribute).
+    const doc = el.ownerDocument;
+    const labels = [...(el.labels || []),
+        ...(el.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean).map(id => doc?.getElementById(id))];
+    return !labels.some(l => l && SECRET_NAME.test((l.textContent || '').trim().replace(/\s+/g, '_')));
+}
+
+function fieldText(el) {
+    if (el.tagName === 'SELECT') return Array.from(el.selectedOptions || []).map(o => o.textContent).join(', ');
+    if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') return el.value ?? '';
+    return el.textContent ?? '';
+}
+
+const shown = (el) => el.getAttribute('aria-hidden') !== 'true'
+    && (typeof el.checkVisibility !== 'function' || el.checkVisibility({ visibilityProperty: true }));
+
+/** `el`'s visible text, clipped — a field contributes its value only when
+ *  `fieldCopyable`; otherwise it is skipped, never read. */
+export function visibleText(el, max = POINTED_TEXT_MAX, typingIn = null) {
+    const parts = [];
+    let n = 0;
+    let visited = 0;
+    const walk = (node) => {
+        if (n > max || ++visited > TEXT_WALK_MAX_NODES) return;
+        if (node.nodeType === 3) {
+            const t = node.nodeValue.replace(/\s+/g, ' ').trim();
+            if (t) { parts.push(t); n += t.length + 1; }
+            return;
+        }
+        if (node.nodeType !== 1 || UNREAD_TAGS.has(node.tagName) || !shown(node)) return;
+        if (isField(node)) {
+            if (fieldCopyable(node, typingIn)) {
+                const t = fieldText(node).replace(/\s+/g, ' ').trim();
+                if (t) { parts.push(t); n += t.length + 1; }
+            }
+            return;
+        }
+        for (const c of node.childNodes) walk(c);
+    };
+    walk(el);
+    const text = parts.join(' ');
+    return redact(text.length > max ? `${text.slice(0, max)}…` : text);
+}
+
+/** The testids from `el` up, innermost first (as the capture's activeElement). */
+function testidPath(el) {
+    const ids = [];
+    for (let n = el; n && n.tagName !== 'BODY' && n.tagName !== 'HTML'; n = n.parentElement) {
+        const id = n.getAttribute?.('data-testid');
+        if (id) ids.push(id.slice(0, POINTED_TESTID_MAX));
+    }
+    return ids.slice(0, POINTED_PATH_MAX);
+}
+
+/** The topmost page element at (x, y) of `doc` — Action Popups, html and body skipped. */
+function pageElementAt(doc, x, y) {
+    const els = typeof doc.elementsFromPoint === 'function' ? doc.elementsFromPoint(x, y) : [];
+    return els.find(el => el.tagName !== 'HTML' && el.tagName !== 'BODY' && !el.closest?.('[data-rack-id]')) || null;
+}
+
+/** One element as recorded; `off` — its document's origin in Darwin's viewport. */
+function elementRecord(hit, off, frame, typingIn) {
+    const named = hit.closest?.('[data-testid]') || hit;
+    const r = named.getBoundingClientRect();
+    const role = named.getAttribute('role');
+    const ariaLabel = named.getAttribute('aria-label');
+    const field = isField(hit)
+        ? { tag: hit.tagName.toLowerCase(), ...(hit.type && hit.tagName === 'INPUT' ? { type: hit.type } : null),
+            ...(hit.getAttribute('name') ? { name: hit.getAttribute('name') } : null), copied: fieldCopyable(hit, typingIn) }
+        : null;
+    return {
+        tag: named.tagName.toLowerCase(),
+        ...(named !== hit ? { hit: hit.tagName.toLowerCase() } : null),
+        testidPath: [...testidPath(named), ...(frame?.testidPath || [])].slice(0, POINTED_PATH_MAX),
+        ...(frame ? { frame: frame.label } : null),
+        ...(role ? { role } : null),
+        ...(ariaLabel ? { ariaLabel: redact(ariaLabel.slice(0, POINTED_TEXT_MAX)) } : null),
+        ...(field ? { field } : null),
+        text: visibleText(named, POINTED_TEXT_MAX, typingIn),
+        rect: { x: px(r.left + off.left), y: px(r.top + off.top), w: px(r.width), h: px(r.height) },
+    };
+}
+
+/** What a floating filer sits over — `{ pointedAt, pointedAtReason? }`, for the
+ *  filer's own `self` popup record (openActionPopups). `typingIn` — the element
+ *  that held focus as the press began; it is never copied. */
+export function pointedAtNow(self, doc = document, typingIn = null) {
+    if (self?.racked) return { pointedAt: null, pointedAtReason: POINTED_AT_REASONS.racked };
+    if (!self?.rect) return { pointedAt: null, pointedAtReason: POINTED_AT_REASONS.notDrawn };
+    const { x, y, w, h } = self.rect;
+    const view = doc.defaultView;
+    const maxX = Math.max(0, (view?.innerWidth || x + w) - 1);
+    const maxY = Math.max(0, (view?.innerHeight || y + h) - 1);
+    const ix = Math.min(POINT_INSET, w / 4);
+    const iy = Math.min(POINT_INSET, h / 4);
+    const points = [
+        ['centre', x + w / 2, y + h / 2],
+        ['top-left', x + ix, y + iy], ['top-right', x + w - ix, y + iy],
+        ['bottom-left', x + ix, y + h - iy], ['bottom-right', x + w - ix, y + h - iy],
+    ];
+    const byElement = new Map();
+    for (const [name, rawX, rawY] of points) {
+        const px0 = Math.min(maxX, Math.max(0, rawX));
+        const py0 = Math.min(maxY, Math.max(0, rawY));
+        let hit = pageElementAt(doc, px0, py0);
+        if (!hit) continue;
+        let off = { left: 0, top: 0 };
+        let frame = null;
+        let typing = typingIn;
+        // A same-origin frame (Topology, AI Architecture): what is under the point inside it.
+        if (hit.tagName === 'IFRAME') {
+            try {
+                const fr = hit.getBoundingClientRect();
+                const inner = hit.contentDocument && pageElementAt(hit.contentDocument,
+                    px0 - fr.left - hit.clientLeft, py0 - fr.top - hit.clientTop);
+                if (inner) {
+                    off = { left: fr.left + hit.clientLeft, top: fr.top + hit.clientTop };
+                    // Focus held inside the frame as the press began.
+                    if (typingIn === hit) typing = hit.contentDocument.activeElement;
+                    frame = { testidPath: testidPath(hit), label: (hit.getAttribute('data-testid') || hit.getAttribute('src') || 'iframe').slice(0, POINTED_TESTID_MAX) };
+                    hit = inner;
+                }
+            } catch { /* cross-origin: the iframe itself is what it points at */ }
+        }
+        const key = hit.closest?.('[data-testid]') || hit;
+        if (!byElement.has(key)) byElement.set(key, { points: [], hit, off, frame, typing });
+        byElement.get(key).points.push(name);
+    }
+    if (!byElement.size) return { pointedAt: [], pointedAtReason: POINTED_AT_REASONS.nothing };
+    return {
+        pointedAt: [...byElement.values()].map(({ points: p, hit, off, frame, typing }) => ({ points: p, ...elementRecord(hit, off, frame, typing) })),
+    };
+}
+
 // ── The snapshot ────────────────────────────────────────────────────────────
 
 function visibleApps(profile) {
@@ -227,9 +415,10 @@ function visibleApps(profile) {
  * @param {?{themeMode, effectiveMode}} p.theme  ThemeContext
  * @param {string} p.popupId     the filer's rack id
  * @param {?Object} p.popupStore the filer's { dock, open }
+ * @param {?Element} [p.typingIn] the element focused as the press began
  * @param {Date} [p.now]
  */
-export function captureFiledFrom({ location, profile, database, theme, popupId, popupStore, now = new Date() }) {
+export function captureFiledFrom({ location, profile, database, theme, popupId, popupStore, typingIn = null, now = new Date() }) {
     const { pathname = '/', search = '', hash = '' } = location || {};
     const page = readPageOptions();
     const app = appForRoute(pathname);
@@ -238,6 +427,10 @@ export function captureFiledFrom({ location, profile, database, theme, popupId, 
     // Without the filer's own `filer` parameter: opening the URL must not file again.
     const query = cleanQuery(search, '?', ['filer']);
     const cleanHash = cleanQuery(hash, '#');
+    const racked = self ? self.racked : (usePanelRackStore.getState().racked || []).includes(popupId);
+    const pointed = typeof document !== 'undefined'
+        ? pointedAtNow(self ?? (racked ? { racked } : null), document, typingIn)
+        : { pointedAt: null, pointedAtReason: POINTED_AT_REASONS.notDrawn };
     return {
         version: FILED_FROM_VERSION,
         filedAt: now.toISOString(),
@@ -261,9 +454,11 @@ export function captureFiledFrom({ location, profile, database, theme, popupId, 
                 : null,
             actionPopups: popups.filter(p => p !== self),
         },
+        // What the filer sits over — the requirement is about it (req #3829).
+        ...pointed,
         popup: {
             id: popupId,
-            racked: self ? self.racked : (usePanelRackStore.getState().racked || []).includes(popupId),
+            racked,
             ...(self?.racked ? { rackIndex: self.rackIndex } : null),
             open: popupStore?.open ?? self?.open ?? null,
             dock: popupStore?.dock ?? null,
@@ -302,6 +497,12 @@ export function filedFromNow(args) {
     }
     ctx = { ...ctx, state: { ...ctx.state, actionPopups: (ctx.state.actionPopups || []).map(p => p.id ?? p) } };
     if (size(ctx) <= FILED_FROM_MAX_CHARS) return ctx;
+    // What it points at keeps its first element (the centre's, when the centre found one).
+    if (Array.isArray(ctx.pointedAt) && ctx.pointedAt.length > 1) {
+        ctx = { ...ctx, pointedAt: ctx.pointedAt.slice(0, 1), pointedAtOmitted: ctx.pointedAt.length - 1 };
+        if (size(ctx) <= FILED_FROM_MAX_CHARS) return ctx;
+    }
     return { version: ctx.version, filedAt: ctx.filedAt, surface: ctx.surface.slice(0, 2000),
-        url: { full: ctx.url.full.slice(0, 2000) }, omitted: `over the ${FILED_FROM_MAX_CHARS}-char size cap` };
+        url: { full: ctx.url.full.slice(0, 2000) }, omitted: `over the ${FILED_FROM_MAX_CHARS}-char size cap`,
+        pointedAt: null, pointedAtReason: POINTED_AT_REASONS.overCap };
 }
