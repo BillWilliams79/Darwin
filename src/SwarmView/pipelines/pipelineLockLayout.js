@@ -238,7 +238,7 @@ export const LOCK_GEOM = Object.freeze({
     BAND_GAP: 10,       // between initiative bands
     BAND_PAD: 10,       // inside a band, around its epics
     BAND_HEAD_W: 212,   // the initiative's own header cell
-    BAND_MIN_H: 96,     // room for the header's title, counts, controls and holders
+    BAND_MIN_H: 116,    // room for the header's title, counts, controls AND a holder chip (96 clipped it, req #3824)
     CARD_W: 168,
     CARD_H: 52,
     CARD_GAP: 8,

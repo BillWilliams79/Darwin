@@ -109,6 +109,17 @@ export const CODE_VERDICT_WORDS = {
     'not-recorded': 'did not record its code version',
 };
 
+// engine_states.desired_reason — who or what flipped the switch, in words. A reason
+// not listed is shown as written, never dropped.
+export const DESIRED_REASON_WORDS = {
+    user: 'switched in the app',
+    'pipeline-start': 'by /pipeline-start',
+    'pipeline-stop': 'by /pipeline-stop',
+    drained: 'its work was all done',
+    adopted: 'it started with no switch, so it was taken as on',
+};
+export const desiredReasonText = (reason) => DESIRED_REASON_WORDS[reason] || reason;
+
 export const OUTCOME_PENDING = 'pending';
 export const OUTCOME_LANDED = 'landed';
 export const OUTCOME_FAILED = 'failed';
@@ -204,9 +215,9 @@ export function detailText(code, detail, names) {
         case 'NOT_BEFORE':
             return detail.not_before ? `starts at ${detail.not_before}` : '';
         case 'NO_WORK':
-            return detail.reason ? String(detail.reason) : '';
+            return detail.reason ? noWorkText(String(detail.reason)) : '';
         case 'MANUAL':
-            return `for a person: ${list(detail.requirement_ids, 'requirement')}`;
+            return list(detail.requirement_ids, 'requirement');
         case 'MACHINE_PIN': {
             const to = detail.pinned_to === 'Any' ? 'any machine (another engine leads it)'
                 : `machine ${detail.pinned_to}`;
@@ -229,6 +240,21 @@ export function detailText(code, detail, names) {
             return Object.keys(detail).sort()
                 .map((k) => `${k} ${JSON.stringify(detail[k])}`).join(', ');
     }
+}
+
+// core.py's `no_launch_reason` — "nothing launchable — only swarm_ready launches: 3764
+// development, 3765 approved" — as a sentence: only swarm_ready work launches, and
+// here is where each requirement of the epic stands. Any other reason is shown as
+// the engine wrote it.
+const NO_WORK_LIST = /^(.*?)only swarm_ready launches: (.+)$/;
+function noWorkText(reason) {
+    const m = NO_WORK_LIST.exec(reason);
+    if (!m) return reason;
+    const where = m[2].split(', ').map((part) => {
+        const [id, ...status] = part.trim().split(' ');
+        return status.length ? `#${id} is ${status.join(' ')}` : part;
+    });
+    return `${m[1]}only swarm_ready work launches; ${where.join(', ')}`;
 }
 
 // A free slot this engine left for a peer on the machine (req #3807's fair share).
