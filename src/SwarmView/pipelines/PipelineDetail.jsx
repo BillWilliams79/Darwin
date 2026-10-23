@@ -981,7 +981,10 @@ export default function PipelineDetail() {
                             { py: 0, height: '100%', boxSizing: 'border-box' },
                         '& [data-fullscreen-switch="header"]':
                             { height: PLAN_CONTROL_H } }}
-                 data-testid="pipeline-header-row">
+                 data-testid="pipeline-header-row"
+                 // req #3857 — the page's TITLE BAR: the Requirement Filer
+                 // locks into its free space (titleBarLock.js).
+                 data-title-bar="">
 
                 {/* ── MODE SWITCH (req #3760) ─────────────────────────────────
                     One chip per registered mode that is not toggled from the

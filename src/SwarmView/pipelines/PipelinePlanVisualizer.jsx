@@ -6627,7 +6627,8 @@ export default function PipelinePlanVisualizer({
                     the toolbar, so the hovered chip arrives as `keyHover`.
                     A LONG PRESS on a chip pins it (req #3766): `keyHover`
                     arrives with `pinned: true` and the toolbar holds it there
-                    until the next press anywhere — see `useKeyHelp`.
+                    until Escape or a colour-chip press (req #3859) — see
+                    `useKeyHelp`.
 
                     The popup lives HERE because the key's data does (the ids
                     this plan draws decide whether an `unknown` swatch is

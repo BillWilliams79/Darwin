@@ -185,6 +185,7 @@ function popupRecord(el, off, racked) {
         ...(title ? { title } : null),
         racked: inRack,
         ...(inRack ? { rackIndex: racked.indexOf(id) } : null),
+        ...(el.getAttribute('data-title-locked') === '1' ? { titleLocked: true } : null),
         open: body ? body.getAttribute('data-folded') !== '1' : null,
         dock: el.getAttribute('data-dock'),
         rect: { x: px(r.left + off.left), y: px(r.top + off.top), w: px(r.width), h: px(r.height) },
@@ -414,7 +415,7 @@ function visibleApps(profile) {
  * @param {?string} p.database   AppContext database
  * @param {?{themeMode, effectiveMode}} p.theme  ThemeContext
  * @param {string} p.popupId     the filer's rack id
- * @param {?Object} p.popupStore the filer's { dock, open }
+ * @param {?Object} p.popupStore the filer's { dock, open, titleLock }
  * @param {?Element} [p.typingIn] the element focused as the press began
  * @param {Date} [p.now]
  */
@@ -462,6 +463,9 @@ export function captureFiledFrom({ location, profile, database, theme, popupId, 
             ...(self?.racked ? { rackIndex: self.rackIndex } : null),
             open: popupStore?.open ?? self?.open ?? null,
             dock: popupStore?.dock ?? null,
+            // Locked into the page's title bar (req #3857): where, and whether
+            // it is drawn there now.
+            ...(popupStore?.titleLock ? { titleLock: popupStore.titleLock, titleLocked: !!self?.titleLocked } : null),
             rect: self?.rect ?? null,
         },
     };
