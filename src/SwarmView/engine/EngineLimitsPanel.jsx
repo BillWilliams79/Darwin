@@ -1,7 +1,8 @@
 // EngineLimitsPanel.jsx — the slots an engine schedules into (rule R8):
 // ceiling, live sessions, reserved (announced, not yet landed) and free
-// (req #3760). Null members mean capacity was unknown that cycle, and the
-// panel says so rather than drawing zeros.
+// (req #3760), and — when other engines on the machine are owed some of the
+// free slots — this engine's share of them (req #3807). Null members mean
+// capacity was unknown that cycle, and the panel says so rather than drawing zeros.
 
 import Box from '@mui/material/Box';
 import Tooltip from '@mui/material/Tooltip';
@@ -53,6 +54,13 @@ export default function EngineLimitsPanel({ engine, limits, source }) {
                             </Typography>
                         ))}
                     </Box>
+                    {l.share != null && l.share !== l.free ? (
+                        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}
+                                    data-testid={`engine-limit-share-${engine.id}`}>
+                            This engine may take <b>{l.share}</b> of the {l.free} free — the rest are
+                            owed to other engines on this machine with work waiting and fewer slots held.
+                        </Typography>
+                    ) : null}
                 </>
             )}
         </Box>

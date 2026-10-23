@@ -1,6 +1,7 @@
 // EngineHealthPanel.jsx — HOW an engine is (rule R4): its heartbeat by AGE,
 // the read and cycle times it measured, its code verdict, how many cycles in a
-// row failed, and what the supervisor reports (req #3760).
+// row failed, how often the supervisor restarted it (req #3869), and what the
+// supervisor reports (req #3760).
 //
 // The supervisor line is the `engine_states.actual_state` row — the report the
 // supervisor writes back (req #3758) — never anything the browser infers.
@@ -11,7 +12,7 @@ import {
     ACTUAL_STATE_WORDS, CODE_VERDICT_WORDS, HEALTH_COLORS, HEALTH_MISSING, HEALTH_WORDS,
     MISSING_AFTER_SECONDS,
 } from './engineVocabulary';
-import { agoText, humanDuration, stampText } from './engineModel';
+import { agoText, humanDuration, restartsText, stampText } from './engineModel';
 import { Field, PanelTitle, ToneChip } from './enginePanelParts';
 
 const ms = (v) => (v == null ? '—' : `${Math.round(v)} ms`);
@@ -49,6 +50,9 @@ export default function EngineHealthPanel({ engine, timezone }) {
                     ? (h.degraded_count === 0 ? 'no failed cycles'
                         : `${h.degraded_count} failed cycle${h.degraded_count === 1 ? '' : 's'} in a row`)
                     : '—'}
+            </Field>
+            <Field label="Restarts" testid={`engine-restarts-${engine.id}`}>
+                {restartsText(h)}
             </Field>
             <Field label="Supervisor" testid={`engine-supervisor-${engine.id}`}>
                 {ACTUAL_STATE_WORDS[state.actual_state] || state.actual_state || '—'}

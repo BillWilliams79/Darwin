@@ -213,6 +213,12 @@ import {
     canUnseatFrom, reqMoveReflected,
     edgePanVelocity,
 } from './pipelineReqDrag';
+// req #3861 — the initiative name bar drags to re-order the plan's initiatives.
+import {
+    planInitiativeOrder, initiativeDropSlot, moveInitiativeInOrder, sortOrderWrites,
+    initiativeOrderRefusal, applyInitiativeOrder, applyInitiativeOrderToInitiatives,
+    initiativeOrderReflected,
+} from './pipelineInitiativeDrag';
 // req #3665 — the app-wide press timeline and drag surface: the requirement
 // marks read its numbers, the Orchestrables box drags through its context.
 import { DarwinDndContext, LIFT_DELAY_MS, LIFT_VIBRATE_MS } from '../../dnd';
@@ -242,7 +248,7 @@ import '../../CalendarFC/swarmVisualizer.css';
 // req #3580 — in-place edit. The SAME mutation helpers the Initiatives and Epics
 // editors use (one gateway path per table); contexts, snackbar and query keys
 // are the ones req #3581 already imports above.
-import { updateInitiative, createInitiative } from '../../Initiatives/initiativesApi';
+import { updateInitiative, createInitiative, reorderInitiatives } from '../../Initiatives/initiativesApi';
 import PlanInPlaceInput, { titleProblem } from './PlanInPlaceInput';
 import { createPressTracker, LONG_PRESS_MS, DOUBLE_CLICK_MS } from './planPressGesture';
 // req #3661 — a requirement's title, edited in place on its own row.
@@ -622,21 +628,33 @@ export default function PipelinePlanVisualizer({
     // `reqDoneFrom` for the complete line; every engine field on the row is
     // left as computed, so the display order never touches what `/swarm-start`
     // launches.
+    // req #3861 — a re-order of the initiatives, drawn from the drop until the
+    // server's own rows carry it (`{map, writtenModel?}`; see the settle effect
+    // beside `commitInitiativeOrder`). The band stack redraws ONCE, on the drop.
+    const [initiativeOrder, setInitiativeOrder] = useState(null);
+    const modelRef = useRef(model);
+    modelRef.current = model;
     const rows = useMemo(() => {
-        const base = applyReqMoves(plan.rows || [], pendingMoves);
+        const base = applyInitiativeOrder(
+            applyReqMoves(plan.rows || [], pendingMoves), initiativeOrder?.map);
         if (!base.length) return base;
         return orderEpicReqs(base, {
             statusOf: (id) => reqInfo.get(id)?.status,
             autonomyOf: (id) => reqInfo.get(id)?.coordination,
         });
-    }, [plan.rows, pendingMoves, reqInfo]);
+    }, [plan.rows, pendingMoves, reqInfo, initiativeOrder]);
     const rowById = useMemo(() => new Map(rows.map((r) => [r.id, r])), [rows]);
+    // The plan's initiatives with that pending order applied — every consumer
+    // that lists them in order reads this, not `model.initiatives`.
+    const planInitiatives = useMemo(
+        () => applyInitiativeOrderToInitiatives(model?.initiatives || [], initiativeOrder?.map),
+        [model, initiativeOrder]);
 
     // The initiatives the add-epic dialog offers: the payload's own `initiatives[]` (an
     // initiative with no epics yet included), in the plan's initiative order. Falls back to
     // the initiatives the rows name when a caller hands in a model without them.
     const insertInitiativeOptions = useMemo(() => {
-        const fromModel = (model?.initiatives || []).map((e) => ({
+        const fromModel = planInitiatives.map((e) => ({
             id: e.id, title: e.title, sortOrder: e.sort_order,
         }));
         const list = fromModel.length ? fromModel : [...new Map(rows
@@ -645,7 +663,7 @@ export default function PipelinePlanVisualizer({
             .values()];
         return list.sort((a, b) => (a.sortOrder ?? Infinity) - (b.sortOrder ?? Infinity)
             || a.id - b.id);
-    }, [model, rows]);
+    }, [planInitiatives, rows]);
 
     // When the dialog opened — a double-click on a "+" lands its second click
     // on the dialog's backdrop, which would close it again at once.
@@ -1002,6 +1020,17 @@ export default function PipelinePlanVisualizer({
     // behaviour, built once, sees the current stage without being rebuilt.
     const reqDragRef = useRef(null);
     const reqHitRef = useRef(null);
+    // req #3861 — THE INITIATIVE drag: the name bar re-orders the band stack.
+    // Same split as the requirement's: `initiativeDragRef` is the live gesture,
+    // `initiativeDrag` the floating copy, `initiativeDropSlot` the insertion
+    // line (set only when the slot under the pointer changes).
+    const initiativeDragRef = useRef(null);
+    const initiativeDownRef = useRef(null);
+    const initiativeRetargetRef = useRef(null);
+    const initiativeDragWorldRef = useRef(null);
+    const initiativePreviewRef = useRef(null);
+    const [initiativeDrag, setInitiativeDrag] = useState(null);
+    const [initiativeDropAt, setInitiativeDropAt] = useState(null);
     // req #3661 — opens a requirement's title editor from a long press on its
     // row, or answers false when this frame draws no title to edit. Rebound
     // every render (below `drawsKind`) so the press listeners read this frame's
@@ -1512,7 +1541,12 @@ export default function PipelinePlanVisualizer({
                 : (!ev.button && !ev.target?.closest?.(CHROME_SELECTOR)
                     && !(ev.type === 'mousedown' && reqHitRef.current?.(ev))
                     // req #3586 — a press on an add-epic "+" is a click, never a pan.
-                    && !(ev.type === 'mousedown' && insertHitRef.current?.(ev)))))
+                    && !(ev.type === 'mousedown' && insertHitRef.current?.(ev))
+                    // req #3861 — nor is one on an initiative's name bar: it is the
+                    // initiative's own gesture (click, double click, long press,
+                    // drag to re-order). A finger still pans until it lifts.
+                    && !(ev.type === 'mousedown'
+                        && ev.target?.closest?.('[data-initiative-drag="true"]')))))
             // ONE number for "how far may a click move" (req #3297). d3 uses it
             // to decide whether to suppress the click; the initiative name's cycle
             // uses it to decide whether that same gesture was the reader taking
@@ -1528,6 +1562,7 @@ export default function PipelinePlanVisualizer({
                 // no write. The write happens once, on 'end' below.
                 liveTransformRef.current = { x: tr.x, y: tr.y, k: tr.k };
                 reqRetargetRef.current?.();          // req #3581, see the ref
+                initiativeRetargetRef.current?.();   // req #3861, the same for an initiative
                 viewport.record(liveTransformRef.current);
                 // `sourceEvent` is non-null only for a USER gesture — a drag or
                 // a wheel — and null for every programmatic transform. Once the
@@ -3339,6 +3374,368 @@ export default function PipelinePlanVisualizer({
     const pressRef = useRef(null);
     if (!pressRef.current) pressRef.current = createPressTracker();
     useEffect(() => () => pressRef.current?.dispose(), []);
+
+    // ── DRAG AN INITIATIVE TO RE-ORDER THE PLAN (req #3861) ─────────────────
+    // User directive: "Initiatives should have a hard sort order ... allow the
+    // user to drag and drop the initiatives. use the drag behavior on the
+    // initiative name bar just like how requirement works (press and drag,
+    // press, long press, doubleclick)". The NAME BAR — the floating chip — is
+    // the handle; nothing else is. On the shared press timeline, read exactly
+    // as a requirement mark reads it (`reqPressOutcome`):
+    //
+    //   mouse  moved past REQ_DRAG_SLOP ........ the initiative LIFTS
+    //          click / double click / long press  unchanged: the single editor,
+    //                                             the zoom, the in-place rename
+    //   touch  held still to LIFT_DELAY_MS ...... the initiative LIFTS (haptic tick)
+    //          moved first ..................... a PAN — d3 has the finger
+    //          lifted, released in place after
+    //            LONG_PRESS_MS ................. the in-place rename
+    //
+    // While it is in the air a copy of the name rides the pointer, the chip it
+    // left is dimmed, a line marks the gap between bands it would land in, and
+    // nothing else moves. On the drop the plan's whole order is renumbered
+    // 1..N (`pipelineInitiativeDrag.js` has why), applied LOCALLY at once and
+    // written in one bulk PUT. Escape, or the window losing focus, puts it back.
+    const isFiniteOrder = (v) => v != null && v !== '' && Number.isFinite(Number(v));
+    const commitInitiativeOrder = useCallback(async (initiativeId, slot) => {
+        if (!slot || slot.noop) return;
+        const current = planInitiativeOrder(planInitiatives,
+            (layout?.bands || []).map((b) => b.initiativeId));
+        const next = moveInitiativeInOrder(current, initiativeId, slot);
+        const numbered = sortOrderWrites(planInitiatives, next,
+            { lockedInitiativeIds: plan.lockedInitiativeIds });
+        const refusal = initiativeOrderRefusal(numbered, { planLocked: !!plan.locked });
+        if (refusal) {
+            const named = refusal.ids.map((id) => planInitiatives.find((i) => i.id === id)?.title || `#${id}`);
+            showError(refusal.lockedBy === 'pipeline'
+                ? lockedMessage('initiative', 'pipeline')
+                : `Locked initiative${named.length === 1 ? '' : 's'} ${named.join(', ')} `
+                  + `${named.length === 1 ? 'holds its' : 'hold their'} place and leave no room `
+                  + 'for this order — unlock to re-order the plan');
+            return;
+        }
+        const { writes } = numbered;
+        if (!writes.length) return;
+        // The WHOLE order, not just the writes: an earlier drop still settling
+        // is part of what this one was made against.
+        const entry = { map: new Map([
+            ...planInitiatives.filter((i) => isFiniteOrder(i.sort_order))
+                .map((i) => [i.id, Number(i.sort_order)]),
+            ...writes.map((w) => [w.id, w.sort_order])]) };
+        setInitiativeOrder(entry);
+        try {
+            await reorderInitiatives(darwinUri, idToken, writes);
+        } catch (error) {
+            // The server's order IS the revert, and it is already under the overlay.
+            setInitiativeOrder((cur) => (cur === entry ? null : cur));
+            showError(error, 'Could not re-order the initiatives');
+            return;
+        }
+        // Written. It stays drawn until a read that LANDED AFTER the write says
+        // so — the requirement move's settle rule, for the same reason.
+        setInitiativeOrder((cur) => (cur === entry
+            ? { ...entry, writtenModel: modelRef.current } : cur));
+        await refreshPlan();
+    }, [planInitiatives, layout, plan.locked, plan.lockedInitiativeIds, darwinUri, idToken,
+        refreshPlan, showError]);
+    useEffect(() => {
+        if (!initiativeOrder?.writtenModel) return;
+        if (initiativeOrderReflected(model?.initiatives, initiativeOrder.map)
+            || (model !== initiativeOrder.writtenModel && composeFetching === 0)) {
+            setInitiativeOrder(null);
+        }
+    }, [model, initiativeOrder, composeFetching]);
+
+    useLayoutEffect(() => {
+        initiativeDragWorldRef.current = {
+            layout, size, commit: commitInitiativeOrder,
+            t: liveTransformRef.current || transform || { x: 0, y: yFactoryDefault, k: kFactoryDefault },
+            // A drop still being written would be re-ordered from a stale base.
+            busy: !!initiativeOrder && !initiativeOrder.writtenModel,
+            lockedBy: (initiativeId) => (plan.locked ? 'pipeline'
+                : plan.lockedInitiativeIds?.has?.(initiativeId) ? 'initiative' : null),
+            rename: (initiativeId, at) => setInitiativeEdit({ key: initiativeId, saving: false, at }),
+        };
+    });
+
+    useEffect(() => {
+        const el = containerEl;
+        if (!el) return undefined;
+        let raf = 0;
+        let lastPoint = null;           // panel-relative
+        let lastClient = null;          // window coordinates
+        let swallowTouchEnd = false;
+        let guardClicks = false;
+        let guardTimer = 0;
+        const world = () => initiativeDragWorldRef.current;
+        const panelPoint = (e) => {
+            const r = el.getBoundingClientRect();
+            return { x: e.clientX - r.left, y: e.clientY - r.top };
+        };
+        const camera = () => liveTransformRef.current || world().t;
+        // The canvas's own cursor — the stage container sets one, so a cursor on
+        // the panel would never show over it. Restored to what it was on the drop.
+        let restoreCursor = null;
+        const setCursor = (c) => {
+            const sc = stageRef.current?.container();
+            if (!sc) return;
+            if (c == null) {
+                if (restoreCursor != null) sc.style.cursor = restoreCursor;
+                restoreCursor = null;
+                return;
+            }
+            if (restoreCursor == null) restoreCursor = sc.style.cursor || '';
+            sc.style.cursor = c;
+        };
+
+        const retarget = () => {
+            const d = initiativeDragRef.current;
+            if (d?.phase !== 'drag' || !lastPoint) return;
+            const w = world();
+            const inside = lastPoint.x >= 0 && lastPoint.y >= 0
+                && lastPoint.x <= w.size.w && lastPoint.y <= w.size.h;
+            const t = camera();
+            const slot = inside
+                ? initiativeDropSlot(w.layout.bands, (lastPoint.y - t.y) / t.k, d.initiativeId)
+                : null;
+            const sig = slot ? `${slot.index}:${slot.noop}` : '';
+            if (sig !== d.sig) {
+                d.sig = sig;
+                d.slot = slot;
+                setInitiativeDropAt(slot && !slot.noop ? { lineY: slot.lineY, index: slot.index } : null);
+            }
+        };
+        const placePreview = () => {
+            const d = initiativeDragRef.current;
+            const box = initiativePreviewRef.current;
+            if (!d || !box || !lastClient) return;
+            box.style.transform =
+                `translate(${lastClient.x - d.offX}px, ${lastClient.y - d.offY}px)`;
+        };
+        // Edge auto-pan, so a band off-screen is still reachable — the
+        // requirement drag's, verbatim.
+        const tick = () => {
+            raf = 0;
+            const d = initiativeDragRef.current;
+            const zb = zoomRef.current;
+            if (d?.phase !== 'drag' || !lastPoint || !zb) return;
+            const w = world();
+            const { vx, vy } = edgePanVelocity(lastPoint, w.size);
+            if (!vx && !vy) return;
+            const t = camera();
+            const c = clampPlanTransform(
+                { x: t.x - vx, y: t.y - vy, k: t.k }, w.size, w.layout, t.k, t.k);
+            if (c.x !== t.x || c.y !== t.y) {
+                userMovedCameraRef.current = true;
+                initiativeZoomRef.current = null;
+                select(el).call(zb.transform, zoomIdentity.translate(c.x, c.y).scale(t.k));
+            }
+            raf = requestAnimationFrame(tick);
+        };
+        const clearTimers = (d) => {
+            clearTimeout(d.liftTimer);
+            clearTimeout(d.longTimer);
+        };
+        const finish = () => {
+            initiativeDragRef.current = null;
+            if (raf) cancelAnimationFrame(raf);
+            raf = 0;
+            lastPoint = null;
+            lastClient = null;
+            setInitiativeDrag(null);
+            setInitiativeDropAt(null);
+            setCursor(null);
+        };
+        // The click a drag ends in (on the ↗, the fold head) is the drag's.
+        const guardClick = () => {
+            guardClicks = true;
+            clearTimeout(guardTimer);
+            guardTimer = setTimeout(() => { guardClicks = false; }, 0);
+        };
+        const lift = (d) => {
+            clearTimeout(d.liftTimer);
+            const w = world();
+            const lockedBy = w.lockedBy(d.initiativeId);
+            if (w.busy || lockedBy || !d.chip.isConnected) {
+                if (lockedBy) showError(lockedMessage('initiative', lockedBy));
+                else if (w.busy) showMessage('Saving the previous initiative order — try again in a moment');
+                clearTimers(d);
+                d.phase = 'cancelled';
+                return false;
+            }
+            // The press is the drag's now: no click, no long press after it.
+            pressRef.current?.cancel();
+            const r = d.chip.getBoundingClientRect();
+            d.offX = d.down.x - r.left;
+            d.offY = d.down.y - r.top;
+            d.phase = 'drag';
+            d.lifted = true;
+            d.sig = null;
+            setInitiativeDrag({
+                initiativeId: d.initiativeId, name: d.name, color: d.color, fontSize: d.fontSize,
+                w: r.width, h: r.height,
+                x: lastClient.x - d.offX, y: lastClient.y - d.offY,
+            });
+            setCursor('grabbing');
+            if (d.pointerType === 'touch') {
+                swallowTouchEnd = true;
+                navigator.vibrate?.(LIFT_VIBRATE_MS);
+            }
+            placePreview();
+            retarget();
+            if (!raf) raf = requestAnimationFrame(tick);
+            return true;
+        };
+
+        // Called by the chip's own onPointerDown (a React handler — the chip is
+        // DOM, so no canvas hit test is needed).
+        const down = (e, info) => {
+            if (initiativeDragRef.current || !e.isPrimary || e.button !== 0) return;
+            const d = {
+                phase: 'press', ...info,
+                pointerId: e.pointerId, pointerType: e.pointerType,
+                down: { x: e.clientX, y: e.clientY }, travel: 0,
+            };
+            lastPoint = panelPoint(e);
+            lastClient = { x: e.clientX, y: e.clientY };
+            d.liftTimer = setTimeout(() => {
+                if (initiativeDragRef.current !== d || d.phase !== 'press') return;
+                if (reqPressOutcome(d.pointerType, d.travel, true) === 'lift') lift(d);
+            }, LIFT_DELAY_MS);
+            // A mouse held still on the NAME is the press tracker's long press
+            // (the rename, while held): the press is no longer a drag candidate.
+            // The chip's other parts have no long press, so a hold there still
+            // drags when it moves. A lifted finger renames on the release in
+            // place instead (`onUp`) — on the name only, like the mouse.
+            d.longTimer = d.onName ? setTimeout(() => {
+                if (initiativeDragRef.current !== d) return;
+                if (d.pointerType === 'touch') { d.heldLong = true; return; }
+                if (d.phase === 'press' && stillHeld(d.travel)) {
+                    d.phase = 'cancelled';
+                }
+            }, LONG_PRESS_MS) : null;
+            initiativeDragRef.current = d;
+        };
+        initiativeDownRef.current = down;
+
+        const onMove = (e) => {
+            const d = initiativeDragRef.current;
+            if (!d || e.pointerId !== d.pointerId || d.phase === 'cancelled') return;
+            if (!(e.buttons & 1)) {        // eslint-disable-line no-bitwise
+                clearTimers(d);
+                if (d.phase === 'drag') finish(); else initiativeDragRef.current = null;
+                return;
+            }
+            d.travel = Math.max(d.travel, Math.hypot(e.clientX - d.down.x, e.clientY - d.down.y));
+            lastPoint = panelPoint(e);
+            lastClient = { x: e.clientX, y: e.clientY };
+            if (d.phase === 'press') {
+                const outcome = reqPressOutcome(d.pointerType, d.travel, false);
+                if (outcome === 'pan') {
+                    clearTimers(d);
+                    initiativeDragRef.current = null;
+                    return;
+                }
+                if (outcome !== 'lift' || !lift(d)) return;
+            }
+            placePreview();
+            retarget();
+            if (!raf) raf = requestAnimationFrame(tick);
+        };
+        const onUp = (e) => {
+            const d = initiativeDragRef.current;
+            if (!d || e.pointerId !== d.pointerId) return;
+            clearTimers(d);
+            // A press that was LIFTED ends in a click that is the drag's — put
+            // back by Escape included, or the release over the ↗ navigates.
+            if (d.lifted) guardClick();
+            if (d.phase === 'press' || d.phase === 'cancelled') {
+                initiativeDragRef.current = null;
+                return;
+            }
+            const travel = Math.max(d.travel, Math.hypot(e.clientX - d.down.x, e.clientY - d.down.y));
+            if (d.heldLong && stillHeld(travel)) {
+                finish();
+                world().rename(d.initiativeId, { x: e.clientX, y: e.clientY });
+                return;
+            }
+            lastPoint = panelPoint(e);
+            lastClient = { x: e.clientX, y: e.clientY };
+            retarget();
+            const slot = d.slot;
+            finish();
+            if (slot && !slot.noop) world().commit(d.initiativeId, slot);
+        };
+        const onPointerCancel = (e) => {
+            const d = initiativeDragRef.current;
+            if (!d || e.pointerId !== d.pointerId) return;
+            if (d.pointerType === 'touch') swallowTouchEnd = false;
+            clearTimers(d);
+            if (d.phase === 'drag') finish(); else initiativeDragRef.current = null;
+        };
+        const onKey = (e) => {
+            const d = initiativeDragRef.current;
+            if (e.key !== 'Escape' || d?.phase !== 'drag') return;
+            e.preventDefault();
+            clearTimers(d);
+            finish();
+            // The rest of the press, until its pointer comes up, is nobody's.
+            d.phase = 'cancelled';
+            initiativeDragRef.current = d;
+        };
+        const onBlur = () => {
+            swallowTouchEnd = false;
+            const d = initiativeDragRef.current;
+            if (!d) return;
+            clearTimers(d);
+            if (d.phase === 'drag') finish(); else initiativeDragRef.current = null;
+        };
+        const onClickCapture = (e) => {
+            if (!guardClicks) return;
+            e.stopPropagation();
+            e.preventDefault();
+        };
+        const onTouchMove = (e) => {
+            const d = initiativeDragRef.current;
+            if (d?.pointerType !== 'touch' || d.phase === 'press') return;
+            e.stopPropagation();
+            if (e.cancelable) e.preventDefault();
+        };
+        const onTouchEnd = (e) => {
+            if (!swallowTouchEnd) return;
+            if (e.cancelable) e.preventDefault();
+            if (!e.touches?.length) swallowTouchEnd = false;
+        };
+        const onTouchCancel = (e) => { if (!e.touches?.length) swallowTouchEnd = false; };
+        initiativeRetargetRef.current = retarget;
+
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+        window.addEventListener('pointercancel', onPointerCancel);
+        window.addEventListener('click', onClickCapture, true);
+        window.addEventListener('touchmove', onTouchMove, { capture: true, passive: false });
+        window.addEventListener('touchend', onTouchEnd, { capture: true, passive: false });
+        window.addEventListener('touchcancel', onTouchCancel, { capture: true });
+        window.addEventListener('keydown', onKey);
+        window.addEventListener('blur', onBlur);
+        return () => {
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onUp);
+            window.removeEventListener('pointercancel', onPointerCancel);
+            window.removeEventListener('click', onClickCapture, true);
+            window.removeEventListener('touchmove', onTouchMove, { capture: true });
+            window.removeEventListener('touchend', onTouchEnd, { capture: true });
+            window.removeEventListener('touchcancel', onTouchCancel, { capture: true });
+            window.removeEventListener('keydown', onKey);
+            window.removeEventListener('blur', onBlur);
+            if (raf) cancelAnimationFrame(raf);
+            clearTimeout(guardTimer);
+            if (initiativeDragRef.current) clearTimers(initiativeDragRef.current);
+            initiativeDragRef.current = null;
+            initiativeDownRef.current = null;
+            initiativeRetargetRef.current = null;
+        };
+    }, [containerEl]);
 
     // A EPIC TITLE's three gestures. Read through a ref by the native canvas
     // listeners (bound once per container), so they always see this render's
@@ -5221,6 +5618,9 @@ export default function PipelinePlanVisualizer({
                  // drag is otherwise observable only as changed pixels.
                  data-req-drag={reqDrag ? reqDrag.reqId : ''}
                  data-drop-epic={dropEpicId ?? ''}
+                 // req #3861 — the initiative in flight and the slot it would land in.
+                 data-initiative-dragging={initiativeDrag ? initiativeDrag.initiativeId : ''}
+                 data-initiative-drop={initiativeDropAt ? initiativeDropAt.index : ''}
                  // req #3586 — how many add-epic marks the canvas drew, by kind,
                  // for the same reason: they are otherwise only pixels.
                  data-insert-edges={insertGeom ? insertGeom.edgeCount : 0}
@@ -5329,6 +5729,47 @@ export default function PipelinePlanVisualizer({
                     </Box>
                 )}
 
+                {/* req #3861 — the initiative in flight: its name bar, lifted onto
+                    a plate that rides the pointer (moved by `transform` written
+                    straight to the DOM, like the requirement's copy), and the
+                    line across the panel at the gap between bands it would land
+                    in. Neither takes the pointer. */}
+                {initiativeDrag && (
+                    <Box ref={initiativePreviewRef}
+                         data-testid="pipeline-viz-initiative-drag-preview"
+                         data-initiative-id={initiativeDrag.initiativeId}
+                         style={{ transform: `translate(${initiativeDrag.x}px, ${initiativeDrag.y}px)` }}
+                         sx={{ position: 'fixed', left: 0, top: 0,
+                                zIndex: UNSEATED_FLOAT_Z + 2,
+                                pointerEvents: 'none', willChange: 'transform',
+                                minWidth: initiativeDrag.w, height: initiativeDrag.h,
+                                display: 'flex', alignItems: 'center',
+                                px: 0.9, borderRadius: '5px', boxSizing: 'border-box',
+                                fontFamily: MONO, fontSize: initiativeDrag.fontSize,
+                                fontWeight: 700, lineHeight: 1, whiteSpace: 'nowrap',
+                                color: initiativeDrag.color,
+                                background: rgba(P.panel, 0.94),
+                                outline: `1px solid ${initiativeDrag.color}`,
+                                boxShadow: `0 10px 28px rgba(0, 0, 0, 0.55), 0 0 0 3px ${rgba(initiativeDrag.color, 0.15)}`,
+                                cursor: 'grabbing',
+                                '@keyframes planInitiativeLift': {
+                                    '0%': { outlineColor: 'transparent', boxShadow: '0 0 0 rgba(0,0,0,0)' },
+                                },
+                                animation: 'planInitiativeLift 140ms ease-out',
+                                '@media (prefers-reduced-motion: reduce)': { animation: 'none' } }}>
+                        {initiativeDrag.name}
+                    </Box>
+                )}
+                {initiativeDrag && initiativeDropAt && (
+                    <Box data-testid="pipeline-viz-initiative-drop-line"
+                         data-index={initiativeDropAt.index}
+                         sx={{ position: 'absolute', left: 0, right: 0, zIndex: 2,
+                                top: t.y + initiativeDropAt.lineY * t.k - 1.5, height: 3,
+                                borderRadius: '2px', pointerEvents: 'none',
+                                background: initiativeDrag.color,
+                                boxShadow: `0 0 8px ${rgba(initiativeDrag.color, 0.7)}` }} />
+                )}
+
                 {/* Floating initiative labels — each at the top-left corner of its own
                     band's rectangle intersected with the visible content area
                     (req #3257). The strip ignores the pointer so it can never
@@ -5349,10 +5790,14 @@ export default function PipelinePlanVisualizer({
                     no row to rename its NAME keeps the zoom. The ↗ beside it
                     keeps the navigation, and only it needs the id.
 
-                    Re-enabling pointer events does not cost the drag-pan: the
-                    chip is a DESCENDANT of the container d3-zoom is bound to, so
-                    a mousedown on the chip still bubbles and still starts a pan.
-                    Only the click is the chip's.
+                    Re-enabling pointer events does not cost the drag-pan
+                    anywhere else: the chip is a DESCENDANT of the container
+                    d3-zoom is bound to. A MOUSE press on an initiative's chip is
+                    the chip's, though (req #3861): the zoom filter refuses it,
+                    because moving it drags the initiative to re-order the plan.
+                    A finger still pans from it until it is held long enough to
+                    lift. The "No initiative" band has no order to change, so a
+                    press on its chip still pans.
 
                     Req #3210's STICKY prev/next entries are GONE (req #3257):
                     the clamp now applies to EVERY band, so a focused band's
@@ -5420,6 +5865,18 @@ export default function PipelinePlanVisualizer({
                             key={e.key}
                             data-testid={`pipeline-viz-initiative-${e.key}`}
                             data-editing={editing ? 'true' : undefined}
+                            // req #3861 — THE NAME BAR IS THE DRAG HANDLE: pressed
+                            // and moved (or held, by a finger) it lifts the
+                            // initiative to re-order the plan. Its parts keep
+                            // their own click, double click and long press.
+                            data-initiative-drag={renamable && !editing ? 'true' : undefined}
+                            data-dragging={initiativeDrag?.initiativeId === e.initiativeId
+                                && renamable ? 'true' : undefined}
+                            onPointerDown={renamable && !editing ? (ev) => initiativeDownRef.current?.(ev, {
+                                initiativeId: e.initiativeId, chip: ev.currentTarget,
+                                name: e.name ?? e.text, color: e.color, fontSize: e.fontSize,
+                                onName: !!ev.target?.closest?.('.pipeline-viz-initiative-name'),
+                            }) : undefined}
                             data-bar={e.bar > 0 ? e.bar.toFixed(2) : undefined}
                             sx={{
                                 // `e.y` is screen-absolute (panel-origin), but
@@ -5493,6 +5950,10 @@ export default function PipelinePlanVisualizer({
                                 border: `1px solid ${e.color}55`,
                                 whiteSpace: 'nowrap', userSelect: 'none',
                                 pointerEvents: 'auto',
+                                // req #3861 — the chip it was lifted from stays,
+                                // dimmed, until the drop redraws the stack.
+                                opacity: renamable && initiativeDrag?.initiativeId === e.initiativeId
+                                    ? 0.35 : 1,
                                 // An affordance you cannot see is not a feature
                                 // (req #3204): the border firms up on hover, the
                                 // name underlines, and the light and the count

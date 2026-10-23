@@ -52,7 +52,8 @@ describe('EngineLocationPanel', () => {
     it('names the machine, scope, role, pids and claim age', () => {
         mount(<EngineLocationPanel engine={engine(1)} names={NAMES} />);
         expect(text('engine-machine-1')).toBe('Mac mini');
-        expect(text('engine-scope-1')).toContain('whole plan 900 · Scenario plan');
+        expect(text('engine-scope-1')).toContain('whole plan Scenario plan');
+        expect(text('engine-scope-1')).not.toContain('900');
         expect(text('engine-role-1')).toContain('lead');
         // claim_age_s 3660 at a beat 20 s old → held 1h 01m now.
         expect(text('engine-claim-1')).toBe('#1 · held 1h 01m');
@@ -80,12 +81,14 @@ describe('EngineHealthPanel', () => {
         expect(text('engine-code-1')).toContain('current — running the code on disk');
         expect(text('engine-degraded-1')).toBe('no failed cycles');
         expect(text('engine-supervisor-1')).toContain('running');
+        expect(text('engine-restarts-1')).toBe('not restarted');
     });
 
     it('says MISSING by age, with the threshold', () => {
         mount(<EngineHealthPanel engine={engine(2)} timezone="UTC" />);
         expect(text('engine-health-state-2')).toBe('missing');
         expect(text('engine-heartbeat-2')).toBe('missinglast beat 15m ago (missing after 3m)');
+        expect(text('engine-restarts-2')).toBe('not supervised');
     });
 
     it('reads a degraded engine with a failed plan read and an unknown code verdict', () => {
@@ -94,6 +97,7 @@ describe('EngineHealthPanel', () => {
         expect(text('engine-read-4')).toBe('FAILED — gateway timeout on the plan read');
         expect(text('engine-degraded-4')).toBe('2 failed cycles in a row');
         expect(text('engine-code-4')).toContain('cannot tell');
+        expect(text('engine-restarts-4')).toBe('restarted 3 times');
     });
 
     it('reads an engine turned off as stopped, with what it wanted', () => {
@@ -101,6 +105,14 @@ describe('EngineHealthPanel', () => {
         expect(text('engine-health-state-3')).toBe('stopped');
         expect(text('engine-desired-3')).toBe('off (user)');
         expect(text('engine-code-3')).toContain('stale');
+        expect(text('engine-restarts-3')).toBe('restarted 1 time');
+    });
+
+    it('says nothing about restarts for a beat that predates the count', () => {
+        const e = engine(1);
+        const { restarts: _omit, ...older } = e.healthJson;
+        mount(<EngineHealthPanel engine={{ ...e, healthJson: older }} timezone="UTC" />);
+        expect(text('engine-restarts-1')).toBe('—');
     });
 });
 
@@ -111,6 +123,14 @@ describe('EngineLimitsPanel', () => {
         expect(text('engine-limit-ceiling-4')).toBe('ceiling 2');
         expect(text('engine-limit-reserved-4')).toBe('reserved 2');
         expect(text('engine-limit-free-4')).toBe('free 0');
+        expect($('engine-limit-share-4')).toBeNull();
+    });
+
+    it('says how many of the free slots are this engine\'s when others are owed some (req #3807)', () => {
+        mount(<EngineLimitsPanel engine={engine(4)}
+                                 limits={{ ceiling: 4, live: 2, reserved: 0, free: 2, share: 1 }} />);
+        expect(text('engine-limit-share-4')).toContain('may take 1 of the 2 free');
+        expect(text('engine-limit-share-4')).toContain('owed to other engines on this machine');
     });
 
     it('says capacity is unknown rather than drawing zeros', () => {
@@ -123,7 +143,7 @@ describe('EngineLimitsPanel', () => {
 describe('EngineDecisionPanel', () => {
     const decide = (row, outcomes = new Map()) => {
         mount(<EngineDecisionPanel engine={engine(row.machine_fk)} names={NAMES} reqTitles={new Map()}
-                                   timezone="UTC" view={recordView(row.record, { outcomes })} />);
+                                   timezone="UTC" view={recordView(row.record, { outcomes, names: NAMES })} />);
     };
 
     it('draws the queue in order, the cut where the record put it, and each epic\'s hold', () => {
@@ -134,7 +154,9 @@ describe('EngineDecisionPanel', () => {
         expect(items.map((i) => i.getAttribute('data-below-cut'))).toEqual(['false', 'false', 'true']);
         expect($('engine-cut-4').nextElementSibling).toBe(items[2]);
         expect(text('engine-queue-item-4-3002')).toContain(
-            'no slot left, and epics it depends on still hold open work — waiting on epic 101');
+            'no slot left, and epics it depends on still hold open work — waiting on epic Epic 101');
+        // Epics are named by title, never by number (req #3878).
+        expect(text('engine-epic-link-4-101-0')).toBe('epic Epic 101');
         expect($('engine-epic-4-102').getAttribute('data-code')).toBe('DEP_PRIORITY');
         expect(text('engine-verdict-4')).toBe('OK');
         expect($('engine-epic-link-4-101-0').getAttribute('href'))

@@ -37,7 +37,7 @@ export const PLAIN_WORDS = {
     MACHINE_PIN: 'it belongs to another machine or another lead',
     IN_FLIGHT: 'already announced, waiting to see it start',
     DEP_PRIORITY: 'no slot left, and epics it depends on still hold open work',
-    CAPACITY: 'no free slot',
+    CAPACITY: 'no free slot for this engine — full, or owed to a waiting engine that holds fewer',
     ADMITTED: 'goes now',
     REGRESSION: 'finished work re-opened',
     TOP_UP: 'new work seated on an epic already under way',
@@ -166,17 +166,29 @@ export const OUTCOME_COLORS = {
 
 // ── Detail sentences ─────────────────────────────────────────────────────────
 
-const list = (ids, noun) => {
+// NAMES, NOT NUMBERS (req #3878). `names` is the engine view's dictionary —
+// `{ epics, initiatives }`, each a Map of id → row — and an epic or initiative
+// is named by its title wherever one is known; the id is only the fallback.
+const titleOf = (map, id) => {
+    const row = map && typeof map.get === 'function' ? map.get(id) : null;
+    return row && row.title ? row.title : null;
+};
+const nameOf = (names, kind, id) => titleOf(names && names[`${kind}s`], id) ?? String(id);
+/** `epic Foundation` — the noun and the title, or the noun and the id when untitled. */
+export const epicName = (id, names) => `epic ${nameOf(names, 'epic', id)}`;
+export const initiativeName = (id, names) => `initiative ${nameOf(names, 'initiative', id)}`;
+
+const list = (ids, noun, names) => {
     const xs = Array.isArray(ids) ? ids : [];
     if (!xs.length) return `no ${noun}`;
-    return `${noun}${xs.length === 1 ? '' : 's'} ${xs.join(', ')}`;
+    return `${noun}${xs.length === 1 ? '' : 's'} ${xs.map((x) => nameOf(names, noun, x)).join(', ')}`;
 };
 
 /**
  * The detail a code carries (core.py's `detail` dicts), as a phrase a reader
  * finishes the plain words with — or '' when there is nothing to add.
  */
-export function detailText(code, detail) {
+export function detailText(code, detail, names) {
     if (!detail || typeof detail !== 'object') return '';
     switch (code) {
         case 'ENGINE_HOLD':
@@ -186,9 +198,9 @@ export function detailText(code, detail) {
                 ? `paused at the ${detail.by.join(' and the ')}` : '';
         case 'SERIAL_TURN':
             return detail.live_initiative_id != null
-                ? `initiative ${detail.live_initiative_id} has the turn` : 'no initiative has the turn';
+                ? `${initiativeName(detail.live_initiative_id, names)} has the turn` : 'no initiative has the turn';
         case 'BARRIER':
-            return `held by barrier ${list(detail.barrier_epic_ids, 'epic')}`;
+            return `held by barrier ${list(detail.barrier_epic_ids, 'epic', names)}`;
         case 'NOT_BEFORE':
             return detail.not_before ? `starts at ${detail.not_before}` : '';
         case 'NO_WORK':
@@ -208,7 +220,9 @@ export function detailText(code, detail) {
             return parts.join(', ');
         }
         case 'DEP_PRIORITY':
-            return `waiting on ${list(detail.waiting_on_epic_ids, 'epic')}`;
+            return `waiting on ${list(detail.waiting_on_epic_ids, 'epic', names)}${owedText(detail)}`;
+        case 'CAPACITY':
+            return owedText(detail).replace(/^; /, '');
         case 'ADMITTED':
             return detail.reannounce ? `announced again (attempt ${detail.reannounce})` : '';
         default:
@@ -217,23 +231,27 @@ export function detailText(code, detail) {
     }
 }
 
-/** An event (core.py `_observe`) as one sentence. */
-export function eventText(event) {
+// A free slot this engine left for a peer on the machine (req #3807's fair share).
+const owedText = (detail) => (Array.isArray(detail.owed_to) && detail.owed_to.length
+    ? `; the free slot is owed to ${detail.owed_to.join(' and ')}` : '');
+
+/** An event (core.py `_observe`) as one sentence; `names` as `detailText`. */
+export function eventText(event, names) {
     if (!event || typeof event !== 'object') return '';
     const words = plainWords(event.code);
     switch (event.code) {
         case 'REGRESSION':
-            return `${words}: requirement ${event.requirement_id} on epic ${event.epic_id} went `
+            return `${words}: requirement ${event.requirement_id} on ${epicName(event.epic_id, names)} went `
                 + `${event.from} → ${event.to}`;
         case 'TOP_UP':
-            return `${words}: epic ${event.epic_id} gained ${list(event.requirement_ids, 'requirement')}`;
+            return `${words}: ${epicName(event.epic_id, names)} gained ${list(event.requirement_ids, 'requirement')}`;
         case 'DRAINED':
             return `${words}${event.since ? ` since ${event.since}` : ''}`;
         case 'LANDED':
-            return `${words}: requirement ${event.requirement_id} on epic ${event.epic_id} is `
+            return `${words}: requirement ${event.requirement_id} on ${epicName(event.epic_id, names)} is `
                 + `${event.status}`;
         case 'STALL':
-            return `${words}: requirement ${event.requirement_id} on epic ${event.epic_id}`;
+            return `${words}: requirement ${event.requirement_id} on ${epicName(event.epic_id, names)}`;
         case 'VIOLATION':
             return `${words}: ${event.invariant || 'invariant'}`
                 + `${event.message ? ` — ${event.message}` : ''}`;

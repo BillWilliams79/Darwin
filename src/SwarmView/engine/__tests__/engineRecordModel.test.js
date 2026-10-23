@@ -126,7 +126,8 @@ describe('recordView — a stored record rendered as it was decided (I7, R12)', 
         expect(v.ok).toBe(false);
         expect(v.verdictDetail).toBeTruthy();
         const unknown = recordView(rowsOf(3).find((r) => r.verdict === 'CAPACITY-UNKNOWN').record);
-        expect(unknown.limits).toEqual({ ceiling: null, live: null, reserved: null, free: null });
+        expect(unknown.limits).toEqual({ ceiling: null, live: null, reserved: null, free: null,
+            share: null });
         expect(unknown.queue[0]).toMatchObject({ code: 'ENGINE_HOLD', detail: 'verdict CAPACITY-UNKNOWN' });
     });
 
@@ -176,6 +177,8 @@ describe('scopeText', () => {
     it('names a whole plan or an initiative of one, with titles when known', () => {
         expect(scopeText(10, null)).toBe('whole plan 10');
         expect(scopeText(10, 7, { pipelineTitle: 'Darwin', initiativeTitle: 'Engine' }))
-            .toBe('initiative 7 · Engine of plan 10 · Darwin');
+            .toBe('initiative Engine of plan Darwin');
+        expect(scopeText(10, null, { pipelineTitle: 'Darwin' })).toBe('whole plan Darwin');
+        expect(scopeText(10, 7)).toBe('initiative 7 of plan 10');
     });
 });

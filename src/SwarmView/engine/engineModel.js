@@ -165,8 +165,11 @@ export function outcomesByRequirement(outcomeRows, recordRowId) {
  * An ADMITTED item carries the executor's answer for THIS record's admission
  * (`outcomes`, from `engine_outcomes`); an IN_FLIGHT item carries the outcome
  * the record itself saw when it decided (`detail.outcome`).
+ *
+ * `names` (`{ epics, initiatives }` Maps, optional) puts titles on the epics
+ * and initiatives the details and events mention (req #3878).
  */
-export function recordView(record, { outcomes = new Map() } = {}) {
+export function recordView(record, { outcomes = new Map(), names = null } = {}) {
     if (!record || typeof record !== 'object') return null;
     const cycle = record.cycle || {};
     const queueIn = asArray(record.queue);
@@ -187,7 +190,7 @@ export function recordView(record, { outcomes = new Map() } = {}) {
             code: item.code,
             label: codeLabel(item.code),
             words: plainWords(item.code),
-            detail: detailText(item.code, item.detail),
+            detail: detailText(item.code, item.detail, names),
             belowCut: index >= cut,
             outcome,
         };
@@ -198,11 +201,11 @@ export function recordView(record, { outcomes = new Map() } = {}) {
         code: e.code,
         label: codeLabel(e.code),
         words: plainWords(e.code),
-        detail: detailText(e.code, e.detail),
+        detail: detailText(e.code, e.detail, names),
         requirementIds: asArray(e.items).map((i) => i.requirement_id),
     }));
     const events = asArray(record.events).map((ev) => ({ code: ev.code, label: codeLabel(ev.code),
-        text: eventText(ev) }));
+        text: eventText(ev, names) }));
     const limits = record.limits || {};
     return {
         id: record.id,
@@ -217,6 +220,9 @@ export function recordView(record, { outcomes = new Map() } = {}) {
             live: numOrNull(limits.live),
             reserved: numOrNull(limits.reserved),
             free: numOrNull(limits.free),
+            // This engine's part of the free slots (req #3807); null on a record
+            // from before the fair share, which took them all.
+            share: numOrNull(limits.share),
         },
         queue,
         cut,
@@ -232,7 +238,7 @@ export function recordView(record, { outcomes = new Map() } = {}) {
  * — the history strip's answer to "what changed and when". Empty when nothing
  * a reader would see moved.
  */
-export function recordChanges(prev, next) {
+export function recordChanges(prev, next, names = null) {
     if (!next) return [];
     if (!prev) return ['first record in the history shown'];
     const out = [];
@@ -241,7 +247,7 @@ export function recordChanges(prev, next) {
     if (pc.verdict !== nc.verdict) out.push(`verdict ${pc.verdict} → ${nc.verdict}`);
     const pl = prev.limits || {};
     const nl = next.limits || {};
-    for (const k of ['ceiling', 'live', 'reserved', 'free']) {
+    for (const k of ['ceiling', 'live', 'reserved', 'free', 'share']) {
         if (pl[k] !== nl[k]) out.push(`${k} ${pl[k] ?? '—'} → ${nl[k] ?? '—'}`);
     }
     const before = new Map(asArray(prev.queue).map((i) => [i.requirement_id, i]));
@@ -257,7 +263,7 @@ export function recordChanges(prev, next) {
         if (!after.has(rid)) out.push(`requirement ${rid} left the queue`);
     }
     if (prev.cut !== next.cut && after.size) out.push(`the cut moved ${prev.cut} → ${next.cut}`);
-    for (const ev of asArray(next.events)) out.push(eventText(ev));
+    for (const ev of asArray(next.events)) out.push(eventText(ev, names));
     return out;
 }
 
@@ -275,18 +281,34 @@ export function historyCells(rows) {
     }));
 }
 
-/** `scope plan 10` / `initiative 7 of plan 10`, with titles when known. */
+/**
+ * `whole plan Darwin` / `initiative Engine of plan Darwin` — the title names
+ * the plan and the initiative; the id stands in only when no title is known
+ * (req #3878).
+ */
 export function scopeText(pipelineId, initiativeId, { pipelineTitle, initiativeTitle } = {}) {
-    const plan = pipelineTitle ? `plan ${pipelineId} · ${pipelineTitle}` : `plan ${pipelineId}`;
+    const plan = `plan ${pipelineTitle || pipelineId}`;
     if (initiativeId == null) return `whole ${plan}`;
-    const ini = initiativeTitle ? `initiative ${initiativeId} · ${initiativeTitle}`
-        : `initiative ${initiativeId}`;
-    return `${ini} of ${plan}`;
+    return `initiative ${initiativeTitle || initiativeId} of ${plan}`;
 }
 
 /** `43s ago` / `—` for a nullable age. */
 export function agoText(seconds) {
     return seconds == null ? 'never' : `${humanDuration(seconds)} ago`;
+}
+
+/**
+ * How often the supervisor restarted this engine — the heartbeat's
+ * `health.restarts` (req #3869), worded as `run.py status` words it. `null` is
+ * an engine the supervisor did not start; an absent key is a beat from an
+ * engine that predates the field.
+ */
+export function restartsText(health) {
+    if (!health || !('restarts' in health)) return '—';
+    const n = health.restarts;
+    if (n == null) return 'not supervised';
+    if (n === 0) return 'not restarted';
+    return `restarted ${n} time${n === 1 ? '' : 's'}`;
 }
 
 /** A UTC stamp in the reader's zone, or '—'. */

@@ -12,8 +12,8 @@ import { describe, expect, it } from 'vitest';
 import fixture from './planOverlayFixture.json';
 import { recordView } from '../engineModel';
 import {
-    SOURCE_ENGINE, SOURCE_PREDICTED, leadMachineOf, planOverlay, positionsText, predictionCapacity,
-    predictionClaims,
+    SOURCE_ENGINE, SOURCE_PREDICTED, flightFromRecords, leadMachineOf, planOverlay, positionsText,
+    predictionCapacity, predictionClaims,
 } from '../engineOverlay';
 import { predictRecord } from '../enginePredict';
 import { PLAIN_WORDS } from '../engineVocabulary';
@@ -56,10 +56,10 @@ describe('an engine record → badges and the cut', () => {
         expect(overlay.badges.get(103)).toMatchObject({ text: '2', code: 'ADMITTED', held: false });
         expect(overlay.badges.get(102)).toMatchObject({ text: '3', code: 'DEP_PRIORITY', held: true,
             belowCut: true, cutBefore: true, words: PLAIN_WORDS.DEP_PRIORITY,
-            detail: 'waiting on epic 101' });
+            detail: 'waiting on epic Epic 101' });
         expect(overlay.cut).toBe(2);
         expect(overlay.cutShown).toBe(true);
-        expect(overlay.limits).toEqual({ ceiling: 2, live: 0, reserved: 0, free: 2 });
+        expect(overlay.limits).toEqual({ ceiling: 2, live: 0, reserved: 0, free: 2, share: 2 });
         expect(overlay.source).toBe(SOURCE_ENGINE);
         expect(overlay.seq).toBe(1);
     });
@@ -68,7 +68,7 @@ describe('an engine record → badges and the cut', () => {
         const overlay = engineOverlayOf('A8', 0);
         const barrier = overlay.badges.get(102);
         expect(barrier).toMatchObject({ code: 'BARRIER', text: 'Barrier', held: true, positions: [],
-            words: PLAIN_WORDS.BARRIER, detail: 'held by barrier epic 101' });
+            words: PLAIN_WORDS.BARRIER, detail: 'held by barrier epic Epic 101' });
         expect(overlay.badges.get(101)).toMatchObject({ code: 'ADMITTED', text: '1' });
         expect(overlay.cutShown).toBe(false);
     });
@@ -162,19 +162,39 @@ describe('the prediction\'s inputs', () => {
     const machine = { id: 1, max_live_sessions: 4 };
     it('counts this machine\'s live sessions against its ceiling', () => {
         const sessions = [
-            { machine_fk: 1, swarm_status: 'active' }, { machine_fk: 1, swarm_status: 'review' },
-            { machine_fk: 1, swarm_status: 'completed' }, { machine_fk: 1, swarm_status: 'paused' },
-            { machine_fk: 2, swarm_status: 'active' },
+            { machine_fk: 1, swarm_status: 'active', source_ref: 'requirement:7' },
+            { machine_fk: 1, swarm_status: 'review', source_ref: 'issue:12' },
+            { machine_fk: 1, swarm_status: 'completed', source_ref: 'requirement:9' },
+            { machine_fk: 1, swarm_status: 'paused' },
+            { machine_fk: 2, swarm_status: 'active', source_ref: 'requirement:10' },
         ];
-        expect(predictionCapacity({ machine, sessions, inFlightElsewhere: [7, 7, 8] }))
-            .toEqual({ ceiling: 4, live: 2, reserved_elsewhere: 2 });
+        // Another plan's engine on this machine: 7 already live, 8 still landing,
+        // 6 ended since its record — and it has work waiting (req #3807).
+        const flight = flightFromRecords([{
+            location: { scope: { pipeline_id: 5, initiative_id: null } },
+            limits: { in_flight_req_ids: [7, 8], holding_req_ids: [6, 7, 8], waiting: 3,
+                last_admitted_at: '2026-10-22T08:00:00Z' },
+        }, {
+            location: { scope: { pipeline_id: 6, initiative_id: null } },
+            limits: { in_flight_req_ids: [], waiting: 0 },
+        }, {
+            // Degraded: still reserves 11, but is owed nothing.
+            location: { scope: { pipeline_id: 8, initiative_id: null } },
+            limits: { in_flight_req_ids: [11], holding_req_ids: [11], waiting: 4 },
+            contends: false,
+        }]);
+        expect(predictionCapacity({ machine, sessions, flight, pipelineId: 9 })).toEqual({
+            ceiling: 4, live: 2, reserved_elsewhere: 2, live_req_ids: [7],
+            peers: [{ pipeline_id: 5, initiative_id: null, holding: 2, waiting: 3,
+                last_admitted_at: '2026-10-22T08:00:00Z' }],
+        });
     });
 
     it('leaves what it cannot read unknown, so the prediction says CAPACITY-UNKNOWN', () => {
         expect(predictionCapacity({ machine, sessions: [], sessionsKnown: false }).live).toBeNull();
         expect(predictionCapacity({ machine: { id: 1 }, sessions: [] }).ceiling).toBeNull();
         expect(predictionCapacity({ machine: null, sessions: [] }))
-            .toEqual({ ceiling: null, live: null, reserved_elsewhere: 0 });
+            .toEqual({ ceiling: null, live: null, reserved_elsewhere: 0, live_req_ids: [], peers: [] });
     });
 
     it('adds the claim this engine would take, after every holder', () => {

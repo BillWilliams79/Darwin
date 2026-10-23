@@ -157,7 +157,7 @@ describe('PlanEngineBadge', () => {
             await new Promise((r) => setTimeout(r, 150));
         });
         expect(text('plan-engine-hold-words-102'))
-            .toBe(`Barrier — ${PLAIN_WORDS.BARRIER} — held by barrier epic 101`);
+            .toBe(`Barrier — ${PLAIN_WORDS.BARRIER} — held by barrier epic Epic 101`);
         expect(text('plan-engine-hold-102')).toContain("From the engine's cycle 1.");
     });
 });

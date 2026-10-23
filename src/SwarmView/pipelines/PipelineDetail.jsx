@@ -1,10 +1,10 @@
 // PipelineDetail.jsx — /swarm/pipeline/:id (req #3114).
 //
 // The header and the plan's panel. The panel comes from pipelineDetailModes.js,
-// which since req #3641 registers ONE mode — the Plan visualizer is the only way
-// to look at a pipeline (user directive), so there is no mode switcher on the
-// row and a click on an epic frames it on the canvas rather than leaving for a
-// Table.
+// which since req #3641 offers no Table (user directive) — a click on an epic
+// frames it on the canvas rather than leaving for one. Req #3760 added Engine
+// and req #3761 Lock: Plan | Engine are chips at the header row's start, left
+// of the plan's name (req #3875); Lock is toggled from the plan toolbar.
 //
 // DATA: four bounded list reads + three dictionary reads + (req #3117) two cost
 // reads, joined client-side in one useMemo (design rule 5 — the POC's ~86
@@ -983,6 +983,37 @@ export default function PipelineDetail() {
                             { height: PLAN_CONTROL_H } }}
                  data-testid="pipeline-header-row">
 
+                {/* ── MODE SWITCH (req #3760) ─────────────────────────────────
+                    One chip per registered mode that is not toggled from the
+                    plan toolbar (pipelineDetailModes.js) — the Lock view
+                    (req #3761) has its own chip there. Plan is the visualizer;
+                    Engine is what the orchestration engines made of this plan.
+                    FIRST on the row, left of the plan's name (req #3875, user
+                    directive: "these buttons should be to the left of the
+                    pipeline name as is standard practice for rendering
+                    areas") — the view selector leads, the identity follows. */}
+                {switchModes.length > 1 && (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}
+                         role="group" aria-label="View" data-testid="pipeline-mode-switch">
+                        {switchModes.map((m) => {
+                            const Icon = m.icon;
+                            const on = m.value === switchValue;
+                            return (
+                                <Chip key={m.value} label={m.label}
+                                      icon={Icon ? <Icon fontSize="small" /> : undefined}
+                                      disabled={!!m.disabled}
+                                      onClick={on ? undefined : () => handleModeChange(m.value)}
+                                      data-testid={`pipeline-mode-${m.value}`}
+                                      {...toolbarChipProps(on)} />
+                            );
+                        })}
+                    </Box>
+                )}
+                {switchModes.length > 1 && (
+                    <Divider orientation="vertical" flexItem
+                             sx={{ mx: 0.5, flexShrink: 0 }} />
+                )}
+
                 {/* THE TITLE IS THE SPACER (req #3261 P3, S11 / V2). It used to
                     be `flexShrink: 1` beside a SEPARATE `flexGrow` Box —
                     `darwin-viewer-pages.md` 2.1 calls adding that spacer "the
@@ -1129,32 +1160,10 @@ export default function PipelineDetail() {
                     there BE groups and that a rule separate them — is applied to
                     the order the user asked for, which is the only reading under
                     which both requirements are satisfied. */}
-                <Divider orientation="vertical" flexItem
-                         sx={{ mx: 0.5, flexShrink: 0 }} />
-
-                {/* ── MODE SWITCH (req #3760) ─────────────────────────────────
-                    One chip per registered mode that is not toggled from the
-                    plan toolbar (pipelineDetailModes.js) — the Lock view
-                    (req #3761) has its own chip there. Plan is the visualizer;
-                    Engine is what the orchestration engines made of this plan. */}
-                {switchModes.length > 1 && (
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}
-                         role="group" aria-label="View" data-testid="pipeline-mode-switch">
-                        {switchModes.map((m) => {
-                            const Icon = m.icon;
-                            const on = m.value === switchValue;
-                            return (
-                                <Chip key={m.value} label={m.label}
-                                      icon={Icon ? <Icon fontSize="small" /> : undefined}
-                                      disabled={!!m.disabled}
-                                      onClick={on ? undefined : () => handleModeChange(m.value)}
-                                      data-testid={`pipeline-mode-${m.value}`}
-                                      {...toolbarChipProps(on)} />
-                            );
-                        })}
-                    </Box>
-                )}
-                {switchModes.length > 1 && isPlanMode && (
+                {/* The mode switch moved to the row's start (req #3875), so
+                    this rule now separates the title slot from the plan
+                    toolbar and draws only when the toolbar does. */}
+                {isPlanMode && (
                     <Divider orientation="vertical" flexItem
                              sx={{ mx: 0.5, flexShrink: 0 }} />
                 )}
