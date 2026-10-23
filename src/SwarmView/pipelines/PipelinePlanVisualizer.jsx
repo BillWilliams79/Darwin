@@ -180,6 +180,9 @@ import {
     parseCollapsed, toggleInitiativeCollapsed, toggleEpicCollapsed, expandInitiative, expandEpic,
 } from './planCollapse';
 import PlanCollapseHead from './PlanCollapseHead';
+// req #3762 — the engine overlay's badge (on each epic card) and strip.
+import PlanEngineBadge, { ENGINE_BADGE_H } from '../engine/PlanEngineBadge';
+import PlanEngineStrip from '../engine/PlanEngineStrip';
 import { useFoldAnimation, foldContentAlpha } from './planFoldAnimation';
 // req #3581 — dragging a requirement between epics writes its seat.
 import AppContext from '../../Context/AppContext';
@@ -557,6 +560,13 @@ export default function PipelinePlanVisualizer({
     // to), null when none is hovered; `pinned: true` when a long press holds it
     // open (req #3766).
     keyHover = null,
+    // req #3762 — the engine overlay (`usePlanEngineOverlay`, run by the page,
+    // which owns the machine, claim and session reads it needs): `{ctl,
+    // machines, thisMachineId, open, onToggleOpen, onPickMachine, timezone}`.
+    // Its badges ride the badge layer on each epic card; its strip — the
+    // switch, the limits and the launch queue with its cut — sits on the
+    // canvas. Null draws neither.
+    engineOverlay = null,
 }) {
     const navigate = useNavigate();
     const queryClient = useQueryClient();
@@ -3899,6 +3909,27 @@ export default function PipelinePlanVisualizer({
             fold: foldStyle(l),
         }));
 
+    // ── THE ENGINE'S LAUNCH ORDER, ON EACH CARD (req #3762) ─────────────────
+    // One badge per epic the overlay's record speaks for, sitting on the card's
+    // top-left corner, just ABOVE its frame — so at no zoom does it cover the
+    // card's own collapse head or name — at
+    // a FIXED screen size: it is a number to read at every zoom, not part of
+    // the card's world-space type. An epic with no card drawn — its initiative
+    // folded, its machine filtered — has no node and so no badge.
+    const engineBadgeOverlay = engineOverlay?.ctl?.overlay || null;
+    const floatingEngineBadges = engineBadgeOverlay
+        ? [...engineBadgeOverlay.badges.values()].flatMap((badge) => {
+            const n = drawLayout.nodes.get(badge.epicId);
+            if (!n) return [];
+            return [{
+                badge,
+                left: n.frameLeft * t.k + t.x,
+                top: n.top * t.k + t.y - ENGINE_BADGE_H - 1,
+                fold: n.reveal != null ? foldStyle(n) : null,
+            }];
+        })
+        : [];
+
     // ── THE EPIC CARD'S COLLAPSE HEAD, AS AN HTML OVERLAY (req #3650) ──────
     // A button, so HTML for the run pill's reason, on the run pill's layer. The
     // layout reserved its box at the title line's left (`CARD_COLLAPSE_W`,
@@ -6029,7 +6060,32 @@ export default function PipelinePlanVisualizer({
                             }}
                         />
                     )}
+                    {/* req #3762 — THE ENGINE'S LAUNCH ORDER, one badge per
+                        epic the record speaks for, above its card; hover for
+                        the hold in the engine view's words. */}
+                    {floatingEngineBadges.map((b) => (
+                        <PlanEngineBadge key={`engine-${b.badge.epicId}`}
+                                         badge={b.badge}
+                                         overlay={engineBadgeOverlay}
+                                         machines={engineOverlay.machines}
+                                         thisMachineId={engineOverlay.thisMachineId}
+                                         title={rowById.get(b.badge.epicId)?.title}
+                                         style={{ left: b.left,
+                                                  top: b.top - initiativeOverlayTopInset,
+                                                  ...b.fold }} />
+                    ))}
                 </Box>
+
+                {/* req #3762 — the engine switch, the limits and the launch
+                    queue with its cut line, pinned to the canvas corner. */}
+                {engineOverlay && (
+                    <PlanEngineStrip ctl={engineOverlay.ctl}
+                                     machines={engineOverlay.machines}
+                                     open={engineOverlay.open}
+                                     onToggleOpen={engineOverlay.onToggleOpen}
+                                     onPickMachine={engineOverlay.onPickMachine}
+                                     timezone={engineOverlay.timezone} />
+                )}
 
                 {/* req #3583 — the epic card a box row would land on. An HTML
                     outline over the canvas rather than a Konva shape, so the

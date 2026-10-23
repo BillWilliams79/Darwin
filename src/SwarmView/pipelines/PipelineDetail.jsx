@@ -118,6 +118,8 @@ import {
 } from './pipelineViewModel';
 import { buildReqPills } from './planReqPills';
 import { buildFirstStartIndex } from './planEpicTimes';
+// req #3762 — the plan view's engine overlay.
+import { ENGINE_MACHINE_PARAM, usePlanEngineOverlay } from '../engine/usePlanEngineOverlay';
 
 // A SHARED frozen empty array for the `data = EMPTY` defaults below. A `= []`
 // literal mints a NEW array on every render while `data` is undefined — which is
@@ -572,10 +574,50 @@ export default function PipelineDetail() {
     // fitted the landing view to a plan shorter than the one that then settled.
     // A FAILED read still ends the wait (`isLoading` goes false, `data` stays
     // EMPTY) — no pill is the right reading of "could not tell".
-    const { data: sessionTerminals = EMPTY, isLoading: sessionTerminalsLoading } =
-        useAllSessionTerminals(creatorFk);
+    const { data: sessionTerminals = EMPTY, isLoading: sessionTerminalsLoading,
+        isError: sessionTerminalsError } = useAllSessionTerminals(creatorFk);
     const { data: devServers = EMPTY, isLoading: devServersLoading } =
         useDevServers(creatorFk);
+    // ── THE ENGINE OVERLAY (req #3762) ──────────────────────────────────────
+    // The plan's engine on THIS machine: its switch, its latest decision (or a
+    // prediction of one) as badges on the cards and a launch line on the
+    // canvas. Fed by the machine, claim and session reads above — the session
+    // read is the live-session count a prediction's capacity is made of, so it
+    // is handed over as unknown (`undefined`) until it has settled.
+    const [engineStripOpen, setEngineStripOpen] = usePlanViewSetting('engineStripOpen');
+    const [engineMachineRaw, setEngineMachineRaw] = usePlanViewSetting('engineMachine');
+    // `?engineMachine=<id>` names it in a link (a review deep link, or a machine
+    // the browser cannot identify); it wins over the remembered pick while present.
+    const engineMachineParam = searchParams.get(ENGINE_MACHINE_PARAM);
+    const engineMachinePick = /^\d+$/.test(engineMachineParam || '') ? engineMachineParam : engineMachineRaw;
+    // Picking a machine in the strip drops the link's `engineMachine`, so the pick shows.
+    const engineMachineOverride = /^\d+$/.test(engineMachinePick || '') ? Number(engineMachinePick) : null;
+    const engineCtl = usePlanEngineOverlay({
+        pipelineId: Number.isInteger(pipelineId) ? pipelineId : null,
+        machines,
+        claims: orchestrationClaims,
+        // A failed read is a floor, not a count: unknown, so the prediction says
+        // CAPACITY-UNKNOWN as the engine would (`concurrency_ceiling`).
+        sessions: sessionTerminalsLoading || sessionTerminalsError ? undefined : sessionTerminals,
+        machineOverride: engineMachineOverride,
+        // The Plan mode only: the visualizer is what draws it.
+        enabled: activeMode === 'plan',
+    });
+    const machineById = useMemo(() => new Map(machines.map((m) => [m.id, m])), [machines]);
+    const engineOverlay = useMemo(() => ({
+        ctl: engineCtl,
+        machines: machineById,
+        thisMachineId: engineCtl.machineId,
+        open: engineStripOpen,
+        onToggleOpen: () => setEngineStripOpen((v) => !v),
+        onPickMachine: (id) => {
+            setEngineMachineRaw(id == null ? '' : String(id));
+            if (searchParams.has(ENGINE_MACHINE_PARAM)) replaceLinkParams([ENGINE_MACHINE_PARAM]);
+        },
+        timezone,
+    }), [engineCtl, machineById, engineStripOpen, setEngineStripOpen, setEngineMachineRaw, timezone,
+        searchParams, replaceLinkParams]);
+
     const pillsLoading = requirementSessionsLoading || sessionTerminalsLoading
         || devServersLoading;
     const reqPills = useMemo(
@@ -1263,6 +1305,7 @@ export default function PipelineDetail() {
                              keyHover={keyHover}
                              orchestrationClaims={orchestrationClaims}
                              machines={machines}
+                             engineOverlay={activeMode === 'plan' ? engineOverlay : null}
                              />
             )}
         </Box>

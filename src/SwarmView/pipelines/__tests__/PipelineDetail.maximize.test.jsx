@@ -169,7 +169,9 @@ describe('PipelineDetail — the maximize switch\'s two homes (req #3793)', () =
             act(() => { node('pipeline-viz-maximize').click(); });
             act(() => {
                 window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
-                vi.runAllTimers();
+                // Pending timers only: the page polls (the engine overlay's
+                // reads and clock, req #3762), and an interval never drains.
+                vi.runOnlyPendingTimers();
             });
             expect(node('pipeline-detail').getAttribute('data-maximized')).toBe('false');
             expect(node('pipeline-header-row').contains(node('pipeline-viz-maximize'))).toBe(true);
