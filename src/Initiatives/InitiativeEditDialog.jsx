@@ -218,7 +218,7 @@ export default function InitiativeEditDialog({ open, initiative, pipelineOptions
                         type="number" fullWidth
                         slotProps={{ htmlInput: {
                             'data-testid': 'initiative-sort-order-input',
-                            epic: 1, min: SORT_ORDER_MIN, max: SORT_ORDER_MAX,
+                            step: 1, min: SORT_ORDER_MIN, max: SORT_ORDER_MAX,
                         } }}
                     />
                 </Stack>
