@@ -78,6 +78,15 @@ export const PLAN_VIEW_SETTINGS = Object.freeze({
     // #3650): a list of tokens `planCollapse.js` owns. Nothing folded until the
     // reader folds it.
     collapsed: { kind: 'value', storageKey: 'darwin-pipeline-viz-collapsed-v2', default: '' },
+    // req #3762 — the engine overlay's strip: the launch queue row open. Open,
+    // because the order and the cut are what the overlay exists to show.
+    engineStripOpen: { kind: 'flag', storageKey: 'darwin-pipeline-viz-engine-strip-open',
+        default: true },
+    // req #3762 — the machine the reader says this browser is on, when the
+    // browser cannot tell (`resolveThisMachineId` answers null for an
+    // unregistered machine or two of one platform). A machine id, or '' to
+    // follow the browser's own answer.
+    engineMachine: { kind: 'value', storageKey: 'darwin-pipeline-viz-engine-machine', default: '' },
 });
 
 // A flag is stored as '1' / '0'. Decoding is anchored on the DEFAULT: only the

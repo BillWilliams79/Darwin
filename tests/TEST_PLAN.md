@@ -340,6 +340,7 @@ measured against the design rules in req #3080.
 | `pipelines.spec.ts` | PIPE-01…13 (14) | The browser surface, over a seeded plan |
 | `pipeline-mutations.spec.ts` | MUT-01…12 (12) | The twelve canonical mutation classes, via the MCP tools |
 | `lock-view.spec.ts` | LOCK-01…10 (10) | The plan visualizer's Lock view (req #3761): lock/unlock at each tier with the cascade, pause/unpause at pipeline and initiative, the engine holder outline, a refused write echoed in place, epic click framing the epic in the full plan, the Lock chip's persistence, and an ancestor's lock refusing before the write |
+| `plan-engine-overlay.spec.ts` | OVL-01…03, OVL-A8…A18, OVL-A21 (15) | The plan visualizer's engine overlay (req #3762): the engine switch on/off through the lifecycle contract (with a draft plan activated), the launch-order badges, cut line and limits matching the engine's decision record exactly, the engine-off prediction, a held epic's hold on hover, and each plan-overlay user action's reaction |
 
 **Fixture strategy — why it is not the req #3111 fixture**
 

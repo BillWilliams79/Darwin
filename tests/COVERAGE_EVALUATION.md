@@ -298,3 +298,30 @@ plan-scoped mode with a live store that publishes new cycles (`EnginesPage.test.
 `src/SwarmView/pipelines/__tests__/PipelineDetail.planOnly.test.jsx`.
 
 **Not covered here, deliberately:** a LIVE engine on the page — that is req #3763's cutover.
+
+## Plan view engine overlay — `/swarm/pipeline/:id?mode=plan` (req #3762)
+
+`tests/tests/plan-engine-overlay.spec.ts` drives the overlay against routed reads answered from
+`src/SwarmView/engine/__tests__/planOverlayFixture.json` — the composed read, the machine's ceiling
+and live sessions, the live claims and the engine's rows, every record and every prediction
+produced by `core.decide()` (`scripts/swarm/engine2/overlay_fixture.py`;
+`tests/engine/test_overlay_fixture.py` fails when stale). The switch's writes land in the spec's
+in-memory tables, so no E2E data is touched. The machine is named in the link
+(`?engineMachine=1`): the Desktop Chrome profile reports a Windows platform.
+
+| Test | Proves | Engine coverage row |
+|---|---|---|
+| OVL-01 | switch ON from the plan view: `desired_state` written by the user, a draft plan activated, the engine comes up, badges + cut + limits become its record exactly | A1, A21 |
+| OVL-02 | switch OFF: written, the plan untouched, the overlay returns to the prediction | A2 |
+| OVL-03 | hovering a held epic gives its hold in the engine view's plain words | I7 |
+| OVL-A8…A18, A21 | every state of each action's scenario drawn from the engine's record, then the same plan predicted with the engine off | A8–A18, A21 |
+
+Component coverage (vitest, `src/SwarmView/engine/__tests__/`): the engine-off prediction replayed
+against `decide()` on every cycle of the scenario corpus (`enginePredict.test.js`); records and
+derived blocks mapped to badges, the cut, limits and launch machines (`engineOverlay.test.js`); the
+switch's lifecycle-contract writes, the 409 race and the echo check (`engineSwitchApi.test.js`); the
+strip and the badge (`PlanEngineOverlay.test.jsx`); the fast read while an engine comes up
+(`engineTransitioning.test.js`).
+
+**Not covered here, deliberately:** a LIVE supervisor answering the switch — that is req #3763's
+cutover; the spec plays the supervisor's part from the fixture.
