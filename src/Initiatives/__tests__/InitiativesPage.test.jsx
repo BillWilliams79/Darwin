@@ -203,20 +203,37 @@ describe('InitiativesPage — connection to the epics view', () => {
 
 describe('InitiativesPage2 create', () => {
     it('POSTs pipeline_fk, trimmed title and the first open category', async () => {
+        // req #3861 — a blank sort order APPENDS to the plan's hard order: one
+        // past the plan's highest, read just before the POST.
+        restGetResponses = {
+            'http://test.local/darwin/initiatives?pipeline_fk=7&fields=id,sort_order':
+                [{ id: 4, sort_order: 0 }, { id: 5, sort_order: 3 }],
+        };
         mount();
         click(node('initiative-add'));
         type(node('initiative-title-input'), '  New Initiative  ');
         click(node('initiative-save'));
         await flush();
 
-        expect(restCalls).toEqual([{
+        expect(restCalls.filter((c) => c.method !== 'GET')).toEqual([{
             uri: 'http://test.local/darwin/initiatives',
             method: 'POST',
             body: {
                 pipeline_fk: 7, title: 'New Initiative', description: null,
-                category_fk: 1, sort_order: null, initiative_status: 'active',
+                category_fk: 1, sort_order: 4, initiative_status: 'active',
             },
         }]);
+    });
+
+    it('keeps a typed sort order and reads nothing for it', async () => {
+        mount();
+        click(node('initiative-add'));
+        type(node('initiative-title-input'), 'Placed');
+        type(node('initiative-sort-order-input'), '2');
+        click(node('initiative-save'));
+        await flush();
+        expect(restCalls.map((c) => c.method)).toEqual(['POST']);
+        expect(restCalls[0].body.sort_order).toBe(2);
     });
 
     it('refuses to submit without a pipeline selected', async () => {
@@ -250,13 +267,13 @@ describe('InitiativesPage2 edit', () => {
         }]);
     });
 
-    it("clears sort_order with the REST 'NULL' sentinel", async () => {
+    it('never clears sort_order — a blank keeps the initiative\'s place (req #3861)', async () => {
         mount();
         click(node('initiative-edit-4'));
         type(node('initiative-sort-order-input'), '');
         click(node('initiative-save'));
         await flush();
-        expect(restCalls[0].body[0].sort_order).toBe('NULL');
+        expect(restCalls[0].body[0]).not.toHaveProperty('sort_order');
     });
 });
 
