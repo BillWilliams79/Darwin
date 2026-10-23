@@ -247,7 +247,7 @@ test.describe('Plan view engine overlay (req #3762)', () => {
     await expect(badge).toHaveText('Barrier');
     await badge.hover();
     await expect(page.getByTestId('plan-engine-hold-words-102'))
-      .toHaveText(`Barrier — ${PLAIN_WORDS.BARRIER} — held by barrier epic 101`);
+      .toHaveText(`Barrier — ${PLAIN_WORDS.BARRIER} — held by barrier epic Epic 101`);
     await expect(page.getByTestId('plan-engine-hold-102')).toContainText(`From the engine's cycle ${state.record_row.seq}.`);
   });
 
