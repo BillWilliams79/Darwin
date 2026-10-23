@@ -289,6 +289,20 @@ export function agoText(seconds) {
     return seconds == null ? 'never' : `${humanDuration(seconds)} ago`;
 }
 
+/**
+ * How often the supervisor restarted this engine — the heartbeat's
+ * `health.restarts` (req #3869), worded as `run.py status` words it. `null` is
+ * an engine the supervisor did not start; an absent key is a beat from an
+ * engine that predates the field.
+ */
+export function restartsText(health) {
+    if (!health || !('restarts' in health)) return '—';
+    const n = health.restarts;
+    if (n == null) return 'not supervised';
+    if (n === 0) return 'not restarted';
+    return `restarted ${n} time${n === 1 ? '' : 's'}`;
+}
+
 /** A UTC stamp in the reader's zone, or '—'. */
 export function stampText(stamp, timezone) {
     const at = parseUtc(stamp);

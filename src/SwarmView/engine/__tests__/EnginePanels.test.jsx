@@ -80,12 +80,14 @@ describe('EngineHealthPanel', () => {
         expect(text('engine-code-1')).toContain('current — running the code on disk');
         expect(text('engine-degraded-1')).toBe('no failed cycles');
         expect(text('engine-supervisor-1')).toContain('running');
+        expect(text('engine-restarts-1')).toBe('not restarted');
     });
 
     it('says MISSING by age, with the threshold', () => {
         mount(<EngineHealthPanel engine={engine(2)} timezone="UTC" />);
         expect(text('engine-health-state-2')).toBe('missing');
         expect(text('engine-heartbeat-2')).toBe('missinglast beat 15m ago (missing after 3m)');
+        expect(text('engine-restarts-2')).toBe('not supervised');
     });
 
     it('reads a degraded engine with a failed plan read and an unknown code verdict', () => {
@@ -94,6 +96,7 @@ describe('EngineHealthPanel', () => {
         expect(text('engine-read-4')).toBe('FAILED — gateway timeout on the plan read');
         expect(text('engine-degraded-4')).toBe('2 failed cycles in a row');
         expect(text('engine-code-4')).toContain('cannot tell');
+        expect(text('engine-restarts-4')).toBe('restarted 3 times');
     });
 
     it('reads an engine turned off as stopped, with what it wanted', () => {
@@ -101,6 +104,14 @@ describe('EngineHealthPanel', () => {
         expect(text('engine-health-state-3')).toBe('stopped');
         expect(text('engine-desired-3')).toBe('off (user)');
         expect(text('engine-code-3')).toContain('stale');
+        expect(text('engine-restarts-3')).toBe('restarted 1 time');
+    });
+
+    it('says nothing about restarts for a beat that predates the count', () => {
+        const e = engine(1);
+        const { restarts: _omit, ...older } = e.healthJson;
+        mount(<EngineHealthPanel engine={{ ...e, healthJson: older }} timezone="UTC" />);
+        expect(text('engine-restarts-1')).toBe('—');
     });
 });
 
