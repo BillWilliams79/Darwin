@@ -105,9 +105,12 @@ afterEach(() => {
     vi.restoreAllMocks();
 });
 
-describe('PipelineDetail — Plan and Engine, never the Table (req #3641, #3760)', () => {
-    it('registers the Plan visualizer and the Engine view, Plan first', () => {
-        expect(PIPELINE_DETAIL_MODES.map((m) => m.value)).toEqual(['plan', 'engine']);
+describe('PipelineDetail — Plan, Lock and Engine, never the Table (req #3641, #3760, #3761)', () => {
+    // The Table stays withdrawn. The Lock view (req #3761) is switched from the
+    // plan toolbar's Lock chip — see PipelineDetail.lockMode.test.jsx — and the
+    // Engine view (req #3760) from the header's Plan | Engine switch.
+    it('registers the Plan visualizer first, then Lock and Engine — never the Table', () => {
+        expect(PIPELINE_DETAIL_MODES.map((m) => m.value)).toEqual(['plan', 'lock', 'engine']);
     });
 
     it.each([
@@ -133,6 +136,8 @@ describe('PipelineDetail — Plan and Engine, never the Table (req #3641, #3760)
         expect(node('pipeline-mode-switch')).not.toBeNull();
         expect(node('pipeline-mode-plan').getAttribute('aria-pressed')).toBe('true');
         expect(node('pipeline-mode-table')).toBeNull();
+        // The Lock view is the plan toolbar's toggle, not a header chip.
+        expect(node('pipeline-mode-lock')).toBeNull();
         expect(node('pipeline-plan-toolbar') || node('mode-plan')).not.toBeNull();
         act(() => { node('pipeline-mode-engine').click(); });
         expect(node('mode-engine')).not.toBeNull();

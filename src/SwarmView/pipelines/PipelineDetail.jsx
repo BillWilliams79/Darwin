@@ -167,9 +167,10 @@ export default function PipelineDetail() {
     const timezone = profile?.timezone;
     const pipelineId = Number(id);
 
-    // Written again since req #3760 put a second mode (Engine) beside the Plan:
-    // the header's mode switch persists the pick per tab. A stored 'table'
-    // from before req #3641 still normalizes to the plan.
+    // Written by two controls: the header's Plan | Engine switch (req #3760)
+    // and the plan toolbar's Lock chip (req #3761). Req #3641 removed the
+    // switcher that used to write it; a stored 'table' from before still
+    // normalizes onto the registry below.
     const [mode, setMode] = useViewPreference(
         PIPELINE_DETAIL_MODE_STORAGE_KEY, DEFAULT_PIPELINE_DETAIL_MODE);
 
@@ -471,12 +472,33 @@ export default function PipelineDetail() {
     const handleResetView = useCallback(() => {
         setResetViewNonce((n) => n + 1);
     }, []);
+    // req #3761 — the Lock chip's choice: persisted per tab through the mode
+    // registry, and it clears a `?mode=` link so the pick is not overridden by
+    // the very URL it was made on (a manual pick rewrites the entry's query, as
+    // the level and colour picks do).
+    // A pick also drops a focus link (`?epic=` / `?initiative=`): those mean "the
+    // plan" whatever the stored mode says, so leaving them in the URL would make
+    // the chip a dead control on every such entry.
+    const handleViewModeChange = useCallback((v) => {
+        setMode(v);
+        replaceLinkParams(['mode', FOCUS_EPIC_PARAM, FOCUS_INITIATIVE_PARAM]);
+    }, [setMode, replaceLinkParams]);
     // Normalized ONCE here rather than at each consumer: `levelOverride` is
     // already validated by `readLevelParam` and `levelPref` comes from
     // localStorage, so this is the single place a level string is proved to be
     // one of the four the vocabulary defines.
     const activeLevelPref = normalizePlanLevelPref(levelOverride ?? storedLevelPref);
     const activeMode = normalizeView(modeOverride || mode, PIPELINE_DETAIL_MODES);
+    // The Default nonce belongs to the mode it was pressed in. A panel that mounts
+    // with a nonzero nonce reads it as a click and factory-resets its camera —
+    // which cancels the epic framing an epic click in the Lock view just asked for
+    // and replaces a remembered viewport on Plan -> Lock -> Plan. So a mode change
+    // starts the next panel from 0 (which no panel acts on), in the same render.
+    const [nonceMode, setNonceMode] = useState(activeMode);
+    if (nonceMode !== activeMode) {
+        setNonceMode(activeMode);
+        setResetViewNonce(0);
+    }
 
     // `machines` is a small WHOLE-APP dictionary, not a per-plan read, and it is
     // fetched here rather than in either head because both eras need it and
@@ -715,7 +737,13 @@ export default function PipelineDetail() {
     // state the plan's derivation is in; the Plan's own toolbar shows only
     // while the Plan is the panel.
     const panelNeedsPlan = activeEntry.needsPlan !== false;
-    const isPlanMode = activeEntry.value === 'plan';
+    // The plan toolbar shows for the Plan and for every reading of the plan it
+    // toggles itself (req #3761's Lock) — its Lock chip is the way back.
+    const isPlanMode = activeEntry.value === 'plan' || !!activeEntry.planToolbarToggle;
+    // The header switch: the plan's sibling views. A toolbar-toggled reading
+    // of the plan lights the Plan chip.
+    const switchModes = PIPELINE_DETAIL_MODES.filter((m) => !m.planToolbarToggle);
+    const switchValue = activeEntry.planToolbarToggle ? 'plan' : activeEntry.value;
 
     // req #3261 P2 — the status group's separator renders only when the group
     // does. Its chip is a live-ops conditional, so this is false on the
@@ -1063,15 +1091,16 @@ export default function PipelineDetail() {
                          sx={{ mx: 0.5, flexShrink: 0 }} />
 
                 {/* ── MODE SWITCH (req #3760) ─────────────────────────────────
-                    One chip per registered mode, drawn only when there is more
-                    than one (pipelineDetailModes.js). Plan is the visualizer;
+                    One chip per registered mode that is not toggled from the
+                    plan toolbar (pipelineDetailModes.js) — the Lock view
+                    (req #3761) has its own chip there. Plan is the visualizer;
                     Engine is what the orchestration engines made of this plan. */}
-                {PIPELINE_DETAIL_MODES.length > 1 && (
+                {switchModes.length > 1 && (
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}
                          role="group" aria-label="View" data-testid="pipeline-mode-switch">
-                        {PIPELINE_DETAIL_MODES.map((m) => {
+                        {switchModes.map((m) => {
                             const Icon = m.icon;
-                            const on = m.value === activeEntry.value;
+                            const on = m.value === switchValue;
                             return (
                                 <Chip key={m.value} label={m.label}
                                       icon={Icon ? <Icon fontSize="small" /> : undefined}
@@ -1083,7 +1112,7 @@ export default function PipelineDetail() {
                         })}
                     </Box>
                 )}
-                {PIPELINE_DETAIL_MODES.length > 1 && isPlanMode && (
+                {switchModes.length > 1 && isPlanMode && (
                     <Divider orientation="vertical" flexItem
                              sx={{ mx: 0.5, flexShrink: 0 }} />
                 )}
@@ -1107,6 +1136,8 @@ export default function PipelineDetail() {
                         effectiveLevel={effectiveLevel}
                         onChangeLevelPref={handleLevelPrefChange}
                         onResetView={handleResetView}
+                        viewMode={activeMode}
+                        onChangeViewMode={handleViewModeChange}
                     />}
 
                 {/* The status chip and the machine chip were REMOVED on the
@@ -1230,6 +1261,8 @@ export default function PipelineDetail() {
                              maximized={maximized}
                              onToggleMaximized={toggleMaximized}
                              keyHover={keyHover}
+                             orchestrationClaims={orchestrationClaims}
+                             machines={machines}
                              />
             )}
         </Box>
