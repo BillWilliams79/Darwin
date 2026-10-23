@@ -4,7 +4,9 @@
 // whose one button opens the popup requirement editor; the editor's first
 // Save POSTs the requirement, shows its id as a link, and later Saves PUT it.
 // Req #3812 — its DEFAULTS: the same editor without title/description, kept per
-// browser, applied to every New requirement (seat included), stale ones not.
+// browser, applied to every Requirement (seat included), stale ones not.
+// Req #3813 — REQUIREMENT records where it was filed: the draft's description
+// opens on a Filed-from block (URL, options, state, popup location).
 
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -46,6 +48,8 @@ import RequirementEditorPopup from '../RequirementEditorPopup';
 import NavBarSidebar from '../../NavBar/NavBarSidebar';
 import { useRequirementFilerStore } from '../../stores/useRequirementFilerStore';
 import { usePanelRackStore } from '../../stores/usePanelRackStore';
+import ThemeContext from '../../Theme/ThemeContext';
+import { FILED_FROM_BEGIN, parseFiledFromBlock, registerPageOptions } from '../filedFromContext';
 
 const ok = (data) => ({ data, httpStatus: { httpStatus: 200, httpMessage: 'OK' } });
 
@@ -53,11 +57,13 @@ const renderAll = ({ nav = false, at = '/maps' } = {}) => render(
     <QueryClientProvider client={new QueryClient()}>
         <AuthContext.Provider value={{ idToken: 't', profile: { userName: 'u', app_swarm: 1 } }}>
             <AppContext.Provider value={{ darwinUri: 'https://api/darwin_dev', database: 'darwin_dev' }}>
-                <MemoryRouter initialEntries={[at]}>
-                    {nav && <NavBarSidebar />}
-                    <RequirementFiler />
-                    <RequirementEditorPopup />
-                </MemoryRouter>
+                <ThemeContext.Provider value={{ themeMode: 'system', effectiveMode: 'dark', setThemeMode: () => {} }}>
+                    <MemoryRouter initialEntries={[at]}>
+                        {nav && <NavBarSidebar />}
+                        <RequirementFiler />
+                        <RequirementEditorPopup />
+                    </MemoryRouter>
+                </ThemeContext.Provider>
             </AppContext.Provider>
         </AuthContext.Provider>
     </QueryClientProvider>
@@ -90,7 +96,8 @@ describe('Requirement Filer (req #3811)', () => {
         expect(panel.getAttribute('data-rack-id')).toBe(FILER_RACK_ID);
         expect(screen.getByTestId('requirement-filer-title').textContent).toBe('Requirement Filer');
         expect(screen.getByTestId('requirement-filer-toggle')).toBeTruthy();
-        expect(screen.getByTestId('requirement-filer-new').textContent).toContain('New requirement');
+        expect(screen.getByTestId('requirement-filer-new').textContent).toContain('Requirement');
+        expect(screen.getByTestId('requirement-filer-new').textContent).not.toContain('New');
         expect(control.getAttribute('aria-pressed')).toBe('true');
         // × closes it; the control opens it again.
         fireEvent.click(screen.getByTestId('requirement-filer-close'));
@@ -512,5 +519,106 @@ describe('Requirement Filer (req #3811)', () => {
         fireEvent.click(screen.getByTestId('requirement-editor-save'));
         await waitFor(() => expect(screen.getByTestId('requirement-editor-state').textContent).toBe('saved'));
         expect(rest.mock.calls.at(-1).slice(1, 3)).toEqual(['POST', { step_fk: 301, requirement_fk: 4500 }]);
+    });
+});
+
+describe('REQUIREMENT records where it was filed (req #3813)', () => {
+    let unregister = null;
+    beforeEach(() => {
+        desktop = true;
+        projectsQ = PROJECTS;
+        localStorage.clear();
+        rest.mockReset();
+        usePanelRackStore.setState({ racked: [], seeded: [], slot: null, navSlot: null, pageSlot: null, drag: null, covered: false });
+        useRequirementFilerStore.setState({
+            show: true, open: true, dock: { h: 'r', x: 40, v: 'b', y: 30, w: 200, ht: null },
+            editorShow: false, editorOpen: true, editorDock: null,
+            draft: null, savedId: null, saved: null, lastProjectId: 4, lastCategoryId: 862,
+            draftKey: 0, orphaned: false, focusPending: false, editorMode: 'requirement', defaults: {},
+        });
+    });
+    afterEach(() => { unregister?.(); unregister = null; cleanup(); });
+
+    it('ACCEPTANCE: from /systems2?opt=… press Requirement, save — the description carries the block', async () => {
+        // The topology page reports the view on screen (SystemsPage2).
+        unregister = registerPageOptions(() => ({
+            options: { opt: 'tpu8t-datacenter-3d', title: 'TPU v8t Data Center' },
+            surface: '/systems2?opt=tpu8t-datacenter-3d',
+        }));
+        localStorage.setItem('topology.lastOpt', 'tpu4-rack-3d');
+        localStorage.setItem('darwin_working_domain', JSON.stringify({ state: { domainId: 9 }, version: 0 }));
+        renderAll({ at: '/systems2?opt=tpu8t-datacenter-3d#top' });
+        fireEvent.click(screen.getByTestId('requirement-filer-new'));
+
+        // Visible and editable in the editor before save.
+        const field = screen.getByTestId('requirement-editor-field-description');
+        expect(field.value.startsWith('\n\n' + FILED_FROM_BEGIN)).toBe(true);
+        expect(field.value).toContain('Surface: /systems2?opt=tpu8t-datacenter-3d\n');
+        fill('title', 'Filed from the data center');
+        fireEvent.change(field, { target: { value: 'What I want.' + field.value } });
+
+        rest.mockResolvedValueOnce(ok([{ id: 4001 }]));
+        fireEvent.click(screen.getByTestId('requirement-editor-save'));
+        await waitFor(() => expect(rest).toHaveBeenCalledTimes(1));
+        const { description } = rest.mock.calls[0][2];
+        expect(description.startsWith('What I want.\n\n')).toBe(true);
+        const block = parseFiledFromBlock(description);
+        expect(block.surface).toBe('/systems2?opt=tpu8t-datacenter-3d');
+        expect(block.url).toBe('/systems2?opt=tpu8t-datacenter-3d#top');
+        const ctx = block.context;
+        expect(ctx.url).toEqual({ full: '/systems2?opt=tpu8t-datacenter-3d#top', path: '/systems2',
+            query: '?opt=tpu8t-datacenter-3d', hash: '#top' });
+        // Options: the query, the page's live view, the owning app's view state only.
+        expect(ctx.options.app).toBe('systems');
+        expect(ctx.options.query).toEqual({ opt: 'tpu8t-datacenter-3d' });
+        expect(ctx.options.page).toEqual({ opt: 'tpu8t-datacenter-3d', title: 'TPU v8t Data Center' });
+        expect(ctx.options.viewState).toEqual({ 'topology.lastOpt': 'tpu4-rack-3d' });
+        // State: database, theme, viewport, apps.
+        expect(ctx.state.database).toBe('darwin_dev');
+        expect(ctx.state.theme).toEqual({ mode: 'system', effective: 'dark' });
+        expect(ctx.state.viewport.width).toBe(window.innerWidth);
+        expect(ctx.state.apps.visible).toEqual(expect.arrayContaining(['tasks', 'maps', 'swarm']));
+        expect(ctx.state.apps.visible).not.toContain('swarm-validate');
+        // Pressed before the editor opened: the editor is not among the popups.
+        expect(ctx.state.actionPopups.map(p => p.id)).not.toContain('requirement-editor');
+        // The popup's location: floating at its dock.
+        expect(ctx.popup).toMatchObject({ id: FILER_RACK_ID, racked: false, open: true,
+            dock: { h: 'r', x: 40, v: 'b', y: 30, w: 200, ht: null } });
+        expect(ctx.popup.rect).toEqual(expect.objectContaining({ x: expect.any(Number), w: expect.any(Number) }));
+    });
+
+    it('records a racked filer at its rack position, and the other open popups', () => {
+        usePanelRackStore.setState({ racked: ['dev-server', FILER_RACK_ID] });
+        useRequirementFilerStore.setState({ editorShow: true, editorMode: 'defaults' });
+        renderAll({ nav: true, at: '/swarm/pipeline/2?mode=plan&filer=1' });
+        fireEvent.click(screen.getByTestId('requirement-filer-new'));
+        const ctx = parseFiledFromBlock(useRequirementFilerStore.getState().draft.description).context;
+        expect(ctx.surface).toBe('/swarm/pipeline/2?mode=plan');
+        expect(ctx.options.routeIds).toEqual({ pipeline: 2 });
+        expect(ctx.popup).toMatchObject({ id: FILER_RACK_ID, racked: true, rackIndex: 1 });
+        // The editor was already open (on the defaults) when Requirement was pressed.
+        expect(ctx.state.actionPopups.map(p => p.id)).toContain('requirement-editor');
+    });
+
+    it('?filer=new records the page it landed on', () => {
+        renderAll({ at: '/swarm?filer=new' });
+        const block = parseFiledFromBlock(useRequirementFilerStore.getState().draft.description);
+        expect(block.surface).toBe('/swarm');
+        expect(block.url).toBe('/swarm?filer=new');
+    });
+
+    it('an untouched block is not a change to ask about; an edited one is', () => {
+        renderAll();
+        fireEvent.click(screen.getByTestId('requirement-filer-new'));
+        const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+        const first = useRequirementFilerStore.getState().draftKey;
+        fireEvent.click(screen.getByTestId('requirement-filer-new'));
+        expect(confirm).not.toHaveBeenCalled();
+        expect(useRequirementFilerStore.getState().draftKey).toBe(first + 1);
+        const field = screen.getByTestId('requirement-editor-field-description');
+        fireEvent.change(field, { target: { value: 'mine' + field.value } });
+        fireEvent.click(screen.getByTestId('requirement-filer-new'));
+        expect(confirm).toHaveBeenCalledTimes(1);
+        confirm.mockRestore();
     });
 });
