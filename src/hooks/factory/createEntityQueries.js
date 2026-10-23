@@ -96,7 +96,8 @@ export function createEntityQueries({
     function useAll(creatorFk, options = {}) {
         const { darwinUri, darwinOpsUri } = useContext(AppContext);
         const { idToken } = useContext(AuthContext);
-        const { fields = defaultFields, sort = defaultSort, enabled = true, staleTime } = options;
+        const { fields = defaultFields, sort = defaultSort, enabled = true, staleTime,
+                refetchInterval } = options;
 
         const uriRoot = ops ? darwinOpsUri : darwinUri;
         const params = [];
@@ -112,6 +113,7 @@ export function createEntityQueries({
             queryFn: () => fetchEntity(uri, idToken),
             enabled: enabled && !!creatorFk && !!idToken,
             ...(staleTime !== undefined ? { staleTime } : {}),
+            ...(refetchInterval !== undefined ? { refetchInterval } : {}),
         });
     }
 
@@ -128,7 +130,10 @@ export function createEntityQueries({
         }
         const { darwinUri, darwinOpsUri } = useContext(AppContext);
         const { idToken } = useContext(AuthContext);
-        const { fields, enabled = true } = options;
+        // `staleTime` / `refetchInterval` pass through as on `useAll` (req
+        // #3760 — the engine view polls its tables and caches content-addressed
+        // decision records forever).
+        const { fields, enabled = true, staleTime, refetchInterval } = options;
 
         const uriRoot = ops ? darwinOpsUri : darwinUri;
         const params = [`id=${id}`];
@@ -149,6 +154,8 @@ export function createEntityQueries({
                 return data.length > 0 ? data[0] : null;
             },
             enabled: enabledFinal,
+            ...(staleTime !== undefined ? { staleTime } : {}),
+            ...(refetchInterval !== undefined ? { refetchInterval } : {}),
         });
     }
 
@@ -170,7 +177,7 @@ export function createEntityQueries({
             }
             const { darwinUri, darwinOpsUri } = useContext(AppContext);
             const { idToken } = useContext(AuthContext);
-            const { fields = defaultFields, enabled = true } = options;
+            const { fields = defaultFields, enabled = true, staleTime, refetchInterval } = options;
 
             const uriRoot = ops ? darwinOpsUri : darwinUri;
             const params = [`${fk.field}=${id}`];
@@ -187,6 +194,8 @@ export function createEntityQueries({
                 queryKey,
                 queryFn: () => fetchEntity(uri, idToken),
                 enabled: enabledFinal,
+                ...(staleTime !== undefined ? { staleTime } : {}),
+                ...(refetchInterval !== undefined ? { refetchInterval } : {}),
             });
         };
     });

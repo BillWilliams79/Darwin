@@ -1,6 +1,7 @@
 // req #3463 — the plan LIST routes come from the era binding, so the nav
 // rail and the router cannot disagree about where a plan list lives.
 import { planListPath } from '../SwarmView/pipelines/planEra';
+import { ENGINES_PATH } from '../SwarmView/engine/enginePaths';
 import ViewKanbanIcon from '@mui/icons-material/ViewKanban';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import MapIcon from '@mui/icons-material/Map';
@@ -17,6 +18,7 @@ import AccountTreeIcon from '@mui/icons-material/AccountTree';
 import LanIcon from '@mui/icons-material/Lan';
 import LayersIcon from '@mui/icons-material/Layers';
 import LinearScaleIcon from '@mui/icons-material/LinearScale';
+import PrecisionManufacturingIcon from '@mui/icons-material/PrecisionManufacturing';
 import TimelineIcon from '@mui/icons-material/Timeline';
 import BusinessIcon from '@mui/icons-material/Business';
 import UndoIcon from '@mui/icons-material/Undo';
@@ -110,6 +112,9 @@ export const NAV_LINKS = [
             // order (Initiative, then Epic).
             { path: '/swarm/initiatives', label: 'Initiatives', icon: LayersIcon, group: 'swarm' },
             { path: '/swarm/epics', label: 'Epics', icon: LinearScaleIcon, group: 'swarm' },
+            // req #3760 — the orchestration engines that run these plans:
+            // what each one decided, its health, where it runs, its limits.
+            { path: ENGINES_PATH, label: 'Engines', icon: PrecisionManufacturingIcon, group: 'swarm' },
         ],
     },
     // Req #3238 — Machines nests as an L3 child of Requirements rather than

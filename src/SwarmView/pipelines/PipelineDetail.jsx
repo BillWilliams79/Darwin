@@ -61,7 +61,7 @@ import {
     DEFAULT_PIPELINE_DETAIL_MODE,
     findPipelineDetailMode,
 } from './pipelineDetailModes';
-import { pipelineStatusChipProps } from './pipelineChipStyles';
+import { pipelineStatusChipProps, toolbarChipProps } from './pipelineChipStyles';
 import { orchestrationBadges } from './orchestrationHolder';
 import OrchestrationBadges, { orchestrationBadgesWidth } from './OrchestrationBadges';
 import RequirementJumpInput from '../../NavBar/RequirementJumpInput';
@@ -84,9 +84,9 @@ import FullscreenSwitch from '../../Components/FullscreenSwitch';
 import { PLAN_MAXIMIZE_LABELS } from './planMaximize';
 import {
     readColorParam, readFocusEpicParam, readLevelParam,
-    FOCUS_LEVEL_PARAM, FOCUS_COLOR_PARAM,
+    FOCUS_EPIC_PARAM, FOCUS_LEVEL_PARAM, FOCUS_COLOR_PARAM,
 } from './pipelineEpicLink';
-import { readFocusInitiativeParam } from './pipelineInitiativeLink';
+import { FOCUS_INITIATIVE_PARAM, readFocusInitiativeParam } from './pipelineInitiativeLink';
 import { writePipelinePlace } from './pipelinePlace';
 // Req #3261 P8 — the Plan mode's own controls, in their own component, exactly
 // as `SwarmView.jsx` renders `<VisualizerToolbar />` for its canvas mode (S4).
@@ -167,9 +167,11 @@ export default function PipelineDetail() {
     const timezone = profile?.timezone;
     const pipelineId = Number(id);
 
-    // Read, never written any more (req #3641 removed the switcher): a stored
-    // 'table' from before normalizes to the one registered mode below.
-    const [mode] = useViewPreference(
+    // Written by two controls: the header's Plan | Engine switch (req #3760)
+    // and the plan toolbar's Lock chip (req #3761). Req #3641 removed the
+    // switcher that used to write it; a stored 'table' from before still
+    // normalizes onto the registry below.
+    const [mode, setMode] = useViewPreference(
         PIPELINE_DETAIL_MODE_STORAGE_KEY, DEFAULT_PIPELINE_DETAIL_MODE);
 
     // ── Mode toolbar state, OWNED HERE (req #3119) ──────────────────────────
@@ -457,15 +459,46 @@ export default function PipelineDetail() {
     // factory camera and a pinned level are a perfectly coherent pair — the
     // reader sees L2's formation on the whole plan, small, which is what asking
     // for a fixed rule set at that zoom means.
+    // req #3760 — a manual MODE pick persists and clears the link's `?mode=`,
+    // for the level pick's reason: a reload keeps the pick. A pick that leaves
+    // the Plan also drops `?epic=` / `?initiative=`: a named epic or initiative
+    // MEANS the plan (`linkView` below), so leaving either behind would hold
+    // the page on the Plan however the reader picks.
+    const handleModeChange = useCallback((v) => {
+        setMode(v);
+        replaceLinkParams(v === 'plan' ? ['mode']
+            : ['mode', FOCUS_EPIC_PARAM, FOCUS_INITIATIVE_PARAM, FOCUS_LEVEL_PARAM]);
+    }, [setMode, replaceLinkParams]);
     const handleResetView = useCallback(() => {
         setResetViewNonce((n) => n + 1);
     }, []);
+    // req #3761 — the Lock chip's choice: persisted per tab through the mode
+    // registry, and it clears a `?mode=` link so the pick is not overridden by
+    // the very URL it was made on (a manual pick rewrites the entry's query, as
+    // the level and colour picks do).
+    // A pick also drops a focus link (`?epic=` / `?initiative=`): those mean "the
+    // plan" whatever the stored mode says, so leaving them in the URL would make
+    // the chip a dead control on every such entry.
+    const handleViewModeChange = useCallback((v) => {
+        setMode(v);
+        replaceLinkParams(['mode', FOCUS_EPIC_PARAM, FOCUS_INITIATIVE_PARAM]);
+    }, [setMode, replaceLinkParams]);
     // Normalized ONCE here rather than at each consumer: `levelOverride` is
     // already validated by `readLevelParam` and `levelPref` comes from
     // localStorage, so this is the single place a level string is proved to be
     // one of the four the vocabulary defines.
     const activeLevelPref = normalizePlanLevelPref(levelOverride ?? storedLevelPref);
     const activeMode = normalizeView(modeOverride || mode, PIPELINE_DETAIL_MODES);
+    // The Default nonce belongs to the mode it was pressed in. A panel that mounts
+    // with a nonzero nonce reads it as a click and factory-resets its camera —
+    // which cancels the epic framing an epic click in the Lock view just asked for
+    // and replaces a remembered viewport on Plan -> Lock -> Plan. So a mode change
+    // starts the next panel from 0 (which no panel acts on), in the same render.
+    const [nonceMode, setNonceMode] = useState(activeMode);
+    if (nonceMode !== activeMode) {
+        setNonceMode(activeMode);
+        setResetViewNonce(0);
+    }
 
     // `machines` is a small WHOLE-APP dictionary, not a per-plan read, and it is
     // fetched here rather than in either head because both eras need it and
@@ -698,8 +731,19 @@ export default function PipelineDetail() {
         );
     }
 
-    const ActiveComponent = (findPipelineDetailMode(activeMode)
-        || PIPELINE_DETAIL_MODES[0]).Component;
+    const activeEntry = findPipelineDetailMode(activeMode) || PIPELINE_DETAIL_MODES[0];
+    const ActiveComponent = activeEntry.Component;
+    // req #3760 — a mode that does not draw the plan (Engine) renders whatever
+    // state the plan's derivation is in; the Plan's own toolbar shows only
+    // while the Plan is the panel.
+    const panelNeedsPlan = activeEntry.needsPlan !== false;
+    // The plan toolbar shows for the Plan and for every reading of the plan it
+    // toggles itself (req #3761's Lock) — its Lock chip is the way back.
+    const isPlanMode = activeEntry.value === 'plan' || !!activeEntry.planToolbarToggle;
+    // The header switch: the plan's sibling views. A toolbar-toggled reading
+    // of the plan lights the Plan chip.
+    const switchModes = PIPELINE_DETAIL_MODES.filter((m) => !m.planToolbarToggle);
+    const switchValue = activeEntry.planToolbarToggle ? 'plan' : activeEntry.value;
 
     // req #3261 P2 — the status group's separator renders only when the group
     // does. Its chip is a live-ops conditional, so this is false on the
@@ -1046,7 +1090,34 @@ export default function PipelineDetail() {
                 <Divider orientation="vertical" flexItem
                          sx={{ mx: 0.5, flexShrink: 0 }} />
 
-                    <PipelinePlanToolbar
+                {/* ── MODE SWITCH (req #3760) ─────────────────────────────────
+                    One chip per registered mode that is not toggled from the
+                    plan toolbar (pipelineDetailModes.js) — the Lock view
+                    (req #3761) has its own chip there. Plan is the visualizer;
+                    Engine is what the orchestration engines made of this plan. */}
+                {switchModes.length > 1 && (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}
+                         role="group" aria-label="View" data-testid="pipeline-mode-switch">
+                        {switchModes.map((m) => {
+                            const Icon = m.icon;
+                            const on = m.value === switchValue;
+                            return (
+                                <Chip key={m.value} label={m.label}
+                                      icon={Icon ? <Icon fontSize="small" /> : undefined}
+                                      disabled={!!m.disabled}
+                                      onClick={on ? undefined : () => handleModeChange(m.value)}
+                                      data-testid={`pipeline-mode-${m.value}`}
+                                      {...toolbarChipProps(on)} />
+                            );
+                        })}
+                    </Box>
+                )}
+                {switchModes.length > 1 && isPlanMode && (
+                    <Divider orientation="vertical" flexItem
+                             sx={{ mx: 0.5, flexShrink: 0 }} />
+                )}
+
+                    {isPlanMode && <PipelinePlanToolbar
                         onEpicsAcross={(n) => setEpicsAcross(
                             (prev) => ({ n, nonce: prev.nonce + 1 }))}
                         epicWidthLevel={epicWidthLevel}
@@ -1065,7 +1136,9 @@ export default function PipelineDetail() {
                         effectiveLevel={effectiveLevel}
                         onChangeLevelPref={handleLevelPrefChange}
                         onResetView={handleResetView}
-                    />
+                        viewMode={activeMode}
+                        onChangeViewMode={handleViewModeChange}
+                    />}
 
                 {/* The status chip and the machine chip were REMOVED on the
                     user's directive (2026-08-01). Plan status is already on the
@@ -1155,7 +1228,7 @@ export default function PipelineDetail() {
                 24px instead of leaving a gap. A withheld/absent `derived` block
                 renders NO panel at all (item 3's hard stop) — the diagnostic
                 Alert above is then the last child instead. */}
-            {canRenderPlan && (
+            {(panelNeedsPlan ? canRenderPlan : !!pipeline) && (
             <ActiveComponent plan={plan} model={model} pipeline={pipeline} timezone={timezone}
                              focusEpicId={focusEpicId}
                              focusInitiativeId={focusInitiativeId}
@@ -1188,6 +1261,8 @@ export default function PipelineDetail() {
                              maximized={maximized}
                              onToggleMaximized={toggleMaximized}
                              keyHover={keyHover}
+                             orchestrationClaims={orchestrationClaims}
+                             machines={machines}
                              />
             )}
         </Box>

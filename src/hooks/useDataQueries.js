@@ -3,7 +3,7 @@ import { useContext, useMemo } from 'react';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys, testCaseKeys, requirementTestCaseKeys, testPlanKeys, testPlanCaseKeys, testRunKeys, testResultKeys, customerKeys, buildProjectKeys, branchKeys, buildKeys, customerReleaseKeys, pipelineComposeKeys } from './useQueryKeys';
-import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, swarmCompletes, swarmCompleteSessions, machines, agents, instructions, architectureDocuments, agentDocuments, agentInstructions, agentTelemetryRuns, agentTelemetryRows, agentTelemetryRowDocs, orchestrationClaims, pipelines, initiatives, pipelineEpics, pipelineEpicRequirements, pipelineEpicDeps, requirementSessions, sessionCostRollups, sessionTerminals } from './factory/devopsQueries';
+import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, swarmCompletes, swarmCompleteSessions, machines, agents, instructions, architectureDocuments, agentDocuments, agentInstructions, agentTelemetryRuns, agentTelemetryRows, agentTelemetryRowDocs, orchestrationClaims, pipelines, initiatives, pipelineEpics, pipelineEpicRequirements, pipelineEpicDeps, requirementSessions, sessionCostRollups, sessionTerminals, engineStates, engineHeartbeats, engineDecisionRecords, engineOutcomes } from './factory/devopsQueries';
 // `fetchEntity` is shared with the factory so both layers handle REST errors
 // identically (req #2593).
 import { fetchEntity } from './factory/createEntityQueries';
@@ -1032,6 +1032,22 @@ export const pipelineEpicDepKeys            = pipelineEpicDeps.keys;
 // initiative_fk; the table holds one row per RESERVED SCOPE, so it is a handful of
 // rows and never grows with the size of a plan.
 export const useOrchestrationClaims         = orchestrationClaims.useAll;
+
+// Req #3760 — Orchestration Engine 2's published rows (req #3756's contract),
+// read by the engine view (`SwarmView/engine/`). Read-only: the browser writes
+// none of these tables here.
+export const useEngineStates                = engineStates.useAll;
+export const useEngineHeartbeats            = engineHeartbeats.useAll;
+export const useEngineDecisionRecords       = engineDecisionRecords.useAll;
+export const useEngineDecisionRecordsByPipeline = engineDecisionRecords.useByPipeline;
+export const useEngineDecisionRecord        = engineDecisionRecords.useById;
+export const useEngineOutcomesByRecord      = engineOutcomes.useByRecord;
+export const engineKeys = {
+    states: engineStates.keys,
+    heartbeats: engineHeartbeats.keys,
+    records: engineDecisionRecords.keys,
+    outcomes: engineOutcomes.keys,
+};
 
 // Req #3381 — the composed plan read. ONE non-generic Lambda-Rest route
 // (`pipeline_compose`, req #3367) answers the whole plan render — join AND
