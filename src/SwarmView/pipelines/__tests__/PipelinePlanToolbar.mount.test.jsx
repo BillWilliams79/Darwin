@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
 // req #3648 — the plan toolbar: the "Color"/"View" captions are gone, the order
-// is colour | epics-across 6 5 4 | view, Epic Width is hidden (code kept),
+// is colour | view (Default, epics-across 6 5 4, Auto L1 L2 L3), Epic Width is hidden (code kept),
 // and Reset reads "Default".
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -34,16 +34,29 @@ afterEach(() => {
 const q = (id) => host.querySelector(`[data-testid="${id}"]`);
 
 describe('PipelinePlanToolbar (req #3648)', () => {
-    it('draws the epics-across ladder as 6 5 4, between the colour chips and the view group', () => {
+    // req #3827 — 6 5 4 joined the view group: Default | 6 5 4 | Auto L1 L2 L3.
+    it('draws the epics-across ladder as 6 5 4, inside the view group between Default and Auto', () => {
         const across = q('pipeline-viz-epics-across');
         expect([...across.querySelectorAll('[data-testid^="pipeline-viz-epics-across-"]')]
             .map((c) => c.textContent)).toEqual(['6', '5', '4']);
         const color = q('pipeline-viz-colorkey-toggle');
         const view = q('pipeline-viz-level-control');
+        expect(view.contains(across)).toBe(true);
         // eslint-disable-next-line no-bitwise
         expect(color.compareDocumentPosition(across) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
         // eslint-disable-next-line no-bitwise
-        expect(across.compareDocumentPosition(view) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(q('pipeline-viz-reset').compareDocumentPosition(across) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        // eslint-disable-next-line no-bitwise
+        expect(across.compareDocumentPosition(q('pipeline-viz-level-auto')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    // req #3827 — branded like the group's other chips: small and outlined.
+    it('draws 6 5 4 as small outlined chips like Auto / L1', () => {
+        const l1 = q('pipeline-viz-level-1');
+        const n = q('pipeline-viz-epics-across-5');
+        for (const cls of ['MuiChip-sizeSmall', 'MuiChip-outlined']) {
+            expect(n.classList.contains(cls)).toBe(l1.classList.contains(cls));
+        }
     });
 
     // req #3806 — the Epic chip (hover help only) is gone from the title bar.
