@@ -25,6 +25,14 @@ import { newRequirementDraft } from '../RequirementFiler/requirementFilerModel';
 //   • `orphaned` — the POST committed but its id could not be read back: Save is
 //     refused until a new requirement is started, so it cannot POST a duplicate.
 //   • `focusPending` — focus the title once, for a draft just started; live only.
+//   • `editorMode` — 'requirement' (the draft) or 'defaults' (req #3812): the
+//     filer's DEFAULTS button opens the same editor on the reader's defaults.
+//
+// THE DEFAULTS (req #3812) — `defaults` holds only the fields the reader has
+//   set (requirementFilerModel.js DEFAULT_FIELDS); `startNew` applies them,
+//   falling back to DEFAULT_REQUIREMENT_SPEC for the rest. Edited in place —
+//   each change in the Defaults form is the new default, as there is nothing
+//   to send anywhere.
 //
 // Kept here rather than in the editor's own state because racking a panel
 // re-mounts its subtree (AnchoredPanel). Persisted per browser — where the
@@ -51,20 +59,28 @@ export const useRequirementFilerStore = create(
             draftKey: 0,
             orphaned: false,
             focusPending: false,
+            editorMode: 'requirement',
+            defaults: {},
             setEditorShow: (editorShow) => set({ editorShow }),
             toggleEditorOpen: () => set({ editorOpen: !get().editorOpen }),
             setEditorDock: (editorDock) => set({ editorDock }),
             // A fresh requirement in the editor, shown and unfolded.
             startNew: () => {
-                const { lastProjectId, lastCategoryId } = get();
+                const { lastProjectId, lastCategoryId, defaults } = get();
                 set({
-                    draft: newRequirementDraft(lastProjectId, lastCategoryId),
+                    draft: newRequirementDraft(lastProjectId, lastCategoryId, defaults),
                     savedId: null, saved: null, editorShow: true, editorOpen: true,
+                    editorMode: 'requirement',
                     draftKey: get().draftKey + 1, orphaned: false, focusPending: true,
                 });
             },
             setFields: (patch) => set({ draft: { ...get().draft, ...patch } }),
             clearFocusPending: () => set({ focusPending: false }),
+            // The editor on the defaults, shown and unfolded; back to the draft.
+            openDefaults: () => set({ editorMode: 'defaults', editorShow: true, editorOpen: true }),
+            showDraft: () => set({ editorMode: 'requirement', editorShow: true, editorOpen: true }),
+            setDefaults: (patch) => set({ defaults: { ...get().defaults, ...patch } }),
+            resetDefaults: () => set({ defaults: {} }),
             // A successful save of the draft `key` names: the row's id and the
             // values it now holds. Ignored when another draft has been started.
             markSaved: (key, id, values) => {

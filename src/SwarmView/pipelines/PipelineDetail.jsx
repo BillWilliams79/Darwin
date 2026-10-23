@@ -64,6 +64,7 @@ import {
 import { pipelineStatusChipProps } from './pipelineChipStyles';
 import { orchestrationBadges } from './orchestrationHolder';
 import OrchestrationBadges, { orchestrationBadgesWidth } from './OrchestrationBadges';
+import RequirementJumpInput from '../../NavBar/RequirementJumpInput';
 // req #3463 — the era↔route binding. This page never spells a plan route or an
 // entity name.
 //
@@ -136,6 +137,10 @@ const EMPTY = Object.freeze([]);
 // time somebody names a plan verbosely, and S13's band already handles the
 // overflow.
 const TITLE_MIN_W = 140;
+// The title row's Req # jump field (req #3798): RequirementJumpInput's own width
+// (110) plus the row gap, added to the title slot's floor so it never eats the
+// plan name's stub.
+const REQ_JUMP_W = 118;
 
 /**
  * The plan page (req #3356 — one era).
@@ -891,13 +896,14 @@ export default function PipelineDetail() {
                 {/* The title's SLOT is the spacer (S11 — `flex: 1`, every
                     pixel of slack); the title text sits at its start, shrinking
                     to clip, and the Full screen switch follows the text
-                    directly (req #3793 — "in the title", as the TPU views'
+                    (and the badges and Req # launcher, req #3798) inside the
+                    slot (req #3793 — "in the title", as the TPU views'
                     follows "▾ Controls"), not the slot's far end. */}
                 {/* The floor is the NAME's (req #3809 review): the badges are
                     rigid, so the slot's floor grows by their width rather than
                     letting them eat the name's stub. */}
                 <Box sx={{ flex: 1,
-                           minWidth: TITLE_MIN_W + orchestrationBadgesWidth(
+                           minWidth: TITLE_MIN_W + REQ_JUMP_W + orchestrationBadgesWidth(
                                orchestrationBadgeList.length),
                            display: 'flex', alignItems: 'center', gap: 1 }}>
                 <Typography variant={isMobile ? 'h6' : 'h5'} noWrap
@@ -952,6 +958,17 @@ export default function PipelineDetail() {
                     Rigid, so the plan's name is what clips first; they render
                     only while somebody orchestrates this plan. */}
                 <OrchestrationBadges badges={orchestrationBadgeList} />
+
+                {/* ── REQUIREMENT LAUNCHER (req #3798) ────────────────────────
+                    The Requirements page's title-row "Req #" field, unchanged —
+                    type a number, Enter (or →) opens that requirement in a new
+                    tab — placed immediately LEFT of the Full screen switch.
+                    Rigid, so the plan's name clips first. Hidden with the row
+                    while maximized, as the switch's header copy is. */}
+                <Box sx={{ flexShrink: 0, display: 'flex', alignItems: 'center' }}
+                     data-testid="pipeline-req-launcher">
+                    <RequirementJumpInput />
+                </Box>
 
                 {/* ── FULL SCREEN (req #3793; the switch is req #3658's) ──────
                     The user's rule: with the controls on screen the switch
