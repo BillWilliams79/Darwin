@@ -59,6 +59,20 @@ import { DEBUG_BLOCK_BEGIN, buildDebugCapture } from '../debugBundle';
 
 const ok = (data) => ({ data, httpStatus: { httpStatus: 200, httpMessage: 'OK' } });
 
+// Create closes the editor at the press (req #3860). Once the create filing
+// `id` has landed — its capture too — the editor is brought back, as a click on
+// its row in the filer would, to look at what was filed.
+const filedThenShown = async (id) => {
+    expect(screen.queryByTestId('requirement-editor')).toBe(null);
+    await waitFor(() => {
+        const st = useRequirementFilerStore.getState();
+        expect(st.savedId).toBe(id);
+        expect(st.creating).toBe(null);
+    });
+    act(() => useRequirementFilerStore.getState().setEditorShow(true));
+    expect(screen.getByTestId('requirement-editor-id-link').textContent).toBe(String(id));
+};
+
 const renderAll = ({ nav = false, at = '/maps' } = {}) => render(
     <QueryClientProvider client={new QueryClient()}>
         <AuthContext.Provider value={{ idToken: 't', profile: { userName: 'u', app_swarm: 1 } }}>
@@ -96,7 +110,7 @@ describe('Requirement Filer — FILE and its debug capture (req #3815)', () => {
         useRequirementFilerStore.setState({
             show: true, open: true, dock: null, editorShow: false, editorOpen: true, editorDock: null,
             draft: null, savedId: null, saved: null, lastProjectId: 4, lastCategoryId: 862,
-            draftKey: 0, orphaned: false, focusPending: false, defaults: {}, filed: [],
+            draftKey: 0, orphaned: false, focusPending: false, creating: null, defaults: {}, filed: [],
             capture: null, captureDropped: [], captureStage: null,
         });
     });
@@ -144,7 +158,8 @@ describe('Requirement Filer — FILE and its debug capture (req #3815)', () => {
             .mockResolvedValueOnce(ok([{ id: 77, requirement_fk: 3901 }]))            // POST capture
             .mockResolvedValueOnce({ data: {}, httpStatus: { httpStatus: 200 } });   // PUT description
         fireEvent.click(screen.getByTestId('requirement-editor-save'));
-        await waitFor(() => expect(screen.getByTestId('requirement-editor-capture-status').textContent).toBe('saved'));
+        await filedThenShown(3901);
+        expect(screen.getByTestId('requirement-editor-capture-status').textContent).toBe('saved');
 
         const [[u1, m1], [u2, m2, capture], [u3, m3, put]] = rest.mock.calls;
         expect([u1, m1]).toEqual(['https://api/darwin_dev/requirements', 'POST']);
@@ -246,6 +261,8 @@ describe('Requirement Filer — FILE and its debug capture (req #3815)', () => {
         rest.mockResolvedValueOnce(ok([{ id: 3902 }]))
             .mockRejectedValueOnce({ data: null, httpStatus: { httpStatus: 500, httpMessage: 'boom' } });
         fireEvent.click(screen.getByTestId('requirement-editor-save'));
+        // Create closed the editor (req #3860); the failed capture brings it back, with Retry.
+        expect(screen.queryByTestId('requirement-editor')).toBe(null);
         await waitFor(() => expect(screen.getByTestId('requirement-editor-error').textContent)
             .toBe('#3902 saved, but its debug capture was not (HTTP 500 boom)'));
         expect(rest).toHaveBeenCalledTimes(2);                  // no description PUT
@@ -302,7 +319,7 @@ describe('Requirement Filer — FILE and its debug capture (req #3815)', () => {
         fill('title', 'y');
         rest.mockResolvedValueOnce(ok([{ id: 3904 }]));
         fireEvent.click(screen.getByTestId('requirement-editor-save'));
-        await waitFor(() => expect(screen.getByTestId('requirement-editor-id-link').textContent).toBe('3904'));
+        await filedThenShown(3904);
         expect(rest).toHaveBeenCalledTimes(4);
     });
 
@@ -316,10 +333,33 @@ describe('Requirement Filer — FILE and its debug capture (req #3815)', () => {
         fill('title', 'A plain request');
         rest.mockResolvedValueOnce(ok([{ id: 3905 }]));
         fireEvent.click(screen.getByTestId('requirement-editor-save'));
-        await waitFor(() => expect(screen.getByTestId('requirement-editor-capture-status').textContent)
-            .toBe('every category dropped — filed without one'));
+        await filedThenShown(3905);
+        expect(screen.getByTestId('requirement-editor-capture-status').textContent)
+            .toBe('every category dropped — filed without one');
         expect(rest).toHaveBeenCalledTimes(1);
         expect(rest.mock.calls[0][2]).not.toHaveProperty('description');
+    });
+
+    it('a + pressed while the last create is still being written keeps its capture (req #3860)', async () => {
+        renderAll();
+        await pressFile();
+        fill('title', 'First');
+        let landPost;
+        rest.mockImplementationOnce(() => new Promise((r) => { landPost = r; }))
+            .mockResolvedValueOnce(ok([{ id: 78, requirement_fk: 3906 }]))
+            .mockResolvedValueOnce({ data: {}, httpStatus: { httpStatus: 200 } });
+        fireEvent.click(screen.getByTestId('requirement-editor-save'));
+        expect(screen.queryByTestId('requirement-editor')).toBe(null);
+        fireEvent.click(screen.getByTestId('requirement-filer-add'));
+        await act(async () => { landPost(ok([{ id: 3906 }])); });
+        // The first one's capture row and description link are written whole…
+        await waitFor(() => expect(rest).toHaveBeenCalledTimes(3));
+        expect(rest.mock.calls[1][2].requirement_fk).toBe(3906);
+        expect(rest.mock.calls[2][2][0].description).toContain('darwin://requirement-debug/3906');
+        // …and only then does the + start the next, with a capture of its own.
+        await waitFor(() => expect(screen.getByTestId('requirement-editor-field-title').value).toBe(''));
+        expect(useRequirementFilerStore.getState().savedId).toBe(null);
+        await waitFor(() => expect(useRequirementFilerStore.getState().captureStage).toBe('ready'));
     });
 
     it('is addressable: ?filer=bug (the two-button era\'s link) files a new requirement with its capture', async () => {
