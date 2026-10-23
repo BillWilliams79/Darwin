@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 //
-// Req #3582 — a plan step's "+" opens the requirement editor in "new" mode
-// carrying the step. Picking a category is the first save (req #2414); this
-// suite pins that the same act SEATS the new requirement on that step, in
+// Req #3582 — a plan epic's "+" opens the requirement editor in "new" mode
+// carrying the epic. Picking a category is the first save (req #2414); this
+// suite pins that the same act SEATS the new requirement on that epic, in
 // that order (the requirement must exist before the junction can name it), and
 // that Back still returns to the plan afterwards.
 
@@ -39,7 +39,7 @@ vi.mock('../../../hooks/factory/createEntityQueries', async (importOriginal) => 
 
 const restCalls = [];
 let seatPostStatus = 200;
-let stepLocked = 0;
+let epicLocked = 0;
 let initiativeLocked = 0;
 let planLocked = 0;
 vi.mock('../../../RestApi/RestApi', () => ({
@@ -48,9 +48,9 @@ vi.mock('../../../RestApi/RestApi', () => ({
         if (String(uri).endsWith('/requirements') && method === 'POST') {
             return Promise.resolve({ httpStatus: { httpStatus: 200 }, data: [{ id: 9001 }] });
         }
-        if (String(uri).includes('/pipeline_steps?id=') && method === 'GET') {
+        if (String(uri).includes('/epics?id=') && method === 'GET') {
             return Promise.resolve({ httpStatus: { httpStatus: 200 },
-                data: [{ id: 412, locked: stepLocked, initiative_fk: 55 }] });
+                data: [{ id: 412, locked: epicLocked, initiative_fk: 55 }] });
         }
         if (String(uri).includes('/initiatives?id=55') && method === 'GET') {
             return Promise.resolve({ httpStatus: { httpStatus: 200 },
@@ -60,7 +60,7 @@ vi.mock('../../../RestApi/RestApi', () => ({
             return Promise.resolve({ httpStatus: { httpStatus: 200 },
                 data: [{ id: 7, locked: planLocked }] });
         }
-        if (String(uri).endsWith('/pipeline_step_requirements') && method === 'POST') {
+        if (String(uri).endsWith('/epic_requirements') && method === 'POST') {
             return Promise.resolve({ httpStatus: { httpStatus: seatPostStatus }, data: [] });
         }
         return Promise.resolve({ httpStatus: { httpStatus: 200 }, data: [] });
@@ -128,43 +128,43 @@ async function pickCategory(container, label) {
 
 const writes = () => restCalls.filter((c) => c.method !== 'GET');
 
-describe('RequirementDetail new mode filed from a plan step (req #3582)', { timeout: 15000 }, () => {
+describe('RequirementDetail new mode filed from a plan epic (req #3582)', { timeout: 15000 }, () => {
     beforeEach(() => {
         mountedRoots = [];
         restCalls.length = 0;
         navigateCalls.length = 0;
         snackMessages.length = 0;
         seatPostStatus = 200;
-        stepLocked = 0;
+        epicLocked = 0;
         initiativeLocked = 0;
         planLocked = 0;
-        locationState = { seatStepId: 412, seatStepName: 'Seat UI',
-            from: 'pipeline', pipelineId: 7, mode: 'plan', backStepId: 412 };
+        locationState = { seatEpicId: 412, seatEpicName: 'Seat UI',
+            from: 'pipeline', pipelineId: 7, mode: 'plan', backEpicId: 412 };
     });
     afterEach(() => {
         act(() => { mountedRoots.forEach((r) => r.unmount()); });
         document.body.innerHTML = '';
     });
 
-    it('names the step the draft files into', async () => {
+    it('names the epic the draft files into', async () => {
         const { container } = mount();
         await flush();
-        expect(container.querySelector('[data-testid="requirement-new-seat-step"]').textContent)
-            .toBe('Files into step 412 · Seat UI');
+        expect(container.querySelector('[data-testid="requirement-new-seat-epic"]').textContent)
+            .toBe('Files into epic 412 · Seat UI');
     });
 
-    it('creates the requirement, THEN seats it on the step, and keeps the way back to the plan', async () => {
+    it('creates the requirement, THEN seats it on the epic, and keeps the way back to the plan', async () => {
         const { container } = mount();
         await flush();
         await pickCategory(container, 'Darwin');
         const w = writes();
         expect(w.map((c) => `${c.method} ${c.uri.split('/').pop()}`))
-            .toEqual(['POST requirements', 'POST pipeline_step_requirements']);
-        expect(w[1].body).toEqual({ step_fk: 412, requirement_fk: 9001 });
+            .toEqual(['POST requirements', 'POST epic_requirements']);
+        expect(w[1].body).toEqual({ epic_fk: 412, requirement_fk: 9001 });
         expect(snackMessages).toEqual([]);
         expect(navigateCalls.at(-1)).toEqual(['/swarm/requirement/9001', {
             replace: true, state: { from: 'pipeline', pipelineId: 7, mode: 'plan',
-                backStepId: 412 } }]);
+                backEpicId: 412 } }]);
     });
 
     it('reports a failed seat without undoing the created requirement', async () => {
@@ -173,33 +173,33 @@ describe('RequirementDetail new mode filed from a plan step (req #3582)', { time
         await flush();
         await pickCategory(container, 'Darwin');
         expect(writes().map((c) => c.method)).toEqual(['POST', 'POST']);
-        expect(snackMessages).toEqual(['Requirement 9001 created, but not seated on step 412']);
+        expect(snackMessages).toEqual(['Requirement 9001 created, but not seated on epic 412']);
         expect(navigateCalls.at(-1)[0]).toBe('/swarm/requirement/9001');
     });
 
-    it('writes no seat for the aggregator template flow (no step in the state)', async () => {
+    it('writes no seat for the aggregator template flow (no epic in the state)', async () => {
         locationState = { title: 'From the aggregator' };
         const { container } = mount();
         await flush();
-        expect(container.querySelector('[data-testid="requirement-new-seat-step"]')).toBeNull();
+        expect(container.querySelector('[data-testid="requirement-new-seat-epic"]')).toBeNull();
         await pickCategory(container, 'Darwin');
         expect(writes().map((c) => c.uri.split('/').pop())).toEqual(['requirements']);
         expect(navigateCalls.at(-1)).toEqual(['/swarm/requirement/9001',
             { replace: true, state: undefined }]);
     });
 
-    // A step has no state (req #3750) — what can close it to new work is a
+    // An epic has no state (req #3750) — what can close it to new work is a
     // LOCK (req #3649), which the gateway would enforce with a 423 on the seat.
-    it('creates nothing when the step was locked since the plan rendered', async () => {
-        stepLocked = 1;
+    it('creates nothing when the epic was locked since the plan rendered', async () => {
+        epicLocked = 1;
         const { container } = mount();
         await flush();
         await pickCategory(container, 'Darwin');
         expect(writes()).toEqual([]);
-        expect(snackMessages).toEqual(['Step 412 is locked — it takes no new work; nothing was created']);
+        expect(snackMessages).toEqual(['Epic 412 is locked — it takes no new work; nothing was created']);
         // The re-read names only columns that exist — `completed_at` is dropped.
-        const stepRead = restCalls.find((c) => c.uri.includes('/pipeline_steps?id=412'));
-        expect(stepRead.uri).toContain('fields=id,locked,initiative_fk');
+        const epicRead = restCalls.find((c) => c.uri.includes('/epics?id=412'));
+        expect(epicRead.uri).toContain('fields=id,locked,initiative_fk');
         expect(navigateCalls).toEqual([]);
         // The draft is left uncategorized, so the user can see nothing saved.
         expect(container.querySelector('[data-testid="requirement-category-select"]').textContent)
@@ -207,26 +207,26 @@ describe('RequirementDetail new mode filed from a plan step (req #3582)', { time
     });
 
     // The lock CASCADES (req #3649): a locked INITIATIVE or PLAN refuses the seat
-    // with a 423 too, so the pre-check walks step -> initiative -> plan, or the
+    // with a 423 too, so the pre-check walks epic -> initiative -> plan, or the
     // requirement would be created and left unseated.
-    it('creates nothing when the step\'s INITIATIVE is locked', async () => {
+    it('creates nothing when the epic\'s INITIATIVE is locked', async () => {
         initiativeLocked = 1;
         const { container } = mount();
         await flush();
         await pickCategory(container, 'Darwin');
         expect(writes()).toEqual([]);
-        expect(snackMessages).toEqual(["Step 412's initiative is locked — it takes no new work; nothing was created"]);
+        expect(snackMessages).toEqual(["Epic 412's initiative is locked — it takes no new work; nothing was created"]);
         expect(navigateCalls).toEqual([]);
     });
 
-    it('creates nothing when the step\'s PLAN is locked, naming the outermost lock', async () => {
+    it('creates nothing when the epic\'s PLAN is locked, naming the outermost lock', async () => {
         planLocked = 1;
         initiativeLocked = 1;
         const { container } = mount();
         await flush();
         await pickCategory(container, 'Darwin');
         expect(writes()).toEqual([]);
-        expect(snackMessages).toEqual(["Step 412's plan is locked — it takes no new work; nothing was created"]);
+        expect(snackMessages).toEqual(["Epic 412's plan is locked — it takes no new work; nothing was created"]);
         expect(restCalls.some((c) => c.uri.includes('/pipelines?id=7&fields=id,locked'))).toBe(true);
     });
 

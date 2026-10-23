@@ -6,7 +6,7 @@
 // `pipelineInitiativeLink.test.js` pins the two pure functions. This pins the React
 // half: a `?initiative=` link forces the Plan mode (an initiative band only exists there)
 // and seeds `focusInitiativeId` on the visualizer — mirroring
-// `PipelineDetail.stepParam.test.jsx`'s coverage of `?step=` forcing the
+// `PipelineDetail.epicParam.test.jsx`'s coverage of `?epic=` forcing the
 // table. The two panels are stubbed for the same reason that file stubs
 // them: the real Plan mode is react-konva, which needs a canvas jsdom does
 // not provide.
@@ -21,9 +21,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 vi.mock('../pipelineDetailModes', () => {
-    const Panel = (name) => function ModeStub({ focusStepId, focusInitiativeId }) {
+    const Panel = (name) => function ModeStub({ focusEpicId, focusInitiativeId }) {
         return <div data-testid={`mode-${name}`}
-                    data-focus-step={focusStepId == null ? '' : String(focusStepId)}
+                    data-focus-epic={focusEpicId == null ? '' : String(focusEpicId)}
                     data-focus-initiative={focusInitiativeId == null ? '' : String(focusInitiativeId)} />;
     };
     // The real registry's shape since req #3641: ONE mode, the Plan visualizer.
@@ -42,8 +42,8 @@ vi.mock('../pipelineDetailModes', () => {
 vi.mock('../../../RestApi/RestApi', () => ({ default: vi.fn(() => Promise.resolve({ httpStatus: { httpStatus: 200 }, data: [] })) }));
 
 // req #3356 — ONE composed read where the 1.0 seven used to be. The fixture
-// carries the SAME step 47 the 1.0 mock supplied, so every `?step=47` case
-// below still names a step the page can resolve; `composedFixture` builds the
+// carries the SAME epic 47 the 1.0 mock supplied, so every `?epic=47` case
+// below still names an epic the page can resolve; `composedFixture` builds the
 // `derived` block the page hard-stops without.
 vi.mock('../../../hooks/useDataQueries', async (importOriginal) => {
     const actual = await importOriginal();
@@ -100,7 +100,7 @@ function mount(url) {
 
 const node = (testId) => document.body.querySelector(`[data-testid="${testId}"]`);
 const focusInitiativeOf = (name) => node(`mode-${name}`)?.getAttribute('data-focus-initiative');
-const focusStepOf = (name) => node(`mode-${name}`)?.getAttribute('data-focus-step');
+const focusEpicOf = (name) => node(`mode-${name}`)?.getAttribute('data-focus-epic');
 
 const storePreference = (value) => {
     localStorage.setItem('darwin-swarm-pipeline-detail-mode', value);
@@ -149,13 +149,13 @@ describe('PipelineDetail — ?initiative= (req #3235)', () => {
         expect(focusInitiativeOf('plan')).toBe('');
     });
 
-    it('a named ?step= and ?initiative= both reach the plan (req #3641 — no Table)', () => {
-        // The step still outranks the initiative inside the canvas (its focus effect
+    it('a named ?epic= and ?initiative= both reach the plan (req #3641 — no Table)', () => {
+        // The epic still outranks the initiative inside the canvas (its focus effect
         // runs instead of the band fit), so the page passes BOTH and lets the
         // canvas apply that precedence; the panel is the plan either way.
-        mount('/swarm/pipeline/2?step=47&initiative=55');
+        mount('/swarm/pipeline/2?epic=47&initiative=55');
         expect(node('mode-plan')).not.toBeNull();
-        expect(focusStepOf('plan')).toBe('47');
+        expect(focusEpicOf('plan')).toBe('47');
         expect(focusInitiativeOf('plan')).toBe('55');
     });
 });

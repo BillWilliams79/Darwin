@@ -102,8 +102,8 @@ describe('the colour help is a hover popup on the toolbar chips (req #3722)', ()
         expect(legend().getAttribute('data-key')).toBe('state');
     });
 
-    it('shows the step marks for the Step chip, and no requirement scale', () => {
-        render({ keyHover: { key: 'step', el: chip() } });
+    it('shows the epic marks for the Epic chip, and no requirement scale', () => {
+        render({ keyHover: { key: 'epic', el: chip() } });
         const text = legend().textContent;
         for (const m of ['Manual', 'Scheduled', 'Running', 'Complete', 'Up Next',
             'Barrier', 'Locked']) {
@@ -121,25 +121,25 @@ describe('the colour help is a hover popup on the toolbar chips (req #3722)', ()
 
     it('does not hide the app from assistive technology (non-modal)', () => {
         const el = chip();
-        render({ keyHover: { key: 'step', el } });
+        render({ keyHover: { key: 'epic', el } });
         expect(document.querySelector('[data-rendered]').getAttribute('aria-hidden')).toBeNull();
         expect(el.getAttribute('aria-hidden')).toBeNull();
     });
 
     it('draws nothing while maximized (the header and its chips are hidden)', () => {
-        render({ maximized: true, keyHover: { key: 'step', el: chip() } });
+        render({ maximized: true, keyHover: { key: 'epic', el: chip() } });
         expect(legend()).toBeNull();
     });
 
     it('closes when the hover ends', () => {
-        render({ keyHover: { key: 'step', el: chip() } });
+        render({ keyHover: { key: 'epic', el: chip() } });
         expect(legend()).not.toBeNull();
         render({ keyHover: null });
         expect(legend()).toBeNull();
     });
 
     it('never takes the pointer from its chip', () => {
-        render({ keyHover: { key: 'step', el: chip() } });
+        render({ keyHover: { key: 'epic', el: chip() } });
         expect(getComputedStyle(legend().closest('.MuiPopper-root')).pointerEvents).toBe('none');
     });
 });

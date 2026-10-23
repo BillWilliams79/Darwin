@@ -79,7 +79,7 @@ test.describe('Navigation', () => {
     await page.getByRole('link', { name: /pipelines/i }).click();
     await expect(page).toHaveURL(/\/swarm\/pipelines/);
 
-    // Req #3236 — Initiatives and Steps nest under Pipelines the same way Sessions'
+    // Req #3236 — Initiatives and Epics nest under Pipelines the same way Sessions'
     // L3s nest under it (req #3209): hidden until the +/- is clicked.
     // Assert absent first so a regression that renders them unconditionally
     // still fails here.

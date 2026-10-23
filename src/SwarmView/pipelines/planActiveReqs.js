@@ -10,10 +10,10 @@
 // status this build does not know are not active either — the box lists what
 // is known to be running, never a guess.
 //
-// THE PLAN'S OWN ORDER. The box replicates rows already drawn on the step
-// cards, so it lists them the way the canvas does: steps in display order,
-// and each step's requirements in the card's own (orchestration) order. A
-// requirement seated on two steps is listed once, at its first. A requirement
+// THE PLAN'S OWN ORDER. The box replicates rows already drawn on the epic
+// cards, so it lists them the way the canvas does: epics in display order,
+// and each epic's requirements in the card's own (orchestration) order. A
+// requirement seated on two epics is listed once, at its first. A requirement
 // pinned to a machine the toolbar's filter hides (req #3708) is drawn nowhere,
 // so not here either.
 

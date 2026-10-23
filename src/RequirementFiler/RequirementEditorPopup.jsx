@@ -3,13 +3,13 @@
 // simple, visualizer-like editor of ONE requirement's directly settable values:
 // title, description, project → category, status, autonomy, model, effort,
 // machine (Any = NULL), affected repos, the tracking (container) flag and its
-// SEAT — pipeline -> epic -> step (req #3812).
+// SEAT — pipeline -> initiative -> epic (req #3812).
 //
 // TWO MODES (req #3812). 'requirement' edits the draft. 'defaults' — the
 // filer's DEFAULTS button — is the same form without title and description,
 // editing the values every new requirement starts with (useRequirementFilerStore
 // `defaults`); each change is the default at once. A default category, machine
-// or step that has since closed or gone is marked invalid there, and a new
+// or epic that has since closed or gone is marked invalid there, and a new
 // draft checks the ones it took against live data before Save is offered,
 // dropping a stale one with a visible notice rather than filing into it.
 //
@@ -24,8 +24,8 @@
 // window then shows its id as a link to /swarm/requirement/<id>, and every
 // later Save PUTs that same row with what changed (requirementFilerModel.js).
 // The seat is written AFTER the requirement exists, through the one browser
-// seat write (Steps/stepsApi.js::moveStepRequirement); a refusal — a locked
-// plan, epic or step answers 423 — is shown here, and the seat stays unsaved so
+// seat write (Epics/epicsApi.js::moveEpicRequirement); a refusal — a locked
+// plan, initiative or epic answers 423 — is shown here, and the seat stays unsaved so
 // the next Save tries it again.
 // Its fields, the saved id and where it floats live in useRequirementFilerStore
 // — racking re-mounts this subtree, and a draft survives a reload.
@@ -50,13 +50,13 @@ import { validDock } from '../Components/AnchoredPanel/anchoredPanelGeometry';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import { useCategories, useMachines, useProjects } from '../hooks/useDataQueries';
-import { pipelineComposeKeys, pipelineStepRequirementKeys, requirementKeys } from '../hooks/useQueryKeys';
+import { pipelineComposeKeys, pipelineEpicRequirementKeys, requirementKeys } from '../hooks/useQueryKeys';
 import { SIDEBAR_WIDTH } from '../NavBar/navConfig';
 import call_rest_api from '../RestApi/RestApi';
 import { useRequirementFilerStore } from '../stores/useRequirementFilerStore';
-import { moveStepRequirement } from '../Steps/stepsApi';
+import { moveEpicRequirement } from '../Epics/epicsApi';
 import { PLAN_VIZ_PALETTE as P } from '../SwarmView/pipelines/pipelinePlanLayout';
-import { initiativeOptions, pipelineOptions, stepOptions } from '../SwarmView/detail/orchestrationIndex';
+import { initiativeOptions, pipelineOptions, epicOptions } from '../SwarmView/detail/orchestrationIndex';
 import { useOrchestrationIndex } from '../SwarmView/detail/useOrchestrationIndex';
 import { ActionPopupClose } from './RequirementFiler';
 import {
@@ -176,11 +176,11 @@ export default function RequirementEditorPopup() {
     const { data: categories, isError: categoriesError } = useCategories(user, projectId,
         { closed: 0, enabled: visible && projectId != null });
     const { data: machines, isError: machinesError } = useMachines(user, { enabled: visible });
-    // The seat's pipeline -> epic -> step: the requirement page's own four reads
+    // The seat's pipeline -> initiative -> epic: the requirement page's own four reads
     // (same hook, same cache entries).
     const orch = useOrchestrationIndex(user, { enabled: visible });
     // Disabled (no token) also reports settled — over an empty index that would
-    // call every default step gone.
+    // call every default epic gone.
     const settledIndex = orch.isSettled && !orch.isError && !!idToken ? orch.index : null;
     const stale = visible ? staleRefs(values, { projects, categories, machines, index: settledIndex }) : null;
 
@@ -218,15 +218,15 @@ export default function RequirementEditorPopup() {
                 patch.machine_fk = null;
             } else {
                 notes.push(`Default seat ${reason}`);
-                Object.assign(patch, { seatPipelineId: null, seatInitiativeId: null, seatStepId: null });
+                Object.assign(patch, { seatPipelineId: null, seatInitiativeId: null, seatEpicId: null });
             }
         }
-        // A valid default step shows where it sits NOW — it may have moved since
-        // the default was set; the epic stays unscoped if it was.
-        const stepId = draft.seatStepId;
-        if (unchecked.includes('seat') && !verdict.seat && stepId != null && settledIndex) {
-            patch.seatPipelineId = settledIndex.pipelineByStep.get(stepId) ?? null;
-            if (draft.seatInitiativeId != null) patch.seatInitiativeId = settledIndex.initiativeByStep.get(stepId) ?? null;
+        // A valid default epic shows where it sits NOW — it may have moved since
+        // the default was set; the initiative stays unscoped if it was.
+        const epicId = draft.seatEpicId;
+        if (unchecked.includes('seat') && !verdict.seat && epicId != null && settledIndex) {
+            patch.seatPipelineId = settledIndex.pipelineByEpic.get(epicId) ?? null;
+            if (draft.seatInitiativeId != null) patch.seatInitiativeId = settledIndex.initiativeByEpic.get(epicId) ?? null;
         }
         patch.notice = notes.length ? `${notes.join('; ')} — not applied.` : null;
         setFields(patch);
@@ -254,21 +254,21 @@ export default function RequirementEditorPopup() {
             .map(c => ({ value: c.id, label: c.category_name })),
         values.category_fk, Array.isArray(categories), 'Category');
     const machineOpts = machineOptions(machines, values.machine_fk);
-    // The seat cascade: a pipeline scopes the epics, both scope the steps.
+    // The seat cascade: a pipeline scopes the initiatives, both scope the epics.
     const seatPipelineId = values.seatPipelineId ?? null;
     const seatInitiativeId = values.seatInitiativeId ?? null;
-    const seatStepId = values.seatStepId ?? null;
+    const seatEpicId = values.seatEpicId ?? null;
     const indexLoaded = !!settledIndex;
     const pipelineOpts = withCurrent(pipelineOptions(orch.index, { keepIds: [seatPipelineId] })
         .map(({ pipeline, label }) => ({ value: pipeline.id, label })), seatPipelineId, indexLoaded, 'Pipeline');
-    const epicOpts = initiativeOptions(orch.index, {
+    const initiativeOpts = initiativeOptions(orch.index, {
         pipelineId: seatPipelineId, keepIds: [seatInitiativeId], currentInitiativeId: seatInitiativeId,
     }).map(({ initiative, label }) => ({ value: initiative.id, label }));
-    const stepOpts = (seatPipelineId == null ? [] : stepOptions(orch.index, {
-        pipelineId: seatPipelineId, initiativeId: seatInitiativeId, currentStepId: seatStepId,
-    })).map(({ step, label }) => ({ value: step.id, label: `${label} · #${step.id}` }));
-    if (seatStepId != null && !stepOpts.some(o => o.value === seatStepId)) {
-        stepOpts.unshift({ value: seatStepId, label: `Step #${seatStepId}` });
+    const epicOpts = (seatPipelineId == null ? [] : epicOptions(orch.index, {
+        pipelineId: seatPipelineId, initiativeId: seatInitiativeId, currentEpicId: seatEpicId,
+    })).map(({ epic, label }) => ({ value: epic.id, label: `${label} · #${epic.id}` }));
+    if (seatEpicId != null && !epicOpts.some(o => o.value === seatEpicId)) {
+        epicOpts.unshift({ value: seatEpicId, label: `Epic #${seatEpicId}` });
     }
     // Defaults mode marks a default that no longer resolves; the draft has
     // already dropped its own (above).
@@ -295,26 +295,26 @@ export default function RequirementEditorPopup() {
         }
     };
 
-    // Seats `id` on the draft's step, moving it off `fromStepId`. A refusal —
-    // 423 for a locked plan, epic or step — is shown, never swallowed, and the
+    // Seats `id` on the draft's epic, moving it off `fromEpicId`. A refusal —
+    // 423 for a locked plan, initiative or epic — is shown, never swallowed, and the
     // seat stays unsaved so the next Save tries it again.
-    const writeSeat = async (key, id, values, fromStepId) => {
-        const toStepId = values.seatStepId;
+    const writeSeat = async (key, id, values, fromEpicId) => {
+        const toEpicId = values.seatEpicId;
         try {
-            await moveStepRequirement(darwinUri, idToken, { requirementId: id, fromStepId, toStepId });
+            await moveEpicRequirement(darwinUri, idToken, { requirementId: id, fromEpicId, toEpicId });
             markSaved(key, id, values);
         } catch (e) {
             // The half that failed says where the requirement sits now.
-            const movedOff = e?.seatStage === 'seat' && fromStepId != null;
+            const movedOff = e?.seatStage === 'seat' && fromEpicId != null;
             // An unseat that landed before the seat failed: it is seated nowhere now.
-            if (movedOff) markSaved(key, id, { ...values, seatStepId: null });
+            if (movedOff) markSaved(key, id, { ...values, seatEpicId: null });
             setFailure({ key, text: errorText(e, movedOff
-                ? `#${id} saved and taken off step ${fromStepId}, but not seated on step ${toStepId} — it is seated nowhere`
-                : e?.seatStage === 'unseat' || toStepId == null
-                    ? `#${id} saved, but not taken off step ${fromStepId}`
-                    : `#${id} saved, but not seated on step ${toStepId}`) });
+                ? `#${id} saved and taken off epic ${fromEpicId}, but not seated on epic ${toEpicId} — it is seated nowhere`
+                : e?.seatStage === 'unseat' || toEpicId == null
+                    ? `#${id} saved, but not taken off epic ${fromEpicId}`
+                    : `#${id} saved, but not seated on epic ${toEpicId}`) });
         } finally {
-            queryClient.invalidateQueries({ queryKey: pipelineStepRequirementKeys.all(user) });
+            queryClient.invalidateQueries({ queryKey: pipelineEpicRequirementKeys.all(user) });
             queryClient.invalidateQueries({ queryKey: ['orchestration_index'] });
             queryClient.invalidateQueries({ queryKey: pipelineComposeKeys.all });
         }
@@ -331,7 +331,7 @@ export default function RequirementEditorPopup() {
         const values = savedValues(draft);
         const uri = `${darwinUri}/requirements`;
         const isPost = savedId == null;
-        const fromStepId = isPost ? null : (saved?.seatStepId ?? null);
+        const fromEpicId = isPost ? null : (saved?.seatEpicId ?? null);
         let id = savedId;
         try {
             if (isPost) {
@@ -346,7 +346,7 @@ export default function RequirementEditorPopup() {
                     // and refuse a second Save that would POST a duplicate.
                     markOrphaned(key);
                     setFailure({ key, text: 'Saved, but its id could not be read back — find it on /swarm, '
-                        + `or start a new requirement.${values.seatStepId != null ? ' It was not seated.' : ''}` });
+                        + `or start a new requirement.${values.seatEpicId != null ? ' It was not seated.' : ''}` });
                     return;
                 }
             } else {
@@ -359,8 +359,8 @@ export default function RequirementEditorPopup() {
                 }
             }
             // The row is saved; its seat is the one last written until the seat write lands.
-            markSaved(key, id, { ...values, seatStepId: fromStepId });
-            if (values.seatStepId !== fromStepId) await writeSeat(key, id, values, fromStepId);
+            markSaved(key, id, { ...values, seatEpicId: fromEpicId });
+            if (values.seatEpicId !== fromEpicId) await writeSeat(key, id, values, fromEpicId);
         } catch (e) {
             fail(e, isPost ? 'Requirement not saved' : 'Changes not saved');
         } finally {
@@ -464,25 +464,25 @@ export default function RequirementEditorPopup() {
                                      data-testid="requirement-editor-field-repos"
                                      sx={{ ...FIELD_SX, textTransform: 'none', letterSpacing: 0 }} />
                             </Field>
-                            {/* The seat (req #3812): pipeline and epic scope the step list; the step seats. */}
+                            {/* The seat (req #3812): pipeline and initiative scope the epic list; the epic seats. */}
                             <Field label="Pipeline">
                                 <Select value={seatPipelineId} testid="pipeline" placeholder="No pipeline"
                                         options={pipelineOpts}
                                         onChange={(v) => setValues({ seatPipelineId: toInt(v),
-                                            seatInitiativeId: null, seatStepId: null })} />
+                                            seatInitiativeId: null, seatEpicId: null })} />
                             </Field>
-                            <Field label="Epic">
-                                <Select value={seatInitiativeId} testid="epic"
-                                        placeholder={seatPipelineId == null ? 'Choose a pipeline first' : 'All epics'}
-                                        options={epicOpts} disabled={seatPipelineId == null}
-                                        onChange={(v) => setValues({ seatInitiativeId: toInt(v), seatStepId: null })} />
+                            <Field label="Initiative">
+                                <Select value={seatInitiativeId} testid="initiative"
+                                        placeholder={seatPipelineId == null ? 'Choose a pipeline first' : 'All initiatives'}
+                                        options={initiativeOpts} disabled={seatPipelineId == null}
+                                        onChange={(v) => setValues({ seatInitiativeId: toInt(v), seatEpicId: null })} />
                             </Field>
-                            <Field label="Step" invalid={invalid('seat')} testid="step" wide>
-                                <Select value={seatStepId} testid="step" invalid={!!invalid('seat')}
-                                        placeholder={seatPipelineId == null && seatStepId == null
+                            <Field label="Epic" invalid={invalid('seat')} testid="epic" wide>
+                                <Select value={seatEpicId} testid="epic" invalid={!!invalid('seat')}
+                                        placeholder={seatPipelineId == null && seatEpicId == null
                                             ? 'Choose a pipeline first' : 'Not seated'}
-                                        options={stepOpts} disabled={seatPipelineId == null && seatStepId == null}
-                                        onChange={(v) => setValues({ seatStepId: toInt(v) })} />
+                                        options={epicOpts} disabled={seatPipelineId == null && seatEpicId == null}
+                                        onChange={(v) => setValues({ seatEpicId: toInt(v) })} />
                             </Field>
                         </Box>
 

@@ -17,17 +17,17 @@
 //
 // THE SHAPE IS THE LIVE SHAPE, not arbitrary noise:
 //   - initiatives/features/requirements wired through the design-rule-10 chain
-//     (requirement -> feature_fk -> initiative_fk), because a step's BAND comes from
+//     (requirement -> feature_fk -> initiative_fk), because an epic's BAND comes from
 //     its dominant initiative and lanes are assigned per band;
-//   - dep edges only ever point at a LOWER step id, so no cycles — a cycle
+//   - dep edges only ever point at a LOWER epic id, so no cycles — a cycle
 //     collapses columns toward 0 and would fuzz a different function;
 //   - a mix of `met` with a `completed_at` and NO `started_at` (820 of 960 live
 //     `met` rows look like that), `development` with a `started_at`, and
 //     unstamped `authoring`/`approved`/`swarm_ready`, so `planTimeAxis` produces
 //     all three of DATED / FUTURE / UNKNOWN;
-//   - branch-heavy graphs (a step gates 0–2 earlier steps, drawn from a WINDOW
+//   - branch-heavy graphs (an epic gates 0–2 earlier epics, drawn from a WINDOW
 //     of its predecessors rather than uniformly), because a uniform draw makes
-//     one wide fan out of step 1 that never branches deep enough to open a lane;
+//     one wide fan out of epic 1 that never branches deep enough to open a lane;
 //   - three completion profiles, rotated by seed — see `terminalOdds`.
 
 const LCG = (seed) => {
@@ -42,7 +42,7 @@ export const FUZZ_NOW = '2026-07-30T12:00:00Z';
 
 // EVERY PLAN GETS A COMPLETION PROFILE, and the corpus carries all three rather
 // than picking one. This is a coverage decision, measured, not a guess at the
-// live distribution. A launch BATCH is a set of steps sharing one REMAINING
+// live distribution. A launch BATCH is a set of epics sharing one REMAINING
 // gate, so a batch needs finished work UPSTREAM and unfinished work at the
 // frontier, and the shape that reaches this module's cell defect is a
 // MULTI-COLUMN batch sharing a band with a second batch. Every single-profile
@@ -64,7 +64,7 @@ const OPEN_STATUSES = [
 ];
 const PROFILES = ['uniform', 'advanced', 'early'];
 
-// The probability that the requirement on step `i` of `n` is TERMINAL.
+// The probability that the requirement on epic `i` of `n` is TERMINAL.
 const terminalOdds = (profile, i, n) => {
     const progress = (i - 1) / Math.max(1, n - 1);
     if (profile === 'advanced') return 0.92 - 0.85 * progress;
@@ -81,7 +81,7 @@ const IS_TERMINAL = new Set(['met', 'wontfix', 'deferred']);
  *
  * @param {number} seed  any integer; the same seed always yields the same plan.
  *                        Its residue mod 3 also selects the completion profile.
- * @returns {Object} `{pipeline, steps, stepDeps, stepRequirements, requirements,
+ * @returns {Object} `{pipeline, epics, epicDeps, epicRequirements, requirements,
  *                     features, initiatives, machines}`
  */
 export function makeTimedPlan(seed) {
@@ -90,7 +90,7 @@ export function makeTimedPlan(seed) {
     const int = (lo, hi) => lo + Math.floor(rnd() * (hi - lo + 1));
 
     const profile = PROFILES[seed % PROFILES.length];
-    const nSteps = int(8, 24);
+    const nEpics = int(8, 24);
     const nInitiatives = int(1, 3);
     const nFeatures = nInitiatives * int(1, 2);
 
@@ -101,26 +101,26 @@ export function makeTimedPlan(seed) {
         features.push({ id: 10 + f, title: `F${f}`, initiative_fk: 1 + (f % nInitiatives) });
     }
 
-    const steps = [];
-    const stepDeps = [];
-    const stepRequirements = [];
+    const epics = [];
+    const epicDeps = [];
+    const epicRequirements = [];
     const requirements = [];
     let depId = 1;
     let reqId = 1000;
 
-    for (let i = 1; i <= nSteps; i++) {
-        steps.push({
+    for (let i = 1; i <= nEpics; i++) {
+        epics.push({
             id: i,
             pipeline_fk: 1,
-            title: `Step ${i}`,
+            title: `Epic ${i}`,
             run: rnd() < 0.8 ? 'auto' : 'manual',
             completed_at: null,
             notes: null,
         });
 
-        // 0–2 gates, drawn from a WINDOW of the preceding steps rather than
+        // 0–2 gates, drawn from a WINDOW of the preceding epics rather than
         // uniformly: a uniform draw over all predecessors makes a plan that is
-        // mostly one wide fan out of step 1, which never branches deep enough
+        // mostly one wide fan out of epic 1, which never branches deep enough
         // to exercise lane insertion.
         if (i > 1) {
             const nDeps = rnd() < 0.18 ? 0 : (rnd() < 0.62 ? 1 : 2);
@@ -130,14 +130,14 @@ export function makeTimedPlan(seed) {
                 const d = int(lo, i - 1);
                 if (d >= i || chosen.has(d)) continue;
                 chosen.add(d);
-                stepDeps.push({ id: depId++, step_fk: i, dep_step_fk: d, time_at: null });
+                epicDeps.push({ id: depId++, epic_fk: i, dep_epic_fk: d, time_at: null });
             }
         }
 
         const nReqs = rnd() < 0.75 ? 1 : 2;
         for (let k = 0; k < nReqs; k++) {
             const id = ++reqId;
-            const status = rnd() < terminalOdds(profile, i, nSteps)
+            const status = rnd() < terminalOdds(profile, i, nEpics)
                 ? pick(TERMINAL_STATUSES) : pick(OPEN_STATUSES);
             const day = `2026-07-${String(20 + (id % 9)).padStart(2, '0')}`;
             requirements.push({
@@ -152,15 +152,15 @@ export function makeTimedPlan(seed) {
                 completed_at: IS_TERMINAL.has(status) && rnd() < 0.85
                     ? `${day}T08:00:00` : null,
             });
-            stepRequirements.push({ step_fk: i, requirement_fk: id });
+            epicRequirements.push({ epic_fk: i, requirement_fk: id });
         }
     }
 
     return {
         pipeline: { id: 1, title: `fuzz-${seed}`, pipeline_status: 'active', machine_fk: null },
-        steps,
-        stepDeps,
-        stepRequirements,
+        epics,
+        epicDeps,
+        epicRequirements,
         requirements,
         features,
         initiatives,

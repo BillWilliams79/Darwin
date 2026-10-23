@@ -1,11 +1,11 @@
-// pipelineReqDrag.js — the pure half of dragging a requirement between steps
+// pipelineReqDrag.js — the pure half of dragging a requirement between epics
 // on the Plan visualizer (req #3581).
 //
 // The gesture itself — hit-testing the mark, the floating preview, edge
 // auto-pan — is DOM and Konva work and lives in PipelinePlanVisualizer.jsx.
 // What lives here is every DECISION that gesture makes, so a test can reach it:
-// what a press has become (a pan, a lift, still a press), which step a point
-// lands on, whether that step may take the requirement, and what the plan
+// what a press has become (a pan, a lift, still a press), which epic a point
+// lands on, whether that epic may take the requirement, and what the plan
 // looks like the instant the requirement is dropped.
 //
 // ── THE SHARED PRESS TIMELINE (req #3665, design req #3645) ───────────────
@@ -15,7 +15,7 @@
 //   touch  moved past TOUCH_TOLERANCE_PX before LIFT_DELAY_MS .. a PAN — d3-zoom
 //                                                                 has the finger
 //          held still to LIFT_DELAY_MS ......................... the requirement LIFTS
-//          lifted, then moved ................................... a DRAG to another step,
+//          lifted, then moved ................................... a DRAG to another epic,
 //                                                                 however long the hold
 //          held past LONG_PRESS_MS, released in place ........... the title EDIT (req #3661)
 //   mouse  moved past MOUSE_ACTIVATION_PX ............................. it LIFTS — a hold never
@@ -103,10 +103,10 @@ export function stillHeld(travel) {
 }
 
 /**
- * The step whose CARD BOX contains a world point, or null. The box is the
+ * The epic whose CARD BOX contains a world point, or null. The box is the
  * layout's own frame — the same `frameLeft/top/frameW/h` the card is painted
  * into — and it is the same box at every level, so a drop resolves to the same
- * step whether the card is drawn or only its bead is.
+ * epic whether the card is drawn or only its bead is.
  *
  * @param {Map<number, Object>} nodes  `computePlanLayout(...).nodes`
  * @param {{x: number, y: number}} p   world coordinates
@@ -114,34 +114,34 @@ export function stillHeld(travel) {
  */
 export function dropTargetAt(nodes, p) {
     if (!nodes || !p) return null;
-    for (const [stepId, n] of nodes) {
+    for (const [epicId, n] of nodes) {
         if (p.x >= n.frameLeft && p.x <= n.frameLeft + n.frameW
             && p.y >= n.top && p.y <= n.top + n.h) {
-            return stepId;
+            return epicId;
         }
     }
     return null;
 }
 
 /**
- * May this step take a requirement dragged off `fromStepId`? Mirrors the
- * requirement page's own step picker (`orchestrationIndex.js::stepOptions`):
- * any step takes new work — a step has no state, so finished work on it never
+ * May this epic take a requirement dragged off `fromEpicId`? Mirrors the
+ * requirement page's own epic picker (`orchestrationIndex.js::epicOptions`):
+ * any epic takes new work — an epic has no state, so finished work on it never
  * closes it (req #3750) — except an effectively LOCKED one, and dropping back
- * onto the step it came from is not a move.
+ * onto the epic it came from is not a move.
  *
  * @param {?Object} row         the target's plan row
- * @param {?number} fromStepId
+ * @param {?number} fromEpicId
  */
-export function canDropOn(row, fromStepId) {
+export function canDropOn(row, fromEpicId) {
     if (!row) return false;
-    if (row.id === fromStepId) return false;
-    // req #3649 — a locked step (or one under a locked initiative/plan) takes no
+    if (row.id === fromEpicId) return false;
+    // req #3649 — a locked epic (or one under a locked initiative/plan) takes no
     // seat; the gateway would answer 423, so the target is not offered.
     return !row.effectiveLocked;
 }
 
-// Ascending insert: the composed read lists a step's requirements in junction
+// Ascending insert: the composed read lists an epic's requirements in junction
 // order, and the junction's key is `requirement_fk`, so ascending id is where
 // the refetch will put it — inserting there is what keeps the refetch from
 // moving the mark a second time.
@@ -155,11 +155,11 @@ function insertAscending(ids, id) {
 
 /**
  * May a requirement be dropped on the Orchestrables box — UN-orchestrated —
- * from this step (req #3817)? Any step's requirement may leave the plan except
- * one on an effectively LOCKED step: a lock forbids the unlink, and the
+ * from this epic (req #3817)? Any epic's requirement may leave the plan except
+ * one on an effectively LOCKED epic: a lock forbids the unlink, and the
  * gateway would answer 423, so the box is not offered as a target.
  *
- * @param {?Object} row  the source step's plan row
+ * @param {?Object} row  the source epic's plan row
  */
 export function canUnseatFrom(row) {
     return !!row && !row.effectiveLocked;
@@ -167,46 +167,46 @@ export function canUnseatFrom(row) {
 
 /**
  * Do the server's rows already say what a move wrote (req #3817 widened this
- * to the unseat)? A move is reflected once its target step lists the
- * requirement; an unseat (`toStepId` null) once NO step does.
+ * to the unseat)? A move is reflected once its target epic lists the
+ * requirement; an unseat (`toEpicId` null) once NO epic does.
  *
  * @param {Object[]} rows  the server's plan rows
- * @param {{reqId: number, toStepId: ?number}} move
+ * @param {{reqId: number, toEpicId: ?number}} move
  */
 export function reqMoveReflected(rows, move) {
     const server = Array.isArray(rows) ? rows : [];
-    if (move.toStepId == null) {
+    if (move.toEpicId == null) {
         return !server.some((r) => (r.reqIds || []).includes(move.reqId));
     }
-    return server.some((r) => r.id === move.toStepId && (r.reqIds || []).includes(move.reqId));
+    return server.some((r) => r.id === move.toEpicId && (r.reqIds || []).includes(move.reqId));
 }
 
 /**
  * The plan rows with each pending move applied — the requirement leaves every
  * row that lists it and joins its target. Applied in order, idempotent, and
  * a no-op for a move whose target is not on this plan. Rows the moves do not
- * touch keep their identity. A move with `toStepId` null is an UNSEAT (req
+ * touch keep their identity. A move with `toEpicId` null is an UNSEAT (req
  * #3817, dropped on the Orchestrables box): the requirement leaves every row
  * and joins none.
  *
  * Only membership moves. `launchReqIds` loses the requirement on the way out
- * but is never GIVEN it: whether it launches from the new step is the engine's
+ * but is never GIVEN it: whether it launches from the new epic is the engine's
  * answer, and it arrives with the refetch.
  *
  * @param {Object[]} rows
- * @param {Array<{reqId: number, toStepId: ?number}>} moves
+ * @param {Array<{reqId: number, toEpicId: ?number}>} moves
  * @returns {Object[]}
  */
 export function applyReqMoves(rows, moves) {
     if (!Array.isArray(rows) || !rows.length || !moves?.length) return rows;
     let out = rows;
-    for (const { reqId, toStepId } of moves) {
-        if (toStepId != null && !out.some((r) => r.id === toStepId)) continue;
-        if (toStepId == null && !out.some((r) => (r.reqIds || []).includes(reqId))) continue;
+    for (const { reqId, toEpicId } of moves) {
+        if (toEpicId != null && !out.some((r) => r.id === toEpicId)) continue;
+        if (toEpicId == null && !out.some((r) => (r.reqIds || []).includes(reqId))) continue;
         const wasTracking = out.some((r) => (r.trackingReqIds || []).includes(reqId));
         out = out.map((r) => {
             const has = (r.reqIds || []).includes(reqId);
-            if (r.id === toStepId) {
+            if (r.id === toEpicId) {
                 if (has) return r;
                 return {
                     ...r,

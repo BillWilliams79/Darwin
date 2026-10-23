@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
 // req #3648 — the plan toolbar: the "Color"/"View" captions are gone, the order
-// is colour | steps-across 6 5 4 | view, Step Width is hidden (code kept),
+// is colour | epics-across 6 5 4 | view, Epic Width is hidden (code kept),
 // and Reset reads "Default".
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -20,8 +20,8 @@ beforeEach(() => {
     document.body.appendChild(host);
     root = createRoot(host);
     act(() => root.render(
-        <PipelinePlanToolbar onStepsAcross={() => {}} stepWidthLevel={5}
-                             onChangeStepWidthLevel={() => {}} colorKey="state"
+        <PipelinePlanToolbar onEpicsAcross={() => {}} epicWidthLevel={5}
+                             onChangeEpicWidthLevel={() => {}} colorKey="state"
                              onChangeColorKey={() => {}} planLevelPref="auto"
                              effectiveLevel="out" onChangeLevelPref={() => {}}
                              onResetView={() => {}} />));
@@ -34,9 +34,9 @@ afterEach(() => {
 const q = (id) => host.querySelector(`[data-testid="${id}"]`);
 
 describe('PipelinePlanToolbar (req #3648)', () => {
-    it('draws the steps-across ladder as 6 5 4, between the colour chips and the view group', () => {
-        const across = q('pipeline-viz-steps-across');
-        expect([...across.querySelectorAll('[data-testid^="pipeline-viz-steps-across-"]')]
+    it('draws the epics-across ladder as 6 5 4, between the colour chips and the view group', () => {
+        const across = q('pipeline-viz-epics-across');
+        expect([...across.querySelectorAll('[data-testid^="pipeline-viz-epics-across-"]')]
             .map((c) => c.textContent)).toEqual(['6', '5', '4']);
         const color = q('pipeline-viz-colorkey-toggle');
         const view = q('pipeline-viz-level-control');
@@ -46,10 +46,10 @@ describe('PipelinePlanToolbar (req #3648)', () => {
         expect(across.compareDocumentPosition(view) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
-    // req #3806 — the Step chip (hover help only) is gone from the title bar.
-    it('has no Step chip; the colour chips lead the group', () => {
+    // req #3806 — the Epic chip (hover help only) is gone from the title bar.
+    it('has no Epic chip; the colour chips lead the group', () => {
         const color = q('pipeline-viz-colorkey-toggle');
-        expect(q('pipeline-viz-steps-toggle')).toBeNull();
+        expect(q('pipeline-viz-epics-toggle')).toBeNull();
         expect(color.firstElementChild.getAttribute('data-testid')).toMatch(/^pipeline-viz-colorkey-/);
         expect(q('pipeline-viz-colorkey-help-slot')).toBeNull();
         expect(q('pipeline-viz-legend-toggle')).toBeNull();
@@ -58,8 +58,8 @@ describe('PipelinePlanToolbar (req #3648)', () => {
     it('reports the hovered colour chip, active or not', () => {
         const events = [];
         act(() => root.render(
-            <PipelinePlanToolbar onStepsAcross={() => {}} stepWidthLevel={5}
-                                 onChangeStepWidthLevel={() => {}} colorKey="state"
+            <PipelinePlanToolbar onEpicsAcross={() => {}} epicWidthLevel={5}
+                                 onChangeEpicWidthLevel={() => {}} colorKey="state"
                                  onChangeColorKey={() => {}} planLevelPref="auto"
                                  effectiveLevel="out" onChangeLevelPref={() => {}}
                                  onResetView={() => {}}
@@ -85,8 +85,8 @@ describe('PipelinePlanToolbar (req #3648)', () => {
             events = [];
             picks = [];
             act(() => root.render(
-                <PipelinePlanToolbar onStepsAcross={() => {}} stepWidthLevel={5}
-                                     onChangeStepWidthLevel={() => {}} colorKey="state"
+                <PipelinePlanToolbar onEpicsAcross={() => {}} epicWidthLevel={5}
+                                     onChangeEpicWidthLevel={() => {}} colorKey="state"
                                      onChangeColorKey={(k) => picks.push(k)} planLevelPref="auto"
                                      effectiveLevel="out" onChangeLevelPref={() => {}}
                                      onResetView={() => {}}
@@ -115,14 +115,14 @@ describe('PipelinePlanToolbar (req #3648)', () => {
 
         it('unpins on the next press anywhere, falling back to the chip under the pointer', () => {
             const machine = q('pipeline-viz-colorkey-machine');
-            const step = q('pipeline-viz-colorkey-state');
+            const epic = q('pipeline-viz-colorkey-state');
             longPress(machine);
             fire(machine, 'mouseout');
             fire(document.body, 'pointerdown');
             expect(events).toEqual(['machine', 'machine*', null]);
-            longPress(step);
-            fire(step, 'pointerdown');           // pressing the pinned chip itself
-            fire(step, 'pointerup');
+            longPress(epic);
+            fire(epic, 'pointerdown');           // pressing the pinned chip itself
+            fire(epic, 'pointerup');
             expect(events.slice(3)).toEqual(['state', 'state*', 'state']);
         });
 
@@ -161,10 +161,10 @@ describe('PipelinePlanToolbar (req #3648)', () => {
     });
 
     // req #3686 — the Hide closed chip sits between the colour chips and the ladder.
-    it('draws Closed between the colour chips and the steps-across ladder', () => {
+    it('draws Closed between the colour chips and the epics-across ladder', () => {
         const color = q('pipeline-viz-colorkey-toggle');
         const hide = q('pipeline-viz-hide-closed');
-        const across = q('pipeline-viz-steps-across');
+        const across = q('pipeline-viz-epics-across');
         expect(hide).not.toBeNull();
         expect(hide.textContent).toBe('Closed');
         // eslint-disable-next-line no-bitwise
@@ -176,8 +176,8 @@ describe('PipelinePlanToolbar (req #3648)', () => {
     it('Closed toggles: reports the opposite of its current state', () => {
         const got = [];
         const render = (hideClosed) => act(() => root.render(
-            <PipelinePlanToolbar onStepsAcross={() => {}} stepWidthLevel={5}
-                                 onChangeStepWidthLevel={() => {}} colorKey="state"
+            <PipelinePlanToolbar onEpicsAcross={() => {}} epicWidthLevel={5}
+                                 onChangeEpicWidthLevel={() => {}} colorKey="state"
                                  onChangeColorKey={() => {}} hideClosed={hideClosed}
                                  onChangeHideClosed={(v) => got.push(v)} planLevelPref="auto"
                                  effectiveLevel="out" onChangeLevelPref={() => {}}
@@ -191,19 +191,19 @@ describe('PipelinePlanToolbar (req #3648)', () => {
         expect(got).toEqual([true, false]);
     });
 
-    it('hides the Step Width rungs', () => {
-        expect(q('pipeline-viz-stepwidth-toggle')).toBeNull();
+    it('hides the Epic Width rungs', () => {
+        expect(q('pipeline-viz-epicwidth-toggle')).toBeNull();
     });
 
-    it('a ladder click asks for that many steps across', () => {
+    it('a ladder click asks for that many epics across', () => {
         const asked = [];
         act(() => root.render(
-            <PipelinePlanToolbar onStepsAcross={(n) => asked.push(n)} stepWidthLevel={5}
-                                 onChangeStepWidthLevel={() => {}} colorKey="state"
+            <PipelinePlanToolbar onEpicsAcross={(n) => asked.push(n)} epicWidthLevel={5}
+                                 onChangeEpicWidthLevel={() => {}} colorKey="state"
                                  onChangeColorKey={() => {}} planLevelPref="auto"
                                  effectiveLevel="out" onChangeLevelPref={() => {}}
                                  onResetView={() => {}} />));
-        act(() => q('pipeline-viz-steps-across-4').click());
+        act(() => q('pipeline-viz-epics-across-4').click());
         expect(asked).toEqual([4]);
     });
 
@@ -233,8 +233,8 @@ describe('PipelinePlanToolbar (req #3648)', () => {
         const machines = [{ id: 2, title: 'Mac Mini', platform: 'darwin' },
             { id: 3, title: 'MCHP Windows', platform: 'wsl' }];
         act(() => root.render(
-            <PipelinePlanToolbar onStepsAcross={() => {}} stepWidthLevel={5}
-                                 onChangeStepWidthLevel={() => {}} colorKey="state"
+            <PipelinePlanToolbar onEpicsAcross={() => {}} epicWidthLevel={5}
+                                 onChangeEpicWidthLevel={() => {}} colorKey="state"
                                  onChangeColorKey={() => {}} planLevelPref="auto"
                                  effectiveLevel="out" onChangeLevelPref={() => {}}
                                  onResetView={() => {}} machines={machines}
@@ -255,8 +255,8 @@ describe('PipelinePlanToolbar (req #3648)', () => {
     it('draws a leading Any chip that toggles id 0', () => {
         const got = [];
         const render = (hidden) => act(() => root.render(
-            <PipelinePlanToolbar onStepsAcross={() => {}} stepWidthLevel={5}
-                                 onChangeStepWidthLevel={() => {}} colorKey="state"
+            <PipelinePlanToolbar onEpicsAcross={() => {}} epicWidthLevel={5}
+                                 onChangeEpicWidthLevel={() => {}} colorKey="state"
                                  onChangeColorKey={() => {}} planLevelPref="auto"
                                  effectiveLevel="out" onChangeLevelPref={() => {}}
                                  onResetView={() => {}}

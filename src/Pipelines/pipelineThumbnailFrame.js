@@ -1,7 +1,7 @@
 // pipelineThumbnailFrame.js — where the pipeline card's plan thumbnail looks
 // (req #3641). Pure arithmetic over a `computePlanLayout` result, kept out of
 // the component so the crop is testable without a canvas. The design — why an
-// L3 crop, why three steps across — is in
+// L3 crop, why three epics across — is in
 // `PipelinePlanThumbnail.jsx`'s header.
 
 // The frame. Height is the card's to spend and is deliberately short — this is
@@ -9,12 +9,12 @@
 // and the pill row do not get.
 export const THUMB_H = 132;
 
-// How many step columns span the frame — see the header. The one number that
+// How many epic columns span the frame — see the header. The one number that
 // sets how close the crop is.
-export const THUMB_STEPS_ACROSS = 3;
+export const THUMB_EPICS_ACROSS = 3;
 
 // Air above a card pinned by its top (a card taller than the strip), so its
-// frame and step name do not sit flush against the thumbnail's border.
+// frame and epic name do not sit flush against the thumbnail's border.
 const THUMB_TOP_PAD = 8;
 
 // Keep the world under the frame: no open panel past the plan's edge on an
@@ -40,24 +40,24 @@ const clampOffset = (o, worldPx, framePx) => (worldPx >= framePx
  * CANDIDATES: every card, framed three ways — centred on it, and half a column
  * either side (so a pair of neighbours can share the frame rather than one
  * being centred and the other cut in half). Vertically a candidate centres its
- * card, or pins a card taller than the strip by its top so the step name
+ * card, or pins a card taller than the strip by its top so the epic name
  * shows. Each candidate is clamped first and SCORED AS CLAMPED, so the score is
  * the crop that would actually be drawn. Score = card area inside the frame.
  * Ties go to the candidate nearer the world's middle, so among equally full
  * crops the one that reads as "the centre" wins — the directive's own words.
  *
- * O(3n²) rectangle intersections: ~77k on a 160-step plan, a few ms, run once
+ * O(3n²) rectangle intersections: ~77k on a 160-epic plan, a few ms, run once
  * per payload and frame width.
  *
  * @returns {?{k:number, ox:number, oy:number}} null when nothing can be framed
  */
 export function thumbnailFrame(layout, frameW, frameH = THUMB_H,
-    stepsAcross = THUMB_STEPS_ACROSS) {
+    epicsAcross = THUMB_EPICS_ACROSS) {
     if (!layout || !(frameW > 0) || !(frameH > 0)) return null;
     if (!(layout.width > 0) || !(layout.height > 0)) return null;
     const pitch = layout.colPitch;
-    if (!(pitch > 0) || !(stepsAcross > 0)) return null;
-    const k = frameW / (stepsAcross * pitch);
+    if (!(pitch > 0) || !(epicsAcross > 0)) return null;
+    const k = frameW / (epicsAcross * pitch);
     const worldW = layout.width * k;
     const worldH = layout.height * k;
 

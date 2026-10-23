@@ -17,7 +17,7 @@
 //   - NO DECORATIVE CONCEPTS beyond the vocabulary above — no gates, no glyph
 //     codes, nothing that has to be learned before the table can be read.
 //   - COMPLETED ROWS RENDER AT FULL BRIGHTNESS. No lowlighting, no fading. A
-//     finished step is part of the plan's record, not visual noise to recede.
+//     finished epic is part of the plan's record, not visual noise to recede.
 //
 // Every chip carries BOTH its own background and its own text color, so it reads
 // identically in Darwin's light and dark themes (ThemeWrapper supports both) —
@@ -29,7 +29,7 @@
 // drops that file out of React Fast Refresh (the instructionSort.js lesson), and
 // a pure module can be exercised by vitest without pulling MUI into the test env.
 
-import { STEP_DONE, STEP_RUNNING, STEP_PENDING } from './pipelineModel';
+import { EPIC_DONE, EPIC_RUNNING, EPIC_PENDING } from './pipelineModel';
 // req #3226 — re-exported from the canvas colour-language module (the same
 // swatch the plan visualizer's bubble/halo use) rather than a second literal,
 // so the plan TABLE's "held" marker and the plan VISUALIZER's red agree by
@@ -39,28 +39,28 @@ import { PAUSE_PAUSED_COLOR } from './pipelinePlanLayout';
 
 export { PAUSE_PAUSED_COLOR };
 
-// Derived step state (rule 1) -> the human label the plan has always used.
+// Derived epic state (rule 1) -> the human label the plan has always used.
 // "Complete / Running / Scheduled" is the plan's vocabulary; done/running/pending
 // is the engine's. Never show the engine's words to a user.
-export const STEP_STATE_LABEL = {
-    [STEP_DONE]: 'Complete',
-    [STEP_RUNNING]: 'Running',
-    [STEP_PENDING]: 'Scheduled',
+export const EPIC_STATE_LABEL = {
+    [EPIC_DONE]: 'Complete',
+    [EPIC_RUNNING]: 'Running',
+    [EPIC_PENDING]: 'Scheduled',
 };
 
-export const stepStateLabel = (state) => STEP_STATE_LABEL[state] || 'Scheduled';
+export const epicStateLabel = (state) => EPIC_STATE_LABEL[state] || 'Scheduled';
 
-const STEP_STATE_CHIP = {
-    [STEP_DONE]: { bgcolor: '#1b5e20', color: '#a5e5ae' },
-    [STEP_RUNNING]: { bgcolor: '#6b4e00', color: '#ffd769' },
-    [STEP_PENDING]: { bgcolor: '#22314b', color: '#b9cbe4' },
+const EPIC_STATE_CHIP = {
+    [EPIC_DONE]: { bgcolor: '#1b5e20', color: '#a5e5ae' },
+    [EPIC_RUNNING]: { bgcolor: '#6b4e00', color: '#ffd769' },
+    [EPIC_PENDING]: { bgcolor: '#22314b', color: '#b9cbe4' },
 };
 
-// Filled-chip props for a derived step state. Unknown state falls back to
+// Filled-chip props for a derived epic state. Unknown state falls back to
 // Scheduled rather than to MUI's default chip: an unlabelled chip in a plan
 // column reads as a rendering fault, and Scheduled is the safe under-claim.
-export const stepStateChipProps = (state) => ({
-    sx: STEP_STATE_CHIP[state] || STEP_STATE_CHIP[STEP_PENDING],
+export const epicStateChipProps = (state) => ({
+    sx: EPIC_STATE_CHIP[state] || EPIC_STATE_CHIP[EPIC_PENDING],
 });
 
 const RUN_CHIP = {
@@ -76,8 +76,8 @@ export const runChipProps = (run) => ({ sx: RUN_CHIP[run] || RUN_CHIP.auto });
 // carry a border under `border-collapse: collapse` in every engine), matching
 // the POC's `tr.active td:first-child` rule.
 // A THIRD accent lived here until req #3371: a DASHED teal left edge marking a
-// row as a member of a multi-step launch group, which outranked `running` and
-// `eligible` on style while leaving their tint alone. In Pipeline 2.0 the STEP
+// row as a member of a multi-epic launch group, which outranked `running` and
+// `eligible` on style while leaving their tint alone. In Pipeline 2.0 the EPIC
 // is the launch unit, so there is no membership to mark and every row's edge
 // falls through to its own state colour.
 export const ROW_ACCENT = {
@@ -85,7 +85,7 @@ export const ROW_ACCENT = {
     eligible: { tint: 'rgba(126,224,138,0.09)', edge: '3px solid #7ee08a' },
 };
 
-// The `/swarm-start` command's own code chip on a step row (design rule 8).
+// The `/swarm-start` command's own code chip on an epic row (design rule 8).
 // Teal, deliberately: it is the LAUNCH channel, distinct from the state hues
 // (amber = in flight, green = done) the rest of this vocabulary reserves. The
 // full-width banner these two colours were introduced for is gone; the command
@@ -100,7 +100,7 @@ export const ELIGIBLE_MARKER_COLOR = '#4caf50';
 
 // pipeline_status is the ONE hand-controlled lifecycle in this feature
 // (req #3111): draft|active|paused|completed. Human/Primary intent about
-// the plan as a whole — deliberately NOT derived, unlike a step's state.
+// the plan as a whole — deliberately NOT derived, unlike an epic's state.
 export const PIPELINE_STATUS_VALUES = ['draft', 'active', 'paused', 'completed'];
 
 // req #3220 — default-visible statuses for the list page's status filter.
@@ -206,10 +206,10 @@ export const executionModeChipProps = (mode) => ({
 });
 
 // ---------------------------------------------------------------------------
-// req #3649 — the step BARRIER flag and the plan-layer LOCKED flag.
+// req #3649 — the epic BARRIER flag and the plan-layer LOCKED flag.
 // ---------------------------------------------------------------------------
 
-// pipeline_steps.checkpoint — 1 (the column default) HOLDS every step
+// epics.checkpoint — 1 (the column default) HOLDS every epic
 // downstream of this one until it is done; 0 makes it a launch PRIORITY only
 // (its work goes out first, nothing waits on it). Amber for a hold — a
 // deliberately warmer hue than the run chip's blue/magenta and the execution

@@ -4,10 +4,10 @@
 //
 //   the requirement marks   pointer events, so a finger drives them: held still
 //                           it lifts (a haptic tick), moved first it is d3's pan,
-//                           lifted it moves to another step; the lifted finger's
+//                           lifted it moves to another epic; the lifted finger's
 //                           touchmove never reaches d3 and its touchend is no tap
 //   the Orchestrables rows  a dnd-kit drag whose collision detection is the
-//                           canvas's own step hit test
+//                           canvas's own epic hit test
 //
 // jsdom has no canvas: react-konva is stubbed, and the Stage exposes the two
 // calls the gesture makes — `getIntersection` answers a requirement mark over
@@ -23,9 +23,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // The requirement mark: client (100..140, 100..114) on the panel at the origin.
 const MARK = { x: 100, y: 100, w: 40, h: 14 };
-let markStepId = 10;
+let markEpicId = 10;
 const markNode = {
-    getAttr: (k) => ({ dragReqId: 900, dragStepId: markStepId })[k],
+    getAttr: (k) => ({ dragReqId: 900, dragEpicId: markEpicId })[k],
     getStage: () => true,
     getParent: () => null,
     toDataURL: () => 'data:image/png;base64,',
@@ -53,10 +53,10 @@ vi.mock('konva', () => ({
     default: { Animation: class { start() {} stop() {} } },
 }));
 
-const moveStepRequirement = vi.fn(() => Promise.resolve());
-vi.mock('../../../Steps/stepsApi', async (orig) => ({
+const moveEpicRequirement = vi.fn(() => Promise.resolve());
+vi.mock('../../../Epics/epicsApi', async (orig) => ({
     ...(await orig()),
-    moveStepRequirement: (...a) => moveStepRequirement(...a),
+    moveEpicRequirement: (...a) => moveEpicRequirement(...a),
 }));
 
 let boxItems = [];
@@ -118,7 +118,7 @@ let panel;
 let vibrate;
 let hadVibrate;
 
-const step = (id, title, locked = 0) => ({
+const epic = (id, title, locked = 0) => ({
     id, initiative_fk: 5, title, run: 'auto', notes: null, locked, not_before: null,
 });
 
@@ -131,8 +131,8 @@ beforeEach(() => {
         if (w) Object.defineProperty(HTMLElement.prototype, 'clientWidth', w);
         if (h) Object.defineProperty(HTMLElement.prototype, 'clientHeight', h);
     };
-    moveStepRequirement.mockReset();
-    moveStepRequirement.mockImplementation(() => Promise.resolve());
+    moveEpicRequirement.mockReset();
+    moveEpicRequirement.mockImplementation(() => Promise.resolve());
     resolveSeatDropSpy.mockClear();
     dropOverride = null;
     seatOverride = null;
@@ -154,7 +154,7 @@ afterEach(() => {
     else delete navigator.vibrate;
     document.elementsFromPoint = undefined;
     document.elementFromPoint = undefined;
-    markStepId = 10;
+    markEpicId = 10;
     reqStatus = 'swarm_ready';
     document.body.innerHTML = '';
 });
@@ -163,10 +163,10 @@ let reqStatus = 'swarm_ready';
 function render() {
     const payload = composedFixture({
         initiatives: [{ id: 5, title: 'Build', pipeline_fk: 2, sort_order: 1 }],
-        steps: [step(10, 'Design'), step(11, 'Frozen', 1), step(12, 'Implement')],
-        stepDeps: [{ id: 1, step_fk: 11, dep_step_fk: 10 }, { id: 2, step_fk: 12, dep_step_fk: 11 }],
+        epics: [epic(10, 'Design'), epic(11, 'Frozen', 1), epic(12, 'Implement')],
+        epicDeps: [{ id: 1, epic_fk: 11, dep_epic_fk: 10 }, { id: 2, epic_fk: 12, dep_epic_fk: 11 }],
         requirements: [{ id: 900, title: 'Move me', requirement_status: reqStatus, tracking: 0 }],
-        stepRequirements: [{ step_fk: markStepId, requirement_fk: 900 }],
+        epicRequirements: [{ epic_fk: markEpicId, requirement_fk: 900 }],
     });
     const container = document.createElement('div');
     document.body.appendChild(container);
@@ -209,8 +209,8 @@ const touchEvent = (type) => {
 };
 const wait = (ms) => act(async () => { await new Promise((r) => { setTimeout(r, ms); }); });
 const inFlight = () => panel.getAttribute('data-req-drag');
-const dropStep = () => panel.getAttribute('data-drop-step');
-const dropOn = (stepId) => { dropOverride = () => stepId; };
+const dropEpic = () => panel.getAttribute('data-drop-epic');
+const dropOn = (epicId) => { dropOverride = () => epicId; };
 
 // req #3817 — the Orchestrables box is a drop target: a requirement released
 // over it leaves the plan. The box is stubbed; its element is a plain div
@@ -237,18 +237,18 @@ describe('dropped on the Orchestrables box, a requirement is un-orchestrated (re
         expect(inFlight()).toBe('900');
         expect(boxProps.dropArmed).toBe('ok');
         expect(boxProps.dropOver).toBe(false);
-        // A step card beneath the box never takes it: the box wins.
+        // An epic card beneath the box never takes it: the box wins.
         dropOn(12);
         pointer('pointermove', 1000, 100, { pointerType: 'mouse' });
         expect(boxProps.dropOver).toBe(true);
-        expect(dropStep()).toBe('');
+        expect(dropEpic()).toBe('');
         pointer('pointerup', 1000, 100, { pointerType: 'mouse', buttons: 0 });
         expect(inFlight()).toBe('');
         expect(boxProps.dropOver).toBe(false);
         expect(boxProps.dropArmed).toBeNull();
-        expect(moveStepRequirement).toHaveBeenCalledTimes(1);
-        expect(moveStepRequirement.mock.calls[0][2])
-            .toEqual({ requirementId: 900, fromStepId: 10, toStepId: null });
+        expect(moveEpicRequirement).toHaveBeenCalledTimes(1);
+        expect(moveEpicRequirement.mock.calls[0][2])
+            .toEqual({ requirementId: 900, fromEpicId: 10, toEpicId: null });
         await wait(0);
         // Swarm-ready, so it is the box's at once.
         expect(boxProps.items.map((r) => Number(r.id))).toEqual([11, 900]);
@@ -263,7 +263,7 @@ describe('dropped on the Orchestrables box, a requirement is un-orchestrated (re
         pointer('pointermove', 400, 300, { pointerType: 'mouse' });
         expect(boxProps.dropOver).toBe(false);
         pointer('pointerup', 400, 300, { pointerType: 'mouse', buttons: 0 });
-        expect(moveStepRequirement).not.toHaveBeenCalled();
+        expect(moveEpicRequirement).not.toHaveBeenCalled();
     });
 
     it('a box parked over the navbar — outside the plan panel — still takes it', () => {
@@ -273,8 +273,8 @@ describe('dropped on the Orchestrables box, a requirement is un-orchestrated (re
         pointer('pointermove', 100, -30, { pointerType: 'mouse' });
         expect(boxProps.dropOver).toBe(true);
         pointer('pointerup', 100, -30, { pointerType: 'mouse', buttons: 0 });
-        expect(moveStepRequirement.mock.calls[0][2])
-            .toEqual({ requirementId: 900, fromStepId: 10, toStepId: null });
+        expect(moveEpicRequirement.mock.calls[0][2])
+            .toEqual({ requirementId: 900, fromEpicId: 10, toEpicId: null });
     });
 
     it('a box covered at the point (scrolled out of the rack, chrome over it) takes nothing', () => {
@@ -285,11 +285,11 @@ describe('dropped on the Orchestrables box, a requirement is un-orchestrated (re
         pointer('pointermove', 1000, 100, { pointerType: 'mouse' });
         expect(boxProps.dropOver).toBe(false);
         pointer('pointerup', 1000, 100, { pointerType: 'mouse', buttons: 0 });
-        expect(moveStepRequirement).not.toHaveBeenCalled();
+        expect(moveEpicRequirement).not.toHaveBeenCalled();
     });
 
-    it('a locked step\'s requirement cannot leave it: refused, nothing written', () => {
-        markStepId = 11;
+    it('a locked epic\'s requirement cannot leave it: refused, nothing written', () => {
+        markEpicId = 11;
         render();
         placeBox();
         pointer('pointerdown', 110, 105, { pointerType: 'mouse' });
@@ -298,7 +298,7 @@ describe('dropped on the Orchestrables box, a requirement is un-orchestrated (re
         expect(boxProps.dropArmed).toBe('refused');
         expect(boxProps.dropOver).toBe(false);
         pointer('pointerup', 1000, 100, { pointerType: 'mouse', buttons: 0 });
-        expect(moveStepRequirement).not.toHaveBeenCalled();
+        expect(moveEpicRequirement).not.toHaveBeenCalled();
     });
 
     it('a requirement that is not swarm-ready leaves the plan, is not drawn in the box, and is announced', async () => {
@@ -309,15 +309,15 @@ describe('dropped on the Orchestrables box, a requirement is un-orchestrated (re
         pointer('pointermove', 1000, 100, { pointerType: 'mouse' });
         pointer('pointerup', 1000, 100, { pointerType: 'mouse', buttons: 0 });
         await wait(0);
-        expect(moveStepRequirement.mock.calls[0][2])
-            .toEqual({ requirementId: 900, fromStepId: 10, toStepId: null });
+        expect(moveEpicRequirement.mock.calls[0][2])
+            .toEqual({ requirementId: 900, fromEpicId: 10, toEpicId: null });
         expect(boxProps.items.map((r) => Number(r.id))).toEqual([11]);
         expect(useSnackBarStore.getState().message || '').toContain('swarm-ready work only');
     });
 
     it('until its seat is deleted, the box row it became cannot be lifted', async () => {
         let resolve;
-        moveStepRequirement.mockImplementation(() => new Promise((r) => { resolve = r; }));
+        moveEpicRequirement.mockImplementation(() => new Promise((r) => { resolve = r; }));
         render();
         placeBox();
         pointer('pointerdown', 110, 105, { pointerType: 'mouse' });
@@ -336,12 +336,12 @@ describe('dropped on the Orchestrables box, a requirement is un-orchestrated (re
         act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
         expect(boxProps.dropOver).toBe(false);
         pointer('pointerup', 1000, 100, { pointerType: 'mouse', buttons: 0 });
-        expect(moveStepRequirement).not.toHaveBeenCalled();
+        expect(moveEpicRequirement).not.toHaveBeenCalled();
     });
 });
 
 describe('a requirement mark on the press timeline, by touch (req #3665)', () => {
-    it('held still, it lifts with a haptic tick; moved, it carries; released on a step, it moves', async () => {
+    it('held still, it lifts with a haptic tick; moved, it carries; released on an epic, it moves', async () => {
         render();
         pointer('pointerdown', 110, 105);
         await wait(LIFT_DELAY_MS - 150);
@@ -352,12 +352,12 @@ describe('a requirement mark on the press timeline, by touch (req #3665)', () =>
         expect(document.querySelector('[data-testid="pipeline-viz-req-drag-preview"]')).not.toBeNull();
         dropOn(12);
         pointer('pointermove', 500, 300);
-        expect(dropStep()).toBe('12');
+        expect(dropEpic()).toBe('12');
         pointer('pointerup', 500, 300, { buttons: 0 });
         expect(inFlight()).toBe('');
-        expect(moveStepRequirement).toHaveBeenCalledTimes(1);
-        expect(moveStepRequirement.mock.calls[0][2])
-            .toEqual({ requirementId: 900, fromStepId: 10, toStepId: 12 });
+        expect(moveEpicRequirement).toHaveBeenCalledTimes(1);
+        expect(moveEpicRequirement.mock.calls[0][2])
+            .toEqual({ requirementId: 900, fromEpicId: 10, toEpicId: 12 });
     });
 
     it('moved before the lift, it is a pan: nothing lifts, nothing moves', async () => {
@@ -369,7 +369,7 @@ describe('a requirement mark on the press timeline, by touch (req #3665)', () =>
         expect(inFlight()).toBe('');
         expect(vibrate).not.toHaveBeenCalled();
         pointer('pointerup', 300, 200, { buttons: 0 });
-        expect(moveStepRequirement).not.toHaveBeenCalled();
+        expect(moveEpicRequirement).not.toHaveBeenCalled();
     });
 
     it('a resting fingertip within the tolerance still lifts', async () => {
@@ -380,15 +380,15 @@ describe('a requirement mark on the press timeline, by touch (req #3665)', () =>
         expect(inFlight()).toBe('900');
     });
 
-    it('a locked step refuses the drop (req #3649 — a step has no state, req #3750)', async () => {
+    it('a locked epic refuses the drop (req #3649 — an epic has no state, req #3750)', async () => {
         render();
         pointer('pointerdown', 110, 105);
         await wait(LIFT_DELAY_MS + 40);
         dropOn(11);
         pointer('pointermove', 500, 300);
-        expect(dropStep()).toBe('');
+        expect(dropEpic()).toBe('');
         pointer('pointerup', 500, 300, { buttons: 0 });
-        expect(moveStepRequirement).not.toHaveBeenCalled();
+        expect(moveEpicRequirement).not.toHaveBeenCalled();
     });
 
     it('lifted, the finger is the requirement\'s: d3 never sees it move, and its release is no tap', async () => {
@@ -426,7 +426,7 @@ describe('a requirement mark on the press timeline, by touch (req #3665)', () =>
         dropOn(12);
         pointer('pointermove', 500, 300);
         pointer('pointerup', 500, 300, { buttons: 0 });
-        expect(moveStepRequirement).not.toHaveBeenCalled();
+        expect(moveEpicRequirement).not.toHaveBeenCalled();
     });
 
     it('a hold slow to start moving is still a drag, never the title edit (the reported defect)', async () => {
@@ -438,8 +438,8 @@ describe('a requirement mark on the press timeline, by touch (req #3665)', () =>
         pointer('pointermove', 500, 300);
         pointer('pointerup', 500, 300, { buttons: 0 });
         expect(document.querySelector('[data-testid="pipeline-viz-req-edit-900"]')).toBeNull();
-        expect(moveStepRequirement.mock.calls[0][2])
-            .toEqual({ requirementId: 900, fromStepId: 10, toStepId: 12 });
+        expect(moveEpicRequirement.mock.calls[0][2])
+            .toEqual({ requirementId: 900, fromEpicId: 10, toEpicId: 12 });
     });
 
     it('held past the long press and let go in place, it opens the title editor', async () => {
@@ -451,7 +451,7 @@ describe('a requirement mark on the press timeline, by touch (req #3665)', () =>
         expect(document.querySelector('[data-testid="pipeline-viz-req-edit-900"]')).not.toBeNull();
         expect(inFlight()).toBe('');
         expect(touchEvent('touchend').defaultPrevented).toBe(true);
-        expect(moveStepRequirement).not.toHaveBeenCalled();
+        expect(moveEpicRequirement).not.toHaveBeenCalled();
     });
 
     it('a touch the system cancels leaves no swallowed tap behind', async () => {
@@ -464,7 +464,7 @@ describe('a requirement mark on the press timeline, by touch (req #3665)', () =>
         expect(inFlight()).toBe('');
         // The next tap, anywhere, is a tap.
         expect(touchEvent('touchend').defaultPrevented).toBe(false);
-        expect(moveStepRequirement).not.toHaveBeenCalled();
+        expect(moveEpicRequirement).not.toHaveBeenCalled();
     });
 
     it('a quick tap lifts nothing', async () => {
@@ -487,8 +487,8 @@ describe('a requirement mark by mouse — desktop unchanged (req #3665)', () => 
         dropOn(12);
         pointer('pointermove', 500, 300, { pointerType: 'mouse' });
         pointer('pointerup', 500, 300, { pointerType: 'mouse', buttons: 0 });
-        expect(moveStepRequirement.mock.calls[0][2])
-            .toEqual({ requirementId: 900, fromStepId: 10, toStepId: 12 });
+        expect(moveEpicRequirement.mock.calls[0][2])
+            .toEqual({ requirementId: 900, fromEpicId: 10, toEpicId: 12 });
     });
 
     it('Escape puts a lifted requirement back; the release is neither a drop nor a click', () => {
@@ -500,7 +500,7 @@ describe('a requirement mark by mouse — desktop unchanged (req #3665)', () => 
         expect(inFlight()).toBe('');
         dropOn(12);
         pointer('pointerup', 500, 300, { pointerType: 'mouse', buttons: 0 });
-        expect(moveStepRequirement).not.toHaveBeenCalled();
+        expect(moveEpicRequirement).not.toHaveBeenCalled();
     });
 });
 
@@ -529,7 +529,7 @@ describe('a long click by mouse is the title edit, while held (req #3665 review)
         dropOn(12);
         pointer('pointerup', 110, 105, { pointerType: 'mouse', buttons: 0 });
         expect(editor()).not.toBeNull();
-        expect(moveStepRequirement).not.toHaveBeenCalled();
+        expect(moveEpicRequirement).not.toHaveBeenCalled();
     });
 
     it('a press moved before the long press is a drag, and opens no editor', async () => {
@@ -541,7 +541,7 @@ describe('a long click by mouse is the title edit, while held (req #3665 review)
         await wait(LONG_PRESS_MS);
         pointer('pointerup', 500, 300, { pointerType: 'mouse', buttons: 0 });
         expect(editor()).toBeNull();
-        expect(moveStepRequirement).toHaveBeenCalledTimes(1);
+        expect(moveEpicRequirement).toHaveBeenCalledTimes(1);
     });
 });
 
@@ -555,12 +555,12 @@ describe('an Orchestrables row seats through the shared drag surface (req #3665)
         return out;
     };
 
-    it('the collision detection is the canvas step hit test, through the live camera', () => {
+    it('the collision detection is the canvas epic hit test, through the live camera', () => {
         render();
-        seatOverride = (args) => ({ stepId: 12, ok: true, args });
+        seatOverride = (args) => ({ epicId: 12, ok: true, args });
         const hits = collide(500, 300);
         expect(hits).toHaveLength(1);
-        expect(hits[0].data.target).toMatchObject({ stepId: 12, ok: true });
+        expect(hits[0].data.target).toMatchObject({ epicId: 12, ok: true });
         const args = resolveSeatDropSpy.mock.calls.at(-1)[0];
         expect(args.point).toEqual({ x: 500, y: 300 });
         expect(args.overChrome).toBe(false);
@@ -569,7 +569,7 @@ describe('an Orchestrables row seats through the shared drag surface (req #3665)
 
     it('answers nothing for another drag, or with no pointer', () => {
         render();
-        seatOverride = () => ({ stepId: 12, ok: true });
+        seatOverride = () => ({ epicId: 12, ok: true });
         expect(collide(500, 300, rowDrag('task'))).toEqual([]);
         let out;
         act(() => { out = dndProps.collisionDetection({ active: rowDrag(), pointerCoordinates: null }); });
@@ -599,34 +599,34 @@ describe('an Orchestrables row seats through the shared drag surface (req #3665)
         expect(resolveSeatDropSpy.mock.calls.at(-1)[0].overChrome).toBe(true);
     });
 
-    it('outlines the step while moving, and a drop seats the requirement there', async () => {
+    it('outlines the epic while moving, and a drop seats the requirement there', async () => {
         render();
-        seatOverride = () => ({ stepId: 12, ok: true });
+        seatOverride = () => ({ epicId: 12, ok: true });
         const collisions = collide(500, 300);
         act(() => { dndProps.onDragMove({ active: rowDrag(), collisions }); });
         const outline = document.querySelector('[data-testid="pipeline-viz-seat-target"]');
-        expect(outline?.getAttribute('data-step-id')).toBe('12');
+        expect(outline?.getAttribute('data-epic-id')).toBe('12');
         let land;
-        moveStepRequirement.mockImplementation(() => new Promise((r) => { land = r; }));
+        moveEpicRequirement.mockImplementation(() => new Promise((r) => { land = r; }));
         act(() => { dndProps.onDragEnd({ active: rowDrag(), collisions }); });
         expect(document.querySelector('[data-testid="pipeline-viz-seat-target"]')).toBeNull();
-        expect(moveStepRequirement).toHaveBeenCalledTimes(1);
-        expect(moveStepRequirement.mock.calls[0][2]).toEqual({ requirementId: 11, toStepId: 12 });
+        expect(moveEpicRequirement).toHaveBeenCalledTimes(1);
+        expect(moveEpicRequirement.mock.calls[0][2]).toEqual({ requirementId: 11, toEpicId: 12 });
         // Hidden from the box at once, so it never shows snapping back.
         expect(boxProps.items.map((r) => r.id)).not.toContain(11);
         await act(async () => { land(); });
     });
 
-    it('a locked step, or a cancel, writes nothing', async () => {
+    it('a locked epic, or a cancel, writes nothing', async () => {
         render();
-        seatOverride = () => ({ stepId: 11, ok: false });
+        seatOverride = () => ({ epicId: 11, ok: false });
         const refused = collide(500, 300);
         act(() => { dndProps.onDragMove({ active: rowDrag(), collisions: refused }); });
         expect(document.querySelector('[data-testid="pipeline-viz-seat-target"]')
             ?.getAttribute('data-ok')).toBe('0');
         await act(async () => { dndProps.onDragEnd({ active: rowDrag(), collisions: refused }); });
         act(() => { dndProps.onDragCancel(); });
-        expect(moveStepRequirement).not.toHaveBeenCalled();
+        expect(moveEpicRequirement).not.toHaveBeenCalled();
         expect(document.querySelector('[data-testid="pipeline-viz-seat-target"]')).toBeNull();
     });
 });

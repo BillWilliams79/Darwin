@@ -1,10 +1,10 @@
-// Req #3688 — "when you hide and expand closed it should redraw the step cards
+// Req #3688 — "when you hide and expand closed it should redraw the epic cards
 // but not move the viewport around". The card the reader is looking at keeps its
 // screen position across the Hide-closed relayout.
 
 import { describe, it, expect } from 'vitest';
 import {
-    relayoutAnchorTransform, computePlanLayout, orderStepReqs, hideClosedReqs,
+    relayoutAnchorTransform, computePlanLayout, orderEpicReqs, hideClosedReqs,
 } from '../pipelinePlanLayout';
 
 const node = (id, left, top, w = 100, h = 80) => [id, {
@@ -30,7 +30,7 @@ describe('relayoutAnchorTransform (req #3688)', () => {
         const prev = lay(node(7, 300, 700), node(8, 300, 5000));
         const next = lay(node(7, 300, 400), node(8, 300, 4000));
         const out = relayoutAnchorTransform(prev, next, t, SIZE);
-        expect(out).toEqual({ x: -50, y: -50, k: 0.5, anchor: 'step:7' });
+        expect(out).toEqual({ x: -50, y: -50, k: 0.5, anchor: 'epic:7' });
         expect(screenOf(out, next.nodes.get(7))).toEqual(screenOf(t, prev.nodes.get(7)));
     });
 
@@ -52,20 +52,20 @@ describe('relayoutAnchorTransform (req #3688)', () => {
     it('keeps a real plan card in place when its closed rows above disappear', () => {
         const status = { 1: 'met', 2: 'met', 3: 'met', 4: 'development', 5: 'approved' };
         const mk = (id, reqIds, depIds = []) => ({
-            id, title: `step ${id}`, run: 'auto', state: 'pending', reqIds,
+            id, title: `epic ${id}`, run: 'auto', state: 'pending', reqIds,
             depIds, timeDeps: [], initiativeId: 5, initiative: 'e', initiativeLabels: [],
             featureLabels: [], machineLabels: [], machineLabel: '—',
         });
-        // Two parallel steps in one column: step 10 (three closed rows) sits
-        // above step 11 in the stack, so hiding closed moves 11 up.
-        const rows = orderStepReqs([mk(10, [1, 2, 3, 4]), mk(11, [5])],
+        // Two parallel epics in one column: epic 10 (three closed rows) sits
+        // above epic 11 in the stack, so hiding closed moves 11 up.
+        const rows = orderEpicReqs([mk(10, [1, 2, 3, 4]), mk(11, [5])],
             { statusOf: (id) => status[id] });
         const shown = computePlanLayout(rows);
         const hidden = computePlanLayout(hideClosedReqs(rows));
         const before = shown.nodes.get(11);
         const after = hidden.nodes.get(11);
         expect(after.top).not.toBe(before.top);
-        // Camera centred on step 11, zoomed in so not every card fits.
+        // Camera centred on epic 11, zoomed in so not every card fits.
         const k = 3;
         const t = { k, x: SIZE.w / 2 - before.x * k, y: SIZE.h / 2 - before.y * k };
         const out = relayoutAnchorTransform(shown, hidden, t, SIZE);
@@ -88,11 +88,11 @@ describe('relayoutAnchorTransform (req #3688)', () => {
         const short = lay(node(1, 0, 0, 100, 100), node(2, 0, 120), node(3, 0, 2500));
         const t0 = { x: 0, y: -100, k: 1 };
         const hidden = relayoutAnchorTransform(tall, short, t0, SIZE);
-        expect(hidden.anchor).toBe('step:1');
+        expect(hidden.anchor).toBe('epic:1');
         const fresh = relayoutAnchorTransform(short, tall, hidden, SIZE);
-        expect(fresh.anchor).toBe('step:2');
+        expect(fresh.anchor).toBe('epic:2');
         const back = relayoutAnchorTransform(short, tall, hidden, SIZE, hidden.anchor);
-        expect(back.anchor).toBe('step:1');
+        expect(back.anchor).toBe('epic:1');
         expect({ x: back.x, y: back.y, k: back.k }).toEqual(t0);
     });
 

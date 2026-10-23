@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// req #3393 — the Pipeline 2.0 steps editor. Structural sibling of the other
+// req #3393 — the Pipeline 2.0 epics editor. Structural sibling of the other
 // 2.0 page test files (see InitiativesPage2.test.jsx's header for the DataGrid-stub
 // rationale, copied rather than imported).
 //
@@ -20,7 +20,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 vi.mock('@mui/x-data-grid', () => ({
     GridToolbar: () => null,
-    // `data-testid` forwarded from the real usage (`steps-grid`), not
+    // `data-testid` forwarded from the real usage (`epics-grid`), not
     // hardcoded — see PipelinesPage2.test.jsx's identical fix for why a
     // hardcoded value here is a latent bug.
     DataGrid: ({ rows, columns, 'data-testid': testId = 'grid' }) => (
@@ -48,9 +48,9 @@ vi.mock('@mui/x-data-grid', () => ({
 
 let pipelines;
 let initiatives;
-let steps;
-let stepRequirements;
-let stepDeps;
+let epics;
+let epicRequirements;
+let epicDeps;
 let requirements;
 let loading;
 
@@ -60,11 +60,11 @@ vi.mock('../../hooks/useDataQueries', async (importOriginal) => {
         ...actual,
         useAllPipelines: () => ({ data: pipelines, isLoading: loading.pipelines }),
         useAllInitiatives: () => ({ data: initiatives, isLoading: loading.initiatives }),
-        useAllPipelineSteps: () => ({ data: steps, isLoading: loading.steps }),
-        useAllPipelineStepRequirements: () => ({
-            data: stepRequirements, isLoading: loading.links, isError: loading.linksError }),
-        useAllPipelineStepDeps: () => ({
-            data: stepDeps, isLoading: loading.deps, isError: loading.depsError }),
+        useAllPipelineEpics: () => ({ data: epics, isLoading: loading.epics }),
+        useAllPipelineEpicRequirements: () => ({
+            data: epicRequirements, isLoading: loading.links, isError: loading.linksError }),
+        useAllPipelineEpicDeps: () => ({
+            data: epicDeps, isLoading: loading.deps, isError: loading.depsError }),
         useAllRequirements: () => ({
             data: requirements, isLoading: loading.requirements, isError: loading.requirementsError }),
     };
@@ -84,7 +84,7 @@ vi.mock('../../RestApi/RestApi', () => ({
     }),
 }));
 
-import StepsPage2 from '../StepsPage';
+import EpicsPage2 from '../EpicsPage';
 import AuthContext from '../../Context/AuthContext';
 import AppContext from '../../Context/AppContext';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
@@ -104,7 +104,7 @@ function LocationProbe() {
     return null;
 }
 
-function mount(initialEntries = ['/swarm/steps']) {
+function mount(initialEntries = ['/swarm/epics']) {
     const container = document.createElement('div');
     document.body.appendChild(container);
     queryClient = new QueryClient({
@@ -118,7 +118,7 @@ function mount(initialEntries = ['/swarm/steps']) {
                 <QueryClientProvider client={queryClient}>
                     <AppContext.Provider value={{ darwinUri: 'http://test.local/darwin' }}>
                         <AuthContext.Provider value={{ idToken: 'tok', profile: { userName: 'tester', timezone: 'UTC' } }}>
-                            <StepsPage2 />
+                            <EpicsPage2 />
                             <LocationProbe />
                         </AuthContext.Provider>
                     </AppContext.Provider>
@@ -149,7 +149,7 @@ beforeEach(() => {
     navigateSpy.mockClear();
     mountedRoots = [];
     loading = {
-        pipelines: false, initiatives: false, steps: false, links: false, linksError: false,
+        pipelines: false, initiatives: false, epics: false, links: false, linksError: false,
         deps: false, depsError: false, requirements: false, requirementsError: false,
     };
     pipelines = [
@@ -161,23 +161,23 @@ beforeEach(() => {
         { id: 5, title: 'Surface polish', pipeline_fk: 7 },
         { id: 6, title: 'Side quest', pipeline_fk: 8 },
     ];
-    steps = [
-        { id: 100, initiative_fk: 4, title: 'Free step', run: 'auto', notes: null,
+    epics = [
+        { id: 100, initiative_fk: 4, title: 'Free epic', run: 'auto', notes: null,
           not_before: null },
-        { id: 101, initiative_fk: 4, title: 'Gated step', run: 'manual', notes: 'Some notes',
+        { id: 101, initiative_fk: 4, title: 'Gated epic', run: 'manual', notes: 'Some notes',
           not_before: null, checkpoint: 0, locked: 1 },
-        { id: 102, initiative_fk: 5, title: 'Done step', run: 'auto', notes: null,
+        { id: 102, initiative_fk: 5, title: 'Done epic', run: 'auto', notes: null,
           not_before: '2026-08-01 12:00:00' },
-        { id: 103, initiative_fk: 5, title: 'Blocked step', run: 'auto', notes: null,
+        { id: 103, initiative_fk: 5, title: 'Blocked epic', run: 'auto', notes: null,
           not_before: null },
-        { id: 104, initiative_fk: 6, title: 'Side step', run: 'auto', notes: null,
+        { id: 104, initiative_fk: 6, title: 'Side epic', run: 'auto', notes: null,
           not_before: null },
     ];
-    stepRequirements = [
-        { step_fk: 101, requirement_fk: 900 },
+    epicRequirements = [
+        { epic_fk: 101, requirement_fk: 900 },
     ];
-    stepDeps = [
-        { id: 1, step_fk: 102, dep_step_fk: 103 },
+    epicDeps = [
+        { id: 1, epic_fk: 102, dep_epic_fk: 103 },
     ];
     requirements = [
         { id: 900, title: 'Real work', tracking: 0 },
@@ -226,7 +226,7 @@ const optionTexts = (selectTestId) => {
     return texts;
 };
 
-describe('StepsPage2 rows', () => {
+describe('EpicsPage2 rows', () => {
     it('renders the req #3750 column order — no State, Notes or Gate', () => {
         mount();
         const fields = [...node('grid-row-100').children].map(
@@ -239,127 +239,127 @@ describe('StepsPage2 rows', () => {
 
     it('names pipeline and initiative in one chip', () => {
         mount();
-        expect(node('step2-plan-link-100').textContent).toBe('Main planCore rebuild');
-        expect(node('step2-plan-link-104').textContent).toBe('Side planSide quest');
+        expect(node('epic-plan-link-100').textContent).toBe('Main planCore rebuild');
+        expect(node('epic-plan-link-104').textContent).toBe('Side planSide quest');
     });
 
     it('opens the plan focused on the initiative band from the combo chip', () => {
         mount();
-        click(node('step2-plan-link-102'));
+        click(node('epic-plan-link-102'));
         expect(navigateSpy).toHaveBeenCalledWith('/swarm/pipeline/7?mode=plan&initiative=5');
     });
 
     it('pre-selects the initiative filter from a ?initiative= deep link, and implies its pipeline', () => {
-        mount(['/swarm/steps?initiative=5']);
+        mount(['/swarm/epics?initiative=5']);
         expect(visibleRowIds()).toEqual([102, 103]);
-        expect(selectText('steps-initiative-filter')).toBe('Surface polish');
-        expect(selectText('steps-pipeline-filter')).toBe('Main plan');
+        expect(selectText('epics-initiative-filter')).toBe('Surface polish');
+        expect(selectText('epics-pipeline-filter')).toBe('Main plan');
     });
 
     it('pre-selects the pipeline filter from a ?pipeline= deep link', () => {
-        mount(['/swarm/steps?pipeline=8']);
+        mount(['/swarm/epics?pipeline=8']);
         expect(visibleRowIds()).toEqual([104]);
-        expect(selectText('steps-initiative-filter')).toBe('');
+        expect(selectText('epics-initiative-filter')).toBe('');
     });
 
     it('ignores a deep link naming an initiative that does not exist', () => {
-        mount(['/swarm/steps?initiative=999']);
+        mount(['/swarm/epics?initiative=999']);
         expect(visibleRowIds()).toEqual([100, 101, 102, 103, 104]);
-        expect(selectText('steps-initiative-filter')).toBe('');
+        expect(selectText('epics-initiative-filter')).toBe('');
     });
 
-    it('counts the shown steps against the whole set', () => {
-        mount(['/swarm/steps?initiative=5']);
-        expect(node('steps-accounting').textContent).toBe('2 of 5 steps');
+    it('counts the shown epics against the whole set', () => {
+        mount(['/swarm/epics?initiative=5']);
+        expect(node('epics-accounting').textContent).toBe('2 of 5 epics');
     });
 });
 
-describe('StepsPage2 pipeline → initiative cascade', () => {
+describe('EpicsPage2 pipeline → initiative cascade', () => {
     it('choosing a pipeline narrows rows and the initiative list', async () => {
         mount();
-        await pickOption('steps-pipeline-filter', 'Main plan');
+        await pickOption('epics-pipeline-filter', 'Main plan');
         expect(visibleRowIds()).toEqual([100, 101, 102, 103]);
-        expect(optionTexts('steps-initiative-filter')).toEqual(
+        expect(optionTexts('epics-initiative-filter')).toEqual(
             ['All initiatives', 'Core rebuild', 'Surface polish']);
     });
 
     it('choosing an initiative selects its pipeline', async () => {
         mount();
-        await pickOption('steps-initiative-filter', 'Side quest');
+        await pickOption('epics-initiative-filter', 'Side quest');
         expect(visibleRowIds()).toEqual([104]);
-        expect(selectText('steps-pipeline-filter')).toBe('Side plan');
+        expect(selectText('epics-pipeline-filter')).toBe('Side plan');
     });
 
     it('choosing a different pipeline clears an initiative outside it', async () => {
-        mount(['/swarm/steps?initiative=4']);
-        await pickOption('steps-pipeline-filter', 'Side plan');
-        expect(selectText('steps-initiative-filter')).toBe('');
+        mount(['/swarm/epics?initiative=4']);
+        await pickOption('epics-pipeline-filter', 'Side plan');
+        expect(selectText('epics-initiative-filter')).toBe('');
         expect(visibleRowIds()).toEqual([104]);
     });
 
     it('All initiatives keeps the chosen pipeline', async () => {
-        mount(['/swarm/steps?initiative=4']);
-        await pickOption('steps-initiative-filter', 'All initiatives');
-        expect(selectText('steps-pipeline-filter')).toBe('Main plan');
+        mount(['/swarm/epics?initiative=4']);
+        await pickOption('epics-initiative-filter', 'All initiatives');
+        expect(selectText('epics-pipeline-filter')).toBe('Main plan');
         expect(visibleRowIds()).toEqual([100, 101, 102, 103]);
     });
 
-    it('All pipelines clears the initiative and shows every step', async () => {
-        mount(['/swarm/steps?initiative=4']);
-        await pickOption('steps-pipeline-filter', 'All pipelines');
-        expect(selectText('steps-initiative-filter')).toBe('');
+    it('All pipelines clears the initiative and shows every epic', async () => {
+        mount(['/swarm/epics?initiative=4']);
+        await pickOption('epics-pipeline-filter', 'All pipelines');
+        expect(selectText('epics-initiative-filter')).toBe('');
         expect(visibleRowIds()).toEqual([100, 101, 102, 103, 104]);
     });
 
     it('writes the choice to the URL and keeps the router state (Back to Plan)', async () => {
-        mount([{ pathname: '/swarm/steps', search: '?initiative=4',
+        mount([{ pathname: '/swarm/epics', search: '?initiative=4',
             state: { from: 'pipeline', pipelineId: 7, mode: 'plan' } }]);
-        expect(node('steps-back-to-plan')).not.toBeNull();
-        await pickOption('steps-initiative-filter', 'Surface polish');
+        expect(node('epics-back-to-plan')).not.toBeNull();
+        await pickOption('epics-initiative-filter', 'Surface polish');
         expect(currentLocation.search).toBe('?initiative=5&pipeline=7');
         expect(currentLocation.state).toEqual({ from: 'pipeline', pipelineId: 7, mode: 'plan' });
-        expect(node('steps-back-to-plan')).not.toBeNull();
-        await pickOption('steps-pipeline-filter', 'All pipelines');
+        expect(node('epics-back-to-plan')).not.toBeNull();
+        await pickOption('epics-pipeline-filter', 'All pipelines');
         expect(currentLocation.search).toBe('');
     });
 
     it('re-filters when a link changes the URL while the page is open', async () => {
-        mount(['/swarm/steps?initiative=4']);
+        mount(['/swarm/epics?initiative=4']);
         expect(visibleRowIds()).toEqual([100, 101]);
         // A link elsewhere (the plan visualizer's initiative chip) navigating here
         // again, to another initiative, while the page stays mounted.
-        act(() => { outsideNavigate('/swarm/steps?initiative=5'); });
+        act(() => { outsideNavigate('/swarm/epics?initiative=5'); });
         await flush();
         expect(visibleRowIds()).toEqual([102, 103]);
-        expect(selectText('steps-pipeline-filter')).toBe('Main plan');
-        act(() => { outsideNavigate('/swarm/steps?pipeline=8'); });
+        expect(selectText('epics-pipeline-filter')).toBe('Main plan');
+        act(() => { outsideNavigate('/swarm/epics?pipeline=8'); });
         await flush();
         expect(visibleRowIds()).toEqual([104]);
     });
 
-    it('New Step defaults to the first initiative of the chosen pipeline', async () => {
-        mount(['/swarm/steps?pipeline=8']);
-        click(node('step2-add'));
-        type(node('step2-title-input'), 'Another');
-        click(node('step2-save'));
+    it('New Epic defaults to the first initiative of the chosen pipeline', async () => {
+        mount(['/swarm/epics?pipeline=8']);
+        click(node('epic-add'));
+        type(node('epic-title-input'), 'Another');
+        click(node('epic-save'));
         await flush();
         expect(restCalls[0].body.initiative_fk).toBe(6);
     });
 });
 
-describe('StepsPage2 create', () => {
+describe('EpicsPage2 create', () => {
     it('POSTs initiative_fk, trimmed title, run and a null not_before', async () => {
         mount();
-        click(node('step2-add'));
-        type(node('step2-title-input'), '  New Step  ');
-        click(node('step2-save'));
+        click(node('epic-add'));
+        type(node('epic-title-input'), '  New Epic  ');
+        click(node('epic-save'));
         await flush();
 
         expect(restCalls).toEqual([{
-            uri: 'http://test.local/darwin/pipeline_steps',
+            uri: 'http://test.local/darwin/epics',
             method: 'POST',
             body: {
-                initiative_fk: 4, title: 'New Step', notes: null, run: 'auto',
+                initiative_fk: 4, title: 'New Epic', notes: null, run: 'auto',
                 not_before: null, checkpoint: 1,
             },
         }]);
@@ -367,37 +367,37 @@ describe('StepsPage2 create', () => {
 
     it('refuses the REST NULL sentinel as a title', async () => {
         mount();
-        click(node('step2-add'));
-        type(node('step2-title-input'), 'NULL');
-        click(node('step2-save'));
+        click(node('epic-add'));
+        type(node('epic-title-input'), 'NULL');
+        click(node('epic-save'));
         await flush();
         expect(restCalls).toEqual([]);
         expect(snackMessage()).toContain('sentinel');
     });
 });
 
-describe('StepsPage2 edit', () => {
+describe('EpicsPage2 edit', () => {
     it('disables the Initiative select once editing', () => {
         mount();
-        click(node('step2-edit-100'));
-        expect(node('step2-initiative-select').className).toContain('Mui-disabled');
+        click(node('epic-edit-100'));
+        expect(node('epic-initiative-select').className).toContain('Mui-disabled');
     });
 
     it("clears notes with the REST 'NULL' sentinel", async () => {
-        steps[0].notes = 'Some notes';
+        epics[0].notes = 'Some notes';
         mount();
-        click(node('step2-edit-100'));
-        type(node('step2-notes-input'), '');
-        click(node('step2-save'));
+        click(node('epic-edit-100'));
+        type(node('epic-notes-input'), '');
+        click(node('epic-save'));
         await flush();
         expect(restCalls[0].body[0].notes).toBe('NULL');
     });
 
     it('converts a chosen not_before into a naive-UTC string', async () => {
         mount();
-        click(node('step2-edit-100'));
-        type(node('step2-not-before-input'), '2026-09-01T10:30');
-        click(node('step2-save'));
+        click(node('epic-edit-100'));
+        type(node('epic-not-before-input'), '2026-09-01T10:30');
+        click(node('epic-save'));
         await flush();
         // The exact clock offset depends on the test runner's TZ, but the
         // date and HH:MM must survive the round trip in SOME valid form.
@@ -408,98 +408,98 @@ describe('StepsPage2 edit', () => {
     // row (absent = the column default, on) and rides the same PUT.
     it('seeds the barrier from the row and writes the choice', async () => {
         mount();
-        click(node('step2-edit-100'));
-        expect(selectText('step2-barrier-select')).toMatch(/^On — /);
-        const combo = node('step2-barrier-select').querySelector('[role="combobox"]');
+        click(node('epic-edit-100'));
+        expect(selectText('epic-barrier-select')).toMatch(/^On — /);
+        const combo = node('epic-barrier-select').querySelector('[role="combobox"]');
         act(() => { combo.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 })); });
         click(document.body.querySelector('li[data-value="off"]'));
-        click(node('step2-save'));
+        click(node('epic-save'));
         await flush();
         expect(restCalls[0].body[0].checkpoint).toBe(0);
     });
 
-    it('creates a step with its barrier off when chosen', async () => {
+    it('creates an epic with its barrier off when chosen', async () => {
         mount();
-        click(node('step2-add'));
-        type(node('step2-title-input'), 'Priority step');
-        const combo = node('step2-barrier-select').querySelector('[role="combobox"]');
+        click(node('epic-add'));
+        type(node('epic-title-input'), 'Priority epic');
+        const combo = node('epic-barrier-select').querySelector('[role="combobox"]');
         act(() => { combo.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 })); });
         click(document.body.querySelector('li[data-value="off"]'));
-        click(node('step2-save'));
+        click(node('epic-save'));
         await flush();
         expect(restCalls[0].body.checkpoint).toBe(0);
     });
 
     it("clears not_before with the REST 'NULL' sentinel via the Clear button", async () => {
         mount();
-        click(node('step2-edit-102'));
-        click(node('step2-not-before-clear'));
-        click(node('step2-save'));
+        click(node('epic-edit-102'));
+        click(node('epic-not-before-clear'));
+        click(node('epic-save'));
         await flush();
         expect(restCalls[0].body[0].not_before).toBe('NULL');
     });
 });
 
-// req #3742 — the step card's padlock is gone, so the lock is set in the
-// editor. A step that stays locked takes no authoring write (the gateway would
+// req #3742 — the epic card's padlock is gone, so the lock is set in the
+// editor. An epic that stays locked takes no authoring write (the gateway would
 // answer 423); lifting or setting the lock rides the same PUT as the fields.
 const pickLock = (value) => {
-    const combo = node('step2-locked-select').querySelector('[role="combobox"]');
+    const combo = node('epic-locked-select').querySelector('[role="combobox"]');
     act(() => { combo.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 })); });
     click(document.body.querySelector(`li[data-value="${value}"]`));
 };
 
-describe('StepsPage2 editor lock (req #3742)', () => {
-    it('a locked step opens read-only and Save writes nothing', async () => {
+describe('EpicsPage2 editor lock (req #3742)', () => {
+    it('a locked epic opens read-only and Save writes nothing', async () => {
         mount();
-        click(node('step2-edit-101'));
-        expect(node('step2-title-input').disabled).toBe(true);
-        expect(node('step2-notes-input').disabled).toBe(true);
-        click(node('step2-save'));
+        click(node('epic-edit-101'));
+        expect(node('epic-title-input').disabled).toBe(true);
+        expect(node('epic-notes-input').disabled).toBe(true);
+        click(node('epic-save'));
         await flush();
         expect(restCalls).toEqual([]);
     });
 
     it('unlocking writes locked=0 with the fields, in one PUT', async () => {
         mount();
-        click(node('step2-edit-101'));
+        click(node('epic-edit-101'));
         pickLock('unlocked');
-        expect(node('step2-title-input').disabled).toBe(false);
-        type(node('step2-title-input'), 'Renamed');
-        click(node('step2-save'));
+        expect(node('epic-title-input').disabled).toBe(false);
+        type(node('epic-title-input'), 'Renamed');
+        click(node('epic-save'));
         await flush();
         expect(restCalls).toHaveLength(1);
         expect(restCalls[0].body[0]).toMatchObject({ id: 101, title: 'Renamed', locked: 0 });
     });
 
-    it('locking an open step writes locked=1; an unchanged lock is not sent', async () => {
+    it('locking an open epic writes locked=1; an unchanged lock is not sent', async () => {
         mount();
-        click(node('step2-edit-100'));
-        click(node('step2-save'));
+        click(node('epic-edit-100'));
+        click(node('epic-save'));
         await flush();
         expect(restCalls[0].body[0]).not.toHaveProperty('locked');
         restCalls.length = 0;
-        click(node('step2-edit-100'));
+        click(node('epic-edit-100'));
         pickLock('locked');
-        click(node('step2-save'));
+        click(node('epic-save'));
         await flush();
         expect(restCalls[0].body[0]).toMatchObject({ id: 100, locked: 1 });
     });
 });
 
-// req #3742 — a single click on a plan's step card lands here as ?id=<id>
+// req #3742 — a single click on a plan's epic card lands here as ?id=<id>
 // with the plan-exit state; the dialog opens and its close returns to the plan.
-describe('StepsPage2 editor — a lock held by the initiative or plan (req #3742)', () => {
+describe('EpicsPage2 editor — a lock held by the initiative or plan (req #3742)', () => {
     afterEach(() => { pipelines = []; });
 
-    it('a step under a locked initiative opens read-only, names the initiative, and writes nothing', async () => {
+    it('an epic under a locked initiative opens read-only, names the initiative, and writes nothing', async () => {
         initiatives.find((e) => e.id === 4).locked = 1;
         mount();
-        click(node('step2-edit-100'));
-        expect(node('step2-inherited-lock').textContent).toContain('Locked by its initiative');
-        expect(node('step2-title-input').disabled).toBe(true);
-        expect(node('step2-locked-select').className).toContain('Mui-disabled');
-        click(node('step2-save'));
+        click(node('epic-edit-100'));
+        expect(node('epic-inherited-lock').textContent).toContain('Locked by its initiative');
+        expect(node('epic-title-input').disabled).toBe(true);
+        expect(node('epic-locked-select').className).toContain('Mui-disabled');
+        click(node('epic-save'));
         await flush();
         expect(restCalls).toEqual([]);
     });
@@ -507,40 +507,40 @@ describe('StepsPage2 editor — a lock held by the initiative or plan (req #3742
     it('a locked plan outranks the initiative', () => {
         pipelines = [{ id: 7, locked: 1 }];
         mount();
-        click(node('step2-edit-100'));
-        expect(node('step2-inherited-lock').textContent).toContain('Locked by its pipeline');
+        click(node('epic-edit-100'));
+        expect(node('epic-inherited-lock').textContent).toContain('Locked by its pipeline');
     });
 
     it('re-locking over unsaved edits refuses rather than dropping them', async () => {
         mount();
-        click(node('step2-edit-101'));
+        click(node('epic-edit-101'));
         pickLock('unlocked');
-        type(node('step2-title-input'), 'Renamed');
+        type(node('epic-title-input'), 'Renamed');
         pickLock('locked');
-        click(node('step2-save'));
+        click(node('epic-save'));
         await flush();
         expect(restCalls).toEqual([]);
-        expect(snackMessage()).toContain('Unlock the step to save');
+        expect(snackMessage()).toContain('Unlock the epic to save');
     });
 });
 
 // The plan canvas opens the editor over itself since req #3742; the page's own
-// `?id=` link still opens the step's editor, and closes onto the grid.
-describe('StepsPage2 ?id= deep link (req #3742)', () => {
+// `?id=` link still opens the epic's editor, and closes onto the grid.
+describe('EpicsPage2 ?id= deep link (req #3742)', () => {
     const fromPlan = { from: 'pipeline', pipelineId: 7, mode: 'plan' };
 
-    it('opens the step\'s editor, consumes ?id= and keeps the router state', () => {
-        mount([{ pathname: '/swarm/steps', search: '?id=100', state: fromPlan }]);
-        expect(node('step2-edit-dialog')).not.toBeNull();
-        expect(node('step2-title-input').value).toBe('Free step');
+    it('opens the epic\'s editor, consumes ?id= and keeps the router state', () => {
+        mount([{ pathname: '/swarm/epics', search: '?id=100', state: fromPlan }]);
+        expect(node('epic-edit-dialog')).not.toBeNull();
+        expect(node('epic-title-input').value).toBe('Free epic');
         expect(currentLocation.search).toBe('');
         expect(currentLocation.state).toEqual(fromPlan);
-        expect(node('steps-back-to-plan')).not.toBeNull();
+        expect(node('epics-back-to-plan')).not.toBeNull();
     });
 
     it('Save refreshes every plan\'s composed read, so the plan never shows the pre-save card', async () => {
-        mount([{ pathname: '/swarm/steps', search: '?id=100', state: fromPlan }]);
-        click(node('step2-save'));
+        mount([{ pathname: '/swarm/epics', search: '?id=100', state: fromPlan }]);
+        click(node('epic-save'));
         await flush();
         expect(restCalls).toHaveLength(1);
         expect(queryClient.invalidateQueries)
@@ -549,20 +549,20 @@ describe('StepsPage2 ?id= deep link (req #3742)', () => {
 
     it('opened from the grid, the dialog closes onto the grid', () => {
         mount();
-        click(node('step2-edit-100'));
+        click(node('epic-edit-100'));
         click([...document.body.querySelectorAll('button')]
             .find((b) => b.textContent === 'Cancel'));
-        expect(currentLocation.pathname).toBe('/swarm/steps');
+        expect(currentLocation.pathname).toBe('/swarm/epics');
     });
 });
 
-describe('StepsPage2 run toggle', () => {
+describe('EpicsPage2 run toggle', () => {
     it('flips auto to manual', async () => {
         mount();
-        click(node('step2-run-chip-100'));
+        click(node('epic-run-chip-100'));
         await flush();
         expect(restCalls).toEqual([{
-            uri: 'http://test.local/darwin/pipeline_steps',
+            uri: 'http://test.local/darwin/epics',
             method: 'PUT',
             body: [{ id: 100, run: 'manual' }],
         }]);
@@ -570,15 +570,15 @@ describe('StepsPage2 run toggle', () => {
 });
 
 // req #3649 — barrier and lock chips flip their flag with a one-field PUT.
-// Step 100 carries no `checkpoint` at all: that is the column default (1).
-describe('StepsPage2 barrier toggle', () => {
+// Epic 100 carries no `checkpoint` at all: that is the column default (1).
+describe('EpicsPage2 barrier toggle', () => {
     it('flips a default (absent) barrier to priority', async () => {
         mount();
-        expect(node('step2-barrier-chip-100').textContent).toBe('Barrier');
-        click(node('step2-barrier-chip-100'));
+        expect(node('epic-barrier-chip-100').textContent).toBe('Barrier');
+        click(node('epic-barrier-chip-100'));
         await flush();
         expect(restCalls).toEqual([{
-            uri: 'http://test.local/darwin/pipeline_steps',
+            uri: 'http://test.local/darwin/epics',
             method: 'PUT',
             body: [{ id: 100, checkpoint: 0 }],
         }]);
@@ -586,56 +586,56 @@ describe('StepsPage2 barrier toggle', () => {
 
     it('flips priority back to barrier', async () => {
         mount();
-        expect(node('step2-barrier-chip-101').textContent).toBe('Priority');
-        click(node('step2-barrier-chip-101'));
+        expect(node('epic-barrier-chip-101').textContent).toBe('Priority');
+        click(node('epic-barrier-chip-101'));
         await flush();
         expect(restCalls[0].body).toEqual([{ id: 101, checkpoint: 1 }]);
     });
 });
 
-describe('StepsPage2 lock toggle', () => {
-    it('locks an open step', async () => {
+describe('EpicsPage2 lock toggle', () => {
+    it('locks an open epic', async () => {
         mount();
-        expect(node('step2-lock-chip-100').textContent).toBe('Open');
-        click(node('step2-lock-chip-100'));
+        expect(node('epic-lock-chip-100').textContent).toBe('Open');
+        click(node('epic-lock-chip-100'));
         await flush();
         expect(restCalls).toEqual([{
-            uri: 'http://test.local/darwin/pipeline_steps',
+            uri: 'http://test.local/darwin/epics',
             method: 'PUT',
             body: [{ id: 100, locked: 1 }],
         }]);
     });
 
-    it('unlocks a locked step', async () => {
+    it('unlocks a locked epic', async () => {
         mount();
-        expect(node('step2-lock-chip-101').textContent).toBe('Locked');
-        click(node('step2-lock-chip-101'));
+        expect(node('epic-lock-chip-101').textContent).toBe('Locked');
+        click(node('epic-lock-chip-101'));
         await flush();
         expect(restCalls[0].body).toEqual([{ id: 101, locked: 0 }]);
     });
 });
 
-describe('StepsPage2 delete', () => {
-    it('refuses a step another step depends on, with no write at all', async () => {
+describe('EpicsPage2 delete', () => {
+    it('refuses an epic another epic depends on, with no write at all', async () => {
         mount();
-        click(node('step2-delete-103'));
+        click(node('epic-delete-103'));
         await flush();
         expect(restCalls).toEqual([]);
         expect(snackMessage()).toContain('102');
     });
 
-    it('deletes a step nothing depends on and invalidates the link/dep caches', async () => {
+    it('deletes an epic nothing depends on and invalidates the link/dep caches', async () => {
         vi.spyOn(window, 'confirm').mockReturnValue(true);
         mount();
-        click(node('step2-delete-100'));
+        click(node('epic-delete-100'));
         await flush();
         expect(restCalls).toEqual([{
-            uri: 'http://test.local/darwin/pipeline_steps',
+            uri: 'http://test.local/darwin/epics',
             method: 'DELETE',
             body: { id: 100 },
         }]);
         const keys = queryClient.invalidateQueries.mock.calls.map(c => c[0].queryKey);
-        expect(keys.map(k => k[0])).toContain('pipeline_step_requirements');
-        expect(keys.map(k => k[0])).toContain('pipeline_step_deps');
+        expect(keys.map(k => k[0])).toContain('epic_requirements');
+        expect(keys.map(k => k[0])).toContain('epic_deps');
     });
 });

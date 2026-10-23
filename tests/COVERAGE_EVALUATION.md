@@ -204,7 +204,7 @@ in ~2.8 minutes. Test IDs and the fixture strategy are documented in TEST_PLAN.m
 | 2 — a step is a swarm-start (launch unit) | PIPE-04 (the step row's own exact `/swarm-start` command — literally this rule since req #3371 made the step the launch unit; also asserts no condensation advisory, which req #3303 deleted, so the rule is covered by what the STEP launches and never by a proposal to merge), MUT-07 (multi-requirement step) |
 | 3 — display order computed + self-verified | PIPE-02 (full sequence vs `displayOrder`), PIPE-12 (loud failure), every MUT case (`verifyOrder` clean after each) |
 | 4 — deps reference stable step ids | MUT-08 (drop refused while referenced, named gate, no residue) |
-| 5 — render path is fast, no N+1 | MUT `readPlan()` uses the single composed read and asserts `step_count` against the steps returned |
+| 5 — render path is fast, no N+1 | MUT `readPlan()` uses the single composed read and asserts `epic_count` against the steps returned |
 | 6 — refresh is event-driven | Indirect only — see gaps |
 | 7 — automation that waits fails loud | Out of scope here (the watchdog is a shell script, not a UI surface) |
 | 8 — launch unit visibility | PIPE-04 (exact `/swarm-start` args on the step's own row, and the gate). PIPE-10's dashed rectangle and conditional key were deleted with the multi-step launch grouping (req #3371) |

@@ -43,7 +43,7 @@
 //
 // NO JSX and no React — a pure module vitest exercises without a DOM, and a
 // component file with non-component exports drops out of Fast Refresh. The rule
-// `pipelineStepLink.js`, `pipelineInitiativeLink.js` and `pipelinePlace.js` are all
+// `pipelineEpicLink.js`, `pipelineInitiativeLink.js` and `pipelinePlace.js` are all
 // written to.
 
 // ── THE BINDING ────────────────────────────────────────────────────────────
@@ -104,11 +104,11 @@ export function planListPath() {
  *
  * NULL RATHER THAN A BEST-EFFORT PATH, so a caller renders a plain number
  * instead of a link to `/swarm/pipeline/undefined` — the "omit rather than
- * render a dead link" rule `pipelineStepLink.js` and `pipelineInitiativeLink.js`
+ * render a dead link" rule `pipelineEpicLink.js` and `pipelineInitiativeLink.js`
  * already apply, hoisted here so it is applied once.
  *
  * NULLISH AND EMPTY ARE REJECTED BEFORE `Number` SEES THEM: `Number(null)` and
- * `Number('')` are both 0, and 0 is a perfectly good integer — a step whose
+ * `Number('')` are both 0, and 0 is a perfectly good integer — an epic whose
  * `pipeline_fk` did not resolve would otherwise produce a confident link to
  * plan 0, rendering the not-found alert as though the data were at fault.
  *
@@ -166,7 +166,7 @@ export function planDetailPathPattern() {
  */
 export function normalizePlanId(value) {
     // A WHITELIST OF INPUT TYPES, not merely a nullish guard. The guard this
-    // replaces (`pipelineStepLink.js`'s `toId`) rejected `null` and `''`
+    // replaces (`pipelineEpicLink.js`'s `toId`) rejected `null` and `''`
     // because `Number` turns both into 0 and 0 is a perfectly good id — but
     // `Number([])` is ALSO 0 and `Number(true)` is 1, so an empty array or a
     // boolean out of a partial row produced a confident link to plan 0 or plan

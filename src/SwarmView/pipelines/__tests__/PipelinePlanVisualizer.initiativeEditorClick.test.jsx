@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// req #3742 — "single click of initiative and step to take you to the single editor".
+// req #3742 — "single click of initiative and epic to take you to the single editor".
 // A quick click on an initiative's NAME opens the shared initiative dialog OVER the canvas
 // ("popup over the visualizer instead of switch to the card view"), through
 // the canvas's shared press tracker (the dnd press timeline): the click is
@@ -66,15 +66,15 @@ afterEach(() => {
     document.body.innerHTML = '';
 });
 
-const step = (id, initiative_fk, title) => ({
+const epic = (id, initiative_fk, title) => ({
     id, initiative_fk, title, run: 'auto', notes: null, not_before: null,
 });
 
 function render() {
     const payload = composedFixture({
         initiatives: [{ id: 5, title: 'Build', pipeline_fk: 2, sort_order: 1 }],
-        steps: [step(10, 5, 'Design'), step(11, 5, 'Implement')],
-        stepDeps: [{ id: 1, step_fk: 11, dep_step_fk: 10 }],
+        epics: [epic(10, 5, 'Design'), epic(11, 5, 'Implement')],
+        epicDeps: [{ id: 1, epic_fk: 11, dep_epic_fk: 10 }],
     });
     const container = document.createElement('div');
     document.body.appendChild(container);

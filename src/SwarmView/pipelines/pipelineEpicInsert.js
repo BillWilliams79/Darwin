@@ -1,30 +1,30 @@
-// pipelineStepInsert.js — the pure half of adding steps from the Plan
+// pipelineEpicInsert.js — the pure half of adding epics from the Plan
 // visualizer (req #3586).
 //
 // Three "+" marks, all drawn wherever the cards are (a fourth, req #3719, is
 // not on a card at all: the ADD-INITIATIVE "+" under the last initiative band — see
 // `initiativeAddMark`):
 //
-//   EDGE "+"    on every dependency arc A → B. It SPLITS the edge: a new step N
+//   EDGE "+"    on every dependency arc A → B. It SPLITS the edge: a new epic N
 //               is created depending on A, and B's dependency switches from A
 //               to N, so the plan reads A → N → B.
 //   DEPENDENT "+" at the end of a short stub off each card's right side. It
-//               adds a DEPENDENT STEP: a step N depending on that step ALONE.
+//               adds a DEPENDENT EPIC: an epic N depending on that epic ALONE.
 //               (req #3647: the reader-facing name everywhere is "dependent
-//               step" — never "parallel" or "branch".)
+//               epic" — never "parallel" or "branch".)
 //   PRECEDE "+" (req #3617) the dependent stub's mirror, off the LEFT side of a
-//               card that has no dependency arc landing on it. It adds a step
-//               N that this step then DEPENDS ON: N → step.
+//               card that has no dependency arc landing on it. It adds an epic
+//               N that this epic then DEPENDS ON: N → epic.
 //
 // What lives here is the GEOMETRY (where each mark sits, in world coordinates,
 // derived from the layout's own arcs and nodes — never re-measured) and the
 // ORDER OF WRITES each action performs. The Konva drawing, the dialog and the
-// REST calls are in PipelinePlanVisualizer.jsx and Steps/stepsApi.js.
+// REST calls are in PipelinePlanVisualizer.jsx and Epics/epicsApi.js.
 //
 // ── WHERE AN EDGE'S "+" SITS ───────────────────────────────────────────────
 // Not at the arc's arithmetic midpoint. Every arc leaves its source card's
 // right-edge midpoint and lands on its target's left-edge midpoint, so all of a
-// step's outgoing arcs share a start point and all its incoming arcs share an
+// epic's outgoing arcs share a start point and all its incoming arcs share an
 // end point — the ends are exactly where arcs are indistinguishable. And a long
 // straight arc runs BEHIND the cards on its lane, so its midpoint can sit under
 // a card. The one stretch each arc owns is its BEND, which the router confines
@@ -83,20 +83,20 @@ const cubicAt = (p0, p1, p2, p3, t) => {
 };
 
 /**
- * Points ON one arc's drawn path, about every `step` world px — the same
+ * Points ON one arc's drawn path, about every `epic` world px — the same
  * pieces `computePlanLayout` emits (a straight run and/or the bend's cubic),
  * so a mark placed on any of them sits on the line the canvas draws.
  */
-export function arcPathPoints(arc, step = 4) {
+export function arcPathPoints(arc, epic = 4) {
     const pts = [];
     const line = (xa, ya, xb, yb) => {
-        const n = Math.max(1, Math.ceil(Math.hypot(xb - xa, yb - ya) / step));
+        const n = Math.max(1, Math.ceil(Math.hypot(xb - xa, yb - ya) / epic));
         for (let i = 0; i <= n; i++) {
             pts.push({ x: xa + ((xb - xa) * i) / n, y: ya + ((yb - ya) * i) / n });
         }
     };
     const cubic = (x0, y0, x1, y1, x2, y2, x3, y3) => {
-        const n = Math.max(8, Math.ceil(Math.hypot(x3 - x0, y3 - y0) / step));
+        const n = Math.max(8, Math.ceil(Math.hypot(x3 - x0, y3 - y0) / epic));
         for (let i = 0; i <= n; i++) {
             const t = i / n;
             pts.push({ x: cubicAt(x0, x1, x2, x3, t), y: cubicAt(y0, y1, y2, y3, t) });
@@ -127,7 +127,7 @@ export function arcPathPoints(arc, step = 4) {
  * SLIDES ALONG ITS OWN PATH to the nearest point that is clear of every other
  * mark (`obstacles` — the dependent marks — included) and not under a card, so
  * it never leaves the line and no two hit areas overlap. Only a path with no
- * such point at all keeps its best point; the dialog names the two steps.
+ * such point at all keeps its best point; the dialog names the two epics.
  *
  * @param {Object[]} arcs  `computePlanLayout(...).arcs`
  * @param {number} r       the mark radius it is placed at
@@ -239,7 +239,7 @@ export function initiativeAddMark(layout, r = INSERT_MARK_MAX_R) {
 }
 
 /**
- * Every add-step mark for a layout, computed ONCE per layout — never per frame
+ * Every add-epic mark for a layout, computed ONCE per layout — never per frame
  * and never per zoom. The canvas re-renders on every pan and zoom event, so
  * anything here that ran in the render body ran at pointer rate (the req #3586
  * first cut did, and made the plan unscrollable). Placement uses the LARGEST
@@ -247,7 +247,7 @@ export function initiativeAddMark(layout, r = INSERT_MARK_MAX_R) {
  * draws at, and the zoom never has to re-place anything. Dependent and precede
  * marks are placed first and the edge marks keep clear of them.
  *
- * A precede mark is drawn on a card only when the step has no dependency
+ * A precede mark is drawn on a card only when the epic has no dependency
  * among the plan's rows (req #3650 — read from `depIds`, since a folded initiative
  * draws no arcs for a dependency that still exists).
  * (An unrelated early-route arc can still pass BEHIND such a card; the test is
@@ -264,7 +264,7 @@ export function buildInsertMarks(layout, rows, r = INSERT_MARK_MAX_R, { initiati
     const stubs = [];
     const marks = [];
     // From the DEPENDENCY DATA, not from the drawn arcs (req #3650): a folded
-    // initiative draws no arcs into or out of its steps, and a step waiting on one of
+    // initiative draws no arcs into or out of its epics, and an epic waiting on one of
     // them still HAS a dependency — it must not be offered a "nothing precedes
     // this" mark. With nothing folded the two answers are identical, because
     // the layout draws exactly one arc per in-plan dependency.
@@ -291,7 +291,7 @@ export function buildInsertMarks(layout, rows, r = INSERT_MARK_MAX_R, { initiati
     for (const m of edges) {
         marks.push({ key: `edge-${m.fromId}-${m.toId}`, kind: 'edge', ...m });
     }
-    // The add-initiative "+" (req #3719). Not a step mark, but the same shape, hit
+    // The add-initiative "+" (req #3719). Not an epic mark, but the same shape, hit
     // test and hover — so it rides the same list. `initiativeAdd: false` is the
     // caller's word that initiatives cannot be added (a locked plan).
     const initiativeMark = initiativeAdd ? initiativeAddMark(layout, r) : null;
@@ -314,17 +314,17 @@ export function insertMarkAt(geom, p, r = geom?.r) {
     return best;
 }
 
-/** Default title of a step created from the canvas, before the reader edits it. */
-export const NEW_STEP_TITLE = 'New step';
+/** Default title of an epic created from the canvas, before the reader edits it. */
+export const NEW_EPIC_TITLE = 'New epic';
 
 /** Default title of an initiative created from the canvas's add-initiative "+" (req #3719). */
 export const NEW_INITIATIVE_TITLE = 'New initiative';
 
 /**
  * The dialog's request for each action, so the visualizer and its tests agree
- * on what is being asked: which step(s) it touches and which initiative the new step
- * defaults to (the step to its LEFT — the one it depends on — or, for a
- * precede, which has no step on its left, the step it will gate).
+ * on what is being asked: which epic(s) it touches and which initiative the new epic
+ * defaults to (the epic to its LEFT — the one it depends on — or, for a
+ * precede, which has no epic on its left, the epic it will gate).
  *
  * @param {'edge'|'dependent'|'precede'} kind
  * @param {{fromId?: ?number, toId?: ?number}} ids
@@ -339,7 +339,7 @@ export function insertRequest(kind, { fromId = null, toId = null }, rowById) {
             toId,
             initiativeId: to?.initiativeId ?? null,
             fromTitle: null,
-            toTitle: to?.title || `step ${toId}`,
+            toTitle: to?.title || `epic ${toId}`,
         };
     }
     const from = rowById?.get(fromId);
@@ -349,7 +349,7 @@ export function insertRequest(kind, { fromId = null, toId = null }, rowById) {
         fromId,
         toId: kind === 'edge' ? toId : null,
         initiativeId: from?.initiativeId ?? to?.initiativeId ?? null,
-        fromTitle: from?.title || `step ${fromId}`,
-        toTitle: kind === 'edge' ? (to?.title || `step ${toId}`) : null,
+        fromTitle: from?.title || `epic ${fromId}`,
+        toTitle: kind === 'edge' ? (to?.title || `epic ${toId}`) : null,
     };
 }

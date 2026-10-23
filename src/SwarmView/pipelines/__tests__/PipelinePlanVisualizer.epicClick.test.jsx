@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 //
-// Req #3742 — a click on a step OPENS ITS SINGLE EDITOR over the canvas (user
-// directives: "single click of initiative and step to take you to the single
+// Req #3742 — a click on an epic OPENS ITS SINGLE EDITOR over the canvas (user
+// directives: "single click of initiative and epic to take you to the single
 // editor", then "popup over the visualizer instead of switch to the card
-// view"): the card's title area — and the bead at L1 — open the shared step
-// dialog seeded with that step, and the page does not change. From req #3641
-// until then the click framed the step on this canvas (and before that it
-// called `onStepFocus`, which switched the page to the Table).
+// view"): the card's title area — and the bead at L1 — open the shared epic
+// dialog seeded with that epic, and the page does not change. From req #3641
+// until then the click framed the epic on this canvas (and before that it
+// called `onEpicFocus`, which switched the page to the Table).
 //
 // jsdom has no canvas, so react-konva is stubbed: every shape carrying an
 // `onActivate` renders as a button the test can click, publishing its world
@@ -44,10 +44,10 @@ vi.mock('konva', () => ({
     default: { Animation: class { start() {} stop() {} } },
 }));
 
-const updateStep = vi.fn(() => Promise.resolve({}));
-vi.mock('../../../Steps/stepsApi', async (orig) => ({
+const updateEpic = vi.fn(() => Promise.resolve({}));
+vi.mock('../../../Epics/epicsApi', async (orig) => ({
     ...(await orig()),
-    updateStep: (...a) => updateStep(...a),
+    updateEpic: (...a) => updateEpic(...a),
 }));
 
 import { composedFixture } from './pipelineComposedFixture';
@@ -92,18 +92,18 @@ function LocationProbe() {
     return null;
 }
 
-const step = (id, title) => ({
+const epic = (id, title) => ({
     id, initiative_fk: 5, title, run: 'auto', notes: null, not_before: null,
 });
 
 function render(levelPref) {
     // A chain long enough that the whole plan does not already fit the panel at
-    // the scale a single step is framed at — so framing one is a real move.
+    // the scale a single epic is framed at — so framing one is a real move.
     const ids = [10, 11, 12, 13, 14, 15, 16, 17];
     const payload = composedFixture({
         initiatives: [{ id: 5, title: 'Build', pipeline_fk: 2, sort_order: 1 }],
-        steps: ids.map((id) => step(id, `Step ${id}`)),
-        stepDeps: ids.slice(1).map((id, i) => ({ id: i + 1, step_fk: id, dep_step_fk: ids[i] })),
+        epics: ids.map((id) => epic(id, `Epic ${id}`)),
+        epicDeps: ids.slice(1).map((id, i) => ({ id: i + 1, epic_fk: id, dep_epic_fk: ids[i] })),
     });
     const plan = adaptComposedPipeline(payload);
     const model = buildPlanModel(payload);
@@ -142,17 +142,17 @@ const clickLast = async (kind) => {
 
 // The editor it opened over the canvas, and the page and camera it left alone.
 const expectEditorOpened = (before) => {
-    const dialog = document.querySelector('[data-testid="step2-edit-dialog"]');
+    const dialog = document.querySelector('[data-testid="epic-edit-dialog"]');
     expect(dialog).not.toBeNull();
-    const id = Number(dialog.textContent.match(/Edit step (\d+)/)?.[1]);
+    const id = Number(dialog.textContent.match(/Edit epic (\d+)/)?.[1]);
     expect([10, 11, 12, 13, 14, 15, 16, 17]).toContain(id);
-    expect(document.querySelector('[data-testid="step2-title-input"]').value).toBe(`Step ${id}`);
+    expect(document.querySelector('[data-testid="epic-title-input"]').value).toBe(`Epic ${id}`);
     expect(currentLocation.pathname).toBe('/swarm/pipeline/2');
     expect(transform()).toEqual(before);
 };
 
-describe('a click on a step opens its single editor (req #3742)', () => {
-    it('L3: the card title area opens the step\'s editor over the canvas', async () => {
+describe('a click on an epic opens its single editor (req #3742)', () => {
+    it('L3: the card title area opens the epic\'s editor over the canvas', async () => {
         render('3');
         await settle();
         const before = transform();
@@ -162,7 +162,7 @@ describe('a click on a step opens its single editor (req #3742)', () => {
         expectEditorOpened(before);
     });
 
-    it('L1: the bead opens the step\'s editor too', async () => {
+    it('L1: the bead opens the epic\'s editor too', async () => {
         render('1');
         await settle();
         const before = transform();
@@ -170,22 +170,22 @@ describe('a click on a step opens its single editor (req #3742)', () => {
         expectEditorOpened(before);
     });
 
-    it('Save in the editor writes the step it was opened on', async () => {
+    it('Save in the editor writes the epic it was opened on', async () => {
         render('3');
         await settle();
-        updateStep.mockClear();
+        updateEpic.mockClear();
         await clickLast('rect');
-        const dialog = document.querySelector('[data-testid="step2-edit-dialog"]');
-        const id = Number(dialog.textContent.match(/Edit step (\d+)/)[1]);
-        const input = document.querySelector('[data-testid="step2-title-input"]');
+        const dialog = document.querySelector('[data-testid="epic-edit-dialog"]');
+        const id = Number(dialog.textContent.match(/Edit epic (\d+)/)[1]);
+        const input = document.querySelector('[data-testid="epic-title-input"]');
         act(() => {
             Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
                 .set.call(input, 'Renamed');
             input.dispatchEvent(new Event('input', { bubbles: true }));
         });
-        act(() => { document.querySelector('[data-testid="step2-save"]').click(); });
+        act(() => { document.querySelector('[data-testid="epic-save"]').click(); });
         await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-        expect(updateStep).toHaveBeenCalledWith(undefined, undefined, id,
+        expect(updateEpic).toHaveBeenCalledWith(undefined, undefined, id,
             { title: 'Renamed', notes: 'NULL', run: 'auto', checkpoint: 1, not_before: 'NULL' });
     });
 
@@ -204,7 +204,7 @@ describe('a click on a step opens its single editor (req #3742)', () => {
             container.dispatchEvent(new MouseEvent('click', { bubbles: true }));
         });
         backdropClick();
-        const dialog = () => document.querySelector('[data-testid="step2-edit-dialog"]');
+        const dialog = () => document.querySelector('[data-testid="epic-edit-dialog"]');
         expect(dialog()).not.toBeNull();
         expect(dialog().getAttribute('aria-hidden')).not.toBe('true');
         expect(transform()).toEqual(before);
@@ -214,11 +214,11 @@ describe('a click on a step opens its single editor (req #3742)', () => {
         expect(dialog()).toBeNull();
     });
 
-    it('takes no onStepFocus — a step click never switches the panel', () => {
-        const onStepFocus = vi.fn();
+    it('takes no onEpicFocus — an epic click never switches the panel', () => {
+        const onEpicFocus = vi.fn();
         const payload = composedFixture({
             initiatives: [{ id: 5, title: 'Build', pipeline_fk: 2, sort_order: 1 }],
-            steps: [step(10, 'Only')],
+            epics: [epic(10, 'Only')],
         });
         const container = document.createElement('div');
         document.body.appendChild(container);
@@ -230,12 +230,12 @@ describe('a click on a step opens its single editor (req #3742)', () => {
                         <PipelinePlanVisualizer plan={adaptComposedPipeline(payload)}
                                                 model={buildPlanModel(payload)} levelPref="3"
                                                 pipeline={payload.pipeline} timezone="UTC"
-                                                onStepFocus={onStepFocus} />
+                                                onEpicFocus={onEpicFocus} />
                     </MemoryRouter>
                 </QueryClientProvider>
             );
         });
         for (const b of document.querySelectorAll('[data-act]')) act(() => { b.click(); });
-        expect(onStepFocus).not.toHaveBeenCalled();
+        expect(onEpicFocus).not.toHaveBeenCalled();
     });
 });

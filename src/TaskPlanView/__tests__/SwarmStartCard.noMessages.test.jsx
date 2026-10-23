@@ -58,7 +58,7 @@ let pipelinedIds;
 let junctionRows = [];
 const setPipelined = (ids) => {
     pipelinedIds = ids;
-    junctionRows = [...ids].map((id) => ({ step_fk: 1, requirement_fk: id }));
+    junctionRows = [...ids].map((id) => ({ epic_fk: 1, requirement_fk: id }));
 };
 const EMPTY = [];
 vi.mock('../../hooks/useDataQueries', () => ({
@@ -73,7 +73,7 @@ vi.mock('../../hooks/useDataQueries', () => ({
     // aggregator's `useMemo` chain depends on, and a stand-in that got that
     // wrong would loop rather than fail. `ALL_ROWS` is re-exported because the
     // hook passes it (a closed feature still seats its requirements).
-    useAllPipelineStepRequirements: () => ({ data: junctionRows }),
+    useAllPipelineEpicRequirements: () => ({ data: junctionRows }),
     ALL_ROWS: 'all',
 }));
 
@@ -291,7 +291,7 @@ describe('SwarmStartCard renders no messages (req #3286)', () => {
     }
 
     // The state the removed req #3180 note described: every row on a launch chip
-    // gone because a pipeline step carries it. Since req #3502 the TOGGLE is
+    // gone because a pipeline epic carries it. Since req #3502 the TOGGLE is
     // what produces it (the card's own unconditional exclusion is deleted), so
     // the fixture turns the toggle on. The state still happens — it is simply
     // not narrated.

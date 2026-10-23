@@ -1,4 +1,4 @@
-// Req #3586 — where the plan visualizer's add-step marks sit, asserted against
+// Req #3586 — where the plan visualizer's add-epic marks sit, asserted against
 // a real layout so the marks are tested on the arcs the canvas actually draws.
 
 import { describe, it, expect } from 'vitest';
@@ -6,10 +6,10 @@ import { computePlanLayout, CARD_GAP_X, CARD_RADIUS, INITIATIVE_ADD_RESERVE } fr
 import {
     insertMarkRadius, arcInsertCandidates, edgeInsertMarks, dependentStub, precedeStub, insertRequest,
     buildInsertMarks, insertMarkAt, initiativeAddMark, INSERT_HIT_SCALE, INSERT_MARK_MAX_R, arcPathPoints,
-} from '../pipelineStepInsert';
+} from '../pipelineEpicInsert';
 
 const row = (id, depIds = [], initiativeId = 1) => ({
-    id, title: `Step ${id}`, state: 'pending', reqIds: [], depIds,
+    id, title: `Epic ${id}`, state: 'pending', reqIds: [], depIds,
     initiativeId, initiative: `Initiative ${initiativeId}`, initiativeSortOrder: initiativeId,
 });
 
@@ -98,9 +98,9 @@ describe('precedeStub', () => {
 });
 
 describe('buildInsertMarks — the whole set, as the canvas draws it', () => {
-    it('one dependent mark per step, one precede mark per step no arc lands on, one edge mark per arc', () => {
+    it('one dependent mark per epic, one precede mark per epic no arc lands on, one edge mark per arc', () => {
         const g = buildInsertMarks(layout, rows, 7);
-        // Only step 1 has a free left side in the fixture.
+        // Only epic 1 has a free left side in the fixture.
         expect(g.marks.filter((m) => m.kind === 'precede').map((m) => m.toId)).toEqual([1]);
         expect(g.precedeCount).toBe(1);
         expect(g.dependentCount).toBe(rows.length);
@@ -110,7 +110,7 @@ describe('buildInsertMarks — the whole set, as the canvas draws it', () => {
         expect(g.edgeCount).toBe(layout.arcs.length);
     });
 
-    it('a step waiting on a FOLDED initiative gets no precede mark (req #3650)', () => {
+    it('an epic waiting on a FOLDED initiative gets no precede mark (req #3650)', () => {
         const folded = [row(1, [], 1), row(2, [1], 2), row(3, [2], 2)];
         const l = computePlanLayout(folded, { collapsedInitiativeIds: new Set([1]) });
         expect(l.arcs.some((a) => a.toId === 2)).toBe(false);   // nothing drawn into 2
@@ -160,30 +160,30 @@ describe('buildInsertMarks — the whole set, as the canvas draws it', () => {
 describe('insertRequest', () => {
     const byId = new Map(rows.map((r) => [r.id, r]));
 
-    it('an edge defaults the initiative to the step on its LEFT', () => {
+    it('an edge defaults the initiative to the epic on its LEFT', () => {
         const rb = new Map([[1, row(1, [], 8)], [2, row(2, [1], 9)]]);
         expect(insertRequest('edge', { fromId: 1, toId: 2 }, rb)).toEqual({
             kind: 'edge', fromId: 1, toId: 2, initiativeId: 8,
-            fromTitle: 'Step 1', toTitle: 'Step 2',
+            fromTitle: 'Epic 1', toTitle: 'Epic 2',
         });
     });
 
-    it('a precede names only the step it will gate, and defaults to its initiative', () => {
+    it('a precede names only the epic it will gate, and defaults to its initiative', () => {
         const rb = new Map([[2, row(2, [], 9)]]);
         expect(insertRequest('precede', { fromId: null, toId: 2 }, rb)).toEqual({
             kind: 'precede', fromId: null, toId: 2, initiativeId: 9,
-            fromTitle: null, toTitle: 'Step 2',
+            fromTitle: null, toTitle: 'Epic 2',
         });
     });
 
-    it('a dependent step carries no target', () => {
+    it('a dependent epic carries no target', () => {
         expect(insertRequest('dependent', { fromId: 3, toId: 4 }, byId))
             .toMatchObject({ kind: 'dependent', fromId: 3, toId: null, toTitle: null, initiativeId: 1 });
     });
 });
 
 describe('precede marks follow the arcs (req #3617)', () => {
-    it('every root of a multi-root plan gets one; a step an arc lands on never does', () => {
+    it('every root of a multi-root plan gets one; an epic an arc lands on never does', () => {
         const rr = [row(1), row(2), row(3, [1, 2]), row(4)];
         const ly = computePlanLayout(rr);
         const g = buildInsertMarks(ly, rr);

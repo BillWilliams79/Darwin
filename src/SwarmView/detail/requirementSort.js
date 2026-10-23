@@ -12,7 +12,7 @@
 // re-deriving it — the failure mode that let this ship with a green suite.
 
 // req #3302 — ONE IMPLEMENTATION. These were a second transcription of
-// `../processSort.js`'s comparators, kept in step by hand and by this file's own
+// `../processSort.js`'s comparators, kept in epic by hand and by this file's own
 // header comment. They are now re-exports of the single implementation, under
 // the names this module's callers and tests already use. The `sibling*` aliases
 // survive because they read correctly at the call site (the detail page walks
@@ -103,7 +103,7 @@ export const siblingElevator = (siblings, {
 // same requirements: the card is one category under the status chips; the
 // aggregator is EVERY category under ONE status, with its own sort. Both apply
 // the SAME orchestrated toggle — since req #3502 the aggregator has no rule of
-// its own (it used to exclude step-carried work from three chips
+// its own (it used to exclude epic-carried work from three chips
 // unconditionally, which is what that requirement fixed), so scope and order are
 // what still differ. Rebuilding either list from `category_fk` gets the
 // aggregator wrong in both of those at once, which is what "the aggregator

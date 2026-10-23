@@ -1,25 +1,25 @@
-// pipelineStepLink.js — the addressable-step contract (req #3140).
+// pipelineEpicLink.js — the addressable-epic contract (req #3140).
 //
-// ONE step of a plan, named by URL: `<plan detail route>?mode=plan&step=<sid>`
-// (`stepPlanLinkTo`, which also pins the level).
+// ONE epic of a plan, named by URL: `<plan detail route>?mode=plan&epic=<sid>`
+// (`epicPlanLinkTo`, which also pins the level).
 // The route half comes from `planEra.js` (2.0 by default since req #3356);
-// this module owns the `?step=` / `?level=` half.
+// this module owns the `?epic=` / `?level=` half.
 //
-// WHY BOTH HALVES LIVE IN ONE MODULE. The writer is the Steps editor
-// (`src/Steps/StepsPage.jsx`) and the reader is the plan page
+// WHY BOTH HALVES LIVE IN ONE MODULE. The writer is the Epics editor
+// (`src/Epics/EpicsPage.jsx`) and the reader is the plan page
 // (`PipelineDetail.jsx`) — two files in two directories that must agree on a
-// query-string key exactly. A builder in one and a `searchParams.get('step')` in
+// query-string key exactly. A builder in one and a `searchParams.get('epic')` in
 // the other is a contract with no single definition, and the failure mode is a
 // link that navigates to the right plan and silently highlights nothing. Putting
 // the key in one place makes a rename a compile-time-shaped edit rather than a
 // grep.
 //
-// The link seeds `focusStepId`, and the plan visualizer centres and zooms on
-// that step (req #3253's handshake). A second builder, `stepLinkTo`, named
-// `mode=table&step=` — the Table scrolled to and highlighted the step's ROW,
+// The link seeds `focusEpicId`, and the plan visualizer centres and zooms on
+// that epic (req #3253's handshake). A second builder, `epicLinkTo`, named
+// `mode=table&epic=` — the Table scrolled to and highlighted the epic's ROW,
 // and a bead click pushed that link to get there. Req #3641 withdrew the Table
 // (user directive: the visualizer is the only way to look at a pipeline), the
-// canvas now frames a clicked step itself, and `stepLinkTo` was deleted with
+// canvas now frames a clicked epic itself, and `epicLinkTo` was deleted with
 // its only caller; restoring the Table means restoring it from git too. Both
 // parameters seed a TRANSIENT override — a link asks to see one thing once and
 // must never rewrite the reader's own default view (the `normalizeView`
@@ -46,7 +46,7 @@ import { isColorKey, isPlanLevelPref } from './pipelinePlanLayout';
 //
 // ── THERE IS NO ERA TO CHOOSE (req #3356) ──────────────────────────────────
 // These builders briefly took an `era` argument, defaulting to 2.0 while both
-// plan surfaces stood: the producer of the ids `stepPlanLinkTo` receives
+// plan surfaces stood: the producer of the ids `epicPlanLinkTo` receives
 // (`useOrchestrationIndex`, the requirement page's Orchestration box) was
 // already 2.0, so defaulting to 1.0 would have put a 2.0 id on a 1.0 route —
 // req #3462, the outage `planEra.js` exists to prevent, arriving through the
@@ -57,15 +57,15 @@ import { isColorKey, isPlanLevelPref } from './pipelinePlanLayout';
 // the same failure wearing a parameter.
 import { planDetailPath } from './planEra';
 
-export const FOCUS_STEP_PARAM = 'step';
+export const FOCUS_EPIC_PARAM = 'epic';
 
-// ── The SAME step, seen on the PLAN instead of in the table (req #3253) ──────
+// ── The SAME epic, seen on the PLAN instead of in the table (req #3253) ──────
 // The requirement page's "view on plan" link used to name the whole INITIATIVE, and
 // `?initiative=` fits the entire band — which on a large initiative IS a zoomed-out view.
-// The link means "show me where this requirement lives", so it names the STEP.
+// The link means "show me where this requirement lives", so it names the EPIC.
 //
-// The SAME `?step=` parameter the Table's `stepLinkTo` used — deliberately not
-// a third landing mode — with `mode=plan` and a `?level=` pin. (`stepLinkTo`
+// The SAME `?epic=` parameter the Table's `epicLinkTo` used — deliberately not
+// a third landing mode — with `mode=plan` and a `?level=` pin. (`epicLinkTo`
 // went with the Table in req #3641.)
 export const FOCUS_LEVEL_PARAM = 'level';
 // L3 — `PLAN_LEVEL_BY_PREF['3'] === 'in'`. Written as the PREF value the page
@@ -77,34 +77,34 @@ export const FOCUS_LEVEL_PARAM = 'level';
 // unreadable wall of prose at the exact moment the reader wanted to find one
 // bead", and on that canvas it was true: a requirement title was a free-floating
 // label beside a bead, so N of them at once WAS a wall, with nothing to say which
-// title belonged to which step. #3498 put the requirements INSIDE the step's
-// card — bounded, wrapped, ruled off under the step's own name — which is the
+// title belonged to which epic. #3498 put the requirements INSIDE the epic's
+// card — bounded, wrapped, ruled off under the epic's own name — which is the
 // entire feature. The titles are now the card's contents rather than prose over
 // the plan, and the link lands on the one card the reader asked for at a scale
-// where it fills a fifth of the panel (`STEP_FOCUS_STEPS_ACROSS`).
+// where it fills a fifth of the panel (`EPIC_FOCUS_EPICS_ACROSS`).
 //
-// User directive, 2026-08-13: *"requirement single step zoom should not be L2
+// User directive, 2026-08-13: *"requirement single epic zoom should not be L2
 // and be L3 all the details"*.
-export const STEP_PLAN_LINK_LEVEL = '3';
+export const EPIC_PLAN_LINK_LEVEL = '3';
 
 /**
- * The route a step's location ON THE PLAN links to (req #3253).
+ * The route an epic's location ON THE PLAN links to (req #3253).
  *
  * Null rather than a dead link when either id is unusable (`toId`);
  * the only differences are the mode and the pinned level.
  *
  * @param {?number} pipelineId
- * @param {?number} stepId
+ * @param {?number} epicId
  * @param {number} [era] the era `pipelineId` was READ from (req #3463).
  *        Defaults to 2.0 since req #3356 — see the module header.
  * @returns {?string}
  */
-export function stepPlanLinkTo(pipelineId, stepId) {
-    const sid = toId(stepId);
+export function epicPlanLinkTo(pipelineId, epicId) {
+    const sid = toId(epicId);
     if (sid == null) return null;
     return planDetailPath(pipelineId,
-        `mode=plan&${FOCUS_STEP_PARAM}=${sid}`
-        + `&${FOCUS_LEVEL_PARAM}=${STEP_PLAN_LINK_LEVEL}`);
+        `mode=plan&${FOCUS_EPIC_PARAM}=${sid}`
+        + `&${FOCUS_LEVEL_PARAM}=${EPIC_PLAN_LINK_LEVEL}`);
 }
 
 /**
@@ -149,11 +149,11 @@ export function readColorParam(searchParams) {
 // NULLISH AND EMPTY ARE REJECTED BEFORE `Number` SEES THEM, which is the whole
 // reason this is a function and not an inline `Number.isInteger(Number(x))`:
 // `Number(null)` and `Number('')` are both 0, and 0 is a perfectly good integer.
-// A step whose `pipeline_fk` did not resolve would have produced a confident link
+// An epic whose `pipeline_fk` did not resolve would have produced a confident link
 // to plan 0 — a plan that does not exist, rendering the page's not-found alert
 // as though the data were at fault.
 //
-// It survives for the STEP id only (req #3463). The PIPELINE id is normalized
+// It survives for the EPIC id only (req #3463). The PIPELINE id is normalized
 // by `planEra.js::normalizePlanId`, which is this same guard hoisted to the
 // module that owns the route — the two must stay identical, and the way to
 // guarantee that is for there to be one of them on the path-building side.
@@ -164,13 +164,13 @@ function toId(value) {
 }
 
 /**
- * The step id a `?step=` parameter names, or null.
+ * The epic id a `?epic=` parameter names, or null.
  *
  * VALIDATED, never trusted. The value is user-editable address-bar text handed
- * to a `[data-testid="pipeline-step-row-<id>"]` selector and compared against
+ * to a `[data-testid="pipeline-epic-row-<id>"]` selector and compared against
  * `row.id`; `Number('12abc')` is NaN and `Number('')` is 0, and both would
  * produce a focus id that matches no row while suppressing nothing. An id that
- * names no step in this plan is not an error — the plan simply renders with
+ * names no epic in this plan is not an error — the plan simply renders with
  * nothing highlighted, exactly as it does with no parameter at all.
  *
  * Accepts anything with a `.get(key)` — a URLSearchParams, or React Router's
@@ -179,17 +179,17 @@ function toId(value) {
  * @param {{get: function(string): ?string}} searchParams
  * @returns {?number}
  */
-export function readFocusStepParam(searchParams) {
+export function readFocusEpicParam(searchParams) {
     const raw = searchParams && typeof searchParams.get === 'function'
-        ? searchParams.get(FOCUS_STEP_PARAM) : null;
+        ? searchParams.get(FOCUS_EPIC_PARAM) : null;
     if (raw == null || String(raw).trim() === '') return null;
     const id = Number(raw);
     return Number.isInteger(id) ? id : null;
 }
 
-// ── FILING A NEW REQUIREMENT INTO A STEP (req #3582) ────────────────────────
-// A step's "+" (plan visualizer card, plan table row) opens the requirement
-// editor in "new" mode (`/swarm/requirement/new`, req #2414) carrying the step
+// ── FILING A NEW REQUIREMENT INTO A EPIC (req #3582) ────────────────────────
+// An epic's "+" (plan visualizer card, plan table row) opens the requirement
+// editor in "new" mode (`/swarm/requirement/new`, req #2414) carrying the epic
 // to seat it on. Router STATE, not a query string: like the aggregator
 // template's typed title it belongs to one navigation, not to an address a
 // reader could bookmark or share. Writer and reader live here
@@ -197,29 +197,29 @@ export function readFocusStepParam(searchParams) {
 //
 // `from`/`pipelineId`/`mode` are the provenance every plan exit already
 // carries (req #3119/#3252), so the editor's Back returns to the plan. Back no
-// longer re-targets the step (req #3637): the reader clicked its "+", so it was
+// longer re-targets the epic (req #3637): the reader clicked its "+", so it was
 // on screen, and the restored camera / table scroll puts them back exactly
-// there, where a `?step=` link would have moved the view. `backStepId` still
-// records which step it was.
+// there, where a `?epic=` link would have moved the view. `backEpicId` still
+// records which epic it was.
 //
 // (Router state lives in `history.state`, so a reload of the draft keeps the
 // seat — harmless: the draft itself is rebuilt from the same state.)
-export const SEAT_STEP_STATE_KEY = 'seatStepId';
-export const SEAT_STEP_NAME_STATE_KEY = 'seatStepName';
-export const BACK_STEP_STATE_KEY = 'backStepId';
+export const SEAT_EPIC_STATE_KEY = 'seatEpicId';
+export const SEAT_EPIC_NAME_STATE_KEY = 'seatEpicName';
+export const BACK_EPIC_STATE_KEY = 'backEpicId';
 export const BACK_LEVEL_STATE_KEY = 'level';
 
 export function newRequirementSeatState(pipelineId, mode, row) {
-    const stepId = Number(row?.id);
-    if (!Number.isInteger(stepId) || stepId <= 0) return undefined;
+    const epicId = Number(row?.id);
+    if (!Number.isInteger(epicId) || epicId <= 0) return undefined;
     const state = {
-        [SEAT_STEP_STATE_KEY]: stepId,
-        [SEAT_STEP_NAME_STATE_KEY]: typeof row?.title === 'string' && row.title.trim()
+        [SEAT_EPIC_STATE_KEY]: epicId,
+        [SEAT_EPIC_NAME_STATE_KEY]: typeof row?.title === 'string' && row.title.trim()
             ? row.title : null,
     };
     if (pipelineId != null) {
         Object.assign(state, planExitState(pipelineId, mode),
-            { [BACK_STEP_STATE_KEY]: stepId });
+            { [BACK_EPIC_STATE_KEY]: epicId });
     }
     return state;
 }
@@ -242,7 +242,7 @@ export const PLAN_VIEW_PARAMS = Object.freeze([
  * "Back to Plan" can return to the SAME view (req #3637): the panel, and each
  * `PLAN_VIEW_PARAMS` override the reader was looking at. The camera, the table
  * scroll and the popouts come back from storage on their own — Back goes to the
- * plain plan URL, never to a `?step=`/`?initiative=` link that would move them.
+ * plain plan URL, never to a `?epic=`/`?initiative=` link that would move them.
  *
  * Read off `window.location` at click time, the one place both the plan's own
  * panels and their callers agree on, and validated like the URL itself.
@@ -294,8 +294,8 @@ export function backToPlanQuery(state) {
  * id), else null. `mode` is charset-checked, not validated against the panel
  * list — the receiving page owns that vocabulary and falls back on anything it
  * does not recognise; all this end needs is that the value cannot corrupt the
- * URL it is interpolated into. Moved here from StepsPage by req #3742 so the
- * Initiatives and Steps editors read it identically.
+ * URL it is interpolated into. Moved here from EpicsPage by req #3742 so the
+ * Initiatives and Epics editors read it identically.
  */
 export function planOriginOf(state) {
     if (state?.from !== 'pipeline') return null;
@@ -315,11 +315,11 @@ export function planReturnPath(state) {
     return origin ? planDetailPath(origin.id, backToPlanQuery(state)) : null;
 }
 
-/** The step a new requirement is to be seated on, or null when the state names
- * none (or names something that is not a step id). */
+/** The epic a new requirement is to be seated on, or null when the state names
+ * none (or names something that is not an epic id). */
 export function readNewRequirementSeat(state) {
-    const stepId = Number(state?.[SEAT_STEP_STATE_KEY]);
-    if (!Number.isInteger(stepId) || stepId <= 0) return null;
-    const rawName = state?.[SEAT_STEP_NAME_STATE_KEY];
-    return { stepId, stepName: typeof rawName === 'string' && rawName.trim() ? rawName : null };
+    const epicId = Number(state?.[SEAT_EPIC_STATE_KEY]);
+    if (!Number.isInteger(epicId) || epicId <= 0) return null;
+    const rawName = state?.[SEAT_EPIC_NAME_STATE_KEY];
+    return { epicId, epicName: typeof rawName === 'string' && rawName.trim() ? rawName : null };
 }

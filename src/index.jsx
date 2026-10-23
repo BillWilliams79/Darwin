@@ -65,7 +65,7 @@ import {
 // the plain routes outright.
 import PipelinesPage from './Pipelines/PipelinesPage';
 import InitiativesPage from './Initiatives/InitiativesPage';
-import StepsPage from './Steps/StepsPage';
+import EpicsPage from './Epics/EpicsPage';
 import SystemsPage2 from './Systems/SystemsPage2';
 import BuildVisualizerPage from './BuildVisualizer/BuildVisualizerPage';
 import CustomersPage from './Customers/CustomersPage';
@@ -161,16 +161,16 @@ root.render(
                     <Route path={planDetailRoutePath()} element= {<AuthenticatedRoute>
                                                              <PipelineDetail />
                                                          </AuthenticatedRoute>} />
-                    {/* The plan-layer editors, initiative and step tiers (req #3393).
+                    {/* The plan-layer editors, initiative and epic tiers (req #3393).
                         The pipelines LIST route above already carries the plans
                         themselves; these two are not "plan routes" in
-                        planEra.js's sense (they list initiatives/steps, not plans) so
+                        planEra.js's sense (they list initiatives/epics, not plans) so
                         they stay literal here. */}
                     <Route path="swarm/initiatives" element= {<AuthenticatedRoute>
                                                              <InitiativesPage />
                                                          </AuthenticatedRoute>} />
-                    <Route path="swarm/steps" element= {<AuthenticatedRoute>
-                                                             <StepsPage />
+                    <Route path="swarm/epics" element= {<AuthenticatedRoute>
+                                                             <EpicsPage />
                                                          </AuthenticatedRoute>} />
                     <Route path="swarm/testcases" element= {<AuthenticatedRoute>
                                                              <TestCasesPage />

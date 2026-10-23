@@ -6,7 +6,7 @@
 //
 // The floating, docking, reshaping and collapsing are AnchoredPanel's
 // (Components/AnchoredPanel, pattern doc memory/anchored-collapse-pattern.md):
-// its head row is the Topology visualizer's ▾, the step card's green count
+// its head row is the Topology visualizer's ▾, the epic card's green count
 // badge and the DEV SERVERS title, left-aligned, then × at the far right —
 // folded, × follows the title and the panel pulls in tight around them; the
 // head is the top row and its ▾ never moves when clicked. By
@@ -174,7 +174,7 @@ export default function DevServerDashboard() {
                        limits={LIMITS} fontPx={FONT_PX} colors={ACTION_POPUP_COLORS}
                        sx={ACTION_POPUP_SX}
                        extras={
-                           // The step card's count badge (req #3503): the green
+                           // The epic card's count badge (req #3503): the green
                            // pill, a circle for one digit, a capsule past it.
                            <Box component="span" data-testid="devserver-dashboard-count"
                                 sx={{ display: 'inline-flex', alignItems: 'center',

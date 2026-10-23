@@ -14,13 +14,13 @@
 //              renaming one silently resets everyone who chose it
 //   label      the switcher's tooltip / accessible name, when there is one
 //   icon       an @mui/icons-material component (see view-switchable-pages § R3)
-//   Component  receives { plan, model, pipeline, timezone, focusStepId,
+//   Component  receives { plan, model, pipeline, timezone, focusEpicId,
 //              focusInitiativeId, costError, resetViewNonce, … } and renders the
-//              panel. `focusStepId` / `focusInitiativeId` are the one-shot `?step=` /
+//              panel. `focusEpicId` / `focusInitiativeId` are the one-shot `?epic=` /
 //              `?initiative=` deep links (req #3253 / #3235) — the visualizer centres
-//              and zooms on that step, or fits that initiative's band. A click on a
-//              step is the panel's own business: the visualizer frames it (req
-//              #3641 — it used to call an `onStepFocus` that switched to the
+//              and zooms on that epic, or fits that initiative's band. A click on a
+//              epic is the panel's own business: the visualizer frames it (req
+//              #3641 — it used to call an `onEpicFocus` that switched to the
 //              Table). `costError` (req #3117) is true when either cost read
 //              failed — a mode showing cost must say so rather than print
 //              em-dashes; the visualizer shows none and ignores it.
@@ -41,11 +41,11 @@ import PipelinePlanVisualizer from './PipelinePlanVisualizer';
 export const PIPELINE_DETAIL_MODE_STORAGE_KEY = 'darwin-swarm-pipeline-detail-mode';
 
 // ── ONE MODE (req #3641 user directive) ────────────────────────────────────
-// *"Remove the option to see the steps in the pipeline in a special viewer.
+// *"Remove the option to see the epics in the pipeline in a special viewer.
 // Just show the visualizer and it's the only way to look at a pipeline for
 // now."* The Table entry is withdrawn, not deleted: `PipelinePlanTable` and its
 // tests stay, so restoring it is this one entry plus PipelineDetail's
-// Table|Plan switcher and step-click handshake (both removed in req #3641's
+// Table|Plan switcher and epic-click handshake (both removed in req #3641's
 // change; see its git history). A stored
 // 'table' preference normalizes to 'plan' — `normalizeView` never writes back.
 export const PIPELINE_DETAIL_MODES = [
@@ -56,8 +56,8 @@ export const PIPELINE_DETAIL_MODES = [
         // chain-aware swim lanes, TIME-SLOT columns floored by dependency depth
         // (req #3201 — they were raw dependency depth), and drag-pan +
         // three-level zoom (react-konva + d3-zoom, the Swarm Visualizer's
-        // feel). It drew a dashed multi-step launch rectangle too until req
-        // #3371 made the step the launch unit.
+        // feel). It drew a dashed multi-epic launch rectangle too until req
+        // #3371 made the epic the launch unit.
         value: 'plan',
         label: 'Plan',
         icon: AccountTreeIcon,

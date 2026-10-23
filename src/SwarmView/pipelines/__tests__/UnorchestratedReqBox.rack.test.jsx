@@ -4,7 +4,7 @@
 // Action Popup: its title-bar move publishes the rack drag (so the
 // navbar glows in its purple), released over the navbar it racks — portalled
 // into the rack slot at the navbar's width, nothing to stretch — and dragged off
-// it floats again where it was dropped. A carry released over a step still
+// it floats again where it was dropped. A carry released over an epic still
 // seats the set and leaves it racked; maximized, the rack is suspended.
 // (jsdom has no layout: rects are faked.)
 
@@ -119,7 +119,7 @@ describe('UnorchestratedReqBox — the navbar rack (req #3735)', () => {
         expect(usePanelRackStore.getState().racked).toEqual([ORCHESTRABLES_RACK_ID]);
         expect(slotNode.contains(box())).toBe(true);
         expect(box().getAttribute('data-racked')).toBe('1');
-        // The navbar is no step: the carry offers no seat, and its outline clears.
+        // The navbar is no epic: the carry offers no seat, and its outline clears.
         expect(onMoveDrop).not.toHaveBeenCalled();
         expect(onMoveOver).toHaveBeenLastCalledWith(null, null);
         // Floating spot kept for the day it is dragged out.
@@ -180,7 +180,7 @@ describe('UnorchestratedReqBox — the navbar rack (req #3735)', () => {
         expect(box().getAttribute('data-pos')).toBe('400,300');
     });
 
-    it('a carry from the rack released over a step seats the set and stays racked', () => {
+    it('a carry from the rack released over an epic seats the set and stays racked', () => {
         const onMoveDrop = vi.fn(() => true);
         act(() => root.render(<UnorchestratedReqBox items={items} onMoveDrop={onMoveDrop} />));
         rackIt();

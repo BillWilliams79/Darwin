@@ -6,12 +6,12 @@
 // of them: those depend on `buildPipelineModel`/`buildPlanRows`, the full 1.0
 // derivation engine, which has no verified 2.0 counterpart reachable from this
 // session (`Lambda-Rest/pipeline2_derive.py` lives in a repo this session does
-// not have checked out — see `stepsModel.js`'s header for the full
+// not have checked out — see `epicsModel.js`'s header for the full
 // rationale, which applies here identically).
 //
-// So this module reports HONEST, SMALLER facts: how many steps a plan has, and
-// how many of its requirements are met. A step has NO state (req #3750 — it
-// holds requirements and is never completed), so there is no per-step
+// So this module reports HONEST, SMALLER facts: how many epics a plan has, and
+// how many of its requirements are met. An epic has NO state (req #3750 — it
+// holds requirements and is never completed), so there is no per-epic
 // done/open tally to report, and completeness is counted on requirements,
 // whose status is stored.
 //
@@ -25,8 +25,8 @@
 // directly from `pipelineViewModel.js` / `pipelineChipStyles.js`.
 //
 // THE RULE THIS FEATURE'S STRUCTURAL COPIES (PipelinesPage.jsx/InitiativesPage.jsx/
-// StepsPage.jsx as pages, initiativesApi.js/stepsApi.js/pipelinesApi.js as write
-// paths, stepsModel.js as the derivation-adjacent guard) POINT AT, stated
+// EpicsPage.jsx as pages, initiativesApi.js/epicsApi.js/pipelinesApi.js as write
+// paths, epicsModel.js as the derivation-adjacent guard) POINT AT, stated
 // once here rather than in each of them (code review, req #3393 — the
 // original pointer target, `devopsQueries2.js`, was deleted when the query
 // LAYER moved to the shared-file convention above; the STRUCTURAL copies
@@ -42,7 +42,7 @@
 const asArray = (v) => (Array.isArray(v) ? v : []);
 
 /**
- * Per-pipeline step summaries for the LIST page, in one pass over the
+ * Per-pipeline epic summaries for the LIST page, in one pass over the
  * whole-table reads — design rule 5 in miniature, matching 1.0's
  * `pipelineSummaries`: N pipelines summarized from the same lists the page
  * already fetched, never from N per-pipeline fetches (and NEVER from a
@@ -52,12 +52,12 @@ const asArray = (v) => (Array.isArray(v) ? v : []);
  *
  * @param {Object} args
  * @param {Object[]} args.pipelines  pipelines rows
- * @param {Object[]} args.steps      ALL pipeline_steps rows
- * @param {Object[]} args.initiatives      ALL initiatives rows (to resolve step -> pipeline)
- * @returns {Map<number, {total: number}>}  steps per plan — a step has no
+ * @param {Object[]} args.epics      ALL epics rows
+ * @param {Object[]} args.initiatives      ALL initiatives rows (to resolve epic -> pipeline)
+ * @returns {Map<number, {total: number}>}  epics per plan — an epic has no
  *          state to tally (req #3750), so the count is the whole summary
  */
-export function pipelineSummaries({ pipelines, steps, initiatives } = {}) {
+export function pipelineSummaries({ pipelines, epics, initiatives } = {}) {
     const pipelineByInitiative = new Map();
     for (const e of asArray(initiatives)) {
         if (e && e.id != null) pipelineByInitiative.set(e.id, e.pipeline_fk);
@@ -68,9 +68,9 @@ export function pipelineSummaries({ pipelines, steps, initiatives } = {}) {
         if (p && p.id != null) out.set(p.id, { total: 0 });
     }
 
-    for (const step of asArray(steps)) {
-        if (!step) continue;
-        const pipelineId = pipelineByInitiative.get(step.initiative_fk);
+    for (const epic of asArray(epics)) {
+        if (!epic) continue;
+        const pipelineId = pipelineByInitiative.get(epic.initiative_fk);
         if (pipelineId == null || !out.has(pipelineId)) continue;
         out.get(pipelineId).total += 1;
     }
@@ -82,28 +82,28 @@ export function pipelineSummaries({ pipelines, steps, initiatives } = {}) {
  * Per-pipeline requirement met/total counts for the LIST page (parity with
  * 1.0's `pipelineRequirementCounts`, req #3225). UNLIKE the 1.0 version this
  * needs no derivation engine at all: `requirement_status === 'met'` is a
- * stored fact on the requirement row, and `pipeline_step_requirements` is a
+ * stored fact on the requirement row, and `epic_requirements` is a
  * real membership edge — counting the two together is a join, not a guess.
  *
  * @param {Object} args
  * @param {Object[]} args.pipelines
- * @param {Object[]} args.steps               ALL pipeline_steps rows
+ * @param {Object[]} args.epics               ALL epics rows
  * @param {Object[]} args.initiatives                ALL initiatives rows
- * @param {Object[]} args.stepRequirements    ALL pipeline_step_requirements rows
+ * @param {Object[]} args.epicRequirements    ALL epic_requirements rows
  * @param {Object[]} args.requirements        any superset (needs `id`, `requirement_status`)
  * @returns {Map<number, {met: number, total: number}>}
  */
-export function pipelineRequirementCounts({ pipelines, steps, initiatives,
-    stepRequirements, requirements } = {}) {
+export function pipelineRequirementCounts({ pipelines, epics, initiatives,
+    epicRequirements, requirements } = {}) {
     const pipelineByInitiative = new Map();
     for (const e of asArray(initiatives)) {
         if (e && e.id != null) pipelineByInitiative.set(e.id, e.pipeline_fk);
     }
-    const pipelineByStep = new Map();
-    for (const s of asArray(steps)) {
+    const pipelineByEpic = new Map();
+    for (const s of asArray(epics)) {
         if (!s) continue;
         const pipelineId = pipelineByInitiative.get(s.initiative_fk);
-        if (pipelineId != null) pipelineByStep.set(s.id, pipelineId);
+        if (pipelineId != null) pipelineByEpic.set(s.id, pipelineId);
     }
     const statusById = new Map();
     for (const r of asArray(requirements)) {
@@ -115,9 +115,9 @@ export function pipelineRequirementCounts({ pipelines, steps, initiatives,
         if (p && p.id != null) out.set(p.id, { met: 0, total: 0 });
     }
 
-    for (const link of asArray(stepRequirements)) {
+    for (const link of asArray(epicRequirements)) {
         if (!link) continue;
-        const pipelineId = pipelineByStep.get(link.step_fk);
+        const pipelineId = pipelineByEpic.get(link.epic_fk);
         if (pipelineId == null || !out.has(pipelineId)) continue;
         const bucket = out.get(pipelineId);
         bucket.total += 1;

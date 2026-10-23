@@ -235,7 +235,7 @@ describe('pipelinePlace', () => {
 
         it('does not match neighbours or nonsense', () => {
             ['/swarm/pipeline', '/swarm/pipeline/', '/swarm/pipeline/abc',
-                '/swarm/pipeline/2/steps', '/swarm/steps', '', null, undefined,
+                '/swarm/pipeline/2/epics', '/swarm/epics', '', null, undefined,
             ].forEach((p) => expect(isPipelineDetailPath(p)).toBe(false));
         });
     });

@@ -4,7 +4,7 @@ import {
     parseHiddenMachines, toggleHiddenMachine, isMachineHidden, hideMachineReqs, ANY_MACHINE,
     machineChipLabel, orderMachineChips,
 } from '../planMachineFilter';
-import { orderStepReqs } from '../pipelinePlanLayout';
+import { orderEpicReqs } from '../pipelinePlanLayout';
 
 describe('planMachineFilter (req #3708)', () => {
     it('parses the stored string into a set of machine ids, ignoring junk', () => {
@@ -43,7 +43,7 @@ describe('planMachineFilter (req #3708)', () => {
     describe('hideMachineReqs', () => {
         const status = { 1: 'approved', 2: 'development', 3: 'met', 4: 'met', 5: 'approved' };
         const machine = { 1: 2, 2: 3, 3: 3, 4: null, 5: null };
-        const ordered = orderStepReqs([
+        const ordered = orderEpicReqs([
             { id: 10, reqIds: [1, 2, 3, 4] },
             { id: 11, reqIds: [4, 5] },
             { id: 12, reqIds: [] },

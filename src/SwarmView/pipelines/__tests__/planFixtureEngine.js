@@ -47,9 +47,9 @@
 
 import {
     PAUSED_STATUS,
-    STEP_DONE,
-    STEP_PENDING,
-    STEP_RUNNING,
+    EPIC_DONE,
+    EPIC_PENDING,
+    EPIC_RUNNING,
     TERMINAL_REQUIREMENT_STATUSES,
     sumReqCost,
 } from '../pipelineModel';
@@ -57,7 +57,7 @@ import { planTimeAxis } from '../pipelinePlanTime';
 
 // The ONLY status a /swarm-start argument may carry (req #3360). Decided by the
 // user 2026-08-07 and NOT open for re-derivation: `authoring`, `approved`,
-// `met`, `deferred`, `wontfix` and `development` are ALL excluded from a step's
+// `met`, `deferred`, `wontfix` and `development` are ALL excluded from an epic's
 // launch argument list.
 //
 // A named set rather than a boolean test, so `tests/swarm/test-pipeline-skill-contract.sh`
@@ -72,7 +72,7 @@ import { planTimeAxis } from '../pipelinePlanTime';
 // argument list that never read the column).
 export const LAUNCHABLE_REQUIREMENT_STATUSES = ['swarm_ready'];
 
-// Why an id is NOT in a step's launch argument list — published per excluded id
+// Why an id is NOT in an epic's launch argument list — published per excluded id
 // so no consumer re-derives one.
 //
 // EACH ENTRY IS ONE FLAT STRING, `"<reqId> <reason>"`, and the shape is forced
@@ -86,14 +86,14 @@ export const EXCLUDED_CONTAINER = 'tracking container';
 export const EXCLUDED_UNRESOLVED = 'unresolved — not in the composed read';
 export const EXCLUDED_NO_STATUS = 'no status';
 
-// WHY a step or batch has no command, as an ENUM a consumer can BRANCH on —
+// WHY an epic or batch has no command, as an ENUM a consumer can BRANCH on —
 // `noLaunchReason` is the same decision rendered as a sentence for a human.
 // Both come from `launchBlock`, so they cannot disagree.
 //
 // THE THREE CASES NEED DIFFERENT READER ACTIONS, and the two that predate req
-// #3360 need the SAME one. `no-links` and `containers` mean *close the step* —
+// #3360 need the SAME one. `no-links` and `containers` mean *close the epic* —
 // there is no work and there never will be. `not-ready` means *the work exists
-// and is not ready*, and closing the step there destroys the plan record for
+// and is not ready*, and closing the epic there destroys the plan record for
 // work nobody has done.
 export const BLOCK_NO_LINKS = 'no-links';
 export const BLOCK_CONTAINERS = 'containers';
@@ -105,7 +105,7 @@ export const BLOCK_NOT_READY = 'not-ready';
 export const MODE_PARALLEL = 'parallel';
 export const MODE_SERIAL = 'serial';
 
-const STATE_RANK = { [STEP_DONE]: 0, [STEP_RUNNING]: 1, [STEP_PENDING]: 2 };
+const STATE_RANK = { [EPIC_DONE]: 0, [EPIC_RUNNING]: 1, [EPIC_PENDING]: 2 };
 const RUN_RANK = { auto: 0, manual: 1 };
 
 // ── Derivation ──────────────────────────────────────────────────────────────
@@ -124,7 +124,7 @@ const RUN_RANK = { auto: 0, manual: 1 };
 // NUMERIC coercion, not `Boolean(...)`, and it matters at exactly one input class:
 // the STRING "0". `Boolean("0")` is true, so a bare truthiness check would read a
 // stringified zero as a CONTAINER and silently stop a real requirement from gating
-// its step — a wrong answer in the dangerous direction, and the only input for which
+// its epic — a wrong answer in the dangerous direction, and the only input for which
 // this function would disagree with the old unconditional derivation. The three
 // server-side readers (`services/pipelines.py::_is_tracking`,
 // `seed_pipelines_darwin_dev.py::is_tracking`) all coerce through `int()`, so this is
@@ -141,13 +141,13 @@ export function isTrackingRequirement(req) {
     return Number.isFinite(n) ? n !== 0 : false;
 }
 
-// Rule 8, with the status finally read (req #3360). Splits a step's linked ids
+// Rule 8, with the status finally read (req #3360). Splits an epic's linked ids
 // into the ones a /swarm-start may carry and one record per id it may NOT, each
 // carrying the REASON.
 //
 // Before this requirement the split subtracted containers and stopped, so an
 // orchestrated launch attempted work that was already finished — measured
-// 2026-08-07 on pipeline 79 step 230, `/swarm-start 3329 3330 3331 3332 3333
+// 2026-08-07 on pipeline 79 epic 230, `/swarm-start 3329 3330 3331 3332 3333
 // 3334` with three of them `met`, while the sync report printed "met —
 // /swarm-start has nothing to do with it" for each of the three on the same
 // read. The plan layer already knew and emitted the ids anyway.
@@ -192,77 +192,77 @@ function splitLaunchable(reqIds, trackingReqIds, reqsById) {
     return { launchReqIds, launchExcluded };
 }
 
-// Rule 1: STEP STATE IS DERIVED, NEVER STORED-BY-HAND. Any GATING requirement in
+// Rule 1: EPIC STATE IS DERIVED, NEVER STORED-BY-HAND. Any GATING requirement in
 // development → running; all terminal (met/deferred/wontfix) → done; else pending.
-// No gating requirements → pending: an empty step holds nothing and has no
-// completion stamp (req #3750; req #3752 dropped `pipeline_steps.completed_at`),
+// No gating requirements → pending: an empty epic holds nothing and has no
+// completion stamp (req #3750; req #3752 dropped `epics.completed_at`),
 // the same reading `pipelineAdapter.js::visualizerColourInput` gives the canvas.
 //
 // THE GATING SET EXCLUDES TRACKING CONTAINERS (req #3123). Without that, a plan
-// that tracks itself pins a step Running forever: the container never leaves
-// `development` because the plan it holds is still running, and the step is
-// waiting on the plan that is waiting on the step. Measured on the seeded
-// Substrate Rebuild fixture — step 19 links #3083, the plan's own tracker, and
+// that tracks itself pins an epic Running forever: the container never leaves
+// `development` because the plan it holds is still running, and the epic is
+// waiting on the plan that is waiting on the epic. Measured on the seeded
+// Substrate Rebuild fixture — epic 19 links #3083, the plan's own tracker, and
 // derived Running where the plan recorded done. It was the single divergence.
 //
 // ORDER MATTERS: the tracking filter runs BEFORE the empty check, and the empty
-// check is the same branch a zero-requirement step takes. So a step whose links
+// check is the same branch a zero-requirement epic takes. So an epic whose links
 // are ALL containers falls through to pending, never Running — which is
-// precisely a link-less step's behaviour, because a step with nothing to derive
+// precisely a link-less epic's behaviour, because an epic with nothing to derive
 // from is what it has become.
 //
-// A MIXED step subtracts the containers and lets the remaining work decide:
-// fixture step 19 links #3080 (met), #3083 (tracking), #3105 (met), so its
+// A MIXED epic subtracts the containers and lets the remaining work decide:
+// fixture epic 19 links #3080 (met), #3083 (tracking), #3105 (met), so its
 // gating set is all-terminal and it derives done, reproducing the plan.
 //
-// @param {PipelineStep} step
+// @param {PipelineEpic} epic
 // @param {PipelineRequirement[]} linkedReqs
-// @returns {StepState}
-export function deriveStepState(step, linkedReqs) {
+// @returns {EpicState}
+export function deriveEpicState(epic, linkedReqs) {
     const reqs = (linkedReqs || []).filter(Boolean);
     const gating = reqs.filter((r) => !isTrackingRequirement(r));
-    if (gating.length === 0) return STEP_PENDING;
-    if (gating.some((r) => r.requirement_status === 'development')) return STEP_RUNNING;
+    if (gating.length === 0) return EPIC_PENDING;
+    if (gating.some((r) => r.requirement_status === 'development')) return EPIC_RUNNING;
     if (gating.every((r) => TERMINAL_REQUIREMENT_STATUSES.includes(r.requirement_status))) {
-        return STEP_DONE;
+        return EPIC_DONE;
     }
-    return STEP_PENDING;
+    return EPIC_PENDING;
 }
 
-// Requirement ids linked to a step, in junction order.
-function linkedReqIds(stepId, model) {
-    return (model.stepRequirements || [])
-        .filter((j) => j.step_fk === stepId)
+// Requirement ids linked to an epic, in junction order.
+function linkedReqIds(epicId, model) {
+    return (model.epicRequirements || [])
+        .filter((j) => j.epic_fk === epicId)
         .map((j) => j.requirement_fk);
 }
 
-// Rule 10: ONE INITIATIVE/FEATURE LABEL PER STEP, derived from the linked requirements'
+// Rule 10: ONE INITIATIVE/FEATURE LABEL PER EPIC, derived from the linked requirements'
 // feature_fk → initiative chain. Dominant = the label carried by the most linked
-// requirements; ties break to first appearance in the step's requirement order.
+// requirements; ties break to first appearance in the epic's requirement order.
 // The full sets are exposed for tooltips — a launch unit may legitimately cross
 // initiatives. Requirements without a resolvable feature contribute nothing.
 //
 // TRACKING CONTAINERS ARE COUNTED HERE, deliberately (req #3123). The exemption
 // is about GATING, and a container genuinely belongs to its initiative — it is the
 // thing that holds the initiative's work. Do not "finish" the filter by adding it
-// here; that would silently change which initiative a step bands under, which is a
+// here; that would silently change which initiative an epic bands under, which is a
 // display regression, not a rule. `machineLabels` below DOES filter, and the
 // reason it differs is written there: an initiative is a taxonomy label, a machine is
 // a launch parameter.
 //
-// @param {PipelineStep} step
+// @param {PipelineEpic} epic
 // @param {PipelineModel} model
 // @returns {{initiativeId: ?number, initiative: ?string, initiativeSortOrder: ?number,
 //            featureId: ?number, feature: ?string,
 //            initiativeLabels: {id: number, title: string}[],
 //            featureLabels: {id: number, title: string}[]}}
-export function dominantLabels(step, model) {
+export function dominantLabels(epic, model) {
     const reqsById = indexById(model.requirements);
     const featuresById = indexById(model.features);
     const initiativesById = indexById(model.initiatives);
     const featTally = [];   // [{id, title, count}] in first-appearance order
     const initiativeTally = [];
-    for (const rid of linkedReqIds(step.id, model)) {
+    for (const rid of linkedReqIds(epic.id, model)) {
         const req = reqsById.get(rid);
         const feature = req && req.feature_fk != null ? featuresById.get(req.feature_fk) : null;
         if (!feature) continue;
@@ -352,24 +352,24 @@ function dominant(list) {
 // TRACKING CONTAINERS ARE EXCLUDED HERE, unlike dominantLabels above, and the
 // difference is not an inconsistency (req #3123). An initiative is a TAXONOMY label: a
 // container genuinely belongs to its initiative, so it counts. A machine is a LAUNCH
-// PARAMETER — this column answers "where does this step run" — and a container
+// PARAMETER — this column answers "where does this epic run" — and a container
 // runs nowhere, so it has no opinion to contribute.
 //
 // It is also load-bearing rather than cosmetic: `launchKey` is built from these
-// labels, so a container's machine pin would split two steps that are
+// labels, so a container's machine pin would split two epics that are
 // launch-identical on everything actually launched. Measured before the fix: two
-// pending steps sharing a gate, one linking a container pinned to Mac mini, the
+// pending epics sharing a gate, one linking a container pinned to Mac mini, the
 // other pinned to Any — `launchBatches` returned [] and the plan rendered no
 // batch letter and no /swarm-start command at all. Reachable only since this
-// requirement, because before it a step linking a container derived Running and
+// requirement, because before it an epic linking a container derived Running and
 // so never entered `pendingGroups`.
 //
-// @param {PipelineStep} step
+// @param {PipelineEpic} epic
 // @param {PipelineModel} model
 // @returns {{labels: string[], label: string}}
-export function machineLabels(step, model) {
+export function machineLabels(epic, model) {
     const reqsById = indexById(model.requirements);
-    const reqIds = linkedReqIds(step.id, model)
+    const reqIds = linkedReqIds(epic.id, model)
         .filter((rid) => !isTrackingRequirement(reqsById.get(rid)));
     if (reqIds.length === 0) return { labels: [], label: '—' };
     const machinesById = indexById(model.machines);
@@ -384,7 +384,7 @@ export function machineLabels(step, model) {
     return { labels, label: labels.join(' / ') };
 }
 
-// Join the model tables into self-contained PlanRows, in steps-array order
+// Join the model tables into self-contained PlanRows, in epics-array order
 // (insertion history — callers MUST reorder via displayOrder before rendering).
 // Junction rows pointing at requirements missing from model.requirements are
 // kept in reqIds (and label their machine 'Any') but contribute nothing to
@@ -394,61 +394,61 @@ export function machineLabels(step, model) {
 // @returns {PlanRow[]}
 export function buildPlanRows(model) {
     const reqsById = indexById(model.requirements);
-    const depsByStep = new Map();
-    for (const d of model.stepDeps || []) {
-        if (!depsByStep.has(d.step_fk)) depsByStep.set(d.step_fk, { depIds: [], timeDeps: [] });
-        const bucket = depsByStep.get(d.step_fk);
-        if (d.dep_step_fk != null) bucket.depIds.push(d.dep_step_fk);
+    const depsByEpic = new Map();
+    for (const d of model.epicDeps || []) {
+        if (!depsByEpic.has(d.epic_fk)) depsByEpic.set(d.epic_fk, { depIds: [], timeDeps: [] });
+        const bucket = depsByEpic.get(d.epic_fk);
+        if (d.dep_epic_fk != null) bucket.depIds.push(d.dep_epic_fk);
         else if (d.time_at != null) bucket.timeDeps.push(d.time_at);
     }
-    // Rule 10 attaches labels to REQUIREMENTS, so a step that links none derives
+    // Rule 10 attaches labels to REQUIREMENTS, so an epic that links none derives
     // no initiative at all. For a gate or a baseline that is technically true and
-    // visually wrong: the plan's step 7, "Green Baseline", recorded the
+    // visually wrong: the plan's epic 7, "Green Baseline", recorded the
     // regression baseline for the substrate work it gates, and banding it under
     // "No initiative" put a lone bead in a band of its own between the initiatives it
     // belongs between.
     //
-    // So a req-less step INHERITS the dominant label of its dependencies, walking
+    // So a req-less epic INHERITS the dominant label of its dependencies, walking
     // back until it finds one. That keeps rule 10 intact where the rule has an
-    // opinion — nothing is stored, and a step with requirements still derives
-    // from them and only them — while giving a step whose whole job is to gate
+    // opinion — nothing is stored, and an epic with requirements still derives
+    // from them and only them — while giving an epic whose whole job is to gate
     // other work the label of the work it gates. Ambiguity resolves the same way
     // it does everywhere else here: the first dependency, in dep order.
     const labelCache = new Map();
-    const inheritedLabels = (stepId, seen) => {
-        if (labelCache.has(stepId)) return labelCache.get(stepId);
-        if (seen.has(stepId)) return null;   // cycle guard
-        seen.add(stepId);
-        const step = (model.steps || []).find((s) => s.id === stepId);
-        if (!step) return null;
-        const own = dominantLabels(step, model);
+    const inheritedLabels = (epicId, seen) => {
+        if (labelCache.has(epicId)) return labelCache.get(epicId);
+        if (seen.has(epicId)) return null;   // cycle guard
+        seen.add(epicId);
+        const epic = (model.epics || []).find((s) => s.id === epicId);
+        if (!epic) return null;
+        const own = dominantLabels(epic, model);
         if (own.initiativeId != null || own.featureId != null) {
-            labelCache.set(stepId, own);
+            labelCache.set(epicId, own);
             return own;
         }
-        for (const depId of (depsByStep.get(stepId) || { depIds: [] }).depIds) {
+        for (const depId of (depsByEpic.get(epicId) || { depIds: [] }).depIds) {
             const up = inheritedLabels(depId, seen);
             if (up && (up.initiativeId != null || up.featureId != null)) {
                 // Inherited, so the FULL label sets stay empty: those drive the
-                // "spans more than one initiative" tooltip, and this step spans
+                // "spans more than one initiative" tooltip, and this epic spans
                 // nothing — it borrowed one label from upstream.
                 const borrowed = { ...up, initiativeLabels: [], featureLabels: [], inherited: true };
-                labelCache.set(stepId, borrowed);
+                labelCache.set(epicId, borrowed);
                 return borrowed;
             }
         }
-        labelCache.set(stepId, own);
+        labelCache.set(epicId, own);
         return own;
     };
 
-    return (model.steps || []).map((step) => {
-        const reqIds = linkedReqIds(step.id, model);
+    return (model.epics || []).map((epic) => {
+        const reqIds = linkedReqIds(epic.id, model);
         const linked = reqIds.map((rid) => reqsById.get(rid)).filter(Boolean);
         const unresolvedReqIds = reqIds.filter((rid) => !reqsById.has(rid));
         // req #3123. `reqIds` deliberately stays COMPLETE — the plan table links
-        // every requirement a step carries, and cost aggregation must sum the
+        // every requirement an epic carries, and cost aggregation must sum the
         // sessions of all of them. What the container flag changes is which ids
-        // GATE (deriveStepState, above) and which get LAUNCHED (rule 8, in
+        // GATE (deriveEpicState, above) and which get LAUNCHED (rule 8, in
         // launchBatches), so the tracking set is published beside the full one
         // rather than subtracted from it. An unresolved id is not a container:
         // nothing was read that said so.
@@ -460,25 +460,25 @@ export function buildPlanRows(model) {
         // halves of one answer, and deriving them apart is how they disagree.
         const { launchReqIds, launchExcluded } = splitLaunchable(
             reqIds, trackingReqIds, reqsById);
-        const labels = inheritedLabels(step.id, new Set()) || dominantLabels(step, model);
-        const machines = machineLabels(step, model);
-        const deps = depsByStep.get(step.id) || { depIds: [], timeDeps: [] };
+        const labels = inheritedLabels(epic.id, new Set()) || dominantLabels(epic, model);
+        const machines = machineLabels(epic, model);
+        const deps = depsByEpic.get(epic.id) || { depIds: [], timeDeps: [] };
         // The one-row "group" `launchBlock`/`noLaunchReasonFor` share below —
         // every field either function reads, `launchExcluded` included.
         const launchOnlyMember = { reqIds, trackingReqIds, launchReqIds, launchExcluded };
         return {
-            id: step.id,
-            title: step.title,
-            run: step.run || 'auto',
-            notes: step.notes != null ? step.notes : null,
-            state: deriveStepState(step, linked),
+            id: epic.id,
+            title: epic.title,
+            run: epic.run || 'auto',
+            notes: epic.notes != null ? epic.notes : null,
+            state: deriveEpicState(epic, linked),
             reqIds,
             trackingReqIds,
             unresolvedReqIds,
             launchReqIds,
             launchExcluded,
             // req #3360, then req #3371/#3375: per ROW as well as per batch — a
-            // solo step never forms a batch, and since #3371 the STEP is the
+            // solo epic never forms a batch, and since #3371 the EPIC is the
             // launch unit, so the plan table's row is the ONLY place these three
             // render. `launchBatches` (below) computes the identical trio for a
             // 2+-member GROUP; here the "group" is this row alone, which is what
@@ -499,7 +499,7 @@ export function buildPlanRows(model) {
             initiativeId: labels.initiativeId,
             initiative: labels.initiative,
             // req #3430. Travels with the label, which is what makes an
-            // INHERITED label carry the right order for free: a gate step that
+            // INHERITED label carry the right order for free: a gate epic that
             // borrows its initiative from a dependency borrows that initiative's position
             // too, and would otherwise band correctly and sort as unordered.
             initiativeSortOrder: labels.initiativeSortOrder != null ? labels.initiativeSortOrder : null,
@@ -533,7 +533,7 @@ function idCmp(a, b) {
     return String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0;
 }
 
-// The step gate that is still UNSATISFIED: the deps whose row is not done
+// The epic gate that is still UNSATISFIED: the deps whose row is not done
 // (req #3188). A dep missing from the row set counts as unsatisfied — the safe
 // direction, and verifyOrder reports it as `dangling-dependency` separately.
 //
@@ -543,27 +543,27 @@ function idCmp(a, b) {
 export function remainingGate(row, byId) {
     return depIdsOf(row).filter((d) => {
         const dep = byId.get(d);
-        return !dep || dep.state !== STEP_DONE;
+        return !dep || dep.state !== EPIC_DONE;
     });
 }
 
-// Canonical launch-unit identity: identical (dominant initiative, REMAINING step gate,
+// Canonical launch-unit identity: identical (dominant initiative, REMAINING epic gate,
 // time gates, run mode, machine set) — the batch key of rules 2 and 8. Machine
 // set comes from the requirement-derived labels.
 //
-// INITIATIVE IS A TERM IN THE KEY (req #3188). Rule 10 gives a step exactly ONE
+// INITIATIVE IS A TERM IN THE KEY (req #3188). Rule 10 gives an epic exactly ONE
 // dominant initiative, and req #3184's concurrency model makes initiative -> orchestrator a
 // function: one initiative, one Primary, and two orchestrators can never select the
 // same requirement for launch. A batch spanning two initiatives therefore hands one
 // initiative's requirements to the other initiative's Primary, and the losing initiative's work
 // silently leaves its owner's slice. Measured on live pipeline 2 (2026-08-01,
-// 68 steps): ONE group held steps 55/57/59/60 (initiative 6, Mapping Aggregator Card)
-// together with 70/71/72/73/74/85 (initiative 7, Swarm Backlog) — ten steps, two
+// 68 epics): ONE group held epics 55/57/59/60 (initiative 6, Mapping Aggregator Card)
+// together with 70/71/72/73/74/85 (initiative 7, Swarm Backlog) — ten epics, two
 // initiatives, rendered to the user as a single condensation suggestion.
 //
-// Rule 10's "a launch unit may legitimately cross initiatives" is about a step that
+// Rule 10's "a launch unit may legitimately cross initiatives" is about an epic that
 // ALREADY spans initiatives — which is what the dominant-label tiebreak exists to
-// resolve — and is not licence to MANUFACTURE one out of steps that are each
+// resolve — and is not licence to MANUFACTURE one out of epics that are each
 // cleanly owned. Partitioning at the KEY rather than at each consumer is what
 // makes launchBatches, displayOrder's batch clustering and verifyOrder's
 // contiguity check agree by construction. (A fourth consumer, the condensation
@@ -575,7 +575,7 @@ export function remainingGate(row, byId) {
 // correctly apart.
 //
 // THE GATE TERM IS THE REMAINING GATE, NOT THE RAW DEP SET (req #3188). Two
-// pending steps whose gates differ only in deps that are already done become
+// pending epics whose gates differ only in deps that are already done become
 // eligible at the SAME INSTANT and can genuinely launch together; keying on the
 // raw set hashed them apart and emitted two /swarm-start commands where the
 // batching model says one. The remaining gate is a function of PLAN STATE ALONE,
@@ -586,7 +586,7 @@ export function remainingGate(row, byId) {
 // therefore display order and the batch-contiguity invariant — a function of
 // wall time: the same unmutated plan would render differently at two instants,
 // which is a worse instability than the one this fix removes. A time gate is
-// also a scheduled gate the plan author wrote; two steps carrying different ones
+// also a scheduled gate the plan author wrote; two epics carrying different ones
 // are different launch units by intent until both pass.
 function launchKey(row, byId) {
     const initiative = row.initiativeId != null ? row.initiativeId : '';
@@ -604,7 +604,7 @@ function pendingGroups(rows) {
     const byId = new Map(rows.map((r) => [r.id, r]));
     const groups = new Map();
     for (const r of rows) {
-        if (r.state !== STEP_PENDING) continue;
+        if (r.state !== EPIC_PENDING) continue;
         const k = launchKey(r, byId);
         if (!groups.has(k)) groups.set(k, []);
         groups.get(k).push(r);
@@ -631,7 +631,7 @@ function cmpKey(a, b) {
 // (auto before manual), numeric id. Bands, streams, topology and clustering never
 // derive from storage order — but storage position IS the POC's deterministic
 // FINAL tie-break (done band, root ranking, initiative first-appearance), so callers
-// must supply rows in the canonical stored order (the steps-table order; the
+// must supply rows in the canonical stored order (the epics-table order; the
 // pipelines read contract must ORDER BY a stable column). Same input order in,
 // same display order out.
 //
@@ -645,15 +645,15 @@ function cmpKey(a, b) {
 // Cycle contract (rule 3): detect, report, deterministic fallback — the
 // unplaceable remainder is appended in stored order and flagged.
 //
-// @param {PlanRow[]} rows  canonical stored order (steps-table order)
+// @param {PlanRow[]} rows  canonical stored order (epics-table order)
 // @returns {OrderResult}
 export function displayOrder(rows) {
-    const duplicateStepIds = [];
+    const duplicateEpicIds = [];
     {
         const seenIds = new Set();
         for (const r of rows) {
             if (seenIds.has(r.id)) {
-                if (!duplicateStepIds.includes(r.id)) duplicateStepIds.push(r.id);
+                if (!duplicateEpicIds.includes(r.id)) duplicateEpicIds.push(r.id);
             } else {
                 seenIds.add(r.id);
             }
@@ -715,9 +715,9 @@ export function displayOrder(rows) {
     };
     rows.forEach(depth);
 
-    const done = new Set(rows.filter((r) => r.state === STEP_DONE).map((r) => r.id));
+    const done = new Set(rows.filter((r) => r.state === EPIC_DONE).map((r) => r.id));
     const roots = rows
-        .filter((r) => r.state !== STEP_DONE && depIdsOf(r).every((d) => done.has(d)))
+        .filter((r) => r.state !== EPIC_DONE && depIdsOf(r).every((d) => done.has(d)))
         .sort((a, b) =>
             (STATE_RANK[a.state] - STATE_RANK[b.state]) ||
             (depthMemo.get(b.id) - depthMemo.get(a.id)) ||
@@ -740,7 +740,7 @@ export function displayOrder(rows) {
         } else {
             const ranks = knownDeps(r)
                 .map((d) => byId.get(d))
-                .filter((a) => a.state !== STEP_DONE)
+                .filter((a) => a.state !== EPIC_DONE)
                 .map(stream);
             v = ranks.length ? Math.min(...ranks) : roots.length;
         }
@@ -768,14 +768,14 @@ export function displayOrder(rows) {
     const out = [];
     const pos = new Map();
     let cycleDetected = false;
-    let cycleStepIds = [];
+    let cycleEpicIds = [];
     const sortKey = (r) => {
-        if (r.state === STEP_DONE) {
+        if (r.state === EPIC_DONE) {
             return [0, 0, 0, initiativeIdx(r), 0, idx.get(r.id), initiativeIdx(r), 0, idx.get(r.id)];
         }
         const anchor = Math.max(-1,
             ...depIdsOf(r).filter((d) => pos.has(d)).map((d) => pos.get(d)));
-        const band = r.state === STEP_RUNNING ? 1 : 2;
+        const band = r.state === EPIC_RUNNING ? 1 : 2;
         const tail = keyTail(r);
         const group = groupTail.get(batchOf.get(r.id)) || tail;
         return [band, stream(r), anchor, ...group, ...tail];
@@ -787,7 +787,7 @@ export function displayOrder(rows) {
             // Dependency cycle: deterministic fallback to stored order, flagged.
             const rest = [...remaining.values()].sort((a, b) => idx.get(a.id) - idx.get(b.id));
             cycleDetected = true;
-            cycleStepIds = rest.map((r) => r.id);
+            cycleEpicIds = rest.map((r) => r.id);
             out.push(...rest);
             break;
         }
@@ -804,7 +804,7 @@ export function displayOrder(rows) {
         out.push(pick);
         remaining.delete(pick.id);
     }
-    return { rows: out, cycleDetected, cycleStepIds, duplicateStepIds };
+    return { rows: out, cycleDetected, cycleEpicIds, duplicateEpicIds };
 }
 
 // Rule 3 self-check: the three ordering invariants (+ explicit cycle,
@@ -813,7 +813,7 @@ export function displayOrder(rows) {
 // never silently ship a bad order; an empty array is the only green light.
 //
 // Known inherent conflict: a running/done row that depends on a not-done row
-// (a step started before its gate finished) makes state banding and topology
+// (an epic started before its gate finished) makes state banding and topology
 // jointly unsatisfiable — the violations then report a real PLAN-DATA anomaly,
 // not an engine bug, and clear when the plan data is corrected. Rare greedy-pass
 // edge cases can also surface a batch-contiguity violation on clean data — those
@@ -821,7 +821,7 @@ export function displayOrder(rows) {
 //
 // Duplicate-id detection only fires when verifying rows that still CONTAIN the
 // duplicates; on displayOrder output (already collapsed) read
-// OrderResult.duplicateStepIds instead.
+// OrderResult.duplicateEpicIds instead.
 //
 // @param {PlanRow[]} rows  display order (displayOrder(...).rows)
 // @returns {OrderViolation[]}
@@ -843,9 +843,9 @@ export function verifyOrder(rows) {
         if (dupIds.length) {
             violations.push({
                 invariant: 'duplicate-id',
-                stepIds: dupIds,
-                message: `duplicate step ids ${dupIds.join(', ')} — rows collapse silently; ` +
-                    'the rendered plan is missing steps',
+                epicIds: dupIds,
+                message: `duplicate epic ids ${dupIds.join(', ')} — rows collapse silently; ` +
+                    'the rendered plan is missing epics',
             });
         }
     }
@@ -857,8 +857,8 @@ export function verifyOrder(rows) {
             if (!posn.has(d)) {
                 violations.push({
                     invariant: 'dangling-dependency',
-                    stepIds: [r.id, d],
-                    message: `step ${r.id} depends on step ${d}, which is not in the rendered rows`,
+                    epicIds: [r.id, d],
+                    message: `epic ${r.id} depends on epic ${d}, which is not in the rendered rows`,
                 });
             }
         }
@@ -882,8 +882,8 @@ export function verifyOrder(rows) {
     if (stuck.length > 0) {
         violations.push({
             invariant: 'cycle',
-            stepIds: stuck,
-            message: `dependency cycle: steps ${stuck.join(', ')} are in or gated behind a cycle; ` +
+            epicIds: stuck,
+            message: `dependency cycle: epics ${stuck.join(', ')} are in or gated behind a cycle; ` +
                 'display fell back to stored order',
         });
     }
@@ -894,8 +894,8 @@ export function verifyOrder(rows) {
             if (posn.has(d) && posn.get(d) > posn.get(r.id)) {
                 violations.push({
                     invariant: 'topology',
-                    stepIds: [r.id, d],
-                    message: `step ${r.id} renders before its dependency ${d}`,
+                    epicIds: [r.id, d],
+                    message: `epic ${r.id} renders before its dependency ${d}`,
                 });
             }
         }
@@ -906,20 +906,20 @@ export function verifyOrder(rows) {
     //
     // Design rule 3 orders the criteria: "topological, THEN state bands, then
     // streams". Topology wins, and displayOrder implements exactly that — it only
-    // ever emits a row whose dependencies are already out. So when a step's GATE
-    // is in a later band than the step itself, NO ordering satisfies both rules
+    // ever emits a row whose dependencies are already out. So when an epic's GATE
+    // is in a later band than the epic itself, NO ordering satisfies both rules
     // and the one displayOrder picks (dependency first) is the right one.
     //
     // Checking banding as if it were absolute reported that forced case as a
-    // failure. The instance that produced this relaxation was step 19 deriving
-    // Running while GATING step 38, which is Complete — the banner said "treat
+    // failure. The instance that produced this relaxation was epic 19 deriving
+    // Running while GATING epic 38, which is Complete — the banner said "treat
     // the sequence as untrustworthy" about the only sequence that was actually
-    // available. That particular instance is GONE since req #3123: step 19 was
+    // available. That particular instance is GONE since req #3123: epic 19 was
     // Running only because it links the plan's own tracking requirement (#3083),
-    // and deriveStepState now exempts containers, so step 19 derives done.
+    // and deriveEpicState now exempts containers, so epic 19 derives done.
     //
     // The relaxation stays, and not out of caution — it is independently
-    // correct. A step legitimately starts before its gate finishes (a gate
+    // correct. An epic legitimately starts before its gate finishes (a gate
     // passed WITH exceptions, playbook case 5), and whenever that happens
     // banding and topology remain jointly unsatisfiable no matter what any
     // requirement's flag says.
@@ -956,8 +956,8 @@ export function verifyOrder(rows) {
             const worst = avoidable[avoidable.length - 1];
             violations.push({
                 invariant: 'state-banding',
-                stepIds: [r.id, worst.id],
-                message: `${r.state} step ${r.id} renders below ${worst.state} step `
+                epicIds: [r.id, worst.id],
+                message: `${r.state} epic ${r.id} renders below ${worst.state} epic `
                     + `${worst.id}, which it does not depend on — `
                     + 'done>running>pending banding broken',
             });
@@ -968,7 +968,7 @@ export function verifyOrder(rows) {
     // SUBORDINATE TO TOPOLOGY on exactly the terms banding is (req #3192).
     //
     // The relaxation above was applied to ONE of the two invariants that needs
-    // it. A Running step gating on a Scheduled one splits any batch the Scheduled
+    // it. A Running epic gating on a Scheduled one splits any batch the Scheduled
     // one belongs to — forced by the very conflict invariant 2 excuses — and this
     // one reported it anyway. That is the crying-wolf failure mode design rule 7
     // exists to avoid, on the loud stdout channel pipeline_engine.py emits
@@ -1019,7 +1019,7 @@ export function verifyOrder(rows) {
         if (splitIsForced(members)) continue;
         violations.push({
             invariant: 'batch-contiguity',
-            stepIds: members.map((m) => m.id),
+            epicIds: members.map((m) => m.id),
             message: `launch batch (${key}) not contiguous at rows ${positions.join(', ')}`,
         });
     }
@@ -1099,7 +1099,7 @@ function toEpochMs(t) {
 }
 
 // Rule 5 of memory/pipeline-plan-tracking.md: ELIGIBILITY IS COMPUTED, NEVER
-// STORED. A pending row is eligible when every step-dep is done AND every
+// STORED. A pending row is eligible when every epic-dep is done AND every
 // time-dep has passed relative to the caller-supplied `now` (Date | epoch ms |
 // ISO string). No `now` (or an unparseable time gate) while time-deps exist →
 // not eligible: this module never reads the clock itself.
@@ -1109,11 +1109,11 @@ function toEpochMs(t) {
 // @param {(Date|number|string)} [now]
 // @returns {boolean}
 export function eligibility(row, rows, now) {
-    if (row.state !== STEP_PENDING) return false;
+    if (row.state !== EPIC_PENDING) return false;
     const byId = rows instanceof Map ? rows : new Map(rows.map((r) => [r.id, r]));
     for (const d of depIdsOf(row)) {
         const dep = byId.get(d);
-        if (!dep || dep.state !== STEP_DONE) return false;
+        if (!dep || dep.state !== EPIC_DONE) return false;
     }
     const timeDeps = row.timeDeps || [];
     if (timeDeps.length === 0) return true;
@@ -1139,14 +1139,14 @@ function batchLetter(i) {
     return s;
 }
 
-// The requirement ids a step actually LAUNCHES: rule 8's argument list, minus
+// The requirement ids an epic actually LAUNCHES: rule 8's argument list, minus
 // its tracking containers (req #3123) and minus everything that is not
 // `swarm_ready` (req #3360).
 //
 // THE ANSWER IS READ, NOT RECOMPUTED. buildPlanRows owns the split, where the
 // requirement rows are in hand; this is the accessor both launchBatches and
 // every render surface go through, so the batch command and the per-row list
-// cannot disagree about the same step.
+// cannot disagree about the same epic.
 //
 // IT FAILS CLOSED. A row without the field launches NOTHING rather than falling
 // back to the wider set — a silent fallback here would restore exactly the
@@ -1156,7 +1156,7 @@ function launchableReqIds(row) {
     return [...(row.launchReqIds || [])];
 }
 
-// Why each of this step's linked requirements is missing from its command.
+// Why each of this epic's linked requirements is missing from its command.
 function launchExclusionsOf(row) {
     return [...(row.launchExcluded || [])];
 }
@@ -1198,17 +1198,17 @@ function noLaunchReasonFor(members) {
     }
 }
 
-// Rules 2 + 8: pending steps sharing an identical (dominant initiative, remaining step
+// Rules 2 + 8: pending epics sharing an identical (dominant initiative, remaining epic
 // gate + time gates, run, machine set) launch together in ONE /swarm-start.
-// Batches of >=2 steps get a letter — A launches first — following display
+// Batches of >=2 epics get a letter — A launches first — following display
 // order, and each carries the EXACT /swarm-start argument list (requirement ids
 // in display order, tracking containers excluded). A batch with nothing
-// launchable — req-less gate steps, or steps linked only to containers — has no
+// launchable — req-less gate epics, or epics linked only to containers — has no
 // launchable command: swarmStartCommand is null, never an argument-less string.
 //
-// `gateStepIds` is the REMAINING gate (req #3188), which every member shares by
+// `gateEpicIds` is the REMAINING gate (req #3188), which every member shares by
 // construction now that it is the key's gate term. It is also the better answer
-// for the banner it renders into: a batch that is eligible NOW reports no step
+// for the banner it renders into: a batch that is eligible NOW reports no epic
 // gate rather than naming deps that closed long ago, and one that is still
 // waiting names exactly what it waits on.
 //
@@ -1220,7 +1220,7 @@ export function launchBatches(orderedRows) {
     const batches = [];
     const seen = new Set();
     for (const r of orderedRows) {
-        if (r.state !== STEP_PENDING) continue;
+        if (r.state !== EPIC_PENDING) continue;
         const k = launchKey(r, byId);
         const members = groups.get(k);
         if (members.length < 2 || seen.has(k)) continue;
@@ -1233,10 +1233,10 @@ export function launchBatches(orderedRows) {
         batches.push({
             letter: batchLetter(batches.length),
             key: k,
-            stepIds: members.map((m) => m.id),
+            epicIds: members.map((m) => m.id),
             initiativeId: members[0].initiativeId != null ? members[0].initiativeId : null,
             initiative: members[0].initiative != null ? members[0].initiative : null,
-            gateStepIds: [...new Set(remainingGate(members[0], byId))].sort(idCmp),
+            gateEpicIds: [...new Set(remainingGate(members[0], byId))].sort(idCmp),
             timeDeps: [...(members[0].timeDeps || [])].sort(),
             run: members[0].run || 'auto',
             machineLabels: labels,
@@ -1267,35 +1267,35 @@ export function launchBatches(orderedRows) {
 
 // THERE IS NO CONDENSATION ADVISORY HERE, AND ITS ABSENCE IS THE DECISION
 // (req #3303). It read this same partition and rendered each group of >=2 as
-// "N groups of steps could be condensed". It was deleted, not hidden, for two
+// "N groups of epics could be condensed". It was deleted, not hidden, for two
 // reasons that hold every time it could have fired:
 //
-//   1. BATCHING ALREADY DELIVERS WHAT IT PROPOSED. A step is a launch unit;
-//      steps sharing a launch key launch as ONE /swarm-start whether or not they
+//   1. BATCHING ALREADY DELIVERS WHAT IT PROPOSED. An epic is a launch unit;
+//      epics sharing a launch key launch as ONE /swarm-start whether or not they
 //      are one row. Merging them changes nothing about execution and costs N
 //      titles, N sets of notes, N dep edges and N completion signals.
 //   2. IT COULD NOT VERIFY THE CONDITION IT ADVISED. Rule 2 needs the tuple AND
-//      that everything on the merged step is safe to run CONCURRENTLY — a step
+//      that everything on the merged epic is safe to run CONCURRENTLY — an epic
 //      with N requirements is one command spawning N sessions. Concurrency
 //      safety is file contention, which is not in the plan data and cannot be
 //      derived from it.
 //
 // So the group this key finds is NORMAL, CORRECT plan structure, and there is
 // nothing here to auto-resolve either. Full reasoning: memory/pipeline-2-guide.md
-// § 1.5 (the step IS the launch unit, and a wide step is the first choice) and
+// § 1.5 (the epic IS the launch unit, and a wide epic is the first choice) and
 // § A.3 (the four jobs a BATCH was doing, and what replaced each). The first
 // generation's memory/swarm-orchestration.md § The launch unit — what a BATCH
 // is, where this reasoning was written, was deleted at req #3356.
 
-// Sum a step's cost over its linked requirements. Rule 5: rollups are
+// Sum an epic's cost over its linked requirements. Rule 5: rollups are
 // precomputed server-side — this never fans out.
 //
-// @param {PipelineStep} step
+// @param {PipelineEpic} epic
 // @param {PipelineModel} model
 // @param {?CostIndex} index
-// @returns {StepCost}
-export function aggregateStepCost(step, model, index) {
-    return sumReqCost(linkedReqIds(step.id, model), index);
+// @returns {EpicCost}
+export function aggregateEpicCost(epic, model, index) {
+    return sumReqCost(linkedReqIds(epic.id, model), index);
 }
 
 // The PlanRow-side entry point. A row already carries its `reqIds` (junction
@@ -1305,7 +1305,7 @@ export function aggregateStepCost(step, model, index) {
 //
 // @param {PlanRow} row
 // @param {?CostIndex} index
-// @returns {StepCost}
+// @returns {EpicCost}
 export function aggregateRowCost(row, index) {
     return sumReqCost(row && row.reqIds, index);
 }
@@ -1313,28 +1313,28 @@ export function aggregateRowCost(row, index) {
 //
 // Met/total requirement counts, per initiative and for the whole plan — DERIVED from
 // `model.requirements` alone, the same rows `buildPlanRows` already reads. Zero
-// extra cost: no new gateway read, no per-step fan-out, no stored counter.
+// extra cost: no new gateway read, no per-epic fan-out, no stored counter.
 //
 // TRACKING REQUIREMENTS ARE EXCLUDED from both the numerator and the
 // denominator (req #3123's container exemption, matching the exclusion
-// `deriveStepState` applies to a step's gating set). A container carries no
+// `deriveEpicState` applies to an epic's gating set). A container carries no
 // acceptance criteria of its own; counting it either way would make a plan
 // that TRACKS ITSELF read as permanently short of — or trivially at — 100%.
 //
 // THE NUMERATOR IS `TERMINAL_REQUIREMENT_STATUSES`, not a bare `=== 'met'`
 // compare (req #3269). `wontfix`/`deferred` count toward it exactly like
-// `met` does — the same set that already makes a step derive `done` (design
-// rule 1), so a step whose requirements are all deferred is already Complete
+// `met` does — the same set that already makes an epic derive `done` (design
+// rule 1), so an epic whose requirements are all deferred is already Complete
 // and its initiative's count must agree rather than reading one short. req #3225's
 // original "deferred/wontfix count toward the denominator only" reading made
 // the label disagree with the state machine drawn beside it; this is the
 // correction, not a new notion of doneness.
 //
 // GROUPED BY THE REQUIREMENT'S OWN feature_fk -> initiative chain, deliberately not
-// the step's dominant initiative (rule 10's tie-break answers a different question —
-// which ONE initiative a multi-requirement step bands under for display — while a
+// the epic's dominant initiative (rule 10's tie-break answers a different question —
+// which ONE initiative a multi-requirement epic bands under for display — while a
 // met/total count is a property of the requirement itself, independent of
-// which step happens to link it, or whether any step links it at all).
+// which epic happens to link it, or whether any epic links it at all).
 //
 // `byInitiative` is an ARRAY, not a Map, for the same reason `initiativeLabels` is: a Map
 // is not JSON-stable across the two engines (Python dict keys stringify, a JS
@@ -1382,12 +1382,12 @@ export function requirementCounts(model) {
 // a person", the other "waiting on a gate") and the plan visualizer renders
 // them differently.
 //
-// TWO SCOPES, ONE RULE. A step is suppressed when its PLAN is paused, or when
+// TWO SCOPES, ONE RULE. An epic is suppressed when its PLAN is paused, or when
 // its DOMINANT initiative (rule 10) is paused — an initiative pause binds a whole-plan
-// orchestrator too, so the suppression is a property of the STEP and no
+// orchestrator too, so the suppression is a property of the EPIC and no
 // consumer has to know which orchestrator would be asking. `suppressedBy` is a
 // list, not a winner, because a reader who unpauses only the plan needs to
-// know the initiative pause still holds the step.
+// know the initiative pause still holds the epic.
 //
 // A missing `initiative_status` reads as `active` — the column's own DB default and
 // what every pre-migration row carries.
@@ -1398,7 +1398,7 @@ export function requirementCounts(model) {
 //                           for `row.cost` — these are freshly built rows this
 //                           call owns, never a caller's cached object.
 // @returns {{pipelineStatus: ?string, pipelinePaused: boolean,
-//            pausedInitiativeIds: number[], suppressedStepIds: number[]}}
+//            pausedInitiativeIds: number[], suppressedEpicIds: number[]}}
 export function pauseState(model, rows) {
     const pipeline = (model && model.pipeline) || {};
     const pipelineStatus = pipeline.pipeline_status;
@@ -1424,30 +1424,30 @@ export function pauseState(model, rows) {
         }
     }
 
-    const suppressedStepIds = [];
+    const suppressedEpicIds = [];
     for (const row of rows || []) {
         const reasons = [];
         if (pipelinePaused) reasons.push('pipeline');
         if (row.initiativeId != null && pausedInitiativeIds.has(row.initiativeId)) reasons.push('initiative');
         row.launchSuppressed = reasons.length > 0;
         row.suppressedBy = reasons;
-        if (reasons.length) suppressedStepIds.push(row.id);
+        if (reasons.length) suppressedEpicIds.push(row.id);
     }
 
     return {
         pipelineStatus,
         pipelinePaused,
         pausedInitiativeIds: [...pausedInitiativeIds].sort((a, b) => a - b),
-        suppressedStepIds,
+        suppressedEpicIds,
     };
 }
 
 /**
- * Which initiative's turn it is, and therefore which steps must WAIT for it (req #3388).
+ * Which initiative's turn it is, and therefore which epics must WAIT for it (req #3388).
  *
  * The browser half of `pipeline_derive.py::serial_state`. That module's
  * docstring carries the full rationale — the order is FIRST APPEARANCE IN
- * DISPLAY ORDER, an initiative is CLOSED when every step it owns is `done`, and the
+ * DISPLAY ORDER, an initiative is CLOSED when every epic it owns is `done`, and the
  * live initiative is the first one not closed.
  *
  * REQ #3430 REVERSED THIS FUNCTION'S RECORDED OBJECTION TO `initiatives.sort_order`,
@@ -1459,7 +1459,7 @@ export function pauseState(model, rows) {
  * rather than duplicating it: still one source, still no second stored fact.
  *
  * Called AFTER `pauseState`, whose `suppressedBy` list this APPENDS to rather
- * than replacing: a step held by both a pause and a turn must name both, or
+ * than replacing: an epic held by both a pause and a turn must name both, or
  * unpausing it looks like it should start and does not. `turn` stays a distinct
  * reason from `initiative`/`pipeline` because they clear differently — a pause needs a
  * person, a turn passes by itself when the initiative ahead closes.
@@ -1468,10 +1468,10 @@ export function pauseState(model, rows) {
  * initiative is never suppressed, because `turn` means "has not had its turn yet",
  * which is false of an initiative that has finished. That is the one place serial does
  * NOT copy `pauseState`, whose `initiative` reason means "this scope is paused" and is
- * true of its done steps too. Within an initiative that IS ahead, suppression is by
+ * true of its done epics too. Within an initiative that IS ahead, suppression is by
  * MEMBERSHIP and not eligibility, exactly as `pauseState` does it.
  *
- * A step with no initiative label is never suppressed by turn: it has no turn to wait
+ * An epic with no initiative label is never suppressed by turn: it has no turn to wait
  * for, and holding it would deadlock a plan no unpause could rescue.
  */
 export function serialState(model, rows) {
@@ -1490,7 +1490,7 @@ export function serialState(model, rows) {
 
     const closedInitiativeIds = initiativeOrder.filter((initiativeId) => (rows || [])
         .filter((row) => row.initiativeId === initiativeId)
-        .every((row) => row.state === STEP_DONE));
+        .every((row) => row.state === EPIC_DONE));
     const closed = new Set(closedInitiativeIds);
 
     let liveInitiativeId = null;
@@ -1503,13 +1503,13 @@ export function serialState(model, rows) {
         (initiativeId) => !closed.has(initiativeId) && initiativeId !== liveInitiativeId);
     const waiting = new Set(waitingInitiativeIds);
 
-    const heldStepIds = [];
+    const heldEpicIds = [];
     if (serial && liveInitiativeId != null) {
         for (const row of rows || []) {
             if (row.initiativeId == null || !waiting.has(row.initiativeId)) continue;
             row.suppressedBy = [...(row.suppressedBy || []), 'turn'];
             row.launchSuppressed = true;
-            heldStepIds.push(row.id);
+            heldEpicIds.push(row.id);
         }
     }
 
@@ -1521,7 +1521,7 @@ export function serialState(model, rows) {
         closedInitiativeIds,
         liveInitiativeId,
         waitingInitiativeIds,
-        heldStepIds,
+        heldEpicIds,
     };
 }
 
@@ -1538,43 +1538,43 @@ const asArray = (v) => (Array.isArray(v) ? v : []);
  * Narrow whole-table reads to ONE pipeline, in the shape req #3112 fixed.
  *
  * `requirements` is narrowed to the linked set on purpose: the engine rebuilds
- * an id index inside dominantLabels() and machineLabels() once PER STEP, so
+ * an id index inside dominantLabels() and machineLabels() once PER EPIC, so
  * handing it Darwin's entire requirement table would make label derivation
- * O(steps x requirements) over thousands of irrelevant rows. Features, initiatives and
+ * O(epics x requirements) over thousands of irrelevant rows. Features, initiatives and
  * machines are small dictionaries and pass through whole.
  */
 export function buildPipelineModel({
     pipeline,
-    steps,
-    stepRequirements,
-    stepDeps,
+    epics,
+    epicRequirements,
+    epicDeps,
     requirements,
     features,
     initiatives,
     machines,
 } = {}) {
     const pipelineId = pipeline ? pipeline.id : null;
-    const ownSteps = pipelineId == null
+    const ownEpics = pipelineId == null
         ? []
-        : asArray(steps).filter((s) => s.pipeline_fk === pipelineId);
-    const stepIds = new Set(ownSteps.map((s) => s.id));
+        : asArray(epics).filter((s) => s.pipeline_fk === pipelineId);
+    const epicIds = new Set(ownEpics.map((s) => s.id));
 
-    const ownStepRequirements = asArray(stepRequirements)
-        .filter((j) => stepIds.has(j.step_fk));
-    // Dep rows are scoped by their OWNING step only. A dep_step_fk pointing
+    const ownEpicRequirements = asArray(epicRequirements)
+        .filter((j) => epicIds.has(j.epic_fk));
+    // Dep rows are scoped by their OWNING epic only. A dep_epic_fk pointing
     // outside this pipeline cannot happen through the UI, and if it ever did,
     // dropping the row here would hide it — verifyOrder's dangling-dependency
     // check is what must surface it, loudly.
-    const ownStepDeps = asArray(stepDeps).filter((d) => stepIds.has(d.step_fk));
+    const ownEpicDeps = asArray(epicDeps).filter((d) => epicIds.has(d.epic_fk));
 
-    const linkedIds = new Set(ownStepRequirements.map((j) => j.requirement_fk));
+    const linkedIds = new Set(ownEpicRequirements.map((j) => j.requirement_fk));
     const ownRequirements = asArray(requirements).filter((r) => linkedIds.has(r.id));
 
     return {
         pipeline: pipeline || null,
-        steps: ownSteps,
-        stepRequirements: ownStepRequirements,
-        stepDeps: ownStepDeps,
+        epics: ownEpics,
+        epicRequirements: ownEpicRequirements,
+        epicDeps: ownEpicDeps,
         requirements: ownRequirements,
         features: asArray(features),
         initiatives: asArray(initiatives),
@@ -1598,17 +1598,17 @@ export function buildPipelineModel({
  */
 export function orderedPlan(model, { now, costIndex = null } = {}) {
     const planRows = buildPlanRows(model || {});
-    const { rows, cycleDetected, cycleStepIds, duplicateStepIds } = displayOrder(planRows);
+    const { rows, cycleDetected, cycleEpicIds, duplicateEpicIds } = displayOrder(planRows);
     const violations = verifyOrder(rows);
     const batches = launchBatches(rows);
 
-    const batchLetterByStepId = new Map();
+    const batchLetterByEpicId = new Map();
     for (const b of batches) {
-        for (const id of b.stepIds) batchLetterByStepId.set(id, b.letter);
+        for (const id of b.epicIds) batchLetterByEpicId.set(id, b.letter);
     }
 
     const byId = new Map(rows.map((r) => [r.id, r]));
-    const eligibleStepIds = new Set(
+    const eligibleEpicIds = new Set(
         rows.filter((r) => eligibility(r, byId, now)).map((r) => r.id),
     );
 
@@ -1620,7 +1620,7 @@ export function orderedPlan(model, { now, costIndex = null } = {}) {
     }
 
     // Pause first, then serial: `serialState` APPENDS to the `suppressedBy` list
-    // `pauseState` writes, so calling it earlier (or not at all) leaves a step
+    // `pauseState` writes, so calling it earlier (or not at all) leaves an epic
     // reading as launchable while a turn holds it.
     const pause = pauseState(model || {}, rows);
     const serial = serialState(model || {}, rows);
@@ -1637,11 +1637,11 @@ export function orderedPlan(model, { now, costIndex = null } = {}) {
         violations,
         timeAxis,
         batches,
-        batchLetterByStepId,
-        eligibleStepIds,
+        batchLetterByEpicId,
+        eligibleEpicIds,
         cycleDetected,
-        cycleStepIds,
-        duplicateStepIds,
+        cycleEpicIds,
+        duplicateEpicIds,
         unresolvedReqIds,
         requirementCounts: requirementCounts(model || {}),
         pause,

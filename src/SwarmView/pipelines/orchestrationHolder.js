@@ -16,7 +16,7 @@
 // the two answers the same.
 //
 // A SCOPE IS (pipeline_fk, initiative_fk) AND NOTHING ELSE. `initiative_fk` null means
-// the WHOLE PLAN, which owns every step in it — so a plan with a whole-plan
+// the WHOLE PLAN, which owns every epic in it — so a plan with a whole-plan
 // reservation is orchestrated even though none of its initiatives carries one. Every
 // consumer asks through `claimForPipeline` rather than filtering inline,
 // because getting that null case wrong reads as "nobody is orchestrating this"

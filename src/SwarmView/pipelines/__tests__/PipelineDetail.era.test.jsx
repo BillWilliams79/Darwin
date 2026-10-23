@@ -65,7 +65,7 @@ vi.mock('../../../RestApi/RestApi', () => ({
 // the outage needs ruled out is the page READING the wrong table at all.
 const COMPOSED_2 = {
     pipeline: { id: 7, title: 'Darwin (2.0)', pipeline_status: 'active', description: '' },
-    initiatives: [], steps: [], step_requirements: [], step_deps: [], requirements: [],
+    initiatives: [], epics: [], epic_requirements: [], epic_deps: [], requirements: [],
     derived: { rows: [], rows_complete: true, withheld: false },
 };
 
@@ -99,9 +99,9 @@ vi.mock('../../../hooks/useDataQueries', async (importOriginal) => {
         //
         // `useAllPipelines` is NOT in this group — see the header. It is the
         // index, it is read on the miss path, and it is stubbed below.
-        useAllPipelineSteps: count('steps'),
-        useAllPipelineStepRequirements: count('stepRequirements'),
-        useAllPipelineStepDeps: count('stepDeps'),
+        useAllPipelineEpics: count('epics'),
+        useAllPipelineEpicRequirements: count('epicRequirements'),
+        useAllPipelineEpicDeps: count('epicDeps'),
         useAllRequirements: count('requirements'),
         useAllInitiatives: count('initiatives'),
         useComposedPipeline: (id, opts = {}) => {
@@ -186,9 +186,9 @@ describe('PipelineDetail — which table is read (req #3463, one era since #3356
         // Every one of the five, BY NAME: a blanket "no other read fired" would
         // pass vacuously the moment a hook was renamed — which is precisely how
         // this file lost an assertion during req #3356's rename.
-        expect(reads.steps).toBeUndefined();
-        expect(reads.stepRequirements).toBeUndefined();
-        expect(reads.stepDeps).toBeUndefined();
+        expect(reads.epics).toBeUndefined();
+        expect(reads.epicRequirements).toBeUndefined();
+        expect(reads.epicDeps).toBeUndefined();
         expect(reads.requirements).toBeUndefined();
         expect(reads.initiatives).toBeUndefined();
         // The index is not read on the happy path either — asserted here as

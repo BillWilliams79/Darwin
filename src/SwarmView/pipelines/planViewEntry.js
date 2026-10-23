@@ -1,7 +1,7 @@
 // planViewEntry.js — what a history entry of the plan page ASKS FOR (req #3651).
 //
 // Every way of arriving at `/swarm/pipeline/:id` is one of THREE transitions,
-// and each has exactly one answer about the one-shot focus (`?step=`/`?initiative=`,
+// and each has exactly one answer about the one-shot focus (`?epic=`/`?initiative=`,
 // which moves the camera or the table's scroll onto one thing):
 //
 //   LINK    — an entry whose focus link has not been honoured yet: a bead click
@@ -18,8 +18,8 @@
 //
 // THE DEFECT THIS CLOSES. The focus used to be state re-seeded by an EFFECT on
 // the entry key, so on a Back the panel rendered — and mounted — with the
-// PREVIOUS entry's `?step=` for as long as that effect took to run. The canvas
-// took it as a step link, began flying to the step before it had restored the
+// PREVIOUS entry's `?epic=` for as long as that effect took to run. The canvas
+// took it as an epic link, began flying to the epic before it had restored the
 // reader's camera, was interrupted at the first tick when the panel resized, and
 // SAVED that interrupted camera over the reader's — which the landing then
 // faithfully "restored": the plan at its top-left at scale 1 (*"I was at the
@@ -28,7 +28,7 @@
 // computed DURING RENDER from the entry itself, so no render can carry another
 // entry's focus.
 //
-// Pure, no React — vitest reaches it without a DOM, like `pipelineStepLink.js`.
+// Pure, no React — vitest reaches it without a DOM, like `pipelineEpicLink.js`.
 
 export const PLAN_ENTRY_LINK = 'link';
 export const PLAN_ENTRY_REWRITE = 'rewrite';
@@ -56,17 +56,17 @@ export function classifyPlanEntry({ consumed, navigationType, hasFocusLink }) {
     return hasFocusLink ? PLAN_ENTRY_LINK : PLAN_ENTRY_RETURN;
 }
 
-const NO_FOCUS = Object.freeze({ stepId: null, initiativeId: null });
+const NO_FOCUS = Object.freeze({ epicId: null, initiativeId: null });
 
 /**
  * The focus the page hands its panels for this entry.
  *
  * @param {string} kind     from `classifyPlanEntry`
- * @param {{stepId: ?number, initiativeId: ?number}} link  the entry's own `?step=`/`?initiative=`
- * @param {?{stepId: ?number, initiativeId: ?number}} held the focus in hand before it
+ * @param {{epicId: ?number, initiativeId: ?number}} link  the entry's own `?epic=`/`?initiative=`
+ * @param {?{epicId: ?number, initiativeId: ?number}} held the focus in hand before it
  */
 export function planEntryFocus(kind, link, held) {
-    if (kind === PLAN_ENTRY_LINK) return { stepId: link.stepId ?? null, initiativeId: link.initiativeId ?? null };
-    if (kind === PLAN_ENTRY_REWRITE && held) return { stepId: held.stepId, initiativeId: held.initiativeId };
+    if (kind === PLAN_ENTRY_LINK) return { epicId: link.epicId ?? null, initiativeId: link.initiativeId ?? null };
+    if (kind === PLAN_ENTRY_REWRITE && held) return { epicId: held.epicId, initiativeId: held.initiativeId };
     return NO_FOCUS;
 }

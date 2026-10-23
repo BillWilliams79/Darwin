@@ -66,13 +66,13 @@ describe('navConfig — Sessions sub-items', () => {
 // #3140, each of which pinned "sibling, never a child of Pipelines" for one of
 // these two — the earlier assertions are inverted here on purpose, not merely
 // deleted. req #3357 retired the nav entry that once sat between them (the
-// retired middle tier itself left the plan; a step belongs to its initiative directly).
+// retired middle tier itself left the plan; an epic belongs to its initiative directly).
 //
 // req #3356 — THERE IS ONE PLAN SURFACE NOW, so there is one nav entry per
 // level and none of them carries an era marker. The 1.0 pages were deleted and
 // the 2.0 pages took their routes (`/swarm/pipelines2` -> `/swarm/pipelines`,
-// `/swarm/initiatives2` -> `/swarm/initiatives`, `/swarm/steps2` -> `/swarm/steps`) and
-// their labels (`Initiatives 2.0` -> `Initiatives`, `Steps 2.0` -> `Steps`). The separate
+// `/swarm/initiatives2` -> `/swarm/initiatives`, `/swarm/epics2` -> `/swarm/epics`) and
+// their labels (`Initiatives 2.0` -> `Initiatives`, `Epics 2.0` -> `Epics`). The separate
 // `Pipelines 2.0` CHILD went at the same time for a mechanical reason, not a
 // cosmetic one: it would have held the same path as its own parent, and `path`
 // is this config's identity — the React key, the expand/collapse key, the
@@ -80,11 +80,11 @@ describe('navConfig — Sessions sub-items', () => {
 // active-item lookup. That is asserted below.
 describe('navConfig — the plan editors nest under Pipelines (req #3236)', () => {
     const PIPELINES_PATH = '/swarm/pipelines';
-    // req #3393 — the plan-layer editors, in hierarchy order (Initiative > Step).
+    // req #3393 — the plan-layer editors, in hierarchy order (Initiative > Epic).
     // NavBarSidebar renders exactly two levels (a
     // Pipelines-owns-Initiatives-owns-something L4 shape would be silently dropped),
     // so this array is the only place a plan-editor child can go.
-    const CHILD_PATHS = ['/swarm/initiatives', '/swarm/steps'];
+    const CHILD_PATHS = ['/swarm/initiatives', '/swarm/epics'];
 
     const pipelines = NAV_LINKS.find(l => l.path === PIPELINES_PATH);
 
@@ -95,12 +95,12 @@ describe('navConfig — the plan editors nest under Pipelines (req #3236)', () =
     });
 
     it('nests the plan editors under Pipelines, in hierarchy order', () => {
-        // Initiative > Step — not arrival order.
+        // Initiative > Epic — not arrival order.
         expect(pipelines.children.map(c => c.path)).toEqual(CHILD_PATHS);
         // Unsuffixed since req #3356 — with one era left, an `Initiatives 2.0` label
         // would name a distinction the reader can no longer draw.
         expect(pipelines.children.map(c => c.label))
-            .toEqual(['Initiatives', 'Steps']);
+            .toEqual(['Initiatives', 'Epics']);
     });
 
     it('never gives a child the same path as its parent', () => {
@@ -136,7 +136,7 @@ describe('navConfig — the plan editors nest under Pipelines (req #3236)', () =
         expect(flat.filter(p => p === '/swarm/pipelines')).toEqual(['/swarm/pipelines']);
         // Pinned ABSENT rather than merely unlisted: a nav entry to a page that
         // no longer exists renders a link that 404s, and nothing else catches it.
-        ['/swarm/pipelines2', '/swarm/initiatives2', '/swarm/steps2']
+        ['/swarm/pipelines2', '/swarm/initiatives2', '/swarm/epics2']
             .forEach(p => expect(flat).not.toContain(p));
     });
 

@@ -17,9 +17,9 @@
 // starts with, set in the editor's "defaults" mode and kept per browser
 // (useRequirementFilerStore). A field never set is ABSENT from `defaults` and
 // falls back to DEFAULT_REQUIREMENT_SPEC (the place: to where the last one was
-// filed). The SEAT — pipeline -> epic -> step — is editor-own like `projectId`:
-// never in a requirement body; Save writes it to `pipeline_step_requirements`
-// after the requirement exists (Steps/stepsApi.js::moveStepRequirement).
+// filed). The SEAT — pipeline -> initiative -> epic — is editor-own like `projectId`:
+// never in a requirement body; Save writes it to `epic_requirements`
+// after the requirement exists (Epics/epicsApi.js::moveEpicRequirement).
 
 import { DEFAULT_REQUIREMENT_SPEC } from '../SwarmView/requirementSpec';
 import { AI_MODELS, aiModelLabel } from '../SwarmView/modelChipStyles';
@@ -52,10 +52,10 @@ const ENUMS = ENUM_FIELDS.map(e => e.field);
 const blank = (v) => v == null || String(v).trim() === '';
 
 /** The settable defaults, in the order the Defaults form shows them. The seat's
- *  pipeline and epic only scope the step list; the step is what seats. */
+ *  pipeline and initiative only scope the epic list; the epic is what seats. */
 export const DEFAULT_FIELDS = Object.freeze([
     'projectId', 'category_fk', ...ENUMS, 'machine_fk', 'affected_repos', 'tracking',
-    'seatPipelineId', 'seatInitiativeId', 'seatStepId',
+    'seatPipelineId', 'seatInitiativeId', 'seatEpicId',
 ]);
 
 const has = (defaults, f) => !!defaults && Object.prototype.hasOwnProperty.call(defaults, f);
@@ -66,7 +66,7 @@ export function defaultsFormValues(defaults = {}) {
     const out = {
         projectId: null, category_fk: null, ...DEFAULT_REQUIREMENT_SPEC,
         machine_fk: null, affected_repos: '', tracking: 0,
-        seatPipelineId: null, seatInitiativeId: null, seatStepId: null,
+        seatPipelineId: null, seatInitiativeId: null, seatEpicId: null,
     };
     for (const f of DEFAULT_FIELDS) {
         if (has(d, f) && !(ENUMS.includes(f) && blank(d[f]))) out[f] = d[f];
@@ -88,7 +88,7 @@ export function newRequirementDraft(projectId = null, categoryId = null, default
     const unchecked = [];
     if (placeFromDefaults) unchecked.push('category');
     if (d.machine_fk != null) unchecked.push('machine');
-    if (d.seatStepId != null || d.seatPipelineId != null) unchecked.push('seat');
+    if (d.seatEpicId != null || d.seatPipelineId != null) unchecked.push('seat');
     const description = typeof filedFrom === 'string' && filedFrom ? `\n\n${filedFrom}` : '';
     return {
         title: '',
@@ -103,10 +103,10 @@ export function newRequirementDraft(projectId = null, categoryId = null, default
         machine_fk: d.machine_fk ?? null,
         affected_repos: d.affected_repos ?? '',
         tracking: d.tracking ? 1 : 0,
-        // A pipeline (and epic) with no step pre-scopes the step list.
+        // A pipeline (and initiative) with no epic pre-scopes the epic list.
         seatPipelineId: d.seatPipelineId ?? null,
         seatInitiativeId: d.seatPipelineId != null ? (d.seatInitiativeId ?? null) : null,
-        seatStepId: d.seatStepId ?? null,
+        seatEpicId: d.seatEpicId ?? null,
         defaultsUnchecked: unchecked,
         notice: null,
     };
@@ -147,25 +147,25 @@ export function staleRefs(values, { projects, categories, machines, index } = {}
         else if (!m) out.machine = 'no longer exists';
         else if (flagOn(m.closed)) out.machine = 'closed';
     }
-    if (v.seatStepId != null) {
+    if (v.seatEpicId != null) {
         if (!index) out.seat = undefined;
         else {
-            const step = index.stepsById.get(v.seatStepId);
-            const initiative = index.initiativesById.get(index.initiativeByStep.get(v.seatStepId));
-            const plan = index.pipelinesById.get(index.pipelineByStep.get(v.seatStepId));
-            if (!step) out.seat = 'no longer exists';
-            else if (!initiative || flagOn(initiative.closed)) out.seat = 'its epic is closed or deleted';
+            const epic = index.epicsById.get(v.seatEpicId);
+            const initiative = index.initiativesById.get(index.initiativeByEpic.get(v.seatEpicId));
+            const plan = index.pipelinesById.get(index.pipelineByEpic.get(v.seatEpicId));
+            if (!epic) out.seat = 'no longer exists';
+            else if (!initiative || flagOn(initiative.closed)) out.seat = 'its initiative is closed or deleted';
             else if (!plan || plan.pipeline_status === 'completed') out.seat = 'its pipeline is completed or deleted';
         }
     } else if (v.seatPipelineId != null) {
-        // A scope with no step: the pipeline (and epic) it names must still be open.
+        // A scope with no epic: the pipeline (and initiative) it names must still be open.
         if (!index) out.seat = undefined;
         else {
             const plan = index.pipelinesById.get(v.seatPipelineId);
             const initiative = v.seatInitiativeId != null ? index.initiativesById.get(v.seatInitiativeId) : null;
             if (!plan || plan.pipeline_status === 'completed') out.seat = 'its pipeline is completed or deleted';
             else if (v.seatInitiativeId != null && (!initiative || flagOn(initiative.closed)
-                     || initiative.pipeline_fk !== v.seatPipelineId)) out.seat = 'its epic is closed or deleted';
+                     || initiative.pipeline_fk !== v.seatPipelineId)) out.seat = 'its initiative is closed or deleted';
         }
     }
     return out;
@@ -196,7 +196,7 @@ export function savedValues(draft) {
         machine_fk: draft.machine_fk ?? null,
         affected_repos: (draft.affected_repos ?? '').trim(),
         tracking: draft.tracking ? 1 : 0,
-        seatStepId: draft.seatStepId ?? null,
+        seatEpicId: draft.seatEpicId ?? null,
     };
 }
 
@@ -233,7 +233,7 @@ export function buildPutBody(id, draft, saved, now = new Date().toISOString()) {
 
 /** Whether the draft's seat differs from the one last written. */
 export function seatDirty(draft, saved) {
-    return (draft?.seatStepId ?? null) !== (saved?.seatStepId ?? null);
+    return (draft?.seatEpicId ?? null) !== (saved?.seatEpicId ?? null);
 }
 
 /** Whether Save has anything to send. */

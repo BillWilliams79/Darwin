@@ -65,7 +65,7 @@ describe('routeTrail', () => {
         });
     });
 
-    describe('a multi-step journey', () => {
+    describe('a multi-epic journey', () => {
         // The scenario the requirement describes: leave a plan for somewhere
         // else entirely, come back later. The origin is the page in between, so
         // the resume fires — leaving a plan for another part of the app is not

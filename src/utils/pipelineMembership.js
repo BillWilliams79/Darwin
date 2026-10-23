@@ -3,9 +3,9 @@
 //
 // THE browser's one answer to "is this requirement part of a plan":
 //
-//   STEP association (`pipelinedRequirementIds`)
-//     A `pipeline_step_requirements` junction row exists — "is this SCHEDULED".
-//     This is LAUNCH ELIGIBILITY (req #3180): a step-carried requirement is not
+//   EPIC association (`pipelinedRequirementIds`)
+//     A `epic_requirements` junction row exists — "is this SCHEDULED".
+//     This is LAUNCH ELIGIBILITY (req #3180): an epic-carried requirement is not
 //     eligible for a direct swarm-start, because its launch is the coordinator's
 //     to make at the point the plan says so. The daemon derives the same fact
 //     server-side as `requirement.pipelined`
@@ -17,7 +17,7 @@
 //     req #3502 — NO BROWSE SURFACE APPLIES THIS ANYMORE. It used to be applied
 //     unconditionally by the aggregator card, on the grounds that a card
 //     offering a row is an offer to launch it. It is not: the LAUNCHER is
-//     `/swarm-start`, its auto-discovery still excludes step-carried work, and
+//     `/swarm-start`, its auto-discovery still excludes epic-carried work, and
 //     that gate is where eligibility belongs. What the card's copy actually did
 //     was make the reader's orchestrated toggle mean two different things on two
 //     surfaces of one page. Nothing in `Darwin/src` reads this function today
@@ -29,17 +29,17 @@
 //
 // req #3419 ADDED a second population — requirements "filed under a BODY OF
 // WORK" through the retired middle tier's own reference to the initiative, true of
-// plenty of requirements no step carried yet — and unioned it with the step set so the
+// plenty of requirements no epic carried yet — and unioned it with the epic set so the
 // toggle would not miss initiative-filed-but-unseated work.
 //
 // req #3357 RETIRES IT, because Feature (the only mechanism that could file a
-// requirement into an initiative without also seating it on a step) leaves the
-// frontend entirely, and re-deriving the same fact off a step's initiative is not
-// possible for 1.0: no 1.0 `pipeline_steps` row carries an `initiative_fk` — only
-// Pipeline 2.0's `pipeline_steps` does, a disjoint id space unrelated to the
+// requirement into an initiative without also seating it on an epic) leaves the
+// frontend entirely, and re-deriving the same fact off an epic's initiative is not
+// possible for 1.0: no 1.0 `epics` row carries an `initiative_fk` — only
+// Pipeline 2.0's `epics` does, a disjoint id space unrelated to the
 // live 1.0 "Darwin" plan this toggle filters. So `orchestratedRequirementIds`
 // COLLAPSES to `pipelinedRequirementIds` — every requirement this toggle can
-// still call "part of a plan" is one a step actually carries. The #3419 gap
+// still call "part of a plan" is one an epic actually carries. The #3419 gap
 // (an initiative-filed, unseated requirement staying visible under the toggle) is
 // an ACCEPTED, TRANSITIONAL regression: the population it was catching only
 // existed because Feature did.
@@ -54,7 +54,7 @@
 //     authoring   42 offered -> 33  (#3178 #3304 #3314 #3315 #3385 #3424 #3425 #3426 #3433)
 //     swarm_ready  UNAFFECTED — no swarm_ready requirement was initiative-seated
 //
-// Every id in that table was LEGAL to launch — no step carried it — which is
+// Every id in that table was LEGAL to launch — no epic carried it — which is
 // why req #3180's rule (the aggregator's deleted `offersLaunch` branch) was
 // always `pipelinedRequirementIds` alone and never the union: "offering a
 // launch the coordinator owns is a DEFECT" is about showing something the
@@ -64,11 +64,11 @@
 // its own gating — so the two questions no longer have two call sites here.
 
 /**
- * Requirement ids at least one pipeline STEP carries.
+ * Requirement ids at least one pipeline EPIC carries.
  *
  * req #3491 widened this to also read a second, first-generation junction
  * while both eras ran side by side; req #3356 retired that union along with
- * the first generation itself — `useAllPipeline2StepRequirements` (the hook
+ * the first generation itself — `useAllPipeline2EpicRequirements` (the hook
  * that fed the second argument) no longer exists in `useDataQueries.js`, so
  * a caller still passing one would be reading `undefined`, harmlessly, but
  * for the wrong reason. Collapsed back to one argument. Mirrors the backend's
@@ -77,16 +77,16 @@
  * this deliberately duplicates rather than shares: the browser reaches
  * Lambda-Rest, the daemon reaches it from a localhost process.
  *
- * @param {Array<{requirement_fk: number}>} stepRequirements  rows from
- *        `useAllPipelineStepRequirements` (the junction, whole-table read).
+ * @param {Array<{requirement_fk: number}>} epicRequirements  rows from
+ *        `useAllPipelineEpicRequirements` (the junction, whole-table read).
  *        The 1.0 junction fed this until req #3356; the ROW SHAPE is
  *        identical, so only the caller moved.
  * @returns {Set<number>}
  */
-export const pipelinedRequirementIds = (stepRequirements) => {
+export const pipelinedRequirementIds = (epicRequirements) => {
     const ids = new Set();
-    if (!Array.isArray(stepRequirements)) return ids;
-    for (const link of stepRequirements) {
+    if (!Array.isArray(epicRequirements)) return ids;
+    for (const link of epicRequirements) {
         // A junction row with no requirement_fk cannot name a requirement. Skip
         // it rather than seeding the set with null/undefined, which would make
         // `has(r.id)` answer true for any row whose own id was missing.
@@ -97,38 +97,38 @@ export const pipelinedRequirementIds = (stepRequirements) => {
 };
 
 /**
- * The requirement ids ONE step carries — req #3503.
+ * The requirement ids ONE epic carries — req #3503.
  *
- * Belongs here rather than in `initiativeMembership.js` because STEP association is
+ * Belongs here rather than in `initiativeMembership.js` because EPIC association is
  * this module's own stated domain. The narrowing is the whole point: everything
- * above answers "is this on ANY step", and this answers "is this on step X".
+ * above answers "is this on ANY epic", and this answers "is this on epic X".
  *
- * ONE HOP, WHERE THE INITIATIVE ANSWER TAKES TWO. `initiativeRequirementIds` needs a `steps`
- * argument to resolve `initiative_fk -> id` before it can read the junction; a step id
- * IS the junction's own `step_fk`, so no second read exists to make. That is why
- * the hook behind this (`useStepRequirementIds`) fetches one bounded list where
+ * ONE HOP, WHERE THE INITIATIVE ANSWER TAKES TWO. `initiativeRequirementIds` needs a `epics`
+ * argument to resolve `initiative_fk -> id` before it can read the junction; an epic id
+ * IS the junction's own `epic_fk`, so no second read exists to make. That is why
+ * the hook behind this (`useEpicRequirementIds`) fetches one bounded list where
  * the initiative hook fetches two.
  *
- * A null/undefined `stepId` returns an EMPTY set, not every id: the caller that
- * means "no filter" passes null to `filterToStepReqIds` instead, and conflating
+ * A null/undefined `epicId` returns an EMPTY set, not every id: the caller that
+ * means "no filter" passes null to `filterToEpicReqIds` instead, and conflating
  * the two here would make an unresolved id read as "the whole table".
  *
- * @param {?Array<{step_fk: number, requirement_fk: number}>} stepRequirements rows
- *        from `useAllPipelineStepRequirements` (the junction, whole-table read)
- * @param {?number} stepId
+ * @param {?Array<{epic_fk: number, requirement_fk: number}>} epicRequirements rows
+ *        from `useAllPipelineEpicRequirements` (the junction, whole-table read)
+ * @param {?number} epicId
  * @returns {Set<number>}
  */
-export const stepRequirementIds = (stepRequirements, stepId) => {
+export const epicRequirementIds = (epicRequirements, epicId) => {
     const ids = new Set();
-    if (stepId === null || stepId === undefined || stepId === '') return ids;
-    if (!Array.isArray(stepRequirements)) return ids;
-    const target = Number(stepId);
-    for (const link of stepRequirements) {
+    if (epicId === null || epicId === undefined || epicId === '') return ids;
+    if (!Array.isArray(epicRequirements)) return ids;
+    const target = Number(epicId);
+    for (const link of epicRequirements) {
         if (!link) continue;
         // Both guarded explicitly rather than left to `Number(null)`, which is 0
-        // — a perfectly good integer that would match a `stepId` of 0 and seed
+        // — a perfectly good integer that would match a `epicId` of 0 and seed
         // the set with a null requirement id.
-        const sid = link.step_fk;
+        const sid = link.epic_fk;
         if (sid === null || sid === undefined || sid === '') continue;
         if (Number(sid) !== target) continue;
         const rid = link.requirement_fk;
@@ -139,7 +139,7 @@ export const stepRequirementIds = (stepRequirements, stepId) => {
 };
 
 /**
- * Keep only the step's requirements — req #3503.
+ * Keep only the epic's requirements — req #3503.
  *
  * Identical semantics to `initiativeMembership.js`' `filterToInitiative`, and a deliberate
  * duplicate rather than an import: that module is the INITIATIVE answer, and a caller
@@ -148,7 +148,7 @@ export const stepRequirementIds = (stepRequirements, stepId) => {
  * is given, this KEEPS them, and the two resolve their unknown states in opposite
  * directions on purpose.
  *
- * `stepReqIds == null` means NO FILTER IS ACTIVE and returns the input UNCHANGED
+ * `epicReqIds == null` means NO FILTER IS ACTIVE and returns the input UNCHANGED
  * (same reference), so an ordinary page pays nothing and cannot trip a
  * referential-equality dependency.
  *
@@ -159,16 +159,16 @@ export const stepRequirementIds = (stepRequirements, stepId) => {
  * it is filtered is the page lying about what it is showing.
  *
  * @param {?Array<{id: number}>} rows
- * @param {?Set<number>} stepReqIds
+ * @param {?Set<number>} epicReqIds
  */
-export const filterToStepReqIds = (rows, stepReqIds) => {
-    if (!stepReqIds) return rows;
+export const filterToEpicReqIds = (rows, epicReqIds) => {
+    if (!epicReqIds) return rows;
     if (!Array.isArray(rows)) return rows;
-    return rows.filter(r => r && stepReqIds.has(Number(r.id)));
+    return rows.filter(r => r && epicReqIds.has(Number(r.id)));
 };
 
 /**
- * THE browse answer: a requirement is ORCHESTRATED when a pipeline step
+ * THE browse answer: a requirement is ORCHESTRATED when a pipeline epic
  * carries it. Req #3357 retired the second population this used to union in
  * (initiative-filed-but-unseated, through the retired middle tier's own reference
  * to the initiative) — see the module header; req #3491's later, first-generation-junction union
@@ -176,11 +176,11 @@ export const filterToStepReqIds = (rows, stepReqIds) => {
  * named export, distinct from `pipelinedRequirementIds`, so both stay one
  * call site each even though they answer identically today.
  *
- * @param {Array} stepRequirements  the junction rows
+ * @param {Array} epicRequirements  the junction rows
  * @returns {Set<number>}
  */
-export const orchestratedRequirementIds = (stepRequirements) =>
-    pipelinedRequirementIds(stepRequirements);
+export const orchestratedRequirementIds = (epicRequirements) =>
+    pipelinedRequirementIds(epicRequirements);
 
 /**
  * Drop every row whose id is in `ids`. The ONE filter primitive — both facts

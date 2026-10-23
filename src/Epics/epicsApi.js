@@ -1,19 +1,19 @@
-// Mutation utilities for the pipeline_steps data type (req #3393).
+// Mutation utilities for the epics data type (req #3393).
 //
 // Goes through the same generic gateway path darwin-mcp/services/pipelines2.py
-// already POSTs/PUTs/DELETEs: `{darwinUri}/pipeline_steps`. No new backend
-// surface exists or is needed. Pattern mirrors Steps/stepsApi.js — this is its
+// already POSTs/PUTs/DELETEs: `{darwinUri}/epics`. No new backend
+// surface exists or is needed. Pattern mirrors Epics/epicsApi.js — this is its
 // server-side sibling, not an import of it.
 //
-// ## A step has no state (req #3750)
+// ## An epic has no state (req #3750)
 //
-// A step holds requirements and carries orchestration controls; it is never
-// completed or reopened, and `pipeline_steps.completed_at` no longer exists.
+// An epic holds requirements and carries orchestration controls; it is never
+// completed or reopened, and `epics.completed_at` no longer exists.
 //
 // Column shape (from darwin-mcp/services/pipelines2.py's create/update
 // functions):
-//   initiative_fk       required, the step's identity — never updated (moving a
-//                 step means dropping it and creating it in the new initiative,
+//   initiative_fk       required, the epic's identity — never updated (moving a
+//                 epic means dropping it and creating it in the new initiative,
 //                 same doctrine 1.0 states for pipeline_fk)
 //   title         NOT NULL
 //   run           'auto' | 'manual'
@@ -50,67 +50,67 @@ export const sqlNow = () => new Date().toISOString().slice(0, 19).replace('T', '
 export const VALID_RUN2_MODES = ['auto', 'manual'];
 
 /**
- * Create a step under an initiative. Requirement links are not created either: seating is
+ * Create an epic under an initiative. Requirement links are not created either: seating is
  * MCP/Primary-only (see this module's header). Dependency rows are written
- * only by the plan visualizer's add-step actions below (`addDependentStep`,
- * `insertStepOnEdge`, req #3586; `precedeStepWith`, req #3617) — a browser
- * write racing a Primary `set_step_deps` on the same step, the same KNOWN, ACCEPTED race
- * `moveStepRequirement` records for seats.
+ * only by the plan visualizer's add-epic actions below (`addDependentEpic`,
+ * `insertEpicOnEdge`, req #3586; `precedeEpicWith`, req #3617) — a browser
+ * write racing a Primary `set_epic_deps` on the same epic, the same KNOWN, ACCEPTED race
+ * `moveEpicRequirement` records for seats.
  */
-export async function createStep(darwinUri, idToken,
+export async function createEpic(darwinUri, idToken,
     { initiative_fk, title, run = 'auto', notes = null, not_before = null, checkpoint }) {
     // `checkpoint` (the barrier, req #3767) is sent only when the caller sets
     // it; omitted, the column DEFAULT (1, a barrier) applies.
-    const r = await call_rest_api(`${darwinUri}/pipeline_steps`, 'POST',
+    const r = await call_rest_api(`${darwinUri}/epics`, 'POST',
         { initiative_fk, title, run, notes, not_before,
           ...(checkpoint == null ? {} : { checkpoint }) }, idToken);
-    return assertOk(r, 'createStep');
+    return assertOk(r, 'createEpic');
 }
 
 /**
- * Update a step's own columns. `fields` is a partial update; nullable columns
+ * Update an epic's own columns. `fields` is a partial update; nullable columns
  * the caller wants CLEARED must arrive as REST_NULL. `notes` REPLACES, never
  * appends.
  */
-export async function updateStep(darwinUri, idToken, id, fields) {
-    const r = await call_rest_api(`${darwinUri}/pipeline_steps`, 'PUT',
+export async function updateEpic(darwinUri, idToken, id, fields) {
+    const r = await call_rest_api(`${darwinUri}/epics`, 'PUT',
         [{ id, ...fields }], idToken);
-    return assertOk(r, 'updateStep');
+    return assertOk(r, 'updateEpic');
 }
 
 /**
- * HARD-delete a step, ONE statement — same single-statement rationale
- * `Steps/stepsApi.js`'s `deleteStep` states: `pipeline_step_requirements` and
- * `pipeline_step_deps` rows referencing this step as `step_fk` cascade with
- * it, while `dep_step_fk` stays ON DELETE RESTRICT — so a step another step
+ * HARD-delete an epic, ONE statement — same single-statement rationale
+ * `Epics/epicsApi.js`'s `deleteEpic` states: `epic_requirements` and
+ * `epic_deps` rows referencing this epic as `epic_fk` cascade with
+ * it, while `dep_epic_fk` stays ON DELETE RESTRICT — so an epic another epic
  * depends on comes back as a clean 409 with the plan untouched, never a
  * partial write.
  */
-export async function deleteStep(darwinUri, idToken, id) {
-    const r = await call_rest_api(`${darwinUri}/pipeline_steps`, 'DELETE', { id }, idToken);
-    return assertOk(r, 'deleteStep');
+export async function deleteEpic(darwinUri, idToken, id) {
+    const r = await call_rest_api(`${darwinUri}/epics`, 'DELETE', { id }, idToken);
+    return assertOk(r, 'deleteEpic');
 }
 
 /**
- * Move a requirement's seat from one step to another — the ONE implementation
+ * Move a requirement's seat from one epic to another — the ONE implementation
  * of a seat edit in the browser (req #3435 wrote it inline in RequirementDetail;
  * req #3581's plan-visualizer drag-and-drop is its second caller, so it lives
  * here rather than in two copies that could disagree about the order below).
- * Either side may be null: `fromStepId` null seats an unseated requirement,
- * `toStepId` null unseats it.
+ * Either side may be null: `fromEpicId` null seats an unseated requirement,
+ * `toEpicId` null unseats it.
  *
  * Seating is the junction Primary/MCP owns on the orchestration side; the
  * browser write is a KNOWN, ACCEPTED race with a polling engine (user ruling
- * 2026-08-10, recorded at RequirementDetail's step picker) — do not add a
+ * 2026-08-10, recorded at RequirementDetail's epic picker) — do not add a
  * silent refusal here.
  *
  * ## Order of operations — DELETE THE OLD SEAT, THEN INSERT THE NEW
  *
  * THE REVERSE ORDER CANNOT WORK, and this is a schema fact rather than a
- * judgement call. `pipeline_step_requirements` has `PRIMARY KEY
- * (requirement_fk)` ALONE — one step per requirement, the req #3336 stage-2
+ * judgement call. `epic_requirements` has `PRIMARY KEY
+ * (requirement_fk)` ALONE — one epic per requirement, the req #3336 stage-2
  * gate ruling — so while the old row exists there is no key for a second one
- * and the INSERT fails 100% of the time on a MOVE. `link_step_requirement`
+ * and the INSERT fails 100% of the time on a MOVE. `link_epic_requirement`
  * (darwin-mcp) says the same from the server side.
  *
  * BOTH COLUMNS go in the DELETE body even though `requirement_fk` alone is the
@@ -123,10 +123,10 @@ export async function deleteStep(darwinUri, idToken, id) {
  * requirement seated NOWHERE. It is the only failure mode the key permits; the
  * caller surfaces the error and re-reads rather than guessing a rollback.
  */
-export async function moveStepRequirement(darwinUri, idToken,
-    { requirementId, fromStepId = null, toStepId = null }) {
-    if (fromStepId === toStepId) return;
-    const uri = `${darwinUri}/pipeline_step_requirements`;
+export async function moveEpicRequirement(darwinUri, idToken,
+    { requirementId, fromEpicId = null, toEpicId = null }) {
+    if (fromEpicId === toEpicId) return;
+    const uri = `${darwinUri}/epic_requirements`;
     // Every failure is tagged with the half that failed — `'unseat'` (nothing
     // changed) or `'seat'` (the old seat is already gone) — so a caller can
     // tell the harmless failure from the residual above.
@@ -139,30 +139,30 @@ export async function moveStepRequirement(darwinUri, idToken,
             throw error;
         }
     };
-    if (fromStepId != null) {
-        await write('unseat', 'DELETE', { step_fk: fromStepId, requirement_fk: requirementId });
+    if (fromEpicId != null) {
+        await write('unseat', 'DELETE', { epic_fk: fromEpicId, requirement_fk: requirementId });
     }
-    if (toStepId != null) {
-        await write('seat', 'POST', { step_fk: toStepId, requirement_fk: requirementId });
+    if (toEpicId != null) {
+        await write('seat', 'POST', { epic_fk: toEpicId, requirement_fk: requirementId });
     }
 }
 
 /**
- * Add one dependency edge: step `stepId` waits on step `depStepId`. A single
- * `pipeline_step_deps` row; the gateway derives ownership from `step_fk` and
- * verifies `dep_step_fk` (Lambda-Rest JUNCTION_OWNERSHIP).
+ * Add one dependency edge: epic `epicId` waits on epic `depEpicId`. A single
+ * `epic_deps` row; the gateway derives ownership from `epic_fk` and
+ * verifies `dep_epic_fk` (Lambda-Rest JUNCTION_OWNERSHIP).
  */
-export async function createStepDep(darwinUri, idToken, stepId, depStepId) {
-    const r = await call_rest_api(`${darwinUri}/pipeline_step_deps`, 'POST',
-        { step_fk: stepId, dep_step_fk: depStepId }, idToken);
-    return assertOk(r, 'createStepDep');
+export async function createEpicDep(darwinUri, idToken, epicId, depEpicId) {
+    const r = await call_rest_api(`${darwinUri}/epic_deps`, 'POST',
+        { epic_fk: epicId, dep_epic_fk: depEpicId }, idToken);
+    return assertOk(r, 'createEpicDep');
 }
 
 /** Remove one dependency edge, addressed by both columns (the UNIQUE key). */
-export async function deleteStepDep(darwinUri, idToken, stepId, depStepId) {
-    const r = await call_rest_api(`${darwinUri}/pipeline_step_deps`, 'DELETE',
-        { step_fk: stepId, dep_step_fk: depStepId }, idToken);
-    return assertOk(r, 'deleteStepDep');
+export async function deleteEpicDep(darwinUri, idToken, epicId, depEpicId) {
+    const r = await call_rest_api(`${darwinUri}/epic_deps`, 'DELETE',
+        { epic_fk: epicId, dep_epic_fk: depEpicId }, idToken);
+    return assertOk(r, 'deleteEpicDep');
 }
 
 // The new row's id out of a POST response. The gateway reads the row back as a
@@ -173,10 +173,10 @@ export const createdRowOf = (data) => (Array.isArray(data) ? data[0] : data) || 
 function requireCreatedId(data) {
     const row = createdRowOf(data);
     if (row?.id == null) {
-        const error = new Error('The step was created but its id could not be read back, '
+        const error = new Error('The epic was created but its id could not be read back, '
             + 'so its dependencies were not written — wire it from the plan.');
         // The row EXISTS; a retry would create a second one.
-        error.orphanStep = true;
+        error.orphanEpic = true;
         throw error;
     }
     return row;
@@ -190,50 +190,50 @@ async function undoAll(undos) {
         try {
             await undo();
         } catch (e) {
-            console.error('step insert rollback failed', e);
+            console.error('epic insert rollback failed', e);
         }
     }
 }
 
 /**
- * Create a step and gate it on `fromStepId` — the canvas's DEPENDENT "+"
- * (req #3586): a new step that depends on that one step alone. Neither write
- * can introduce a cycle (the new step has no dependents), and both steps are
- * in the same plan by construction. A failed edge deletes the new step. (The
+ * Create an epic and gate it on `fromEpicId` — the canvas's DEPENDENT "+"
+ * (req #3586): a new epic that depends on that one epic alone. Neither write
+ * can introduce a cycle (the new epic has no dependents), and both epics are
+ * in the same plan by construction. A failed edge deletes the new epic. (The
  * one exception is a create whose id cannot be read back — flagged
- * `orphanStep`, because nothing can address the row to delete it.)
+ * `orphanEpic`, because nothing can address the row to delete it.)
  *
- * @returns {Promise<Object>} the created step row
+ * @returns {Promise<Object>} the created epic row
  */
-export async function addDependentStep(darwinUri, idToken, { fromStepId, initiative_fk, title }) {
-    const created = requireCreatedId(await createStep(darwinUri, idToken, { initiative_fk, title }));
-    const stepId = created.id;
+export async function addDependentEpic(darwinUri, idToken, { fromEpicId, initiative_fk, title }) {
+    const created = requireCreatedId(await createEpic(darwinUri, idToken, { initiative_fk, title }));
+    const epicId = created.id;
     try {
-        await createStepDep(darwinUri, idToken, stepId, fromStepId);
+        await createEpicDep(darwinUri, idToken, epicId, fromEpicId);
     } catch (error) {
-        await undoAll([() => deleteStep(darwinUri, idToken, stepId)]);
+        await undoAll([() => deleteEpic(darwinUri, idToken, epicId)]);
         throw error;
     }
     return created;
 }
 
 /**
- * Create a step and gate `toStepId` on it — the canvas's PRECEDE "+" off a
- * card's free left side (req #3617): a new step N that the existing step will
+ * Create an epic and gate `toEpicId` on it — the canvas's PRECEDE "+" off a
+ * card's free left side (req #3617): a new epic N that the existing epic will
  * then depend on, N → T. No cycle is possible (N is new, so nothing reaches
  * it). A failed edge undoes both writes — T → N first, because a write
  * reported as failed may still have landed and N cannot be deleted while T
- * waits on it (`dep_step_fk` is ON DELETE RESTRICT).
+ * waits on it (`dep_epic_fk` is ON DELETE RESTRICT).
  *
- * @returns {Promise<Object>} the created step row
+ * @returns {Promise<Object>} the created epic row
  */
-export async function precedeStepWith(darwinUri, idToken, { toStepId, initiative_fk, title }) {
-    const created = requireCreatedId(await createStep(darwinUri, idToken, { initiative_fk, title }));
-    const stepId = created.id;
-    const undos = [() => deleteStep(darwinUri, idToken, stepId)];
+export async function precedeEpicWith(darwinUri, idToken, { toEpicId, initiative_fk, title }) {
+    const created = requireCreatedId(await createEpic(darwinUri, idToken, { initiative_fk, title }));
+    const epicId = created.id;
+    const undos = [() => deleteEpic(darwinUri, idToken, epicId)];
     try {
-        undos.push(() => deleteStepDep(darwinUri, idToken, toStepId, stepId));
-        await createStepDep(darwinUri, idToken, toStepId, stepId);
+        undos.push(() => deleteEpicDep(darwinUri, idToken, toEpicId, epicId));
+        await createEpicDep(darwinUri, idToken, toEpicId, epicId);
     } catch (error) {
         await undoAll(undos);
         throw error;
@@ -242,7 +242,7 @@ export async function precedeStepWith(darwinUri, idToken, { toStepId, initiative
 }
 
 /**
- * SPLIT the edge `toStepId` → `fromStepId` with a new step — the canvas's
+ * SPLIT the edge `toEpicId` → `fromEpicId` with a new epic — the canvas's
  * EDGE "+" (req #3586): A → B becomes A → N → B.
  *
  * ## Order of operations — B IS NEVER UNDER-GATED
@@ -261,24 +261,24 @@ export async function precedeStepWith(darwinUri, idToken, { toStepId, initiative
  * dependency is A and its only dependent is B, and A → B already existed
  * acyclically.
  *
- * @returns {Promise<Object>} the created step row
+ * @returns {Promise<Object>} the created epic row
  */
-export async function insertStepOnEdge(darwinUri, idToken,
-    { fromStepId, toStepId, initiative_fk, title }) {
-    const created = requireCreatedId(await createStep(darwinUri, idToken, { initiative_fk, title }));
-    const stepId = created.id;
+export async function insertEpicOnEdge(darwinUri, idToken,
+    { fromEpicId, toEpicId, initiative_fk, title }) {
+    const created = requireCreatedId(await createEpic(darwinUri, idToken, { initiative_fk, title }));
+    const epicId = created.id;
     // Deleting N cascades its own N → A row, so the undo list never names it.
-    const undos = [() => deleteStep(darwinUri, idToken, stepId)];
+    const undos = [() => deleteEpic(darwinUri, idToken, epicId)];
     try {
-        await createStepDep(darwinUri, idToken, stepId, fromStepId);
-        undos.push(() => deleteStepDep(darwinUri, idToken, toStepId, stepId));
-        await createStepDep(darwinUri, idToken, toStepId, stepId);
+        await createEpicDep(darwinUri, idToken, epicId, fromEpicId);
+        undos.push(() => deleteEpicDep(darwinUri, idToken, toEpicId, epicId));
+        await createEpicDep(darwinUri, idToken, toEpicId, epicId);
     } catch (error) {
         await undoAll(undos);
         throw error;
     }
     try {
-        await deleteStepDep(darwinUri, idToken, toStepId, fromStepId);
+        await deleteEpicDep(darwinUri, idToken, toEpicId, fromEpicId);
     } catch (error) {
         if (error?.httpStatus?.httpStatus !== 404) {
             error.redundantEdge = true;

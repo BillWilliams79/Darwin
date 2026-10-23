@@ -53,7 +53,7 @@ describe('deriveDiagnostic — the four regimes (req #3345 § 4.5 / #3367 delive
         const payload = composedFixture();
         payload.derived = {
             withheld: true, withheld_reason: WITHHELD_BUDGET_ROWS_TRUNCATED,
-            rows_complete: false, reason: 'steps truncated',
+            rows_complete: false, reason: 'epics truncated',
         };
         const d = deriveDiagnostic(payload);
         expect(d.rowsComplete).toBe(false);
@@ -92,17 +92,17 @@ describe('deriveDiagnostic — the four regimes (req #3345 § 4.5 / #3367 delive
     });
 });
 
-describe('buildPlanRows — joining derived.rows[] back onto steps[]/initiatives[]/requirements[]', () => {
+describe('buildPlanRows — joining derived.rows[] back onto epics[]/initiatives[]/requirements[]', () => {
     const payload = composedFixture({
         id: 6,
-        steps: [
+        epics: [
             { id: 71, initiative_fk: 5, title: 'Mirror Layer', run: 'auto',
                 notes: 'evidence', not_before: '2026-08-01 00:00:00' },
             { id: 72, initiative_fk: 5, title: 'Clone Core', run: 'manual',
                 notes: null, not_before: null },
-            // The step with work IN FLIGHT, joined to real step/requirement
+            // The epic with work IN FLIGHT, joined to real epic/requirement
             // rows like its neighbours. A derived row with no entry in
-            // `payload.steps` and requirement ids absent from
+            // `payload.epics` and requirement ids absent from
             // `payload.requirements` is a shape a composed read cannot
             // produce, and it would silently weaken the "both survive the
             // reshape" claim for every JOINED field (title, machineLabels).
@@ -116,13 +116,13 @@ describe('buildPlanRows — joining derived.rows[] back onto steps[]/initiatives
             { id: 3003, requirement_status: 'development', machine_fk: 2, tracking: 0 },
             { id: 3004, requirement_status: 'swarm_ready', machine_fk: 2, tracking: 0 },
         ],
-        stepRequirements: [
-            { step_fk: 71, requirement_fk: 3001 },
-            { step_fk: 71, requirement_fk: 3002 },
-            { step_fk: 73, requirement_fk: 3003 },
-            { step_fk: 73, requirement_fk: 3004 },
+        epicRequirements: [
+            { epic_fk: 71, requirement_fk: 3001 },
+            { epic_fk: 71, requirement_fk: 3002 },
+            { epic_fk: 73, requirement_fk: 3003 },
+            { epic_fk: 73, requirement_fk: 3004 },
         ],
-        stepDeps: [{ id: 1, step_fk: 72, dep_step_fk: 71 }],
+        epicDeps: [{ id: 1, epic_fk: 72, dep_epic_fk: 71 }],
     });
     // Overwrite the fixture's own generic `derived.rows` with ones that carry
     // realistic per-row fields, matching what `pipeline2_derive.py` actually
@@ -144,9 +144,9 @@ describe('buildPlanRows — joining derived.rows[] back onto steps[]/initiatives
             no_launch_reason: 'no linked requirements — nothing to launch',
             launch_suppressed: true, suppressed_by: ['pipeline'],
         },
-        // A step with work IN FLIGHT (3003, development) that still carries
+        // An epic with work IN FLIGHT (3003, development) that still carries
         // launch-ready work (3004). Since req #3750 `eligible` covers it — a
-        // step has no state, so "already begun" no longer withholds the ring
+        // epic has no state, so "already begun" no longer withholds the ring
         // (the retired `top_up_eligible` answered that separately).
         {
             id: 73, open_req_ids: [3003, 3004], run: 'auto', eligible: true,
@@ -178,9 +178,9 @@ describe('buildPlanRows — joining derived.rows[] back onto steps[]/initiatives
         expect(r).not.toHaveProperty('completedAt');
     });
 
-    // req #3750 — `eligible` is the one launch-now answer; a step whose work
+    // req #3750 — `eligible` is the one launch-now answer; an epic whose work
     // is already in flight still reads eligible when it carries ready work.
-    it('carries eligible for a step with work in flight, with no top-up field', () => {
+    it('carries eligible for an epic with work in flight, with no top-up field', () => {
         const running = rows.find((x) => x.id === 73);
         expect(running.state).toBe('running');
         expect(running.eligible).toBe(true);
@@ -207,7 +207,7 @@ describe('buildPlanRows — joining derived.rows[] back onto steps[]/initiatives
         expect(legacy.checkpointBlockedBy).toEqual([]);
     });
 
-    it('joins the step dictionary for title/notes', () => {
+    it('joins the epic dictionary for title/notes', () => {
         const r71 = rows.find((x) => x.id === 71);
         expect(r71.title).toBe('Mirror Layer');
         expect(r71.notes).toBe('evidence');
@@ -216,12 +216,12 @@ describe('buildPlanRows — joining derived.rows[] back onto steps[]/initiatives
         expect(r72.notes).toBeNull();
     });
 
-    it('folds a step\'s not_before into a single-entry timeDeps array', () => {
+    it('folds an epic\'s not_before into a single-entry timeDeps array', () => {
         expect(rows.find((x) => x.id === 71).timeDeps).toEqual(['2026-08-01 00:00:00']);
         expect(rows.find((x) => x.id === 72).timeDeps).toEqual([]);
     });
 
-    it('joins the initiative dictionary — exactly ONE initiative per step, no dominant-label tally', () => {
+    it('joins the initiative dictionary — exactly ONE initiative per epic, no dominant-label tally', () => {
         const r = rows.find((x) => x.id === 71);
         expect(r.initiativeId).toBe(5);
         expect(r.initiative).toBe('Swarm Cloned Git');
@@ -229,7 +229,7 @@ describe('buildPlanRows — joining derived.rows[] back onto steps[]/initiatives
         expect(r.initiativeLabels).toEqual([{ id: 5, title: 'Swarm Cloned Git' }]);
     });
 
-    it('never marks a row label-inherited — 2.0 containment gives every step its own initiative', () => {
+    it('never marks a row label-inherited — 2.0 containment gives every epic its own initiative', () => {
         expect(rows.every((r) => r.labelInherited === false)).toBe(true);
     });
 
@@ -243,10 +243,10 @@ describe('buildPlanRows — joining derived.rows[] back onto steps[]/initiatives
 
     it('degrades an unresolvable machine id to the POC #<id> form', () => {
         const payload2 = composedFixture({
-            steps: [{ id: 1, initiative_fk: null, title: 'S', run: 'auto', notes: null,
+            epics: [{ id: 1, initiative_fk: null, title: 'S', run: 'auto', notes: null,
                 not_before: null }],
             requirements: [{ id: 1, requirement_status: 'swarm_ready', machine_fk: 999 }],
-            stepRequirements: [{ step_fk: 1, requirement_fk: 1 }],
+            epicRequirements: [{ epic_fk: 1, requirement_fk: 1 }],
         });
         payload2.derived.rows = [{
             id: 1, open_req_ids: [1], run: 'auto', eligible: false, initiative_id: null,
@@ -261,10 +261,10 @@ describe('buildPlanRows — joining derived.rows[] back onto steps[]/initiatives
 
     it('a NULL machine_fk labels Any', () => {
         const payload2 = composedFixture({
-            steps: [{ id: 1, initiative_fk: null, title: 'S', run: 'auto', notes: null,
+            epics: [{ id: 1, initiative_fk: null, title: 'S', run: 'auto', notes: null,
                 not_before: null }],
             requirements: [{ id: 1, requirement_status: 'swarm_ready', machine_fk: null }],
-            stepRequirements: [{ step_fk: 1, requirement_fk: 1 }],
+            epicRequirements: [{ epic_fk: 1, requirement_fk: 1 }],
         });
         payload2.derived.rows = [{
             id: 1, open_req_ids: [1], run: 'auto', eligible: false, initiative_id: null,
@@ -298,11 +298,11 @@ describe('buildPlanRows — joining derived.rows[] back onto steps[]/initiatives
 
 describe('adaptComposedPipeline — the plan object', () => {
     const payload = composedFixture({
-        steps: [{ id: 1, initiative_fk: 9, title: 'S', run: 'auto', notes: null,
+        epics: [{ id: 1, initiative_fk: 9, title: 'S', run: 'auto', notes: null,
             not_before: null }],
         initiatives: [{ id: 9, title: 'E', sort_order: 1 }],
         requirements: [{ id: 100, requirement_status: 'swarm_ready', machine_fk: null }],
-        stepRequirements: [{ step_fk: 1, requirement_fk: 100 }],
+        epicRequirements: [{ epic_fk: 1, requirement_fk: 100 }],
     });
     payload.derived = {
         now: '2026-08-09T00:00:00Z',
@@ -317,17 +317,17 @@ describe('adaptComposedPipeline — the plan object', () => {
         }],
         pause: {
             pipeline_status: 'active', pipeline_paused: false,
-            paused_initiative_ids: [], suppressed_step_ids: [],
+            paused_initiative_ids: [], suppressed_epic_ids: [],
         },
         serial: {
             execution_mode: 'serial', serial: true, initiative_order: [9],
-            closed_initiative_ids: [], live_initiative_id: 9, waiting_initiative_ids: [], held_step_ids: [],
+            closed_initiative_ids: [], live_initiative_id: 9, waiting_initiative_ids: [], held_epic_ids: [],
         },
-        eligible_step_ids: [1],
-        violations: [{ invariant: 'topology', message: 'x renders before y', step_ids: [1, 2] }],
+        eligible_epic_ids: [1],
+        violations: [{ invariant: 'topology', message: 'x renders before y', epic_ids: [1, 2] }],
         cycle_detected: false,
-        cycle_step_ids: [],
-        duplicate_step_ids: [],
+        cycle_epic_ids: [],
+        duplicate_epic_ids: [],
         unresolved_req_ids: [],
         out_of_scope_dep_ids: [],
         requirement_counts: {
@@ -339,43 +339,43 @@ describe('adaptComposedPipeline — the plan object', () => {
     it('never derives batches — 2.0 has none, drawn or otherwise', () => {
         const plan = adaptComposedPipeline(payload);
         expect(plan.batches).toEqual([]);
-        expect(plan.batchLetterByStepId.size).toBe(0);
+        expect(plan.batchLetterByEpicId.size).toBe(0);
     });
 
-    it('reshapes eligible_step_ids into a Set', () => {
+    it('reshapes eligible_epic_ids into a Set', () => {
         const plan = adaptComposedPipeline(payload);
-        expect(plan.eligibleStepIds).toBeInstanceOf(Set);
-        expect(plan.eligibleStepIds.has(1)).toBe(true);
+        expect(plan.eligibleEpicIds).toBeInstanceOf(Set);
+        expect(plan.eligibleEpicIds.has(1)).toBe(true);
     });
 
-    // req #3750 — `top_up_step_ids` is retired; `eligible_step_ids` covers it.
+    // req #3750 — `top_up_epic_ids` is retired; `eligible_epic_ids` covers it.
     // A stale key from an older Lambda is ignored, never folded into the set
     // the eligible-now ring reads.
-    it('carries no top-up set, and ignores a stale top_up_step_ids', () => {
+    it('carries no top-up set, and ignores a stale top_up_epic_ids', () => {
         const stale = {
             ...payload,
-            derived: { ...payload.derived, top_up_step_ids: [2] },
+            derived: { ...payload.derived, top_up_epic_ids: [2] },
         };
         const plan = adaptComposedPipeline(stale);
-        expect(plan).not.toHaveProperty('topUpStepIds');
-        expect(plan.eligibleStepIds).toEqual(new Set([1]));
+        expect(plan).not.toHaveProperty('topUpEpicIds');
+        expect(plan.eligibleEpicIds).toEqual(new Set([1]));
     });
 
     // req #3597 — PRIORITY order is the fact, so it stays an ordered array.
-    it('carries launch_candidate_step_ids in its own order, defaulting to empty', () => {
-        expect(adaptComposedPipeline(payload).launchCandidateStepIds).toEqual([]);
+    it('carries launch_candidate_epic_ids in its own order, defaulting to empty', () => {
+        expect(adaptComposedPipeline(payload).launchCandidateEpicIds).toEqual([]);
         const withCandidates = {
             ...payload,
-            derived: { ...payload.derived, launch_candidate_step_ids: [2, 1] },
+            derived: { ...payload.derived, launch_candidate_epic_ids: [2, 1] },
         };
-        expect(adaptComposedPipeline(withCandidates).launchCandidateStepIds)
+        expect(adaptComposedPipeline(withCandidates).launchCandidateEpicIds)
             .toEqual([2, 1]);
     });
 
-    it('reshapes violations — invariant/message kept, step_ids -> stepIds', () => {
+    it('reshapes violations — invariant/message kept, epic_ids -> epicIds', () => {
         const plan = adaptComposedPipeline(payload);
         expect(plan.violations).toEqual([
-            { invariant: 'topology', message: 'x renders before y', stepIds: [1, 2] },
+            { invariant: 'topology', message: 'x renders before y', epicIds: [1, 2] },
         ]);
     });
 
@@ -391,7 +391,7 @@ describe('adaptComposedPipeline — the plan object', () => {
         const plan = adaptComposedPipeline(payload);
         expect(plan.pause).toEqual({
             pipelineStatus: 'active', pipelinePaused: false,
-            pausedInitiativeIds: [], suppressedStepIds: [],
+            pausedInitiativeIds: [], suppressedEpicIds: [],
         });
     });
 
@@ -399,7 +399,7 @@ describe('adaptComposedPipeline — the plan object', () => {
         const plan = adaptComposedPipeline(payload);
         expect(plan.serial).toEqual({
             executionMode: 'serial', serial: true, initiativeOrder: [9],
-            closedInitiativeIds: [], liveInitiativeId: 9, waitingInitiativeIds: [], heldStepIds: [],
+            closedInitiativeIds: [], liveInitiativeId: 9, waitingInitiativeIds: [], heldEpicIds: [],
         });
     });
 
@@ -420,7 +420,7 @@ describe('adaptComposedPipeline — the plan object', () => {
     it('still computes a client-side time axis — the payload carries no time_axis key', () => {
         const plan = adaptComposedPipeline(payload);
         expect(plan.timeAxis).toBeDefined();
-        expect(plan.timeAxis.stepStarts).toBeDefined();
+        expect(plan.timeAxis.epicStarts).toBeDefined();
     });
 });
 
@@ -435,7 +435,7 @@ describe('buildPlanModel — the narrow model PipelinePlanVisualizer.jsx still r
         expect(model.requirements).toEqual(payload.requirements);
         expect(model.machines).toBe(machines);
         expect(model.features).toBeUndefined();
-        // req #3586 — the add-step dialog's initiative picker.
+        // req #3586 — the add-epic dialog's initiative picker.
         expect(model.initiatives).toEqual(payload.initiatives);
     });
 
@@ -488,44 +488,44 @@ describe('buildSessionStatusIndex (req #3584)', () => {
 });
 
 // req #3618 — the PRODUCTION path: the colour input `state` is rolled up from
-// the requirements in the payload (req #3750 — the server sends no step state),
-// and `now` comes from the caller. An empty step sits on TODAY when a step is
+// the requirements in the payload (req #3750 — the server sends no epic state),
+// and `now` comes from the caller. An empty epic sits on TODAY when an epic is
 // running, in the FUTURE when none is, and stays UNKNOWN with no clock.
-describe('adaptComposedPipeline — empty step placement (req #3618)', () => {
+describe('adaptComposedPipeline — empty epic placement (req #3618)', () => {
     const NOW = new Date('2026-10-18T07:30:00Z');
     const fixture = (status) => {
         const payload = composedFixture({
-            steps: [
+            epics: [
                 { id: 1, initiative_fk: null, title: 'work', run: 'auto', notes: null, not_before: null },
                 { id: 2, initiative_fk: null, title: 'empty', run: 'auto', notes: null, not_before: null },
             ],
             requirements: [{ id: 10, requirement_status: status,
                 started_at: status === 'development' ? '2026-10-18T06:00:00' : null, completed_at: null }],
-            stepRequirements: [{ step_fk: 1, requirement_fk: 10 }],
+            epicRequirements: [{ epic_fk: 1, requirement_fk: 10 }],
         });
         return payload;
     };
 
-    it('stamps the empty step TODAY when a step has work in development', () => {
+    it('stamps the empty epic TODAY when an epic has work in development', () => {
         const plan = adaptComposedPipeline(fixture('development'), { now: NOW });
-        expect(plan.timeAxis.stepStarts.get(2)).toEqual({ at: '2026-10-18T07:30:00', kind: 'dated' });
+        expect(plan.timeAxis.epicStarts.get(2)).toEqual({ at: '2026-10-18T07:30:00', kind: 'dated' });
     });
 
-    it('puts the empty step in the FUTURE when nothing is running', () => {
+    it('puts the empty epic in the FUTURE when nothing is running', () => {
         const plan = adaptComposedPipeline(fixture('swarm_ready'), { now: NOW });
-        expect(plan.timeAxis.stepStarts.get(2).kind).toBe('future');
+        expect(plan.timeAxis.epicStarts.get(2).kind).toBe('future');
     });
 
-    it('leaves the empty step UNKNOWN when the caller supplies no clock', () => {
+    it('leaves the empty epic UNKNOWN when the caller supplies no clock', () => {
         const plan = adaptComposedPipeline(fixture('development'));
-        expect(plan.timeAxis.stepStarts.get(2).kind).toBe('unknown');
+        expect(plan.timeAxis.epicStarts.get(2).kind).toBe('unknown');
     });
 });
 
-// req #3750 — A STEP HAS NO STATE. `row.state` is the visualizer's COLOUR INPUT,
-// rolled up once in `visualizerColourInput` from the step's requirements; the
+// req #3750 — A EPIC HAS NO STATE. `row.state` is the visualizer's COLOUR INPUT,
+// rolled up once in `visualizerColourInput` from the epic's requirements; the
 // server sends none, and a stale `state` on the wire is never read.
-describe('visualizerColourInput — the canvas colour input, not a step state (req #3750)', () => {
+describe('visualizerColourInput — the canvas colour input, not an epic state (req #3750)', () => {
     const reqs = new Map([
         [1, { id: 1, requirement_status: 'development' }],
         [2, { id: 2, requirement_status: 'met' }],
@@ -537,7 +537,7 @@ describe('visualizerColourInput — the canvas colour input, not a step state (r
         expect(visualizerColourInput([1, 2], [1], reqs)).toBe('running');
     });
 
-    it('reads done when the step holds gating work and none of it is open', () => {
+    it('reads done when the epic holds gating work and none of it is open', () => {
         expect(visualizerColourInput([2, 4], [], reqs)).toBe('done');
     });
 
@@ -545,7 +545,7 @@ describe('visualizerColourInput — the canvas colour input, not a step state (r
         expect(visualizerColourInput([2, 3], [3], reqs)).toBe('pending');
     });
 
-    it('reads pending for an EMPTY step — no gating work is not finished work', () => {
+    it('reads pending for an EMPTY epic — no gating work is not finished work', () => {
         expect(visualizerColourInput([], [], reqs)).toBe('pending');
     });
 });
@@ -553,9 +553,9 @@ describe('visualizerColourInput — the canvas colour input, not a step state (r
 describe('buildPlanRows — the colour rollup at the join (req #3750)', () => {
     const payloadFor = (requirements, derivedRow) => {
         const p = composedFixture({
-            steps: [{ id: 1, initiative_fk: null, title: 'S', run: 'auto', notes: null, not_before: null }],
+            epics: [{ id: 1, initiative_fk: null, title: 'S', run: 'auto', notes: null, not_before: null }],
             requirements,
-            stepRequirements: requirements.map((r) => ({ step_fk: 1, requirement_fk: r.id })),
+            epicRequirements: requirements.map((r) => ({ epic_fk: 1, requirement_fk: r.id })),
         });
         p.derived.rows = [{ ...p.derived.rows[0], ...derivedRow }];
         return p;
@@ -567,7 +567,7 @@ describe('buildPlanRows — the colour rollup at the join (req #3750)', () => {
         expect(buildPlanRows(p)[0].state).toBe('done');
     });
 
-    it('a tracking container in development does not paint the step running', () => {
+    it('a tracking container in development does not paint the epic running', () => {
         const p = payloadFor([{ id: 7, requirement_status: 'development', tracking: 1 },
             { id: 8, requirement_status: 'met' }],
         { req_ids: [7, 8], tracking_req_ids: [7], open_req_ids: [] });
@@ -576,7 +576,7 @@ describe('buildPlanRows — the colour rollup at the join (req #3750)', () => {
         expect(row.openReqIds).toEqual([]);
     });
 
-    it('a step holding only containers reads pending — it holds no gating work', () => {
+    it('an epic holding only containers reads pending — it holds no gating work', () => {
         const p = payloadFor([{ id: 7, requirement_status: 'met', tracking: 1 }],
             { req_ids: [7], tracking_req_ids: [7], open_req_ids: [] });
         expect(buildPlanRows(p)[0].state).toBe('pending');

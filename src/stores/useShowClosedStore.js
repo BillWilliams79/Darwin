@@ -28,14 +28,14 @@ export const useShowClosedStore = create(
             // leaving the residue: work that is part of no plan at all.
             //
             // req #3419 WIDENED WHAT THAT MEANS, and reversed this comment.
-            // It used to answer STEP association only (a
-            // `pipeline_step_requirements` row, "is this scheduled") and NOT
+            // It used to answer EPIC association only (a
+            // `epic_requirements` row, "is this scheduled") and NOT
             // initiative association ("does this belong to a body of work"), and it
             // said exposing the gap between them was the point of the ON state.
             // Measured on production, that gap is what the reader reports as a
             // bug — asked to hide orchestrated work, the page kept showing
             // requirements plainly seated under an initiative. Filed twice. ON now
-            // means STEP **or** INITIATIVE.
+            // means EPIC **or** INITIATIVE.
             //
             // THE KEY NAME IS HISTORY, NOT THE RULE. It keeps its req #3180
             // spelling so no persistence migration is needed; the rule itself

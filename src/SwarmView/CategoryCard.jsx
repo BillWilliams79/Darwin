@@ -8,7 +8,7 @@ import call_rest_api from '../RestApi/RestApi';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { useRequirements, useSessions } from '../hooks/useDataQueries';
 import { useRequirementVisibility } from '../hooks/useRequirementVisibility';
-import { requirementKeys, categoryKeys, pipelineStepRequirementKeys } from '../hooks/useQueryKeys';
+import { requirementKeys, categoryKeys, pipelineEpicRequirementKeys } from '../hooks/useQueryKeys';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { useShowClosedStore } from '../stores/useShowClosedStore';
@@ -16,9 +16,9 @@ import { useCategoryCountDisplayStore } from '../stores/useCategoryCountDisplayS
 import { RequirementActionsContext, useStableRequirementActions } from '../hooks/useRequirementActions';
 import { requirementStatusTimestampFields, requirementStatusTimestampState } from '../utils/requirementStatusTimestamps';
 import { filterToInitiative } from '../utils/initiativeMembership';
-// req #3503 — the STEP filter's row predicate. Its own module because step
+// req #3503 — the EPIC filter's row predicate. Its own module because epic
 // association is `pipelineMembership.js`' stated domain, not the initiative module's.
-import { filterToStepReqIds } from '../utils/pipelineMembership';
+import { filterToEpicReqIds } from '../utils/pipelineMembership';
 
 import AuthContext from '../Context/AuthContext'
 import AppContext from '../Context/AppContext';
@@ -48,7 +48,7 @@ import { CircularProgress } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import { DEFAULT_REQUIREMENT_SPEC } from './requirementSpec';
 
-const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categoryKeyDown, categoryOnBlur, clickCardClosed, clickCardDelete, isTemplate, showClosed, panelActive = true, initiativeReqIds = null, stepReqIds = null }) => {
+const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categoryKeyDown, categoryOnBlur, clickCardClosed, clickCardDelete, isTemplate, showClosed, panelActive = true, initiativeReqIds = null, epicReqIds = null }) => {
 
     const navigate = useNavigate();
     const { idToken, profile } = useContext(AuthContext);
@@ -66,7 +66,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
     const requirementStatusFilter = useShowClosedStore(s => s.requirementStatusFilter);
     // req #3505 — per-category-card requirement count preference, e.g. "Swarm (17)".
     const showCategoryCount = useCategoryCountDisplayStore(s => s.showCount);
-    // req #3598 — an initiative/step scope (`initiativeReqIds` / `stepReqIds`) RESTRICTS
+    // req #3598 — an initiative/epic scope (`initiativeReqIds` / `epicReqIds`) RESTRICTS
     // THE ROWS and changes nothing else: the status chips, the orchestrated
     // toggle, the add-a-requirement row, dragging and the card itself all
     // behave exactly as on the unfiltered page (user ruling, 2026-10-17 —
@@ -85,15 +85,15 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                         newRequirementsArray = newRequirementsArray.filter(p => p.id !== requirementId );
                         setRequirementsArray(newRequirementsArray);
                         queryClient.invalidateQueries({ queryKey: requirementKeys.all(profile.userName) });
-                        // req #3706 — the delete CASCADEs the requirement's step seat, so every
+                        // req #3706 — the delete CASCADEs the requirement's epic seat, so every
                         // plan read that may show it re-reads (the plan it sat in is unknown here).
-                        queryClient.invalidateQueries({ queryKey: pipelineStepRequirementKeys.all(profile.userName) });
+                        queryClient.invalidateQueries({ queryKey: pipelineEpicRequirementKeys.all(profile.userName) });
                         queryClient.invalidateQueries({ queryKey: ['pipeline_compose'] });
                     } else {
                         showError(result, 'Unable to delete requirement')
                     }
                 }).catch(error => {
-                    // req #3706 — a 423 names the locked step/initiative/plan holding the seat.
+                    // req #3706 — a 423 names the locked epic/initiative/plan holding the seat.
                     if (error?.httpStatus?.httpStatus === 423) showError(error.httpStatus.httpMessage);
                     else showError(error, 'Unable to delete requirement');
                 });
@@ -208,7 +208,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
     // req #3419 — THE visibility answer, identical on every browse surface
     // (Table view, the aggregator card, the detail page's up/down elevator).
     // This card derives nothing of its own: `filterVisible` IS the rule, and it
-    // covers step-carried AND initiative-filed work (req #3258 covered only the first,
+    // covers epic-carried AND initiative-filed work (req #3258 covered only the first,
     // which is the defect req #3419 fixes).
     // `orchestratedIds` is the SAME set `filterVisible` hides by — it is handed
     // to the rows so an orchestrated requirement can be MARKED (gold title box,
@@ -253,19 +253,19 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
             // (req #3598). A no-op (same array reference) when `initiativeReqIds` is null.
             sortedRequirementsArray = filterToInitiative(sortedRequirementsArray, initiativeReqIds);
 
-            // req #3503 — the STEP filter, applied in series after the initiative's. A
-            // no-op (same array reference) when `stepReqIds` is null, so an
+            // req #3503 — the EPIC filter, applied in series after the initiative's. A
+            // no-op (same array reference) when `epicReqIds` is null, so an
             // initiative-filtered or unfiltered card pays nothing; when both are on,
             // the survivors are the intersection, which is what two independent
             // filters on one page must mean.
-            sortedRequirementsArray = filterToStepReqIds(sortedRequirementsArray, stepReqIds);
+            sortedRequirementsArray = filterToEpicReqIds(sortedRequirementsArray, epicReqIds);
 
             sortedRequirementsArray.sort((a, b) => activeSort(a, b));
             setRequirementsArray(prev => [...sortedRequirementsArray, buildTemplate(prev)]);
         } else if (serverRequirements && serverRequirements.length === 0) {
             setRequirementsArray(prev => [buildTemplate(prev)]);
         }
-    }, [serverRequirements, requirementStatusFilter, filterVisible, initiativeReqIds, stepReqIds]);
+    }, [serverRequirements, requirementStatusFilter, filterVisible, initiativeReqIds, epicReqIds]);
 
     // Build session status map from query data
     useEffect(() => {
@@ -665,7 +665,7 @@ const CategoryCard = ({category, categoryIndex, projectId, categoryChange, categ
                                 handleMenuClose();
                                 // req #3598 — what the delete REMOVES: every requirement
                                 // in the category, not the rows the chips, the toggle or
-                                // an initiative/step scope left on screen.
+                                // an initiative/epic scope left on screen.
                                 clickCardDelete(event, category.category_name, category.id,
                                     serverRequirements ? serverRequirements.length : requirementCount);
                             }}

@@ -22,7 +22,7 @@
 //
 // req #3419 unified the five copies but left the aggregator card a SECOND rule
 // underneath this one: `aggregatorRowVisible`'s unconditional launch exclusion,
-// which dropped step-carried work from three of its five chips with no toggle.
+// which dropped epic-carried work from three of its five chips with no toggle.
 // So the control still had two answers — measured on production, 18 `authoring`
 // requirements that the Cards view, the Table view and the elevator showed on
 // request while the aggregator would not. That exclusion is deleted; its
@@ -33,25 +33,25 @@
 // ── WHY THE INITIATIVE-FILED-BUT-UNSEATED POPULATION IS GONE (req #3357) ──────────
 //
 // req #3419 unioned in a second population — requirements initiative-filed through
-// the retired middle tier but not yet carried by any step — because the
+// the retired middle tier but not yet carried by any epic — because the
 // toggle otherwise still showed work that was plainly part of a plan. That
 // tier leaving the frontend retires the ONLY mechanism that could produce
 // that population (see `utils/pipelineMembership.js`'s
 // header for the full reasoning), so this hook now reads ONE bounded list —
-// the step-requirement junction — instead of three.
+// the epic-requirement junction — instead of three.
 //
 // ── THE FIRST-GENERATION JUNCTION IS GONE (req #3356) ───────────────────────
 //
-// The one list read is `pipeline_step_requirements` — the second generation's
+// The one list read is `epic_requirements` — the second generation's
 // junction, renamed onto that name once the first generation's own table of
 // the same name was dropped. A toggle still reading the pre-rename table would
 // answer from a table that no longer exists — every requirement would read as
 // unorchestrated and the control would silently do nothing.
 //
-// THE ROW SHAPE IS IDENTICAL (`step_fk`, `requirement_fk`), so
+// THE ROW SHAPE IS IDENTICAL (`epic_fk`, `requirement_fk`), so
 // `pipelinedRequirementIds` / `orchestratedRequirementIds` needed no
 // adaptation: only the source table moved. What DID change underneath is the
-// junction's primary key — it keys on `requirement_fk` ALONE (one step per
+// junction's primary key — it keys on `requirement_fk` ALONE (one epic per
 // requirement, the req #3336 stage-2 gate ruling), so the id set this hook
 // derives can no longer contain a duplicate at all. Neither function ever
 // relied on that, and both stay set-valued rather than being "simplified"
@@ -59,7 +59,7 @@
 
 import { useCallback, useMemo } from 'react';
 
-import { useAllPipelineStepRequirements } from './useDataQueries';
+import { useAllPipelineEpicRequirements } from './useDataQueries';
 import { useShowClosedStore } from '../stores/useShowClosedStore';
 import {
     orchestratedRequirementIds,
@@ -69,8 +69,8 @@ import {
 /**
  * @param {string} creatorFk  the profile userName; falsy disables every read.
  *
- * req #3598 RETIRED the `{ initiativeFilterActive, stepFilterActive }` options, which
- * forced the toggle off under an initiative/step scope. A scope now restricts the rows
+ * req #3598 RETIRED the `{ initiativeFilterActive, epicFilterActive }` options, which
+ * forced the toggle off under an initiative/epic scope. A scope now restricts the rows
  * and nothing else (user ruling, 2026-10-17), so the stored toggle applies on a
  * filtered page exactly as on an unfiltered one.
  * @returns {{
@@ -93,11 +93,11 @@ import {
  * array form. `filterVisible` returns the SAME ARRAY REFERENCE when nothing is
  * dropped, so it is safe in a `useMemo`/`useEffect` dependency.
  *
- * req #3502 REMOVED a third member, `pipelinedIds` (STEP association alone).
+ * req #3502 REMOVED a third member, `pipelinedIds` (EPIC association alone).
  * Its only consumer was the aggregator's deleted launch exclusion, and the
  * narrow fact has no other reader on a browse surface — a browse surface asks
  * "is this on screen", and that is `isVisible`. The pure function still exists
- * (`utils/pipelineMembership.js`) for anything that genuinely needs step
+ * (`utils/pipelineMembership.js`) for anything that genuinely needs epic
  * association without the toggle.
  */
 export function useRequirementVisibility(creatorFk) {
@@ -107,17 +107,17 @@ export function useRequirementVisibility(creatorFk) {
     // toggle would mean the FIRST flip renders stale-empty for a round trip,
     // showing rows the user just asked to hide. req #3491 widened this to a
     // second, first-generation read while both eras ran side by side; req
-    // #3356 retired that hook (`useAllPipeline2StepRequirements` no longer
+    // #3356 retired that hook (`useAllPipeline2EpicRequirements` no longer
     // exists in `useDataQueries.js`) along with the rest of the first
     // generation, so this is back to the one read it started as.
-    const { data: stepRequirements } = useAllPipelineStepRequirements(creatorFk);
+    const { data: epicRequirements } = useAllPipelineEpicRequirements(creatorFk);
 
     // orchestratedRequirementIds(...) === pipelinedRequirementIds(...) today
     // (req #3357 retired the initiative-filed union) — computed through the named
     // export anyway so a future widening has one place to happen.
     const orchestratedIds = useMemo(
-        () => orchestratedRequirementIds(stepRequirements),
-        [stepRequirements]);
+        () => orchestratedRequirementIds(epicRequirements),
+        [epicRequirements]);
 
     const isVisible = useCallback(
         (row) => !hideOrchestrated || !orchestratedIds.has(Number(row?.id)),

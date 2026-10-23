@@ -1,5 +1,5 @@
 // RequirementFiler.jsx — the Requirement Filer (req #3811): an Action Popup on
-// every page that files a requirement without leaving it. Step one of the
+// every page that files a requirement without leaving it. Epic one of the
 // in-situ requirement filer: REQUIREMENT opens the popup requirement editor
 // (RequirementEditorPopup.jsx) on a fresh draft started from the Defaults;
 // DEFAULTS (req #3812) opens the same editor on those values.

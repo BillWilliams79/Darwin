@@ -74,68 +74,68 @@ describe('sessionPipelineLink', () => {
     // era back by accident on one caller.
     it('reports no era field — there is one plan surface', () => {
         expect(Object.keys(sessionPipelineLink({ pipeline_fk: 7 }, PIPELINES)))
-            .toEqual(['state', 'planId', 'label', 'title', 'href', 'initiativeLabel', 'stepLabel']);
+            .toEqual(['state', 'planId', 'label', 'title', 'href', 'initiativeLabel', 'epicLabel']);
     });
 });
 
-// req #3724 — the sessions table's pill names plan › initiative › step.
-describe('sessionPipelineLink — initiative and step placement', () => {
+// req #3724 — the sessions table's pill names plan › initiative › epic.
+describe('sessionPipelineLink — initiative and epic placement', () => {
     const INDEX = buildOrchestrationIndex({
         pipelines: [{ id: 7, title: 'Plan A', pipeline_status: 'active' },
                     { id: 8, title: 'Plan B', pipeline_status: 'active' }],
         initiatives: [{ id: 30, pipeline_fk: 7, title: 'Initiative One' },
                 { id: 31, pipeline_fk: 7, title: 'Initiative Two' },
                 { id: 40, pipeline_fk: 8, title: 'Other Initiative' }],
-        steps: [{ id: 300, initiative_fk: 30, title: 'Step Alpha' },
-                { id: 310, initiative_fk: 31, title: 'Step Beta' },
-                { id: 400, initiative_fk: 40, title: 'Step Elsewhere' }],
-        stepRequirements: [{ step_fk: 300, requirement_fk: 1001 },
-                           { step_fk: 310, requirement_fk: 1002 },
-                           { step_fk: 400, requirement_fk: 1003 }],
+        epics: [{ id: 300, initiative_fk: 30, title: 'Epic Alpha' },
+                { id: 310, initiative_fk: 31, title: 'Epic Beta' },
+                { id: 400, initiative_fk: 40, title: 'Epic Elsewhere' }],
+        epicRequirements: [{ epic_fk: 300, requirement_fk: 1001 },
+                           { epic_fk: 310, requirement_fk: 1002 },
+                           { epic_fk: 400, requirement_fk: 1003 }],
     });
     const PL = [{ id: 7, title: 'Plan A' }, { id: 8, title: 'Plan B' }];
 
-    it('names the stamped initiative and the requirement seat step', () => {
+    it('names the stamped initiative and the requirement seat epic', () => {
         const r = sessionPipelineLink({ pipeline_fk: 7, initiative_fk: 30 }, PL,
             { index: INDEX, requirementId: '1001' });
         expect(r.label).toBe('Plan A');
         expect(r.initiativeLabel).toBe('Initiative One');
-        expect(r.stepLabel).toBe('Step Alpha');
-        expect(r.title).toBe('Open plan Plan A — Initiative: Initiative One · Step: Step Alpha');
+        expect(r.epicLabel).toBe('Epic Alpha');
+        expect(r.title).toBe('Open plan Plan A — Initiative: Initiative One · Epic: Epic Alpha');
     });
 
     it('falls back to the seat initiative when the session carries no initiative stamp', () => {
         const r = sessionPipelineLink({ pipeline_fk: 7, initiative_fk: null }, PL,
             { index: INDEX, requirementId: 1002 });
         expect(r.initiativeLabel).toBe('Initiative Two');
-        expect(r.stepLabel).toBe('Step Beta');
+        expect(r.epicLabel).toBe('Epic Beta');
     });
 
-    it('omits a step seated in a different plan', () => {
+    it('omits an epic seated in a different plan', () => {
         const r = sessionPipelineLink({ pipeline_fk: 7, initiative_fk: 30 }, PL,
             { index: INDEX, requirementId: 1003 });
         expect(r.initiativeLabel).toBe('Initiative One');
-        expect(r.stepLabel).toBeNull();
+        expect(r.epicLabel).toBeNull();
     });
 
-    it('omits a step seated under a different initiative than the stamped one', () => {
+    it('omits an epic seated under a different initiative than the stamped one', () => {
         const r = sessionPipelineLink({ pipeline_fk: 7, initiative_fk: 30 }, PL,
             { index: INDEX, requirementId: 1002 });
         expect(r.initiativeLabel).toBe('Initiative One');
-        expect(r.stepLabel).toBeNull();
+        expect(r.epicLabel).toBeNull();
     });
 
     it('falls back to id labels for unread initiative rows', () => {
         const r = sessionPipelineLink({ pipeline_fk: 7, initiative_fk: 99 }, PL,
             { index: INDEX, requirementId: null });
         expect(r.initiativeLabel).toBe('Initiative #99');
-        expect(r.stepLabel).toBeNull();
+        expect(r.epicLabel).toBeNull();
     });
 
     it('reports no placement without an index — plan fields unchanged', () => {
         const r = sessionPipelineLink({ pipeline_fk: 7, initiative_fk: 30 }, PL);
         expect(r.initiativeLabel).toBeNull();
-        expect(r.stepLabel).toBeNull();
+        expect(r.epicLabel).toBeNull();
         expect(r.title).toBe('Open plan Plan A');
     });
 });

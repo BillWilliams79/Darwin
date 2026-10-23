@@ -39,7 +39,7 @@ const SCOPE_REQUIREMENTS = [{ id: 10, category_fk: 5 }];
 let initiativeReqIdsFromHook = new Set([10]);
 // MODULE-LEVEL, never an inline `[]`: a fresh array per render churns every memo
 // downstream of it.
-const EMPTY_STEPS = [];
+const EMPTY_EPICS = [];
 let scopeReadFails = false;
 
 vi.mock('../../hooks/useDataQueries', () => ({
@@ -51,12 +51,12 @@ vi.mock('../../hooks/useDataQueries', () => ({
         if (scopeReadFails) return { initiativeReqIds: null, isError: true, requirements: undefined };
         return { initiativeReqIds: initiativeReqIdsFromHook, isError: false, requirements: SCOPE_REQUIREMENTS };
     },
-    // req #3503 — the page reads the step filter's two hooks unconditionally
+    // req #3503 — the page reads the epic filter's two hooks unconditionally
     // (hooks are not conditional), so this suite has to answer them. Both are
     // stubbed INACTIVE: every assertion here is about the initiative filter alone, and
-    // the step block must be provably invisible to it.
-    useAllPipelineSteps: () => ({ data: EMPTY_STEPS }),
-    useStepRequirementIds: () => ({ stepReqIds: null, isError: false, requirements: undefined }),
+    // the epic block must be provably invisible to it.
+    useAllPipelineEpics: () => ({ data: EMPTY_EPICS }),
+    useEpicRequirementIds: () => ({ epicReqIds: null, isError: false, requirements: undefined }),
 }));
 
 // Records the props the page hands the tab panel — the filter scope is a
@@ -161,13 +161,13 @@ describe('SwarmView under ?initiative= (req #3428)', () => {
     });
 
     it('dismissing the pill returns to the READER\'S OWN project (req #3503 '
-        + 'review — the identical fix the step filter needed)', () => {
+        + 'review — the identical fix the epic filter needed)', () => {
         // The reader was working in 'Personal' (project 7, tab 0) before ever
         // following the initiative link. The initiative's own work seeds tab 1 ('Darwin')
         // while the filter is engaged; dismissing must read the STORED
         // preference back rather than leave the seeded tab standing once
         // nothing justifies it — the same defect a user report caught on the
-        // step filter's identical mechanism.
+        // epic filter's identical mechanism.
         useWorkingProjectStore.setState({ projectId: '7', timestamp: Date.now() });
         const { getByTestId } = mount('/swarm?view=cards&initiative=11');
         expect(lastPanelProps().activeTab).toBe(1);   // seeded to 'Darwin' while engaged

@@ -61,7 +61,7 @@ export const isRestNullLiteral = (value) => String(value ?? '').trim() === REST_
  * refuse — see `isRestNullLiteral`).
  *
  * Returns the new row's id, or null when the gateway wrote the row but sent no
- * body back (the 201-with-no-body case `stepsApi.js` documents). A caller must
+ * body back (the 201-with-no-body case `epicsApi.js` documents). A caller must
  * NOT retry on null — that would make a second plan.
  */
 export async function createPipeline(darwinUri, idToken,

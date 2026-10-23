@@ -24,13 +24,13 @@ import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { useRequirementsByStatus, useRequirementsDone, useSessions, useCategoryColors, useAllRequirements } from '../hooks/useDataQueries';
 import { useRequirementVisibility } from '../hooks/useRequirementVisibility';
 import { filterToInitiative } from '../utils/initiativeMembership';
-// req #3503 — the STEP filter's row predicate, from the module whose stated
-// domain step association is.
-import { filterToStepReqIds } from '../utils/pipelineMembership';
+// req #3503 — the EPIC filter's row predicate, from the module whose stated
+// domain epic association is.
+import { filterToEpicReqIds } from '../utils/pipelineMembership';
 // `aggregatorRowVisible` is GONE (req #3502 — the aggregator has no rule of
 // its own any more; see `swarmStartCardUtils.js`'s own header).
 import { tallyRequirementStatuses } from './swarmStartCardUtils';
-import { requirementKeys, pipelineStepRequirementKeys } from '../hooks/useQueryKeys';
+import { requirementKeys, pipelineEpicRequirementKeys } from '../hooks/useQueryKeys';
 import { useCrudCallbacks } from '../hooks/useCrudCallbacks';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { RequirementActionsContext, useStableRequirementActions } from '../hooks/useRequirementActions';
@@ -160,7 +160,7 @@ const computeMetWindow = () => {
 // from the grid beneath it, which is the defect the pattern's own tests exist to
 // catch. Applied to the ROWS and to the CHIP BADGES from the same Set, for the
 // same reason the pipeline exclusion is.
-// req #3503 — `stepReqIds` is the STEP filter's SCOPE, handed down the same way
+// req #3503 — `epicReqIds` is the EPIC filter's SCOPE, handed down the same way
 // and applied in series after the initiative's. Two independent scopes, so the rows
 // that survive both are the intersection — and the BADGES are narrowed by the
 // same two passes as the LIST, because a count and a list that disagree is this
@@ -168,7 +168,7 @@ const computeMetWindow = () => {
 // req #3663 — `projectId` names the panel this aggregator sits in (every
 // project panel mounts its own), so its rows' drag ids are unique on the page;
 // `panelActive` switches its rows' dragging off while the panel is hidden.
-const SwarmStartCard = ({ initiativeReqIds = null, stepReqIds = null, projectId = null, panelActive = true }) => {
+const SwarmStartCard = ({ initiativeReqIds = null, epicReqIds = null, projectId = null, panelActive = true }) => {
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
     const queryClient = useQueryClient();
@@ -198,7 +198,7 @@ const SwarmStartCard = ({ initiativeReqIds = null, stepReqIds = null, projectId 
     // read the counts. Nothing here depends on which chip is selected, which is
     // what makes the move safe: `chipOffersLaunch` is the only count-adjacent
     // value that does, and it stays where it was.
-    // req #3428 / #3503 — an initiative or step scope narrowing this card.
+    // req #3428 / #3503 — an initiative or epic scope narrowing this card.
     // `membershipFilterActive` is what the SCOPE-SHAPED behaviours read (the
     // empty-chip override, the all-time Met source and its count): each is about
     // WHICH ROWS a scope selects. req #3598 retired the ones that changed a
@@ -206,8 +206,8 @@ const SwarmStartCard = ({ initiativeReqIds = null, stepReqIds = null, projectId 
     // drag guard — so a scoped card behaves like an unscoped one (user ruling,
     // 2026-10-17).
     const initiativeFilterActive = initiativeReqIds != null;
-    const stepFilterActive = stepReqIds != null;
-    const membershipFilterActive = initiativeFilterActive || stepFilterActive;
+    const epicFilterActive = epicReqIds != null;
+    const membershipFilterActive = initiativeFilterActive || epicFilterActive;
 
     // req #3419 / #3428 / #3502 / #3503 — THE visibility answer, identical on
     // every browse surface (Cards view, Table view, the detail elevator). This
@@ -226,9 +226,9 @@ const SwarmStartCard = ({ initiativeReqIds = null, stepReqIds = null, projectId 
     // computations of one number is how a badge and a list start disagreeing,
     // which is the defect this file's own comments call load-bearing.
     const baseStatusCounts = React.useMemo(() => tallyRequirementStatuses(
-        filterToStepReqIds(filterToInitiative(allRequirementsForCounts, initiativeReqIds), stepReqIds),
+        filterToEpicReqIds(filterToInitiative(allRequirementsForCounts, initiativeReqIds), epicReqIds),
         SWARM_START_STATUSES, visibility.isVisible).counts,
-        [allRequirementsForCounts, initiativeReqIds, stepReqIds, visibility.isVisible]);
+        [allRequirementsForCounts, initiativeReqIds, epicReqIds, visibility.isVisible]);
 
     // Persisted-store fallback — req #2584 retired 'deferred' from this card. Users
     // with a now-invalid persisted value get re-pointed at the default. `storedStatus`
@@ -281,7 +281,7 @@ const SwarmStartCard = ({ initiativeReqIds = null, stepReqIds = null, projectId 
     // alone. The rule is and was "the first queue chip in
     // `SWARM_START_STATUSES` that has rows", scanned in vocabulary order. What
     // moved is the DATA: the three launch chips used to be structurally
-    // near-empty under an initiative filter — an initiative's work is step-carried by
+    // near-empty under an initiative filter — an initiative's work is epic-carried by
     // construction and those chips excluded exactly that, unconditionally — so
     // in practice `activeCandidate` could only ever resolve to `development`.
     // Their counts are real now, so an initiative holding both authoring and
@@ -371,7 +371,7 @@ const SwarmStartCard = ({ initiativeReqIds = null, stepReqIds = null, projectId 
     // new fetch pattern — only its STATUS differs.
     //
     // req #3598 — gated on `membershipFilterActive`, not the initiative filter alone:
-    // a STEP scope's met badge is the same all-time scoped tally, so sourcing its
+    // a EPIC scope's met badge is the same all-time scoped tally, so sourcing its
     // rows from the trailing-24h window printed a "1" over an empty Met list.
     //
     // `enabled: membershipFilterActive && isMet`, NOT the scope flag alone.
@@ -428,10 +428,10 @@ const SwarmStartCard = ({ initiativeReqIds = null, stepReqIds = null, projectId 
     // projections carries an initiative reference of its own, and none of them
     // needs to. That is the whole reason the scope arrives as ids.
     const currentRequirements = React.useMemo(
-        () => filterToStepReqIds(
+        () => filterToEpicReqIds(
             filterToInitiative(isMet ? eligibleMetRequirements : eligibleRequirements, initiativeReqIds),
-            stepReqIds),
-        [isMet, eligibleMetRequirements, eligibleRequirements, initiativeReqIds, stepReqIds]);
+            epicReqIds),
+        [isMet, eligibleMetRequirements, eligibleRequirements, initiativeReqIds, epicReqIds]);
 
     // Fetch sessions for status badges (same as CategoryCard)
     const { data: serverSessions } = useSessions(profile?.userName);
@@ -494,15 +494,15 @@ const SwarmStartCard = ({ initiativeReqIds = null, stepReqIds = null, projectId 
         // …).length` fallback (it could never fire — the branch is already
         // guarded on the array, and every pass in it returns an array). req
         // #3500's narrowing subsumes that: skipping the overlay entirely under
-        // a membership filter leaves `filterToInitiative`/`filterToStepReqIds`
+        // a membership filter leaves `filterToInitiative`/`filterToEpicReqIds`
         // guaranteed no-ops here, so the expression is simpler still.
         //
         // req #3503 widens the skip from `initiativeFilterActive` to
-        // `membershipFilterActive`: a step filter's `baseStatusCounts.met` is
+        // `membershipFilterActive`: an epic filter's `baseStatusCounts.met` is
         // exactly as correctly-scoped as an initiative filter's (both already ran
-        // through `filterToInitiative` + `filterToStepReqIds` above), so overlaying
+        // through `filterToInitiative` + `filterToEpicReqIds` above), so overlaying
         // the unscoped trailing-24h figure over it would be the identical
-        // mismatch req #3500 fixed for initiatives, on the step filter's own scope.
+        // mismatch req #3500 fixed for initiatives, on the epic filter's own scope.
         if (!membershipFilterActive && Array.isArray(serverMetRequirements)) {
             counts.met = eligibleMetRequirements.length;
         }
@@ -593,15 +593,15 @@ const SwarmStartCard = ({ initiativeReqIds = null, stepReqIds = null, projectId 
                     if (result.httpStatus.httpStatus === 200) {
                         setRequirementsArray(prev => prev ? prev.filter(p => p.id !== requirementId) : prev);
                         queryClient.invalidateQueries({ queryKey: requirementKeys.all(profile.userName) });
-                        // req #3706 — the delete CASCADEs the requirement's step seat, so every
+                        // req #3706 — the delete CASCADEs the requirement's epic seat, so every
                         // plan read that may show it re-reads (the plan it sat in is unknown here).
-                        queryClient.invalidateQueries({ queryKey: pipelineStepRequirementKeys.all(profile.userName) });
+                        queryClient.invalidateQueries({ queryKey: pipelineEpicRequirementKeys.all(profile.userName) });
                         queryClient.invalidateQueries({ queryKey: ['pipeline_compose'] });
                     } else {
                         showError(result, 'Unable to delete requirement');
                     }
                 }).catch(error => {
-                    // req #3706 — a 423 names the locked step/initiative/plan holding the seat.
+                    // req #3706 — a 423 names the locked epic/initiative/plan holding the seat.
                     if (error?.httpStatus?.httpStatus === 423) showError(error.httpStatus.httpMessage);
                     else showError(error, 'Unable to delete requirement');
                 });

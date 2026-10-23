@@ -9,9 +9,9 @@
 // tier they tested: req #3355 dropped the tier's table and the requirement's
 // reference to it, so there is no intermediate hop between a requirement and
 // its initiative any more. What replaced
-// them is the two-table containment join below — a step names its initiative directly
-// (`pipeline_steps.initiative_fk`, NOT NULL) and the junction seats the requirement on
-// the step.
+// them is the two-table containment join below — an epic names its initiative directly
+// (`epics.initiative_fk`, NOT NULL) and the junction seats the requirement on
+// the epic.
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -19,27 +19,27 @@ import {
     firstProjectIndexWithInitiativeWork,
 } from '../initiativeMembership';
 
-// `pipeline_steps` rows as `useAllPipelineSteps(fields: 'id,initiative_fk')` returns
+// `epics` rows as `useAllPipelineEpics(fields: 'id,initiative_fk')` returns
 // them. `initiative_fk` is NOT NULL in the schema, so every real row names an initiative.
-const STEPS = [
+const EPICS = [
     { id: 501, initiative_fk: 11 },
     { id: 502, initiative_fk: 11 },
     { id: 510, initiative_fk: 9 },
 ];
 
-// `pipeline_step_requirements` — `PRIMARY KEY (requirement_fk)` alone, so a
-// requirement appears at most once here: one step per requirement, anywhere.
-const STEP_REQUIREMENTS = [
-    { step_fk: 501, requirement_fk: 3428 },
-    { step_fk: 501, requirement_fk: 3430 },
-    { step_fk: 502, requirement_fk: 3440 },
-    { step_fk: 510, requirement_fk: 3500 },   // another initiative
+// `epic_requirements` — `PRIMARY KEY (requirement_fk)` alone, so a
+// requirement appears at most once here: one epic per requirement, anywhere.
+const EPIC_REQUIREMENTS = [
+    { epic_fk: 501, requirement_fk: 3428 },
+    { epic_fk: 501, requirement_fk: 3430 },
+    { epic_fk: 502, requirement_fk: 3440 },
+    { epic_fk: 510, requirement_fk: 3500 },   // another initiative
 ];
 
 // Requirement rows as the hook's own narrow projection returns them
 // (`id,category_fk`) — no plan columns at all, which is the whole reason
 // membership is answered by an id Set rather than off these rows. 3600 is seated
-// on NO step: under containment it is in no initiative.
+// on NO epic: under containment it is in no initiative.
 const REQUIREMENTS = [
     { id: 3428, category_fk: 1209 },
     { id: 3430, category_fk: 1 },
@@ -49,74 +49,74 @@ const REQUIREMENTS = [
 ];
 
 describe('initiativeRequirementIds', () => {
-    it('names the requirements seated on the initiative\'s own steps', () => {
-        expect(initiativeRequirementIds(STEPS, STEP_REQUIREMENTS, 11))
+    it('names the requirements seated on the initiative\'s own epics', () => {
+        expect(initiativeRequirementIds(EPICS, EPIC_REQUIREMENTS, 11))
             .toEqual(new Set([3428, 3430, 3440]));
-        expect(initiativeRequirementIds(STEPS, STEP_REQUIREMENTS, 9))
+        expect(initiativeRequirementIds(EPICS, EPIC_REQUIREMENTS, 9))
             .toEqual(new Set([3500]));
     });
 
-    it('is empty for an initiative no step names', () => {
-        expect(initiativeRequirementIds(STEPS, STEP_REQUIREMENTS, 999).size).toBe(0);
+    it('is empty for an initiative no epic names', () => {
+        expect(initiativeRequirementIds(EPICS, EPIC_REQUIREMENTS, 999).size).toBe(0);
     });
 
-    it('a requirement on NO step is in no initiative — the accepted containment narrowing', () => {
+    it('a requirement on NO epic is in no initiative — the accepted containment narrowing', () => {
         // 1.0 also counted requirements FILED under an initiative (via the retired
-        // middle tier) that no step carried. 2.0 has no such mechanism, so that population does not
+        // middle tier) that no epic carried. 2.0 has no such mechanism, so that population does not
         // exist; req #3357 accepted the same narrowing for the pipelined browse
         // toggle. 3600 is in REQUIREMENTS and in no junction row.
-        const ids = initiativeRequirementIds(STEPS, STEP_REQUIREMENTS, 11);
+        const ids = initiativeRequirementIds(EPICS, EPIC_REQUIREMENTS, 11);
         expect(ids.has(3600)).toBe(false);
         expect(REQUIREMENTS.some(r => r.id === 3600)).toBe(true);
     });
 
-    it('a junction row naming NO step belongs to no initiative', () => {
+    it('a junction row naming NO epic belongs to no initiative', () => {
         // `Number(null)` is 0, so an unguarded `Set.has` would sweep in every
-        // unseated junction row the moment a step with id 0 existed.
+        // unseated junction row the moment an epic with id 0 existed.
         const ids = initiativeRequirementIds([{ id: 0, initiative_fk: 11 }],
-            [{ step_fk: null, requirement_fk: 3600 }, { step_fk: '', requirement_fk: 3601 }], 11);
+            [{ epic_fk: null, requirement_fk: 3600 }, { epic_fk: '', requirement_fk: 3601 }], 11);
         expect(ids.size).toBe(0);
     });
 
-    it('a step row with no id never SEEDS the set', () => {
+    it('an epic row with no id never SEEDS the set', () => {
         // Its own guard, reachable only through a junction row the guard above
-        // lets past — so `step_fk` is present-but-unresolvable here rather than
+        // lets past — so `epic_fk` is present-but-unresolvable here rather than
         // missing. Unguarded, `Number(null)` seeds 0 and `Number(undefined)`
         // seeds NaN, and a Set matches NaN against itself (SameValueZero), so
         // BOTH junction rows below would land in an initiative neither row names.
         const ids = initiativeRequirementIds(
             [{ id: null, initiative_fk: 11 }, { initiative_fk: 11 }],
-            [{ step_fk: 0, requirement_fk: 3600 }, { step_fk: 'x', requirement_fk: 3601 }], 11);
+            [{ epic_fk: 0, requirement_fk: 3600 }, { epic_fk: 'x', requirement_fk: 3601 }], 11);
         expect(ids.size).toBe(0);
     });
 
     it('a junction row naming no requirement contributes nothing', () => {
-        const ids = initiativeRequirementIds(STEPS,
-            [{ step_fk: 501, requirement_fk: null }, { step_fk: 501 },
-                { step_fk: 501, requirement_fk: '' }], 11);
+        const ids = initiativeRequirementIds(EPICS,
+            [{ epic_fk: 501, requirement_fk: null }, { epic_fk: 501 },
+                { epic_fk: 501, requirement_fk: '' }], 11);
         expect(ids.size).toBe(0);
     });
 
-    it('a step naming no initiative is under no initiative', () => {
+    it('an epic naming no initiative is under no initiative', () => {
         // `initiative_fk` is NOT NULL, so this is a projection accident rather than a
         // real row — and the failure it would cause is the same 0-sweeping one.
         const ids = initiativeRequirementIds([{ id: 501, initiative_fk: null }, { id: 502 }],
-            [{ step_fk: 501, requirement_fk: 3428 }], 0);
+            [{ epic_fk: 501, requirement_fk: 3428 }], 0);
         expect(ids.size).toBe(0);
     });
 
     it('matches on VALUE, so string ids off the wire still resolve', () => {
         expect(initiativeRequirementIds(
             [{ id: '501', initiative_fk: '11' }],
-            [{ step_fk: '501', requirement_fk: '3428' }], 11))
+            [{ epic_fk: '501', requirement_fk: '3428' }], 11))
             .toEqual(new Set([3428]));
     });
 
     it('is empty when either plan read has not resolved, or the initiative is null', () => {
-        expect(initiativeRequirementIds(undefined, STEP_REQUIREMENTS, 11).size).toBe(0);
-        expect(initiativeRequirementIds(STEPS, undefined, 11).size).toBe(0);
-        expect(initiativeRequirementIds(STEPS, STEP_REQUIREMENTS, null).size).toBe(0);
-        expect(initiativeRequirementIds(STEPS, STEP_REQUIREMENTS, undefined).size).toBe(0);
+        expect(initiativeRequirementIds(undefined, EPIC_REQUIREMENTS, 11).size).toBe(0);
+        expect(initiativeRequirementIds(EPICS, undefined, 11).size).toBe(0);
+        expect(initiativeRequirementIds(EPICS, EPIC_REQUIREMENTS, null).size).toBe(0);
+        expect(initiativeRequirementIds(EPICS, EPIC_REQUIREMENTS, undefined).size).toBe(0);
     });
 });
 
@@ -196,7 +196,7 @@ describe('firstProjectIndexWithInitiativeWork', () => {
 // and composition is where a signature change like req #3356's does its damage.
 describe('the containment chain, composed', () => {
     it('derives, filters and lands from one pair of plan reads', () => {
-        const ids = initiativeRequirementIds(STEPS, STEP_REQUIREMENTS, 11);
+        const ids = initiativeRequirementIds(EPICS, EPIC_REQUIREMENTS, 11);
         expect(filterToInitiative(REQUIREMENTS, ids).map(r => r.id)).toEqual([3428, 3430, 3440]);
         expect(firstProjectIndexWithInitiativeWork(
             [{ id: 7 }, { id: 1 }], [{ id: 1209, project_fk: 1 }], REQUIREMENTS, ids)).toBe(1);

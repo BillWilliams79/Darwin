@@ -1,6 +1,6 @@
 // Req #3235 — the addressable-initiative-location contract.
 //
-// Same round-trip discipline as pipelineStepLink.test.js (req #3140): the
+// Same round-trip discipline as pipelineEpicLink.test.js (req #3140): the
 // writer (the requirement page's initiative box) and the reader (PipelineDetail /
 // PipelinePlanVisualizer) must agree on the query-string key exactly, so this
 // pins both halves against each other rather than in isolation.
@@ -94,7 +94,7 @@ describe('planLinkTo', () => {
     });
 
     // A caller renders NO link at all rather than one that navigates to
-    // /swarm/pipeline/undefined — the same rule initiativeLinkTo/stepLinkTo follow.
+    // /swarm/pipeline/undefined — the same rule initiativeLinkTo/epicLinkTo follow.
     it('is null for every unusable id, and 0 is usable', () => {
         expect(planLinkTo(null)).toBeNull();
         expect(planLinkTo(undefined)).toBeNull();
@@ -110,9 +110,9 @@ describe('planLinkTo', () => {
 
     // It must NOT smuggle a focus parameter in — that is initiativeLinkTo's job, and
     // a stray `?initiative=` here would fit a band the reader did not ask for.
-    it('names no initiative and no step', () => {
+    it('names no initiative and no epic', () => {
         const search = new URLSearchParams(planLinkTo(2).slice(planLinkTo(2).indexOf('?')));
         expect(search.get(FOCUS_INITIATIVE_PARAM)).toBeNull();
-        expect(search.get('step')).toBeNull();
+        expect(search.get('epic')).toBeNull();
     });
 });

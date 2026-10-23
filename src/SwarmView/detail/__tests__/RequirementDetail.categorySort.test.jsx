@@ -45,8 +45,8 @@ function orchestrationStubs() {
     return {
         useAllPipelines: () => empty,
         useAllInitiatives: () => empty,
-        useAllPipelineSteps: () => empty,
-        useAllPipelineStepRequirements: () => empty,
+        useAllPipelineEpics: () => empty,
+        useAllPipelineEpicRequirements: () => empty,
     };
 }
 
