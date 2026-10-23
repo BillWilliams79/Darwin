@@ -131,6 +131,9 @@ describe('UnorchestratedReqBox — the navbar rack (req #3735)', () => {
         expect(box().style.position).toBe('relative');
         expect(q('pipeline-viz-unseated-grip-strip')).toBeNull();
         expect(q('pipeline-viz-unseated-grip')).toBeNull();
+        // ...and no reshape edges (req #3833): the navbar sizes it.
+        expect(q('pipeline-viz-unseated-edge-e')).toBeNull();
+        expect(getComputedStyle(q('pipeline-viz-unseated-list')).borderRightWidth).not.toBe('10px');
         // Its rows still feed the plan from the navbar: each is still the
         // dnd-kit drag source (req #3665), not a native draggable.
         const row = q('pipeline-viz-unseated-item-11');

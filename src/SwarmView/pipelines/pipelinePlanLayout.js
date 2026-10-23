@@ -866,7 +866,7 @@ export const PLAN_PALETTES = [
         // approaches green from the WARM side instead, so it reads as "on the
         // way to green" without touching the blue. Hue 68° — pushed yellower
         // than lime's 83° on the user's call, and held there because the next
-        // epic toward yellow closes on `deferred` (`#fcd34d`, 45°). MEASURED
+        // step toward yellow closes on `deferred` (`#fcd34d`, 45°). MEASURED
         // ΔE 30.2 from `deferred` (its nearest neighbour), 52.6 from `met`,
         // contrast 12.36:1.
         status: {
@@ -4351,7 +4351,7 @@ export function computePlanLayout(rows, opts = {}) {
                 // written. `laneBeads` is populated by `take()`, which is a
                 // deliberate no-op on an occupied cell, so a bead that
                 // landed on an already-taken cell is ABSENT from it — a
-                // later `below` scan epics over that lane and `al + 1`
+                // later `below` scan steps over that lane and `al + 1`
                 // resolves onto something that is anything but fresh. (That
                 // is the mechanism req #3229 was filed against; measuring it
                 // REFUTED it as this defect's cause, and left it standing as

@@ -362,7 +362,7 @@ test.describe.serial('Test plan cases drag and drop (dnd-kit)', () => {
     planId = await post('test_plans', { title: uniqueName('PlanDnD'), category_fk: catId }, idToken);
     for (let i = 0; i < 4; i++) {
       const title = uniqueName(`Case${i}`);
-      const id = await post('test_cases', { title, epics: 'epic', expected: 'ok', test_type: 'manual', category_fk: catId }, idToken);
+      const id = await post('test_cases', { title, steps: 'step', expected: 'ok', test_type: 'manual', category_fk: catId }, idToken);
       cases.push({ id, title });
       await apiCall('test_plan_cases', 'POST', { test_plan_fk: planId, test_case_fk: id, sort_order: i + 1 }, idToken);
     }
@@ -412,7 +412,7 @@ test.describe.serial('Phone calendar list drag and drop (dnd-kit)', () => {
     taskId = await post('tasks', { description: desc, area_fk: areaId, priority: 0, done: 1, done_ts: `${from}T12:00:00`, sort_order: 0 }, idToken);
     // A task on the target date, so that date is in the list.
     await post('tasks', { description: uniqueName('CalStay'), area_fk: areaId, priority: 0, done: 1, done_ts: `${to}T12:00:00`, sort_order: 1 }, idToken);
-    // ...and one on today, so the moved task always has a later day to epic to.
+    // ...and one on today, so the moved task always has a later day to step to.
     await post('tasks', { description: uniqueName('CalToday'), area_fk: areaId, priority: 0, done: 1, done_ts: `${day(0)}T12:00:00`, sort_order: 2 }, idToken);
   });
 
@@ -435,7 +435,7 @@ test.describe.serial('Phone calendar list drag and drop (dnd-kit)', () => {
     }, { timeout: 10000 }).toBe(to);
   });
 
-  test('CALM-03: keyboard — Space lifts a task, ArrowDown epics it to the next day, Space drops it there', async ({ page }) => {
+  test('CALM-03: keyboard — Space lifts a task, ArrowDown steps it to the next day, Space drops it there', async ({ page }) => {
     await page.goto('/calview');
     const row = page.getByTestId(`cal-mobile-event-t-${taskId}`);
     await expect(row).toBeVisible({ timeout: 30000 });

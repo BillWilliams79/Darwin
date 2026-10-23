@@ -1,0 +1,79 @@
+{
+  "cookies": [
+    {
+      "name": "refreshToken",
+      "value": "eyJjdHkiOiJKV1QiLCJlbmMiOiJBMjU2R0NNIiwiYWxnIjoiUlNBLU9BRVAifQ.nq24Rt3pmAORUF-qsusQYLjhstZmF8Pj4bnVTbyy2R1kp4Nd5tC3X00dh9rEMDipvfvUY2z3JoObQ8n-uxeInUZgLwY9BlD_iOW_qGeoNkyIm3qDC4ov7MYG7R8rvduf69OnAK-9YLn5J-1hy3n_sbbitgz15A028bT61OuJ7Y2TMLHu9zO55zk_Njk7zmzWidS9VOjx3jtfgu2H6f701g76UEC6Xpmd-Bc36lS7mNYlotX7g1lQaPu01f3MbzRtxRDZ2lHoOuG-9qcSvlQih_KXx4k6SDNiH0FOes1BCMW8QfHJpDoC0VfnRCFSHuqIok-hRwxcm0X38Q4rC6BsYg.F2wQrXKJdG2AvZrz.SYOdpYMHQbzp65TxI_sXJakTWyE-VOQBqz3W0-brWE7LphWlW_Asa7OTBMhiGr9KfEeFS2u7o0orhkmijNHkFYDFPMUQFBGVJrkJd6kie4tE8ui8dFgqwByzDr8oPnQR_8y3MeZnPVrQ1Ly8dgcQwZdT3FKCX1eiVM2d4pLmY38RQfipfkcpWj8tc_wJu-8Oks-Oho5gtl788Ps9efDL2b8sieGMbopbrPUC5Ut0SBogl4jxyPwPYz9jFx2WfFcJJxe3UPQmSYGU-NOEL4le1HX1lCMMb-JSl5GWeuy1mHzHzP_QvrGoAaU0jFHwmcH6lHE_fUPfeT7WowILV9zUAicQmvYUgrbWTniXj4oNhDosZZXSTh7KZC0zq9zIJHiRF8YQmpek7yliXKRM4RN64WujaX2aUnZEy0sUiPlQrQWI4C3GFbnii2vcpRiSAMt8mk-8dn9fQEzDJ4H9Eb_u_JhjKhifzN_vRLENhSKhKFBZ8d1eKYucRuwdpCf6JPC6L3DfXLmF3fJiZ9zTaJeVFB4HapiDF7MxnrOM790O43WpZm_8kCFrpRU1geHl5nwocCrj_gvcjCUQPkSrqb7H167aXLgW_-HJlTxU2Kvh_I6Hwe8pyE6FZ00xjOHYoMe-6uUazTiWmGYHWnWsSmhARUMQPKR8NUtowV6VYwLR8jWQdba5ZTL_JuTBFZnV9HrBG7CBjwaVmM0cIQyt_FQEUJetUtqSyNFSx684NmUB-pqOKMLRXuZvO64xgIPbxeAZlXWzqYXQYJ0gD60wrHlEO7pEG9xpv4Dm9urypPSmWmhDj9gC9GvrpjYdbVLVdQLS8VLzOsKmhgTnY8BceZhrLbO9_RAVIGdC4A_i23ruqZ3L2DOtIggM4Njlad7f78FJGQM25Oi9SmdSgDddQDJXxGK_FGLxu50jmr9KL2hYiJa6tXk3_35pczdlBRECVEwreX5E15ViIqnLsWQWItYR6MDPkpMNIULYBWjZ7fgk8Jb4aiW3aeu7Ik8l3igEl9hqCI7pDEqcAnCWAjrOqzHKsTuMHQrosmC3ljVrHLEp6YJNsjmfo2_XYM6niQ8Imsfx6USumzs-8oaPeQI7YyZ8UjIAG5Is0LTi2uPKIzc2ucI325kZM__RJSXV14Ptnzh2gnAaplH1TpqI4t2MMefkzc-NosdxmI9tVQf0v1jzDabjj5j7cgviJfj0PCgu-r92vodQSAO7X0QPHrvEsJ3uY08fi_FDf-X_QnFyr8bdq_hm8QB2zWtCrWNdwvw4dbs78R0H_hCJnc7FNu-vNrYAwj20UCM5Z1NTK4tPc6Z8equWYvDCNZJd.Hrtz4Og8eTEn9jmaQBNmzg",
+      "domain": "localhost",
+      "path": "/",
+      "expires": 1800551303.701723,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Strict"
+    },
+    {
+      "name": "idToken",
+      "value": "eyJraWQiOiJrQUZzbzl2b0NJM3B3b2d0N1Y3M3Y0VWJiSkcxU3FpczkzNFA3bWV3SGVBPSIsImFsZyI6IlJTMjU2In0.eyJzdWIiOiI0MjE0NWYxZC1lNmRjLTRkODMtYWQxYy0xYWRhYzUzZmNiYzkiLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwiaXNzIjoiaHR0cHM6Ly9jb2duaXRvLWlkcC51cy13ZXN0LTEuYW1hem9uYXdzLmNvbS91cy13ZXN0LTFfanFOMFdMQVNLIiwiY29nbml0bzp1c2VybmFtZSI6IjQyMTQ1ZjFkLWU2ZGMtNGQ4My1hZDFjLTFhZGFjNTNmY2JjOSIsIm9yaWdpbl9qdGkiOiIwZDQ4Y2U4Yi03YWQzLTQxN2MtYWRhNC1jMzhkYjg4ZjgyNzMiLCJhdWQiOiI0cXY4bTQ0bWxscWxsbGpiZW5iZW91NHVpcyIsImV2ZW50X2lkIjoiNDI0Y2RmNzMtYjhkNC00YmY1LTg2ZjgtYjMzODU5MzBiODczIiwidG9rZW5fdXNlIjoiaWQiLCJhdXRoX3RpbWUiOjE3OTI3NzUzMDEsIm5hbWUiOiJFMkUgVGVzdCBVc2VyIiwiZXhwIjoxNzkyODYxNzAxLCJpYXQiOjE3OTI3NzUzMDEsImp0aSI6IjM2OWQ2NWU3LWQyNGMtNDVmNC1iNDlkLTE2Y2VkNDZhZDY0MCIsImVtYWlsIjoiZTJlLXRlc3RAdGVzdC5pbnZhbGlkIn0.Gwl1dpDfvKyayDed05VYGLjFNMRRYbBPwm_8Foh-1SaWdSVMWWaC8InGWk2xbzh1qmf57Kv26pUTWB1JNWWsY6nHVo6Hqt9o0tECGM-SLdPzvgoLN8myhOUEnn0ocJbvSChYfrJF7D3KnxOKuMUfmhWJ5Q7YZ9qKM-b2vk4Di_1t560GkkEsChX_9M9Vkmfy0Xfp04S43v6_cDqtethjXdIk_GRrRIYYzQD1FL_HrQgQdkTutK-r1HpNVQ61KPzpa1CzYnqHtIyc5aZn2-g8BcNVMx8ODgOXJql1JV3n9OKSxNaSeKLFJ97RMwPz6V6Jo7OQthLEYT6hazrbp4VCeg",
+      "domain": "localhost",
+      "path": "/",
+      "expires": 1792861403.701847,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "accessToken",
+      "value": "eyJraWQiOiJmeDB3cW93dGoyRXZkQ3BUbUJVcEtVNklvOVRKNmljL0Y2dlNZUlFEM25RPSIsImFsZyI6IlJTMjU2In0.eyJzdWIiOiI0MjE0NWYxZC1lNmRjLTRkODMtYWQxYy0xYWRhYzUzZmNiYzkiLCJpc3MiOiJodHRwczovL2NvZ25pdG8taWRwLnVzLXdlc3QtMS5hbWF6b25hd3MuY29tL3VzLXdlc3QtMV9qcU4wV0xBU0siLCJjbGllbnRfaWQiOiI0cXY4bTQ0bWxscWxsbGpiZW5iZW91NHVpcyIsIm9yaWdpbl9qdGkiOiIwZDQ4Y2U4Yi03YWQzLTQxN2MtYWRhNC1jMzhkYjg4ZjgyNzMiLCJldmVudF9pZCI6IjQyNGNkZjczLWI4ZDQtNGJmNS04NmY4LWIzMzg1OTMwYjg3MyIsInRva2VuX3VzZSI6ImFjY2VzcyIsInNjb3BlIjoiYXdzLmNvZ25pdG8uc2lnbmluLnVzZXIuYWRtaW4iLCJhdXRoX3RpbWUiOjE3OTI3NzUzMDEsImV4cCI6MTc5Mjg2MTcwMSwiaWF0IjoxNzkyNzc1MzAxLCJqdGkiOiJkOTZkZTRkZi03MjZhLTQ2ZWQtYTFkYS05MWFkMDg2Y2VkMzQiLCJ1c2VybmFtZSI6IjQyMTQ1ZjFkLWU2ZGMtNGQ4My1hZDFjLTFhZGFjNTNmY2JjOSJ9.AtQJTTY3p7WfZoXsjG5fLtQ94Jmr03CoKzeJj8bizyxI0BrmEO1WBcxxe7-CJBWm0pVaRSs9XnTAIE_54jpc3m0CTxDi5zMSrTpGKEXpyeJITRIU41QaZ0ZBTy5-rcjL3MtcBzLmzF2N0dw15X6iUPNs2VL2XLCXbCJO4drBQevPdftT0LbO-AteZLUUdBQhJZQnfqg3K_U0FMuO4HQtGijsCg9BrWbh59Ds9iE-O1FlNiNn4VSZrH07wAAL8wNTy9Q5T-JKu6EFUgOeXuuLeQQdUN8ZcWrN8rakhL_DH5PNZVUnv7TW2YaDf6nFMQ9apFUHbuz1-NQqmJiNVUKN2A",
+      "domain": "localhost",
+      "path": "/",
+      "expires": 1792861403.701889,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "profile",
+      "value": "j%3A%7B%22id%22%3A%2242145f1d-e6dc-4d83-ad1c-1adac53fcbc9%22%2C%22name%22%3A%22E2E%20Test%20User%22%2C%22email%22%3A%22e2e-test%40test.invalid%22%2C%22app_maps%22%3A1%2C%22timezone%22%3Anull%2C%22app_solar%22%3A0%2C%22app_swarm%22%3A1%2C%22app_tasks%22%3A1%2C%22create_ts%22%3A%222026-10-23%2016%3A32%3A54.000000%22%2C%22update_ts%22%3Anull%2C%22theme_mode%22%3A%22light%22%2C%22app_swarm_validate%22%3A0%2C%22userName%22%3A%2242145f1d-e6dc-4d83-ad1c-1adac53fcbc9%22%7D",
+      "domain": "localhost",
+      "path": "/",
+      "expires": 1792861403.701919,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    }
+  ],
+  "origins": [
+    {
+      "origin": "https://localhost:3003",
+      "localStorage": [
+        {
+          "name": "darwin_panel_rack",
+          "value": "{\"state\":{\"racked\":[\"devserver-info\"],\"seeded\":[\"devserver-info\"]},\"version\":1}"
+        },
+        {
+          "name": "darwin-profile",
+          "value": "{\"id\":\"42145f1d-e6dc-4d83-ad1c-1adac53fcbc9\",\"name\":\"E2E Test User\",\"email\":\"e2e-test@test.invalid\",\"app_maps\":1,\"timezone\":null,\"app_solar\":0,\"app_swarm\":1,\"app_tasks\":1,\"create_ts\":\"2026-10-23 16:32:54.000000\",\"update_ts\":null,\"theme_mode\":\"light\",\"app_swarm_validate\":0,\"userName\":\"42145f1d-e6dc-4d83-ad1c-1adac53fcbc9\"}"
+        },
+        {
+          "name": "darwin-dev-apps-off",
+          "value": "*"
+        },
+        {
+          "name": "darwin-navbar-collapsed-groups:dev:3830:/swarm?filer=1",
+          "value": "{}"
+        },
+        {
+          "name": "darwin_devserver_dashboard",
+          "value": "{\"state\":{\"show\":false,\"open\":true,\"dock\":null},\"version\":2}"
+        },
+        {
+          "name": "darwin-theme",
+          "value": "light"
+        },
+        {
+          "name": "darwin-navbar-expanded-items",
+          "value": "{}"
+        }
+      ]
+    }
+  ]
+}

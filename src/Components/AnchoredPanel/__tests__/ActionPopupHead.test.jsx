@@ -7,10 +7,12 @@
 // make the columns agree.)
 
 import React from 'react';
-import { describe, it, expect, afterEach } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 
-import ActionPopupHead, { ActionPopupBadge, ActionPopupClose } from '../ActionPopupHead';
+import ActionPopupHead, {
+    ACTION_POPUP_CHEVRON_SCALE, ActionPopupAdd, ActionPopupBadge, ActionPopupClose,
+} from '../ActionPopupHead';
 import AnchoredPanel from '../AnchoredPanel';
 import { ACTION_POPUP_BADGE_EM, ACTION_POPUP_COLORS, ACTION_POPUP_HEAD_EM } from '../actionPopupChrome';
 
@@ -79,5 +81,71 @@ describe('ActionPopupHead (req #3821)', () => {
         </AnchoredPanel>);
         expect(order('ds')).toEqual(['ds-toggle', 'ds-badge', 'ds-title']);
         expect(screen.getByTestId('ds-title').textContent).toBe('Dev Server');
+    });
+
+    // Req #3830 — the Requirement Filer's head: no badge slot, a +, a bigger ▾.
+    it('badgeSlot={false} puts the title against the ▾, on the panel too', () => {
+        render(<AnchoredPanel dock={DOCK} onDockChange={noop} open={false} onToggle={noop}
+                              name="Requirement" testid="rf" badgeSlot={false}
+                              limits={LIMITS} colors={ACTION_POPUP_COLORS}
+                              actions={<ActionPopupClose onClick={noop} label="Close" testid="rf-x" />}>
+            {() => <div>rows</div>}
+        </AnchoredPanel>);
+        expect(order('rf')).toEqual(['rf-toggle', 'rf-title', null]);
+        expect(screen.queryByTestId('rf-badge')).toBe(null);
+    });
+
+    it('draws the ▾ 50% bigger without growing the row, in every popup', () => {
+        expect(ACTION_POPUP_CHEVRON_SCALE).toBe(1.5);
+        render(<ActionPopupHead open onToggle={noop} name="Dev Servers" testid="a" />);
+        const glyph = getComputedStyle(screen.getByTestId('a-toggle').firstChild);
+        expect(glyph.fontSize).toBe('1.5em');
+        expect(glyph.lineHeight).toBe('1');
+    });
+
+    it('the + is a button bigger than the × and no taller than the row', () => {
+        const onClick = vi.fn();
+        render(<ActionPopupHead open={false} onToggle={noop} name="Requirement" testid="a" badgeSlot={false}
+                                actions={<>
+                                    <ActionPopupAdd onClick={onClick} label="Create" testid="a-add" />
+                                    <ActionPopupClose onClick={noop} label="Close" testid="a-x" />
+                                </>} />);
+        const add = screen.getByTestId('a-add');
+        expect(add.tagName).toBe('BUTTON');
+        expect(add.getAttribute('aria-label')).toBe('Create');
+        // Its ems are the ROW's (a button's own default type is 13.33px), so
+        // 1.6em is exactly the row's content height: 2.2em less 0.3em top and bottom.
+        const box = getComputedStyle(add);
+        expect(box.fontSize).toBe('inherit');
+        expect(parseFloat(box.height)).toBe(ACTION_POPUP_HEAD_EM - 0.6);
+        // Bigger than the ×: its box is 1.4em of 1.1em = 1.54em; the + mark,
+        // 1.3em, against the ×'s 1.1em glyph.
+        const x = getComputedStyle(screen.getByTestId('a-x'));
+        expect(parseFloat(box.width)).toBeGreaterThan(parseFloat(x.width) * parseFloat(x.fontSize));
+        expect(parseFloat(getComputedStyle(add.firstChild).width)).toBeGreaterThan(parseFloat(x.fontSize));
+        fireEvent.click(add);
+        expect(onClick).toHaveBeenCalledTimes(1);
+    });
+
+    it('pressing the + (its mark included) never moves or sends home the panel', () => {
+        const onDockChange = vi.fn();
+        render(<AnchoredPanel dock={DOCK} onDockChange={onDockChange} open={false} onToggle={noop}
+                              name="Requirement" testid="rf" badgeSlot={false}
+                              limits={LIMITS} colors={ACTION_POPUP_COLORS}
+                              actions={<ActionPopupAdd onClick={noop} label="Create" testid="rf-add" />}>
+            {() => <div>rows</div>}
+        </AnchoredPanel>);
+        const mark = screen.getByTestId('rf-add').querySelector('path');
+        fireEvent.pointerDown(mark, { button: 0, pointerId: 1, clientX: 50, clientY: 50 });
+        fireEvent.pointerMove(mark, { pointerId: 1, clientX: 150, clientY: 150, buttons: 1 });
+        fireEvent.pointerUp(mark, { pointerId: 1, clientX: 150, clientY: 150 });
+        fireEvent.doubleClick(mark);
+        expect(onDockChange).not.toHaveBeenCalled();
+    });
+
+    it('the icon-only navbar keeps the ▾ alone when there is no badge slot', () => {
+        render(<ActionPopupHead open={false} onToggle={noop} name="Requirement" testid="a" narrow badgeSlot={false}
+                                actions={<ActionPopupAdd onClick={noop} label="Create" testid="a-add" />} />);
+        expect(order('a')).toEqual(['a-toggle']);
     });
 });

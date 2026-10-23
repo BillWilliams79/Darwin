@@ -259,8 +259,8 @@ test.describe.serial('SwarmView DnD — cards (dnd-kit)', () => {
     const target = (await row(page, req2Id).boundingBox())!;
     await page.mouse.move(b.x + 12, b.y + b.height / 2);
     await page.mouse.down();
-    await page.mouse.move(b.x + 30, b.y + b.height / 2, { epics: 4 });
-    await page.mouse.move(target.x + 20, target.y + 10, { epics: 8 });
+    await page.mouse.move(b.x + 30, b.y + b.height / 2, { steps: 4 });
+    await page.mouse.move(target.x + 20, target.y + 10, { steps: 8 });
     // The template row is never the lifted item (the category card is, as on
     // the Plan view — the card lifts from anywhere that is not a draggable row).
     await expect(template).not.toHaveAttribute('data-dragging', 'true');

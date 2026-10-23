@@ -58,11 +58,26 @@ const LIMITS = { minW: DASH_MIN_W, minH: DASH_MIN_H, autoMaxW: DASH_AUTO_MAX_W, 
 
 const HALF_SX = {
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-    // Content-box, so a half's minimum width is its TEXT's and the padding
-    // adds to it: the halves then line up row to row.
     whiteSpace: 'nowrap',
 };
 const HALF_HOVER = { '&:hover': { bgcolor: 'rgba(255,255,255,0.14)' } };
+
+/**
+ * The rows' columns. The pills line up row to row because every row lays its
+ * cells out on ONE grid (each row and each side-by-side pill is a `subgrid`
+ * of it): the terminal half, the seam and the port half are columns as wide
+ * as their widest cell, then the title. A per-half minimum width cannot do
+ * this — it was measured not to (req #3783): `ch` here is narrower than the
+ * mono font's own glyphs (7ch = 50.56px, "Term 10" = 51.63px at 12px), and
+ * with Darwin's border-box sizing a minimum that holds the padding too was
+ * below every real label, so "Term 10", "Term 3" and "—" drew three widths.
+ * Stacked, the pill is one column and the halves stretch across it.
+ */
+function rowColumns(stacked, tiny) {
+    const cols = stacked ? ['auto'] : ['auto', '1px', 'auto'];
+    if (!tiny) cols.push('minmax(0, 1fr)');
+    return cols.join(' ');
+}
 
 /**
  * Terminal and port as ONE pill in two halves (req #3748) — the Sessions
@@ -73,9 +88,9 @@ const HALF_HOVER = { '&:hover': { bgcolor: 'rgba(255,255,255,0.14)' } };
  * `size` — 'wide' spells "Term 2" (content-sized, or shaped wide enough to
  * show it beside the title); 'short' says "T2" (shaped narrower); 'stacked'
  * puts the halves one over the other at a smaller size, for widths too narrow
- * for them side by side — the icon-only navbar rack among them. Each half
- * keeps a fixed minimum width so the pills line up row to row; an absent
- * terminal is a dim dash rather than an empty half.
+ * for them side by side — the icon-only navbar rack among them. Side by side,
+ * the pill is a subgrid of the rows' columns (rowColumns), so its halves line
+ * up row to row; an absent terminal is a dim dash rather than an empty half.
  */
 function TerminalPortPill({ r, size }) {
     const stacked = size === 'stacked';
@@ -89,10 +104,13 @@ function TerminalPortPill({ r, size }) {
     return (
         <Box component="span" data-testid={`devserver-dashboard-pill-${r.key}`}
              data-size={size}
-             sx={{ display: 'inline-flex', flexDirection: stacked ? 'column' : 'row',
-                    alignItems: 'stretch', flexShrink: 0,
+             sx={{ ...(stacked
+                        ? { display: 'flex', flexDirection: 'column', alignItems: 'stretch',
+                            gridColumn: '1', fontSize: '0.8em' }
+                        : { display: 'grid', gridColumn: '1 / span 3',
+                            gridTemplateColumns: 'subgrid' }),
                     border: `1px solid ${P.dim}`, borderRadius: stacked ? '0.6em' : '999px',
-                    overflow: 'hidden', lineHeight: 1.35, ...(stacked && { fontSize: '0.8em' }) }}>
+                    overflow: 'hidden', lineHeight: 1.35 }}>
             <Box component="span" data-testid={`devserver-dashboard-term-${r.key}`}
                  {...(r.terminalHref ? {
                      role: 'link', tabIndex: 0, title: r.terminalTitle,
@@ -102,16 +120,16 @@ function TerminalPortPill({ r, size }) {
                      onClick: focus,
                      onKeyDown: (e) => { if (e.key === 'Enter') focus(e); },
                  } : {})}
-                 sx={{ ...HALF_SX, px: pad, minWidth: stacked ? 0 : (wide ? '7ch' : '3ch'),
+                 sx={{ ...HALF_SX, px: pad,
                         color: r.terminalHref ? P.accent : P.dim,
                         ...(r.terminalHref && { cursor: 'pointer', ...HALF_HOVER }) }}>
                 {termText}
             </Box>
             {/* The seam: a hairline, not a gap — a gap reads as two pills. */}
-            <Box component="span" sx={{ [stacked ? 'height' : 'width']: '1px', flexShrink: 0,
+            <Box component="span" sx={{ ...(stacked && { height: '1px' }), flexShrink: 0,
                                          bgcolor: P.dim }} />
             <Box component="span" data-testid={`devserver-dashboard-port-${r.key}`}
-                 sx={{ ...HALF_SX, px: pad, minWidth: stacked ? 0 : '4ch',
+                 sx={{ ...HALF_SX, px: pad,
                         color: P.req, fontWeight: 700, ...(r.href && HALF_HOVER) }}>
                 {r.port}
             </Box>
@@ -204,6 +222,11 @@ export default function DevServerDashboard() {
                                 None running
                             </Box>
                         )}
+                        {count > 0 && (
+                        // One grid for every row, so the pill halves line up
+                        // row to row (rowColumns).
+                        <Box data-testid="devserver-dashboard-rows"
+                             sx={{ display: 'grid', gridTemplateColumns: rowColumns(stacked, tiny) }}>
                         {rows.map((r) => {
                             return (
                                 <Box key={r.key}
@@ -212,8 +235,8 @@ export default function DevServerDashboard() {
                                      title={r.title}
                                      data-testid={`devserver-dashboard-item-${r.key}`}
                                      data-current={r.current ? '1' : '0'}
-                                     sx={{ display: 'flex', alignItems: 'baseline',
-                                            gap: stacked ? '0.3em' : '0.6em',
+                                     sx={{ display: 'grid', gridColumn: '1 / -1',
+                                            gridTemplateColumns: 'subgrid', alignItems: 'baseline',
                                             // A little trailing space, nothing more:
                                             // it is the panel's only slack when it
                                             // sizes to its rows. Behind the title it
@@ -229,9 +252,9 @@ export default function DevServerDashboard() {
                                     <TerminalPortPill r={r} size={pillSize} />
                                     {!tiny && (
                                         // The gap before the title is halved
-                                        // (req #3718): 0.6em less 0.3em.
+                                        // (req #3718): 0.3em, not 0.6em.
                                         <Box component="span"
-                                             sx={{ flex: 1, minWidth: 0, ml: '-0.3em', overflow: 'hidden',
+                                             sx={{ minWidth: 0, ml: '0.3em', overflow: 'hidden',
                                                     textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                             {r.label}
                                         </Box>
@@ -239,6 +262,8 @@ export default function DevServerDashboard() {
                                 </Box>
                             );
                         })}
+                        </Box>
+                        )}
                     </>
                 );
             }}

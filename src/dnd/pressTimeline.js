@@ -24,7 +24,7 @@
 // so the edit took the press away from nearly every hold-to-drag ("it will long
 // press to move but then drop into the edit requirement title every time"). A
 // lifted item now belongs to the drag; only letting go where it was picked up,
-// after LONG_PRESS_MS, makes it an edit. A target that never lifts (a plan step
+// after LONG_PRESS_MS, makes it an edit. A target that never lifts (a plan epic
 // name, `planPressGesture.js`) has no race and still fires while held.
 //
 // Every number lives here and nowhere else — `SwarmView/pipelines/planPressGesture.js`
