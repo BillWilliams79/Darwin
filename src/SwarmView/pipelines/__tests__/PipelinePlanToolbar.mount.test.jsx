@@ -160,7 +160,7 @@ describe('PipelinePlanToolbar (req #3648)', () => {
         });
     });
 
-    // req #3686 — the Hide closed chip sits between the colour chips and the ladder.
+    // req #3686 — the Closed chip sits between the colour chips and the ladder.
     it('draws Closed between the colour chips and the epics-across ladder', () => {
         const color = q('pipeline-viz-colorkey-toggle');
         const hide = q('pipeline-viz-hide-closed');
@@ -182,13 +182,41 @@ describe('PipelinePlanToolbar (req #3648)', () => {
                                  onChangeHideClosed={(v) => got.push(v)} planLevelPref="auto"
                                  effectiveLevel="out" onChangeLevelPref={() => {}}
                                  onResetView={() => {}} />));
+        // req #3816 — lit (pressed, filled) while closed are SHOWN, like a machine chip.
         render(false);
-        expect(q('pipeline-viz-hide-closed').getAttribute('aria-pressed')).toBe('false');
+        expect(q('pipeline-viz-hide-closed').getAttribute('aria-pressed')).toBe('true');
+        expect(q('pipeline-viz-hide-closed').getAttribute('aria-label')).toBe('Hide closed requirements');
         act(() => q('pipeline-viz-hide-closed').click());
         render(true);
-        expect(q('pipeline-viz-hide-closed').getAttribute('aria-pressed')).toBe('true');
+        expect(q('pipeline-viz-hide-closed').getAttribute('aria-pressed')).toBe('false');
+        expect(q('pipeline-viz-hide-closed').getAttribute('aria-label')).toBe('Show closed requirements');
         act(() => q('pipeline-viz-hide-closed').click());
         expect(got).toEqual([true, false]);
+    });
+
+    // req #3816 — Closed is drawn exactly like a machine chip: same classes in
+    // both states (filled when lit, outlined when not), no size of its own.
+    it('Closed looks like a machine chip, lit when shown', () => {
+        const machines = [{ id: 7, title: 'Mac Mini' }];
+        const render = (hideClosed, hiddenMachines) => act(() => root.render(
+            <PipelinePlanToolbar onEpicsAcross={() => {}} epicWidthLevel={5}
+                                 onChangeEpicWidthLevel={() => {}} colorKey="state"
+                                 onChangeColorKey={() => {}} hideClosed={hideClosed}
+                                 onChangeHideClosed={() => {}} machines={machines}
+                                 hiddenMachines={hiddenMachines} onToggleMachine={() => {}}
+                                 planLevelPref="auto" effectiveLevel="out"
+                                 onChangeLevelPref={() => {}} onResetView={() => {}} />));
+        // The emotion class too: identical sx means an identical generated class.
+        const classes = (el) => [...el.classList].sort();
+        render(false, new Set());
+        const closedOn = q('pipeline-viz-hide-closed');
+        const machineOn = q('pipeline-viz-machine-7');
+        expect(classes(closedOn)).toEqual(classes(machineOn));
+        expect(closedOn.classList.contains('MuiChip-filled')).toBe(true);
+        render(true, new Set([7]));
+        const closedOff = q('pipeline-viz-hide-closed');
+        expect(classes(closedOff)).toEqual(classes(q('pipeline-viz-machine-7')));
+        expect(closedOff.classList.contains('MuiChip-outlined')).toBe(true);
     });
 
     it('hides the Epic Width rungs', () => {

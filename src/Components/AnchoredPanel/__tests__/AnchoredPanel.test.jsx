@@ -52,11 +52,12 @@ describe('AnchoredPanel (req #3643)', () => {
     });
     afterEach(cleanup);
 
-    it('head row: ▾, extras, the title — left — then actions at the far right', () => {
+    it('head row: ▾, extras in the badge slot, the title — left — then actions at the far right', () => {
         render(<Harness />);
         const head = screen.getByTestId('ap-header');
         expect([...head.children].map(c => c.getAttribute('data-testid'))).toEqual(
-            ['ap-toggle', 'ap-extra', 'ap-title', null]);
+            ['ap-toggle', 'ap-badge', 'ap-title', null]);
+        expect(screen.getByTestId('ap-badge').firstChild).toBe(screen.getByTestId('ap-extra'));
         expect(getComputedStyle(head.children[3]).marginLeft).toBe('auto');
         expect(screen.getByTestId('ap-toggle').textContent).toBe('▾');
         expect(screen.getByTestId('ap-toggle').getAttribute('aria-label')).toBe('Things');

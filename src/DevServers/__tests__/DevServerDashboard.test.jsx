@@ -75,7 +75,8 @@ describe('DevServerDashboard (req #3643)', () => {
         renderDash();
         const bar = screen.getByTestId('devserver-dashboard-header');
         expect(bar.children[0].getAttribute('data-testid')).toBe('devserver-dashboard-toggle');
-        expect(bar.children[1].getAttribute('data-testid')).toBe('devserver-dashboard-count');
+        expect(bar.children[1].getAttribute('data-testid')).toBe('devserver-dashboard-badge');
+        expect(bar.children[1].firstChild).toBe(screen.getByTestId('devserver-dashboard-count'));
         expect(bar.children[2].getAttribute('data-testid')).toBe('devserver-dashboard-title');
         expect(bar.children[3].contains(screen.getByTestId('devserver-dashboard-close'))).toBe(true);
         expect(screen.getByTestId('devserver-dashboard-toggle').textContent).toBe('▾');

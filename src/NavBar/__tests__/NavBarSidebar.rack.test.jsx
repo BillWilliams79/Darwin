@@ -23,10 +23,10 @@ import NavBarSidebar from '../NavBarSidebar';
 import { usePanelRackStore } from '../../stores/usePanelRackStore';
 import { SIDEBAR_COLLAPSED_WIDTH, SIDEBAR_WIDTH } from '../navConfig';
 
-const renderNav = () => render(
+const renderNav = (entry = '/') => render(
     <AuthContext.Provider value={{ idToken: 't', profile: { userName: 'u', app_swarm: 1 } }}>
         <AppContext.Provider value={{ database: 'darwin_dev' }}>
-            <MemoryRouter initialEntries={['/']}>
+            <MemoryRouter initialEntries={[entry]}>
                 <NavBarSidebar />
             </MemoryRouter>
         </AppContext.Provider>
@@ -40,6 +40,13 @@ describe('NavBarSidebar panel rack (req #3720)', () => {
         usePanelRackStore.setState({ racked: [], slot: null, drag: null });
     });
     afterEach(cleanup);
+
+    it('?rack= lands with the named popups docked, in that order, after the ones already there (req #3821)', () => {
+        usePanelRackStore.setState({ racked: ['devserver-info', 'active'] });
+        renderNav('/swarm?rack=devservers, active,,orchestrables');
+        expect(usePanelRackStore.getState().racked)
+            .toEqual(['devserver-info', 'devservers', 'active', 'orchestrables']);
+    });
 
     it('is the drop zone and publishes its rack slot, below the nav links, at its width', () => {
         renderNav();

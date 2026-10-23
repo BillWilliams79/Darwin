@@ -296,7 +296,8 @@ export function orchestrationBadges(claims, pipelineId, machines, now = new Date
             machineFk: stale.machine_fk ?? null,
             text: machinePlatformLabel(machineOf(stale)),
             tone: BADGE_STALE,
-            title: view.title,
+            title: `${view.machine} is no longer orchestrating. Last alive ${
+                view.ageSeconds == null ? 'at an unknown time' : `${humanDuration(view.ageSeconds)} ago`}`,
         }];
     }
 
@@ -305,46 +306,37 @@ export function orchestrationBadges(claims, pipelineId, machines, now = new Date
     const isMaster = (c) => (planLead
         ? c.id === planLead.id
         : roles.get(c.id).role === ROLE_LEAD);
-    const describe = (c, view) => {
-        if (c === planLead) {
-            return `${view.machine} is the MASTER — it leads this plan and launches `
-                + `requirements pinned to Any and to ${view.machine}`;
-        }
-        if (isMaster(c)) {
-            return `${view.machine} is the MASTER of ${scopeLabel(c)} — it leads that `
-                + `initiative and launches requirements pinned to Any and to ${view.machine} there`;
-        }
-        if (roles.get(c.id).role === ROLE_LEAD) {
-            return `${view.machine} is SECONDARY here — it leads ${scopeLabel(c)}, `
-                + 'which it reached first';
-        }
-        return `${view.machine} is SECONDARY — it subscribes (${scopeLabel(c)}) and `
-            + 'launches ONLY requirements pinned to its own machine';
-    };
 
+    // ONE BADGE PER MACHINE: a machine holding several claims has been
+    // orchestrating since its EARLIEST one, so the longest hold is its time.
     const byMachine = new Map();
     for (const c of accepted) {
         const key = `m${c.machine_fk ?? 'none'}`;
         const view = holderView(c, machines, now);
-        const sentence = `${describe(c, view)}. ${view.title}`;
         const prior = byMachine.get(key);
         if (prior) {
             prior.master = prior.master || isMaster(c);
-            prior.sentences.push(sentence);
+            if (view.heldSeconds != null) {
+                prior.heldSeconds = Math.max(prior.heldSeconds ?? 0, view.heldSeconds);
+            }
         } else {
             byMachine.set(key, {
                 key, machineFk: c.machine_fk ?? null,
                 text: machinePlatformLabel(machineOf(c)),
-                master: isMaster(c), sentences: [sentence],
+                machine: view.machine, heldSeconds: view.heldSeconds,
+                master: isMaster(c),
             });
         }
     }
+    // The tooltip is the user's sentence (req #3820): "Mac Mini is the master.
+    // Orchestrating for 2h 05m" — `humanDuration`'s format, as everywhere else.
     return [...byMachine.values()]
         .sort((a, b) => Number(b.master) - Number(a.master))
-        .map(({ master, sentences, ...rest }) => ({
+        .map(({ master, machine, heldSeconds, ...rest }) => ({
             ...rest,
             tone: master ? BADGE_LEAD : BADGE_SUBSCRIBER,
-            title: sentences.join(' '),
+            title: `${machine} is ${master ? 'the master' : 'secondary'}. Orchestrating ${
+                heldSeconds == null ? 'since an unknown time' : `for ${humanDuration(heldSeconds)}`}`,
         }));
 }
 

@@ -187,7 +187,8 @@ describe('UnorchestratedReqBox', () => {
             expect(header.firstElementChild).toBe(toggle);
             expect(toggle.textContent).toBe('▾');
             expect(toggle.getAttribute('aria-label')).toBe('Orchestrables');
-            expect(toggle.nextElementSibling).toBe(q('pipeline-viz-unseated-count'));
+            expect(toggle.nextElementSibling).toBe(q('pipeline-viz-unseated-badge'));
+            expect(q('pipeline-viz-unseated-badge').firstChild).toBe(q('pipeline-viz-unseated-count'));
             expect(header.lastElementChild).toBe(q('pipeline-viz-unseated-title'));
             const box = q('pipeline-viz-unseated');
             expect(box.style.width).toBe('612px');
@@ -881,14 +882,14 @@ describe('UnorchestratedReqBox', () => {
         // A small stretch: wider, same text.
         act(() => { fire('pointermove', 560, 200); });
         expect(box.style.width).toBe('440px');
-        expect(box.getAttribute('data-text-epic')).toBe('0');
+        expect(box.getAttribute('data-text-step')).toBe('0');
         expect(box.style.fontSize).toBe('12px');
         // Sideways only: the list keeps its natural height.
         expect(q('pipeline-viz-unseated-list').style.height).toBe('');
         // A full epic wider: one size bigger.
         act(() => { fire('pointermove', 500, 260); });
         expect(box.style.width).toBe('500px');
-        expect(box.getAttribute('data-text-epic')).toBe('1');
+        expect(box.getAttribute('data-text-step')).toBe('1');
         expect(box.style.fontSize).toBe('15px');
         expect(q('pipeline-viz-unseated-list').style.height).toBe('160px');
         // Far wider still: no bigger than that one size (and capped at the pane).
@@ -911,7 +912,7 @@ describe('UnorchestratedReqBox', () => {
         act(() => { fire('pointerdown', 600, 200); });
         act(() => { fire('pointermove', 680, 200); });
         expect(box.style.width).toBe('320px');
-        expect(box.getAttribute('data-text-epic')).toBe('-1');
+        expect(box.getAttribute('data-text-step')).toBe('-1');
         expect(box.style.fontSize).toBe('9.6px');
         // Squeezed further: held at its title bar in the smaller type.
         act(() => { fire('pointermove', 2000, 200); });

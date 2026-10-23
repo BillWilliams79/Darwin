@@ -8,7 +8,7 @@ import {
     screenToWorld, screenRectOf, UNSEATED_REQ_MIME, resolveSeatDrop,
     unseatedBoxFontPx, UNSEATED_FONT_MIN, UNSEATED_FONT_MAX, bulkSeatRequest,
     unseatedBoxWidthPx, UNSEATED_MIN_WIDTH_EM, unseatedBoxZoom, UNSEATED_MAX_EPICS_ACROSS,
-    unseatedTextEpic, unseatedResizedBox, unseatedMinStretchPx, UNSEATED_TEXT_RATIO,
+    unseatedTextStep, unseatedResizedBox, unseatedMinStretchPx, UNSEATED_TEXT_RATIO,
     UNSEATED_MIN_LIST_EM,
     pointInRect, pointerCanSeat, runBulkSeat, bulkSeatFailureMessage,
 } from '../pipelineUnseated';
@@ -199,32 +199,32 @@ describe('unseatedBoxWidthPx', () => {
 });
 
 // req #3654 — the reader's stretch, and the three text sizes it allows.
-describe('unseatedTextEpic', () => {
-    it('is one size smaller a full epic narrower, one bigger a full epic wider', () => {
-        expect(unseatedTextEpic(1)).toBe(0);
-        expect(unseatedTextEpic(0.9)).toBe(0);
-        expect(unseatedTextEpic(1.2)).toBe(0);
-        expect(unseatedTextEpic(1 / UNSEATED_TEXT_RATIO)).toBe(-1);
-        expect(unseatedTextEpic(UNSEATED_TEXT_RATIO)).toBe(1);
+describe('unseatedTextStep', () => {
+    it('is one size smaller a full step narrower, one bigger a full step wider', () => {
+        expect(unseatedTextStep(1)).toBe(0);
+        expect(unseatedTextStep(0.9)).toBe(0);
+        expect(unseatedTextStep(1.2)).toBe(0);
+        expect(unseatedTextStep(1 / UNSEATED_TEXT_RATIO)).toBe(-1);
+        expect(unseatedTextStep(UNSEATED_TEXT_RATIO)).toBe(1);
     });
 
     it('never goes past one size either way, however far it is stretched', () => {
-        expect(unseatedTextEpic(0.1)).toBe(-1);
-        expect(unseatedTextEpic(40)).toBe(1);
+        expect(unseatedTextStep(0.1)).toBe(-1);
+        expect(unseatedTextStep(40)).toBe(1);
     });
 
     it('treats a missing or degenerate scale as unstretched', () => {
-        expect(unseatedTextEpic(undefined)).toBe(0);
-        expect(unseatedTextEpic(0)).toBe(0);
-        expect(unseatedTextEpic(-2)).toBe(0);
-        expect(unseatedTextEpic(NaN)).toBe(0);
+        expect(unseatedTextStep(undefined)).toBe(0);
+        expect(unseatedTextStep(0)).toBe(0);
+        expect(unseatedTextStep(-2)).toBe(0);
+        expect(unseatedTextStep(NaN)).toBe(0);
     });
 });
 
 describe('unseatedResizedBox', () => {
     it('is the zoom size, untouched, when never stretched', () => {
         expect(unseatedResizedBox(400, 12, null))
-            .toEqual({ widthPx: 400, fontPx: 12, epic: 0, listHeightPx: null });
+            .toEqual({ widthPx: 400, fontPx: 12, step: 0, listHeightPx: null });
     });
 
     it('draws exactly three type sizes across every stretch', () => {
@@ -248,7 +248,7 @@ describe('unseatedResizedBox', () => {
         const floor = UNSEATED_MIN_WIDTH_EM * 9;
         expect(unseatedResizedBox(floor, 9, { ws: 0.9 }).widthPx).toBe(floor);
         const small = unseatedResizedBox(floor, 9, { ws: 0.5 });
-        expect(small.epic).toBe(-1);
+        expect(small.step).toBe(-1);
         expect(small.widthPx).toBeCloseTo(unseatedMinStretchPx(9), 6);
         expect(small.widthPx).toBeCloseTo(UNSEATED_MIN_WIDTH_EM * small.fontPx, 6);
     });
@@ -260,7 +260,7 @@ describe('unseatedResizedBox', () => {
 
     it('ignores a corrupt stretch', () => {
         expect(unseatedResizedBox(400, 12, { ws: 'x', hEm: -3 }))
-            .toEqual({ widthPx: 400, fontPx: 12, epic: 0, listHeightPx: null });
+            .toEqual({ widthPx: 400, fontPx: 12, step: 0, listHeightPx: null });
     });
 });
 
