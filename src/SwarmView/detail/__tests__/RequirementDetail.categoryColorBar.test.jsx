@@ -35,7 +35,7 @@ function orchestrationStubs() {
     const empty = { data: [], isLoading: false, isError: false, isPending: false, isSuccess: true };
     return {
         useAllPipelines: () => empty,
-        useAllEpics: () => empty,
+        useAllInitiatives: () => empty,
         useAllPipelineSteps: () => empty,
         useAllPipelineStepRequirements: () => empty,
     };

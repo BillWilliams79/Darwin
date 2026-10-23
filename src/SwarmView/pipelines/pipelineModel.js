@@ -96,12 +96,12 @@
 // @property {?string} noLaunchReason    the human sentence for launchBlock
 // @property {number[]} depIds           step dependencies
 // @property {string[]} timeDeps         time gates (ISO-8601)
-// @property {?number} epicId            2.0 containment: `pipeline_steps.epic_fk`
-// @property {?string} epic
-// @property {?number} epicSortOrder     req #3430 — the epic's OWN
-//                                       `epics.sort_order`. NULL = unordered,
+// @property {?number} initiativeId            2.0 containment: `pipeline_steps.initiative_fk`
+// @property {?string} initiative
+// @property {?number} initiativeSortOrder     req #3430 — the initiative's OWN
+//                                       `initiatives.sort_order`. NULL = unordered,
 //                                       which sorts last
-// @property {{id: number, title: string}[]} epicLabels
+// @property {{id: number, title: string}[]} initiativeLabels
 // @property {string[]} machineLabels
 // @property {string} machineLabel      joined with ' / ', '—' when no requirements
 // @property {StepCost} [cost]          req #3117 — attached by the adapter when a
@@ -120,7 +120,7 @@ export const STEP_DONE = 'done';
 export const STEP_RUNNING = 'running';
 export const STEP_PENDING = 'pending';
 
-// The one value `pipeline_status` and `epic_status` share meaning for (req
+// The one value `pipeline_status` and `initiative_status` share meaning for (req
 // #3223): PAUSED IS THE SAME STRING AT BOTH SCOPES, so `pauseState` below
 // tests one constant against both columns rather than two.
 export const PAUSED_STATUS = 'paused';

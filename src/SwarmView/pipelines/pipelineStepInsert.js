@@ -2,8 +2,8 @@
 // visualizer (req #3586).
 //
 // Three "+" marks, all drawn wherever the cards are (a fourth, req #3719, is
-// not on a card at all: the ADD-EPIC "+" under the last epic band — see
-// `epicAddMark`):
+// not on a card at all: the ADD-INITIATIVE "+" under the last initiative band — see
+// `initiativeAddMark`):
 //
 //   EDGE "+"    on every dependency arc A → B. It SPLITS the edge: a new step N
 //               is created depending on A, and B's dependency switches from A
@@ -38,8 +38,8 @@
 
 import { CARD_GAP_X, CARD_RADIUS } from './pipelinePlanLayout';
 
-/** Gap between the last epic band's bottom edge and the add-epic mark's rim. */
-const EPIC_ADD_GAP = 8;
+/** Gap between the last initiative band's bottom edge and the add-initiative mark's rim. */
+const INITIATIVE_ADD_GAP = 8;
 
 /** The mark's world radius at scale `k`: ~7 screen px, never smaller than 7
  * world px (it stays inside the gutter) nor larger than 12 (two marks in one
@@ -219,23 +219,23 @@ export function precedeStub(n, r) {
 export const INSERT_MARK_MAX_R = 12;
 
 /**
- * The add-epic "+" (req #3719): directly under the bottom of the LAST epic band,
- * left-aligned with the epic chips (which start at x = 12). Null when the plan
+ * The add-initiative "+" (req #3719): directly under the bottom of the LAST initiative band,
+ * left-aligned with the initiative chips (which start at x = 12). Null when the plan
  * draws no band — the empty-plan panel owns that case. Placed at radius `r`
- * like every other mark; `computePlanLayout` reserves `EPIC_ADD_RESERVE` below
+ * like every other mark; `computePlanLayout` reserves `INITIATIVE_ADD_RESERVE` below
  * the last band so the whole disc is inside the world.
  *
- * @returns {?{key: 'epic-add', kind: 'epic', fromId: null, toId: null, x: number, y: number}}
+ * @returns {?{key: 'initiative-add', kind: 'initiative', fromId: null, toId: null, x: number, y: number}}
  */
-export function epicAddMark(layout, r = INSERT_MARK_MAX_R) {
+export function initiativeAddMark(layout, r = INSERT_MARK_MAX_R) {
     const bands = layout?.bands || [];
     if (!bands.length) return null;
-    // The band the mark sits under: its epic seeds the dialog's category.
+    // The band the mark sits under: its initiative seeds the dialog's category.
     const last = bands.reduce((a, b) => (b.y + b.height > a.y + a.height ? b : a));
     const bottom = last.y + last.height;
-    return { key: 'epic-add', kind: 'epic', fromId: null, toId: null,
-        afterEpicId: last.epicId ?? null,
-        x: 12 + r, y: bottom + EPIC_ADD_GAP + r };
+    return { key: 'initiative-add', kind: 'initiative', fromId: null, toId: null,
+        afterInitiativeId: last.initiativeId ?? null,
+        x: 12 + r, y: bottom + INITIATIVE_ADD_GAP + r };
 }
 
 /**
@@ -248,23 +248,23 @@ export function epicAddMark(layout, r = INSERT_MARK_MAX_R) {
  * marks are placed first and the edge marks keep clear of them.
  *
  * A precede mark is drawn on a card only when the step has no dependency
- * among the plan's rows (req #3650 — read from `depIds`, since a folded epic
+ * among the plan's rows (req #3650 — read from `depIds`, since a folded initiative
  * draws no arcs for a dependency that still exists).
  * (An unrelated early-route arc can still pass BEHIND such a card; the test is
  * the dependency data, not the pixels.) A stub runs from `x1` (the card edge) towards `x2`
  * (the mark's centre), on either side.
  *
  * @returns {{r: number, edgeCount: number, dependentCount: number, precedeCount: number,
- *            epicCount: number,
+ *            initiativeCount: number,
  *            stubs: {x1: number, x2: number, y: number}[],
- *            marks: {key: string, kind: 'edge'|'dependent'|'precede'|'epic', fromId: ?number,
+ *            marks: {key: string, kind: 'edge'|'dependent'|'precede'|'initiative', fromId: ?number,
  *                    toId: ?number, x: number, y: number}[]}}
  */
-export function buildInsertMarks(layout, rows, r = INSERT_MARK_MAX_R, { epicAdd = true } = {}) {
+export function buildInsertMarks(layout, rows, r = INSERT_MARK_MAX_R, { initiativeAdd = true } = {}) {
     const stubs = [];
     const marks = [];
     // From the DEPENDENCY DATA, not from the drawn arcs (req #3650): a folded
-    // epic draws no arcs into or out of its steps, and a step waiting on one of
+    // initiative draws no arcs into or out of its steps, and a step waiting on one of
     // them still HAS a dependency — it must not be offered a "nothing precedes
     // this" mark. With nothing folded the two answers are identical, because
     // the layout draws exactly one arc per in-plan dependency.
@@ -291,13 +291,13 @@ export function buildInsertMarks(layout, rows, r = INSERT_MARK_MAX_R, { epicAdd 
     for (const m of edges) {
         marks.push({ key: `edge-${m.fromId}-${m.toId}`, kind: 'edge', ...m });
     }
-    // The add-epic "+" (req #3719). Not a step mark, but the same shape, hit
-    // test and hover — so it rides the same list. `epicAdd: false` is the
-    // caller's word that epics cannot be added (a locked plan).
-    const epicMark = epicAdd ? epicAddMark(layout, r) : null;
-    if (epicMark) marks.push(epicMark);
+    // The add-initiative "+" (req #3719). Not a step mark, but the same shape, hit
+    // test and hover — so it rides the same list. `initiativeAdd: false` is the
+    // caller's word that initiatives cannot be added (a locked plan).
+    const initiativeMark = initiativeAdd ? initiativeAddMark(layout, r) : null;
+    if (initiativeMark) marks.push(initiativeMark);
     return { r, stubs, marks, edgeCount: edges.length, dependentCount, precedeCount,
-        epicCount: epicMark ? 1 : 0 };
+        initiativeCount: initiativeMark ? 1 : 0 };
 }
 
 /** The mark whose hit circle — at the DRAWN radius `r` — contains world point
@@ -317,12 +317,12 @@ export function insertMarkAt(geom, p, r = geom?.r) {
 /** Default title of a step created from the canvas, before the reader edits it. */
 export const NEW_STEP_TITLE = 'New step';
 
-/** Default title of an epic created from the canvas's add-epic "+" (req #3719). */
-export const NEW_EPIC_TITLE = 'New epic';
+/** Default title of an initiative created from the canvas's add-initiative "+" (req #3719). */
+export const NEW_INITIATIVE_TITLE = 'New initiative';
 
 /**
  * The dialog's request for each action, so the visualizer and its tests agree
- * on what is being asked: which step(s) it touches and which epic the new step
+ * on what is being asked: which step(s) it touches and which initiative the new step
  * defaults to (the step to its LEFT — the one it depends on — or, for a
  * precede, which has no step on its left, the step it will gate).
  *
@@ -337,7 +337,7 @@ export function insertRequest(kind, { fromId = null, toId = null }, rowById) {
             kind,
             fromId: null,
             toId,
-            epicId: to?.epicId ?? null,
+            initiativeId: to?.initiativeId ?? null,
             fromTitle: null,
             toTitle: to?.title || `step ${toId}`,
         };
@@ -348,7 +348,7 @@ export function insertRequest(kind, { fromId = null, toId = null }, rowById) {
         kind,
         fromId,
         toId: kind === 'edge' ? toId : null,
-        epicId: from?.epicId ?? to?.epicId ?? null,
+        initiativeId: from?.initiativeId ?? to?.initiativeId ?? null,
         fromTitle: from?.title || `step ${fromId}`,
         toTitle: kind === 'edge' ? (to?.title || `step ${toId}`) : null,
     };

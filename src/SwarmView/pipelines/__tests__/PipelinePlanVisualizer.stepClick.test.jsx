@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
 // Req #3742 — a click on a step OPENS ITS SINGLE EDITOR over the canvas (user
-// directives: "single click of epic and step to take you to the single
+// directives: "single click of initiative and step to take you to the single
 // editor", then "popup over the visualizer instead of switch to the card
 // view"): the card's title area — and the bead at L1 — open the shared step
 // dialog seeded with that step, and the page does not change. From req #3641
@@ -93,7 +93,7 @@ function LocationProbe() {
 }
 
 const step = (id, title) => ({
-    id, epic_fk: 5, title, run: 'auto', notes: null, not_before: null,
+    id, initiative_fk: 5, title, run: 'auto', notes: null, not_before: null,
 });
 
 function render(levelPref) {
@@ -101,7 +101,7 @@ function render(levelPref) {
     // the scale a single step is framed at — so framing one is a real move.
     const ids = [10, 11, 12, 13, 14, 15, 16, 17];
     const payload = composedFixture({
-        epics: [{ id: 5, title: 'Build', pipeline_fk: 2, sort_order: 1 }],
+        initiatives: [{ id: 5, title: 'Build', pipeline_fk: 2, sort_order: 1 }],
         steps: ids.map((id) => step(id, `Step ${id}`)),
         stepDeps: ids.slice(1).map((id, i) => ({ id: i + 1, step_fk: id, dep_step_fk: ids[i] })),
     });
@@ -217,7 +217,7 @@ describe('a click on a step opens its single editor (req #3742)', () => {
     it('takes no onStepFocus — a step click never switches the panel', () => {
         const onStepFocus = vi.fn();
         const payload = composedFixture({
-            epics: [{ id: 5, title: 'Build', pipeline_fk: 2, sort_order: 1 }],
+            initiatives: [{ id: 5, title: 'Build', pipeline_fk: 2, sort_order: 1 }],
             steps: [step(10, 'Only')],
         });
         const container = document.createElement('div');

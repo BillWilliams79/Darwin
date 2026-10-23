@@ -30,9 +30,9 @@
 // `TaskPlanView/swarmStartCardUtils.js`'s header. Nothing on a browse surface
 // filters by orchestration except this hook.
 //
-// ── WHY THE EPIC-FILED-BUT-UNSEATED POPULATION IS GONE (req #3357) ──────────
+// ── WHY THE INITIATIVE-FILED-BUT-UNSEATED POPULATION IS GONE (req #3357) ──────────
 //
-// req #3419 unioned in a second population — requirements epic-filed through
+// req #3419 unioned in a second population — requirements initiative-filed through
 // the retired middle tier but not yet carried by any step — because the
 // toggle otherwise still showed work that was plainly part of a plan. That
 // tier leaving the frontend retires the ONLY mechanism that could produce
@@ -69,8 +69,8 @@ import {
 /**
  * @param {string} creatorFk  the profile userName; falsy disables every read.
  *
- * req #3598 RETIRED the `{ epicFilterActive, stepFilterActive }` options, which
- * forced the toggle off under an epic/step scope. A scope now restricts the rows
+ * req #3598 RETIRED the `{ initiativeFilterActive, stepFilterActive }` options, which
+ * forced the toggle off under an initiative/step scope. A scope now restricts the rows
  * and nothing else (user ruling, 2026-10-17), so the stored toggle applies on a
  * filtered page exactly as on an unfiltered one.
  * @returns {{
@@ -113,7 +113,7 @@ export function useRequirementVisibility(creatorFk) {
     const { data: stepRequirements } = useAllPipelineStepRequirements(creatorFk);
 
     // orchestratedRequirementIds(...) === pipelinedRequirementIds(...) today
-    // (req #3357 retired the epic-filed union) — computed through the named
+    // (req #3357 retired the initiative-filed union) — computed through the named
     // export anyway so a future widening has one place to happen.
     const orchestratedIds = useMemo(
         () => orchestratedRequirementIds(stepRequirements),

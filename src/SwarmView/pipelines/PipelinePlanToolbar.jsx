@@ -452,7 +452,7 @@ export default function PipelinePlanToolbar({
                 one expression (`kFactoryDefault` in PipelinePlanVisualizer.jsx),
                 and the ref that used to pick between two scales is gone. What
                 the control still adds over the landing is the INTENT — it ends
-                any `?epic=` re-fit, exactly as a drag does.
+                any `?initiative=` re-fit, exactly as a drag does.
 
                 No `data-viz-chrome` here, unlike in the key: that attribute
                 exempts a control from the canvas's two gesture filters, and

@@ -12,8 +12,8 @@
 //
 // Column shape (from darwin-mcp/services/pipelines2.py's create/update
 // functions):
-//   epic_fk       required, the step's identity — never updated (moving a
-//                 step means dropping it and creating it in the new epic,
+//   initiative_fk       required, the step's identity — never updated (moving a
+//                 step means dropping it and creating it in the new initiative,
 //                 same doctrine 1.0 states for pipeline_fk)
 //   title         NOT NULL
 //   run           'auto' | 'manual'
@@ -50,7 +50,7 @@ export const sqlNow = () => new Date().toISOString().slice(0, 19).replace('T', '
 export const VALID_RUN2_MODES = ['auto', 'manual'];
 
 /**
- * Create a step under an epic. Requirement links are not created either: seating is
+ * Create a step under an initiative. Requirement links are not created either: seating is
  * MCP/Primary-only (see this module's header). Dependency rows are written
  * only by the plan visualizer's add-step actions below (`addDependentStep`,
  * `insertStepOnEdge`, req #3586; `precedeStepWith`, req #3617) — a browser
@@ -58,11 +58,11 @@ export const VALID_RUN2_MODES = ['auto', 'manual'];
  * `moveStepRequirement` records for seats.
  */
 export async function createStep(darwinUri, idToken,
-    { epic_fk, title, run = 'auto', notes = null, not_before = null, checkpoint }) {
+    { initiative_fk, title, run = 'auto', notes = null, not_before = null, checkpoint }) {
     // `checkpoint` (the barrier, req #3767) is sent only when the caller sets
     // it; omitted, the column DEFAULT (1, a barrier) applies.
     const r = await call_rest_api(`${darwinUri}/pipeline_steps`, 'POST',
-        { epic_fk, title, run, notes, not_before,
+        { initiative_fk, title, run, notes, not_before,
           ...(checkpoint == null ? {} : { checkpoint }) }, idToken);
     return assertOk(r, 'createStep');
 }
@@ -205,8 +205,8 @@ async function undoAll(undos) {
  *
  * @returns {Promise<Object>} the created step row
  */
-export async function addDependentStep(darwinUri, idToken, { fromStepId, epic_fk, title }) {
-    const created = requireCreatedId(await createStep(darwinUri, idToken, { epic_fk, title }));
+export async function addDependentStep(darwinUri, idToken, { fromStepId, initiative_fk, title }) {
+    const created = requireCreatedId(await createStep(darwinUri, idToken, { initiative_fk, title }));
     const stepId = created.id;
     try {
         await createStepDep(darwinUri, idToken, stepId, fromStepId);
@@ -227,8 +227,8 @@ export async function addDependentStep(darwinUri, idToken, { fromStepId, epic_fk
  *
  * @returns {Promise<Object>} the created step row
  */
-export async function precedeStepWith(darwinUri, idToken, { toStepId, epic_fk, title }) {
-    const created = requireCreatedId(await createStep(darwinUri, idToken, { epic_fk, title }));
+export async function precedeStepWith(darwinUri, idToken, { toStepId, initiative_fk, title }) {
+    const created = requireCreatedId(await createStep(darwinUri, idToken, { initiative_fk, title }));
     const stepId = created.id;
     const undos = [() => deleteStep(darwinUri, idToken, stepId)];
     try {
@@ -264,8 +264,8 @@ export async function precedeStepWith(darwinUri, idToken, { toStepId, epic_fk, t
  * @returns {Promise<Object>} the created step row
  */
 export async function insertStepOnEdge(darwinUri, idToken,
-    { fromStepId, toStepId, epic_fk, title }) {
-    const created = requireCreatedId(await createStep(darwinUri, idToken, { epic_fk, title }));
+    { fromStepId, toStepId, initiative_fk, title }) {
+    const created = requireCreatedId(await createStep(darwinUri, idToken, { initiative_fk, title }));
     const stepId = created.id;
     // Deleting N cascades its own N → A row, so the undo list never names it.
     const undos = [() => deleteStep(darwinUri, idToken, stepId)];

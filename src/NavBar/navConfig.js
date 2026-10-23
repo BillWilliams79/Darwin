@@ -71,15 +71,15 @@ export const NAV_LINKS = [
         { path: '/customers', label: 'Customers', icon: BusinessIcon, group: 'systems' },
         { path: '/customer-releases', label: 'Customer Releases', icon: BusinessIcon, group: 'systems' },
     ] : []),
-    // Req #3236 — Epics and Steps are the plan's own entities, sequenced into a
+    // Req #3236 — Initiatives and Steps are the plan's own entities, sequenced into a
     // pipeline's steps, so they nest as L3 children of Pipelines rather than
     // standing beside it as L2 siblings. Reuses the collapsible L3 mechanism
     // req #3209 shipped for Sessions verbatim — no second mechanism. Order is
-    // hierarchy order (Epic, then Step). LayersIcon/LinearScaleIcon are
+    // hierarchy order (Initiative, then Step). LayersIcon/LinearScaleIcon are
     // unchanged: the entries moved, not the pages, so each keeps the icon it
     // always carried.
     // Req #3357 — the retired middle tier (and its nav entry here, between
-    // Epics and Steps) was removed: a step now belongs to its epic directly
+    // Initiatives and Steps) was removed: a step now belongs to its initiative directly
     // rather than through an intermediate row, so the plan-editor cluster went
     // from three L3 children to two.
     // Req #3427 — Pipelines leads the SWARM group, ahead of Requirements: the
@@ -107,8 +107,8 @@ export const NAV_LINKS = [
             // req #3393 — the plan-layer editors, children of the Pipelines
             // parent rather than a second top-level group, because
             // NavBarSidebar renders only two levels (no L4). Order is hierarchy
-            // order (Epic, then Step).
-            { path: '/swarm/epics', label: 'Epics', icon: LayersIcon, group: 'swarm' },
+            // order (Initiative, then Step).
+            { path: '/swarm/initiatives', label: 'Initiatives', icon: LayersIcon, group: 'swarm' },
             { path: '/swarm/steps', label: 'Steps', icon: LinearScaleIcon, group: 'swarm' },
         ],
     },

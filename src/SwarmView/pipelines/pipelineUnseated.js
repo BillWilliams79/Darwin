@@ -200,7 +200,7 @@ export function unorchestratedSwarmReady(requirements, stepRequirements) {
 
 /**
  * May this step take a NEW requirement? Always, unless it is effectively LOCKED
- * (req #3649 — the step, its epic or its plan): the gateway refuses the link
+ * (req #3649 — the step, its initiative or its plan): the gateway refuses the link
  * with a 423. A step has no state (req #3750), so the work it already holds
  * being finished never closes it to more.
  *
@@ -235,7 +235,7 @@ export function seatTargetAt(nodes, rowById, p) {
 /**
  * Where a drop at a panel-relative screen point lands — the whole decision,
  * so it is testable without a DOM. A point over CHROME (the box, the key, an
- * epic chip) or over the sticky time ruler lands nowhere: those overlays hide
+ * initiative chip) or over the sticky time ruler lands nowhere: those overlays hide
  * the card beneath them, and seating a step the reader cannot see is wrong.
  *
  * @param {Object} args

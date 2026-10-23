@@ -12,7 +12,7 @@
 // frame out of the plan's middle, the full width of the card.
 //
 // What it is NOT is a second visualizer: no camera, no d3-zoom, no wheel
-// handler, no hit targets, no epic overlay, no key, no tooltips. One
+// handler, no hit targets, no initiative overlay, no key, no tooltips. One
 // `<Stage listening={false}>`; the card underneath owns the click.
 //
 // ── IT SHARES THE REAL GEOMETRY, IT DOES NOT APPROXIMATE IT ─────────────────
@@ -47,7 +47,7 @@
 // behind this is on `thumbnailFrame` itself.
 //
 // ── WHAT IS LEFT OUT, AND WHY ───────────────────────────────────────────────
-//   · the ruler STRIP (its dates, ticks and baseline) and the epic names —
+//   · the ruler STRIP (its dates, ticks and baseline) and the initiative names —
 //     the strip is pinned viewport chrome on the plan page and the names sit
 //     at the world's left edge; neither belongs to the region a crop shows.
 //     The ruler's full-height slot rules and the future-region tint ARE drawn:
@@ -265,9 +265,9 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
                 <Stage width={width} height={THUMB_H} listening={false}>
                     <Layer listening={false}>
                         <Group x={view.ox} y={view.oy} scaleX={view.k} scaleY={view.k}>
-                            {/* Epic bands — the same two rounded rects the
+                            {/* Initiative bands — the same two rounded rects the
                                 full canvas draws, at the same opacities, so the
-                                epic colours a reader learns on the plan page
+                                initiative colours a reader learns on the plan page
                                 are the ones they recognise here — and each
                                 lane's wire through its cards' midpoints. */}
                             {view.layout.bands.map((band) => (

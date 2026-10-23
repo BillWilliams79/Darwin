@@ -24,7 +24,7 @@ import call_rest_api from '../../../RestApi/RestApi';
 afterEach(cleanup);
 
 const row = (id, reqIds) => ({
-    id, epic: 'E', epicId: 1, title: `Step ${id}`, reqIds, depIds: [], state: 'pending',
+    id, initiative: 'E', initiativeId: 1, title: `Step ${id}`, reqIds, depIds: [], state: 'pending',
 });
 
 describe('layout — the title column (req #3661)', () => {

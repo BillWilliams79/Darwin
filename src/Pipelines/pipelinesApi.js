@@ -2,7 +2,7 @@
 //
 // Goes through the same generic gateway path darwin-mcp/services/pipelines2.py
 // already POSTs/PUTs to: `{darwinUri}/pipelines`. No new backend
-// surface exists or is needed. Pattern mirrors Epics/epicsApi.js.
+// surface exists or is needed. Pattern mirrors Initiatives/initiativesApi.js.
 //
 // `createPipeline` (req #3773) backs the page's two create controls — the
 // header's "New pipeline" dialog and the Cards view's "New pipeline" tile. It
@@ -23,7 +23,7 @@ import call_rest_api from '../RestApi/RestApi';
 const isOk = (status) => status === 200 || status === 201 || status === 204;
 
 // Same two-shape error contract every *Api.js module in this codebase uses —
-// see Epics/epicsApi.js for the full rationale.
+// see Initiatives/initiativesApi.js for the full rationale.
 function assertOk(result, action) {
     const status = result.httpStatus?.httpStatus;
     if (!isOk(status)) {

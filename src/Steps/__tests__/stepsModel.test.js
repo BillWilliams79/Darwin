@@ -71,9 +71,9 @@ describe('dropBlockers2', () => {
 
 describe('buildStepRows', () => {
     const steps = [
-        { id: 100, epic_fk: 1, title: 'Gated', run: 'auto', not_before: null },
-        { id: 101, epic_fk: 1, title: 'Free', run: 'manual', not_before: null },
-        { id: 102, epic_fk: 2, title: 'Done', run: 'auto', not_before: null },
+        { id: 100, initiative_fk: 1, title: 'Gated', run: 'auto', not_before: null },
+        { id: 101, initiative_fk: 1, title: 'Free', run: 'manual', not_before: null },
+        { id: 102, initiative_fk: 2, title: 'Done', run: 'auto', not_before: null },
     ];
     const stepRequirements = [
         { step_fk: 100, requirement_fk: 1 },
@@ -86,48 +86,48 @@ describe('buildStepRows', () => {
         { id: 1, tracking: 0 },
         { id: 2, tracking: 1 },
     ];
-    const epics = [
-        { id: 1, title: 'Epic One', pipeline_fk: 9 },
-        { id: 2, title: 'Epic Two', pipeline_fk: 9 },
+    const initiatives = [
+        { id: 1, title: 'Initiative One', pipeline_fk: 9 },
+        { id: 2, title: 'Initiative Two', pipeline_fk: 9 },
     ];
 
     it('splits a step\'s links into gating and tracking', () => {
-        const rows = buildStepRows({ steps, stepRequirements, stepDeps, requirements, epics });
+        const rows = buildStepRows({ steps, stepRequirements, stepDeps, requirements, initiatives });
         const gated = rows.find(r => r.id === 100);
         expect(gated.gatingReqIds).toEqual([1]);
         expect(gated.trackingReqIds).toEqual([2]);
         expect(gated.reqIds).toEqual([1, 2]);
     });
 
-    it('carries the epic label and pipeline_fk through', () => {
-        const rows = buildStepRows({ steps, stepRequirements, stepDeps, requirements, epics });
+    it('carries the initiative label and pipeline_fk through', () => {
+        const rows = buildStepRows({ steps, stepRequirements, stepDeps, requirements, initiatives });
         const row = rows.find(r => r.id === 100);
-        expect(row.epicTitle).toBe('Epic One');
+        expect(row.initiativeTitle).toBe('Initiative One');
         expect(row.pipelineFk).toBe(9);
     });
 
-    it('resolves the pipeline label through the epic (req #3750)', () => {
+    it('resolves the pipeline label through the initiative (req #3750)', () => {
         const pipelines = [{ id: 9, title: 'Plan Nine' }];
         const rows = buildStepRows({
-            steps, stepRequirements, stepDeps, requirements, epics, pipelines });
+            steps, stepRequirements, stepDeps, requirements, initiatives, pipelines });
         expect(rows.find(r => r.id === 100).pipelineTitle).toBe('Plan Nine');
         // No pipelines read supplied → no label, never a throw.
-        const bare = buildStepRows({ steps, stepRequirements, stepDeps, requirements, epics });
+        const bare = buildStepRows({ steps, stepRequirements, stepDeps, requirements, initiatives });
         expect(bare.find(r => r.id === 100).pipelineTitle).toBeNull();
     });
 
     it('reports blockerStepIds for a step something else depends on', () => {
-        const rows = buildStepRows({ steps, stepRequirements, stepDeps, requirements, epics });
+        const rows = buildStepRows({ steps, stepRequirements, stepDeps, requirements, initiatives });
         expect(rows.find(r => r.id === 100).blockerStepIds).toEqual([101]);
         expect(rows.find(r => r.id === 101).blockerStepIds).toEqual([]);
     });
 
-    it('handles an unresolved epic gracefully (no throw, null label)', () => {
+    it('handles an unresolved initiative gracefully (no throw, null label)', () => {
         const rows = buildStepRows({
-            steps: [{ id: 200, epic_fk: 999, title: 'Orphan', run: 'auto' }],
-            stepRequirements: [], stepDeps: [], requirements: [], epics,
+            steps: [{ id: 200, initiative_fk: 999, title: 'Orphan', run: 'auto' }],
+            stepRequirements: [], stepDeps: [], requirements: [], initiatives,
         });
-        expect(rows[0].epicTitle).toBeNull();
+        expect(rows[0].initiativeTitle).toBeNull();
         expect(rows[0].pipelineFk).toBeNull();
     });
 });

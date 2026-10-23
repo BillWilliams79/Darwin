@@ -43,7 +43,7 @@
 //
 // NO JSX and no React — a pure module vitest exercises without a DOM, and a
 // component file with non-component exports drops out of Fast Refresh. The rule
-// `pipelineStepLink.js`, `pipelineEpicLink.js` and `pipelinePlace.js` are all
+// `pipelineStepLink.js`, `pipelineInitiativeLink.js` and `pipelinePlace.js` are all
 // written to.
 
 // ── THE BINDING ────────────────────────────────────────────────────────────
@@ -104,7 +104,7 @@ export function planListPath() {
  *
  * NULL RATHER THAN A BEST-EFFORT PATH, so a caller renders a plain number
  * instead of a link to `/swarm/pipeline/undefined` — the "omit rather than
- * render a dead link" rule `pipelineStepLink.js` and `pipelineEpicLink.js`
+ * render a dead link" rule `pipelineStepLink.js` and `pipelineInitiativeLink.js`
  * already apply, hoisted here so it is applied once.
  *
  * NULLISH AND EMPTY ARE REJECTED BEFORE `Number` SEES THEM: `Number(null)` and
@@ -173,7 +173,7 @@ export function normalizePlanId(value) {
     // 1: real plans, belonging to somebody else's data. Naming the two types an
     // id can legitimately arrive as (a number from a row, a string from a URL
     // or from JSON) closes that class outright rather than one value at a time.
-    // The same argument `pipelineAdapter.js::epicSortOrderOf` makes.
+    // The same argument `pipelineAdapter.js::initiativeSortOrderOf` makes.
     if (typeof value !== 'number' && typeof value !== 'string') return null;
     if (value === '') return null;
     const n = Number(value);

@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 //
 // Req #3646 — an empty pipeline shows a prominent "+" that places the first
-// step in an epic, in both the canvas and the table.
-// Req #3773 — with no epic at all (every freshly created pipeline), the same
-// "+" creates the first epic and its first step.
+// step in an initiative, in both the canvas and the table.
+// Req #3773 — with no initiative at all (every freshly created pipeline), the same
+// "+" creates the first initiative and its first step.
 
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { createRoot } from 'react-dom/client';
@@ -24,10 +24,10 @@ vi.mock('../../../Steps/stepsApi', async (orig) => ({
     createStep: (...a) => createStep(...a),
 }));
 
-const createEpic = vi.fn(() => Promise.resolve([{ id: 77 }]));
-vi.mock('../../../Epics/epicsApi', async (orig) => ({
+const createInitiative = vi.fn(() => Promise.resolve([{ id: 77 }]));
+vi.mock('../../../Initiatives/initiativesApi', async (orig) => ({
     ...(await orig()),
-    createEpic: (...a) => createEpic(...a),
+    createInitiative: (...a) => createInitiative(...a),
 }));
 
 let categories = [];
@@ -49,7 +49,7 @@ if (!globalThis.ResizeObserver) {
 let root;
 beforeEach(() => {
     createStep.mockClear();
-    createEpic.mockClear();
+    createInitiative.mockClear();
     categories = [
         { id: 3, category_name: 'Zeta', sort_order: 2, closed: 0 },
         { id: 1, category_name: 'Swarm', sort_order: 1, closed: 0 },
@@ -62,8 +62,8 @@ afterEach(() => {
     document.body.innerHTML = '';
 });
 
-function render(Component, epics, pipelineFields = {}) {
-    const payload = composedFixture({ epics, steps: [], stepDeps: [] });
+function render(Component, initiatives, pipelineFields = {}) {
+    const payload = composedFixture({ initiatives, steps: [], stepDeps: [] });
     Object.assign(payload.pipeline, pipelineFields);
     const container = document.createElement('div');
     document.body.appendChild(container);
@@ -85,30 +85,30 @@ const setInput = (el, value) => {
     act(() => { setter.call(el, value); el.dispatchEvent(new Event('input', { bubbles: true })); });
 };
 
-const ONE_EPIC = [{ id: 5, title: 'Build', pipeline_fk: 2, sort_order: 1 }];
+const ONE_INITIATIVE = [{ id: 5, title: 'Build', pipeline_fk: 2, sort_order: 1 }];
 
 describe.each([
     ['canvas', PipelinePlanVisualizer, 'pipeline-plan-viz-empty'],
     ['table', PipelinePlanTable, 'pipeline-plan-empty'],
 ])('empty plan add-step (%s)', (_name, Component, panelId) => {
     it('shows the "+" in the empty panel', () => {
-        render(Component, ONE_EPIC);
+        render(Component, ONE_INITIATIVE);
         expect(q(panelId)).not.toBeNull();
         expect(q('pipeline-empty-add-step')).not.toBeNull();
         expect(q('pipeline-empty-add-step').disabled).toBe(false);
     });
 
-    it('creates the first step in the chosen epic (a lone epic is preselected)', async () => {
-        render(Component, ONE_EPIC);
+    it('creates the first step in the chosen initiative (a lone initiative is preselected)', async () => {
+        render(Component, ONE_INITIATIVE);
         act(() => { q('pipeline-empty-add-step').click(); });
         setInput(q('pipeline-empty-add-step-title'), '  First  ');
         await act(async () => { q('pipeline-empty-add-step-create').click(); });
         expect(createStep).toHaveBeenCalledTimes(1);
-        expect(createStep.mock.calls[0][2]).toEqual({ epic_fk: 5, title: 'First' });
+        expect(createStep.mock.calls[0][2]).toEqual({ initiative_fk: 5, title: 'First' });
     });
 
-    it('does not preselect when there are several epics, and refuses to create without one', async () => {
-        render(Component, [...ONE_EPIC, { id: 6, title: 'Ship', pipeline_fk: 2, sort_order: 2 }]);
+    it('does not preselect when there are several initiatives, and refuses to create without one', async () => {
+        render(Component, [...ONE_INITIATIVE, { id: 6, title: 'Ship', pipeline_fk: 2, sort_order: 2 }]);
         act(() => { q('pipeline-empty-add-step').click(); });
         await act(async () => { q('pipeline-empty-add-step-create').click(); });
         expect(createStep).not.toHaveBeenCalled();
@@ -117,56 +117,56 @@ describe.each([
 
     it('keeps the dialog open when the create fails', async () => {
         createStep.mockImplementationOnce(() => Promise.reject(new Error('boom')));
-        render(Component, ONE_EPIC);
+        render(Component, ONE_INITIATIVE);
         act(() => { q('pipeline-empty-add-step').click(); });
         await act(async () => { q('pipeline-empty-add-step-create').click(); });
         expect(createStep).toHaveBeenCalledTimes(1);
         expect(q('pipeline-empty-add-step-title')).not.toBeNull();
     });
 
-    it('keeps the "+" live when the pipeline has no epic, and says what it will do', () => {
+    it('keeps the "+" live when the pipeline has no initiative, and says what it will do', () => {
         render(Component, []);
         expect(q('pipeline-empty-add-step').disabled).toBe(false);
-        expect(q('pipeline-empty-add-step-no-epics')).not.toBeNull();
+        expect(q('pipeline-empty-add-step-no-initiatives')).not.toBeNull();
     });
 
-    it('creates the first epic in the first open category, then its first step', async () => {
+    it('creates the first initiative in the first open category, then its first step', async () => {
         render(Component, []);
         act(() => { q('pipeline-empty-add-step').click(); });
-        expect(q('pipeline-empty-add-step-epic')).toBeNull();
+        expect(q('pipeline-empty-add-step-initiative')).toBeNull();
         expect(q('pipeline-empty-add-step-category').value).toBe('1');
         setInput(q('pipeline-empty-add-step-title'), '  Foundations  ');
         await act(async () => { q('pipeline-empty-add-step-create').click(); });
-        expect(createEpic).toHaveBeenCalledTimes(1);
-        expect(createEpic.mock.calls[0][2]).toEqual(
+        expect(createInitiative).toHaveBeenCalledTimes(1);
+        expect(createInitiative.mock.calls[0][2]).toEqual(
             { pipeline_fk: 2, title: 'Foundations', category_fk: 1 });
         expect(createStep).toHaveBeenCalledTimes(1);
-        expect(createStep.mock.calls[0][2]).toEqual({ epic_fk: 77, title: 'New step' });
+        expect(createStep.mock.calls[0][2]).toEqual({ initiative_fk: 77, title: 'New step' });
     });
 
-    it('creates no step when the epic is written but not read back', async () => {
-        createEpic.mockImplementationOnce(() => Promise.resolve(null));
+    it('creates no step when the initiative is written but not read back', async () => {
+        createInitiative.mockImplementationOnce(() => Promise.resolve(null));
         render(Component, []);
         act(() => { q('pipeline-empty-add-step').click(); });
         await act(async () => { q('pipeline-empty-add-step-create').click(); });
-        expect(createEpic).toHaveBeenCalledTimes(1);
+        expect(createInitiative).toHaveBeenCalledTimes(1);
         expect(createStep).not.toHaveBeenCalled();
     });
 
-    it('refuses to create the first epic with no open category', async () => {
+    it('refuses to create the first initiative with no open category', async () => {
         categories = [];
         render(Component, []);
         act(() => { q('pipeline-empty-add-step').click(); });
         expect(q('pipeline-empty-add-step-create').disabled).toBe(true);
         expect(q('pipeline-empty-add-step-no-categories')).not.toBeNull();
         await act(async () => { q('pipeline-empty-add-step-create').click(); });
-        expect(createEpic).not.toHaveBeenCalled();
+        expect(createInitiative).not.toHaveBeenCalled();
     });
 
     it('disables the "+" on a locked plan and says why', () => {
         render(Component, [], { locked: 1 });
         expect(q('pipeline-empty-add-step').disabled).toBe(true);
         expect(q('pipeline-empty-add-step-locked')).not.toBeNull();
-        expect(q('pipeline-empty-add-step-no-epics')).toBeNull();
+        expect(q('pipeline-empty-add-step-no-initiatives')).toBeNull();
     });
 });

@@ -164,10 +164,10 @@ describe('extractFromWahooFit', () => {
 
     it('uses workout wkt_name when present', async () => {
         mockFitParser(buildFitData({
-            workouts: [{ wkt_name: 'Morning Epic' }],
+            workouts: [{ wkt_name: 'Morning Initiative' }],
         }));
         const [run] = await extractFromWahooFit(DUMMY_BUFFER, DEFAULT_CONFIG);
-        expect(run.name).toBe('Morning Epic');
+        expect(run.name).toBe('Morning Initiative');
     });
 
     it('synthesizes name from start date when no workout name', async () => {

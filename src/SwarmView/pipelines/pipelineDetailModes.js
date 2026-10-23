@@ -15,10 +15,10 @@
 //   label      the switcher's tooltip / accessible name, when there is one
 //   icon       an @mui/icons-material component (see view-switchable-pages § R3)
 //   Component  receives { plan, model, pipeline, timezone, focusStepId,
-//              focusEpicId, costError, resetViewNonce, … } and renders the
-//              panel. `focusStepId` / `focusEpicId` are the one-shot `?step=` /
-//              `?epic=` deep links (req #3253 / #3235) — the visualizer centres
-//              and zooms on that step, or fits that epic's band. A click on a
+//              focusInitiativeId, costError, resetViewNonce, … } and renders the
+//              panel. `focusStepId` / `focusInitiativeId` are the one-shot `?step=` /
+//              `?initiative=` deep links (req #3253 / #3235) — the visualizer centres
+//              and zooms on that step, or fits that initiative's band. A click on a
 //              step is the panel's own business: the visualizer frames it (req
 //              #3641 — it used to call an `onStepFocus` that switched to the
 //              Table). `costError` (req #3117) is true when either cost read
@@ -50,9 +50,9 @@ export const PIPELINE_DETAIL_MODE_STORAGE_KEY = 'darwin-swarm-pipeline-detail-mo
 // 'table' preference normalizes to 'plan' — `normalizeView` never writes back.
 export const PIPELINE_DETAIL_MODES = [
     {
-        // The req #3115 Plan visualizer: epic bands stacked by
-        // `epics.sort_order` (req #3430 — the authoritative epic display order),
-        // falling back to derived start for the epics carrying none,
+        // The req #3115 Plan visualizer: initiative bands stacked by
+        // `initiatives.sort_order` (req #3430 — the authoritative initiative display order),
+        // falling back to derived start for the initiatives carrying none,
         // chain-aware swim lanes, TIME-SLOT columns floored by dependency depth
         // (req #3201 — they were raw dependency depth), and drag-pan +
         // three-level zoom (react-konva + d3-zoom, the Swarm Visualizer's

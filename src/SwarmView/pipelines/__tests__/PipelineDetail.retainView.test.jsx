@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
 // Req #3637 — "refresh, reload, should not change the viewport". The page half:
-// a `?step=`/`?epic=` link moves the camera ONCE per history entry, never again
+// a `?step=`/`?initiative=` link moves the camera ONCE per history entry, never again
 // on a reload or a Back/Forward onto it; a manual level pick rewrites the URL so
 // a reload cannot resurrect the pin just left. (A bead click pushed a Table
 // entry until req #3641 withdrew the Table; the canvas now frames the step
@@ -20,14 +20,14 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 vi.mock('../pipelineDetailModes', () => {
-    const Panel = (name) => function ModeStub({ focusStepId, focusEpicId, onStepFocus }) {
+    const Panel = (name) => function ModeStub({ focusStepId, focusInitiativeId, onStepFocus }) {
         // EVERY render, not just the last (req #3651): a stale focus that is
         // cleared a render later has already reached a mounting canvas.
         (globalThis.__panelRenders ||= []).push(
-            { name, step: focusStepId ?? null, epic: focusEpicId ?? null });
+            { name, step: focusStepId ?? null, initiative: focusInitiativeId ?? null });
         return <div data-testid={`mode-${name}`}
                     data-focus-step={focusStepId == null ? '' : String(focusStepId)}
-                    data-focus-epic={focusEpicId == null ? '' : String(focusEpicId)}>
+                    data-focus-initiative={focusInitiativeId == null ? '' : String(focusInitiativeId)}>
             <button type="button" data-testid={`bead-${name}`}
                     onClick={() => onStepFocus?.(47)} />
         </div>;
@@ -117,7 +117,7 @@ function mount(entries, initialIndex) {
 }
 
 const node = (testId) => document.body.querySelector(`[data-testid="${testId}"]`);
-const focusEpicOf = (name) => node(`mode-${name}`)?.getAttribute('data-focus-epic');
+const focusInitiativeOf = (name) => node(`mode-${name}`)?.getAttribute('data-focus-initiative');
 const focusStepOf = (name) => node(`mode-${name}`)?.getAttribute('data-focus-step');
 const consumed = (search) => ({ planLinkConsumed: search });
 
@@ -138,18 +138,18 @@ afterEach(() => {
 });
 
 describe('PipelineDetail — a deep link fires once per history entry (req #3637)', () => {
-    it('honours a fresh ?epic= link and marks the entry, keeping the focus', () => {
-        mount(['/swarm/pipeline/2?epic=55']);
-        expect(focusEpicOf('plan')).toBe('55');
+    it('honours a fresh ?initiative= link and marks the entry, keeping the focus', () => {
+        mount(['/swarm/pipeline/2?initiative=55']);
+        expect(focusInitiativeOf('plan')).toBe('55');
         // Same URL, marked in place — so a reload of it is recognisable.
-        expect(loc.search).toBe('?epic=55');
-        expect(loc.state).toEqual(consumed('?epic=55'));
+        expect(loc.search).toBe('?initiative=55');
+        expect(loc.state).toEqual(consumed('?initiative=55'));
     });
 
-    it('does NOT re-fire a marked ?epic= entry (a reload) — the saved camera answers', () => {
-        mount([{ pathname: '/swarm/pipeline/2', search: '?epic=55', state: consumed('?epic=55') }]);
+    it('does NOT re-fire a marked ?initiative= entry (a reload) — the saved camera answers', () => {
+        mount([{ pathname: '/swarm/pipeline/2', search: '?initiative=55', state: consumed('?initiative=55') }]);
         expect(node('mode-plan')).not.toBeNull();       // still the plan the link forced
-        expect(focusEpicOf('plan')).toBe('');
+        expect(focusInitiativeOf('plan')).toBe('');
     });
 
     it('does NOT re-fire a marked ?step= entry, and stays on the plan', () => {
@@ -160,24 +160,24 @@ describe('PipelineDetail — a deep link fires once per history entry (req #3637
     });
 
     it('treats a mark for a DIFFERENT query as no mark', () => {
-        mount([{ pathname: '/swarm/pipeline/2', search: '?epic=56', state: consumed('?epic=55') }]);
-        expect(focusEpicOf('plan')).toBe('56');
+        mount([{ pathname: '/swarm/pipeline/2', search: '?initiative=56', state: consumed('?initiative=55') }]);
+        expect(focusInitiativeOf('plan')).toBe('56');
     });
 
     it('a Back onto a marked entry clears the focus instead of re-fitting the link', () => {
-        mount(['/swarm/pipeline/2?epic=55']);
-        expect(focusEpicOf('plan')).toBe('55');
-        act(() => { nav('/swarm/pipeline/2?mode=plan&epic=56'); });
-        expect(focusEpicOf('plan')).toBe('56');
+        mount(['/swarm/pipeline/2?initiative=55']);
+        expect(focusInitiativeOf('plan')).toBe('55');
+        act(() => { nav('/swarm/pipeline/2?mode=plan&initiative=56'); });
+        expect(focusInitiativeOf('plan')).toBe('56');
         act(() => { nav(-1); });
-        expect(loc.search).toBe('?epic=55');
-        expect(focusEpicOf('plan')).toBe('');
+        expect(loc.search).toBe('?initiative=55');
+        expect(focusInitiativeOf('plan')).toBe('');
     });
 });
 
 describe('PipelineDetail — manual picks rewrite the URL (req #3637)', () => {
     it('a manual level pick drops ?level= so a reload keeps the pick', () => {
-        mount(['/swarm/pipeline/2?mode=plan&epic=55&level=3']);
+        mount(['/swarm/pipeline/2?mode=plan&initiative=55&level=3']);
         act(() => { node('pipeline-viz-level-2').click(); });
         expect(new URLSearchParams(loc.search).get('level')).toBeNull();
         expect(localStorage.getItem('darwin-pipeline-viz-level')).toBe('2');
@@ -213,26 +213,26 @@ describe('PipelineDetail — a RETURN never hands a panel the previous entry\'s 
         act(() => { nav(-1); });
         const plan = globalThis.__panelRenders.filter((r) => r.name === 'plan');
         expect(plan.length).toBeGreaterThan(0);
-        expect(plan.filter((r) => r.step != null || r.epic != null)).toEqual([]);
+        expect(plan.filter((r) => r.step != null || r.initiative != null)).toEqual([]);
     });
 
-    it('Back from an epic link onto a plain entry: no render carries the epic', () => {
+    it('Back from an initiative link onto a plain entry: no render carries the initiative', () => {
         mount(['/swarm/pipeline/2?mode=plan']);
-        act(() => { nav('/swarm/pipeline/2?epic=55'); });
-        expect(focusEpicOf('plan')).toBe('55');
+        act(() => { nav('/swarm/pipeline/2?initiative=55'); });
+        expect(focusInitiativeOf('plan')).toBe('55');
         globalThis.__panelRenders = [];
         act(() => { nav(-1); });
-        expect(globalThis.__panelRenders.filter((r) => r.epic != null)).toEqual([]);
+        expect(globalThis.__panelRenders.filter((r) => r.initiative != null)).toEqual([]);
     });
 
     it('a fresh link still focuses on its FIRST render, and keeps it through its own mark', () => {
         mount(['/swarm/pipeline/2?mode=plan']);
         globalThis.__panelRenders = [];
-        act(() => { nav('/swarm/pipeline/2?mode=plan&epic=55'); });
+        act(() => { nav('/swarm/pipeline/2?mode=plan&initiative=55'); });
         const plan = globalThis.__panelRenders.filter((r) => r.name === 'plan');
         expect(plan.length).toBeGreaterThan(0);
-        expect(plan.every((r) => r.epic === 55)).toBe(true);
-        expect(loc.state).toEqual(consumed('?mode=plan&epic=55'));
+        expect(plan.every((r) => r.initiative === 55)).toBe(true);
+        expect(loc.state).toEqual(consumed('?mode=plan&initiative=55'));
     });
 
     it('Forward onto a marked link entry is a RETURN too — no re-fire', () => {

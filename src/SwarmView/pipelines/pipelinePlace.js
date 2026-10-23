@@ -78,7 +78,7 @@
 //
 // NO JSX and no React: a pure module vitest exercises without a DOM, and a
 // component file with non-component exports drops out of Fast Refresh — the
-// rule `pipelineStepLink.js`, `pipelineEpicLink.js` and `pipelineDetailModes.js`
+// rule `pipelineStepLink.js`, `pipelineInitiativeLink.js` and `pipelineDetailModes.js`
 // are all written to.
 
 import { SCROLL_STORAGE_PREFIX, VIEWPORT_STORAGE_PREFIX } from '../../utils/viewportMemory';
@@ -236,7 +236,7 @@ export const pipelinePlaceAtList = (previous) => ({
  *
  * Null rather than a best-effort path, so a caller navigates nowhere instead of
  * to `/swarm/pipeline/undefined` — the "omit rather than render a dead link"
- * rule `pipelineStepLink.js` and `pipelineEpicLink.js` both apply.
+ * rule `pipelineStepLink.js` and `pipelineInitiativeLink.js` both apply.
  *
  * NO QUERY STRING, EVER — see the header. The detail page reads the reader's
  * stored mode preference, exactly as it does when they click a card, and a

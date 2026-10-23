@@ -1,6 +1,6 @@
 // Req #3503 — `?step=` on `/swarm`, both halves of the contract.
 //
-// Its own file beside `swarmViewLink.epicParam.test.js` rather than cases added
+// Its own file beside `swarmViewLink.initiativeParam.test.js` rather than cases added
 // to it: the two filters are independent contracts read for different reasons,
 // and the last describe below is the one that only exists because there are two.
 
@@ -8,7 +8,7 @@ import { describe, it, expect } from 'vitest';
 import {
     SWARM_STEP_PARAM, SWARM_STEP_VIEW,
     swarmStepLinkTo, readStepParam, withoutStepParam,
-    withoutEpicParam,
+    withoutInitiativeParam,
 } from '../swarmViewLink';
 
 describe('swarmStepLinkTo — the writer', () => {
@@ -84,16 +84,16 @@ describe('withoutStepParam — dismissing the pill', () => {
 
 describe('the two filters are INDEPENDENT (req #3503)', () => {
     it('a URL can carry both, and each reader sees only its own', () => {
-        const p = params0('view=cards&epic=11&step=186');
+        const p = params0('view=cards&initiative=11&step=186');
         expect(readStepParam(p)).toBe(186);
     });
 
     it('dismissing one pill leaves the other parameter exactly where it was', () => {
         // The whole reason these are two keys rather than one encoded scope: a
         // shared parameter would make clearing one filter a rewrite of the other.
-        const both = params0('view=cards&epic=11&step=186');
-        expect(withoutStepParam(both).get('epic')).toBe('11');
-        expect(withoutEpicParam(both).get('step')).toBe('186');
+        const both = params0('view=cards&initiative=11&step=186');
+        expect(withoutStepParam(both).get('initiative')).toBe('11');
+        expect(withoutInitiativeParam(both).get('step')).toBe('186');
     });
 });
 

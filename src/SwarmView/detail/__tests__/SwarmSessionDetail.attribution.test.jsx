@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 //
-// Req #3186 — the Pipeline / Epic attribution rows on the swarm session detail
+// Req #3186 — the Pipeline / Initiative attribution rows on the swarm session detail
 // page.
 //
-// The point of the two columns is that a session's pipeline and epic are read
+// The point of the two columns is that a session's pipeline and initiative are read
 // FROM THE SESSION ROW, not walked. So the assertions that matter are:
 //   - a stamped session renders both rows, with the title resolved from the
-//     cached pipelines / epics lists
+//     cached pipelines / initiatives lists
 //   - the Pipeline chip navigates to that pipeline's detail route
 //   - an UNSTAMPED session renders NEITHER row — NULL means "no plan context",
 //     a real answer, and an em-dash row for it would be noise on every ad-hoc
@@ -16,7 +16,7 @@
 //
 // req #3356 — PIPELINE 1.0 IS ERADICATED. `swarm_sessions` carried TWO
 // attribution pairs while the eras ran side by side; migration 20260812184333
-// dropped the older pair and renamed the survivor into `pipeline_fk`/`epic_fk`,
+// dropped the older pair and renamed the survivor into `pipeline_fk`/`initiative_fk`,
 // so there is now exactly ONE pair and the page reads it.
 //
 // FOUR ERA-ARBITRATION CASES WERE DELETED HERE, and the reason is worth stating
@@ -27,13 +27,13 @@
 // literals into DUPLICATE OBJECT KEYS (`{ pipeline_fk: 2, …, pipeline_fk: 7 }`),
 // where JS silently keeps the last — so they asserted nothing from the moment
 // the rename landed. The other two survived as syntax but not as meaning: with
-// one column pair, ids 2 and 34 are simply a plan and an epic that RENDER, so
+// one column pair, ids 2 and 34 are simply a plan and an initiative that RENDER, so
 // the cases asserted the opposite of the truth. There is no arbitration left to
 // test — one pair cannot disagree with itself — and repairing them would only
 // have produced restatements of the render cases already below.
 //
 // WHAT THAT DELETION DELIBERATELY DOES NOT TAKE WITH IT: "no attribution renders
-// neither row", "an unresolvable id still renders the row", and "the Epic row is
+// neither row", "an unresolvable id still renders the row", and "the Initiative row is
 // independent of the Pipeline row". All three are still real and all three are
 // still here.
 
@@ -55,7 +55,7 @@ vi.mock('react-router-dom', () => ({
 // ONE ERA'S LISTS. The second pair of fixtures went with the hooks that served
 // them (req #3356).
 const PIPELINES = [{ id: 7, title: 'a plan' }];
-const EPICS = [{ id: 12, title: 'an epic' }];
+const INITIATIVES = [{ id: 12, title: 'an initiative' }];
 
 let sessionRow;
 
@@ -72,7 +72,7 @@ vi.mock('../../../hooks/useDataQueries', async (importOriginal) => {
         useAllSwarmCompletes: () => ({ data: [] }),
         useAllRequirements: () => ({ data: [] }),
         useAllPipelines: () => ({ data: PIPELINES }),
-        useAllEpics: () => ({ data: EPICS }),
+        useAllInitiatives: () => ({ data: INITIATIVES }),
     };
 });
 
@@ -121,7 +121,7 @@ function baseSession(overrides = {}) {
         // ONE pair. This was two pairs until req #3356's rename collapsed them
         // into duplicate keys on the same object literal.
         pipeline_fk: null,
-        epic_fk: null,
+        initiative_fk: null,
         machine_fk: null,
         source_ref: null,
         ...overrides,
@@ -145,11 +145,11 @@ describe('SwarmSessionDetail orchestration attribution (req #3186)', () => {
     it('renders neither row when the session carries no attribution', () => {
         const { container } = mount();
         expect(node(container, 'session-pipeline')).toBeNull();
-        expect(node(container, 'session-epic')).toBeNull();
+        expect(node(container, 'session-initiative')).toBeNull();
     });
 
     it('renders both rows with titles resolved from the cached lists', () => {
-        sessionRow = baseSession({ pipeline_fk: 7, epic_fk: 12 });
+        sessionRow = baseSession({ pipeline_fk: 7, initiative_fk: 12 });
         const { container } = mount();
 
         const pipeline = node(container, 'session-pipeline');
@@ -157,10 +157,10 @@ describe('SwarmSessionDetail orchestration attribution (req #3186)', () => {
         expect(pipeline.textContent).toContain('#7');
         expect(pipeline.textContent).toContain('a plan');
 
-        const epic = node(container, 'session-epic');
-        expect(epic).not.toBeNull();
-        expect(epic.textContent).toContain('#12');
-        expect(epic.textContent).toContain('an epic');
+        const initiative = node(container, 'session-initiative');
+        expect(initiative).not.toBeNull();
+        expect(initiative.textContent).toContain('#12');
+        expect(initiative.textContent).toContain('an initiative');
     });
 
     it('navigates to the pipeline detail route when the chip is clicked', () => {
@@ -176,24 +176,24 @@ describe('SwarmSessionDetail orchestration attribution (req #3186)', () => {
         // A pipeline closed/deleted since the stamp, or a list read that has not
         // landed yet. The attribution is a fact on the row and must not vanish
         // because a LABEL could not be resolved.
-        sessionRow = baseSession({ pipeline_fk: 99, epic_fk: 98 });
+        sessionRow = baseSession({ pipeline_fk: 99, initiative_fk: 98 });
         const { container } = mount();
         expect(node(container, 'session-pipeline').textContent).toContain('#99');
-        expect(node(container, 'session-epic').textContent).toContain('#98');
+        expect(node(container, 'session-initiative').textContent).toContain('#98');
     });
 
     // ── The four era-arbitration cases that used to sit here were DELETED by
     // req #3356. See the file header for which they were and why none of them
     // could be repaired into an assertion that still says something. ──────────
 
-    // A session can carry an epic attribution with no pipeline (a manual
-    // correction via update_swarm_session, or a partial stamp). The Epic row is
+    // A session can carry an initiative attribution with no pipeline (a manual
+    // correction via update_swarm_session, or a partial stamp). The Initiative row is
     // INDEPENDENT of the Pipeline row's presence and must keep rendering — that
     // survived req #3356 unchanged, only the column it reads moved.
-    it('still renders the Epic row when only the epic column is stamped', () => {
-        sessionRow = baseSession({ epic_fk: 12 });
+    it('still renders the Initiative row when only the initiative column is stamped', () => {
+        sessionRow = baseSession({ initiative_fk: 12 });
         const { container } = mount();
         expect(node(container, 'session-pipeline')).toBeNull();
-        expect(node(container, 'session-epic').textContent).toContain('#12');
+        expect(node(container, 'session-initiative').textContent).toContain('#12');
     });
 });

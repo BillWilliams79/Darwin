@@ -1,16 +1,16 @@
 // @vitest-environment jsdom
 //
 // Req #3435 — the Orchestration box on the requirement detail page.
-// Three rows — Pipeline, Epic, Step — top to bottom, each with a button that
+// Three rows — Pipeline, Initiative, Step — top to bottom, each with a button that
 // opens the visualizer AT THAT LEVEL and a select beside it. Since req #3579 the
-// box is a CASCADE: Pipeline is live from the start, Epic and Step enable once a
-// plan is chosen, an epic narrows the Step list to its own steps, and only STEP
+// box is a CASCADE: Pipeline is live from the start, Initiative and Step enable once a
+// plan is chosen, an initiative narrows the Step list to its own steps, and only STEP
 // writes (plus "No pipeline" on a seated requirement, which unseats it).
 //
 // RE-BASED ON PIPELINE 2.0 BY REQ #3356, and two things about this fixture moved
 // as a direct consequence:
-//   - a 2.0 step carries `epic_fk`, NOT `pipeline_fk`, so the plan is reached in
-//     two hops and there is an EPICS fixture between the steps and the plans;
+//   - a 2.0 step carries `initiative_fk`, NOT `pipeline_fk`, so the plan is reached in
+//     two hops and there is an INITIATIVES fixture between the steps and the plans;
 //   - `pipeline_step_requirements` has `PRIMARY KEY (requirement_fk)` alone
 //     (one step per requirement, the req #3336 stage-2 gate ruling), so a MOVE
 //     is DELETE-then-POST. Insert-first cannot succeed while the old row exists,
@@ -31,7 +31,7 @@
 //   - the box carries no `via feature "…"` caption — a regression here would
 //     mean the retired concept quietly came back;
 //   - the cascade (req #3579): nothing below Pipeline is pickable without a
-//     plan, and a plan or epic that does not hold the seat never shows the old
+//     plan, and a plan or initiative that does not hold the seat never shows the old
 //     step under it.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -67,23 +67,23 @@ const PIPELINES = [
 ];
 // The MIDDLE HOP a 2.0 step's plan is reached through (req #3356), and since
 // req #3579 a select of its own.
-const EPICS = [
+const INITIATIVES = [
     { id: 20, pipeline_fk: 2,  title: 'Orchestration UI', sort_order: 2 },
     { id: 21, pipeline_fk: 2,  title: 'Polish',           sort_order: 1 },
     { id: 22, pipeline_fk: 2,  title: 'Retired',          sort_order: 0, closed: 1 },
     { id: 90, pipeline_fk: 79, title: 'Agent',            sort_order: 1 },
     { id: 91, pipeline_fk: 79, title: 'Agent Spare',      sort_order: 2 },   // no steps
-    { id: 80, pipeline_fk: 80, title: 'Old Epic',         sort_order: 1 },
+    { id: 80, pipeline_fk: 80, title: 'Old Initiative',         sort_order: 1 },
 ];
 const STEPS = [
-    { id: 100, epic_fk: 20, title: 'Orchestration Box' },
-    { id: 104, epic_fk: 20, title: 'Polish Round 2' },
-    { id: 105, epic_fk: 20, title: 'Polish Shipped' },   // its work all met
-    { id: 101, epic_fk: 20, title: 'Plan Layer' },
-    { id: 200, epic_fk: 90, title: 'Agent Boot' },
-    { id: 300, epic_fk: 20 },   // no title, no reqs
-    { id: 106, epic_fk: 21, title: 'Polish Tail' },
-    { id: 801, epic_fk: 80, title: 'Old Step' },
+    { id: 100, initiative_fk: 20, title: 'Orchestration Box' },
+    { id: 104, initiative_fk: 20, title: 'Polish Round 2' },
+    { id: 105, initiative_fk: 20, title: 'Polish Shipped' },   // its work all met
+    { id: 101, initiative_fk: 20, title: 'Plan Layer' },
+    { id: 200, initiative_fk: 90, title: 'Agent Boot' },
+    { id: 300, initiative_fk: 20 },   // no title, no reqs
+    { id: 106, initiative_fk: 21, title: 'Polish Tail' },
+    { id: 801, initiative_fk: 80, title: 'Old Step' },
 ];
 // MUTABLE: some cases need a requirement seated on NO step.
 let stepRequirements = [];
@@ -111,7 +111,7 @@ vi.mock('../../../hooks/useDataQueries', async (importOriginal) => {
         useMachines: () => q('machines', []),
         useAllCategories: () => q('categories', [{ id: 1, category_name: 'Swarm' }]),
         useAllPipelines: () => q('pipelines', PIPELINES),
-        useAllEpics: () => q('epics', EPICS),
+        useAllInitiatives: () => q('initiatives', INITIATIVES),
         useAllPipelineSteps: () => q('steps', STEPS),
         useAllPipelineStepRequirements: () => q('links', stepRequirements),
     };
@@ -256,7 +256,7 @@ async function closeMenu() {
 function baseRequirement(overrides = {}) {
     return {
         id: 3435,
-        title: 'Rebrand Epic UI element',
+        title: 'Rebrand Initiative UI element',
         description: '',
         category_fk: 1,
         requirement_status: 'development',
@@ -289,52 +289,52 @@ describe('RequirementDetail Orchestration box (req #3435)', { timeout: 30000 }, 
         document.body.innerHTML = '';
     });
 
-    it('is legended Orchestration, not Epic', async () => {
+    it('is legended Orchestration, not Initiative', async () => {
         const { container } = mount();
         await flush();
         expect(group(container).querySelector('legend').textContent).toBe('Orchestration');
-        expect(container.querySelector('[data-testid="requirement-epic-linkage-group"]')).toBeNull();
+        expect(container.querySelector('[data-testid="requirement-initiative-linkage-group"]')).toBeNull();
     });
 
-    it('carries the THREE rows, in plan → epic → step order', async () => {
-        // Two rows until req #3365, which restored Epic on the user's directive
-        // ("Pipeline, Epic and Step (three rows)"). The row had been retired at
+    it('carries the THREE rows, in plan → initiative → step order', async () => {
+        // Two rows until req #3365, which restored Initiative on the user's directive
+        // ("Pipeline, Initiative and Step (three rows)"). The row had been retired at
         // req #3357 because 1.0 lost the derivation with Feature; #3356 gave it
-        // back through `pipeline_steps.epic_fk` and this restores the display.
+        // back through `pipeline_steps.initiative_fk` and this restores the display.
         const { container } = mount();
         await flush();
         const box = group(container);
-        const rows = ['orchestration-pipeline-row', 'orchestration-epic-row',
+        const rows = ['orchestration-pipeline-row', 'orchestration-initiative-row',
             'orchestration-step-row'];
         for (const r of rows) expect(testid(container, r)).not.toBeNull();
-        // Order is the shape of the thing — a plan contains epics, an epic
+        // Order is the shape of the thing — a plan contains initiatives, an initiative
         // contains steps. CONTAINMENT, which is the plan model's own word.
         const order = rows.map((r) => Array.prototype.indexOf.call(
             box.children, testid(container, r)));
         expect(order).toEqual([...order].sort((a, b) => a - b));
         // The removed captions, asserted by their own words rather than by a
-        // count of children. 'Epic' is no longer among them — it is a row name
+        // count of children. 'Initiative' is no longer among them — it is a row name
         // now — but the 1.0 prose that used to sit beside it still must not be.
         expect(box.textContent).not.toContain('via feature');
         expect(box.textContent).not.toContain('View on plan');
     });
 
     // req #3579 — "start with the pipeline selection active only and then
-    // enabled epic and step setting". All three rows are selects now.
-    it('renders pipeline, epic and step as selects', async () => {
+    // enabled initiative and step setting". All three rows are selects now.
+    it('renders pipeline, initiative and step as selects', async () => {
         const { container } = mount();
         await flush();
-        for (const id of ['orchestration-pipeline-select', 'orchestration-epic-select',
+        for (const id of ['orchestration-pipeline-select', 'orchestration-initiative-select',
             'orchestration-step-select']) {
             expect(testid(container, id).querySelector('.MuiSelect-select')).not.toBeNull();
         }
     });
 
-    it('names the plan, the epic and the step', async () => {
+    it('names the plan, the initiative and the step', async () => {
         const { container } = mount();
         await flush();
         expect(testid(container, 'orchestration-pipeline-select').textContent).toBe('Darwin');
-        expect(testid(container, 'orchestration-epic-select').textContent).toBe('Orchestration UI');
+        expect(testid(container, 'orchestration-initiative-select').textContent).toBe('Orchestration UI');
         expect(testid(container, 'orchestration-step-select').textContent)
             .toBe('Orchestration Box');
     });
@@ -360,15 +360,15 @@ describe('RequirementDetail Orchestration box (req #3435)', { timeout: 30000 }, 
         // and the surviving visualizer took the unsuffixed route.
         expect(testid(container, 'orchestration-pipeline-link').getAttribute('href'))
             .toBe('/swarm/pipeline/2?mode=plan');
-        expect(testid(container, 'orchestration-epic-link').getAttribute('href'))
-            .toBe('/swarm/pipeline/2?mode=plan&epic=20');
+        expect(testid(container, 'orchestration-initiative-link').getAttribute('href'))
+            .toBe('/swarm/pipeline/2?mode=plan&initiative=20');
         expect(testid(container, 'orchestration-step-link').getAttribute('href'))
             .toBe('/swarm/pipeline/2?mode=plan&step=100&level=3');
     });
 
     // SEATED-VS-UNSEATED IS STRUCTURAL. With no step carrying the requirement
-    // there is no known plan either — the epic fallback that used to fill this
-    // gap left with the Epic row.
+    // there is no known plan either — the initiative fallback that used to fill this
+    // gap left with the Initiative row.
     it('shows no pipeline and no step when nothing seats the requirement', async () => {
         stepRequirements = [];
         const { container } = mount();
@@ -400,11 +400,11 @@ describe('RequirementDetail Orchestration box (req #3435)', { timeout: 30000 }, 
     // req #3493 — THE KNOWN RESIDUAL, PINNED RATHER THAN LEFT UNSTATED. The two
     // readers do NOT compute the same function: the predicate only ever looks at
     // `requirement_fk`, while the box additionally walks
-    // `step_fk -> pipeline_steps -> epics -> pipelines` and drops the seat
+    // `step_fk -> pipeline_steps -> initiatives -> pipelines` and drops the seat
     // entirely when that walk fails to resolve (`orchestrationIndex.js`'s
     // `pipelineByStep.get(sid) == null` branch — already covered on its own at
     // the `buildOrchestrationIndex` unit level by
-    // `orchestrationIndex.test.js`'s "drops a seat whose step names an epic the
+    // `orchestrationIndex.test.js`'s "drops a seat whose step names an initiative the
     // read does not carry"). A junction row naming a step this plan-side read
     // does not carry — a dangling FK, or a step dropped by the 3 MB bounded-list
     // truncation (`memory/mcp-server.md` § Bounded list reads) rather than a
@@ -435,7 +435,7 @@ describe('RequirementDetail Orchestration box (req #3435)', { timeout: 30000 }, 
 
     // ── The menu ────────────────────────────────────────────────────────────
 
-    // Scoped to THIS plan alone (req #3357 — no epic scoping left).
+    // Scoped to THIS plan alone (req #3357 — no initiative scoping left).
     it('offers only this plan’s steps', async () => {
         const { container } = mount();
         await flush();
@@ -577,12 +577,12 @@ describe('RequirementDetail Orchestration box (req #3435)', { timeout: 30000 }, 
         expect(testid(container, 'orchestration-step-row')).toBeNull();
     });
 
-    // THE EPICS READ IS A PLAN-SIDE READ (req #3356). It is only a JOIN HOP, but
+    // THE INITIATIVES READ IS A PLAN-SIDE READ (req #3356). It is only a JOIN HOP, but
     // losing it makes every step planless — which renders identically to a
     // requirement that is genuinely seated nowhere. Reporting the box
     // unavailable is the honest answer; silently showing "No pipeline" is not.
-    it('reports the box unavailable when the EPICS read fails', async () => {
-        queryErrors = { epics: true };
+    it('reports the box unavailable when the INITIATIVES read fails', async () => {
+        queryErrors = { initiatives: true };
         const { container } = mount();
         await flush();
         expect(testid(container, 'orchestration-error')).not.toBeNull();
@@ -610,7 +610,7 @@ describe('RequirementDetail Orchestration box (req #3435)', { timeout: 30000 }, 
         const { container } = mount();
         await flush();
         expect(testid(container, 'orchestration-pipeline-label').textContent).toBe('Pipeline');
-        expect(testid(container, 'orchestration-epic-label').textContent).toBe('Epic');
+        expect(testid(container, 'orchestration-initiative-label').textContent).toBe('Initiative');
         expect(testid(container, 'orchestration-step-label').textContent).toBe('Step');
     });
 
@@ -623,7 +623,7 @@ describe('RequirementDetail Orchestration box (req #3435)', { timeout: 30000 }, 
 
         for (const [level, valueId] of [
             ['pipeline', 'orchestration-pipeline-select'],
-            ['epic', 'orchestration-epic-select'],
+            ['initiative', 'orchestration-initiative-select'],
             ['step', 'orchestration-step-select'],
         ]) {
             const row = testid(container, `orchestration-${level}-row`);
@@ -643,7 +643,7 @@ describe('RequirementDetail Orchestration box (req #3435)', { timeout: 30000 }, 
         const { container } = mount();
         await flush();
 
-        const widths = ['pipeline', 'epic', 'step'].map((l) =>
+        const widths = ['pipeline', 'initiative', 'step'].map((l) =>
             getComputedStyle(testid(container, `orchestration-${l}-label`)).width);
         expect(new Set(widths).size).toBe(1);
         expect(widths[0]).not.toBe('');
@@ -660,19 +660,19 @@ describe('RequirementDetail Orchestration box (req #3435)', { timeout: 30000 }, 
         const { container } = mount();
         await flush();
         expect(isDisabled(container, 'orchestration-pipeline-select')).toBe(false);
-        expect(isDisabled(container, 'orchestration-epic-select')).toBe(true);
+        expect(isDisabled(container, 'orchestration-initiative-select')).toBe(true);
         expect(isDisabled(container, 'orchestration-step-select')).toBe(true);
-        expect(testid(container, 'orchestration-epic-select').textContent).toBe('No epic');
+        expect(testid(container, 'orchestration-initiative-select').textContent).toBe('No initiative');
     });
 
-    it('enables epic and step once a pipeline is chosen, and writes nothing for it', async () => {
+    it('enables initiative and step once a pipeline is chosen, and writes nothing for it', async () => {
         stepRequirements = [];
         const { container } = mount();
         await flush();
         await chooseOption(container, 'orchestration-pipeline-select', 'Agent Harness');
-        expect(isDisabled(container, 'orchestration-epic-select')).toBe(false);
+        expect(isDisabled(container, 'orchestration-initiative-select')).toBe(false);
         expect(isDisabled(container, 'orchestration-step-select')).toBe(false);
-        expect(testid(container, 'orchestration-epic-select').textContent).toBe('All epics');
+        expect(testid(container, 'orchestration-initiative-select').textContent).toBe('All initiatives');
         expect(testid(container, 'orchestration-pipeline-link').getAttribute('href'))
             .toBe('/swarm/pipeline/79?mode=plan');
         expect(seatCalls).toEqual([]);
@@ -691,26 +691,26 @@ describe('RequirementDetail Orchestration box (req #3435)', { timeout: 30000 }, 
         await closeMenu();
     });
 
-    it('offers the chosen plan\u2019s OPEN epics in sort order', async () => {
+    it('offers the chosen plan\u2019s OPEN initiatives in sort order', async () => {
         const { container } = mount();
         await flush();
-        const labels = (await openSelect(container, 'orchestration-epic-select'))
+        const labels = (await openSelect(container, 'orchestration-initiative-select'))
             .map((o) => o.textContent);
         // 'Retired' is closed; 'Agent' belongs to another plan.
-        expect(labels).toEqual(['All epics', 'Polish', 'Orchestration UI']);
+        expect(labels).toEqual(['All initiatives', 'Polish', 'Orchestration UI']);
         await closeMenu();
     });
 
-    it('narrows the steps to the chosen epic', async () => {
+    it('narrows the steps to the chosen initiative', async () => {
         const { container } = mount();
         await flush();
-        await chooseOption(container, 'orchestration-epic-select', 'Polish');
-        // The seat (step 100) is in another epic: the Step row says the pick is
-        // still to be made rather than showing a step this epic does not hold.
+        await chooseOption(container, 'orchestration-initiative-select', 'Polish');
+        // The seat (step 100) is in another initiative: the Step row says the pick is
+        // still to be made rather than showing a step this initiative does not hold.
         expect(testid(container, 'orchestration-step-select').textContent).toBe('Select a step');
         expect(testid(container, 'orchestration-step-link').disabled).toBe(true);
-        expect(testid(container, 'orchestration-epic-link').getAttribute('href'))
-            .toBe('/swarm/pipeline/2?mode=plan&epic=21');
+        expect(testid(container, 'orchestration-initiative-link').getAttribute('href'))
+            .toBe('/swarm/pipeline/2?mode=plan&initiative=21');
         const labels = (await openSelect(container, 'orchestration-step-select'))
             .map((o) => o.textContent);
         // No 'No step' either: unseating from a scope the seat is not in would
@@ -720,10 +720,10 @@ describe('RequirementDetail Orchestration box (req #3435)', { timeout: 30000 }, 
         expect(seatCalls).toEqual([]);
     });
 
-    it('All epics widens back to every step of the plan', async () => {
+    it('All initiatives widens back to every step of the plan', async () => {
         const { container } = mount();
         await flush();
-        await chooseOption(container, 'orchestration-epic-select', 'All epics');
+        await chooseOption(container, 'orchestration-initiative-select', 'All initiatives');
         expect(testid(container, 'orchestration-step-select').textContent).toBe('Orchestration Box');
         const labels = (await openSelect(container, 'orchestration-step-select'))
             .map((o) => o.textContent);
@@ -750,7 +750,7 @@ describe('RequirementDetail Orchestration box (req #3435)', { timeout: 30000 }, 
         await flush();
         await chooseOption(container, 'orchestration-pipeline-select', 'Agent Harness');
         await chooseOption(container, 'orchestration-pipeline-select', 'Darwin');
-        expect(testid(container, 'orchestration-epic-select').textContent).toBe('Orchestration UI');
+        expect(testid(container, 'orchestration-initiative-select').textContent).toBe('Orchestration UI');
         expect(testid(container, 'orchestration-step-select').textContent).toBe('Orchestration Box');
     });
 
@@ -763,11 +763,11 @@ describe('RequirementDetail Orchestration box (req #3435)', { timeout: 30000 }, 
         ]);
     });
 
-    it('names the pipeline and epic selects for assistive technology', async () => {
+    it('names the pipeline and initiative selects for assistive technology', async () => {
         const { container } = mount();
         await flush();
         for (const [id, name] of [['orchestration-pipeline-select', 'Pipeline'],
-            ['orchestration-epic-select', 'Epic']]) {
+            ['orchestration-initiative-select', 'Initiative']]) {
             expect(testid(container, id).querySelector('[role="combobox"]')
                 .getAttribute('aria-label')).toBe(name);
         }
@@ -811,7 +811,7 @@ describe('RequirementDetail Orchestration box (req #3435)', { timeout: 30000 }, 
         await chooseOption(container, 'orchestration-step-select', 'Agent Boot');
         await flush();
         expect(testid(container, 'orchestration-pipeline-select').textContent).toBe('Agent Harness');
-        expect(testid(container, 'orchestration-epic-select').textContent).toBe('Agent');
+        expect(testid(container, 'orchestration-initiative-select').textContent).toBe('Agent');
         expect(testid(container, 'orchestration-step-select').textContent).toBe('Agent Boot');
     });
 
@@ -821,7 +821,7 @@ describe('RequirementDetail Orchestration box (req #3435)', { timeout: 30000 }, 
         const { container } = mount();
         await flush();
         await chooseOption(container, 'orchestration-step-select', 'Polish Round 2');
-        for (const id of ['orchestration-pipeline-select', 'orchestration-epic-select',
+        for (const id of ['orchestration-pipeline-select', 'orchestration-initiative-select',
             'orchestration-step-select']) {
             expect(isDisabled(container, id)).toBe(true);
         }
@@ -866,7 +866,7 @@ describe('RequirementDetail Orchestration box (req #3435)', { timeout: 30000 }, 
         // Seated on plan 2, scoped to plan 79's 'Agent Spare', which holds no
         // step: "No step" is withheld out of scope, so the menu would be empty.
         await chooseOption(container, 'orchestration-pipeline-select', 'Agent Harness');
-        await chooseOption(container, 'orchestration-epic-select', 'Agent Spare');
+        await chooseOption(container, 'orchestration-initiative-select', 'Agent Spare');
         expect(isDisabled(container, 'orchestration-step-select')).toBe(true);
         expect(testid(container, 'orchestration-step-select').textContent).toBe('Select a step');
     });
@@ -905,7 +905,7 @@ describe('RequirementDetail Orchestration box (req #3435)', { timeout: 30000 }, 
     it('names the lock when a seated requirement delete is refused (423)', async () => {
         const { default: callRestApi } = await import('../../../RestApi/RestApi');
         const lockMessage = 'cannot delete requirements 3435: it is seated on step 100, '
-            + 'locked by epic 20 — unlock it first';
+            + 'locked by initiative 20 — unlock it first';
         const original = callRestApi.getMockImplementation();
         callRestApi.mockImplementation(async (uri, method, ...rest) => {
             if (method === 'DELETE' && uri.endsWith('/requirements')) {

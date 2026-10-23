@@ -94,10 +94,10 @@ describe('excludeByIds', () => {
     });
 });
 
-// ── req #3419's epic-filed union, retired by req #3357 ─────────────────────
+// ── req #3419's initiative-filed union, retired by req #3357 ─────────────────────
 //
-// req #3419 unioned in requirements epic-filed through the retired middle
-// tier's own reference to the epic, but not step-carried. That tier leaving
+// req #3419 unioned in requirements initiative-filed through the retired middle
+// tier's own reference to the initiative, but not step-carried. That tier leaving
 // the frontend retired the only mechanism that could produce that population
 // — see pipelineMembership.js's
 // header for the full reasoning — so `orchestratedRequirementIds` is now the
@@ -135,7 +135,7 @@ describe('orchestratedRequirementIds (req #3357)', () => {
 //
 // `pipelinedRequirementIds` above answers "is this on ANY step"; these answer
 // "is this on step X". Same junction, one hop, no `pipeline_steps` read — which
-// is the whole difference from the epic answer in `epicMembership.js`.
+// is the whole difference from the initiative answer in `initiativeMembership.js`.
 
 describe('stepRequirementIds', () => {
     // The junction as `useAllPipelineStepRequirements` returns it.
@@ -235,14 +235,14 @@ describe('filterToStepReqIds', () => {
         expect(filterToStepReqIds(undefined, new Set([3503]))).toBe(undefined);
     });
 
-    it('composes with filterToEpic as an INTERSECTION, in either order', () => {
+    it('composes with filterToInitiative as an INTERSECTION, in either order', () => {
         // Both filters can be engaged at once, and the cards apply them in
         // series. Neither is a mode of the other, so the survivors must be the
         // rows both sets hold.
-        const epicSet = new Set([3503, 3504]);
+        const initiativeSet = new Set([3503, 3504]);
         const stepSet = new Set([3504, 3505]);
         const kept = filterToStepReqIds(
-            rows.filter(r => epicSet.has(r.id)), stepSet);
+            rows.filter(r => initiativeSet.has(r.id)), stepSet);
         expect(kept.map(r => r.id)).toEqual([3504]);
     });
 });

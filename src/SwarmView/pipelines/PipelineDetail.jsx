@@ -84,7 +84,7 @@ import {
     readColorParam, readFocusStepParam, readLevelParam,
     FOCUS_LEVEL_PARAM, FOCUS_COLOR_PARAM,
 } from './pipelineStepLink';
-import { readFocusEpicParam } from './pipelineEpicLink';
+import { readFocusInitiativeParam } from './pipelineInitiativeLink';
 import { writePipelinePlace } from './pipelinePlace';
 // Req #3261 P8 — the Plan mode's own controls, in their own component, exactly
 // as `SwarmView.jsx` renders `<VisualizerToolbar />` for its canvas mode (S4).
@@ -174,7 +174,7 @@ export default function PipelineDetail() {
     //
     // ALWAYS ON (req #3242 user directive) — the toggle that used to gate this
     // is gone; requirement counts are now a permanent part of the plan name and
-    // every epic band label, not a preference. No storage key, no setter: there
+    // every initiative band label, not a preference. No storage key, no setter: there
     // is nothing left to persist.
     const showReqCounts = true;
     // ── THE RETIRED VIEW PREFERENCES (no declaration follows — that is the
@@ -307,14 +307,14 @@ export default function PipelineDetail() {
     // owns both halves of the contract so a writer and this reader cannot drift
     // on the key.
     const linkStepId = readFocusStepParam(searchParams);
-    // ── `?epic=` makes ONE EPIC'S LOCATION addressable (req #3235) ───────────
-    // The receiving end of the requirement page's epic-box "view on plan" link.
-    // A `?step=` is more specific than a `?epic=` (a step names one card; an
-    // epic is a whole band a step already belongs to), so if a link somehow
+    // ── `?initiative=` makes ONE INITIATIVE'S LOCATION addressable (req #3235) ───────────
+    // The receiving end of the requirement page's initiative-box "view on plan" link.
+    // A `?step=` is more specific than a `?initiative=` (a step names one card; an
+    // initiative is a whole band a step already belongs to), so if a link somehow
     // carried both, the step wins — the canvas applies that precedence.
-    // `pipelineEpicLink.js` owns both halves of this contract, same split as the
+    // `pipelineInitiativeLink.js` owns both halves of this contract, same split as the
     // step link.
-    const linkEpicId = readFocusEpicParam(searchParams);
+    const linkInitiativeId = readFocusInitiativeParam(searchParams);
     // ── `?level=` PINS THE SEMANTIC LEVEL FOR ONE LANDING (req #3253) ────────
     // The step-on-the-plan link carries `level=3` (req #3498 — it was `2`, and
     // the reason expired when the requirements moved INSIDE the card; the value
@@ -326,14 +326,14 @@ export default function PipelineDetail() {
     // req #3636 — `?color=` picks the colour key for one landing, transiently,
     // by `?level=`'s contract (see `readColorParam`).
     const linkColor = readColorParam(searchParams);
-    // A named step or epic means the PLAN, whatever `?mode=` the link carries
+    // A named step or initiative means the PLAN, whatever `?mode=` the link carries
     // (req #3641). Until then a bare `?step=` meant the Table's row; the Table is
     // gone, and the visualizer has consumed `focusStepId` since req #3253 (it
     // centres and zooms on the step).
-    const linkView = linkStepId != null || linkEpicId != null ? 'plan' : linkMode;
+    const linkView = linkStepId != null || linkInitiativeId != null ? 'plan' : linkMode;
 
     // ── A LINK FIRES ONCE PER HISTORY ENTRY (req #3637) ─────────────────────
-    // `?step=`/`?epic=` move the camera onto one thing.
+    // `?step=`/`?initiative=` move the camera onto one thing.
     // Read straight off the URL they fired AGAIN on every reload and every
     // Back/Forward onto that entry — the URL still carries them — and yanked
     // the reader off wherever they had since panned to: *"refresh, reload,
@@ -362,29 +362,29 @@ export default function PipelineDetail() {
     // the interrupted flight over it: the plan's top-left at scale 1. React's
     // "adjust state when a prop changes" pattern below re-derives the focus in
     // the SAME render the entry changes in, before any child renders, so no
-    // panel can see another entry's focus. `?epic=` rides along for the reason
+    // panel can see another entry's focus. `?initiative=` rides along for the reason
     // req #3235's review gave it a state copy at all: an in-place move between
     // two links must not keep the first. (A manual mode pick cleared both too,
     // until req #3641 withdrew the Table and the switcher with it.)
     const linkConsumed = isPlanLinkConsumed(location);
     const entryKind = classifyPlanEntry({
         consumed: linkConsumed, navigationType,
-        hasFocusLink: linkStepId != null || linkEpicId != null,
+        hasFocusLink: linkStepId != null || linkInitiativeId != null,
     });
     const [focus, setFocus] = useState(() => ({
         entry: location.key,
-        ...planEntryFocus(entryKind, { stepId: linkStepId, epicId: linkEpicId }, null),
+        ...planEntryFocus(entryKind, { stepId: linkStepId, initiativeId: linkInitiativeId }, null),
     }));
     let liveFocus = focus;
     if (focus.entry !== location.key) {
         liveFocus = {
             entry: location.key,
-            ...planEntryFocus(entryKind, { stepId: linkStepId, epicId: linkEpicId }, focus),
+            ...planEntryFocus(entryKind, { stepId: linkStepId, initiativeId: linkInitiativeId }, focus),
         };
         setFocus(liveFocus);
     }
     const focusStepId = liveFocus.stepId;
-    const focusEpicId = liveFocus.epicId;
+    const focusInitiativeId = liveFocus.initiativeId;
     // The panel and the level are the URL's whenever it names them — derived,
     // never a state copy, so a Back/Forward lands on that entry's own panel and
     // a reload keeps it. Never written to the persisted preferences: a link
@@ -573,12 +573,12 @@ export default function PipelineDetail() {
     // is optional.
     const planReqCounts = plan?.requirementCounts?.overall;
 
-    // req #3224 — the WHOLE-PLAN reservation. An epic-scoped one is a different
+    // req #3224 — the WHOLE-PLAN reservation. An initiative-scoped one is a different
     // and weaker claim ("a slice of this plan is being orchestrated") and is the
-    // epics page's answer, not this header's.
+    // initiatives page's answer, not this header's.
     //
     // req #3463 — WHICH COLUMN PAIR a claim carries WAS an era fact: a 2.0 claim
-    // has `pipeline_fk`/`epic_fk` and NULL `pipeline_fk`, so asking the 1.0
+    // has `pipeline_fk`/`initiative_fk` and NULL `pipeline_fk`, so asking the 1.0
     // lookup about a 2.0 plan matched nothing and vice versa. `claimForPipeline`
     // (the 1.0 half) went with req #3356; this reads the 2.0 columns directly.
     const orchestrationHolder = useMemo(
@@ -597,7 +597,7 @@ export default function PipelineDetail() {
     // The single writer of the remembered place. Req #3311 wrote it from the
     // LIST page's click handler, which recorded a plan opened by clicking a card
     // and no other arrival: not a `?step=` deep link, not the sessions grid's
-    // "view the plan", not the requirement page's epic box, not Back. Recording
+    // "view the plan", not the requirement page's initiative box, not Back. Recording
     // on ARRIVAL covers all of them and every route added later, without any of
     // them being enumerated — the same argument `viewportMemory.js` makes about
     // return paths, pointed the other way.
@@ -694,13 +694,13 @@ export default function PipelineDetail() {
     const hasStatusChips = pipeline.pipeline_status === 'paused'
         || !!orchestrationHolder;
 
-    // req #3242 — epics represented in THIS plan (a requirement with no epic
+    // req #3242 — initiatives represented in THIS plan (a requirement with no initiative
     // is excluded by `requirementCounts` itself, so this is never inflated by
-    // a "no epic" bucket).
+    // a "no initiative" bucket).
     // `plan` is null while `diagnostic` is set (req #3381 item 3 — a
     // withheld/absent `derived` block is a hard stop, so there is no
     // requirement-counts derivation to read).
-    const planEpicCount = plan?.requirementCounts?.byEpic?.length ?? 0;
+    const planInitiativeCount = plan?.requirementCounts?.byInitiative?.length ?? 0;
 
     // ── ONE STRING PER ELLIPSIZING LINE ──────────────────────────────────────
     // `noWrap` with a tooltip needs the whole text as a VALUE: CSS
@@ -712,7 +712,7 @@ export default function PipelineDetail() {
     // accounting line that used to carry them; that directive is about WHERE
     // they live and this is about how they READ. Rendered at the title's own
     // weight, size and colour they produced one undifferentiated string —
-    // "FP Pipeline - Agent Harness 4 Epics, 73/115 Requirements" — with nothing
+    // "FP Pipeline - Agent Harness 4 Initiatives, 73/115 Requirements" — with nothing
     // saying where the plan's name ends and the statistics begin, and at 1600px
     // it was the STATISTIC that ellipsized, leaving a broken fraction ("73/115
     // …") as the last thing on the row. Splitting the two lets the eye take the
@@ -728,7 +728,7 @@ export default function PipelineDetail() {
     // spaces are NO-BREAK spaces: the title is `noWrap`, i.e. `white-space:
     // nowrap`, which collapses a run of ordinary spaces to one.
     const countsText = planReqCounts
-        ? `${planEpicCount}\u00a0\u00a0-\u00a0\u00a0`
+        ? `${planInitiativeCount}\u00a0\u00a0-\u00a0\u00a0`
             + `${planReqCounts.met}/${planReqCounts.total}`
         : '';
     // NO TOOLTIP ON THE TITLE (req #3648 user directive, "drop the tooltip for
@@ -907,7 +907,7 @@ export default function PipelineDetail() {
                     {pipeline.title}
                     {/* A REAL SPACE, not just the margin below (measured —
                         the first cut had only the margin and the row's
-                        `textContent` read "…Agent Harness4 Epics, 73/115…").
+                        `textContent` read "…Agent Harness4 Initiatives, 73/115…").
                         The margin is what the eye sees; this is what a
                         COPY-PASTE carries, and the two must not disagree.
                         With the tooltip gone (req #3648) the text content
@@ -1143,7 +1143,7 @@ export default function PipelineDetail() {
             {canRenderPlan && (
             <ActiveComponent plan={plan} model={model} pipeline={pipeline} timezone={timezone}
                              focusStepId={focusStepId}
-                             focusEpicId={focusEpicId}
+                             focusInitiativeId={focusInitiativeId}
                              costError={!!costError}
                              showReqCounts={showReqCounts}
                              stepLabel={stepLabel} colorKey={colorKey}

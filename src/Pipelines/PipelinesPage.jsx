@@ -70,7 +70,7 @@ import {
     useMachines,
     useAllPipelines,
     pipelineKeys,
-    useAllEpics,
+    useAllInitiatives,
     useAllPipelineSteps,
     useAllPipelineStepRequirements,
     useAllRequirements,
@@ -250,8 +250,8 @@ export default function PipelinesPage() {
         prunePipelineStorage(pipelines.map((p) => p.id));
     }, [pipelinesLoading, pipelines]);
     const { data: machines = [], isLoading: machinesLoading } = useMachines(creatorFk);
-    const { data: epics = [], isLoading: epicsLoading, isError: epicsError } =
-        useAllEpics(creatorFk);
+    const { data: initiatives = [], isLoading: initiativesLoading, isError: initiativesError } =
+        useAllInitiatives(creatorFk);
     const { data: steps = [], isLoading: stepsLoading, isError: stepsError } =
         useAllPipelineSteps(creatorFk);
     const { data: stepRequirements = [], isLoading: linksLoading } =
@@ -263,24 +263,24 @@ export default function PipelinesPage() {
         useAllRequirements(creatorFk, { fields: 'id,requirement_status' });
     const { data: orchestrationClaims = [] } = useOrchestrationClaims(creatorFk);
 
-    const isLoading = pipelinesLoading || machinesLoading || epicsLoading
+    const isLoading = pipelinesLoading || machinesLoading || initiativesLoading
         || stepsLoading || linksLoading || reqsLoading;
 
-    // A step's PLAN is reachable only through its epic (containment — no
-    // `pipeline_fk` column on pipeline_steps), so a failed epics OR steps
+    // A step's PLAN is reachable only through its initiative (containment — no
+    // `pipeline_fk` column on pipeline_steps), so a failed initiatives OR steps
     // read does not just blank one column, it zeroes every card's step
     // count, progress bar and requirement tally — indistinguishable from a
     // genuinely empty plan (code review, req #3393; StepsPage.jsx draws the
     // identical distinction for the same underlying reason).
-    const planDataError = epicsError || stepsError;
-    const failedReadsText = [epicsError && 'epics', stepsError && 'steps']
+    const planDataError = initiativesError || stepsError;
+    const failedReadsText = [initiativesError && 'initiatives', stepsError && 'steps']
         .filter(Boolean).join(' and ');
 
     const machineById = new Map(machines.map((m) => [m.id, m]));
 
-    const summaries = pipelineSummaries({ pipelines, steps, epics });
+    const summaries = pipelineSummaries({ pipelines, steps, initiatives });
     const reqCounts = pipelineRequirementCounts({
-        pipelines, steps, epics, stepRequirements, requirements });
+        pipelines, steps, initiatives, stepRequirements, requirements });
 
     const filtered = pipelines.filter((p) => statusFilter.includes(p.pipeline_status));
     const hiddenStatusCounts = hiddenPipelineStatusCounts(pipelines, statusFilter);
@@ -298,7 +298,7 @@ export default function PipelinesPage() {
         }
     };
 
-    // req #3649 — a locked plan freezes its epics and steps (gateway 423).
+    // req #3649 — a locked plan freezes its initiatives and steps (gateway 423).
     const toggleLock = async (row) => {
         try {
             await updatePipeline(darwinUri, idToken, row.id, { locked: row.locked ? 0 : 1 });
@@ -355,8 +355,8 @@ export default function PipelinesPage() {
             field: 'execution_mode', headerName: 'Execution', width: 130, sortable: false,
             renderCell: (params) => (
                 <Tooltip title={params.value === 'serial'
-                    ? 'Serial — one epic at a time, in sort_order. Click for Parallel.'
-                    : 'Parallel — every epic runs at once. Click for Serial.'}>
+                    ? 'Serial — one initiative at a time, in sort_order. Click for Parallel.'
+                    : 'Parallel — every initiative runs at once. Click for Serial.'}>
                     <Chip
                         label={executionModeLabel(params.value)}
                         size="small"
@@ -369,11 +369,11 @@ export default function PipelinesPage() {
             ),
         },
         {
-            // req #3649 — the lock cascades to every epic and step in the plan.
+            // req #3649 — the lock cascades to every initiative and step in the plan.
             field: 'locked', headerName: 'Lock', width: 100, sortable: false,
             renderCell: (params) => (
                 <Tooltip title={params.value
-                    ? 'Locked — this plan, its epics and steps are frozen as a record. Click to unlock.'
+                    ? 'Locked — this plan, its initiatives and steps are frozen as a record. Click to unlock.'
                     : 'Open — editable. Click to lock this plan and freeze everything in it.'}>
                     <Chip
                         label={lockedLabel(params.value)}

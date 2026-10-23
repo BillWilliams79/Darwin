@@ -1,18 +1,18 @@
 // EmptyPlanAddStep.jsx — the empty-plan panel with a prominent "+" that places
-// the FIRST step in an epic (req #3646).
+// the FIRST step in an initiative (req #3646).
 //
 // Every other add-step control (req #3586/#3617) hangs off an existing card or
 // dependency arc, so a pipeline with no steps had no way to add one from the
 // plan. This is the one control that needs no anchor: a large "+" in the middle
-// of the otherwise-empty panel, opening the same title + epic dialog the "+"
+// of the otherwise-empty panel, opening the same title + initiative dialog the "+"
 // marks use. Shared by the canvas and the table, which each return this panel
 // when the plan has no rows.
 //
-// A plan with NO EPIC (req #3773). A step lives in an epic, so this "+" used to
+// A plan with NO INITIATIVE (req #3773). A step lives in an initiative, so this "+" used to
 // be disabled there — and that is exactly the state of every pipeline the
-// Pipelines page creates. It now opens "Add the first epic" (title + category)
-// and creates the epic AND its first step, as the canvas's own epic-add "+"
-// does (an epic with no steps would draw nowhere).
+// Pipelines page creates. It now opens "Add the first initiative" (title + category)
+// and creates the initiative AND its first step, as the canvas's own initiative-add "+"
+// does (an initiative with no steps would draw nowhere).
 
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
@@ -35,24 +35,24 @@ import AddIcon from '@mui/icons-material/Add';
 import AppContext from '../../Context/AppContext';
 import AuthContext from '../../Context/AuthContext';
 import { pipelineComposeKeys } from '../../hooks/useQueryKeys';
-import { epicKeys, pipelineStepKeys, useAllCategories } from '../../hooks/useDataQueries';
+import { initiativeKeys, pipelineStepKeys, useAllCategories } from '../../hooks/useDataQueries';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
 import { createStep, isRestNullLiteral, REST_NULL } from '../../Steps/stepsApi';
-import { createEpic } from '../../Epics/epicsApi';
-import { NEW_EPIC_TITLE, NEW_STEP_TITLE } from './pipelineStepInsert';
+import { createInitiative } from '../../Initiatives/initiativesApi';
+import { NEW_INITIATIVE_TITLE, NEW_STEP_TITLE } from './pipelineStepInsert';
 
 /**
- * The plan's epics, in plan order, for the dialog's picker — the payload's own
- * `epics[]`, which carries an epic with no steps yet (the only kind an empty
+ * The plan's initiatives, in plan order, for the dialog's picker — the payload's own
+ * `initiatives[]`, which carries an initiative with no steps yet (the only kind an empty
  * plan has).
  */
-export function emptyPlanEpicOptions(model) {
-    return (model?.epics || [])
+export function emptyPlanInitiativeOptions(model) {
+    return (model?.initiatives || [])
         .map((e) => ({ id: e.id, title: e.title, sortOrder: e.sort_order }))
         .sort((a, b) => (a.sortOrder ?? Infinity) - (b.sortOrder ?? Infinity) || a.id - b.id);
 }
 
-/** Open categories in their own order — the first-epic dialog's Category picker. */
+/** Open categories in their own order — the first-initiative dialog's Category picker. */
 export function openCategoryOptions(categories) {
     return (categories || [])
         .filter((c) => !c.closed)
@@ -66,14 +66,14 @@ export default function EmptyPlanAddStep({ model, pipeline, testId }) {
     const { idToken, profile } = useContext(AuthContext);
     const showError = useSnackBarStore((st) => st.showError);
 
-    const epics = useMemo(() => emptyPlanEpicOptions(model), [model]);
-    const noEpics = epics.length === 0;
+    const initiatives = useMemo(() => emptyPlanInitiativeOptions(model), [model]);
+    const noInitiatives = initiatives.length === 0;
     const { data: categories = [] } = useAllCategories(
         profile?.userName, { fields: 'id,category_name,sort_order,closed' });
     const categoryOptions = useMemo(() => openCategoryOptions(categories), [categories]);
     const [open, setOpen] = useState(false);
     const [title, setTitle] = useState(NEW_STEP_TITLE);
-    const [epicId, setEpicId] = useState('');
+    const [initiativeId, setInitiativeId] = useState('');
     const [categoryId, setCategoryId] = useState('');
     const [creating, setCreating] = useState(false);
 
@@ -82,19 +82,19 @@ export default function EmptyPlanAddStep({ model, pipeline, testId }) {
     const openedAtRef = useRef(0);
     const openDialog = useCallback(() => {
         openedAtRef.current = Date.now();
-        setTitle(noEpics ? NEW_EPIC_TITLE : NEW_STEP_TITLE);
-        setEpicId(epics.length === 1 ? epics[0].id : '');
+        setTitle(noInitiatives ? NEW_INITIATIVE_TITLE : NEW_STEP_TITLE);
+        setInitiativeId(initiatives.length === 1 ? initiatives[0].id : '');
         setCategoryId(categoryOptions[0]?.id ?? '');
         setOpen(true);
-    }, [epics, noEpics, categoryOptions]);
+    }, [initiatives, noInitiatives, categoryOptions]);
 
     // Opened before the categories read landed — default the picker once
     // they arrive rather than leaving it blank.
     useEffect(() => {
-        if (open && noEpics && categoryId === '' && categoryOptions.length) {
+        if (open && noInitiatives && categoryId === '' && categoryOptions.length) {
             setCategoryId(categoryOptions[0].id);
         }
-    }, [open, noEpics, categoryId, categoryOptions]);
+    }, [open, noInitiatives, categoryId, categoryOptions]);
 
     // req #3649 — a locked plan refuses every child write at the gateway (423),
     // so the "+" says so instead of opening a dialog that cannot succeed (the
@@ -113,52 +113,52 @@ export default function EmptyPlanAddStep({ model, pipeline, testId }) {
                 + 'be a title. Try "Null" or another wording.');
             return;
         }
-        if (noEpics ? (categoryId === '' || categoryId == null)
-            : (epicId === '' || epicId == null)) {
-            showError(noEpics ? 'Category is required' : 'Epic is required');
+        if (noInitiatives ? (categoryId === '' || categoryId == null)
+            : (initiativeId === '' || initiativeId == null)) {
+            showError(noInitiatives ? 'Category is required' : 'Initiative is required');
             return;
         }
         setCreating(true);
         try {
-            if (noEpics) {
-                const epic = await createEpic(darwinUri, idToken, {
+            if (noInitiatives) {
+                const initiative = await createInitiative(darwinUri, idToken, {
                     pipeline_fk: pipeline.id, title: trimmed, category_fk: categoryId,
                 });
-                const newEpicId = Array.isArray(epic) ? epic[0]?.id : epic?.id;
+                const newInitiativeId = Array.isArray(initiative) ? initiative[0]?.id : initiative?.id;
                 setOpen(false);
-                if (newEpicId == null) {
-                    // Written but not read back: retrying would make a second epic.
-                    showError('The epic may have been created without a first step — '
-                        + 'check the Epics page before adding it again');
+                if (newInitiativeId == null) {
+                    // Written but not read back: retrying would make a second initiative.
+                    showError('The initiative may have been created without a first step — '
+                        + 'check the Initiatives page before adding it again');
                     return;
                 }
                 try {
-                    await createStep(darwinUri, idToken, { epic_fk: newEpicId, title: NEW_STEP_TITLE });
+                    await createStep(darwinUri, idToken, { initiative_fk: newInitiativeId, title: NEW_STEP_TITLE });
                 } catch (error) {
-                    showError(error, 'Epic created, but its first step could not be added');
+                    showError(error, 'Initiative created, but its first step could not be added');
                 }
             } else {
-                await createStep(darwinUri, idToken, { epic_fk: epicId, title: trimmed });
+                await createStep(darwinUri, idToken, { initiative_fk: initiativeId, title: trimmed });
                 setOpen(false);
             }
         } catch (error) {
-            showError(error, noEpics ? 'Could not create the epic' : 'Could not add the step');
+            showError(error, noInitiatives ? 'Could not create the initiative' : 'Could not add the step');
         } finally {
             setCreating(false);
             if (pipeline?.id != null) {
                 queryClient.invalidateQueries({ queryKey: pipelineComposeKeys.byId(pipeline.id) });
             }
-            if (noEpics && profile?.userName) {
-                queryClient.invalidateQueries({ queryKey: epicKeys.all(profile.userName) });
+            if (noInitiatives && profile?.userName) {
+                queryClient.invalidateQueries({ queryKey: initiativeKeys.all(profile.userName) });
             }
             queryClient.invalidateQueries({ queryKey: pipelineStepKeys.all(profile?.userName) });
             queryClient.invalidateQueries({ queryKey: ['orchestration_index'] });
         }
-    }, [creating, title, noEpics, epicId, categoryId, darwinUri, idToken, pipeline?.id,
+    }, [creating, title, noInitiatives, initiativeId, categoryId, darwinUri, idToken, pipeline?.id,
         profile?.userName, queryClient, showError]);
 
-    const pickerEmpty = noEpics ? categoryId === '' : epicId === '';
-    const dialogTitle = noEpics ? 'Add the first epic' : 'Add the first step';
+    const pickerEmpty = noInitiatives ? categoryId === '' : initiativeId === '';
+    const dialogTitle = noInitiatives ? 'Add the first initiative' : 'Add the first step';
 
     return (
         <>
@@ -181,10 +181,10 @@ export default function EmptyPlanAddStep({ model, pipeline, testId }) {
                         This pipeline is locked — unlock it first.
                     </Typography>
                 )}
-                {!locked && noEpics && (
+                {!locked && noInitiatives && (
                     <Typography variant="body2" color="text.secondary"
-                                data-testid="pipeline-empty-add-step-no-epics">
-                        A step lives in an epic — this creates the epic and its first step.
+                                data-testid="pipeline-empty-add-step-no-initiatives">
+                        A step lives in an initiative — this creates the initiative and its first step.
                     </Typography>
                 )}
             </Paper>
@@ -206,14 +206,14 @@ export default function EmptyPlanAddStep({ model, pipeline, testId }) {
                                    }}
                                    inputProps={{ 'data-testid': 'pipeline-empty-add-step-title' }}
                                    sx={{ mb: 2 }} />
-                        {noEpics && !categoryOptions.length ? (
+                        {noInitiatives && !categoryOptions.length ? (
                             <Typography variant="body2" color="text.secondary"
                                         data-testid="pipeline-empty-add-step-no-categories">
-                                An epic is filed under a category, and you have no open
+                                An initiative is filed under a category, and you have no open
                                 category. <Link component={RouterLink} to="/categoryedit">Create
                                 one first</Link>.
                             </Typography>
-                        ) : noEpics ? (
+                        ) : noInitiatives ? (
                             <TextField select fullWidth size="small" label="Category"
                                        value={categoryId}
                                        onChange={(e) => setCategoryId(e.target.value)}
@@ -225,12 +225,12 @@ export default function EmptyPlanAddStep({ model, pipeline, testId }) {
                                 ))}
                             </TextField>
                         ) : (
-                            <TextField select fullWidth size="small" label="Epic"
-                                       value={epicId}
-                                       onChange={(e) => setEpicId(e.target.value)}
-                                       inputProps={{ 'data-testid': 'pipeline-empty-add-step-epic' }}>
-                                {epics.map((e) => (
-                                    <MenuItem key={e.id} value={e.id}>{e.title || `Epic ${e.id}`}</MenuItem>
+                            <TextField select fullWidth size="small" label="Initiative"
+                                       value={initiativeId}
+                                       onChange={(e) => setInitiativeId(e.target.value)}
+                                       inputProps={{ 'data-testid': 'pipeline-empty-add-step-initiative' }}>
+                                {initiatives.map((e) => (
+                                    <MenuItem key={e.id} value={e.id}>{e.title || `Initiative ${e.id}`}</MenuItem>
                                 ))}
                             </TextField>
                         )}

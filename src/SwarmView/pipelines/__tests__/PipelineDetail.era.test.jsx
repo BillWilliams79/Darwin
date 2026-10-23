@@ -65,7 +65,7 @@ vi.mock('../../../RestApi/RestApi', () => ({
 // the outage needs ruled out is the page READING the wrong table at all.
 const COMPOSED_2 = {
     pipeline: { id: 7, title: 'Darwin (2.0)', pipeline_status: 'active', description: '' },
-    epics: [], steps: [], step_requirements: [], step_deps: [], requirements: [],
+    initiatives: [], steps: [], step_requirements: [], step_deps: [], requirements: [],
     derived: { rows: [], rows_complete: true, withheld: false },
 };
 
@@ -103,7 +103,7 @@ vi.mock('../../../hooks/useDataQueries', async (importOriginal) => {
         useAllPipelineStepRequirements: count('stepRequirements'),
         useAllPipelineStepDeps: count('stepDeps'),
         useAllRequirements: count('requirements'),
-        useAllEpics: count('epics'),
+        useAllInitiatives: count('initiatives'),
         useComposedPipeline: (id, opts = {}) => {
             if (opts.enabled !== false) reads.composed = (reads.composed || 0) + 1;
             return {
@@ -190,7 +190,7 @@ describe('PipelineDetail — which table is read (req #3463, one era since #3356
         expect(reads.stepRequirements).toBeUndefined();
         expect(reads.stepDeps).toBeUndefined();
         expect(reads.requirements).toBeUndefined();
-        expect(reads.epics).toBeUndefined();
+        expect(reads.initiatives).toBeUndefined();
         // The index is not read on the happy path either — asserted here as
         // well as in its own case, because this is where a reader looks for the
         // complete list of what the happy path costs.

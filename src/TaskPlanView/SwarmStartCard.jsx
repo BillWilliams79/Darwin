@@ -23,7 +23,7 @@ import call_rest_api from '../RestApi/RestApi';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
 import { useRequirementsByStatus, useRequirementsDone, useSessions, useCategoryColors, useAllRequirements } from '../hooks/useDataQueries';
 import { useRequirementVisibility } from '../hooks/useRequirementVisibility';
-import { filterToEpic } from '../utils/epicMembership';
+import { filterToInitiative } from '../utils/initiativeMembership';
 // req #3503 — the STEP filter's row predicate, from the module whose stated
 // domain step association is.
 import { filterToStepReqIds } from '../utils/pipelineMembership';
@@ -150,7 +150,7 @@ const computeMetWindow = () => {
     };
 };
 
-// req #3428 — `epicReqIds` is the epic filter's SCOPE, handed down by the host
+// req #3428 — `initiativeReqIds` is the initiative filter's SCOPE, handed down by the host
 // (`CategoryTabPanel`, from `SwarmView`). A Set of requirement ids, or `null`
 // when no filter is active — an AGGREGATOR NEVER INVENTS A FILTER THE HOST OWNS
 // (`memory/aggregator-card-pattern.md`), and one derivation upstairs is what
@@ -161,14 +161,14 @@ const computeMetWindow = () => {
 // catch. Applied to the ROWS and to the CHIP BADGES from the same Set, for the
 // same reason the pipeline exclusion is.
 // req #3503 — `stepReqIds` is the STEP filter's SCOPE, handed down the same way
-// and applied in series after the epic's. Two independent scopes, so the rows
+// and applied in series after the initiative's. Two independent scopes, so the rows
 // that survive both are the intersection — and the BADGES are narrowed by the
 // same two passes as the LIST, because a count and a list that disagree is this
 // card's own load-bearing invariant.
 // req #3663 — `projectId` names the panel this aggregator sits in (every
 // project panel mounts its own), so its rows' drag ids are unique on the page;
 // `panelActive` switches its rows' dragging off while the panel is hidden.
-const SwarmStartCard = ({ epicReqIds = null, stepReqIds = null, projectId = null, panelActive = true }) => {
+const SwarmStartCard = ({ initiativeReqIds = null, stepReqIds = null, projectId = null, panelActive = true }) => {
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
     const queryClient = useQueryClient();
@@ -194,20 +194,20 @@ const SwarmStartCard = ({ epicReqIds = null, stepReqIds = null, projectId = null
     const showError = useSnackBarStore(s => s.showError);
 
     // ── The inputs the chip counts are built from ───────────────────────────
-    // Hoisted ABOVE `effectiveStatus` (req #3428) so the epic override below can
+    // Hoisted ABOVE `effectiveStatus` (req #3428) so the initiative override below can
     // read the counts. Nothing here depends on which chip is selected, which is
     // what makes the move safe: `chipOffersLaunch` is the only count-adjacent
     // value that does, and it stays where it was.
-    // req #3428 / #3503 — an epic or step scope narrowing this card.
+    // req #3428 / #3503 — an initiative or step scope narrowing this card.
     // `membershipFilterActive` is what the SCOPE-SHAPED behaviours read (the
     // empty-chip override, the all-time Met source and its count): each is about
     // WHICH ROWS a scope selects. req #3598 retired the ones that changed a
     // control — the forced orchestrated toggle, the suppressed add-row and the
     // drag guard — so a scoped card behaves like an unscoped one (user ruling,
     // 2026-10-17).
-    const epicFilterActive = epicReqIds != null;
+    const initiativeFilterActive = initiativeReqIds != null;
     const stepFilterActive = stepReqIds != null;
-    const membershipFilterActive = epicFilterActive || stepFilterActive;
+    const membershipFilterActive = initiativeFilterActive || stepFilterActive;
 
     // req #3419 / #3428 / #3502 / #3503 — THE visibility answer, identical on
     // every browse surface (Cards view, Table view, the detail elevator). This
@@ -222,13 +222,13 @@ const SwarmStartCard = ({ epicReqIds = null, stepReqIds = null, projectId = null
     });
 
     // THE TALLY, COMPUTED ONCE. `statusCountMap` below overlays only the `met`
-    // figure onto this; the epic chip override reads the same object. Three
+    // figure onto this; the initiative chip override reads the same object. Three
     // computations of one number is how a badge and a list start disagreeing,
     // which is the defect this file's own comments call load-bearing.
     const baseStatusCounts = React.useMemo(() => tallyRequirementStatuses(
-        filterToStepReqIds(filterToEpic(allRequirementsForCounts, epicReqIds), stepReqIds),
+        filterToStepReqIds(filterToInitiative(allRequirementsForCounts, initiativeReqIds), stepReqIds),
         SWARM_START_STATUSES, visibility.isVisible).counts,
-        [allRequirementsForCounts, epicReqIds, stepReqIds, visibility.isVisible]);
+        [allRequirementsForCounts, initiativeReqIds, stepReqIds, visibility.isVisible]);
 
     // Persisted-store fallback — req #2584 retired 'deferred' from this card. Users
     // with a now-invalid persisted value get re-pointed at the default. `storedStatus`
@@ -241,16 +241,16 @@ const SwarmStartCard = ({ epicReqIds = null, stepReqIds = null, projectId = null
         }
     }, [selectedStatus, storedStatus, setSelectedStatus]);
 
-    // ── OPEN ON A CHIP THAT HAS THE EPIC'S WORK (req #3428) ─────────────────
-    // MEASURED, not reasoned: every requirement under epic 11 on 2026-08-09 was
+    // ── OPEN ON A CHIP THAT HAS THE INITIATIVE'S WORK (req #3428) ─────────────────
+    // MEASURED, not reasoned: every requirement under initiative 11 on 2026-08-09 was
     // `development` AND plan-carried, while `selectedStatus` persists as
-    // `swarm_ready` — so the aggregator opened on the epic's page with zero
+    // `swarm_ready` — so the aggregator opened on the initiative's page with zero
     // rows and a `0` badge.
     //
     // req #3502 removed one of the two causes: the three launch chips no longer
-    // exclude plan-carried work, so an epic's `authoring`/`approved`/
+    // exclude plan-carried work, so an initiative's `authoring`/`approved`/
     // `swarm_ready` work now shows here. The OTHER cause is untouched and is why
-    // this override stays — an epic simply may not have any work in the chip the
+    // this override stays — an initiative simply may not have any work in the chip the
     // reader last selected, and a filtered aggregator that opens blank fails the
     // same acceptance wording either way.
     //
@@ -263,16 +263,16 @@ const SwarmStartCard = ({ epicReqIds = null, stepReqIds = null, projectId = null
     // so a deliberate click onto an empty chip is respected rather than undone.
     //
     // `met` IS A LAST-RESORT CANDIDATE ONLY (req #3500). It is skipped while any
-    // of the four "queue" statuses has epic work, for the reason the original
+    // of the four "queue" statuses has initiative work, for the reason the original
     // req #3428 comment gave: its badge is normally the trailing-24h overlay
     // below, not the all-time tally here, so auto-selecting it FIRST could land
     // on another empty chip. But measured against real completed plans (pipeline
-    // 8's six epics, 2026-08-13), EVERY requirement under EVERY one of them is
-    // `met` — a finished epic has nothing left in authoring/approved/swarm_ready/
+    // 8's six initiatives, 2026-08-13), EVERY requirement under EVERY one of them is
+    // `met` — a finished initiative has nothing left in authoring/approved/swarm_ready/
     // development by construction, so "if nothing else has rows, the reader's
-    // own chip stands" left the aggregator blank for exactly the epics a reader is likeliest to click into from a
+    // own chip stands" left the aggregator blank for exactly the initiatives a reader is likeliest to click into from a
     // completed pipeline. `met` is checked LAST, against `baseStatusCounts.met`
-    // — the ALL-TIME, epic-scoped tally (`useAllRequirements`, not the trailing
+    // — the ALL-TIME, initiative-scoped tally (`useAllRequirements`, not the trailing
     // window) — so a plan that finished days ago still lands here. The rows and
     // badge for that landing are sourced without the 24h window too; see
     // `serverMetRequirementsAllTime` below.
@@ -281,13 +281,13 @@ const SwarmStartCard = ({ epicReqIds = null, stepReqIds = null, projectId = null
     // alone. The rule is and was "the first queue chip in
     // `SWARM_START_STATUSES` that has rows", scanned in vocabulary order. What
     // moved is the DATA: the three launch chips used to be structurally
-    // near-empty under an epic filter — an epic's work is step-carried by
+    // near-empty under an initiative filter — an initiative's work is step-carried by
     // construction and those chips excluded exactly that, unconditionally — so
     // in practice `activeCandidate` could only ever resolve to `development`.
-    // Their counts are real now, so an epic holding both authoring and
+    // Their counts are real now, so an initiative holding both authoring and
     // development work opens on `authoring` where it used to open on
     // `development`. That also makes #3500's last-resort `met` branch the ONLY
-    // thing standing between a finished epic and a blank card, since the queue
+    // thing standing between a finished initiative and a blank card, since the queue
     // chips genuinely are empty there — the two changes compose rather than
     // overlap. Left as a first-non-empty scan on purpose: an arrival-order
     // preference ("a plan-visualizer arrival wants in-flight work") is a NEW
@@ -295,7 +295,7 @@ const SwarmStartCard = ({ epicReqIds = null, stepReqIds = null, projectId = null
     // undocumented ordering in a fallback the reader never sees chosen.
     const [chipPickedWhileFiltered, setChipPickedWhileFiltered] = useState(false);
     useEffect(() => { setChipPickedWhileFiltered(false); }, [membershipFilterActive]);
-    const epicChipOverride = React.useMemo(() => {
+    const initiativeChipOverride = React.useMemo(() => {
         if (!membershipFilterActive || chipPickedWhileFiltered) return null;
         if (baseStatusCounts[storedStatus] > 0) return null;
         const activeCandidate = SWARM_START_STATUSES.find(
@@ -304,7 +304,7 @@ const SwarmStartCard = ({ epicReqIds = null, stepReqIds = null, projectId = null
         return baseStatusCounts.met > 0 ? 'met' : null;
     }, [membershipFilterActive, chipPickedWhileFiltered, baseStatusCounts, storedStatus]);
 
-    const effectiveStatus = epicChipOverride ?? storedStatus;
+    const effectiveStatus = initiativeChipOverride ?? storedStatus;
 
     const isMet = effectiveStatus === 'met';
 
@@ -362,24 +362,24 @@ const SwarmStartCard = ({ epicReqIds = null, stepReqIds = null, projectId = null
         { fields: 'id,title,requirement_status,coordination_type,ai_model,effort,category_fk,completed_at' },
     );
 
-    // req #3500 — under an epic filter, "met" means the EPIC's completed work,
-    // not the whole account's last 24 hours: an epic reached from the plan
+    // req #3500 — under an initiative filter, "met" means the INITIATIVE's completed work,
+    // not the whole account's last 24 hours: an initiative reached from the plan
     // visualizer is routinely already finished, and the trailing window empties
     // the moment the plan is more than a day old, wrongly reading as "nothing to
     // show" for real, completed work. Same shape as the queue-status query
     // above (`useRequirementsByStatus`, unwindowed, whole-account) rather than a
     // new fetch pattern — only its STATUS differs.
     //
-    // req #3598 — gated on `membershipFilterActive`, not the epic filter alone:
+    // req #3598 — gated on `membershipFilterActive`, not the initiative filter alone:
     // a STEP scope's met badge is the same all-time scoped tally, so sourcing its
     // rows from the trailing-24h window printed a "1" over an empty Met list.
     //
     // `enabled: membershipFilterActive && isMet`, NOT the scope flag alone.
     // MEASURED: 1188 of 1367 requirements in this account are `met`, so an
-    // unconditional whole-account fetch on every epic-filtered visit would pull
-    // that population even in the common case — an epic with queue work, where
-    // `epicChipOverride` lands on `development` and not one `met` row is ever
-    // rendered. `isMet` is derived from `epicChipOverride` in this SAME render
+    // unconditional whole-account fetch on every initiative-filtered visit would pull
+    // that population even in the common case — an initiative with queue work, where
+    // `initiativeChipOverride` lands on `development` and not one `met` row is ever
+    // rendered. `isMet` is derived from `initiativeChipOverride` in this SAME render
     // pass (both are plain `const`s computed top-to-bottom in this function
     // body, not state that lags a render), so gating on it costs no extra
     // round trip when the override does land on `met` — the query enables in
@@ -408,7 +408,7 @@ const SwarmStartCard = ({ epicReqIds = null, stepReqIds = null, projectId = null
     // (its query is `serverMetRequirements`, not `serverRequirements`) — so it
     // needs its own pass — under THE SAME RULE, since req #3502.
     //
-    // req #3500 — the SOURCE swaps under an epic filter (all-time, epic-scoped)
+    // req #3500 — the SOURCE swaps under an initiative filter (all-time, initiative-scoped)
     // but the visibility pass applied to it is unchanged. req #3502 then made
     // that pass the shared one: `met` had its own `aggregatorRowVisible('met',
     // …)` predicate because the rule keyed on the chip's status, and it no
@@ -423,15 +423,15 @@ const SwarmStartCard = ({ epicReqIds = null, stepReqIds = null, projectId = null
 
     // The array that drives the card body for the currently selected chip.
     //
-    // req #3428 — the epic filter is the LAST pass, after both pipeline
+    // req #3428 — the initiative filter is the LAST pass, after both pipeline
     // exclusions, and it is an ID-SET test: none of this card's three
-    // projections carries an epic reference of its own, and none of them
+    // projections carries an initiative reference of its own, and none of them
     // needs to. That is the whole reason the scope arrives as ids.
     const currentRequirements = React.useMemo(
         () => filterToStepReqIds(
-            filterToEpic(isMet ? eligibleMetRequirements : eligibleRequirements, epicReqIds),
+            filterToInitiative(isMet ? eligibleMetRequirements : eligibleRequirements, initiativeReqIds),
             stepReqIds),
-        [isMet, eligibleMetRequirements, eligibleRequirements, epicReqIds, stepReqIds]);
+        [isMet, eligibleMetRequirements, eligibleRequirements, initiativeReqIds, stepReqIds]);
 
     // Fetch sessions for status badges (same as CategoryCard)
     const { data: serverSessions } = useSessions(profile?.userName);
@@ -469,40 +469,40 @@ const SwarmStartCard = ({ epicReqIds = null, stepReqIds = null, projectId = null
     // explanatory sentence, and this card renders no sentences. Reading `hidden`
     // again here means a message is being reintroduced.
     //
-    // req #3428 — the epic filter narrows the COUNT SOURCE, not the tally rule,
+    // req #3428 — the initiative filter narrows the COUNT SOURCE, not the tally rule,
     // so a badge can never disagree with the rows beneath it. The met overlay
     // reads `eligibleMetRequirements`, which is why it gets the same pass: that
     // array is the one the rows are NOT taken from directly (`currentRequirements`
     // filters it), so leaving the overlay alone would print an unfiltered met
     // count over a filtered met list.
     //
-    // req #3500 — UNDER AN EPIC FILTER THE OVERLAY IS SKIPPED ENTIRELY.
+    // req #3500 — UNDER AN INITIATIVE FILTER THE OVERLAY IS SKIPPED ENTIRELY.
     // `baseStatusCounts.met` is already the right number: it comes from
-    // `useAllRequirements`, all-time, run through the SAME `filterToEpic` +
+    // `useAllRequirements`, all-time, run through the SAME `filterToInitiative` +
     // `tallyRequirementStatuses` pass as the other four statuses. Overlaying the
     // trailing-24h figure on top of it would put the global-card window back on
-    // an epic-scoped badge — the exact mismatch this requirement reports. The
+    // an initiative-scoped badge — the exact mismatch this requirement reports. The
     // branch below therefore only ever runs while `membershipFilterActive` is
     // false, which makes both scopes null there by that flag's own definition —
-    // so `filterToEpic` is a guaranteed no-op and reads straight off
+    // so `filterToInitiative` is a guaranteed no-op and reads straight off
     // `eligibleMetRequirements`, no fallback needed.
     const statusCountMap = React.useMemo(() => {
         // req #3428 — `baseStatusCounts` above IS the tally (computed once, under
-        // the epic filter); this only overlays the trailing-24h `met` figure.
+        // the initiative filter); this only overlays the trailing-24h `met` figure.
         const counts = { ...baseStatusCounts };
-        // req #3502 removed a dead `?? filterToEpic(serverMetRequirements,
+        // req #3502 removed a dead `?? filterToInitiative(serverMetRequirements,
         // …).length` fallback (it could never fire — the branch is already
         // guarded on the array, and every pass in it returns an array). req
         // #3500's narrowing subsumes that: skipping the overlay entirely under
-        // a membership filter leaves `filterToEpic`/`filterToStepReqIds`
+        // a membership filter leaves `filterToInitiative`/`filterToStepReqIds`
         // guaranteed no-ops here, so the expression is simpler still.
         //
-        // req #3503 widens the skip from `epicFilterActive` to
+        // req #3503 widens the skip from `initiativeFilterActive` to
         // `membershipFilterActive`: a step filter's `baseStatusCounts.met` is
-        // exactly as correctly-scoped as an epic filter's (both already ran
-        // through `filterToEpic` + `filterToStepReqIds` above), so overlaying
+        // exactly as correctly-scoped as an initiative filter's (both already ran
+        // through `filterToInitiative` + `filterToStepReqIds` above), so overlaying
         // the unscoped trailing-24h figure over it would be the identical
-        // mismatch req #3500 fixed for epics, on the step filter's own scope.
+        // mismatch req #3500 fixed for initiatives, on the step filter's own scope.
         if (!membershipFilterActive && Array.isArray(serverMetRequirements)) {
             counts.met = eligibleMetRequirements.length;
         }
@@ -576,10 +576,10 @@ const SwarmStartCard = ({ epicReqIds = null, stepReqIds = null, projectId = null
 
     const handleChipClick = (status) => {
         if (status === effectiveStatus) return;
-        // req #3428 — the reader has now chosen, so the epic override stands down
+        // req #3428 — the reader has now chosen, so the initiative override stands down
         // for the rest of this filtered visit. Recorded even outside a filter: it
         // is reset whenever `membershipFilterActive` changes (req #3503 widened it
-        // from `epicFilterActive`), so it can only ever mean
+        // from `initiativeFilterActive`), so it can only ever mean
         // "picked during the current filter state".
         setChipPickedWhileFiltered(true);
         setSelectedStatus(status);
@@ -601,7 +601,7 @@ const SwarmStartCard = ({ epicReqIds = null, stepReqIds = null, projectId = null
                         showError(result, 'Unable to delete requirement');
                     }
                 }).catch(error => {
-                    // req #3706 — a 423 names the locked step/epic/plan holding the seat.
+                    // req #3706 — a 423 names the locked step/initiative/plan holding the seat.
                     if (error?.httpStatus?.httpStatus === 423) showError(error.httpStatus.httpMessage);
                     else showError(error, 'Unable to delete requirement');
                 });

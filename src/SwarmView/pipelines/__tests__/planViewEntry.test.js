@@ -10,8 +10,8 @@ import {
     PLAN_LINK_CONSUMED_STATE_KEY,
 } from '../planViewEntry';
 
-const link = { stepId: 47, epicId: null };
-const held = { stepId: 12, epicId: 9 };
+const link = { stepId: 47, initiativeId: null };
+const held = { stepId: 12, initiativeId: 9 };
 
 describe('classifyPlanEntry', () => {
     it('an unmarked entry carrying a focus link is a LINK, however it was reached', () => {
@@ -43,16 +43,16 @@ describe('classifyPlanEntry', () => {
 
 describe('planEntryFocus', () => {
     it('a LINK hands over its own focus', () => {
-        expect(planEntryFocus(PLAN_ENTRY_LINK, link, held)).toEqual({ stepId: 47, epicId: null });
+        expect(planEntryFocus(PLAN_ENTRY_LINK, link, held)).toEqual({ stepId: 47, initiativeId: null });
     });
 
     it('a REWRITE keeps the focus in hand', () => {
-        expect(planEntryFocus(PLAN_ENTRY_REWRITE, link, held)).toEqual({ stepId: 12, epicId: 9 });
-        expect(planEntryFocus(PLAN_ENTRY_REWRITE, link, null)).toEqual({ stepId: null, epicId: null });
+        expect(planEntryFocus(PLAN_ENTRY_REWRITE, link, held)).toEqual({ stepId: 12, initiativeId: 9 });
+        expect(planEntryFocus(PLAN_ENTRY_REWRITE, link, null)).toEqual({ stepId: null, initiativeId: null });
     });
 
     it('a RETURN hands over NO focus, whatever was in hand', () => {
-        expect(planEntryFocus(PLAN_ENTRY_RETURN, link, held)).toEqual({ stepId: null, epicId: null });
+        expect(planEntryFocus(PLAN_ENTRY_RETURN, link, held)).toEqual({ stepId: null, initiativeId: null });
     });
 });
 

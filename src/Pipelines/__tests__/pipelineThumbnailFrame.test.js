@@ -76,12 +76,12 @@ describe('thumbnailFrame', () => {
     // crop reads breaks here rather than in a blank thumbnail.
     it('frames a real computePlanLayout result with cards inside the frame', () => {
         const steps = [10, 11, 12, 13].map((id, i) => ({
-            id, epic_fk: 1, title: `Step ${i}`, run: 'auto',
+            id, initiative_fk: 1, title: `Step ${i}`, run: 'auto',
             notes: null, not_before: null,
         }));
         const data = composedFixture({
             id: 7,
-            epics: [{ id: 1, pipeline_fk: 7, title: 'E', sort_order: 1 }],
+            initiatives: [{ id: 1, pipeline_fk: 7, title: 'E', sort_order: 1 }],
             steps,
             requirements: [{ id: 501, title: 'R', requirement_status: 'met', tracking: 0 }],
             stepRequirements: [{ step_fk: 10, requirement_fk: 501 }],

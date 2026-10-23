@@ -1,4 +1,4 @@
-// PlanCollapseHead.jsx — the fold on every epic chip and every step card of the
+// PlanCollapseHead.jsx — the fold on every initiative chip and every step card of the
 // plan canvas (req #3650).
 //
 // It is the TPU 3D visualizer's collapse head (`tpu3dCollapsible` in
@@ -9,7 +9,7 @@
 // so the head is the chevron and its name is for assistive tech alone. The TPU head's colours are used as they are — they
 // were chosen for a dark navy stage, and this panel is one (`PLAN_VIZ_PALETTE`
 // has no light mode). Its geometry is written in `em` so the same head serves
-// the epic chip at the TPU head's own 10px and the step card at the card's
+// the initiative chip at the TPU head's own 10px and the step card at the card's
 // zoomed type size: 10px type, 14px line, 10px chevron, 5px gap, 0.06em tracking.
 //
 // A click folds or unfolds THIS box and nothing else, and stops there: the chip
@@ -44,7 +44,7 @@ const HEAD_SX = {
  * @param {?string} props.label    a visible word after the chevron, or null
  *                                  for the chevron alone (both plan callers)
  * @param {string} props.name       the accessible name — what folds and whose
- *                                  ("Steps of epic Foo"); fixed, so the state is
+ *                                  ("Steps of initiative Foo"); fixed, so the state is
  *                                  `aria-expanded`'s alone
  * @param {string} props.testId
  * @param {Object} [props.style]    position / size / fontSize, per frame

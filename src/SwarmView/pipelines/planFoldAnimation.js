@@ -1,4 +1,4 @@
-// planFoldAnimation.js — an epic's fold, animated (req #3695).
+// planFoldAnimation.js — an initiative's fold, animated (req #3695).
 //
 // User direction: "when opened, it will animate the expansion of its box to the
 // size it needs regally. it will collapse similarly (not slow just regal)."
@@ -84,7 +84,7 @@ const now = () => (typeof performance !== 'undefined' ? performance.now() : Date
  * The live fold animations of one canvas.
  *
  * @returns {{foldReveal: ?Map, animateFold: function(?number, boolean): void}}
- *   `foldReveal` is epic key -> reveal for every band animating THIS frame,
+ *   `foldReveal` is initiative key -> reveal for every band animating THIS frame,
  *   or null when none is (the settled layout then draws as it is);
  *   `animateFold(key, open)` starts (or turns round) that band's fold.
  */

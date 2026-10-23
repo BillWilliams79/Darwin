@@ -170,8 +170,8 @@ describe('reqPillPrefix / reqLabelText — the tokens are text', () => {
 describe('computePlanLayout — pills on the requirement rows', () => {
     const rows = [{
         id: 1, title: 'Step one', run: 'auto', state: 'running', reqIds: [3572, 3573, 9],
-        depIds: [], timeDeps: [], epicId: 1, epic: 'E1',
-        epicLabels: [], featureLabels: [], machineLabels: [], machineLabel: '—',
+        depIds: [], timeDeps: [], initiativeId: 1, initiative: 'E1',
+        initiativeLabels: [], featureLabels: [], machineLabels: [], machineLabel: '—',
     }];
     const reqTitles = new Map([
         [3572, 'Visualizer show dev server and terminal on requirement'],

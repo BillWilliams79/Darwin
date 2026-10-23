@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 //
-// Req #3235 — the RECEIVING end of the requirement page's epic-box "view on
+// Req #3235 — the RECEIVING end of the requirement page's initiative-box "view on
 // plan" link.
 //
-// `pipelineEpicLink.test.js` pins the two pure functions. This pins the React
-// half: a `?epic=` link forces the Plan mode (an epic band only exists there)
-// and seeds `focusEpicId` on the visualizer — mirroring
+// `pipelineInitiativeLink.test.js` pins the two pure functions. This pins the React
+// half: a `?initiative=` link forces the Plan mode (an initiative band only exists there)
+// and seeds `focusInitiativeId` on the visualizer — mirroring
 // `PipelineDetail.stepParam.test.jsx`'s coverage of `?step=` forcing the
 // table. The two panels are stubbed for the same reason that file stubs
 // them: the real Plan mode is react-konva, which needs a canvas jsdom does
@@ -21,10 +21,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 vi.mock('../pipelineDetailModes', () => {
-    const Panel = (name) => function ModeStub({ focusStepId, focusEpicId }) {
+    const Panel = (name) => function ModeStub({ focusStepId, focusInitiativeId }) {
         return <div data-testid={`mode-${name}`}
                     data-focus-step={focusStepId == null ? '' : String(focusStepId)}
-                    data-focus-epic={focusEpicId == null ? '' : String(focusEpicId)} />;
+                    data-focus-initiative={focusInitiativeId == null ? '' : String(focusInitiativeId)} />;
     };
     // The real registry's shape since req #3641: ONE mode, the Plan visualizer.
     const MODES = [
@@ -99,7 +99,7 @@ function mount(url) {
 }
 
 const node = (testId) => document.body.querySelector(`[data-testid="${testId}"]`);
-const focusEpicOf = (name) => node(`mode-${name}`)?.getAttribute('data-focus-epic');
+const focusInitiativeOf = (name) => node(`mode-${name}`)?.getAttribute('data-focus-initiative');
 const focusStepOf = (name) => node(`mode-${name}`)?.getAttribute('data-focus-step');
 
 const storePreference = (value) => {
@@ -121,41 +121,41 @@ afterEach(() => {
     vi.restoreAllMocks();
 });
 
-describe('PipelineDetail — ?epic= (req #3235)', () => {
+describe('PipelineDetail — ?initiative= (req #3235)', () => {
     it('forces the PLAN mode even when ?mode= names the table', () => {
-        mount('/swarm/pipeline/2?mode=table&epic=55');
+        mount('/swarm/pipeline/2?mode=table&initiative=55');
         expect(node('mode-plan')).not.toBeNull();
-        expect(focusEpicOf('plan')).toBe('55');
+        expect(focusInitiativeOf('plan')).toBe('55');
     });
 
     it('forces the plan over a STORED preference of table', () => {
         storePreference('table');
-        mount('/swarm/pipeline/2?epic=55');
+        mount('/swarm/pipeline/2?initiative=55');
         expect(node('mode-plan')).not.toBeNull();
-        expect(focusEpicOf('plan')).toBe('55');
+        expect(focusInitiativeOf('plan')).toBe('55');
     });
 
-    it('leaves the stored preference in charge when there is no ?epic=', () => {
+    it('leaves the stored preference in charge when there is no ?initiative=', () => {
         storePreference('plan');
         mount('/swarm/pipeline/2');
         expect(node('mode-plan')).not.toBeNull();
-        expect(focusEpicOf('plan')).toBe('');
+        expect(focusInitiativeOf('plan')).toBe('');
     });
 
-    it('carries no epic focus when the parameter is absent or unusable', () => {
+    it('carries no initiative focus when the parameter is absent or unusable', () => {
         mount('/swarm/pipeline/2?mode=plan');
-        expect(focusEpicOf('plan')).toBe('');
-        mount('/swarm/pipeline/2?mode=plan&epic=12abc');
-        expect(focusEpicOf('plan')).toBe('');
+        expect(focusInitiativeOf('plan')).toBe('');
+        mount('/swarm/pipeline/2?mode=plan&initiative=12abc');
+        expect(focusInitiativeOf('plan')).toBe('');
     });
 
-    it('a named ?step= and ?epic= both reach the plan (req #3641 — no Table)', () => {
-        // The step still outranks the epic inside the canvas (its focus effect
+    it('a named ?step= and ?initiative= both reach the plan (req #3641 — no Table)', () => {
+        // The step still outranks the initiative inside the canvas (its focus effect
         // runs instead of the band fit), so the page passes BOTH and lets the
         // canvas apply that precedence; the panel is the plan either way.
-        mount('/swarm/pipeline/2?step=47&epic=55');
+        mount('/swarm/pipeline/2?step=47&initiative=55');
         expect(node('mode-plan')).not.toBeNull();
         expect(focusStepOf('plan')).toBe('47');
-        expect(focusEpicOf('plan')).toBe('55');
+        expect(focusInitiativeOf('plan')).toBe('55');
     });
 });

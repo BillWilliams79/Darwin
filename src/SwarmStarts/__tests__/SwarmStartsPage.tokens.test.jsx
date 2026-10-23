@@ -5,7 +5,7 @@
 // factors), Auto-Start and Turns are gone, and Requirements is 270px (25%
 // narrower than the prior 360px).
 //
-// The DataGrid is STUBBED for the same reason StepsPage.test.jsx / EpicsPage
+// The DataGrid is STUBBED for the same reason StepsPage.test.jsx / InitiativesPage
 // stub it: jsdom gives every element a zero-size box, so the real grid
 // virtualizes down to no cells. The stub runs each column through the real
 // contract (valueGetter → valueFormatter → renderCell) so a column that
