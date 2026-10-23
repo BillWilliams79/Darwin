@@ -1,11 +1,12 @@
 // pipelineDetailModes.js — the mode registry for /swarm/pipeline/:id (req #3114).
 //
-// ONE ENTRY SINCE REQ #3641. It held Table and Plan; the user withdrew the
-// Table ("just show the visualizer and it's the only way to look at a pipeline
-// for now"), and the page dropped its Table|Plan switcher with it. The registry
-// stays because it is how a second view comes back: a mode is ONE entry here,
-// plus — once there are two — a switcher on PipelineDetail's header row (see
-// its git history for the one req #3641 removed). This is the same split as
+// ONE ENTRY SINCE REQ #3641, A SECOND SINCE REQ #3761. It held Table and Plan;
+// the user withdrew the Table ("just show the visualizer and it's the only way
+// to look at a pipeline for now"), and the page dropped its Table|Plan switcher
+// with it. The registry stayed because it is how a second view comes back, and
+// the Lock view (req #3761) is that view: a mode is ONE entry here, and its
+// switch is a chip on the PLAN TOOLBAR (`PipelinePlanToolbar`'s `viewMode`) rather
+// than the header switcher req #3641 removed (see its git history). This is the same split as
 // instructionSort.js / normalizeView.js: the vocabulary lives outside the
 // component so the component keeps its single job.
 //
@@ -35,8 +36,10 @@
 // component file with non-component exports drops out of React Fast Refresh.
 
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
+import LockIcon from '@mui/icons-material/Lock';
 
 import PipelinePlanVisualizer from './PipelinePlanVisualizer';
+import PipelineLockView from './PipelineLockView';
 
 export const PIPELINE_DETAIL_MODE_STORAGE_KEY = 'darwin-swarm-pipeline-detail-mode';
 
@@ -62,6 +65,18 @@ export const PIPELINE_DETAIL_MODES = [
         label: 'Plan',
         icon: AccountTreeIcon,
         Component: PipelinePlanVisualizer,
+    },
+    {
+        // The Lock view (req #3761): the plan condensed to pipeline → initiatives →
+        // epics with no requirement drawn — what is locked, what is paused and
+        // where each engine is working, on one screen, with the lock / unlock
+        // and pause / unpause controls of those tiers. Entered by the Lock chip
+        // on the plan toolbar (which writes this value to the per-tab mode
+        // preference) or by `?mode=lock`.
+        value: 'lock',
+        label: 'Lock',
+        icon: LockIcon,
+        Component: PipelineLockView,
     },
 ];
 

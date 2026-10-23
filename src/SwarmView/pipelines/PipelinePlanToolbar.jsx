@@ -61,6 +61,10 @@ export const RESET_LABEL = 'Default — fully zoomed out, the whole plan\'s vert
 // epics of width").
 export const SHOW_EPIC_WIDTH = false;
 
+// The Lock view's Default (req #3761): same control, same testid, same click —
+// its camera goes back to the opening fit, which is the whole picture on one screen.
+export const LOCK_RESET_LABEL = 'Default — the whole pipeline on one screen';
+
 // THE COLOUR CHIPS ARE THE REGISTRY, not a copy of it (req #3422). This array
 // used to be written out here, which meant a scale's LABEL lived in the toolbar
 // while its COLOURS lived in `pipelinePlanLayout.js` — two files to edit for one
@@ -203,6 +207,8 @@ const NO_HIDDEN = new Set();
  * @param {?string} props.effectiveLevel        the canvas's 'out'|'mid'|'in'
  * @param {function} props.onChangeLevelPref    receives 'auto' | '1' | '2' | '3'
  * @param {function} props.onResetView          the Reset click
+ * @param {string} [props.viewMode]             the page's active mode (`pipelineDetailModes.js`)
+ * @param {function} [props.onChangeViewMode]   receives the mode value the Lock chip asks for
  */
 export default function PipelinePlanToolbar({
     onEpicsAcross,
@@ -222,14 +228,63 @@ export default function PipelinePlanToolbar({
     effectiveLevel,
     onChangeLevelPref,
     onResetView,
+    viewMode = 'plan',
+    onChangeViewMode,
 }) {
     // Hover (and keyboard focus) on a chip reports it so the visualizer can draw
     // that chip's colour help (req #3722); a long press pins it (req #3766).
     const hoverKeyProps = useKeyHelp(onKeyHover);
     // req #3806 — the machine this browser is on leads the machine chips.
     const thisMachineId = resolveThisMachineId(machines);
+    // ── THE LOCK VIEW SWITCH (req #3761) ────────────────────────────────────
+    // Lit while the Lock view is showing; a click flips between it and the full
+    // plan and the page persists the choice per tab through the mode registry.
+    // First on the row, because it changes what the rest of the row is FOR: in
+    // the Lock view no requirement is drawn, so the colour key, Closed, Time,
+    // machine filter and zoom levels have nothing to act on and are not drawn —
+    // Default (the camera's fit) is the one control that carries over.
+    const lockOn = viewMode === 'lock';
+    const lockSwitch = (
+        <Tooltip title={lockOn
+            ? 'Showing the Lock view — pipeline, initiatives and epics only. Click for the full plan'
+            : 'Show the Lock view — what is locked, what is paused, where each engine is working'}>
+            <Chip
+                label="Lock"
+                aria-label={lockOn ? 'Leave the Lock view' : 'Show the Lock view'}
+                onClick={() => onChangeViewMode?.(lockOn ? 'plan' : 'lock')}
+                {...toolbarChipProps(lockOn, { sx: { flexShrink: 0 } })}
+                data-testid="pipeline-viz-mode-lock"
+            />
+        </Tooltip>
+    );
+    if (lockOn) {
+        return (
+            <>
+                {lockSwitch}
+                <Divider orientation="vertical" flexItem
+                         sx={{ mx: 0.5, flexShrink: 0 }} />
+                <Tooltip title={LOCK_RESET_LABEL}>
+                    <Chip
+                        label="Default"
+                        size="small"
+                        variant="outlined"
+                        aria-label={LOCK_RESET_LABEL}
+                        onClick={onResetView}
+                        sx={{ borderColor: 'secondary.main', color: 'secondary.main',
+                              cursor: 'pointer', flexShrink: 0 }}
+                        data-testid="pipeline-viz-reset"
+                    />
+                </Tooltip>
+            </>
+        );
+    }
     return (
         <>
+            {lockSwitch}
+
+            <Divider orientation="vertical" flexItem
+                     sx={{ mx: 0.5, flexShrink: 0 }} />
+
             {/* The colour key for the REQUIREMENT MARKS, never the beads — the
                 bead's fill is derived EPIC state and stays that (the
                 one-fact-one-channel-one-level rule in pipelinePlanLayout.js).

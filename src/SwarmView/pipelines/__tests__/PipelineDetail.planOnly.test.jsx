@@ -102,8 +102,11 @@ afterEach(() => {
 });
 
 describe('PipelineDetail — the visualizer is the only view (req #3641)', () => {
-    it('registers exactly one mode, the Plan visualizer', () => {
-        expect(PIPELINE_DETAIL_MODES.map((m) => m.value)).toEqual(['plan']);
+    // The Table stays withdrawn. The registry's second entry is the Lock view
+    // (req #3761), switched from the plan toolbar's Lock chip — see
+    // PipelineDetail.lockMode.test.jsx — and the Plan is still the first, the default.
+    it('registers the Plan visualizer first and the Lock view second — never the Table', () => {
+        expect(PIPELINE_DETAIL_MODES.map((m) => m.value)).toEqual(['plan', 'lock']);
     });
 
     it.each([
