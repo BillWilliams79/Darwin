@@ -366,40 +366,6 @@ export default function PipelinePlanToolbar({
             <Divider orientation="vertical" flexItem
                      sx={{ mx: 0.5, flexShrink: 0 }} />
 
-            {/* ── EPICS ACROSS — the zoom ladder, in the unit a reader thinks
-                in (req #3498, user directive 2026-08-13) ────────────────────
-                BETWEEN the colour chips and the view group since req #3648, as
-                6 5 4, centred on the active epics (`epicsAcrossTransform`).
-                Numbers only, all one size — the directive is
-                specific and the reason it works is that the number IS the
-                label: "4" means four epics across, and an explainer beside it
-                would say the same word twice.
-
-                NOT a toggle group and nothing is ever shown pressed. These are
-                ACTIONS, not a state: the reader can wheel-zoom away from any of
-                them, so a chip left pressed would go on claiming a scale the
-                canvas is no longer at. Reset is the same kind of control for the
-                same reason. */}
-            <Stack direction="row" spacing={0.5} useFlexGap alignItems="center"
-                   sx={{ flexShrink: 0 }}
-                   data-testid="pipeline-viz-epics-across">
-                {EPICS_ACROSS_OPTIONS.map((n) => (
-                    <Tooltip key={n} title={`Fit ${n} epics across, centred on the active epics`}>
-                        <Chip
-                            label={String(n)}
-                            aria-label={`Fit ${n} epics across, centred on the active epics`}
-                            onClick={() => onEpicsAcross?.(n)}
-                            {...toolbarChipProps(false)}
-                            sx={{ minWidth: 34 }}
-                            data-testid={`pipeline-viz-epics-across-${n}`}
-                        />
-                    </Tooltip>
-                ))}
-            </Stack>
-
-            <Divider orientation="vertical" flexItem
-                     sx={{ mx: 0.5, flexShrink: 0 }} />
-
             {/* ── EPIC WIDTH (hidden — see `SHOW_EPIC_WIDTH`). Each number is the card's width in QUARTERS of
                 the original card — 4 the original, 5 (the default) 25% wider,
                 6 1.5x, 3 0.75x (`EPIC_WIDTH_RUNGS`). No caption, like its
@@ -459,7 +425,7 @@ export default function PipelinePlanToolbar({
                 every `pipeline-viz-level-*` hook byte-for-byte.
 
                 Reset (labelled "Default" since req #3648) rides INSIDE it as
-                `leadingChildren` (req #3242) so the group reads "Default Auto
+                `leadingChildren` (req #3242) so the group reads "Default 6 5 4 Auto
                 L1 L2 L3" as one control set. It is
                 deliberately NOT in this file's chip vocabulary: the user asked
                 for its own colour, as border + label only, "so this is a
@@ -500,14 +466,7 @@ export default function PipelinePlanToolbar({
                     // user directive — no caption at all.
                     label={null}
                     leadingChildren={(
-                        // RESET TOUCHES NO CHIP IN THIS GROUP (req #3324). Between
-                        // req #3310 and #3324 it cleared the pinned level, and the
-                        // label had to say so — a control that silently un-pins a
-                        // chip immediately to its right is a surprise however right
-                        // the behaviour is. The level is fixed until Auto is chosen
-                        // now, so Reset is exactly what Width and Colour already
-                        // were to it: unrelated. Its label says camera and nothing
-                        // else.
+                        <>
                         <Tooltip title={RESET_LABEL}>
                             <Chip
                                 label="Default"
@@ -532,6 +491,39 @@ export default function PipelinePlanToolbar({
                                 data-testid="pipeline-viz-reset"
                             />
                         </Tooltip>
+                        {/* ── EPICS ACROSS — the zoom ladder (req #3498; req #3827
+                            moved it INSIDE the view group, user directive:
+                            "move 6 5 4 buttons between Default and Auto so it
+                            joins the view dashboard and should be branded
+                            same") ──────────────────────────────────────────
+                            Reads "Default 6 5 4 Auto L1 L2 L3" as one control
+                            set. Numbers only, centred on the active epics
+                            (`epicsAcrossTransform`): the number IS the label.
+                            Drawn in the group's own vocabulary — small, outlined
+                            — and the same height as Default / Auto / L1…, which
+                            share the group's Stack (`alignItems: center`).
+
+                            NOT a toggle group and nothing is ever shown pressed:
+                            these are ACTIONS, and the reader can wheel-zoom away
+                            from any of them, so a chip left pressed would go on
+                            claiming a scale the canvas is no longer at. */}
+                        <Stack direction="row" spacing={0.5} useFlexGap alignItems="center"
+                               sx={{ flexShrink: 0 }}
+                               data-testid="pipeline-viz-epics-across">
+                            {EPICS_ACROSS_OPTIONS.map((n) => (
+                                <Tooltip key={n} title={`Fit ${n} epics across, centred on the active epics`}>
+                                    <Chip
+                                        label={String(n)}
+                                        aria-label={`Fit ${n} epics across, centred on the active epics`}
+                                        onClick={() => onEpicsAcross?.(n)}
+                                        {...toolbarChipProps(false, { pressed: false })}
+                                        sx={{ minWidth: 34 }}
+                                        data-testid={`pipeline-viz-epics-across-${n}`}
+                                    />
+                                </Tooltip>
+                            ))}
+                        </Stack>
+                        </>
                     )}
                     testIdPrefix="pipeline-viz"
                 />
