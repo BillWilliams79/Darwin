@@ -217,6 +217,9 @@ export function recordView(record, { outcomes = new Map() } = {}) {
             live: numOrNull(limits.live),
             reserved: numOrNull(limits.reserved),
             free: numOrNull(limits.free),
+            // This engine's part of the free slots (req #3807); null on a record
+            // from before the fair share, which took them all.
+            share: numOrNull(limits.share),
         },
         queue,
         cut,
@@ -241,7 +244,7 @@ export function recordChanges(prev, next) {
     if (pc.verdict !== nc.verdict) out.push(`verdict ${pc.verdict} → ${nc.verdict}`);
     const pl = prev.limits || {};
     const nl = next.limits || {};
-    for (const k of ['ceiling', 'live', 'reserved', 'free']) {
+    for (const k of ['ceiling', 'live', 'reserved', 'free', 'share']) {
         if (pl[k] !== nl[k]) out.push(`${k} ${pl[k] ?? '—'} → ${nl[k] ?? '—'}`);
     }
     const before = new Map(asArray(prev.queue).map((i) => [i.requirement_id, i]));

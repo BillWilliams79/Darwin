@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest';
 import fixture from './planOverlayFixture.json';
 import { epicHold, parseTime, predictRecord, validatePayload } from '../enginePredict';
 
-const LIMIT_KEYS = ['ceiling', 'live', 'reserved', 'free'];
+const LIMIT_KEYS = ['ceiling', 'live', 'reserved', 'free', 'share'];
 
 const answerOf = (record) => ({
     role: record.location.role,

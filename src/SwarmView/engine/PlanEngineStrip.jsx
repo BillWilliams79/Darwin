@@ -97,6 +97,14 @@ function LimitsText({ overlay }) {
             {['ceiling', 'live', 'reserved', 'free'].map((k) => (
                 <span key={k} data-testid={`plan-engine-limit-${k}`}>{k} <b>{l[k]}</b></span>
             ))}
+            {l.share != null && l.share !== l.free ? (
+                <Tooltip disableInteractive
+                         title="Engines on one machine share its free slots: a slot goes to the engine with work waiting that holds fewest (req #3807).">
+                    <span data-testid="plan-engine-limit-share">
+                        this plan&apos;s share <b>{l.share}</b> — {l.free - l.share} owed to other engines
+                    </span>
+                </Tooltip>
+            ) : null}
         </Box>
     );
 }

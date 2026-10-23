@@ -617,7 +617,9 @@ export const sessionCostRollups = createEntityQueries({
 // column is short and bounded, so like the cost read it cannot grow per row.
 export const sessionTerminals = createEntityQueries({
     entity: 'swarm_sessions',
-    defaultFields: 'id,swarm_status,terminal_number,terminal_window_id,machine_fk,title,task_name',
+    // `source_ref` (`requirement:<id>`) names the requirement a live session
+    // works — the engine overlay's fair share counts a plan's live sessions (#3807).
+    defaultFields: 'id,swarm_status,terminal_number,terminal_window_id,machine_fk,title,task_name,source_ref',
     fieldsInKey: true,
 });
 

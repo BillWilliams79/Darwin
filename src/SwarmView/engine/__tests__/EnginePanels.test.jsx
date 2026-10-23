@@ -111,6 +111,14 @@ describe('EngineLimitsPanel', () => {
         expect(text('engine-limit-ceiling-4')).toBe('ceiling 2');
         expect(text('engine-limit-reserved-4')).toBe('reserved 2');
         expect(text('engine-limit-free-4')).toBe('free 0');
+        expect($('engine-limit-share-4')).toBeNull();
+    });
+
+    it('says how many of the free slots are this engine\'s when others are owed some (req #3807)', () => {
+        mount(<EngineLimitsPanel engine={engine(4)}
+                                 limits={{ ceiling: 4, live: 2, reserved: 0, free: 2, share: 1 }} />);
+        expect(text('engine-limit-share-4')).toContain('may take 1 of the 2 free');
+        expect(text('engine-limit-share-4')).toContain('owed to other engines on this machine');
     });
 
     it('says capacity is unknown rather than drawing zeros', () => {

@@ -19,6 +19,7 @@
 
 import { ROLE_LEAD, ROLE_REFUSED, ROLE_SUBSCRIBER, resolveRoles } from '../pipelines/orchestrationHolder';
 import { recordView } from './engineModel';
+import { composeCapacity } from './enginePredict';
 import { OUTCOME_PENDING } from './engineVocabulary';
 
 export const SOURCE_ENGINE = 'engine';
@@ -170,23 +171,62 @@ export function planOverlay(record, { source, payload = null, liveClaims = [], o
 /** True when an engine-sourced admission is still waiting on the executor. */
 export const isPendingOutcome = (item) => !!item.outcome && item.outcome.state === OUTCOME_PENDING;
 
+/** pipeline_regression.session_requirement_id: `requirement:<id>` → id, else null. */
+export function sessionRequirementId(session) {
+    const m = /^requirement:(\d+)$/.exec((session && session.source_ref) || '');
+    return m ? Number(m[1]) : null;
+}
+
 /**
- * The capacity reading a FIRST cycle on `machineId` would get (R8, I9): the
- * machine's ceiling, its live sessions, and what OTHER engines on it hold in
- * flight. Null members are unknown, which the prediction answers with
- * CAPACITY-UNKNOWN exactly as the engine would.
+ * What darwin-mcp's `darwin://engine-in-flight/{machine}` answers, built from
+ * the latest records of the OTHER fresh engines on the machine: their launches
+ * in flight, and their published limits for the fair share (req #3807). A
+ * record marked `contends: false` (its engine degraded or switched off) still
+ * reserves its launches but is owed no slot.
  *
- * @param {Object[]} sessions          rows with `machine_fk`, `swarm_status`
- * @param {number[]} inFlightElsewhere requirement ids other fresh engines on the machine hold
+ * @param {Object[]} records  parsed decision records
+ */
+export function flightFromRecords(records) {
+    const inFlight = [];
+    const engines = [];
+    for (const rec of asArray(records)) {
+        const scope = (rec && rec.location && rec.location.scope) || {};
+        const limits = (rec && rec.limits) || {};
+        const pipelineFk = scope.pipeline_id ?? null;
+        const initiativeFk = scope.initiative_id ?? null;
+        for (const rid of asArray(limits.in_flight_req_ids)) {
+            inFlight.push({ requirement_id: rid, pipeline_fk: pipelineFk, initiative_fk: initiativeFk });
+        }
+        if (rec.contends === false) continue;
+        engines.push({ pipeline_fk: pipelineFk, initiative_fk: initiativeFk,
+            holding_req_ids: asArray(limits.holding_req_ids), waiting: limits.waiting || 0,
+            last_admitted_at: limits.last_admitted_at ?? null });
+    }
+    return { in_flight: inFlight, engines };
+}
+
+/**
+ * The capacity reading a FIRST cycle of `pipelineId`'s whole-plan engine on
+ * `machine` would get (R8, I9), composed as the engine composes it
+ * (`composeCapacity`): the machine's ceiling, its live sessions and the
+ * requirements they work, what OTHER engines on it hold in flight, and the
+ * peers with work waiting for the fair share. Null members are unknown, which
+ * the prediction answers with CAPACITY-UNKNOWN exactly as the engine would.
+ *
+ * @param {Object[]} sessions  rows with `machine_fk`, `swarm_status`, `source_ref`
+ * @param {Object}   flight    `flightFromRecords` over the other fresh engines
  */
 export const LIVE_SESSION_STATUSES = ['starting', 'waiting', 'planning', 'active', 'review', 'completing'];
-export function predictionCapacity({ machine, sessions, sessionsKnown = true, inFlightElsewhere = [] }) {
+export function predictionCapacity({ machine, sessions, sessionsKnown = true, flight = {},
+    pipelineId = null }) {
     const ceiling = machine && Number.isInteger(machine.max_live_sessions) ? machine.max_live_sessions : null;
-    const live = sessionsKnown && machine
+    const rows = sessionsKnown && machine
         ? asArray(sessions).filter((s) => s.machine_fk === machine.id
-            && LIVE_SESSION_STATUSES.includes(s.swarm_status)).length
+            && LIVE_SESSION_STATUSES.includes(s.swarm_status))
         : null;
-    return { ceiling, live, reserved_elsewhere: new Set(inFlightElsewhere).size };
+    const liveReqIds = (rows || []).map(sessionRequirementId).filter((rid) => rid != null);
+    return composeCapacity({ ceiling, live: rows ? rows.length : null, live_req_ids: liveReqIds },
+        flight, pipelineId, null);
 }
 
 /**
