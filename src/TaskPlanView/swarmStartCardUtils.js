@@ -10,13 +10,13 @@ export const sortSwarmReadyItems = (items) => {
 //
 // `PIPELINE_FILTERED_STATUSES` and `aggregatorRowVisible` used to live here: a
 // SECOND visibility rule, layered under the shared one, that dropped every
-// step-carried requirement from the `authoring`/`approved`/`swarm_ready` chips
+// epic-carried requirement from the `authoring`/`approved`/`swarm_ready` chips
 // UNCONDITIONALLY — no toggle, on the reasoning that those three chips OFFER a
 // direct swarm-start and a plan-carried requirement is not eligible for one
 // (req #3180).
 //
 // MEASURED, and it is what this requirement reports: 18 `authoring`
-// requirements are step-carried on production (the reader counted 15 when they
+// requirements are epic-carried on production (the reader counted 15 when they
 // filed). Asked to SHOW orchestrated work, the Cards view, the Table view and
 // the detail elevator all showed those rows and the aggregator did not —
 // because the toggle could not reach three of its five chips. One control, four
@@ -31,7 +31,7 @@ export const sortSwarmReadyItems = (items) => {
 //   • a row that IS on screen is MARKED (the gold title box, req #3419) from
 //     the very same Set — the reader SEES which work a plan owns, rather than
 //     having it silently withheld from three chips and not the other two;
-//   • `/swarm-start`'s auto-discovery still excludes step-carried requirements,
+//   • `/swarm-start`'s auto-discovery still excludes epic-carried requirements,
 //     and that is the surface that actually launches. A browse card rendering a
 //     row is not an offer; the launcher's own gate is.
 //

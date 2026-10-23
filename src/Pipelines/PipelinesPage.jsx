@@ -33,7 +33,7 @@
 // `orchestrationHolder.js`, `pipelinePlace.js`) rather than parallel copies —
 // req #3463 established that additive-extension convention first, and this
 // page follows it. `pipelinesViewModel.js` is the one genuinely NEW model
-// here: the step count and the requirement met/total counts, neither
+// here: the epic count and the requirement met/total counts, neither
 // of which needs (or fabricates) the unverified 1.0 derivation engine — see
 // that file's header.
 //
@@ -71,8 +71,8 @@ import {
     useAllPipelines,
     pipelineKeys,
     useAllInitiatives,
-    useAllPipelineSteps,
-    useAllPipelineStepRequirements,
+    useAllPipelineEpics,
+    useAllPipelineEpicRequirements,
     useAllRequirements,
     useOrchestrationClaims,
 } from '../hooks/useDataQueries';
@@ -252,35 +252,35 @@ export default function PipelinesPage() {
     const { data: machines = [], isLoading: machinesLoading } = useMachines(creatorFk);
     const { data: initiatives = [], isLoading: initiativesLoading, isError: initiativesError } =
         useAllInitiatives(creatorFk);
-    const { data: steps = [], isLoading: stepsLoading, isError: stepsError } =
-        useAllPipelineSteps(creatorFk);
-    const { data: stepRequirements = [], isLoading: linksLoading } =
-        useAllPipelineStepRequirements(creatorFk);
+    const { data: epics = [], isLoading: epicsLoading, isError: epicsError } =
+        useAllPipelineEpics(creatorFk);
+    const { data: epicRequirements = [], isLoading: linksLoading } =
+        useAllPipelineEpicRequirements(creatorFk);
     // `id,requirement_status` is enough for the met/total counts — see
     // pipelinesViewModel.js. A narrower projection than 1.0's PLAN_REQUIREMENT_FIELDS
-    // on purpose: this page derives no step state from it, only a stored-status tally.
+    // on purpose: this page derives no epic state from it, only a stored-status tally.
     const { data: requirements = [], isLoading: reqsLoading } =
         useAllRequirements(creatorFk, { fields: 'id,requirement_status' });
     const { data: orchestrationClaims = [] } = useOrchestrationClaims(creatorFk);
 
     const isLoading = pipelinesLoading || machinesLoading || initiativesLoading
-        || stepsLoading || linksLoading || reqsLoading;
+        || epicsLoading || linksLoading || reqsLoading;
 
-    // A step's PLAN is reachable only through its initiative (containment — no
-    // `pipeline_fk` column on pipeline_steps), so a failed initiatives OR steps
-    // read does not just blank one column, it zeroes every card's step
+    // An epic's PLAN is reachable only through its initiative (containment — no
+    // `pipeline_fk` column on epics), so a failed initiatives OR epics
+    // read does not just blank one column, it zeroes every card's epic
     // count, progress bar and requirement tally — indistinguishable from a
-    // genuinely empty plan (code review, req #3393; StepsPage.jsx draws the
+    // genuinely empty plan (code review, req #3393; EpicsPage.jsx draws the
     // identical distinction for the same underlying reason).
-    const planDataError = initiativesError || stepsError;
-    const failedReadsText = [initiativesError && 'initiatives', stepsError && 'steps']
+    const planDataError = initiativesError || epicsError;
+    const failedReadsText = [initiativesError && 'initiatives', epicsError && 'epics']
         .filter(Boolean).join(' and ');
 
     const machineById = new Map(machines.map((m) => [m.id, m]));
 
-    const summaries = pipelineSummaries({ pipelines, steps, initiatives });
+    const summaries = pipelineSummaries({ pipelines, epics, initiatives });
     const reqCounts = pipelineRequirementCounts({
-        pipelines, steps, initiatives, stepRequirements, requirements });
+        pipelines, epics, initiatives, epicRequirements, requirements });
 
     const filtered = pipelines.filter((p) => statusFilter.includes(p.pipeline_status));
     const hiddenStatusCounts = hiddenPipelineStatusCounts(pipelines, statusFilter);
@@ -298,7 +298,7 @@ export default function PipelinesPage() {
         }
     };
 
-    // req #3649 — a locked plan freezes its initiatives and steps (gateway 423).
+    // req #3649 — a locked plan freezes its initiatives and epics (gateway 423).
     const toggleLock = async (row) => {
         try {
             await updatePipeline(darwinUri, idToken, row.id, { locked: row.locked ? 0 : 1 });
@@ -369,11 +369,11 @@ export default function PipelinesPage() {
             ),
         },
         {
-            // req #3649 — the lock cascades to every initiative and step in the plan.
+            // req #3649 — the lock cascades to every initiative and epic in the plan.
             field: 'locked', headerName: 'Lock', width: 100, sortable: false,
             renderCell: (params) => (
                 <Tooltip title={params.value
-                    ? 'Locked — this plan, its initiatives and steps are frozen as a record. Click to unlock.'
+                    ? 'Locked — this plan, its initiatives and epics are frozen as a record. Click to unlock.'
                     : 'Open — editable. Click to lock this plan and freeze everything in it.'}>
                     <Chip
                         label={lockedLabel(params.value)}
@@ -459,9 +459,9 @@ export default function PipelinesPage() {
                     <Alert severity="error" variant="outlined" sx={{ mb: 2 }}
                            data-testid="pipelines-plan-data-error">
                         The {failedReadsText} read{failedReadsText.includes(' and ') ? 's' : ''} failed
-                        to load. Every step count, progress bar and requirement tally below is
+                        to load. Every epic count, progress bar and requirement tally below is
                         computed as though those rows do not exist — a plan with real work may show
-                        "0 steps". Reload.
+                        "0 epics". Reload.
                     </Alert>
                 </Box>
             )}

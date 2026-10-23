@@ -3,7 +3,7 @@ import { useContext, useMemo } from 'react';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import { domainKeys, areaKeys, taskKeys, projectKeys, categoryKeys, requirementKeys, priorityCardOrderKeys, recurringTaskKeys, mapRunKeys, mapRouteKeys, mapCoordinateKeys, mapViewKeys, mapPartnerKeys, mapRunPartnerKeys, testCaseKeys, requirementTestCaseKeys, testPlanKeys, testPlanCaseKeys, testRunKeys, testResultKeys, customerKeys, buildProjectKeys, branchKeys, buildKeys, customerReleaseKeys, pipelineComposeKeys } from './useQueryKeys';
-import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, swarmCompletes, swarmCompleteSessions, machines, agents, instructions, architectureDocuments, agentDocuments, agentInstructions, agentTelemetryRuns, agentTelemetryRows, agentTelemetryRowDocs, orchestrationClaims, pipelines, initiatives, pipelineSteps, pipelineStepRequirements, pipelineStepDeps, requirementSessions, sessionCostRollups, sessionTerminals } from './factory/devopsQueries';
+import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, swarmCompletes, swarmCompleteSessions, machines, agents, instructions, architectureDocuments, agentDocuments, agentInstructions, agentTelemetryRuns, agentTelemetryRows, agentTelemetryRowDocs, orchestrationClaims, pipelines, initiatives, pipelineEpics, pipelineEpicRequirements, pipelineEpicDeps, requirementSessions, sessionCostRollups, sessionTerminals } from './factory/devopsQueries';
 // `fetchEntity` is shared with the factory so both layers handle REST errors
 // identically (req #2593).
 import { fetchEntity } from './factory/createEntityQueries';
@@ -12,13 +12,13 @@ import call_rest_api from '../RestApi/RestApi';
 import { fetchCoordinatesForRuns, buildRunTrackUri, COORD_TRACK_FIELDS } from '../services/mapCoordinatesBatch';
 // req #3428 — INITIATIVE association (is this requirement in THIS initiative), consumed by
 // `useInitiativeRequirementIds` below. Deliberately NOT `pipelineMembership.js`, which
-// answers STEP association; req #3419 moved the "is this row on screen" question
+// answers EPIC association; req #3419 moved the "is this row on screen" question
 // out of this module entirely, into `hooks/useRequirementVisibility.js`.
 import { initiativeRequirementIds } from '../utils/initiativeMembership';
-// req #3503 — STEP association narrowed to ONE step, consumed by
-// `useStepRequirementIds` below. The sibling import of the line above, from the
-// module whose stated domain step association is.
-import { stepRequirementIds } from '../utils/pipelineMembership';
+// req #3503 — EPIC association narrowed to ONE epic, consumed by
+// `useEpicRequirementIds` below. The sibling import of the line above, from the
+// module whose stated domain epic association is.
+import { epicRequirementIds } from '../utils/pipelineMembership';
 // req #3506 — the Tasks page's "Closed" window, resolved to `filter_ts` bounds
 // by `useTasksClosed` below.
 import { closedWindowRange, isClosedWindow, closedWindowRefetchInterval } from '../TaskPlanView/closedTasks';
@@ -713,7 +713,7 @@ export const ALL_ROWS = 'all';
 //   * req #3355 dropped the middle tier and the requirement's reference to it,
 //     so there is no hierarchy left for `initiatives` to sit at the top of.
 //   * req #3356 collapsed the plan layer to one era, which made `initiatives` a
-//     plan-layer table exactly like `pipelines` and `pipeline_steps` — and left
+//     plan-layer table exactly like `pipelines` and `epics` — and left
 //     TWO declarations reading it, this one and the (2.0) factory block, with
 //     different projections. That is the req #2213 collision `fieldsInKey`
 //     exists to prevent, so one of them had to go and this one had no consumer.
@@ -721,7 +721,7 @@ export const ALL_ROWS = 'all';
 // `useAllInitiatives` and `initiativeKeys` still exist under those exact names, re-exported
 // from the factory block at the bottom of this file. What they no longer take is
 // a `closed` option: the factory block reads EVERY initiative unconditionally, which
-// is what the sole surviving use needs — initiatives are a LABEL DICTIONARY (step ->
+// is what the sole surviving use needs — initiatives are a LABEL DICTIONARY (epic ->
 // initiative, design rule 10), not a browsable catalog, and filtering closed rows out
 // would blank the Initiative column on plan rows whose initiative has since been closed,
 // which reads as a data bug rather than as a filter. `initiative_status` (req #3223)
@@ -1008,7 +1008,7 @@ export const agentTelemetryRowDocKeys      = agentTelemetryRowDocs.keys;
 // alert. Never the plan RENDER — that is `useComposedPipeline` below.
 export const useAllPipelines                = pipelines.useAll;
 export const pipelineKeys                   = pipelines.keys;
-// req #3393 — the plan-layer EDITORS: initiatives, steps, and their two junctions.
+// req #3393 — the plan-layer EDITORS: initiatives, epics, and their two junctions.
 // Same `<entity>.useAll` / `<entity>Keys = <entity>.keys` pattern as every
 // other block on this page.
 //
@@ -1017,16 +1017,16 @@ export const pipelineKeys                   = pipelines.keys;
 // — see the "initiatives: MOVED" note above where they used to live.
 export const useAllInitiatives                    = initiatives.useAll;
 export const initiativeKeys                       = initiatives.keys;
-export const useAllPipelineSteps            = pipelineSteps.useAll;
-export const pipelineStepKeys               = pipelineSteps.keys;
-export const useAllPipelineStepRequirements = pipelineStepRequirements.useAll;
-// Req #3435 — the requirement editor's Step row WRITES this junction (seating a
-// requirement on a step), so it needs the invalidation prefix as well as the
+export const useAllPipelineEpics            = pipelineEpics.useAll;
+export const pipelineEpicKeys               = pipelineEpics.keys;
+export const useAllPipelineEpicRequirements = pipelineEpicRequirements.useAll;
+// Req #3435 — the requirement editor's Epic row WRITES this junction (seating a
+// requirement on an epic), so it needs the invalidation prefix as well as the
 // read. Same `<entity>Keys = <entity>.keys` convention as the agent-telemetry
 // blocks above.
-export const pipelineStepRequirementKeys    = pipelineStepRequirements.keys;
-export const useAllPipelineStepDeps         = pipelineStepDeps.useAll;
-export const pipelineStepDepKeys            = pipelineStepDeps.keys;
+export const pipelineEpicRequirementKeys    = pipelineEpicRequirements.keys;
+export const useAllPipelineEpicDeps         = pipelineEpicDeps.useAll;
+export const pipelineEpicDepKeys            = pipelineEpicDeps.keys;
 // Req #3224 — live orchestration reservations: who is orchestrating what, from
 // where. ONE unfiltered list read per page, joined client-side by pipeline_fk /
 // initiative_fk; the table holds one row per RESERVED SCOPE, so it is a handful of
@@ -1085,7 +1085,7 @@ export function useComposedPipeline(pipelineId, { enabled = true } = {}) {
 // req #3419 — `usePipelinedRequirementIds` lived here (req #3180) and is GONE.
 // Four surfaces called it and each then wrote its own "is this row on screen"
 // expression around the Set, which is how one defect took two requirements to
-// find. The single answer — and the step-only Set, for the aggregator's
+// find. The single answer — and the epic-only Set, for the aggregator's
 // unconditional launch exclusion — is `hooks/useRequirementVisibility.js`.
 // Nothing else may derive it; the junction read itself stays public above
 // because the plan pages consume the ROWS, not the membership question.
@@ -1105,9 +1105,9 @@ export function useComposedPipeline(pipelineId, { enabled = true } = {}) {
 // walked the requirement's own middle-tier reference to its initiative. Req #3355
 // dropped that whole tier and the requirement's reference to it — so the
 // projection named a column production no longer has and the walk had
-// nothing to walk. The 2.0 answer is CONTAINMENT and it is one join shorter: `pipeline_steps.initiative_fk`
-// is NOT NULL (a step's initiative is direct) and `pipeline_step_requirements` seats
-// the requirement on the step. The narrowing that follows — a requirement is in
+// nothing to walk. The 2.0 answer is CONTAINMENT and it is one join shorter: `epics.initiative_fk`
+// is NOT NULL (an epic's initiative is direct) and `epic_requirements` seats
+// the requirement on the epic. The narrowing that follows — a requirement is in
 // an initiative ONLY by being seated — is argued in `utils/initiativeMembership.js`.
 //
 // AN ID SET RATHER THAN A WIDER PROJECTION. Three of those four consumers read
@@ -1116,7 +1116,7 @@ export function useComposedPipeline(pipelineId, { enabled = true } = {}) {
 // teaching all three about initiatives would put columns on the wire for every reader
 // of those shared cache entries, forever, to serve a filter that is off almost
 // all the time. Two whole-table plan reads answer all four instead — the same
-// trade `useRequirementVisibility` makes for STEP association.
+// trade `useRequirementVisibility` makes for EPIC association.
 //
 // `initiativeId == null` DISABLES ALL THREE READS, so a page with no filter active pays
 // nothing — not a fetch, not a parse. It returns `{ initiativeReqIds: null, … }`, and
@@ -1124,17 +1124,17 @@ export function useComposedPipeline(pipelineId, { enabled = true } = {}) {
 // filter is on and matches nothing, which is a different page).
 //
 // TWO PROJECTIONS, DECIDED OPPOSITE WAYS, and the asymmetry is deliberate.
-// `pipeline_steps` gets its OWN narrow `id,initiative_fk` entry rather than sharing
+// `epics` gets its OWN narrow `id,initiative_fk` entry rather than sharing
 // the editors' default: that default carries `notes`, prose this filter never
-// reads, on a whole-table read. `pipeline_step_requirements` takes its default
-// BECAUSE that default (`step_fk,requirement_fk`) is already the narrowest
+// reads, on a whole-table read. `epic_requirements` takes its default
+// BECAUSE that default (`epic_fk,requirement_fk`) is already the narrowest
 // projection the junction has — there is nothing left to trim, so sharing the
 // cache entry is free, and on THIS page it is better than free:
 // `useRequirementVisibility` reads the same junction with the same default on
 // every `/swarm` render (req #3356 moved it there too), unconditionally, so the
 // entry is already resolved before the initiative filter asks for it. A narrowed
 // projection here would have opened a SECOND whole-table fetch beside a
-// warm one. `StepsPage` / `PipelinesPage` hold that same entry. Both blocks
+// warm one. `EpicsPage` / `PipelinesPage` hold that same entry. Both blocks
 // set `fieldsInKey` (req #2213), so a narrow entry can neither serve nor be
 // served by a wider consumer's rows. Neither read filters by initiative server-side:
 // no FK-scoped hook is declared for either table, and a whole-table read is what
@@ -1145,9 +1145,9 @@ export function useComposedPipeline(pipelineId, { enabled = true } = {}) {
 // needs `category_fk` (`firstProjectIndexWithInitiativeWork`) — so the projection loses
 // the retired middle-tier reference and keeps the other two columns.
 const INITIATIVE_MEMBERSHIP_REQUIREMENT_FIELDS = 'id,category_fk';
-// The narrowest projection that answers "which initiative is this step under". `id`
+// The narrowest projection that answers "which initiative is this epic under". `id`
 // is the junction's join key; `initiative_fk` is the whole membership question.
-const INITIATIVE_MEMBERSHIP_STEP_FIELDS = 'id,initiative_fk';
+const INITIATIVE_MEMBERSHIP_EPIC_FIELDS = 'id,initiative_fk';
 
 //
 // A FAILED READ IS NOT AN EMPTY INITIATIVE. All three `isError`s are read, and on any
@@ -1166,65 +1166,65 @@ const INITIATIVE_MEMBERSHIP_STEP_FIELDS = 'id,initiative_fk';
 // class of quiet wrongness the other two guard against.
 export function useInitiativeRequirementIds(creatorFk, initiativeId) {
     const active = initiativeId !== null && initiativeId !== undefined;
-    const { data: steps, isError: stepsError } = useAllPipelineSteps(creatorFk, {
-        fields: INITIATIVE_MEMBERSHIP_STEP_FIELDS, enabled: active,
+    const { data: epics, isError: epicsError } = useAllPipelineEpics(creatorFk, {
+        fields: INITIATIVE_MEMBERSHIP_EPIC_FIELDS, enabled: active,
     });
-    const { data: stepRequirements, isError: stepRequirementsError } =
-        useAllPipelineStepRequirements(creatorFk, { enabled: active });
+    const { data: epicRequirements, isError: epicRequirementsError } =
+        useAllPipelineEpicRequirements(creatorFk, { enabled: active });
     const { data: requirements, isError: requirementsError } = useAllRequirements(creatorFk, {
         fields: INITIATIVE_MEMBERSHIP_REQUIREMENT_FIELDS, enabled: active,
     });
-    const isError = active && (stepsError || stepRequirementsError || requirementsError);
+    const isError = active && (epicsError || epicRequirementsError || requirementsError);
 
     const initiativeReqIds = useMemo(
         () => ((active && !isError)
-            ? initiativeRequirementIds(steps, stepRequirements, initiativeId) : null),
-        [active, isError, steps, stepRequirements, initiativeId]);
+            ? initiativeRequirementIds(epics, epicRequirements, initiativeId) : null),
+        [active, isError, epics, epicRequirements, initiativeId]);
 
     return { initiativeReqIds, isError, requirements: active ? requirements : undefined };
 }
 
-// ── ONE STEP'S REQUIREMENTS (req #3503) ─────────────────────────────────────
+// ── ONE EPIC'S REQUIREMENTS (req #3503) ─────────────────────────────────────
 //
 // `useInitiativeRequirementIds`' sibling, and deliberately CHEAPER by one whole-table
-// read: step scoping needs no `pipeline_steps` lookup at all, because a junction
-// row carries `step_fk` directly. Two reads instead of three, and the one that is
-// dropped is the one the initiative hook needs only to resolve `initiative_fk -> step id`.
+// read: epic scoping needs no `epics` lookup at all, because a junction
+// row carries `epic_fk` directly. Two reads instead of three, and the one that is
+// dropped is the one the initiative hook needs only to resolve `initiative_fk -> epic id`.
 //
 // The junction takes its DEFAULT projection for the reason the initiative block above
-// states at length: `step_fk,requirement_fk` is already the narrowest projection
+// states at length: `epic_fk,requirement_fk` is already the narrowest projection
 // that table has, and `useRequirementVisibility` reads the same entry on every
 // `/swarm` render, so it is warm before this hook asks for it. Narrowing it here
 // would open a SECOND whole-table fetch beside a resolved one.
 //
 // `INITIATIVE_MEMBERSHIP_REQUIREMENT_FIELDS` is REUSED rather than re-declared under a
-// step-shaped name. It is `id,category_fk` — generic despite the constant's name,
+// epic-shaped name. It is `id,category_fk` — generic despite the constant's name,
 // and it is here for exactly the same job in both hooks: `firstProjectIndexWithInitiativeWork`
 // needs `category_fk` to answer "which project tab holds this scope's work", and
 // that function takes the id Set as an argument and never asks how it was derived.
 // A second constant with the same value would open a second cache entry for
 // identical rows (`fieldsInKey`, req #2213).
 //
-// A FAILED READ IS NOT AN EMPTY STEP — the initiative hook's rule, unchanged. Both
-// `isError`s are read and either one returns `stepReqIds: null`, the same value
+// A FAILED READ IS NOT AN EMPTY EPIC — the initiative hook's rule, unchanged. Both
+// `isError`s are read and either one returns `epicReqIds: null`, the same value
 // that means "no filter", plus `isError: true` so the caller can say why.
 // Discarding the error leaves the rows undefined forever, which derives an EMPTY
-// SET, which renders every card gone: a page indistinguishable from "this step
+// SET, which renders every card gone: a page indistinguishable from "this epic
 // has no work", permanently, with nothing surfaced anywhere.
-export function useStepRequirementIds(creatorFk, stepId) {
-    const active = stepId !== null && stepId !== undefined;
-    const { data: stepRequirements, isError: stepRequirementsError } =
-        useAllPipelineStepRequirements(creatorFk, { enabled: active });
+export function useEpicRequirementIds(creatorFk, epicId) {
+    const active = epicId !== null && epicId !== undefined;
+    const { data: epicRequirements, isError: epicRequirementsError } =
+        useAllPipelineEpicRequirements(creatorFk, { enabled: active });
     const { data: requirements, isError: requirementsError } = useAllRequirements(creatorFk, {
         fields: INITIATIVE_MEMBERSHIP_REQUIREMENT_FIELDS, enabled: active,
     });
-    const isError = active && (stepRequirementsError || requirementsError);
+    const isError = active && (epicRequirementsError || requirementsError);
 
-    const stepReqIds = useMemo(
-        () => ((active && !isError) ? stepRequirementIds(stepRequirements, stepId) : null),
-        [active, isError, stepRequirements, stepId]);
+    const epicReqIds = useMemo(
+        () => ((active && !isError) ? epicRequirementIds(epicRequirements, epicId) : null),
+        [active, isError, epicRequirements, epicId]);
 
-    return { stepReqIds, isError, requirements: active ? requirements : undefined };
+    return { epicReqIds, isError, requirements: active ? requirements : undefined };
 }
 
 // Req #3117 — the plan page's Cost column. TWO more bounded list reads, never a

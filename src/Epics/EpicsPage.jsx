@@ -1,6 +1,6 @@
-// /swarm/steps — the plan-layer steps editor (req #3393).
+// /swarm/epics — the plan-layer epics editor (req #3393).
 //
-// Stands BESIDE `/swarm/steps` (Darwin/src/Steps/StepsPage.jsx), never in
+// Stands BESIDE `/swarm/epics` (Darwin/src/Epics/EpicsPage.jsx), never in
 // place of it, and shares no COMPONENT with it (structural copy). It DOES
 // share the query layer, chip-style file and era binding
 // (`useDataQueries.js`, `pipelineChipStyles.js`, `planEra.js`) — req #3463
@@ -8,23 +8,23 @@
 // this page follows it rather than a parallel copy. See PLAN.md for the full
 // re-scope rationale.
 //
-// Shape follows StepsPage.jsx: one DataGrid, click-to-toggle chips, one
+// Shape follows EpicsPage.jsx: one DataGrid, click-to-toggle chips, one
 // dialog for create/edit. Differences from the 1.0 page, all schema-driven:
 //
 //   - The dialog's parent selector is INITIATIVE, not Pipeline (`initiative_fk`,
-//     required, disabled on edit — a step's initiative is its identity, same
+//     required, disabled on edit — an epic's initiative is its identity, same
 //     "delete and recreate to move" doctrine 1.0 states for its own
 //     `pipeline_fk` field).
 //   - `not_before` (nullable TIMESTAMP, one instant, clearable) is a new
 //     field with no 1.0 equivalent — a native `type="datetime-local"` input
 //     (Darwin carries no `@mui/x-date-pickers` dependency anywhere today).
-//   - NO STATE COLUMN (req #3750). A step HAS NO STATE: it holds
+//   - NO STATE COLUMN (req #3750). An epic HAS NO STATE: it holds
 //     requirements and carries orchestration controls, and is never completed
 //     or reopened. This editor used to show an Open/Complete chip over
 //     `completed_at`; the concept is gone, not moved elsewhere.
 //   - Reqs is a read-only count with an id tooltip — no seat editor,
 //     matching the requirement's own deliberate-omissions list.
-//   - Column order is the user's (req #3750): ID, Pipeline / Initiative, Step,
+//   - Column order is the user's (req #3750): ID, Pipeline / Initiative, Epic,
 //     Lock, Run, Barrier, Reqs, then Not before. Notes are edited in the
 //     dialog and never shown in the grid; dependencies are read on the plan
 //     visualizer, not counted here.
@@ -60,12 +60,12 @@ import AppContext from '../Context/AppContext';
 import {
     useAllPipelines,
     useAllInitiatives,
-    useAllPipelineSteps,
-    useAllPipelineStepRequirements,
-    useAllPipelineStepDeps,
-    pipelineStepKeys,
-    pipelineStepRequirementKeys,
-    pipelineStepDepKeys,
+    useAllPipelineEpics,
+    useAllPipelineEpicRequirements,
+    useAllPipelineEpicDeps,
+    pipelineEpicKeys,
+    pipelineEpicRequirementKeys,
+    pipelineEpicDepKeys,
     useAllRequirements,
 } from '../hooks/useDataQueries';
 import { pipelineComposeKeys } from '../hooks/useQueryKeys';
@@ -78,17 +78,17 @@ import {
 // Plan routes come from the SAME builders the router uses, never a literal
 // string (planEra.js's own guard forbids one).
 import { initiativeLinkTo } from '../SwarmView/pipelines/pipelineInitiativeLink';
-import { planOriginOf, planReturnPath } from '../SwarmView/pipelines/pipelineStepLink';
-import StepEditDialog from './StepEditDialog';
-import { buildStepRows } from './stepsModel';
-import { deleteStep, updateStep } from './stepsApi';
+import { planOriginOf, planReturnPath } from '../SwarmView/pipelines/pipelineEpicLink';
+import EpicEditDialog from './EpicEditDialog';
+import { buildEpicRows } from './epicsModel';
+import { deleteEpic, updateEpic } from './epicsApi';
 
-// `tracking` splits a step's links into gating vs container ids for the Reqs
+// `tracking` splits an epic's links into gating vs container ids for the Reqs
 // tooltip; `title` rides along. Deliberately NOT 1.0's
 // `PLAN_REQUIREMENT_FIELDS` (Darwin/src/SwarmView/pipelines/pipelineViewModel.js)
 // — a narrower, page-owned projection, same file-isolation rule as everywhere
 // else in this feature.
-const STEP_REQUIREMENT_FIELDS = 'id,title,tracking';
+const EPIC_REQUIREMENT_FIELDS = 'id,title,tracking';
 
 const ALL_PIPELINES = '';
 const ALL_INITIATIVES = '';
@@ -97,20 +97,20 @@ const parseIdParam = (raw) => (raw && /^\d+$/.test(raw.trim()) ? Number(raw.trim
 
 const reqIdSummary = (row) => {
     const ids = row.reqIds || [];
-    if (!ids.length) return 'No requirements linked — an empty step holds nothing back.';
+    if (!ids.length) return 'No requirements linked — an empty epic holds nothing back.';
     const tracking = new Set(row.trackingReqIds || []);
     return ids.map((id) => (tracking.has(id) ? `${id} (tracking)` : String(id))).join(', ');
 };
 
 const blockerClause = (row) => {
-    const ids = row.blockerStepIds || [];
+    const ids = row.blockerEpicIds || [];
     if (ids.length === 1 && ids[0] === row.id) return 'it depends on itself';
     return ids.length === 1
-        ? `step ${ids[0]} depends on it`
-        : `steps ${ids.join(', ')} depend on it`;
+        ? `epic ${ids[0]} depends on it`
+        : `epics ${ids.join(', ')} depend on it`;
 };
 
-export default function StepsPage() {
+export default function EpicsPage() {
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
     const queryClient = useQueryClient();
@@ -124,18 +124,18 @@ export default function StepsPage() {
 
     const { data: pipelines = [], isLoading: pipelinesLoading } = useAllPipelines(creatorFk);
     const { data: initiatives = [], isLoading: initiativesLoading } = useAllInitiatives(creatorFk);
-    const { data: steps = [], isLoading: stepsLoading } = useAllPipelineSteps(creatorFk);
-    const { data: stepRequirements = [], isLoading: linksLoading, isError: linksError } =
-        useAllPipelineStepRequirements(creatorFk);
-    const { data: stepDeps = [], isLoading: depsLoading, isError: depsError } =
-        useAllPipelineStepDeps(creatorFk);
+    const { data: epics = [], isLoading: epicsLoading } = useAllPipelineEpics(creatorFk);
+    const { data: epicRequirements = [], isLoading: linksLoading, isError: linksError } =
+        useAllPipelineEpicRequirements(creatorFk);
+    const { data: epicDeps = [], isLoading: depsLoading, isError: depsError } =
+        useAllPipelineEpicDeps(creatorFk);
     const { data: requirements = [], isLoading: reqsLoading, isError: reqsError } =
-        useAllRequirements(creatorFk, { fields: STEP_REQUIREMENT_FIELDS });
+        useAllRequirements(creatorFk, { fields: EPIC_REQUIREMENT_FIELDS });
 
     // `pipelinesLoading` too: the `?id=` deep link snapshots its row once
     // loading ends, and a row built before the plan list arrived would miss a
     // plan-level lock (req #3742).
-    const isLoading = pipelinesLoading || initiativesLoading || stepsLoading || linksLoading
+    const isLoading = pipelinesLoading || initiativesLoading || epicsLoading || linksLoading
         || depsLoading || reqsLoading;
 
     // A failed PLAN DATA read is not an empty one: an unread link or dependency
@@ -165,7 +165,7 @@ export default function StepsPage() {
     const initiativeFilter = parseIdParam(searchParams.get('initiative')) ?? ALL_INITIATIVES;
 
     // The editor dialog: `key` changes per open so the form seeds afresh.
-    const [dialog, setDialog] = useState({ key: 0, open: false, step: null, defaultInitiativeFk: '' });
+    const [dialog, setDialog] = useState({ key: 0, open: false, epic: null, defaultInitiativeFk: '' });
 
     const pipelineById = useMemo(() => new Map(pipelines.map(p => [p.id, p])), [pipelines]);
     const initiativeById = useMemo(() => new Map(initiatives.map(e => [e.id, e])), [initiatives]);
@@ -176,9 +176,9 @@ export default function StepsPage() {
         ? initiativeById.get(activeInitiative).pipeline_fk
         : pipelineFilter);
 
-    const allRows = useMemo(() => buildStepRows({
-        steps, stepRequirements, stepDeps, requirements, initiatives, pipelines,
-    }), [steps, stepRequirements, stepDeps, requirements, initiatives, pipelines]);
+    const allRows = useMemo(() => buildEpicRows({
+        epics, epicRequirements, epicDeps, requirements, initiatives, pipelines,
+    }), [epics, epicRequirements, epicDeps, requirements, initiatives, pipelines]);
 
     const rows = useMemo(() => allRows.filter((row) => {
         if (activeInitiative !== ALL_INITIATIVES) return row.initiative_fk === activeInitiative;
@@ -189,7 +189,7 @@ export default function StepsPage() {
     const pipelineOptions = useMemo(() => pipelines.map(
         p => ({ id: p.id, title: p.title })), [pipelines]);
 
-    // Every initiative — the dialog's parent list, which must hold an edited step's
+    // Every initiative — the dialog's parent list, which must hold an edited epic's
     // initiative whatever the toolbar is filtered to.
     const allInitiativeOptions = useMemo(() => initiatives.map(
         e => ({ id: e.id, title: e.title })), [initiatives]);
@@ -224,23 +224,23 @@ export default function StepsPage() {
         writeFilterParams(nextPipeline, value);
     };
 
-    // A step write also invalidates the composed plan reads (req #3742), so a
+    // An epic write also invalidates the composed plan reads (req #3742), so a
     // plan open elsewhere — or opened next — never draws the pre-save card.
-    const invalidateSteps = () => {
-        queryClient.invalidateQueries({ queryKey: pipelineStepKeys.all(creatorFk) });
+    const invalidateEpics = () => {
+        queryClient.invalidateQueries({ queryKey: pipelineEpicKeys.all(creatorFk) });
         queryClient.invalidateQueries({ queryKey: pipelineComposeKeys.all });
     };
 
-    // A new step starts in the chosen initiative, else the first initiative of the chosen
+    // A new epic starts in the chosen initiative, else the first initiative of the chosen
     // pipeline; a pipeline with no initiatives leaves the field empty rather than
     // pre-picking an initiative from some other plan.
     const openCreate = () => setDialog((d) => ({
-        key: d.key + 1, open: true, step: null,
+        key: d.key + 1, open: true, epic: null,
         defaultInitiativeFk: activeInitiative !== ALL_INITIATIVES ? activeInitiative : (initiativeOptions[0]?.id ?? ''),
     }));
 
     const openEdit = (row) => setDialog((d) => ({
-        key: d.key + 1, open: true, step: row, defaultInitiativeFk: '',
+        key: d.key + 1, open: true, epic: row, defaultInitiativeFk: '',
     }));
 
     // Deep-link via ?id=<id> (req #3742), matching InitiativesPage's own `?id=`
@@ -265,11 +265,11 @@ export default function StepsPage() {
 
     const toggleRun = async (row) => {
         try {
-            await updateStep(darwinUri, idToken, row.id,
+            await updateEpic(darwinUri, idToken, row.id,
                 { run: row.run === 'manual' ? 'auto' : 'manual' });
-            invalidateSteps();
+            invalidateEpics();
         } catch (err) {
-            showError(err, 'Could not change the step run mode');
+            showError(err, 'Could not change the epic run mode');
         }
     };
 
@@ -277,26 +277,26 @@ export default function StepsPage() {
     // A NULL/absent `checkpoint` is the column default (1), so it flips to 0.
     const toggleBarrier = async (row) => {
         try {
-            await updateStep(darwinUri, idToken, row.id,
+            await updateEpic(darwinUri, idToken, row.id,
                 { checkpoint: (row.checkpoint ?? 1) ? 0 : 1 });
-            invalidateSteps();
+            invalidateEpics();
         } catch (err) {
-            showError(err, 'Could not change the step barrier');
+            showError(err, 'Could not change the epic barrier');
         }
     };
 
     const toggleLock = async (row) => {
         try {
-            await updateStep(darwinUri, idToken, row.id, { locked: row.locked ? 0 : 1 });
-            invalidateSteps();
+            await updateEpic(darwinUri, idToken, row.id, { locked: row.locked ? 0 : 1 });
+            invalidateEpics();
         } catch (err) {
-            showError(err, 'Could not change the step lock');
+            showError(err, 'Could not change the epic lock');
         }
     };
 
     const handleDelete = async (row) => {
-        if (row.blockerStepIds.length) {
-            showError(`Step ${row.id} cannot be deleted: ${blockerClause(row)}. `
+        if (row.blockerEpicIds.length) {
+            showError(`Epic ${row.id} cannot be deleted: ${blockerClause(row)}. `
                 + 'Re-point or remove those dependencies in the plan first.');
             return;
         }
@@ -307,29 +307,29 @@ export default function StepsPage() {
             gateCount && `${gateCount} dependency row${gateCount === 1 ? '' : 's'}`,
         ].filter(Boolean).join(' and ');
         if (!window.confirm(
-            `Delete step ${row.id} "${row.title}"?`
+            `Delete epic ${row.id} "${row.title}"?`
             + (planDataError
                 ? ` The ${failedReadsText} could not be read, so the consequence is`
-                  + ' unknown — the database will refuse if another step depends on it.'
+                  + ' unknown — the database will refuse if another epic depends on it.'
                 : consequence
                     ? ` Its ${consequence} will be removed with it. The requirements themselves are not touched.`
                     : '')
             + ' This cannot be undone.')) return;
         try {
-            await deleteStep(darwinUri, idToken, row.id);
-            invalidateSteps();
+            await deleteEpic(darwinUri, idToken, row.id);
+            invalidateEpics();
             queryClient.invalidateQueries({
-                queryKey: pipelineStepRequirementKeys.all(creatorFk) });
-            queryClient.invalidateQueries({ queryKey: pipelineStepDepKeys.all(creatorFk) });
+                queryKey: pipelineEpicRequirementKeys.all(creatorFk) });
+            queryClient.invalidateQueries({ queryKey: pipelineEpicDepKeys.all(creatorFk) });
         } catch (err) {
-            showError(err, 'Could not delete step');
+            showError(err, 'Could not delete epic');
         }
     };
 
     const columns = [
         { field: 'id', headerName: 'ID', width: 70 },
         {
-            // req #3750 — ONE chip naming both levels a step sits under,
+            // req #3750 — ONE chip naming both levels an epic sits under,
             // pipeline on the first line and initiative on the second. The value is
             // the joined text so sort and quick-filter match either name; the
             // click opens the plan focused on this initiative's band.
@@ -371,30 +371,30 @@ export default function StepsPage() {
                                     '& .MuiChip-label > span': {
                                         overflow: 'hidden', textOverflow: 'ellipsis' },
                                 }}
-                                data-testid={`step2-plan-link-${row.id}`}
+                                data-testid={`epic-plan-link-${row.id}`}
                             />
                         </Tooltip>
                     </Box>
                 );
             },
         },
-        // Step names are short — a fixed width, not the flex share that used
+        // Epic names are short — a fixed width, not the flex share that used
         // to take half the page (req #3750: 45% smaller).
-        { field: 'title', headerName: 'Step', width: 420 },
+        { field: 'title', headerName: 'Epic', width: 420 },
         {
-            // req #3649 — a locked step is frozen; the gateway refuses edits (423).
+            // req #3649 — a locked epic is frozen; the gateway refuses edits (423).
             field: 'locked', headerName: 'Lock', width: 100, sortable: false,
             renderCell: (params) => (
                 <Tooltip title={params.value
                     ? 'Locked — frozen as a record; edits are refused. Click to unlock.'
-                    : 'Open — editable. Click to lock this step.'}>
+                    : 'Open — editable. Click to lock this epic.'}>
                     <Chip
                         label={lockedLabel(params.value)}
                         size="small"
                         {...lockedChipProps(params.value)}
                         clickable
                         onClick={() => toggleLock(params.row)}
-                        data-testid={`step2-lock-chip-${params.row.id}`}
+                        data-testid={`epic-lock-chip-${params.row.id}`}
                     />
                 </Tooltip>
             ),
@@ -404,35 +404,35 @@ export default function StepsPage() {
             renderCell: (params) => (
                 <Tooltip title={params.value === 'manual'
                     ? 'Manual — reported eligible, never launched. Click for Auto.'
-                    : 'Auto — the orchestrator launches this step when its gate clears. Click for Manual.'}>
+                    : 'Auto — the orchestrator launches this epic when its gate clears. Click for Manual.'}>
                     <Chip
                         label={runLabel(params.value)}
                         size="small"
                         {...runChipProps(params.value)}
                         clickable
                         onClick={() => toggleRun(params.row)}
-                        data-testid={`step2-run-chip-${params.row.id}`}
+                        data-testid={`epic-run-chip-${params.row.id}`}
                     />
                 </Tooltip>
             ),
         },
         {
-            // req #3649/#3750 — a barrier HOLDS every downstream step while it
-            // holds open work; a priority step only goes out first and holds nothing.
+            // req #3649/#3750 — a barrier HOLDS every downstream epic while it
+            // holds open work; a priority epic only goes out first and holds nothing.
             field: 'checkpoint', headerName: 'Barrier', width: 120, sortable: false,
             renderCell: (params) => {
                 const on = params.value ?? 1;
                 return (
                     <Tooltip title={Number(on)
-                        ? 'Barrier — Dependent steps may start requirements only when all requirements in this step are met, wontfix, deferred, or paused. Click for Priority.'
-                        : 'Priority (barrier off) — Dependent steps may start requirements only when all requirements in this step have been started or are met, wontfix, deferred or paused. Click for Barrier.'}>
+                        ? 'Barrier — Dependent epics may start requirements only when all requirements in this epic are met, wontfix, deferred, or paused. Click for Priority.'
+                        : 'Priority (barrier off) — Dependent epics may start requirements only when all requirements in this epic have been started or are met, wontfix, deferred or paused. Click for Barrier.'}>
                         <Chip
                             label={barrierLabel(on)}
                             size="small"
                             {...barrierChipProps(on)}
                             clickable
                             onClick={() => toggleBarrier(params.row)}
-                            data-testid={`step2-barrier-chip-${params.row.id}`}
+                            data-testid={`epic-barrier-chip-${params.row.id}`}
                         />
                     </Tooltip>
                 );
@@ -443,7 +443,7 @@ export default function StepsPage() {
             valueGetter: (_v, row) => (row.reqIds || []).length,
             renderCell: (params) => (
                 <Tooltip title={reqIdSummary(params.row)}>
-                    <Box component="span" data-testid={`step2-req-count-${params.row.id}`}>
+                    <Box component="span" data-testid={`epic-req-count-${params.row.id}`}>
                         {params.value}
                     </Box>
                 </Tooltip>
@@ -460,20 +460,20 @@ export default function StepsPage() {
                 <Stack direction="row" spacing={0.5}>
                     <Tooltip title="Edit">
                         <IconButton size="small"
-                                    data-testid={`step2-edit-${params.row.id}`}
+                                    data-testid={`epic-edit-${params.row.id}`}
                                     onClick={(e) => { e.stopPropagation(); openEdit(params.row); }}>
                             <EditIcon fontSize="small" />
                         </IconButton>
                     </Tooltip>
-                    <Tooltip title={params.row.blockerStepIds.length
+                    <Tooltip title={params.row.blockerEpicIds.length
                         ? `Blocked — ${blockerClause(params.row)}`
                         : 'Delete'}>
                         <IconButton size="small"
-                                    aria-label={params.row.blockerStepIds.length
+                                    aria-label={params.row.blockerEpicIds.length
                                         ? `Blocked — ${blockerClause(params.row)}`
-                                        : `Delete step ${params.row.id}`}
-                                    data-blocked={params.row.blockerStepIds.length ? 'yes' : 'no'}
-                                    data-testid={`step2-delete-${params.row.id}`}
+                                        : `Delete epic ${params.row.id}`}
+                                    data-blocked={params.row.blockerEpicIds.length ? 'yes' : 'no'}
+                                    data-testid={`epic-delete-${params.row.id}`}
                                     onClick={(e) => { e.stopPropagation(); handleDelete(params.row); }}>
                             <DeleteIcon fontSize="small" />
                         </IconButton>
@@ -490,11 +490,11 @@ export default function StepsPage() {
 
     return (
         <Box sx={{ gridArea: 'content', p: 3, width: '100%', minWidth: 0, overflow: 'auto' }}
-             data-testid="steps-page">
+             data-testid="epics-page">
             <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 2, flexWrap: 'wrap' }}
                    useFlexGap>
                 {/* ── BACK TO THE PLAN THAT SENT YOU (req #3498) ──────────────
-                    The plan visualizer's initiative chip carries a steps-editor link,
+                    The plan visualizer's initiative chip carries an epics-editor link,
                     and until now following it was one-way: the reader landed
                     here with the plan, its panel and the camera they had set all
                     to be found again by hand.
@@ -513,17 +513,17 @@ export default function StepsPage() {
                     <Button size="small" variant="outlined"
                             startIcon={<ArrowBackIcon />}
                             onClick={() => navigate(planReturnPath(location.state))}
-                            data-testid="steps-back-to-plan">
+                            data-testid="epics-back-to-plan">
                         Back to Plan
                     </Button>
                 )}
-                <Typography variant="h5">Steps</Typography>
+                <Typography variant="h5">Epics</Typography>
 
                 <FormControl size="small" sx={{ minWidth: 200 }}>
                     <InputLabel>Pipeline</InputLabel>
                     <Select label="Pipeline" value={activePipeline}
                             onChange={(e) => choosePipeline(e.target.value)}
-                            data-testid="steps-pipeline-filter">
+                            data-testid="epics-pipeline-filter">
                         <MenuItem value={ALL_PIPELINES}>All pipelines</MenuItem>
                         {pipelineOptions.map(p => (
                             <MenuItem key={p.id} value={p.id}>{p.title}</MenuItem>
@@ -535,7 +535,7 @@ export default function StepsPage() {
                     <InputLabel>Initiative</InputLabel>
                     <Select label="Initiative" value={activeInitiative}
                             onChange={(e) => chooseInitiative(e.target.value)}
-                            data-testid="steps-initiative-filter">
+                            data-testid="epics-initiative-filter">
                         <MenuItem value={ALL_INITIATIVES}>All initiatives</MenuItem>
                         {initiativeOptions.map(e => (
                             <MenuItem key={e.id} value={e.id}>{e.title}</MenuItem>
@@ -544,22 +544,22 @@ export default function StepsPage() {
                 </FormControl>
 
                 <Typography variant="caption" sx={{ color: 'text.secondary' }}
-                            data-testid="steps-accounting">
-                    {rows.length} of {allRows.length} step{allRows.length === 1 ? '' : 's'}
+                            data-testid="epics-accounting">
+                    {rows.length} of {allRows.length} epic{allRows.length === 1 ? '' : 's'}
                 </Typography>
 
                 <Box sx={{ flexGrow: 1 }} />
 
                 <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}
                         disabled={!allInitiativeOptions.length}
-                        data-testid="step2-add">
-                    New Step
+                        data-testid="epic-add">
+                    New Epic
                 </Button>
             </Stack>
 
             {planDataError && (
                 <Box sx={{ mb: 2, p: 1.5, border: 1, borderColor: 'error.main', borderRadius: 1 }}
-                     data-testid="steps-plan-data-error">
+                     data-testid="epics-plan-data-error">
                     The {failedReadsText} failed to load, so the Reqs counts may be
                     incomplete. Edits are unaffected, and the database still refuses a delete
                     that would break a dependency. Reload.
@@ -571,7 +571,7 @@ export default function StepsPage() {
                     <CircularProgress />
                 </Box>
             ) : (
-                <Box sx={{ width: '100%' }} data-testid="steps-datagrid">
+                <Box sx={{ width: '100%' }} data-testid="epics-datagrid">
                     <DataGrid
                         autoHeight
                         rows={rows}
@@ -586,21 +586,21 @@ export default function StepsPage() {
                         initialState={{ pagination: { paginationModel: { pageSize: 25 } } }}
                         pageSizeOptions={[10, 25, 50, 100]}
                         disableRowSelectionOnClick
-                        data-testid="steps-grid"
+                        data-testid="epics-grid"
                     />
                 </Box>
             )}
 
-            {/* req #3742 — the shared step editor; the plan canvas opens the
-                same one over itself when a step is clicked. */}
-            <StepEditDialog
+            {/* req #3742 — the shared epic editor; the plan canvas opens the
+                same one over itself when an epic is clicked. */}
+            <EpicEditDialog
                 key={dialog.key}
                 open={dialog.open}
-                step={dialog.step}
+                epic={dialog.epic}
                 initiativeOptions={allInitiativeOptions}
                 defaultInitiativeFk={dialog.defaultInitiativeFk}
                 onClose={() => setDialog((d) => ({ ...d, open: false }))}
-                onSaved={invalidateSteps}
+                onSaved={invalidateEpics}
             />
         </Box>
     );

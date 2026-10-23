@@ -35,7 +35,7 @@ import Tooltip from '@mui/material/Tooltip';
 
 import SemanticLevelControl from '../../Components/SemanticLevelControl';
 import { PLAN_LEVEL_NUMBER, REQ_COLOR_SCALES,
-    STEPS_ACROSS_OPTIONS, STEP_WIDTH_RUNGS } from './pipelinePlanLayout';
+    EPICS_ACROSS_OPTIONS, EPIC_WIDTH_RUNGS } from './pipelinePlanLayout';
 import { toolbarChipProps } from './pipelineChipStyles';
 import { ANY_MACHINE, machineChipLabel, orderMachineChips } from './planMachineFilter';
 import { resolveThisMachineId } from '../terminalFocus';
@@ -53,13 +53,13 @@ import { LONG_PRESS_MS, PRESS_SLOP_PX } from '../../dnd/pressTimeline';
 export const RESET_LABEL = 'Default — fully zoomed out, the whole plan\'s vertical '
     + 'extent visible';
 
-// STEP WIDTH IS HIDDEN, NOT DELETED (req #3648). The card is drawn at the
-// fixed 25%-wider rung (`DEFAULT_PLAN_STEP_WIDTH`, user directive "make the
-// step cards 25% wider"); flip the flag to bring the rungs back. The 6 5 4 3
-// the user asked for between Color and the view are STEPS ACROSS — a zoom —
+// EPIC WIDTH IS HIDDEN, NOT DELETED (req #3648). The card is drawn at the
+// fixed 25%-wider rung (`DEFAULT_PLAN_EPIC_WIDTH`, user directive "make the
+// epic cards 25% wider"); flip the flag to bring the rungs back. The 6 5 4 3
+// the user asked for between Color and the view are EPICS ACROSS — a zoom —
 // not card widths (user, same day: "it's supposed to center that many active
-// steps of width").
-export const SHOW_STEP_WIDTH = false;
+// epics of width").
+export const SHOW_EPIC_WIDTH = false;
 
 // THE COLOUR CHIPS ARE THE REGISTRY, not a copy of it (req #3422). This array
 // used to be written out here, which meant a scale's LABEL lived in the toolbar
@@ -180,9 +180,9 @@ const NO_HIDDEN = new Set();
 
 /**
  * @param {Object} props
- * @param {function} props.onStepsAcross       receives the step count to fit
- * @param {number} props.stepWidthLevel         a STEP_WIDTH_RUNGS value (6|5|4|3)
- * @param {function} props.onChangeStepWidthLevel receives the level as a string
+ * @param {function} props.onEpicsAcross       receives the epic count to fit
+ * @param {number} props.epicWidthLevel         a EPIC_WIDTH_RUNGS value (6|5|4|3)
+ * @param {function} props.onChangeEpicWidthLevel receives the level as a string
  * @param {string} props.colorKey               a REQ_COLOR_KEYS value
  * @param {function} props.onChangeColorKey     receives a REQ_COLOR_KEYS value
  * @param {function} [props.onKeyHover]         receives `{ key, el }` when the pointer (or focus)
@@ -203,9 +203,9 @@ const NO_HIDDEN = new Set();
  * @param {function} props.onResetView          the Reset click
  */
 export default function PipelinePlanToolbar({
-    onStepsAcross,
-    stepWidthLevel,
-    onChangeStepWidthLevel,
+    onEpicsAcross,
+    epicWidthLevel,
+    onChangeEpicWidthLevel,
     colorKey,
     onChangeColorKey,
     onKeyHover,
@@ -227,7 +227,7 @@ export default function PipelinePlanToolbar({
     return (
         <>
             {/* The colour key for the REQUIREMENT MARKS, never the beads — the
-                bead's fill is derived STEP state and stays that (the
+                bead's fill is derived EPIC state and stays that (the
                 one-fact-one-channel-one-level rule in pipelinePlanLayout.js).
 
                 N+1 POSITIONS FROM N CHIPS, unchanged in behaviour by the move
@@ -281,7 +281,7 @@ export default function PipelinePlanToolbar({
 
             {/* ── HIDE CLOSED (req #3686, user directive: "a UI button between
                 color and width") ──────────────────────────────────────────
-                Hides every step card's CLOSED requirements (met / deferred /
+                Hides every epic card's CLOSED requirements (met / deferred /
                 wontfix — the list under the dashed complete line) AND that line,
                 leaving the open work. The cards re-lay out because they are
                 shorter.
@@ -313,7 +313,7 @@ export default function PipelinePlanToolbar({
                 the visualizer") ───────────────────────────────────────────
                 One chip per open machine, pressed = its requirements are
                 shown. Every machine starts pressed; deselecting one hides the
-                requirements pinned to it on the step cards AND in the
+                requirements pinned to it on the epic cards AND in the
                 Orchestrables box. A trailing Any chip does the same for
                 requirements pinned to no machine (follow-up user directive:
                 "add an any filter as well"), so the group always has at least
@@ -345,13 +345,13 @@ export default function PipelinePlanToolbar({
             <Divider orientation="vertical" flexItem
                      sx={{ mx: 0.5, flexShrink: 0 }} />
 
-            {/* ── STEPS ACROSS — the zoom ladder, in the unit a reader thinks
+            {/* ── EPICS ACROSS — the zoom ladder, in the unit a reader thinks
                 in (req #3498, user directive 2026-08-13) ────────────────────
                 BETWEEN the colour chips and the view group since req #3648, as
-                6 5 4, centred on the active steps (`stepsAcrossTransform`).
+                6 5 4, centred on the active epics (`epicsAcrossTransform`).
                 Numbers only, all one size — the directive is
                 specific and the reason it works is that the number IS the
-                label: "4" means four steps across, and an explainer beside it
+                label: "4" means four epics across, and an explainer beside it
                 would say the same word twice.
 
                 NOT a toggle group and nothing is ever shown pressed. These are
@@ -361,16 +361,16 @@ export default function PipelinePlanToolbar({
                 same reason. */}
             <Stack direction="row" spacing={0.5} useFlexGap alignItems="center"
                    sx={{ flexShrink: 0 }}
-                   data-testid="pipeline-viz-steps-across">
-                {STEPS_ACROSS_OPTIONS.map((n) => (
-                    <Tooltip key={n} title={`Fit ${n} steps across, centred on the active steps`}>
+                   data-testid="pipeline-viz-epics-across">
+                {EPICS_ACROSS_OPTIONS.map((n) => (
+                    <Tooltip key={n} title={`Fit ${n} epics across, centred on the active epics`}>
                         <Chip
                             label={String(n)}
-                            aria-label={`Fit ${n} steps across, centred on the active steps`}
-                            onClick={() => onStepsAcross?.(n)}
+                            aria-label={`Fit ${n} epics across, centred on the active epics`}
+                            onClick={() => onEpicsAcross?.(n)}
                             {...toolbarChipProps(false)}
                             sx={{ minWidth: 34 }}
-                            data-testid={`pipeline-viz-steps-across-${n}`}
+                            data-testid={`pipeline-viz-epics-across-${n}`}
                         />
                     </Tooltip>
                 ))}
@@ -379,9 +379,9 @@ export default function PipelinePlanToolbar({
             <Divider orientation="vertical" flexItem
                      sx={{ mx: 0.5, flexShrink: 0 }} />
 
-            {/* ── STEP WIDTH (hidden — see `SHOW_STEP_WIDTH`). Each number is the card's width in QUARTERS of
+            {/* ── EPIC WIDTH (hidden — see `SHOW_EPIC_WIDTH`). Each number is the card's width in QUARTERS of
                 the original card — 4 the original, 5 (the default) 25% wider,
-                6 1.5x, 3 0.75x (`STEP_WIDTH_RUNGS`). No caption, like its
+                6 1.5x, 3 0.75x (`EPIC_WIDTH_RUNGS`). No caption, like its
                 neighbours since req #3648; the tooltip says what a rung is.
 
                 A RELAYOUT, DELIBERATELY NOT AN ACTION (req #3503 user
@@ -390,25 +390,25 @@ export default function PipelinePlanToolbar({
                 this row is a pure camera transform, so this one shows PRESSED
                 like Colour and View do — a STATE the plan is currently laid
                 out at, not a button that fired and forgot. */}
-            {SHOW_STEP_WIDTH && (<>
+            {SHOW_EPIC_WIDTH && (<>
             <Stack direction="row" spacing={0.5} useFlexGap alignItems="center"
                    sx={{ flexShrink: 0 }}
-                   data-testid="pipeline-viz-stepwidth-toggle">
-                {STEP_WIDTH_RUNGS.map((rung) => {
-                    const on = stepWidthLevel === rung;
+                   data-testid="pipeline-viz-epicwidth-toggle">
+                {EPIC_WIDTH_RUNGS.map((rung) => {
+                    const on = epicWidthLevel === rung;
                     const label = rung === 4
-                        ? 'Step Width 4 — the original card width'
-                        : `Step Width ${rung} — ${rung}/4 of the original card width`
+                        ? 'Epic Width 4 — the original card width'
+                        : `Epic Width ${rung} — ${rung}/4 of the original card width`
                             + `${rung > 4 ? `, ${(rung - 4) * 25}% wider` : ', 25% narrower'}`;
                     return (
                         <Tooltip key={rung} title={label}>
                             <Chip
                                 label={String(rung)}
                                 aria-label={label}
-                                onClick={() => onChangeStepWidthLevel?.(String(rung))}
+                                onClick={() => onChangeEpicWidthLevel?.(String(rung))}
                                 {...toolbarChipProps(on)}
                                 sx={{ minWidth: 28 }}
-                                data-testid={`pipeline-viz-stepwidth-${rung}`}
+                                data-testid={`pipeline-viz-epicwidth-${rung}`}
                             />
                         </Tooltip>
                     );

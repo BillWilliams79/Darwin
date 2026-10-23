@@ -1,4 +1,4 @@
-// Req #3581 — dragging a requirement between steps on the Plan visualizer.
+// Req #3581 — dragging a requirement between epics on the Plan visualizer.
 // The gesture is DOM work; every decision it makes is pinned here.
 
 import { describe, it, expect } from 'vitest';
@@ -73,25 +73,25 @@ describe('dropTargetAt', () => {
 });
 
 describe('canDropOn', () => {
-    it('accepts another open step', () => {
+    it('accepts another open epic', () => {
         expect(canDropOn(row(2, []), 1)).toBe(true);
     });
 
-    it('refuses the step it came from — that is not a move', () => {
+    it('refuses the epic it came from — that is not a move', () => {
         expect(canDropOn(row(1, [10]), 1)).toBe(false);
     });
 
-    // req #3750 — a step has no state: one whose work is all met still takes
-    // a requirement. Only a lock (the step's, its initiative's or its plan's) refuses.
-    it('accepts a step whose work is all finished — a step is never closed', () => {
+    // req #3750 — an epic has no state: one whose work is all met still takes
+    // a requirement. Only a lock (the epic's, its initiative's or its plan's) refuses.
+    it('accepts an epic whose work is all finished — an epic is never closed', () => {
         expect(canDropOn(row(2, [], { state: 'done' }), 1)).toBe(true);
     });
 
-    it('refuses an effectively locked step', () => {
+    it('refuses an effectively locked epic', () => {
         expect(canDropOn(row(2, [], { effectiveLocked: true }), 1)).toBe(false);
     });
 
-    it('refuses no step at all', () => {
+    it('refuses no epic at all', () => {
         expect(canDropOn(undefined, 1)).toBe(false);
     });
 });
@@ -100,76 +100,76 @@ describe('applyReqMoves', () => {
     const rows = [row(1, [10, 30]), row(2, [5, 20, 40]), row(3, [7])];
 
     it('moves the requirement into the target in ascending junction order', () => {
-        const out = applyReqMoves(rows, [{ reqId: 30, fromStepId: 1, toStepId: 2 }]);
+        const out = applyReqMoves(rows, [{ reqId: 30, fromEpicId: 1, toEpicId: 2 }]);
         expect(out.find((r) => r.id === 1).reqIds).toEqual([10]);
         expect(out.find((r) => r.id === 2).reqIds).toEqual([5, 20, 30, 40]);
     });
 
     it('takes it out of the source launch list and never adds it to the target\'s', () => {
-        const out = applyReqMoves(rows, [{ reqId: 30, fromStepId: 1, toStepId: 2 }]);
+        const out = applyReqMoves(rows, [{ reqId: 30, fromEpicId: 1, toEpicId: 2 }]);
         expect(out.find((r) => r.id === 1).launchReqIds).toEqual([10]);
         expect(out.find((r) => r.id === 2).launchReqIds).toEqual([5, 20, 40]);
     });
 
     it('keeps the identity of rows it does not touch', () => {
-        const out = applyReqMoves(rows, [{ reqId: 30, fromStepId: 1, toStepId: 2 }]);
+        const out = applyReqMoves(rows, [{ reqId: 30, fromEpicId: 1, toEpicId: 2 }]);
         expect(out[2]).toBe(rows[2]);
     });
 
     it('is idempotent — still right once the refetch already says the same thing', () => {
-        const once = applyReqMoves(rows, [{ reqId: 30, fromStepId: 1, toStepId: 2 }]);
-        const twice = applyReqMoves(once, [{ reqId: 30, fromStepId: 1, toStepId: 2 }]);
+        const once = applyReqMoves(rows, [{ reqId: 30, fromEpicId: 1, toEpicId: 2 }]);
+        const twice = applyReqMoves(once, [{ reqId: 30, fromEpicId: 1, toEpicId: 2 }]);
         expect(twice.map((r) => r.reqIds)).toEqual(once.map((r) => r.reqIds));
         expect(twice[1]).toBe(once[1]);
     });
 
     it('carries a tracking container\'s flag with it', () => {
         const withTracker = [row(1, [10, 30], { trackingReqIds: [30] }), row(2, [5])];
-        const out = applyReqMoves(withTracker, [{ reqId: 30, fromStepId: 1, toStepId: 2 }]);
+        const out = applyReqMoves(withTracker, [{ reqId: 30, fromEpicId: 1, toEpicId: 2 }]);
         expect(out[0].trackingReqIds).toEqual([]);
         expect(out[1].trackingReqIds).toEqual([30]);
     });
 
     it('applies several moves in order', () => {
         const out = applyReqMoves(rows, [
-            { reqId: 30, fromStepId: 1, toStepId: 2 },
-            { reqId: 7, fromStepId: 3, toStepId: 1 },
+            { reqId: 30, fromEpicId: 1, toEpicId: 2 },
+            { reqId: 7, fromEpicId: 3, toEpicId: 1 },
         ]);
         expect(out.map((r) => r.reqIds)).toEqual([[7, 10], [5, 20, 30, 40], []]);
     });
 
     it('ignores a move whose target is not on this plan', () => {
-        const out = applyReqMoves(rows, [{ reqId: 30, fromStepId: 1, toStepId: 99 }]);
+        const out = applyReqMoves(rows, [{ reqId: 30, fromEpicId: 1, toEpicId: 99 }]);
         expect(out).toBe(rows);
     });
 
     it('returns the rows untouched with nothing pending', () => {
         expect(applyReqMoves(rows, [])).toBe(rows);
-        expect(applyReqMoves([], [{ reqId: 1, toStepId: 2 }])).toEqual([]);
+        expect(applyReqMoves([], [{ reqId: 1, toEpicId: 2 }])).toEqual([]);
     });
 
     // req #3817 — dropped on the Orchestrables box: off the plan.
-    it('an unseat (toStepId null) takes the requirement off every step and onto none', () => {
+    it('an unseat (toEpicId null) takes the requirement off every epic and onto none', () => {
         const withTracker = [row(1, [10, 30], { trackingReqIds: [30] }), row(2, [5]), row(3, [7])];
-        const out = applyReqMoves(withTracker, [{ reqId: 30, fromStepId: 1, toStepId: null }]);
+        const out = applyReqMoves(withTracker, [{ reqId: 30, fromEpicId: 1, toEpicId: null }]);
         expect(out.map((r) => r.reqIds)).toEqual([[10], [5], [7]]);
         expect(out[0].launchReqIds).toEqual([10]);
         expect(out[0].trackingReqIds).toEqual([]);
         expect(out[1]).toBe(withTracker[1]);
     });
 
-    it('an unseat of a requirement on no step is a no-op, and idempotent', () => {
-        expect(applyReqMoves(rows, [{ reqId: 99, fromStepId: 1, toStepId: null }])).toBe(rows);
-        const once = applyReqMoves(rows, [{ reqId: 30, fromStepId: 1, toStepId: null }]);
-        expect(applyReqMoves(once, [{ reqId: 30, fromStepId: 1, toStepId: null }])).toBe(once);
+    it('an unseat of a requirement on no epic is a no-op, and idempotent', () => {
+        expect(applyReqMoves(rows, [{ reqId: 99, fromEpicId: 1, toEpicId: null }])).toBe(rows);
+        const once = applyReqMoves(rows, [{ reqId: 30, fromEpicId: 1, toEpicId: null }]);
+        expect(applyReqMoves(once, [{ reqId: 30, fromEpicId: 1, toEpicId: null }])).toBe(once);
     });
 });
 
 describe('canUnseatFrom (req #3817)', () => {
-    it('any step\'s requirement may leave the plan', () => {
+    it('any epic\'s requirement may leave the plan', () => {
         expect(canUnseatFrom({ id: 1 })).toBe(true);
     });
-    it('a locked step\'s may not — the gateway would answer 423', () => {
+    it('a locked epic\'s may not — the gateway would answer 423', () => {
         expect(canUnseatFrom({ id: 1, effectiveLocked: true })).toBe(false);
     });
     it('an unknown source is no drop', () => {
@@ -180,13 +180,13 @@ describe('canUnseatFrom (req #3817)', () => {
 describe('reqMoveReflected (req #3817)', () => {
     const server = [row(1, [10]), row(2, [5, 30])];
     it('a move is reflected once its target lists the requirement', () => {
-        expect(reqMoveReflected(server, { reqId: 30, toStepId: 2 })).toBe(true);
-        expect(reqMoveReflected(server, { reqId: 30, toStepId: 1 })).toBe(false);
+        expect(reqMoveReflected(server, { reqId: 30, toEpicId: 2 })).toBe(true);
+        expect(reqMoveReflected(server, { reqId: 30, toEpicId: 1 })).toBe(false);
     });
-    it('an unseat is reflected once no step lists it', () => {
-        expect(reqMoveReflected(server, { reqId: 30, toStepId: null })).toBe(false);
-        expect(reqMoveReflected(server, { reqId: 77, toStepId: null })).toBe(true);
-        expect(reqMoveReflected(undefined, { reqId: 77, toStepId: null })).toBe(true);
+    it('an unseat is reflected once no epic lists it', () => {
+        expect(reqMoveReflected(server, { reqId: 30, toEpicId: null })).toBe(false);
+        expect(reqMoveReflected(server, { reqId: 77, toEpicId: null })).toBe(true);
+        expect(reqMoveReflected(undefined, { reqId: 77, toEpicId: null })).toBe(true);
     });
 });
 

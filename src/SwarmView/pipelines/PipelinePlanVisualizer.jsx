@@ -27,8 +27,8 @@
 // three depth levels feel identical. Mapping (worker judgment, documented per
 // the requirement):
 //   out — initiative bands, beads, dependency arcs
-//   mid — + step labels (ID or Title per toggle) + requirement ids
-//   in  — + per-step title line (the reserved slot) + the hover datacard is the
+//   mid — + epic labels (ID or Title per toggle) + requirement ids
+//   in  — + per-epic title line (the reserved slot) + the hover datacard is the
 //         full detail surface at every level
 // Unlike the swarm canvas, TEXT DRAWS IN WORLD COORDINATES (scales with zoom):
 // the zero-label-overlap guarantee is geometric — computed column widths and
@@ -58,11 +58,11 @@
 // Requirement-centric: every mark derives from plan rows + hierarchy (design
 // rule 9 — no session data). Generated labels carry NO '#'. Click targets
 // (production directives): requirement id → /swarm/requirement/:id; bead or
-// card title → frame that step on this canvas (req #3641 — it opened the Table
-// mode, which is gone; `onStepFocus` went with it); initiative status light
+// card title → frame that epic on this canvas (req #3641 — it opened the Table
+// mode, which is gone; `onEpicFocus` went with it); initiative status light
 // and closure count → FOCUS the band (req #3204; moved off the name by req
-// #3580, which made the initiative name, the step name and the step's run circle
-// in-place editors), with /swarm/steps?initiative=<id> — the req #3119
+// #3580, which made the initiative name, the epic name and the epic's run circle
+// in-place editors), with /swarm/epics?initiative=<id> — the req #3119
 // directive, re-pointed by req #3373 when the browsable-catalog route it used
 // to open was retired (req #3357) — moved onto the chip's own ↗ control so it
 // stays a visible affordance rather than being deleted or buried under a
@@ -114,18 +114,18 @@ import Typography from '@mui/material/Typography';
 // legible as a destination.
 import ViewModuleIcon from '@mui/icons-material/ViewModule';
 
-import { STEP_RUNNING } from './pipelineViewModel';
+import { EPIC_RUNNING } from './pipelineViewModel';
 // req #3356 — the `era` PROP is gone (there is one era) but `planEra.js` stays
 // the ONE place a plan storage namespace or route is spelled, so the accessor is
 // still called — now with no era argument.
 import { planStorageNamespace } from './planEra';
 import { OrderViolationsAlert } from './PipelinePlanTable';
-import EmptyPlanAddStep from './EmptyPlanAddStep';
-import StepEditDialog from '../../Steps/StepEditDialog';
+import EmptyPlanAddEpic from './EmptyPlanAddEpic';
+import EpicEditDialog from '../../Epics/EpicEditDialog';
 import InitiativeEditDialog from '../../Initiatives/InitiativeEditDialog';
 import {
     computePlanLayout, beadStyle, placeInitiativeChips,
-    initiativeFocusTransform, stepFocusTransform, initiativeWorkFocusTransform,
+    initiativeFocusTransform, epicFocusTransform, initiativeWorkFocusTransform,
     factoryDefaultView, clampPlanTransform, planLandingAction,
     relayoutAnchorTransform,
     // req #3365 — the ruler's own thinning rule, re-applied at draw time
@@ -138,10 +138,10 @@ import {
     NEXT_HALO_RADIUS, NEXT_HALO_STROKE, NEXT_HALO_OPACITY, NEXT_HALO_DASH,
     nextHaloMagnify, nextMarkIsDot, nextMarkDotRadius,
     clusterNextMarks, NEXT_MARK_COUNT_FONT_PX,
-    planLevelFor, drawsLabelKind, stepsAcrossScale, zoomAboutViewportCentre,
-    stepsAcrossTransform,
+    planLevelFor, drawsLabelKind, epicsAcrossScale, zoomAboutViewportCentre,
+    epicsAcrossTransform,
     snapZoomScale, zoomAboutPoint,
-    // req #3498 — the step is a CARD. The renderer draws the box the layout
+    // req #3498 — the epic is a CARD. The renderer draws the box the layout
     // measured; it never measures one of its own.
     CARD_RADIUS, CARD_PAD_X, CARD_PAD_Y, CARD_LINE_H, CARD_RULE_GAP,
     CARD_STATE_BAR_W, CARD_BADGE_FONT,
@@ -156,55 +156,55 @@ import {
     buildReqColorViews, REQ_COLOR_KEYS, reqColorScale, reqIdStyle, reqIdKeyEntries, normalizeColorKey,
     DEFAULT_PLAN_PALETTE, isPlanPalette, planPalette,
     DEFAULT_COLOR_KEY, pinnedLevelOf, DEFAULT_PLAN_LEVEL_PREF,
-    DEFAULT_STEP_WIDTH_LEVEL,
+    DEFAULT_EPIC_WIDTH_LEVEL,
     INITIATIVE_PAUSE_BUBBLE_D, pauseBubbleColor, stickyRulerY, rulerScreenBottom,
     PAUSE_PAUSED_COLOR,
     // req #3649 — the initiative chip's padlock.
     INITIATIVE_LOCK_D,
     rulerScreenMag,
-    KEY_GROUP_TITLES, orderStepReqs, hideClosedReqs, CARD_DONE_RULE_DASH, CARD_DONE_RULE_OPACITY,
+    KEY_GROUP_TITLES, orderEpicReqs, hideClosedReqs, CARD_DONE_RULE_DASH, CARD_DONE_RULE_OPACITY,
 } from './pipelinePlanLayout';
 import {
-    initiativeCycleKey, initiativeZoomStateKey, initiativeWorkStepIds, nextInitiativeZoom,
+    initiativeCycleKey, initiativeZoomStateKey, initiativeWorkEpicIds, nextInitiativeZoom,
     initiativeZoomHintSuffix, gestureMovedCamera,
-    INITIATIVE_ZOOM_CLICK_SLOP, INITIATIVE_ZOOM_BAND, INITIATIVE_ZOOM_STEP,
+    INITIATIVE_ZOOM_CLICK_SLOP, INITIATIVE_ZOOM_BAND, INITIATIVE_ZOOM_EPIC,
 } from './pipelineInitiativeZoom';
 // req #3428 — the initiative chip's second destination. The URL contract lives with
 // the rest of `/swarm`'s query string, so this file names no query key itself.
-import { swarmInitiativeLinkTo, swarmStepLinkTo } from '../swarmViewLink';
-import { planExitState } from './pipelineStepLink';
+import { swarmInitiativeLinkTo, swarmEpicLinkTo } from '../swarmViewLink';
+import { planExitState } from './pipelineEpicLink';
 import { useSavedViewport } from '../../hooks/useSavedViewport';
 import { usePlanViewSetting } from './planViewSettings';
-// req #3650 — every initiative chip's and step card's own fold.
+// req #3650 — every initiative chip's and epic card's own fold.
 import {
-    parseCollapsed, toggleInitiativeCollapsed, toggleStepCollapsed, expandInitiative, expandStep,
+    parseCollapsed, toggleInitiativeCollapsed, toggleEpicCollapsed, expandInitiative, expandEpic,
 } from './planCollapse';
 import PlanCollapseHead from './PlanCollapseHead';
 import { useFoldAnimation, foldContentAlpha } from './planFoldAnimation';
-// req #3581 — dragging a requirement between steps writes its seat.
+// req #3581 — dragging a requirement between epics writes its seat.
 import AppContext from '../../Context/AppContext';
 import AuthContext from '../../Context/AuthContext';
 import { pipelineComposeKeys, requirementKeys } from '../../hooks/useQueryKeys';
 import {
-    pipelineStepRequirementKeys, pipelineStepKeys, pipelineStepDepKeys, initiativeKeys,
+    pipelineEpicRequirementKeys, pipelineEpicKeys, pipelineEpicDepKeys, initiativeKeys,
     useAllCategories,
 } from '../../hooks/useDataQueries';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
 import {
-    moveStepRequirement, insertStepOnEdge, addDependentStep, precedeStepWith,
-    isRestNullLiteral, REST_NULL, updateStep, createStep,
-} from '../../Steps/stepsApi';
+    moveEpicRequirement, insertEpicOnEdge, addDependentEpic, precedeEpicWith,
+    isRestNullLiteral, REST_NULL, updateEpic, createEpic,
+} from '../../Epics/epicsApi';
 // req #3649 — the initiative chip's lock control; req #3673 — the pictures on it and
-// on the step card's barrier and lock buttons.
+// on the epic card's barrier and lock buttons.
 import {
     BarrierGateIcon, PlanLockIcon, barrierTitle,
-} from './PlanStepFlagIcons';
-// req #3586 — the "+" marks that add a step on an edge or a dependent step; req
-// #3617 adds the one off a free left side, for a step this one depends on.
+} from './PlanEpicFlagIcons';
+// req #3586 — the "+" marks that add an epic on an edge or a dependent epic; req
+// #3617 adds the one off a free left side, for an epic this one depends on.
 import {
-    insertMarkRadius, buildInsertMarks, insertMarkAt, insertRequest, NEW_STEP_TITLE,
+    insertMarkRadius, buildInsertMarks, insertMarkAt, insertRequest, NEW_EPIC_TITLE,
     NEW_INITIATIVE_TITLE,
-} from './pipelineStepInsert';
+} from './pipelineEpicInsert';
 import {
     REQ_DRAG_SLOP, reqPressOutcome, stillHeld, dropTargetAt, canDropOn, applyReqMoves,
     canUnseatFrom, reqMoveReflected,
@@ -215,7 +215,7 @@ import {
 import { DarwinDndContext, LIFT_DELAY_MS, LIFT_VIBRATE_MS } from '../../dnd';
 import { viewportStorageKey } from '../../utils/viewportMemory';
 // req #3583 — the swarm-ready, not-orchestrated box and its drop-to-seat. The
-// contexts, snackbar, query keys and `moveStepRequirement` are req #3581's,
+// contexts, snackbar, query keys and `moveEpicRequirement` are req #3581's,
 // imported above.
 import { hideMachineReqs, isMachineHidden } from './planMachineFilter';
 import UnorchestratedReqBox, { ORCHESTRABLES_RACK_ID, UNSEATED_FLOAT_Z } from './UnorchestratedReqBox';
@@ -236,7 +236,7 @@ import {
     pointerCanSeat, runBulkSeat, bulkSeatFailureMessage, pointInRect,
 } from './pipelineUnseated';
 import '../../CalendarFC/swarmVisualizer.css';
-// req #3580 — in-place edit. The SAME mutation helpers the Initiatives and Steps
+// req #3580 — in-place edit. The SAME mutation helpers the Initiatives and Epics
 // editors use (one gateway path per table); contexts, snackbar and query keys
 // are the ones req #3581 already imports above.
 import { updateInitiative, createInitiative } from '../../Initiatives/initiativesApi';
@@ -369,8 +369,8 @@ const FOCUS_MS = 420;
 // Key swatch — a colored dot (or ring) in the POC vocabulary. The requirement
 // channel colours TYPE instead (LegendWord, below) — a dot there would
 // misrepresent it as another bead, which is why this swatch only ever draws
-// the STEP channel's marks now.
-// `dashed` (req #3271): the canvas's next-step halo is DASHED, and that is not
+// the EPIC channel's marks now.
+// `dashed` (req #3271): the canvas's next-epic halo is DASHED, and that is not
 // decoration — only 0.25px separates it from the bead's own eligible ring, so
 // form rather than distance is the whole of what makes it read as a second mark
 // (see NEXT_HALO_DASH). A key that advertised it as a solid ring described a
@@ -473,21 +473,21 @@ export default function PipelinePlanVisualizer({
     plan, model, pipeline, focusInitiativeId,
     // Req #3253 — the deep link's OTHER target. This prop has always travelled
     // here (PipelineDetail hands the same page state to both panels); until now
-    // the canvas ignored it, because a step was a ROW and only the table had one
+    // the canvas ignored it, because an epic was a ROW and only the table had one
     // to scroll to. It is also a BEAD, and the requirement page's "view on plan"
-    // link means "show me where this requirement lives" — so a named step
+    // link means "show me where this requirement lives" — so a named epic
     // centres and zooms the camera on it, the same handshake `focusInitiativeId`
     // already gets one level up.
-    focusStepId,
+    focusEpicId,
     // Toolbar state is OWNED BY THE PAGE since req #3119 — the controls render in
     // the header row beside the pipeline name (the SwarmView/VisualizerToolbar
     // pattern, req #2407), so the panel is the canvas and nothing else.
     // `reqLayout` left with req #3498 — a card stacks its requirements, so it
-    // had nothing left to select. `stepWidth` (the S/M/L content multiplier)
-    // left with it for the same reason; `stepWidthLevel` below is its
+    // had nothing left to select. `epicWidth` (the S/M/L content multiplier)
+    // left with it for the same reason; `epicWidthLevel` below is its
     // req #3503 successor, scaling the CARD itself rather than a per-column
     // content negotiation that no longer exists — see `cardGeometryFor`.
-    stepLabel = 'title', colorKey = DEFAULT_COLOR_KEY,
+    epicLabel = 'title', colorKey = DEFAULT_COLOR_KEY,
     reqLabel = 'id', levelPref = DEFAULT_PLAN_LEVEL_PREF,
     // req #3365 — WHICH colours the initiative bands and the two enum scales draw
     // from. Normalized below with the same discipline `colorKey` gets, and for
@@ -513,27 +513,27 @@ export default function PipelinePlanVisualizer({
     // device for exactly this (`resetViewNonce`/`frame`): a number that only
     // ever increments, watched by an effect below. 0 is the initial render.
     resetViewNonce = 0,
-    // req #3498 — `{n, nonce}` from the header's steps-across buttons. Same
+    // req #3498 — `{n, nonce}` from the header's epics-across buttons. Same
     // handshake as `resetViewNonce`: the control lives on the page, the camera
     // lives here, and the nonce is what makes a repeated click fire again.
-    stepsAcross = null,
-    // req #3498 — when true the WHEEL walks the steps-across ladder instead of
+    epicsAcross = null,
+    // req #3498 — when true the WHEEL walks the epics-across ladder instead of
     // scaling continuously. Read through a ref by the zoom filter below, so
     // toggling it never rebuilds the zoom behaviour (which would drop the
     // reader's camera).
     snapZoom = false,
-    // req #3503 — "Step Width". A `STEP_WIDTH_RUNGS` value (6 5 4 3, quarters
+    // req #3503 — "Epic Width". A `EPIC_WIDTH_RUNGS` value (6 5 4 3, quarters
     // of the base card since req #3648). The ONE
     // toolbar control that RELAYOUTS rather than just moving the camera —
     // every column, every card, every wrap point in `layout` below depends on
     // it, so it rides in `computePlanLayout`'s own options rather than being
     // applied as a post-hoc transform the way every other control here is.
-    stepWidthLevel = DEFAULT_STEP_WIDTH_LEVEL,
-    // req #3686 — draw only the OPEN requirements under each step (the closed
+    epicWidthLevel = DEFAULT_EPIC_WIDTH_LEVEL,
+    // req #3686 — draw only the OPEN requirements under each epic (the closed
     // group and its dashed line are dropped from the layout's input).
     hideClosed = false,
     // req #3708 — machine ids deselected in the toolbar's machine filter: the
-    // requirements pinned to them are drawn nowhere (step cards, Orchestrables).
+    // requirements pinned to them are drawn nowhere (epic cards, Orchestrables).
     hiddenMachines = NO_HIDDEN_MACHINES,
     // req #3587 — requirement id -> {terminal, devServer} (`planReqPills.js`),
     // built by the page from reads it owns. Drawn as pills between a row's id
@@ -541,7 +541,7 @@ export default function PipelinePlanVisualizer({
     reqPills = null,
     // req #3702 — requirement id -> latest session status (the page's own
     // `buildSessionStatusIndex`), so the Orchestrables box can paint its rows by
-    // the Session colour key too. Its rows sit on no step, so `model` has none.
+    // the Session colour key too. Its rows sit on no epic, so `model` has none.
     sessionStatus = null,
     // req #3658 — the page is maximized (PipelineDetail owns the state, because
     // what it hides — the header row and the navbar — is the page's), and the
@@ -550,7 +550,7 @@ export default function PipelinePlanVisualizer({
     onToggleMaximized = null,
     // req #3722 — the colour help is a HOVER popup on the toolbar's chips. The
     // page owns the toolbar, so the chip under the pointer arrives here as
-    // `{ key, el }` (`key` a colour scale, or 'step'; `el` the chip to anchor
+    // `{ key, el }` (`key` a colour scale, or 'epic'; `el` the chip to anchor
     // to), null when none is hovered; `pinned: true` when a long press holds it
     // open (req #3766).
     keyHover = null,
@@ -563,14 +563,14 @@ export default function PipelinePlanVisualizer({
     const showMessage = useSnackBarStore((st) => st.showMessage);
 
     // ── Requirement drag-and-drop: the moves in flight (req #3581) ──────────
-    // A dropped requirement is drawn on its NEW step from the instant of the
+    // A dropped requirement is drawn on its NEW epic from the instant of the
     // drop, and stays there through the write and the refetch — see
     // `applyReqMoves` for why that is one redraw rather than two. Each entry
     // leaves this list once the refetch it triggered has landed (or the write
     // failed, in which case the refetched server rows ARE the revert).
     const [pendingMoves, setPendingMoves] = useState([]);
 
-    // ── Add a step from the canvas (req #3586) ──────────────────────────────
+    // ── Add an epic from the canvas (req #3586) ──────────────────────────────
     // `insertReq` is the open dialog's request (`insertRequest`), null when
     // closed. The marks themselves are ONE non-listening Konva shape whose
     // geometry is memoized per layout (see `insertGeom` below), and clicks and
@@ -578,7 +578,7 @@ export default function PipelinePlanVisualizer({
     // marks add no hit-graph nodes and no React state on pointer movement.
     // `insertHoverRef` is the key of the "+" under the pointer.
     const [insertReq, setInsertReq] = useState(null);
-    const [insertTitle, setInsertTitle] = useState(NEW_STEP_TITLE);
+    const [insertTitle, setInsertTitle] = useState(NEW_EPIC_TITLE);
     const [insertInitiative, setInsertInitiative] = useState('');
     const [inserting, setInserting] = useState(false);
     const insertHoverRef = useRef(null);
@@ -602,25 +602,25 @@ export default function PipelinePlanVisualizer({
                 machineFk: r.machine_fk, session: r.session_status,
             }])),
         [model]);
-    // req #3676 — the requirement marks stacked under a step are in
+    // req #3676 — the requirement marks stacked under an epic are in
     // ORCHESTRATION order whatever colour key is on: open work above complete,
     // `deployed` first within each, then FIFO (`sortReqIdsByOrchestration`).
-    // `orderStepReqs` reorders each row's `reqIds` only and stamps
+    // `orderEpicReqs` reorders each row's `reqIds` only and stamps
     // `reqDoneFrom` for the complete line; every engine field on the row is
     // left as computed, so the display order never touches what `/swarm-start`
     // launches.
     const rows = useMemo(() => {
         const base = applyReqMoves(plan.rows || [], pendingMoves);
         if (!base.length) return base;
-        return orderStepReqs(base, {
+        return orderEpicReqs(base, {
             statusOf: (id) => reqInfo.get(id)?.status,
             autonomyOf: (id) => reqInfo.get(id)?.coordination,
         });
     }, [plan.rows, pendingMoves, reqInfo]);
     const rowById = useMemo(() => new Map(rows.map((r) => [r.id, r])), [rows]);
 
-    // The initiatives the add-step dialog offers: the payload's own `initiatives[]` (an
-    // initiative with no steps yet included), in the plan's initiative order. Falls back to
+    // The initiatives the add-epic dialog offers: the payload's own `initiatives[]` (an
+    // initiative with no epics yet included), in the plan's initiative order. Falls back to
     // the initiatives the rows name when a caller hands in a model without them.
     const insertInitiativeOptions = useMemo(() => {
         const fromModel = (model?.initiatives || []).map((e) => ({
@@ -639,7 +639,7 @@ export default function PipelinePlanVisualizer({
     const insertOpenedAtRef = useRef(0);
     const openInsert = useCallback((kind, ids) => {
         const req = insertRequest(kind, ids, rowById);
-        setInsertTitle(NEW_STEP_TITLE);
+        setInsertTitle(NEW_EPIC_TITLE);
         setInsertInitiative(req.initiativeId ?? '');
         insertOpenedAtRef.current = Date.now();
         setInsertReq(req);
@@ -669,52 +669,52 @@ export default function PipelinePlanVisualizer({
         setInserting(true);
         try {
             if (req.kind === 'edge') {
-                await insertStepOnEdge(darwinUri, idToken, {
-                    fromStepId: req.fromId, toStepId: req.toId,
+                await insertEpicOnEdge(darwinUri, idToken, {
+                    fromEpicId: req.fromId, toEpicId: req.toId,
                     initiative_fk: insertInitiative, title,
                 });
             } else if (req.kind === 'precede') {
-                await precedeStepWith(darwinUri, idToken, {
-                    toStepId: req.toId, initiative_fk: insertInitiative, title,
+                await precedeEpicWith(darwinUri, idToken, {
+                    toEpicId: req.toId, initiative_fk: insertInitiative, title,
                 });
             } else {
-                await addDependentStep(darwinUri, idToken, {
-                    fromStepId: req.fromId, initiative_fk: insertInitiative, title,
+                await addDependentEpic(darwinUri, idToken, {
+                    fromEpicId: req.fromId, initiative_fk: insertInitiative, title,
                 });
             }
             setInsertReq(null);
         } catch (error) {
-            if (error?.orphanStep) {
-                // The step exists with no edges; a retry would make a second.
+            if (error?.orphanEpic) {
+                // The epic exists with no edges; a retry would make a second.
                 setInsertReq(null);
-                showError(error, 'Step created without its dependencies');
+                showError(error, 'Epic created without its dependencies');
             } else if (error?.redundantEdge) {
-                // The new step is in and wired; only the old direct edge is
+                // The new epic is in and wired; only the old direct edge is
                 // left, which gates exactly as the chain does.
                 setInsertReq(null);
-                showError(error, `Step inserted, but step ${req.toId} still also `
-                    + `waits on step ${req.fromId} directly`);
+                showError(error, `Epic inserted, but epic ${req.toId} still also `
+                    + `waits on epic ${req.fromId} directly`);
             } else {
                 showError(error, req.kind === 'edge'
-                    ? 'Could not insert the step' : 'Could not add the step');
+                    ? 'Could not insert the epic' : 'Could not add the epic');
             }
         } finally {
             setInserting(false);
             if (pipeline?.id != null) {
                 queryClient.invalidateQueries({ queryKey: pipelineComposeKeys.byId(pipeline.id) });
             }
-            queryClient.invalidateQueries({ queryKey: pipelineStepKeys.all(profile?.userName) });
-            queryClient.invalidateQueries({ queryKey: pipelineStepDepKeys.all(profile?.userName) });
+            queryClient.invalidateQueries({ queryKey: pipelineEpicKeys.all(profile?.userName) });
+            queryClient.invalidateQueries({ queryKey: pipelineEpicDepKeys.all(profile?.userName) });
             queryClient.invalidateQueries({ queryKey: ['orchestration_index'] });
         }
     }, [insertReq, inserting, insertTitle, insertInitiative, darwinUri, idToken,
         pipeline?.id, profile?.userName, queryClient, showError]);
 
     // ── Add an initiative from the canvas (req #3719) ─────────────────────────────
-    // The "+" under the last initiative band. An initiative's band is drawn from its STEPS,
+    // The "+" under the last initiative band. An initiative's band is drawn from its EPICS,
     // so an initiative with none would be created and not appear anywhere on this
-    // canvas; the dialog therefore creates the initiative AND its first step (the
-    // same placeholder title the add-step dialog starts from), and the band
+    // canvas; the dialog therefore creates the initiative AND its first epic (the
+    // same placeholder title the add-epic dialog starts from), and the band
     // shows up as soon as the plan re-reads. `initiativeAddOpen` is the dialog.
     const [initiativeAddOpen, setInitiativeAddOpen] = useState(false);
     const [initiativeAddTitle, setInitiativeAddTitle] = useState(NEW_INITIATIVE_TITLE);
@@ -765,16 +765,16 @@ export default function PipelinePlanVisualizer({
             const initiativeId = Array.isArray(initiative) ? initiative[0]?.id : initiative?.id;
             setInitiativeAddOpen(false);
             if (initiativeId == null) {
-                // The row was written but not read back (stepsApi documents a
+                // The row was written but not read back (epicsApi documents a
                 // 201 with no body): retrying here would make a second initiative.
-                showError('The initiative may have been created without a first step — '
+                showError('The initiative may have been created without a first epic — '
                     + 'check the Initiatives page before adding it again');
                 return;
             }
             try {
-                await createStep(darwinUri, idToken, { initiative_fk: initiativeId, title: NEW_STEP_TITLE });
+                await createEpic(darwinUri, idToken, { initiative_fk: initiativeId, title: NEW_EPIC_TITLE });
             } catch (error) {
-                showError(error, 'Initiative created, but its first step could not be added');
+                showError(error, 'Initiative created, but its first epic could not be added');
             }
         } catch (error) {
             showError(error, 'Could not create the initiative');
@@ -786,12 +786,12 @@ export default function PipelinePlanVisualizer({
             if (profile?.userName) {
                 queryClient.invalidateQueries({ queryKey: initiativeKeys.all(profile.userName) });
             }
-            queryClient.invalidateQueries({ queryKey: pipelineStepKeys.all(profile?.userName) });
+            queryClient.invalidateQueries({ queryKey: pipelineEpicKeys.all(profile?.userName) });
             queryClient.invalidateQueries({ queryKey: ['orchestration_index'] });
         }
     }, [initiativeAdding, initiativeAddTitle, initiativeAddCategory, darwinUri, idToken, pipeline?.id,
         profile?.userName, queryClient, showError]);
-    const eligibleStepIds = plan.eligibleStepIds || new Set();
+    const eligibleEpicIds = plan.eligibleEpicIds || new Set();
     // The requirement TITLE lookup, when that mark is showing (req #3168). Built
     // from `reqInfo`, which the hover card already needed — so the option costs
     // no extra read and no extra pass over the model. Passed as an ARGUMENT
@@ -800,7 +800,7 @@ export default function PipelinePlanVisualizer({
     const reqTitles = useMemo(
         () => new Map([...reqInfo].map(([id, info]) => [id, info.title])), [reqInfo]);
     // req #3661 — the requirement title open in its in-place editor
-    // (`{ reqId, stepId, saving }` — the row, not just the requirement), and
+    // (`{ reqId, epicId, saving }` — the row, not just the requirement), and
     // what has been typed (`reqId -> title`). Declared here, not with the other
     // in-place edits below, because the LAYOUT reads the drafts: the card is
     // laid out around the title being typed — wrapped, and grown or shrunk a
@@ -834,7 +834,7 @@ export default function PipelinePlanVisualizer({
     // surfaces over one plan must not each derive the same fact.
     // Normalized HERE as well as in the page, for `activeColorKey`'s reason.
     const activePalette = isPlanPalette(palette) ? palette : DEFAULT_PLAN_PALETTE;
-    // req #3650 — the initiatives and steps folded by their own collapse heads. One
+    // req #3650 — the initiatives and epics folded by their own collapse heads. One
     // remembered setting, so a fold survives every way of leaving the canvas
     // and coming back, exactly as the key's popout does (req #3651).
     const [collapsedRaw, setCollapsedRaw] = usePlanViewSetting('collapsed');
@@ -848,10 +848,10 @@ export default function PipelinePlanVisualizer({
         animateFold(initiativeId, collapsed.initiativeIds.has(initiativeId));
         setCollapsedRaw((raw) => toggleInitiativeCollapsed(raw, initiativeId));
     }, [setCollapsedRaw, animateFold, collapsed]);
-    const toggleStepFold = useCallback(
-        (stepId) => setCollapsedRaw((raw) => toggleStepCollapsed(raw, stepId)),
+    const toggleEpicFold = useCallback(
+        (epicId) => setCollapsedRaw((raw) => toggleEpicCollapsed(raw, epicId)),
         [setCollapsedRaw]);
-    // req #3686 — `orderStepReqs` puts the closed requirements last, from
+    // req #3686 — `orderEpicReqs` puts the closed requirements last, from
     // `reqDoneFrom` on; hiding them is slicing there. Only the LAYOUT's input is
     // trimmed: `rows` (drag, seating, counts) keeps every requirement.
     // req #3708 — and the requirements pinned to a deselected machine, in the
@@ -862,7 +862,7 @@ export default function PipelinePlanVisualizer({
     }, [rows, hideClosed, hiddenMachines, reqInfo]);
     const layoutOpts = useMemo(
         () => ({
-            stepLabel, reqLabel, reqTitles: layoutTitles, reqPills,
+            epicLabel, reqLabel, reqTitles: layoutTitles, reqPills,
             palette: activePalette,
             timeAxis: plan.timeAxis || null, initiativeCounts,
             // req #3226 — `plan.pause` comes from the composed derivation (same
@@ -872,12 +872,12 @@ export default function PipelinePlanVisualizer({
             // req #3649 — which bands are LOCKED (their own initiative, or the plan).
             lockInfo: { planLocked: !!plan.locked,
                         lockedInitiativeIds: [...(plan.lockedInitiativeIds || [])] },
-            stepWidthLevel,
-            collapsedInitiativeIds: collapsed.initiativeIds, collapsedStepIds: collapsed.stepIds,
+            epicWidthLevel,
+            collapsedInitiativeIds: collapsed.initiativeIds, collapsedEpicIds: collapsed.epicIds,
         }),
-        [plan.timeAxis, stepLabel,
+        [plan.timeAxis, epicLabel,
             reqLabel, layoutTitles, reqPills, initiativeCounts, plan.pause, plan.locked,
-            plan.lockedInitiativeIds, activePalette, stepWidthLevel, collapsed]);
+            plan.lockedInitiativeIds, activePalette, epicWidthLevel, collapsed]);
     const layout = useMemo(
         () => computePlanLayout(layoutRows, layoutOpts), [layoutRows, layoutOpts]);
     // req #3695 — THE LAYOUT THE CANVAS DRAWS. While an initiative's fold animates it
@@ -891,10 +891,10 @@ export default function PipelinePlanVisualizer({
             ? computePlanLayout(layoutRows, { ...layoutOpts, foldReveal })
             : layout),
         [foldReveal, layout, layoutRows, layoutOpts]);
-    // A LINK INTO A FOLDED BOX UNFOLDS IT (req #3650). `?initiative=` and `?step=`
+    // A LINK INTO A FOLDED BOX UNFOLDS IT (req #3650). `?initiative=` and `?epic=`
     // name a place on the plan to land on, and a folded band draws no cards —
-    // so the fit would have nothing to fit. `?step=` is how the requirement
-    // page shows a requirement on its plan, so the step unfolds too, or its
+    // so the fit would have nothing to fit. `?epic=` is how the requirement
+    // page shows a requirement on its plan, so the epic unfolds too, or its
     // rows would stay hidden. Every other fold stays as the reader left it.
     //
     // ONCE PER LINK, NOT WHILE IT STANDS: the focus props live as long as the
@@ -904,27 +904,27 @@ export default function PipelinePlanVisualizer({
     // never "the box is folded".
     const linkUnfoldedRef = useRef(null);
     useEffect(() => {
-        if (focusInitiativeId == null && focusStepId == null) {
+        if (focusInitiativeId == null && focusEpicId == null) {
             linkUnfoldedRef.current = null;
             return;
         }
-        const key = `${focusInitiativeId}:${focusStepId}`;
+        const key = `${focusInitiativeId}:${focusEpicId}`;
         if (linkUnfoldedRef.current === key) return;
         const initiatives = focusInitiativeId != null ? [focusInitiativeId] : [];
-        if (focusStepId != null) {
-            if (!rowById.has(focusStepId)) return;       // the plan has not loaded it yet
-            initiatives.push(rowById.get(focusStepId).initiativeId ?? null);
+        if (focusEpicId != null) {
+            if (!rowById.has(focusEpicId)) return;       // the plan has not loaded it yet
+            initiatives.push(rowById.get(focusEpicId).initiativeId ?? null);
         }
         linkUnfoldedRef.current = key;
         setCollapsedRaw((raw) => {
             const next = initiatives.reduce(expandInitiative, raw);
-            return focusStepId != null ? expandStep(next, focusStepId) : next;
+            return focusEpicId != null ? expandEpic(next, focusEpicId) : next;
         });
-    }, [focusInitiativeId, focusStepId, rowById, setCollapsedRaw]);
+    }, [focusInitiativeId, focusEpicId, rowById, setCollapsedRaw]);
 
     // ── The REQUIREMENT-ID channel (req #3119; #3168 neutral; #3422 registry) ─
     // Whatever the key, it rides the requirement ids and never the bead: the
-    // bead's fill already carries derived STEP state (rule 1), and repainting it
+    // bead's fill already carries derived EPIC state (rule 1), and repainting it
     // would trade that reading for this one. The full colour language, and the
     // one-fact-one-channel-one-level rule it turns on, is documented in
     // pipelinePlanLayout.js — which is also where every colour below is decided
@@ -963,7 +963,7 @@ export default function PipelinePlanVisualizer({
         }).entries])), [reqColorViews]);
     // The container is tracked as STATE, not a bare ref: with an empty plan the
     // component returns the empty panel and no container exists — if the first
-    // step arrives later (focus refetch on a draft pipeline), effects keyed on
+    // epic arrives later (focus refetch on a draft pipeline), effects keyed on
     // a ref would never re-run and the canvas would stay blank forever (review
     // finding). A ref callback re-fires every effect when the node appears.
     const [containerEl, setContainer] = useState(null);
@@ -974,7 +974,7 @@ export default function PipelinePlanVisualizer({
     const draggingRef = useRef(false);
     // ── The REQUIREMENT drag (req #3581) — not to be confused with the pan ──
     // `draggingRef` above is d3's camera gesture. This one moves a requirement
-    // to another step, and the two never coexist: the zoom filter refuses any
+    // to another epic, and the two never coexist: the zoom filter refuses any
     // press that lands on a requirement mark (`reqHitRef`), so a press there
     // belongs to the requirement — a click navigates, a drag moves it.
     //
@@ -982,7 +982,7 @@ export default function PipelinePlanVisualizer({
     // read by native listeners at pointer rate, so a ref. `reqDrag` is the slice
     // the RENDER needs — which mark to grey, the preview image — and is set only
     // at drag start and drag end, so a drag in progress re-renders the canvas
-    // only when the target step under the pointer changes (`dropStepId`), never
+    // only when the target epic under the pointer changes (`dropEpicId`), never
     // per pointermove. `reqHitRef` holds the current hit test so the zoom
     // behaviour, built once, sees the current stage without being rebuilt.
     const reqDragRef = useRef(null);
@@ -1000,14 +1000,14 @@ export default function PipelinePlanVisualizer({
     const reqClickGuardRef = useRef(false);
     const dragPreviewRef = useRef(null);
     const [reqDrag, setReqDrag] = useState(null);
-    const [dropStepId, setDropStepId] = useState(null);
+    const [dropEpicId, setDropEpicId] = useState(null);
     // req #3817 — THE ORCHESTRABLES BOX IS A DROP TARGET TOO. A requirement
-    // dragged off a step and released over the box (wherever it is: home,
+    // dragged off an epic and released over the box (wherever it is: home,
     // floated anywhere in the window, racked in the navbar) is UN-orchestrated
     // — its seat deleted, so it is the box's. `unseatBoxRef` is the box's own
     // element (it hands it over through `dropTargetRef`), hit-tested by CLIENT
-    // point before any step card, since it floats above them. `dropOnBox` is
-    // true while the requirement in flight is over it and may leave its step.
+    // point before any epic card, since it floats above them. `dropOnBox` is
+    // true while the requirement in flight is over it and may leave its epic.
     const unseatBoxRef = useRef(null);
     const [dropOnBox, setDropOnBox] = useState(false);
     // True only while a focus transition is in flight (req #3204). See the
@@ -1022,7 +1022,7 @@ export default function PipelinePlanVisualizer({
     const [transform, setTransform] = useState(null);
 
     // ── The swarm-ready, not-orchestrated box (req #3583) ───────────────────
-    // `seatTarget` is the step card under the cursor (`{stepId, ok}`,
+    // `seatTarget` is the epic card under the cursor (`{epicId, ok}`,
     // outlined), and `pendingSeats`
     // the rows already dropped whose write or refetch has not landed — hidden
     // from the box at once so a drop never shows the row snapping back.
@@ -1037,7 +1037,7 @@ export default function PipelinePlanVisualizer({
     // outline must clear that, not just the box's own UNSEATED_FLOAT_Z.
     const boxFromRack = usePanelRackStore(
         (s) => s.drag?.id === ORCHESTRABLES_RACK_ID && !!s.drag.fromRack);
-    // req #3817 — a requirement dropped on the box from a step is the box's
+    // req #3817 — a requirement dropped on the box from an epic is the box's
     // from the instant of the drop, as a seat leaves it at once: drawn from the
     // plan's own row until the junction read lists it. Only a SWARM-READY one —
     // the box lists ready work and nothing else, so any other status simply
@@ -1047,7 +1047,7 @@ export default function PipelinePlanVisualizer({
     // junction's. Until the DELETE is written the row cannot be dragged back
     // out — its seat still exists, so a seat would collide with it.
     const boxRows = useMemo(() => {
-        const unseating = pendingMoves.filter((m) => m.toStepId == null
+        const unseating = pendingMoves.filter((m) => m.toEpicId == null
             && m.req?.requirement_status === 'swarm_ready');
         if (!unseating.length) return unseated.items;
         const listed = new Set(unseated.items.map((r) => Number(r.id)));
@@ -1063,7 +1063,7 @@ export default function PipelinePlanVisualizer({
         [boxRows, pendingSeats, hiddenMachines]);
     // req #3702 — the Orchestrables rows follow the reader's colour preference.
     // The SAME registry, theme and resolver as the canvas ids, built over the
-    // box's own rows (they sit on no step, so `model.requirements` lacks them).
+    // box's own rows (they sit on no epic, so `model.requirements` lacks them).
     // `session_status` is attached exactly as `buildPlanModel` does; with no
     // index yet the Session scale paints unknown rather than "no session".
     const unseatedColorViews = useMemo(() => buildReqColorViews({
@@ -1091,7 +1091,7 @@ export default function PipelinePlanVisualizer({
     const unseatedIdStyleOf = useCallback((reqId) => reqIdStyle({
         colorKey: activeColorKey, views: unseatedColorViews, reqId: Number(reqId),
     }), [activeColorKey, unseatedColorViews]);
-    // req #3608 — the whole box dropped on a step: the open confirm dialog's
+    // req #3608 — the whole box dropped on an epic: the open confirm dialog's
     // request (`bulkSeatRequest`), null when closed, and whether its writes are
     // in flight.
     // (req #3614) `bulkSeat` is the request being ASKED about and `bulkSeatOpen`
@@ -1101,7 +1101,7 @@ export default function PipelinePlanVisualizer({
     const [bulkSeatOpen, setBulkSeatOpen] = useState(false);
     const [bulkSeating, setBulkSeating] = useState(false);
     // The last pointer of a carrying title-bar move, and a ref to the function
-    // that re-resolves the outlined step from it. A wheel zoom mid-carry moves
+    // that re-resolves the outlined epic from it. A wheel zoom mid-carry moves
     // every card under a pointer that did not move, so the target is re-judged
     // whenever the transform changes (req #3614) — via a ref because the
     // function is defined below the empty-plan early return, the effect above it.
@@ -1134,7 +1134,7 @@ export default function PipelinePlanVisualizer({
         // req #3463 — era-qualified, so 1.0 plan 7 and 2.0 plan 7 did not share
         // one camera (and one is not pruned by the other list's liveness read).
         ? viewportStorageKey(planStorageNamespace(), pipeline.id) : null;
-    // SIGNATURE is the one input that RESCALES the world: the Step Width rung
+    // SIGNATURE is the one input that RESCALES the world: the Epic Width rung
     // (req #3637). It used to be the layout's own dimensions plus its row and
     // band counts, and that refused a restore for any change at all between two
     // visits — a requirement added to a card, a status that re-wrapped a title,
@@ -1142,20 +1142,20 @@ export default function PipelinePlanVisualizer({
     // view for a plan the reader could still perfectly well have seen from
     // where they were. Content that GREW is not content that MOVED: columns
     // keep their places, and `clampPlanTransform` bounds whatever does change on
-    // the restore path. Step Width is different in kind — every card, column
+    // the restore path. Epic Width is different in kind — every card, column
     // and wrap point is re-scaled, so a camera from another rung points at
     // unrelated content and is refused.
     // `q` since req #3648 — the rungs became quarters of the base card (6 5 4
     // 3), so a camera saved under the old `sw1`-`sw4` was taken at a different
     // width than the same number means now.
-    const viewportFingerprint = `q${stepWidthLevel}`;
+    const viewportFingerprint = `q${epicWidthLevel}`;
     const viewport = useSavedViewport(viewportKey, viewportFingerprint);
     // The live camera, mirrored out of the d3-zoom 'zoom' handler so the commit
     // on unmount has something to write. A ref, not state: this is read only by
     // effects and costs one assignment per pointermove.
     const liveTransformRef = useRef(null);
     // ── EVERY CAMERA MOVE PERSISTS, A DEEP LINK'S INCLUDED (req #3637) ──────
-    // A save-suppression flag used to keep a `?initiative=`/`?step=` focus out of
+    // A save-suppression flag used to keep a `?initiative=`/`?epic=` focus out of
     // storage (req #3252: "a link must never rewrite what the reader chose").
     // Req #3637 reverses it: *"refresh, reload, should not change the viewport"*
     // — the camera ON SCREEN is the one a reload or a Back must bring back, and
@@ -1320,7 +1320,7 @@ export default function PipelinePlanVisualizer({
     // ── The READABLE scale (req #3168) — WAS the default view, req #3312 ────
     // Introduced as the opening view: fit-to-width is the right OVERVIEW and
     // was the wrong DEFAULT, because it is a scale divided by plan size, so the
-    // bigger the plan the smaller the type — the live 64-step plan opened at a
+    // bigger the plan the smaller the type — the live 64-epic plan opened at a
     // k where the requirement ids were a few pixels tall.
     //
     // **REQ #3312 TOOK THE OPENING VIEW BACK OFF IT** and gave it to
@@ -1496,7 +1496,7 @@ export default function PipelinePlanVisualizer({
             .filter((ev) => (ev.type === 'wheel' ? !snapZoomRef.current
                 : (!ev.button && !ev.target?.closest?.(CHROME_SELECTOR)
                     && !(ev.type === 'mousedown' && reqHitRef.current?.(ev))
-                    // req #3586 — a press on an add-step "+" is a click, never a pan.
+                    // req #3586 — a press on an add-epic "+" is a click, never a pan.
                     && !(ev.type === 'mousedown' && insertHitRef.current?.(ev)))))
             // ONE number for "how far may a click move" (req #3297). d3 uses it
             // to decide whether to suppress the click; the initiative name's cycle
@@ -1528,7 +1528,7 @@ export default function PipelinePlanVisualizer({
                 //
                 // Left unhooked: land on `?initiative=11` (which counts as click 1),
                 // pan to the far side of the plan, click initiative 11's name meaning
-                // "take me back" — and drop straight onto its next launch step
+                // "take me back" — and drop straight onto its next launch epic
                 // at 2.6× the readable default, having never seen the band.
                 //
                 // BUT NOT ON `sourceEvent` ALONE, which is where the flag above
@@ -1536,7 +1536,7 @@ export default function PipelinePlanVisualizer({
                 // element this behaviour is bound to, so a mousedown on the
                 // NAME starts a pan and every pixel of hand-jitter inside the
                 // click emits a real zoom event. Clearing on those would break
-                // the band → step move for anyone whose hand moves — i.e.
+                // the band → epic move for anyone whose hand moves — i.e.
                 // intermittently. `gestureMovedCamera` asks d3's own
                 // click-vs-drag question with d3's own number.
                 if (ev.sourceEvent
@@ -1614,7 +1614,7 @@ export default function PipelinePlanVisualizer({
     //
     // `kDefault` is untouched and still earns its keep: it anchors the zoom
     // behavior's `scaleExtent`, the semantic level ladder's ratio, and the
-    // initiative/step focus clamps. Only the RECENTER TARGET moved.
+    // initiative/epic focus clamps. Only the RECENTER TARGET moved.
     //
     // Applied on first size and whenever a layout toggle changes the world
     // dimensions wholesale (the POC re-rendered from scratch on those
@@ -1629,7 +1629,7 @@ export default function PipelinePlanVisualizer({
     }, [containerEl, size.w, kFactoryDefault, yFactoryDefault]);
     // ── THE LANDING VIEW (req #3252) ────────────────────────────────────────
     // What this canvas shows when it arrives at a plan. Two answers, in order:
-    // the camera the reader left on this plan at THIS Step Width (req #3637), or
+    // the camera the reader left on this plan at THIS Epic Width (req #3637), or
     // — failing that, the first visit — the base view `resetView` computes,
     // which since req #3312 is the factory default the header's Reset lands on.
     //
@@ -1640,14 +1640,14 @@ export default function PipelinePlanVisualizer({
     // discard and do nothing.
     //
     // ── WHEN IT LANDS: a new plan or a rescale, never a resize or growth ────
-    // `landKey` is the plan plus the Step Width rung (req #3637 — it was the
+    // `landKey` is the plan plus the Epic Width rung (req #3637 — it was the
     // world's width, which a refetch adding a column also moves). Three things
     // must NOT re-land, and each was a measured defect:
     //   · A RESIZE. The panel is sized TWICE at mount (the `calc(100vh - 260px)`
     //     fallback, then `measureAvailH`), so keying on size discarded a camera
     //     set milliseconds earlier.
     //   · A WORLD THAT GREW BUT WAS NOT RESCALED — a background refetch adding a
-    //     step or a column. Re-landing snapped the reader home mid-read for a
+    //     epic or a column. Re-landing snapped the reader home mid-read for a
     //     plan they could still perfectly well see (review finding; #3637).
     //   · THE PLAN ID ALONE. `landKey` carries `viewportKey`, so an in-place
     //     switch between two plans still lands — `PipelineDetail` renders this
@@ -1684,7 +1684,7 @@ export default function PipelinePlanVisualizer({
     // next delivery re-runs this effect (`size` is on its dependency list).
     // Exact equality, no tolerance: both sides are the identical value, one
     // through a ref and one through state, never two measurements compared.
-    // req #3637 — keyed on the plan and the Step Width rung, NOT the world's
+    // req #3637 — keyed on the plan and the Epic Width rung, NOT the world's
     // width: a background refetch that adds a column moves `layout.width`, and
     // re-landing on it reset the camera mid-read. Growth is handled by the
     // re-clamp in (a) below; only a new plan or a rescale lands.
@@ -1695,7 +1695,7 @@ export default function PipelinePlanVisualizer({
     // after it does whatever else did or did not change in that commit.
     const [landedKey, setLandedKey] = useState(null);
     // Which PLAN last landed — tells "arrived at a plan" (restore) apart from
-    // "this plan's Step Width changed" (the base view: the rescale is the
+    // "this plan's Epic Width changed" (the base view: the rescale is the
     // reader's explicit choice and the old camera means nothing on it).
     const landedPlanRef = useRef(null);
     // req #3688 — the layout the camera was last showing, and — once Hide
@@ -1795,7 +1795,7 @@ export default function PipelinePlanVisualizer({
             // Both branches below relocate the camera, and neither carries a
             // `sourceEvent`, so the zoom handler cannot see it — without this,
             // click an initiative name, click Width, click the same name and you land
-            // on its next launch step at 2.6× the readable default, never having
+            // on its next launch epic at 2.6× the readable default, never having
             // seen the band. At the TOP of the block so it covers both answers.
             initiativeZoomRef.current = null;
             // ── THE LANDING RESTORES THE CAMERA THE READER LEFT (req #3637) ──
@@ -1808,7 +1808,7 @@ export default function PipelinePlanVisualizer({
             //
             // This REVERSES req #3365's "the landing is the Reset view, always",
             // on the user's later instruction. What #3365 wanted is kept where it
-            // still applies: a plan never opened before (no record) and a Step
+            // still applies: a plan never opened before (no record) and an Epic
             // Width change both land on the base view, and the header's Reset is
             // one click from any camera.
             if (action === 'restore') {
@@ -1891,9 +1891,9 @@ export default function PipelinePlanVisualizer({
         factoryResetRef.current();
     }, [resetViewNonce]);
 
-    // ── FIT N STEPS ACROSS, ON THE ACTIVE STEPS (req #3498, #3648) ──────────
+    // ── FIT N EPICS ACROSS, ON THE ACTIVE EPICS (req #3498, #3648) ──────────
     // The scale and the transform are both `pipelinePlanLayout`'s (see
-    // `stepsAcrossScale` / `stepsAcrossTransform`) — this effect only drives
+    // `epicsAcrossScale` / `epicsAcrossTransform`) — this effect only drives
     // d3-zoom with the answer, so the arithmetic stays testable without a canvas
     // and the "2 is the loose one" rule lives beside the option list rather than
     // in a component.
@@ -1901,27 +1901,27 @@ export default function PipelinePlanVisualizer({
     // Through `zb.transform`, not by setting state: d3-zoom owns the gesture and
     // a transform written behind its back is reverted by the next wheel event.
     // `zb.transform` does NOT apply `scaleExtent` (only `scale()` does), so the
-    // clamp is `stepsAcrossTransform`'s, through `centreTransform`; the
+    // clamp is `epicsAcrossTransform`'s, through `centreTransform`; the
     // viewport-centre fallback is only reached on a plan with nothing placed.
     //
     // Keyed on the NONCE alone, read through a ref: `size` and the layout change
     // on every resize and every toggle, and depending on them would re-fire a
     // zoom the reader never asked for a second time.
-    const stepsAcrossRef = useRef(null);
-    stepsAcrossRef.current = () => {
+    const epicsAcrossRef = useRef(null);
+    epicsAcrossRef.current = () => {
         const el = containerEl;
         const zb = zoomRef.current;
         if (!el || !zb || !(size.w > 0)) return;
         // `layout.colPitch` — req #3503 review: the fixed scale-1 pitch
-        // under-counted every rung above Step Width 1 (measured "5 across"
+        // under-counted every rung above Epic Width 1 (measured "5 across"
         // landing at 3.27 columns at rung 4). NOT `layout.colW`, the
         // per-column array this scalar was built from.
-        const nextK = stepsAcrossScale(stepsAcross?.n, size.w, layout.colPitch);
+        const nextK = epicsAcrossScale(epicsAcross?.n, size.w, layout.colPitch);
         if (!nextK) return;
-        // req #3648 — centred on the ACTIVE steps (`activeStepIds`), not on
+        // req #3648 — centred on the ACTIVE epics (`activeEpicIds`), not on
         // wherever the viewport happens to be; the viewport centre is only the
         // fallback for a plan with nothing placed.
-        const next = stepsAcrossTransform(layout, rows, stepsAcross?.n, size,
+        const next = epicsAcrossTransform(layout, rows, epicsAcross?.n, size,
             kDefault, kZoomFloor) || zoomAboutViewportCentre(t, size, nextK);
         if (!next) return;
         // The reader moved the camera deliberately, so a pending `?initiative=` re-fit
@@ -1932,17 +1932,17 @@ export default function PipelinePlanVisualizer({
             zoomIdentity.translate(next.x, next.y).scale(next.k));
     };
     useEffect(() => {
-        if (!stepsAcross?.nonce) return;
-        stepsAcrossRef.current();
-    }, [stepsAcross?.nonce]);
+        if (!epicsAcross?.nonce) return;
+        epicsAcrossRef.current();
+    }, [epicsAcross?.nonce]);
 
     // ── THE SNAPPING WHEEL (req #3498) ──────────────────────────────────────
-    // One notch = one rung of the steps-across ladder, so the wheel and the
+    // One notch = one rung of the epics-across ladder, so the wheel and the
     // buttons land on the SAME scales rather than two sets that look alike.
     //
     // ANCHORED ON THE POINTER, not the viewport centre: that is what a wheel
     // has always done on this canvas, and snapping is a change to the SIZE of
-    // the step, not to what the gesture means. The buttons anchor at the centre
+    // the epic, not to what the gesture means. The buttons anchor at the centre
     // because a button has no pointer to speak of.
     //
     // `passive: false` and an explicit `preventDefault`, because the whole point
@@ -2007,7 +2007,7 @@ export default function PipelinePlanVisualizer({
             // the initiative chip navigated away from this page; now that the chip
             // focuses and stays, a chip parked over a bead would ALSO activate
             // the bead (it switched the page to Table mode until req #3641; it
-            // frames the step now). React's stopPropagation cannot fix it:
+            // frames the epic now). React's stopPropagation cannot fix it:
             // React 18 delegates to its root, which is an ANCESTOR of this
             // node, so this listener runs first regardless.
             if (!(e.target instanceof HTMLCanvasElement)) return;
@@ -2018,10 +2018,10 @@ export default function PipelinePlanVisualizer({
             // second click (a different initiative, or the same one again) lands on
             // BARE CANVAS at an interpolated transform. That resolves against
             // whatever bead or requirement id happens to be under the cursor at
-            // that instant and frames a step or navigates away. The
+            // that instant and frames an epic or navigates away. The
             // window is new: the chip used to leave the page immediately.
             if (focusingRef.current) return;
-            // req #3586 — an add-step "+" is resolved by geometry, not by the
+            // req #3586 — an add-epic "+" is resolved by geometry, not by the
             // stage: the marks are drawn as one non-listening shape.
             const mark = insertHitRef.current?.(e);
             if (mark) {
@@ -2037,25 +2037,25 @@ export default function PipelinePlanVisualizer({
             });
             if (node) node.fire('activate', { evt: e }, false);
         };
-        // ── STEP-TITLE PRESSES (req #3580) ─────────────────────────────────
-        // A step title is a Konva shape, so its quick-click / double-click /
+        // ── EPIC-TITLE PRESSES (req #3580) ─────────────────────────────────
+        // An epic title is a Konva shape, so its quick-click / double-click /
         // long-press gestures are resolved here, against the stage, the same
-        // way the click above is. The shape names itself with a `pressStepId`
+        // way the click above is. The shape names itself with a `pressEpicId`
         // attr. POINTER events, which d3-zoom never stops (it owns mousedown).
         //
-        // `canvasKey` is set only by a press that began ON A STEP TITLE: these
+        // `canvasKey` is set only by a press that began ON A EPIC TITLE: these
         // listeners also see pointer events bubbling up from the HTML chips,
         // whose presses the chips' own React handlers drive, and acting on
         // those here (this native listener runs first) would cancel them.
         let canvasKey = null;
-        const stepAt = (e) => {
+        const epicAt = (e) => {
             const stage = stageRef.current;
             if (!stage || !(e.target instanceof HTMLCanvasElement)) return null;
             const rect = el.getBoundingClientRect();
             const node = stage.getIntersection({
                 x: e.clientX - rect.left, y: e.clientY - rect.top,
             });
-            return node?.getAttr('pressStepId') ?? null;
+            return node?.getAttr('pressEpicId') ?? null;
         };
         const onPDown = (e) => {
             // A second finger (a pinch) ends any press the first one began —
@@ -2069,16 +2069,16 @@ export default function PipelinePlanVisualizer({
             if (e.button !== 0 || focusingRef.current) return;
             // Off the canvas is a chip — its own handlers drive the tracker.
             if (!(e.target instanceof HTMLCanvasElement)) return;
-            const stepId = stepAt(e);
-            if (stepId == null) {
+            const epicId = epicAt(e);
+            if (epicId == null) {
                 // Bare canvas: a click still waiting to see if it is a double
                 // is owed now, before this press can become a pan.
                 pressRef.current.flush();
                 return;
             }
-            canvasKey = `step-${stepId}`;
+            canvasKey = `epic-${epicId}`;
             pressRef.current.down(canvasKey, e.clientX, e.clientY,
-                stepPressRef.current(stepId));
+                epicPressRef.current(epicId));
         };
         const onPMove = (e) => {
             if (canvasKey) pressRef.current.move(e.clientX, e.clientY);
@@ -2087,8 +2087,8 @@ export default function PipelinePlanVisualizer({
             if (!canvasKey) return;
             const key = canvasKey;
             canvasKey = null;
-            const stepId = stepAt(e);
-            if (stepId != null && `step-${stepId}` === key) pressRef.current.up(key);
+            const epicId = epicAt(e);
+            if (epicId != null && `epic-${epicId}` === key) pressRef.current.up(key);
             else pressRef.current.cancel();
         };
         const onPCancel = () => {
@@ -2119,9 +2119,9 @@ export default function PipelinePlanVisualizer({
         };
     }, [containerEl]);
 
-    // ── DRAG A REQUIREMENT TO ANOTHER STEP (req #3581) ─────────────────────
+    // ── DRAG A REQUIREMENT TO ANOTHER EPIC (req #3581) ─────────────────────
     // "Clean sweet and beautiful drag and drop for requirements between the
-    // steps shown on the screen" — no drag handle: the requirement mark itself
+    // epics shown on the screen" — no drag handle: the requirement mark itself
     // is what you pick up. While it is in the air the mark it left is greyed
     // out, a full-size copy of it (a snapshot of the very Konva node, at the
     // current zoom and in its current colour) rides the cursor, the card it
@@ -2131,7 +2131,7 @@ export default function PipelinePlanVisualizer({
     // A press that never passes `REQ_DRAG_SLOP` is still a click and still opens
     // the requirement; the manual click hit-test above uses the same number.
     // Pressing near the panel edge mid-drag auto-pans (bounded by the same
-    // clamp the zoom behaviour uses), so a step off-screen is still reachable;
+    // clamp the zoom behaviour uses), so an epic off-screen is still reachable;
     // the wheel keeps zooming throughout. Escape, or the window losing focus,
     // puts the requirement back.
     //
@@ -2158,39 +2158,39 @@ export default function PipelinePlanVisualizer({
         // req #3817 — an unseat keeps the requirement's row as of the drop:
         // the box draws it from this until the junction read lists it, and the
         // plan's own read stops carrying it the moment its refetch lands.
-        if (move.toStepId == null) {
+        if (move.toEpicId == null) {
             move.req = (model?.requirements || [])
                 .find((r) => Number(r.id) === move.reqId) || null;
         }
         setPendingMoves((ms) => [...ms, move]);
         let failed = false;
         try {
-            await moveStepRequirement(darwinUri, idToken, {
+            await moveEpicRequirement(darwinUri, idToken, {
                 requirementId: move.reqId,
-                fromStepId: move.fromStepId,
-                toStepId: move.toStepId,
+                fromEpicId: move.fromEpicId,
+                toEpicId: move.toEpicId,
             });
         } catch (error) {
             failed = true;
-            // THE RESIDUAL THE JUNCTION'S KEY PERMITS (see `moveStepRequirement`):
+            // THE RESIDUAL THE JUNCTION'S KEY PERMITS (see `moveEpicRequirement`):
             // the old seat was deleted and the new one refused. On this surface
             // that would make the requirement vanish from the plan with nothing
             // left to click, so it is put back where the DELETE just proved it
             // was — a known prior state, not a guessed rollback.
             let stranded = false;
-            if (error?.seatStage === 'seat' && move.fromStepId != null) {
+            if (error?.seatStage === 'seat' && move.fromEpicId != null) {
                 try {
-                    await moveStepRequirement(darwinUri, idToken, {
-                        requirementId: move.reqId, toStepId: move.fromStepId,
+                    await moveEpicRequirement(darwinUri, idToken, {
+                        requirementId: move.reqId, toEpicId: move.fromEpicId,
                     });
                 } catch {
                     stranded = true;
                 }
             }
             showError(error, stranded
-                ? `Requirement ${move.reqId} could not be moved and is now on no step `
+                ? `Requirement ${move.reqId} could not be moved and is now on no epic `
                   + '— re-seat it from its requirement page'
-                : (move.toStepId == null
+                : (move.toEpicId == null
                     ? `Unable to un-orchestrate requirement ${move.reqId}`
                     : `Unable to move requirement ${move.reqId}`));
         }
@@ -2207,7 +2207,7 @@ export default function PipelinePlanVisualizer({
             // req #3817 — the box lists swarm-ready work only, so anything else
             // un-orchestrated leaves the plan without arriving there: say so.
             const status = move.req?.requirement_status;
-            if (move.toStepId == null && status && status !== 'swarm_ready') {
+            if (move.toEpicId == null && status && status !== 'swarm_ready') {
                 showMessage(`Requirement ${move.reqId} is no longer orchestrated. `
                     + `It is ${status}, and Orchestrables lists swarm-ready work only.`);
             }
@@ -2216,7 +2216,7 @@ export default function PipelinePlanVisualizer({
             queryClient.invalidateQueries({ queryKey: pipelineComposeKeys.byId(pipeline.id) });
         }
         queryClient.invalidateQueries({
-            queryKey: pipelineStepRequirementKeys.all(profile?.userName) });
+            queryKey: pipelineEpicRequirementKeys.all(profile?.userName) });
         queryClient.invalidateQueries({ queryKey: ['orchestration_index'] });
     }, [darwinUri, idToken, profile?.userName, pipeline?.id, queryClient, showError,
         showMessage, model?.requirements]);
@@ -2225,7 +2225,7 @@ export default function PipelinePlanVisualizer({
     // `invalidateQueries` cancels a refetch already in flight, and a cancelled
     // (or paused, or failed) refetch still RESOLVES its caller's await — so
     // clearing on that await let a second quick drop snap the first one back to
-    // its old step for a round trip (code review). Instead a written move stays
+    // its old epic for a round trip (code review). Instead a written move stays
     // until the server's rows put it on its target, or until a read that landed
     // after the write, with nothing further in flight, says otherwise (somebody
     // else moved it meanwhile — the server wins). A refetch that fails leaves
@@ -2236,14 +2236,14 @@ export default function PipelinePlanVisualizer({
     // come from the junction read, not the plan's: it is held until that read
     // has landed too, so the row never blinks out of the box between the two.
     const junctionFetching = useIsFetching({
-        queryKey: pipelineStepRequirementKeys.all(profile?.userName) });
+        queryKey: pipelineEpicRequirementKeys.all(profile?.userName) });
     useEffect(() => {
         serverRowsRef.current = plan.rows;
         const server = plan.rows || [];
         const settled = pendingMoves.filter((m) => m.writtenRows !== undefined && (
             reqMoveReflected(server, m)
             || (server !== m.writtenRows && composeFetching === 0))
-            && (m.toStepId != null || junctionFetching === 0));
+            && (m.toEpicId != null || junctionFetching === 0));
         if (settled.length) setPendingMoves((ms) => ms.filter((m) => !settled.includes(m)));
     }, [plan.rows, pendingMoves, composeFetching, junctionFetching]);
 
@@ -2276,7 +2276,7 @@ export default function PipelinePlanVisualizer({
             const r = el.getBoundingClientRect();
             return { x: e.clientX - r.left, y: e.clientY - r.top };
         };
-        // The live camera first: an auto-pan step emits its zoom event
+        // The live camera first: an auto-pan epic emits its zoom event
         // synchronously, so the ref is current before the next retarget reads
         // it, while the render-time copy in `dragWorldRef` lags one commit.
         const camera = () => liveTransformRef.current || world().t;
@@ -2308,10 +2308,10 @@ export default function PipelinePlanVisualizer({
             if (d?.phase !== 'drag' || !lastPoint) return;
             const w = world();
             // req #3817 — over the Orchestrables box, the box takes it: the
-            // drop un-orchestrates the requirement, whatever step card lies
+            // drop un-orchestrates the requirement, whatever epic card lies
             // beneath the box. Hit-tested in WINDOW coordinates, so a box
             // parked on the navbar or racked there is a target too. A locked
-            // step's requirement cannot leave it (the gateway answers 423).
+            // epic's requirement cannot leave it (the gateway answers 423).
             // The box must be what is SEEN there: racked in a navbar stack
             // that scrolls, its rect can lie under the nav buttons or past the
             // rack's visible edge, and other chrome can sit over it. The copy
@@ -2321,10 +2321,10 @@ export default function PipelinePlanVisualizer({
                 && pointInRect(lastClient.x, lastClient.y, box.getBoundingClientRect())
                 && box.contains(document.elementFromPoint?.(lastClient.x, lastClient.y) ?? null);
             if (seen) {
-                const ok = canUnseatFrom(w.rowById.get(d.fromStepId));
+                const ok = canUnseatFrom(w.rowById.get(d.fromEpicId));
                 if (d.target != null) {
                     d.target = null;
-                    setDropStepId(null);
+                    setDropEpicId(null);
                 }
                 if (!!d.unseat !== ok) {
                     d.unseat = ok;
@@ -2342,16 +2342,16 @@ export default function PipelinePlanVisualizer({
             // sight, which would take the drop with nobody having seen it lit.
             const inside = lastPoint.x >= 0 && lastPoint.y >= 0
                 && lastPoint.x <= w.size.w && lastPoint.y <= w.size.h;
-            const stepId = inside ? dropTargetAt(w.layout.nodes, toWorld(lastPoint)) : null;
-            const ok = canDropOn(w.rowById.get(stepId), d.fromStepId);
-            const next = ok ? stepId : null;
+            const epicId = inside ? dropTargetAt(w.layout.nodes, toWorld(lastPoint)) : null;
+            const ok = canDropOn(w.rowById.get(epicId), d.fromEpicId);
+            const next = ok ? epicId : null;
             if (d.target !== next) {
                 d.target = next;
-                setDropStepId(next);
+                setDropEpicId(next);
             }
-            // A card that refuses the requirement (a locked step) says so; its
+            // A card that refuses the requirement (a locked epic) says so; its
             // own home card and open canvas just keep the grab.
-            setCursor(stepId != null && stepId !== d.fromStepId && !ok
+            setCursor(epicId != null && epicId !== d.fromEpicId && !ok
                 ? 'no-drop' : 'grabbing');
         };
         const placePreview = () => {
@@ -2363,7 +2363,7 @@ export default function PipelinePlanVisualizer({
             box.style.transform =
                 `translate(${lastClient.x - d.offX}px, ${lastClient.y - d.offY}px)`;
         };
-        // Edge auto-pan, one step per frame while the pointer sits in the edge
+        // Edge auto-pan, one epic per frame while the pointer sits in the edge
         // band. Clamped BEFORE it is applied, with the zoom behaviour's own
         // bound, so a plan already at its edge costs no transform (and no
         // re-render) per frame.
@@ -2411,7 +2411,7 @@ export default function PipelinePlanVisualizer({
             d.phase = 'drag';
             d.target = null;
             setReqDrag({
-                reqId: d.reqId, fromStepId: d.fromStepId, src,
+                reqId: d.reqId, fromEpicId: d.fromEpicId, src,
                 w: r.width, h: r.height, padX: PAD_X, padY: PAD_Y,
                 x: lastClient.x - d.offX, y: lastClient.y - d.offY,
             });
@@ -2429,7 +2429,7 @@ export default function PipelinePlanVisualizer({
             lastPoint = null;
             lastClient = null;
             setReqDrag(null);
-            setDropStepId(null);
+            setDropEpicId(null);
             setDropOnBox(false);
             setCursor('grab');
         };
@@ -2488,7 +2488,7 @@ export default function PipelinePlanVisualizer({
                 phase: 'press', node,
                 pointerId: e.pointerId, pointerType: e.pointerType,
                 reqId: node.getAttr('dragReqId'),
-                fromStepId: node.getAttr('dragStepId'),
+                fromEpicId: node.getAttr('dragEpicId'),
                 down: { x: e.clientX, y: e.clientY },
                 travel: 0,
             };
@@ -2511,7 +2511,7 @@ export default function PipelinePlanVisualizer({
                 if (reqDragRef.current !== d) return;
                 if (d.pointerType === 'touch') { d.heldLong = true; return; }
                 if (d.phase !== 'press' || !stillHeld(d.travel)) return;
-                if (reqLongPressRef.current?.(d.reqId, d.fromStepId, d.down)) cancel(d);
+                if (reqLongPressRef.current?.(d.reqId, d.fromEpicId, d.down)) cancel(d);
             }, LONG_PRESS_MS);
             reqDragRef.current = d;
         };
@@ -2550,7 +2550,7 @@ export default function PipelinePlanVisualizer({
             // and the requirement is put back. Neither a drop nor a click.
             const travel = Math.max(d.travel, Math.hypot(e.clientX - d.down.x, e.clientY - d.down.y));
             if (d.heldLong && stillHeld(travel) && d.phase !== 'cancelled'
-                && reqLongPressRef.current?.(d.reqId, d.fromStepId,
+                && reqLongPressRef.current?.(d.reqId, d.fromEpicId,
                     { x: e.clientX, y: e.clientY })) {
                 if (d.phase === 'drag') finish();
                 reqDragRef.current = null;
@@ -2564,14 +2564,14 @@ export default function PipelinePlanVisualizer({
             lastPoint = panelPoint(e);
             lastClient = { x: e.clientX, y: e.clientY };
             retarget();
-            const toStepId = d.target;
+            const toEpicId = d.target;
             const unseat = !!d.unseat;
             finish();
             if (unseat) {
                 // req #3817 — dropped on the Orchestrables box: off the plan.
-                world().commit({ reqId: d.reqId, fromStepId: d.fromStepId, toStepId: null });
-            } else if (toStepId != null) {
-                world().commit({ reqId: d.reqId, fromStepId: d.fromStepId, toStepId });
+                world().commit({ reqId: d.reqId, fromEpicId: d.fromEpicId, toEpicId: null });
+            } else if (toEpicId != null) {
+                world().commit({ reqId: d.reqId, fromEpicId: d.fromEpicId, toEpicId });
             }
         };
         // The browser took the pointer away (a system gesture): no drop.
@@ -2667,20 +2667,20 @@ export default function PipelinePlanVisualizer({
     // unconditional animation would redraw the whole layer at ~60fps on every
     // completed pipeline.
     const hasRunning = useMemo(
-        () => rows.some((r) => r.state === STEP_RUNNING), [rows]);
-    // The next steps — the ones the engine says are launchable right now. Their
+        () => rows.some((r) => r.state === EPIC_RUNNING), [rows]);
+    // The next epics — the ones the engine says are launchable right now. Their
     // halo breathes on the SAME animation as the running pulse (req #3168): a
     // second Konva.Animation on one Layer would redraw it twice per frame for no
     // extra information, and the two marks stay distinguishable because they are
     // driven on different curves — the running bead fades to 45%, the halo only
-    // to 25% and half as fast, so a running step and a next step never read as
+    // to 25% and half as fast, so a running epic and a next epic never read as
     // the same rhythm.
-    // Whether ANY step is launchable — that is all the animation needs. There was
+    // Whether ANY epic is launchable — that is all the animation needs. There was
     // a bottom-left readout naming the ids too; removed on the user's directive
     // (2026-08-01), so nothing builds the list any more. The halo is the whole
-    // mark: it says which steps, on the steps themselves.
+    // mark: it says which epics, on the epics themselves.
     const hasNext = useMemo(
-        () => rows.some((r) => eligibleStepIds.has(r.id)), [rows, eligibleStepIds]);
+        () => rows.some((r) => eligibleEpicIds.has(r.id)), [rows, eligibleEpicIds]);
     useEffect(() => {
         const layer = layerRef.current;
         if (!layer || (!hasRunning && !hasNext)) return undefined;
@@ -2743,7 +2743,7 @@ export default function PipelinePlanVisualizer({
     // Every label kind asks this and nothing else, and the container publishes
     // the answer as `data-drawn`. Two reasons, both learned here:
     //
-    //   · The canvas is a bitmap, so "Overview omits step labels" is otherwise
+    //   · The canvas is a bitmap, so "Overview omits epic labels" is otherwise
     //     unfalsifiable — a screenshot at L1 looks the same whether the labels
     //     are there or not unless you already have the other version to
     //     compare against, and a test that pins L1 twice and compares proves
@@ -2765,14 +2765,14 @@ export default function PipelinePlanVisualizer({
     const drawsKind = (kind) => drawsLabelKind(kind, level);
     // req #3661 — only where the title is DRAWN (L3): at L1/L2 the row is the
     // bare id, and an editor there would be editing text the reader cannot see.
-    reqLongPressRef.current = (reqId, stepId, at = null) => {
+    reqLongPressRef.current = (reqId, epicId, at = null) => {
         if (level !== 'in' || !drawsKind('req')) return false;
         if (!layout.labels.some((l) => l.kind === 'req' && l.reqId === reqId
-            && l.stepId === stepId)) return false;
-        setReqEdit({ reqId, stepId, saving: false, at });
+            && l.epicId === epicId)) return false;
+        setReqEdit({ reqId, epicId, saving: false, at });
         return true;
     };
-    const drawnKinds = ['step', 'req', 'title', 'badge', 'barrier']
+    const drawnKinds = ['epic', 'req', 'title', 'badge', 'barrier']
         .filter(drawsKind).join(',');
 
     // Report the level being rendered so the toolbar's selector can softly mark
@@ -2795,14 +2795,14 @@ export default function PipelinePlanVisualizer({
     // the ruler's excess, because that is what `resetView` applies (req #3648).
     const t = transform || { x: 0, y: yFactoryDefault, k: kFactoryDefault };
 
-    // ── The add-step marks' geometry (req #3586) ────────────────────────────
+    // ── The add-epic marks' geometry (req #3586) ────────────────────────────
     // PLACED once per LAYOUT (at the largest radius, so spacing holds at every
     // zoom), never per frame or per zoom: the camera lives in state, so the
     // render body runs on every pan and zoom event. Only the DRAWN radius
     // follows the zoom, and that is a number the scene function and the hit
     // test read. Drawn only where the cards are — the same predicate as the
-    // step label (`labelsDrawn` below).
-    const insertDrawn = drawsLabelKind('step', level);
+    // epic label (`labelsDrawn` below).
+    const insertDrawn = drawsLabelKind('epic', level);
     const insertR = insertMarkRadius(curK);
     const insertRRef = useRef(insertR);
     insertRRef.current = insertR;
@@ -2920,7 +2920,7 @@ export default function PipelinePlanVisualizer({
     //
     // THE CAMERA MOVE ITSELF is `applyFocus` (extracted req #3253): a transform,
     // a transition and four flags, identical whether the target is a band or one
-    // step. Only the GEOMETRY differs between the two callers, and the flag
+    // epic. Only the GEOMETRY differs between the two callers, and the flag
     // discipline below — which took two review findings to get right — must never
     // exist in two copies.
     //
@@ -2999,7 +2999,7 @@ export default function PipelinePlanVisualizer({
     // Req #3310 put an effect here that read the live camera and, when the
     // pinned level named something the scale could not draw, zoomed to the
     // smallest scale that could — on a click AND on every landing, with a flag
-    // apiece for persist/animate and a stand-aside for `?initiative=`/`?step=` links.
+    // apiece for persist/animate and a stand-aside for `?initiative=`/`?epic=` links.
     // All of it existed to rescue a chip that `drawsLabelKind`'s legibility AND
     // had made inert. #3324 honours the pin instead, so the whole mechanism is
     // deleted: no `pinAppliedRef`, no `levelPrefFromLink` prop, and no third
@@ -3008,12 +3008,12 @@ export default function PipelinePlanVisualizer({
     // and what makes PIPE-16's "pinning must not move the camera" true at every
     // scale rather than only at the ones the correction declined to fire on.
 
-    // ── THE SECOND STOP: THE NEXT LAUNCH STEP (req #3297, #3371) ────────────
+    // ── THE SECOND STOP: THE NEXT LAUNCH EPIC (req #3297, #3371) ────────────
     // NO NEW GEOMETRY FUNCTION. This used to call a third fit of its own,
-    // framing the dashed launch-unit rectangle; req #3371 made the STEP the
-    // launch unit, so the second stop re-points at `stepFocusTransform` — req
-    // #3253's, already here for the `?step=` deep link. A single step is
-    // framed by a STATED scale (`STEP_FOCUS_STEPS_ACROSS`); a SET of two or
+    // framing the dashed launch-unit rectangle; req #3371 made the EPIC the
+    // launch unit, so the second stop re-points at `epicFocusTransform` — req
+    // #3253's, already here for the `?epic=` deep link. A single epic is
+    // framed by a STATED scale (`EPIC_FOCUS_EPICS_ACROSS`); a SET of two or
     // more is a TIGHT fit — `FOCUS_PAD` screen px on whichever axis binds,
     // nothing proportional (req #3503) — with no third function needed for
     // either.
@@ -3024,33 +3024,33 @@ export default function PipelinePlanVisualizer({
     // only ever reached by the reader clicking, so it always persists (item 5),
     // and a parameter whose one legal value is the default is a way to get it
     // wrong later.
-    // req #3365 — a SET of steps, not one. `stepsFocusTransform` is what
-    // `stepFocusTransform` is now built on, so a one-step initiative frames exactly
-    // as the single-step focus always did.
+    // req #3365 — a SET of epics, not one. `epicsFocusTransform` is what
+    // `epicFocusTransform` is now built on, so a one-epic initiative frames exactly
+    // as the single-epic focus always did.
     // req #3685 — the band rides along so the work stop's spare room is spent
     // on the initiative's own cards, not on whatever lies beside the open work.
-    const focusInitiativeWork = useCallback((band, stepIds) => applyFocus(
-        initiativeWorkFocusTransform(layout, band, stepIds, size, kDefault, kZoomFloor)),
+    const focusInitiativeWork = useCallback((band, epicIds) => applyFocus(
+        initiativeWorkFocusTransform(layout, band, epicIds, size, kDefault, kZoomFloor)),
     [applyFocus, layout, size, kDefault, kZoomFloor]);
 
-    // Which STEP each band's SECOND click goes to — computed once per layout
+    // Which EPIC each band's SECOND click goes to — computed once per layout
     // rather than per click, because the initiative chips also need it to say what
     // they do (the `title`/`aria-label` below) and a control that named one
-    // step and zoomed to another would be worse than one that named none.
-    // `null` for a band with no next launch step, which is what keeps that
+    // epic and zoomed to another would be worse than one that named none.
+    // `null` for a band with no next launch epic, which is what keeps that
     // band's clicks on the level-1 fit instead of reaching for a transform that
     // would come back null.
     const initiativeWorkByInitiative = useMemo(() => {
         const m = new Map();
         for (const band of layout.bands) {
-            m.set(initiativeCycleKey(band), initiativeWorkStepIds(rows, layout, band));
+            m.set(initiativeCycleKey(band), initiativeWorkEpicIds(rows, layout, band));
         }
         return m;
     }, [layout, rows]);
 
     // WHERE THE CYCLE LIVES: a ref, not state. Nothing on screen is a function
     // of it — the camera is moved by d3, the chip's label is a function of the
-    // LAYOUT (which step is next), not of where the reader currently is — so
+    // LAYOUT (which epic is next), not of where the reader currently is — so
     // holding it in state would re-render the whole canvas on every click for
     // no visible difference. It is also why the cycle is a pure function in
     // `pipelineInitiativeZoom.js`: a ref is invisible to a test, and the rules are the
@@ -3065,10 +3065,10 @@ export default function PipelinePlanVisualizer({
     //
     // The initiative name's activation — one function behind both the click and the
     // Enter/Space handler, so keyboard parity is structural rather than a second
-    // copy that has to be kept in step.
+    // copy that has to be kept in epic.
     // `deep` (req #3580, "double click to double zoom") skips the band stop and
-    // asks for the step stop directly — the same floor applies, so a band with
-    // no next step still lands on its band fit.
+    // asks for the epic stop directly — the same floor applies, so a band with
+    // no next epic still lands on its band fit.
     const activateInitiativeName = useCallback((band, { deep = false } = {}) => {
         // A FOLDED initiative has no cards to zoom to (req #3650), so its name
         // unfolds it instead of doing nothing; the next click zooms as usual.
@@ -3082,17 +3082,17 @@ export default function PipelinePlanVisualizer({
         const key = initiativeZoomStateKey(pipeline?.id, band);
         const workIds = initiativeWorkByInitiative.get(initiativeCycleKey(band)) || [];
         const next = deep && workIds.length > 0
-            ? INITIATIVE_ZOOM_STEP
+            ? INITIATIVE_ZOOM_EPIC
             : nextInitiativeZoom(initiativeZoomRef.current, key, workIds.length > 0);
-        // THE STEP MOVE IS ATTEMPTED, THE BAND MOVE IS THE FLOOR (code review).
-        // If the step fit comes back null — the two halves disagreeing, or a
+        // THE EPIC MOVE IS ATTEMPTED, THE BAND MOVE IS THE FLOOR (code review).
+        // If the epic fit comes back null — the two halves disagreeing, or a
         // container not ready — the level would never advance and every further
-        // click would retry the same failing step, with the band fit
+        // click would retry the same failing epic, with the band fit
         // unreachable. Falling through to the band makes the control
         // self-healing: something always happens, and the cycle is never stuck
         // at a level the camera is not actually on.
         let level = next;
-        let moved = next === INITIATIVE_ZOOM_STEP && focusInitiativeWork(band, workIds);
+        let moved = next === INITIATIVE_ZOOM_EPIC && focusInitiativeWork(band, workIds);
         if (!moved) {
             level = INITIATIVE_ZOOM_BAND;
             moved = focusInitiative(band);
@@ -3101,23 +3101,23 @@ export default function PipelinePlanVisualizer({
     }, [initiativeWorkByInitiative, focusInitiativeWork, focusInitiative, pipeline?.id, toggleInitiativeFold, layout]);
 
     // ── IN-PLACE EDIT (req #3580) ───────────────────────────────────────────
-    // Three edits, straight from the canvas: an initiative's NAME, a step's NAME, and
-    // a step's RUN mode. Each writes ONE column through the same helper the
-    // Initiatives / Steps editors use, then re-reads the composed plan — the canvas
+    // Three edits, straight from the canvas: an initiative's NAME, an epic's NAME, and
+    // an epic's RUN mode. Each writes ONE column through the same helper the
+    // Initiatives / Epics editors use, then re-reads the composed plan — the canvas
     // never patches its own copy, so what it draws next is the server's answer.
     //
-    // `{ key, saving }` / `{ stepId, saving }` — which editor is open, and
+    // `{ key, saving }` / `{ epicId, saving }` — which editor is open, and
     // whether its write is in flight (the input goes read-only rather than
     // vanishing, so a slow save does not look like a dropped one).
     // (`idToken`, `darwinUri`, `queryClient`, `showError` are declared once at
     // the top of the component — req #3581's drag-and-drop needs them too.)
     const [initiativeEdit, setInitiativeEdit] = useState(null);
-    const [stepEdit, setStepEdit] = useState(null);
-    // stepId -> the run mode being written. Drawn in place of the stored one
+    const [epicEdit, setEpicEdit] = useState(null);
+    // epicId -> the run mode being written. Drawn in place of the stored one
     // until the re-read lands, so the circle answers the click immediately.
     const [runPending, setRunPending] = useState(() => new Map());
 
-    // The plan's own read, plus the two list caches the Initiatives and Steps pages
+    // The plan's own read, plus the two list caches the Initiatives and Epics pages
     // render from — a rename here must not leave either of them stale.
     const refreshPlan = useCallback(() => {
         const creatorFk = profile?.userName;
@@ -3127,15 +3127,15 @@ export default function PipelinePlanVisualizer({
                     queryKey: pipelineComposeKeys.byId(pipeline.id) }),
             creatorFk && queryClient.invalidateQueries({ queryKey: initiativeKeys.all(creatorFk) }),
             creatorFk && queryClient.invalidateQueries({
-                queryKey: pipelineStepKeys.all(creatorFk) }),
+                queryKey: pipelineEpicKeys.all(creatorFk) }),
         ]);
     }, [queryClient, pipeline?.id, profile?.userName]);
 
     // ── THE SINGLE EDITOR, OVER THE CANVAS (req #3742) ─────────────────────
-    // User directives: "single click of initiative and step to take you to the single
+    // User directives: "single click of initiative and epic to take you to the single
     // editor", then "can it just popup over the visualizer instead of switch to
-    // the card view?". So a click opens the SAME dialog the Steps / Initiatives pages
-    // use (`StepEditDialog`, `InitiativeEditDialog`) right here, seeded from rows this
+    // the card view?". So a click opens the SAME dialog the Epics / Initiatives pages
+    // use (`EpicEditDialog`, `InitiativeEditDialog`) right here, seeded from rows this
     // canvas already holds — the composed read carries every field the dialogs
     // edit, so no read is added — and a save re-reads the plan. `key` changes
     // per open so the form seeds afresh; `kind` outlives the close so the exit
@@ -3143,7 +3143,7 @@ export default function PipelinePlanVisualizer({
     const [planEditor, setPlanEditor] = useState({ key: 0, open: false, kind: null, target: null });
     // When it opened: the second click of a quick double click on the title
     // area lands on the dialog's backdrop, which must not close it at once (the
-    // add-step dialog's `insertOpenedAtRef` rule).
+    // add-epic dialog's `insertOpenedAtRef` rule).
     const planEditorOpenedAtRef = useRef(0);
     const openPlanEditor = useCallback((what, id) => {
         let target = null;
@@ -3154,7 +3154,7 @@ export default function PipelinePlanVisualizer({
             if (row) {
                 target = {
                     id: row.id, initiative_fk: row.initiativeId, title: row.title, notes: row.notes,
-                    // A run-mode write still in flight is the mode the step
+                    // A run-mode write still in flight is the mode the epic
                     // has; seeding the stored one would revert it on Save.
                     run: runPending.get(row.id) ?? row.run,
                     not_before: row.timeDeps?.[0] ?? null,
@@ -3173,7 +3173,7 @@ export default function PipelinePlanVisualizer({
         setPlanEditor((ed) => ({ ...ed, open: false }));
     }, []);
 
-    // One commit path for every name — initiative, step and (req #3661) requirement
+    // One commit path for every name — initiative, epic and (req #3661) requirement
     // title. An unchanged name closes the editor
     // without a write; a refused one says why and keeps the stored name.
     //
@@ -3183,7 +3183,7 @@ export default function PipelinePlanVisualizer({
     // `setEdit` would mark, or close, the editor the reader just asked for.
     const commitTitle = useCallback(async ({ current, raw, setEdit, editState, write, what }) => {
         const mine = (cur) => !!cur && cur.key === editState.key
-            && cur.stepId === editState.stepId && cur.reqId === editState.reqId;
+            && cur.epicId === editState.epicId && cur.reqId === editState.reqId;
         const close = () => setEdit((cur) => (mine(cur) ? null : cur));
         const next = String(raw ?? '').trim();
         if (next === current) { close(); return; }
@@ -3222,16 +3222,16 @@ export default function PipelinePlanVisualizer({
         });
     }, [commitTitle, darwinUri, idToken, refuseIfLocked]);
 
-    const commitStepTitle = useCallback((row, raw) => {
-        if (refuseIfLocked('step', row.lockedBy)) { setStepEdit(null); return undefined; }
+    const commitEpicTitle = useCallback((row, raw) => {
+        if (refuseIfLocked('epic', row.lockedBy)) { setEpicEdit(null); return undefined; }
         return commitTitle({
-            current: row.title || '', raw, what: 'step',
-            setEdit: setStepEdit, editState: { stepId: row.id },
-            write: (title) => updateStep(darwinUri, idToken, row.id, { title }),
+            current: row.title || '', raw, what: 'epic',
+            setEdit: setEpicEdit, editState: { epicId: row.id },
+            write: (title) => updateEpic(darwinUri, idToken, row.id, { title }),
         });
     }, [commitTitle, darwinUri, idToken, refuseIfLocked]);
 
-    // req #3649 — ONE write path for the step's two flags and the three locks:
+    // req #3649 — ONE write path for the epic's two flags and the three locks:
     // write, re-read, surface the gateway's own refusal. The lock toggle is the
     // one authoring write a locked row still accepts (it is how a lock is
     // lifted), so it never asks `refuseIfLocked` — except when the lock is an
@@ -3247,10 +3247,10 @@ export default function PipelinePlanVisualizer({
     }, [refreshPlan, showError]);
 
     const toggleBarrier = useCallback((row) => {
-        if (refuseIfLocked('step', row.lockedBy)) return;
-        writeFlag(() => updateStep(darwinUri, idToken, row.id,
+        if (refuseIfLocked('epic', row.lockedBy)) return;
+        writeFlag(() => updateEpic(darwinUri, idToken, row.id,
             { checkpoint: row.checkpoint === false ? 1 : 0 }),
-        'Could not change the step barrier flag');
+        'Could not change the epic barrier flag');
     }, [writeFlag, refuseIfLocked, darwinUri, idToken]);
 
     const toggleInitiativeLock = useCallback((band) => {
@@ -3275,11 +3275,11 @@ export default function PipelinePlanVisualizer({
         out.delete(reqId);
         return out;
     }), []);
-    const commitReqTitle = useCallback(async (reqId, stepId, raw, opened) => {
+    const commitReqTitle = useCallback(async (reqId, epicId, raw, opened) => {
         try {
             await commitTitle({
                 current: opened, raw, what: 'requirement',
-                setEdit: setReqEdit, editState: { reqId, stepId },
+                setEdit: setReqEdit, editState: { reqId, epicId },
                 write: async (title) => {
                     await updateRequirementTitle(darwinUri, idToken, reqId, title);
                     if (profile?.userName) {
@@ -3296,20 +3296,20 @@ export default function PipelinePlanVisualizer({
 
     // The run circle's click. A second click while the first write is in flight
     // is ignored rather than queued — it would race the first one's re-read.
-    const toggleRun = useCallback(async (stepId, current) => {
-        if (runPending.has(stepId)) return;
-        if (refuseIfLocked('step', rowById.get(stepId)?.lockedBy)) return;
+    const toggleRun = useCallback(async (epicId, current) => {
+        if (runPending.has(epicId)) return;
+        if (refuseIfLocked('epic', rowById.get(epicId)?.lockedBy)) return;
         const next = current === 'manual' ? 'auto' : 'manual';
-        setRunPending((m) => new Map(m).set(stepId, next));
+        setRunPending((m) => new Map(m).set(epicId, next));
         try {
-            await updateStep(darwinUri, idToken, stepId, { run: next });
+            await updateEpic(darwinUri, idToken, epicId, { run: next });
             await refreshPlan();
         } catch (err) {
-            showError(err, 'Could not change the step run mode');
+            showError(err, 'Could not change the epic run mode');
         } finally {
             setRunPending((m) => {
                 const out = new Map(m);
-                out.delete(stepId);
+                out.delete(epicId);
                 return out;
             });
         }
@@ -3323,17 +3323,17 @@ export default function PipelinePlanVisualizer({
     if (!pressRef.current) pressRef.current = createPressTracker();
     useEffect(() => () => pressRef.current?.dispose(), []);
 
-    // A STEP TITLE's three gestures. Read through a ref by the native canvas
+    // A EPIC TITLE's three gestures. Read through a ref by the native canvas
     // listeners (bound once per container), so they always see this render's
-    // layout and camera. A quick click opens the step's single editor (req
-    // #3742 — it framed the step until then); a double click frames it at
-    // twice the `?step=` deep link's own framing, about the same centre. A
+    // layout and camera. A quick click opens the epic's single editor (req
+    // #3742 — it framed the epic until then); a double click frames it at
+    // twice the `?epic=` deep link's own framing, about the same centre. A
     // long press opens the name's in-place editor.
-    const stepPressRef = useRef(null);
-    stepPressRef.current = (stepId) => ({
-        onClick: () => openPlanEditor('step', stepId),
+    const epicPressRef = useRef(null);
+    epicPressRef.current = (epicId) => ({
+        onClick: () => openPlanEditor('epic', epicId),
         onDoubleClick: () => {
-            const tr = stepFocusTransform(layout, stepId, size, kDefault, kZoomFloor);
+            const tr = epicFocusTransform(layout, epicId, size, kDefault, kZoomFloor);
             if (!tr) return;
             initiativeZoomRef.current = null;
             const k2 = Math.min(kDefault * ZOOM_MAX_RATIO, tr.k * 2);
@@ -3341,7 +3341,7 @@ export default function PipelinePlanVisualizer({
         },
         // `at` — the press point, where the editor puts its caret (req #3665).
         onLongPress: (at) => {
-            setStepEdit({ stepId, saving: false, at });
+            setEpicEdit({ epicId, saving: false, at });
         },
     });
 
@@ -3420,13 +3420,13 @@ export default function PipelinePlanVisualizer({
         // req #3651 — a cleared focus forgets it was applied, so a LATER link
         // to the same initiative on this same canvas flies again.
         if (focusInitiativeId == null) { initiativeFocusAppliedRef.current = null; return; }
-        // Req #3253 — a named STEP is the more specific request and wins, exactly
+        // Req #3253 — a named EPIC is the more specific request and wins, exactly
         // as it does in `PipelineDetail`'s `linkView`. Without this a URL
         // carrying both parameters would start two camera transitions in one
         // commit, and the loser would be pre-empted mid-flight.
-        if (focusStepId != null) return;
+        if (focusEpicId != null) return;
         if (userMovedCameraRef.current) return;
-        // req #3651 — NOT BEFORE THE LANDING. See the step twin below.
+        // req #3651 — NOT BEFORE THE LANDING. See the epic twin below.
         if (landedKey !== landKey) return;
         // The SAME readiness guard the landing effect takes (req #3312). Without
         // it the two desynchronise at mount: this would start its 420ms ease
@@ -3453,28 +3453,28 @@ export default function PipelinePlanVisualizer({
                 key: initiativeZoomStateKey(pipeline?.id, band), level: INITIATIVE_ZOOM_BAND,
             };
         }
-    }, [focusInitiativeId, focusStepId, pipeline?.id, size, layout, focusInitiative, sizeSettled,
+    }, [focusInitiativeId, focusEpicId, pipeline?.id, size, layout, focusInitiative, sizeSettled,
         landKey, landedKey]);
 
-    // Req #3253 — the mount-time end of the `?step=` deep link, in PLAN mode.
+    // Req #3253 — the mount-time end of the `?epic=` deep link, in PLAN mode.
     //
     // EVERY rule the `?initiative=` effect above works out applies here unchanged, and
     // this is deliberately its twin rather than a variation: keyed on the
-    // MEASURED SIZE as well as the (plan, step) pair so the panel's second sizing
+    // MEASURED SIZE as well as the (plan, epic) pair so the panel's second sizing
     // re-fits rather than being recorded as done; abandoned the moment
     // `userMovedCameraRef` says the reader has taken the wheel; `persist: false`,
     // which since req #3637 only means "not the reader's own gesture" — the
     // camera it lands on is saved, and the link is consumed once upstream. Read those comments for the reasoning; the only
-    // thing that differs here is `stepFocusTransform` in place of the band fit.
+    // thing that differs here is `epicFocusTransform` in place of the band fit.
     //
-    // A STEP LINK BEATS AN INITIATIVE LINK, matching `PipelineDetail`'s own precedence
-    // (`linkView`: a named step is the more specific request). They cannot both
+    // A EPIC LINK BEATS AN INITIATIVE LINK, matching `PipelineDetail`'s own precedence
+    // (`linkView`: a named epic is the more specific request). They cannot both
     // apply in the same landing — the guard below is what stops one camera move
     // interrupting the other's transition mid-flight if a hand-written URL
     // carries both parameters.
-    const stepFocusAppliedRef = useRef(null);
+    const epicFocusAppliedRef = useRef(null);
     useEffect(() => {
-        if (focusStepId == null) { stepFocusAppliedRef.current = null; return; }  // its twin's reason
+        if (focusEpicId == null) { epicFocusAppliedRef.current = null; return; }  // its twin's reason
         if (userMovedCameraRef.current) return;
         // ── NOT BEFORE THE LANDING (req #3651) ──────────────────────────────
         // The landing is this canvas's FIRST camera write — restore or base
@@ -3487,45 +3487,45 @@ export default function PipelinePlanVisualizer({
         // is state the landing sets, so this re-runs in the commit after it.
         if (landedKey !== landKey) return;
         if (!sizeSettled()) return;                      // the twin's guard, req #3312
-        const key = `${pipeline?.id}:${focusStepId}:${size.w}x${size.h}`;
-        if (stepFocusAppliedRef.current === key) return;
-        const tr = stepFocusTransform(layout, focusStepId, size, kDefault, kZoomFloor);
+        const key = `${pipeline?.id}:${focusEpicId}:${size.w}x${size.h}`;
+        if (epicFocusAppliedRef.current === key) return;
+        const tr = epicFocusTransform(layout, focusEpicId, size, kDefault, kZoomFloor);
         if (!tr) return;
-        if (applyFocus(tr, { persist: false })) stepFocusAppliedRef.current = key;
-    }, [focusStepId, pipeline?.id, size, layout, kDefault, kZoomFloor, applyFocus,
+        if (applyFocus(tr, { persist: false })) epicFocusAppliedRef.current = key;
+    }, [focusEpicId, pipeline?.id, size, layout, kDefault, kZoomFloor, applyFocus,
         sizeSettled, landKey, landedKey]);
 
     // Req #3235 code review — the resolved pipeline can legitimately hold no
     // band for this initiative: the resolver answers "which pipeline hosts any of
-    // this initiative's requirements", but a band is keyed on each STEP's DOMINANT
-    // initiative (design rule 10), so an initiative that never dominates a step of the
+    // this initiative's requirements", but a band is keyed on each EPIC's DOMINANT
+    // initiative (design rule 10), so an initiative that never dominates an epic of the
     // resolved pipeline has no band here even though the resolution was
     // correct. By the time this component has mounted, PipelineDetail's
     // `isLoading` gate has already cleared and `layout` is final — so a miss
     // here is a terminal fact, not a still-loading one, and needs to say so
     // rather than silently landing on the default view (the dead-link outcome
     // the requirement text rules out, arrived at from the other direction).
-    const focusInitiativeNotOnPlan = focusInitiativeId != null && focusStepId == null
+    const focusInitiativeNotOnPlan = focusInitiativeId != null && focusEpicId == null
         && !layout.bands.some((b) => b.initiativeId === focusInitiativeId);
 
-    // Req #3253 — the same terminal fact for a named STEP, and reachable by more
-    // than a typo: the requirement page resolves the step and the pipeline from
-    // separate reads, so a step DROPPED from the plan between the two renders a
+    // Req #3253 — the same terminal fact for a named EPIC, and reachable by more
+    // than a typo: the requirement page resolves the epic and the pipeline from
+    // separate reads, so an epic DROPPED from the plan between the two renders a
     // link whose ids are each individually valid. By the time this component has
     // mounted `layout` is final, so a miss here is settled rather than pending —
     // and saying so beats a default view with no explanation for why nothing
-    // moved. Deliberately keyed on the LAYOUT, not on the transform: a step that
+    // moved. Deliberately keyed on the LAYOUT, not on the transform: an epic that
     // is on the plan but could not be fit (a zero-size container mid-mount) is
     // still going to focus on the next render, and must not flash this.
-    // The PLAN's rows, not the layout's nodes (req #3650): a step inside a
+    // The PLAN's rows, not the layout's nodes (req #3650): an epic inside a
     // folded initiative has no node and is still on this plan.
-    const focusStepNotOnPlan = focusStepId != null && !rowById.has(focusStepId);
+    const focusEpicNotOnPlan = focusEpicId != null && !rowById.has(focusEpicId);
 
     if (!rows.length) {
         return (
             <Box>
                 <OrderViolationsAlert plan={plan} />
-                <EmptyPlanAddStep model={model} pipeline={pipeline}
+                <EmptyPlanAddEpic model={model} pipeline={pipeline}
                                   testId="pipeline-plan-viz-empty" />
             </Box>
         );
@@ -3557,7 +3557,7 @@ export default function PipelinePlanVisualizer({
     //
     // req #3272 put the legibility floor on the FONT (11px) and derives the box
     // from it, so the name no longer shrinks to ~6.9px and is no longer DROPPED
-    // when the initiative lane cannot hold it — it draws over the first row of step
+    // when the initiative lane cannot hold it — it draws over the first row of epic
     // labels on its 60%-opaque panel instead. Three consequences reach this file,
     // none of them a change to what this component does:
     //
@@ -3580,7 +3580,7 @@ export default function PipelinePlanVisualizer({
     // never moved with req #3119's +25% type scale, and a placement pass reading
     // a 22%-short width lets the name hang past the edge it was clamped to.
     // The sx block below is the other half of that contract — its `fontSize` and
-    // padding must stay in step with the module's constants.
+    // padding must stay in epic with the module's constants.
     const floatingInitiatives = placeInitiativeChips({
         bands: drawLayout.bands,
         transform: t,
@@ -3624,8 +3624,8 @@ export default function PipelinePlanVisualizer({
     // A box row is a dnd-kit draggable (req #3665 — it was a native HTML5 drag,
     // which touch browsers do not drive): it lifts on the shared press timeline,
     // the shared DragOverlay carries a copy of it, and the drop is answered by
-    // a CUSTOM collision detection — the step cards are Konva shapes, not DOM
-    // droppables, so "what is under the pointer" is the canvas's own step hit
+    // a CUSTOM collision detection — the epic cards are Konva shapes, not DOM
+    // droppables, so "what is under the pointer" is the canvas's own epic hit
     // test, the point projected through the SAME live transform the world Group
     // is drawn with and tested against the layout's own card frames.
     //
@@ -3638,7 +3638,7 @@ export default function PipelinePlanVisualizer({
             && !target?.closest?.('[data-testid="pipeline-viz-badge-layer"]')) return true;
         return false;
     };
-    // The step a client point would seat onto, judged by what lies UNDER it:
+    // The epic a client point would seat onto, judged by what lies UNDER it:
     // never the drag preview riding the pointer, and — for the whole box
     // carried by its title bar (`throughBox`) — never the box either, since the
     // card it is aimed at is beneath it. A single row's drop over the box is
@@ -3665,7 +3665,7 @@ export default function PipelinePlanVisualizer({
         });
     };
     const sameTarget = (a, b) => (a === b)
-        || (!!a && !!b && a.stepId === b.stepId && a.ok === b.ok);
+        || (!!a && !!b && a.epicId === b.epicId && a.ok === b.ok);
     // The collision detection dnd-kit calls on every pointer frame. Its answer
     // carries the resolved target, so the move and drop handlers need not ask
     // again; the pointer is kept so a camera move under a still pointer (a
@@ -3675,7 +3675,7 @@ export default function PipelinePlanVisualizer({
         if (active?.data?.current?.type !== UNSEATED_DRAG_TYPE || !p) return [];
         rowPointerRef.current = { x: p.x, y: p.y };
         const target = seatTargetAtPoint(p.x, p.y, false);
-        return target ? [{ id: `seat-step-${target.stepId}`, data: { target } }] : [];
+        return target ? [{ id: `seat-epic-${target.epicId}`, data: { target } }] : [];
     };
     const onUnseatDragMove = (event) => {
         if (event.active?.data?.current?.type !== UNSEATED_DRAG_TYPE) return;
@@ -3704,26 +3704,26 @@ export default function PipelinePlanVisualizer({
         setPendingSeats((prev) => new Set(prev).add(reqId));
         // req #3817 — just un-orchestrated from the canvas (its DELETE is
         // written, or the row could not be lifted): the unseat no longer
-        // describes it. It becomes a move to the step it now joins, so the
-        // canvas draws it there at once — not back on its old step while the
+        // describes it. It becomes a move to the epic it now joins, so the
+        // canvas draws it there at once — not back on its old epic while the
         // plan's read still lists it — and settles the same way a move does.
         const unseat = dragWorldRef.current?.pendingMoves
-            .find((m) => m.toStepId == null && m.reqId === reqId);
+            .find((m) => m.toEpicId == null && m.reqId === reqId);
         const carried = unseat
-            ? { reqId, fromStepId: unseat.fromStepId, toStepId: target.stepId } : null;
+            ? { reqId, fromEpicId: unseat.fromEpicId, toEpicId: target.epicId } : null;
         if (carried) setPendingMoves((ms) => ms.map((m) => (m === unseat ? carried : m)));
-        const junctionKey = pipelineStepRequirementKeys.all(profile?.userName);
+        const junctionKey = pipelineEpicRequirementKeys.all(profile?.userName);
         try {
-            // The one seat write (`moveStepRequirement`, req #3581) with no
-            // `fromStepId`: a requirement in this box has no seat to vacate
+            // The one seat write (`moveEpicRequirement`, req #3581) with no
+            // `fromEpicId`: a requirement in this box has no seat to vacate
             // (the junction keys on `requirement_fk` alone), so it is a plain
             // INSERT. One seated by somebody else since the box last read
             // answers 409, and the snackbar plus the junction re-read below
             // put the row right.
-            await moveStepRequirement(darwinUri, idToken,
-                { requirementId: reqId, toStepId: target.stepId });
+            await moveEpicRequirement(darwinUri, idToken,
+                { requirementId: reqId, toEpicId: target.epicId });
         } catch (error) {
-            showError(error, `Unable to add ${reqId} to the step`);
+            showError(error, `Unable to add ${reqId} to the epic`);
             if (carried) setPendingMoves((ms) => ms.filter((m) => m !== carried));
             forgetPending(reqId);
             queryClient.invalidateQueries({ queryKey: junctionKey });
@@ -3744,7 +3744,7 @@ export default function PipelinePlanVisualizer({
         forgetPending(reqId);
     };
 
-    // ── The whole box dropped on a step (req #3608) ─────────────────────────
+    // ── The whole box dropped on an epic (req #3608) ─────────────────────────
     // The box's title-bar move is the box's own pointer gesture, so it reports
     // the pointer itself. The pointer is over the BOX, so the card it is aimed
     // at is whatever lies beneath it (`seatTargetAtPoint` through the box).
@@ -3770,7 +3770,7 @@ export default function PipelinePlanVisualizer({
         setSeatTarget(null);
         if (!req) return false;
         if (!req.ok) {
-            showError(`"${req.stepTitle}" is locked — it takes no new work`);
+            showError(`"${req.epicTitle}" is locked — it takes no new work`);
             return true;
         }
         setBulkSeat(req);
@@ -3793,13 +3793,13 @@ export default function PipelinePlanVisualizer({
         // every requirement in the box has no seat to vacate, so each is a
         // plain INSERT, and one seated elsewhere since the box last read
         // answers 409 without stopping the rest.
-        const failed = await runBulkSeat(ids, (id) => moveStepRequirement(darwinUri, idToken,
-            { requirementId: id, toStepId: req.stepId }), BULK_SEAT_CONCURRENCY);
+        const failed = await runBulkSeat(ids, (id) => moveEpicRequirement(darwinUri, idToken,
+            { requirementId: id, toEpicId: req.epicId }), BULK_SEAT_CONCURRENCY);
         setBulkSeating(false);
         setBulkSeatOpen(false);
         const failure = bulkSeatFailureMessage(ids.length, failed);
         if (failure) showError(failure);
-        const junctionKey = pipelineStepRequirementKeys.all(profile?.userName);
+        const junctionKey = pipelineEpicRequirementKeys.all(profile?.userName);
         await Promise.allSettled([
             queryClient.invalidateQueries({ queryKey: pipelineComposeKeys.byId(pipeline?.id) }),
             queryClient.invalidateQueries({ queryKey: junctionKey }),
@@ -3812,7 +3812,7 @@ export default function PipelinePlanVisualizer({
     };
     const closeBulkSeat = () => { if (!bulkSeating) setBulkSeatOpen(false); };
 
-    const seatTargetNode = seatTarget ? drawLayout.nodes.get(seatTarget.stepId) : null;
+    const seatTargetNode = seatTarget ? drawLayout.nodes.get(seatTarget.epicId) : null;
     const seatTargetRect = seatTargetNode ? screenRectOf(seatTargetNode, t) : null;
 
     const chipBg = rgba(P.panel, INITIATIVE_CHIP_BG_ALPHA);
@@ -3836,13 +3836,13 @@ export default function PipelinePlanVisualizer({
     const floatingBadges = drawLayout.labels
         .filter((l) => l.kind === 'badge' && drawsKind('badge'))
         .map((l) => ({
-            key: `badge-${l.stepId}`,
-            // req #3503 — the STEP'S OWN id, carried on the label the layout
-            // already emits (`pipelinePlanLayout.js` sets `stepId: r.id` on every
-            // badge). No lookup is invented here: the badge counts one step's
-            // requirements, so the step it answers for is the one whose id it
+            key: `badge-${l.epicId}`,
+            // req #3503 — the EPIC'S OWN id, carried on the label the layout
+            // already emits (`pipelinePlanLayout.js` sets `epicId: r.id` on every
+            // badge). No lookup is invented here: the badge counts one epic's
+            // requirements, so the epic it answers for is the one whose id it
             // already had to know to be positioned at all.
-            stepId: l.stepId,
+            epicId: l.epicId,
             left: l.x * t.k + t.x,
             top: l.y * t.k + t.y,
             width: l.w * t.k,
@@ -3860,10 +3860,10 @@ export default function PipelinePlanVisualizer({
     const floatingRuns = drawLayout.labels
         .filter((l) => l.kind === 'run' && drawsKind('run'))
         .map((l) => ({
-            key: `run-${l.stepId}`,
-            stepId: l.stepId,
-            run: runPending.get(l.stepId) ?? l.run,
-            pending: runPending.has(l.stepId),
+            key: `run-${l.epicId}`,
+            epicId: l.epicId,
+            run: runPending.get(l.epicId) ?? l.run,
+            pending: runPending.has(l.epicId),
             left: l.x * t.k + t.x,
             top: l.y * t.k + t.y,
             width: l.w * t.k,
@@ -3874,17 +3874,17 @@ export default function PipelinePlanVisualizer({
 
     // ── THE BARRIER GATE, AS AN HTML OVERLAY (req #3673) ───────────────────
     // A button, so HTML for the run pill's reason, on the run pill's layer —
-    // and for the picture: a real icon (`PlanStepFlagIcons.jsx`) rather than
+    // and for the picture: a real icon (`PlanEpicFlagIcons.jsx`) rather than
     // the stroked ⚑ req #3649 drew in Konva, which the user could not read.
     // The layout reserved its box in the control column; this only projects it
-    // to screen. (The padlock beside it went in req #3742 — a locked step's
+    // to screen. (The padlock beside it went in req #3742 — a locked epic's
     // card has a red perimeter instead.)
     const floatingFlags = drawLayout.labels
         .filter((l) => l.kind === 'barrier' && drawsKind(l.kind))
         .map((l) => ({
-            key: `${l.kind}-${l.stepId}`,
+            key: `${l.kind}-${l.epicId}`,
             kind: l.kind,
-            stepId: l.stepId,
+            epicId: l.epicId,
             on: !!l.on,
             left: l.x * t.k + t.x,
             top: l.y * t.k + t.y,
@@ -3892,15 +3892,15 @@ export default function PipelinePlanVisualizer({
             fold: foldStyle(l),
         }));
 
-    // ── THE STEP CARD'S COLLAPSE HEAD, AS AN HTML OVERLAY (req #3650) ──────
+    // ── THE EPIC CARD'S COLLAPSE HEAD, AS AN HTML OVERLAY (req #3650) ──────
     // A button, so HTML for the run pill's reason, on the run pill's layer. The
     // layout reserved its box at the title line's left (`CARD_COLLAPSE_W`,
     // req #3648); this only projects it to screen.
     const floatingCollapses = drawLayout.labels
         .filter((l) => l.kind === 'collapse' && drawsKind('collapse'))
         .map((l) => ({
-            key: `collapse-${l.stepId}`,
-            stepId: l.stepId,
+            key: `collapse-${l.epicId}`,
+            epicId: l.epicId,
             open: !l.collapsed,
             text: l.text,
             left: l.x * t.k + t.x,
@@ -3911,20 +3911,20 @@ export default function PipelinePlanVisualizer({
             fold: foldStyle(l),
         }));
 
-    // ── THE STEP-NAME EDITOR'S BOX (req #3580) ──────────────────────────────
+    // ── THE EPIC-NAME EDITOR'S BOX (req #3580) ──────────────────────────────
     // The name's own world rect, widened to the whole room the layout reserved
     // for it (`editW`, up to the control cluster's gap), projected through `t`. Only while
-    // that step's name is actually drawn — an editor floating where no name is
+    // that epic's name is actually drawn — an editor floating where no name is
     // would be editing something the reader cannot see.
-    const stepEditLabel = stepEdit != null && drawsKind('step')
-        ? drawLayout.labels.find((l) => l.kind === 'step' && l.stepId === stepEdit.stepId)
+    const epicEditLabel = epicEdit != null && drawsKind('epic')
+        ? drawLayout.labels.find((l) => l.kind === 'epic' && l.epicId === epicEdit.epicId)
         : null;
-    const stepEditRow = stepEditLabel ? rowById.get(stepEditLabel.stepId) : null;
-    const stepEditor = stepEditLabel && stepEditRow ? {
-        row: stepEditRow,
-        left: stepEditLabel.x * t.k + t.x,
-        top: stepEditLabel.y * t.k + t.y,
-        width: (stepEditLabel.editW ?? stepEditLabel.w) * t.k,
+    const epicEditRow = epicEditLabel ? rowById.get(epicEditLabel.epicId) : null;
+    const epicEditor = epicEditLabel && epicEditRow ? {
+        row: epicEditRow,
+        left: epicEditLabel.x * t.k + t.x,
+        top: epicEditLabel.y * t.k + t.y,
+        width: (epicEditLabel.editW ?? epicEditLabel.w) * t.k,
         height: CARD_LINE_H * t.k,
         fontSize: CF.label * t.k,
     } : null;
@@ -4014,7 +4014,7 @@ export default function PipelinePlanVisualizer({
         // pinned, the strip floats over whatever band content scrolled up to
         // meet it, and neither the ticks nor the date text otherwise carry any
         // fill — so without this a date could render as text bleeding through
-        // a step title rather than legibly over it. Same colour and the same
+        // an epic title rather than legibly over it. Same colour and the same
         // "chrome gets its own opaque plate" move as the shared top time-axis
         // in `KonvaSwarmCanvas.jsx` (`background: C.axisBg`), the truer sibling
         // of this strip than the per-row day headers (which float with no
@@ -4046,7 +4046,7 @@ export default function PipelinePlanVisualizer({
         // covers `RULER_H / k` WORLD px instead of `RULER_H`, and the layout
         // reserves only `RULER_H` world px above the first band — so at low
         // zoom the plate now hides the top of band 0's header where before it
-        // hid a sliver. What is in that region at those scales is nothing: step
+        // hid a sliver. What is in that region at those scales is nothing: epic
         // labels are below `K_READABLE` and undrawn, and the initiative names are
         // HTML chips already clamped below `rulerScreenBottom(t)`. At k ≥ 1,
         // where that region does hold drawn text, `rulerScreenMag` is 1 and the
@@ -4126,7 +4126,7 @@ export default function PipelinePlanVisualizer({
         }
     });
 
-    // The next-step halo's magnification for THIS frame (req #3271). Computed
+    // The next-epic halo's magnification for THIS frame (req #3271). Computed
     // once per render rather than per row: it depends only on the scale being
     // drawn at, and `dash` is an array prop — a fresh one per bead would hand
     // react-konva a changed reference for every halo on every frame of a zoom.
@@ -4135,7 +4135,7 @@ export default function PipelinePlanVisualizer({
     // #3280 stopped asking because both sides turned on `K_READABLE` and the
     // guarantee (a magnified mark never sits under a drawn label) followed by
     // arithmetic — and #3324's pinned level, which draws its labels at EVERY
-    // scale, is exactly the case that arithmetic no longer covers. The step
+    // scale, is exactly the case that arithmetic no longer covers. The epic
     // #3280 deleted does not come back: `nextHaloMagnify` is already 1 at every
     // legible `k`, and Auto never draws a label below that, so the argument
     // changes nothing during a wheel. See the function's own docstring.
@@ -4166,11 +4166,11 @@ export default function PipelinePlanVisualizer({
     // dot branch, and `NEXT_HALO_DASH.map` allocates a fresh array every frame
     // on the capped branch this replaces — are only computed for the branch
     // that needs them.
-    // ONE ANSWER, ASKED ONCE, and handed to both marks — `drawsKind('step')` is
+    // ONE ANSWER, ASKED ONCE, and handed to both marks — `drawsKind('epic')` is
     // the same call the label loop below makes, so the mark and the labels cannot
     // disagree about whether there is room (req #3324).
-    const labelsDrawn = drawsKind('step');
-    // req #3498 — WHETHER THE CARD IS PAINTED. The same predicate as the step
+    const labelsDrawn = drawsKind('epic');
+    // req #3498 — WHETHER THE CARD IS PAINTED. The same predicate as the epic
     // label, deliberately: the card exists to hold that label and the
     // requirement rows, so a level that draws the text and not its container,
     // or the reverse, is not a level anyone asked for.
@@ -4185,14 +4185,14 @@ export default function PipelinePlanVisualizer({
     // lands at its world radius is larger than the gap between two eligible
     // cards and N marks drew as one blob. `clusterNextMarks` merges the ones
     // that would overlap; the loop below skips their individual dots and the
-    // merged marks are pushed after it, each carrying how many steps it stands
+    // merged marks are pushed after it, each carrying how many epics it stands
     // for. Only the DOT branch clusters — the ring and the card outline are
     // both bound to geometry that cannot overlap a neighbour's.
     const dotClusters = (!drawsCard && haloIsDot)
         ? clusterNextMarks(rows.filter((r) => {
             const n = drawLayout.nodes.get(r.id);
             // Not for a card mid-fold (req #3695): its dot returns as it lands.
-            return n && n.reveal == null && eligibleStepIds.has(r.id);
+            return n && n.reveal == null && eligibleEpicIds.has(r.id);
         }).map((r) => {
             const n = drawLayout.nodes.get(r.id);
             return { id: r.id, x: n.x, y: n.y, suppressed: r.launchSuppressed };
@@ -4221,16 +4221,16 @@ export default function PipelinePlanVisualizer({
     const drawRow = (row) => {
         const n = drawLayout.nodes.get(row.id);
         if (!n) return;
-        const style = beadStyle(row, eligibleStepIds.has(row.id), row.launchSuppressed);
-        // ── Highlight for next steps (req #3168) ────────────────────────────
+        const style = beadStyle(row, eligibleEpicIds.has(row.id), row.launchSuppressed);
+        // ── Highlight for next epics (req #3168) ────────────────────────────
         // Drawn BEFORE the bead so the halo sits under it, and at EVERY zoom
         // level including 'out' — a 2.5px ring is the only thing that used to
-        // mark a launchable step, and at Overview it is a pixel of a green that
+        // mark a launchable epic, and at Overview it is a pixel of a green that
         // the Complete fill already owns. The one question a plan view is opened
         // to answer should be answerable at the level you open it in.
         //
         // req #3226 — `style.haloColor` is red instead of the eligible green
-        // when the engine says this step's launch is SUPPRESSED (a paused
+        // when the engine says this epic's launch is SUPPRESSED (a paused
         // scope): the ring beneath it stays green (still eligible), so the
         // two together read as "eligible, but held", not "about to run".
         //
@@ -4300,7 +4300,7 @@ export default function PipelinePlanVisualizer({
                 // The Running pulse drives OPACITY 0.45 -> 1.0 twice a second.
                 // On the bead that animated a 314px² dot; on the Group it
                 // animated the card's whole 30,000px² body — the panel fill, the
-                // rule and the ✓ — while the step name and the requirement rows,
+                // rule and the ✓ — while the epic name and the requirement rows,
                 // which are pushed later in the label loop, stayed fully opaque.
                 // The result was a card whose BACKGROUND strobed, revealing the
                 // lane wire and any arc behind it, under motionless text. The
@@ -4318,13 +4318,13 @@ export default function PipelinePlanVisualizer({
                         it, so it never crowds the lettering (user directive).
                         Free-standing, it takes its own full-height rounded
                         ends. Always the FRAME's colour (req #3775); it pulses
-                        while the step runs. */}
+                        while the epic runs. */}
                     <Rect name={style.pulse ? 'pulse-bead' : undefined}
                           x={n.left} y={n.top}
                           width={CARD_STATE_BAR_W} height={n.h}
                           cornerRadius={CARD_STATE_BAR_W / 2}
                           fill={style.bar} listening={false} />
-                    {/* *"Separate the step name with a horizontal line"* — the
+                    {/* *"Separate the epic name with a horizontal line"* — the
                         rule under the title area, inset to the text column so it
                         reads as a divider and not as a second border. */}
                     <Line points={[
@@ -4333,7 +4333,7 @@ export default function PipelinePlanVisualizer({
                         n.frameLeft + n.frameW - CARD_PAD_X,
                         n.top + n.titleH + CARD_RULE_GAP,
                     ]} stroke={P.line} strokeWidth={1} listening={false} />
-                    {/* req #3676 — the COMPLETE LINE between the step's open and
+                    {/* req #3676 — the COMPLETE LINE between the epic's open and
                         complete requirements, under every colour key. At the
                         y of the packing the rows are drawn at: titles at L3,
                         bare ids at L2. */}
@@ -4370,9 +4370,9 @@ export default function PipelinePlanVisualizer({
                 </Group>);
         }
         // ── HOVER IS THE WHOLE CARD; ACTIVATE IS THE TITLE AREA ─────────────
-        // ACTIVATE OPENS THE STEP'S SINGLE EDITOR, OVER THE CANVAS (req #3742,
-        // user directive: "single click of initiative and step to take you to the
-        // single editor") — exactly what a quick click on its name does. It framed the step on
+        // ACTIVATE OPENS THE EPIC'S SINGLE EDITOR, OVER THE CANVAS (req #3742,
+        // user directive: "single click of initiative and epic to take you to the
+        // single editor") — exactly what a quick click on its name does. It framed the epic on
         // this canvas from req #3641 until then; the double click on the name
         // still zooms.
         //
@@ -4384,12 +4384,12 @@ export default function PipelinePlanVisualizer({
         // its radius is a LAYOUT constant since req #3213 — the label hit
         // regions below are pushed above these nodes, so the clearance between
         // the two is an invariant the layout tests assert.
-        const stepHover = {
+        const epicHover = {
             onMouseEnter: (e) => cursorPointer(e, true),
             onMouseLeave: (e) => cursorPointer(e, false),
         };
-        const stepActivate = {
-            ...stepHover, onActivate: () => stepPressRef.current?.(row.id).onClick(),
+        const epicActivate = {
+            ...epicHover, onActivate: () => epicPressRef.current?.(row.id).onClick(),
         };
         if (drawsCard) {
             // Both regions are the FRAME's, not the node box's: the strip the
@@ -4399,22 +4399,22 @@ export default function PipelinePlanVisualizer({
             worldNodes.push(
                 <Rect key={`hit-${row.id}`} x={n.frameLeft} y={n.top}
                       width={n.frameW} height={n.h} cornerRadius={CARD_RADIUS}
-                      fill="transparent" {...stepHover} />,
+                      fill="transparent" {...epicHover} />,
                 // From the NAME rightward since req #3648 put the collapse
                 // head on the title line (the badge stood there until req
                 // #3683): a near-miss beside the chevron must
-                // not also activate the step (req #3650's own rule for the
-                // head; since req #3641 activation frames the step on canvas).
+                // not also activate the epic (req #3650's own rule for the
+                // head; since req #3641 activation frames the epic on canvas).
                 <Rect key={`hitact-${row.id}`}
                       x={n.frameLeft + CARD_PAD_X + CARD_COLLAPSE_W + CARD_COLLAPSE_GAP}
                       y={n.top + CARD_PAD_Y}
                       width={n.frameW - CARD_PAD_X - CARD_COLLAPSE_W - CARD_COLLAPSE_GAP}
                       height={n.titleH - CARD_PAD_Y}
-                      fill="transparent" {...stepActivate} />);
+                      fill="transparent" {...epicActivate} />);
         } else {
             worldNodes.push(
                 <Circle key={`hit-${row.id}`} x={n.x} y={n.y} radius={BEAD_HIT_RADIUS}
-                        fill="transparent" {...stepActivate} />);
+                        fill="transparent" {...epicActivate} />);
         }
     };
     rows.forEach((row) => {
@@ -4428,11 +4428,11 @@ export default function PipelinePlanVisualizer({
     // accent and faintly washed — pushed after every card and before the label
     // loop, so the rows read through the wash. Its outline is screen-constant
     // (divided by `curK`), since a world-scaled stroke would vanish exactly when
-    // the reader has zoomed out to reach a distant step. The box is the layout's
+    // the reader has zoomed out to reach a distant epic. The box is the layout's
     // own frame, the same one `dropTargetAt` tests, so what lights up is what
     // the drop will hit — at every level, including Overview where the card
     // itself is not painted.
-    const dropNode = dropStepId != null ? drawLayout.nodes.get(dropStepId) : null;
+    const dropNode = dropEpicId != null ? drawLayout.nodes.get(dropEpicId) : null;
     if (dropNode) {
         const sw = 2.5 / curK;
         worldNodes.push(
@@ -4444,7 +4444,7 @@ export default function PipelinePlanVisualizer({
                   listening={false} />);
     }
 
-    // ── The merged next-step marks (req #3498) ──────────────────────────────
+    // ── The merged next-epic marks (req #3498) ──────────────────────────────
     // Pushed after the row loop so they sit above every bead, and counter-scaled
     // the same way the dot itself is: `nextMarkDotRadius` already returns a
     // world radius that lands at a fixed screen size, so the COUNT beside it
@@ -4475,11 +4475,11 @@ export default function PipelinePlanVisualizer({
 
     // ── Hover regions on the TEXT (req #3213 D1/D2) ─────────────────────────
     // The words are the larger, more obvious target than the bead beside them,
-    // and until req #3213 they did not listen at all — so hovering a step name
+    // and until req #3213 they did not listen at all — so hovering an epic name
     // fell THROUGH to the dashed launch-unit rectangle underneath and produced
-    // that rectangle's card where a step card was wanted. The rectangle left
-    // with req #3371, and these regions stay: they are the reason a step name
-    // answers with its own step at all.
+    // that rectangle's card where an epic card was wanted. The rectangle left
+    // with req #3371, and these regions stay: they are the reason an epic name
+    // answers with its own epic at all.
     //
     // The region is the label's OWN world rect — the exact x/y/w/h
     // pipelinePlanLayout exports and the zero-overlap invariant already sweeps.
@@ -4493,9 +4493,9 @@ export default function PipelinePlanVisualizer({
     // ── THE RULER'S TYPE IS SCREEN-SIZED (req #3365) ────────────────────────
     // `t.k` cancels the sticky Group's own scale, so `F.slot * rulerLabelMag`
     // lands at a constant `F.slot` PIXELS however far out the reader is zoomed.
-    // The date strip is the one text on this canvas that is not about a step:
+    // The date strip is the one text on this canvas that is not about an epic:
     // it is the axis every bead is read AGAINST, so it earns a fixed size where
-    // the step and requirement labels — which belong to marks that shrink —
+    // the epic and requirement labels — which belong to marks that shrink —
     // correctly do not.
     //
     // CLAMPED AT 1, so this only ever makes the type BIGGER. Past k = 1 the
@@ -4510,13 +4510,13 @@ export default function PipelinePlanVisualizer({
     // in any of them would let the plate and the type it backs disagree about
     // their own size, which is exactly the defect req #3365 fixed.
     // ── LEAVING THIS PAGE CARRIES A WAY BACK (req #3498, user directive) ────
-    // The steps-editor link is the one control here that leaves the plan, and it
-    // left with no return: the reader landed in the Steps grid with the plan,
+    // The epics-editor link is the one control here that leaves the plan, and it
+    // left with no return: the reader landed in the Epics grid with the plan,
     // its panel and the camera they had set all to be found again by hand. This
     // is the SAME state the requirement links have carried since req #3252 —
     // `from`/`pipelineId`/`mode` — read by the receiving page to render its own
     // "Back to Plan". One vocabulary for every exit from this surface.
-    const stepsBackState = pipeline?.id
+    const epicsBackState = pipeline?.id
         ? { state: planExitState(pipeline.id, 'plan') }
         : undefined;
 
@@ -4539,14 +4539,14 @@ export default function PipelinePlanVisualizer({
     let reqEditor = null;
     const drawLabel = (label, i) => {
         if (!drawsKind(label.kind)) return;
-        if (label.kind === 'step') {
-            // Wrapped at layout time (req #3498) — the step name takes a
+        if (label.kind === 'epic') {
+            // Wrapped at layout time (req #3498) — the epic name takes a
             // second line before it truncates, exactly as a requirement row
             // does, because a 28-character line leaves it nineteen otherwise.
             // Not drawn while its in-place editor is open (req #3580): the
             // editor is one line and the name may be two, so the second line
             // would show through beneath it.
-            if (stepEditor?.row.id !== label.stepId) {
+            if (epicEditor?.row.id !== label.epicId) {
                 worldNodes.push(
                     <Text key={`lbl-${i}`} x={label.x} y={label.y}
                           text={(label.lines || [label.text]).join('\n')}
@@ -4556,26 +4556,26 @@ export default function PipelinePlanVisualizer({
             }
             // HOVER ONLY — deliberately NOT the bead's third handler (review
             // finding). The bead's hit circle also carries `onActivate`, which
-            // (until req #3641 made it frame the step instead) switched the
+            // (until req #3641 made it frame the epic instead) switched the
             // whole page to Table mode and, because the visualizer unmounted,
             // discarded the reader's pan and zoom. Mirroring it here
             // would grow the click-to-leave surface from 0.22% of the world to
-            // 1.25% — measured on the live 97-step plan — and make the step
+            // 1.25% — measured on the live 97-epic plan — and make the epic
             // name the largest click target on the canvas, while the manual
             // hit-test tolerates 4px of drag before it stops calling a gesture
             // a click. D1 asks for the CARD; a click on the words did nothing
             // before this change.
             //
             // req #3580 — THE WORDS TAKE THREE GESTURES: a quick click opens
-            // the step's single editor (req #3742; it framed the step before),
+            // the epic's single editor (req #3742; it framed the epic before),
             // a double click zooms to it, a long press edits the name in place.
-            // `pressStepId` is how the canvas's pointer listeners find them —
-            // see the STEP-TITLE PRESSES block. None of the three leaves the
+            // `pressEpicId` is how the canvas's pointer listeners find them —
+            // see the EPIC-TITLE PRESSES block. None of the three leaves the
             // page: the editor opens over the canvas.
-            const row = rowById.get(label.stepId);
+            const row = rowById.get(label.epicId);
             if (row) {
                 worldNodes.push(labelHit(`lblhit-${i}`, label, {
-                    pressStepId: row.id,
+                    pressEpicId: row.id,
                     onMouseEnter: (e) => cursorPointer(e, true),
                     onMouseLeave: (e) => cursorPointer(e, false),
                 }));
@@ -4597,7 +4597,7 @@ export default function PipelinePlanVisualizer({
             // only when a reader turns a key on and the key is on screen naming
             // the scale.
             // What that directive rejected was an unlabelled colour reading as
-            // the STEP's status; `state` here is the REQUIREMENT's own status,
+            // the EPIC's status; `state` here is the REQUIREMENT's own status,
             // which is the fact the bead's aggregate was derived from.
             const rs = reqIdStyle({
                 colorKey: activeColorKey,
@@ -4627,7 +4627,7 @@ export default function PipelinePlanVisualizer({
             // draws everything BUT the title (id, pills, separator): the editor
             // draws the title itself, in the room the layout gave it.
             const editingTitle = showTitle && reqEdit?.reqId === label.reqId
-                && reqEdit?.stepId === label.stepId;
+                && reqEdit?.epicId === label.epicId;
             const reqText = editingTitle
                 ? `${label.idText ?? label.reqId}${' '.repeat(CARD_SEP_CHARS)}`
                 : reqLines ? reqLines.join('\n')
@@ -4638,7 +4638,7 @@ export default function PipelinePlanVisualizer({
             // rows are LEFT-ALIGNED on one text column, so centring the id
             // inside a box whose width varies per requirement scattered the ids
             // across the card — measured, five ids at five different x inside
-            // one card at L2, under a left-aligned step name. It also made each
+            // one card at L2, under a left-aligned epic name. It also made each
             // id's click target a small box floating at that offset.
             const reqX = label.x;
             // ── PACKED TIGHT AT L1/L2, NOT SPREAD ACROSS THE TITLE'S ROOM
@@ -4801,7 +4801,7 @@ export default function PipelinePlanVisualizer({
             if (editingTitle) {
                 reqEditor = {
                     reqId: label.reqId,
-                    stepId: label.stepId,
+                    epicId: label.epicId,
                     label,
                     color: rs.fill,
                     bold: rs.bold,
@@ -4833,7 +4833,7 @@ export default function PipelinePlanVisualizer({
                       // What the drag hit test reads off the node it lands on
                       // (req #3581): the mark IS the handle.
                       dragReqId={label.reqId}
-                      dragStepId={label.stepId}
+                      dragEpicId={label.epicId}
                       dragRowGroup={rowGroup}
                       onMouseEnter={(e) => cursorPointer(e, true)}
                       onMouseLeave={(e) => cursorPointer(e, false)}
@@ -4949,20 +4949,20 @@ export default function PipelinePlanVisualizer({
                 <Text key={`lbl-${i}`} x={label.x} y={label.y} text={label.text}
                       fontSize={CF.title} fontFamily={MONO} fill={P.dim}
                       listening={false} />);
-            // The reserved title slot is the step's own name in a second place
-            // (req #3213 D2): it answers with the step it belongs to, exactly
-            // as the step label above does, rather than leaving half a step's
+            // The reserved title slot is the epic's own name in a second place
+            // (req #3213 D2): it answers with the epic it belongs to, exactly
+            // as the epic label above does, rather than leaving half an epic's
             // text silent.
             //
             // THIS BRANCH IS FOR A NON-DEFAULT CONFIGURATION, honestly stated
             // (review finding): the layout emits `kind: 'title'` only when
-            // `stepLabel !== 'title'`, and PipelineDetail — the sole mount site
-            // — pins `stepLabel = 'title'`, so the step label already IS the
+            // `epicLabel !== 'title'`, and PipelineDetail — the sole mount site
+            // — pins `epicLabel = 'title'`, so the epic label already IS the
             // name and this slot is empty on the shipped page. It is added
             // anyway for the same reason the `<Text>` above it exists: the
             // layout module supports the combination and the renderer must not
-            // be the half that doesn't. Hover only, matching the step label.
-            const titleRow = rowById.get(label.stepId);
+            // be the half that doesn't. Hover only, matching the epic label.
+            const titleRow = rowById.get(label.epicId);
             if (titleRow) {
                 worldNodes.push(labelHit(`lblhit-${i}`, label, {
                     onMouseEnter: (e) => cursorPointer(e, true),
@@ -4990,7 +4990,7 @@ export default function PipelinePlanVisualizer({
             // one label kind whose SCREEN position is `stickyRulerY(t)` where
             // every other label's is `t.y`. Once the strip pins (`t.y` below the
             // ruler's excess, `rulerExcessY` — 0 at k ≥ 1),
-            // a step or requirement label scrolled up near the viewport top
+            // an epic or requirement label scrolled up near the viewport top
             // can land under it on screen — the same trade-off the sticky
             // initiative chips already accept (their own comment: "a sticky chip
             // landed on a live bead" was a known, documented cost, not a
@@ -5057,15 +5057,15 @@ export default function PipelinePlanVisualizer({
     drawLayout.labels.forEach((label, i) => {
         const mark = worldNodes.length;
         drawLabel(label, i);
-        fadeFoldFrom(mark, label.reveal != null ? drawLayout.nodes.get(label.stepId) : null,
+        fadeFoldFrom(mark, label.reveal != null ? drawLayout.nodes.get(label.epicId) : null,
             `lbl-${i}`);
     });
 
-    // ── THE ADD-STEP MARKS (req #3586) ──────────────────────────────────────
+    // ── THE ADD-EPIC MARKS (req #3586) ──────────────────────────────────────
     // A "+" on every dependency arc (split it: A -> new -> B), one at the end
-    // of a dashed stub off every card's right side (dependent: a new step gated on
-    // that step alone), and one off the left side of every card no arc lands on
-    // (precede, req #3617: a new step that card then waits on). ONE shape,
+    // of a dashed stub off every card's right side (dependent: a new epic gated on
+    // that epic alone), and one off the left side of every card no arc lands on
+    // (precede, req #3617: a new epic that card then waits on). ONE shape,
     // pushed last so it sits above the labels; its geometry is `insertGeom` and its clicks are resolved by `insertHitRef`.
     if (insertGeom) {
         worldNodes.push(
@@ -5086,7 +5086,7 @@ export default function PipelinePlanVisualizer({
     return (
         // req #3665 — the drag surface the Orchestrables rows lift through: the
         // shared sensors, press timeline and overlay, with the canvas's own
-        // step hit test as its collision detection.
+        // epic hit test as its collision detection.
         <DarwinDndContext collisionDetection={seatCollision}
                           overlaySx={QUIET_LIFT_SX}
                           onDragMove={onUnseatDragMove}
@@ -5110,16 +5110,16 @@ export default function PipelinePlanVisualizer({
             {focusInitiativeNotOnPlan && (
                 <Alert severity="info" variant="outlined" sx={{ mb: 2 }}
                        data-testid="pipeline-viz-initiative-not-on-plan">
-                    That initiative isn&apos;t shown on this plan — none of its steps are here.
+                    That initiative isn&apos;t shown on this plan — none of its epics are here.
                 </Alert>
             )}
 
-            {/* Req #3253 — the `?step=` deep link named a step this plan does not
+            {/* Req #3253 — the `?epic=` deep link named an epic this plan does not
                 carry. Same reasoning as the initiative alert above. */}
-            {focusStepNotOnPlan && (
+            {focusEpicNotOnPlan && (
                 <Alert severity="info" variant="outlined" sx={{ mb: 2 }}
-                       data-testid="pipeline-viz-step-not-on-plan">
-                    That step isn&apos;t on this plan.
+                       data-testid="pipeline-viz-epic-not-on-plan">
+                    That epic isn&apos;t on this plan.
                 </Alert>
             )}
 
@@ -5143,7 +5143,7 @@ export default function PipelinePlanVisualizer({
                  // The WORLD the transform is applied to, for the same reason
                  // the transform itself is published: it is otherwise only
                  // observable as changed pixels, and pixels also change when a
-                 // bead pulses. The step-width control's whole effect is on this
+                 // bead pulses. The epic-width control's whole effect is on this
                  // number — it used to be read off the scroll rail's thumb, and
                  // the rails were removed on the user's directive (2026-08-01).
                  data-world={`${Math.round(layout.width)},${Math.round(layout.height)}`}
@@ -5171,12 +5171,12 @@ export default function PipelinePlanVisualizer({
                  // read as L1 on the chips.
                  data-level={level}
                  data-drawn={drawnKinds}
-                 // req #3581 — the requirement in flight and the step it would
+                 // req #3581 — the requirement in flight and the epic it would
                  // land on, for the same reason as `data-transform`: a canvas
                  // drag is otherwise observable only as changed pixels.
                  data-req-drag={reqDrag ? reqDrag.reqId : ''}
-                 data-drop-step={dropStepId ?? ''}
-                 // req #3586 — how many add-step marks the canvas drew, by kind,
+                 data-drop-epic={dropEpicId ?? ''}
+                 // req #3586 — how many add-epic marks the canvas drew, by kind,
                  // for the same reason: they are otherwise only pixels.
                  data-insert-edges={insertGeom ? insertGeom.edgeCount : 0}
                  data-insert-dependents={insertGeom ? insertGeom.dependentCount : 0}
@@ -5300,7 +5300,7 @@ export default function PipelinePlanVisualizer({
                     Clicking the STATUS LIGHT or the CLOSURE COUNT focuses that
                     band (req #3204; it was the name until req #3580 made the
                     name an in-place editor). Every band is focusable, "No initiative"
-                    included — it is a band with steps like any other, and with
+                    included — it is a band with epics like any other, and with
                     no row to rename its NAME keeps the zoom. The ↗ beside it
                     keeps the navigation, and only it needs the id.
 
@@ -5323,11 +5323,11 @@ export default function PipelinePlanVisualizer({
                         // directive: "fast click to zoom, long click to edit,
                         // double click to double zoom"). Since req #3742 a quick
                         // click on the name opens the initiative's SINGLE EDITOR (user
-                        // directive: "single click of initiative and step to take you
+                        // directive: "single click of initiative and epic to take you
                         // to the single editor"); a double click goes straight
-                        // to the step stop; a long press opens the in-place
+                        // to the epic stop; a long press opens the in-place
                         // editor. The status light and the closure count keep
-                        // the quick-click zoom — req #3297's band → step cycle
+                        // the quick-click zoom — req #3297's band → epic cycle
                         // — and edit nothing. The "No initiative" band has no row to
                         // edit or rename, so its name keeps the zoom and takes
                         // no long press.
@@ -5489,16 +5489,16 @@ export default function PipelinePlanVisualizer({
                                 nothing the placement measured moves. */}
                             {/* req #3650 — THE CHIP'S COLLAPSE HEAD, leading it:
                                 its upper-left, where the TPU 3D panels keep
-                                theirs. Folds THIS initiative's steps and nothing
+                                theirs. Folds THIS initiative's epics and nothing
                                 else. The chevron alone since req #3648 — no
-                                "STEPS" word. Its width is reserved in `placeInitiativeChips`
+                                "EPICS" word. Its width is reserved in `placeInitiativeChips`
                                 (`INITIATIVE_CHIP_COLLAPSE_W`) and drawn at exactly
                                 that, at the TPU head's own unscaled 10px. */}
                             <PlanCollapseHead
                                 open={!e.band?.collapsed}
                                 onToggle={() => toggleInitiativeFold(e.initiativeId ?? null)}
                                 label={null}
-                                name={`Steps of initiative ${e.name ?? e.text}`}
+                                name={`Epics of initiative ${e.name ?? e.text}`}
                                 testId={`pipeline-viz-initiative-collapse-${e.key}`}
                                 style={{ width: INITIATIVE_CHIP_COLLAPSE_HEAD_W, fontSize: 10,
                                     justifyContent: 'center' }}
@@ -5605,12 +5605,12 @@ export default function PipelinePlanVisualizer({
                             )}
                             {/* The req #3119 target, RE-POINTED by req #3373: the
                                 browsable-catalog route it used to open was retired
-                                (req #3357), and `/swarm/steps?initiative=<id>` is the
+                                (req #3357), and `/swarm/epics?initiative=<id>` is the
                                 only remaining destination that answers the
                                 question this control always asked — "show me
-                                the work under this initiative" — with step and
+                                the work under this initiative" — with epic and
                                 requirement detail rather than one initiative row.
-                                THIS CONTROL IS WHAT ADDS THE FILTER: StepsPage
+                                THIS CONTROL IS WHAT ADDS THE FILTER: EpicsPage
                                 only filtered by pipeline before this. Kept as
                                 its OWN visible control now that the chip body
                                 focuses instead. Its click must not also focus,
@@ -5622,12 +5622,12 @@ export default function PipelinePlanVisualizer({
                                     component="span"
                                     role="link"
                                     tabIndex={0}
-                                    aria-label={`Open ${e.text}'s steps`}
+                                    aria-label={`Open ${e.text}'s epics`}
                                     data-testid={`pipeline-viz-initiative-open-${e.key}`}
                                     onClick={(ev) => {
                                         ev.stopPropagation();
-                                        navigate(`/swarm/steps?initiative=${e.initiativeId}`,
-                                            stepsBackState);
+                                        navigate(`/swarm/epics?initiative=${e.initiativeId}`,
+                                            epicsBackState);
                                     }}
                                     onKeyDown={(ev) => {
                                         if (ev.key !== 'Enter') return;
@@ -5636,8 +5636,8 @@ export default function PipelinePlanVisualizer({
                                         // user is navigating away from.
                                         ev.stopPropagation();
                                         ev.preventDefault();
-                                        navigate(`/swarm/steps?initiative=${e.initiativeId}`,
-                                            stepsBackState);
+                                        navigate(`/swarm/epics?initiative=${e.initiativeId}`,
+                                            epicsBackState);
                                     }}
                                     sx={{
                                         fontSize: INITIATIVE_CHIP_FONT, fontWeight: 400,
@@ -5741,7 +5741,7 @@ export default function PipelinePlanVisualizer({
                                         display: 'inline-flex', alignItems: 'center',
                                         lineHeight: 1, px: '2px', cursor: 'pointer',
                                         opacity: e.band?.locked ? 1 : 0.6,
-                                        // req #3673 — the step card's padlock
+                                        // req #3673 — the epic card's padlock
                                         // colours: orange shut, chip colour open.
                                         color: e.band?.locked ? P.lockOn : undefined,
                                         '&:hover': { opacity: 1 },
@@ -5774,18 +5774,18 @@ export default function PipelinePlanVisualizer({
                     IT BACK ON (req #3503). The layer is a full-viewport div: any
                     pointer state on IT swallows every click on the canvas
                     beneath, which is the card's own title-area hit rect (req
-                    #3213; it frames the step since req #3641). Only the badge itself — a ~20px pill sitting on its
+                    #3213; it frames the epic since req #3641). Only the badge itself — a ~20px pill sitting on its
                     own card — takes `pointerEvents: 'auto'`, the same one-clickable-
                     thing-inside-a-transparent-container override the initiative layer
                     above uses for its chips.
 
-                    THE BADGE IS NO LONGER DECORATION. It counts one step's
+                    THE BADGE IS NO LONGER DECORATION. It counts one epic's
                     requirements, so the obvious question it raises is "which
                     ones?", and the answer is a page that already exists: the
-                    initiative chip's ↗-adjacent Cards link, scoped to a STEP instead
+                    initiative chip's ↗-adjacent Cards link, scoped to a EPIC instead
                     of an initiative. `stopPropagation` on BOTH handlers for that
                     control's reason — without it the card's own handler fires
-                    too and focuses the step the reader is navigating away from. */}
+                    too and focuses the epic the reader is navigating away from. */}
                 <Box sx={{ position: 'absolute', top: initiativeOverlayTopInset, left: 0,
                             right: 0, bottom: 0, pointerEvents: 'none',
                             overflow: 'hidden' }}
@@ -5794,24 +5794,24 @@ export default function PipelinePlanVisualizer({
                         <Box key={b.key}
                              role="link"
                              tabIndex={0}
-                             aria-label={`Open step ${b.stepId}'s ${b.text} requirements in the Task Cards view`}
-                             data-testid={`pipeline-viz-badge-open-${b.stepId}`}
+                             aria-label={`Open epic ${b.epicId}'s ${b.text} requirements in the Task Cards view`}
+                             data-testid={`pipeline-viz-badge-open-${b.epicId}`}
                              onClick={(ev) => {
                                  ev.stopPropagation();
-                                 const to = swarmStepLinkTo(b.stepId);
+                                 const to = swarmEpicLinkTo(b.epicId);
                                  if (to) navigate(to);
                              }}
                              onKeyDown={(ev) => {
                                  if (ev.key !== 'Enter') return;
                                  ev.stopPropagation();
                                  ev.preventDefault();
-                                 const to = swarmStepLinkTo(b.stepId);
+                                 const to = swarmEpicLinkTo(b.epicId);
                                  if (to) navigate(to);
                              }}
                              // GEOMETRY IN `style`, NOT `sx` (req #3503 review
                              // — performance). `transform` is React state, so
                              // every pan/zoom frame re-renders this component,
-                             // and `floatingBadges` is one entry per step on
+                             // and `floatingBadges` is one entry per epic on
                              // the WHOLE plan (unculled) — up to ~100 on a
                              // live plan. `sx` re-serializes through Emotion
                              // and inserts a stylesheet rule on every value
@@ -5847,9 +5847,9 @@ export default function PipelinePlanVisualizer({
                             {b.text}
                         </Box>
                     ))}
-                    {/* req #3650 — EVERY STEP CARD'S COLLAPSE HEAD, in the
+                    {/* req #3650 — EVERY EPIC CARD'S COLLAPSE HEAD, in the
                         box the layout reserved at the title line's left. Folds
-                        THIS step's requirement rows and nothing else. The
+                        THIS epic's requirement rows and nothing else. The
                         chevron alone since req #3648 — `text` names it for
                         assistive tech only. Rendered BEFORE the run pills so
                         keyboard focus reaches a card's chevron first, the way
@@ -5857,10 +5857,10 @@ export default function PipelinePlanVisualizer({
                     {floatingCollapses.map((c) => (
                         <PlanCollapseHead key={c.key}
                             open={c.open}
-                            onToggle={() => toggleStepFold(c.stepId)}
+                            onToggle={() => toggleEpicFold(c.epicId)}
                             label={null}
-                            name={`${c.text} of step ${c.stepId}`}
-                            testId={`pipeline-viz-step-collapse-${c.stepId}`}
+                            name={`${c.text} of epic ${c.epicId}`}
+                            testId={`pipeline-viz-epic-collapse-${c.epicId}`}
                             style={{
                                 position: 'absolute',
                                 left: c.left,
@@ -5872,7 +5872,7 @@ export default function PipelinePlanVisualizer({
                             }}
                         />
                     ))}
-                    {/* req #3580 — THE RUN-MODE PILL. Displays the step's run
+                    {/* req #3580 — THE RUN-MODE PILL. Displays the epic's run
                         mode as the word and IS the control that changes it:
                         green "auto", blue "manual" (user directive). Geometry
                         in `style` for the badge's per-frame reason;
@@ -5885,14 +5885,14 @@ export default function PipelinePlanVisualizer({
                             <Box key={r.key}
                                  component="button"
                                  type="button"
-                                 data-testid={`pipeline-viz-run-${r.stepId}`}
+                                 data-testid={`pipeline-viz-run-${r.epicId}`}
                                  data-run={r.run}
-                                 aria-label={`Step ${r.stepId} runs ${r.run} — switch to ${next}`}
+                                 aria-label={`Epic ${r.epicId} runs ${r.run} — switch to ${next}`}
                                  title={`Runs ${r.run} — click to switch to ${next}`}
                                  aria-busy={r.pending || undefined}
                                  onClick={(ev) => {
                                      ev.stopPropagation();
-                                     toggleRun(r.stepId, r.run);
+                                     toggleRun(r.epicId, r.run);
                                  }}
                                  style={{
                                      left: r.left,
@@ -5915,7 +5915,7 @@ export default function PipelinePlanVisualizer({
                         that flips it. The hover title says what the state
                         means and what a click does. */}
                     {floatingFlags.map((f) => {
-                        const row = rowById.get(f.stepId);
+                        const row = rowById.get(f.epicId);
                         const onColor = P.barrierOn;
                         const color = f.on ? onColor : P.dim;
                         const title = barrierTitle(f.on, row?.lockedBy);
@@ -5923,10 +5923,10 @@ export default function PipelinePlanVisualizer({
                             <Box key={f.key}
                                  component="button"
                                  type="button"
-                                 data-testid={`pipeline-viz-${f.kind}-${f.stepId}`}
+                                 data-testid={`pipeline-viz-${f.kind}-${f.epicId}`}
                                  data-on={f.on ? '1' : '0'}
                                  aria-pressed={f.on}
-                                 aria-label={`Step ${f.stepId}: ${title}`}
+                                 aria-label={`Epic ${f.epicId}: ${title}`}
                                  title={title}
                                  onClick={(ev) => {
                                      ev.stopPropagation();
@@ -5953,25 +5953,25 @@ export default function PipelinePlanVisualizer({
                             </Box>
                         );
                     })}
-                    {/* req #3580 — THE STEP-NAME EDITOR, over the name's own
+                    {/* req #3580 — THE EPIC-NAME EDITOR, over the name's own
                         reserved room on its card. */}
-                    {stepEditor && (
+                    {epicEditor && (
                         <PlanInPlaceInput
-                            key={`step-edit-${stepEditor.row.id}`}
-                            initial={stepEditor.row.title || ''}
-                            saving={!!stepEdit?.saving}
-                            ariaLabel={`Rename step ${stepEditor.row.id}`}
-                            testId={`pipeline-viz-step-edit-${stepEditor.row.id}`}
-                            onCommit={(raw) => commitStepTitle(stepEditor.row, raw)}
-                            onCancel={() => setStepEdit(null)}
-                            caretAt={stepEdit?.at}
+                            key={`epic-edit-${epicEditor.row.id}`}
+                            initial={epicEditor.row.title || ''}
+                            saving={!!epicEdit?.saving}
+                            ariaLabel={`Rename epic ${epicEditor.row.id}`}
+                            testId={`pipeline-viz-epic-edit-${epicEditor.row.id}`}
+                            onCommit={(raw) => commitEpicTitle(epicEditor.row, raw)}
+                            onCancel={() => setEpicEdit(null)}
+                            caretAt={epicEdit?.at}
                             style={{
                                 position: 'absolute',
-                                left: stepEditor.left,
-                                top: stepEditor.top - initiativeOverlayTopInset,
-                                width: stepEditor.width,
-                                height: stepEditor.height,
-                                fontSize: stepEditor.fontSize,
+                                left: epicEditor.left,
+                                top: epicEditor.top - initiativeOverlayTopInset,
+                                width: epicEditor.width,
+                                height: epicEditor.height,
+                                fontSize: epicEditor.fontSize,
                             }}
                             sx={{ pointerEvents: 'auto', fontWeight: 400 }}
                         />
@@ -5982,7 +5982,7 @@ export default function PipelinePlanVisualizer({
                         caret and the outline. */}
                     {reqEditor && (
                         <PlanInPlaceTitleArea
-                            key={`req-edit-${reqEditor.reqId}-${reqEditor.stepId}`}
+                            key={`req-edit-${reqEditor.reqId}-${reqEditor.epicId}`}
                             initial={layoutTitles.get(reqEditor.reqId) || ''}
                             label={reqEditor.label}
                             saving={!!reqEdit?.saving}
@@ -5995,7 +5995,7 @@ export default function PipelinePlanVisualizer({
                                     (m) => new Map(m).set(reqId, title)));
                             }}
                             onCommit={(raw, opened) => commitReqTitle(
-                                reqEditor.reqId, reqEditor.stepId, raw, opened)}
+                                reqEditor.reqId, reqEditor.epicId, raw, opened)}
                             onCancel={() => {
                                 dropReqDraft(reqEditor.reqId);
                                 setReqEdit(null);
@@ -6017,14 +6017,14 @@ export default function PipelinePlanVisualizer({
                     )}
                 </Box>
 
-                {/* req #3583 — the step card a box row would land on. An HTML
+                {/* req #3583 — the epic card a box row would land on. An HTML
                     outline over the canvas rather than a Konva shape, so the
-                    world draws nothing new mid-drag: accent when the step takes
+                    world draws nothing new mid-drag: accent when the epic takes
                     the requirement, dashed red when it will not (a locked
-                    step). */}
+                    epic). */}
                 {seatTargetRect && (
                     <Box data-testid="pipeline-viz-seat-target"
-                         data-step-id={seatTarget.stepId}
+                         data-epic-id={seatTarget.epicId}
                          data-ok={seatTarget.ok ? '1' : '0'}
                          sx={{ position: 'absolute', pointerEvents: 'none',
                                 left: seatTargetRect.left - 3, top: seatTargetRect.top - 3,
@@ -6036,7 +6036,7 @@ export default function PipelinePlanVisualizer({
                                 boxShadow: seatTarget.ok
                                     ? `0 0 0 4px ${P.accent}33` : 'none',
                                 // Above the box while it is carried, so the
-                                // outlined step shows through (req #3614) — and a
+                                // outlined epic shows through (req #3614) — and a
                                 // carried box is a PLACED one, fixed in the window
                                 // at UNSEATED_FLOAT_Z (req #3687); it takes no
                                 // pointer, so hit-testing is unchanged.
@@ -6044,21 +6044,21 @@ export default function PipelinePlanVisualizer({
                                     ? (boxFromRack ? RACK_DRAG_Z + 1 : UNSEATED_FLOAT_Z + 1) : 1 }} />
                 )}
 
-                {/* req #3583 — swarm-ready work no step carries yet, opening in
+                {/* req #3583 — swarm-ready work no epic carries yet, opening in
                     the top-right corner the key vacated for the bottom (req
                     #3255); its title bar moves it anywhere in the window, over
                     the navbar included (req #3687), and dropped ON the navbar it
-                    racks there with the other Action Popups (req #3735). Its rows drag onto a step
+                    racks there with the other Action Popups (req #3735). Its rows drag onto an epic
                     card to seat them. Its type
                     is the requirement ids' own ON-SCREEN size — the card font
                     `CF.req` (world px) through the live zoom — so it shrinks and
                     grows with the marks it feeds (user directive), held within
                     9–16px so it stays usable at both zoom extremes (user
-                    ruling). Its WIDTH is a step card's on-screen frame width,
-                    whatever the Step Width rung and zoom (req #3620). The
+                    ruling). Its WIDTH is an epic card's on-screen frame width,
+                    whatever the Epic Width rung and zoom (req #3620). The
                     reader may stretch it by its corner on top of that, its text
                     stepping one size up or down — the box owns that (req #3654).
-                    Never bigger than at six steps across (req #3648 —
+                    Never bigger than at six epics across (req #3648 —
                     `unseatedBoxZoom`). */}
                 <UnorchestratedReqBox
                     items={unseatedItems}
@@ -6073,11 +6073,11 @@ export default function PipelinePlanVisualizer({
                     onMoveOver={onBoxMoveOver}
                     onMoveDrop={onBoxMoveDrop}
                     onCarryingChange={setBoxCarrying}
-                    // req #3817 — a requirement dragged off a step drops here
+                    // req #3817 — a requirement dragged off an epic drops here
                     // to leave the plan.
                     dropTargetRef={unseatBoxRef}
                     dropArmed={reqDrag
-                        ? (canUnseatFrom(rowById.get(reqDrag.fromStepId)) ? 'ok' : 'refused')
+                        ? (canUnseatFrom(rowById.get(reqDrag.fromEpicId)) ? 'ok' : 'refused')
                         : null}
                     dropOver={dropOnBox}
                     onOpen={(id) => navigate(`/swarm/requirement/${id}`,
@@ -6092,7 +6092,7 @@ export default function PipelinePlanVisualizer({
                     the bottom of the visualizer"*); then a `?` chip beside the
                     colour chips (user: *"Remove the ?"*). Now each colour chip
                     explains ITSELF when the pointer rests on it — active or not
-                    — and the Step chip explains the step marks. The page owns
+                    — and the Epic chip explains the epic marks. The page owns
                     the toolbar, so the hovered chip arrives as `keyHover`.
                     A LONG PRESS on a chip pins it (req #3766): `keyHover`
                     arrives with `pinned: true` and the toolbar holds it there
@@ -6137,16 +6137,16 @@ export default function PipelinePlanVisualizer({
                                 },
                             }}>
                         <Stack direction="column" spacing={0} useFlexGap>
-                            {keyHover.key === 'step' ? (
+                            {keyHover.key === 'epic' ? (
                                 <>
                             <KeyGroup title={KEY_GROUP_TITLES[0]} first>
-                                {/* req #3742 — the STEP COLOUR, the card's
-                                    border: one colour per step, first match
+                                {/* req #3742 — the EPIC COLOUR, the card's
+                                    border: one colour per epic, first match
                                     wins in this order. */}
                                 {[[P.lockedFrame, 'Locked', 'locked'],
-                                    [P.stepManual, 'Manual', 'manual'],
-                                    [P.stepBarrier, 'Barrier', 'barrier'],
-                                    [P.stepWillRun, 'Will run', 'will-run']]
+                                    [P.epicManual, 'Manual', 'manual'],
+                                    [P.epicBarrier, 'Barrier', 'barrier'],
+                                    [P.epicWillRun, 'Will run', 'will-run']]
                                     .map(([color, label, key]) => (
                                         <LegendIcon key={key} label={label} color={color}>
                                             <Box component="span" aria-hidden="true"
@@ -6163,14 +6163,14 @@ export default function PipelinePlanVisualizer({
                                            label="Scheduled (dot)" />
                                 {/* req #3775 — Running is the MOTION, not a
                                     hue: the card's bar (the bead at L1)
-                                    pulses in the step's own colour above, so
+                                    pulses in the epic's own colour above, so
                                     the swatch is neutral and pulses. */}
                                 <LegendDot fill={P.text} label="Running (pulses)"
                                            animated="pipeKeyPulse" />
                                 <LegendDot fill={P.doneFill} label="Complete (dot)" />
                                 {/* "Up Next" and not "eligible now" because the
                                     mark answers the question in the plan's own
-                                    words: these are the steps that run next.
+                                    words: these are the epics that run next.
                                     Below k ≈ 0.3 the canvas swaps this dashed
                                     ring for a filled dot of the same on-screen
                                     size, in the SAME colour (req #3299,
@@ -6267,7 +6267,7 @@ export default function PipelinePlanVisualizer({
                     key when this note was written. */}
             </Box>
 
-            {/* req #3608 — the whole swarm-ready box dropped on a step. The
+            {/* req #3608 — the whole swarm-ready box dropped on an epic. The
                 list is the box as it stood at the drop, so what is approved is
                 what was shown. */}
             <Dialog open={bulkSeatOpen} onClose={closeBulkSeat} fullWidth maxWidth="xs"
@@ -6280,8 +6280,8 @@ export default function PipelinePlanVisualizer({
                 <DialogContent>
                     <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}
                                 data-testid="pipeline-viz-bulk-seat-summary">
-                        {bulkSeat && `Onto "${bulkSeat.stepTitle}". Every swarm-ready `
-                            + 'requirement not yet on a step is seated there.'}
+                        {bulkSeat && `Onto "${bulkSeat.epicTitle}". Every swarm-ready `
+                            + 'requirement not yet on an epic is seated there.'}
                     </Typography>
                     <Box component="ul" data-testid="pipeline-viz-bulk-seat-list"
                          sx={{ m: 0, p: 0, listStyle: 'none', maxHeight: 280, overflowY: 'auto' }}>
@@ -6305,14 +6305,14 @@ export default function PipelinePlanVisualizer({
                 </DialogActions>
             </Dialog>
 
-            {/* req #3586 — the add-step dialog. Portalled to the body, so a
+            {/* req #3586 — the add-epic dialog. Portalled to the body, so a
                 click inside it never reaches the canvas's own click test. */}
-            {/* req #3742 — the single editor a click on a step or an initiative opens. */}
-            {planEditor.kind === 'step' && (
-                <StepEditDialog
-                    key={`plan-step-editor-${planEditor.key}`}
+            {/* req #3742 — the single editor a click on an epic or an initiative opens. */}
+            {planEditor.kind === 'epic' && (
+                <EpicEditDialog
+                    key={`plan-epic-editor-${planEditor.key}`}
                     open={planEditor.open}
-                    step={planEditor.target}
+                    epic={planEditor.target}
                     initiativeOptions={insertInitiativeOptions}
                     onClose={closePlanEditor}
                     onSaved={refreshPlan}
@@ -6332,9 +6332,9 @@ export default function PipelinePlanVisualizer({
                     data-testid="pipeline-viz-insert-dialog">
                 <DialogTitle data-testid="pipeline-viz-insert-heading">
                     {{
-                        edge: 'Insert a step',
-                        precede: 'Add a step before',
-                        dependent: 'Add a dependent step',
+                        edge: 'Insert an epic',
+                        precede: 'Add an epic before',
+                        dependent: 'Add a dependent epic',
                     }[insertReq?.kind]}
                 </DialogTitle>
                 <DialogContent>
@@ -6342,9 +6342,9 @@ export default function PipelinePlanVisualizer({
                                 data-testid="pipeline-viz-insert-summary">
                         {insertReq?.kind === 'edge'
                             ? `Between "${insertReq.fromTitle}" and "${insertReq.toTitle}". `
-                              + 'The new step waits on the first; the second waits on the new step.'
+                              + 'The new epic waits on the first; the second waits on the new epic.'
                             : insertReq?.kind === 'precede'
-                                ? `"${insertReq.toTitle}" will wait on the new step.`
+                                ? `"${insertReq.toTitle}" will wait on the new epic.`
                             : insertReq
                                 ? `Depends on "${insertReq.fromTitle}" only.`
                                 : ''}
@@ -6381,7 +6381,7 @@ export default function PipelinePlanVisualizer({
                 <DialogTitle>Add an initiative</DialogTitle>
                 <DialogContent>
                     <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                        Added at the end of this plan, with a first step so it shows on the canvas.
+                        Added at the end of this plan, with a first epic so it shows on the canvas.
                     </Typography>
                     <TextField autoFocus fullWidth size="small" label="Title"
                                value={initiativeAddTitle}

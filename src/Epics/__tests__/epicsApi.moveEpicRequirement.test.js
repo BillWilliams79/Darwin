@@ -1,5 +1,5 @@
 // Req #3581 — the ONE browser implementation of a seat move, shared by the
-// requirement page's step picker and the plan visualizer's drag-and-drop.
+// requirement page's epic picker and the plan visualizer's drag-and-drop.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -19,7 +19,7 @@ vi.mock('../../RestApi/RestApi', () => ({
     }),
 }));
 
-import { moveStepRequirement } from '../stepsApi';
+import { moveEpicRequirement } from '../epicsApi';
 
 const URI = 'https://api/darwin';
 
@@ -28,50 +28,50 @@ beforeEach(() => {
     status = { DELETE: 200, POST: 200 };
 });
 
-describe('moveStepRequirement', () => {
+describe('moveEpicRequirement', () => {
     it('deletes the old seat (both columns) and THEN inserts the new', async () => {
-        await moveStepRequirement(URI, 'tok', { requirementId: 7, fromStepId: 1, toStepId: 2 });
+        await moveEpicRequirement(URI, 'tok', { requirementId: 7, fromEpicId: 1, toEpicId: 2 });
         expect(calls.map(({ method, body }) => ({ method, body }))).toEqual([
-            { method: 'DELETE', body: { step_fk: 1, requirement_fk: 7 } },
-            { method: 'POST', body: { step_fk: 2, requirement_fk: 7 } },
+            { method: 'DELETE', body: { epic_fk: 1, requirement_fk: 7 } },
+            { method: 'POST', body: { epic_fk: 2, requirement_fk: 7 } },
         ]);
-        expect(calls.every((c) => c.uri === `${URI}/pipeline_step_requirements`)).toBe(true);
+        expect(calls.every((c) => c.uri === `${URI}/epic_requirements`)).toBe(true);
     });
 
     it('only inserts for an unseated requirement, only deletes to unseat one', async () => {
-        await moveStepRequirement(URI, 'tok', { requirementId: 7, toStepId: 2 });
-        await moveStepRequirement(URI, 'tok', { requirementId: 7, fromStepId: 1 });
+        await moveEpicRequirement(URI, 'tok', { requirementId: 7, toEpicId: 2 });
+        await moveEpicRequirement(URI, 'tok', { requirementId: 7, fromEpicId: 1 });
         expect(calls.map((c) => c.method)).toEqual(['POST', 'DELETE']);
     });
 
-    it('writes nothing for a move onto the same step', async () => {
-        await moveStepRequirement(URI, 'tok', { requirementId: 7, fromStepId: 1, toStepId: 1 });
+    it('writes nothing for a move onto the same epic', async () => {
+        await moveEpicRequirement(URI, 'tok', { requirementId: 7, fromEpicId: 1, toEpicId: 1 });
         expect(calls).toEqual([]);
     });
 
     it('never inserts after a failed delete — a stale seat aborts the move', async () => {
         status.DELETE = 404;
-        await expect(moveStepRequirement(URI, 'tok',
-            { requirementId: 7, fromStepId: 1, toStepId: 2 })).rejects.toBeTruthy();
+        await expect(moveEpicRequirement(URI, 'tok',
+            { requirementId: 7, fromEpicId: 1, toEpicId: 2 })).rejects.toBeTruthy();
         expect(calls.map((c) => c.method)).toEqual(['DELETE']);
     });
 
     it('treats a RETURNED fetch failure as a failure too', async () => {
         status.DELETE = 503;
-        await expect(moveStepRequirement(URI, 'tok',
-            { requirementId: 7, fromStepId: 1, toStepId: 2 })).rejects.toThrow(/503/);
+        await expect(moveEpicRequirement(URI, 'tok',
+            { requirementId: 7, fromEpicId: 1, toEpicId: 2 })).rejects.toThrow(/503/);
         expect(calls.map((c) => c.method)).toEqual(['DELETE']);
     });
 
     it('tags which half failed, so a caller can tell nothing-changed from seated-nowhere', async () => {
         status.DELETE = 404;
-        const unseat = await moveStepRequirement(URI, 'tok',
-            { requirementId: 7, fromStepId: 1, toStepId: 2 }).catch((e) => e);
+        const unseat = await moveEpicRequirement(URI, 'tok',
+            { requirementId: 7, fromEpicId: 1, toEpicId: 2 }).catch((e) => e);
         expect(unseat.seatStage).toBe('unseat');
 
         status = { DELETE: 200, POST: 409 };
-        const seat = await moveStepRequirement(URI, 'tok',
-            { requirementId: 7, fromStepId: 1, toStepId: 2 }).catch((e) => e);
+        const seat = await moveEpicRequirement(URI, 'tok',
+            { requirementId: 7, fromEpicId: 1, toEpicId: 2 }).catch((e) => e);
         expect(seat.seatStage).toBe('seat');
     });
 });

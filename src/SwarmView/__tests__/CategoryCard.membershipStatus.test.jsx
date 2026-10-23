@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// Req #3598 — under an initiative or step membership filter the Cards view is the
+// Req #3598 — under an initiative or epic membership filter the Cards view is the
 // NORMAL Requirements view with just that set of requirements (user ruling,
 // 2026-10-17). The reported defect: the initiative chip's Task Cards link opened a
 // page holding only the aggregator, because every category card whose scoped
@@ -30,7 +30,7 @@ vi.setConfig({ testTimeout: 30000 });
 
 vi.mock('react-router-dom', () => ({ useNavigate: () => () => {} }));
 
-// One open row and three closed ones, all in category 5 and all on step 186 —
+// One open row and three closed ones, all in category 5 and all on epic 186 —
 // the ordinary shape of an initiative's work, which is mostly finished.
 const reqData = [
     { id: 20, title: 'Open work', requirement_status: 'development', category_fk: 5, sort_order: 0 },
@@ -41,12 +41,12 @@ const reqData = [
 const EMPTY_SESSIONS = [];
 // MODULE-LEVEL, never inline literals: a fresh array per render churns the
 // visibility hook's memoized Sets into a synchronous render loop.
-const JUNCTION = reqData.map(({ id }) => ({ step_fk: 186, requirement_fk: id }));
+const JUNCTION = reqData.map(({ id }) => ({ epic_fk: 186, requirement_fk: id }));
 const ALL_REQS = reqData.map(({ id }) => ({ id }));
 vi.mock('../../hooks/useDataQueries', () => ({
     useRequirements: () => ({ data: reqData }),
     useSessions: () => ({ data: EMPTY_SESSIONS }),
-    useAllPipelineStepRequirements: () => ({ data: JUNCTION }),
+    useAllPipelineEpicRequirements: () => ({ data: JUNCTION }),
     useAllRequirements: () => ({ data: ALL_REQS }),
     ALL_ROWS: 'all',
 }));
@@ -71,7 +71,7 @@ function mount(scope = {}) {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const root = createRoot(container);
     roots.push(root);
-    const render = ({ stepReqIds = null, initiativeReqIds = null } = {}) => act(() => {
+    const render = ({ epicReqIds = null, initiativeReqIds = null } = {}) => act(() => {
         root.render(
             <QueryClientProvider client={queryClient}>
                 <AppContext.Provider value={{ darwinUri: 'http://test.local' }}>
@@ -89,7 +89,7 @@ function mount(scope = {}) {
                                 isTemplate={false}
                                 showClosed={false}
                                 initiativeReqIds={initiativeReqIds}
-                                stepReqIds={stepReqIds}
+                                epicReqIds={epicReqIds}
                             />
                         </DarwinDndContext>
                     </AuthContext.Provider>
@@ -112,7 +112,7 @@ describe('CategoryCard: status chips under a membership filter (req #3598)', () 
     beforeEach(() => {
         roots = [];
         // The shipped status chips; the orchestrated toggle OFF to isolate the
-        // chips (every row here is step-seated, as an initiative's work always is).
+        // chips (every row here is epic-seated, as an initiative's work always is).
         useShowClosedStore.setState({
             requirementStatusFilter: DEFAULT_REQUIREMENT_STATUSES,
             hidePipelinedRequirements: false,
@@ -130,8 +130,8 @@ describe('CategoryCard: status chips under a membership filter (req #3598)', () 
         CLOSED_IDS.forEach((id) => expect(rowPresent(container, id)).toBe(false));
     });
 
-    it('the status chips APPLY under a STEP filter too', () => {
-        const { container } = mount({ stepReqIds: new Set(ALL_IDS) });
+    it('the status chips APPLY under a EPIC filter too', () => {
+        const { container } = mount({ epicReqIds: new Set(ALL_IDS) });
         expect(rowPresent(container, 20)).toBe(true);
         CLOSED_IDS.forEach((id) => expect(rowPresent(container, id)).toBe(false));
     });

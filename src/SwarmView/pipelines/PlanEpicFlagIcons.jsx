@@ -1,6 +1,6 @@
-// Req #3673 — the picture on the step card's barrier button, and on the
-// initiative chip's padlock. (The step card's own padlock button went in req #3742;
-// a locked step's card has a red perimeter instead.)
+// Req #3673 — the picture on the epic card's barrier button, and on the
+// initiative chip's padlock. (The epic card's own padlock button went in req #3742;
+// a locked epic's card has a red perimeter instead.)
 //
 // User directive: "lock and unlock should show an icon with a locked lock for
 // locked state and unlocked icon for unlocked state. the pics should be
@@ -9,7 +9,7 @@
 //
 // THE BARRIER IS DRAWN AS A BOOM BARRIER — the striped arm across a road.
 // The metaphor is the flag's own meaning: arm DOWN, orange-and-white, is a
-// barrier (the steps after this one are held until it is done); arm RAISED
+// barrier (the epics after this one are held until it is done); arm RAISED
 // and grey is not (they may start before it). The two states differ in SHAPE
 // and COLOUR, never only in fill, which is what made the flag unreadable.
 //
@@ -74,14 +74,14 @@ export function PlanLockIcon({ locked, ...props }) {
 
 // What the barrier button says on hover and to assistive tech: the state,
 // what it means, and what a click will do.
-// A locked step refuses the barrier click, so its title says that instead of
+// A locked epic refuses the barrier click, so its title says that instead of
 // promising a change.
 export function barrierTitle(on, lockedBy) {
     const state = on
-        ? 'Barrier ON — Dependent steps may start requirements only when all requirements in this step are met, wontfix, deferred, or paused.'
-        : 'Barrier OFF — Dependent steps may start requirements only when all requirements in this step have been started or are met, wontfix, deferred or paused.';
+        ? 'Barrier ON — Dependent epics may start requirements only when all requirements in this epic are met, wontfix, deferred, or paused.'
+        : 'Barrier OFF — Dependent epics may start requirements only when all requirements in this epic have been started or are met, wontfix, deferred or paused.';
     if (lockedBy) {
-        return `${state} ${lockedBy === 'step' ? 'This step is locked'
+        return `${state} ${lockedBy === 'epic' ? 'This epic is locked'
             : `Locked by its ${lockedBy}`} — unlock it to change this.`;
     }
     return `${state} ${on ? 'Click to turn it off.' : 'Click to make it a barrier.'}`;

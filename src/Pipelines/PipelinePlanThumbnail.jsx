@@ -7,7 +7,7 @@
 // full view L3 detail instead … like cutting a nice center out with L3 detail
 // will look legit. Make that fill the whole view port in the card instead of
 // just the center."* So this no longer fits the WHOLE plan into the strip as
-// beads. It draws the plan's L3 formation — cards, state bars, step names,
+// beads. It draws the plan's L3 formation — cards, state bars, epic names,
 // requirement titles in their colour key — at a fixed scale, and cuts the
 // frame out of the plan's middle, the full width of the card.
 //
@@ -17,10 +17,10 @@
 //
 // ── IT SHARES THE REAL GEOMETRY, IT DOES NOT APPROXIMATE IT ─────────────────
 // `computePlanLayout` is the same function the full canvas calls, with the
-// same options PipelineDetail pins (`stepLabel`/`reqLabel` = 'title', the
+// same options PipelineDetail pins (`epicLabel`/`reqLabel` = 'title', the
 // requirement titles, the time axis, the pause), over rows adapted with the
-// same `now` `usePlanSources` passes (an empty step sits on TODAY, req #3618 —
-// without it the thumbnail would put that step in a different column and crop
+// same `now` `usePlanSources` passes (an empty epic sits on TODAY, req #3618 —
+// without it the thumbnail would put that epic in a different column and crop
 // a different picture), so every card here is the card the plan page draws,
 // wrapped at the same characters. `beadStyle`,
 // `reqIdStyle` and the palette are the shared functions and entries. A
@@ -28,9 +28,9 @@
 // is a preview OF. What is genuinely this component's own is the SCALE and
 // the CROP, and the marks it leaves out (below).
 //
-// ── THE SCALE: THREE STEPS ACROSS THE FRAME ─────────────────────────────────
-// `THUMB_STEPS_ACROSS` columns of the plan's own pitch (`layout.colPitch`)
-// span the frame. The layout runs at the DEFAULT Step Width rung, not the
+// ── THE SCALE: THREE EPICS ACROSS THE FRAME ─────────────────────────────────
+// `THUMB_EPICS_ACROSS` columns of the plan's own pitch (`layout.colPitch`)
+// span the frame. The layout runs at the DEFAULT Epic Width rung, not the
 // reader's chosen one: that preference belongs to the plan page's toolbar, and
 // a card preview is the plan at its factory width. At a ~420px card that is
 // k ≈ 0.30 — the scale the plan page's own L3 view lands at on a wide
@@ -43,7 +43,7 @@
 // that looks broken. So `thumbnailFrame` picks the crop that shows the most
 // card, breaking ties toward the middle, clamped so the frame never runs past
 // the world's edge. A card taller than the strip is pinned by its top, so its
-// step name — the thing a reader recognises — is what shows. The measurement
+// epic name — the thing a reader recognises — is what shows. The measurement
 // behind this is on `thumbnailFrame` itself.
 //
 // ── WHAT IS LEFT OUT, AND WHY ───────────────────────────────────────────────
@@ -88,7 +88,7 @@ import {
     beadStyle,
     reqIdStyle,
     buildReqColorViews,
-    orderStepReqs,
+    orderEpicReqs,
     CARD_DONE_RULE_DASH,
     CARD_DONE_RULE_OPACITY,
     DEFAULT_COLOR_KEY,
@@ -108,7 +108,7 @@ import {
     NEXT_HALO_STROKE,
     NEXT_HALO_OPACITY,
     NEXT_HALO_DASH,
-    DEFAULT_PLAN_STEP_WIDTH,
+    DEFAULT_PLAN_EPIC_WIDTH,
 } from '../SwarmView/pipelines/pipelinePlanLayout';
 import { thumbnailFrame, THUMB_H } from './pipelineThumbnailFrame';
 
@@ -154,7 +154,7 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
     // and the inputs change only when the payload does, so a card re-rendering
     // for an unrelated reason (a status filter toggle, a sibling's refetch)
     // re-runs none of it. `today` is a memo key for `usePlanSources`'
-    // reason: empty and running steps sit on the reader's local today, so a
+    // reason: empty and running epics sit on the reader's local today, so a
     // render after local midnight must re-place them even when the cached
     // payload object is unchanged.
     const today = localDayOf(new Date());
@@ -178,23 +178,23 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
         if (!baseRows || !baseRows.length) return null;
 
         // The requirement rows in each card, in the order the plan page shows
-        // them — orchestration order (req #3676), the same `orderStepReqs`
+        // them — orchestration order (req #3676), the same `orderEpicReqs`
         // pass the visualizer runs over the same rows.
         const reqById = new Map(model.requirements.map((r) => [r.id, r]));
-        const rows = orderStepReqs(baseRows, {
+        const rows = orderEpicReqs(baseRows, {
             statusOf: (id) => reqById.get(id)?.requirement_status,
             autonomyOf: (id) => reqById.get(id)?.coordination_type,
         });
 
         const reqTitles = new Map(model.requirements.map((r) => [r.id, r.title]));
         const layout = computePlanLayout(rows, {
-            stepLabel: 'title', reqLabel: 'title', reqTitles,
+            epicLabel: 'title', reqLabel: 'title', reqTitles,
             palette: DEFAULT_PLAN_PALETTE,
             timeAxis: adapted.timeAxis || null,
             pauseInfo: adapted.pause || null,
             // The plan page's own card width (req #3648 — 25% wider), so the
             // thumbnail draws the cards the reader will open, not the base card.
-            stepWidthLevel: DEFAULT_PLAN_STEP_WIDTH,
+            epicWidthLevel: DEFAULT_PLAN_EPIC_WIDTH,
         });
         if (!layout || layout.empty || !(layout.width > 0)) return null;
 
@@ -212,7 +212,7 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
             reqColorViews,
             // Already a Set on the adapted plan; copied rather than aliased so
             // a later edit here cannot mutate the cached plan object.
-            eligible: new Set(adapted?.eligibleStepIds || []),
+            eligible: new Set(adapted?.eligibleEpicIds || []),
         };
     }, [data, machines, today]);
 
@@ -220,7 +220,7 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
         () => (drawing && width > 0 ? thumbnailFrame(drawing.layout, width) : null),
         [drawing, width]);
 
-    // Only the cards the frame can show are drawn — a crop of a 100-step plan
+    // Only the cards the frame can show are drawn — a crop of a 100-epic plan
     // shows a handful, and each card is a dozen Konva nodes.
     const visibleIds = useMemo(() => {
         if (!drawing || !frame) return null;
@@ -334,7 +334,7 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
 
                             {/* The cards — frame, state bar and the rule under
                                 the title, as the plan page paints them at L3,
-                                with the next-step halo as the card's dashed
+                                with the next-epic halo as the card's dashed
                                 outline. */}
                             {view.rows.map((row) => {
                                 if (!visibleIds.has(row.id)) return null;
@@ -383,15 +383,15 @@ export default function PipelinePlanThumbnail({ pipelineId, machines = [],
                             })}
 
                             {/* The lettering, from the layout's own label
-                                boxes — L3's formation: the step name, each
+                                boxes — L3's formation: the epic name, each
                                 requirement's TITLE row (wrapped by the layout,
                                 never re-wrapped here) in its colour key, the
                                 count badge and the run pill. */}
                             {view.layout.labels.map((label, i) => {
-                                if (label.stepId == null || !visibleIds.has(label.stepId)) {
+                                if (label.epicId == null || !visibleIds.has(label.epicId)) {
                                     return null;
                                 }
-                                if (label.kind === 'step') {
+                                if (label.kind === 'epic') {
                                     return (
                                         <Text key={`lbl-${i}`} x={label.x} y={label.y}
                                               text={(label.lines || [label.text]).join('\n')}

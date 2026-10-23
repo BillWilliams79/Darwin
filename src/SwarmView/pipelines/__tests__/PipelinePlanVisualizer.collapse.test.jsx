@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// req #3650 — every initiative chip and every step card on the plan canvas carries
+// req #3650 — every initiative chip and every epic card on the plan canvas carries
 // its OWN collapse head, and a click folds that box and nothing else. The
 // heads are HTML over the canvas (like the run pill), so jsdom can click them;
 // react-konva is stubbed inert because nothing here depends on what it draws.
@@ -58,7 +58,7 @@ afterEach(() => {
     document.body.innerHTML = '';
 });
 
-const step = (id, initiative_fk, title) => ({
+const epic = (id, initiative_fk, title) => ({
     id, initiative_fk, title, run: 'auto', notes: null, not_before: null,
 });
 
@@ -66,8 +66,8 @@ function render(props = {}) {
     const payload = composedFixture({
         initiatives: [{ id: 5, title: 'Build', pipeline_fk: 2, sort_order: 1 },
             { id: 6, title: 'Ship', pipeline_fk: 2, sort_order: 2 }],
-        steps: [step(10, 5, 'Design'), step(11, 5, 'Implement'), step(12, 6, 'Release')],
-        stepDeps: [{ id: 1, step_fk: 11, dep_step_fk: 10 }],
+        epics: [epic(10, 5, 'Design'), epic(11, 5, 'Implement'), epic(12, 6, 'Release')],
+        epicDeps: [{ id: 1, epic_fk: 11, dep_epic_fk: 10 }],
     });
     const plan = adaptComposedPipeline(payload);
     const model = buildPlanModel(payload);
@@ -88,16 +88,16 @@ function render(props = {}) {
 }
 
 const q = (id) => document.querySelector(`[data-testid="${id}"]`);
-const stepHead = (id) => q(`pipeline-viz-step-collapse-${id}`);
+const epicHead = (id) => q(`pipeline-viz-epic-collapse-${id}`);
 const initiativeHead = (id) => q(`pipeline-viz-initiative-collapse-${id}`);
 const click = (el) => act(() => { el.click(); });
 
 describe('per-box collapse heads on the plan canvas (req #3650)', () => {
-    it('gives every step card and every initiative chip its own head, open, TPU-styled', () => {
+    it('gives every epic card and every initiative chip its own head, open, TPU-styled', () => {
         render();
         for (const id of [10, 11, 12]) {
-            const h = stepHead(id);
-            expect(h, `step ${id}`).not.toBeNull();
+            const h = epicHead(id);
+            expect(h, `epic ${id}`).not.toBeNull();
             expect(h.tagName).toBe('BUTTON');
             expect(h.getAttribute('aria-expanded')).toBe('true');
             // The chevron alone since req #3648 — no "Reqs" word.
@@ -107,62 +107,62 @@ describe('per-box collapse heads on the plan canvas (req #3650)', () => {
             const h = initiativeHead(id);
             expect(h, `initiative ${id}`).not.toBeNull();
             expect(h.getAttribute('aria-expanded')).toBe('true');
-            // The chevron alone since req #3648 — no "Steps" word.
+            // The chevron alone since req #3648 — no "Epics" word.
             expect(h.textContent).toBe('▾');
             // It LEADS the chip — the chip's upper-left.
             expect(h.parentElement.firstElementChild).toBe(h);
         }
     });
 
-    it('folds ONLY the step that was clicked', () => {
+    it('folds ONLY the epic that was clicked', () => {
         render();
-        click(stepHead(10));
-        expect(stepHead(10).getAttribute('aria-expanded')).toBe('false');
-        expect(stepHead(10).getAttribute('title')).toBe('Expand Requirements of step 10');
-        expect(stepHead(11).getAttribute('aria-expanded')).toBe('true');
-        expect(stepHead(12).getAttribute('aria-expanded')).toBe('true');
+        click(epicHead(10));
+        expect(epicHead(10).getAttribute('aria-expanded')).toBe('false');
+        expect(epicHead(10).getAttribute('title')).toBe('Expand Requirements of epic 10');
+        expect(epicHead(11).getAttribute('aria-expanded')).toBe('true');
+        expect(epicHead(12).getAttribute('aria-expanded')).toBe('true');
         expect(initiativeHead(5).getAttribute('aria-expanded')).toBe('true');
-        click(stepHead(10));
-        expect(stepHead(10).getAttribute('aria-expanded')).toBe('true');
+        click(epicHead(10));
+        expect(epicHead(10).getAttribute('aria-expanded')).toBe('true');
     });
 
     it('folds ONLY the initiative that was clicked, taking its cards with it', () => {
         render();
         click(initiativeHead(5));
         expect(initiativeHead(5).getAttribute('aria-expanded')).toBe('false');
-        expect(stepHead(10)).toBeNull();
-        expect(stepHead(11)).toBeNull();
+        expect(epicHead(10)).toBeNull();
+        expect(epicHead(11)).toBeNull();
         expect(initiativeHead(6).getAttribute('aria-expanded')).toBe('true');
-        expect(stepHead(12)).not.toBeNull();
+        expect(epicHead(12)).not.toBeNull();
         click(initiativeHead(5));
-        expect(stepHead(10)).not.toBeNull();
+        expect(epicHead(10)).not.toBeNull();
     });
 
     it('keeps the folds across a re-mount (req #3651 — every transition re-mounts)', () => {
         render();
-        click(stepHead(12));
+        click(epicHead(12));
         click(initiativeHead(5));
         act(() => { root.unmount(); });
         document.body.innerHTML = '';
         render();
         expect(initiativeHead(5).getAttribute('aria-expanded')).toBe('false');
-        expect(stepHead(10)).toBeNull();
-        expect(stepHead(12).getAttribute('aria-expanded')).toBe('false');
+        expect(epicHead(10)).toBeNull();
+        expect(epicHead(12).getAttribute('aria-expanded')).toBe('false');
     });
 
-    it('a link to a folded step inside a folded initiative unfolds both, and nothing else', () => {
-        localStorage.setItem('darwin-pipeline-viz-collapsed', 'i5 i6 s10 s11');
-        render({ focusStepId: 10 });
+    it('a link to a folded epic inside a folded initiative unfolds both, and nothing else', () => {
+        localStorage.setItem('darwin-pipeline-viz-collapsed-v2', 'i5 i6 e10 e11');
+        render({ focusEpicId: 10 });
         expect(initiativeHead(5).getAttribute('aria-expanded')).toBe('true');
-        expect(stepHead(10).getAttribute('aria-expanded')).toBe('true');
-        expect(stepHead(11).getAttribute('aria-expanded')).toBe('false');
+        expect(epicHead(10).getAttribute('aria-expanded')).toBe('true');
+        expect(epicHead(11).getAttribute('aria-expanded')).toBe('false');
         expect(initiativeHead(6).getAttribute('aria-expanded')).toBe('false');
-        expect(sessionStorage.getItem('darwin-pipeline-viz-collapsed')).toBe('i6 s11');
-        expect(q('pipeline-viz-step-not-on-plan')).toBeNull();
+        expect(sessionStorage.getItem('darwin-pipeline-viz-collapsed-v2')).toBe('i6 e11');
+        expect(q('pipeline-viz-epic-not-on-plan')).toBeNull();
     });
 
     it('unfolds ONCE per link: the reader can still fold the linked box afterwards', () => {
-        render({ focusStepId: 12, focusInitiativeId: 5 });
+        render({ focusEpicId: 12, focusInitiativeId: 5 });
         click(initiativeHead(6));
         expect(initiativeHead(6).getAttribute('aria-expanded')).toBe('false');
         click(initiativeHead(5));
@@ -181,8 +181,8 @@ describe('per-box collapse heads on the plan canvas (req #3650)', () => {
 
     it('names each head with its visible label first (WCAG 2.5.3)', () => {
         render();
-        expect(stepHead(10).getAttribute('aria-label')).toBe('Requirements of step 10');
-        expect(initiativeHead(5).getAttribute('aria-label')).toBe('Steps of initiative Build');
+        expect(epicHead(10).getAttribute('aria-label')).toBe('Requirements of epic 10');
+        expect(initiativeHead(5).getAttribute('aria-label')).toBe('Epics of initiative Build');
     });
 });
 
@@ -227,40 +227,40 @@ describe('the initiative fold animates, and a folded initiative is a title bar (
         click(initiativeHead(5));
         expect(initiativeHead(5).getAttribute('aria-expanded')).toBe('false');
         // Still drawn on the first frame — the box has not started to move.
-        expect(stepHead(10)).not.toBeNull();
+        expect(epicHead(10)).not.toBeNull();
         frame(230);
-        const mid = stepHead(10);
+        const mid = epicHead(10);
         expect(mid).not.toBeNull();
         expect(opacityOf(mid)).toBeLessThan(1);
         expect(mid.style.pointerEvents).toBe('none');
         frame(300);
-        expect(stepHead(10)).toBeNull();
-        expect(stepHead(11)).toBeNull();
+        expect(epicHead(10)).toBeNull();
+        expect(epicHead(11)).toBeNull();
         expect(frames).toHaveLength(0);
         // The other initiative was never touched.
-        expect(stepHead(12)).not.toBeNull();
-        expect(opacityOf(stepHead(12))).toBe(1);
+        expect(epicHead(12)).not.toBeNull();
+        expect(opacityOf(epicHead(12))).toBe(1);
     });
 
     it('unfolding: the cards arrive as the box grows, fully present when it lands', () => {
-        localStorage.setItem('darwin-pipeline-viz-collapsed', 'i5');
+        localStorage.setItem('darwin-pipeline-viz-collapsed-v2', 'i5');
         render();
-        expect(stepHead(10)).toBeNull();
+        expect(epicHead(10)).toBeNull();
         click(initiativeHead(5));
         expect(initiativeHead(5).getAttribute('aria-expanded')).toBe('true');
         frame(380);
-        const mid = stepHead(10);
+        const mid = epicHead(10);
         expect(mid).not.toBeNull();
         expect(opacityOf(mid)).toBeGreaterThan(0);
         expect(opacityOf(mid)).toBeLessThan(1);
         frame(200);
-        expect(opacityOf(stepHead(10))).toBe(1);
-        expect(stepHead(10).style.pointerEvents).not.toBe('none');
+        expect(opacityOf(epicHead(10))).toBe(1);
+        expect(epicHead(10).style.pointerEvents).not.toBe('none');
         expect(frames).toHaveLength(0);
     });
 
     it('a folded initiative\'s chip is a title bar; an open one is not', () => {
-        localStorage.setItem('darwin-pipeline-viz-collapsed', 'i5');
+        localStorage.setItem('darwin-pipeline-viz-collapsed-v2', 'i5');
         render();
         expect(q('pipeline-viz-initiative-5').getAttribute('data-bar')).toBe('1.00');
         expect(q('pipeline-viz-initiative-6').hasAttribute('data-bar')).toBe(false);

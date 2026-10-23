@@ -9,7 +9,7 @@
 // select-all a keyboard rename expects.
 //
 // Two kinds of editor, two ways to find the place:
-//   a one-line <input> (step and initiative names) — the browser exposes no position
+//   a one-line <input> (epic and initiative names) — the browser exposes no position
 //     inside an input's text, so the prefixes of its value are measured in the
 //     input's own font and the nearest boundary wins (`nearestCaretOffset`);
 //   the requirement title, a contenteditable — the browser answers directly

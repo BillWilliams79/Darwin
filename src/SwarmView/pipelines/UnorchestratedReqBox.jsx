@@ -3,10 +3,10 @@
 // "Orchestration Ready" by req #3648).
 //
 // An Action Popup in the canvas's top-right corner listing every requirement
-// that is ready to run but sits on no plan step. Each row is the SOURCE of a
-// drag: pick it up, drop it on a step card, and it is seated there. That is
+// that is ready to run but sits on no plan epic. Each row is the SOURCE of a
+// drag: pick it up, drop it on an epic card, and it is seated there. That is
 // what makes it "go hand in hand with" the visualizer's drag-and-drop (req
-// #3581) — that one moves work between steps, this one feeds new work in.
+// #3581) — that one moves work between epics, this one feeds new work in.
 //
 // ── A dnd-kit DRAG ON THE SHARED PRESS TIMELINE, NO HANDLE (req #3665) ────
 // The whole row is the grip (`useDarwinDraggable`), and it lifts the way every
@@ -16,7 +16,7 @@
 // face are set on the row itself, so the copy reads the same outside the box);
 // the row left behind greys out. Nothing on the canvas re-lays-out while the
 // requirement is in the air; the visualizer's collision detection hit-tests
-// the step cards and draws the outline (see its `seatTarget`). It replaced a
+// the epic cards and draws the outline (see its `seatTarget`). It replaced a
 // native HTML5 `draggable`, which touch browsers do not drive.
 //
 // ── IT IS CHROME, NOT CANVAS ───────────────────────────────────────────────
@@ -60,17 +60,17 @@
 // same anchoring its home corner has. A wheel over a box parked OFF the plan
 // does not zoom the plan about a point it cannot see.
 //
-// ── DROPPED ON A STEP, IT SEATS THE WHOLE SET (req #3608) ─────────────────
+// ── DROPPED ON AN EPIC, IT SEATS THE WHOLE SET (req #3608) ─────────────────
 // The same title-bar move doubles as a drag of EVERY requirement the box
 // lists. Each move frame hands the pointer to the visualizer (`onMoveOver`),
-// which outlines the step card beneath it; on release `onMoveDrop` is offered
-// the drop, and when it takes it (the pointer is over a step) the box goes back
+// which outlines the epic card beneath it; on release `onMoveDrop` is offered
+// the drop, and when it takes it (the pointer is over an epic) the box goes back
 // to where it was before the drag — that gesture was a seat, not a relocation —
 // and the spot is not remembered. The visualizer asks before writing anything.
 // An empty box has nothing to seat, so it only ever moves.
 //
 // While a carrying move is under way (req #3614) the box turns see-through, so
-// the step card it is aimed at can be read; undone on release.
+// the epic card it is aimed at can be read; undone on release.
 // `onCarryingChange` tells the visualizer, which then draws its seat-target
 // outline above the box.
 //
@@ -90,17 +90,17 @@
 // marks it feeds — held within 9–16px (`unseatedBoxFontPx`) so it stays
 // legible zoomed far out and never covers the canvas zoomed in (user ruling).
 //
-// ── AS WIDE AS A STEP (req #3620, user directive) ──────────────────────────
-// The one dimension NOT in em: the WIDTH is the step card's own on-screen
-// frame width (`widthPx`, from `unseatedBoxWidthPx`), so it follows the Step
-// Width rung and the zoom — "whatever the step width, the box will mirror its
+// ── AS WIDE AS AN EPIC (req #3620, user directive) ──────────────────────────
+// The one dimension NOT in em: the WIDTH is the epic card's own on-screen
+// frame width (`widthPx`, from `unseatedBoxWidthPx`), so it follows the Epic
+// Width rung and the zoom — "whatever the epic width, the box will mirror its
 // width". Never narrower than its whole title bar (`UNSEATED_MIN_WIDTH_EM`):
 // zoomed out past the type's 9px floor, a card is too thin to hold it.
 //
 // ── STRETCHED BY ITS CORNER, IN THREE TEXT SIZES (req #3654) ─────────────
 // On top of all that, the reader may drag the grip in the box's bottom corner
-// to stretch it wider or narrower, taller or shorter. Stretched a full step
-// wider its text goes ONE size bigger, a full step narrower ONE size smaller,
+// to stretch it wider or narrower, taller or shorter. Stretched a full epic
+// wider its text goes ONE size bigger, a full epic narrower ONE size smaller,
 // and never further — three sizes (user directive; the arithmetic is
 // `unseatedResizedBox`). The grip sits on the corner AWAY from the side the box
 // is anchored to — bottom-left at home or when remembered from the right, so
@@ -154,14 +154,14 @@
 // It is one of Darwin's Action Popups, so it racks like the rest
 // (the Dev Servers dashboard, the Dev Server panel, the Active box — pattern doc
 // memory/anchored-collapse-pattern.md § The rack). It draws its own frame rather
-// than being an AnchoredPanel — its zoom-following type, step-card width, text
+// than being an AnchoredPanel — its zoom-following type, epic-card width, text
 // sizes and carry-to-seat are its own — so it takes the rack from the SAME hook
 // AnchoredPanel does (`usePanelRack`): its title-bar move hit-tests the navbar,
 // the navbar glows in its purple while the pointer is over, and released there
 // it is RACKED — portalled into the navbar's rack slot at the navbar's width, in
 // the Action Popups' 12px type, its title whole even folded, no grip, stacked and
-// reordered with the others. Its rows still drag onto step cards from there, and
-// a carried move released over a step still seats the whole set — and leaves it
+// reordered with the others. Its rows still drag onto epic cards from there, and
+// a carried move released over an epic still seats the whole set — and leaves it
 // racked: that gesture was a seat, not a relocation. Dragged off the navbar it
 // floats again where it was dropped. In the icon-only navbar it keeps its badge
 // and ▾, and its rows their ids. While the page is MAXIMIZED the navbar is
@@ -171,14 +171,14 @@
 // every move of this box does (req #3677) — an AnchoredPanel shrinks to its head.
 //
 // ── A REQUIREMENT DROPPED ON IT LEAVES THE PLAN (req #3817) ───────────────
-// The box is a drop TARGET as well as a source: drag a requirement off a step
+// The box is a drop TARGET as well as a source: drag a requirement off an epic
 // card, release it over the box — home, floated anywhere, or racked in the
-// navbar — and it is un-orchestrated (its step seat deleted), so it is the
+// navbar — and it is un-orchestrated (its epic seat deleted), so it is the
 // box's. The gesture is the visualizer's; the box hands it its element
 // (`dropTargetRef`) to hit-test and draws what it is told: while a requirement
 // is in flight (`dropArmed`) a dashed purple outline says it takes drops, and
 // with the requirement over it (`dropOver`) it glows and its title reads
-// "Drop to un-orchestrate". A requirement on a LOCKED step cannot leave it
+// "Drop to un-orchestrate". A requirement on a LOCKED epic cannot leave it
 // (`dropArmed` 'refused'): no outline, a no-drop cursor.
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -443,7 +443,7 @@ export default function UnorchestratedReqBox({
     const [barLifted, setBarLifted] = useState(false);
     useEffect(() => () => clearTimeout(moveRef.current?.liftTimer), []);
     // True from the first move frame of a title-bar move that carries rows
-    // until it ends (req #3614): the box turns see-through so the step card
+    // until it ends (req #3614): the box turns see-through so the epic card
     // beneath it can be read, and is restored on release.
     const [carrying, setCarrying] = useState(false);
     useEffect(() => { onCarryingChange?.(carrying); }, [carrying]);
@@ -539,7 +539,7 @@ export default function UnorchestratedReqBox({
         lastMoveEndRef.current = Date.now();
         const released = e.type === 'pointerup';
         // The navbar first (req #3735): released over it, the box is racked
-        // whatever it carries — the navbar is no step. Its floating spot is
+        // whatever it carries — the navbar is no epic. Its floating spot is
         // kept for the day it is dragged back out. A cancelled move that
         // started in the rack stays there.
         if (released ? rack.isOver(e.clientX, e.clientY, m.fromRack) : m.fromRack) {
@@ -832,7 +832,7 @@ export default function UnorchestratedReqBox({
                     fontFamily: MONO, color: P.text, userSelect: 'none',
                     overflow: 'hidden', zIndex: 2,
                     // See-through while carried (req #3614) so the outlined
-                    // step beneath can be read; over the navbar, the drop
+                    // epic beneath can be read; over the navbar, the drop
                     // zone shows through, as it does for every rackable window.
                     opacity: overRack ? 0.75 : (carrying ? 0.35 : 1),
                     // Only while folding — see the header.
@@ -869,8 +869,8 @@ export default function UnorchestratedReqBox({
                              titleSx={{ flex: open || inRack ? 1 : '1 0 auto',
                                         minWidth: open || inRack ? 0 : 'auto' }}
                              title={inRack
-                                 ? `Drag to reorder · drag off the navbar to float it${count > 0 ? ' · drop on a step to seat them all' : ''}`
-                                 : `Drag to move${count > 0 ? ' · drop on a step to seat them all' : ''}`
+                                 ? `Drag to reorder · drag off the navbar to float it${count > 0 ? ' · drop on an epic to seat them all' : ''}`
+                                 : `Drag to move${count > 0 ? ' · drop on an epic to seat them all' : ''}`
                                      + `${suspended ? '' : ' · drop on the navbar to rack it'} · double-click to put back`}
                              onPointerDown={onBarDown}
                              onPointerMove={onBarMove}
@@ -987,7 +987,7 @@ function UnseatedRow({ row, id, fontPx, barColor, idStyle, narrow, onOpen }) {
         // req #3817 — un-orchestrated a moment ago, its seat not yet deleted.
         disabled: !!row.unseating,
     });
-    // No keyboard lift: the step it would land on is a canvas card a key
+    // No keyboard lift: the epic it would land on is a canvas card a key
     // cannot reach (the collision detection needs a pointer). From the keys a
     // row is a button — Enter or Space opens the requirement.
     const { onKeyDown: _keyLift, ...pointerListeners } = listeners || {};

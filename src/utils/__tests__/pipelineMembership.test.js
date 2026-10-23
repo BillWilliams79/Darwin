@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
     pipelinedRequirementIds, orchestratedRequirementIds, excludeByIds,
-    stepRequirementIds, filterToStepReqIds,
+    epicRequirementIds, filterToEpicReqIds,
 } from '../pipelineMembership';
 
-// req #3180. This module is the browser's ONE answer to "does a pipeline step
+// req #3180. This module is the browser's ONE answer to "does a pipeline epic
 // carry this requirement" — both the SwarmStartCard aggregator and the
 // requirements-page filter read it. The tests that matter are the ones pinning
 // the shape it must survive in real data (a junction with no id column, ids that
@@ -14,17 +14,17 @@ import {
 describe('pipelinedRequirementIds', () => {
     it('collects requirement_fk from junction rows', () => {
         const ids = pipelinedRequirementIds([
-            { step_fk: 1, requirement_fk: 3074 },
-            { step_fk: 2, requirement_fk: 3172 },
+            { epic_fk: 1, requirement_fk: 3074 },
+            { epic_fk: 2, requirement_fk: 3172 },
         ]);
         expect(ids).toEqual(new Set([3074, 3172]));
     });
 
-    it('collapses a requirement carried by several steps', () => {
-        // Membership is "at least one step" — the Set is the right shape for it.
+    it('collapses a requirement carried by several epics', () => {
+        // Membership is "at least one epic" — the Set is the right shape for it.
         const ids = pipelinedRequirementIds([
-            { step_fk: 1, requirement_fk: 3074 },
-            { step_fk: 9, requirement_fk: 3074 },
+            { epic_fk: 1, requirement_fk: 3074 },
+            { epic_fk: 9, requirement_fk: 3074 },
         ]);
         expect(ids.size).toBe(1);
         expect(ids.has(3074)).toBe(true);
@@ -33,7 +33,7 @@ describe('pipelinedRequirementIds', () => {
     it('normalizes string ids so a REST payload matches a numeric row id', () => {
         // Lambda-Rest can hand back either; a Set keyed on '3074' would never
         // match a row whose id is 3074, and the filter would silently no-op.
-        const ids = pipelinedRequirementIds([{ step_fk: '1', requirement_fk: '3074' }]);
+        const ids = pipelinedRequirementIds([{ epic_fk: '1', requirement_fk: '3074' }]);
         expect(ids.has(3074)).toBe(true);
     });
 
@@ -41,10 +41,10 @@ describe('pipelinedRequirementIds', () => {
         // A null in the set makes `has(Number(undefined))`-adjacent lookups
         // unpredictable; drop the row instead.
         const ids = pipelinedRequirementIds([
-            { step_fk: 1, requirement_fk: null },
-            { step_fk: 2 },
+            { epic_fk: 1, requirement_fk: null },
+            { epic_fk: 2 },
             null,
-            { step_fk: 3, requirement_fk: 3074 },
+            { epic_fk: 3, requirement_fk: 3074 },
         ]);
         expect(ids).toEqual(new Set([3074]));
     });
@@ -61,7 +61,7 @@ describe('pipelinedRequirementIds', () => {
 describe('excludeByIds', () => {
     const rows = [{ id: 3074 }, { id: 3180 }, { id: 3172 }];
 
-    it('drops exactly the requirements a step carries', () => {
+    it('drops exactly the requirements an epic carries', () => {
         const kept = excludeByIds(rows, new Set([3074, 3172]));
         expect(kept.map(r => r.id)).toEqual([3180]);
     });
@@ -97,16 +97,16 @@ describe('excludeByIds', () => {
 // ── req #3419's initiative-filed union, retired by req #3357 ─────────────────────
 //
 // req #3419 unioned in requirements initiative-filed through the retired middle
-// tier's own reference to the initiative, but not step-carried. That tier leaving
+// tier's own reference to the initiative, but not epic-carried. That tier leaving
 // the frontend retired the only mechanism that could produce that population
 // — see pipelineMembership.js's
 // header for the full reasoning — so `orchestratedRequirementIds` is now the
-// step answer alone.
+// epic answer alone.
 
 describe('orchestratedRequirementIds (req #3357)', () => {
-    const JUNCTION = [{ step_fk: 1, requirement_fk: 3419 }];
+    const JUNCTION = [{ epic_fk: 1, requirement_fk: 3419 }];
 
-    it('equals the step answer', () => {
+    it('equals the epic answer', () => {
         const ids = orchestratedRequirementIds(JUNCTION);
         expect(ids).toEqual(pipelinedRequirementIds(JUNCTION));
         expect(ids).toEqual(new Set([3419]));
@@ -131,85 +131,85 @@ describe('orchestratedRequirementIds (req #3357)', () => {
 // across eras, and the independent-in-flight-read cases) were removed with
 // it — the single-junction cases above already cover the surviving behavior.
 
-// ── req #3503 — the SAME module, narrowed to ONE step ──────────────────────
+// ── req #3503 — the SAME module, narrowed to ONE epic ──────────────────────
 //
-// `pipelinedRequirementIds` above answers "is this on ANY step"; these answer
-// "is this on step X". Same junction, one hop, no `pipeline_steps` read — which
+// `pipelinedRequirementIds` above answers "is this on ANY epic"; these answer
+// "is this on epic X". Same junction, one hop, no `epics` read — which
 // is the whole difference from the initiative answer in `initiativeMembership.js`.
 
-describe('stepRequirementIds', () => {
-    // The junction as `useAllPipelineStepRequirements` returns it.
+describe('epicRequirementIds', () => {
+    // The junction as `useAllPipelineEpicRequirements` returns it.
     // `PRIMARY KEY (requirement_fk)` alone, so a requirement appears at most once.
     const JUNCTION = [
-        { step_fk: 186, requirement_fk: 3503 },
-        { step_fk: 186, requirement_fk: 3504 },
-        { step_fk: 187, requirement_fk: 3505 },
+        { epic_fk: 186, requirement_fk: 3503 },
+        { epic_fk: 186, requirement_fk: 3504 },
+        { epic_fk: 187, requirement_fk: 3505 },
     ];
 
-    it('collects only the named step\'s requirements', () => {
-        expect(stepRequirementIds(JUNCTION, 186)).toEqual(new Set([3503, 3504]));
-        expect(stepRequirementIds(JUNCTION, 187)).toEqual(new Set([3505]));
+    it('collects only the named epic\'s requirements', () => {
+        expect(epicRequirementIds(JUNCTION, 186)).toEqual(new Set([3503, 3504]));
+        expect(epicRequirementIds(JUNCTION, 187)).toEqual(new Set([3505]));
     });
 
     it('normalizes string ids so a REST payload matches a numeric row id', () => {
         // Lambda-Rest can hand back either, on either column.
-        expect(stepRequirementIds([{ step_fk: '186', requirement_fk: '3503' }], 186))
+        expect(epicRequirementIds([{ epic_fk: '186', requirement_fk: '3503' }], 186))
             .toEqual(new Set([3503]));
-        expect(stepRequirementIds(JUNCTION, '186')).toEqual(new Set([3503, 3504]));
+        expect(epicRequirementIds(JUNCTION, '186')).toEqual(new Set([3503, 3504]));
     });
 
-    it('is empty for a step nothing is seated on — not an error', () => {
-        expect(stepRequirementIds(JUNCTION, 99999).size).toBe(0);
+    it('is empty for an epic nothing is seated on — not an error', () => {
+        expect(epicRequirementIds(JUNCTION, 99999).size).toBe(0);
     });
 
-    it('is EMPTY, never everything, when no step is named', () => {
-        // "No filter" is `null` passed to `filterToStepReqIds`, not an unresolved
+    it('is EMPTY, never everything, when no epic is named', () => {
+        // "No filter" is `null` passed to `filterToEpicReqIds`, not an unresolved
         // id here. Conflating them would make an in-flight id read as the whole
         // table.
-        expect(stepRequirementIds(JUNCTION, null).size).toBe(0);
-        expect(stepRequirementIds(JUNCTION, undefined).size).toBe(0);
-        expect(stepRequirementIds(JUNCTION, '').size).toBe(0);
+        expect(epicRequirementIds(JUNCTION, null).size).toBe(0);
+        expect(epicRequirementIds(JUNCTION, undefined).size).toBe(0);
+        expect(epicRequirementIds(JUNCTION, '').size).toBe(0);
     });
 
-    it('never matches a row with no step_fk against a step id of 0', () => {
+    it('never matches a row with no epic_fk against an epic id of 0', () => {
         // `Number(null)` is 0 — a perfectly good integer and a perfectly bad
-        // step id. Both columns are guarded before Number sees them.
-        expect(stepRequirementIds([
-            { step_fk: null, requirement_fk: 1 },
-            { step_fk: '', requirement_fk: 2 },
+        // epic id. Both columns are guarded before Number sees them.
+        expect(epicRequirementIds([
+            { epic_fk: null, requirement_fk: 1 },
+            { epic_fk: '', requirement_fk: 2 },
             { requirement_fk: 3 },
         ], 0).size).toBe(0);
     });
 
     it('never seeds the set from a row with no requirement_fk', () => {
-        expect(stepRequirementIds([
-            { step_fk: 186, requirement_fk: null },
-            { step_fk: 186 },
+        expect(epicRequirementIds([
+            { epic_fk: 186, requirement_fk: null },
+            { epic_fk: 186 },
             null,
-            { step_fk: 186, requirement_fk: 3503 },
+            { epic_fk: 186, requirement_fk: 3503 },
         ], 186)).toEqual(new Set([3503]));
     });
 
     it('returns an empty set for a missing or non-array read', () => {
-        expect(stepRequirementIds(undefined, 186).size).toBe(0);
-        expect(stepRequirementIds(null, 186).size).toBe(0);
-        expect(stepRequirementIds({}, 186).size).toBe(0);
+        expect(epicRequirementIds(undefined, 186).size).toBe(0);
+        expect(epicRequirementIds(null, 186).size).toBe(0);
+        expect(epicRequirementIds({}, 186).size).toBe(0);
     });
 });
 
-describe('filterToStepReqIds', () => {
+describe('filterToEpicReqIds', () => {
     const rows = [{ id: 3503 }, { id: 3504 }, { id: 3505 }];
 
     it('keeps only rows in the set, matching on id alone', () => {
         // ID-ONLY IS THE POINT: none of the consuming projections carries a plan
         // column, and this is what lets them be filtered anyway.
-        expect(filterToStepReqIds(rows, new Set([3503, 3505])).map(r => r.id))
+        expect(filterToEpicReqIds(rows, new Set([3503, 3505])).map(r => r.id))
             .toEqual([3503, 3505]);
     });
 
     it('returns the input UNCHANGED, by reference, when no filter is active', () => {
-        expect(filterToStepReqIds(rows, null)).toBe(rows);
-        expect(filterToStepReqIds(rows, undefined)).toBe(rows);
+        expect(filterToEpicReqIds(rows, null)).toBe(rows);
+        expect(filterToEpicReqIds(rows, undefined)).toBe(rows);
     });
 
     it('an EMPTY SET is a real answer and yields no rows — not "no filter"', () => {
@@ -218,21 +218,21 @@ describe('filterToStepReqIds', () => {
         // one SELECTS them, so unknown must mean "none yet". Showing everything
         // until the junction lands renders the unfiltered page under a pill
         // claiming it is filtered.
-        expect(filterToStepReqIds(rows, new Set())).toEqual([]);
+        expect(filterToEpicReqIds(rows, new Set())).toEqual([]);
     });
 
     it('drops the template row, whose id is the empty string', () => {
-        expect(filterToStepReqIds([{ id: '' }, { id: 3503 }], new Set([3503])).map(r => r.id))
+        expect(filterToEpicReqIds([{ id: '' }, { id: 3503 }], new Set([3503])).map(r => r.id))
             .toEqual([3503]);
     });
 
     it('matches a numeric set against string row ids', () => {
-        expect(filterToStepReqIds([{ id: '3503' }, { id: '3504' }], new Set([3503])).map(r => r.id))
+        expect(filterToEpicReqIds([{ id: '3503' }, { id: '3504' }], new Set([3503])).map(r => r.id))
             .toEqual(['3503']);
     });
 
     it('passes a non-array through untouched', () => {
-        expect(filterToStepReqIds(undefined, new Set([3503]))).toBe(undefined);
+        expect(filterToEpicReqIds(undefined, new Set([3503]))).toBe(undefined);
     });
 
     it('composes with filterToInitiative as an INTERSECTION, in either order', () => {
@@ -240,9 +240,9 @@ describe('filterToStepReqIds', () => {
         // series. Neither is a mode of the other, so the survivors must be the
         // rows both sets hold.
         const initiativeSet = new Set([3503, 3504]);
-        const stepSet = new Set([3504, 3505]);
-        const kept = filterToStepReqIds(
-            rows.filter(r => initiativeSet.has(r.id)), stepSet);
+        const epicSet = new Set([3504, 3505]);
+        const kept = filterToEpicReqIds(
+            rows.filter(r => initiativeSet.has(r.id)), epicSet);
         expect(kept.map(r => r.id)).toEqual([3504]);
     });
 });

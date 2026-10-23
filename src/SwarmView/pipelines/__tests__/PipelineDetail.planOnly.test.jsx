@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// Req #3641 — "remove the option to see the steps in the pipeline in a special
+// Req #3641 — "remove the option to see the epics in the pipeline in a special
 // viewer; just show the visualizer, it's the only way to look at a pipeline
 // for now". Mounted against the REAL `pipelineDetailModes.js` registry (only
 // the two panel bodies are stubbed, for react-konva's canvas), so this proves
@@ -33,8 +33,8 @@ vi.mock('../PipelinePlanVisualizer', () => ({ default: () => <div data-testid="m
 vi.mock('../../../RestApi/RestApi', () => ({ default: vi.fn(() => Promise.resolve({ httpStatus: { httpStatus: 200 }, data: [] })) }));
 
 // req #3356 — ONE composed read where the 1.0 seven used to be. The fixture
-// carries the SAME step 47 the 1.0 mock supplied, so every `?step=47` case
-// below still names a step the page can resolve; `composedFixture` builds the
+// carries the SAME epic 47 the 1.0 mock supplied, so every `?epic=47` case
+// below still names an epic the page can resolve; `composedFixture` builds the
 // `derived` block the page hard-stops without.
 vi.mock('../../../hooks/useDataQueries', async (importOriginal) => {
     const actual = await importOriginal();
@@ -109,7 +109,7 @@ describe('PipelineDetail — the visualizer is the only view (req #3641)', () =>
     it.each([
         ['a bare plan URL', '/swarm/pipeline/2'],
         ['an old ?mode=table link', '/swarm/pipeline/2?mode=table'],
-        ['an old Table step link', '/swarm/pipeline/2?mode=table&step=47'],
+        ['an old Table epic link', '/swarm/pipeline/2?mode=table&epic=47'],
     ])('renders the Plan and never the Table for %s', (_label, url) => {
         mount(url);
         expect(node('mode-plan')).not.toBeNull();

@@ -169,7 +169,7 @@ describe('reqPillPrefix / reqLabelText — the tokens are text', () => {
 
 describe('computePlanLayout — pills on the requirement rows', () => {
     const rows = [{
-        id: 1, title: 'Step one', run: 'auto', state: 'running', reqIds: [3572, 3573, 9],
+        id: 1, title: 'Epic one', run: 'auto', state: 'running', reqIds: [3572, 3573, 9],
         depIds: [], timeDeps: [], initiativeId: 1, initiative: 'E1',
         initiativeLabels: [], featureLabels: [], machineLabels: [], machineLabel: '—',
     }];
@@ -183,7 +183,7 @@ describe('computePlanLayout — pills on the requirement rows', () => {
     ]);
 
     it('emits the token ranges on the first line, and the prefix as the L1/L2 id text', () => {
-        const l = computePlanLayout(rows, { stepLabel: 'title', reqLabel: 'title', reqTitles, reqPills });
+        const l = computePlanLayout(rows, { epicLabel: 'title', reqLabel: 'title', reqTitles, reqPills });
         const reqs = l.labels.filter((x) => x.kind === 'req');
         const a = reqs.find((x) => x.reqId === 3572);
         expect(a.lines[0].startsWith(a.idText)).toBe(true);
@@ -214,7 +214,7 @@ describe('computePlanLayout — pills on the requirement rows', () => {
     });
 
     it('no reqPills draws every row exactly as before', () => {
-        const before = computePlanLayout(rows, { stepLabel: 'title', reqLabel: 'title', reqTitles });
+        const before = computePlanLayout(rows, { epicLabel: 'title', reqLabel: 'title', reqTitles });
         const reqs = before.labels.filter((x) => x.kind === 'req');
         expect(reqs[0].text.startsWith('3572  Visualizer')).toBe(true);
         expect(reqs.slice(1).map((x) => x.text)).toEqual(['3573  Short', '9  No session here']);

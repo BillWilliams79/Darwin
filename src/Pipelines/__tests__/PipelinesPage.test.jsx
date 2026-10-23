@@ -12,7 +12,7 @@
 // it from here.
 //
 // What is pinned: Cards is the default view and shows status/execution-mode/
-// step-count/orchestration-holder chips and a progress bar over REQUIREMENTS
+// epic-count/orchestration-holder chips and a progress bar over REQUIREMENTS
 // MET; the status filter hides/shows pipelines and names what it hid when the
 // result is empty; the Table view carries the one editor control (the
 // execution_mode toggle) Cards deliberately does not; opening a plan — from a
@@ -24,9 +24,9 @@
 // ── req #3365 CHANGED WHAT THIS FILE PINS, on user directive ───────────────
 // Three things this header used to describe are gone from the page and so
 // from these tests, and they are named here rather than silently dropped:
-//   · the two-state done/open STEP progress bar — completeness is measured on
-//     requirements now, because a step has no status column and the
-//     `completed_at` the bar counted is empty on essentially every step;
+//   · the two-state done/open EPIC progress bar — completeness is measured on
+//     requirements now, because an epic has no status column and the
+//     `completed_at` the bar counted is empty on essentially every epic;
 //   · the requirement tally on the card TITLE — it moved to the accounting
 //     line under the bar that draws it;
 //   · the Table view's "Goal" description dialog and its trailing Open icon —
@@ -94,8 +94,8 @@ vi.mock('@mui/x-data-grid', () => ({
 let pipelines;
 let machines;
 let initiatives;
-let steps;
-let stepRequirements;
+let epics;
+let epicRequirements;
 let requirements;
 let orchestrationClaims;
 let loading;
@@ -107,9 +107,9 @@ vi.mock('../../hooks/useDataQueries', async (importOriginal) => {
         useAllPipelines: () => ({ data: pipelines, isLoading: loading.pipelines }),
         useMachines: () => ({ data: machines, isLoading: loading.machines }),
         useAllInitiatives: () => ({ data: initiatives, isLoading: loading.initiatives }),
-        useAllPipelineSteps: () => ({ data: steps, isLoading: loading.steps }),
-        useAllPipelineStepRequirements: () => ({
-            data: stepRequirements, isLoading: loading.links }),
+        useAllPipelineEpics: () => ({ data: epics, isLoading: loading.epics }),
+        useAllPipelineEpicRequirements: () => ({
+            data: epicRequirements, isLoading: loading.links }),
         useAllRequirements: () => ({ data: requirements, isLoading: loading.requirements }),
         useOrchestrationClaims: () => ({ data: orchestrationClaims }),
     };
@@ -209,7 +209,7 @@ beforeEach(() => {
     sessionStorage.clear();
     localStorage.clear();
     loading = {
-        pipelines: false, machines: false, initiatives: false, steps: false,
+        pipelines: false, machines: false, initiatives: false, epics: false,
         links: false, requirements: false,
     };
     pipelines = [
@@ -224,14 +224,14 @@ beforeEach(() => {
         { id: 40, pipeline_fk: 7, title: 'Initiative Seven' },
         { id: 41, pipeline_fk: 8, title: 'Initiative Eight' },
     ];
-    steps = [
+    epics = [
         { id: 500, initiative_fk: 40 },
         { id: 501, initiative_fk: 40 },
         { id: 502, initiative_fk: 41 },
     ];
-    stepRequirements = [
-        { step_fk: 500, requirement_fk: 900 },
-        { step_fk: 501, requirement_fk: 901 },
+    epicRequirements = [
+        { epic_fk: 500, requirement_fk: 900 },
+        { epic_fk: 501, requirement_fk: 901 },
     ];
     requirements = [
         { id: 900, requirement_status: 'met' },
@@ -258,15 +258,15 @@ describe('PipelinesPage2 — Cards view (default)', () => {
     // These two assertions replace, rather than relax, the pair that stood
     // here: "shows the done/open two-state summary" and "shows the met/total
     // requirement count on the title". Both described behaviour the user
-    // directed away on 2026-08-12 — step state is not shown at all now, and
+    // directed away on 2026-08-12 — epic state is not shown at all now, and
     // the requirement tally moved off the title into the accounting line — so
     // leaving them passing would have meant pinning a contract nobody holds.
-    it('accounts for completeness in REQUIREMENTS met, not in step state', () => {
+    it('accounts for completeness in REQUIREMENTS met, not in epic state', () => {
         mount();
         expect(node('pipelines-card-summary-7').textContent)
             .toBe('1 of 2 requirements met');
-        // The old line counted steps by `completed_at` — a column req #3752
-        // dropped, since a step has no state at all (req #3750).
+        // The old line counted epics by `completed_at` — a column req #3752
+        // dropped, since an epic has no state at all (req #3750).
         expect(node('pipelines-card-summary-7').textContent).not.toContain('complete ·');
         expect(node('pipelines-card-summary-7').textContent).not.toContain('open');
     });

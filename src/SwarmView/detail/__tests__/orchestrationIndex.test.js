@@ -1,33 +1,33 @@
 // orchestrationIndex.test.js — req #3435, narrowed by req #3357.
 //
 // The Orchestration box's whole derivation, exercised without a DOM: which plan
-// and step carry a requirement, and what the Step dropdown offers.
+// and epic carry a requirement, and what the Epic dropdown offers.
 //
 // req #3357 retired the Initiative row and its whole derivation chain, down to
-// `stepOptions`'s `initiativeId` scoping — the retired middle tier left the
+// `epicOptions`'s `initiativeId` scoping — the retired middle tier left the
 // frontend and no replacement existed for 1.0. Req #3579 brought the initiative
-// scoping back on the 2.0 hop (`pipeline_steps.initiative_fk`), together with the
+// scoping back on the 2.0 hop (`epics.initiative_fk`), together with the
 // Pipeline and Initiative selects' own option lists (`pipelineOptions`,
-// `initiativeOptions`) — the box is a Pipeline → Initiative → Step cascade now.
+// `initiativeOptions`) — the box is a Pipeline → Initiative → Epic cascade now.
 //
 // req #3356 RE-BASED THE WHOLE INDEX ON PIPELINE 2.0, and the fixture below
-// carries the one structural difference: a 2.0 step has NO `pipeline_fk`. Its
+// carries the one structural difference: a 2.0 epic has NO `pipeline_fk`. Its
 // plan comes through `initiative_fk -> initiatives.pipeline_fk`, so there is an
 // INITIATIVES fixture now and the join is two hops. Everything else — the open/closed
 // status vocabulary and the id-ascending order — is unchanged. Req #3750 took
-// `completed_at` away: a step has no state, so no step is ever filtered out
+// `completed_at` away: an epic has no state, so no epic is ever filtered out
 // for being "finished".
 //
 // THE FIXTURE MIRRORS THE LIVE SHAPE rather than an invented one: two open plans
 // (one `active`, one `paused`), one `completed` plan. Every filtering rule in
-// `stepOptions` has a row that only it can explain.
+// `epicOptions` has a row that only it can explain.
 
 import { describe, it, expect } from 'vitest';
 import {
     buildOrchestrationIndex,
     emptyOrchestrationIndex,
     isOpenPipeline,
-    stepOptions,
+    epicOptions,
     pipelineOptions,
     initiativeOptions,
 } from '../orchestrationIndex';
@@ -39,14 +39,14 @@ const PIPELINES = [
 ];
 
 // The MIDDLE HOP. One initiative per plan is enough for every rule under test; the
-// plan-scoping cases turn on which PLAN a step reaches, not on which initiative.
+// plan-scoping cases turn on which PLAN an epic reaches, not on which initiative.
 const INITIATIVES = [
     { id: 20, pipeline_fk: 2 },
     { id: 79 * 10, pipeline_fk: 79 },
     { id: 50, pipeline_fk: 5 },
 ];
 
-const STEPS = [
+const EPICS = [
     { id: 100, initiative_fk: 20,  title: 'Polish A' },
     { id: 101, initiative_fk: 20,  title: 'FP A' },
     { id: 102, initiative_fk: 20,  title: 'Polish B' },
@@ -55,19 +55,19 @@ const STEPS = [
     { id: 300, initiative_fk: 50,  title: 'Retired' },
 ];
 
-const STEP_REQUIREMENTS = [
-    { step_fk: 100, requirement_fk: 3435 },
-    { step_fk: 102, requirement_fk: 3436 },  // its work is all met
-    { step_fk: 101, requirement_fk: 3400 },
-    { step_fk: 200, requirement_fk: 3401 },  // paused plan
-    { step_fk: 300, requirement_fk: 3300 },  // the COMPLETED plan only
+const EPIC_REQUIREMENTS = [
+    { epic_fk: 100, requirement_fk: 3435 },
+    { epic_fk: 102, requirement_fk: 3436 },  // its work is all met
+    { epic_fk: 101, requirement_fk: 3400 },
+    { epic_fk: 200, requirement_fk: 3401 },  // paused plan
+    { epic_fk: 300, requirement_fk: 3300 },  // the COMPLETED plan only
 ];
 
 const build = (over = {}) => buildOrchestrationIndex({
     pipelines: PIPELINES,
     initiatives: INITIATIVES,
-    steps: STEPS,
-    stepRequirements: STEP_REQUIREMENTS,
+    epics: EPICS,
+    epicRequirements: EPIC_REQUIREMENTS,
     ...over,
 });
 
@@ -87,12 +87,12 @@ describe('isOpenPipeline', () => {
 });
 
 describe('buildOrchestrationIndex — requirement seat', () => {
-    it('names the step, the initiative and the plan carrying a requirement', () => {
+    it('names the epic, the initiative and the plan carrying a requirement', () => {
         // `initiativeId` joined the seat at req #3365, when the Orchestration box's
-        // Initiative row came back. It is read from the CHOSEN step, so the Initiative row
-        // and the Step row can never name different places.
+        // Initiative row came back. It is read from the CHOSEN epic, so the Initiative row
+        // and the Epic row can never name different places.
         expect(build().requirementSeat.get(3435))
-            .toEqual({ pipelineId: 2, stepId: 100, initiativeId: 20 });
+            .toEqual({ pipelineId: 2, epicId: 100, initiativeId: 20 });
     });
 
     it('carries the initiative ROWS, not just the initiative → plan hop', () => {
@@ -101,8 +101,8 @@ describe('buildOrchestrationIndex — requirement seat', () => {
         const idx = buildOrchestrationIndex({
             pipelines: PIPELINES,
             initiatives: [{ id: 20, pipeline_fk: 2, title: 'First Principles' }],
-            steps: STEPS,
-            stepRequirements: STEP_REQUIREMENTS,
+            epics: EPICS,
+            epicRequirements: EPIC_REQUIREMENTS,
         });
         expect(idx.initiativesById.get(20).title).toBe('First Principles');
     });
@@ -122,120 +122,120 @@ describe('buildOrchestrationIndex — requirement seat', () => {
         expect(build().requirementSeat.has(3200)).toBe(false);
     });
 
-    // A step from the LOSING plan paired with the winning plan's id links to a
-    // step that is not on that plan, which the visualizer correctly refuses to
-    // focus. Lowest step id WITHIN the chosen plan.
-    it('pairs the step with the plan that won the tie-break', () => {
+    // An epic from the LOSING plan paired with the winning plan's id links to a
+    // epic that is not on that plan, which the visualizer correctly refuses to
+    // focus. Lowest epic id WITHIN the chosen plan.
+    it('pairs the epic with the plan that won the tie-break', () => {
         const idx = build({
-            stepRequirements: [
-                { step_fk: 200, requirement_fk: 3435 },   // paused plan 79
-                { step_fk: 101, requirement_fk: 3435 },   // active plan 2
-                { step_fk: 100, requirement_fk: 3435 },   // active plan 2, lower id
+            epicRequirements: [
+                { epic_fk: 200, requirement_fk: 3435 },   // paused plan 79
+                { epic_fk: 101, requirement_fk: 3435 },   // active plan 2
+                { epic_fk: 100, requirement_fk: 3435 },   // active plan 2, lower id
             ],
         });
         expect(idx.requirementSeat.get(3435))
-            .toEqual({ pipelineId: 2, stepId: 100, initiativeId: 20 });
+            .toEqual({ pipelineId: 2, epicId: 100, initiativeId: 20 });
     });
 
     // Nothing in the gateway promises these stay JSON numbers, and a string id
-    // would index as a different step — silently rendering "no seat" for a
+    // would index as a different epic — silently rendering "no seat" for a
     // requirement that plainly has one.
     it('coerces string ids from the wire', () => {
         const idx = build({
-            stepRequirements: [{ step_fk: '100', requirement_fk: '3435' }],
-            steps: [{ id: '100', initiative_fk: '20' }],
+            epicRequirements: [{ epic_fk: '100', requirement_fk: '3435' }],
+            epics: [{ id: '100', initiative_fk: '20' }],
             initiatives: [{ id: '20', pipeline_fk: '2' }],
             pipelines: [{ id: '2', title: 'Darwin', pipeline_status: 'active' }],
         });
         expect(idx.requirementSeat.get(3435))
-            .toEqual({ pipelineId: 2, stepId: 100, initiativeId: 20 });
+            .toEqual({ pipelineId: 2, epicId: 100, initiativeId: 20 });
     });
 
-    // THE INITIATIVE IS THE ONLY ROUTE FROM A STEP TO A PLAN under 2.0. A step whose
+    // THE INITIATIVE IS THE ONLY ROUTE FROM A EPIC TO A PLAN under 2.0. An epic whose
     // initiative is missing from the read reaches no plan, so it seats nothing —
     // dropped rather than invented, because pinning a requirement to a plan that
     // was never read is worse than reporting no seat at all.
-    it('drops a seat whose step names an initiative the read does not carry', () => {
-        const idx = build({ steps: [{ id: 100, initiative_fk: 999 }] });
+    it('drops a seat whose epic names an initiative the read does not carry', () => {
+        const idx = build({ epics: [{ id: 100, initiative_fk: 999 }] });
         expect(idx.requirementSeat.has(3435)).toBe(false);
     });
 
-    it('drops a seat whose step names no initiative at all', () => {
-        const idx = build({ steps: [{ id: 100, initiative_fk: null }] });
+    it('drops a seat whose epic names no initiative at all', () => {
+        const idx = build({ epics: [{ id: 100, initiative_fk: null }] });
         expect(idx.requirementSeat.has(3435)).toBe(false);
     });
 });
 
 const labels = (entries) => entries.map((e) => e.label);
-const stepIds = (entries) => entries.map((e) => e.step.id);
+const epicIds = (entries) => entries.map((e) => e.epic.id);
 
-describe('stepOptions', () => {
-    it('offers every step of the given plan', () => {
-        expect(stepIds(stepOptions(build(), { pipelineId: 2 })))
+describe('epicOptions', () => {
+    it('offers every epic of the given plan', () => {
+        expect(epicIds(epicOptions(build(), { pipelineId: 2 })))
             .toEqual([100, 101, 102, 103]);
     });
 
-    // A step has no state (req #3750): one whose work is all met is not
+    // An epic has no state (req #3750): one whose work is all met is not
     // "finished" and still takes new work.
-    it('offers a step whose requirements are all met', () => {
-        expect(stepIds(stepOptions(build(), { pipelineId: 2 }))).toContain(102);
-        expect(stepIds(stepOptions(build(), {}))).toContain(102);
+    it('offers an epic whose requirements are all met', () => {
+        expect(epicIds(epicOptions(build(), { pipelineId: 2 }))).toContain(102);
+        expect(epicIds(epicOptions(build(), {}))).toContain(102);
     });
 
-    it('excludes steps of another plan', () => {
-        expect(stepIds(stepOptions(build(), { pipelineId: 2 }))).not.toContain(200);
+    it('excludes epics of another plan', () => {
+        expect(epicIds(epicOptions(build(), { pipelineId: 2 }))).not.toContain(200);
     });
 
     // With no plan known the list widens to every OPEN plan rather than
     // emptying: a requirement seated nowhere still has to be placeable, or the
     // control is dead exactly when it is needed.
     it('widens to every open plan when no plan is known', () => {
-        // Plan 5 is `completed`, so step 300 stays out.
-        expect(stepIds(stepOptions(build(), {}))).toEqual([100, 101, 102, 103, 200]);
+        // Plan 5 is `completed`, so epic 300 stays out.
+        expect(epicIds(epicOptions(build(), {}))).toEqual([100, 101, 102, 103, 200]);
     });
 
     // A select whose own list denies its value renders blank, which reads as a
     // data bug rather than as a filter.
-    it('always offers the current step, first, whatever the filters say', () => {
-        // Step 200 is on another plan.
-        expect(stepIds(stepOptions(build(), { pipelineId: 2, currentStepId: 200 })))
+    it('always offers the current epic, first, whatever the filters say', () => {
+        // Epic 200 is on another plan.
+        expect(epicIds(epicOptions(build(), { pipelineId: 2, currentEpicId: 200 })))
             .toEqual([200, 100, 101, 102, 103]);
-        // ...and a step of the plan itself moves to the front.
-        expect(stepIds(stepOptions(build(), { pipelineId: 2, currentStepId: 102 })))
+        // ...and an epic of the plan itself moves to the front.
+        expect(epicIds(epicOptions(build(), { pipelineId: 2, currentEpicId: 102 })))
             .toEqual([102, 100, 101, 103]);
     });
 
-    it('never lists the current step twice', () => {
-        const ids = stepIds(stepOptions(build(), { pipelineId: 2, currentStepId: 100 }));
+    it('never lists the current epic twice', () => {
+        const ids = epicIds(epicOptions(build(), { pipelineId: 2, currentEpicId: 100 }));
         expect(ids).toEqual([100, 101, 102, 103]);
         expect(new Set(ids).size).toBe(ids.length);
     });
 
-    it('invents a row for a current step missing from the read', () => {
-        const [first] = stepOptions(build(), { currentStepId: 9999 });
-        expect(first).toMatchObject({ label: 'Step 9999' });
-        expect(first.step.id).toBe(9999);
+    it('invents a row for a current epic missing from the read', () => {
+        const [first] = epicOptions(build(), { currentEpicId: 9999 });
+        expect(first).toMatchObject({ label: 'Epic 9999' });
+        expect(first.epic.id).toBe(9999);
     });
 
     it('labels by title, falling back to the id', () => {
-        const entries = stepOptions(build(), { pipelineId: 2 });
-        expect(labels(entries)).toEqual(['Polish A', 'FP A', 'Polish B', 'Step 103']);
+        const entries = epicOptions(build(), { pipelineId: 2 });
+        expect(labels(entries)).toEqual(['Polish A', 'FP A', 'Polish B', 'Epic 103']);
     });
 
-    // Step id ascending is the canonical stored order (`pipelineSteps` sorts
+    // Epic id ascending is the canonical stored order (`pipelineEpics` sorts
     // `id:asc`, and that is load-bearing for the plan engine's tie-breaks). True
     // display order would mean loading the whole plan to order one dropdown.
-    it('orders by step id ascending', () => {
-        const idx = build({ steps: [...STEPS].reverse() });
-        expect(stepIds(stepOptions(idx, { pipelineId: 2 }))).toEqual([100, 101, 102, 103]);
+    it('orders by epic id ascending', () => {
+        const idx = build({ epics: [...EPICS].reverse() });
+        expect(epicIds(epicOptions(idx, { pipelineId: 2 }))).toEqual([100, 101, 102, 103]);
     });
 
-    // A step with no resolvable plan is in NEITHER list: it cannot match a named
+    // An epic with no resolvable plan is in NEITHER list: it cannot match a named
     // plan, and nothing can vouch for its plan being open.
-    it('never offers a step whose initiative did not resolve', () => {
-        const idx = build({ steps: [...STEPS, { id: 400, initiative_fk: 999 }] });
-        expect(stepIds(stepOptions(idx, { pipelineId: 2 }))).not.toContain(400);
-        expect(stepIds(stepOptions(idx, {}))).not.toContain(400);
+    it('never offers an epic whose initiative did not resolve', () => {
+        const idx = build({ epics: [...EPICS, { id: 400, initiative_fk: 999 }] });
+        expect(epicIds(epicOptions(idx, { pipelineId: 2 }))).not.toContain(400);
+        expect(epicIds(epicOptions(idx, {}))).not.toContain(400);
     });
 });
 
@@ -245,41 +245,41 @@ describe('emptyOrchestrationIndex', () => {
     it('answers every lookup without throwing', () => {
         const idx = emptyOrchestrationIndex();
         expect(idx.requirementSeat.get(1)).toBeUndefined();
-        expect(idx.stepsById.get(1)).toBeUndefined();
-        expect(idx.pipelineByStep.get(1)).toBeUndefined();
-        expect(stepOptions(idx)).toEqual([]);
+        expect(idx.epicsById.get(1)).toBeUndefined();
+        expect(idx.pipelineByEpic.get(1)).toBeUndefined();
+        expect(epicOptions(idx)).toEqual([]);
     });
 });
 
 // ── Req #3579 — the cascade's option lists ──────────────────────────────────
 
-describe('stepOptions initiative scoping', () => {
+describe('epicOptions initiative scoping', () => {
     const initiatives = [...INITIATIVES, { id: 21, pipeline_fk: 2, title: 'Second' }];
-    const steps = [...STEPS, { id: 104, initiative_fk: 21, title: 'Second A' }];
+    const epics = [...EPICS, { id: 104, initiative_fk: 21, title: 'Second A' }];
 
     it('narrows to the given initiative', () => {
-        const idx = build({ initiatives, steps });
-        expect(stepIds(stepOptions(idx, { pipelineId: 2, initiativeId: 21 }))).toEqual([104]);
-        expect(stepIds(stepOptions(idx, { pipelineId: 2, initiativeId: 20 }))).toEqual([100, 101, 102, 103]);
+        const idx = build({ initiatives, epics });
+        expect(epicIds(epicOptions(idx, { pipelineId: 2, initiativeId: 21 }))).toEqual([104]);
+        expect(epicIds(epicOptions(idx, { pipelineId: 2, initiativeId: 20 }))).toEqual([100, 101, 102, 103]);
     });
 
     it('offers every initiative of the plan when no initiative is given', () => {
-        const idx = build({ initiatives, steps });
-        expect(stepIds(stepOptions(idx, { pipelineId: 2 }))).toEqual([100, 101, 102, 103, 104]);
+        const idx = build({ initiatives, epics });
+        expect(epicIds(epicOptions(idx, { pipelineId: 2 }))).toEqual([100, 101, 102, 103, 104]);
     });
 
     // "All initiatives" means the initiatives the Initiative select OFFERS, and it does not offer
     // a closed one.
-    it('leaves out steps of a CLOSED initiative when no initiative is given', () => {
-        const idx = build({ initiatives: [...INITIATIVES, { id: 21, pipeline_fk: 2, closed: 1 }], steps });
-        expect(stepIds(stepOptions(idx, { pipelineId: 2 }))).toEqual([100, 101, 102, 103]);
-        // Picked explicitly, its steps are still offered.
-        expect(stepIds(stepOptions(idx, { pipelineId: 2, initiativeId: 21 }))).toEqual([104]);
+    it('leaves out epics of a CLOSED initiative when no initiative is given', () => {
+        const idx = build({ initiatives: [...INITIATIVES, { id: 21, pipeline_fk: 2, closed: 1 }], epics });
+        expect(epicIds(epicOptions(idx, { pipelineId: 2 }))).toEqual([100, 101, 102, 103]);
+        // Picked explicitly, its epics are still offered.
+        expect(epicIds(epicOptions(idx, { pipelineId: 2, initiativeId: 21 }))).toEqual([104]);
     });
 
     it('exports the initiative hop it narrows by', () => {
-        const idx = build({ initiatives, steps });
-        expect(idx.initiativeByStep.get(104)).toBe(21);
+        const idx = build({ initiatives, epics });
+        expect(idx.initiativeByEpic.get(104)).toBe(21);
     });
 });
 

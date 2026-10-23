@@ -1,13 +1,13 @@
 // @vitest-environment jsdom
 //
-// req #3742 — a quick click on a step's NAME opens the step's single editor,
+// req #3742 — a quick click on an epic's NAME opens the epic's single editor,
 // over the canvas, through the canvas's own pointer listeners and the shared press tracker
 // (`planPressGesture.js`, on the dnd press timeline): the name is a Konva
-// shape carrying `pressStepId`, found by `stage.getIntersection`. The click is
+// shape carrying `pressEpicId`, found by `stage.getIntersection`. The click is
 // owed once the double-click window has closed, and fires exactly once.
 //
 // jsdom has no canvas, so react-konva is stubbed: the Stage exposes a
-// `getIntersection` that answers the step name's hit node for every point.
+// `getIntersection` that answers the epic name's hit node for every point.
 
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { forwardRef, useImperativeHandle } from 'react';
@@ -16,7 +16,7 @@ import { act } from 'react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
-const HIT_STEP = 11;
+const HIT_EPIC = 11;
 const fired = [];
 vi.mock('react-konva', () => {
     const Stub = ({ children }) => <div>{typeof children === 'function' ? null : children}</div>;
@@ -24,7 +24,7 @@ vi.mock('react-konva', () => {
         useImperativeHandle(ref, () => ({
             container: () => null,
             getIntersection: () => ({
-                getAttr: (k) => (k === 'pressStepId' ? HIT_STEP : undefined),
+                getAttr: (k) => (k === 'pressEpicId' ? HIT_EPIC : undefined),
                 fire: (name) => fired.push(name),
             }),
         }));
@@ -82,15 +82,15 @@ afterEach(() => {
     document.body.innerHTML = '';
 });
 
-const step = (id, title) => ({
+const epic = (id, title) => ({
     id, initiative_fk: 5, title, run: 'auto', notes: null, not_before: null,
 });
 
 function render() {
     const payload = composedFixture({
         initiatives: [{ id: 5, title: 'Build', pipeline_fk: 2, sort_order: 1 }],
-        steps: [step(10, 'Design'), step(11, 'Implement')],
-        stepDeps: [{ id: 1, step_fk: 11, dep_step_fk: 10 }],
+        epics: [epic(10, 'Design'), epic(11, 'Implement')],
+        epicDeps: [{ id: 1, epic_fk: 11, dep_epic_fk: 10 }],
     });
     const container = document.createElement('div');
     document.body.appendChild(container);
@@ -114,8 +114,8 @@ const pointer = (type) => new PointerEvent(type, {
     bubbles: true, button: 0, isPrimary: true, clientX: 300, clientY: 200,
 });
 
-describe('a quick click on a step NAME opens its single editor (req #3742)', () => {
-    it('opens the step\'s editor over the canvas once the double-click window closes, exactly once', async () => {
+describe('a quick click on an epic NAME opens its single editor (req #3742)', () => {
+    it('opens the epic\'s editor over the canvas once the double-click window closes, exactly once', async () => {
         render();
         const canvas = document.querySelector('[data-testid="stage-canvas"]');
         act(() => {
@@ -127,9 +127,9 @@ describe('a quick click on a step NAME opens its single editor (req #3742)', () 
         });
         expect(locations[locations.length - 1].pathname).toBe('/swarm/pipeline/2');
         await wait(DOUBLE_CLICK_MS + 50);
-        const dialogs = document.querySelectorAll('[data-testid="step2-edit-dialog"]');
+        const dialogs = document.querySelectorAll('[data-testid="epic-edit-dialog"]');
         expect(dialogs).toHaveLength(1);
-        expect(dialogs[0].textContent).toContain(`Edit step ${HIT_STEP}`);
+        expect(dialogs[0].textContent).toContain(`Edit epic ${HIT_EPIC}`);
         expect(locations.every((l) => l.pathname === '/swarm/pipeline/2')).toBe(true);
     });
 
@@ -143,6 +143,6 @@ describe('a quick click on a step NAME opens its single editor (req #3742)', () 
             canvas.dispatchEvent(pointer('pointerup'));
         });
         await wait(DOUBLE_CLICK_MS + 50);
-        expect(document.querySelector('[data-testid="step2-edit-dialog"]')).toBeNull();
+        expect(document.querySelector('[data-testid="epic-edit-dialog"]')).toBeNull();
     });
 });

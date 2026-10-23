@@ -1,11 +1,11 @@
 // pipelineInitiativeZoom.test.js — the initiative name's two-state zoom, SELECTION half
-// (req #3297, re-pointed at the STEP by req #3371). The geometry half is
-// `stepFocusTransform`, pinned in pipelinePlanLayout.test.js § "step focus
+// (req #3297, re-pointed at the EPIC by req #3371). The geometry half is
+// `epicFocusTransform`, pinned in pipelinePlanLayout.test.js § "epic focus
 // geometry (req #3253)".
 //
 // This is where the click cycle lives as a testable thing at all: the control
 // is a chip inside a react-konva panel jsdom cannot render, so the rules —
-// which step, which level, what the label promises — are a pure module, and
+// which epic, which level, what the label promises — are a pure module, and
 // the component does nothing with them but call `applyFocus`.
 
 import { describe, it, expect } from 'vitest';
@@ -21,9 +21,9 @@ import { describe, it, expect } from 'vitest';
 import { buildPipelineModel, orderedPlan } from './planFixtureEngine';
 import { computePlanLayout, placeInitiativeChips } from '../pipelinePlanLayout';
 import {
-    initiativeCycleKey, initiativeZoomStateKey, initiativeWorkStepIds, nextInitiativeZoom,
+    initiativeCycleKey, initiativeZoomStateKey, initiativeWorkEpicIds, nextInitiativeZoom,
     initiativeZoomHint, initiativeZoomHintSuffix, initiativeSeatedHint, gestureMovedCamera,
-    INITIATIVE_ZOOM_CLICK_SLOP, INITIATIVE_ZOOM_BAND, INITIATIVE_ZOOM_STEP,
+    INITIATIVE_ZOOM_CLICK_SLOP, INITIATIVE_ZOOM_BAND, INITIATIVE_ZOOM_EPIC,
 } from '../pipelineInitiativeZoom';
 import { INITIATIVE_ZOOM_READS, INITIATIVE_ZOOM_PIPELINE, INITIATIVE_ZOOM_NOW } from './initiativeZoomFixture';
 
@@ -32,23 +32,23 @@ const plan = orderedPlan(
     { now: INITIATIVE_ZOOM_NOW },
 );
 const layout = computePlanLayout(plan.rows);
-const eligible = plan.eligibleStepIds;
+const eligible = plan.eligibleEpicIds;
 
 const bandOf = (key) => layout.bands.find((b) => initiativeCycleKey(b) === key);
-const LAUNCH_BAND = bandOf(11);     // six steps, several of them eligible
-const SOLO_BAND = bandOf(12);       // one step, eligible
-const DONE_BAND = bandOf('none');   // the completed gate step — no second stop
+const LAUNCH_BAND = bandOf(11);     // six epics, several of them eligible
+const SOLO_BAND = bandOf(12);       // one epic, eligible
+const DONE_BAND = bandOf('none');   // the completed gate epic — no second stop
 
 describe('the fixture is the plan these rules are about', () => {
-    it('carries a band with several eligible steps, one with one, and one with none', () => {
+    it('carries a band with several eligible epics, one with one, and one with none', () => {
         expect(LAUNCH_BAND).toBeTruthy();
         expect(SOLO_BAND).toBeTruthy();
         expect(DONE_BAND).toBeTruthy();
         // Display order, so "earliest in the band" has something to decide.
-        expect(LAUNCH_BAND.stepIds.filter((id) => eligible.has(id)).length)
+        expect(LAUNCH_BAND.epicIds.filter((id) => eligible.has(id)).length)
             .toBeGreaterThan(1);
-        expect(SOLO_BAND.stepIds.filter((id) => eligible.has(id))).toHaveLength(1);
-        expect(DONE_BAND.stepIds.some((id) => eligible.has(id))).toBe(false);
+        expect(SOLO_BAND.epicIds.filter((id) => eligible.has(id))).toHaveLength(1);
+        expect(DONE_BAND.epicIds.some((id) => eligible.has(id))).toBe(false);
     });
 });
 
@@ -64,7 +64,7 @@ describe('initiativeCycleKey', () => {
     // expression inline in the layout module — this one does not replace it, so
     // nothing but this case stops the two drifting. A mismatch would be silent
     // and total: every `nextLaunchByInitiative.get(e.key)` would miss, so no chip
-    // would ever name its step and no second click would ever reach one.
+    // would ever name its epic and no second click would ever reach one.
     it('matches the key `placeInitiativeChips` publishes, band for band', () => {
         const chips = placeInitiativeChips({
             bands: layout.bands,
@@ -107,24 +107,24 @@ describe('initiativeZoomStateKey', () => {
     });
 });
 
-describe('initiativeWorkStepIds — what a second click frames (req #3365)', () => {
-    // ACTIVE AND PENDING: every step of the band the plan has not finished.
-    it('is every unfinished step of the band, in display order', () => {
-        const ids = initiativeWorkStepIds(plan.rows, layout, LAUNCH_BAND);
+describe('initiativeWorkEpicIds — what a second click frames (req #3365)', () => {
+    // ACTIVE AND PENDING: every epic of the band the plan has not finished.
+    it('is every unfinished epic of the band, in display order', () => {
+        const ids = initiativeWorkEpicIds(plan.rows, layout, LAUNCH_BAND);
         const expected = plan.rows
-            .filter((r) => LAUNCH_BAND.stepIds.includes(r.id) && r.state !== 'done')
+            .filter((r) => LAUNCH_BAND.epicIds.includes(r.id) && r.state !== 'done')
             .map((r) => r.id);
         expect(ids).toEqual(expected);
         expect(ids.length).toBeGreaterThan(1);
     });
 
     // THE ORDERING IS THE ROWS', never a sort of the ids — the same property
-    // the deleted `nextLaunchStep` suite pinned, for the same reason: display
+    // the deleted `nextLaunchEpic` suite pinned, for the same reason: display
     // order is design rule 3's output and this must not quietly re-derive it.
     it('reads the row order it is given', () => {
         const reversed = [...plan.rows].reverse();
-        const forward = initiativeWorkStepIds(plan.rows, layout, LAUNCH_BAND);
-        const backward = initiativeWorkStepIds(reversed, layout, LAUNCH_BAND);
+        const forward = initiativeWorkEpicIds(plan.rows, layout, LAUNCH_BAND);
+        const backward = initiativeWorkEpicIds(reversed, layout, LAUNCH_BAND);
         expect(backward).toEqual([...forward].reverse());
     });
 
@@ -133,50 +133,50 @@ describe('initiativeWorkStepIds — what a second click frames (req #3365)', () 
     // why the old second click did nothing there — and still has work to frame.
     it('frames work that is not eligible, and work that is suppressed', () => {
         const held = plan.rows.map((r) => ({ ...r, launchSuppressed: true }));
-        expect(initiativeWorkStepIds(held, layout, LAUNCH_BAND))
-            .toEqual(initiativeWorkStepIds(plan.rows, layout, LAUNCH_BAND));
+        expect(initiativeWorkEpicIds(held, layout, LAUNCH_BAND))
+            .toEqual(initiativeWorkEpicIds(plan.rows, layout, LAUNCH_BAND));
     });
 
     it('is empty for a band with nothing left to do', () => {
-        expect(initiativeWorkStepIds(plan.rows, layout, DONE_BAND)).toEqual([]);
+        expect(initiativeWorkEpicIds(plan.rows, layout, DONE_BAND)).toEqual([]);
     });
 
-    it('is the single step of a one-step band while that step is unfinished', () => {
-        const ids = initiativeWorkStepIds(plan.rows, layout, SOLO_BAND);
-        expect(ids).toEqual([SOLO_BAND.stepIds[0]]);
+    it('is the single epic of a one-epic band while that epic is unfinished', () => {
+        const ids = initiativeWorkEpicIds(plan.rows, layout, SOLO_BAND);
+        expect(ids).toEqual([SOLO_BAND.epicIds[0]]);
     });
 
-    // A DRAWN BEAD is the gate: the thing being framed is the bead, and a step
+    // A DRAWN BEAD is the gate: the thing being framed is the bead, and an epic
     // absent from this layout has no rectangle to fit.
-    it('skips a step that is not on this layout', () => {
+    it('skips an epic that is not on this layout', () => {
         const empty = computePlanLayout([]);
-        expect(initiativeWorkStepIds(plan.rows, empty, LAUNCH_BAND)).toEqual([]);
+        expect(initiativeWorkEpicIds(plan.rows, empty, LAUNCH_BAND)).toEqual([]);
     });
 
     it('is empty on unusable input rather than throwing', () => {
-        expect(initiativeWorkStepIds([], layout, LAUNCH_BAND)).toEqual([]);
-        expect(initiativeWorkStepIds(null, layout, LAUNCH_BAND)).toEqual([]);
-        expect(initiativeWorkStepIds(plan.rows, null, LAUNCH_BAND)).toEqual([]);
-        expect(initiativeWorkStepIds(plan.rows, layout, null)).toEqual([]);
-        expect(initiativeWorkStepIds(plan.rows, layout, { stepIds: [] })).toEqual([]);
+        expect(initiativeWorkEpicIds([], layout, LAUNCH_BAND)).toEqual([]);
+        expect(initiativeWorkEpicIds(null, layout, LAUNCH_BAND)).toEqual([]);
+        expect(initiativeWorkEpicIds(plan.rows, null, LAUNCH_BAND)).toEqual([]);
+        expect(initiativeWorkEpicIds(plan.rows, layout, null)).toEqual([]);
+        expect(initiativeWorkEpicIds(plan.rows, layout, { epicIds: [] })).toEqual([]);
     });
 });
 
 describe('nextInitiativeZoom — the cycle', () => {
     it('starts at the work (req #3681)', () => {
-        expect(nextInitiativeZoom(null, 11, true)).toBe(INITIATIVE_ZOOM_STEP);
+        expect(nextInitiativeZoom(null, 11, true)).toBe(INITIATIVE_ZOOM_EPIC);
     });
 
-    it('goes step → band → step on the same initiative', () => {
+    it('goes epic → band → epic on the same initiative', () => {
         let state = null;
-        const click = (key, hasStep) => {
-            const next = nextInitiativeZoom(state, key, hasStep);
+        const click = (key, hasEpic) => {
+            const next = nextInitiativeZoom(state, key, hasEpic);
             state = { key, level: next };
             return next;
         };
-        expect(click(11, true)).toBe(INITIATIVE_ZOOM_STEP);
+        expect(click(11, true)).toBe(INITIATIVE_ZOOM_EPIC);
         expect(click(11, true)).toBe(INITIATIVE_ZOOM_BAND);
-        expect(click(11, true)).toBe(INITIATIVE_ZOOM_STEP);
+        expect(click(11, true)).toBe(INITIATIVE_ZOOM_EPIC);
         expect(click(11, true)).toBe(INITIATIVE_ZOOM_BAND);
     });
 
@@ -185,9 +185,9 @@ describe('nextInitiativeZoom — the cycle', () => {
     // it launches next.
     it('resets to the work on a different initiative', () => {
         expect(nextInitiativeZoom({ key: 11, level: INITIATIVE_ZOOM_BAND }, 12, true))
-            .toBe(INITIATIVE_ZOOM_STEP);
-        expect(nextInitiativeZoom({ key: 11, level: INITIATIVE_ZOOM_STEP }, 'none', true))
-            .toBe(INITIATIVE_ZOOM_STEP);
+            .toBe(INITIATIVE_ZOOM_EPIC);
+        expect(nextInitiativeZoom({ key: 11, level: INITIATIVE_ZOOM_EPIC }, 'none', true))
+            .toBe(INITIATIVE_ZOOM_EPIC);
     });
 
     // Requirement item 4. A `?initiative=` landing leaves the reader at band focus and
@@ -195,7 +195,7 @@ describe('nextInitiativeZoom — the cycle', () => {
     // one level deeper instead of re-fitting the band already on screen.
     it('treats a deep-link landing as click 1', () => {
         const seeded = { key: 11, level: INITIATIVE_ZOOM_BAND };
-        expect(nextInitiativeZoom(seeded, 11, true)).toBe(INITIATIVE_ZOOM_STEP);
+        expect(nextInitiativeZoom(seeded, 11, true)).toBe(INITIATIVE_ZOOM_EPIC);
     });
 
     // Requirement item 6, and THE REGRESSION THIS RULE EXISTS TO PREVENT (code
@@ -204,7 +204,7 @@ describe('nextInitiativeZoom — the cycle', () => {
     // second stop — and it went dead for the rest of the visit. A level that
     // does not exist takes nothing away from the level below it: the control
     // keeps doing exactly what req #3204 made it do.
-    it('keeps fitting the band, forever, when there is no next launch step', () => {
+    it('keeps fitting the band, forever, when there is no next launch epic', () => {
         let state = null;
         for (let n = 0; n < 5; n++) {
             const next = nextInitiativeZoom(state, 'none', false);
@@ -222,15 +222,15 @@ describe('nextInitiativeZoom — the cycle', () => {
 
     it('still lets a band with no second stop be focused for the first time', () => {
         expect(nextInitiativeZoom(null, 'none', false)).toBe(INITIATIVE_ZOOM_BAND);
-        expect(nextInitiativeZoom({ key: 11, level: INITIATIVE_ZOOM_STEP }, 'none', false))
+        expect(nextInitiativeZoom({ key: 11, level: INITIATIVE_ZOOM_EPIC }, 'none', false))
             .toBe(INITIATIVE_ZOOM_BAND);
     });
 
-    // The way back out never depends on there being a next step — a reader
+    // The way back out never depends on there being a next epic — a reader
     // parked at level 2 must be able to leave whatever the plan has since
     // become.
-    it('returns to the band from the step even if the step has vanished', () => {
-        expect(nextInitiativeZoom({ key: 11, level: INITIATIVE_ZOOM_STEP }, 11, false))
+    it('returns to the band from the epic even if the epic has vanished', () => {
+        expect(nextInitiativeZoom({ key: 11, level: INITIATIVE_ZOOM_EPIC }, 11, false))
             .toBe(INITIATIVE_ZOOM_BAND);
     });
 });
@@ -242,7 +242,7 @@ describe('gestureMovedCamera — the reader taking the camera, vs click jitter',
     // d3-zoom is bound to, so a mousedown on the NAME starts a pan and every
     // pixel of hand-jitter inside the click emits a real zoom event that
     // translates the world. Clearing the cycle on any of those would break the
-    // band → step move for anyone whose hand moves — intermittently, which is
+    // band → epic move for anyone whose hand moves — intermittently, which is
     // worse than not working at all.
     it('is false for the jitter inside a click', () => {
         expect(gestureMovedCamera(at(100, 100), at(100, 100))).toBe(false);
@@ -271,9 +271,9 @@ describe('gestureMovedCamera — the reader taking the camera, vs click jitter',
 
 describe('what the control says it does (item 7)', () => {
     it('names the second stop, and how much work it will frame', () => {
-        // req #3365 re-pointed level 2 from ONE launch step to the initiative's
-        // unfinished work, so the promise names the SUBJECT rather than a step
-        // id — a control that named one step while framing nine would be worse
+        // req #3365 re-pointed level 2 from ONE launch epic to the initiative's
+        // unfinished work, so the promise names the SUBJECT rather than an epic
+        // id — a control that named one epic while framing nine would be worse
         // than one that names none.
         expect(initiativeZoomHint([4, 5, 6]))
             .toBe('Zoom pipeline initiative — click again to toggle unfinished work / whole initiative');
@@ -303,7 +303,7 @@ describe('what the control says it does (item 7)', () => {
     // second stop always announces one and a band that does not never can.
     it('agrees with the selector on every band of the plan', () => {
         for (const band of layout.bands) {
-            const workIds = initiativeWorkStepIds(plan.rows, layout, band);
+            const workIds = initiativeWorkEpicIds(plan.rows, layout, band);
             const announced = initiativeZoomHint(workIds).includes('click again');
             expect(announced).toBe(workIds.length > 0);
         }

@@ -13,7 +13,7 @@ import {
 } from '../planFoldAnimation';
 
 const mk = (id, initiativeId, depIds = [], reqIds = []) => ({
-    id, title: `step ${id}`, run: 'auto', state: 'pending', reqIds,
+    id, title: `epic ${id}`, run: 'auto', state: 'pending', reqIds,
     depIds, timeDeps: [], initiativeId, initiative: `initiative-${initiativeId}`,
     initiativeLabels: [], featureLabels: [], machineLabels: [], machineLabel: '—',
 });
@@ -73,12 +73,12 @@ describe('a band\'s reveal (req #3695)', () => {
         const rv = computePlanLayout(ROWS, { foldReveal: new Map([[5, 0.3]]) });
         for (const id of [10, 11, 13]) {
             expect(rv.nodes.get(id).reveal).toBe(0.3);
-            const labels = rv.labels.filter((l) => l.stepId === id);
+            const labels = rv.labels.filter((l) => l.epicId === id);
             expect(labels.length).toBeGreaterThan(0);
             for (const l of labels) expect(l.reveal).toBe(0.3);
         }
         expect(rv.nodes.get(12)).not.toHaveProperty('reveal');
-        for (const l of rv.labels.filter((x) => x.stepId === 12)) {
+        for (const l of rv.labels.filter((x) => x.epicId === 12)) {
             expect(l).not.toHaveProperty('reveal');
         }
         // 10 -> 11 inside the band and 11 -> 12 across into initiative 6 both fade.

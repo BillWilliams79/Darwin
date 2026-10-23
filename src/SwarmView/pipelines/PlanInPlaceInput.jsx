@@ -6,19 +6,19 @@
 import { useEffect, useRef, useState } from 'react';
 import Box from '@mui/material/Box';
 
-import { isRestNullLiteral, REST_NULL } from '../../Steps/stepsApi';
+import { isRestNullLiteral, REST_NULL } from '../../Epics/epicsApi';
 import { PLAN_VIZ_PALETTE as P } from './pipelinePlanLayout';
 import { inputCaretAt } from './planCaretPoint';
 
 export const MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
 
 // The longest title either editable column holds — `initiatives.title` and
-// `pipeline_steps.title` are both VARCHAR(256), the cap the Initiatives and Steps
+// `epics.title` are both VARCHAR(256), the cap the Initiatives and Epics
 // editors already put on their own title fields.
 export const TITLE_MAX = 256;
 
 // Why a typed title cannot be saved, or null when it can. The same two refusals
-// the Initiatives and Steps dialogs make: the column is NOT NULL, and the literal
+// the Initiatives and Epics dialogs make: the column is NOT NULL, and the literal
 // `NULL` is Lambda-Rest's clear-this-column sentinel, which would land as SQL
 // NULL and surface as an opaque 500 rather than a readable refusal.
 export function titleProblem(title) {
@@ -30,7 +30,7 @@ export function titleProblem(title) {
 }
 
 // ── THE IN-PLACE EDITOR (req #3580) ─────────────────────────────────────────
-// One input for both editable names (initiative and step). Enter or blur commits,
+// One input for both editable names (initiative and epic). Enter or blur commits,
 // Escape cancels, and `doneRef` makes the FIRST of those win: an Enter that
 // commits also blurs the input as the editor unmounts, and without the latch
 // that blur would commit a second time.

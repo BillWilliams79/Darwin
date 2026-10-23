@@ -76,7 +76,7 @@ afterEach(() => {
 function render(props = {}) {
     const payload = composedFixture({
         initiatives: [{ id: 5, title: 'Build', pipeline_fk: 2, sort_order: 1 }],
-        steps: [{ id: 10, initiative_fk: 5, title: 'Design', run: 'auto', notes: null,
+        epics: [{ id: 10, initiative_fk: 5, title: 'Design', run: 'auto', notes: null,
             not_before: null }],
     });
     const plan = adaptComposedPipeline(payload);

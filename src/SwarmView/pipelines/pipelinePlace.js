@@ -50,7 +50,7 @@
 //
 // ── IT REPLACES `darwin-swarm-pipelines-last-opened` ───────────────────────
 // That key (req #3311) was written by ONE call site: the list page's own click
-// handler. So a plan reached by a `?step=` deep link, by Back, or by the swarm
+// handler. So a plan reached by a `?epic=` deep link, by Back, or by the swarm
 // session page's "view the plan" link was never recorded — the reader had
 // obviously last selected it and the app disagreed. Writing from the DETAIL
 // page instead records every arrival without enumerating any of them, which is
@@ -78,7 +78,7 @@
 //
 // NO JSX and no React: a pure module vitest exercises without a DOM, and a
 // component file with non-component exports drops out of Fast Refresh — the
-// rule `pipelineStepLink.js`, `pipelineInitiativeLink.js` and `pipelineDetailModes.js`
+// rule `pipelineEpicLink.js`, `pipelineInitiativeLink.js` and `pipelineDetailModes.js`
 // are all written to.
 
 import { SCROLL_STORAGE_PREFIX, VIEWPORT_STORAGE_PREFIX } from '../../utils/viewportMemory';
@@ -236,7 +236,7 @@ export const pipelinePlaceAtList = (previous) => ({
  *
  * Null rather than a best-effort path, so a caller navigates nowhere instead of
  * to `/swarm/pipeline/undefined` — the "omit rather than render a dead link"
- * rule `pipelineStepLink.js` and `pipelineInitiativeLink.js` both apply.
+ * rule `pipelineEpicLink.js` and `pipelineInitiativeLink.js` both apply.
  *
  * NO QUERY STRING, EVER — see the header. The detail page reads the reader's
  * stored mode preference, exactly as it does when they click a card, and a
@@ -349,7 +349,7 @@ export const isPipelineDetailPath = (pathname) =>
 // NULLISH AND EMPTY ARE REJECTED BEFORE `Number` SEES THEM — `Number(null)` and
 // `Number('')` are both 0, and 0 is a perfectly good integer, so a record whose
 // id never resolved would produce a confident navigation to a plan that does not
-// exist. The identical guard `pipelineStepLink.js` documents.
+// exist. The identical guard `pipelineEpicLink.js` documents.
 function normalizeId(value) {
     if (value == null || value === '') return null;
     const n = Number(value);

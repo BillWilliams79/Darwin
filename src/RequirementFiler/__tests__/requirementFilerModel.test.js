@@ -89,10 +89,10 @@ describe('the last settings and the spec code (req #3815)', () => {
             machine_fk: null, tracking: 0, projectId: 1, category_fk: 10, defaultsUnchecked: ['category'] });
         expect(newRequirementDraft(null, null, {}).defaultsUnchecked).toEqual([]);
         const d = newRequirementDraft(1, 10, { effort: 'low', ai_model: '', machine_fk: 2, tracking: 1,
-            seatStepId: 300, projectId: 9 });
+            seatEpicId: 300, projectId: 9 });
         expect(d).toMatchObject({ effort: 'low', ai_model: 'opus', machine_fk: 2, tracking: 1, projectId: 1, category_fk: 10 });
         // Only what the form shows is carried — never a seat or a place.
-        expect(d).not.toHaveProperty('seatStepId');
+        expect(d).not.toHaveProperty('seatEpicId');
         // The carried place and machine are checked against live data first, which holds File.
         expect(d.defaultsUnchecked).toEqual(['category', 'machine']);
         expect(draftProblem({ ...d, title: 'x' })).toBe('Checking the last settings…');

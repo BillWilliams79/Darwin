@@ -1,6 +1,6 @@
 // pipelineAdapter.js — the browser-side consumer of the Pipeline 2.0 composed
 // read (req #3381). PURE: plain payload in, plain render shapes out. No React,
-// no fetch, no clock — the one time-dependent fact (an empty step's TODAY,
+// no fetch, no clock — the one time-dependent fact (an empty epic's TODAY,
 // req #3618) takes `now` from the caller rather than reading the wall clock.
 //
 // THIS MODULE DOES NOT DERIVE ANYTHING (design intent: "the visualizer
@@ -12,7 +12,7 @@
 // MCP daemon and the browser. Everything below is RESHAPING: snake_case wire
 // keys to the camelCase `PlanRow`/`plan` shapes `pipelinePlanLayout.js`,
 // `pipelineInitiativeZoom.js` and `pipelineViewModel.js`'s render helpers already
-// expect, plus joining the composed payload's own `steps[]`/`initiatives[]`/
+// expect, plus joining the composed payload's own `epics[]`/`initiatives[]`/
 // `requirements[]` dictionaries back onto the thin `derived.rows[]`.
 //
 // `derived.rows[]` already arrives in DISPLAY ORDER (`pipeline2_derive.py`
@@ -22,7 +22,7 @@
 // WHY A JOIN IS NEEDED AT ALL. `derived.rows[]` is deliberately compact — ids,
 // enums, short id lists (req #3078 payload budget; every per-row field there
 // is "an id, an enum string, a boolean, or a short list of one of those").
-// `title`/`notes`/`not_before` live on `steps[]`; the initiative's title and
+// `title`/`notes`/`not_before` live on `epics[]`; the initiative's title and
 // `sort_order` live on `initiatives[]`; machine labels are derived from
 // `requirements[].machine_fk` (2.0 does not carry a `machines` dictionary of
 // its own — the caller supplies one from `useMachines`, a small whole-app
@@ -31,24 +31,24 @@
 // WHAT DOES NOT EXIST IN 2.0, deliberately not synthesized:
 //   - the retired middle-tier label fields on a row — 2.0 has no such tier;
 //     every row's initiative comes directly from containment
-//     (`pipeline_steps.initiative_fk`), never a chained lookup through it, so there
-//     is exactly one initiative per step, not a dominant-label tally over several.
-//   - `batches`/`batchLetterByStepId` — Batch does not exist in 2.0 (req
+//     (`epics.initiative_fk`), never a chained lookup through it, so there
+//     is exactly one initiative per epic, not a dominant-label tally over several.
+//   - `batches`/`batchLetterByEpicId` — Batch does not exist in 2.0 (req
 //     #3371 owns removing the drawing machinery; this module never builds one
 //     to remove).
-//   - `labelInherited` — 2.0's `initiative_fk` is NOT NULL (containment), so a step
+//   - `labelInherited` — 2.0's `initiative_fk` is NOT NULL (containment), so an epic
 //     never lacks a label to inherit from a dependency the way a req-less 1.0
-//     step could.
-//   - a STEP STATE. A step has no state (req #3750, user ruling 2026-10-21):
+//     epic could.
+//   - a EPIC STATE. An epic has no state (req #3750, user ruling 2026-10-21):
 //     it holds requirements and carries orchestration controls, and nothing
 //     completes or reopens it. The one exception to "this module derives
 //     nothing" is `visualizerColourInput` below — a DISPLAY rollup of the
-//     step's requirements that the canvas colours by. Read its header before
+//     epic's requirements that the canvas colours by. Read its header before
 //     treating `row.state` as anything else.
 
 import { planTimeAxis } from './pipelinePlanTime';
 import {
-    sumReqCost, STEP_DONE, STEP_RUNNING, STEP_PENDING,
+    sumReqCost, EPIC_DONE, EPIC_RUNNING, EPIC_PENDING,
 } from './pipelineModel';
 
 const asArray = (v) => (Array.isArray(v) ? v : []);
@@ -135,7 +135,7 @@ function initiativeSortOrderOf(initiative) {
 // is a launch parameter's non-answer, not a machine), each resolved through
 // `requirements[].machine_fk` against the caller-supplied machines dictionary.
 // NULL pin -> 'Any'; unknown id -> '#<id>' (matches pipelineModel.js's
-// vocabulary so a mixed 1.0/2.0 session — StepsPage.jsx and this page open in
+// vocabulary so a mixed 1.0/2.0 session — EpicsPage.jsx and this page open in
 // two tabs — never shows two different words for the same fact).
 function machineLabelsFor(reqIds, trackingReqIds, reqsById, machinesById) {
     const tracking = new Set(trackingReqIds || []);
@@ -151,46 +151,46 @@ function machineLabelsFor(reqIds, trackingReqIds, reqsById, machinesById) {
     return labels;
 }
 
-// ── THE VISUALIZER'S COLOUR INPUT — not a step state (req #3750) ─────────────
+// ── THE VISUALIZER'S COLOUR INPUT — not an epic state (req #3750) ─────────────
 //
-// A step HAS NO STATE: no done/running/pending, never completed, never
+// An epic HAS NO STATE: no done/running/pending, never completed, never
 // reopened (req #3750, user ruling 2026-10-21). The orchestration asks every
-// question of the REQUIREMENTS a step holds, through the derived row's
+// question of the REQUIREMENTS an epic holds, through the derived row's
 // `open_req_ids`, and the server sends no `state` at all.
 //
-// The plan visualizer and the plan table still paint a step from a three-value
-// vocabulary (`STEP_DONE`/`STEP_RUNNING`/`STEP_PENDING` — the bead fill, the
+// The plan visualizer and the plan table still paint an epic from a three-value
+// vocabulary (`EPIC_DONE`/`EPIC_RUNNING`/`EPIC_PENDING` — the bead fill, the
 // band colours, the "today" stack, the initiative zoom's next-launch skip). The user
 // ruled that changing HOW the visualizer tracks colour belongs to a separate
 // requirement ("let the other requirement change the color tracking in the
 // visualizer"), so this function keeps those consumers drawing exactly as they
-// did by rolling the step's requirements up into that vocabulary, ONCE, here:
+// did by rolling the epic's requirements up into that vocabulary, ONCE, here:
 //
 //   running  any GATING (non-tracking) requirement is in `development`;
-//   done     the step has gating requirements and none of them is open
+//   done     the epic has gating requirements and none of them is open
 //            (`open_req_ids` empty);
-//   pending  everything else — including an EMPTY step (no gating work).
+//   pending  everything else — including an EMPTY epic (no gating work).
 //
 // It is OWNED BY THAT COLOUR-TRACKING REQUIREMENT and exists only as the
-// canvas's colour input. It is NOT a step state the orchestration has: nothing
-// may gate, launch, refuse a seat, or word a step as "completed" from it. A
+// canvas's colour input. It is NOT an epic state the orchestration has: nothing
+// may gate, launch, refuse a seat, or word an epic as "completed" from it. A
 // consumer that needs an orchestration fact reads `openReqIds`, `eligible`,
 // `gateOpen`, `launchCandidate` or `checkpointBlockedBy` instead.
 //
 // `open_req_ids` is the server's fact and is read as sent — never recomputed
 // here from the payload's requirement rows (design rule 13: one rule, one
 // implementation, req #3752). A row without it reads every gating requirement
-// as open, so a missing fact never paints a step done.
+// as open, so a missing fact never paints an epic done.
 export function visualizerColourInput(gatingIds, openReqIds, reqsById) {
     if (gatingIds.some((rid) => reqsById.get(rid)?.requirement_status === 'development')) {
-        return STEP_RUNNING;
+        return EPIC_RUNNING;
     }
-    if (gatingIds.length > 0 && openReqIds.length === 0) return STEP_DONE;
-    return STEP_PENDING;
+    if (gatingIds.length > 0 && openReqIds.length === 0) return EPIC_DONE;
+    return EPIC_PENDING;
 }
 
 /**
- * `derived.rows[]` (display order, already) joined against `steps[]`/
+ * `derived.rows[]` (display order, already) joined against `epics[]`/
  * `initiatives[]`/`requirements[]` into `PlanRow`-shaped objects — the same shape
  * `pipelineModel.js::buildPlanRows` produces, so `planRenderRows`,
  * `pipelinePlanLayout.js` and `pipelineInitiativeZoom.js` cannot tell which engine
@@ -203,41 +203,41 @@ export function visualizerColourInput(gatingIds, openReqIds, reqsById) {
  */
 export function buildPlanRows(payload, machines = []) {
     const derived = payload.derived || {};
-    const stepsById = new Map(asArray(payload.steps).map((s) => [s.id, s]));
+    const epicsById = new Map(asArray(payload.epics).map((s) => [s.id, s]));
     const initiativesById = new Map(asArray(payload.initiatives).map((e) => [e.id, e]));
     const reqsById = new Map(asArray(payload.requirements).map((r) => [r.id, r]));
     const machinesById = new Map(asArray(machines).map((m) => [m.id, m]));
     const planLocked = isFlagOn(payload.pipeline?.locked, false);
 
     return asArray(derived.rows).map((dr) => {
-        const step = stepsById.get(dr.id) || {};
+        const epic = epicsById.get(dr.id) || {};
         const initiative = dr.initiative_id != null ? initiativesById.get(dr.initiative_id) : null;
         const labels = machineLabelsFor(
             dr.req_ids, dr.tracking_req_ids, reqsById, machinesById);
         // req #3649 — the two stored flags, read the way the derivation
         // reads them (`checkpoint` absent = the column DEFAULT, on). The lock
-        // CASCADES: a step under a locked initiative or plan is as frozen as one
+        // CASCADES: an epic under a locked initiative or plan is as frozen as one
         // locked itself, and `lockedBy` names the OUTERMOST lock so the
         // control can say which one to lift.
-        const locked = isFlagOn(dr.locked ?? step.locked, false);
+        const locked = isFlagOn(dr.locked ?? epic.locked, false);
         const initiativeLocked = isFlagOn(initiative?.locked, false);
-        const lockedBy = planLocked ? 'pipeline' : initiativeLocked ? 'initiative' : locked ? 'step' : null;
+        const lockedBy = planLocked ? 'pipeline' : initiativeLocked ? 'initiative' : locked ? 'epic' : null;
         const tracking = new Set(dr.tracking_req_ids || []);
         const gatingIds = (dr.req_ids || []).filter((rid) => !tracking.has(rid));
         const openReqIds = Array.isArray(dr.open_req_ids) ? dr.open_req_ids : gatingIds;
         return {
             id: dr.id,
-            title: step.title != null ? step.title : '',
-            run: dr.run || step.run || 'auto',
-            checkpoint: isFlagOn(dr.checkpoint ?? step.checkpoint, true),
+            title: epic.title != null ? epic.title : '',
+            run: dr.run || epic.run || 'auto',
+            checkpoint: isFlagOn(dr.checkpoint ?? epic.checkpoint, true),
             locked,
             effectiveLocked: lockedBy != null,
             lockedBy,
-            notes: step.notes != null ? step.notes : null,
-            // req #3750 — the step's open work: gating requirements not yet
-            // met/deferred/wontfix. THE orchestration fact about a step.
+            notes: epic.notes != null ? epic.notes : null,
+            // req #3750 — the epic's open work: gating requirements not yet
+            // met/deferred/wontfix. THE orchestration fact about an epic.
             openReqIds,
-            // The canvas's colour input — a display rollup, NOT a step state
+            // The canvas's colour input — a display rollup, NOT an epic state
             // (see `visualizerColourInput`).
             state: visualizerColourInput(gatingIds, openReqIds, reqsById),
             reqIds: dr.req_ids || [],
@@ -249,11 +249,11 @@ export function buildPlanRows(payload, machines = []) {
             depIds: dr.dep_ids || [],
             outOfScopeDepIds: dr.out_of_scope_dep_ids || [],
             // 2.0 has no time-gate DEP ROWS (req #3349 folded them into the
-            // step's own `not_before` — see the importer's `step_not_before`,
+            // epic's own `not_before` — see the importer's `epic_not_before`,
             // which does the same fold on the way in). A single value, not a
             // list, but `formatTimeGates` already takes an array and this
             // keeps every existing render call site unchanged.
-            timeDeps: step.not_before ? [step.not_before] : [],
+            timeDeps: epic.not_before ? [epic.not_before] : [],
             initiativeId: dr.initiative_id != null ? dr.initiative_id : null,
             initiative: initiative ? initiative.title : null,
             initiativeSortOrder: initiativeSortOrderOf(initiative),
@@ -261,20 +261,20 @@ export function buildPlanRows(payload, machines = []) {
             labelInherited: false,
             machineLabels: labels,
             machineLabel: labels.length ? labels.join(' / ') : '—',
-            // req #3750 — may this step's launch-ready work go out now: it
+            // req #3750 — may this epic's launch-ready work go out now: it
             // carries launch-ready ids and its gate is open. Covers what
             // `top_up_eligible` used to answer separately; the eligible-now
             // ring is drawn from it.
             eligible: Boolean(dr.eligible),
             // req #3597 — the gate REPORTED (no dependency holds open work,
-            // time gate passed), and whether this step's work may be announced for launch,
+            // time gate passed), and whether this epic's work may be announced for launch,
             // which no longer requires the gate: a dependency is a launch
             // PRIORITY, not a gate. A payload from a Lambda that predates the
             // fields reads as gate closed / not a candidate — never the reverse.
             gateOpen: Boolean(dr.gate_open),
             launchCandidate: Boolean(dr.launch_candidate),
-            // The user's amendment: barrier steps upstream (req #3649: the
-            // flag, on by default) still holding open work, holding this step.
+            // The user's amendment: barrier epics upstream (req #3649: the
+            // flag, on by default) still holding open work, holding this epic.
             // Empty = no barrier blocks it.
             checkpointBlockedBy: dr.checkpoint_blocked_by || [],
             launchSuppressed: Boolean(dr.launch_suppressed),
@@ -309,7 +309,7 @@ export function isFlagOn(value, dflt) {
  * @param {Object} [options]
  * @param {Object[]} [options.machines]
  * @param {?Object} [options.costIndex]
- * @param {?(Date|string)} [options.now]  the render clock; omitted, an empty step
+ * @param {?(Date|string)} [options.now]  the render clock; omitted, an empty epic
  *                                        stays UNKNOWN (`pipelinePlanTime.js` rule 3)
  * @returns {Object} plan
  */
@@ -321,7 +321,7 @@ export function adaptComposedPipeline(payload, { machines = [], costIndex = null
     const violations = asArray(derived.violations).map((v) => ({
         invariant: v.invariant,
         message: v.message,
-        stepIds: v.step_ids || [],
+        epicIds: v.epic_ids || [],
     }));
 
     const rc = derived.requirement_counts || {};
@@ -337,7 +337,7 @@ export function adaptComposedPipeline(payload, { machines = [], costIndex = null
         pipelineStatus: pauseSrc.pipeline_status != null ? pauseSrc.pipeline_status : null,
         pipelinePaused: Boolean(pauseSrc.pipeline_paused),
         pausedInitiativeIds: pauseSrc.paused_initiative_ids || [],
-        suppressedStepIds: pauseSrc.suppressed_step_ids || [],
+        suppressedEpicIds: pauseSrc.suppressed_epic_ids || [],
     };
 
     const serialSrc = derived.serial || {};
@@ -348,7 +348,7 @@ export function adaptComposedPipeline(payload, { machines = [], costIndex = null
         closedInitiativeIds: serialSrc.closed_initiative_ids || [],
         liveInitiativeId: serialSrc.live_initiative_id != null ? serialSrc.live_initiative_id : null,
         waitingInitiativeIds: serialSrc.waiting_initiative_ids || [],
-        heldStepIds: serialSrc.held_step_ids || [],
+        heldEpicIds: serialSrc.held_epic_ids || [],
     };
 
     return {
@@ -368,37 +368,37 @@ export function adaptComposedPipeline(payload, { machines = [], costIndex = null
         // requirement, zero extra gateway round trips) rather than deferring
         // it — the gap was shipping-a-known-regression, not a design choice
         // for a later requirement to make.
-        // `now` places an EMPTY step on today or in the future (req #3618 —
+        // `now` places an EMPTY epic on today or in the future (req #3618 —
         // `pipelinePlanTime.js` rule 3).
         timeAxis: planTimeAxis(rows, payload.requirements || [], now),
         // Batch does not exist in 2.0 (module header) — present as empty so
         // every consumer that destructures `plan.batches`/
-        // `batchLetterByStepId` (planRenderRows, PipelinePlanTable's banner
+        // `batchLetterByEpicId` (planRenderRows, PipelinePlanTable's banner
         // logic) runs unchanged and draws no banners, exactly as the live
         // plan already does today (memory/pipeline-2-visualizer-design.md § 1
         // measured zero batches drawing on production before this
         // requirement even ran).
         batches: [],
-        batchLetterByStepId: new Map(),
-        eligibleStepIds: new Set(derived.eligible_step_ids || []),
+        batchLetterByEpicId: new Map(),
+        eligibleEpicIds: new Set(derived.eligible_epic_ids || []),
         // req #3597 — every launch candidate, in launch PRIORITY order (gate-open
         // first, then display order). An array, not a Set: the order IS the fact.
-        launchCandidateStepIds: derived.launch_candidate_step_ids || [],
+        launchCandidateEpicIds: derived.launch_candidate_epic_ids || [],
         // req #3649 — THE launch order, one entry per announceable
-        // (step, requirement), as the engine consumes it. An array: the
+        // (epic, requirement), as the engine consumes it. An array: the
         // order IS the fact.
         launchQueue: asArray(derived.launch_queue).map((e) => ({
-            stepId: e.step_id, requirementId: e.requirement_id,
+            epicId: e.epic_id, requirementId: e.requirement_id,
         })),
         // req #3649 — the plan's own lock and the initiatives locked in their own
-        // right, for the band chips and the header control. A step's
+        // right, for the band chips and the header control. An epic's
         // effective lock is already on its row (`effectiveLocked`/`lockedBy`).
         locked: isFlagOn(payload.pipeline?.locked, false),
         lockedInitiativeIds: new Set(asArray(payload.initiatives)
             .filter((e) => isFlagOn(e.locked, false)).map((e) => e.id)),
         cycleDetected: Boolean(derived.cycle_detected),
-        cycleStepIds: derived.cycle_step_ids || [],
-        duplicateStepIds: derived.duplicate_step_ids || [],
+        cycleEpicIds: derived.cycle_epic_ids || [],
+        duplicateEpicIds: derived.duplicate_epic_ids || [],
         unresolvedReqIds: derived.unresolved_req_ids || [],
         outOfScopeDepIds: derived.out_of_scope_dep_ids || [],
         requirementCounts,
@@ -412,8 +412,8 @@ export function adaptComposedPipeline(payload, { machines = [], costIndex = null
  * (`model.requirements` for the autonomy/model/effort hover card,
  * `model.machines` for by-machine colouring) — narrower than 1.0's
  * `PipelineModel`, because 2.0's composed payload carries nothing else `model`
- * was ever asked for (no retired middle tier, and `steps`/`initiatives`/
- * `stepRequirements`/`stepDeps` are already folded into `plan.rows` above).
+ * was ever asked for (no retired middle tier, and `epics`/`initiatives`/
+ * `epicRequirements`/`epicDeps` are already folded into `plan.rows` above).
  *
  * @param {Object} payload
  * @param {Object[]} [machines]
@@ -434,8 +434,8 @@ export function buildPlanModel(payload, machines = [], sessionStatus = null) {
             }))
             : requirements,
         machines: asArray(machines),
-        // req #3586 — the initiative picker of the visualizer's add-step dialog. The
-        // payload's own `initiatives[]`, so an initiative with no steps yet is offered too.
+        // req #3586 — the initiative picker of the visualizer's add-epic dialog. The
+        // payload's own `initiatives[]`, so an initiative with no epics yet is offered too.
         initiatives: asArray(payload && payload.initiatives),
     };
 }

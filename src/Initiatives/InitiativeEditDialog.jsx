@@ -103,7 +103,7 @@ export default function InitiativeEditDialog({ open, initiative, pipelineOptions
         // `title` is NOT NULL — a typed "NULL" is Lambda-Rest's clear-column
         // sentinel on BOTH POST and PUT, so it would otherwise reach the
         // gateway as SQL NULL and fail as an opaque 500 (code review, req
-        // #3393; matches StepsPage's identical guard for its own title field).
+        // #3393; matches EpicsPage's identical guard for its own title field).
         if (isRestNullLiteral(title)) {
             showError(`"${REST_NULL}" is the API's clear-this-column sentinel and cannot `
                 + 'be a title. Try "Null" or another wording.');
@@ -218,7 +218,7 @@ export default function InitiativeEditDialog({ open, initiative, pipelineOptions
                         type="number" fullWidth
                         slotProps={{ htmlInput: {
                             'data-testid': 'initiative-sort-order-input',
-                            step: 1, min: SORT_ORDER_MIN, max: SORT_ORDER_MAX,
+                            epic: 1, min: SORT_ORDER_MIN, max: SORT_ORDER_MAX,
                         } }}
                     />
                 </Stack>

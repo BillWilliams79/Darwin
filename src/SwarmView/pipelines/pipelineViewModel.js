@@ -21,7 +21,7 @@
 // string, and a `PlanRow` is a `PlanRow` whoever built it.
 
 import { formatDateTime } from '../../utils/dateFormat';
-import { STEP_DONE, STEP_RUNNING, STEP_PENDING } from './pipelineModel';
+import { EPIC_DONE, EPIC_RUNNING, EPIC_PENDING } from './pipelineModel';
 import { PIPELINE_STATUS_VALUES } from './pipelineChipStyles';
 
 const asArray = (v) => (Array.isArray(v) ? v : []);
@@ -76,13 +76,13 @@ export const DEFAULT_REQ_COUNTS = 'on';
  *
  * `byRequirement` gives a requirement FULL credit for every session that served
  * it, including one shared with another requirement — correct, because there is
- * no apportionment rule that would not be an invention. But a STEP total summed
+ * no apportionment rule that would not be an invention. But a EPIC total summed
  * from those buckets would count a shared session twice, and design rule 2
  * actively proposes folding co-gated requirements into one multi-requirement
- * step. Darwin's own history has the case (session 2429 closed 3056 and 3070).
+ * epic. Darwin's own history has the case (session 2429 closed 3056 and 3070).
  * So the index also records which sessions each requirement reached, and
  * `sumReqCost` unions them — full attribution per requirement, no double count
- * per step, from the same single pass.
+ * per epic, from the same single pass.
  *
  * NULL totals (a session predating the backfill) contribute nothing rather than
  * zero — they are unknown, not free. Absent data therefore renders as
@@ -187,20 +187,20 @@ export function buildSessionStatusIndex({ requirementSessions, sessions, ready =
 }
 
 /**
- * The flat render list the plan table maps over: ONE ENTRY PER STEP ROW,
+ * The flat render list the plan table maps over: ONE ENTRY PER EPIC ROW,
  * pre-decorated with everything the cell renderers need.
  *
  * ONE ROW KIND (req #3371). This list used to interleave full-width
- * launch banners with the step rows — a banner immediately before the first
+ * launch banners with the epic rows — a banner immediately before the first
  * member of each launch group, carrying that group's letter, members, gate, run
  * mode, machines and the exact `/swarm-start` argument list. In Pipeline 2.0 the
- * STEP is the launch unit, so all of that is a property of ONE row and renders
+ * EPIC is the launch unit, so all of that is a property of ONE row and renders
  * on it: `kind`, the per-row launch-group letter and the emitted/by-letter
  * bookkeeping are gone with the banner, and the plan table renders the command
- * in the step's own Requirement(s) cell.
+ * in the epic's own Requirement(s) cell.
  *
  * Initiative "render once per contiguous group" therefore has nothing to skip over
- * any more — it used to be computed over STEP rows only, so a banner between
+ * any more — it used to be computed over EPIC rows only, so a banner between
  * two rows of the same initiative could not restart the group. The FEATURE tier
  * (req #3373) is gone with it: Feature was never drawn anywhere but this
  * "once per contiguous group" pass, so removing the second tier is the whole
@@ -217,12 +217,12 @@ export function buildSessionStatusIndex({ requirementSessions, sessions, ready =
  *   the composed-read path off the detail page after a production outage and
  *   `orderedPlan` was this function's only caller for a while; req #3356 deleted
  *   `orderedPlan` with Pipeline 1.0, leaving the composed path as the one
- *   producer. Only the SHAPE (`rows`, `eligibleStepIds`) is read, never the
+ *   producer. Only the SHAPE (`rows`, `eligibleEpicIds`) is read, never the
  *   producer, which is why neither swap touched a line of this function.
  * @returns {Array<{row: Object, showInitiative: boolean, eligible: boolean}>}
  */
 export function planRenderRows(plan) {
-    const { rows = [], eligibleStepIds = new Set() } = plan || {};
+    const { rows = [], eligibleEpicIds = new Set() } = plan || {};
     const out = [];
     let prevInitiative;
 
@@ -231,7 +231,7 @@ export function planRenderRows(plan) {
         out.push({
             row,
             showInitiative: initiative !== prevInitiative,
-            eligible: eligibleStepIds.has(row.id),
+            eligible: eligibleEpicIds.has(row.id),
         });
         prevInitiative = initiative;
     }
@@ -286,8 +286,8 @@ export function pipelinesEmptyMessage(hiddenStatusCounts) {
 // it (pipelinePlanLayout.js, PipelinePlanTable.jsx, PipelinePlanVisualizer.jsx).
 //
 // SCOPE, stated precisely because it is easy to over-apply: it governs labels
-// this UI GENERATES — requirement id links, machine labels, step ids, gate and
-// launch text. It does NOT govern the plan's own prose. A step title like
+// this UI GENERATES — requirement id links, machine labels, epic ids, gate and
+// launch text. It does NOT govern the plan's own prose. An epic title like
 // "Clone canary 2 (Mac mini, #3077 R13)" and a notes field like "dispositioned
 // into #3061 scope" are stored PLAN CONTENT, and rewriting them at render time
 // would be falsifying the user's own record to satisfy a styling rule. They
@@ -311,7 +311,7 @@ export function machineTitle(machineFk, machines) {
 
 /**
  * A plan row's Machine cell text: unique labels joined with ' / ', an em-dash
- * when the step links no requirements, and never a '#'.
+ * when the epic links no requirements, and never a '#'.
  */
 export function rowMachineLabel(row) {
     const labels = asArray(row && row.machineLabels).map(stripHash);
@@ -319,14 +319,14 @@ export function rowMachineLabel(row) {
 }
 
 // A second machine formatter lived here until req #3371 — same rules, reading
-// a launch group's own `machineLabels` for the banner row. The step row's cell
+// a launch group's own `machineLabels` for the banner row. The epic row's cell
 // already goes through `rowMachineLabel` above, and with the banner gone there
 // was one carrier and one caller, so the duplicate is deleted rather than
 // renamed: a helper nothing calls is worse than the three lines it saved.
 
 // ── Time gates ──────────────────────────────────────────────────────────────
 //
-// ONE formatter, used by BOTH the Depends-on cell and the launch line on a step
+// ONE formatter, used by BOTH the Depends-on cell and the launch line on an epic
 // row. They are the same instant and must not read two different ways — the old
 // launch banner shipped the raw wire value (`2026-07-24 06:31:38.000000`, UTC,
 // microseconds and all) while the cell showed a localized one.
@@ -347,11 +347,11 @@ export function formatTimeGate(timeAt, timezone) {
 }
 
 /**
- * All of a step's wall-clock gates, formatted.
+ * All of an epic's wall-clock gates, formatted.
  *
  * Returned as an ARRAY, never pre-joined: a formatted datetime contains both
  * spaces and commas, so any single-character delimiter is ambiguous inside it —
- * and a step may legitimately carry several time conditions (migration 076
+ * and an epic may legitimately carry several time conditions (migration 076
  * leaves `time_at` rows out of the UNIQUE key precisely so it can). The caller
  * gives each its own line or chip.
  */
@@ -359,7 +359,7 @@ export function formatTimeGates(timeDeps, timezone) {
     return asArray(timeDeps).map((t) => formatTimeGate(t, timezone)).filter(Boolean);
 }
 
-// `pipeline_steps.title` is VARCHAR(256) while `notes` is TEXT, so a long step
+// `epics.title` is VARCHAR(256) while `notes` is TEXT, so a long epic
 // summary that was written to both columns arrives TRUNCATED in one and whole in
 // the other — which is exactly what the seeded fixture does (12 of its 34 rows
 // end in a literal ellipsis). Printing both would show the same sentence twice,
@@ -367,26 +367,26 @@ export function formatTimeGates(timeDeps, timezone) {
 const ELLIPSIS = /\s*(?:…|\.\.\.)\s*$/;
 
 /**
- * What the "What this step does" cell should print.
+ * What the "What this epic does" cell should print.
  *
  * `notes` is the evidence/findings/disposition field and is normally ADDITIONAL
  * to the title — but when it is merely the untruncated title, the honest render
  * is the complete sentence, once. Nothing is ever rewritten: this only chooses
  * which stored string to show.
  *
- * SUPERSEDED AND CURRENTLY UNCALLED. req #3119 gave the step NAME its own
- * column, and `stepDescription` below is what the description cell has called
+ * SUPERSEDED AND CURRENTLY UNCALLED. req #3119 gave the epic NAME its own
+ * column, and `epicDescription` below is what the description cell has called
  * since; this pairs a title with its notes, which no cell does any more. Kept
  * rather than deleted because it is era-neutral (a `PlanRow` in, two strings
  * out) and because the ellipsis-completion rule it encodes is a real property of
- * the data — `pipeline_steps.title` is VARCHAR(256) against a TEXT `notes`, so
+ * the data — `epics.title` is VARCHAR(256) against a TEXT `notes`, so
  * a summary written to both still arrives truncated in one. Retiring it is a
  * separate call from retiring Pipeline 1.0.
  *
  * @param {Object} row  a PlanRow
  * @returns {{text: string, notes: ?string}}
  */
-export function stepProse(row) {
+export function epicProse(row) {
     const title = (row && row.title ? row.title : '').trim();
     const notes = row && row.notes ? String(row.notes).trim() : '';
     if (!notes) return { text: title, notes: null };
@@ -398,7 +398,7 @@ export function stepProse(row) {
 }
 
 /**
- * The step's NAME, for the Name column (req #3119).
+ * The epic's NAME, for the Name column (req #3119).
  *
  * A title is a name — "Session Drain", "Bounded MCP Reads" — not the opening
  * clause of the description. The darwin_dev fixture used to load
@@ -414,9 +414,9 @@ export function stepProse(row) {
  * @param {Object} row  a PlanRow
  * @returns {{text: string, full: string, truncated: boolean}}
  */
-export const STEP_NAME_MAX = 48;
+export const EPIC_NAME_MAX = 48;
 
-export function stepName(row, max = STEP_NAME_MAX) {
+export function epicName(row, max = EPIC_NAME_MAX) {
     const full = (row && row.title ? String(row.title) : '').trim();
     if (!full) return { text: '—', full: '', truncated: false };
     if (full.length <= max) return { text: full, full, truncated: false };
@@ -428,11 +428,11 @@ export function stepName(row, max = STEP_NAME_MAX) {
 }
 
 /**
- * What the "What this step does" cell should print, now that Name is its own
+ * What the "What this epic does" cell should print, now that Name is its own
  * column (req #3119): the DESCRIPTION, never the name repeated.
  *
  * `notes` is the full summary prose. When a row has no notes at all there is no
- * description to show, and the title is the only thing written about the step —
+ * description to show, and the title is the only thing written about the epic —
  * printing it beats printing an em-dash, so it falls back.
  *
  * It does NOT re-print the title alongside the notes, even when the notes are a
@@ -443,10 +443,10 @@ export function stepName(row, max = STEP_NAME_MAX) {
  * @param {Object} row  a PlanRow
  * @returns {string}
  */
-export function stepDescription(row) {
+export function epicDescription(row) {
     const notes = row && row.notes ? String(row.notes).trim() : '';
     if (!notes) return (row && row.title ? String(row.title) : '').trim();
     return notes;
 }
 
-export { STEP_DONE, STEP_RUNNING, STEP_PENDING };
+export { EPIC_DONE, EPIC_RUNNING, EPIC_PENDING };

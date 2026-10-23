@@ -28,15 +28,15 @@ vi.mock('../../hooks/useDataQueries', () => ({
     }),
     useMachines: () => ({ data: [{ id: 2, title: 'Mac', sort_order: 1 }, { id: 3, title: 'Old PC', closed: 1 }] }),
     useDevServers: () => ({ data: [] }),
-    // The seat's plan layer: plan 2 is active (epic 30 → steps 300, 301), plan 5
-    // is completed (epic 50 → step 500).
+    // The seat's plan layer: plan 2 is active (initiative 30 → epics 300, 301), plan 5
+    // is completed (initiative 50 → epic 500).
     useAllPipelines: () => q([{ id: 2, title: 'Plan A', pipeline_status: 'active' },
         { id: 5, title: 'Plan Done', pipeline_status: 'completed' }]),
-    useAllInitiatives: () => q([{ id: 30, title: 'Epic One', pipeline_fk: 2, closed: 0, sort_order: 1 },
-        { id: 50, title: 'Old Epic', pipeline_fk: 5, closed: 0 }]),
-    useAllPipelineSteps: () => q([{ id: 300, title: 'Build', initiative_fk: 30 },
+    useAllInitiatives: () => q([{ id: 30, title: 'Initiative One', pipeline_fk: 2, closed: 0, sort_order: 1 },
+        { id: 50, title: 'Old Initiative', pipeline_fk: 5, closed: 0 }]),
+    useAllPipelineEpics: () => q([{ id: 300, title: 'Build', initiative_fk: 30 },
         { id: 301, title: 'Ship', initiative_fk: 30 }, { id: 500, title: 'Gone', initiative_fk: 50 }]),
-    useAllPipelineStepRequirements: () => q([]),
+    useAllPipelineEpicRequirements: () => q([]),
 }));
 const q = (data) => ({ data, isPending: false, isLoading: false, isError: false });
 let desktop = true;
@@ -436,10 +436,10 @@ describe('Requirement Filer (req #3811)', () => {
     it('a store saved by the Defaults era rehydrates to the last settings, and its draft can still be filed', async () => {
         localStorage.setItem('darwin_requirement_filer', JSON.stringify({ version: 1, state: {
             show: true, editorShow: true, editorMode: 'defaults', lastProjectId: 4, lastCategoryId: 862,
-            defaults: { projectId: 4, category_fk: 862, seatStepId: 300, affected_repos: 'Darwin', ai_model: 'sonnet' },
+            defaults: { projectId: 4, category_fk: 862, seatEpicId: 300, affected_repos: 'Darwin', ai_model: 'sonnet' },
             draft: { title: 'Typed before', description: '', projectId: 4, category_fk: 862, requirement_status: 'swarm_ready',
                 coordination_type: 'implemented', ai_model: 'opus', effort: 'high', machine_fk: null, affected_repos: '',
-                tracking: 0, seatStepId: 300, defaultsUnchecked: ['seat'], notice: null },
+                tracking: 0, seatEpicId: 300, defaultsUnchecked: ['seat'], notice: null },
         } }));
         await act(async () => { await useRequirementFilerStore.persist.rehydrate(); });
         const st = useRequirementFilerStore.getState();

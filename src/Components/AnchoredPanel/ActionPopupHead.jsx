@@ -39,7 +39,7 @@ export const ACTION_POPUP_TITLE_TRACKING_EM = 0.06;
 /** A badge's side padding, em: a capsule past one digit. */
 export const ACTION_POPUP_BADGE_PAD_EM = 0.35;
 
-/** The count badge — the step card's green pill (req #3503): a circle for one
+/** The count badge — the epic card's green pill (req #3503): a circle for one
  *  digit, a capsule past it. `fill`/`text` recolour it (the Orchestrables box
  *  wears its swarm-ready colour). */
 export function ActionPopupBadge({ children, testid, fill = P.badgeFill, text = P.badgeText, title }) {

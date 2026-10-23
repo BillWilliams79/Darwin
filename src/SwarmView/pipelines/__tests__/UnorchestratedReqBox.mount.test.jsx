@@ -67,7 +67,7 @@ describe('UnorchestratedReqBox', () => {
         expect(q('pipeline-viz-unseated').hasAttribute('data-viz-chrome')).toBe(true);
     });
 
-    // req #3817 — a drop target for a requirement dragged off a step.
+    // req #3817 — a drop target for a requirement dragged off an epic.
     it('hands its element to the drag and shows when a requirement is over it', () => {
         const dropTargetRef = { current: null };
         act(() => root.render(<UnorchestratedReqBox items={items} dropTargetRef={dropTargetRef} />));
@@ -114,7 +114,7 @@ describe('UnorchestratedReqBox', () => {
         expect(css.borderTopColor).toBe('rgb(166, 77, 255)');
     });
 
-    it('is exactly as wide as the step width it is handed (req #3620)', () => {
+    it('is exactly as wide as the epic width it is handed (req #3620)', () => {
         act(() => root.render(<UnorchestratedReqBox items={items} fontPx={9} widthPx={612} />));
         expect(q('pipeline-viz-unseated').style.width).toBe('612px');
     });
@@ -197,7 +197,7 @@ describe('UnorchestratedReqBox', () => {
             act(() => q('pipeline-viz-unseated-toggle').click());
             expect(q('pipeline-viz-unseated-title').textContent).toBe('OR');
             expect(box.getAttribute('data-open')).toBe('0');
-            // Narrow: toggle + badge + "OR", not the step width.
+            // Narrow: toggle + badge + "OR", not the epic width.
             expect(box.style.width).toMatch(/^calc\(.*em.*ch.*\)$/);
             expect(box.style.width).not.toContain('612');
             expect(getComputedStyle(box).transition).toContain('width');
@@ -886,7 +886,7 @@ describe('UnorchestratedReqBox', () => {
         expect(box.style.fontSize).toBe('12px');
         // Sideways only: the list keeps its natural height.
         expect(q('pipeline-viz-unseated-list').style.height).toBe('');
-        // A full step wider: one size bigger.
+        // A full epic wider: one size bigger.
         act(() => { fire('pointermove', 500, 260); });
         expect(box.style.width).toBe('500px');
         expect(box.getAttribute('data-text-step')).toBe('1');
@@ -903,7 +903,7 @@ describe('UnorchestratedReqBox', () => {
         expect(box.getAttribute('data-pos')).toBe('home');
     });
 
-    it('shrinks a step to one size smaller, and no smaller than that', () => {
+    it('shrinks an epic to one size smaller, and no smaller than that', () => {
         act(() => root.render(<UnorchestratedReqBox items={items} fontPx={12} widthPx={400} />));
         const box = q('pipeline-viz-unseated');
         const grip = q('pipeline-viz-unseated-grip');

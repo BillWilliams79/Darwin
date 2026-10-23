@@ -37,7 +37,7 @@
 import { terminalFocusState, TERMINAL_VISIBLE, resolveThisMachineId } from '../terminalFocus';
 
 // req #3587 — the requirement row's Terminal and Dev Server pills: how they
-// LOOK, shared by the step card (Konva) and the Active box (HTML, req #3721).
+// LOOK, shared by the epic card (Konva) and the Active box (HTML, req #3721).
 //
 // A PILL IS ITS OWN ELEMENT: a rounded box with its label drawn CENTRED inside
 // it (`align`/`verticalAlign`), never an outline behind the row's own glyphs.

@@ -10,12 +10,12 @@
 // looks like a rendering glitch, not a filter bug.
 //
 // WHICH QUESTION THIS ANSWERS: INITIATIVE association, derived through Pipeline 2.0's
-// CONTAINMENT chain — `pipeline_steps.initiative_fk` (NOT NULL: a step's initiative is
+// CONTAINMENT chain — `epics.initiative_fk` (NOT NULL: an epic's initiative is
 // DIRECT, there is no intermediate tier to walk) and the
-// `pipeline_step_requirements` junction (`PRIMARY KEY (requirement_fk)` alone,
-// so a requirement sits on at most one step anywhere). That is the "does this
+// `epic_requirements` junction (`PRIMARY KEY (requirement_fk)` alone,
+// so a requirement sits on at most one epic anywhere). That is the "does this
 // belong to a body of work" question `pipelineMembership.js`' own header
-// explicitly says it is NOT answering (it answers STEP association — "is this
+// explicitly says it is NOT answering (it answers EPIC association — "is this
 // scheduled"). The two populations differ, both are legitimate, and they are
 // deliberately two modules so no caller reaches the wrong one by autocomplete.
 //
@@ -30,8 +30,8 @@
 // it.
 //
 // DERIVED, NEVER STORED. There is no `requirements.initiative_fk` column and this must
-// not become one: the chain is two mutable links (a step may be moved between
-// initiatives, a requirement re-seated onto another step), so a stored copy is wrong
+// not become one: the chain is two mutable links (an epic may be moved between
+// initiatives, a requirement re-seated onto another epic), so a stored copy is wrong
 // the moment either moves. Same rule the plan layer states as design rule 1.
 //
 // THE ID SPACE MOVED WITH THE CHAIN, and a reader chasing a stale link needs to
@@ -47,7 +47,7 @@
 // No React, no MUI: a pure module vitest exercises with no DOM.
 
 /**
- * The step ids that sit under one initiative.
+ * The epic ids that sit under one initiative.
  *
  * Module-local rather than exported, and that is the shape change #3356 makes:
  * 1.0's middle tier was a PUBLIC fact (a feature is a thing a page could show),
@@ -55,21 +55,21 @@
  * Its guards are covered through `initiativeRequirementIds`, which is the only caller
  * there will be.
  *
- * @param {?Array<{id: number, initiative_fk: number}>} steps rows from `useAllPipelineSteps`
+ * @param {?Array<{id: number, initiative_fk: number}>} epics rows from `useAllPipelineEpics`
  * @param {?number} initiativeId
  * @returns {Set<number>} empty when `initiativeId` is null or nothing matches
  */
-const stepIdsForInitiative = (steps, initiativeId) => {
+const epicIdsForInitiative = (epics, initiativeId) => {
     const ids = new Set();
     if (initiativeId === null || initiativeId === undefined) return ids;
-    if (!Array.isArray(steps)) return ids;
+    if (!Array.isArray(epics)) return ids;
     const target = Number(initiativeId);
-    for (const s of steps) {
+    for (const s of epics) {
         if (!s || s.initiative_fk === null || s.initiative_fk === undefined || s.initiative_fk === '') continue;
         if (Number(s.initiative_fk) !== target) continue;
-        // A step row with no id cannot name a step. Seeding the set with
-        // null/undefined would make the `step_fk` test below answer true for
-        // every junction row whose own `step_fk` is unset.
+        // An epic row with no id cannot name an epic. Seeding the set with
+        // null/undefined would make the `epic_fk` test below answer true for
+        // every junction row whose own `epic_fk` is unset.
         if (s.id === null || s.id === undefined || s.id === '') continue;
         ids.add(Number(s.id));
     }
@@ -90,39 +90,39 @@ const stepIdsForInitiative = (steps, initiativeId) => {
  *
  * CONTAINMENT IS THE WHOLE POPULATION NOW, AND THAT IS A DELIBERATE NARROWING.
  * 1.0's initiative membership also included requirements FILED UNDER an initiative that no
- * step carried — the requirement's own reference to the retired middle tier
+ * epic carried — the requirement's own reference to the retired middle tier
  * could place it in an initiative without scheduling it. 2.0 has no such mechanism
  * and no such population: a requirement
- * is in an initiative ONLY by being seated on one of that initiative's steps. This is the
+ * is in an initiative ONLY by being seated on one of that initiative's epics. This is the
  * SAME narrowing req #3357 already accepted for the separate "pipelined" browse
  * toggle (see `pipelineMembership.js`' header), accepted here for consistency
  * rather than re-argued. The requirements it drops are the ones the plan does
  * not sequence, so an initiative page under this rule shows exactly the work that initiative
  * is going to run.
  *
- * A requirement whose junction row names no step is in NO initiative, and a step row
- * with no id names no step. Both guarded explicitly rather than left to
- * `Set.has(Number(null))`, because `Number(null)` is 0 and a step with id 0 would
+ * A requirement whose junction row names no epic is in NO initiative, and an epic row
+ * with no id names no epic. Both guarded explicitly rather than left to
+ * `Set.has(Number(null))`, because `Number(null)` is 0 and an epic with id 0 would
  * then sweep in every unseated requirement there is.
  *
- * @param {?Array<{id: number, initiative_fk: number}>} steps rows from `useAllPipelineSteps`
- * @param {?Array<{step_fk: number, requirement_fk: number}>} stepRequirements rows
- *        from `useAllPipelineStepRequirements` (the junction, whole-table read)
+ * @param {?Array<{id: number, initiative_fk: number}>} epics rows from `useAllPipelineEpics`
+ * @param {?Array<{epic_fk: number, requirement_fk: number}>} epicRequirements rows
+ *        from `useAllPipelineEpicRequirements` (the junction, whole-table read)
  * @param {?number} initiativeId
  * @returns {Set<number>}
  */
-export const initiativeRequirementIds = (steps, stepRequirements, initiativeId) => {
+export const initiativeRequirementIds = (epics, epicRequirements, initiativeId) => {
     const out = new Set();
-    const stepIds = stepIdsForInitiative(steps, initiativeId);
-    if (stepIds.size === 0) return out;
-    if (!Array.isArray(stepRequirements)) return out;
-    for (const link of stepRequirements) {
+    const epicIds = epicIdsForInitiative(epics, initiativeId);
+    if (epicIds.size === 0) return out;
+    if (!Array.isArray(epicRequirements)) return out;
+    for (const link of epicRequirements) {
         if (!link) continue;
         const rid = link.requirement_fk;
         if (rid === null || rid === undefined || rid === '') continue;
-        const sid = link.step_fk;
+        const sid = link.epic_fk;
         if (sid === null || sid === undefined || sid === '') continue;
-        if (!stepIds.has(Number(sid))) continue;
+        if (!epicIds.has(Number(sid))) continue;
         out.add(Number(rid));
     }
     return out;

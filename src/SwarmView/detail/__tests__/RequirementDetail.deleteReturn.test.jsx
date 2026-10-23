@@ -114,7 +114,7 @@ describe('RequirementDetail delete returns where the reader came from (req #3737
     });
 
     it('opened from the plan visualizer: returns to that plan, in its mode', async () => {
-        locationState = { from: 'pipeline', pipelineId: 7, mode: 'plan', backStepId: 412 };
+        locationState = { from: 'pipeline', pipelineId: 7, mode: 'plan', backEpicId: 412 };
         const { container } = mount();
         await flush();
         await deleteRequirement(container);

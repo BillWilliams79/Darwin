@@ -2,10 +2,10 @@
 // requirement on this plan whose latest session is under way, from `starting`
 // to `completing` (which ones is planActiveReqs.js's rule).
 //
-// ── THE STEP CARD'S ROWS ───────────────────────────────────────────────────
-// It replicates rows of the step cards, so each row is drawn the way a card
+// ── THE EPIC CARD'S ROWS ───────────────────────────────────────────────────
+// It replicates rows of the epic cards, so each row is drawn the way a card
 // draws it (user directive: "replicate the look and feel and widgets
-// of the step card"): the id in the reader's colour key (the canvas's own
+// of the epic card"): the id in the reader's colour key (the canvas's own
 // resolver, `idStyleOf`), then the Terminal and Dev Server pills in the card's
 // own palette (`REQ_PILL_*`, planReqPills.js) — clickable exactly as the card's
 // are — then the title, in the id's colour, on ONE line, cut with "…" (req

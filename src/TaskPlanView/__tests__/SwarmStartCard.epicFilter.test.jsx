@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// Req #3503 — the aggregator under a STEP filter.
+// Req #3503 — the aggregator under a EPIC filter.
 //
 // The same two things the initiative suite beside this one asserts, for the same
 // reasons, over the narrower scope:
@@ -8,7 +8,7 @@
 //   1. THE BADGE STILL EQUALS THE ROWS. This card's own comments call that
 //      invariant LOAD-BEARING, and it now runs through TWO scope passes — a
 //      count and a list must be narrowed by both, or they drift silently.
-//   2. THE CARD DOES NOT OPEN BLANK. A step reached from the plan visualizer's
+//   2. THE CARD DOES NOT OPEN BLANK. An epic reached from the plan visualizer's
 //      badge is plan-carried BY DEFINITION, and the three launch chips exclude
 //      plan-carried work unconditionally — so the persisted `swarm_ready` chip
 //      can never have anything on it here. That is structural, not incidental.
@@ -26,22 +26,22 @@ vi.setConfig({ testTimeout: 30000 });
 
 vi.mock('react-router-dom', () => ({ useNavigate: () => () => {} }));
 
-// THE SHAPE OF A LIVE STEP: everything `development`, everything pipelined.
-// Plus one `swarm_ready` row on a DIFFERENT step, so "the swarm_ready chip is
+// THE SHAPE OF A LIVE EPIC: everything `development`, everything pipelined.
+// Plus one `swarm_ready` row on a DIFFERENT epic, so "the swarm_ready chip is
 // empty" is a fact about the FILTER and not about the fixture.
-const STEP_ROWS = [
-    { id: 3503, title: 'Step dev A', requirement_status: 'development', category_fk: 1209 },
-    { id: 3504, title: 'Step dev B', requirement_status: 'development', category_fk: 1 },
+const EPIC_ROWS = [
+    { id: 3503, title: 'Epic dev A', requirement_status: 'development', category_fk: 1209 },
+    { id: 3504, title: 'Epic dev B', requirement_status: 'development', category_fk: 1 },
 ];
 const OTHER_ROWS = [
-    { id: 900, title: 'Another step, swarm_ready', requirement_status: 'swarm_ready', category_fk: 5 },
+    { id: 900, title: 'Another epic, swarm_ready', requirement_status: 'swarm_ready', category_fk: 5 },
 ];
-const ALL_ROWS = [...STEP_ROWS, ...OTHER_ROWS];
+const ALL_ROWS = [...EPIC_ROWS, ...OTHER_ROWS];
 // The junction in the wire shape the real `useRequirementVisibility` reads.
 const JUNCTION = [
-    { step_fk: 186, requirement_fk: 3503 },
-    { step_fk: 186, requirement_fk: 3504 },
-    { step_fk: 187, requirement_fk: 900 },
+    { epic_fk: 186, requirement_fk: 3503 },
+    { epic_fk: 186, requirement_fk: 3504 },
+    { epic_fk: 187, requirement_fk: 900 },
 ];
 
 // PRE-BUCKETED AND FROZEN AT MODULE SCOPE. A mock that builds its array inside
@@ -70,7 +70,7 @@ vi.mock('../../hooks/useDataQueries', () => ({
     useSessions: () => ({ data: EMPTY }),
     useCategoryColors: () => ({ data: EMPTY }),
     useAllRequirements: () => ({ data: ALL_ROWS }),
-    useAllPipelineStepRequirements: () => ({ data: JUNCTION }),
+    useAllPipelineEpicRequirements: () => ({ data: JUNCTION }),
     ALL_ROWS: 'all',
 }));
 
@@ -82,10 +82,10 @@ import AppContext from '../../Context/AppContext';
 import { useSwarmStartCardStore } from '../../stores/useSwarmStartCardStore';
 import { useShowClosedStore } from '../../stores/useShowClosedStore';
 
-const STEP_SET = new Set([3503, 3504]);
+const EPIC_SET = new Set([3503, 3504]);
 
 let roots = [];
-function mount({ stepReqIds = null, initiativeReqIds = null } = {}) {
+function mount({ epicReqIds = null, initiativeReqIds = null } = {}) {
     const container = document.createElement('div');
     document.body.appendChild(container);
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -97,7 +97,7 @@ function mount({ stepReqIds = null, initiativeReqIds = null } = {}) {
                 <AppContext.Provider value={{ darwinUri: 'http://test.local' }}>
                     <AuthContext.Provider value={{ idToken: 'tok', profile: { userName: 'tester', timezone: 'UTC' } }}>
                         <DarwinDndContext>
-                            <SwarmStartCard initiativeReqIds={initiativeReqIds} stepReqIds={stepReqIds} />
+                            <SwarmStartCard initiativeReqIds={initiativeReqIds} epicReqIds={epicReqIds} />
                         </DarwinDndContext>
                     </AuthContext.Provider>
                 </AppContext.Provider>
@@ -118,7 +118,7 @@ const badge = (container, status) => {
     return b ? Number(b.textContent || '0') : 0;
 };
 
-describe('SwarmStartCard under a step filter (req #3503)', () => {
+describe('SwarmStartCard under an epic filter (req #3503)', () => {
     beforeEach(() => {
         roots = [];
         statusesAsked = new Set();
@@ -135,49 +135,49 @@ describe('SwarmStartCard under a step filter (req #3503)', () => {
         useShowClosedStore.setState({ hidePipelinedRequirements: false });
     });
 
-    it('DOES NOT OPEN BLANK: the persisted swarm_ready chip has none of the step, '
+    it('DOES NOT OPEN BLANK: the persisted swarm_ready chip has none of the epic, '
         + 'so the card opens on one that does', () => {
-        const { container } = mount({ stepReqIds: STEP_SET });
+        const { container } = mount({ epicReqIds: EPIC_SET });
         expect(statusesAsked).toEqual(new Set(['development']));
         expect(rowIds(container).sort()).toEqual(['3503', '3504']);
     });
 
     it('never writes the reader\'s chip preference to do it', () => {
-        mount({ stepReqIds: STEP_SET });
+        mount({ epicReqIds: EPIC_SET });
         expect(useSwarmStartCardStore.getState().selectedStatus).toBe('swarm_ready');
     });
 
     it('the badge equals the rows on the chip it opened', () => {
-        const { container } = mount({ stepReqIds: STEP_SET });
+        const { container } = mount({ epicReqIds: EPIC_SET });
         expect(badge(container, 'development')).toBe(rowIds(container).length);
     });
 
-    it('the orchestrated toggle APPLIES under a step filter: stored ON hides '
+    it('the orchestrated toggle APPLIES under an epic filter: stored ON hides '
         + 'its plan-carried rows from the rows AND the badge (req #3598)', () => {
         useShowClosedStore.setState({ hidePipelinedRequirements: true });
-        const { container } = mount({ stepReqIds: STEP_SET });
+        const { container } = mount({ epicReqIds: EPIC_SET });
         expect(rowIds(container)).toHaveLength(0);
         expect(badge(container, 'development')).toBe(0);
     });
 
-    it('with the toggle OFF, shows the step\'s rows', () => {
-        const { container } = mount({ stepReqIds: STEP_SET });
+    it('with the toggle OFF, shows the epic\'s rows', () => {
+        const { container } = mount({ epicReqIds: EPIC_SET });
         expect(rowIds(container)).toHaveLength(2);
     });
 
     it('keeps the launch chips free of plan-carried work — that exclusion is '
         + 'correctness, not a viewing preference', () => {
-        const { container } = mount({ stepReqIds: STEP_SET });
+        const { container } = mount({ epicReqIds: EPIC_SET });
         expect(badge(container, 'swarm_ready')).toBe(0);
     });
 
-    it('excludes another step\'s requirements from every count', () => {
-        const { container } = mount({ stepReqIds: STEP_SET });
+    it('excludes another epic\'s requirements from every count', () => {
+        const { container } = mount({ epicReqIds: EPIC_SET });
         expect(badge(container, 'development')).toBe(2);
     });
 
     it('keeps the add-a-requirement row while filtered (req #3598)', () => {
-        const { container } = mount({ stepReqIds: STEP_SET });
+        const { container } = mount({ epicReqIds: EPIC_SET });
         expect(container.querySelector('[data-testid="requirement-template"]')).not.toBeNull();
     });
 
@@ -191,23 +191,23 @@ describe('SwarmStartCard under a step filter (req #3503)', () => {
     it('COMPOSES with the initiative filter as an intersection, in the rows AND the '
         + 'badge — the two must never disagree', () => {
         const { container } = mount({
-            initiativeReqIds: new Set([3503, 3504]), stepReqIds: new Set([3504]),
+            initiativeReqIds: new Set([3503, 3504]), epicReqIds: new Set([3504]),
         });
         expect(rowIds(container)).toEqual(['3504']);
         expect(badge(container, 'development')).toBe(1);
     });
 
-    it('req #3598 — a fully-`met` step opens on Met with its rows, not a `1` badge '
-        + 'over an empty list: the all-time Met source covers a STEP scope too', () => {
+    it('req #3598 — a fully-`met` epic opens on Met with its rows, not a `1` badge '
+        + 'over an empty list: the all-time Met source covers a EPIC scope too', () => {
         // The trailing-24h query (`useRequirementsDone`) is EMPTY here, as it is
-        // for a step finished more than a day ago.
+        // for an epic finished more than a day ago.
         const priorAll = ALL_ROWS.slice();
         const priorMet = BY_STATUS.met;
         try {
-            const done = { id: 7001, title: 'Done on the step', requirement_status: 'met', category_fk: 1 };
+            const done = { id: 7001, title: 'Done on the epic', requirement_status: 'met', category_fk: 1 };
             ALL_ROWS.push(done);
             BY_STATUS.met = [...(priorMet ?? []), done];
-            const { container } = mount({ stepReqIds: new Set([7001]) });
+            const { container } = mount({ epicReqIds: new Set([7001]) });
             expect(rowIds(container)).toEqual(['7001']);
             expect(badge(container, 'met')).toBe(1);
         } finally {

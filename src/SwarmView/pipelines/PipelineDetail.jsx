@@ -3,7 +3,7 @@
 // The header and the plan's panel. The panel comes from pipelineDetailModes.js,
 // which since req #3641 registers ONE mode — the Plan visualizer is the only way
 // to look at a pipeline (user directive), so there is no mode switcher on the
-// row and a click on a step frames it on the canvas rather than leaving for a
+// row and a click on an epic frames it on the canvas rather than leaving for a
 // Table.
 //
 // DATA: four bounded list reads + three dictionary reads + (req #3117) two cost
@@ -14,12 +14,12 @@
 // rule, which is also why this page adds NO endpoint of its own.
 //
 // The count grows with the number of TABLES the plan draws on, never with the
-// number of steps or requirements in it. That invariant is the acceptance check:
+// number of epics or requirements in it. That invariant is the acceptance check:
 // the network tab must show no per-requirement request at any plan size.
 //
 // REFRESH is event-driven (design rule 6): the query client's staleTime +
 // refetchOnWindowFocus + invalidation already do it. Deliberately no
-// refetchInterval — a poll here would be the POC's manual regenerate step wearing
+// refetchInterval — a poll here would be the POC's manual regenerate epic wearing
 // a different hat.
 
 import { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
@@ -83,25 +83,25 @@ import { useVisualizerMaximize } from '../../hooks/useVisualizerMaximize';
 import FullscreenSwitch from '../../Components/FullscreenSwitch';
 import { PLAN_MAXIMIZE_LABELS } from './planMaximize';
 import {
-    readColorParam, readFocusStepParam, readLevelParam,
+    readColorParam, readFocusEpicParam, readLevelParam,
     FOCUS_LEVEL_PARAM, FOCUS_COLOR_PARAM,
-} from './pipelineStepLink';
+} from './pipelineEpicLink';
 import { readFocusInitiativeParam } from './pipelineInitiativeLink';
 import { writePipelinePlace } from './pipelinePlace';
 // Req #3261 P8 — the Plan mode's own controls, in their own component, exactly
 // as `SwarmView.jsx` renders `<VisualizerToolbar />` for its canvas mode (S4).
 // `SemanticLevelControl` and `PLAN_LEVEL_NUMBER` went with them; this page no
 // longer knows what a semantic level is.
-import PipelinePlanToolbar, { SHOW_STEP_WIDTH } from './PipelinePlanToolbar';
+import PipelinePlanToolbar, { SHOW_EPIC_WIDTH } from './PipelinePlanToolbar';
 // Trimmed to what this file actually renders (req #3241). `DEFAULT_REQ_VIEW`,
 // `REQ_VIEWS`, `normalizeReqView`, `reqViewOptions` and `machineTitle` outlived
-// the `Reqs:`/`Step:` controls and the status/machine chips that the 2026-08-01
+// the `Reqs:`/`Epic:` controls and the status/machine chips that the 2026-08-01
 // directives removed. There is no eslint in this package, so nothing flagged any
 // of them — a dead `SemanticLevelControl` import was the visible trace req #3261
 // was filed from.
 import {
     normalizeColorKey, normalizePlanLevelPref,
-    isStepWidthRung, DEFAULT_PLAN_STEP_WIDTH,
+    isEpicWidthRung, DEFAULT_PLAN_EPIC_WIDTH,
 } from './pipelinePlanLayout';
 import { usePlanViewSetting } from './planViewSettings';
 import { parseHiddenMachines, toggleHiddenMachine } from './planMachineFilter';
@@ -184,13 +184,13 @@ export default function PipelineDetail() {
     // is nothing left to persist.
     const showReqCounts = true;
     // ── THE RETIRED VIEW PREFERENCES (no declaration follows — that is the
-    //    point). The `Reqs:` and `Step:` preferences went with their controls
+    //    point). The `Reqs:` and `Epic:` preferences went with their controls
     //    (user directive 2026-08-01); the requirement LAYOUT stopped being a
     //    value at all with req #3498, because a card stacks its requirements top
     //    to bottom and there is no second arrangement left to name. (The S/M/L
-    //    step-width control went in that same pass; its storage key came back
-    //    with req #3503's four-rung Step Width, now the `stepWidth` row of
-    //    `planViewSettings.js` — read below.) `stepLabel` and `reqLabel` are the two survivors and
+    //    epic-width control went in that same pass; its storage key came back
+    //    with req #3503's four-rung Epic Width, now the `epicWidth` row of
+    //    `planViewSettings.js` — read below.) `epicLabel` and `reqLabel` are the two survivors and
     //    are declared as constants further down, beside the comment that
     //    explains what they are pinned TO.
     //
@@ -200,7 +200,7 @@ export default function PipelineDetail() {
     // Req #3261 P4 — the title's type scale, the SAME query `ViewerHeader` owns
     // (`useMediaQuery('(max-width:899px)')`, i.e. MUI's `md` breakpoint minus
     // one). This page rendered `h6` unconditionally, which is the mobile size
-    // shown on every desktop: a page title one step smaller than every other
+    // shown on every desktop: a page title one epic smaller than every other
     // page's, for no reason anybody recorded.
     const isMobile = useMediaQuery('(max-width:899px)');
     // The persisted view settings are ONE table, `planViewSettings.js` (req
@@ -215,23 +215,23 @@ export default function PipelineDetail() {
     const handleToggleMachine = useCallback(
         (machineId) => setHiddenMachinesRaw((raw) => toggleHiddenMachine(raw, machineId)),
         [setHiddenMachinesRaw]);
-    // req #3503 — "Step Width": four rungs, 1 the card every existing plan is
+    // req #3503 — "Epic Width": four rungs, 1 the card every existing plan is
     // already sized for, 2-4 each 25% more text room. PERSISTED like every
     // other view preference — a reader who widens the card wants it wide next
-    // time too — and, unlike Reset or the steps-across buttons, this ONE
+    // time too — and, unlike Reset or the epics-across buttons, this ONE
     // relayouts the plan (every column, every card, every wrap point) rather
     // than just moving the camera, which is exactly why it is a deliberate,
     // explicit choice and never an automatic one.
-    const [stepWidthLevelPref, setStepWidthLevelPref] = usePlanViewSetting('stepWidth');
+    const [epicWidthLevelPref, setEpicWidthLevelPref] = usePlanViewSetting('epicWidth');
     // `Number.isFinite` on the LOOKED-UP SCALE, not a truthiness test on it
     // (review finding): correct today only because no rung is `0` or another
     // falsy-but-valid number — this says what is actually meant regardless.
     // req #3648 — the rung is the card's width in QUARTERS of the base card
     // (6 5 4 3); the plan opens at 5, "25% wider" (user directive).
-    // While the rungs are hidden (`SHOW_STEP_WIDTH`) the plan is drawn at the
+    // While the rungs are hidden (`SHOW_EPIC_WIDTH`) the plan is drawn at the
     // fixed default, so a stored rung nobody can see cannot decide the width.
-    const stepWidthLevel = SHOW_STEP_WIDTH && isStepWidthRung(Number(stepWidthLevelPref))
-        ? Number(stepWidthLevelPref) : DEFAULT_PLAN_STEP_WIDTH;
+    const epicWidthLevel = SHOW_EPIC_WIDTH && isEpicWidthRung(Number(epicWidthLevelPref))
+        ? Number(epicWidthLevelPref) : DEFAULT_PLAN_EPIC_WIDTH;
     // Req #3168 — the semantic-level selector, the Build Visualizer's control
     // (user directive: "show me the L1, L2, L3 and Auto selector used
     // elsewhere"). `auto` keeps the zoom-derived level; 1|2|3 pin one. Persisted
@@ -264,19 +264,19 @@ export default function PipelineDetail() {
     // req #3722 — the toolbar chip under the pointer (`{ key, el }`), which the
     // plan visualizer draws the colour-help popup for. Transient, so state.
     const [keyHover, setKeyHover] = useState(null);
-    // req #3498 — the steps-across buttons reach the canvas the same way Reset
+    // req #3498 — the epics-across buttons reach the canvas the same way Reset
     // does, and for the same reason: the control is in the page's header and the
     // camera is inside the panel. A NONCE rides alongside the number so clicking
     // the SAME button twice fires twice — after wheeling away from "8", asking
     // for "8" again must bring you back, and a bare value would be unchanged
     // state and do nothing.
-    const [stepsAcross, setStepsAcross] = useState({ n: null, nonce: 0 });
-    // The step label is always the TITLE, and the requirement marks always
+    const [epicsAcross, setEpicsAcross] = useState({ n: null, nonce: 0 });
+    // The epic label is always the TITLE, and the requirement marks always
     // reserve room for their TITLE — the renderer draws the id inside that box
     // at L1/L2 and the title itself at L3 (see the `idText` note in
     // pipelinePlanLayout.js). Reserving at every level is what keeps a zoom
     // change a pure transform instead of a relayout.
-    const stepLabel = 'title';
+    const epicLabel = 'title';
     const reqLabel = 'title';
     // ── The colour key is EVERY REGISTERED SCALE PLUS NONE ──────────────────
     // req #3168 (user directive 2026-08-01), extended by req #3422 — the
@@ -292,7 +292,7 @@ export default function PipelineDetail() {
     // ── ONE PANEL SINCE REQ #3641 ───────────────────────────────────────────
     // This page chose between a Table and the Plan visualizer — a persisted
     // preference, a `?mode=` link override (req #3168), and a bead-click
-    // handshake that pushed the step's Table link (req #3115/#3637). The user
+    // handshake that pushed the epic's Table link (req #3115/#3637). The user
     // withdrew the Table: the visualizer is the only way to look at a pipeline.
     // `pipelineDetailModes.js` now registers one mode, so every path below
     // resolves to the plan; the machinery stays because `?mode=` links exist in
@@ -307,24 +307,24 @@ export default function PipelineDetail() {
     const requestedMode = searchParams.get('mode');
     const linkMode = PIPELINE_DETAIL_MODES.some(
         (m) => m.value === requestedMode && !m.disabled) ? requestedMode : null;
-    // ── `?step=` makes ONE STEP addressable (req #3140) ──────────────────────
-    // The receiving end of a step link (`stepPlanLinkTo`): seed `focusStepId`,
-    // and the visualizer centres and zooms on that step. `pipelineStepLink.js`
+    // ── `?epic=` makes ONE EPIC addressable (req #3140) ──────────────────────
+    // The receiving end of an epic link (`epicPlanLinkTo`): seed `focusEpicId`,
+    // and the visualizer centres and zooms on that epic. `pipelineEpicLink.js`
     // owns both halves of the contract so a writer and this reader cannot drift
     // on the key.
-    const linkStepId = readFocusStepParam(searchParams);
+    const linkEpicId = readFocusEpicParam(searchParams);
     // ── `?initiative=` makes ONE INITIATIVE'S LOCATION addressable (req #3235) ───────────
     // The receiving end of the requirement page's initiative-box "view on plan" link.
-    // A `?step=` is more specific than a `?initiative=` (a step names one card; an
-    // initiative is a whole band a step already belongs to), so if a link somehow
-    // carried both, the step wins — the canvas applies that precedence.
+    // A `?epic=` is more specific than a `?initiative=` (an epic names one card; an
+    // initiative is a whole band an epic already belongs to), so if a link somehow
+    // carried both, the epic wins — the canvas applies that precedence.
     // `pipelineInitiativeLink.js` owns both halves of this contract, same split as the
-    // step link.
+    // epic link.
     const linkInitiativeId = readFocusInitiativeParam(searchParams);
     // ── `?level=` PINS THE SEMANTIC LEVEL FOR ONE LANDING (req #3253) ────────
-    // The step-on-the-plan link carries `level=3` (req #3498 — it was `2`, and
+    // The epic-on-the-plan link carries `level=3` (req #3498 — it was `2`, and
     // the reason expired when the requirements moved INSIDE the card; the value
-    // and the argument both live on `STEP_PLAN_LINK_LEVEL`, not here, so this
+    // and the argument both live on `EPIC_PLAN_LINK_LEVEL`, not here, so this
     // comment cannot drift from the link). Validated against the level
     // vocabulary and null on anything else, so an unrecognised value leaves the
     // reader's stored preference in charge rather than pinning them to 'auto'.
@@ -332,14 +332,14 @@ export default function PipelineDetail() {
     // req #3636 — `?color=` picks the colour key for one landing, transiently,
     // by `?level=`'s contract (see `readColorParam`).
     const linkColor = readColorParam(searchParams);
-    // A named step or initiative means the PLAN, whatever `?mode=` the link carries
-    // (req #3641). Until then a bare `?step=` meant the Table's row; the Table is
-    // gone, and the visualizer has consumed `focusStepId` since req #3253 (it
-    // centres and zooms on the step).
-    const linkView = linkStepId != null || linkInitiativeId != null ? 'plan' : linkMode;
+    // A named epic or initiative means the PLAN, whatever `?mode=` the link carries
+    // (req #3641). Until then a bare `?epic=` meant the Table's row; the Table is
+    // gone, and the visualizer has consumed `focusEpicId` since req #3253 (it
+    // centres and zooms on the epic).
+    const linkView = linkEpicId != null || linkInitiativeId != null ? 'plan' : linkMode;
 
     // ── A LINK FIRES ONCE PER HISTORY ENTRY (req #3637) ─────────────────────
-    // `?step=`/`?initiative=` move the camera onto one thing.
+    // `?epic=`/`?initiative=` move the camera onto one thing.
     // Read straight off the URL they fired AGAIN on every reload and every
     // Back/Forward onto that entry — the URL still carries them — and yanked
     // the reader off wherever they had since panned to: *"refresh, reload,
@@ -363,8 +363,8 @@ export default function PipelineDetail() {
     //
     // It used to be state re-seeded by an EFFECT on `location.key`, and an
     // effect runs after the render it follows — so a Back from a bead click's
-    // `?mode=table&step=N` mounted the canvas WITH `focusStepId = N`. The canvas
-    // began flying to that step before restoring the reader's camera, and saved
+    // `?mode=table&epic=N` mounted the canvas WITH `focusEpicId = N`. The canvas
+    // began flying to that epic before restoring the reader's camera, and saved
     // the interrupted flight over it: the plan's top-left at scale 1. React's
     // "adjust state when a prop changes" pattern below re-derives the focus in
     // the SAME render the entry changes in, before any child renders, so no
@@ -375,21 +375,21 @@ export default function PipelineDetail() {
     const linkConsumed = isPlanLinkConsumed(location);
     const entryKind = classifyPlanEntry({
         consumed: linkConsumed, navigationType,
-        hasFocusLink: linkStepId != null || linkInitiativeId != null,
+        hasFocusLink: linkEpicId != null || linkInitiativeId != null,
     });
     const [focus, setFocus] = useState(() => ({
         entry: location.key,
-        ...planEntryFocus(entryKind, { stepId: linkStepId, initiativeId: linkInitiativeId }, null),
+        ...planEntryFocus(entryKind, { epicId: linkEpicId, initiativeId: linkInitiativeId }, null),
     }));
     let liveFocus = focus;
     if (focus.entry !== location.key) {
         liveFocus = {
             entry: location.key,
-            ...planEntryFocus(entryKind, { stepId: linkStepId, initiativeId: linkInitiativeId }, focus),
+            ...planEntryFocus(entryKind, { epicId: linkEpicId, initiativeId: linkInitiativeId }, focus),
         };
         setFocus(liveFocus);
     }
-    const focusStepId = liveFocus.stepId;
+    const focusEpicId = liveFocus.epicId;
     const focusInitiativeId = liveFocus.initiativeId;
     // The panel and the level are the URL's whenever it names them — derived,
     // never a state copy, so a Back/Forward lands on that entry's own panel and
@@ -422,8 +422,8 @@ export default function PipelineDetail() {
             state: { ...(location.state || {}), [PLAN_LINK_CONSUMED_STATE_KEY]: search },
         });
     }, [location.pathname, location.search, location.state, navigate]);
-    // A click on a step used to push its Table link (req #3115/#3637). Req
-    // #3641 removed the Table: the visualizer frames the step on its own
+    // A click on an epic used to push its Table link (req #3115/#3637). Req
+    // #3641 removed the Table: the visualizer frames the epic on its own
     // canvas, so there is no cross-mode handshake left for this page to own.
     // A manual LEVEL pick clears the link's `?level=` — so a reload keeps the
     // pick (req #3637) — and persists the reader's choice as usual.
@@ -471,7 +471,7 @@ export default function PipelineDetail() {
     // Req #3224 — the durable orchestration reservation on THIS plan. One more
     // bounded list read of a table holding one row per reserved scope, so the
     // count still grows with the number of TABLES this page draws on and never
-    // with the number of steps in the plan (this file's header invariant).
+    // with the number of epics in the plan (this file's header invariant).
     //
     // Deliberately NOT in `isLoading`: it feeds OPTIONAL badges whose absence
     // means "nobody is orchestrating this", which is also the right reading
@@ -595,7 +595,7 @@ export default function PipelineDetail() {
     // ── req #3431 — THE READER IS HERE, SO THIS IS THE PLACE ────────────────
     // The single writer of the remembered place. Req #3311 wrote it from the
     // LIST page's click handler, which recorded a plan opened by clicking a card
-    // and no other arrival: not a `?step=` deep link, not the sessions grid's
+    // and no other arrival: not a `?epic=` deep link, not the sessions grid's
     // "view the plan", not the requirement page's initiative box, not Back. Recording
     // on ARRIVAL covers all of them and every route added later, without any of
     // them being enumerated — the same argument `viewportMemory.js` makes about
@@ -737,7 +737,7 @@ export default function PipelineDetail() {
     // `minWidth: 0` is load-bearing, not tidiness (req #3119 polish pass). This
     // Box is an item of the `.app-layout` CSS grid, whose items default to
     // `min-width: auto` — "never shrink below your content". The plan table is
-    // ~1640px of NOWRAP columns, so on the real 41-step plan this Box grew past
+    // ~1640px of NOWRAP columns, so on the real 41-epic plan this Box grew past
     // its grid track and took the WHOLE PAGE into horizontal scroll: measured
     // 187px of document overflow at 1680px wide and 427px at 1440px, dragging the
     // nav rail and header sideways with it. The TableContainer already carries
@@ -1014,10 +1014,10 @@ export default function PipelineDetail() {
                          sx={{ mx: 0.5, flexShrink: 0 }} />
 
                     <PipelinePlanToolbar
-                        onStepsAcross={(n) => setStepsAcross(
+                        onEpicsAcross={(n) => setEpicsAcross(
                             (prev) => ({ n, nonce: prev.nonce + 1 }))}
-                        stepWidthLevel={stepWidthLevel}
-                        onChangeStepWidthLevel={setStepWidthLevelPref}
+                        epicWidthLevel={epicWidthLevel}
+                        onChangeEpicWidthLevel={setEpicWidthLevelPref}
                         colorKey={colorKey}
                         onChangeColorKey={handleColorKeyChange}
                         onKeyHover={setKeyHover}
@@ -1066,7 +1066,7 @@ export default function PipelineDetail() {
                     list page's chip — a reader who navigated straight here
                     (a deep link, a bookmark) never saw that page at all. */}
                 {pipeline?.pipeline_status === 'paused' && (
-                    <Tooltip title="This plan is paused — its steps are not swarm-starting">
+                    <Tooltip title="This plan is paused — its epics are not swarm-starting">
                         <Chip
                             size="small"
                             label="Paused"
@@ -1122,11 +1122,11 @@ export default function PipelineDetail() {
                 Alert above is then the last child instead. */}
             {canRenderPlan && (
             <ActiveComponent plan={plan} model={model} pipeline={pipeline} timezone={timezone}
-                             focusStepId={focusStepId}
+                             focusEpicId={focusEpicId}
                              focusInitiativeId={focusInitiativeId}
                              costError={!!costError}
                              showReqCounts={showReqCounts}
-                             stepLabel={stepLabel} colorKey={colorKey}
+                             epicLabel={epicLabel} colorKey={colorKey}
                              reqLabel={reqLabel}
                              // `levelPref` still travels IN — the canvas needs to
                              // know which level is pinned to draw it. Only the
@@ -1143,8 +1143,8 @@ export default function PipelineDetail() {
                              levelPref={activeLevelPref}
                              onEffectiveLevel={setEffectiveLevel}
                              resetViewNonce={resetViewNonce}
-                             stepsAcross={stepsAcross}
-                             stepWidthLevel={stepWidthLevel}
+                             epicsAcross={epicsAcross}
+                             epicWidthLevel={epicWidthLevel}
                              hideClosed={hideClosed}
                              hiddenMachines={hiddenMachines}
                              reqPills={reqPills}

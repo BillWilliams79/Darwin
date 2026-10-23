@@ -1,7 +1,7 @@
 // pipelineInitiativeZoom.js — the initiative name's two-state zoom (req #3297, re-pointed
-// at the STEP by req #3371, and at the initiative's UNFINISHED WORK by req #3365).
+// at the EPIC by req #3371, and at the initiative's UNFINISHED WORK by req #3365).
 
-import { STEP_DONE } from './pipelineModel';
+import { EPIC_DONE } from './pipelineModel';
 //
 // The initiative name on the plan visualizer is a PROGRESSIVE-DISCLOSURE control, not
 // a one-shot fit. It answers two questions, in the order a reader asks them:
@@ -12,37 +12,37 @@ import { STEP_DONE } from './pipelineModel';
 // REQ #3681 REVERSED THE ORDER OF THE TWO STOPS: the first click on an initiative
 // name now frames its unfinished work and the second frames the whole band.
 // `nextInitiativeZoom` is the only place that knows the order; the level names
-// (band / step) are unchanged, and a third click returns to the first stop, so the same input reverses the move and
-// there is no dead end. Everything here is the SELECTION half — which step, and
+// (band / epic) are unchanged, and a third click returns to the first stop, so the same input reverses the move and
+// there is no dead end. Everything here is the SELECTION half — which epic, and
 // which level the next activation lands on. The GEOMETRY half is
-// `stepFocusTransform` in pipelinePlanLayout.js, and the camera move itself is
+// `epicFocusTransform` in pipelinePlanLayout.js, and the camera move itself is
 // `applyFocus` in PipelinePlanVisualizer.jsx, which exists exactly once.
 //
-// ── AND WHY LEVEL 2 IS NOW THE WORK, NOT ONE STEP (req #3365) ──────────────
+// ── AND WHY LEVEL 2 IS NOW THE WORK, NOT ONE EPIC (req #3365) ──────────────
 // User directive: *"I'd like to have the zoom work again on second click but
 // have it frame the view port surrounding the active and pending work in the
 // one initiative."*
 //
-// Two things were wrong with the next-launch-step answer, and the directive
-// fixes both. It OFTEN DID NOTHING: `nextLaunchStep` requires a non-empty
-// `eligibleStepIds` intersecting the band, so an initiative whose work is all blocked
+// Two things were wrong with the next-launch-epic answer, and the directive
+// fixes both. It OFTEN DID NOTHING: `nextLaunchEpic` requires a non-empty
+// `eligibleEpicIds` intersecting the band, so an initiative whose work is all blocked
 // or all running returned null, level 2 fell through to the band fit, and a
 // second click visibly did nothing — which is what "have the zoom work again"
-// is describing. And when it did fire it answered a question about ONE step,
+// is describing. And when it did fire it answered a question about ONE epic,
 // where the reader clicking an initiative's name is asking about the initiative.
 //
 // The unfinished work is a strictly better answer to the same "now show me
 // more" gesture: it is non-empty for every initiative that is not finished, it is
-// the reader's actual subject, and on an initiative with a single live step it
+// the reader's actual subject, and on an initiative with a single live epic it
 // degrades to exactly the old framing.
 //
-// ── WHY THE STEP WAS THE UNIT (req #3371, superseded above) ────────────────
-// Req #3297 chose a multi-step launch grouping here and rejected the step in
-// these words: *"a STEP is a fragment of a launch: zooming to one member of a
+// ── WHY THE EPIC WAS THE UNIT (req #3371, superseded above) ────────────────
+// Req #3297 chose a multi-epic launch grouping here and rejected the epic in
+// these words: *"a EPIC is a fragment of a launch: zooming to one member of a
 // group of four shows a reader part of a command and calls it the next thing to
-// happen."* In Pipeline 2.0 that sentence is false — the step IS the command,
+// happen."* In Pipeline 2.0 that sentence is false — the epic IS the command,
 // carrying its own `/swarm-start` argument list — so the objection evaporates
-// and the step becomes the correct unit by #3297's own test: the smallest thing
+// and the epic becomes the correct unit by #3297's own test: the smallest thing
 // on this surface the reader can act on. One command, one wave, one decision.
 //
 // NO JSX and no React, for `pipelineInitiativeLink.js`'s reasons: the cycle is the part
@@ -55,7 +55,7 @@ import { STEP_DONE } from './pipelineModel';
 // review round and is documented at `nextInitiativeZoom` as the thing that must not
 // come back.
 export const INITIATIVE_ZOOM_BAND = 'band';
-export const INITIATIVE_ZOOM_STEP = 'step';
+export const INITIATIVE_ZOOM_EPIC = 'epic';
 
 /**
  * The identity the cycle is keyed on.
@@ -89,11 +89,11 @@ export function initiativeCycleKey(band) {
  * `/swarm/pipeline/7` re-renders the same component instance instead of
  * remounting it, and a ref survives the move (code review). An initiative seated in
  * both plans would otherwise carry its level across: the reader's very first
- * click in the new plan lands on a step of a plan they have not looked at.
+ * click in the new plan lands on an epic of a plan they have not looked at.
  * `initiativeFocusAppliedRef` folds `pipeline?.id` into its own key for exactly this
  * reason and this is the same fold.
  *
- * NOT used for the `nextLaunchStepByInitiative` lookup, which is keyed by
+ * NOT used for the `nextLaunchEpicByInitiative` lookup, which is keyed by
  * `initiativeCycleKey` alone so it matches what `placeInitiativeChips` publishes as the
  * chip's `key`. Two keys, two questions: which chip is this, and which plan's
  * cycle am I in.
@@ -107,8 +107,8 @@ export function initiativeZoomStateKey(pipelineId, band) {
 }
 
 /**
- * WHICH STEP a second click on this band zooms to — the ELIGIBLE, UNSUPPRESSED
- * step earliest in DISPLAY ORDER within the band, or null when it has none.
+ * WHICH EPIC a second click on this band zooms to — the ELIGIBLE, UNSUPPRESSED
+ * epic earliest in DISPLAY ORDER within the band, or null when it has none.
  *
  * "Earliest in display order" is read off `rows` IN ORDER and never re-sorted:
  * `displayOrder` is design rule 3's output — topological, then state bands, then
@@ -119,29 +119,29 @@ export function initiativeZoomStateKey(pipelineId, band) {
  * Three filters, each load-bearing for a different reason:
  *
  *   · A DRAWN BEAD. `layout.nodes` is the gate, because the thing being zoomed
- *     to is the bead: a step that did not make it onto this layout has no
- *     rectangle, and "focus the step" has no meaning. This is also what makes
- *     "a band with no next launch step" answerable at all, rather than a
+ *     to is the bead: an epic that did not make it onto this layout has no
+ *     rectangle, and "focus the epic" has no meaning. This is also what makes
+ *     "a band with no next launch epic" answerable at all, rather than a
  *     null-transform accident.
  *   · ELIGIBLE. The question the second click answers is *what launches next*,
  *     and eligibility is the engine's own answer to it — every gate satisfied,
- *     work still to do. Without it the "next" step of a band deep in its own
+ *     work still to do. Without it the "next" epic of a band deep in its own
  *     backlog would be one nothing can start.
- *   · UNSUPPRESSED. A step whose scope is PAUSED is genuinely eligible and will
+ *   · UNSUPPRESSED. An epic whose scope is PAUSED is genuinely eligible and will
  *     not go out (req #3223 keeps the two facts apart deliberately), so naming
  *     it as the next launch would promise a launch the plan is holding.
  *
  * @param {Object[]} rows   `plan.rows` — DISPLAY order, the first match wins
  * @param {Object} layout   computePlanLayout output
  * @param {Object} band     a `layout.bands` entry
- * @param {?Set} eligibleStepIds  `plan.eligibleStepIds`
- * @returns {?number} the step id, or null when this band has no next launch step
+ * @param {?Set} eligibleEpicIds  `plan.eligibleEpicIds`
+ * @returns {?number} the epic id, or null when this band has no next launch epic
  */
-export function initiativeWorkStepIds(rows, layout, band) {
+export function initiativeWorkEpicIds(rows, layout, band) {
     if (!Array.isArray(rows) || !rows.length) return [];
     if (!layout || !layout.nodes || typeof layout.nodes.has !== 'function') return [];
     if (!band) return [];
-    const ids = new Set(band.stepIds || []);
+    const ids = new Set(band.epicIds || []);
     if (!ids.size) return [];
     const out = [];
     for (const row of rows) {
@@ -150,15 +150,15 @@ export function initiativeWorkStepIds(rows, layout, band) {
         // as "not done" rather than as a list of the two live states so a state
         // added later counts as work by default; the alternative silently drops
         // it out of the frame, which is the failure mode that matters here.
-        if (row.state === STEP_DONE) continue;
+        if (row.state === EPIC_DONE) continue;
         if (!layout.nodes.has(row.id)) continue;
         out.push(row.id);
     }
     return out;
 }
 
-// `nextLaunchStep` LIVED HERE and was deleted by req #3365, not deprecated.
-// It answered "which single step does this band launch next?" for the old level
+// `nextLaunchEpic` LIVED HERE and was deleted by req #3365, not deprecated.
+// It answered "which single epic does this band launch next?" for the old level
 // 2, and nothing calls that question any more — an exported function with no
 // caller is a case no data can reach, which this module's own rules refuse to
 // keep. Its selection logic (eligible, not suppressed, earliest in DISPLAY
@@ -176,7 +176,7 @@ export function initiativeWorkStepIds(rows, layout, band) {
 // hand-jitter between down and up emits a real zoom event that translates the
 // world. Treating any such event as "the reader moved the camera" would clear
 // the cycle level on the very click that is supposed to advance it — the
-// band → step step would work only for a perfectly still hand, i.e.
+// band → epic epic would work only for a perfectly still hand, i.e.
 // intermittently, which is worse than not working.
 //
 // TWO PRECISIONS ON "ONE NUMBER", so the next reader is not misled by it:
@@ -232,7 +232,7 @@ export function gestureMovedCamera(from, to) {
  * Three rules, and they are the whole of it:
  *
  *   1. A DIFFERENT initiative (or no state) always starts at the WORK — the smallest
- *      frame showing the initiative's unfinished steps (req #3681 swapped the order:
+ *      frame showing the initiative's unfinished epics (req #3681 swapped the order:
  *      the first click used to be the whole band). The state is per-initiative and
  *      never global.
  *   2. From the work, the whole BAND. The same input reverses the move, so the
@@ -245,10 +245,10 @@ export function gestureMovedCamera(from, to) {
  * `state` is whatever this function last returned, paired with the initiative it was
  * returned for — and it is also what a `?initiative=` LANDING seeds (requirement item
  * 4): a deep link leaves the reader at band focus, so it counts as click 1 and
- * their first manual click on that same name goes to the step rather than
+ * their first manual click on that same name goes to the epic rather than
  * re-fitting the band they are already looking at.
  *
- * ── NO NEXT STEP MEANS THE CONTROL IS UNCHANGED, NOT DISABLED (code review) ──
+ * ── NO NEXT EPIC MEANS THE CONTROL IS UNCHANGED, NOT DISABLED (code review) ──
  * The first cut returned a third answer here — do nothing at all — reading
  * requirement item 6's "the second click leaves the camera exactly where it is"
  * literally. **It made the initiative name a ONE-SHOT control on every band with no
@@ -260,20 +260,20 @@ export function gestureMovedCamera(from, to) {
  * That is req #3204 deleted on the majority of bands, in the name of a
  * requirement whose own item 1 says "no dead-end state". So: **a band with no
  * second stop keeps exactly the behaviour it had before this requirement.**
- * Item 6 is still honoured where it bites — no step transform is computed,
+ * Item 6 is still honoured where it bites — no epic transform is computed,
  * nothing half-zooms, no fallback is invented — and a reader who clicks twice
  * without moving lands on the identical transform, which IS the camera left
  * exactly where it was. Do not reintroduce the third answer.
  *
  * @param {?{key: (string|number), level: string}} state  last applied, or null
  * @param {string|number} key           the initiative being activated
- * @param {boolean} hasNextStep         does this band have a next launch step?
- * @returns {'band'|'step'}
+ * @param {boolean} hasNextEpic         does this band have a next launch epic?
+ * @returns {'band'|'epic'}
  */
-export function nextInitiativeZoom(state, key, hasNextStep) {
-    if (!hasNextStep) return INITIATIVE_ZOOM_BAND;
-    if (!state || state.key !== key) return INITIATIVE_ZOOM_STEP;
-    return state.level === INITIATIVE_ZOOM_STEP ? INITIATIVE_ZOOM_BAND : INITIATIVE_ZOOM_STEP;
+export function nextInitiativeZoom(state, key, hasNextEpic) {
+    if (!hasNextEpic) return INITIATIVE_ZOOM_BAND;
+    if (!state || state.key !== key) return INITIATIVE_ZOOM_EPIC;
+    return state.level === INITIATIVE_ZOOM_EPIC ? INITIATIVE_ZOOM_BAND : INITIATIVE_ZOOM_EPIC;
 }
 
 // ── WHAT THE CONTROL SAYS IT DOES (requirement item 7) ──────────────────────
@@ -281,18 +281,18 @@ export function nextInitiativeZoom(state, key, hasNextStep) {
 // closed on this very tooltip, from the other side: it described the old
 // navigate-away behaviour long after the click had become a fit. So the second
 // stop is announced only where the band HAS a second stop, and it names the
-// step it will actually go to — the caller passes the value of
-// `nextLaunchStep`, so what the label promises and what the click does are one
+// epic it will actually go to — the caller passes the value of
+// `nextLaunchEpic`, so what the label promises and what the click does are one
 // lookup and cannot disagree.
 //
-// The id is spelled out ("launch step 71") rather than shown bare: on the
+// The id is spelled out ("launch epic 71") rather than shown bare: on the
 // canvas a bare number beside an initiative name is indistinguishable from a count,
 // and a screen reader reading "71" alone has no context at all.
 const INITIATIVE_ZOOM_HINT = 'Zoom pipeline initiative';
 
 /**
  * The clause naming the second stop, or '' when there is not one.
- * @param {number[]} workIds  `initiativeWorkStepIds`'s answer for this band
+ * @param {number[]} workIds  `initiativeWorkEpicIds`'s answer for this band
  */
 export function initiativeZoomHintSuffix(workIds) {
     if (!Array.isArray(workIds) || !workIds.length) return '';
@@ -305,7 +305,7 @@ export function initiativeZoomHintSuffix(workIds) {
  * The chip's `title`. The aria-label is NOT this string plus the initiative name —
  * it interleaves the name and the pause clause — so the two are composed from
  * the shared suffix above rather than one being built out of the other.
- * @param {number[]} workIds  `initiativeWorkStepIds`'s answer for this band
+ * @param {number[]} workIds  `initiativeWorkEpicIds`'s answer for this band
  */
 export function initiativeZoomHint(workIds) {
     return INITIATIVE_ZOOM_HINT + initiativeZoomHintSuffix(workIds);
@@ -315,7 +315,7 @@ export function initiativeZoomHint(workIds) {
 // `initiativeBandLabelText` (pipelinePlanLayout.js) appends "met/total" straight onto
 // the chip's own text when the Counts toggle is on, so a reader comparing a
 // screenshot across the pre-/post-containment eras has no way to tell that the
-// count started meaning "requirements SEATED under this initiative's steps" rather
+// count started meaning "requirements SEATED under this initiative's epics" rather
 // than "requirements whose feature belongs to this initiative" (req #3225 / #3349) —
 // the two agree on every count today (measured, all six live initiatives), which is
 // exactly why the silent conflation is possible. One word said once, here,

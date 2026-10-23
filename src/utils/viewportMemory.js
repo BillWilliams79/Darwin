@@ -11,7 +11,7 @@
 // state. Every way of leaving the page unmounts that component, so the camera is
 // gone before the browser has finished navigating — and coming back re-lands on
 // the default view. The user reported it as three cases (a requirement link, a
-// step link, "link to anything") and then named the general form: *all occasions,
+// epic link, "link to anything") and then named the general form: *all occasions,
 // not just the three I mentioned*.
 //
 // THE POINT IS THAT THERE IS NO LIST OF OCCASIONS. Every return — a link out and
@@ -38,7 +38,7 @@
 // frequency during a drag.
 //
 // No JSX and no React, so vitest exercises it without a DOM — the same rule
-// `pipelineStepLink.js` and `normalizeView.js` are written to.
+// `pipelineEpicLink.js` and `normalizeView.js` are written to.
 //
 // ── DURABLE, ACROSS TABS AND ACROSS BROWSER RESTARTS (localStorage) ─────────
 // ── req #3431 REVERSES req #3252's per-tab call. READ THIS BEFORE MOVING IT ─
@@ -85,10 +85,10 @@
 //      invalidate it; a record here is refused unless the world it was taken
 //      over is still at the same SCALE. Req #3637 narrowed what that means for
 //      the plan canvas: its fingerprint was the layout's dimensions, which
-//      refused a restore whenever a plan gained a step or a band between two
+//      refused a restore whenever a plan gained an epic or a band between two
 //      visits (*"refresh, reload, should not change the viewport"*). Content
 //      that GREW is not content that MOVED, and (1) bounds whatever did change;
-//      the fingerprint is now the Step Width rung, the one input that rescales
+//      the fingerprint is now the Epic Width rung, the one input that rescales
 //      every card. The check itself stays: a camera from another scale is
 //      refused, never approximated.
 //
@@ -125,7 +125,7 @@
 //
 // ── A CAMERA IS ONLY VALID FOR THE GEOMETRY IT WAS TAKEN IN ────────────────
 // `{x, y, k}` is a camera over a WORLD, and the world is a layout. Change the
-// layout — a wider column, a step added by a background refetch, a band gained —
+// layout — a wider column, an epic added by a background refetch, a band gained —
 // and the same numbers point at different content. A stale camera DOES NOT FAIL
 // LOUDLY: it lands somewhere unrelated, which reads as a defect in the drawing
 // rather than in the restore. So every record carries a FINGERPRINT of the

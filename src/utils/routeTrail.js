@@ -31,7 +31,7 @@
 // answer from a session that had ended.
 //
 // No React and no JSX, so vitest exercises it without a DOM — the same rule
-// `viewportMemory.js` and `pipelineStepLink.js` are written to.
+// `viewportMemory.js` and `pipelineEpicLink.js` are written to.
 
 let currentPath = null;
 let previousPath = null;

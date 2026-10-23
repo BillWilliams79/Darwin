@@ -10,7 +10,7 @@
 // screen mechanics (browser full screen, Esc, the rack) are the shared hook's,
 // pinned in `PipelinePlanVisualizer.maximize.test.jsx`; this pins the wiring.
 //
-// The mount scaffolding is `SwarmView.stepFilter`'s; the visualizer itself is
+// The mount scaffolding is `SwarmView.epicFilter`'s; the visualizer itself is
 // a stub that reports the `maximized` it was handed.
 
 import React from 'react';
@@ -20,7 +20,7 @@ import { MemoryRouter } from 'react-router-dom';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 // The first mounted `it()` absorbs the cold module-compile cost of dnd-kit +
-// MUI + this page (the stepFilter suite's note).
+// MUI + this page (the epicFilter suite's note).
 vi.setConfig({ testTimeout: 30000 });
 
 const PROJECTS = [{ id: 1, project_name: 'Darwin', sort_order: 0 }];
@@ -29,9 +29,9 @@ vi.mock('../../hooks/useDataQueries', () => ({
     useProjects: () => ({ data: PROJECTS }),
     useAllInitiatives: () => ({ data: [] }),
     useAllCategories: () => ({ data: [] }),
-    useAllPipelineSteps: () => ({ data: [] }),
+    useAllPipelineEpics: () => ({ data: [] }),
     useInitiativeRequirementIds: () => ({ initiativeReqIds: null, isError: false, requirements: undefined }),
-    useStepRequirementIds: () => ({ stepReqIds: null, isError: false, requirements: undefined }),
+    useEpicRequirementIds: () => ({ epicReqIds: null, isError: false, requirements: undefined }),
 }));
 
 vi.mock('../CategoryTabPanel', () => ({ default: () => <div data-testid="tab-panel" /> }));

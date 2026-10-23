@@ -30,15 +30,15 @@ vi.mock('../../hooks/useDataQueries', () => ({
     }),
     useMachines: () => ({ data: [{ id: 2, title: 'Mac', sort_order: 1 }, { id: 3, title: 'Old PC', closed: 1 }] }),
     useDevServers: () => ({ data: [] }),
-    // The seat's plan layer: plan 2 is active (epic 30 → steps 300, 301), plan 5
-    // is completed (epic 50 → step 500).
+    // The seat's plan layer: plan 2 is active (initiative 30 → epics 300, 301), plan 5
+    // is completed (initiative 50 → epic 500).
     useAllPipelines: () => q([{ id: 2, title: 'Plan A', pipeline_status: 'active' },
         { id: 5, title: 'Plan Done', pipeline_status: 'completed' }]),
-    useAllInitiatives: () => q([{ id: 30, title: 'Epic One', pipeline_fk: 2, closed: 0, sort_order: 1 },
-        { id: 50, title: 'Old Epic', pipeline_fk: 5, closed: 0 }]),
-    useAllPipelineSteps: () => q([{ id: 300, title: 'Build', initiative_fk: 30 },
+    useAllInitiatives: () => q([{ id: 30, title: 'Initiative One', pipeline_fk: 2, closed: 0, sort_order: 1 },
+        { id: 50, title: 'Old Initiative', pipeline_fk: 5, closed: 0 }]),
+    useAllPipelineEpics: () => q([{ id: 300, title: 'Build', initiative_fk: 30 },
         { id: 301, title: 'Ship', initiative_fk: 30 }, { id: 500, title: 'Gone', initiative_fk: 50 }]),
-    useAllPipelineStepRequirements: () => q([]),
+    useAllPipelineEpicRequirements: () => q([]),
 }));
 const q = (data) => ({ data, isPending: false, isLoading: false, isError: false });
 let desktop = true;
@@ -163,7 +163,7 @@ describe('Requirement Filer — FILE and its debug capture (req #3815)', () => {
         expect(put[0].description).toContain('\nSurface: /maps\n');
         expect(put[0].description).toContain('Debug capture: darwin://requirement-debug/3901');
         expect(put[0].description).toContain('blank effort');
-        // The editor now shows the block, the row is in step, and nothing is left to send.
+        // The editor now shows the block, the row is in epic, and nothing is left to send.
         expect(screen.getByTestId('requirement-editor-field-description').value).toContain(DEBUG_BLOCK_BEGIN);
         expect(screen.getByTestId('requirement-editor-capture-uri').textContent).toBe('darwin://requirement-debug/3901');
         // Filed: no button, and live saving finds nothing more to send (the block is in both).

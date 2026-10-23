@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 //
-// Req #3140 — the RECEIVING end of the Steps editor's row link.
+// Req #3140 — the RECEIVING end of the Epics editor's row link.
 //
-// `pipelineStepLink.test.js` pins the two pure functions. This pins the React
-// half: a `?step=` link seeds `focusStepId` on the plan visualizer. Since req
+// `pipelineEpicLink.test.js` pins the two pure functions. This pins the React
+// half: a `?epic=` link seeds `focusEpicId` on the plan visualizer. Since req
 // #3641 the Plan visualizer is the ONLY panel (the Table was withdrawn), so a
-// named step always lands on the plan — whatever `?mode=` an older link
+// named epic always lands on the plan — whatever `?mode=` an older link
 // carries — and there is no mode switcher on the page at all.
 //
 // The panel is STUBBED: the real Plan mode is react-konva, which needs a canvas
@@ -23,10 +23,10 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 // The panel factory lives INSIDE the factory: vi.mock is hoisted above every
 // top-level binding in this file, so a `const Panel` outside is a TDZ error.
 vi.mock('../pipelineDetailModes', () => {
-    const Panel = (name) => function ModeStub({ focusStepId, levelPref, stepWidthLevel }) {
+    const Panel = (name) => function ModeStub({ focusEpicId, levelPref, epicWidthLevel }) {
         return <div data-testid={`mode-${name}`}
-                    data-step-width={stepWidthLevel == null ? '' : String(stepWidthLevel)}
-                    data-focus={focusStepId == null ? '' : String(focusStepId)}
+                    data-epic-width={epicWidthLevel == null ? '' : String(epicWidthLevel)}
+                    data-focus={focusEpicId == null ? '' : String(focusEpicId)}
                     // Req #3253 — the level the panel is told to draw at. The
                     // canvas is react-konva and cannot mount here, so the only
                     // observable half of the `?level=` contract is the prop.
@@ -56,8 +56,8 @@ vi.mock('../pipelineDetailModes', () => {
 vi.mock('../../../RestApi/RestApi', () => ({ default: vi.fn(() => Promise.resolve({ httpStatus: { httpStatus: 200 }, data: [] })) }));
 
 // req #3356 — ONE composed read where the 1.0 seven used to be. The fixture
-// carries the SAME step 47 the 1.0 mock supplied, so every `?step=47` case
-// below still names a step the page can resolve; `composedFixture` builds the
+// carries the SAME epic 47 the 1.0 mock supplied, so every `?epic=47` case
+// below still names an epic the page can resolve; `composedFixture` builds the
 // `derived` block the page hard-stops without.
 vi.mock('../../../hooks/useDataQueries', async (importOriginal) => {
     const actual = await importOriginal();
@@ -141,30 +141,30 @@ afterEach(() => {
     vi.restoreAllMocks();
 });
 
-describe('PipelineDetail — ?step= (req #3140)', () => {
+describe('PipelineDetail — ?epic= (req #3140)', () => {
     it('seeds the focus on the FIRST render, not after an effect', () => {
-        // `useState(linkStepId)` rather than a `useState(null)` an effect corrects:
+        // `useState(linkEpicId)` rather than a `useState(null)` an effect corrects:
         // a focus that arrives a paint later can miss the panel's own effect.
-        mount('/swarm/pipeline/2?mode=plan&step=47');
+        mount('/swarm/pipeline/2?mode=plan&epic=47');
         expect(focusOf('plan')).toBe('47');
     });
 
     it('honours ?mode=plan when the link explicitly asks for it', () => {
-        mount('/swarm/pipeline/2?mode=plan&step=47');
+        mount('/swarm/pipeline/2?mode=plan&epic=47');
         expect(node('mode-plan')).not.toBeNull();
         expect(focusOf('plan')).toBe('47');
     });
 
-    // REQ #3641 — a bare `?step=` used to default to the Table. The Table is
-    // gone, so it lands on the plan, which centres and zooms on that step.
-    it('lands a bare ?step= on the PLAN, focused', () => {
-        mount('/swarm/pipeline/2?step=47');
+    // REQ #3641 — a bare `?epic=` used to default to the Table. The Table is
+    // gone, so it lands on the plan, which centres and zooms on that epic.
+    it('lands a bare ?epic= on the PLAN, focused', () => {
+        mount('/swarm/pipeline/2?epic=47');
         expect(node('mode-plan')).not.toBeNull();
         expect(focusOf('plan')).toBe('47');
     });
 
-    it('lands an old ?mode=table&step= link on the plan, focused', () => {
-        mount('/swarm/pipeline/2?mode=table&step=47');
+    it('lands an old ?mode=table&epic= link on the plan, focused', () => {
+        mount('/swarm/pipeline/2?mode=table&epic=47');
         expect(node('mode-plan')).not.toBeNull();
         expect(focusOf('plan')).toBe('47');
     });
@@ -190,16 +190,16 @@ describe('PipelineDetail — ?step= (req #3140)', () => {
         expect(focusOf('plan')).toBe('');
     });
 
-    it('ignores a non-integer ?step=, rather than focusing NaN or 0', () => {
-        mount('/swarm/pipeline/2?mode=plan&step=12abc');
+    it('ignores a non-integer ?epic=, rather than focusing NaN or 0', () => {
+        mount('/swarm/pipeline/2?mode=plan&epic=12abc');
         expect(focusOf('plan')).toBe('');
-        mount('/swarm/pipeline/2?mode=plan&step=');
+        mount('/swarm/pipeline/2?mode=plan&epic=');
         expect(focusOf('plan')).toBe('');
     });
 });
 
 // ── Req #3253 — `?level=`, the transient semantic-level pin ─────────────────
-// The requirement page's "view on plan" link lands on ONE STEP, and a one-step
+// The requirement page's "view on plan" link lands on ONE EPIC, and a one-epic
 // fit sits well past `SEMANTIC_IN_MIN`, so the canvas would auto-derive L3 and
 // draw every requirement TITLE. The link pins L2 for that landing — and, like
 // every other parameter on this page, for that landing ONLY: the reader's stored
@@ -211,13 +211,13 @@ const storeLevel = (value) => {
 
 describe('PipelineDetail — ?level= (req #3253)', () => {
     it('pins the level the link names', () => {
-        mount('/swarm/pipeline/2?mode=plan&step=47&level=2');
+        mount('/swarm/pipeline/2?mode=plan&epic=47&level=2');
         expect(levelOf('plan')).toBe('2');
     });
 
     it('wins over the reader\'s stored level for this landing', () => {
         storeLevel('3');
-        mount('/swarm/pipeline/2?mode=plan&step=47&level=2');
+        mount('/swarm/pipeline/2?mode=plan&epic=47&level=2');
         expect(levelOf('plan')).toBe('2');
         // ...and never writes it. The stored value is what the reader gets back
         // the next time they open a plan by any other route.
@@ -245,7 +245,7 @@ describe('PipelineDetail — ?level= (req #3253)', () => {
 
     it('a manual LEVEL pick clears the link pin and persists the choice', () => {
         storeLevel('3');
-        mount('/swarm/pipeline/2?mode=plan&step=47&level=2');
+        mount('/swarm/pipeline/2?mode=plan&epic=47&level=2');
         expect(levelOf('plan')).toBe('2');
         click(node('pipeline-viz-level-3'));
         expect(levelOf('plan')).toBe('3');
@@ -272,7 +272,7 @@ describe('PipelineDetail — ?level= (req #3253)', () => {
 describe('PipelineDetail — the level is fixed until Auto (req #3324)', () => {
     it('hands the canvas a ?level= link\'s pin', () => {
         storeLevel('3');
-        mount('/swarm/pipeline/2?mode=plan&step=47&level=2');
+        mount('/swarm/pipeline/2?mode=plan&epic=47&level=2');
         expect(levelOf('plan')).toBe('2');
         // …and does NOT write it to storage: a link asks to see one thing once
         // (req #3253), so the reader's own L3 is still there afterward.
@@ -287,7 +287,7 @@ describe('PipelineDetail — the level is fixed until Auto (req #3324)', () => {
 
     it('a manual pick after a link wins, and persists', () => {
         storeLevel('auto');
-        mount('/swarm/pipeline/2?mode=plan&step=47&level=2');
+        mount('/swarm/pipeline/2?mode=plan&epic=47&level=2');
         expect(levelOf('plan')).toBe('2');
         click(node('pipeline-viz-level-3'));
         expect(levelOf('plan')).toBe('3');
@@ -315,25 +315,25 @@ describe('PipelineDetail — the level is fixed until Auto (req #3324)', () => {
 
     it('Reset leaves a LINK\'s pin alone too', () => {
         storeLevel('auto');
-        mount('/swarm/pipeline/2?mode=plan&step=47&level=2');
+        mount('/swarm/pipeline/2?mode=plan&epic=47&level=2');
         expect(levelOf('plan')).toBe('2');
         click(node('pipeline-viz-reset'));
         expect(levelOf('plan')).toBe('2');
     });
 
-    // req #3648 — Step Width is a rung in quarters of the base card; the plan
+    // req #3648 — Epic Width is a rung in quarters of the base card; the plan
     // opens at 5 (25% wider), a level stored under the OLD key is not read, and
     // the title has no tooltip.
-    it('opens at Step Width 5 and ignores a level stored under the old key', () => {
-        window.localStorage.setItem('darwin-pipeline-viz-step-width', '1');
+    it('opens at Epic Width 5 and ignores a level stored under the old key', () => {
+        window.localStorage.setItem('darwin-pipeline-viz-epic-width', '1');
         mount('/swarm/pipeline/2?mode=plan');
-        expect(node('mode-plan').getAttribute('data-step-width')).toBe('5');
+        expect(node('mode-plan').getAttribute('data-epic-width')).toBe('5');
     });
 
-    it('a stored rung is not drawn while the Step Width control is hidden', () => {
-        window.localStorage.setItem('darwin-pipeline-viz-step-width-q', '6');
+    it('a stored rung is not drawn while the Epic Width control is hidden', () => {
+        window.localStorage.setItem('darwin-pipeline-viz-epic-width-q', '6');
         mount('/swarm/pipeline/2?mode=plan');
-        expect(node('mode-plan').getAttribute('data-step-width')).toBe('5');
+        expect(node('mode-plan').getAttribute('data-epic-width')).toBe('5');
     });
 
     it('the title carries no tooltip', () => {

@@ -12,7 +12,7 @@
 //      ordering regressions shipped in one day). A sortable grid hands the user a
 //      one-click way to produce an order the invariants forbid, with no way for
 //      the renderer to object.
-//   2. A step row carries a MULTI-LINE payload — the requirement links and, on
+//   2. An epic row carries a MULTI-LINE payload — the requirement links and, on
 //      scheduled work, the exact `/swarm-start` argument list (design rule 8).
 //      A grid row is one line of records; this is not.
 //   3. Initiative renders once per contiguous group — a property OF THE ORDER, which
@@ -57,8 +57,8 @@ import CheckIcon from '@mui/icons-material/Check';
 
 import { useScrollMemory } from '../../hooks/useScrollMemory';
 import { scrollStorageKey } from '../../utils/viewportMemory';
-import EmptyPlanAddStep from './EmptyPlanAddStep';
-import { fmtCost, STEP_DONE, STEP_RUNNING, STEP_PENDING, canFileIntoStep } from './pipelineModel';
+import EmptyPlanAddEpic from './EmptyPlanAddEpic';
+import { fmtCost, EPIC_DONE, EPIC_RUNNING, EPIC_PENDING, canFileIntoEpic } from './pipelineModel';
 // req #3356 — the `era` PROP and ARGUMENT are both gone (there is one era) but
 // `planEra.js` stays the ONE place a plan route, entity or storage namespace is
 // spelled, so the accessors are still called — now with no argument.
@@ -67,12 +67,12 @@ import {
     planRenderRows,
     rowMachineLabel,
     formatTimeGates,
-    stepName,
-    stepDescription,
+    epicName,
+    epicDescription,
 } from './pipelineViewModel';
 import {
-    stepStateLabel,
-    stepStateChipProps,
+    epicStateLabel,
+    epicStateChipProps,
     runLabel,
     runChipProps,
     barrierLabel,
@@ -88,12 +88,12 @@ import {
     PAUSE_PAUSED_COLOR,
 } from './pipelineChipStyles';
 import { sortReqIdsByOrchestration } from './pipelinePlanLayout';
-import { newRequirementSeatState, planExitState } from './pipelineStepLink';
+import { newRequirementSeatState, planExitState } from './pipelineEpicLink';
 
 const NOWRAP = { whiteSpace: 'nowrap' };
 
 // Column widths sized to the widest realistic value at compact density
-// (table-design.md § "Column widths must fit content"): step ids run 4 digits,
+// (table-design.md § "Column widths must fit content"): epic ids run 4 digits,
 // machine labels join two names, initiative/feature titles run ~30 chars. Only the
 // summary column flexes.
 //
@@ -101,24 +101,24 @@ const NOWRAP = { whiteSpace: 'nowrap' };
 // just the three-id list — sizing it to the ids alone pushed the widest column in
 // the table off-screen the moment a time gate appeared.
 const COL = {
-    step: 74,
+    epic: 74,
     // The widest rendered chip is "Complete" + its check icon (not the
     // longer "Scheduled" text, which carries no icon) — down from 116 to 104
     // (req #3148 width audit). Table layout is the browser default (`auto`),
     // so this is a hint only: the column never shrinks below the chip's own
     // min-content width regardless of this number.
     status: 104,
-    // req #3649 — widened from 132: the cell now also carries the step's
+    // req #3649 — widened from 132: the cell now also carries the epic's
     // Barrier/Priority chip and, when frozen, its Locked chip beside the run
     // chip and the eligible/held markers.
     run: 300,
     machine: 148,
     cost: 96,
     initiative: 190,
-    // NOTE: `reqs` (below) was widened from 168 by req #3371 — the step row now
+    // NOTE: `reqs` (below) was widened from 168 by req #3371 — the epic row now
     // carries the `/swarm-start` command under its requirement links, and the
     // command's arguments ARE those ids.
-    // The step NAME (req #3119) — its own column, because a name and a
+    // The epic NAME (req #3119) — its own column, because a name and a
     // description answer different questions and the plan is skimmed by name.
     // Sized to the live plan's longest ("Guiding Principles and Data Refactor",
     // 36 chars) without flexing: a name column that reflows on content would
@@ -134,8 +134,8 @@ const COL = {
 // loud, specific, and never dismissible. Exported: the Plan visualizer
 // (req #3115) renders from the same computed order and owes the same loudness.
 export function OrderViolationsAlert({ plan }) {
-    const { violations = [], duplicateStepIds = [], unresolvedReqIds = [] } = plan;
-    if (!violations.length && !duplicateStepIds.length && !unresolvedReqIds.length) return null;
+    const { violations = [], duplicateEpicIds = [], unresolvedReqIds = [] } = plan;
+    if (!violations.length && !duplicateEpicIds.length && !unresolvedReqIds.length) return null;
 
     return (
         <Alert severity="error" variant="outlined" sx={{ mb: 2 }}
@@ -154,12 +154,12 @@ export function OrderViolationsAlert({ plan }) {
                         </Typography>
                     </li>
                 ))}
-                {duplicateStepIds.length > 0 && (
+                {duplicateEpicIds.length > 0 && (
                     <li>
                         <Typography variant="body2">
-                            <strong>duplicate-id</strong>: step ids{' '}
-                            {duplicateStepIds.join(', ')} appeared more than once in the read
-                            and collapsed — the rendered plan is missing steps.
+                            <strong>duplicate-id</strong>: epic ids{' '}
+                            {duplicateEpicIds.join(', ')} appeared more than once in the read
+                            and collapsed — the rendered plan is missing epics.
                         </Typography>
                     </li>
                 )}
@@ -167,8 +167,8 @@ export function OrderViolationsAlert({ plan }) {
                     <li>
                         <Typography variant="body2">
                             <strong>unresolved-requirement</strong>: requirements{' '}
-                            {unresolvedReqIds.join(', ')} are linked to a step but absent from
-                            the requirements read. Any step linking them may show a state
+                            {unresolvedReqIds.join(', ')} are linked to an epic but absent from
+                            the requirements read. Any epic linking them may show a state
                             lower than the truth.
                         </Typography>
                     </li>
@@ -182,14 +182,14 @@ export function OrderViolationsAlert({ plan }) {
 // (req #3303): it proposed a merge that launch grouping already performed, and
 // it could not see the file contention rule 2's concurrency condition turns on.
 
-// ── The step's own launch line (design rule 8, req #3371 / polish item P8) ──
+// ── The epic's own launch line (design rule 8, req #3371 / polish item P8) ──
 //
 // THE COMMAND DID NOT DISAPPEAR WITH THE BANNER — IT MOVED ONTO THE ROW.
 // Until Pipeline 2.0 the exact `/swarm-start` argument list rode a full-width
 // banner above the first member of each launch group, because a launch was N
-// steps and no single row could speak for it. In 2.0 the STEP is the launch
+// epics and no single row could speak for it. In 2.0 the EPIC is the launch
 // unit, so the whole payload is a property of ONE row: the member requirement
-// ids are the links this sits under, its declared dep steps are the
+// ids are the links this sits under, its declared dep epics are the
 // pre-existing Depends-on cell (that cell has never distinguished a met dep
 // from an open one, on 1.0 or 2.0 rows alike — this requirement did not add
 // or narrow that), the run mode is the Run chip and the machines are the
@@ -199,11 +199,11 @@ export function OrderViolationsAlert({ plan }) {
 // that ARE its arguments.
 //
 // SCHEDULED WORK ONLY. The banner appeared over pending rows and nothing else
-// (a launch group was formed from pending steps), and that population is the
-// honest one: a Complete step's "nothing left to launch" is noise on every
-// finished row of a 150-step plan, and a Running step is already out.
-function StepLaunchLine({ row }) {
-    if (row.state !== STEP_PENDING) return null;
+// (a launch group was formed from pending epics), and that population is the
+// honest one: a Complete epic's "nothing left to launch" is noise on every
+// finished row of a 150-epic plan, and a Running epic is already out.
+function EpicLaunchLine({ row }) {
+    if (row.state !== EPIC_PENDING) return null;
     const command = row.swarmStartCommand || null;
     const reason = row.noLaunchReason || null;
     if (!command && !reason) return null;
@@ -230,7 +230,7 @@ function StepLaunchLine({ row }) {
             )}
             {/* req #3360. A PARTIAL exclusion is the common case and it is
                 invisible without this: the command reads `/swarm-start 3329
-                3331 3333` on a step that links six requirements, which is
+                3331 3333` on an epic that links six requirements, which is
                 indistinguishable from a dropped one. Rendered only ALONGSIDE a
                 command — when there is none, the reason above already names
                 every id. */}
@@ -249,8 +249,8 @@ function StepLaunchLine({ row }) {
 // Ids link to their own detail page and carry NO '#' (production directive).
 //
 // A TRACKING link renders dimmed and italic with a tooltip (req #3123). It is
-// the answer to a question the table otherwise cannot answer: "this step links a
-// requirement that is still in development — why is the step not Running?"
+// the answer to a question the table otherwise cannot answer: "this epic links a
+// requirement that is still in development — why is the epic not Running?"
 // Without the distinction the derivation looks broken to a reader who is right
 // to check it. Kept to a style + tooltip on the existing link deliberately: no
 // second chip, no new column, no new view.
@@ -258,7 +258,7 @@ function StepLaunchLine({ row }) {
 // In ORCHESTRATION order (req #3676): open work before complete, `deployed`
 // first within each, then FIFO. This is the same `sortReqIdsByOrchestration`
 // the Plan visualizer stacks its requirement marks with, so the two modes always
-// agree on a step's order whatever colour key is set. A lowlight divider
+// agree on an epic's order whatever colour key is set. A lowlight divider
 // separates the complete ids, as the card's complete line does. `row.reqIds`
 // ITSELF is untouched (junction order, the engine's contract); only the array
 // handed to `.map` here is reordered.
@@ -288,7 +288,7 @@ function RequirementLinks({ row, pipelineId, statusOf, autonomyOf }) {
                         // rather than the Roadmap (req #3119) — and to THIS PANEL of
                         // it (req #3252). The route names the plan; which panel it
                         // opens is a stored preference, and a reader who reached the
-                        // table through a bead click or a `?step=` link never
+                        // table through a bead click or a `?epic=` link never
                         // persisted `table` (both are transient overrides by design),
                         // so Back sent them to whichever panel their preference held.
                         // req #3463 named `era` here because Back had to rebuild
@@ -325,8 +325,8 @@ function RequirementLinks({ row, pipelineId, statusOf, autonomyOf }) {
                         <Tooltip
                             key={id}
                             title={`#${id} is a tracking container, not work — it holds `
-                                + 'the plan, so this step is not gated on it and it is '
-                                + 'not launched with the step (req #3123)'}
+                                + 'the plan, so this epic is not gated on it and it is '
+                                + 'not launched with the epic (req #3123)'}
                         >
                             {link}
                         </Tooltip>
@@ -334,19 +334,19 @@ function RequirementLinks({ row, pipelineId, statusOf, autonomyOf }) {
                     : link;
                 return divider ? [divider, mark] : mark;
             })}
-            {/* req #3582 — file a NEW requirement into this step. The editor's
+            {/* req #3582 — file a NEW requirement into this epic. The editor's
                 "new" mode posts nothing until a category is picked, and that
-                first save seats the requirement on this step. Not offered on a
-                locked step (req #3649) — the gateway would refuse the seat. */}
-            {canFileIntoStep(row) && <Tooltip title="File a new requirement into this step">
+                first save seats the requirement on this epic. Not offered on a
+                locked epic (req #3649) — the gateway would refuse the seat. */}
+            {canFileIntoEpic(row) && <Tooltip title="File a new requirement into this epic">
                 <Link
                     component={RouterLink}
                     to="/swarm/requirement/new"
                     state={newRequirementSeatState(pipelineId, 'table', row)}
                     underline="none"
-                    aria-label={`File a new requirement into step ${row.id}`}
+                    aria-label={`File a new requirement into epic ${row.id}`}
                     sx={{ fontFamily: 'monospace', fontWeight: 700 }}
-                    data-testid={`pipeline-step-add-${row.id}`}
+                    data-testid={`pipeline-epic-add-${row.id}`}
                 >
                     +
                 </Link>
@@ -369,7 +369,7 @@ function RequirementLinks({ row, pipelineId, statusOf, autonomyOf }) {
 // this column to **344px** against its declared 190, taking the table to 1665px
 // inside a 1372px container and pushing the LAST column ("Depends on")
 // off-screen at a 1600px viewport. So the price of not wrapping one label was
-// that a reader could not see a step's dependencies without a horizontal scroll
+// that a reader could not see an epic's dependencies without a horizontal scroll
 // they had no reason to suspect.
 //
 // BE PRECISE ABOUT WHAT THIS BOUGHT: measured after, the table is 1511px and
@@ -429,7 +429,7 @@ function GroupCell({ show, value, width, color, testid }) {
 // drawing; req #3356 removed it with Pipeline 1.0. The panel reads the one era
 // directly for the two things it needs an era for — its scroll-storage
 // namespace and the requirement links' Back state.
-export default function PipelinePlanTable({ plan, model, pipeline, timezone, focusStepId,
+export default function PipelinePlanTable({ plan, model, pipeline, timezone, focusEpicId,
     costError = false, showCost = false }) {
     // id -> {status, coordination}, for `RequirementLinks`' orchestration
     // order (req #3676). The SAME light projection the page already read
@@ -455,19 +455,19 @@ export default function PipelinePlanTable({ plan, model, pipeline, timezone, foc
     const renderRows = useMemo(() => planRenderRows(plan), [plan]);
 
     // Req #3115 handshake: a bead click in the Plan visualizer switches to this
-    // mode with focusStepId set — scroll that row to center and highlight it.
+    // mode with focusEpicId set — scroll that row to center and highlight it.
     const rootRef = useRef(null);
     useEffect(() => {
-        if (focusStepId == null || !rootRef.current) return;
+        if (focusEpicId == null || !rootRef.current) return;
         const el = rootRef.current.querySelector(
-            `[data-testid="pipeline-step-row-${focusStepId}"]`);
+            `[data-testid="pipeline-epic-row-${focusEpicId}"]`);
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }, [focusStepId, renderRows]);
+    }, [focusEpicId, renderRows]);
 
     // ── THIS TABLE'S OWN VIEWPORT SURVIVES LEAVING IT (req #3311) ───────────
     // The Plan mode's camera has been remembered since req #3252; the Table
-    // mode's scroll position was not, and on the live 64-step plan that is the
-    // same defect wearing a scrollbar — open a step's requirement, come back,
+    // mode's scroll position was not, and on the live 64-epic plan that is the
+    // same defect wearing a scrollbar — open an epic's requirement, come back,
     // and you are at row 1. Every return path is covered without being listed,
     // because a return is just this component mounting: a link out and Back, the
     // header's Table|Plan toggle (which unmounts this with no navigation at all),
@@ -479,7 +479,7 @@ export default function PipelinePlanTable({ plan, model, pipeline, timezone, foc
     const planScrollKey = pipeline?.id != null
         // req #3463 — era-qualified; see PipelinePlanVisualizer's camera key.
         ? scrollStorageKey(`${planStorageNamespace()}-table`, pipeline.id) : null;
-    // A DEEP LINK OWNS THE SCROLL POSITION FOR ITS ONE LANDING. `?step=` scrolls
+    // A DEEP LINK OWNS THE SCROLL POSITION FOR ITS ONE LANDING. `?epic=` scrolls
     // its row to centre in the effect above, and a restore racing that would put
     // the reader somewhere neither of them asked for. So the RESTORE is suppressed
     // and the RECORD is not — where the link left them IS where they are, and a
@@ -487,7 +487,7 @@ export default function PipelinePlanTable({ plan, model, pipeline, timezone, foc
     // deferring to the link. Same doctrine PipelinePlanVisualizer applies to
     // `?initiative=`: a link asks to see one thing once and must never overwrite what
     // the reader chose.
-    const linkOwnsScroll = focusStepId != null;
+    const linkOwnsScroll = focusEpicId != null;
     useScrollMemory(planScrollKey, window, { restore: !linkOwnsScroll });
     // ── AND SO DOES THE HORIZONTAL ONE ─────────────────────────────────────
     // A separate key because it is a separate scroller: eleven NOWRAP columns run
@@ -512,7 +512,7 @@ export default function PipelinePlanTable({ plan, model, pipeline, timezone, foc
         return (
             <Box>
                 <OrderViolationsAlert plan={plan} />
-                <EmptyPlanAddStep model={model} pipeline={pipeline}
+                <EmptyPlanAddEpic model={model} pipeline={pipeline}
                                   testId="pipeline-plan-empty" />
             </Box>
         );
@@ -525,9 +525,9 @@ export default function PipelinePlanTable({ plan, model, pipeline, timezone, foc
             {/* The Time / Tokens control moved to the page header row (req
                 #3119). What stays here is the one thing that describes THIS
                 table: the cost-read failure notice. The launch-group legend
-                beside it ("these steps go out in one /swarm-start") went with
+                beside it ("these epics go out in one /swarm-start") went with
                 the group itself — req #3371 — and needs no replacement: one
-                step IS one launch, so there is no grouping left to explain. */}
+                epic IS one launch, so there is no grouping left to explain. */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1, flexWrap: 'wrap',
                         minHeight: showCost && costError ? undefined : 0 }}>
                 {showCost && costError && (
@@ -560,7 +560,7 @@ export default function PipelinePlanTable({ plan, model, pipeline, timezone, foc
                        sx={{ '& tbody td': { verticalAlign: 'top' } }}>
                     <TableHead>
                         <TableRow>
-                            <TableCell sx={{ ...NOWRAP, width: COL.step }}>Step</TableCell>
+                            <TableCell sx={{ ...NOWRAP, width: COL.epic }}>Epic</TableCell>
                             <TableCell sx={{ ...NOWRAP, width: COL.name }}>Name</TableCell>
                             <TableCell sx={{ ...NOWRAP, width: COL.status }}>Status</TableCell>
                             <TableCell sx={{ ...NOWRAP, width: COL.run }}>Run</TableCell>
@@ -572,17 +572,17 @@ export default function PipelinePlanTable({ plan, model, pipeline, timezone, foc
                             <TableCell sx={{ ...NOWRAP, width: COL.reqs }}>
                                 Requirement(s)
                             </TableCell>
-                            <TableCell>What this step does</TableCell>
+                            <TableCell>What this epic does</TableCell>
                             <TableCell sx={{ ...NOWRAP, width: COL.deps }}>Depends on</TableCell>
                         </TableRow>
                     </TableHead>
                     <TableBody>
                         {renderRows.map((entry) => {
                             const { row, showInitiative, eligible } = entry;
-                            const running = row.state === STEP_RUNNING;
+                            const running = row.state === EPIC_RUNNING;
                             // The visualizer-focused row outranks the state tints:
                             // the user just clicked THIS bead and must find it.
-                            const focused = row.id === focusStepId;
+                            const focused = row.id === focusEpicId;
                             const tint = focused
                                 ? 'rgba(74, 217, 200, 0.16)'
                                 : running
@@ -590,39 +590,39 @@ export default function PipelinePlanTable({ plan, model, pipeline, timezone, foc
                                 : eligible ? ROW_ACCENT.eligible.tint : undefined;
                             // THE EDGE IS THE ROW'S OWN STATE, on every row (req
                             // #3371). A dashed teal edge used to outrank both of
-                            // these, marking membership of a multi-step launch
-                            // group; one step is one launch now, so there is no
+                            // these, marking membership of a multi-epic launch
+                            // group; one epic is one launch now, so there is no
                             // membership and nothing to outrank them with.
                             const edge = running ? ROW_ACCENT.running.edge
                                 : eligible ? ROW_ACCENT.eligible.edge : undefined;
-                            // Step gates and wall-clock gates render on SEPARATE
+                            // Epic gates and wall-clock gates render on SEPARATE
                             // lines. A formatted datetime contains both spaces and
                             // commas, so joining it into the id list with either
                             // one produces "9001 Jul 23, 2026, 11:31 PM" — a
                             // run-on with no token boundary, and unreadable once a
-                            // step carries two time gates (which migration 076
+                            // epic carries two time gates (which migration 076
                             // deliberately permits).
                             const depIds = row.depIds.map(String);
                             const timeGates = formatTimeGates(row.timeDeps, timezone);
-                            const name = stepName(row);
-                            const description = stepDescription(row);
+                            const name = epicName(row);
+                            const description = epicDescription(row);
                             return (
                                 <TableRow
                                     key={row.id}
                                     hover
                                     sx={{ ...(tint ? { bgcolor: tint } : {}) }}
-                                    data-testid={`pipeline-step-row-${row.id}`}
+                                    data-testid={`pipeline-epic-row-${row.id}`}
                                     data-state={row.state}
                                     data-eligible={eligible ? 'true' : 'false'}
                                     data-focused={focused ? 'true' : 'false'}
                                 >
-                                    <TableCell sx={{ ...NOWRAP, width: COL.step,
+                                    <TableCell sx={{ ...NOWRAP, width: COL.epic,
                                                       color: 'text.secondary',
                                                       fontFamily: 'monospace',
                                                       ...(edge ? { borderLeft: edge } : {}) }}>
                                         {row.id}
                                     </TableCell>
-                                    {/* Name — the step's own short label. Wraps
+                                    {/* Name — the epic's own short label. Wraps
                                         rather than clipping (two lines at most
                                         for this plan's longest), and a name that
                                         a legacy row made prose-length is cut with
@@ -638,12 +638,12 @@ export default function PipelinePlanTable({ plan, model, pipeline, timezone, foc
                                     <TableCell sx={{ ...NOWRAP, width: COL.status }}>
                                         <Chip
                                             size="small"
-                                            label={stepStateLabel(row.state)}
-                                            icon={row.state === STEP_DONE
+                                            label={epicStateLabel(row.state)}
+                                            icon={row.state === EPIC_DONE
                                                 ? <CheckIcon sx={{ fontSize: 15 }} /> : undefined}
-                                            {...stepStateChipProps(row.state)}
+                                            {...epicStateChipProps(row.state)}
                                             sx={{
-                                                ...stepStateChipProps(row.state).sx,
+                                                ...epicStateChipProps(row.state).sx,
                                                 '& .MuiChip-icon': {
                                                     color: 'inherit', marginLeft: '5px',
                                                 },
@@ -661,17 +661,17 @@ export default function PipelinePlanTable({ plan, model, pipeline, timezone, foc
                                                 absent flag is the column
                                                 default: a barrier. */}
                                             <Tooltip title={row.checkpoint === false
-                                                ? 'Priority (barrier off) — Dependent steps may start requirements only when all requirements in this step have been started or are met, wontfix, deferred or paused.'
-                                                : 'Barrier — Dependent steps may start requirements only when all requirements in this step are met, wontfix, deferred, or paused.'}>
+                                                ? 'Priority (barrier off) — Dependent epics may start requirements only when all requirements in this epic have been started or are met, wontfix, deferred or paused.'
+                                                : 'Barrier — Dependent epics may start requirements only when all requirements in this epic are met, wontfix, deferred, or paused.'}>
                                                 <Chip size="small"
                                                       label={barrierLabel(row.checkpoint !== false)}
                                                       {...barrierChipProps(row.checkpoint !== false)}
                                                       data-testid={`pipeline-barrier-chip-${row.id}`} />
                                             </Tooltip>
                                             {row.effectiveLocked && (
-                                                <Tooltip title={row.lockedBy && row.lockedBy !== 'step'
+                                                <Tooltip title={row.lockedBy && row.lockedBy !== 'epic'
                                                     ? `Locked by its ${row.lockedBy} — frozen as a record`
-                                                    : 'Locked — this step is frozen as a record'}>
+                                                    : 'Locked — this epic is frozen as a record'}>
                                                     <Chip size="small"
                                                           label={lockedLabel(true)}
                                                           {...lockedChipProps(true)}
@@ -690,7 +690,7 @@ export default function PipelinePlanTable({ plan, model, pipeline, timezone, foc
                                             )}
                                             {/* req #3226 — rendered ALONGSIDE
                                                 "eligible", never replacing it:
-                                                a step in a paused scope is
+                                                an epic in a paused scope is
                                                 still genuinely eligible (the
                                                 engine's own eligibility() does
                                                 not change), it just will not
@@ -738,14 +738,14 @@ export default function PipelinePlanTable({ plan, model, pipeline, timezone, foc
                                                           statusOf={statusOf}
                                                           autonomyOf={autonomyOf} />
                                         {/* Design rule 8's own artifact, on the
-                                            row that owns it — see StepLaunchLine.
+                                            row that owns it — see EpicLaunchLine.
                                             Directly under the ids because they
                                             ARE the command's arguments. */}
-                                        <StepLaunchLine row={row} />
+                                        <EpicLaunchLine row={row} />
                                     </TableCell>
                                     {/* CLAMPED, WITH THE WHOLE TEXT ON HOVER
                                         (req #3365 polish). This cell rendered
-                                        `notes` unbounded, and a step's notes are
+                                        `notes` unbounded, and an epic's notes are
                                         full design prose — measured on plan 7's
                                         71 rows: median row 173px, 90th
                                         percentile 233px, tallest **654px**, and
@@ -839,7 +839,7 @@ export default function PipelinePlanTable({ plan, model, pipeline, timezone, foc
 
             <Typography variant="caption" color="text.secondary"
                         sx={{ display: 'block', mt: 1.5 }}>
-                Hierarchy: Initiative &gt; Story (requirement). Step state is derived
+                Hierarchy: Initiative &gt; Story (requirement). Epic state is derived
                 from the linked requirements and is never stored; row order is computed
                 — topological, then Complete before Running before Scheduled — and
                 verified on every render.

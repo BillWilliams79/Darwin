@@ -24,7 +24,7 @@ import call_rest_api from '../../../RestApi/RestApi';
 afterEach(cleanup);
 
 const row = (id, reqIds) => ({
-    id, initiative: 'E', initiativeId: 1, title: `Step ${id}`, reqIds, depIds: [], state: 'pending',
+    id, initiative: 'E', initiativeId: 1, title: `Epic ${id}`, reqIds, depIds: [], state: 'pending',
 });
 
 describe('layout — the title column (req #3661)', () => {
@@ -40,7 +40,7 @@ describe('layout — the title column (req #3661)', () => {
         const titles = new Map([[3661, 'edit requirement title in place'], [42, 'x']]);
         const pills = new Map([[3661, { terminal: { label: 'Terminal 6' } }]]);
         const layout = computePlanLayout([row(1, [3661, 42])], {
-            stepLabel: 'title', reqLabel: 'title', reqTitles: titles, reqPills: pills,
+            epicLabel: 'title', reqLabel: 'title', reqTitles: titles, reqPills: pills,
         });
         const reqs = layout.labels.filter((l) => l.kind === 'req');
         expect(reqs).toHaveLength(2);
@@ -59,10 +59,10 @@ describe('layout — the title column (req #3661)', () => {
 
     it('the layout re-wraps around a draft title (the editor follows the lines)', () => {
         const short = computePlanLayout([row(1, [7])], {
-            stepLabel: 'title', reqLabel: 'title', reqTitles: new Map([[7, 'short']]),
+            epicLabel: 'title', reqLabel: 'title', reqTitles: new Map([[7, 'short']]),
         }).labels.find((l) => l.kind === 'req');
         const long = computePlanLayout([row(1, [7])], {
-            stepLabel: 'title', reqLabel: 'title',
+            epicLabel: 'title', reqLabel: 'title',
             reqTitles: new Map([[7, 'a much longer title that has to wrap onto more lines']]),
         }).labels.find((l) => l.kind === 'req');
         expect(short.lines).toHaveLength(1);
@@ -166,7 +166,7 @@ describe('titleLineStarts — the editor draws the layout\'s lines (req #3661)',
             const title = Array.from({ length: 1 + Math.floor(rnd() * 12) },
                 () => words[Math.floor(rnd() * words.length)]).join(' ');
             const label = computePlanLayout([row(1, [id])], {
-                stepLabel: 'title', reqLabel: 'title',
+                epicLabel: 'title', reqLabel: 'title',
                 reqTitles: new Map([[id, title]]), reqPills: pills,
             }).labels.find((l) => l.kind === 'req');
             const drawn = rebuild(title, label);

@@ -44,12 +44,12 @@ let pipelinedIds = new Set([10, 11]);
 // MODULE-LEVEL constants, never inline `[]` literals: a fresh array per render
 // churns the hook's memoized Sets and re-runs the card's seeding effect, which
 // is a synchronous render loop rather than a failing assertion.
-const JUNCTION = [...pipelinedIds].map((id) => ({ step_fk: 1, requirement_fk: id }));
+const JUNCTION = [...pipelinedIds].map((id) => ({ epic_fk: 1, requirement_fk: id }));
 const ALL_REQS = reqData.map(({ id }) => ({ id }));
 vi.mock('../../hooks/useDataQueries', () => ({
     useRequirements: () => ({ data: reqData }),
     useSessions: () => ({ data: EMPTY_SESSIONS }),
-    useAllPipelineStepRequirements: () => ({ data: JUNCTION }),
+    useAllPipelineEpicRequirements: () => ({ data: JUNCTION }),
     useAllRequirements: () => ({ data: ALL_REQS }),
     ALL_ROWS: 'all',
 }));

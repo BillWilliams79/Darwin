@@ -8,8 +8,8 @@
 // What is pinned: create/edit send the right body including the REST 'NULL'
 // sentinel; the Pipeline select is disabled once editing; the initiative_status
 // pause chip toggles with a one-field PUT; the closed chip and closed filter;
-// delete names the step-cascade consequence; the step_count link navigates to
-// the initiative-filtered steps view.
+// delete names the epic-cascade consequence; the epic_count link navigates to
+// the initiative-filtered epics view.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import React from 'react';
@@ -57,7 +57,7 @@ vi.mock('@mui/x-data-grid', () => ({
 
 let pipelines;
 let initiatives;
-let steps;
+let epics;
 let categories;
 let loading;
 
@@ -67,7 +67,7 @@ vi.mock('../../hooks/useDataQueries', async (importOriginal) => {
         ...actual,
         useAllPipelines: () => ({ data: pipelines, isLoading: loading.pipelines }),
         useAllInitiatives: () => ({ data: initiatives, isLoading: loading.initiatives }),
-        useAllPipelineSteps: () => ({ data: steps, isLoading: loading.steps }),
+        useAllPipelineEpics: () => ({ data: epics, isLoading: loading.epics }),
         useAllCategories: () => ({ data: categories, isLoading: loading.categories }),
     };
 });
@@ -138,7 +138,7 @@ beforeEach(() => {
     restCalls.length = 0;
     restGetResponses = {};
     mountedRoots = [];
-    loading = { pipelines: false, initiatives: false, steps: false, categories: false };
+    loading = { pipelines: false, initiatives: false, epics: false, categories: false };
     pipelines = [
         { id: 7, title: 'Plan Seven' },
         { id: 8, title: 'Plan Eight' },
@@ -152,7 +152,7 @@ beforeEach(() => {
         { id: 6, pipeline_fk: 7, title: 'Retired', description: null, category_fk: 1,
           initiative_status: 'active', closed: 1, sort_order: 2, create_ts: '2026-08-01 00:00:00' },
     ];
-    steps = [
+    epics = [
         { id: 100, initiative_fk: 4 },
         { id: 101, initiative_fk: 4 },
         { id: 102, initiative_fk: 5 },
@@ -181,10 +181,10 @@ describe('InitiativesPage2 rows', () => {
         expect(rowIds()).toEqual([4, 5, 6]);
     });
 
-    it('counts steps filed under each initiative', () => {
+    it('counts epics filed under each initiative', () => {
         mount();
-        expect(node('initiative-steps-link-4').textContent).toBe('2');
-        expect(node('initiative-steps-link-5').textContent).toBe('1');
+        expect(node('initiative-epics-link-4').textContent).toBe('2');
+        expect(node('initiative-epics-link-5').textContent).toBe('1');
     });
 
     it('resolves the pipeline title for the row', () => {
@@ -193,11 +193,11 @@ describe('InitiativesPage2 rows', () => {
     });
 });
 
-describe('InitiativesPage — connection to the steps view', () => {
-    it('navigates to the initiative-filtered steps view from the Steps cell', () => {
+describe('InitiativesPage — connection to the epics view', () => {
+    it('navigates to the initiative-filtered epics view from the Epics cell', () => {
         mount();
-        click(node('initiative-steps-link-4'));
-        expect(navigations).toEqual(['/swarm/steps?initiative=4']);
+        click(node('initiative-epics-link-4'));
+        expect(navigations).toEqual(['/swarm/epics?initiative=4']);
     });
 });
 
@@ -355,26 +355,26 @@ describe('InitiativesPage2 delete', () => {
         expect(restCalls).toEqual([]);
     });
 
-    it('names the step-cascade consequence in the confirmation', () => {
+    it('names the epic-cascade consequence in the confirmation', () => {
         const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
         mount();
         click(node('initiative-delete-4'));
-        expect(confirmSpy.mock.calls[0][0]).toContain('2 steps will be deleted');
+        expect(confirmSpy.mock.calls[0][0]).toContain('2 epics will be deleted');
     });
 
-    it('DELETEs by id and invalidates the steps cache', async () => {
+    it('DELETEs by id and invalidates the epics cache', async () => {
         vi.spyOn(window, 'confirm').mockReturnValue(true);
         mount();
         click(node('initiative-delete-4'));
         await flush();
 
         // Two-phase delete (code review, req #3393): first reads this initiative's
-        // own step ids so any intra/cross-initiative dependency edges can be sorted
+        // own epic ids so any intra/cross-initiative dependency edges can be sorted
         // before the initiative DELETE — see initiativesApi.js's `deleteInitiative` header.
-        // The mock returns an empty step list, so no dep-edge reads/clears
+        // The mock returns an empty epic list, so no dep-edge reads/clears
         // follow; that branch has its own coverage below.
         expect(restCalls).toEqual([{
-            uri: 'http://test.local/darwin/pipeline_steps?initiative_fk=4&fields=id,locked',
+            uri: 'http://test.local/darwin/epics?initiative_fk=4&fields=id,locked',
             method: 'GET',
             body: '',
         }, {
@@ -390,31 +390,31 @@ describe('InitiativesPage2 delete', () => {
         }]);
         const keys = queryClient.invalidateQueries.mock.calls.map(c => c[0].queryKey);
         expect(keys.map(k => k[0])).toContain('initiatives');
-        expect(keys.map(k => k[0])).toContain('pipeline_steps');
+        expect(keys.map(k => k[0])).toContain('epics');
     });
 
     it('clears an intra-initiative dependency edge, then deletes (two-phase delete)', async () => {
         vi.spyOn(window, 'confirm').mockReturnValue(true);
-        // Initiative 4 owns steps 100 and 101 (see the `steps` fixture above); 101
+        // Initiative 4 owns epics 100 and 101 (see the `epics` fixture above); 101
         // depends on 100, both inside initiative 4 — the InnoDB RESTRICT-vs-cascade
         // false refusal `deleteInitiative`'s header describes.
-        restGetResponses['http://test.local/darwin/pipeline_steps?initiative_fk=4&fields=id,locked'] =
+        restGetResponses['http://test.local/darwin/epics?initiative_fk=4&fields=id,locked'] =
             [{ id: 100 }, { id: 101 }];
-        restGetResponses['http://test.local/darwin/pipeline_step_deps?dep_step_fk=(100,101)'
-            + '&fields=id,step_fk,dep_step_fk'] = [{ id: 900, step_fk: 101, dep_step_fk: 100 }];
+        restGetResponses['http://test.local/darwin/epic_deps?dep_epic_fk=(100,101)'
+            + '&fields=id,epic_fk,dep_epic_fk'] = [{ id: 900, epic_fk: 101, dep_epic_fk: 100 }];
         mount();
         click(node('initiative-delete-4'));
         await flush();
 
         expect(restCalls.map(c => ({ uri: c.uri, method: c.method }))).toEqual([
-            { uri: 'http://test.local/darwin/pipeline_steps?initiative_fk=4&fields=id,locked', method: 'GET' },
+            { uri: 'http://test.local/darwin/epics?initiative_fk=4&fields=id,locked', method: 'GET' },
             { uri: 'http://test.local/darwin/initiatives?id=4&fields=id,pipeline_fk,locked', method: 'GET' },
             {
-                uri: 'http://test.local/darwin/pipeline_step_deps?dep_step_fk=(100,101)'
-                    + '&fields=id,step_fk,dep_step_fk',
+                uri: 'http://test.local/darwin/epic_deps?dep_epic_fk=(100,101)'
+                    + '&fields=id,epic_fk,dep_epic_fk',
                 method: 'GET',
             },
-            { uri: 'http://test.local/darwin/pipeline_step_deps', method: 'DELETE' },
+            { uri: 'http://test.local/darwin/epic_deps', method: 'DELETE' },
             { uri: 'http://test.local/darwin/initiatives', method: 'DELETE' },
         ]);
         expect(restCalls[3].body).toEqual({ id: 900 });
@@ -422,15 +422,15 @@ describe('InitiativesPage2 delete', () => {
         expect(useSnackBarStore.getState().open).toBe(false);
     });
 
-    it('refuses when a step outside the initiative depends on one of its steps', async () => {
+    it('refuses when an epic outside the initiative depends on one of its epics', async () => {
         vi.spyOn(window, 'confirm').mockReturnValue(true);
-        // Step 102 belongs to initiative 5 (see the `steps` fixture above) and
-        // depends on step 100, which belongs to initiative 4 — a real cross-initiative
+        // Epic 102 belongs to initiative 5 (see the `epics` fixture above) and
+        // depends on epic 100, which belongs to initiative 4 — a real cross-initiative
         // edge, not the false-refusal case above.
-        restGetResponses['http://test.local/darwin/pipeline_steps?initiative_fk=4&fields=id,locked'] =
+        restGetResponses['http://test.local/darwin/epics?initiative_fk=4&fields=id,locked'] =
             [{ id: 100 }, { id: 101 }];
-        restGetResponses['http://test.local/darwin/pipeline_step_deps?dep_step_fk=(100,101)'
-            + '&fields=id,step_fk,dep_step_fk'] = [{ id: 901, step_fk: 102, dep_step_fk: 100 }];
+        restGetResponses['http://test.local/darwin/epic_deps?dep_epic_fk=(100,101)'
+            + '&fields=id,epic_fk,dep_epic_fk'] = [{ id: 901, epic_fk: 102, dep_epic_fk: 100 }];
         mount();
         click(node('initiative-delete-4'));
         await flush();
@@ -440,12 +440,12 @@ describe('InitiativesPage2 delete', () => {
         expect(useSnackBarStore.getState().message).toContain('409');
     });
 
-    it('refuses BEFORE any write when a step under the initiative is locked (req #3649)', async () => {
+    it('refuses BEFORE any write when an epic under the initiative is locked (req #3649)', async () => {
         vi.spyOn(window, 'confirm').mockReturnValue(true);
-        restGetResponses['http://test.local/darwin/pipeline_steps?initiative_fk=4&fields=id,locked'] =
+        restGetResponses['http://test.local/darwin/epics?initiative_fk=4&fields=id,locked'] =
             [{ id: 100, locked: 1 }, { id: 101, locked: 0 }];
-        restGetResponses['http://test.local/darwin/pipeline_step_deps?dep_step_fk=(100,101)'
-            + '&fields=id,step_fk,dep_step_fk'] = [{ id: 900, step_fk: 101, dep_step_fk: 100 }];
+        restGetResponses['http://test.local/darwin/epic_deps?dep_epic_fk=(100,101)'
+            + '&fields=id,epic_fk,dep_epic_fk'] = [{ id: 900, epic_fk: 101, dep_epic_fk: 100 }];
         mount();
         click(node('initiative-delete-4'));
         await flush();

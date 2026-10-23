@@ -134,7 +134,7 @@ describe('heartbeat age', () => {
 
 describe('scope selection', () => {
     // A scope is (pipeline_fk, initiative_fk): `initiative_fk` null means the WHOLE PLAN,
-    // which owns every step in it.
+    // which owns every epic in it.
     const claims = [
         claim({ id: 10, pipeline_fk: 6, initiative_fk: null }),   // whole plan 6
         claim({ id: 11, pipeline_fk: 6, initiative_fk: 9 }),      // initiative 9 of plan 6

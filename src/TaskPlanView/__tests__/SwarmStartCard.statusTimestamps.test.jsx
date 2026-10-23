@@ -41,7 +41,7 @@ vi.mock('../../hooks/useDataQueries', () => ({
     // aggregator's `useMemo` chain depends on, and a stand-in that got that
     // wrong would loop rather than fail. `ALL_ROWS` is re-exported because the
     // hook passes it (a closed feature still seats its requirements).
-    useAllPipelineStepRequirements: () => ({ data: EMPTY_JUNCTION }),
+    useAllPipelineEpicRequirements: () => ({ data: EMPTY_JUNCTION }),
     ALL_ROWS: 'all',
 }));
 

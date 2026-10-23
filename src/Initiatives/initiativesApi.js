@@ -37,7 +37,7 @@ function assertOk(result, action) {
 // Lambda-Rest's PUT convention: the literal string 'NULL' clears a column; a
 // JSON null is not the sentinel it recognizes there. POST takes a real null.
 // NOT PUT-only — `rest_post.py` applies the identical substitution (the
-// Steps/stepsApi.js rule, ported to this module by code review, req #3393:
+// Epics/epicsApi.js rule, ported to this module by code review, req #3393:
 // InitiativesPage validated only that a trimmed title was non-empty, so a title of
 // exactly "NULL" sailed through to a NOT NULL column and surfaced as an
 // opaque 500 instead of a readable refusal).
@@ -65,91 +65,91 @@ export async function updateInitiative(darwinUri, idToken, id, fields) {
 }
 
 /**
- * HARD-delete an initiative and its steps — TWO-PHASE, matching the MCP's own
+ * HARD-delete an initiative and its epics — TWO-PHASE, matching the MCP's own
  * `delete_initiative` (darwin-mcp/services/pipelines2.py).
  *
  * Code review (req #3393) found the original single-statement version was
  * not merely stricter than the MCP path, it was NON-FUNCTIONAL for almost
- * every real initiative: `pipeline_step_deps.dep_step_fk` is ON DELETE RESTRICT,
+ * every real initiative: `epic_deps.dep_epic_fk` is ON DELETE RESTRICT,
  * and the schema's own design intent is that a dependency edge never crosses
- * an initiative — so an initiative with more than one step routinely has an edge
- * ENTIRELY WITHIN ITSELF (step_fk and dep_step_fk both belong to this initiative).
- * Deleting the initiative cascades to delete that step, which MySQL evaluates the
+ * an initiative — so an initiative with more than one epic routinely has an edge
+ * ENTIRELY WITHIN ITSELF (epic_fk and dep_epic_fk both belong to this initiative).
+ * Deleting the initiative cascades to delete that epic, which MySQL evaluates the
  * RESTRICT against even though the referencing row is itself part of the
  * same cascade (documented in darwin-mcp/tests/conftest.py for this exact
  * table) — so the single-statement version refused EVERY such delete, and
- * named a cause ("another step outside it depends on one of its steps") that
+ * named a cause ("another epic outside it depends on one of its epics") that
  * could not be true for a self-contained edge.
  *
- * So: read this initiative's step ids, read every dep row whose `dep_step_fk`
- * names one of them (both directions matter — the row's OWN `step_fk` may be
+ * So: read this initiative's epic ids, read every dep row whose `dep_epic_fk`
+ * names one of them (both directions matter — the row's OWN `epic_fk` may be
  * inside this initiative or outside it), and split on that split:
- *   - external (the referencing step_fk belongs to a DIFFERENT initiative) — this
- *     is the real, design-rule-4 refusal (a step something outside this initiative
+ *   - external (the referencing epic_fk belongs to a DIFFERENT initiative) — this
+ *     is the real, design-rule-4 refusal (an epic something outside this initiative
  *     depends on cannot be removed out from under it). REFUSE, naming the
- *     blocking steps, same wording the single-statement version already used.
- *   - internal (the referencing step_fk is also one of this initiative's own
- *     steps) — this is the false refusal above. Clear these first, exactly
+ *     blocking epics, same wording the single-statement version already used.
+ *   - internal (the referencing epic_fk is also one of this initiative's own
+ *     epics) — this is the false refusal above. Clear these first, exactly
  *     as the MCP does, then the initiative delete cascades cleanly.
  */
 export async function deleteInitiative(darwinUri, idToken, id) {
-    const stepRows = await fetchEntity(
-        `${darwinUri}/pipeline_steps?initiative_fk=${id}&fields=id,locked`, idToken);
-    const steps = Array.isArray(stepRows) ? stepRows : [];
-    const stepIds = steps.map((r) => r.id);
+    const epicRows = await fetchEntity(
+        `${darwinUri}/epics?initiative_fk=${id}&fields=id,locked`, idToken);
+    const epics = Array.isArray(epicRows) ? epicRows : [];
+    const epicIds = epics.map((r) => r.id);
 
     // NOTHING IS WRITTEN WHILE ANYTHING IN THE CHAIN IS LOCKED (req #3649).
     // The gateway refuses each locked row's own delete, but the intra-initiative
     // dependency rows go first below — so a lock found only there would leave
     // the initiative alive with its gates stripped. The initiative, its plan and its
-    // steps are checked BEFORE the first write.
+    // epics are checked BEFORE the first write.
     const initiativeRows = await fetchEntity(
         `${darwinUri}/initiatives?id=${id}&fields=id,pipeline_fk,locked`, idToken);
     const initiative = (Array.isArray(initiativeRows) ? initiativeRows : [])[0] || {};
     const planRows = initiative.pipeline_fk != null ? await fetchEntity(
         `${darwinUri}/pipelines?id=${initiative.pipeline_fk}&fields=id,locked`, idToken) : [];
     const plan = (Array.isArray(planRows) ? planRows : [])[0] || {};
-    const lockedSteps = steps.filter((s) => Number(s.locked) === 1).map((s) => s.id);
-    if (Number(plan.locked) === 1 || Number(initiative.locked) === 1 || lockedSteps.length) {
+    const lockedEpics = epics.filter((s) => Number(s.locked) === 1).map((s) => s.id);
+    if (Number(plan.locked) === 1 || Number(initiative.locked) === 1 || lockedEpics.length) {
         const held = Number(plan.locked) === 1 ? `its plan ${plan.id}`
             : Number(initiative.locked) === 1 ? 'the initiative itself'
-                : `step${lockedSteps.length === 1 ? '' : 's'} ${lockedSteps.join(', ')} under it`;
+                : `epic${lockedEpics.length === 1 ? '' : 's'} ${lockedEpics.join(', ')} under it`;
         const error = new Error(`Initiative ${id} cannot be deleted: ${held} is locked — unlock it first.`);
         error.httpStatus = { httpStatus: 423, httpMessage: 'Locked' };
         throw error;
     }
 
-    if (stepIds.length) {
+    if (epicIds.length) {
         // `field=(a,b,c)` is Lambda-Rest's IN-list filter syntax — the
         // parens are load-bearing (see RequirementDetail.jsx / DomainEdit.jsx
         // for the same convention); a bare comma-joined value is read as one
         // literal string, not a list.
         const referencing = await fetchEntity(
-            `${darwinUri}/pipeline_step_deps?dep_step_fk=(${stepIds.join(',')})`
-            + '&fields=id,step_fk,dep_step_fk', idToken);
+            `${darwinUri}/epic_deps?dep_epic_fk=(${epicIds.join(',')})`
+            + '&fields=id,epic_fk,dep_epic_fk', idToken);
         const rows = Array.isArray(referencing) ? referencing : [];
-        const ownSet = new Set(stepIds);
-        const external = rows.filter((row) => !ownSet.has(row.step_fk));
+        const ownSet = new Set(epicIds);
+        const external = rows.filter((row) => !ownSet.has(row.epic_fk));
         if (external.length) {
-            const blockers = [...new Set(external.map((row) => row.step_fk))].sort((a, b) => a - b);
+            const blockers = [...new Set(external.map((row) => row.epic_fk))].sort((a, b) => a - b);
             const error = new Error(
-                `Initiative ${id} cannot be deleted: step${blockers.length === 1 ? '' : 's'} `
+                `Initiative ${id} cannot be deleted: epic${blockers.length === 1 ? '' : 's'} `
                 + `${blockers.join(', ')} outside it depend${blockers.length === 1 ? 's' : ''} `
-                + 'on one of its steps. Re-point or remove those dependencies first.');
+                + 'on one of its epics. Re-point or remove those dependencies first.');
             error.httpStatus = { httpStatus: 409, httpMessage: 'Conflict' };
             throw error;
         }
-        const internal = rows.filter((row) => ownSet.has(row.step_fk));
+        const internal = rows.filter((row) => ownSet.has(row.epic_fk));
         if (internal.length) {
             // ONE DELETE per row, not a single array-bodied call — the
             // generic Lambda-Rest DELETE route's bulk-by-array-of-ids
             // support is a fact about `Lambda-Rest/rest_delete.py`, which
-            // this session cannot read to verify (see stepsApi.js's header
+            // this session cannot read to verify (see epicsApi.js's header
             // for the same constraint elsewhere in this feature). A loop of
             // single-id deletes is the form every *Api.js module in this
             // codebase already uses and is known to work.
             await Promise.all(internal.map((row) => call_rest_api(
-                `${darwinUri}/pipeline_step_deps`, 'DELETE', { id: row.id }, idToken)
+                `${darwinUri}/epic_deps`, 'DELETE', { id: row.id }, idToken)
                 .then((r) => assertOk(r, 'deleteInitiative (clearing an intra-initiative dependency edge)'))));
         }
     }

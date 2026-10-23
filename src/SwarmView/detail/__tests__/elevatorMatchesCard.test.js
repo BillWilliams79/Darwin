@@ -42,7 +42,7 @@ const junction = (rows) => rows.filter(r => r.pipelined).map(r => ({ requirement
 // #3419: while the card and the elevator each derived their own, the two could
 // (and did) answer different questions. req #3357 retired the initiative-filed
 // population `orchestratedRequirementIds` once unioned in (Feature left the
-// frontend), so it is the step answer alone — see pipelineMembership.js.
+// frontend), so it is the epic answer alone — see pipelineMembership.js.
 const visibilityFor = (rows, hideOrchestrated) => {
     const ids = orchestratedRequirementIds(junction(rows));
     return (r) => !hideOrchestrated || !ids.has(Number(r?.id));
