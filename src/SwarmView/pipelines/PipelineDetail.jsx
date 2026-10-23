@@ -41,18 +41,9 @@ import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import useMediaQuery from '@mui/material/useMediaQuery';
 
-import IconButton from '@mui/material/IconButton';
-import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
-import LockOpenOutlinedIcon from '@mui/icons-material/LockOpenOutlined';
-import { useQueryClient } from '@tanstack/react-query';
 
 import call_rest_api from '../../RestApi/RestApi';
-import { pipelineKeys, pipelineComposeKeys } from '../../hooks/useQueryKeys';
-import AppContext from '../../Context/AppContext';
 import AuthContext from '../../Context/AuthContext';
-// req #3649 — the plan's own lock, toggled from its header.
-import { updatePipeline } from '../../Pipelines/pipelinesApi';
-import { useSnackBarStore } from '../../stores/useSnackBarStore';
 import '../../CalendarFC/CalendarFC.css';
 import {
     useAllRequirementSessions,
@@ -159,13 +150,10 @@ const TITLE_MIN_W = 140;
 export default function PipelineDetail() {
     const { id } = useParams();
     const navigate = useNavigate();
-    const { profile, idToken } = useContext(AuthContext);
-    const { darwinUri } = useContext(AppContext);
+    const { profile } = useContext(AuthContext);
     const creatorFk = profile?.userName;
     const timezone = profile?.timezone;
     const pipelineId = Number(id);
-    const queryClient = useQueryClient();
-    const showError = useSnackBarStore((st) => st.showError);
 
     // Read, never written any more (req #3641 removed the switcher): a stored
     // 'table' from before normalizes to the one registered mode below.
@@ -1054,43 +1042,6 @@ export default function PipelineDetail() {
                     ordinary row is unchanged) and it is not a duplicate of the
                     list page's chip — a reader who navigated straight here
                     (a deep link, a bookmark) never saw that page at all. */}
-                {/* req #3649 — THE PLAN'S PADLOCK. Always rendered (unlike the
-                    two conditional chips after it): a plan that is open must
-                    still OFFER the lock. Locked = a relic in time — no epic or
-                    step created, deleted, moved or edited under it, enforced
-                    at the gateway; its status and the lock itself still write. */}
-                {pipeline && (
-                    <Tooltip title={pipeline.locked
-                        ? 'Locked — this plan, its epics and steps cannot be changed. Click to unlock.'
-                        : 'Open — click to lock this plan, its epics and its steps against any change.'}>
-                        <IconButton
-                            size="small"
-                            aria-pressed={!!pipeline.locked}
-                            aria-label={pipeline.locked ? 'Unlock this plan' : 'Lock this plan'}
-                            data-testid="pipeline-detail-lock"
-                            data-locked={pipeline.locked ? '1' : '0'}
-                            sx={{ flexShrink: 0, color: pipeline.locked ? 'warning.main' : 'text.secondary' }}
-                            onClick={async () => {
-                                try {
-                                    await updatePipeline(darwinUri, idToken, pipeline.id,
-                                        { locked: pipeline.locked ? 0 : 1 });
-                                    await Promise.all([
-                                        queryClient.invalidateQueries({
-                                            queryKey: pipelineComposeKeys.byId(pipeline.id) }),
-                                        creatorFk && queryClient.invalidateQueries({
-                                            queryKey: pipelineKeys.all(creatorFk) }),
-                                    ]);
-                                } catch (err) {
-                                    showError(err, 'Could not change the plan lock');
-                                }
-                            }}
-                        >
-                            {pipeline.locked
-                                ? <LockOutlinedIcon fontSize="small" />
-                                : <LockOpenOutlinedIcon fontSize="small" />}
-                        </IconButton>
-                    </Tooltip>
-                )}
                 {pipeline?.pipeline_status === 'paused' && (
                     <Tooltip title="This plan is paused — its steps are not swarm-starting">
                         <Chip
