@@ -14,6 +14,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
     CODE_COLORS, CODE_LABELS, EPIC_CODES, EVENT_CODES, HEALTH_COLORS, HEALTH_STATES, HOLD_CODES,
+    SHELL_EVENT_CODES,
     ITEM_CODES, MISSING_AFTER_SECONDS, PLAIN_WORDS, codeLabel, detailText, eventText, plainWords,
 } from '../engineVocabulary';
 
@@ -47,12 +48,14 @@ describe('engine vocabulary — held to scripts/swarm/engine2/core.py', () => {
         expect(EPIC_CODES).toEqual(pyTuple(src, 'EPIC_CODES'));
         expect(ITEM_CODES).toEqual(pyTuple(src, 'ITEM_CODES'));
         expect(EVENT_CODES).toEqual(pyTuple(src, 'EVENT_CODES'));
+        expect(SHELL_EVENT_CODES).toEqual(pyTuple(src, 'SHELL_EVENT_CODES'));
     });
 
     it('carries PLAIN_WORDS verbatim', () => {
         if (!present) return;
         const words = pyPlainWords(fs.readFileSync(CORE, 'utf8'));
-        expect(Object.keys(words).length).toBe(HOLD_CODES.length + EVENT_CODES.length);
+        expect(Object.keys(words).length).toBe(
+            HOLD_CODES.length + EVENT_CODES.length + SHELL_EVENT_CODES.length);
         expect(PLAIN_WORDS).toEqual(words);
     });
 

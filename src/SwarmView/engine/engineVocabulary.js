@@ -19,6 +19,9 @@ export const EPIC_CODES = ['ENGINE_HOLD', 'PAUSED', 'SERIAL_TURN', 'BARRIER', 'N
 export const ITEM_CODES = ['MACHINE_PIN', 'IN_FLIGHT', 'DEP_PRIORITY', 'CAPACITY', 'ADMITTED'];
 export const HOLD_CODES = [...EPIC_CODES, ...ITEM_CODES];
 export const EVENT_CODES = ['REGRESSION', 'TOP_UP', 'DRAINED', 'LANDED', 'STALL', 'VIOLATION'];
+// core.py SHELL_EVENT_CODES — measured by the live process (engine2/run.py, req
+// #3757) and appended to a record's events after decide() returns.
+export const SHELL_EVENT_CODES = ['CODE_STALE'];
 
 export const VERDICT_OK = 'OK';
 
@@ -42,6 +45,7 @@ export const PLAIN_WORDS = {
     LANDED: 'a requirement reached a terminal status',
     STALL: 'open work in development that nobody is working',
     VIOLATION: 'the derivation reported a plan violation',
+    CODE_STALE: 'the engine is running code that changed on disk',
 };
 
 /** The plain words for a code; an unknown code says so rather than going blank. */
@@ -67,6 +71,7 @@ export const CODE_LABELS = {
     LANDED: 'Landed',
     STALL: 'Stall',
     VIOLATION: 'Violation',
+    CODE_STALE: 'Code stale',
 };
 export const codeLabel = (code) => CODE_LABELS[code] || code;
 
@@ -142,6 +147,7 @@ export const CODE_COLORS = {
     LANDED: S.met,
     STALL: ATTENTION,
     VIOLATION: ATTENTION,
+    CODE_STALE: ATTENTION,
 };
 export const codeColor = (code) => CODE_COLORS[code] || S.wontfix;
 
@@ -231,6 +237,8 @@ export function eventText(event) {
         case 'VIOLATION':
             return `${words}: ${event.invariant || 'invariant'}`
                 + `${event.message ? ` — ${event.message}` : ''}`;
+        case 'CODE_STALE':
+            return `${words}${(event.changed || []).length ? `: ${event.changed.join(', ')}` : ''}`;
         default:
             return words;
     }
