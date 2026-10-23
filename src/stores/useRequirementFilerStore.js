@@ -14,6 +14,10 @@ import {
 //   • `show` — drawn at all (the navbar control toggles it; × hides it).
 //   • `open` — its body is expanded (its ▾ head; folded, the panel is the head).
 //   • `dock` — where it floats and its shape (anchoredPanelGeometry.js); null = home.
+//   • `titleLock` — `{ side, x }`: it is LOCKED INTO THE PAGE'S TITLE BAR
+//     where the reader dropped it (req #3857, titleBarLock.js); null = it
+//     floats at `dock`. A page with no title bar floats it at `dock`, the lock
+//     kept for the next page that has one.
 //   • `filed` — `{ id, title }` of each requirement it filed, newest first
 //     (FILED_LIMIT), the title as last saved here.
 //   • `reopened` — the editor holds one of them again (`openFiled`), not a new
@@ -69,6 +73,8 @@ export const useRequirementFilerStore = create(
             setShow: (show) => set({ show }),
             toggleOpen: () => set({ open: !get().open }),
             setDock: (dock) => set({ dock }),
+            titleLock: null,
+            setTitleLock: (titleLock) => set({ titleLock }),
             filed: [],
             reopened: false,
             forgetFiled: (id) => set({ filed: get().filed.filter(f => f.id !== id) }),

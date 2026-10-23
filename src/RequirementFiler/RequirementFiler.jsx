@@ -28,7 +28,10 @@
 // the + and × follow the title — `▸ REQUIREMENT + ×` — so the filer can live
 // folded in the rack (user ruling 2026-10-23, req #3830). RACKABLE (`rackId`) — drag its head onto the Darwin navbar, or AI
 // Architecture's toolbar, and it locks in below the nav buttons like every
-// other Action Popup; drag it off to float it again.
+// other Action Popup; drag it off to float it again. LOCKABLE INTO THE TITLE
+// BAR (req #3857) — drop its head on the page's title bar and it stays there,
+// where it was dropped, in the bar's free space only: it never covers the bar's
+// own buttons and text, nor moves them (AnchoredPanel, titleBarLock.js).
 //
 // Opened from the navbar's filer control (NavBarSidebar); whether it is shown,
 // folded and where it floats are remembered per browser
@@ -160,11 +163,12 @@ export default function RequirementFiler() {
     const show = useRequirementFilerStore(s => s.show);
     const open = useRequirementFilerStore(s => s.open);
     const storedDock = useRequirementFilerStore(s => s.dock);
+    const titleLock = useRequirementFilerStore(s => s.titleLock);
     const filed = useRequirementFilerStore(s => s.filed);
     const editingId = useRequirementFilerStore(s => (s.editorShow ? s.savedId : null));
     // Why the last pick could not be opened — this session's, cleared by the next.
     const [reopenNote, setReopenNote] = useState(null);
-    const { setShow, toggleOpen, setDock } = useRequirementFilerStore.getState();
+    const { setShow, toggleOpen, setDock, setTitleLock } = useRequirementFilerStore.getState();
     const dock = validDock(storedDock, MIN_W, MIN_H) || FILER_HOME;
     const filerParam = new URLSearchParams(location.search).get('filer');
     const signedIn = !!profile?.userName;
@@ -175,7 +179,8 @@ export default function RequirementFiler() {
         focusAtPress = null;
         return filedFromNow({
             location, profile, database, theme, popupId: FILER_RACK_ID,
-            popupStore: { open: useRequirementFilerStore.getState().open, dock }, typingIn,
+            popupStore: { open: useRequirementFilerStore.getState().open, dock,
+                titleLock: useRequirementFilerStore.getState().titleLock }, typingIn,
         });
     };
     const fileRequirement = () => fileRequirementNow(filedFrom(), profile);
@@ -206,6 +211,7 @@ export default function RequirementFiler() {
                        open={open} onToggle={toggleOpen}
                        name="Requirement" testid="requirement-filer" badgeSlot={false}
                        rackId={FILER_RACK_ID}
+                       titleLock={titleLock} onTitleLockChange={setTitleLock}
                        limits={LIMITS} fontPx={ACTION_POPUP_FONT_PX} colors={ACTION_POPUP_COLORS}
                        sx={ACTION_POPUP_SX}
                        actions={<>
