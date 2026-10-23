@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 //
 // Req #3809 — the plan header shows WHO is orchestrating as circular badges
-// right of the plan's name (green master, orange secondary, the platform
+// beside the plan's name (green master, orange secondary, the platform
 // inside), and the "Orchestrated by …" chip at the title bar's right edge is
-// gone. Mounts the real header against a lead Mac claim and a subscribing WSL
+// gone. Req #3820 put them LEFT of the name with a one-line
+// tooltip. Mounts the real header against a lead Mac claim and a subscribing WSL
 // claim.
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
@@ -117,7 +118,7 @@ describe('PipelineDetail — orchestration badges (req #3809)', () => {
         vi.restoreAllMocks();
     });
 
-    it('draws a green Mac master and an orange WSL secondary right of the name', () => {
+    it('draws a green Mac master and an orange WSL secondary left of the name', () => {
         mockClaims.rows = [
             liveClaim({ id: 1, machine_fk: 4 }),
             liveClaim({ id: 2, machine_fk: 5 }),
@@ -125,9 +126,10 @@ describe('PipelineDetail — orchestration badges (req #3809)', () => {
         mount('/swarm/pipeline/2');
         const group = node('pipeline-orchestration-badges');
         expect(group).not.toBeNull();
-        // Right of the plan's name, inside the title's slot.
+        // LEFT of the plan's name, first in the title's slot (req #3820).
         const title = node('pipeline-title');
-        expect(title.nextElementSibling).toBe(group);
+        expect(group.nextElementSibling).toBe(title);
+        expect(group.previousElementSibling).toBeNull();
 
         const master = node('pipeline-orchestration-badge-m4');
         const secondary = node('pipeline-orchestration-badge-m5');
@@ -138,6 +140,9 @@ describe('PipelineDetail — orchestration badges (req #3809)', () => {
         expect(secondary.textContent).toBe('WSL');
         expect(secondary.dataset.tone).toBe('subscriber');
         expect(getComputedStyle(secondary).backgroundColor).toBe('rgb(245, 124, 0)');
+        // The hover sentence (req #3820) — also the badge's accessible name.
+        expect(master.getAttribute('aria-label'))
+            .toMatch(/^Mac Mini is the master\. Orchestrating for \d+s$/);
     });
 
     it('the old "Orchestrated by" chip at the right edge is gone', () => {
