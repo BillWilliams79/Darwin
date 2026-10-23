@@ -137,6 +137,11 @@ const EMPTY = Object.freeze([]);
 // particular plan's name — that would be a number that goes stale the first
 // time somebody names a plan verbosely, and S13's band already handles the
 // overflow.
+// req #3827 — the one height every control on the plan header row is drawn at (the
+// small Chip's own 24px), so chips, the Req # field, the Full screen switch and the
+// group rules share a size and a centre line.
+const PLAN_CONTROL_H = 24;
+
 const TITLE_MIN_W = 140;
 // The title row's Req # jump field (req #3798): RequirementJumpInput's own width
 // (110) plus the row gap, added to the title slot's floor so it never eats the
@@ -868,9 +873,28 @@ export default function PipelineDetail() {
                 popper anchored INSIDE the row will find it. */}
             {/* req #3658 — hidden, not unmounted, while maximized: the
                 toolbar's controls keep their state for the way back. */}
+            {/* req #3827 (user directive: "make sure all buttons are centered
+                vertically in the bar … buttons could ideally be same height
+                too"): every control on this row is ONE height, the small
+                Chip's 24px, and centred on the row's axis. The Req # field
+                (~27px) and the Full screen switch (20px) were their own
+                heights, and the rules were `flexItem` Dividers that stretched
+                to the title's 32px line box — so the row read as four sizes
+                of control around chips that sat in the middle of a taller
+                rule. The overrides are scoped to this row: the field and the
+                switch are shared with the Requirements page and the TPU views,
+                which keep theirs. */}
             <Box sx={{ display: maximized ? 'none' : 'flex',
                         alignItems: 'center', gap: 1, flexWrap: 'nowrap',
-                        minWidth: 0, overflowX: 'auto', mb: 1 }}
+                        minWidth: 0, overflowX: 'auto', mb: 1,
+                        '& > .MuiDivider-root': { alignSelf: 'center', height: PLAN_CONTROL_H },
+                        '& .MuiChip-root': { height: PLAN_CONTROL_H },
+                        '& [data-testid="pipeline-req-launcher"] .MuiInputBase-root':
+                            { height: PLAN_CONTROL_H },
+                        '& [data-testid="pipeline-req-launcher"] .MuiInputBase-input':
+                            { py: 0, height: '100%', boxSizing: 'border-box' },
+                        '& [data-fullscreen-switch="header"]':
+                            { height: PLAN_CONTROL_H } }}
                  data-testid="pipeline-header-row">
 
                 {/* THE TITLE IS THE SPACER (req #3261 P3, S11 / V2). It used to
