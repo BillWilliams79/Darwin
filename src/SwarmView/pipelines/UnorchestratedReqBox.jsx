@@ -2,7 +2,7 @@
 // (req #3583; titled and outlined in purple by req #3605; retitled from
 // "Orchestration Ready" by req #3648).
 //
-// A floating panel in the canvas's top-right corner listing every requirement
+// An Action Popup in the canvas's top-right corner listing every requirement
 // that is ready to run but sits on no plan step. Each row is the SOURCE of a
 // drag: pick it up, drop it on a step card, and it is seated there. That is
 // what makes it "go hand in hand with" the visualizer's drag-and-drop (req
@@ -128,7 +128,7 @@
 // the id goes bold.
 //
 // ── FOLDED, IT IS A NARROW "OR" BAR (req #3648, user directive) ───────────
-// The title bar is every pop-up window's (req #3741): the ▾ (CollapseHead) at
+// The title bar is every Action Popup's (req #3741): the ▾ (CollapseHead) at
 // the upper left, then the count as a badge, then the name — and the upper
 // right blank, since the box has no close. Folding swaps the name for "OR" and
 // narrows the box to exactly that bar — ▾, badge, "OR", nothing else changed —
@@ -149,7 +149,7 @@
 // box left just far enough to show it.
 //
 // ── IT DOCKS TO THE DARWIN NAVBAR TOO (req #3735) ─────────────────────────
-// It is one of Darwin's pop-up information windows, so it racks like the rest
+// It is one of Darwin's Action Popups, so it racks like the rest
 // (the Dev Servers dashboard, the Dev Server panel, the Active box — pattern doc
 // memory/anchored-collapse-pattern.md § The rack). It draws its own frame rather
 // than being an AnchoredPanel — its zoom-following type, step-card width, text
@@ -157,7 +157,7 @@
 // AnchoredPanel does (`usePanelRack`): its title-bar move hit-tests the navbar,
 // the navbar glows in its purple while the pointer is over, and released there
 // it is RACKED — portalled into the navbar's rack slot at the navbar's width, in
-// the info windows' 12px type, its title whole even folded, no grip, stacked and
+// the Action Popups' 12px type, its title whole even folded, no grip, stacked and
 // reordered with the others. Its rows still drag onto step cards from there, and
 // a carried move released over a step still seats the whole set — and leaves it
 // racked: that gesture was a seat, not a relocation. Dragged off the navbar it
@@ -176,7 +176,7 @@ import useMediaQuery from '@mui/material/useMediaQuery';
 import { lighten } from '@mui/material/styles';
 
 import CollapseHead from '../../Components/AnchoredPanel/CollapseHead';
-import { INFO_PANEL_COLORS, INFO_PANEL_FONT_PX } from '../../Components/AnchoredPanel/infoPanelChrome';
+import { ACTION_POPUP_COLORS, ACTION_POPUP_FONT_PX } from '../../Components/AnchoredPanel/actionPopupChrome';
 import { rackOrder } from '../../Components/AnchoredPanel/panelRack';
 import { rackPortal, usePanelRack } from '../../Components/AnchoredPanel/usePanelRack';
 import { CARD_FRAME_W, PLAN_VIZ_PALETTE as P } from './pipelinePlanLayout';
@@ -746,8 +746,8 @@ export default function UnorchestratedReqBox({
         setResizing(false);
     }, [gripShown]);
 
-    // Racked, the info windows' type and the navbar's width (req #3735).
-    const typePx = inRack ? INFO_PANEL_FONT_PX : drawn.fontPx;
+    // Racked, the Action Popups' type and the navbar's width (req #3735).
+    const typePx = inRack ? ACTION_POPUP_FONT_PX : drawn.fontPx;
     const boxW = inRack ? (lifted ? `${slot.width}px` : '100%')
         : (open ? `${drawn.widthPx}px` : foldedW);
     const racking = inRack && !lifted;
@@ -812,11 +812,11 @@ export default function UnorchestratedReqBox({
                         px: '0.8em', py: '0.45em', flexShrink: 0,
                         cursor: moving ? 'grabbing' : 'move', touchAction: 'none',
                         WebkitTouchCallout: 'none', fontWeight: 600 }}>
-                {/* The ▾ at the upper left, as every pop-up window has it
+                {/* The ▾ at the upper left, as every Action Popup has it
                     (req #3741); the upper right is left blank. */}
                 <CollapseHead open={open} onToggle={toggleOpen} name="Orchestrables"
                               testid="pipeline-viz-unseated-toggle"
-                              color={INFO_PANEL_COLORS.head} hoverColor={INFO_PANEL_COLORS.headHover}
+                              color={ACTION_POPUP_COLORS.head} hoverColor={ACTION_POPUP_COLORS.headHover}
                               fontSize="0.9em" showName={false} />
                 {/* The count is a badge LEFT of the name (req #3648), folded
                     or not. */}

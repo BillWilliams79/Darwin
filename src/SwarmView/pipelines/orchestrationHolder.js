@@ -104,7 +104,7 @@ export function heldForSeconds(claim, now = new Date()) {
  *
  * There was a TWIN of this function until req #3356, because
  * `orchestration_claims` carried two scope pairs: a 1.0 `pipeline_fk`/`initiative_fk`
- * and a 2.0 `pipeline2_fk`/`epic2_fk`, each NULL on the other era's rows. The
+ * and a 2.0 `pipeline2_fk`/`initiative2_fk`, each NULL on the other era's rows. The
  * migration dropped the 1.0 columns and renamed the 2.0 pair into their names,
  * so there is one pair, one function, and no era to disambiguate.
  */
@@ -245,6 +245,107 @@ export function orchestrationView(claims, pipelineId, machines, now = new Date()
             : base.label,
         title: `${base.title} ${leadSentence}.${others}`,
     };
+}
+
+// ── req #3809 — ORCHESTRATION AS A BADGE beside the plan's name ─────────────
+//
+// User directive: "if you are being orchestrated you get a circular badge to the
+// right of your pipeline name — Green master, Orange secondary — Mac or WSL
+// inside", replacing the "Orchestrated by …" chip at the title bar's right edge.
+// ONE BADGE PER MACHINE, because the machine is what the badge prints; a
+// machine holding two initiative claims on one plan is one orchestrator, not two.
+
+export const BADGE_LEAD = 'lead';
+export const BADGE_SUBSCRIBER = 'subscriber';
+export const BADGE_STALE = 'stale';
+
+const PLATFORM_LABELS = { darwin: 'Mac', wsl: 'WSL', linux: 'Linux' };
+
+/** `Mac` / `WSL` / `Linux` — the word printed inside a badge; `?` when unknown. */
+export function machinePlatformLabel(machine) {
+    return (machine && PLATFORM_LABELS[machine.platform]) || '?';
+}
+
+/**
+ * The plan header's orchestration badges, master first:
+ * `[{ key, machineFk, text, tone, title }]`, empty when nobody orchestrates.
+ *
+ * MASTER (`lead`, green) is the whole-plan LEAD — the first machine in. With no
+ * live whole-plan claim, an initiative-scoped LEAD is the master of its own initiative, so it
+ * is green too. Every other live machine on the plan is SECONDARY (`subscriber`,
+ * orange): a subscriber, or an earlier initiative claim the whole-plan lead defers to.
+ * A REFUSED claim launches nothing and gets no badge. With nothing live, a STALE
+ * whole-plan claim still shows (grey, `stale`) — the orchestrator is gone and the
+ * scope reclaimable, which is what the chip this replaced said too.
+ */
+export function orchestrationBadges(claims, pipelineId, machines, now = new Date()) {
+    if (pipelineId == null) return [];
+    const onPlan = asArray(claims).filter((c) => c.pipeline_fk === pipelineId);
+    const live = onPlan.filter((c) => !isStale(c, now))
+        .sort((a, b) => idKey(a) - idKey(b));
+    const roles = resolveRoles(live);
+    const accepted = live.filter((c) => roles.get(c.id)?.role !== ROLE_REFUSED);
+    const machineOf = (c) => asArray(machines).find((m) => m.id === c.machine_fk) || null;
+
+    if (!accepted.length) {
+        const stale = claimForPipeline(onPlan, pipelineId);
+        if (!stale) return [];
+        const view = holderView(stale, machines, now);
+        return [{
+            key: `m${stale.machine_fk ?? 'none'}`,
+            machineFk: stale.machine_fk ?? null,
+            text: machinePlatformLabel(machineOf(stale)),
+            tone: BADGE_STALE,
+            title: view.title,
+        }];
+    }
+
+    const planLead = accepted.find(
+        (c) => c.initiative_fk == null && roles.get(c.id).role === ROLE_LEAD);
+    const isMaster = (c) => (planLead
+        ? c.id === planLead.id
+        : roles.get(c.id).role === ROLE_LEAD);
+    const describe = (c, view) => {
+        if (c === planLead) {
+            return `${view.machine} is the MASTER — it leads this plan and launches `
+                + `requirements pinned to Any and to ${view.machine}`;
+        }
+        if (isMaster(c)) {
+            return `${view.machine} is the MASTER of ${scopeLabel(c)} — it leads that `
+                + `initiative and launches requirements pinned to Any and to ${view.machine} there`;
+        }
+        if (roles.get(c.id).role === ROLE_LEAD) {
+            return `${view.machine} is SECONDARY here — it leads ${scopeLabel(c)}, `
+                + 'which it reached first';
+        }
+        return `${view.machine} is SECONDARY — it subscribes (${scopeLabel(c)}) and `
+            + 'launches ONLY requirements pinned to its own machine';
+    };
+
+    const byMachine = new Map();
+    for (const c of accepted) {
+        const key = `m${c.machine_fk ?? 'none'}`;
+        const view = holderView(c, machines, now);
+        const sentence = `${describe(c, view)}. ${view.title}`;
+        const prior = byMachine.get(key);
+        if (prior) {
+            prior.master = prior.master || isMaster(c);
+            prior.sentences.push(sentence);
+        } else {
+            byMachine.set(key, {
+                key, machineFk: c.machine_fk ?? null,
+                text: machinePlatformLabel(machineOf(c)),
+                master: isMaster(c), sentences: [sentence],
+            });
+        }
+    }
+    return [...byMachine.values()]
+        .sort((a, b) => Number(b.master) - Number(a.master))
+        .map(({ master, sentences, ...rest }) => ({
+            ...rest,
+            tone: master ? BADGE_LEAD : BADGE_SUBSCRIBER,
+            title: sentences.join(' '),
+        }));
 }
 
 // `claimsForInitiative` — every reservation covering an INITIATIVE's work, its own plus any

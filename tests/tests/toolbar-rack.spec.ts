@@ -1,12 +1,12 @@
 import { test, expect } from '@playwright/test';
 
 // Req #3792 — AI Architecture shows its own toolbar (the topology page's navbar,
-// in a same-origin iframe), and every pop-up information window docks against
+// in a same-origin iframe), and every Action Popup docks against
 // it by the Darwin navbar's rules: racked there, glowing for a drop, floating
 // when dragged off, racking again when dropped back. The dev build racks its
 // own Dev Server panel by default, so it starts in the toolbar.
 test.describe('AI Architecture toolbar rack (req #3792)', () => {
-  test('TR-01: the info windows rack in the AI Architecture toolbar, float off it, and rack back', async ({ page }) => {
+  test('TR-01: the Action Popups rack in the AI Architecture toolbar, float off it, and rack back', async ({ page }) => {
     await page.setViewportSize({ width: 1600, height: 1200 });
     await page.goto('/systems2?opt=tpu8t-superpod-3d');
     const frame = page.frameLocator('iframe[title="NVLink System Views"]');

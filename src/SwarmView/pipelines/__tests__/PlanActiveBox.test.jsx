@@ -47,7 +47,7 @@ describe('PlanActiveBox (req #3721)', () => {
         expect(t.overflow).toBe('hidden');
     });
 
-    it('has every pop-up window\'s controls: ▾ upper left, upper right blank (req #3741)', () => {
+    it('has every Action Popup\'s controls: ▾ upper left, upper right blank (req #3741)', () => {
         render(<PlanActiveBox items={ITEMS} reqPills={PILLS} idStyleOf={idStyleOf} />);
         const head = screen.getByTestId('pipeline-viz-active-header');
         const toggle = screen.getByTestId('pipeline-viz-active-toggle');
@@ -117,7 +117,7 @@ describe('PlanActiveBox (req #3721)', () => {
         expect(screen.getByTestId('pipeline-viz-active-term-3721')).toBeTruthy();
     });
 
-    it('racks onto the navbar like the other information windows (req #3720)', () => {
+    it('racks onto the navbar like the other Action Popups (req #3720)', () => {
         const slot = document.createElement('div');
         document.body.appendChild(slot);
         usePanelRackStore.setState({ racked: ['active'], slot: { node: slot, width: 180 }, drag: null });

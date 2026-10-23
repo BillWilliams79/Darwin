@@ -159,7 +159,7 @@ describe('UnorchestratedReqBox', () => {
         try {
             act(() => root.render(<UnorchestratedReqBox items={items} fontPx={12} widthPx={612} />));
             const header = q('pipeline-viz-unseated-header');
-            // Every pop-up window's controls (req #3741): ▾ upper left, the
+            // Every Action Popup's controls (req #3741): ▾ upper left, the
             // upper right blank — the title is the bar's last item.
             const toggle = q('pipeline-viz-unseated-toggle');
             expect(header.firstElementChild).toBe(toggle);

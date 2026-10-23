@@ -21,7 +21,7 @@ const SystemsPage2 = () => {
                 allow="fullscreen"
                 style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
             />
-            {/* req #3792 — the topology page's own toolbar is the info windows' rack */}
+            {/* req #3792 — the topology page's own toolbar is the Action Popups' rack */}
             <ToolbarRack frameRef={frameRef} />
         </Box>
     );

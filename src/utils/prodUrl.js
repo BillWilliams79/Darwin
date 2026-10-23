@@ -1,6 +1,6 @@
 // Canonical production origin for Darwin. Used to build absolute links that must
 // always resolve against production darwin.one, regardless of which database or
-// host the current build is pointed at — notably the dev-server NavBar info panel,
+// host the current build is pointed at — notably the dev-server NavBar Action Popup,
 // which runs against the darwin_dev debug DB where requirement rows may not exist
 // (req #2757).
 export const PROD_BASE_URL = 'https://www.darwin.one';
