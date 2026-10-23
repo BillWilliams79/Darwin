@@ -126,7 +126,8 @@ describe('recordView — a stored record rendered as it was decided (I7, R12)', 
         expect(v.ok).toBe(false);
         expect(v.verdictDetail).toBeTruthy();
         const unknown = recordView(rowsOf(3).find((r) => r.verdict === 'CAPACITY-UNKNOWN').record);
-        expect(unknown.limits).toEqual({ ceiling: null, live: null, reserved: null, free: null });
+        expect(unknown.limits).toEqual({ ceiling: null, live: null, reserved: null, free: null,
+            share: null });
         expect(unknown.queue[0]).toMatchObject({ code: 'ENGINE_HOLD', detail: 'verdict CAPACITY-UNKNOWN' });
     });
 

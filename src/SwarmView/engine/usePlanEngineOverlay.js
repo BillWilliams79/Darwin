@@ -32,7 +32,7 @@ import { isStale } from '../pipelines/orchestrationHolder';
 import { resolveThisMachineId } from '../terminalFocus';
 import { assembleEngines, outcomesByRequirement, parseJsonColumn, parseUtc } from './engineModel';
 import {
-    SOURCE_ENGINE, SOURCE_PREDICTED, planOverlay, predictionCapacity, predictionClaims,
+    SOURCE_ENGINE, SOURCE_PREDICTED, flightFromRecords, planOverlay, predictionCapacity, predictionClaims,
 } from './engineOverlay';
 import { predictRecord } from './enginePredict';
 import { DESIRED_OFF, DESIRED_ON, setEngineDesiredState } from './engineSwitchApi';
@@ -165,13 +165,18 @@ export function usePlanEngineOverlay({ pipelineId, machines, claims, sessions, m
             staleTime: Infinity,
         })),
     });
-    // Keyed by value: `useQueries` hands back a new array every render.
-    const inFlightKey = otherRecords.map((q) => {
+    // What the other engines hold in flight and their limits for the fair share
+    // (req #3807). Keyed by value: `useQueries` hands back a new array every render.
+    // Only an engine that can use a slot contends (darwin-mcp list_engine_in_flight):
+    // a degraded or switched-off one still reserves what it has in flight.
+    const flightKey = JSON.stringify(otherRecords.map((q, i) => {
         const rec = q.data ? parseJsonColumn(q.data.record) : null;
-        return asArray(rec && rec.limits && rec.limits.in_flight_req_ids).join(',');
-    }).filter(Boolean).join(',');
-    const inFlightElsewhere = useMemo(() => (inFlightKey ? inFlightKey.split(',').map(Number) : []),
-        [inFlightKey]);
+        const other = others[i];
+        return rec ? { location: rec.location, limits: rec.limits,
+            contends: !!other && other.health === HEALTH_OK
+                && other.state.desired_state !== DESIRED_OFF } : null;
+    }).filter(Boolean));
+    const flight = useMemo(() => flightFromRecords(JSON.parse(flightKey)), [flightKey]);
     const otherRecordsKnown = otherRecords.every((q) => q.isSuccess);
 
     // Claims as the role rule reads them: stale ones carry `stale`. The claim
@@ -200,7 +205,7 @@ export function usePlanEngineOverlay({ pipelineId, machines, claims, sessions, m
         // say so rather than drawing a prediction in its place.
         if (latestRowId != null || machineId == null) return null;
         const capacity = predictionCapacity({ machine, sessions,
-            sessionsKnown: sessions !== undefined && otherRecordsKnown, inFlightElsewhere });
+            sessionsKnown: sessions !== undefined && otherRecordsKnown, flight, pipelineId });
         const claimsIn = predictionClaims({
             claimRows: claimRows.filter((c) => !isOwnClaim(c)), pipelineId, machineId });
         const predicted = predictRecord(payload, capacity, claimsIn, { now: now.toISOString() });
@@ -210,7 +215,7 @@ export function usePlanEngineOverlay({ pipelineId, machines, claims, sessions, m
         });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- isOwnClaim reads only deps listed
     }, [enabled, payload, engineRecord, latestRowId, claimRows, machineId, machine, sessions,
-        otherRecordsKnown, inFlightElsewhere, ownClaimFk, engineOn, pipelineId, now]);
+        otherRecordsKnown, flight, ownClaimFk, engineOn, pipelineId, now]);
 
     // ── the switch ───────────────────────────────────────────────────────────
     const [pending, setPending] = useState(null);

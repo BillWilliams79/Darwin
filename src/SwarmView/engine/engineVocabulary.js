@@ -37,7 +37,7 @@ export const PLAIN_WORDS = {
     MACHINE_PIN: 'it belongs to another machine or another lead',
     IN_FLIGHT: 'already announced, waiting to see it start',
     DEP_PRIORITY: 'no slot left, and epics it depends on still hold open work',
-    CAPACITY: 'no free slot',
+    CAPACITY: 'no free slot for this engine — full, or owed to a waiting engine that holds fewer',
     ADMITTED: 'goes now',
     REGRESSION: 'finished work re-opened',
     TOP_UP: 'new work seated on an epic already under way',
@@ -220,7 +220,9 @@ export function detailText(code, detail, names) {
             return parts.join(', ');
         }
         case 'DEP_PRIORITY':
-            return `waiting on ${list(detail.waiting_on_epic_ids, 'epic', names)}`;
+            return `waiting on ${list(detail.waiting_on_epic_ids, 'epic', names)}${owedText(detail)}`;
+        case 'CAPACITY':
+            return owedText(detail).replace(/^; /, '');
         case 'ADMITTED':
             return detail.reannounce ? `announced again (attempt ${detail.reannounce})` : '';
         default:
@@ -228,6 +230,10 @@ export function detailText(code, detail, names) {
                 .map((k) => `${k} ${JSON.stringify(detail[k])}`).join(', ');
     }
 }
+
+// A free slot this engine left for a peer on the machine (req #3807's fair share).
+const owedText = (detail) => (Array.isArray(detail.owed_to) && detail.owed_to.length
+    ? `; the free slot is owed to ${detail.owed_to.join(' and ')}` : '');
 
 /** An event (core.py `_observe`) as one sentence; `names` as `detailText`. */
 export function eventText(event, names) {
