@@ -121,8 +121,10 @@ describe('PipelineDetail — the maximize switch\'s two homes (req #3793)', () =
         expect(all('pipeline-viz-maximize')).toHaveLength(1);
         expect(row.contains(sw)).toBe(true);
         // Straight after the title's text, inside the title's slot (which is
-        // the row's spacer), ahead of the plan-mode controls.
-        expect(sw.previousElementSibling).toBe(node('pipeline-title'));
+        // the row's spacer), ahead of the plan-mode controls. The Req #
+        // launcher (req #3798) sits between the title and the switch.
+        expect(sw.previousElementSibling).toBe(node('pipeline-req-launcher'));
+        expect(sw.previousElementSibling.previousElementSibling).toBe(node('pipeline-title'));
         const slot = sw.parentElement;
         expect(slot.parentElement).toBe(row);
         const order = Array.from(row.children);
