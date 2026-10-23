@@ -84,9 +84,9 @@ import FullscreenSwitch from '../../Components/FullscreenSwitch';
 import { PLAN_MAXIMIZE_LABELS } from './planMaximize';
 import {
     readColorParam, readFocusEpicParam, readLevelParam,
-    FOCUS_LEVEL_PARAM, FOCUS_COLOR_PARAM,
+    FOCUS_EPIC_PARAM, FOCUS_LEVEL_PARAM, FOCUS_COLOR_PARAM,
 } from './pipelineEpicLink';
-import { readFocusInitiativeParam } from './pipelineInitiativeLink';
+import { readFocusInitiativeParam, FOCUS_INITIATIVE_PARAM } from './pipelineInitiativeLink';
 import { writePipelinePlace } from './pipelinePlace';
 // Req #3261 P8 — the Plan mode's own controls, in their own component, exactly
 // as `SwarmView.jsx` renders `<VisualizerToolbar />` for its canvas mode (S4).
@@ -167,9 +167,10 @@ export default function PipelineDetail() {
     const timezone = profile?.timezone;
     const pipelineId = Number(id);
 
-    // Read, never written any more (req #3641 removed the switcher): a stored
-    // 'table' from before normalizes to the one registered mode below.
-    const [mode] = useViewPreference(
+    // Written by exactly one control now: the plan toolbar's Lock chip (req
+    // #3761). Req #3641 removed the switcher that used to write it; a stored
+    // 'table' from before still normalizes onto the registry below.
+    const [mode, setMode] = useViewPreference(
         PIPELINE_DETAIL_MODE_STORAGE_KEY, DEFAULT_PIPELINE_DETAIL_MODE);
 
     // ── Mode toolbar state, OWNED HERE (req #3119) ──────────────────────────
@@ -460,12 +461,33 @@ export default function PipelineDetail() {
     const handleResetView = useCallback(() => {
         setResetViewNonce((n) => n + 1);
     }, []);
+    // req #3761 — the Lock chip's choice: persisted per tab through the mode
+    // registry, and it clears a `?mode=` link so the pick is not overridden by
+    // the very URL it was made on (a manual pick rewrites the entry's query, as
+    // the level and colour picks do).
+    // A pick also drops a focus link (`?epic=` / `?initiative=`): those mean "the
+    // plan" whatever the stored mode says, so leaving them in the URL would make
+    // the chip a dead control on every such entry.
+    const handleViewModeChange = useCallback((v) => {
+        setMode(v);
+        replaceLinkParams(['mode', FOCUS_EPIC_PARAM, FOCUS_INITIATIVE_PARAM]);
+    }, [setMode, replaceLinkParams]);
     // Normalized ONCE here rather than at each consumer: `levelOverride` is
     // already validated by `readLevelParam` and `levelPref` comes from
     // localStorage, so this is the single place a level string is proved to be
     // one of the four the vocabulary defines.
     const activeLevelPref = normalizePlanLevelPref(levelOverride ?? storedLevelPref);
     const activeMode = normalizeView(modeOverride || mode, PIPELINE_DETAIL_MODES);
+    // The Default nonce belongs to the mode it was pressed in. A panel that mounts
+    // with a nonzero nonce reads it as a click and factory-resets its camera —
+    // which cancels the epic framing an epic click in the Lock view just asked for
+    // and replaces a remembered viewport on Plan -> Lock -> Plan. So a mode change
+    // starts the next panel from 0 (which no panel acts on), in the same render.
+    const [nonceMode, setNonceMode] = useState(activeMode);
+    if (nonceMode !== activeMode) {
+        setNonceMode(activeMode);
+        setResetViewNonce(0);
+    }
 
     // `machines` is a small WHOLE-APP dictionary, not a per-plan read, and it is
     // fetched here rather than in either head because both eras need it and
@@ -1065,6 +1087,8 @@ export default function PipelineDetail() {
                         effectiveLevel={effectiveLevel}
                         onChangeLevelPref={handleLevelPrefChange}
                         onResetView={handleResetView}
+                        viewMode={activeMode}
+                        onChangeViewMode={handleViewModeChange}
                     />
 
                 {/* The status chip and the machine chip were REMOVED on the
@@ -1188,6 +1212,8 @@ export default function PipelineDetail() {
                              maximized={maximized}
                              onToggleMaximized={toggleMaximized}
                              keyHover={keyHover}
+                             orchestrationClaims={orchestrationClaims}
+                             machines={machines}
                              />
             )}
         </Box>
