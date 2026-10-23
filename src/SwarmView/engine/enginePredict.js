@@ -28,7 +28,8 @@ import { ROLE_LEAD, ROLE_SUBSCRIBER, resolveRoles } from '../pipelines/orchestra
 
 export const SCHEMA = 'engine2.decision_record/1';
 export const VERDICT_OK = 'OK';
-
+// core.py SEAT_VIOLATION.
+const SEAT_VIOLATION = 'one-epic-per-requirement';
 // core.py WITHHELD_VERDICTS.
 const WITHHELD_VERDICTS = {
     derivation_failed: 'DERIVATION-FAILED',
@@ -220,7 +221,25 @@ export function predictRecord(payload, capacity, claims, clock) {
 
     const candidates = inScope.filter((row) => Array.isArray(row.open_req_ids) && row.open_req_ids.length);
     const rawQueue = Array.isArray(derived.launch_queue) ? derived.launch_queue : [];
-    const queueIn = rawQueue.filter((q) => isDict(q) && scopeIds.has(q.epic_id));
+    // A requirement seated on two epics is never admitted (core.py, req #3757
+    // review): each of its seats is an ENGINE_HOLD item naming the violation.
+    // Any other repeat in the queue keeps its first entry only.
+    const doubleSeated = new Map();
+    if (payloadOk) {
+        for (const v of asList(derived.violations)) {
+            if (isDict(v) && v.invariant === SEAT_VIOLATION) {
+                doubleSeated.set(v.requirement_id, [...asList(v.epic_ids)]);
+            }
+        }
+    }
+    const queuedUnder = new Set();
+    const queueIn = [];
+    for (const q of rawQueue) {
+        if (!isDict(q) || !scopeIds.has(q.epic_id)) continue;
+        if (queuedUnder.has(q.requirement_id) && !doubleSeated.has(q.requirement_id)) continue;
+        queuedUnder.add(q.requirement_id);
+        queueIn.push(q);
+    }
 
     // -- epic-level codes ----------------------------------------------------
     const epicCode = new Map();
@@ -248,6 +267,11 @@ export function predictRecord(payload, capacity, claims, clock) {
     });
     for (const item of items) {
         if (item.code != null) continue;
+        if (doubleSeated.has(item.requirement_id)) {
+            item.code = 'ENGINE_HOLD';
+            item.detail = { violation: SEAT_VIOLATION, epic_ids: doubleSeated.get(item.requirement_id) };
+            continue;
+        }
         const away = pinnedAway(item.requirement_id, byId.get(item.epic_id));
         if (away != null) {
             item.code = 'MACHINE_PIN';
