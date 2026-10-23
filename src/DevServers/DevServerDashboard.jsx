@@ -37,8 +37,9 @@ import Box from '@mui/material/Box';
 import useMediaQuery from '@mui/material/useMediaQuery';
 
 import AnchoredPanel from '../Components/AnchoredPanel/AnchoredPanel';
+import { ActionPopupBadge, ActionPopupClose } from '../Components/AnchoredPanel/ActionPopupHead';
 import {
-    ACTION_POPUP_BADGE_EM, ACTION_POPUP_COLORS, ACTION_POPUP_FONT_PX, ACTION_POPUP_HEAD_PX, ACTION_POPUP_MONO, ACTION_POPUP_SX,
+    ACTION_POPUP_COLORS, ACTION_POPUP_FONT_PX, ACTION_POPUP_HEAD_PX, ACTION_POPUP_SX,
 } from '../Components/AnchoredPanel/actionPopupChrome';
 import { validDock } from '../Components/AnchoredPanel/anchoredPanelGeometry';
 import AuthContext from '../Context/AuthContext';
@@ -52,10 +53,8 @@ import {
     devServerDashboardRows, withRequirementTitles, withTerminalLinks,
 } from './devServerDashboardModel';
 
-const MONO = ACTION_POPUP_MONO;
 const FONT_PX = ACTION_POPUP_FONT_PX;
 const LIMITS = { minW: DASH_MIN_W, minH: DASH_MIN_H, autoMaxW: DASH_AUTO_MAX_W, headPx: ACTION_POPUP_HEAD_PX };
-const BADGE_EM = ACTION_POPUP_BADGE_EM;
 
 const HALF_SX = {
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
@@ -174,32 +173,13 @@ export default function DevServerDashboard() {
                        limits={LIMITS} fontPx={FONT_PX} colors={ACTION_POPUP_COLORS}
                        sx={ACTION_POPUP_SX}
                        extras={
-                           // The step card's count badge (req #3503): the green
-                           // pill, a circle for one digit, a capsule past it.
-                           <Box component="span" data-testid="devserver-dashboard-count"
-                                sx={{ display: 'inline-flex', alignItems: 'center',
-                                       justifyContent: 'center', flexShrink: 0,
-                                       minWidth: BADGE_EM, height: BADGE_EM, px: '0.35em',
-                                       boxSizing: 'border-box', borderRadius: '999px',
-                                       bgcolor: P.badgeFill, color: P.badgeText,
-                                       fontFamily: MONO, fontWeight: 700, lineHeight: 1 }}>
+                           <ActionPopupBadge testid="devserver-dashboard-count">
                                {failed ? '!' : (isLoading ? '…' : count)}
-                           </Box>
+                           </ActionPopupBadge>
                        }
-                       actions={
-                           <Box component="button" type="button"
-                                onClick={() => setShow(false)}
-                                aria-label="Hide the dashboard" title="Hide the dashboard"
-                                data-testid="devserver-dashboard-close"
-                                sx={{ width: '1.4em', height: '1.4em', p: 0, display: 'flex',
-                                       alignItems: 'center', justifyContent: 'center',
-                                       background: 'transparent', border: 'none',
-                                       borderRadius: '0.4em', color: P.text, cursor: 'pointer',
-                                       fontFamily: MONO, fontSize: '1.1em', lineHeight: 1,
-                                       '&:hover': { color: P.accent } }}>
-                               ×
-                           </Box>
-                       }>
+                       actions={<ActionPopupClose onClick={() => setShow(false)}
+                                                  label="Hide the dashboard"
+                                                  testid="devserver-dashboard-close" />                       }>
             {({ shapedWidth }) => {
                 // At the smallest, the title goes — the pill alone.
                 // Content-sized (null) is never cut.

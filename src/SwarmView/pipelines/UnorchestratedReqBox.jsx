@@ -128,7 +128,9 @@
 // the id goes bold.
 //
 // ── FOLDED, IT IS A NARROW "OR" BAR (req #3648, user directive) ───────────
-// The title bar is every Action Popup's (req #3741): the ▾ (CollapseHead) at
+// The title bar is every Action Popup's (req #3741) — the same component,
+// ActionPopupHead, since req #3821, so it lines up with the rest in the rack:
+// the ▾ (CollapseHead) at
 // the upper left, then the count as a badge, then the name — and the upper
 // right blank, since the box has no close. Folding swaps the name for "OR" and
 // narrows the box to exactly that bar — ▾, badge, "OR", nothing else changed —
@@ -186,8 +188,13 @@ import Collapse from '@mui/material/Collapse';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { lighten } from '@mui/material/styles';
 
-import CollapseHead from '../../Components/AnchoredPanel/CollapseHead';
-import { ACTION_POPUP_COLORS, ACTION_POPUP_FONT_PX } from '../../Components/AnchoredPanel/actionPopupChrome';
+import ActionPopupHead, {
+    ACTION_POPUP_BADGE_PAD_EM, ACTION_POPUP_HEAD_GAP_EM, ACTION_POPUP_HEAD_PAD_EM, ACTION_POPUP_TITLE_EM,
+    ACTION_POPUP_TITLE_TRACKING_EM, ActionPopupBadge,
+} from '../../Components/AnchoredPanel/ActionPopupHead';
+import {
+    ACTION_POPUP_BADGE_EM, ACTION_POPUP_COLORS, ACTION_POPUP_FONT_PX, ACTION_POPUP_HEAD_EM, ACTION_POPUP_MONO,
+} from '../../Components/AnchoredPanel/actionPopupChrome';
 import { rackOrder } from '../../Components/AnchoredPanel/panelRack';
 import { rackPortal, usePanelRack } from '../../Components/AnchoredPanel/usePanelRack';
 import { CARD_FRAME_W, PLAN_VIZ_PALETTE as P } from './pipelinePlanLayout';
@@ -201,7 +208,8 @@ import {
 } from '../../dnd';
 import { usePlanViewSetting } from './planViewSettings';
 
-const MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
+// The Action Popups' type — the folded bar's `ch` width depends on it.
+const MONO = ACTION_POPUP_MONO;
 
 /** The box's outline (req #3605, user directive: "a strong visible purple" —
  *  neither dark nor pastel). ~4.5:1 against the box's own background. */
@@ -218,10 +226,12 @@ const CORNER_INSET = 8;
  *  seat dialog and every menu still open over it. The visualizer lifts the
  *  seat-target outline one above it while the box is carried. */
 export const UNSEATED_FLOAT_Z = 1201;
-/** The title bar's height — what must stay inside the pane or window: its
- *  padding (2 × 0.45em) and its tallest item, the 1.45em badge, plus the 2px
- *  frame top and bottom. */
-const HEADER_H = 'calc(2.35em + 4px)';
+/** The title bar's height — what must stay inside the pane or window: every
+ *  Action Popup's head row (req #3821), plus the 2px frame top and bottom. */
+const HEADER_H = `calc(${ACTION_POPUP_HEAD_EM}em + 4px)`;
+/** The bar's colours: no rule under it — the list draws its own, so the rule
+ *  folds away with the list. */
+const HEAD_COLORS = { head: ACTION_POPUP_COLORS.head, headHover: ACTION_POPUP_COLORS.headHover };
 /** Pointer travel, px, before a mouse press on the title bar (or the grip)
  *  becomes a move — the press timeline's (req #3665). */
 const MOVE_SLOP = MOUSE_ACTIVATION_PX;
@@ -238,13 +248,17 @@ const LIST_MAX_EM = 26;
 const ROUNDING_SLACK_PX = 2;
 /** How long a fold or unfold animates, ms. */
 export const FOLD_MS = 220;
-/** The folded bar's fixed parts, in em: the title bar's side padding (2 × 0.8),
- *  its two gaps (2 × 0.6), the ▾ (1em of its own 0.9em type = 0.9) and a
- *  little slack. The badge and "OR" itself are added in `ch`. */
-const FOLDED_FIXED_EM = 1.6 + 1.2 + 0.9 + 0.6;
-/** The count badge's side padding (2 × 0.45) and its floor, in em. */
-const BADGE_PAD_EM = 0.9;
-const BADGE_MIN_EM = 1.8;
+/** The folded bar's fixed parts, in em — the shared head row's (req #3821):
+ *  its side padding, its two gaps, the ▾ (1em of the title's type), the
+ *  tracking on "OR"'s two letters and a little slack. The badge and "OR"
+ *  itself are added in `ch`. */
+const FOLDED_FIXED_EM = Math.round(1000 * (2 * ACTION_POPUP_HEAD_PAD_EM + 2 * ACTION_POPUP_HEAD_GAP_EM
+    + ACTION_POPUP_TITLE_EM + 2 * ACTION_POPUP_TITLE_TRACKING_EM * ACTION_POPUP_TITLE_EM + 0.6)) / 1000;
+/** "OR" in the title's type, in the box's `ch`. */
+const FOLDED_TITLE_CH = 2 * ACTION_POPUP_TITLE_EM;
+/** The count badge's side padding (both sides) and its floor (the badge slot), in em. */
+const BADGE_PAD_EM = 2 * ACTION_POPUP_BADGE_PAD_EM;
+const BADGE_MIN_EM = parseFloat(ACTION_POPUP_BADGE_EM);
 
 /** A double-click this soon after a move ended is the move's own release
  *  pairing with a click, not a request to send the box home. */
@@ -693,7 +707,7 @@ export default function UnorchestratedReqBox({
     // Folded, the box is exactly its "OR" bar wide: the badge holds the count's
     // digits (or the one-character loading/error mark) and "OR" is two.
     const badgeChars = isError || isLoading ? 1 : String(count).length;
-    const foldedW = `calc(${FOLDED_FIXED_EM}em + 2ch`
+    const foldedW = `calc(${FOLDED_FIXED_EM}em + ${FOLDED_TITLE_CH}ch`
         + ` + max(${BADGE_MIN_EM}em, ${badgeChars}ch + ${BADGE_PAD_EM}em) + 4px)`;
     const openDrawnW = `min(${drawn.widthPx}px, 100% - ${2 * CORNER_INSET}px)`;
     const drawnW = open ? openDrawnW : `min(${foldedW}, 100% - ${2 * CORNER_INSET}px)`;
@@ -831,53 +845,42 @@ export default function UnorchestratedReqBox({
                         '&::after': { content: '""', position: 'absolute', inset: 0,
                             borderRadius: 'inherit', pointerEvents: 'none', zIndex: 3,
                             boxShadow: `inset 0 0 0 0.3em ${OUTLINE}aa, inset 0 0 1.4em ${OUTLINE}88` } }) }}>
-            <Box ref={headerRef} data-testid="pipeline-viz-unseated-header"
-                 title={inRack
-                     ? `Drag to reorder · drag off the navbar to float it${count > 0 ? ' · drop on a step to seat them all' : ''}`
-                     : `Drag to move${count > 0 ? ' · drop on a step to seat them all' : ''}`
-                         + `${suspended ? '' : ' · drop on the navbar to rack it'} · double-click to put back`}
-                 onPointerDown={onBarDown}
-                 onPointerMove={onBarMove}
-                 onPointerUp={onBarUp}
-                 onPointerCancel={onBarUp}
-                 onLostPointerCapture={onBarUp}
-                 onDoubleClick={onBarDoubleClick}
-                 // A held finger raises no long-press menu or callout.
-                 onContextMenu={(e) => e.preventDefault()}
-                 sx={{ display: 'flex', alignItems: 'center', gap: '0.6em',
-                        px: '0.8em', py: '0.45em', flexShrink: 0,
-                        cursor: moving ? 'grabbing' : 'move', touchAction: 'none',
-                        WebkitTouchCallout: 'none', fontWeight: 600 }}>
-                {/* The ▾ at the upper left, as every Action Popup has it
-                    (req #3741); the upper right is left blank. */}
-                <CollapseHead open={open} onToggle={toggleOpen} name="Orchestrables"
-                              testid="pipeline-viz-unseated-toggle"
-                              color={ACTION_POPUP_COLORS.head} hoverColor={ACTION_POPUP_COLORS.headHover}
-                              fontSize="0.9em" showName={false} />
-                {/* The count is a badge LEFT of the name (req #3648), folded
-                    or not. */}
-                <Box component="span" data-testid="pipeline-viz-unseated-count"
-                     sx={{ flexShrink: 0, minWidth: `${BADGE_MIN_EM}em`,
-                            px: `${BADGE_PAD_EM / 2}em`, boxSizing: 'border-box',
-                            borderRadius: '1em', bgcolor: statusColor,
-                            color: '#0d1420', fontWeight: 700, lineHeight: 1.45,
-                            textAlign: 'center' }}>
-                    {isError ? '!' : (isLoading ? '…' : count)}
-                </Box>
-                {/* Folded, "OR" never gives way: the bar is sized to it. Racked,
-                    the navbar sets the width, so the name stays whole — and the
-                    icon-only navbar has room for the ▾ and badge alone. */}
-                {!narrow && (
-                <Box component="span" data-testid="pipeline-viz-unseated-title"
-                     sx={{ flex: open || inRack ? 1 : '1 0 auto',
-                            minWidth: open || inRack ? 0 : 'auto',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {dropOver && (open || inRack) ? 'Drop to un-orchestrate'
-                        : (open || inRack ? 'Orchestrables' : 'OR')}
-                </Box>
-                )}
-            </Box>
+            {/* Every Action Popup's head row (req #3821, ActionPopupHead): the
+                ▾ at the upper left (req #3741), the count as a badge LEFT of
+                the name (req #3648) folded or not, the upper right blank. */}
+            <ActionPopupHead ref={headerRef} open={open} onToggle={toggleOpen}
+                             name="Orchestrables" testid="pipeline-viz-unseated"
+                             badge={
+                                 <ActionPopupBadge testid="pipeline-viz-unseated-count"
+                                                   fill={statusColor} text="#0d1420">
+                                     {isError ? '!' : (isLoading ? '…' : count)}
+                                 </ActionPopupBadge>
+                             }
+                             // Folded, "OR" never gives way: the bar is sized to
+                             // it. Racked, the navbar sets the width, so the name
+                             // stays whole — and the icon-only navbar has room
+                             // for the ▾ and badge alone.
+                             label={dropOver && (open || inRack) ? 'Drop to un-orchestrate'
+                                 : (open || inRack ? 'Orchestrables' : 'OR')}
+                             narrow={narrow}
+                             // The list draws its own rule under the bar, so it
+                             // folds away with the list.
+                             colors={HEAD_COLORS}
+                             titleSx={{ flex: open || inRack ? 1 : '1 0 auto',
+                                        minWidth: open || inRack ? 0 : 'auto' }}
+                             title={inRack
+                                 ? `Drag to reorder · drag off the navbar to float it${count > 0 ? ' · drop on a step to seat them all' : ''}`
+                                 : `Drag to move${count > 0 ? ' · drop on a step to seat them all' : ''}`
+                                     + `${suspended ? '' : ' · drop on the navbar to rack it'} · double-click to put back`}
+                             onPointerDown={onBarDown}
+                             onPointerMove={onBarMove}
+                             onPointerUp={onBarUp}
+                             onPointerCancel={onBarUp}
+                             onLostPointerCapture={onBarUp}
+                             onDoubleClick={onBarDoubleClick}
+                             // A held finger raises no long-press menu or callout.
+                             onContextMenu={(e) => e.preventDefault()}
+                             sx={{ cursor: moving ? 'grabbing' : 'move', WebkitTouchCallout: 'none' }} />
 
             {/* Animated by the toggle, and nothing else — a carry keeps it open
                 (req #3677). Once ENTERED the wrappers are flex columns that may

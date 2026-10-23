@@ -43,6 +43,7 @@ import Box from '@mui/material/Box';
 import useMediaQuery from '@mui/material/useMediaQuery';
 
 import AnchoredPanel from '../Components/AnchoredPanel/AnchoredPanel';
+import { ActionPopupClose } from '../Components/AnchoredPanel/ActionPopupHead';
 import {
     ACTION_POPUP_COLORS, ACTION_POPUP_FONT_PX, ACTION_POPUP_HEAD_PX, ACTION_POPUP_MONO, ACTION_POPUP_SX,
 } from '../Components/AnchoredPanel/actionPopupChrome';
@@ -58,7 +59,6 @@ import { moveStepRequirement } from '../Steps/stepsApi';
 import { PLAN_VIZ_PALETTE as P } from '../SwarmView/pipelines/pipelinePlanLayout';
 import { initiativeOptions, pipelineOptions, stepOptions } from '../SwarmView/detail/orchestrationIndex';
 import { useOrchestrationIndex } from '../SwarmView/detail/useOrchestrationIndex';
-import { ActionPopupClose } from './RequirementFiler';
 import {
     ENUM_FIELDS, buildPostBody, buildPutBody, defaultsFormValues, draftDirty, draftProblem,
     machineOptions, savedValues, staleRefs,
