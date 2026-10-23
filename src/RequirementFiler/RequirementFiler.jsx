@@ -1,9 +1,12 @@
 // RequirementFiler.jsx — the Requirement Filer (req #3811): an Action Popup on
 // every page that files a requirement without leaving it. Its head says
-// REQUIREMENT and its body the one word "Create"; a click anywhere in the body
-// opens the popup requirement editor (RequirementEditorPopup.jsx) on a fresh
-// draft that starts with the last requirement's settings (user ruling
-// 2026-10-23, req #3815 — replacing #3812's DEFAULTS button).
+// REQUIREMENT, and the + after it — there open or folded — opens the popup
+// requirement editor (RequirementEditorPopup.jsx) on a fresh draft that starts
+// with the last requirement's settings (user ruling 2026-10-23, req #3815 —
+// replacing #3812's DEFAULTS button). Its body lists the requirements it has
+// filed, newest first; a click brings one back into the editor, read fresh
+// from its row (user ruling 2026-10-23, req #3830 — the + replaced the body's
+// "Create").
 //
 // CREATE RECORDS EVERYTHING, AT THE PRESS — before the editor opens, so the
 // editor is never the subject: where it was filed from (req #3813 — URL, view
@@ -20,8 +23,10 @@
 //
 // An AnchoredPanel (Components/AnchoredPanel, pattern doc
 // memory/anchored-collapse-pattern.md) in the Action Popups' own chrome
-// (actionPopupChrome.js): the ▾ head and the REQUIREMENT FILER title, × at the
-// far right. RACKABLE (`rackId`) — drag its head onto the Darwin navbar, or AI
+// (actionPopupChrome.js): the ▾ head and the REQUIREMENT title, + and × at the
+// far right. It has no badge slot: the title sits against the ▾, and folded
+// the + and × follow the title — `▸ REQUIREMENT + ×` — so the filer can live
+// folded in the rack (user ruling 2026-10-23, req #3830). RACKABLE (`rackId`) — drag its head onto the Darwin navbar, or AI
 // Architecture's toolbar, and it locks in below the nav buttons like every
 // other Action Popup; drag it off to float it again.
 //
@@ -31,17 +36,17 @@
 // Desktop only, signed in only — the navbar control is the desktop sidebar's.
 //
 // ADDRESSABLE: any page's `?filer=1` opens the filer and `?filer=new` also opens
-// a new requirement from that page, as a click does (`?filer=bug`, the
+// a new requirement from that page, as the + does (`?filer=bug`, the
 // two-button era's link, does the same) — a link (or a dev server) can land on it.
 
-import { useContext, useEffect } from 'react';
+import { useContext, useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 
 import Box from '@mui/material/Box';
 import useMediaQuery from '@mui/material/useMediaQuery';
 
 import AnchoredPanel from '../Components/AnchoredPanel/AnchoredPanel';
-import { ActionPopupClose } from '../Components/AnchoredPanel/ActionPopupHead';
+import { ActionPopupAdd, ActionPopupClose } from '../Components/AnchoredPanel/ActionPopupHead';
 import {
     ACTION_POPUP_COLORS, ACTION_POPUP_FONT_PX, ACTION_POPUP_HEAD_PX, ACTION_POPUP_MONO, ACTION_POPUP_SX,
 } from '../Components/AnchoredPanel/actionPopupChrome';
@@ -49,12 +54,13 @@ import { validDock } from '../Components/AnchoredPanel/anchoredPanelGeometry';
 import AppContext from '../Context/AppContext';
 import AuthContext from '../Context/AuthContext';
 import { SIDEBAR_WIDTH } from '../NavBar/navConfig';
+import call_rest_api from '../RestApi/RestApi';
 import { useRequirementFilerStore } from '../stores/useRequirementFilerStore';
 import { PLAN_VIZ_PALETTE as P } from '../SwarmView/pipelines/pipelinePlanLayout';
 import ThemeContext from '../Theme/ThemeContext';
 import { buildDebugCapture } from './debugBundle';
 import { filedFromNow } from './filedFromContext';
-import { draftDirty } from './requirementFilerModel';
+import { REOPEN_FIELDS, draftDirty } from './requirementFilerModel';
 
 /** The debug capture's accent — the editor's invalid-field red. */
 export const BUG_COLOR = '#ff8a80';
@@ -66,12 +72,11 @@ const LIMITS = { minW: MIN_W, minH: MIN_H, autoMaxW: 320, headPx: ACTION_POPUP_H
 /** Floating home: top-left, just clear of the full-width navbar. */
 export const FILER_HOME = Object.freeze({ h: 'l', x: SIDEBAR_WIDTH + 16, v: 't', y: 16, w: null, ht: null });
 
-/** Starts a new requirement in the editor — asking first when the one in it
- *  has changes not yet sent (an orphaned draft — committed, id unknown — has
- *  none it can send). `withCapture` — it awaits a debug capture (req #3815).
- *  Returns the new draft's key, or null when the reader kept the one in the editor. */
-export function startNewRequirement(withCapture = false) {
-    const { editorShow, draft, savedId, saved, orphaned, startNew, captureStage } = useRequirementFilerStore.getState();
+/** Whether the requirement in the editor stays there: asked when it has
+ *  changes not yet sent (an orphaned draft — committed, id unknown — has none
+ *  it can send) or a debug capture not yet saved, before another replaces it. */
+function keepsEditorDraft() {
+    const { editorShow, draft, savedId, saved, orphaned, captureStage } = useRequirementFilerStore.getState();
     const touched = !orphaned && draft && (savedId != null || (draft.title ?? '').trim() !== ''
         || (draft.description ?? '').trim() !== '');
     // A filed requirement whose capture is not saved (or not yet linked from its
@@ -80,9 +85,51 @@ export function startNewRequirement(withCapture = false) {
     const changes = touched && draftDirty(draft, savedId, saved);
     const lost = [changes && 'unsaved changes',
         captureUnsent && (captureStage === 'posted' ? 'the link to its debug capture' : 'its debug capture')].filter(Boolean);
-    if (editorShow && lost.length
-        && !window.confirm(`Discard ${lost.join(' and ')} in the requirement editor?`)) return null;
-    return startNew(withCapture);
+    return !!(editorShow && lost.length
+        && !window.confirm(`Discard ${lost.join(' and ')} in the requirement editor?`));
+}
+
+/** Starts a new requirement in the editor, unless the reader keeps the one in
+ *  it (keepsEditorDraft). `withCapture` — it awaits a debug capture (req #3815).
+ *  Returns the new draft's key, or null when the reader kept the one in the editor. */
+export function startNewRequirement(withCapture = false) {
+    if (keepsEditorDraft()) return null;
+    return useRequirementFilerStore.getState().startNew(withCapture);
+}
+
+/** Brings filed requirement `id` back into the editor (req #3830), read fresh:
+ *  its row, then its category's project. Resolves null when it is open there,
+ *  'kept' when the reader kept the draft in the editor, 'gone' when its row no
+ *  longer exists (it leaves the list), else a reason it could not be read. */
+let reopenSeq = 0;
+export async function reopenFiledRequirement(id, darwinUri, idToken) {
+    const { savedId, editorShow } = useRequirementFilerStore.getState();
+    if (savedId === id) { if (!editorShow) useRequirementFilerStore.getState().setEditorShow(true); return null; }
+    if (keepsEditorDraft()) return 'kept';
+    // The reads take a moment: the newest click wins, and a draft started or
+    // reopened meanwhile is never replaced by a slower read.
+    const seq = ++reopenSeq;
+    const { draftKey } = useRequirementFilerStore.getState();
+    const superseded = () => seq !== reopenSeq || useRequirementFilerStore.getState().draftKey !== draftKey;
+    const read = async (uri) => {
+        try {
+            const res = await call_rest_api(uri, 'GET', '', idToken);
+            return res?.httpStatus?.httpStatus === 200 ? (res.data?.[0] ?? 'gone') : 'failed';
+        } catch (e) {
+            return e?.httpStatus?.httpStatus === 404 ? 'gone' : 'failed';
+        }
+    };
+    const row = await read(`${darwinUri}/requirements?id=${id}&fields=${REOPEN_FIELDS.join(',')}`);
+    if (row === 'gone') { useRequirementFilerStore.getState().forgetFiled(id); return 'gone'; }
+    if (row === 'failed') return superseded() ? 'kept' : 'failed';
+    // Its category's project, so the Project and Category selects show it — a
+    // read that fails fails the reopen rather than open it half-shown.
+    const category = row.category_fk == null ? null
+        : await read(`${darwinUri}/categories?id=${row.category_fk}&fields=id,project_fk`);
+    if (superseded()) return 'kept';
+    if (row.category_fk != null && (typeof category !== 'object' || category?.project_fk == null)) return 'failed';
+    useRequirementFilerStore.getState().openFiled(row, category?.project_fk ?? null);
+    return null;
 }
 
 /** FILE: where it was filed from and the debug capture, both snapshotted NOW —
@@ -99,14 +146,18 @@ export function fileRequirementNow(filedFrom, profile) {
 }
 
 export default function RequirementFiler() {
-    const { profile } = useContext(AuthContext);
-    const { database } = useContext(AppContext);
+    const { profile, idToken } = useContext(AuthContext);
+    const { database, darwinUri } = useContext(AppContext);
     const theme = useContext(ThemeContext);
     const location = useLocation();
     const isDesktop = useMediaQuery('(min-width:900px)');
     const show = useRequirementFilerStore(s => s.show);
     const open = useRequirementFilerStore(s => s.open);
     const storedDock = useRequirementFilerStore(s => s.dock);
+    const filed = useRequirementFilerStore(s => s.filed);
+    const editingId = useRequirementFilerStore(s => (s.editorShow ? s.savedId : null));
+    // Why the last pick could not be opened — this session's, cleared by the next.
+    const [reopenNote, setReopenNote] = useState(null);
     const { setShow, toggleOpen, setDock } = useRequirementFilerStore.getState();
     const dock = validDock(storedDock, MIN_W, MIN_H) || FILER_HOME;
     const filerParam = new URLSearchParams(location.search).get('filer');
@@ -128,30 +179,54 @@ export default function RequirementFiler() {
 
     if (!show || !isDesktop || !profile?.userName) return null;
 
-    // The whole body is the control (user ruling 2026-10-23): the word "Create",
-    // and a click anywhere but the head starts a new requirement.
-    const onKey = (e) => {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileRequirement(); }
+    const reopen = async (id) => {
+        setReopenNote(null);
+        const outcome = await reopenFiledRequirement(id, darwinUri, idToken);
+        if (outcome === 'gone') setReopenNote(`#${id} no longer exists — taken off the list`);
+        else if (outcome === 'failed') setReopenNote(`#${id} could not be read — try again`);
     };
+    const onKey = (id) => (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); reopen(id); }
+    };
+    const row = { px: '0.7em', py: '0.25em', fontFamily: ACTION_POPUP_MONO, fontSize: '1em',
+        whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
 
     return (
         <AnchoredPanel dock={dock} onDockChange={setDock}
                        open={open} onToggle={toggleOpen}
-                       name="Requirement" testid="requirement-filer"
+                       name="Requirement" testid="requirement-filer" badgeSlot={false}
                        rackId={FILER_RACK_ID}
                        limits={LIMITS} fontPx={ACTION_POPUP_FONT_PX} colors={ACTION_POPUP_COLORS}
                        sx={ACTION_POPUP_SX}
-                       actions={<ActionPopupClose onClick={() => setShow(false)}
-                                                  label="Close the Requirement Filer"
-                                                  testid="requirement-filer-close" />}>
+                       actions={<>
+                           {/* The one way to create (req #3830): after the title folded, far right open. */}
+                           <Box sx={{ mr: '0.3em', display: 'flex' }}>
+                               <ActionPopupAdd onClick={fileRequirement}
+                                               label="Create a requirement — it starts with the last one's settings and records this page and a debug capture"
+                                               testid="requirement-filer-add" />
+                           </Box>
+                           <ActionPopupClose onClick={() => setShow(false)}
+                                             label="Close the Requirement Filer"
+                                             testid="requirement-filer-close" />
+                       </>}>
             {() => (
-                <Box role="button" tabIndex={0} onClick={fileRequirement} onKeyDown={onKey}
-                     aria-label="Create a requirement" data-testid="requirement-filer-new"
-                     title="Create a requirement — it starts with the last one's settings and records this page and a debug capture"
-                     sx={{ px: '0.7em', py: '0.5em', cursor: 'pointer', color: P.text,
-                            fontFamily: ACTION_POPUP_MONO, fontSize: '1em', whiteSpace: 'nowrap',
-                            outline: 'none', '&:hover, &:focus-visible': { color: P.accent } }}>
-                    Create
+                <Box data-testid="requirement-filer-list" sx={{ py: '0.2em' }}>
+                    {reopenNote && (
+                        <Box data-testid="requirement-filer-note" sx={{ ...row, color: BUG_COLOR, whiteSpace: 'normal' }}>
+                            {reopenNote}
+                        </Box>
+                    )}
+                    {filed.map(f => (
+                        <Box key={f.id} role="button" tabIndex={0} data-testid={`requirement-filer-item-${f.id}`}
+                             aria-current={f.id === editingId ? 'true' : undefined}
+                             onClick={() => reopen(f.id)} onKeyDown={onKey(f.id)}
+                             title={`Open #${f.id} in the requirement editor`}
+                             sx={{ ...row, cursor: 'pointer', outline: 'none',
+                                    color: f.id === editingId ? P.accent : P.text,
+                                    '&:hover, &:focus-visible': { color: P.accent } }}>
+                            <Box component="span" sx={{ color: P.dim }}>#{f.id}</Box> {f.title || '(untitled)'}
+                        </Box>
+                    ))}
                 </Box>
             )}
         </AnchoredPanel>

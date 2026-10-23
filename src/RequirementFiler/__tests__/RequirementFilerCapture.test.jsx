@@ -96,21 +96,21 @@ describe('Requirement Filer — FILE and its debug capture (req #3815)', () => {
         useRequirementFilerStore.setState({
             show: true, open: true, dock: null, editorShow: false, editorOpen: true, editorDock: null,
             draft: null, savedId: null, saved: null, lastProjectId: 4, lastCategoryId: 862,
-            draftKey: 0, orphaned: false, focusPending: false, defaults: {},
+            draftKey: 0, orphaned: false, focusPending: false, defaults: {}, filed: [],
             capture: null, captureDropped: [], captureStage: null,
         });
     });
     afterEach(cleanup);
 
     const pressFile = async () => {
-        fireEvent.click(screen.getByTestId('requirement-filer-new'));
+        fireEvent.click(screen.getByTestId('requirement-filer-add'));
         await waitFor(() => expect(screen.getByTestId('requirement-editor-capture-status').textContent)
             .toMatch(/^\d+(\.\d)? (B|KB)$/));
     };
 
-    it('Create starts a draft that carries the capture, where it was filed from first', async () => {
+    it('the + starts a draft that carries the capture, where it was filed from first', async () => {
         renderAll();
-        expect(screen.getByTestId('requirement-filer-new').textContent).toBe('Create');
+        expect(screen.getByTestId('requirement-filer-add').getAttribute('aria-label')).toMatch(/^Create a requirement/);
         expect(screen.queryByTestId('requirement-filer-bug')).toBe(null);
         await pressFile();
         expect(screen.getByTestId('requirement-editor-identity').textContent).toContain('New');
@@ -293,10 +293,12 @@ describe('Requirement Filer — FILE and its debug capture (req #3815)', () => {
         await waitFor(() => expect(rest).toHaveBeenCalledTimes(3));
         expect(rest.mock.calls[1][2].requirement_fk).toBe(3903);
 
-        // A capture a reload lost: the requirement files without one.
+        // A capture a reload lost: nothing is said of it (req #3830) — the
+        // requirement files without one.
         act(() => { useRequirementFilerStore.getState().startNew(true); });
         act(() => useRequirementFilerStore.setState({ captureStage: 'lost' }));
-        expect(screen.getByTestId('requirement-editor-capture-status').textContent).toContain('lost');
+        expect(screen.queryByTestId('requirement-editor-capture')).toBe(null);
+        expect(screen.queryByTestId('requirement-editor-capture-details-toggle')).toBe(null);
         fill('title', 'y');
         rest.mockResolvedValueOnce(ok([{ id: 3904 }]));
         fireEvent.click(screen.getByTestId('requirement-editor-save'));

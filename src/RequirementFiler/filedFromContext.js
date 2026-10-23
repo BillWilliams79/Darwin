@@ -1,5 +1,5 @@
 // filedFromContext.js — where a requirement was filed from (req #3813). The
-// Requirement Filer snapshots it the moment its body is clicked ("Create") —
+// Requirement Filer snapshots it the moment its + is clicked (req #3830) —
 // before the editor opens, so the editor is never the subject. Since req #3815
 // (user ruling 2026-10-23, absorbing #3818) it is one category of the debug
 // capture — `filedFrom` in RequirementFiler/debugBundle.js, droppable like the
