@@ -31,7 +31,7 @@ test.describe.serial('Plan canvas — touch drag and drop (req #3665)', () => {
   let projectId: string;
   let categoryId: string;
   let pipelineId: string;
-  let epicId: string;
+  let initiativeId: string;
   let step1Id: string;
   let step2Id: string;
   let seatedReqId: string;
@@ -68,9 +68,9 @@ test.describe.serial('Plan canvas — touch drag and drop (req #3665)', () => {
     seatedReqId = await post('requirements', { title: uniqueName('Seated'), category_fk: categoryId, requirement_status: 'swarm_ready' });
     readyReqId = await post('requirements', { title: uniqueName('Orchestrable'), category_fk: categoryId, requirement_status: 'swarm_ready' });
     pipelineId = await post('pipelines', { title: uniqueName('PlanDnD plan'), pipeline_status: 'draft' });
-    epicId = await post('epics', { pipeline_fk: pipelineId, title: uniqueName('PlanDnD epic'), category_fk: categoryId });
-    step1Id = await post('pipeline_steps', { epic_fk: epicId, title: 'Design' });
-    step2Id = await post('pipeline_steps', { epic_fk: epicId, title: 'Implement' });
+    initiativeId = await post('initiatives', { pipeline_fk: pipelineId, title: uniqueName('PlanDnD initiative'), category_fk: categoryId });
+    step1Id = await post('pipeline_steps', { initiative_fk: initiativeId, title: 'Design' });
+    step2Id = await post('pipeline_steps', { initiative_fk: initiativeId, title: 'Implement' });
     await link('pipeline_step_deps', { step_fk: step2Id, dep_step_fk: step1Id }, `step_fk=${step2Id}`);
     await link('pipeline_step_requirements', { step_fk: step1Id, requirement_fk: seatedReqId },
       `requirement_fk=${seatedReqId}`);
@@ -79,7 +79,7 @@ test.describe.serial('Plan canvas — touch drag and drop (req #3665)', () => {
   test.afterAll(async () => {
     // Dependent step first: the dependency edge RESTRICTs its target's delete.
     for (const id of [step2Id, step1Id]) if (id) await apiDelete('pipeline_steps', id, idToken);
-    if (epicId) await apiDelete('epics', epicId, idToken);
+    if (initiativeId) await apiDelete('initiatives', initiativeId, idToken);
     if (pipelineId) await apiDelete('pipelines', pipelineId, idToken);
     for (const id of [seatedReqId, readyReqId]) if (id) await apiDelete('requirements', id, idToken);
     if (categoryId) await apiDelete('categories', categoryId, idToken);

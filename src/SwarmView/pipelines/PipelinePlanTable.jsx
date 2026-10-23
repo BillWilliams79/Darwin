@@ -15,7 +15,7 @@
 //   2. A step row carries a MULTI-LINE payload — the requirement links and, on
 //      scheduled work, the exact `/swarm-start` argument list (design rule 8).
 //      A grid row is one line of records; this is not.
-//   3. Epic renders once per contiguous group — a property OF THE ORDER, which
+//   3. Initiative renders once per contiguous group — a property OF THE ORDER, which
 //      re-sorting or filtering silently falsifies.
 //
 // Everything in table-design.md that still applies is applied: compact density,
@@ -94,7 +94,7 @@ const NOWRAP = { whiteSpace: 'nowrap' };
 
 // Column widths sized to the widest realistic value at compact density
 // (table-design.md § "Column widths must fit content"): step ids run 4 digits,
-// machine labels join two names, epic/feature titles run ~30 chars. Only the
+// machine labels join two names, initiative/feature titles run ~30 chars. Only the
 // summary column flexes.
 //
 // `deps` fits a formatted wall-clock gate ("after Jul 23, 2026, 11:31 PM"), not
@@ -114,7 +114,7 @@ const COL = {
     run: 300,
     machine: 148,
     cost: 96,
-    epic: 190,
+    initiative: 190,
     // NOTE: `reqs` (below) was widened from 168 by req #3371 — the step row now
     // carries the `/swarm-start` command under its requirement links, and the
     // command's arguments ARE those ids.
@@ -365,7 +365,7 @@ function RequirementLinks({ row, pipelineId, statusOf, autonomyOf }) {
 // IT WRAPS, WHICH HALVES THE TABLE'S OVERFLOW RATHER THAN REMOVING IT (req
 // #3365 polish). This cell was `nowrap`, and the paragraph above used to end
 // "The TableContainer scrolls instead" — which it does, at a measured cost: on
-// plan 7 the epic label "Primary AI/Swarm Session adopt Agent Harness" forced
+// plan 7 the initiative label "Primary AI/Swarm Session adopt Agent Harness" forced
 // this column to **344px** against its declared 190, taking the table to 1665px
 // inside a 1372px container and pushing the LAST column ("Depends on")
 // off-screen at a 1600px viewport. So the price of not wrapping one label was
@@ -390,13 +390,13 @@ function RequirementLinks({ row, pipelineId, statusOf, autonomyOf }) {
 // the wrapped second line lands entirely inside the FIRST row of the run and
 // makes that one row taller unless its other cells are already as tall. On plan
 // 7 they are (requirement ids plus the launch line, and three lines of clamped
-// notes), and the tallest epic cell measures 73px against a 73px row — but that
+// notes), and the tallest initiative cell measures 73px against a 73px row — but that
 // is this data, so `memory/table-design.md`'s "vertical scroll caused by wrap is
 // never acceptable" is satisfied here by measurement rather than by construction.
 //
 // SINGLE VALUE ONLY (req #3373) — no dominant-plus-full-set tooltip. The Feature
 // column this once shared a signature with is gone, and the engine's own
-// `epicLabels` set (design rule 10's multi-epic case) is a field this table no
+// `initiativeLabels` set (design rule 10's multi-initiative case) is a field this table no
 // longer reads, matching the datacard's identical choice for the same reason.
 function GroupCell({ show, value, width, color, testid }) {
     const text = show ? (value || '—') : '';
@@ -485,7 +485,7 @@ export default function PipelinePlanTable({ plan, model, pipeline, timezone, foc
     // and the RECORD is not — where the link left them IS where they are, and a
     // null key here (the tempting one-liner) would drop their position instead of
     // deferring to the link. Same doctrine PipelinePlanVisualizer applies to
-    // `?epic=`: a link asks to see one thing once and must never overwrite what
+    // `?initiative=`: a link asks to see one thing once and must never overwrite what
     // the reader chose.
     const linkOwnsScroll = focusStepId != null;
     useScrollMemory(planScrollKey, window, { restore: !linkOwnsScroll });
@@ -568,7 +568,7 @@ export default function PipelinePlanTable({ plan, model, pipeline, timezone, foc
                             {showCost && (
                                 <TableCell sx={{ ...NOWRAP, width: COL.cost }}>Cost</TableCell>
                             )}
-                            <TableCell sx={{ ...NOWRAP, width: COL.epic }}>Epic</TableCell>
+                            <TableCell sx={{ ...NOWRAP, width: COL.initiative }}>Initiative</TableCell>
                             <TableCell sx={{ ...NOWRAP, width: COL.reqs }}>
                                 Requirement(s)
                             </TableCell>
@@ -578,7 +578,7 @@ export default function PipelinePlanTable({ plan, model, pipeline, timezone, foc
                     </TableHead>
                     <TableBody>
                         {renderRows.map((entry) => {
-                            const { row, showEpic, eligible } = entry;
+                            const { row, showInitiative, eligible } = entry;
                             const running = row.state === STEP_RUNNING;
                             // The visualizer-focused row outranks the state tints:
                             // the user just clicked THIS bead and must find it.
@@ -729,10 +729,10 @@ export default function PipelinePlanTable({ plan, model, pipeline, timezone, foc
                                             {fmtCost(row.cost?.wallSecs, row.cost?.tokens)}
                                         </TableCell>
                                     )}
-                                    <GroupCell show={showEpic} value={row.epic}
-                                               width={COL.epic}
+                                    <GroupCell show={showInitiative} value={row.initiative}
+                                               width={COL.initiative}
                                                color="#b07fd8"
-                                               testid={`pipeline-epic-${row.id}`} />
+                                               testid={`pipeline-initiative-${row.id}`} />
                                     <TableCell sx={{ width: COL.reqs }}>
                                         <RequirementLinks row={row} pipelineId={pipeline?.id}
                                                           statusOf={statusOf}
@@ -792,7 +792,7 @@ export default function PipelinePlanTable({ plan, model, pipeline, timezone, foc
                                         width, which under `table-layout: auto`
                                         widens the whole table — re-creating on
                                         this column the horizontal scroll this
-                                        same change removes from the epic one —
+                                        same change removes from the initiative one —
                                         and `overflow: hidden` would clip it mid
                                         token with no ellipsis to say so.
                                         Latent rather than live: plan 7's
@@ -839,7 +839,7 @@ export default function PipelinePlanTable({ plan, model, pipeline, timezone, foc
 
             <Typography variant="caption" color="text.secondary"
                         sx={{ display: 'block', mt: 1.5 }}>
-                Hierarchy: Epic &gt; Story (requirement). Step state is derived
+                Hierarchy: Initiative &gt; Story (requirement). Step state is derived
                 from the linked requirements and is never stored; row order is computed
                 — topological, then Complete before Running before Scheduled — and
                 verified on every render.

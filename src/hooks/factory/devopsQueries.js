@@ -79,9 +79,9 @@ export const devServers = createEntityQueries({
 // never read by the UI). The detail view fetches the full single row, so it gets
 // phase_tokens regardless of this projection.
 // ---------------------------------------------------------------------------
-// Req #3186 — `pipeline_fk` / `epic_fk` (orchestration attribution) join the
+// Req #3186 — `pipeline_fk` / `initiative_fk` (orchestration attribution) join the
 // projection. Two NULL-able INTs, and their whole purpose is to let a page
-// showing MANY sessions label each one's pipeline/epic from the row it already
+// showing MANY sessions label each one's pipeline/initiative from the row it already
 // fetched; leaving them out would force the six-read walk the columns exist to
 // remove. The gateway validates every `fields=` name against the live table and
 // 400s the WHOLE read on an unknown one, so this projection may only widen once
@@ -115,7 +115,7 @@ export const devServers = createEntityQueries({
 const SWARM_SESSION_DEFAULT_FIELDS =
     'id,branch,task_name,source_type,source_ref,title,pr_url,swarm_status,ai_model,effort,' +
     'worktree_path,machine_fk,terminal_window_id,terminal_number,' +
-    'pipeline_fk,epic_fk,started_at,completed_at,last_transition_at,' +
+    'pipeline_fk,initiative_fk,started_at,completed_at,last_transition_at,' +
     'starting_secs,waiting_secs,planning_secs,implementing_secs,review_secs,' +
     'completion_secs,paused_secs,legacy_secs,instrumented,pre_pause_status,' +
     'phase_tokens,creator_fk,create_ts,update_ts';
@@ -384,7 +384,7 @@ export const agentTelemetryRowDocs = createEntityQueries({
 
 // ---------------------------------------------------------------------------
 // Swarm Orchestration — pipelines-as-data (req #3114, schema from req #3111
-// migration 076). The four EXECUTION tables behind /swarm/pipelines; `epics`,
+// migration 076). The four EXECUTION tables behind /swarm/pipelines; `initiatives`,
 // the one surviving tier above them, lives in useDataQueries.js.
 //
 // Routes through the default `darwinUri` (dev/prod split, req #2683). NOT `ops`
@@ -412,8 +412,8 @@ export const agentTelemetryRowDocs = createEntityQueries({
 // **DELIBERATELY NOT `ops: true`, unlike `dev_servers`**, and the difference is
 // the JOIN. `dev_servers` is matched against `window.location.port` — a fact
 // that belongs to no database — so pinning it to production is coherent. Every
-// consumer of THIS table joins `pipeline_fk` / `epic_fk` against rows from
-// `pipelines` and `epics`, which follow the dev/prod split (req #2683). Pinning
+// consumer of THIS table joins `pipeline_fk` / `initiative_fk` against rows from
+// `pipelines` and `initiatives`, which follow the dev/prod split (req #2683). Pinning
 // only one side of that join reads a PRODUCTION `pipeline_fk` and looks it up
 // among DEV plan ids: `darwin_dev` carries fixture pipelines at the same low
 // ids, so a dev browser would render "Orchestrated by <machine> · 2h 05m" on a
@@ -428,13 +428,13 @@ export const agentTelemetryRowDocs = createEntityQueries({
 // is not.
 //
 // The whole table is a handful of rows (one per RESERVED SCOPE, and a scope is
-// a plan or one of its epics), so the page fetches it unfiltered ONCE and joins
+// a plan or one of its initiatives), so the page fetches it unfiltered ONCE and joins
 // client-side. That keeps the request count a function of the number of TABLES
 // a page draws on, never of the number of plans on it — the same invariant
 // PipelineDetail states in its header.
 //
-// `epic_key` is a VIRTUAL generated column carrying the UNIQUE key; it is
-// deliberately not projected, because `epic_fk` is the column with meaning and
+// `initiative_key` is a VIRTUAL generated column carrying the UNIQUE key; it is
+// deliberately not projected, because `initiative_fk` is the column with meaning and
 // a second copy of it on the wire would invite a join against the wrong one.
 export const orchestrationClaims = createEntityQueries({
     entity: 'orchestration_claims',
@@ -445,7 +445,7 @@ export const orchestrationClaims = createEntityQueries({
     // columns the table has; asking for the era-marked spellings would 400 the
     // read.
     defaultFields:
-        'id,pipeline_fk,epic_fk,machine_fk,terminal_pid,' +
+        'id,pipeline_fk,initiative_fk,machine_fk,terminal_pid,' +
         'engine_pid,polls,claimed_at,creator_fk,create_ts,update_ts',
     fieldsInKey: true,
     defaultSort: 'claimed_at:asc',
@@ -488,7 +488,7 @@ export const pipelines = createEntityQueries({
 });
 
 // ---------------------------------------------------------------------------
-// The plan-layer EDITORS (req #3393) — epics, steps and their two junctions.
+// The plan-layer EDITORS (req #3393) — initiatives, steps and their two junctions.
 // `pipelines` above is the req #3463 id PRODUCER (a thin list); these four are
 // what a person actually edits (execution_mode aside, which lives on the
 // pipeline row itself, above).
@@ -497,26 +497,26 @@ export const pipelines = createEntityQueries({
 // these are the editor pages' own reads, not an id-producing index, and the
 // description dialogs/fields need it inline.
 //
-// This block also absorbed the hand-written `useAllEpics`/`useEpicById` pair
+// This block also absorbed the hand-written `useAllInitiatives`/`useInitiativeById` pair
 // that used to read this same table from `useDataQueries.js` (req #3356). Two
 // readers of one entity with different projections is the req #2213 collision
 // this file's `fieldsInKey` exists to prevent, and the hand-written pair had no
 // consumer left once the 1.0 plan surface went.
-export const epics = createEntityQueries({
-    entity: 'epics',
+export const initiatives = createEntityQueries({
+    entity: 'initiatives',
     defaultFields:
-        // req #3649 — `locked` (a frozen epic freezes its steps).
-        'id,pipeline_fk,title,description,epic_status,locked,sort_order,category_fk,' +
+        // req #3649 — `locked` (a frozen initiative freezes its steps).
+        'id,pipeline_fk,title,description,initiative_status,locked,sort_order,category_fk,' +
         'closed,creator_fk,create_ts,update_ts',
     fieldsInKey: true,
     defaultSort: 'sort_order:asc',
 });
 
 // No `pipeline_fk` — containment means a step's plan is derived through its
-// epic (data record § 6). `sort=id:asc` IS LOAD-BEARING, not cosmetic: there is
+// initiative (data record § 6). `sort=id:asc` IS LOAD-BEARING, not cosmetic: there is
 // no sequence column (design rule 3 — display order is computed at render), and
 // `pipelineModel.displayOrder()` uses a row's position in the input array as its
-// deterministic FINAL tie-break for the done band, root ranking and epic
+// deterministic FINAL tie-break for the done band, root ranking and initiative
 // first-appearance order. "Canonical stored order" for a table whose only stable
 // identity is its AUTO_INCREMENT id means id ascending; without the explicit
 // sort the plan could re-order between renders on an unordered result set.
@@ -526,7 +526,7 @@ export const pipelineSteps = createEntityQueries({
     // req #3750 — no `completed_at`: a step has no state and the column is
     // dropped, so naming it would 400 the whole read.
     defaultFields:
-        'id,epic_fk,title,run,checkpoint,locked,notes,not_before,creator_fk',
+        'id,initiative_fk,title,run,checkpoint,locked,notes,not_before,creator_fk',
     fieldsInKey: true,
     defaultSort: 'id:asc',
 });

@@ -5,7 +5,7 @@
 // CONTROL, not of two subtly different behaviours.
 //
 // A created plan is OPENED at once: it is born `draft` and empty, and the plan
-// page is where its first epic and step are added (`EmptyPlanAddStep.jsx`).
+// page is where its first initiative and step are added (`EmptyPlanAddStep.jsx`).
 
 import { useCallback, useContext, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';

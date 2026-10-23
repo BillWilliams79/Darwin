@@ -20,7 +20,7 @@ const req = (o) => ({
     machine_fk: null, coordination_type: 'implemented', tracking: 0,
     started_at: null, completed_at: null, ...o,
 });
-const row = (o) => ({ id: 1, reqIds: [], epicId: 1, ...o });
+const row = (o) => ({ id: 1, reqIds: [], initiativeId: 1, ...o });
 const index = (reqs) => new Map(reqs.map((r) => [r.id, r]));
 
 describe('requirementLastActivity (req #3692)', () => {
@@ -130,10 +130,10 @@ describe('planTimeAxis', () => {
             req({ id: 3, requirement_status: 'authoring' }),
         ];
         const rows = [
-            row({ id: 10, epicId: 5, reqIds: [1] }),
-            row({ id: 11, epicId: 5, reqIds: [2] }),
-            row({ id: 12, epicId: 6, reqIds: [3] }),
-            row({ id: 13, epicId: null, reqIds: [] }),
+            row({ id: 10, initiativeId: 5, reqIds: [1] }),
+            row({ id: 11, initiativeId: 5, reqIds: [2] }),
+            row({ id: 12, initiativeId: 6, reqIds: [3] }),
+            row({ id: 13, initiativeId: null, reqIds: [] }),
         ];
         const { stepStarts, bandStarts, bandKinds } = planTimeAxis(rows, reqs);
         expect(bandStarts.get(5)).toBe('2026-07-24T00:00:00');
@@ -147,15 +147,15 @@ describe('planTimeAxis', () => {
     });
 
     // A NULL start used to mean both "has not begun" and "began, but nobody
-    // stamped it", which sorted an ACTIVE epic into the backlog tier.
-    it('separates an unstamped-but-active epic from a never-started one', () => {
+    // stamped it", which sorted an ACTIVE initiative into the backlog tier.
+    it('separates an unstamped-but-active initiative from a never-started one', () => {
         const reqs = [
             req({ id: 1, requirement_status: 'development' }),   // in flight, unstamped
             req({ id: 2, requirement_status: 'authoring' }),     // untouched backlog
         ];
         const rows = [
-            row({ id: 1, epicId: 7, reqIds: [1] }),
-            row({ id: 2, epicId: 6, reqIds: [2] }),
+            row({ id: 1, initiativeId: 7, reqIds: [1] }),
+            row({ id: 2, initiativeId: 6, reqIds: [2] }),
         ];
         const { bandStarts, bandKinds } = planTimeAxis(rows, reqs);
         expect(bandStarts.get(7)).toBe(null);
@@ -227,7 +227,7 @@ describe('empty step placement (req #3618)', () => {
 });
 
 // req #3692 — rule 4: a RUNNING step sits on TODAY, so every open step of every
-// epic stacks in one column, and a step worked today sits on today by rule 1.
+// initiative stacks in one column, and a step worked today sits on today by rule 1.
 describe('running and today\'s work share one column (req #3692)', () => {
     const NOW = '2026-10-20T07:50:00Z';
 
@@ -252,11 +252,11 @@ describe('running and today\'s work share one column (req #3692)', () => {
         expect(stepStarts.get(1)).toEqual({ at: '2026-10-17T09:00:00', kind: TIME_DATED });
     });
 
-    // Live pipeline 10, 2026-10-20: the Sunday Review epic's steps each had a
+    // Live pipeline 10, 2026-10-20: the Sunday Review initiative's steps each had a
     // requirement close on the 19th AND one close (or start) on the 20th; the
-    // Drag and Drop epic's one running step started on the 20th. Under the
+    // Drag and Drop initiative's one running step started on the 20th. Under the
     // req #3201 minimum they split across two day columns.
-    it('puts two epics\' running and today-worked steps on the same day', () => {
+    it('puts two initiatives\' running and today-worked steps on the same day', () => {
         const reqs = [
             req({ id: 3642, completed_at: '2026-10-19T03:00:00' }),
             req({ id: 3677, completed_at: '2026-10-20T01:00:00' }),
@@ -267,10 +267,10 @@ describe('running and today\'s work share one column (req #3692)', () => {
             req({ id: 3663, requirement_status: 'swarm_ready' }),
         ];
         const rows = [
-            row({ id: 320, epicId: 24, reqIds: [3642, 3677, 3691], state: 'running' }),
-            row({ id: 321, epicId: 24, reqIds: [3643, 3689], state: 'done' }),
-            row({ id: 325, epicId: 25, reqIds: [3662], state: 'running' }),
-            row({ id: 326, epicId: 25, reqIds: [3663], state: 'pending' }),
+            row({ id: 320, initiativeId: 24, reqIds: [3642, 3677, 3691], state: 'running' }),
+            row({ id: 321, initiativeId: 24, reqIds: [3643, 3689], state: 'done' }),
+            row({ id: 325, initiativeId: 25, reqIds: [3662], state: 'running' }),
+            row({ id: 326, initiativeId: 25, reqIds: [3663], state: 'pending' }),
         ];
         const { stepStarts } = planTimeAxis(rows, reqs, NOW);
         const day = (id) => stepStarts.get(id).at.slice(0, 10);
@@ -351,7 +351,7 @@ describe('localDayOf (req #3692)', () => {
 // req #3692, the user's review of the first cut — rule 6: today's work drags
 // its not-yet-started dependents onto today. Live pipeline 10's Drag and Drop
 // steps 326-328 queued behind running 325 were flung past the whole Sunday
-// Review epic into the FUTURE slot.
+// Review initiative into the FUTURE slot.
 describe('today\'s work drags its queued dependents with it (req #3692)', () => {
     const NOW = '2026-10-20T19:00:00Z';
 

@@ -104,7 +104,7 @@ const node = (testId) => document.body.querySelector(`[data-testid="${testId}"]`
 // A heartbeat stamped now, in the MySQL UTC shape Lambda-Rest returns.
 const NOW_STAMP = () => new Date().toISOString().slice(0, 19).replace('T', ' ');
 const liveClaim = (over) => ({
-    pipeline_fk: 2, epic_fk: null, terminal_pid: 100, engine_pid: 200,
+    pipeline_fk: 2, initiative_fk: null, terminal_pid: 100, engine_pid: 200,
     claimed_at: NOW_STAMP(), update_ts: NOW_STAMP(), ...over,
 });
 

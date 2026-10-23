@@ -1,14 +1,14 @@
 // req #3650 — the layout half of the per-box collapse heads. Every step card
 // carries its head as the title line's first control (req #3648 — it had a row
 // of its own, labelled "REQS"); a FOLDED step reserves no requirement
-// block and draws no rows; a FOLDED epic keeps its header and places no cards —
-// without moving any other epic's card sideways.
+// block and draws no rows; a FOLDED initiative keeps its header and places no cards —
+// without moving any other initiative's card sideways.
 
 import { describe, it, expect } from 'vitest';
 
 import {
-    computePlanLayout, cardHeight, cardTitleH, drawsLabelKind, placeEpicChips,
-    BAND_HEADER_FOLDED, EPIC_CHIP_H,
+    computePlanLayout, cardHeight, cardTitleH, drawsLabelKind, placeInitiativeChips,
+    BAND_HEADER_FOLDED, INITIATIVE_CHIP_H,
     CARD_PAD_Y, CARD_PAD_X, CARD_FRAME_X, CARD_COLLAPSE_W, CARD_TITLE_BTN,
     CARD_HEAD_LABEL, CARD_LINE_H, STEP_WIDTH_RUNGS, NAME_INLINE_MIN_CHARS, CHW_LABEL,
     CARD_COLLAPSE_GAP, CARD_CLUSTER_H, CARD_CLUSTER_W,
@@ -16,13 +16,13 @@ import {
     CARD_BADGE_GAP, CARD_NAME_LEFT_RESERVE,
 } from '../pipelinePlanLayout';
 
-const mk = (id, epicId, depIds = [], reqIds = []) => ({
+const mk = (id, initiativeId, depIds = [], reqIds = []) => ({
     id, title: `step ${id}`, run: 'auto', state: 'pending', reqIds,
-    depIds, timeDeps: [], epicId, epic: `epic-${epicId}`,
-    epicLabels: [], featureLabels: [], machineLabels: [], machineLabel: '—',
+    depIds, timeDeps: [], initiativeId, initiative: `initiative-${initiativeId}`,
+    initiativeLabels: [], featureLabels: [], machineLabels: [], machineLabel: '—',
 });
 
-// Two epics: 5 holds a chain 10 -> 11, 6 holds 12 which waits on 11.
+// Two initiatives: 5 holds a chain 10 -> 11, 6 holds 12 which waits on 11.
 const ROWS = [
     mk(10, 5, [], [101, 102, 103]),
     mk(11, 5, [10], [104]),
@@ -235,10 +235,10 @@ describe('a folded step (req #3650)', () => {
     });
 });
 
-describe('a folded epic (req #3650)', () => {
+describe('a folded initiative (req #3650)', () => {
     const open = computePlanLayout(ROWS);
-    const folded = computePlanLayout(ROWS, { collapsedEpicIds: new Set([5]) });
-    const band = (l, id) => l.bands.find((b) => b.epicId === id);
+    const folded = computePlanLayout(ROWS, { collapsedInitiativeIds: new Set([5]) });
+    const band = (l, id) => l.bands.find((b) => b.initiativeId === id);
 
     it('keeps its header — the chip that unfolds it — and draws no lanes', () => {
         const b = band(folded, 5);
@@ -247,7 +247,7 @@ describe('a folded epic (req #3650)', () => {
         expect(b.height).toBe(b.headerH);
         expect(b.height).toBeLessThan(band(open, 5).height);
         expect(b.stepIds).toEqual([10, 11]);
-        expect(folded.labels.some((l) => l.kind === 'epic' && l.epicId === 5)).toBe(true);
+        expect(folded.labels.some((l) => l.kind === 'initiative' && l.initiativeId === 5)).toBe(true);
     });
 
     it('places none of its steps and draws none of their labels or arcs', () => {
@@ -259,7 +259,7 @@ describe('a folded epic (req #3650)', () => {
             .toBe(false);
     });
 
-    it('moves the other epic up but never sideways, and leaves it open', () => {
+    it('moves the other initiative up but never sideways, and leaves it open', () => {
         const a = open.nodes.get(12);
         const b = folded.nodes.get(12);
         expect(b.x).toBeCloseTo(a.x, 6);
@@ -269,28 +269,28 @@ describe('a folded epic (req #3650)', () => {
         expect(folded.labels.filter((l) => l.kind === 'req' && l.stepId === 12)).toHaveLength(2);
     });
 
-    it('folds the "No epic" band by its own null key', () => {
+    it('folds the "No initiative" band by its own null key', () => {
         const rows = [mk(1, null), mk(2, 5, [1])];
-        const l = computePlanLayout(rows, { collapsedEpicIds: new Set([null]) });
-        expect(l.bands.find((b) => b.epicId == null).collapsed).toBe(true);
+        const l = computePlanLayout(rows, { collapsedInitiativeIds: new Set([null]) });
+        expect(l.bands.find((b) => b.initiativeId == null).collapsed).toBe(true);
         expect(l.nodes.has(1)).toBe(false);
         expect(l.nodes.has(2)).toBe(true);
     });
 });
 
 // req #3805 — "reduce the white space between closed initiatives in up and
-// down directions by 70%". Folded epics stacked one under another: the gap
-// between their floating title bars, measured on the chips `placeEpicChips`
+// down directions by 70%". Folded initiatives stacked one under another: the gap
+// between their floating title bars, measured on the chips `placeInitiativeChips`
 // actually places, at native scale (k = 1: world px = screen px).
-describe('folded epics stack closer (req #3805)', () => {
-    // Five one-step epics, the middle three folded, so a run of folded bands
+describe('folded initiatives stack closer (req #3805)', () => {
+    // Five one-step initiatives, the middle three folded, so a run of folded bands
     // sits between two open ones.
     const RUN = [mk(1, 1), mk(2, 2, [1]), mk(3, 3, [2]), mk(4, 4, [3]), mk(5, 5, [4])];
     const FOLD = new Set([2, 3, 4]);
     const open = computePlanLayout(RUN);
-    const folded = computePlanLayout(RUN, { collapsedEpicIds: FOLD });
-    const band = (l, id) => l.bands.find((b) => b.epicId === id);
-    const chipsAt = (l, k, vh = 4000) => placeEpicChips({
+    const folded = computePlanLayout(RUN, { collapsedInitiativeIds: FOLD });
+    const band = (l, id) => l.bands.find((b) => b.initiativeId === id);
+    const chipsAt = (l, k, vh = 4000) => placeInitiativeChips({
         bands: l.bands, transform: { x: 0, y: 0, k },
         viewport: { w: 2000, h: vh }, worldWidth: l.width,
     });
@@ -300,13 +300,13 @@ describe('folded epics stack closer (req #3805)', () => {
     // folded title bars stood one open header + one band gap apart: the gap
     // between them was that pitch less the chip, 108 + 8 − 24 = 92.
     const bandGap = band(open, 2).y - (band(open, 1).y + band(open, 1).height);
-    const oldGap = band(open, 1).headerH + bandGap - EPIC_CHIP_H;
+    const oldGap = band(open, 1).headerH + bandGap - INITIATIVE_CHIP_H;
 
     it('cuts the gap between stacked folded title bars by 70% at native scale', () => {
         expect(oldGap).toBe(92);
-        const chips = chipsAt(folded, 1).filter((c) => FOLD.has(c.epicId));
+        const chips = chipsAt(folded, 1).filter((c) => FOLD.has(c.initiativeId));
         expect(chips).toHaveLength(3);
-        for (const c of chips) expect(c.h).toBe(EPIC_CHIP_H);
+        for (const c of chips) expect(c.h).toBe(INITIATIVE_CHIP_H);
         for (const g of gaps(chips)) {
             expect(g).toBeCloseTo(28, 6);
             expect(1 - g / oldGap).toBeCloseTo(0.7, 2);
@@ -314,7 +314,7 @@ describe('folded epics stack closer (req #3805)', () => {
     });
 
     it('derives BAND_HEADER_FOLDED from the 70% (pinned literal, recomputed here)', () => {
-        expect(BAND_HEADER_FOLDED).toBe(Math.round(EPIC_CHIP_H + 0.3 * oldGap - bandGap));
+        expect(BAND_HEADER_FOLDED).toBe(Math.round(INITIATIVE_CHIP_H + 0.3 * oldGap - bandGap));
         for (const id of FOLD) expect(band(folded, id).headerH).toBe(BAND_HEADER_FOLDED);
     });
 
@@ -322,30 +322,30 @@ describe('folded epics stack closer (req #3805)', () => {
         for (const id of [1, 5]) {
             expect(band(folded, id).headerH).toBe(band(open, id).headerH);
             expect(band(folded, id).height).toBe(band(open, id).height);
-            expect(band(folded, id).epicLaneH).toBe(band(open, id).epicLaneH);
+            expect(band(folded, id).initiativeLaneH).toBe(band(open, id).initiativeLaneH);
         }
         expect(folded.nodes.get(5).x).toBe(open.nodes.get(5).x);
     });
 
-    it('never lets two folded title bars overlap, and names every folded epic down to k = 0.38', () => {
+    it('never lets two folded title bars overlap, and names every folded initiative down to k = 0.38', () => {
         for (const k of [2, 1, 0.75, 0.5, 0.4, 0.38]) {
             const chips = chipsAt(folded, k);
-            expect(chips.map((c) => c.epicId), `k=${k}`).toEqual([1, 2, 3, 4, 5]);
+            expect(chips.map((c) => c.initiativeId), `k=${k}`).toEqual([1, 2, 3, 4, 5]);
             for (const g of gaps(chips)) expect(g, `k=${k}`).toBeGreaterThan(0);
         }
     });
 
     // Code review: a folded band's name no longer fits inside its own 44px
     // band at landing scales, and the per-band push bound dropped it — plan 7
-    // (two epics, both folded) LANDED at k = 0.148 with one of them nameless.
-    // A run of folded bands shares its room instead (`placeEpicChips`).
-    it('names every folded epic at landing scales when nothing open follows the run', () => {
+    // (two initiatives, both folded) LANDED at k = 0.148 with one of them nameless.
+    // A run of folded bands shares its room instead (`placeInitiativeChips`).
+    it('names every folded initiative at landing scales when nothing open follows the run', () => {
         const pair = computePlanLayout([mk(1, 1), mk(2, 2, [1])],
-            { collapsedEpicIds: new Set([1, 2]) });
-        const after = computePlanLayout(RUN, { collapsedEpicIds: new Set([3, 4, 5]) });
+            { collapsedInitiativeIds: new Set([1, 2]) });
+        const after = computePlanLayout(RUN, { collapsedInitiativeIds: new Set([3, 4, 5]) });
         for (const k of [0.3, 0.2, 0.148, 0.1]) {
-            expect(chipsAt(pair, k).map((c) => c.epicId), `pair k=${k}`).toEqual([1, 2]);
-            expect(chipsAt(after, k).map((c) => c.epicId), `after k=${k}`)
+            expect(chipsAt(pair, k).map((c) => c.initiativeId), `pair k=${k}`).toEqual([1, 2]);
+            expect(chipsAt(after, k).map((c) => c.initiativeId), `after k=${k}`)
                 .toEqual([1, 2, 3, 4, 5]);
             for (const l of [pair, after]) {
                 for (const g of gaps(chipsAt(l, k))) expect(g, `k=${k}`).toBeGreaterThan(0);
@@ -353,19 +353,19 @@ describe('folded epics stack closer (req #3805)', () => {
         }
     });
 
-    it('a long run ABOVE an open epic thins out below k = 0.3 rather than overlaps — the measured cost', () => {
+    it('a long run ABOVE an open initiative thins out below k = 0.3 rather than overlaps — the measured cost', () => {
         const rows = [1, 2, 3, 4, 5, 6, 7, 8].map((i) => mk(i, i, i > 1 ? [i - 1] : []));
-        const l = computePlanLayout(rows, { collapsedEpicIds: new Set([2, 3, 4, 5, 6, 7]) });
-        const named = (k) => chipsAt(l, k).map((c) => c.epicId);
+        const l = computePlanLayout(rows, { collapsedInitiativeIds: new Set([2, 3, 4, 5, 6, 7]) });
+        const named = (k) => chipsAt(l, k).map((c) => c.initiativeId);
         expect(named(0.3)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
         expect(named(0.25)).toHaveLength(7);
         expect(named(0.2)).toHaveLength(6);
         for (const k of [0.3, 0.25, 0.2]) {
             const chips = chipsAt(l, k);
             for (const g of gaps(chips)) expect(g, `k=${k}`).toBeGreaterThan(0);
-            // Every folded name's box stays above the open epic's cards.
-            const open = l.bands.find((b) => b.epicId === 8);
-            for (const c of chips.filter((x) => x.epicId !== 8)) {
+            // Every folded name's box stays above the open initiative's cards.
+            const open = l.bands.find((b) => b.initiativeId === 8);
+            for (const c of chips.filter((x) => x.initiativeId !== 8)) {
                 expect(c.y + c.h, `k=${k}`).toBeLessThanOrEqual((open.y + open.headerH) * k + 1e-6);
             }
         }

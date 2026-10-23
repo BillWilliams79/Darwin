@@ -92,13 +92,13 @@ describe('deriveDiagnostic — the four regimes (req #3345 § 4.5 / #3367 delive
     });
 });
 
-describe('buildPlanRows — joining derived.rows[] back onto steps[]/epics[]/requirements[]', () => {
+describe('buildPlanRows — joining derived.rows[] back onto steps[]/initiatives[]/requirements[]', () => {
     const payload = composedFixture({
         id: 6,
         steps: [
-            { id: 71, epic_fk: 5, title: 'Mirror Layer', run: 'auto',
+            { id: 71, initiative_fk: 5, title: 'Mirror Layer', run: 'auto',
                 notes: 'evidence', not_before: '2026-08-01 00:00:00' },
-            { id: 72, epic_fk: 5, title: 'Clone Core', run: 'manual',
+            { id: 72, initiative_fk: 5, title: 'Clone Core', run: 'manual',
                 notes: null, not_before: null },
             // The step with work IN FLIGHT, joined to real step/requirement
             // rows like its neighbours. A derived row with no entry in
@@ -106,10 +106,10 @@ describe('buildPlanRows — joining derived.rows[] back onto steps[]/epics[]/req
             // `payload.requirements` is a shape a composed read cannot
             // produce, and it would silently weaken the "both survive the
             // reshape" claim for every JOINED field (title, machineLabels).
-            { id: 73, epic_fk: 5, title: 'Topped Up', run: 'auto',
+            { id: 73, initiative_fk: 5, title: 'Topped Up', run: 'auto',
                 notes: null, not_before: null },
         ],
-        epics: [{ id: 5, title: 'Swarm Cloned Git', sort_order: 3 }],
+        initiatives: [{ id: 5, title: 'Swarm Cloned Git', sort_order: 3 }],
         requirements: [
             { id: 3001, requirement_status: 'swarm_ready', machine_fk: 2, tracking: 0 },
             { id: 3002, requirement_status: 'met', machine_fk: null, tracking: 1 },
@@ -129,7 +129,7 @@ describe('buildPlanRows — joining derived.rows[] back onto steps[]/epics[]/req
     // emits (snake_case, compact — module header).
     payload.derived.rows = [
         {
-            id: 71, open_req_ids: [3001], run: 'auto', eligible: true, epic_id: 5,
+            id: 71, open_req_ids: [3001], run: 'auto', eligible: true, initiative_id: 5,
             dep_ids: [], out_of_scope_dep_ids: [], req_ids: [3001, 3002],
             tracking_req_ids: [3002], unresolved_req_ids: [], launch_req_ids: [3001],
             launch_excluded: ['3002 tracking container'], launch_block: null,
@@ -137,7 +137,7 @@ describe('buildPlanRows — joining derived.rows[] back onto steps[]/epics[]/req
             launch_suppressed: false, suppressed_by: [],
         },
         {
-            id: 72, open_req_ids: [], run: 'manual', eligible: false, epic_id: 5,
+            id: 72, open_req_ids: [], run: 'manual', eligible: false, initiative_id: 5,
             dep_ids: [71], out_of_scope_dep_ids: [], req_ids: [], tracking_req_ids: [],
             unresolved_req_ids: [], launch_req_ids: [], launch_excluded: [],
             launch_block: 'no-links', swarm_start_command: null,
@@ -151,7 +151,7 @@ describe('buildPlanRows — joining derived.rows[] back onto steps[]/epics[]/req
         {
             id: 73, open_req_ids: [3003, 3004], run: 'auto', eligible: true,
             gate_open: true, launch_candidate: true,
-            checkpoint_blocked_by: [70], epic_id: 5,
+            checkpoint_blocked_by: [70], initiative_id: 5,
             dep_ids: [], out_of_scope_dep_ids: [], req_ids: [3003, 3004],
             tracking_req_ids: [], unresolved_req_ids: [], launch_req_ids: [3004],
             launch_excluded: [], launch_block: null,
@@ -190,7 +190,7 @@ describe('buildPlanRows — joining derived.rows[] back onto steps[]/epics[]/req
         // The JOINED fields resolve too, which is what makes "both survive the
         // reshape" a real claim rather than one about two booleans.
         expect(running.title).toBe('Topped Up');
-        expect(running.epic).toBe('Swarm Cloned Git');
+        expect(running.initiative).toBe('Swarm Cloned Git');
         expect(running.machineLabels).toEqual(['Mac mini']);
     });
 
@@ -221,15 +221,15 @@ describe('buildPlanRows — joining derived.rows[] back onto steps[]/epics[]/req
         expect(rows.find((x) => x.id === 72).timeDeps).toEqual([]);
     });
 
-    it('joins the epic dictionary — exactly ONE epic per step, no dominant-label tally', () => {
+    it('joins the initiative dictionary — exactly ONE initiative per step, no dominant-label tally', () => {
         const r = rows.find((x) => x.id === 71);
-        expect(r.epicId).toBe(5);
-        expect(r.epic).toBe('Swarm Cloned Git');
-        expect(r.epicSortOrder).toBe(3);
-        expect(r.epicLabels).toEqual([{ id: 5, title: 'Swarm Cloned Git' }]);
+        expect(r.initiativeId).toBe(5);
+        expect(r.initiative).toBe('Swarm Cloned Git');
+        expect(r.initiativeSortOrder).toBe(3);
+        expect(r.initiativeLabels).toEqual([{ id: 5, title: 'Swarm Cloned Git' }]);
     });
 
-    it('never marks a row label-inherited — 2.0 containment gives every step its own epic', () => {
+    it('never marks a row label-inherited — 2.0 containment gives every step its own initiative', () => {
         expect(rows.every((r) => r.labelInherited === false)).toBe(true);
     });
 
@@ -243,13 +243,13 @@ describe('buildPlanRows — joining derived.rows[] back onto steps[]/epics[]/req
 
     it('degrades an unresolvable machine id to the POC #<id> form', () => {
         const payload2 = composedFixture({
-            steps: [{ id: 1, epic_fk: null, title: 'S', run: 'auto', notes: null,
+            steps: [{ id: 1, initiative_fk: null, title: 'S', run: 'auto', notes: null,
                 not_before: null }],
             requirements: [{ id: 1, requirement_status: 'swarm_ready', machine_fk: 999 }],
             stepRequirements: [{ step_fk: 1, requirement_fk: 1 }],
         });
         payload2.derived.rows = [{
-            id: 1, open_req_ids: [1], run: 'auto', eligible: false, epic_id: null,
+            id: 1, open_req_ids: [1], run: 'auto', eligible: false, initiative_id: null,
             dep_ids: [], out_of_scope_dep_ids: [], req_ids: [1], tracking_req_ids: [],
             unresolved_req_ids: [], launch_req_ids: [], launch_excluded: [],
             launch_block: 'not-ready', swarm_start_command: null, no_launch_reason: 'x',
@@ -261,13 +261,13 @@ describe('buildPlanRows — joining derived.rows[] back onto steps[]/epics[]/req
 
     it('a NULL machine_fk labels Any', () => {
         const payload2 = composedFixture({
-            steps: [{ id: 1, epic_fk: null, title: 'S', run: 'auto', notes: null,
+            steps: [{ id: 1, initiative_fk: null, title: 'S', run: 'auto', notes: null,
                 not_before: null }],
             requirements: [{ id: 1, requirement_status: 'swarm_ready', machine_fk: null }],
             stepRequirements: [{ step_fk: 1, requirement_fk: 1 }],
         });
         payload2.derived.rows = [{
-            id: 1, open_req_ids: [1], run: 'auto', eligible: false, epic_id: null,
+            id: 1, open_req_ids: [1], run: 'auto', eligible: false, initiative_id: null,
             dep_ids: [], out_of_scope_dep_ids: [], req_ids: [1], tracking_req_ids: [],
             unresolved_req_ids: [], launch_req_ids: [], launch_excluded: [],
             launch_block: 'not-ready', swarm_start_command: null, no_launch_reason: 'x',
@@ -280,12 +280,12 @@ describe('buildPlanRows — joining derived.rows[] back onto steps[]/epics[]/req
     it('preserves derived.rows[] array order — already display order, never re-sorted', () => {
         const reversedPayload = composedFixture();
         reversedPayload.derived.rows = [
-            { id: 2, open_req_ids: [], run: 'auto', eligible: false, epic_id: null,
+            { id: 2, open_req_ids: [], run: 'auto', eligible: false, initiative_id: null,
                 dep_ids: [], out_of_scope_dep_ids: [], req_ids: [], tracking_req_ids: [],
                 unresolved_req_ids: [], launch_req_ids: [], launch_excluded: [],
                 launch_block: 'no-links', swarm_start_command: null, no_launch_reason: 'x',
                 launch_suppressed: false, suppressed_by: [] },
-            { id: 1, open_req_ids: [], run: 'auto', eligible: false, epic_id: null,
+            { id: 1, open_req_ids: [], run: 'auto', eligible: false, initiative_id: null,
                 dep_ids: [], out_of_scope_dep_ids: [], req_ids: [], tracking_req_ids: [],
                 unresolved_req_ids: [], launch_req_ids: [], launch_excluded: [],
                 launch_block: 'no-links', swarm_start_command: null, no_launch_reason: 'x',
@@ -298,18 +298,18 @@ describe('buildPlanRows — joining derived.rows[] back onto steps[]/epics[]/req
 
 describe('adaptComposedPipeline — the plan object', () => {
     const payload = composedFixture({
-        steps: [{ id: 1, epic_fk: 9, title: 'S', run: 'auto', notes: null,
+        steps: [{ id: 1, initiative_fk: 9, title: 'S', run: 'auto', notes: null,
             not_before: null }],
-        epics: [{ id: 9, title: 'E', sort_order: 1 }],
+        initiatives: [{ id: 9, title: 'E', sort_order: 1 }],
         requirements: [{ id: 100, requirement_status: 'swarm_ready', machine_fk: null }],
         stepRequirements: [{ step_fk: 1, requirement_fk: 100 }],
     });
     payload.derived = {
         now: '2026-08-09T00:00:00Z',
-        epic_order: [9],
+        initiative_order: [9],
         display_order: [1],
         rows: [{
-            id: 1, open_req_ids: [100], run: 'auto', eligible: true, epic_id: 9,
+            id: 1, open_req_ids: [100], run: 'auto', eligible: true, initiative_id: 9,
             dep_ids: [], out_of_scope_dep_ids: [], req_ids: [100], tracking_req_ids: [],
             unresolved_req_ids: [], launch_req_ids: [100], launch_excluded: [],
             launch_block: null, swarm_start_command: '/swarm-start 100',
@@ -317,11 +317,11 @@ describe('adaptComposedPipeline — the plan object', () => {
         }],
         pause: {
             pipeline_status: 'active', pipeline_paused: false,
-            paused_epic_ids: [], suppressed_step_ids: [],
+            paused_initiative_ids: [], suppressed_step_ids: [],
         },
         serial: {
-            execution_mode: 'serial', serial: true, epic_order: [9],
-            closed_epic_ids: [], live_epic_id: 9, waiting_epic_ids: [], held_step_ids: [],
+            execution_mode: 'serial', serial: true, initiative_order: [9],
+            closed_initiative_ids: [], live_initiative_id: 9, waiting_initiative_ids: [], held_step_ids: [],
         },
         eligible_step_ids: [1],
         violations: [{ invariant: 'topology', message: 'x renders before y', step_ids: [1, 2] }],
@@ -332,7 +332,7 @@ describe('adaptComposedPipeline — the plan object', () => {
         out_of_scope_dep_ids: [],
         requirement_counts: {
             overall: { met: 0, total: 1 },
-            by_epic: [{ epic_id: 9, met: 0, total: 1 }],
+            by_initiative: [{ initiative_id: 9, met: 0, total: 1 }],
         },
     };
 
@@ -379,11 +379,11 @@ describe('adaptComposedPipeline — the plan object', () => {
         ]);
     });
 
-    it('reshapes requirement_counts -> requirementCounts, by_epic -> byEpic/epicId', () => {
+    it('reshapes requirement_counts -> requirementCounts, by_initiative -> byInitiative/initiativeId', () => {
         const plan = adaptComposedPipeline(payload);
         expect(plan.requirementCounts).toEqual({
             overall: { met: 0, total: 1 },
-            byEpic: [{ epicId: 9, met: 0, total: 1 }],
+            byInitiative: [{ initiativeId: 9, met: 0, total: 1 }],
         });
     });
 
@@ -391,15 +391,15 @@ describe('adaptComposedPipeline — the plan object', () => {
         const plan = adaptComposedPipeline(payload);
         expect(plan.pause).toEqual({
             pipelineStatus: 'active', pipelinePaused: false,
-            pausedEpicIds: [], suppressedStepIds: [],
+            pausedInitiativeIds: [], suppressedStepIds: [],
         });
     });
 
     it('reshapes serial verbatim', () => {
         const plan = adaptComposedPipeline(payload);
         expect(plan.serial).toEqual({
-            executionMode: 'serial', serial: true, epicOrder: [9],
-            closedEpicIds: [], liveEpicId: 9, waitingEpicIds: [], heldStepIds: [],
+            executionMode: 'serial', serial: true, initiativeOrder: [9],
+            closedInitiativeIds: [], liveInitiativeId: 9, waitingInitiativeIds: [], heldStepIds: [],
         });
     });
 
@@ -435,12 +435,12 @@ describe('buildPlanModel — the narrow model PipelinePlanVisualizer.jsx still r
         expect(model.requirements).toEqual(payload.requirements);
         expect(model.machines).toBe(machines);
         expect(model.features).toBeUndefined();
-        // req #3586 — the add-step dialog's epic picker.
-        expect(model.epics).toEqual(payload.epics);
+        // req #3586 — the add-step dialog's initiative picker.
+        expect(model.initiatives).toEqual(payload.initiatives);
     });
 
     it('tolerates a null payload', () => {
-        expect(buildPlanModel(null)).toEqual({ pipeline: null, requirements: [], machines: [], epics: [] });
+        expect(buildPlanModel(null)).toEqual({ pipeline: null, requirements: [], machines: [], initiatives: [] });
     });
 
     it('attaches session_status from the index, no_session for a requirement it does not name (req #3584)', () => {
@@ -496,8 +496,8 @@ describe('adaptComposedPipeline — empty step placement (req #3618)', () => {
     const fixture = (status) => {
         const payload = composedFixture({
             steps: [
-                { id: 1, epic_fk: null, title: 'work', run: 'auto', notes: null, not_before: null },
-                { id: 2, epic_fk: null, title: 'empty', run: 'auto', notes: null, not_before: null },
+                { id: 1, initiative_fk: null, title: 'work', run: 'auto', notes: null, not_before: null },
+                { id: 2, initiative_fk: null, title: 'empty', run: 'auto', notes: null, not_before: null },
             ],
             requirements: [{ id: 10, requirement_status: status,
                 started_at: status === 'development' ? '2026-10-18T06:00:00' : null, completed_at: null }],
@@ -553,7 +553,7 @@ describe('visualizerColourInput — the canvas colour input, not a step state (r
 describe('buildPlanRows — the colour rollup at the join (req #3750)', () => {
     const payloadFor = (requirements, derivedRow) => {
         const p = composedFixture({
-            steps: [{ id: 1, epic_fk: null, title: 'S', run: 'auto', notes: null, not_before: null }],
+            steps: [{ id: 1, initiative_fk: null, title: 'S', run: 'auto', notes: null, not_before: null }],
             requirements,
             stepRequirements: requirements.map((r) => ({ step_fk: 1, requirement_fk: r.id })),
         });

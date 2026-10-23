@@ -117,7 +117,7 @@ let vibrate;
 let hadVibrate;
 
 const step = (id, title, locked = 0) => ({
-    id, epic_fk: 5, title, run: 'auto', notes: null, locked, not_before: null,
+    id, initiative_fk: 5, title, run: 'auto', notes: null, locked, not_before: null,
 });
 
 beforeEach(() => {
@@ -156,7 +156,7 @@ afterEach(() => {
 
 function render() {
     const payload = composedFixture({
-        epics: [{ id: 5, title: 'Build', pipeline_fk: 2, sort_order: 1 }],
+        initiatives: [{ id: 5, title: 'Build', pipeline_fk: 2, sort_order: 1 }],
         steps: [step(10, 'Design'), step(11, 'Frozen', 1), step(12, 'Implement')],
         stepDeps: [{ id: 1, step_fk: 11, dep_step_fk: 10 }, { id: 2, step_fk: 12, dep_step_fk: 11 }],
         requirements: [{ id: 900, title: 'Move me', requirement_status: 'swarm_ready', tracking: 0 }],

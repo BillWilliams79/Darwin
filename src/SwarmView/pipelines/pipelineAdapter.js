@@ -11,8 +11,8 @@
 // requirement counts — server side, ONE producer, consumed identically by the
 // MCP daemon and the browser. Everything below is RESHAPING: snake_case wire
 // keys to the camelCase `PlanRow`/`plan` shapes `pipelinePlanLayout.js`,
-// `pipelineEpicZoom.js` and `pipelineViewModel.js`'s render helpers already
-// expect, plus joining the composed payload's own `steps[]`/`epics[]`/
+// `pipelineInitiativeZoom.js` and `pipelineViewModel.js`'s render helpers already
+// expect, plus joining the composed payload's own `steps[]`/`initiatives[]`/
 // `requirements[]` dictionaries back onto the thin `derived.rows[]`.
 //
 // `derived.rows[]` already arrives in DISPLAY ORDER (`pipeline2_derive.py`
@@ -22,21 +22,21 @@
 // WHY A JOIN IS NEEDED AT ALL. `derived.rows[]` is deliberately compact — ids,
 // enums, short id lists (req #3078 payload budget; every per-row field there
 // is "an id, an enum string, a boolean, or a short list of one of those").
-// `title`/`notes`/`not_before` live on `steps[]`; the epic's title and
-// `sort_order` live on `epics[]`; machine labels are derived from
+// `title`/`notes`/`not_before` live on `steps[]`; the initiative's title and
+// `sort_order` live on `initiatives[]`; machine labels are derived from
 // `requirements[].machine_fk` (2.0 does not carry a `machines` dictionary of
 // its own — the caller supplies one from `useMachines`, a small whole-app
 // table, same pattern `buildCostIndex`'s two reads already use for cost).
 //
 // WHAT DOES NOT EXIST IN 2.0, deliberately not synthesized:
 //   - the retired middle-tier label fields on a row — 2.0 has no such tier;
-//     every row's epic comes directly from containment
-//     (`pipeline_steps.epic_fk`), never a chained lookup through it, so there
-//     is exactly one epic per step, not a dominant-label tally over several.
+//     every row's initiative comes directly from containment
+//     (`pipeline_steps.initiative_fk`), never a chained lookup through it, so there
+//     is exactly one initiative per step, not a dominant-label tally over several.
 //   - `batches`/`batchLetterByStepId` — Batch does not exist in 2.0 (req
 //     #3371 owns removing the drawing machinery; this module never builds one
 //     to remove).
-//   - `labelInherited` — 2.0's `epic_fk` is NOT NULL (containment), so a step
+//   - `labelInherited` — 2.0's `initiative_fk` is NOT NULL (containment), so a step
 //     never lacks a label to inherit from a dependency the way a req-less 1.0
 //     step could.
 //   - a STEP STATE. A step has no state (req #3750, user ruling 2026-10-21):
@@ -115,16 +115,16 @@ export function deriveDiagnostic(payload) {
     };
 }
 
-// `epics.sort_order` as a finite number or null — never a string, never NaN.
+// `initiatives.sort_order` as a finite number or null — never a string, never NaN.
 // Lambda-Rest hands the column back as a real int/null (it is written through
 // the MCP tools' own validation, never hand-typed JSON here), so this is a
-// narrower guard than pipelineModel.js's `epicSortOrderOf` needs for a value
+// narrower guard than pipelineModel.js's `initiativeSortOrderOf` needs for a value
 // that might arrive as an arbitrary string — but the same WHITELIST shape,
 // for the same reason: `Number([])` is 0 and `Number(true)` is 1 in
 // JavaScript, so naming the two legal input types closes that class outright.
-function epicSortOrderOf(epic) {
-    if (!epic) return null;
-    const raw = epic.sort_order;
+function initiativeSortOrderOf(initiative) {
+    if (!initiative) return null;
+    const raw = initiative.sort_order;
     if (typeof raw !== 'number' && typeof raw !== 'string') return null;
     const n = Number(raw);
     return Number.isFinite(n) ? n : null;
@@ -160,7 +160,7 @@ function machineLabelsFor(reqIds, trackingReqIds, reqsById, machinesById) {
 //
 // The plan visualizer and the plan table still paint a step from a three-value
 // vocabulary (`STEP_DONE`/`STEP_RUNNING`/`STEP_PENDING` — the bead fill, the
-// band colours, the "today" stack, the epic zoom's next-launch skip). The user
+// band colours, the "today" stack, the initiative zoom's next-launch skip). The user
 // ruled that changing HOW the visualizer tracks colour belongs to a separate
 // requirement ("let the other requirement change the color tracking in the
 // visualizer"), so this function keeps those consumers drawing exactly as they
@@ -191,9 +191,9 @@ export function visualizerColourInput(gatingIds, openReqIds, reqsById) {
 
 /**
  * `derived.rows[]` (display order, already) joined against `steps[]`/
- * `epics[]`/`requirements[]` into `PlanRow`-shaped objects — the same shape
+ * `initiatives[]`/`requirements[]` into `PlanRow`-shaped objects — the same shape
  * `pipelineModel.js::buildPlanRows` produces, so `planRenderRows`,
- * `pipelinePlanLayout.js` and `pipelineEpicZoom.js` cannot tell which engine
+ * `pipelinePlanLayout.js` and `pipelineInitiativeZoom.js` cannot tell which engine
  * built the row they are drawing.
  *
  * @param {Object} payload    a composed `pipeline_compose` read, derived present
@@ -204,24 +204,24 @@ export function visualizerColourInput(gatingIds, openReqIds, reqsById) {
 export function buildPlanRows(payload, machines = []) {
     const derived = payload.derived || {};
     const stepsById = new Map(asArray(payload.steps).map((s) => [s.id, s]));
-    const epicsById = new Map(asArray(payload.epics).map((e) => [e.id, e]));
+    const initiativesById = new Map(asArray(payload.initiatives).map((e) => [e.id, e]));
     const reqsById = new Map(asArray(payload.requirements).map((r) => [r.id, r]));
     const machinesById = new Map(asArray(machines).map((m) => [m.id, m]));
     const planLocked = isFlagOn(payload.pipeline?.locked, false);
 
     return asArray(derived.rows).map((dr) => {
         const step = stepsById.get(dr.id) || {};
-        const epic = dr.epic_id != null ? epicsById.get(dr.epic_id) : null;
+        const initiative = dr.initiative_id != null ? initiativesById.get(dr.initiative_id) : null;
         const labels = machineLabelsFor(
             dr.req_ids, dr.tracking_req_ids, reqsById, machinesById);
         // req #3649 — the two stored flags, read the way the derivation
         // reads them (`checkpoint` absent = the column DEFAULT, on). The lock
-        // CASCADES: a step under a locked epic or plan is as frozen as one
+        // CASCADES: a step under a locked initiative or plan is as frozen as one
         // locked itself, and `lockedBy` names the OUTERMOST lock so the
         // control can say which one to lift.
         const locked = isFlagOn(dr.locked ?? step.locked, false);
-        const epicLocked = isFlagOn(epic?.locked, false);
-        const lockedBy = planLocked ? 'pipeline' : epicLocked ? 'epic' : locked ? 'step' : null;
+        const initiativeLocked = isFlagOn(initiative?.locked, false);
+        const lockedBy = planLocked ? 'pipeline' : initiativeLocked ? 'initiative' : locked ? 'step' : null;
         const tracking = new Set(dr.tracking_req_ids || []);
         const gatingIds = (dr.req_ids || []).filter((rid) => !tracking.has(rid));
         const openReqIds = Array.isArray(dr.open_req_ids) ? dr.open_req_ids : gatingIds;
@@ -254,10 +254,10 @@ export function buildPlanRows(payload, machines = []) {
             // list, but `formatTimeGates` already takes an array and this
             // keeps every existing render call site unchanged.
             timeDeps: step.not_before ? [step.not_before] : [],
-            epicId: dr.epic_id != null ? dr.epic_id : null,
-            epic: epic ? epic.title : null,
-            epicSortOrder: epicSortOrderOf(epic),
-            epicLabels: epic ? [{ id: epic.id, title: epic.title }] : [],
+            initiativeId: dr.initiative_id != null ? dr.initiative_id : null,
+            initiative: initiative ? initiative.title : null,
+            initiativeSortOrder: initiativeSortOrderOf(initiative),
+            initiativeLabels: initiative ? [{ id: initiative.id, title: initiative.title }] : [],
             labelInherited: false,
             machineLabels: labels,
             machineLabel: labels.length ? labels.join(' / ') : '—',
@@ -327,8 +327,8 @@ export function adaptComposedPipeline(payload, { machines = [], costIndex = null
     const rc = derived.requirement_counts || {};
     const requirementCounts = {
         overall: rc.overall || { met: 0, total: 0 },
-        byEpic: asArray(rc.by_epic).map((b) => ({
-            epicId: b.epic_id, met: b.met, total: b.total,
+        byInitiative: asArray(rc.by_initiative).map((b) => ({
+            initiativeId: b.initiative_id, met: b.met, total: b.total,
         })),
     };
 
@@ -336,7 +336,7 @@ export function adaptComposedPipeline(payload, { machines = [], costIndex = null
     const pause = {
         pipelineStatus: pauseSrc.pipeline_status != null ? pauseSrc.pipeline_status : null,
         pipelinePaused: Boolean(pauseSrc.pipeline_paused),
-        pausedEpicIds: pauseSrc.paused_epic_ids || [],
+        pausedInitiativeIds: pauseSrc.paused_initiative_ids || [],
         suppressedStepIds: pauseSrc.suppressed_step_ids || [],
     };
 
@@ -344,10 +344,10 @@ export function adaptComposedPipeline(payload, { machines = [], costIndex = null
     const serial = {
         executionMode: serialSrc.execution_mode || 'parallel',
         serial: Boolean(serialSrc.serial),
-        epicOrder: serialSrc.epic_order || [],
-        closedEpicIds: serialSrc.closed_epic_ids || [],
-        liveEpicId: serialSrc.live_epic_id != null ? serialSrc.live_epic_id : null,
-        waitingEpicIds: serialSrc.waiting_epic_ids || [],
+        initiativeOrder: serialSrc.initiative_order || [],
+        closedInitiativeIds: serialSrc.closed_initiative_ids || [],
+        liveInitiativeId: serialSrc.live_initiative_id != null ? serialSrc.live_initiative_id : null,
+        waitingInitiativeIds: serialSrc.waiting_initiative_ids || [],
         heldStepIds: serialSrc.held_step_ids || [],
     };
 
@@ -390,11 +390,11 @@ export function adaptComposedPipeline(payload, { machines = [], costIndex = null
         launchQueue: asArray(derived.launch_queue).map((e) => ({
             stepId: e.step_id, requirementId: e.requirement_id,
         })),
-        // req #3649 — the plan's own lock and the epics locked in their own
+        // req #3649 — the plan's own lock and the initiatives locked in their own
         // right, for the band chips and the header control. A step's
         // effective lock is already on its row (`effectiveLocked`/`lockedBy`).
         locked: isFlagOn(payload.pipeline?.locked, false),
-        lockedEpicIds: new Set(asArray(payload.epics)
+        lockedInitiativeIds: new Set(asArray(payload.initiatives)
             .filter((e) => isFlagOn(e.locked, false)).map((e) => e.id)),
         cycleDetected: Boolean(derived.cycle_detected),
         cycleStepIds: derived.cycle_step_ids || [],
@@ -412,13 +412,13 @@ export function adaptComposedPipeline(payload, { machines = [], costIndex = null
  * (`model.requirements` for the autonomy/model/effort hover card,
  * `model.machines` for by-machine colouring) — narrower than 1.0's
  * `PipelineModel`, because 2.0's composed payload carries nothing else `model`
- * was ever asked for (no retired middle tier, and `steps`/`epics`/
+ * was ever asked for (no retired middle tier, and `steps`/`initiatives`/
  * `stepRequirements`/`stepDeps` are already folded into `plan.rows` above).
  *
  * @param {Object} payload
  * @param {Object[]} [machines]
  * @param {?Map<number, string>} [sessionStatus]  buildSessionStatusIndex output
- * @returns {{pipeline: ?Object, requirements: Object[], machines: Object[], epics: Object[]}}
+ * @returns {{pipeline: ?Object, requirements: Object[], machines: Object[], initiatives: Object[]}}
  */
 export function buildPlanModel(payload, machines = [], sessionStatus = null) {
     const requirements = asArray(payload && payload.requirements);
@@ -434,8 +434,8 @@ export function buildPlanModel(payload, machines = [], sessionStatus = null) {
             }))
             : requirements,
         machines: asArray(machines),
-        // req #3586 — the epic picker of the visualizer's add-step dialog. The
-        // payload's own `epics[]`, so an epic with no steps yet is offered too.
-        epics: asArray(payload && payload.epics),
+        // req #3586 — the initiative picker of the visualizer's add-step dialog. The
+        // payload's own `initiatives[]`, so an initiative with no steps yet is offered too.
+        initiatives: asArray(payload && payload.initiatives),
     };
 }

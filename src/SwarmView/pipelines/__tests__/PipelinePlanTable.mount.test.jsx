@@ -50,8 +50,8 @@ const PLAN = {
             openReqIds: [3324], state: 'running',
             reqIds: [3324], trackingReqIds: [], unresolvedReqIds: [],
             depIds: [], timeDeps: [],
-            epicId: 4, epic: 'Orchestration',
-            epicLabels: ['Orchestration'],
+            initiativeId: 4, initiative: 'Orchestration',
+            initiativeLabels: ['Orchestration'],
             machines: [], cost: 1.23,
         },
         {
@@ -60,8 +60,8 @@ const PLAN = {
             reqIds: [3223, 3224], trackingReqIds: [], unresolvedReqIds: [],
             // A step dependency AND a time gate, so `formatTimeGates` runs too.
             depIds: [47], timeDeps: [{ at: '2026-08-04T12:00:00Z' }],
-            epicId: 4, epic: 'Orchestration',
-            epicLabels: ['Orchestration'],
+            initiativeId: 4, initiative: 'Orchestration',
+            initiativeLabels: ['Orchestration'],
             machines: [], cost: null,
             // req #3371 — design rule 8's artifact, now a property of the row.
             // A PARTIAL exclusion too, which is the common case: two linked
@@ -140,12 +140,12 @@ describe('PipelinePlanTable mounts (req #3324)', () => {
 
     // req #3649 — the barrier chip on every row (absent = the column
     // default, a barrier) and the lock chip only on an effectively-locked row.
-    // Row 48 becomes a PRIORITY step frozen by its epic's lock; row 47 carries
+    // Row 48 becomes a PRIORITY step frozen by its initiative's lock; row 47 carries
     // none of the flags, which is the adapter's absent default. A per-test plan,
     // because a locked row also withholds the "+" the tests below rely on.
     it('renders the barrier/priority chip and the inherited lock chip', () => {
         const locked = { ...PLAN, rows: PLAN.rows.map((r) => (r.id === 48
-            ? { ...r, checkpoint: false, locked: false, effectiveLocked: true, lockedBy: 'epic' }
+            ? { ...r, checkpoint: false, locked: false, effectiveLocked: true, lockedBy: 'initiative' }
             : r)) };
         render({ plan: locked });
         const q = (id) => document.querySelector(`[data-testid="${id}"]`);

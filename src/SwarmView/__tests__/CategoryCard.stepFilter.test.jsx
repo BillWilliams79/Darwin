@@ -21,7 +21,7 @@ import { DarwinDndContext } from '../../dnd';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
-// See the epic suite's note: the first mounted `it()` absorbs the cold
+// See the initiative suite's note: the first mounted `it()` absorbs the cold
 // module-compile cost of dnd-kit + MUI + this card.
 vi.setConfig({ testTimeout: 30000 });
 
@@ -63,7 +63,7 @@ const CATEGORY = { id: 5, category_name: 'Test Cat', project_fk: 1, sort_mode: '
 const noop = () => {};
 
 let roots = [];
-function mount({ stepReqIds = null, epicReqIds = null } = {}) {
+function mount({ stepReqIds = null, initiativeReqIds = null } = {}) {
     const container = document.createElement('div');
     document.body.appendChild(container);
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -86,7 +86,7 @@ function mount({ stepReqIds = null, epicReqIds = null } = {}) {
                                 clickCardDelete={noop}
                                 isTemplate={false}
                                 showClosed={false}
-                                epicReqIds={epicReqIds}
+                                initiativeReqIds={initiativeReqIds}
                                 stepReqIds={stepReqIds}
                             />
                         </DarwinDndContext>
@@ -142,22 +142,22 @@ describe('CategoryCard under a step filter (req #3503)', () => {
         expect(useShowClosedStore.getState().hidePipelinedRequirements).toBe(true);
     });
 
-    it('COMPOSES with the epic filter as an intersection, not as a winner', () => {
+    it('COMPOSES with the initiative filter as an intersection, not as a winner', () => {
         // Both scopes arrive as props and neither is a mode of the other. The
-        // epic set holds both rows, the step set holds one — so one survives.
+        // initiative set holds both rows, the step set holds one — so one survives.
         useShowClosedStore.setState({ hidePipelinedRequirements: false });
         const { container } = mount({
-            epicReqIds: new Set([10, 11]), stepReqIds: new Set([11]),
+            initiativeReqIds: new Set([10, 11]), stepReqIds: new Set([11]),
         });
         expect(rowPresent(container, 11)).toBe(true);
         expect(rowPresent(container, 10)).toBe(false);
     });
 
-    it('an epic filter and a step filter with nothing in common leave the card '
+    it('an initiative filter and a step filter with nothing in common leave the card '
         + 'with no rows, but on screen', () => {
         useShowClosedStore.setState({ hidePipelinedRequirements: false });
         const { container } = mount({
-            epicReqIds: new Set([10]), stepReqIds: new Set([11]),
+            initiativeReqIds: new Set([10]), stepReqIds: new Set([11]),
         });
         expect(cardPresent(container)).toBe(true);
         expect(rowPresent(container, 10)).toBe(false);

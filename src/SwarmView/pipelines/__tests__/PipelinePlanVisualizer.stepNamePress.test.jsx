@@ -83,12 +83,12 @@ afterEach(() => {
 });
 
 const step = (id, title) => ({
-    id, epic_fk: 5, title, run: 'auto', notes: null, not_before: null,
+    id, initiative_fk: 5, title, run: 'auto', notes: null, not_before: null,
 });
 
 function render() {
     const payload = composedFixture({
-        epics: [{ id: 5, title: 'Build', pipeline_fk: 2, sort_order: 1 }],
+        initiatives: [{ id: 5, title: 'Build', pipeline_fk: 2, sort_order: 1 }],
         steps: [step(10, 'Design'), step(11, 'Implement')],
         stepDeps: [{ id: 1, step_fk: 11, dep_step_fk: 10 }],
     });

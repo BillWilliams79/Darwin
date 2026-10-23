@@ -2,7 +2,7 @@
 //
 // Req #3503 — the aggregator under a STEP filter.
 //
-// The same two things the epic suite beside this one asserts, for the same
+// The same two things the initiative suite beside this one asserts, for the same
 // reasons, over the narrower scope:
 //
 //   1. THE BADGE STILL EQUALS THE ROWS. This card's own comments call that
@@ -56,7 +56,7 @@ for (const r of ALL_ROWS) (BY_STATUS[r.requirement_status] ??= []).push(r);
 // (`serverMetRequirementsAllTime`), and a mock that does not model `enabled`
 // records whichever of the two calls happens to execute last in render order
 // — not necessarily the one that matters. Mirrors the identical fix already
-// applied to `SwarmStartCard.epicFilter.test.jsx`'s own mock for the same
+// applied to `SwarmStartCard.initiativeFilter.test.jsx`'s own mock for the same
 // reason; see that file's comment for the full history.
 let statusesAsked = new Set();
 const EMPTY = [];
@@ -85,7 +85,7 @@ import { useShowClosedStore } from '../../stores/useShowClosedStore';
 const STEP_SET = new Set([3503, 3504]);
 
 let roots = [];
-function mount({ stepReqIds = null, epicReqIds = null } = {}) {
+function mount({ stepReqIds = null, initiativeReqIds = null } = {}) {
     const container = document.createElement('div');
     document.body.appendChild(container);
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -97,7 +97,7 @@ function mount({ stepReqIds = null, epicReqIds = null } = {}) {
                 <AppContext.Provider value={{ darwinUri: 'http://test.local' }}>
                     <AuthContext.Provider value={{ idToken: 'tok', profile: { userName: 'tester', timezone: 'UTC' } }}>
                         <DarwinDndContext>
-                            <SwarmStartCard epicReqIds={epicReqIds} stepReqIds={stepReqIds} />
+                            <SwarmStartCard initiativeReqIds={initiativeReqIds} stepReqIds={stepReqIds} />
                         </DarwinDndContext>
                     </AuthContext.Provider>
                 </AppContext.Provider>
@@ -188,10 +188,10 @@ describe('SwarmStartCard under a step filter (req #3503)', () => {
         expect(container.querySelector('[data-testid="requirement-template"]')).not.toBeNull();
     });
 
-    it('COMPOSES with the epic filter as an intersection, in the rows AND the '
+    it('COMPOSES with the initiative filter as an intersection, in the rows AND the '
         + 'badge — the two must never disagree', () => {
         const { container } = mount({
-            epicReqIds: new Set([3503, 3504]), stepReqIds: new Set([3504]),
+            initiativeReqIds: new Set([3503, 3504]), stepReqIds: new Set([3504]),
         });
         expect(rowIds(container)).toEqual(['3504']);
         expect(badge(container, 'development')).toBe(1);

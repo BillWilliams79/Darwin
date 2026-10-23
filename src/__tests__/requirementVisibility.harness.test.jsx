@@ -18,7 +18,7 @@
 //
 // So this file mocks EXACTLY ONE THING: `call_rest_api`, the HTTP transport.
 // Everything above it is real — `createEntityQueries`, `useDataQueries`,
-// `useRequirementVisibility`, `pipelineMembership`, `epicMembership`,
+// `useRequirementVisibility`, `pipelineMembership`, `initiativeMembership`,
 // `processSort`, and the surfaces themselves. One fixture goes in at the wire;
 // independently written renderers come out; they are asserted to AGREE. A rule
 // that is computed in one place cannot fail that assertion, and a rule that
@@ -54,11 +54,11 @@
 // test: it makes the bug look like a decision. If a future change withholds work
 // on one surface and not another, this file must go red.
 //
-// ── THE EPIC FILTER (req #3428, containment since #3356) ────────────────────
+// ── THE INITIATIVE FILTER (req #3428, containment since #3356) ────────────────────
 //
 // "This should also not break any filters applied from the pipeline views" is
-// part of the same requirement, so the epic scope is exercised here too, through
-// the REAL `useEpicRequirementIds` derivation (steps -> junction -> requirement
+// part of the same requirement, so the initiative scope is exercised here too, through
+// the REAL `useInitiativeRequirementIds` derivation (steps -> junction -> requirement
 // ids), not a hand-made Set. It forces the toggle OFF and narrows rows AND chip
 // badges from one Set.
 
@@ -87,11 +87,11 @@ vi.mock('react-router-dom', () => ({
 //   130/131  development   140/141  met           150/151  deferred
 //   160/161  wontfix
 //
-// The orchestrated rows are split across TWO steps under TWO epics, so the epic
+// The orchestrated rows are split across TWO steps under TWO initiatives, so the initiative
 // section below filters to a real subset rather than to "everything orchestrated".
 const CATEGORY_ID = 5;
-const EPIC_A = 7;
-const EPIC_B = 8;
+const INITIATIVE_A = 7;
+const INITIATIVE_B = 8;
 
 // Met rows need a `completed_at` inside the aggregator's trailing-24h window.
 // One hour ago, stamped once at module load: `computeMetWindow` quantizes `now`
@@ -136,11 +136,11 @@ const ROWS = [
     row(161, 'wontfix', { completed_at: '2026-08-01T00:00:00' }),
 ];
 
-// Step 1 sits under epic A, step 2 under epic B — `pipeline_steps.epic_fk` is
+// Step 1 sits under initiative A, step 2 under initiative B — `pipeline_steps.initiative_fk` is
 // NOT NULL under containment, so this is the real shape.
 const STEPS = [
-    { id: 1, epic_fk: EPIC_A },
-    { id: 2, epic_fk: EPIC_B },
+    { id: 1, initiative_fk: INITIATIVE_A },
+    { id: 2, initiative_fk: INITIATIVE_B },
 ];
 const JUNCTION = [
     { step_fk: 1, requirement_fk: 101 },
@@ -156,7 +156,7 @@ const CATEGORIES = [{ id: CATEGORY_ID, category_name: 'Harness', project_fk: 1, 
 // The answers, stated once, independently of any component.
 const ORCHESTRATED = [101, 111, 121, 131, 141, 151, 161];
 const PLAIN = [100, 110, 120, 130, 140, 150, 160];
-const EPIC_A_REQS = [101, 111, 121, 131];
+const INITIATIVE_A_REQS = [101, 111, 121, 131];
 
 // The aggregator's chip vocabulary (SWARM_START_STATUSES) — deferred and wontfix
 // have never been chips there.
@@ -214,10 +214,10 @@ import CategoryCard from '../SwarmView/CategoryCard';
 import RequirementsTableView from '../SwarmView/RequirementsTableView';
 import SwarmStartCard from '../TaskPlanView/SwarmStartCard';
 import { useRequirementVisibility } from '../hooks/useRequirementVisibility';
-import { useEpicRequirementIds } from '../hooks/useDataQueries';
+import { useInitiativeRequirementIds } from '../hooks/useDataQueries';
 import { siblingElevator } from '../SwarmView/detail/requirementSort';
 import { orchestratedRequirementIds } from '../utils/pipelineMembership';
-import { epicRequirementIds } from '../utils/epicMembership';
+import { initiativeRequirementIds } from '../utils/initiativeMembership';
 import { useShowClosedStore, ALL_REQUIREMENT_STATUSES } from '../stores/useShowClosedStore';
 import { useSwarmStartCardStore } from '../stores/useSwarmStartCardStore';
 import AuthContext from '../Context/AuthContext';
@@ -323,7 +323,7 @@ const chipState = (container, status) => () => ({
     rows: renderedIds(container), badge: badgeCount(container, status),
 });
 
-const Card = ({ epicReqIds = null }) => (
+const Card = ({ initiativeReqIds = null }) => (
     <CategoryCard
         category={CATEGORIES[0]}
         categoryIndex={0}
@@ -335,7 +335,7 @@ const Card = ({ epicReqIds = null }) => (
         clickCardDelete={noop}
         isTemplate={false}
         showClosed={false}
-        epicReqIds={epicReqIds}
+        initiativeReqIds={initiativeReqIds}
     />
 );
 
@@ -364,10 +364,10 @@ const badgeCount = (container, status) => {
 };
 
 // A probe that hands the REAL hooks' output back to the test, so the elevator,
-// the pure predicates and the epic scope can be driven by exactly what the
+// the pure predicates and the initiative scope can be driven by exactly what the
 // components consume.
 let probed = null;
-let probedEpic = null;
+let probedInitiative = null;
 const Probe = () => {
     probed = useRequirementVisibility('tester');
     return null;
@@ -384,8 +384,8 @@ const StabilityProbe = () => {
     renderLog.push(useRequirementVisibility('tester'));
     return null;
 };
-const EpicProbe = ({ epicId }) => {
-    probedEpic = useEpicRequirementIds('tester', epicId);
+const InitiativeProbe = ({ initiativeId }) => {
+    probedInitiative = useInitiativeRequirementIds('tester', initiativeId);
     return null;
 };
 
@@ -395,7 +395,7 @@ describe('the requirement-visibility harness — one rule, every surface, every 
         containers = [];
         restCalls.length = 0;
         probed = null;
-        probedEpic = null;
+        probedInitiative = null;
         renderLog = [];
         bumpProbe = null;
         useShowClosedStore.setState({
@@ -836,34 +836,34 @@ describe('the requirement-visibility harness — one rule, every surface, every 
     // ── THE PIPELINE VIEWS' FILTER (req #3428) ──────────────────────────────
     //
     // "This should also not break any filters applied from the pipeline views."
-    // The epic chip on a plan view lands on `/swarm?epic=N`; `SwarmView` derives
-    // the scope with `useEpicRequirementIds` and threads it down as a Set. The
+    // The initiative chip on a plan view lands on `/swarm?initiative=N`; `SwarmView` derives
+    // the scope with `useInitiativeRequirementIds` and threads it down as a Set. The
     // derivation runs FOR REAL here — steps -> junction -> requirement ids —
     // because a hand-made Set would prove only that the consumers filter by
     // whatever they are handed, which is the standard of evidence this whole
     // harness exists to reject.
-    describe('the epic filter from the pipeline views', () => {
-        it('derives the epic scope through the real containment chain', async () => {
-            mount(<EpicProbe epicId={EPIC_A} />);
-            await settle(() => probedEpic.epicReqIds && probedEpic.epicReqIds.size === EPIC_A_REQS.length);
-            expect(sorted(probedEpic.epicReqIds)).toEqual(EPIC_A_REQS);
-            expect(probedEpic.epicReqIds).toEqual(epicRequirementIds(STEPS, JUNCTION, EPIC_A));
+    describe('the initiative filter from the pipeline views', () => {
+        it('derives the initiative scope through the real containment chain', async () => {
+            mount(<InitiativeProbe initiativeId={INITIATIVE_A} />);
+            await settle(() => probedInitiative.initiativeReqIds && probedInitiative.initiativeReqIds.size === INITIATIVE_A_REQS.length);
+            expect(sorted(probedInitiative.initiativeReqIds)).toEqual(INITIATIVE_A_REQS);
+            expect(probedInitiative.initiativeReqIds).toEqual(initiativeRequirementIds(STEPS, JUNCTION, INITIATIVE_A));
         }, TIMEOUT);
 
-        it('reads null (no filter) when no epic is named', async () => {
+        it('reads null (no filter) when no initiative is named', async () => {
             // `null` and an EMPTY SET are different pages — the first filters
             // nothing, the second filters everything out.
-            mount(<EpicProbe epicId={null} />);
-            await settle(() => probedEpic !== null);
-            expect(probedEpic.epicReqIds).toBeNull();
+            mount(<InitiativeProbe initiativeId={null} />);
+            await settle(() => probedInitiative !== null);
+            expect(probedInitiative.initiativeReqIds).toBeNull();
         }, TIMEOUT);
 
-        it('the toggle stored ON APPLIES under the epic scope — every epic row is '
+        it('the toggle stored ON APPLIES under the initiative scope — every initiative row is '
             + 'orchestrated, so the card is on screen with none of them (req #3598)', async () => {
             // req #3428 forced the toggle off here; the user ruled a scope must
             // restrict the rows and override no control, so the stored ON hides
-            // the epic's step-carried work exactly as it would unscoped.
-            const c = mount(<Card epicReqIds={new Set(EPIC_A_REQS)} />);
+            // the initiative's step-carried work exactly as it would unscoped.
+            const c = mount(<Card initiativeReqIds={new Set(INITIATIVE_A_REQS)} />);
             mount(<Probe />);
             await settle(cardLoaded(c));
             await settle(() => probed.orchestratedIds.size === ORCHESTRATED.length);
@@ -873,30 +873,30 @@ describe('the requirement-visibility harness — one rule, every surface, every 
             expect(c.querySelector('[data-testid="requirement-template"]')).not.toBeNull();
         }, TIMEOUT);
 
-        it('narrows the Cards view to the epic with the toggle OFF', async () => {
+        it('narrows the Cards view to the initiative with the toggle OFF', async () => {
             useShowClosedStore.setState({ hidePipelinedRequirements: false });
-            const c = mount(<Card epicReqIds={new Set(EPIC_A_REQS)} />);
-            await settle(() => renderedIds(c).length === EPIC_A_REQS.length);
-            expect(sorted(renderedIds(c))).toEqual(EPIC_A_REQS);
+            const c = mount(<Card initiativeReqIds={new Set(INITIATIVE_A_REQS)} />);
+            await settle(() => renderedIds(c).length === INITIATIVE_A_REQS.length);
+            expect(sorted(renderedIds(c))).toEqual(INITIATIVE_A_REQS);
         }, TIMEOUT);
 
-        it('narrows the aggregator rows AND badges to the epic, on a launch chip', async () => {
-            // The intersection of both fixes: the epic scope still applies (only
+        it('narrows the aggregator rows AND badges to the initiative, on a launch chip', async () => {
+            // The intersection of both fixes: the initiative scope still applies (only
             // 101 of the two authoring rows), and the launch chip no longer
             // withholds plan-carried work (101 is on screen at all). Before req
             // #3502 this chip rendered nothing and badged 0. Toggle OFF: it
             // applies under a scope since req #3598.
             useShowClosedStore.setState({ hidePipelinedRequirements: false });
             useSwarmStartCardStore.setState({ selectedStatus: 'authoring' });
-            const c = mount(<SwarmStartCard epicReqIds={new Set(EPIC_A_REQS)} />);
+            const c = mount(<SwarmStartCard initiativeReqIds={new Set(INITIATIVE_A_REQS)} />);
             await settle(aggregatorMounted(c));
             await settle(chipSettled(c, 'authoring', 1), chipState(c, 'authoring'));
             expect(renderedIds(c)).toEqual([101]);
             expect(badgeCount(c, 'authoring')).toBe(1);
         }, TIMEOUT);
 
-        it('keeps another epic\'s work out of every chip', async () => {
-            // 141/151/161 sit under epic B. `met` is the chip where that is
+        it('keeps another initiative\'s work out of every chip', async () => {
+            // 141/151/161 sit under initiative B. `met` is the chip where that is
             // visible, since it is the only one of B's statuses in the chip
             // vocabulary — and the met badge comes from a DIFFERENT query than
             // its rows (the trailing-24h overlay), so an unscoped overlay would
@@ -905,25 +905,25 @@ describe('the requirement-visibility harness — one rule, every surface, every 
             // The card then opens on `authoring` rather than on the empty `met`
             // the store asked for: that is req #3428's don't-open-blank override,
             // and its presence here is the second half of the same assertion —
-            // epic A really has nothing met.
+            // initiative A really has nothing met.
             useShowClosedStore.setState({ hidePipelinedRequirements: false });
             useSwarmStartCardStore.setState({ selectedStatus: 'met' });
-            const c = mount(<SwarmStartCard epicReqIds={new Set(EPIC_A_REQS)} />);
+            const c = mount(<SwarmStartCard initiativeReqIds={new Set(INITIATIVE_A_REQS)} />);
             await settle(aggregatorMounted(c));
             await settle(chipSettled(c, 'authoring', 1), chipState(c, 'authoring'));
             expect(badgeCount(c, 'met')).toBe(0);
             expect(badgeCount(c, 'authoring')).toBe(1);
             expect(badgeCount(c, 'development')).toBe(1);
-            expect(renderedIds(c)).toEqual([101]);   // the override's chip, epic-scoped
+            expect(renderedIds(c)).toEqual([101]);   // the override's chip, initiative-scoped
             expect(useSwarmStartCardStore.getState().selectedStatus).toBe('met');
         }, TIMEOUT);
 
-        it('agrees with the Cards view over the epic scope', async () => {
+        it('agrees with the Cards view over the initiative scope', async () => {
             useShowClosedStore.setState({ hidePipelinedRequirements: false });
             useSwarmStartCardStore.setState({ selectedStatus: 'development' });
-            const card = mount(<Card epicReqIds={new Set(EPIC_A_REQS)} />);
-            const agg = mount(<SwarmStartCard epicReqIds={new Set(EPIC_A_REQS)} />);
-            await settle(() => renderedIds(card).length === EPIC_A_REQS.length);
+            const card = mount(<Card initiativeReqIds={new Set(INITIATIVE_A_REQS)} />);
+            const agg = mount(<SwarmStartCard initiativeReqIds={new Set(INITIATIVE_A_REQS)} />);
+            await settle(() => renderedIds(card).length === INITIATIVE_A_REQS.length);
             await settle(aggregatorMounted(agg));
             await settle(chipSettled(agg, 'development', 1), chipState(agg, 'development'));
             expect(renderedIds(agg)).toEqual([131]);
@@ -931,9 +931,9 @@ describe('the requirement-visibility harness — one rule, every surface, every 
         }, TIMEOUT);
 
         it('leaves the stored toggle untouched', async () => {
-            // The reader's preference must survive a visit to an epic page.
+            // The reader's preference must survive a visit to an initiative page.
             expect(useShowClosedStore.getState().hidePipelinedRequirements).toBe(true);
-            const c = mount(<Card epicReqIds={new Set(EPIC_A_REQS)} />);
+            const c = mount(<Card initiativeReqIds={new Set(INITIATIVE_A_REQS)} />);
             await settle(cardLoaded(c));
             expect(useShowClosedStore.getState().hidePipelinedRequirements).toBe(true);
         }, TIMEOUT);

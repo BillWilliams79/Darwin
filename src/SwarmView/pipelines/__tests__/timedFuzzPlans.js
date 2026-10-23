@@ -16,9 +16,9 @@
 // literal for the same reason.
 //
 // THE SHAPE IS THE LIVE SHAPE, not arbitrary noise:
-//   - epics/features/requirements wired through the design-rule-10 chain
-//     (requirement -> feature_fk -> epic_fk), because a step's BAND comes from
-//     its dominant epic and lanes are assigned per band;
+//   - initiatives/features/requirements wired through the design-rule-10 chain
+//     (requirement -> feature_fk -> initiative_fk), because a step's BAND comes from
+//     its dominant initiative and lanes are assigned per band;
 //   - dep edges only ever point at a LOWER step id, so no cycles — a cycle
 //     collapses columns toward 0 and would fuzz a different function;
 //   - a mix of `met` with a `completed_at` and NO `started_at` (820 of 960 live
@@ -82,7 +82,7 @@ const IS_TERMINAL = new Set(['met', 'wontfix', 'deferred']);
  * @param {number} seed  any integer; the same seed always yields the same plan.
  *                        Its residue mod 3 also selects the completion profile.
  * @returns {Object} `{pipeline, steps, stepDeps, stepRequirements, requirements,
- *                     features, epics, machines}`
+ *                     features, initiatives, machines}`
  */
 export function makeTimedPlan(seed) {
     const rnd = LCG(seed * 2654435761 + 12345);
@@ -91,14 +91,14 @@ export function makeTimedPlan(seed) {
 
     const profile = PROFILES[seed % PROFILES.length];
     const nSteps = int(8, 24);
-    const nEpics = int(1, 3);
-    const nFeatures = nEpics * int(1, 2);
+    const nInitiatives = int(1, 3);
+    const nFeatures = nInitiatives * int(1, 2);
 
-    const epics = [];
-    for (let e = 1; e <= nEpics; e++) epics.push({ id: e, title: `Epic ${e}` });
+    const initiatives = [];
+    for (let e = 1; e <= nInitiatives; e++) initiatives.push({ id: e, title: `Initiative ${e}` });
     const features = [];
     for (let f = 1; f <= nFeatures; f++) {
-        features.push({ id: 10 + f, title: `F${f}`, epic_fk: 1 + (f % nEpics) });
+        features.push({ id: 10 + f, title: `F${f}`, initiative_fk: 1 + (f % nInitiatives) });
     }
 
     const steps = [];
@@ -163,7 +163,7 @@ export function makeTimedPlan(seed) {
         stepRequirements,
         requirements,
         features,
-        epics,
+        initiatives,
         machines: [{ id: 2, title: 'Mac mini' }],
     };
 }

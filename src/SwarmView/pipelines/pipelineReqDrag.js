@@ -136,7 +136,7 @@ export function dropTargetAt(nodes, p) {
 export function canDropOn(row, fromStepId) {
     if (!row) return false;
     if (row.id === fromStepId) return false;
-    // req #3649 — a locked step (or one under a locked epic/plan) takes no
+    // req #3649 — a locked step (or one under a locked initiative/plan) takes no
     // seat; the gateway would answer 423, so the target is not offered.
     return !row.effectiveLocked;
 }

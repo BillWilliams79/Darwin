@@ -12,7 +12,7 @@
 //
 // The other half of what only this file can reach is WHICH ARRIVALS COUNT.
 // Req #3311 wrote the id from the list page's click handler, so a plan opened
-// by a `?step=` link, by the sessions grid, by the requirement page's epic box
+// by a `?step=` link, by the sessions grid, by the requirement page's initiative box
 // or by Back was never recorded — the reader had obviously last selected it and
 // the app disagreed. Recording on arrival is the fix, and "on arrival" is only
 // true if it survives the routes nobody enumerated.
@@ -199,7 +199,7 @@ describe('PipelineDetail — recording the remembered place (req #3431)', () => 
     // would swear they had last selected.
     it.each([
         ['a ?step= deep link', '/swarm/pipeline/2?mode=plan&step=47'],
-        ['an ?epic= link from the requirement page', '/swarm/pipeline/2?epic=9'],
+        ['an ?initiative= link from the requirement page', '/swarm/pipeline/2?initiative=9'],
         ['a ?mode= link', '/swarm/pipeline/2?mode=plan'],
         ['a bare bookmark', '/swarm/pipeline/2'],
     ])('records an arrival by %s', (_label, url) => {

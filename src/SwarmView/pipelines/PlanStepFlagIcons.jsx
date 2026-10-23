@@ -1,5 +1,5 @@
 // Req #3673 — the picture on the step card's barrier button, and on the
-// epic chip's padlock. (The step card's own padlock button went in req #3742;
+// initiative chip's padlock. (The step card's own padlock button went in req #3742;
 // a locked step's card has a red perimeter instead.)
 //
 // User directive: "lock and unlock should show an icon with a locked lock for

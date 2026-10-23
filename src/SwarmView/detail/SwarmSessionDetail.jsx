@@ -1,7 +1,7 @@
 import React, { useContext } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { useSession, useDevServersBySession, useAllSwarmStartSessions, useAllSwarmStarts, useAllSwarmCompleteSessions, useAllSwarmCompletes, useAllRequirements, useMachines, useAllPipelines, useAllEpics } from '../../hooks/useDataQueries';
+import { useSession, useDevServersBySession, useAllSwarmStartSessions, useAllSwarmStarts, useAllSwarmCompleteSessions, useAllSwarmCompletes, useAllRequirements, useMachines, useAllPipelines, useAllInitiatives } from '../../hooks/useDataQueries';
 import { sessionKeys } from '../../hooks/useQueryKeys';
 import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
@@ -111,10 +111,10 @@ const SwarmSessionDetail = () => {
     // session, which is the fan-out design rule 5 forbids.
     //
     // ONE ERA'S LISTS, since req #3356 eradicated Pipeline 1.0. `useAllPipelines`
-    // and `useAllEpics` are gone from this page with the branches that consumed
+    // and `useAllInitiatives` are gone from this page with the branches that consumed
     // them — two fewer list reads per session view.
     const { data: pipelines = [] } = useAllPipelines(profile?.userName);
-    const { data: epics = [] } = useAllEpics(profile?.userName);
+    const { data: initiatives = [] } = useAllInitiatives(profile?.userName);
 
     const planLink = React.useMemo(
         () => sessionPipelineLink(session, pipelines),
@@ -129,28 +129,28 @@ const SwarmSessionDetail = () => {
     const pipelineTitle = planLink.state !== 'none' && planLink.label !== `#${planLink.planId}`
         ? planLink.label : null;
 
-    // THE EPIC ROW READS `epic_fk` AND NOTHING ELSE (req #3356).
+    // THE INITIATIVE ROW READS `initiative_fk` AND NOTHING ELSE (req #3356).
     //
-    // This used to branch on the era `planLink` picked, so the Pipeline and Epic
+    // This used to branch on the era `planLink` picked, so the Pipeline and Initiative
     // rows could never name two different plans for one session — a real hazard
     // while a row could carry both column pairs. With 1.0 gone there is one pair
     // left, so the two rows cannot disagree and the branch has nothing to
-    // arbitrate. `epic_fk` is deliberately not read even as a fallback, for the
+    // arbitrate. `initiative_fk` is deliberately not read even as a fallback, for the
     // reason `sessionPipelineLink` gives about `pipeline_fk`: a 1.0 id shown
-    // beside a 2.0 plan names a different epic.
+    // beside a 2.0 plan names a different initiative.
     //
     // It is still INDEPENDENT of `planLink.state`: a session stamped with an
-    // epic and no pipeline is a partial stamp, and the epic is a fact worth
+    // initiative and no pipeline is a partial stamp, and the initiative is a fact worth
     // showing with no plan beside it.
-    const epicAttribution = React.useMemo(
-        () => (session?.epic_fk != null
-            ? { epicId: session.epic_fk } : null),
-        [session?.epic_fk]);
+    const initiativeAttribution = React.useMemo(
+        () => (session?.initiative_fk != null
+            ? { initiativeId: session.initiative_fk } : null),
+        [session?.initiative_fk]);
 
-    const epicTitle = React.useMemo(() => {
-        if (!epicAttribution) return null;
-        return epics.find(e => e.id === epicAttribution.epicId)?.title ?? null;
-    }, [epicAttribution, epics]);
+    const initiativeTitle = React.useMemo(() => {
+        if (!initiativeAttribution) return null;
+        return initiatives.find(e => e.id === initiativeAttribution.initiativeId)?.title ?? null;
+    }, [initiativeAttribution, initiatives]);
 
     const hasHistory = location.key !== 'default';
     const handleBack = () => hasHistory ? navigate(-1) : navigate('/swarm/sessions');
@@ -322,7 +322,7 @@ const SwarmSessionDetail = () => {
                  right-column companion, so they span the full width and don't wrap in a
                  narrow column. Dev Servers rides along as another full-width detail. --- */}
             <Box sx={{ mb: 3 }}>
-                {/* req #3186 — which pipeline / which epic this session was
+                {/* req #3186 — which pipeline / which initiative this session was
                      advancing. Full-width rather than in the aligned two-column
                      block above so the four-row Requirement↔Started alignment
                      that block documents stays intact. Rendered only when
@@ -371,19 +371,19 @@ const SwarmSessionDetail = () => {
                     </Box>
                 }
 
-                {epicAttribution?.epicId != null &&
-                    <Box sx={{ mb: 1 }} data-testid="session-epic">
-                        <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Epic</Typography>
+                {initiativeAttribution?.initiativeId != null &&
+                    <Box sx={{ mb: 1 }} data-testid="session-initiative">
+                        <Typography variant="subtitle2" color="text.secondary" sx={labelSx}>Initiative</Typography>
                         <Typography variant="body2" component="div">
-                            {/* No epic detail route exists, so this is a label
+                            {/* No initiative detail route exists, so this is a label
                                  chip and not a link — a dead click is worse than
                                  an honest static chip. */}
-                            <Chip label={`#${epicAttribution.epicId}`} size="small" variant="outlined"
+                            <Chip label={`#${initiativeAttribution.initiativeId}`} size="small" variant="outlined"
                                   sx={{ mr: 1 }}
-                                  data-testid="session-epic-chip" />
-                            {epicTitle &&
+                                  data-testid="session-initiative-chip" />
+                            {initiativeTitle &&
                                 <Typography component="span" variant="body2">
-                                    — {epicTitle}
+                                    — {initiativeTitle}
                                 </Typography>
                             }
                         </Typography>

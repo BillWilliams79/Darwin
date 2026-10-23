@@ -47,50 +47,50 @@ const toId = (v) => {
 };
 
 const placement = (session, planId, index, requirementId) => {
-    if (!index) return { epicLabel: null, stepLabel: null };
+    if (!index) return { initiativeLabel: null, stepLabel: null };
     const rid = toId(requirementId);
     const seat = rid != null ? index.requirementSeat?.get(rid) : null;
     const seatInPlan = seat && seat.pipelineId === planId ? seat : null;
 
-    const epicId = toId(session?.epic_fk) ?? seatInPlan?.epicId ?? null;
-    const epicLabel = epicId == null ? null
-        : (index.epicsById?.get(epicId)?.title || `Epic #${epicId}`);
+    const initiativeId = toId(session?.initiative_fk) ?? seatInPlan?.initiativeId ?? null;
+    const initiativeLabel = initiativeId == null ? null
+        : (index.initiativesById?.get(initiativeId)?.title || `Initiative #${initiativeId}`);
 
-    // Same rule one level down: a requirement since moved to another epic of
-    // this plan sits on a step that is not under the epic shown, so no step.
-    const seatInEpic = seatInPlan && (seatInPlan.epicId == null || seatInPlan.epicId === epicId)
+    // Same rule one level down: a requirement since moved to another initiative of
+    // this plan sits on a step that is not under the initiative shown, so no step.
+    const seatInInitiative = seatInPlan && (seatInPlan.initiativeId == null || seatInPlan.initiativeId === initiativeId)
         ? seatInPlan : null;
-    const stepId = seatInEpic?.stepId ?? null;
+    const stepId = seatInInitiative?.stepId ?? null;
     const stepLabel = stepId == null ? null
         : (index.stepsById?.get(stepId)?.title || `Step #${stepId}`);
 
-    return { epicLabel, stepLabel };
+    return { initiativeLabel, stepLabel };
 };
 
 /**
  * @param session   a swarm_sessions row (needs pipeline_fk)
  * @param pipelines the `pipelines` list — title resolution
- * @returns {state, planId, label, title, href, epicLabel, stepLabel} — href non-null only when
+ * @returns {state, planId, label, title, href, initiativeLabel, stepLabel} — href non-null only when
  *          navigable. `planId` is the SEATED plan, so a caller rendering the
  *          bare id shows the one that matches the link.
  *
  * The `era` field this used to return went with req #3356: there is one plan
  * surface, so every id it reports belongs to it and no consumer had to choose.
  *
- * req #3724 — `epicLabel` / `stepLabel` name WHERE in the plan the session sat,
- * so the sessions table can show plan › epic › step in one pill. Both are
+ * req #3724 — `initiativeLabel` / `stepLabel` name WHERE in the plan the session sat,
+ * so the sessions table can show plan › initiative › step in one pill. Both are
  * optional extras: with no `options.index` (the detail page) they are null and
  * the plan fields are exactly what they always were.
  *
- *   epic — `session.epic_fk` first: it is the stamped HISTORY (req #3350) and
+ *   initiative — `session.initiative_fk` first: it is the stamped HISTORY (req #3350) and
  *          is what the session detail page shows. Only when the session carries
- *          no epic stamp does the requirement's current seat supply one, and
+ *          no initiative stamp does the requirement's current seat supply one, and
  *          only when that seat is in the SAME plan the session names.
  *   step — sessions carry no step column, so the step is the requirement's
  *          current seat (`index.requirementSeat`), again only when it is in the
  *          session's own plan. A seat in a different plan describes other work,
  *          and naming it here would put a step of plan B under plan A's title;
- *          likewise a seat under a different epic than the one shown.
+ *          likewise a seat under a different initiative than the one shown.
  *
  * @param options.index          an OrchestrationIndex (`buildOrchestrationIndex`)
  * @param options.requirementId  the session's requirement id
@@ -100,13 +100,13 @@ export const sessionPipelineLink = (session, pipelines, { index = null, requirem
 
     if (seated == null) {
         return { state: 'none', planId: null, label: null, title: null, href: null,
-                 epicLabel: null, stepLabel: null };
+                 initiativeLabel: null, stepLabel: null };
     }
 
     const title = (pipelines || []).find(p => p.id === seated)?.title ?? null;
     const label = title || `#${seated}`;
-    const { epicLabel, stepLabel } = placement(session, toId(seated), index, requirementId);
-    const where = [epicLabel && `Epic: ${epicLabel}`, stepLabel && `Step: ${stepLabel}`]
+    const { initiativeLabel, stepLabel } = placement(session, toId(seated), index, requirementId);
+    const where = [initiativeLabel && `Initiative: ${initiativeLabel}`, stepLabel && `Step: ${stepLabel}`]
         .filter(Boolean).join(' · ');
 
     const planId = seated;
@@ -126,7 +126,7 @@ export const sessionPipelineLink = (session, pipelines, { index = null, requirem
                  + 'which is not a usable plan id. Nothing to open from here.'
                  + (where ? ` ${where}` : ''),
             href: null,
-            epicLabel,
+            initiativeLabel,
             stepLabel,
         };
     }
@@ -137,7 +137,7 @@ export const sessionPipelineLink = (session, pipelines, { index = null, requirem
         label,
         title: where ? `Open plan ${label} — ${where}` : `Open plan ${label}`,
         href,
-        epicLabel,
+        initiativeLabel,
         stepLabel,
     };
 };

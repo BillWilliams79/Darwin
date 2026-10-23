@@ -4,33 +4,33 @@
 // its own module so vitest can exercise every derivation without a DOM and so
 // `useOrchestrationIndex.js` stays a thin wrapper over the list reads.
 //
-// The box shows three levels — Pipeline, Epic, Step — and exactly ONE of them
+// The box shows three levels — Pipeline, Initiative, Step — and exactly ONE of them
 // WRITES. Seating work on a step is the act that actually places a requirement
 // on a plan. Since req #3579 the reader reaches that step top-down: Pipeline
-// and Epic are selects that SCOPE the Step list (`pipelineOptions`,
-// `epicOptions`, `stepOptions`'s `epicId`), never a write of their own.
+// and Initiative are selects that SCOPE the Step list (`pipelineOptions`,
+// `initiativeOptions`, `stepOptions`'s `initiativeId`), never a write of their own.
 //
-// req #3357 RETIRED THE EPIC ROW. This module used to answer a third question
-// — "which epic does this requirement's retired middle tier name" — by
+// req #3357 RETIRED THE INITIATIVE ROW. This module used to answer a third question
+// — "which initiative does this requirement's retired middle tier name" — by
 // walking the requirement's reference to it and then that tier's own
-// reference to the epic. That tier left the frontend and no replacement
-// existed for 1.0: no `pipeline_steps` row carried an `epic_fk`.
-// The epic derivation went rather than being re-pointed — an accepted, visible
+// reference to the initiative. That tier left the frontend and no replacement
+// existed for 1.0: no `pipeline_steps` row carried an `initiative_fk`.
+// The initiative derivation went rather than being re-pointed — an accepted, visible
 // reduction, not a defect. See `utils/pipelineMembership.js`'s header for the
 // identical reasoning applied to the browse toggle.
 //
 // ## The chain — TWO HOPS UNDER 2.0, NOT ONE (req #3356)
 //
 // Pipeline 1.0 is eradicated, so this index reads the plan-layer tables. A
-// 2.0 step has NO `pipeline_fk` AT ALL: its plan comes through its epic, which
-// is CONTAINMENT rather than a second pointer (`pipeline_steps.epic_fk` is NOT
-// NULL, and `epics.pipeline_fk` names the plan). So the walk gained a
-// hop and this module gained an `epics` input:
+// 2.0 step has NO `pipeline_fk` AT ALL: its plan comes through its initiative, which
+// is CONTAINMENT rather than a second pointer (`pipeline_steps.initiative_fk` is NOT
+// NULL, and `initiatives.pipeline_fk` names the plan). So the walk gained a
+// hop and this module gained an `initiatives` input:
 //
 //   pipeline_step_requirements (requirement_fk) -> pipeline_steps (step_fk)
-//     -> epics (epic_fk) -> pipelines (pipeline_fk)
+//     -> initiatives (initiative_fk) -> pipelines (pipeline_fk)
 //
-// A step whose epic is missing from the read resolves to NO plan, exactly as a
+// A step whose initiative is missing from the read resolves to NO plan, exactly as a
 // 1.0 step with a null `pipeline_fk` did — the seat is dropped rather than
 // invented, because a requirement pinned to a plan that was never read is worse
 // than a box that says "No pipeline".
@@ -88,55 +88,55 @@ const toId = (value) => {
  *
  * @param {Object} args
  * @param {Object[]} args.pipelines         pipelines rows (id, title, pipeline_status)
- * @param {Object[]} args.epics             epics rows (id, pipeline_fk)
- * @param {Object[]} args.steps             pipeline_steps rows (id, epic_fk)
+ * @param {Object[]} args.initiatives             initiatives rows (id, pipeline_fk)
+ * @param {Object[]} args.steps             pipeline_steps rows (id, initiative_fk)
  * @param {Object[]} args.stepRequirements  pipeline_step_requirements rows
  * @returns {Object} OrchestrationIndex
  */
-export function buildOrchestrationIndex({ pipelines, epics, steps, stepRequirements } = {}) {
+export function buildOrchestrationIndex({ pipelines, initiatives, steps, stepRequirements } = {}) {
     const pipelinesById = new Map();
     for (const p of asArray(pipelines)) {
         const id = toId(p?.id);
         if (id != null) pipelinesById.set(id, { ...p, id });
     }
 
-    // epic -> pipeline. THE MIDDLE HOP: a 2.0 step names an epic, never a plan
+    // initiative -> pipeline. THE MIDDLE HOP: a 2.0 step names an initiative, never a plan
     // (containment), so without this map a step's plan is unknowable.
     //
-    // …AND the epic ROWS, since req #3365 restored the Epic row to the
+    // …AND the initiative ROWS, since req #3365 restored the Initiative row to the
     // Orchestration box on the user's directive. This used to be a bare id->id
-    // Map on the stated grounds that "nothing here renders an epic"; that is no
+    // Map on the stated grounds that "nothing here renders an initiative"; that is no
     // longer true, and the rows cost nothing — the read is already made for the
-    // hop, and `epics`' shared projection already carries `title`, exactly as
+    // hop, and `initiatives`' shared projection already carries `title`, exactly as
     // `stepsById` reasons about `pipeline_steps`.
-    const pipelineByEpic = new Map();
-    const epicsById = new Map();
-    for (const e of asArray(epics)) {
+    const pipelineByInitiative = new Map();
+    const initiativesById = new Map();
+    for (const e of asArray(initiatives)) {
         const eid = toId(e?.id);
         const pid = toId(e?.pipeline_fk);
         if (eid == null) continue;
-        epicsById.set(eid, { ...e, id: eid });
-        if (pid != null) pipelineByEpic.set(eid, pid);
+        initiativesById.set(eid, { ...e, id: eid });
+        if (pid != null) pipelineByInitiative.set(eid, pid);
     }
 
-    // step -> pipeline (THROUGH the epic), and the step rows themselves: the
+    // step -> pipeline (THROUGH the initiative), and the step rows themselves: the
     // Step row of the Orchestration box names the step, and `pipeline_steps`'
     // shared projection already carries `title`, so this costs nothing beyond
-    // the Map. A step whose epic did not resolve gets no entry — see the header.
+    // the Map. A step whose initiative did not resolve gets no entry — see the header.
     const pipelineByStep = new Map();
-    const epicByStep = new Map();
+    const initiativeByStep = new Map();
     const stepsById = new Map();
     for (const s of asArray(steps)) {
         const sid = toId(s?.id);
-        const eid = toId(s?.epic_fk);
+        const eid = toId(s?.initiative_fk);
         if (sid == null) continue;
         stepsById.set(sid, { ...s, id: sid });
-        // The step's epic, kept separately from its plan (req #3365). A step
-        // whose epic is missing from the read has NO plan either — one hop, two
-        // answers — so an unresolvable epic is the same silence the plan gets
-        // rather than an epic id pointing at a row nobody read.
-        if (eid != null && epicsById.has(eid)) epicByStep.set(sid, eid);
-        const pid = eid != null ? pipelineByEpic.get(eid) : null;
+        // The step's initiative, kept separately from its plan (req #3365). A step
+        // whose initiative is missing from the read has NO plan either — one hop, two
+        // answers — so an unresolvable initiative is the same silence the plan gets
+        // rather than an initiative id pointing at a row nobody read.
+        if (eid != null && initiativesById.has(eid)) initiativeByStep.set(sid, eid);
+        const pid = eid != null ? pipelineByInitiative.get(eid) : null;
         if (pid != null) pipelineByStep.set(sid, pid);
     }
 
@@ -185,30 +185,30 @@ export function buildOrchestrationIndex({ pipelines, epics, steps, stepRequireme
         const stepIds = seats.filter((s) => s.pipelineId === pid)
             .map((s) => s.stepId).sort((a, b) => a - b);
         const stepId = stepIds[0] ?? null;
-        // The epic comes from the CHOSEN step, never resolved a second way:
-        // whatever step this seat names is the step whose epic the box shows,
+        // The initiative comes from the CHOSEN step, never resolved a second way:
+        // whatever step this seat names is the step whose initiative the box shows,
         // so the two rows can never disagree about where the requirement sits.
         requirementSeat.set(rid, {
             pipelineId: pid,
             stepId,
-            epicId: stepId != null ? (epicByStep.get(stepId) ?? null) : null,
+            initiativeId: stepId != null ? (initiativeByStep.get(stepId) ?? null) : null,
         });
     }
 
     return {
         pipelinesById,
-        epicsById,
+        initiativesById,
         stepsById,
         // EXPORTED because `stepOptions` needs it (req #3356). Under 1.0 that
         // function read `step.pipeline_fk` straight off the row; a 2.0 step has
-        // no such column, and re-walking `epic_fk -> pipeline_fk` there would be
+        // no such column, and re-walking `initiative_fk -> pipeline_fk` there would be
         // a second copy of the join this function already ran — the drift shape
         // this module exists to avoid.
         pipelineByStep,
         // EXPORTED for the same reason, since req #3579: the Step list narrows
-        // to the epic the reader picked, and this map is that epic hop already
-        // made — re-reading `step.epic_fk` would be the second copy of a join.
-        epicByStep,
+        // to the initiative the reader picked, and this map is that initiative hop already
+        // made — re-reading `step.initiative_fk` would be the second copy of a join.
+        initiativeByStep,
         requirementSeat,
     };
 }
@@ -225,11 +225,11 @@ export function emptyOrchestrationIndex() {
  *
  * Concretely:
  *
- *   * the step's plan — resolved THROUGH ITS EPIC, since a 2.0 step carries no
+ *   * the step's plan — resolved THROUGH ITS INITIATIVE, since a 2.0 step carries no
  *     `pipeline_fk` (req #3356) — is `pipelineId`, when one is known. With no
  *     plan known the list widens to every OPEN plan rather than emptying — a
  *     requirement that is seated nowhere still has to be placeable, or the
- *     control is dead exactly when it is needed. A step whose epic did not
+ *     control is dead exactly when it is needed. A step whose initiative did not
  *     resolve is in NEITHER list: it belongs to no plan this read can name, so
  *     it can neither match a named plan nor be vouched for as open.
  *   * there is NO "open step" filter: a step has no state (req #3750) — it is
@@ -248,37 +248,37 @@ export function emptyOrchestrationIndex() {
  * the entire plan to order one dropdown, which is the fan-out design rule 5
  * forbids.
  *
- * ## Epic (req #3579)
+ * ## Initiative (req #3579)
  *
- * `epicId`, when given, narrows the list to that epic's steps — the reader picks
- * a plan, optionally an epic, then a step. A step whose epic hop did not resolve
- * matches no epic. With no `epicId`, steps of a CLOSED epic are left out, the
- * same epics `epicOptions` leaves out.
+ * `initiativeId`, when given, narrows the list to that initiative's steps — the reader picks
+ * a plan, optionally an initiative, then a step. A step whose initiative hop did not resolve
+ * matches no initiative. With no `initiativeId`, steps of a CLOSED initiative are left out, the
+ * same initiatives `initiativeOptions` leaves out.
  *
  * @param {Object} index
- * @param {{pipelineId?: ?number, epicId?: ?number, currentStepId?: ?number}} [options]
+ * @param {{pipelineId?: ?number, initiativeId?: ?number, currentStepId?: ?number}} [options]
  * @returns {Array<{step: Object, label: string}>}
  */
-export function stepOptions(index, { pipelineId = null, epicId = null, currentStepId = null } = {}) {
+export function stepOptions(index, { pipelineId = null, initiativeId = null, currentStepId = null } = {}) {
     const { stepsById = new Map(), pipelinesById = new Map(),
-        pipelineByStep = new Map(), epicByStep = new Map(),
-        epicsById = new Map() } = index || {};
+        pipelineByStep = new Map(), initiativeByStep = new Map(),
+        initiativesById = new Map() } = index || {};
     const pid = toId(pipelineId);
-    const eid = toId(epicId);
+    const eid = toId(initiativeId);
     const curStep = toId(currentStepId);
 
     const out = [];
     for (const step of stepsById.values()) {
         if (step.id === curStep) continue;          // appended unconditionally below
         if (eid != null) {
-            if (epicByStep.get(step.id) !== eid) continue;
-        } else if (epicsById.get(epicByStep.get(step.id))?.closed) {
-            // "All epics" means every epic the Epic select OFFERS — a closed
-            // epic is not offered there, so its steps are not offered here.
+            if (initiativeByStep.get(step.id) !== eid) continue;
+        } else if (initiativesById.get(initiativeByStep.get(step.id))?.closed) {
+            // "All initiatives" means every initiative the Initiative select OFFERS — a closed
+            // initiative is not offered there, so its steps are not offered here.
             continue;
         }
-        // The step's plan, already joined through its epic by
-        // `buildOrchestrationIndex`. `undefined` here means the epic hop failed,
+        // The step's plan, already joined through its initiative by
+        // `buildOrchestrationIndex`. `undefined` here means the initiative hop failed,
         // which both branches below treat as "not offerable".
         const stepPipelineId = pipelineByStep.get(step.id);
         if (pid != null) {
@@ -299,9 +299,9 @@ export function stepOptions(index, { pipelineId = null, epicId = null, currentSt
     return out.map((step) => ({ step, label: step.title || `Step ${step.id}` }));
 }
 
-// ── Req #3579 — the Pipeline and Epic selects ─────────────────────────────
+// ── Req #3579 — the Pipeline and Initiative selects ─────────────────────────────
 // The box is a CASCADE now: pick a plan, optionally narrow to one of its
-// epics, then pick the step that seats the requirement. Pipeline and Epic
+// initiatives, then pick the step that seats the requirement. Pipeline and Initiative
 // write nothing — they SCOPE the Step list — so these two only answer "what
 // may the reader choose from". Both always include the current value, on the
 // rule `stepOptions` states: a select whose own list denies its value renders
@@ -332,31 +332,31 @@ export function pipelineOptions(index, { keepIds = [] } = {}) {
 }
 
 /**
- * The epics the Epic select may offer: the open (`closed` falsy) epics of
- * `pipelineId`, plus every epic of that plan in `keepIds` whatever its state —
- * the select's current value and the seat's epic, as `pipelineOptions` keeps
+ * The initiatives the Initiative select may offer: the open (`closed` falsy) initiatives of
+ * `pipelineId`, plus every initiative of that plan in `keepIds` whatever its state —
+ * the select's current value and the seat's initiative, as `pipelineOptions` keeps
  * its own. A kept id missing from the read gets a placeholder row (only for the
  * select's own value, which has to be in its list). Empty with no plan — an
- * epic is only meaningful inside one. Ordered by `sort_order` (the
- * authoritative epic display order since req #3430), then id.
+ * initiative is only meaningful inside one. Ordered by `sort_order` (the
+ * authoritative initiative display order since req #3430), then id.
  *
  * @param {Object} index
- * @param {{pipelineId?: ?number, keepIds?: Array<?number>, currentEpicId?: ?number}} [options]
- * @returns {Array<{epic: Object, label: string}>}
+ * @param {{pipelineId?: ?number, keepIds?: Array<?number>, currentInitiativeId?: ?number}} [options]
+ * @returns {Array<{initiative: Object, label: string}>}
  */
-export function epicOptions(index, { pipelineId = null, keepIds = [], currentEpicId = null } = {}) {
-    const { epicsById = new Map() } = index || {};
+export function initiativeOptions(index, { pipelineId = null, keepIds = [], currentInitiativeId = null } = {}) {
+    const { initiativesById = new Map() } = index || {};
     const pid = toId(pipelineId);
     if (pid == null) return [];
     const keep = new Set(keepIds.map(toId).filter((v) => v != null));
     const out = [];
-    for (const e of epicsById.values()) {
+    for (const e of initiativesById.values()) {
         if (toId(e.pipeline_fk) !== pid) continue;
         if (keep.has(e.id) || !e.closed) out.push(e);
     }
-    const cur = toId(currentEpicId);
-    if (cur != null && !epicsById.has(cur)) out.push({ id: cur });
+    const cur = toId(currentInitiativeId);
+    if (cur != null && !initiativesById.has(cur)) out.push({ id: cur });
     const rank = (e) => (e.sort_order == null ? Infinity : Number(e.sort_order));
     out.sort((a, b) => (rank(a) - rank(b)) || a.id - b.id);
-    return out.map((epic) => ({ epic, label: epic.title || `Epic ${epic.id}` }));
+    return out.map((initiative) => ({ initiative, label: initiative.title || `Initiative ${initiative.id}` }));
 }

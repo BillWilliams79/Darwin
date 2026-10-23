@@ -6,7 +6,7 @@
 // all along, parameterized, and two production call sites already use it
 // (BuildVisualizer/useBuildVisualizerData.js,
 // SwarmView/detail/useOrchestrationIndex.js — req #3435 replaced the
-// `useEpicPipelineLocation.js` named here originally). Nothing had to change in
+// `useInitiativePipelineLocation.js` named here originally). Nothing had to change in
 // Lambda-Rest; only a client that knows how to ASK for N runs at once, which is
 // this module.
 //

@@ -1,28 +1,28 @@
-// /swarm/epics — the plan-layer epics editor (req #3393).
+// /swarm/initiatives — the plan-layer initiatives editor (req #3393).
 //
-// Stands BESIDE `/swarm/epics` (Darwin/src/Epics/EpicsPage.jsx), never in
+// Stands BESIDE `/swarm/initiatives` (Darwin/src/Initiatives/InitiativesPage.jsx), never in
 // place of it, and shares no COMPONENT with it (structural copy). It DOES
 // share the query layer and chip-style files (`useDataQueries.js`,
 // `pipelineChipStyles.js`) — req #3463 established that additive-extension
 // convention for this feature first, and this page follows it rather than a
 // parallel copy. See PLAN.md for the full re-scope rationale.
 //
-// Shape follows EpicsPage.jsx exactly: one DataGrid, a click-to-toggle closed
+// Shape follows InitiativesPage.jsx exactly: one DataGrid, a click-to-toggle closed
 // chip, create/edit through one dialog. Differences from the 1.0 page, all
 // schema-driven:
 //
 //   - The dialog gains a Pipeline select (`pipeline_fk`, required at create,
-//     DISABLED once editing — re-homing an epic is `move_epic`, an
+//     DISABLED once editing — re-homing an initiative is `move_initiative`, an
 //     MCP-only tool with cross-plan-edge checks this page does not
 //     reproduce, matching StepsPage.jsx's identical rule for its own
 //     `pipeline_fk` field).
-//   - `epic_status` (active|paused) gets a click-to-toggle chip — genuinely
+//   - `initiative_status` (active|paused) gets a click-to-toggle chip — genuinely
 //     new UI: there is no pause/unpause control anywhere today, in either
 //     era, only a derived bubble.
 //   - No count column for the retired middle tier — 2.0 has no such tier
-//     (containment goes straight epic -> step). A step_count column takes
+//     (containment goes straight initiative -> step). A step_count column takes
 //     its place, linking to
-//     `/swarm/steps?epic=<id>`.
+//     `/swarm/steps?initiative=<id>`.
 //   - No orchestration-claim "orchestrated by" badge — not in the
 //     requirement's field matrix; left out deliberately rather than folded
 //     in silently.
@@ -50,9 +50,9 @@ import AppContext from '../Context/AppContext';
 import {
     useAllCategories,
     useAllPipelines,
-    useAllEpics,
+    useAllInitiatives,
     useAllPipelineSteps,
-    epicKeys,
+    initiativeKeys,
     pipelineStepKeys,
 } from '../hooks/useDataQueries';
 import { pipelineComposeKeys } from '../hooks/useQueryKeys';
@@ -60,10 +60,10 @@ import { useSnackBarStore } from '../stores/useSnackBarStore';
 import ChipFilter from '../Components/ChipFilter/ChipFilter';
 import { formatDate } from '../utils/dateFormat';
 import {
-    epicStatus2ChipProps, epicStatus2Label, lockedChipProps, lockedLabel,
+    initiativeStatus2ChipProps, initiativeStatus2Label, lockedChipProps, lockedLabel,
 } from '../SwarmView/pipelines/pipelineChipStyles';
-import { updateEpic, deleteEpic } from './epicsApi';
-import EpicEditDialog, { CATEGORY_FIELDS } from './EpicEditDialog';
+import { updateInitiative, deleteInitiative } from './initiativesApi';
+import InitiativeEditDialog, { CATEGORY_FIELDS } from './InitiativeEditDialog';
 
 const CLOSED_FILTER_OPTIONS = [
     { value: 'open', label: 'Open', chipProps: { color: 'success' } },
@@ -72,7 +72,7 @@ const CLOSED_FILTER_OPTIONS = [
 
 const oneLine = (value) => (value ? String(value).replace(/\s+/g, ' ').trim() : '');
 
-export default function EpicsPage() {
+export default function InitiativesPage() {
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
     const queryClient = useQueryClient();
@@ -85,12 +85,12 @@ export default function EpicsPage() {
     const timezone = profile?.timezone;
 
     const { data: pipelines = [], isLoading: pipelinesLoading } = useAllPipelines(creatorFk);
-    const { data: epics = [], isLoading: epicsLoading } = useAllEpics(creatorFk);
+    const { data: initiatives = [], isLoading: initiativesLoading } = useAllInitiatives(creatorFk);
     const { data: steps = [], isLoading: stepsLoading } = useAllPipelineSteps(creatorFk);
     const { data: categories = [], isLoading: categoriesLoading } =
         useAllCategories(creatorFk, { fields: CATEGORY_FIELDS });
 
-    const isLoading = pipelinesLoading || epicsLoading || stepsLoading || categoriesLoading;
+    const isLoading = pipelinesLoading || initiativesLoading || stepsLoading || categoriesLoading;
 
     const [closedFilter, setClosedFilter] = useState(['open']);
     const toggleClosedFilter = (value) => setClosedFilter(current => (
@@ -100,13 +100,13 @@ export default function EpicsPage() {
     ));
 
     // The editor dialog: `key` changes per open so the form seeds afresh.
-    const [dialog, setDialog] = useState({ key: 0, open: false, epic: null });
+    const [dialog, setDialog] = useState({ key: 0, open: false, initiative: null });
 
-    const stepCountByEpic = useMemo(() => {
+    const stepCountByInitiative = useMemo(() => {
         const m = {};
         for (const s of steps) {
-            if (s.epic_fk == null) continue;
-            m[s.epic_fk] = (m[s.epic_fk] || 0) + 1;
+            if (s.initiative_fk == null) continue;
+            m[s.initiative_fk] = (m[s.initiative_fk] || 0) + 1;
         }
         return m;
     }, [steps]);
@@ -128,13 +128,13 @@ export default function EpicsPage() {
         p => ({ id: p.id, title: p.title })), [pipelines]);
 
     const rows = useMemo(() => {
-        const visible = epics.filter(e => (
+        const visible = initiatives.filter(e => (
             closedFilter.includes(e.closed ? 'closed' : 'open')
         ));
         return [...visible]
             .map(e => ({
                 ...e,
-                step_count: stepCountByEpic[e.id] || 0,
+                step_count: stepCountByInitiative[e.id] || 0,
                 pipeline_title: pipelineById[e.pipeline_fk]?.title
                     ?? (e.pipeline_fk != null ? `#${e.pipeline_fk}` : ''),
             }))
@@ -143,19 +143,19 @@ export default function EpicsPage() {
                 const bo = b.sort_order == null ? Infinity : b.sort_order;
                 return ao - bo || a.id - b.id;
             });
-    }, [epics, closedFilter, stepCountByEpic, pipelineById]);
+    }, [initiatives, closedFilter, stepCountByInitiative, pipelineById]);
 
-    // An epic write also invalidates the composed plan reads (req #3742), so a
-    // plan open elsewhere — or opened next — never draws the pre-save epic.
-    const invalidateEpics = () => {
-        queryClient.invalidateQueries({ queryKey: epicKeys.all(creatorFk) });
+    // An initiative write also invalidates the composed plan reads (req #3742), so a
+    // plan open elsewhere — or opened next — never draws the pre-save initiative.
+    const invalidateInitiatives = () => {
+        queryClient.invalidateQueries({ queryKey: initiativeKeys.all(creatorFk) });
         queryClient.invalidateQueries({ queryKey: pipelineComposeKeys.all });
     };
 
-    const openCreate = () => setDialog((d) => ({ key: d.key + 1, open: true, epic: null }));
-    const openEdit = (row) => setDialog((d) => ({ key: d.key + 1, open: true, epic: row }));
+    const openCreate = () => setDialog((d) => ({ key: d.key + 1, open: true, initiative: null }));
+    const openEdit = (row) => setDialog((d) => ({ key: d.key + 1, open: true, initiative: row }));
 
-    // Deep-link via ?id=<id>, matching EpicsPage.jsx's own contract.
+    // Deep-link via ?id=<id>, matching InitiativesPage.jsx's own contract.
     const autoOpenedIdRef = useRef(null);
     useEffect(() => {
         if (isLoading) return;
@@ -163,7 +163,7 @@ export default function EpicsPage() {
         if (!raw || !/^\d+$/.test(raw.trim())) return;
         const targetId = Number(raw.trim());
         if (autoOpenedIdRef.current === targetId) return;
-        const target = epics.find(e => e.id === targetId);
+        const target = initiatives.find(e => e.id === targetId);
         if (!target) return;
         autoOpenedIdRef.current = targetId;
         openEdit(target);
@@ -171,34 +171,34 @@ export default function EpicsPage() {
         next.delete('id');
         setSearchParams(next, { replace: true, state: location.state });
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isLoading, epics, searchParams]);
+    }, [isLoading, initiatives, searchParams]);
 
     const toggleClosed = async (row) => {
         try {
-            await updateEpic(darwinUri, idToken, row.id, { closed: row.closed ? 0 : 1 });
-            invalidateEpics();
+            await updateInitiative(darwinUri, idToken, row.id, { closed: row.closed ? 0 : 1 });
+            invalidateInitiatives();
         } catch (err) {
-            showError(err, 'Could not change epic status');
+            showError(err, 'Could not change initiative status');
         }
     };
 
-    const toggleEpicStatus = async (row) => {
+    const toggleInitiativeStatus = async (row) => {
         try {
-            await updateEpic(darwinUri, idToken, row.id,
-                { epic_status: row.epic_status === 'paused' ? 'active' : 'paused' });
-            invalidateEpics();
+            await updateInitiative(darwinUri, idToken, row.id,
+                { initiative_status: row.initiative_status === 'paused' ? 'active' : 'paused' });
+            invalidateInitiatives();
         } catch (err) {
-            showError(err, 'Could not change the epic pause state');
+            showError(err, 'Could not change the initiative pause state');
         }
     };
 
-    // req #3649 — a locked epic freezes itself and its steps (gateway 423).
+    // req #3649 — a locked initiative freezes itself and its steps (gateway 423).
     const toggleLock = async (row) => {
         try {
-            await updateEpic(darwinUri, idToken, row.id, { locked: row.locked ? 0 : 1 });
-            invalidateEpics();
+            await updateInitiative(darwinUri, idToken, row.id, { locked: row.locked ? 0 : 1 });
+            invalidateInitiatives();
         } catch (err) {
-            showError(err, 'Could not change the epic lock');
+            showError(err, 'Could not change the initiative lock');
         }
     };
 
@@ -206,26 +206,26 @@ export default function EpicsPage() {
         const count = row.step_count;
         const consequence = count
             ? ` Its ${count} step${count === 1 ? '' : 's'} will be deleted with it (a step never `
-              + 'survives its epic — containment). This cannot be undone.'
+              + 'survives its initiative — containment). This cannot be undone.'
             : ' This cannot be undone.';
-        if (!window.confirm(`Delete epic "${row.title}"?${consequence}`)) return;
+        if (!window.confirm(`Delete initiative "${row.title}"?${consequence}`)) return;
         try {
-            await deleteEpic(darwinUri, idToken, row.id);
-            invalidateEpics();
-            // The epic's steps CASCADE away with it (when the delete succeeds),
+            await deleteInitiative(darwinUri, idToken, row.id);
+            invalidateInitiatives();
+            // The initiative's steps CASCADE away with it (when the delete succeeds),
             // so this page's own step_count read is stale until invalidated —
             // same rule StepsPage.jsx's handleDelete follows for its own
             // dependency/link caches after a cascading delete.
             queryClient.invalidateQueries({ queryKey: pipelineStepKeys.all(creatorFk) });
         } catch (err) {
-            showError(err, 'Could not delete epic — if another step outside it depends on one '
+            showError(err, 'Could not delete initiative — if another step outside it depends on one '
                 + 'of its steps, remove that dependency first');
         }
     };
 
     const columns = [
         { field: 'id', headerName: 'ID', width: 70 },
-        { field: 'title', headerName: 'Epic', flex: 1, minWidth: 200 },
+        { field: 'title', headerName: 'Initiative', flex: 1, minWidth: 200 },
         {
             field: 'pipeline_title', headerName: 'Pipeline', width: 160,
             valueFormatter: (value) => value || '—',
@@ -257,56 +257,56 @@ export default function EpicsPage() {
                     aria-label={`Open the steps filed under ${params.row.title}`}
                     onClick={(e) => {
                         e.stopPropagation();
-                        navigate(`/swarm/steps?epic=${params.row.id}`);
+                        navigate(`/swarm/steps?initiative=${params.row.id}`);
                     }}
                     onKeyDown={(e) => {
                         if (e.key !== 'Enter') return;
                         e.stopPropagation();
-                        navigate(`/swarm/steps?epic=${params.row.id}`);
+                        navigate(`/swarm/steps?initiative=${params.row.id}`);
                     }}
                     sx={{
                         cursor: 'pointer',
                         textDecoration: params.value > 0 ? 'underline' : 'none',
                         color: params.value > 0 ? 'primary.main' : 'text.secondary',
                     }}
-                    data-testid={`epic2-steps-link-${params.row.id}`}
+                    data-testid={`initiative-steps-link-${params.row.id}`}
                 >
                     {params.value}
                 </Box>
             ),
         },
         {
-            field: 'epic_status', headerName: 'Pause', width: 100, sortable: false,
+            field: 'initiative_status', headerName: 'Pause', width: 100, sortable: false,
             renderCell: (params) => (
                 <Tooltip title={params.value === 'paused'
-                    ? 'Paused — this epic\'s work will not swarm-start. Click to unpause.'
-                    : 'Active — click to pause (stops this epic swarm-starting; everything '
+                    ? 'Paused — this initiative\'s work will not swarm-start. Click to unpause.'
+                    : 'Active — click to pause (stops this initiative swarm-starting; everything '
                       + 'already running is untouched).'}>
                     <Chip
-                        label={epicStatus2Label(params.value)}
+                        label={initiativeStatus2Label(params.value)}
                         size="small"
-                        {...epicStatus2ChipProps(params.value)}
+                        {...initiativeStatus2ChipProps(params.value)}
                         clickable
-                        onClick={() => toggleEpicStatus(params.row)}
-                        data-testid={`epic2-pause-chip-${params.row.id}`}
+                        onClick={() => toggleInitiativeStatus(params.row)}
+                        data-testid={`initiative-pause-chip-${params.row.id}`}
                     />
                 </Tooltip>
             ),
         },
         {
-            // req #3649 — the lock cascades: a locked epic freezes its steps.
+            // req #3649 — the lock cascades: a locked initiative freezes its steps.
             field: 'locked', headerName: 'Lock', width: 100, sortable: false,
             renderCell: (params) => (
                 <Tooltip title={params.value
-                    ? 'Locked — this epic and its steps are frozen as a record. Click to unlock.'
-                    : 'Open — editable. Click to lock this epic and freeze its steps.'}>
+                    ? 'Locked — this initiative and its steps are frozen as a record. Click to unlock.'
+                    : 'Open — editable. Click to lock this initiative and freeze its steps.'}>
                     <Chip
                         label={lockedLabel(params.value)}
                         size="small"
                         {...lockedChipProps(params.value)}
                         clickable
                         onClick={() => toggleLock(params.row)}
-                        data-testid={`epic2-lock-chip-${params.row.id}`}
+                        data-testid={`initiative-lock-chip-${params.row.id}`}
                     />
                 </Tooltip>
             ),
@@ -325,7 +325,7 @@ export default function EpicsPage() {
                     variant={params.value ? 'outlined' : 'filled'}
                     onClick={() => toggleClosed(params.row)}
                     clickable
-                    data-testid={`epic2-toggle-closed-${params.row.id}`}
+                    data-testid={`initiative-toggle-closed-${params.row.id}`}
                 />
             ),
         },
@@ -340,14 +340,14 @@ export default function EpicsPage() {
                 <Stack direction="row" spacing={0.5}>
                     <Tooltip title="Edit">
                         <IconButton size="small"
-                                    data-testid={`epic2-edit-${params.row.id}`}
+                                    data-testid={`initiative-edit-${params.row.id}`}
                                     onClick={(e) => { e.stopPropagation(); openEdit(params.row); }}>
                             <EditIcon fontSize="small" />
                         </IconButton>
                     </Tooltip>
                     <Tooltip title="Delete">
                         <IconButton size="small"
-                                    data-testid={`epic2-delete-${params.row.id}`}
+                                    data-testid={`initiative-delete-${params.row.id}`}
                                     onClick={(e) => { e.stopPropagation(); handleDelete(params.row); }}>
                             <DeleteIcon fontSize="small" />
                         </IconButton>
@@ -359,25 +359,25 @@ export default function EpicsPage() {
 
     return (
         <Box sx={{ gridArea: 'content', p: 3, width: '100%', overflow: 'auto' }}
-             data-testid="epics-page">
+             data-testid="initiatives-page">
             <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 2 }}>
-                <Typography variant="h5">Epics</Typography>
+                <Typography variant="h5">Initiatives</Typography>
                 <ChipFilter
                     options={CLOSED_FILTER_OPTIONS}
                     selected={closedFilter}
                     onToggle={toggleClosedFilter}
-                    testId="epics-closed-filter"
-                    chipTestIdPrefix="epics-closed-chip"
+                    testId="initiatives-closed-filter"
+                    chipTestIdPrefix="initiatives-closed-chip"
                 />
                 <Typography variant="caption" sx={{ color: 'text.secondary' }}
-                            data-testid="epics-accounting">
-                    {rows.length} of {epics.length} epic{epics.length === 1 ? '' : 's'}
+                            data-testid="initiatives-accounting">
+                    {rows.length} of {initiatives.length} initiative{initiatives.length === 1 ? '' : 's'}
                 </Typography>
                 <Box sx={{ flexGrow: 1 }} />
                 <Button variant="contained" startIcon={<AddIcon />} onClick={openCreate}
                         disabled={!pipelineOptions.length}
-                        data-testid="epic2-add">
-                    New Epic
+                        data-testid="initiative-add">
+                    New Initiative
                 </Button>
             </Stack>
 
@@ -386,7 +386,7 @@ export default function EpicsPage() {
                     <CircularProgress />
                 </Box>
             ) : (
-                <Box sx={{ width: '100%' }} data-testid="epics-datagrid">
+                <Box sx={{ width: '100%' }} data-testid="initiatives-datagrid">
                     <DataGrid
                         autoHeight
                         rows={rows}
@@ -398,20 +398,20 @@ export default function EpicsPage() {
                         initialState={{ pagination: { paginationModel: { pageSize: 25 } } }}
                         pageSizeOptions={[10, 25, 50]}
                         disableRowSelectionOnClick
-                        data-testid="epics-grid"
+                        data-testid="initiatives-grid"
                     />
                 </Box>
             )}
 
-            {/* req #3742 — the shared epic editor; the plan canvas opens the
-                same one over itself when an epic's name is clicked. */}
-            <EpicEditDialog
+            {/* req #3742 — the shared initiative editor; the plan canvas opens the
+                same one over itself when an initiative's name is clicked. */}
+            <InitiativeEditDialog
                 key={dialog.key}
                 open={dialog.open}
-                epic={dialog.epic}
+                initiative={dialog.initiative}
                 pipelineOptions={pipelineOptions}
                 onClose={() => setDialog((d) => ({ ...d, open: false }))}
-                onSaved={invalidateEpics}
+                onSaved={invalidateInitiatives}
             />
         </Box>
     );

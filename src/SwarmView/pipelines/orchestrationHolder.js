@@ -3,7 +3,7 @@
 // One row of `orchestration_claims` says: THIS SCOPE is being orchestrated, from
 // THAT machine, in THAT terminal, since THEN. This module turns that row into
 // the three things every surface needs — a label, a tone, and a tooltip — so the
-// plans table, the plans cards, the plan header and the epics grid all say the
+// plans table, the plans cards, the plan header and the initiatives grid all say the
 // same thing in the same words.
 //
 // WHY THE DERIVATION LIVES IN THE CLIENT AND NOT ON THE ROW. `stale` and
@@ -15,14 +15,14 @@
 // cannot import the daemon's code), and the shared constant below is what keeps
 // the two answers the same.
 //
-// A SCOPE IS (pipeline_fk, epic_fk) AND NOTHING ELSE. `epic_fk` null means
+// A SCOPE IS (pipeline_fk, initiative_fk) AND NOTHING ELSE. `initiative_fk` null means
 // the WHOLE PLAN, which owns every step in it — so a plan with a whole-plan
-// reservation is orchestrated even though none of its epics carries one. Every
+// reservation is orchestrated even though none of its initiatives carries one. Every
 // consumer asks through `claimForPipeline` rather than filtering inline,
 // because getting that null case wrong reads as "nobody is orchestrating this"
 // on the one surface built to answer the opposite.
 //
-// req #3356 removed the 1.0 accessors (`claimForPipeline`, `claimsForEpic`) with
+// req #3356 removed the 1.0 accessors (`claimForPipeline`, `claimsForInitiative`) with
 // the pages that called them. `scopeLabel` below still reads BOTH column pairs:
 // the `orchestration_claims` rows themselves are not this requirement's to
 // change (its item 4 drops the 1.0 columns, schema-side), so a row written
@@ -99,26 +99,26 @@ export function heldForSeconds(claim, now = new Date()) {
 }
 
 /**
- * The reservation covering a whole PLAN — `epic_fk` null, `pipeline_fk`
+ * The reservation covering a whole PLAN — `initiative_fk` null, `pipeline_fk`
  * matching (req #3381).
  *
  * There was a TWIN of this function until req #3356, because
- * `orchestration_claims` carried two scope pairs: a 1.0 `pipeline_fk`/`epic_fk`
- * and a 2.0 `pipeline2_fk`/`epic2_fk`, each NULL on the other era's rows. The
+ * `orchestration_claims` carried two scope pairs: a 1.0 `pipeline_fk`/`initiative_fk`
+ * and a 2.0 `pipeline2_fk`/`initiative2_fk`, each NULL on the other era's rows. The
  * migration dropped the 1.0 columns and renamed the 2.0 pair into their names,
  * so there is one pair, one function, and no era to disambiguate.
  */
 export function claimForPipeline(claims, pipelineId) {
     if (pipelineId == null) return null;
     return asArray(claims).find(
-        (c) => c.pipeline_fk === pipelineId && c.epic_fk == null) || null;
+        (c) => c.pipeline_fk === pipelineId && c.initiative_fk == null) || null;
 }
 
-// ── req #3678 — MACHINE-AWARE ORCHESTRATION: one lead per epic, any subscribers
+// ── req #3678 — MACHINE-AWARE ORCHESTRATION: one lead per initiative, any subscribers
 //
-// Several machines may hold claims on one plan. LEADERSHIP IS PER EPIC: for
-// every epic, the lowest-id live claim covering it (a whole-plan claim, or that
-// epic's own) LEADS it — the first machine in — and launches requirements
+// Several machines may hold claims on one plan. LEADERSHIP IS PER INITIATIVE: for
+// every initiative, the lowest-id live claim covering it (a whole-plan claim, or that
+// initiative's own) LEADS it — the first machine in — and launches requirements
 // pinned to "Any" and to itself there. Every other machine covering it is a
 // SUBSCRIBER and launches only requirements pinned to it. The role is DERIVED
 // from the rows, never stored, by `resolve_roles` in
@@ -134,18 +134,18 @@ export const ROLE_REFUSED = 'refused';
 const nullish = (v) => (v === undefined ? null : v);
 const idKey = (c) => (Number.isInteger(c.id) ? c.id : Infinity);
 
-function claimsConflict(aEpic, bEpic) {
-    return aEpic == null || bEpic == null || aEpic === bEpic;
+function claimsConflict(aInitiative, bInitiative) {
+    return aInitiative == null || bInitiative == null || aInitiative === bInitiative;
 }
 
 /**
  * `Map<claimId, { role, lead_id, blocker_id, defers, refusal? }>` for LIVE
  * claims — the browser's copy of `resolve_roles`, same keys. Walked in id order
  * per plan: an overlap with an accepted claim on the SAME machine (or where
- * either has no machine) → REFUSED; no overlap → LEAD; an epic claim, or a
+ * either has no machine) → REFUSED; no overlap → LEAD; an initiative claim, or a
  * whole-plan claim under an earlier whole-plan claim → SUBSCRIBER of the
- * lowest-id claim covering it; a whole-plan claim under earlier EPIC claims
- * only → LEAD that `defers` those epics to them.
+ * lowest-id claim covering it; a whole-plan claim under earlier INITIATIVE claims
+ * only → LEAD that `defers` those initiatives to them.
  */
 export function resolveRoles(claims) {
     const out = new Map();
@@ -153,11 +153,11 @@ export function resolveRoles(claims) {
     const sorted = asArray(claims).slice().sort((a, b) => idKey(a) - idKey(b));
     for (const row of sorted) {
         const pid = nullish(row.pipeline_fk);
-        const epic = nullish(row.epic_fk);
+        const initiative = nullish(row.initiative_fk);
         const mine = nullish(row.machine_fk);
         if (!accepted.has(pid)) accepted.set(pid, []);
         const prior = accepted.get(pid);
-        const overlapping = prior.filter((c) => claimsConflict(nullish(c.epic_fk), epic));
+        const overlapping = prior.filter((c) => claimsConflict(nullish(c.initiative_fk), initiative));
         const blocker = overlapping.find((c) => mine == null
             || nullish(c.machine_fk) == null || nullish(c.machine_fk) === mine);
         let verdict;
@@ -169,23 +169,23 @@ export function resolveRoles(claims) {
             };
         } else if (!overlapping.length) {
             verdict = { role: ROLE_LEAD, lead_id: row.id, blocker_id: null, defers: [] };
-        } else if (epic != null) {
+        } else if (initiative != null) {
             verdict = { role: ROLE_SUBSCRIBER, lead_id: overlapping[0].id,
                         blocker_id: null, defers: [] };
         } else {
-            const whole = overlapping.filter((c) => nullish(c.epic_fk) == null);
+            const whole = overlapping.filter((c) => nullish(c.initiative_fk) == null);
             if (whole.length) {
                 verdict = { role: ROLE_SUBSCRIBER, lead_id: whole[0].id,
                             blocker_id: null, defers: [] };
             } else {
                 const defers = new Map();
                 for (const c of overlapping) {
-                    if (!defers.has(c.epic_fk)) defers.set(c.epic_fk, c.id);
+                    if (!defers.has(c.initiative_fk)) defers.set(c.initiative_fk, c.id);
                 }
                 verdict = {
                     role: ROLE_LEAD, lead_id: row.id, blocker_id: null,
                     defers: [...defers.keys()].sort((x, y) => x - y)
-                        .map((e) => ({ epic_fk: e, lead_id: defers.get(e) })),
+                        .map((e) => ({ initiative_fk: e, lead_id: defers.get(e) })),
                 };
             }
         }
@@ -198,7 +198,7 @@ export function resolveRoles(claims) {
 /**
  * Who is orchestrating a whole PLAN, machine-aware (req #3678): the whole-plan
  * LEAD, plus every OTHER machine holding a live claim on the plan — each a
- * subscriber, or the lead of an epic the whole-plan lead defers to it.
+ * subscriber, or the lead of an initiative the whole-plan lead defers to it.
  * `{ ...holderView(lead), role, subscribers: [holderView + role] }` or null.
  *
  * No live whole-plan lead falls back to `claimForPipeline` — a STALE claim is
@@ -211,7 +211,7 @@ export function orchestrationView(claims, pipelineId, machines, now = new Date()
     const live = onPlan.filter((c) => !isStale(c, now));
     const roles = resolveRoles(live);
     const lead = live.slice().sort((a, b) => idKey(a) - idKey(b))
-        .find((c) => c.epic_fk == null && roles.get(c.id)?.role === ROLE_LEAD);
+        .find((c) => c.initiative_fk == null && roles.get(c.id)?.role === ROLE_LEAD);
     if (!lead) {
         const fallback = holderView(claimForPipeline(onPlan, pipelineId), machines, now);
         return fallback && { ...fallback, role: null, subscribers: [] };
@@ -224,10 +224,10 @@ export function orchestrationView(claims, pipelineId, machines, now = new Date()
     const deferred = roles.get(lead.id).defers || [];
     const leadSentence = `${base.machine} LEADS — it launches requirements pinned to Any `
         + `and to ${base.machine}${deferred.length
-            ? ` everywhere except ${deferred.map((d) => `epic ${d.epic_fk}`).join(', ')}`
+            ? ` everywhere except ${deferred.map((d) => `initiative ${d.initiative_fk}`).join(', ')}`
             : ''}`;
     const describe = (s) => (s.role === ROLE_LEAD
-        ? `${s.machine} (${scopeLabel(s.claim)}) LEADS that epic — it was there first`
+        ? `${s.machine} (${scopeLabel(s.claim)}) LEADS that initiative — it was there first`
         : `${s.machine} (${scopeLabel(s.claim)}) subscribes — launches ONLY requirements `
             + 'pinned to its own machine');
     const others = subscribers.length
@@ -253,7 +253,7 @@ export function orchestrationView(claims, pipelineId, machines, now = new Date()
 // right of your pipeline name — Green master, Orange secondary — Mac or WSL
 // inside", replacing the "Orchestrated by …" chip at the title bar's right edge.
 // ONE BADGE PER MACHINE, because the machine is what the badge prints; a
-// machine holding two epic claims on one plan is one orchestrator, not two.
+// machine holding two initiative claims on one plan is one orchestrator, not two.
 
 export const BADGE_LEAD = 'lead';
 export const BADGE_SUBSCRIBER = 'subscriber';
@@ -271,9 +271,9 @@ export function machinePlatformLabel(machine) {
  * `[{ key, machineFk, text, tone, title }]`, empty when nobody orchestrates.
  *
  * MASTER (`lead`, green) is the whole-plan LEAD — the first machine in. With no
- * live whole-plan claim, an epic-scoped LEAD is the master of its own epic, so it
+ * live whole-plan claim, an initiative-scoped LEAD is the master of its own initiative, so it
  * is green too. Every other live machine on the plan is SECONDARY (`subscriber`,
- * orange): a subscriber, or an earlier epic claim the whole-plan lead defers to.
+ * orange): a subscriber, or an earlier initiative claim the whole-plan lead defers to.
  * A REFUSED claim launches nothing and gets no badge. With nothing live, a STALE
  * whole-plan claim still shows (grey, `stale`) — the orchestrator is gone and the
  * scope reclaimable, which is what the chip this replaced said too.
@@ -301,7 +301,7 @@ export function orchestrationBadges(claims, pipelineId, machines, now = new Date
     }
 
     const planLead = accepted.find(
-        (c) => c.epic_fk == null && roles.get(c.id).role === ROLE_LEAD);
+        (c) => c.initiative_fk == null && roles.get(c.id).role === ROLE_LEAD);
     const isMaster = (c) => (planLead
         ? c.id === planLead.id
         : roles.get(c.id).role === ROLE_LEAD);
@@ -312,7 +312,7 @@ export function orchestrationBadges(claims, pipelineId, machines, now = new Date
         }
         if (isMaster(c)) {
             return `${view.machine} is the MASTER of ${scopeLabel(c)} — it leads that `
-                + `epic and launches requirements pinned to Any and to ${view.machine} there`;
+                + `initiative and launches requirements pinned to Any and to ${view.machine} there`;
         }
         if (roles.get(c.id).role === ROLE_LEAD) {
             return `${view.machine} is SECONDARY here — it leads ${scopeLabel(c)}, `
@@ -348,21 +348,21 @@ export function orchestrationBadges(claims, pipelineId, machines, now = new Date
         }));
 }
 
-// `claimsForEpic` — every reservation covering an EPIC's work, its own plus any
-// whole-plan reservation on a plan the epic sat in — was DELETED by req #3356
-// with its only caller, the 1.0 `/swarm/epics` page.
+// `claimsForInitiative` — every reservation covering an INITIATIVE's work, its own plus any
+// whole-plan reservation on a plan the initiative sat in — was DELETED by req #3356
+// with its only caller, the 1.0 `/swarm/initiatives` page.
 //
 // NOTHING REPLACED IT, and that is a real feature-parity gap rather than a
-// tidy-up: `/swarm/epics` shows no "who is orchestrating this epic" chip, so an
-// epic whose work is being launched right now — by an epic-scoped engine or by
-// a whole-plan one — reads on that page exactly like an idle epic. The plan
+// tidy-up: `/swarm/initiatives` shows no "who is orchestrating this initiative" chip, so an
+// initiative whose work is being launched right now — by an initiative-scoped engine or by
+// a whole-plan one — reads on that page exactly like an idle initiative. The plan
 // HEADER still names a whole-plan holder (`claimForPipeline` above), so the
-// fact is not unreachable, only absent from the epic surface. Whatever restores
-// it must union BOTH scopes: an epics page showing only epic-scoped claims
-// would report "not orchestrated" for an epic a whole-plan engine owns.
+// fact is not unreachable, only absent from the initiative surface. Whatever restores
+// it must union BOTH scopes: an initiatives page showing only initiative-scoped claims
+// would report "not orchestrated" for an initiative a whole-plan engine owns.
 
 /**
- * `pipeline:2` for a whole-plan claim, `epic:7@2` for an epic-scoped one.
+ * `pipeline:2` for a whole-plan claim, `initiative:7@2` for an initiative-scoped one.
  *
  * THIS NO LONGER MATCHES WHAT THE ENGINE PRINTS, and the divergence is stated
  * here rather than left to be discovered. The Python side still emits the
@@ -387,9 +387,9 @@ export function orchestrationBadges(claims, pipelineId, machines, now = new Date
  */
 export function scopeLabel(claim) {
     if (!claim || claim.pipeline_fk == null) return '';
-    return claim.epic_fk == null
+    return claim.initiative_fk == null
         ? `pipeline:${claim.pipeline_fk}`
-        : `epic:${claim.epic_fk}@${claim.pipeline_fk}`;
+        : `initiative:${claim.initiative_fk}@${claim.pipeline_fk}`;
 }
 
 function machineName(machineFk, machines) {

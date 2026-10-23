@@ -64,7 +64,7 @@ import {
 // routes beside a parallel 1.0 era until req #3356 eradicated it; they now hold
 // the plain routes outright.
 import PipelinesPage from './Pipelines/PipelinesPage';
-import EpicsPage from './Epics/EpicsPage';
+import InitiativesPage from './Initiatives/InitiativesPage';
 import StepsPage from './Steps/StepsPage';
 import SystemsPage2 from './Systems/SystemsPage2';
 import BuildVisualizerPage from './BuildVisualizer/BuildVisualizerPage';
@@ -161,13 +161,13 @@ root.render(
                     <Route path={planDetailRoutePath()} element= {<AuthenticatedRoute>
                                                              <PipelineDetail />
                                                          </AuthenticatedRoute>} />
-                    {/* The plan-layer editors, epic and step tiers (req #3393).
+                    {/* The plan-layer editors, initiative and step tiers (req #3393).
                         The pipelines LIST route above already carries the plans
                         themselves; these two are not "plan routes" in
-                        planEra.js's sense (they list epics/steps, not plans) so
+                        planEra.js's sense (they list initiatives/steps, not plans) so
                         they stay literal here. */}
-                    <Route path="swarm/epics" element= {<AuthenticatedRoute>
-                                                             <EpicsPage />
+                    <Route path="swarm/initiatives" element= {<AuthenticatedRoute>
+                                                             <InitiativesPage />
                                                          </AuthenticatedRoute>} />
                     <Route path="swarm/steps" element= {<AuthenticatedRoute>
                                                              <StepsPage />

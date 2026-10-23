@@ -41,7 +41,7 @@ vi.mock('../../hooks/useDataQueries', () => ({
     // The REAL hook runs here rather than a double: it owns the memoization the
     // aggregator's `useMemo` chain depends on, and a stand-in that got that
     // wrong would loop rather than fail. `ALL_ROWS` is re-exported because the
-    // hook passes it (a closed epic still seats its requirements).
+    // hook passes it (a closed initiative still seats its requirements).
     useAllPipelineStepRequirements: () => ({ data: EMPTY_JUNCTION }),
     ALL_ROWS: 'all',
 }));

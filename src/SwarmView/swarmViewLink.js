@@ -59,9 +59,9 @@ export const readViewParam = (searchParams) => {
 export const swarmViewLinkTo = (view) =>
     SWARM_VIEWS.includes(view) ? `/swarm?${SWARM_VIEW_PARAM}=${view}` : '/swarm';
 
-// ── `?epic=` — ONE epic's work, seen as task cards (req #3428) ──────────────
+// ── `?initiative=` — ONE initiative's work, seen as task cards (req #3428) ──────────────
 //
-// `/swarm?view=cards&epic=<eid>`. The writer is the plan visualizer's epic chip
+// `/swarm?view=cards&initiative=<eid>`. The writer is the plan visualizer's initiative chip
 // (`PipelinePlanVisualizer.jsx`) and the readers are this page plus three
 // components under it — five files that must agree on one query-string key
 // exactly, which is this module's whole reason for existing. It lives HERE
@@ -75,10 +75,10 @@ export const swarmViewLinkTo = (view) =>
 // this link's whole promise is the CARDS. It seeds the same TRANSIENT override,
 // so the reader's stored default is never rewritten.
 //
-// NOT THE ONLY `?epic=` IN THIS CODEBASE, AND THAT IS FINE. `pipelineEpicLink.js`
-// owns `?epic=` on `/swarm/pipeline/<pid>`, where it means FOCUS THIS BAND;
+// NOT THE ONLY `?initiative=` IN THIS CODEBASE, AND THAT IS FINE. `pipelineInitiativeLink.js`
+// owns `?initiative=` on `/swarm/pipeline/<pid>`, where it means FOCUS THIS BAND;
 // `StepsPage.jsx` owns it on `/swarm/steps` (req #3373), where it means FILTER
-// TO THIS EPIC — the target its now-retired browsable-catalog predecessor
+// TO THIS INITIATIVE — the target its now-retired browsable-catalog predecessor
 // used to own before req #3357 retired it; this owns it on `/swarm` and means
 // what StepsPage's means.
 // Multiple ROUTES, one meaning each, so no reader ever has to work out which
@@ -87,49 +87,49 @@ export const swarmViewLinkTo = (view) =>
 // reader: merging them would couple their query strings so that changing one
 // has to be argued on all of them.
 
-/** The query parameter. `epic`, because the filter names an EPIC. */
-export const SWARM_EPIC_PARAM = 'epic';
+/** The query parameter. `initiative`, because the filter names an INITIATIVE. */
+export const SWARM_INITIATIVE_PARAM = 'initiative';
 
-/** The view an epic link lands on. Named so the writer and this file agree. */
-export const SWARM_EPIC_VIEW = 'cards';
+/** The view an initiative link lands on. Named so the writer and this file agree. */
+export const SWARM_INITIATIVE_VIEW = 'cards';
 
 /**
- * The route an epic's task cards live at.
+ * The route an initiative's task cards live at.
  *
  * Returns null when the id is unusable, so a caller renders no control at all
- * rather than one that navigates to `/swarm?epic=undefined` and filters every
- * requirement away under a pill reading "Epic: undefined". A plan's "No epic"
+ * rather than one that navigates to `/swarm?initiative=undefined` and filters every
+ * requirement away under a pill reading "Initiative: undefined". A plan's "No initiative"
  * band has no id and is exactly this case — the same omit-rather-than-render-a-
- * dead-link rule `pipelineEpicLink.js` applies.
+ * dead-link rule `pipelineInitiativeLink.js` applies.
  *
- * @param {?number} epicId
+ * @param {?number} initiativeId
  * @returns {?string}
  */
-export const swarmEpicLinkTo = (epicId) => {
-    const eid = toEpicId(epicId);
+export const swarmInitiativeLinkTo = (initiativeId) => {
+    const eid = toInitiativeId(initiativeId);
     if (eid == null) return null;
-    return `/swarm?${SWARM_VIEW_PARAM}=${SWARM_EPIC_VIEW}&${SWARM_EPIC_PARAM}=${eid}`;
+    return `/swarm?${SWARM_VIEW_PARAM}=${SWARM_INITIATIVE_VIEW}&${SWARM_INITIATIVE_PARAM}=${eid}`;
 };
 
 /**
- * The epic id a `?epic=` parameter names, or null.
+ * The initiative id a `?initiative=` parameter names, or null.
  *
  * VALIDATED, NEVER TRUSTED — the same rule `readViewParam` follows, and with
  * more at stake: this value decides which requirements a page shows, and
  * `Number('')` is 0 while `Number('1.5')` is 1.5, either of which would filter
- * every row away under a pill naming an epic that does not exist. An id that
- * names a REAL-SHAPED epic which simply has no row is not an error: the page
+ * every row away under a pill naming an initiative that does not exist. An id that
+ * names a REAL-SHAPED initiative which simply has no row is not an error: the page
  * filters to an empty set and the pill falls back to the raw id — the same
- * behavior `pipelineEpicLink.js`'s reader follows.
+ * behavior `pipelineInitiativeLink.js`'s reader follows.
  *
  * @param {{get: function(string): ?string}} searchParams
  * @returns {?number}
  */
-export const readEpicParam = (searchParams) =>
-    toEpicId(searchParams?.get?.(SWARM_EPIC_PARAM));
+export const readInitiativeParam = (searchParams) =>
+    toInitiativeId(searchParams?.get?.(SWARM_INITIATIVE_PARAM));
 
 /**
- * The same params with the epic filter removed — where dismissing the pill goes.
+ * The same params with the initiative filter removed — where dismissing the pill goes.
  *
  * A NEW `URLSearchParams` rather than a mutation of the caller's: React Router
  * hands back a live object, and mutating it in place changes the current
@@ -138,16 +138,16 @@ export const readEpicParam = (searchParams) =>
  * @param {URLSearchParams} searchParams
  * @returns {URLSearchParams}
  */
-export const withoutEpicParam = (searchParams) => {
+export const withoutInitiativeParam = (searchParams) => {
     const next = new URLSearchParams(searchParams || undefined);
-    next.delete(SWARM_EPIC_PARAM);
+    next.delete(SWARM_INITIATIVE_PARAM);
     return next;
 };
 
 // NULLISH AND EMPTY ARE REJECTED BEFORE `Number` SEES THEM — `pipelineStepLink`'s
 // identical guard, for the identical reason: `Number(null)` and `Number('')` are
-// both 0, which is a perfectly good integer and a perfectly bad epic id.
-const toEpicId = (value) => {
+// both 0, which is a perfectly good integer and a perfectly bad initiative id.
+const toInitiativeId = (value) => {
     if (value == null || String(value).trim() === '') return null;
     const n = Number(String(value).trim());
     return Number.isInteger(n) && n > 0 ? n : null;
@@ -155,7 +155,7 @@ const toEpicId = (value) => {
 
 // ── `?step=` — ONE step's work, seen as task cards (req #3503) ──────────────
 //
-// `/swarm?view=cards&step=<sid>`. A PARALLEL, INDEPENDENT sibling of the `?epic=`
+// `/swarm?view=cards&step=<sid>`. A PARALLEL, INDEPENDENT sibling of the `?initiative=`
 // block above, not a generalisation of it. The writer is the plan visualizer's
 // requirement-count badge (`PipelinePlanVisualizer.jsx`) and the readers are the
 // same five files, which is why it lives here for the same reason: this module
@@ -169,8 +169,8 @@ const toEpicId = (value) => {
 // keys, two readers, two `without…Param` functions — nothing shared, nothing to
 // disentangle.
 //
-// THE DERIVATION UNDERNEATH IS ONE HOP, WHICH IS THE WHOLE DIFFERENCE. An epic
-// needs `pipeline_steps.epic_fk` walked before the junction can be read; a step
+// THE DERIVATION UNDERNEATH IS ONE HOP, WHICH IS THE WHOLE DIFFERENCE. An initiative
+// needs `pipeline_steps.initiative_fk` walked before the junction can be read; a step
 // IS the junction's own `step_fk`. Same query-string shape, much cheaper answer —
 // see `utils/pipelineMembership.js` § `stepRequirementIds`.
 //
@@ -183,7 +183,7 @@ const toEpicId = (value) => {
 // owns `?step=` on the plan detail route, where it means FOCUS THIS STEP (a row
 // to scroll to, or a bead to zoom on); this owns it on `/swarm` and means FILTER
 // TO THIS STEP'S REQUIREMENTS. One route, one meaning each — the same arrangement
-// `?epic=` already has across three routes, and the reason both keep the plain
+// `?initiative=` already has across three routes, and the reason both keep the plain
 // noun: the address bar stays legible because the word names the same THING even
 // where the verb differs.
 
@@ -199,7 +199,7 @@ export const SWARM_STEP_VIEW = 'cards';
  * Returns null when the id is unusable, so a caller renders no control at all
  * rather than one that navigates to `/swarm?step=undefined` and filters every
  * requirement away under a pill reading "Step: undefined" — the same
- * omit-rather-than-render-a-dead-link rule `swarmEpicLinkTo` applies. A badge
+ * omit-rather-than-render-a-dead-link rule `swarmInitiativeLinkTo` applies. A badge
  * drawn for a step the layout could not resolve is exactly this case.
  *
  * @param {?number} stepId
@@ -214,7 +214,7 @@ export const swarmStepLinkTo = (stepId) => {
 /**
  * The step id a `?step=` parameter names, or null.
  *
- * VALIDATED, NEVER TRUSTED — `readEpicParam`'s rule, with the same stake: this
+ * VALIDATED, NEVER TRUSTED — `readInitiativeParam`'s rule, with the same stake: this
  * value decides which requirements a page shows, and `Number('')` is 0 while
  * `Number('1.5')` is 1.5, either of which would filter every row away under a
  * pill naming a step that does not exist. An id that names a REAL-SHAPED step
@@ -231,9 +231,9 @@ export const readStepParam = (searchParams) =>
  * The same params with the step filter removed — where dismissing the pill goes.
  *
  * A NEW `URLSearchParams` rather than a mutation of the caller's, for
- * `withoutEpicParam`'s reason: React Router hands back a live object, and
+ * `withoutInitiativeParam`'s reason: React Router hands back a live object, and
  * mutating it in place changes the current location's params while re-rendering
- * nothing. It touches `step` ALONE, so dismissing this pill leaves an epic
+ * nothing. It touches `step` ALONE, so dismissing this pill leaves an initiative
  * filter — or any other parameter — exactly where it was.
  *
  * @param {URLSearchParams} searchParams
@@ -246,7 +246,7 @@ export const withoutStepParam = (searchParams) => {
 };
 
 // Deliberately its own guard rather than a shared `toPositiveId`, matching
-// `toEpicId` line for line. The two validate different NOUNS, and a shared
+// `toInitiativeId` line for line. The two validate different NOUNS, and a shared
 // helper would make relaxing one (a step id that could legitimately be 0, say)
 // silently relax the other — which is the whole failure mode this module's
 // one-owner-per-contract design exists to avoid.

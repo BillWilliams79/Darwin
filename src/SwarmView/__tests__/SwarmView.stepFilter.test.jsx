@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
 // Req #3503 — the WIRING of the `?step=` filter, which is where its real risk
-// sits, exactly as `SwarmView.epicFilter.test.jsx` says of its own.
+// sits, exactly as `SwarmView.initiativeFilter.test.jsx` says of its own.
 //
 // The pure rules are pinned in `swarmViewLink.stepParam.test.js` and
 // `utils/__tests__/pipelineMembership.test.js`. What no pure suite can catch is
@@ -20,7 +20,7 @@ import { MemoryRouter } from 'react-router-dom';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
-// See the epic suite's note: the first mounted `it()` absorbs the cold
+// See the initiative suite's note: the first mounted `it()` absorbs the cold
 // module-compile cost of dnd-kit + MUI + this page.
 vi.setConfig({ testTimeout: 30000 });
 
@@ -30,14 +30,14 @@ const PROJECTS = [
     { id: 7, project_name: 'Personal', sort_order: 0 },
     { id: 1, project_name: 'Darwin', sort_order: 1 },
 ];
-// The step's own category sits under project 1 ('Darwin'); the epic's own
+// The step's own category sits under project 1 ('Darwin'); the initiative's own
 // (req #3503 review's tab-seed-race describe, below) sits under project 7
 // ('Personal') — two DIFFERENT tabs, so a test asserting which one gets
 // seeded actually exercises a choice rather than two paths that happen to
 // agree.
 const CATEGORIES = [{ id: 5, project_fk: 1 }, { id: 6, project_fk: 7 }];
 const SCOPE_REQUIREMENTS = [{ id: 3503, category_fk: 5 }];
-const EPIC_SCOPE_REQUIREMENTS = [{ id: 9001, category_fk: 6 }];
+const INITIATIVE_SCOPE_REQUIREMENTS = [{ id: 9001, category_fk: 6 }];
 // `pipeline_steps` as the pill's `id,title` projection returns them. Step 187
 // carries the EMPTY STRING, which is legal in a NOT NULL VARCHAR and is the case
 // the `||` fallback exists for.
@@ -45,24 +45,24 @@ const STEPS = [
     { id: 186, title: 'Second-click zoom' },
     { id: 187, title: '' },
 ];
-const EMPTY_EPICS = [];
+const EMPTY_INITIATIVES = [];
 let stepReqIdsFromHook = new Set([3503]);
 let scopeReadFails = false;
 // INACTIVE (null) by default — every describe block but the last one asserts
 // the step filter alone and never sets this, so it keeps behaving exactly as
 // the old hardcoded-inactive mock did for them.
-let epicReqIdsFromHook = null;
+let initiativeReqIdsFromHook = null;
 
 vi.mock('../../hooks/useDataQueries', () => ({
     useProjects: () => ({ data: PROJECTS }),
-    useAllEpics: () => ({ data: EMPTY_EPICS }),
+    useAllInitiatives: () => ({ data: EMPTY_INITIATIVES }),
     useAllCategories: () => ({ data: CATEGORIES }),
     useAllPipelineSteps: () => ({ data: STEPS }),
-    useEpicRequirementIds: (_creator, epicId) => {
-        if (epicId == null || epicReqIdsFromHook == null) {
-            return { epicReqIds: null, isError: false, requirements: undefined };
+    useInitiativeRequirementIds: (_creator, initiativeId) => {
+        if (initiativeId == null || initiativeReqIdsFromHook == null) {
+            return { initiativeReqIds: null, isError: false, requirements: undefined };
         }
-        return { epicReqIds: epicReqIdsFromHook, isError: false, requirements: EPIC_SCOPE_REQUIREMENTS };
+        return { initiativeReqIds: initiativeReqIdsFromHook, isError: false, requirements: INITIATIVE_SCOPE_REQUIREMENTS };
     },
     useStepRequirementIds: (_creator, stepId) => {
         if (stepId == null) return { stepReqIds: null, isError: false, requirements: undefined };
@@ -176,7 +176,7 @@ describe('SwarmView under ?step= (req #3503)', () => {
         + 'the filter seeded (user report: "goes somewhere random")', () => {
         // The reader was working in 'Personal' (project 7, tab 0) before ever
         // following the step link. The step's own work seeds tab 1 ('Darwin')
-        // while the filter is engaged — expected, covered by the epic/step
+        // while the filter is engaged — expected, covered by the initiative/step
         // tab-seed tests elsewhere. What THIS pins is what happens AFTER: the
         // seed effect moved `activeTab`, but the "persist to localStorage"
         // effect stands down for as long as a filter is engaged, so the
@@ -217,7 +217,7 @@ describe('SwarmView under ?step= (req #3503)', () => {
     it('NEVER RE-HOMES THE READER: the seeded tab is not written to the persisted '
         + 'working project', () => {
         // `darwin_working_project` lives 90 days. A step scope is narrower than an
-        // epic one, so its seeded tab is even less a statement about where this
+        // initiative one, so its seeded tab is even less a statement about where this
         // reader works.
         mount('/swarm?view=cards&step=186');
         expect(useWorkingProjectStore.getState().projectId).toBeNull();
@@ -239,7 +239,7 @@ describe('SwarmView under ?step= (req #3503)', () => {
     });
 });
 
-describe('the step filter and the epic filter are INDEPENDENT (req #3503)', () => {
+describe('the step filter and the initiative filter are INDEPENDENT (req #3503)', () => {
     beforeEach(() => {
         panelProps = [];
         stepReqIdsFromHook = new Set([3503]);
@@ -250,40 +250,40 @@ describe('the step filter and the epic filter are INDEPENDENT (req #3503)', () =
     });
     afterEach(() => { cleanup(); localStorage.clear(); });
 
-    it('an ?epic= in the address bar does not suppress the step pill or its scope', () => {
-        // The epic hook is stubbed inactive here, so this asserts the STEP half
-        // survives an epic parameter being present — the two are separate
+    it('an ?initiative= in the address bar does not suppress the step pill or its scope', () => {
+        // The initiative hook is stubbed inactive here, so this asserts the STEP half
+        // survives an initiative parameter being present — the two are separate
         // conditions, never two values of one.
-        const { getByTestId } = mount('/swarm?view=cards&epic=11&step=186');
+        const { getByTestId } = mount('/swarm?view=cards&initiative=11&step=186');
         expect(getByTestId('swarm-step-filter-chip')).not.toBeNull();
         expect(lastPanelProps().stepReqIds).toBe(stepReqIdsFromHook);
     });
 
-    it('dismissing the step pill leaves ?epic= in the address bar', () => {
+    it('dismissing the step pill leaves ?initiative= in the address bar', () => {
         // `withoutStepParam` touches `step` alone; this pins that the PAGE calls
         // it that way rather than rebuilding the query string.
-        const { getByTestId, queryByTestId } = mount('/swarm?view=cards&epic=11&step=186');
+        const { getByTestId, queryByTestId } = mount('/swarm?view=cards&initiative=11&step=186');
         fireEvent.click(getByTestId('swarm-step-filter-chip').querySelector('.MuiChip-deleteIcon'));
         expect(queryByTestId('swarm-step-filter-chip')).toBeNull();
-        // The epic pill renders off `epicFilterApplies`, which is still true —
+        // The initiative pill renders off `initiativeFilterApplies`, which is still true —
         // so its presence IS the surviving parameter, observed on screen.
-        expect(queryByTestId('swarm-epic-filter-chip')).not.toBeNull();
+        expect(queryByTestId('swarm-initiative-filter-chip')).not.toBeNull();
     });
 });
 
 describe('both filters engaged at once seed ONE tab deterministically (req #3503 review)', () => {
-    // Code review finding: the epic and step tab-seed effects each guarded
+    // Code review finding: the initiative and step tab-seed effects each guarded
     // only against RE-seeding their OWN scope, so with both engaged they
     // raced on whichever membership read resolved second rather than on
-    // which the reader actually followed — an epic link and a step link can
+    // which the reader actually followed — an initiative link and a step link can
     // both sit in the address bar (the "INDEPENDENT" describe block above is
     // exactly why), and here their candidate tabs genuinely disagree: the
-    // step's own work is under project 1 ('Darwin'), the epic's under
+    // step's own work is under project 1 ('Darwin'), the initiative's under
     // project 7 ('Personal').
     beforeEach(() => {
         panelProps = [];
         stepReqIdsFromHook = new Set([3503]);
-        epicReqIdsFromHook = new Set([9001]);
+        initiativeReqIdsFromHook = new Set([9001]);
         scopeReadFails = false;
         localStorage.clear();
         useWorkingProjectStore.setState({ projectId: null, timestamp: null });
@@ -292,12 +292,12 @@ describe('both filters engaged at once seed ONE tab deterministically (req #3503
     afterEach(() => {
         cleanup();
         localStorage.clear();
-        epicReqIdsFromHook = null;   // back to every other describe block's default
+        initiativeReqIdsFromHook = null;   // back to every other describe block's default
     });
 
     it('with both scopes engaged every control is still on screen (req #3598)', () => {
-        const { queryByTestId } = mount('/swarm?view=cards&epic=11&step=186');
-        expect(lastPanelProps().epicReqIds).toBe(epicReqIdsFromHook);
+        const { queryByTestId } = mount('/swarm?view=cards&initiative=11&step=186');
+        expect(lastPanelProps().initiativeReqIds).toBe(initiativeReqIdsFromHook);
         expect(lastPanelProps().stepReqIds).toBe(stepReqIdsFromHook);
         expect(queryByTestId('requirement-status-filter')).not.toBeNull();
         expect(queryByTestId('hide-pipelined-toggle')).not.toBeNull();
@@ -305,13 +305,13 @@ describe('both filters engaged at once seed ONE tab deterministically (req #3503
     });
 
     it('the STEP scope wins — the narrower, more specific link', () => {
-        mount('/swarm?view=cards&epic=11&step=186');
-        // The step's project ('Darwin', index 1) must win over the epic's
+        mount('/swarm?view=cards&initiative=11&step=186');
+        // The step's project ('Darwin', index 1) must win over the initiative's
         // ('Personal', index 0) — never a THIRD outcome (e.g. the seed effects
         // cancelling out and leaving `activeTab` at its own initial 0, which
-        // would misreport as "the epic won" purely by coincidence).
+        // would misreport as "the initiative won" purely by coincidence).
         expect(lastPanelProps().activeTab).toBe(1);
         expect(lastPanelProps().stepReqIds).toBe(stepReqIdsFromHook);
-        expect(lastPanelProps().epicReqIds).toBe(epicReqIdsFromHook);
+        expect(lastPanelProps().initiativeReqIds).toBe(initiativeReqIdsFromHook);
     });
 });

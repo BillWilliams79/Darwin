@@ -65,23 +65,23 @@ const barrierOf = (step) => step?.checkpoint == null || Boolean(Number(step.chec
 /**
  * @param {Object} props
  * @param {boolean} props.open
- * @param {?Object} props.step     the step being edited — `{ id, epic_fk, title,
+ * @param {?Object} props.step     the step being edited — `{ id, initiative_fk, title,
  *                                 notes, run, not_before, checkpoint, locked,
  *                                 lockedBy }` —
  *                                 or null to create one
- * @param {Object[]} props.epicOptions  `{ id, title }` for the Epic select
- * @param {*} [props.defaultEpicFk]     the Epic a NEW step starts in
+ * @param {Object[]} props.initiativeOptions  `{ id, title }` for the Initiative select
+ * @param {*} [props.defaultInitiativeFk]     the Initiative a NEW step starts in
  * @param {function} props.onClose
  * @param {function} props.onSaved      after a successful write, before onClose
  */
 export default function StepEditDialog({
-    open, step, epicOptions, defaultEpicFk = '', onClose, onSaved,
+    open, step, initiativeOptions, defaultInitiativeFk = '', onClose, onSaved,
 }) {
     const { idToken } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
     const showError = useSnackBarStore(s => s.showError);
 
-    const [formEpicFk, setFormEpicFk] = useState(step ? step.epic_fk : defaultEpicFk);
+    const [formInitiativeFk, setFormInitiativeFk] = useState(step ? step.initiative_fk : defaultInitiativeFk);
     const [formTitle, setFormTitle] = useState(step?.title || '');
     const [formNotes, setFormNotes] = useState(step?.notes || '');
     const [formRun, setFormRun] = useState(runOf(step));
@@ -93,7 +93,7 @@ export default function StepEditDialog({
     // req #3742 — the lock is set here now that the step card has no padlock.
     // A step that STAYS locked takes no authoring write (the gateway would
     // refuse it, 423), so its fields are read-only until the lock is lifted.
-    // A lock held by the EPIC or the PLAN is not this step's to lift: the Lock
+    // A lock held by the INITIATIVE or the PLAN is not this step's to lift: the Lock
     // control is disabled and names the level that holds it.
     const inheritedLock = step?.lockedBy && step.lockedBy !== 'step' ? step.lockedBy : null;
     const lockHeld = !!inheritedLock || (!!step?.locked && formLocked);
@@ -118,8 +118,8 @@ export default function StepEditDialog({
                 + 'be a title. Try "Null" or another wording.');
             return;
         }
-        if (!step && (formEpicFk === '' || formEpicFk == null)) {
-            showError('Epic is required');
+        if (!step && (formInitiativeFk === '' || formInitiativeFk == null)) {
+            showError('Initiative is required');
             return;
         }
         const notBeforeValue = inputValueToNotBefore(formNotBefore);
@@ -148,7 +148,7 @@ export default function StepEditDialog({
                 });
             } else {
                 await createStep(darwinUri, idToken, {
-                    epic_fk: formEpicFk,
+                    initiative_fk: formInitiativeFk,
                     title,
                     notes: notes || null,
                     run: formRun,
@@ -172,19 +172,19 @@ export default function StepEditDialog({
             <DialogContent>
                 <Stack spacing={2} sx={{ mt: 1 }}>
                     <FormControl fullWidth required disabled={!!step}>
-                        <InputLabel>Epic</InputLabel>
-                        <Select label="Epic" value={formEpicFk}
-                                onChange={(e) => setFormEpicFk(e.target.value)}
-                                data-testid="step2-epic-select">
-                            {epicOptions.map(e => (
+                        <InputLabel>Initiative</InputLabel>
+                        <Select label="Initiative" value={formInitiativeFk}
+                                onChange={(e) => setFormInitiativeFk(e.target.value)}
+                                data-testid="step2-initiative-select">
+                            {initiativeOptions.map(e => (
                                 <MenuItem key={e.id} value={e.id}>{e.title}</MenuItem>
                             ))}
                         </Select>
                     </FormControl>
                     {step && (
                         <Typography variant="caption" sx={{ color: 'text.secondary', mt: -1 }}>
-                            A step&apos;s epic is its identity. To move this step, delete it
-                            and create it in the other epic — that forces its dependencies to
+                            A step&apos;s initiative is its identity. To move this step, delete it
+                            and create it in the other initiative — that forces its dependencies to
                             be answered rather than silently broken.
                         </Typography>
                     )}
@@ -278,7 +278,7 @@ export default function StepEditDialog({
                 <Button onClick={() => onClose()} disabled={submitting}>Cancel</Button>
                 <Button variant="contained" onClick={handleSubmit}
                         disabled={submitting || !formTitle.trim()
-                            || (!step && formEpicFk === '')}
+                            || (!step && formInitiativeFk === '')}
                         data-testid="step2-save">
                     {step ? 'Save' : 'Create'}
                 </Button>

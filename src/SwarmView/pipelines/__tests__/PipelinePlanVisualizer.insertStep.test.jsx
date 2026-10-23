@@ -31,13 +31,13 @@ vi.mock('konva', () => ({
     default: { Animation: class { start() {} stop() {} } },
 }));
 
-const createEpic = vi.fn(() => Promise.resolve({ id: 77 }));
-vi.mock('../../../Epics/epicsApi', async (orig) => ({
+const createInitiative = vi.fn(() => Promise.resolve({ id: 77 }));
+vi.mock('../../../Initiatives/initiativesApi', async (orig) => ({
     ...(await orig()),
-    createEpic: (...a) => createEpic(...a),
+    createInitiative: (...a) => createInitiative(...a),
 }));
 const createStep = vi.fn(() => Promise.resolve({ id: 903 }));
-// No network in jsdom: the categories the add-epic dialog offers are stubbed.
+// No network in jsdom: the categories the add-initiative dialog offers are stubbed.
 vi.mock('../../../hooks/useDataQueries', async (orig) => ({
     ...(await orig()),
     useAllCategories: () => ({ data: [
@@ -82,7 +82,7 @@ beforeEach(() => {
     insertStepOnEdge.mockClear();
     addDependentStep.mockClear();
     precedeStepWith.mockClear();
-    createEpic.mockClear();
+    createInitiative.mockClear();
     createStep.mockClear();
 });
 
@@ -93,13 +93,13 @@ afterEach(() => {
     document.body.innerHTML = '';
 });
 
-const step = (id, epic_fk, title) => ({
-    id, epic_fk, title, run: 'auto', notes: null, not_before: null,
+const step = (id, initiative_fk, title) => ({
+    id, initiative_fk, title, run: 'auto', notes: null, not_before: null,
 });
 
 function render(levelPref = '3') {
     const payload = composedFixture({
-        epics: [{ id: 5, title: 'Build', pipeline_fk: 2, sort_order: 1, category_fk: 3 },
+        initiatives: [{ id: 5, title: 'Build', pipeline_fk: 2, sort_order: 1, category_fk: 3 },
             { id: 6, title: 'Ship', pipeline_fk: 2, sort_order: 2, category_fk: 4 }],
         steps: [step(10, 5, 'Design'), step(11, 5, 'Implement')],
         stepDeps: [{ id: 1, step_fk: 11, dep_step_fk: 10 }],
@@ -158,7 +158,7 @@ describe('add-step marks (req #3586)', () => {
         expect(document.querySelector('[data-insert="precede-11"]')).toBeNull();
     });
 
-    it('the precede "+" adds a step the clicked step then waits on, in its epic by default', async () => {
+    it('the precede "+" adds a step the clicked step then waits on, in its initiative by default', async () => {
         render('3');
         clickMark('precede-10');
         expect(document.querySelector('[data-testid="pipeline-viz-insert-summary"]').textContent)
@@ -169,7 +169,7 @@ describe('add-step marks (req #3586)', () => {
         });
         expect(precedeStepWith).toHaveBeenCalledTimes(1);
         expect(precedeStepWith.mock.calls[0][2]).toEqual({
-            toStepId: 10, epic_fk: 5, title: 'Research',
+            toStepId: 10, initiative_fk: 5, title: 'Research',
         });
         expect(addDependentStep).not.toHaveBeenCalled();
         expect(insertStepOnEdge).not.toHaveBeenCalled();
@@ -194,12 +194,12 @@ describe('add-step marks (req #3586)', () => {
         });
         expect(insertStepOnEdge).toHaveBeenCalledTimes(1);
         expect(insertStepOnEdge.mock.calls[0][2]).toEqual({
-            fromStepId: 10, toStepId: 11, epic_fk: 5, title: 'Review',
+            fromStepId: 10, toStepId: 11, initiative_fk: 5, title: 'Review',
         });
         expect(addDependentStep).not.toHaveBeenCalled();
     });
 
-    it('the dependent "+" adds a step gated on that step alone, in its epic by default', async () => {
+    it('the dependent "+" adds a step gated on that step alone, in its initiative by default', async () => {
         render('3');
         clickMark('dependent-11');
         await act(async () => {
@@ -207,7 +207,7 @@ describe('add-step marks (req #3586)', () => {
         });
         expect(addDependentStep).toHaveBeenCalledTimes(1);
         expect(addDependentStep.mock.calls[0][2]).toEqual({
-            fromStepId: 11, epic_fk: 5, title: 'New step',
+            fromStepId: 11, initiative_fk: 5, title: 'New step',
         });
         expect(insertStepOnEdge).not.toHaveBeenCalled();
     });
@@ -242,12 +242,12 @@ describe('add-step marks (req #3586)', () => {
     });
 });
 
-// req #3719 — the add-epic "+" right under the bottom of the last epic.
-describe('add-epic mark (req #3719)', () => {
-    it('draws one add-epic "+" at the card level, below every band', () => {
+// req #3719 — the add-initiative "+" right under the bottom of the last initiative.
+describe('add-initiative mark (req #3719)', () => {
+    it('draws one add-initiative "+" at the card level, below every band', () => {
         render('3');
-        expect(viz().getAttribute('data-insert-epics')).toBe('1');
-        const m = document.querySelector('[data-insert="epic-add"]');
+        expect(viz().getAttribute('data-insert-initiatives')).toBe('1');
+        const m = document.querySelector('[data-insert="initiative-add"]');
         expect(m).not.toBeNull();
         const [, worldH] = viz().getAttribute('data-world').split(',').map(Number);
         expect(Number(m.dataset.y)).toBeLessThan(worldH);
@@ -255,24 +255,24 @@ describe('add-epic mark (req #3719)', () => {
 
     it('draws none at L1, with the other marks', () => {
         render('1');
-        expect(viz().getAttribute('data-insert-epics')).toBe('0');
+        expect(viz().getAttribute('data-insert-initiatives')).toBe('0');
     });
 
-    it('the "+" opens the dialog on the category of the epic it sits under; Create adds the epic and its first step', async () => {
+    it('the "+" opens the dialog on the category of the initiative it sits under; Create adds the initiative and its first step', async () => {
         render('3');
-        clickMark('epic-add');
-        expect(document.querySelector('[data-testid="pipeline-viz-epic-add-dialog"]')).not.toBeNull();
-        expect(document.querySelector('[data-testid="pipeline-viz-epic-add-category"]').value).toBe('3');
-        setInput(document.querySelector('[data-testid="pipeline-viz-epic-add-title"]'), '  Launch  ');
+        clickMark('initiative-add');
+        expect(document.querySelector('[data-testid="pipeline-viz-initiative-add-dialog"]')).not.toBeNull();
+        expect(document.querySelector('[data-testid="pipeline-viz-initiative-add-category"]').value).toBe('3');
+        setInput(document.querySelector('[data-testid="pipeline-viz-initiative-add-title"]'), '  Launch  ');
         await act(async () => {
-            document.querySelector('[data-testid="pipeline-viz-epic-add-create"]').click();
+            document.querySelector('[data-testid="pipeline-viz-initiative-add-create"]').click();
         });
-        expect(createEpic).toHaveBeenCalledTimes(1);
-        expect(createEpic.mock.calls[0][2]).toEqual({
+        expect(createInitiative).toHaveBeenCalledTimes(1);
+        expect(createInitiative.mock.calls[0][2]).toEqual({
             pipeline_fk: 2, title: 'Launch', category_fk: 3,
         });
         expect(createStep).toHaveBeenCalledTimes(1);
-        expect(createStep.mock.calls[0][2]).toEqual({ epic_fk: 77, title: 'New step' });
+        expect(createStep.mock.calls[0][2]).toEqual({ initiative_fk: 77, title: 'New step' });
         expect(insertStepOnEdge).not.toHaveBeenCalled();
     });
 });

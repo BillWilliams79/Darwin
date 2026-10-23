@@ -6,7 +6,7 @@
 // from `factory/devopsQueries.js` via the `createEntityQueries` factory
 // (req #2593). Their re-exports live at the bottom of this file.
 
-import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, orchestrationClaims, pipelines, epics, pipelineSteps, pipelineStepRequirements, pipelineStepDeps, requirementSessions, sessionCostRollups } from './factory/devopsQueries';
+import { devServers, sessions, swarmStarts, swarmStartSessions, swarmUndos, orchestrationClaims, pipelines, initiatives, pipelineSteps, pipelineStepRequirements, pipelineStepDeps, requirementSessions, sessionCostRollups } from './factory/devopsQueries';
 
 export const domainKeys = {
     all: (creatorFk) => ['domains', creatorFk],
@@ -73,7 +73,7 @@ export const requirementKeys = {
     // `fields` in the key (req #3500) — the same hazard `done` and
     // `useAllRequirements` already guard against (req #3029, stated there in
     // full): two observers can now hit the SAME (creatorFk, status) with
-    // DIFFERENT projections (`SwarmStartCard`'s epic-scoped all-time `met`
+    // DIFFERENT projections (`SwarmStartCard`'s initiative-scoped all-time `met`
     // read beside its normal active-status read), and without `fields` in the
     // key the narrower one silently wins the shared cache entry regardless of
     // which observer actually wants the wider one. `requirementKeys.all`
@@ -94,10 +94,10 @@ export const devServerKeys = devServers.keys;
 
 // Req #3114 — Swarm Orchestration pipelines. Bounded list reads joined
 // client-side by the plan page (design rule 5: no N+1 at render).
-// `epicKeys` joined them at req #3356, when the plan layer collapsed to one era
-// and `epics` stopped being a hand-written hierarchy read (see below).
+// `initiativeKeys` joined them at req #3356, when the plan layer collapsed to one era
+// and `initiatives` stopped being a hand-written hierarchy read (see below).
 export const pipelineKeys = pipelines.keys;
-export const epicKeys = epics.keys;
+export const initiativeKeys = initiatives.keys;
 export const pipelineStepKeys = pipelineSteps.keys;
 export const pipelineStepRequirementKeys = pipelineStepRequirements.keys;
 export const pipelineStepDepKeys = pipelineStepDeps.keys;
@@ -142,7 +142,7 @@ export const mapCoordinateKeys = {
 // run).
 export const pipelineComposeKeys = {
     // Every plan's composed read — the prefix the editors invalidate after a
-    // step or epic write (req #3742), whichever plan it was opened from.
+    // step or initiative write (req #3742), whichever plan it was opened from.
     all: ['pipeline_compose'],
     byId: (pipelineId) => ['pipeline_compose', { id: pipelineId }],
 };
@@ -162,9 +162,9 @@ export const mapRunPartnerKeys = {
 // Req #2380 — Swarm Test Cases registry. `fields` must appear in the
 // extended key (req #2213) so two callers with different projections don't collide.
 
-// `epicKeys` MOVED to the factory re-export block above (req #3356). It was
-// hand-written here while `epics` was the 1.0 hierarchy's top tier and the plan
-// EXECUTION tables were factory keys; the plan layer collapse made `epics` a
+// `initiativeKeys` MOVED to the factory re-export block above (req #3356). It was
+// hand-written here while `initiatives` was the 1.0 hierarchy's top tier and the plan
+// EXECUTION tables were factory keys; the plan layer collapse made `initiatives` a
 // plan-layer table like the other four, so its key comes from the same
 // declaration its hooks do rather than being stated a second time here.
 

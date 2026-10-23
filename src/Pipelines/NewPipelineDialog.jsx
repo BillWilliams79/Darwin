@@ -118,7 +118,7 @@ export default function NewPipelineDialog({ machines = [] }) {
                         </Box>
                         <Typography variant="body2" color="text.secondary">
                             The pipeline starts as a draft and opens on its plan, where you add
-                            its first epic and step.
+                            its first initiative and step.
                         </Typography>
                     </Stack>
                 </DialogContent>

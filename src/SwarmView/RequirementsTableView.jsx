@@ -182,7 +182,7 @@ const RequirementsTableView = () => {
     //  - Requirements whose status isn't in the chip filter
     //  - Requirements linked to closed categories (categoryMap only has open ones)
     //  - req #3180/#3419 — when the orchestrated toggle is ON, every requirement
-    //    a pipeline STEP carries or an EPIC seats, leaving the unplanned residue.
+    //    a pipeline STEP carries or an INITIATIVE seats, leaving the unplanned residue.
     //
     // The orchestrated toggle applies to the NORMAL branch only, exactly like the
     // status chips: a Trends drill-down bypasses both. The drill's contract (see

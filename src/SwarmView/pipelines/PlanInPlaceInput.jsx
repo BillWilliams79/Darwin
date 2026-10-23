@@ -12,13 +12,13 @@ import { inputCaretAt } from './planCaretPoint';
 
 export const MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
 
-// The longest title either editable column holds — `epics.title` and
-// `pipeline_steps.title` are both VARCHAR(256), the cap the Epics and Steps
+// The longest title either editable column holds — `initiatives.title` and
+// `pipeline_steps.title` are both VARCHAR(256), the cap the Initiatives and Steps
 // editors already put on their own title fields.
 export const TITLE_MAX = 256;
 
 // Why a typed title cannot be saved, or null when it can. The same two refusals
-// the Epics and Steps dialogs make: the column is NOT NULL, and the literal
+// the Initiatives and Steps dialogs make: the column is NOT NULL, and the literal
 // `NULL` is Lambda-Rest's clear-this-column sentinel, which would land as SQL
 // NULL and surface as an opaque 500 rather than a readable refusal.
 export function titleProblem(title) {
@@ -30,7 +30,7 @@ export function titleProblem(title) {
 }
 
 // ── THE IN-PLACE EDITOR (req #3580) ─────────────────────────────────────────
-// One input for both editable names (epic and step). Enter or blur commits,
+// One input for both editable names (initiative and step). Enter or blur commits,
 // Escape cancels, and `doneRef` makes the FIRST of those win: an Enter that
 // commits also blurs the input as the editor unmounts, and without the latch
 // that blur would commit a second time.
@@ -43,7 +43,7 @@ export function titleProblem(title) {
 //
 // UNMOUNTED WITHOUT ENDING IS A COMMIT, not a discard. The canvas can take the
 // editor away under the reader — a wheel zoom out to the level that draws no
-// names, or a pan that drops the epic's chip — and a wheel never blurs the
+// names, or a pan that drops the initiative's chip — and a wheel never blurs the
 // input, so neither path above would fire and the typed text would vanish
 // unsaved. The check is deferred one tick so React's StrictMode
 // unmount-then-remount (which re-runs the setup and sets `mountedRef` again)
@@ -79,7 +79,7 @@ export function useInPlaceEnding({ onCommit, onCancel, valueRef, focusSelect }) 
     };
 }
 
-// `growCh` (the epic chip): the box widens with what is typed rather than
+// `growCh` (the initiative chip): the box widens with what is typed rather than
 // staying the width of the name it opened on.
 // `caretAt` (req #3665): the client point a long press opened the editor at —
 // the caret goes there, as a click into a field puts it. Without one (F2) the

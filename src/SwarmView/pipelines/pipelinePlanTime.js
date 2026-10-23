@@ -12,14 +12,14 @@
 //
 // ── WHY THE AXIS EXISTS ─────────────────────────────────────────────────────
 // The visualizer's horizontal position used to be dependency DEPTH alone, so a
-// brand-new epic — whose steps have no dep edges, because nothing existed to
+// brand-new initiative — whose steps have no dep edges, because nothing existed to
 // gate them on — landed in column 0 and visually claimed it runs FIRST. The
 // live workaround was to attach a dependency edge that does not exist purely to
 // push the row rightwards (pipeline 2, step 97 -> 88, 2026-08-01). A layout
 // that can only be corrected by lying in the data is the bug.
 //
 // ── A STEP SITS ON ITS LAST ACTIVITY, AND OPEN WORK SITS ON TODAY (req #3692) ─
-// There is no stored step or epic time (design rule 1 — derive, don't store);
+// There is no stored step or initiative time (design rule 1 — derive, don't store);
 // a step's time is derived from its requirements' `started_at`/`completed_at`.
 // Req #3201 took the MINIMUM — when the step's work BEGAN. Req #3692 (the
 // user's rule) replaced it with the MAXIMUM — the step's LAST ACTIVITY — and put
@@ -27,9 +27,9 @@
 // the work that is live, standing together in one vertical stack: "the work
 // that is active being oriented together ... is more important than step date
 // alignment of any kind". Measured on live pipeline 10 (2026-10-20): under the
-// minimum, the Sunday Review epic — three running steps, eleven requirements
+// minimum, the Sunday Review initiative — three running steps, eleven requirements
 // met that day — sat in the 10-19 column because each step's FIRST requirement
-// closed on the 19th, while the Drag and Drop epic's running step sat alone in
+// closed on the 19th, while the Drag and Drop initiative's running step sat alone in
 // 10-20. Under last activity both are in today's column. The layout's
 // monotonize step (`computeTimeColumns`) is what makes a step "drag its
 // dependents with it": a dependent's column is never earlier than its gate's.
@@ -47,8 +47,8 @@
 //    COUNTS AS ACTIVE ON ITS `completed_at`.** This is not a courtesy. Measured against the whole
 //    live requirements table on 2026-08-01: 820 of 960 `met` requirements have
 //    `started_at` NULL, and only 2 of the 32 requirements in live pipeline 2's
-//    "Pipeline" epic carry one. A literal MIN(started_at) rule classified FIVE
-//    of that plan's SIX epics as never-started — including two that are 100%
+//    "Pipeline" initiative carry one. A literal MIN(started_at) rule classified FIVE
+//    of that plan's SIX initiatives as never-started — including two that are 100%
 //    done — and would have banished finished work to the right-hand future.
 //    That is the same defect this axis fixes, inverted. `completed_at` is
 //    populated, and it is the requirement's last activity by definition.
@@ -87,7 +87,7 @@
 //    requirement is in flight right now, so the step's last activity IS now,
 //    whatever its stamps say — a requirement stamped `started_at` three days
 //    ago and still in `development` is today's work. This is what stacks every
-//    open step of every epic in one column. Like rule 3 it applies only when
+//    open step of every initiative in one column. Like rule 3 it applies only when
 //    the caller supplies `now`; without it a running step falls back to its
 //    stamps.
 // 5. **A not-yet-started step UPSTREAM of today's work sits on TODAY too
@@ -106,7 +106,7 @@
 //    (`dragFutureDependentsToToday`). Without it the FUTURE slot sits past
 //    every dated column, so live pipeline 10's Drag and Drop steps 326-328,
 //    queued behind running step 325, were flung past the whole Sunday Review
-//    epic instead of following 325 — "drags its dependents with it". A queued
+//    initiative instead of following 325 — "drags its dependents with it". A queued
 //    step with NO path from today's work stays FUTURE, so untouched backlog
 //    still reads as not-yet-begun, and work hanging off an OLDER day is not
 //    dragged into that day: it has not happened then, and only today can
@@ -345,23 +345,23 @@ export function localDayOf(at) {
 }
 
 /**
- * The whole axis: a time for every step, and a start for every epic band.
+ * The whole axis: a time for every step, and a start for every initiative band.
  *
  * BAND START IS THE RAW MINIMUM of its steps' times, not the monotonized one
- * the layout computes. It orders UNORDERED epics only (no `sort_order`).
- * An epic's own earliest step is a fact about that epic; letting another epic's
+ * the layout computes. It orders UNORDERED initiatives only (no `sort_order`).
+ * An initiative's own earliest step is a fact about that initiative; letting another initiative's
  * gate push it later would make a band's position in the stack depend on work
  * it does not own. The layout monotonizes only the HORIZONTAL axis, where the
  * forward-arc invariant makes it necessary.
  *
- * The band key matches the layout's: the row's DOMINANT epic id (rule 10), with
- * `null` for a step that resolves no epic at all.
+ * The band key matches the layout's: the row's DOMINANT initiative id (rule 10), with
+ * `null` for a step that resolves no initiative at all.
  *
  * `bandKinds` exists because a NULL start was doing two incompatible jobs
- * (review finding). An epic with active, in-flight work whose requirements
- * simply never got stamped has no derived start — and so did an epic that is
+ * (review finding). An initiative with active, in-flight work whose requirements
+ * simply never got stamped has no derived start — and so did an initiative that is
  * pure untouched backlog, which sorted them together and let the BACKLOG stack
- * above the ACTIVE epic on an id tie-break. The three tiers separate them:
+ * above the ACTIVE initiative on an id tie-break. The three tiers separate them:
  *   - `dated`   — at least one step has a real start; sort on it;
  *   - `unknown` — no start, but at least one step is not FUTURE, i.e. there is
  *                 EVIDENCE of work whose timing was not recorded;
@@ -398,7 +398,7 @@ export function planTimeAxis(rows, requirements, now = null) {
     }
     for (const row of safeRows) {
         const start = stepStarts.get(row.id);
-        const key = row.epicId != null ? row.epicId : null;
+        const key = row.initiativeId != null ? row.initiativeId : null;
         if (!bandStarts.has(key)) {
             bandStarts.set(key, null);
             bandKinds.set(key, TIME_FUTURE);

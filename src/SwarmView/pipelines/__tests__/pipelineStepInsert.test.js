@@ -2,15 +2,15 @@
 // a real layout so the marks are tested on the arcs the canvas actually draws.
 
 import { describe, it, expect } from 'vitest';
-import { computePlanLayout, CARD_GAP_X, CARD_RADIUS, EPIC_ADD_RESERVE } from '../pipelinePlanLayout';
+import { computePlanLayout, CARD_GAP_X, CARD_RADIUS, INITIATIVE_ADD_RESERVE } from '../pipelinePlanLayout';
 import {
     insertMarkRadius, arcInsertCandidates, edgeInsertMarks, dependentStub, precedeStub, insertRequest,
-    buildInsertMarks, insertMarkAt, epicAddMark, INSERT_HIT_SCALE, INSERT_MARK_MAX_R, arcPathPoints,
+    buildInsertMarks, insertMarkAt, initiativeAddMark, INSERT_HIT_SCALE, INSERT_MARK_MAX_R, arcPathPoints,
 } from '../pipelineStepInsert';
 
-const row = (id, depIds = [], epicId = 1) => ({
+const row = (id, depIds = [], initiativeId = 1) => ({
     id, title: `Step ${id}`, state: 'pending', reqIds: [], depIds,
-    epicId, epic: `Epic ${epicId}`, epicSortOrder: epicId,
+    initiativeId, initiative: `Initiative ${initiativeId}`, initiativeSortOrder: initiativeId,
 });
 
 // A fan-out and a fan-in: 1 -> {2, 3} -> 4, plus a long same-lane edge 1 -> 4.
@@ -110,9 +110,9 @@ describe('buildInsertMarks — the whole set, as the canvas draws it', () => {
         expect(g.edgeCount).toBe(layout.arcs.length);
     });
 
-    it('a step waiting on a FOLDED epic gets no precede mark (req #3650)', () => {
+    it('a step waiting on a FOLDED initiative gets no precede mark (req #3650)', () => {
         const folded = [row(1, [], 1), row(2, [1], 2), row(3, [2], 2)];
-        const l = computePlanLayout(folded, { collapsedEpicIds: new Set([1]) });
+        const l = computePlanLayout(folded, { collapsedInitiativeIds: new Set([1]) });
         expect(l.arcs.some((a) => a.toId === 2)).toBe(false);   // nothing drawn into 2
         const g = buildInsertMarks(l, folded, 7);
         expect(g.marks.filter((m) => m.kind === 'precede')).toHaveLength(0);
@@ -160,25 +160,25 @@ describe('buildInsertMarks — the whole set, as the canvas draws it', () => {
 describe('insertRequest', () => {
     const byId = new Map(rows.map((r) => [r.id, r]));
 
-    it('an edge defaults the epic to the step on its LEFT', () => {
+    it('an edge defaults the initiative to the step on its LEFT', () => {
         const rb = new Map([[1, row(1, [], 8)], [2, row(2, [1], 9)]]);
         expect(insertRequest('edge', { fromId: 1, toId: 2 }, rb)).toEqual({
-            kind: 'edge', fromId: 1, toId: 2, epicId: 8,
+            kind: 'edge', fromId: 1, toId: 2, initiativeId: 8,
             fromTitle: 'Step 1', toTitle: 'Step 2',
         });
     });
 
-    it('a precede names only the step it will gate, and defaults to its epic', () => {
+    it('a precede names only the step it will gate, and defaults to its initiative', () => {
         const rb = new Map([[2, row(2, [], 9)]]);
         expect(insertRequest('precede', { fromId: null, toId: 2 }, rb)).toEqual({
-            kind: 'precede', fromId: null, toId: 2, epicId: 9,
+            kind: 'precede', fromId: null, toId: 2, initiativeId: 9,
             fromTitle: null, toTitle: 'Step 2',
         });
     });
 
     it('a dependent step carries no target', () => {
         expect(insertRequest('dependent', { fromId: 3, toId: 4 }, byId))
-            .toMatchObject({ kind: 'dependent', fromId: 3, toId: null, toTitle: null, epicId: 1 });
+            .toMatchObject({ kind: 'dependent', fromId: 3, toId: null, toTitle: null, initiativeId: 1 });
     });
 });
 
@@ -202,34 +202,34 @@ function inCardOf(ly) {
         p.x >= n.left && p.x <= n.right && p.y >= n.top && p.y <= n.bottom);
 }
 
-describe('epicAddMark (req #3719)', () => {
+describe('initiativeAddMark (req #3719)', () => {
     const two = computePlanLayout([row(1, [], 1), row(2, [], 2)]);
 
-    it('sits under the bottom of the last band, left-aligned with the epic chips', () => {
-        const m = epicAddMark(two);
+    it('sits under the bottom of the last band, left-aligned with the initiative chips', () => {
+        const m = initiativeAddMark(two);
         const last = [...two.bands].sort((a, b) => b.y - a.y)[0];
-        expect(m.kind).toBe('epic');
+        expect(m.kind).toBe('initiative');
         expect(m.y - INSERT_MARK_MAX_R).toBeGreaterThanOrEqual(last.y + last.height);
         expect(m.x - INSERT_MARK_MAX_R).toBe(12);
     });
 
     it('lies wholly inside the world, so the reserve is charged', () => {
-        const m = epicAddMark(two);
+        const m = initiativeAddMark(two);
         expect(m.y + INSERT_MARK_MAX_R).toBeLessThanOrEqual(two.height);
         const last = [...two.bands].sort((a, b) => b.y - a.y)[0];
-        expect(two.height).toBeGreaterThanOrEqual(last.y + last.height + EPIC_ADD_RESERVE);
+        expect(two.height).toBeGreaterThanOrEqual(last.y + last.height + INITIATIVE_ADD_RESERVE);
     });
 
-    it('is null for a plan with no band, and absent when epicAdd is off', () => {
-        expect(epicAddMark(computePlanLayout([]))).toBeNull();
-        expect(buildInsertMarks(two, [row(1, [], 1), row(2, [], 2)], undefined, { epicAdd: false })
-            .marks.some((m) => m.kind === 'epic')).toBe(false);
-        expect(buildInsertMarks(two, [row(1, [], 1), row(2, [], 2)]).epicCount).toBe(1);
+    it('is null for a plan with no band, and absent when initiativeAdd is off', () => {
+        expect(initiativeAddMark(computePlanLayout([]))).toBeNull();
+        expect(buildInsertMarks(two, [row(1, [], 1), row(2, [], 2)], undefined, { initiativeAdd: false })
+            .marks.some((m) => m.kind === 'initiative')).toBe(false);
+        expect(buildInsertMarks(two, [row(1, [], 1), row(2, [], 2)]).initiativeCount).toBe(1);
     });
 
     it('is hit by insertMarkAt like every other mark', () => {
         const g = buildInsertMarks(two, [row(1, [], 1), row(2, [], 2)]);
-        const m = g.marks.find((x) => x.kind === 'epic');
+        const m = g.marks.find((x) => x.kind === 'initiative');
         expect(insertMarkAt(g, { x: m.x, y: m.y }, INSERT_MARK_MAX_R)).toBe(m);
     });
 });

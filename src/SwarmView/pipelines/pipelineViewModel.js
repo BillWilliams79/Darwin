@@ -36,7 +36,7 @@ const asArray = (v) => (Array.isArray(v) ? v : []);
 //
 // THE DEFAULT IS 'on' (req #3241). It shipped 'off' on a header-width argument
 // that req #3241 settled directly: the header is now `nowrap` with a considered
-// elastic member, and the argument never applied to the epic band labels — which
+// elastic member, and the argument never applied to the initiative band labels — which
 // are drawn on the canvas — at all. The user asked to SEE the numbers; a default
 // that hides them behind a control they have to find first is not that.
 //
@@ -199,17 +199,17 @@ export function buildSessionStatusIndex({ requirementSessions, sessions, ready =
  * bookkeeping are gone with the banner, and the plan table renders the command
  * in the step's own Requirement(s) cell.
  *
- * Epic "render once per contiguous group" therefore has nothing to skip over
+ * Initiative "render once per contiguous group" therefore has nothing to skip over
  * any more — it used to be computed over STEP rows only, so a banner between
- * two rows of the same epic could not restart the group. The FEATURE tier
+ * two rows of the same initiative could not restart the group. The FEATURE tier
  * (req #3373) is gone with it: Feature was never drawn anywhere but this
  * "once per contiguous group" pass, so removing the second tier is the whole
  * of the change.
  *
- * Grouping compares the epic ID, not its title. Two distinct epics that happen
+ * Grouping compares the initiative ID, not its title. Two distinct initiatives that happen
  * to share a title would otherwise merge into one visual group and the
  * second's label would be suppressed — and the seeded plan already has the
- * near-miss (epic 9003 and feature 9012 are both titled "Swarm Orchestration
+ * near-miss (initiative 9003 and feature 9012 are both titled "Swarm Orchestration
  * Feature"). The engine exposes the id, so there is no reason to compare
  * display strings.
  *
@@ -219,21 +219,21 @@ export function buildSessionStatusIndex({ requirementSessions, sessions, ready =
  *   `orderedPlan` with Pipeline 1.0, leaving the composed path as the one
  *   producer. Only the SHAPE (`rows`, `eligibleStepIds`) is read, never the
  *   producer, which is why neither swap touched a line of this function.
- * @returns {Array<{row: Object, showEpic: boolean, eligible: boolean}>}
+ * @returns {Array<{row: Object, showInitiative: boolean, eligible: boolean}>}
  */
 export function planRenderRows(plan) {
     const { rows = [], eligibleStepIds = new Set() } = plan || {};
     const out = [];
-    let prevEpic;
+    let prevInitiative;
 
     for (const row of rows) {
-        const epic = row.epicId != null ? row.epicId : null;
+        const initiative = row.initiativeId != null ? row.initiativeId : null;
         out.push({
             row,
-            showEpic: epic !== prevEpic,
+            showInitiative: initiative !== prevInitiative,
             eligible: eligibleStepIds.has(row.id),
         });
-        prevEpic = epic;
+        prevInitiative = initiative;
     }
     return out;
 }

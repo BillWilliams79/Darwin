@@ -1,22 +1,22 @@
 // @vitest-environment jsdom
 //
-// Req #3428 — the aggregator under an epic filter.
+// Req #3428 — the aggregator under an initiative filter.
 //
 // Two things are asserted here and nowhere else:
 //
 //   1. THE BADGE STILL EQUALS THE ROWS. This card's own comments call that
-//      invariant LOAD-BEARING, and it now runs through `epicReqIds` — a count
+//      invariant LOAD-BEARING, and it now runs through `initiativeReqIds` — a count
 //      and a list narrowed by the same Set, or they drift silently.
 //   2. THE CARD DOES NOT OPEN BLANK. Measured on live Darwin 2026-08-09: every
-//      requirement under epic 11 was `development` AND plan-carried, while the
+//      requirement under initiative 11 was `development` AND plan-carried, while the
 //      persisted chip is `swarm_ready`. The requirement asks for the aggregator
 //      ON; on its own data it was on and empty. That is what the derived chip
 //      override fixes, and this fixture reproduces exactly that shape.
 //
 // req #3502 removed the aggregator's unconditional launch exclusion, so the
-// `swarm_ready` chip is empty here for ONE reason now instead of two: the epic
+// `swarm_ready` chip is empty here for ONE reason now instead of two: the initiative
 // simply has no swarm_ready work. Requirement 900 is swarm_ready and outside the
-// epic, so "the chip is empty" remains a fact about the FILTER — which is what
+// initiative, so "the chip is empty" remains a fact about the FILTER — which is what
 // this file exists to prove — rather than about the deleted rule.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -32,22 +32,22 @@ vi.setConfig({ testTimeout: 30000 });
 
 vi.mock('react-router-dom', () => ({ useNavigate: () => () => {} }));
 
-// THE LIVE SHAPE OF EPIC 11: everything `development`, everything pipelined.
-// Plus one `swarm_ready` row belonging to a DIFFERENT epic, so "the swarm_ready
+// THE LIVE SHAPE OF INITIATIVE 11: everything `development`, everything pipelined.
+// Plus one `swarm_ready` row belonging to a DIFFERENT initiative, so "the swarm_ready
 // chip is empty" is a fact about the FILTER and not about the fixture.
-const EPIC_ROWS = [
-    { id: 3428, title: 'Epic dev A', requirement_status: 'development', category_fk: 1209 },
-    { id: 3430, title: 'Epic dev B', requirement_status: 'development', category_fk: 1 },
+const INITIATIVE_ROWS = [
+    { id: 3428, title: 'Initiative dev A', requirement_status: 'development', category_fk: 1209 },
+    { id: 3430, title: 'Initiative dev B', requirement_status: 'development', category_fk: 1 },
 ];
 const OTHER_ROWS = [
     { id: 900, title: 'Someone else swarm_ready', requirement_status: 'swarm_ready', category_fk: 5 },
 ];
-const ALL_ROWS = [...EPIC_ROWS, ...OTHER_ROWS];
+const ALL_ROWS = [...INITIATIVE_ROWS, ...OTHER_ROWS];
 const PIPELINED = new Set([3428, 3430, 900]);
 // The junction rows behind PIPELINED, in the wire shape the real hook reads.
 const JUNCTION = [...PIPELINED].map((id) => ({ step_fk: 1, requirement_fk: id }));
 // `useAllRequirements` here serves BOTH the counts projection and the hook's
-// narrow id-only one, so no row is epic-seated by that route — leaving
+// narrow id-only one, so no row is initiative-seated by that route — leaving
 // PIPELINED as the sole source of orchestrated-ness, which is what this
 // fixture intends.
 
@@ -60,7 +60,7 @@ const BY_STATUS = {};
 for (const r of ALL_ROWS) (BY_STATUS[r.requirement_status] ??= []).push(r);
 
 // req #3500 — a SET, not a single "last call wins" value: the card now runs a
-// second `useRequirementsByStatus('met', …)` while an epic filter is engaged
+// second `useRequirementsByStatus('met', …)` while an initiative filter is engaged
 // AND `met` is the active chip (see `SwarmStartCard.jsx`'s
 // `serverMetRequirementsAllTime`), so more than one status can legitimately be
 // enabled in the same render. A disabled call must not be recorded as
@@ -83,7 +83,7 @@ vi.mock('../../hooks/useDataQueries', () => ({
     useAllRequirements: () => ({ data: ALL_ROWS }),
     // req #3419 MERGE — `usePipelinedRequirementIds` is gone. The REAL
     // `useRequirementVisibility` joins these three bounded reads and applies the
-    // epic override itself, so the rule this file tests runs for real. Frozen at
+    // initiative override itself, so the rule this file tests runs for real. Frozen at
     // module scope for the same reason `BY_STATUS` above is.
     useAllPipelineStepRequirements: () => ({ data: JUNCTION }),
     ALL_ROWS: 'all',
@@ -97,10 +97,10 @@ import AppContext from '../../Context/AppContext';
 import { useSwarmStartCardStore } from '../../stores/useSwarmStartCardStore';
 import { useShowClosedStore } from '../../stores/useShowClosedStore';
 
-const EPIC_SET = new Set([3428, 3430]);
+const INITIATIVE_SET = new Set([3428, 3430]);
 
 let roots = [];
-function mount(epicReqIds) {
+function mount(initiativeReqIds) {
     const container = document.createElement('div');
     document.body.appendChild(container);
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -112,7 +112,7 @@ function mount(epicReqIds) {
                 <AppContext.Provider value={{ darwinUri: 'http://test.local' }}>
                     <AuthContext.Provider value={{ idToken: 'tok', profile: { userName: 'tester', timezone: 'UTC' } }}>
                         <DarwinDndContext>
-                            <SwarmStartCard epicReqIds={epicReqIds} />
+                            <SwarmStartCard initiativeReqIds={initiativeReqIds} />
                         </DarwinDndContext>
                     </AuthContext.Provider>
                 </AppContext.Provider>
@@ -134,7 +134,7 @@ const badge = (container, status) => {
     return b ? Number(b.textContent || '0') : 0;
 };
 
-describe('SwarmStartCard under an epic filter (req #3428)', () => {
+describe('SwarmStartCard under an initiative filter (req #3428)', () => {
     beforeEach(() => {
         roots = [];
         statusesAsked = new Set();
@@ -151,53 +151,53 @@ describe('SwarmStartCard under an epic filter (req #3428)', () => {
         useShowClosedStore.setState({ hidePipelinedRequirements: false });
     });
 
-    it('DOES NOT OPEN BLANK: the persisted swarm_ready chip has none of the epic, '
+    it('DOES NOT OPEN BLANK: the persisted swarm_ready chip has none of the initiative, '
         + 'so the card opens on one that does', () => {
-        const { container } = mount(EPIC_SET);
-        // req #3500 — `development` has the epic's work, so the override lands
-        // there and the epic-scoped all-time `met` read stays OFF: it is gated
-        // on `isMet`, not merely on the epic filter being active, precisely so a
-        // development-carrying epic never pays for a `met` fetch it will not
+        const { container } = mount(INITIATIVE_SET);
+        // req #3500 — `development` has the initiative's work, so the override lands
+        // there and the initiative-scoped all-time `met` read stays OFF: it is gated
+        // on `isMet`, not merely on the initiative filter being active, precisely so a
+        // development-carrying initiative never pays for a `met` fetch it will not
         // render.
         expect(statusesAsked).toEqual(new Set(['development']));
         expect(rowIds(container).sort()).toEqual(['3428', '3430']);
     });
 
     it('never writes the reader\'s chip preference to do it', () => {
-        mount(EPIC_SET);
+        mount(INITIATIVE_SET);
         expect(useSwarmStartCardStore.getState().selectedStatus).toBe('swarm_ready');
     });
 
     it('the badge equals the rows on the chip it opened', () => {
-        const { container } = mount(EPIC_SET);
+        const { container } = mount(INITIATIVE_SET);
         expect(badge(container, 'development')).toBe(rowIds(container).length);
     });
 
-    it('the orchestrated toggle APPLIES under an epic filter: stored ON hides '
+    it('the orchestrated toggle APPLIES under an initiative filter: stored ON hides '
         + 'its plan-carried rows from the rows AND the badge (req #3598)', () => {
         useShowClosedStore.setState({ hidePipelinedRequirements: true });
-        const { container } = mount(EPIC_SET);
+        const { container } = mount(INITIATIVE_SET);
         expect(rowIds(container)).toHaveLength(0);
         expect(badge(container, 'development')).toBe(0);
     });
 
-    it('with the toggle OFF, shows the epic\'s rows', () => {
-        const { container } = mount(EPIC_SET);
+    it('with the toggle OFF, shows the initiative\'s rows', () => {
+        const { container } = mount(INITIATIVE_SET);
         expect(rowIds(container)).toHaveLength(2);
     });
 
-    it('keeps another epic\'s swarm_ready work off the launch chip — the FILTER '
+    it('keeps another initiative\'s swarm_ready work off the launch chip — the FILTER '
         + 'is what empties it (req #3502)', () => {
         // Requirement 900 is swarm_ready, plan-carried, and belongs to a
-        // different epic. Before req #3502 this chip was empty for two reasons
-        // at once; now the epic scope is the only one, which is what makes this
+        // different initiative. Before req #3502 this chip was empty for two reasons
+        // at once; now the initiative scope is the only one, which is what makes this
         // an assertion about the filter.
-        const { container } = mount(EPIC_SET);
+        const { container } = mount(INITIATIVE_SET);
         expect(badge(container, 'swarm_ready')).toBe(0);
     });
 
     it('shows that same requirement once the filter is lifted', () => {
-        // The other half of the case above: with no epic scope, 900 is on the
+        // The other half of the case above: with no initiative scope, 900 is on the
         // launch chip — plan-carried work is no longer withheld from it. This is
         // the defect req #3502 was filed for, asserted at the aggregator.
         useShowClosedStore.setState({ hidePipelinedRequirements: false });
@@ -206,31 +206,31 @@ describe('SwarmStartCard under an epic filter (req #3428)', () => {
         expect(rowIds(container)).toEqual(['900']);
     });
 
-    it('excludes another epic\'s requirements from every count', () => {
-        const { container } = mount(EPIC_SET);
+    it('excludes another initiative\'s requirements from every count', () => {
+        const { container } = mount(INITIATIVE_SET);
         expect(badge(container, 'development')).toBe(2);
         expect(badge(container, 'swarm_ready')).toBe(0);
     });
 
     it('keeps the add-a-requirement row while filtered (req #3598)', () => {
-        const { container } = mount(EPIC_SET);
+        const { container } = mount(INITIATIVE_SET);
         expect(container.querySelector('[data-testid="requirement-template"]')).not.toBeNull();
     });
 
     it('with NO filter (null) it behaves exactly as before: the stored chip is '
         + 'honoured and the template row is back', () => {
         const { container } = mount(null);
-        // req #3500 — with no epic filter, the epic-scoped all-time `met` read
+        // req #3500 — with no initiative filter, the initiative-scoped all-time `met` read
         // must stay OFF: exactly one status is asked, unchanged from before.
         expect(statusesAsked).toEqual(new Set(['swarm_ready']));
         expect(container.querySelector('[data-testid="requirement-template"]')).not.toBeNull();
     });
 
     // req #3500 — three tests share one setup/teardown: add a fully-`met`
-    // "done epic" (7001, 7002) to the module-scope fixtures, run the assertion,
+    // "done initiative" (7001, 7002) to the module-scope fixtures, run the assertion,
     // always restore. All mutation AND restoration live inside try/finally so a
     // throw mid-setup can't leave a later test looking at a dirty fixture.
-    const withDoneEpicRows = (run) => {
+    const withDoneInitiativeRows = (run) => {
         const priorAll = ALL_ROWS.slice();
         const priorByStatus = { ...BY_STATUS };
         try {
@@ -248,24 +248,24 @@ describe('SwarmStartCard under an epic filter (req #3428)', () => {
         }
     };
 
-    it('req #3500 — a fully-`met` epic (a completed plan) opens on Met instead '
+    it('req #3500 — a fully-`met` initiative (a completed plan) opens on Met instead '
         + 'of sitting blank on the persisted swarm_ready chip', () => {
-        withDoneEpicRows(() => {
+        withDoneInitiativeRows(() => {
             const { container } = mount(new Set([7001, 7002]));
             // The primary active-status query is disabled once the card lands on
-            // `met` (`enabled: !isMet`) — only the epic-scoped all-time read asks.
+            // `met` (`enabled: !isMet`) — only the initiative-scoped all-time read asks.
             expect(statusesAsked).toEqual(new Set(['met']));
             expect(rowIds(container).sort()).toEqual(['7001', '7002']);
             expect(badge(container, 'met')).toBe(2);
         });
     });
 
-    it('req #3500 — `met` is a LAST-RESORT candidate: an epic with BOTH queue '
+    it('req #3500 — `met` is a LAST-RESORT candidate: an initiative with BOTH queue '
         + 'work and completed work opens on the queue chip, not Met', () => {
-        // EPIC_SET's own two `development` rows plus the done epic's two `met`
+        // INITIATIVE_SET's own two `development` rows plus the done initiative's two `met`
         // rows, scoped together — pins the ORDERING rule the fix depends on,
         // not merely that `met` is a candidate at all.
-        withDoneEpicRows(() => {
+        withDoneInitiativeRows(() => {
             const { container } = mount(new Set([3428, 3430, 7001, 7002]));
             expect(statusesAsked).toEqual(new Set(['development']));
             expect(rowIds(container).sort()).toEqual(['3428', '3430']);
@@ -273,10 +273,10 @@ describe('SwarmStartCard under an epic filter (req #3428)', () => {
         });
     });
 
-    it('req #3500 — a fully-`met` epic still shows its work when the reader\'s '
+    it('req #3500 — a fully-`met` initiative still shows its work when the reader\'s '
         + 'persisted chip is ALREADY `met` (no override fires at all)', () => {
         useSwarmStartCardStore.setState({ selectedStatus: 'met', show: true });
-        withDoneEpicRows(() => {
+        withDoneInitiativeRows(() => {
             const { container } = mount(new Set([7001, 7002]));
             expect(rowIds(container).sort()).toEqual(['7001', '7002']);
             expect(badge(container, 'met')).toBe(2);

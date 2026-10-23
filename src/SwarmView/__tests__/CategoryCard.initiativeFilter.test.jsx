@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 //
-// Req #3428 — the epic filter as the CategoryCard actually applies it.
+// Req #3428 — the initiative filter as the CategoryCard actually applies it.
 //
-// The pure rules are pinned in `utils/__tests__/epicMembership.test.js`. Since
+// The pure rules are pinned in `utils/__tests__/initiativeMembership.test.js`. Since
 // req #3598 a scope RESTRICTS THE ROWS AND CHANGES NOTHING ELSE (user ruling,
 // 2026-10-17), so this suite pins that req #3428's three overrides are gone:
 //   1. the orchestrated toggle applies as stored (no forced override);
-//   2. a card with none of the epic's work still renders;
+//   2. a card with none of the initiative's work still renders;
 //   3. the add-a-requirement row stays.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -27,18 +27,18 @@ vi.setConfig({ testTimeout: 30000 });
 
 vi.mock('react-router-dom', () => ({ useNavigate: () => () => {} }));
 
-// 10 is in the epic, 11 is not — and BOTH are pipelined, which is the ordinary
-// state of an epic's work and the state that makes rule 1 above load-bearing.
+// 10 is in the initiative, 11 is not — and BOTH are pipelined, which is the ordinary
+// state of an initiative's work and the state that makes rule 1 above load-bearing.
 const reqData = [
-    { id: 10, title: 'In the epic', requirement_status: 'authoring', category_fk: 5, sort_order: 0 },
-    { id: 11, title: 'Another epic', requirement_status: 'authoring', category_fk: 5, sort_order: 1 },
+    { id: 10, title: 'In the initiative', requirement_status: 'authoring', category_fk: 5, sort_order: 0 },
+    { id: 11, title: 'Another initiative', requirement_status: 'authoring', category_fk: 5, sort_order: 1 },
 ];
 const EMPTY_SESSIONS = [];
 let pipelinedIds = new Set([10, 11]);
 // req #3419 MERGE — `usePipelinedRequirementIds` is gone; the REAL
-// `useRequirementVisibility` now owns both the id set and the epic override
+// `useRequirementVisibility` now owns both the id set and the initiative override
 // (`effectiveHidePipelined` moved inside it). Feed it the three bounded reads it
-// joins, as the wire shapes they arrive in, so the epic-forces-toggle-off rule
+// joins, as the wire shapes they arrive in, so the initiative-forces-toggle-off rule
 // this file exists to test is exercised for real rather than stubbed past.
 //
 // MODULE-LEVEL constants, never inline `[]` literals: a fresh array per render
@@ -65,7 +65,7 @@ const CATEGORY = { id: 5, category_name: 'Test Cat', project_fk: 1, sort_mode: '
 const noop = () => {};
 
 let roots = [];
-function mount(epicReqIds) {
+function mount(initiativeReqIds) {
     const container = document.createElement('div');
     document.body.appendChild(container);
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -88,7 +88,7 @@ function mount(epicReqIds) {
                                 clickCardDelete={noop}
                                 isTemplate={false}
                                 showClosed={false}
-                                epicReqIds={epicReqIds}
+                                initiativeReqIds={initiativeReqIds}
                             />
                         </DarwinDndContext>
                     </AuthContext.Provider>
@@ -102,7 +102,7 @@ function mount(epicReqIds) {
 const rowPresent = (container, id) => container.querySelector(`[data-testid="requirement-${id}"]`) !== null;
 const cardPresent = (container) => container.querySelector('[data-testid="category-card-5"]') !== null;
 
-describe('CategoryCard under an epic filter (req #3428)', () => {
+describe('CategoryCard under an initiative filter (req #3428)', () => {
     beforeEach(() => {
         pipelinedIds = new Set([10, 11]);
         roots = [];
@@ -116,20 +116,20 @@ describe('CategoryCard under an epic filter (req #3428)', () => {
         useShowClosedStore.setState({ hidePipelinedRequirements: false });
     });
 
-    it('the orchestrated toggle APPLIES under an epic filter: stored ON hides the '
-        + 'epic\'s pipelined row (req #3598)', () => {
+    it('the orchestrated toggle APPLIES under an initiative filter: stored ON hides the '
+        + 'initiative\'s pipelined row (req #3598)', () => {
         const { container } = mount(new Set([10]));
         expect(rowPresent(container, 10)).toBe(false);
     });
 
-    it('with the toggle OFF, shows ONLY the epic\'s rows', () => {
+    it('with the toggle OFF, shows ONLY the initiative\'s rows', () => {
         useShowClosedStore.setState({ hidePipelinedRequirements: false });
         const { container } = mount(new Set([10]));
         expect(rowPresent(container, 10)).toBe(true);
         expect(rowPresent(container, 11)).toBe(false);
     });
 
-    it('still renders the card when this category holds none of the epic', () => {
+    it('still renders the card when this category holds none of the initiative', () => {
         const { container } = mount(new Set([9999]));
         expect(cardPresent(container)).toBe(true);
     });

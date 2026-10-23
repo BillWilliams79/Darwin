@@ -7,12 +7,12 @@
 // testable in vitest without a canvas (the konvaSwarmModel.js separation).
 //
 // The layout language (POC, kept verbatim unless noted):
-//   - Epic bands stacked vertically, one per DOMINANT epic (design rule 10), in
-//     `epics.sort_order` since req #3430 — the AUTHORITATIVE epic display order
+//   - Initiative bands stacked vertically, one per DOMINANT initiative (design rule 10), in
+//     `initiatives.sort_order` since req #3430 — the AUTHORITATIVE initiative display order
 //     (user ruling 2026-08-09), and this stack is the surface that ruling is
-//     about. An epic with NO `sort_order` is UNORDERED and falls back to the
-//     req #3201 rule, below every ordered epic: DERIVED-START order,
-//     earliest-starting epic on top, never-started epics last, epic id
+//     about. An initiative with NO `sort_order` is UNORDERED and falls back to the
+//     req #3201 rule, below every ordered initiative: DERIVED-START order,
+//     earliest-starting initiative on top, never-started initiatives last, initiative id
 //     ascending as the tie-break. (Before #3201 that fallback was
 //     first-appearance over display order, which had two problems: it made a
 //     band's position move whenever a step was appended, and it said nothing at
@@ -22,7 +22,7 @@
 //     above `computeTimeColumns` for the whole model. Dependency depth survives
 //     as the HARD FLOOR: a step's column is never less than 1 + the maximum of
 //     its dependencies', so every arc still points forward.
-//   - Chain-aware swim lanes inside each band: a step takes its first same-epic
+//   - Chain-aware swim lanes inside each band: a step takes its first same-initiative
 //     dependency's lane when free, and that lane is RESERVED across the columns
 //     the chain spans, so no unrelated bead sits on an arc's path. When several
 //     dependents want one lane, the earliest-created (lowest step id) is its
@@ -52,7 +52,7 @@
 // "THE COLOUR LANGUAGE" block below the palette, and `beadStyle` at the bottom.
 //
 // Two deliberate deviations from the POC, both documented for the PR:
-//   1. Band header height 40 (POC 34): the POC's epic label and a lane-0 step
+//   1. Band header height 40 (POC 34): the POC's initiative label and a lane-0 step
 //      label could brush within a pixel; the taller header buys a real gap so
 //      the overlap invariant is provable, not marginal.
 //   2. Every lane reserves a TITLE SLOT under the requirement ids (pitch grows
@@ -163,7 +163,7 @@ export const PLAN_VIZ_PALETTE = {
     // ── THE STEP COLOUR (req #3742, user directive: "simplify the step color")
     // ONE colour per step, on the card's border (and the bead's ring at L1),
     // answering "will the work placed here run on its own?":
-    //   red     `lockedFrame`     locked — by the step, its epic or its plan
+    //   red     `lockedFrame`     locked — by the step, its initiative or its plan
     //   orange  `stepManual`      manual — reported, never launched
     //   yellow  `stepBarrier`     a barrier — holds the steps after it
     //   green   `stepWillRun`     none of those: it will run
@@ -177,7 +177,7 @@ export const PLAN_VIZ_PALETTE = {
     stepManual: '#ff7a1a',
 };
 
-// Epic band palette (POC EPAL) — band index cycles through it.
+// Initiative band palette (POC EPAL) — band index cycles through it.
 //
 // RETUNED (req #3219, user directive 2026-08-01): the POC's brown (`#5d4037`)
 // read as dirt on the dark panel, not as a colour, and is gone outright. Orange
@@ -189,33 +189,33 @@ export const PLAN_VIZ_PALETTE = {
 // 2.23:1, "low separation from the panel" made concrete. Both are replaced with
 // brighter, more separated values at the same hue family — orange stays orange,
 // indigo stays indigo — plus two further entries (cyan, magenta) so the palette
-// covers the live epic count (7 on pipeline 2, measured 2026-08-01) with no
+// covers the live initiative count (7 on pipeline 2, measured 2026-08-01) with no
 // wraparound collision. Purple, teal and pink measured "fine" and are kept
 // verbatim. Every entry, at whatever length this array grows to, is enforced by
-// the 'epic band palette' guard in pipelinePlanLayout.test.js — see that suite
+// the 'initiative band palette' guard in pipelinePlanLayout.test.js — see that suite
 // for the thresholds and the one-line reason behind each.
 //
 // POSITIONAL, DELIBERATELY IMPERMANENT (req #3219's second half — "decide
-// whether a colour should be STABLE per epic"): this palette answers "what
-// colour is band position N", never "what colour is epic X". Colour is
+// whether a colour should be STABLE per initiative"): this palette answers "what
+// colour is band position N", never "what colour is initiative X". Colour is
 // assigned AFTER the bands are sorted into DERIVED-START order (below), so an
-// epic's colour is a function of where it currently sits in that stack — it
-// moves when an earlier epic starts, finishes, or a new one is added ahead of
+// initiative's colour is a function of where it currently sits in that stack — it
+// moves when an earlier initiative starts, finishes, or a new one is added ahead of
 // it. That was already true before this requirement (see the "Colour AFTER the
 // sort" comment at the assignment site) and is kept rather than replaced with a
-// stored or hashed per-epic colour, because a hash collides exactly when it
-// matters most: two epics landing on the same slot is the one failure this
+// stored or hashed per-initiative colour, because a hash collides exactly when it
+// matters most: two initiatives landing on the same slot is the one failure this
 // surface cannot afford, and only a positional cycle over a palette at least as
 // long as the band count can GUARANTEE zero collisions. A stored colour would
-// fix identity at the cost of a schema field and a fallback path for every epic
-// that predates it, for a question ("what colour IS epic X") this surface does
+// fix identity at the cost of a schema field and a fallback path for every initiative
+// that predates it, for a question ("what colour IS initiative X") this surface does
 // not currently ask anywhere — the chip, the legend and the band all read the
-// SAME band's colour, never one epic's colour recalled from a past render. If
-// a future surface needs epic-X-is-always-blue, that is the point to add
+// SAME band's colour, never one initiative's colour recalled from a past render. If
+// a future surface needs initiative-X-is-always-blue, that is the point to add
 // stored colour; today it would be speculative machinery for a fact nothing
 // reads.
 // ── FOUR, AND THEY REPEAT (req #3365 user directive) ───────────────────────
-// *"Enjoyable as the multiple colors are for the epic title, they are too hard
+// *"Enjoyable as the multiple colors are for the initiative title, they are too hard
 // to read some of them. let's pick a palette of four distinct color (they can
 // repeat from top to bottom) but that show up nicely in the visualizer as a
 // contrast against the background."*
@@ -225,7 +225,7 @@ export const PLAN_VIZ_PALETTE = {
 // into the dark end of the wheel where a hue can be told apart but not READ:
 // `#00897b` teal at 3.1:1 and `#c2185b` pink at 3.3:1 against this panel are
 // the ones the directive is about — they cleared the 2.7 general floor and
-// still made an epic's NAME (which is drawn in the band's colour) hard work.
+// still made an initiative's NAME (which is drawn in the band's colour) hard work.
 //
 // At four, every entry can sit in the bright band: the measured range is
 // **5.94:1 to 7.75:1**, minimum pairwise CIE76 ΔE **54.0**, and the four hues
@@ -233,15 +233,15 @@ export const PLAN_VIZ_PALETTE = {
 // or better, so a repeat is the only way two bands can share a colour.
 //
 // REPEATING IS THE POINT, not a compromise. `bandByKey.get(key).color =
-// EPIC_PALETTE[i % EPIC_PALETTE.length]` already cycled; with seven entries a
-// reader could believe colour identified an epic, which it never did (colour is
+// INITIATIVE_PALETTE[i % INITIATIVE_PALETTE.length]` already cycled; with seven entries a
+// reader could believe colour identified an initiative, which it never did (colour is
 // band POSITION — see the ONE FACT, ONE CHANNEL note above). Four makes the
 // cycle short enough to be obvious.
 //
 // None of the four collides with a STATE hue: the closest approach to Running
 // amber, Complete green or `deployed` green is ΔE 39.3 (orange vs amber), well
 // past the 25 the autonomy scale is held to.
-export const EPIC_PALETTE = [
+export const INITIATIVE_PALETTE = [
     '#00b8d4', // cyan   — 7.25:1, hue 188°
     '#ff9152', // orange — 7.75:1, hue 22°  (clears the raised WARM floor)
     '#b07dff', // violet — 5.94:1, hue 264°
@@ -278,8 +278,8 @@ export const pauseBubbleColor = (paused) => (paused ? PAUSE_PAUSED_COLOR : PAUSE
 // | requirement-id TEXT    | the ACTIVE colour key: requirement status | REQUIREMENT |
 // |                        | · machine pin · nothing                    |             |
 //
-// EPIC IDENTITY IS A CHANNEL WITHOUT A KEY ROW, on purpose (req #3374 P3,
-// superseding an earlier draft of this table that listed "epic BAND
+// INITIATIVE IDENTITY IS A CHANNEL WITHOUT A KEY ROW, on purpose (req #3374 P3,
+// superseding an earlier draft of this table that listed "initiative BAND
 // tint/stroke" as its fifth row — sixth counting the launch-unit box #3371
 // removed — a row the on-screen key never rendered). A key row would be a
 // swatch-per-band list duplicating what the bands already say: each band's
@@ -333,7 +333,7 @@ export const pauseBubbleColor = (paused) => (paused ? PAUSE_PAUSED_COLOR : PAUSE
 // The channel table above, as DATA (req #3374 P3). `PipelinePlanVisualizer`'s
 // two `KeyGroup`s read their titles from `KEY_GROUP_TITLES`, derived below
 // rather than hand-typed a second time, so the on-screen key cannot drift
-// from the set of channels marked `inKey`. `epic` is the one channel with
+// from the set of channels marked `inKey`. `initiative` is the one channel with
 // `inKey: false` — see the table comment above for why the key omits it.
 // req #3498 — the three STEP channels are named for the mark that carries them
 // at L2/L3, which is the CARD. They are the same three facts in the same three
@@ -343,7 +343,7 @@ export const COLOR_CHANNELS = [
     { channel: 'card BORDER (bead ring at L1)', level: 'step', inKey: true },
     { channel: 'outer HALO (dashed)', level: 'step', inKey: true },
     { channel: 'requirement-id TEXT', level: 'requirement', inKey: true },
-    { channel: 'epic BAND tint/stroke', level: 'epic', inKey: false },
+    { channel: 'initiative BAND tint/stroke', level: 'initiative', inKey: false },
 ];
 export const KEY_GROUP_TITLES = [...new Set(
     COLOR_CHANNELS.filter((c) => c.inKey).map((c) => c.level),
@@ -749,7 +749,7 @@ export const SESSION_UNKNOWN_COLOR = REQ_STATUS_UNKNOWN_COLOR;
 // just colors so stoplight is not necessary. maybe propose a more boring
 // business version or two. and anything you think is modern."*
 //
-// ONE THEME OVER ALL THREE SCALES, not three settings. The epic bands, the
+// ONE THEME OVER ALL THREE SCALES, not three settings. The initiative bands, the
 // requirement STATUS scale and the AUTONOMY scale are read together on one
 // panel, so a per-scale choice would let someone assemble a combination nobody
 // chose and nobody measured. A theme is a complete set, and EVERY theme is held
@@ -774,7 +774,7 @@ export const SESSION_UNKNOWN_COLOR = REQ_STATUS_UNKNOWN_COLOR;
 // what does not have to be measured twice is that every entry must ALSO clear
 // 4.5:1 against `#111b2b`, which floors the dark end around L* 55. The first cut
 // measured a minimum ΔE of **8.9** — two statuses that read as the same colour,
-// which is the exact defect the four-entry epic palette above was cut down to
+// which is the exact defect the four-entry initiative palette above was cut down to
 // fix.
 //
 // So restraint is carried by SATURATION, not by collapsing the hues. Measured
@@ -786,7 +786,7 @@ export const SESSION_UNKNOWN_COLOR = REQ_STATUS_UNKNOWN_COLOR;
 // in every theme clears contrast 4.78:1 and pairwise ΔE 20.4, asserted over the
 // REGISTRY so a fourth theme is covered the day it is added.
 //
-// `stoplight` is assembled FROM `EPIC_PALETTE`/`REQ_STATUS_COLORS`/
+// `stoplight` is assembled FROM `INITIATIVE_PALETTE`/`REQ_STATUS_COLORS`/
 // `AUTONOMY_COLORS` rather than restating them, so there is exactly one copy of
 // those values and the entry cannot drift from the constants this module
 // documents at length above. It is no longer what the canvas draws — see
@@ -799,7 +799,7 @@ export const PLAN_PALETTES = [
         label: 'Signal',
         tip: 'Signal — hue carries meaning: amber is Running, green is Complete, '
             + 'red is "a human speaks first".',
-        epic: EPIC_PALETTE,
+        initiative: INITIATIVE_PALETTE,
         status: REQ_STATUS_COLORS,
         autonomy: AUTONOMY_COLORS,
         session: SESSION_STATUS_COLORS,
@@ -809,7 +809,7 @@ export const PLAN_PALETTES = [
         label: 'Slate',
         tip: 'Slate — a restrained business palette: the same hue separation at '
             + 'a little over half the chroma. No stoplight.',
-        epic: ['#7f9fc4', '#c4a37f', '#a98cc4', '#7fc4a8'],
+        initiative: ['#7f9fc4', '#c4a37f', '#a98cc4', '#7fc4a8'],
         // Ordered by the LIFECYCLE, and the hues walk violet → blue → teal →
         // gold → green so the ladder is legible without any of them shouting.
         // `deferred` and `wontfix` sit off that walk deliberately: they are the
@@ -850,7 +850,7 @@ export const PLAN_PALETTES = [
         label: 'Aurora',
         tip: 'Aurora — a modern dark-UI palette: teal through indigo and violet, '
             + 'with in-progress work in yellow-green, on the way to green.',
-        epic: ['#5eead4', '#818cf8', '#f0abfc', '#fcd34d'],
+        initiative: ['#5eead4', '#818cf8', '#f0abfc', '#fcd34d'],
         // Not a stoplight — the directive's ask, met by hue choice rather than
         // by muting. `deferred` and `wontfix` sit off the lifecycle for
         // Slate's reason.
@@ -992,13 +992,13 @@ export function planPalette(key) {
 // ── How TALL the on-screen key may be, and why the cap MOVED to height ─────
 // (req #3374 P6 — this constant was `PLAN_KEY_MAX_W` until this requirement.)
 //
-// The key's measured rect is the keep-out `placeEpicChips` resolves the epic
+// The key's measured rect is the keep-out `placeInitiativeChips` resolves the initiative
 // names against, and the resolution is HORIZONTAL ONLY by design — moving a
 // chip vertically would put it on another band's line, which is a wrong label
 // rather than a missing one.
 //
 // SINCE req #3257 that resolution is a CLIP-OR-DROP, not a displacement: an
-// epic name is pinned to its own band's rectangle and may not slide sideways
+// initiative name is pinned to its own band's rectangle and may not slide sideways
 // out of it, so whatever runs under the key is cut off, or dropped outright
 // once too few characters would be left to read.
 //
@@ -1026,7 +1026,7 @@ export function planPalette(key) {
 // req #3356; it was the only surviving justification for req #3255's
 // placement). Against the SAME 470x30 geometry, the OLD top-right key dropped
 // **187** names where bottom-center drops **11** — **the move made the key
-// ~17x cheaper.** The cause is the clip-or-drop rule above: an epic name is
+// ~17x cheaper.** The cause is the clip-or-drop rule above: an initiative name is
 // pinned to its band's LEFT edge, and a bottom-center box is simply not where
 // those names land.
 //
@@ -1038,7 +1038,7 @@ export function planPalette(key) {
 // belonged to req #3255's own surface, not to the requirement that found it.
 //
 // **REQ #3374 P6 IS THAT FIX**, RE-MEASURED (2026-08-10) rather than assumed
-// still true — #3371 and #3373 emptied the key's launch-unit and epic-band
+// still true — #3371 and #3373 emptied the key's launch-unit and initiative-band
 // rows since, and the Substrate fixture itself is not the same shape it was
 // on 2026-08-02. Same fixture, same sweep, the OLD table's OWN `w`/`h` ranges
 // so the two are comparable:
@@ -1102,7 +1102,7 @@ export function planPalette(key) {
 // named rather than silently accepted:
 //   1. `PipelinePlanVisualizer`'s `keepOut.x = (viewportW − key.w) / 2` goes
 //      NEGATIVE once the key is wider than the viewport, which then drops
-//      every epic chip whose y overlaps the key's band regardless of x. The
+//      every initiative chip whose y overlaps the key's band regardless of x. The
 //      old 470 cap made that unreachable above a ~500px panel; uncapped width
 //      makes it reachable on a panel narrower than the key (~560px since req
 //      #3621's every-value key), where the key also clips at both edges.
@@ -1119,7 +1119,7 @@ export function planPalette(key) {
 // HISTORICAL since req #3722: the key left the canvas for a button-local popup,
 // so nothing in the component enforces this cap or measures a keep-out any more
 // (`PipelinePlanVisualizer` passes `keepOut: null`). The constant and the
-// `keepOut` parameter of `placeEpicChips` stay for the sweeps in
+// `keepOut` parameter of `placeInitiativeChips` stay for the sweeps in
 // pipelinePlanLayout.test.js, which still pin the placement pass's behaviour
 // against an arbitrary keep-out rectangle.
 export const PLAN_KEY_MAX_H = 110;
@@ -1150,7 +1150,7 @@ export const PLAN_KEY_MAX_H = 110;
 // THE KEY LISTS EVERY VALUE A SCALE CAN PAINT, not only the ones this plan
 // contains (req #3621, user directive: "show all the possibilities instead so I
 // can see the color choices"). It used to filter to the plan, to keep the key
-// small for the epic chips; the key's rect is MEASURED and the chips steer
+// small for the initiative chips; the key's rect is MEASURED and the chips steer
 // around whatever size it is, so the cost of the full list is a taller key,
 // never an overlap.
 //
@@ -1385,7 +1385,7 @@ export function reqIdStyle({ colorKey, views, reqId } = {}) {
  * the SAME view object `reqIdStyle` colours the canvas from, so the key cannot
  * name a colour the marks do not use. Since req #3621 every scale lists every
  * value it can paint, not only the ones the plan contains — the user asked to
- * see all the colour choices — so the key is wider, and the epic chips steer
+ * see all the colour choices — so the key is wider, and the initiative chips steer
  * around its measured rect at the viewport middle-bottom (req #3255).
  *
  * @param {Object} args
@@ -1412,7 +1412,7 @@ const LEFT = 66;
 const RIGHT = 14;
 const MIN_WORLD_W = 1180;       // POC viewBox floor
 // Type scale (user directive 2026-07-31): step label +50%, requirement ids
-// +25%, epic label +25% over the POC's font-11/12 base. Char-width metrics
+// +25%, initiative label +25% over the POC's font-11/12 base. Char-width metrics
 // scale linearly with font size (mono: ~0.609 px/pt per char) — they MUST move
 // with PLAN_VIZ_FONT or the zero-overlap contract silently rots.
 // ── THE CARD'S TYPE SCALE (req #3498, user directive: "make the visualizer step
@@ -1433,8 +1433,8 @@ const MIN_WORLD_W = 1180;       // POC viewBox floor
 // provisional quantity from the start ("we will go from there"); the character
 // count and now the type size are the stated ones.
 //
-// IT IS THE CARD'S ALONE. `PLAN_VIZ_FONT.epic` (the band label) and `.slot` (the
-// date ruler) are NOT scaled — neither is on the card, and the epic chip is an
+// IT IS THE CARD'S ALONE. `PLAN_VIZ_FONT.initiative` (the band label) and `.slot` (the
+// date ruler) are NOT scaled — neither is on the card, and the initiative chip is an
 // HTML overlay with its own screen-space sizing rules besides.
 export const CARD_TYPE_SCALE = 1.4;
 
@@ -1464,18 +1464,18 @@ export const CHW_LABEL = 10.05 * CARD_TYPE_SCALE;   // px per mono char, step na
 export const CHW_CARD = 8.4 * CARD_TYPE_SCALE;
 export const CHW_REQ = CHW_CARD / REQ_TITLE_WIDEN;  // px per mono char, req row
 export const CHW_TITLE = 5.8 * CARD_TYPE_SCALE;     // px per mono char, the L3 own-title line
-export const CHW_EPIC = 9.15;   // px per mono char at font 15 (epic band label)
+export const CHW_INITIATIVE = 9.15;   // px per mono char at font 15 (initiative band label)
 const BEAD_R = 10;
-// ── The epic gets its OWN LANE (req #3168, user directive) ─────────────────
+// ── The initiative gets its OWN LANE (req #3168, user directive) ─────────────────
 // This was 46, and 46 was never enough. The band header is reserved in WORLD px
-// while the epic chip is drawn at a fixed SCREEN height (it is an HTML overlay,
+// while the initiative chip is drawn at a fixed SCREEN height (it is an HTML overlay,
 // deliberately — req #3119 — so the name stays legible at any zoom). Only ~25 of
 // those 46 px sat above lane 0's step label, so the chip fitted only while
 // k ≥ 24/25 ≈ 0.96 — and the page's own default scale is 0.8. At the scale the
-// visualizer OPENS AT, the epic name overlapped the first row of step labels.
+// visualizer OPENS AT, the initiative name overlapped the first row of step labels.
 //
 // A lane is the unit this layout already uses for "content that may not be drawn
-// over", so the epic takes one: BAND_HEADER is now a full lane's height, and
+// over", so the initiative takes one: BAND_HEADER is now a full lane's height, and
 // nothing else is ever placed in it. That moves the fit threshold to k ≈ 0.39.
 //
 // **THE OPENING VIEW IS NO LONGER ABOVE THAT THRESHOLD** (req #3312, found in
@@ -1485,25 +1485,25 @@ const BEAD_R = 10;
 // 34-step fixture at 1280x720 that is k = 0.354-0.373, i.e. BELOW 0.39. The
 // argument recorded here was that a DIFFERENT fact made the collision
 // unreachable — below `K_READABLE` no step label is drawn at all, so there is
-// nothing for the epic name to overlap — which made `K_READABLE` load-bearing
+// nothing for the initiative name to overlap — which made `K_READABLE` load-bearing
 // for this reservation.
 //
 // **THAT ARGUMENT IS DEAD (req #3324, found in review), AND SO IS ITS FALLBACK.**
 // A PINNED L2/L3 draws step labels at EVERY scale (`planLevelFor` — legibility is
 // now Auto's own demotion and decides nothing under a pin), so "no label is
 // drawn down there" is simply false, and `K_READABLE` protects nothing here. The
-// sentence that followed it — that `placeEpicChips` SCALES the chip down to its
+// sentence that followed it — that `placeInitiativeChips` SCALES the chip down to its
 // lane rather than overflowing it — stopped being true one requirement earlier:
-// since req #3272 the chip is FLOORED at `EPIC_CHIP_MIN_H`, and that function's
+// since req #3272 the chip is FLOORED at `INITIATIVE_CHIP_MIN_H`, and that function's
 // own comment says a lane too short for the floored chip "gets the chip anyway,
 // drawn over the first row of step labels on its 60%-opaque panel."
 //
 // So the honest statement of the reservation is: it is a WORLD-px lane against a
 // SCREEN-height chip, so it holds while `k >= ~0.348`
-// (`(EPIC_CHIP_MIN_H + 2·CHIP_MARGIN_Y) / epicLaneH`, i.e. 21.6/62) and the
+// (`(INITIATIVE_CHIP_MIN_H + 2·CHIP_MARGIN_Y) / initiativeLaneH`, i.e. 21.6/62) and the
 // floored chip is drawn over lane 0's step labels below that — reachable by
 // wheel (the live plan's zoom floor is 0.11) and on landing/Reset on any plan
-// whose `factoryDefaultScale` is smaller. Nothing PREVENTS it — `placeEpicChips`
+// whose `factoryDefaultScale` is smaller. Nothing PREVENTS it — `placeInitiativeChips`
 // has run no obstacle-avoidance pass at all since #3257 (its only `keepOut` is
 // the legend) — but it is MEASURED, at exactly this boundary, and pinned in
 // vitest so a future change to the constants above cannot move it silently
@@ -1516,17 +1516,17 @@ const BEAD_R = 10;
 // drawn 31px ABOVE its bead, and the bead sits 10px below the header — so the
 // label reaches 21px back UP into the header (a further STAGGER_GAP on top of
 // that in title mode). The clear strip is `headerH − STEP_LABEL_RISE`, and
-// sizing the epic's lane as though it were `headerH` is the same
+// sizing the initiative's lane as though it were `headerH` is the same
 // off-by-a-reservation the 46px version made. 83 leaves a genuine 62 — one full
-// lane — clear in BOTH label modes; `band.epicLaneH` carries the derived value
+// lane — clear in BOTH label modes; `band.initiativeLaneH` carries the derived value
 // so no consumer has to re-derive it and get it wrong.
 // ── THE RESERVATION IS TALLER, ON THE USER'S DIRECTIVE (req #3365) ──────────
-// *"Epic title does a better job of staying the right size, but it needs to
+// *"Initiative title does a better job of staying the right size, but it needs to
 // have a separate swim lane so it doesn't overlap steps/requirements."*
 //
 // The paragraphs above name this exact trade and name its remedy: the lane is
 // WORLD px against a SCREEN-height chip, so it held only while
-// `k >= (EPIC_CHIP_MIN_H + 2·CHIP_MARGIN_Y) / epicLaneH` = 21.6/62 = **0.348**,
+// `k >= (INITIATIVE_CHIP_MIN_H + 2·CHIP_MARGIN_Y) / initiativeLaneH` = 21.6/62 = **0.348**,
 // and below that the floored chip was drawn over lane 0's step labels. Plan 7
 // LANDS at k = 0.2077 — comfortably under it — so on the plan this surface is
 // most often opened on, the overlap was not an edge case reachable by wheel, it
@@ -1534,7 +1534,7 @@ const BEAD_R = 10;
 // fix is a taller reservation or an obstacle entry"; this is the taller
 // reservation.
 //
-// DERIVED FROM THE SCALE IT MUST HOLD AT, not chosen. `EPIC_LANE_CLEAR_K` is
+// DERIVED FROM THE SCALE IT MUST HOLD AT, not chosen. `INITIATIVE_LANE_CLEAR_K` is
 // the lowest scale the clear strip is guaranteed at, and the clear strip
 // (`headerH − STEP_LABEL_RISE`, the same subtraction the 83 above got right)
 // must be at least the floored chip's screen box converted into world px at
@@ -1549,55 +1549,55 @@ const BEAD_R = 10;
 // against a screen-px chip cannot, by construction — so the guarantee is stated
 // as a scale, not as an absolute.
 // A LITERAL, PINNED BY A TEST — not the expression that derives it. Every term
-// of that expression (`EPIC_CHIP_H`, `EPIC_CHIP_MIN_SCALE`, `CHIP_MARGIN_Y`) is
+// of that expression (`INITIATIVE_CHIP_H`, `INITIATIVE_CHIP_MIN_SCALE`, `CHIP_MARGIN_Y`) is
 // declared ~2000 lines BELOW this one, so evaluating it here is a temporal dead
 // zone and throws at module load. Reordering a 4,400-line module to satisfy one
-// constant is the larger risk, so the derivation lives in `EPIC_LANE_CLEAR_K`'s
+// constant is the larger risk, so the derivation lives in `INITIATIVE_LANE_CLEAR_K`'s
 // own test instead — `pipelinePlanLayout.test.js` recomputes it from those four
 // constants and fails if this number stops matching, which is the same
 // protection with none of the load-order hazard.
 //
-//   ceil(STEP_LABEL_RISE + (EPIC_CHIP_H·EPIC_CHIP_MIN_SCALE + 2·CHIP_MARGIN_Y)
-//        / EPIC_LANE_CLEAR_K)
+//   ceil(STEP_LABEL_RISE + (INITIATIVE_CHIP_H·INITIATIVE_CHIP_MIN_SCALE + 2·CHIP_MARGIN_Y)
+//        / INITIATIVE_LANE_CLEAR_K)
 //   = ceil(24 + (24·(11/15) + 4) / 0.2) = ceil(24 + 21.6/0.2) = 132
 //
-// The lowest scale at which the epic chip's floored screen box is guaranteed to
+// The lowest scale at which the initiative chip's floored screen box is guaranteed to
 // fit inside the band header's clear strip. Everything about `BAND_HEADER` below
 // is derived FROM this number, which is why it is declared beside it.
-export const EPIC_LANE_CLEAR_K = 0.2;
+export const INITIATIVE_LANE_CLEAR_K = 0.2;
 // ── 132 → 108, BECAUSE NOTHING REACHES INTO THE HEADER ANY MORE (req #3498) ─
 // Every version of this constant above is one long argument about a single
 // subtraction: the header had to be `STEP_LABEL_RISE` TALLER than the strip it
 // was reserving, because a lane-0 step label floated ABOVE its bead and reached
-// back up into the header. `epicLaneH` was `BAND_HEADER − STEP_LABEL_RISE` for
+// back up into the header. `initiativeLaneH` was `BAND_HEADER − STEP_LABEL_RISE` for
 // that reason, and the paragraphs above are the record of getting that
 // off-by-a-reservation wrong twice.
 //
 // A card starts AT its lane's top and draws nothing above itself. There is no
 // overhang, so the clear strip IS the header and the subtraction is gone
-// (`epicLaneH === headerH`). The strip the derivation demands is unchanged at
-// 108 world px — the chip's floored screen box divided by `EPIC_LANE_CLEAR_K` —
+// (`initiativeLaneH === headerH`). The strip the derivation demands is unchanged at
+// 108 world px — the chip's floored screen box divided by `INITIATIVE_LANE_CLEAR_K` —
 // so the header simply stops paying for an overhang that no longer exists.
 // Every band is **24px shorter in `id` mode and 60px shorter in `title` mode**,
 // which is the shipped one — the old header also carried `STAGGER_SPAN` (36)
 // whenever the step label staggered, and that term is gone with the stagger.
 //
-//   ceil((EPIC_CHIP_H·EPIC_CHIP_MIN_SCALE + 2·CHIP_MARGIN_Y) / EPIC_LANE_CLEAR_K)
+//   ceil((INITIATIVE_CHIP_H·INITIATIVE_CHIP_MIN_SCALE + 2·CHIP_MARGIN_Y) / INITIATIVE_LANE_CLEAR_K)
 //   = ceil((24·(11/15) + 4) / 0.2) = ceil(21.6/0.2) = 108
 //
 // A LITERAL, PINNED BY A TEST — not the expression that derives it. Every term
-// of that expression (`EPIC_CHIP_H`, `EPIC_CHIP_MIN_SCALE`, `CHIP_MARGIN_Y`) is
+// of that expression (`INITIATIVE_CHIP_H`, `INITIATIVE_CHIP_MIN_SCALE`, `CHIP_MARGIN_Y`) is
 // declared ~2000 lines BELOW this one, so evaluating it here is a temporal dead
-// zone and throws at module load. The derivation lives in `EPIC_LANE_CLEAR_K`'s
+// zone and throws at module load. The derivation lives in `INITIATIVE_LANE_CLEAR_K`'s
 // own test instead, which recomputes it from those constants and fails if this
 // number stops matching.
 const BAND_HEADER = 108;
-// ── A FOLDED EPIC'S HEADER IS SHORTER (req #3805) ───────────────────────────
+// ── A FOLDED INITIATIVE'S HEADER IS SHORTER (req #3805) ───────────────────────────
 // User direction: "reduce the white space between closed initiatives in up and
 // down directions by 70%". A folded band draws no rectangle and no lanes — its
-// floating title bar (the chip, `EPIC_CHIP_H` = 24 screen px at
+// floating title bar (the chip, `INITIATIVE_CHIP_H` = 24 screen px at
 // `CHIP_MARGIN_Y` = 2 below the band's top) is all of it — yet it kept the open
-// band's whole 108px header, so two stacked folded epics stood a full
+// band's whole 108px header, so two stacked folded initiatives stood a full
 // `BAND_HEADER + BAND_GAP` = 116px apart and the gap between their title bars
 // was 116 − 24 = 92px at native scale (k = 1, world px = screen px).
 //
@@ -1608,18 +1608,18 @@ const BAND_HEADER = 108;
 //
 // WHAT IT COSTS. The chip is SCREEN-sized against a WORLD-px band, so this
 // header also sets the lowest scale at which a run of folded names still fits
-// without the de-collision pass pushing them: `epicLaneH` tracks the header, so
+// without the de-collision pass pushing them: `initiativeLaneH` tracks the header, so
 // the chip shrinks into the shorter lane, and every name sits at its band's
-// corner while `(BAND_HEADER_FOLDED + BAND_GAP)·k ≥ EPIC_CHIP_H·EPIC_CHIP_MIN_SCALE
+// corner while `(BAND_HEADER_FOLDED + BAND_GAP)·k ≥ INITIATIVE_CHIP_H·INITIATIVE_CHIP_MIN_SCALE
 // + CHIP_STACK_GAP`, i.e. k ≥ 19.6/52 ≈ 0.377. Below that the pass pushes them
-// down, and a run of folded bands SHARES its room (`placeEpicChips`' `runCap`):
+// down, and a run of folded bands SHARES its room (`placeInitiativeChips`' `runCap`):
 // a name may ride down through the folded bands after it to the bottom of the
-// next open band's header. With no open band after the run (every epic folded,
+// next open band's header. With no open band after the run (every initiative folded,
 // or the run below the open work) nothing is lost at any landing scale. A run
-// ABOVE an open epic is bounded by that epic's header and drops names once it
+// ABOVE an open initiative is bounded by that initiative's header and drops names once it
 // is full — MEASURED on six folded over one open: all named at k = 0.3, one
 // lost at 0.25, two at 0.2, where the old 116px pitch still held all of them at
-// 0.15 (pinned in vitest). The open epic's own name is pushed below the run,
+// 0.15 (pinned in vitest). The open initiative's own name is pushed below the run,
 // onto its own lane 0 when the header is full — its own band, as #3272 allows.
 export const BAND_HEADER_FOLDED = 44;
 // `STEP_LABEL_RISE`, `LANE_BASE_H` and `BEAD_LANE_OFFSET` left with req #3498.
@@ -1630,10 +1630,10 @@ export const BAND_HEADER_FOLDED = 44;
 // that wants the height a lane is CONNECTED at reads `band.laneCardH` and takes
 // half of it: that is the midpoint the arcs anchor on.
 const BAND_GAP = 8;
-// req #3719 — the strip under the last epic band that carries the add-epic "+"
+// req #3719 — the strip under the last initiative band that carries the add-initiative "+"
 // (`buildInsertMarks` centres the mark in it), so the mark is inside the world
 // rather than clipped by it. Charged only when the plan has a band.
-export const EPIC_ADD_RESERVE = 24;
+export const INITIATIVE_ADD_RESERVE = 24;
 // ── THE COLUMN FLOORS AND THE TITLE SLOT ARE GONE (req #3498) ───────────────
 // `COL_MIN_W_HORIZONTAL` / `COL_MIN_W_VERTICAL` were the floor a CONTENT-SIZED
 // column could not shrink below. Columns are no longer content-sized — every
@@ -2035,8 +2035,8 @@ export const cardHeight = (reqBlockH, stepLabel, nameLines = 1) =>
 // taller than this floor already.
 //
 // 68 = 2 x 34, and the 34 is not a taste: it is the clearance the NEXT-STEP HALO
-// needs above a LANE-0 bead before it reaches the epic chip's strip
-// (`NEXT_HALO_CLEARANCES.epicChipStrip`, which is HALF A CARD because the bead
+// needs above a LANE-0 bead before it reaches the initiative chip's strip
+// (`NEXT_HALO_CLEARANCES.initiativeChipStrip`, which is HALF A CARD because the bead
 // sits at the card's midpoint and the card's top IS that strip's bottom). Under
 // the old geometry that room was `STEP_LABEL_RISE + BEAD_LANE_OFFSET` = 34, and
 // three requirements — #3271, #3280, #3299 — went into making the halo READ at
@@ -2068,18 +2068,18 @@ export const CARD_CHECK_W = 0;
 //
 // ── "VIEW IN TABLE, HIGHLIGHTED" — A VISIBLE BUTTON, NOT JUST A HIDDEN HIT
 // RECT (req #3503, user directive: "place a proper sized button for the
-// requirements link — use same button as epic's requirement link, that is the
+// requirements link — use same button as initiative's requirement link, that is the
 // pattern") ──────────────────────────────────────────────────────────────
 // The card's title area has carried this action since req #3213
 // (`onStepFocus`, wired to an invisible hit rect over the step name) — this
 // only gives it a glyph a reader can actually SEE and aim at, the same way
-// the epic chip's own ↗ does for "open this epic's steps". Same glyph, same
+// the initiative chip's own ↗ does for "open this initiative's steps". Same glyph, same
 // idea: click here to jump to this row, filtered and highlighted, elsewhere.
 // Reserved out of the step name's budget the same way the ✓ is, so it never
 // draws over a truncated title.
 //
 // SIZED LIKE THE ✓ IT SITS BESIDE (req #3503 review — "align further to the
-// right edge to give the step title more room"), not like the epic chip's
+// right edge to give the step title more room"), not like the initiative chip's
 // own 30 SCREEN px: that reservation is a fixed screen-px HTML overlay
 // control, unscaled by zoom, while this one is WORLD px on a card that is
 // itself fixed-width — the two numbers are not the same unit and comparing
@@ -2151,7 +2151,7 @@ export const CARD_TITLE_BTN_STROKE = 2;
 // for why. A count of what's already visible below is a fact worth a
 // reader's eye going TO, so it earns the more prominent position and the
 // brighter mark.
-// It is still the TOTAL requirement count, not met/total — that is the epic
+// It is still the TOTAL requirement count, not met/total — that is the initiative
 // chip's vocabulary and answers a different question; a step's own progress
 // is already on the card as its coloured rows, so restating it as a
 // fraction would be the same fact twice at the same level.
@@ -2431,7 +2431,7 @@ export function wrapReqText(text, maxChars, maxLines = REQ_MAX_LINES, indent = 0
 // `countAt` helper, the `staggerLabels`/`staggerReqs` flags and every
 // conditional that read them.
 export const PLAN_VIZ_FONT = {
-    label: 16.5, req: 13.75, title: 9.5, epic: 15, check: 9, slot: 13,
+    label: 16.5, req: 13.75, title: 9.5, initiative: 15, check: 9, slot: 13,
 };
 
 // The CARD's own type, `PLAN_VIZ_FONT` through `CARD_TYPE_SCALE`. Derived rather
@@ -2625,7 +2625,7 @@ export function zoomAboutViewportCentre(t, size, nextK) {
 /**
  * The steps the steps-across buttons centre on (req #3648): the RUNNING ones;
  * failing that, the ones not yet done; failing that, every step. Only steps the
- * layout placed (a folded epic places none).
+ * layout placed (a folded initiative places none).
  *
  * @param {Object[]} rows   plan rows, each with `id` and `state`
  * @param {Object} layout   a `computePlanLayout` result
@@ -2893,7 +2893,7 @@ export function planLevelFor(pinnedLevel, ratio, k) {
  *   · the ANCHOR of the semantic level ladder (`semanticLevel(curK / kDefault)`)
  *     and of the zoom behavior's `scaleExtent`, both of which req #3168 pinned
  *     to it deliberately and PIPE-09 asserts;
- *   · the base scale the epic and step focus transforms clamp against.
+ *   · the base scale the initiative and step focus transforms clamp against.
  *
  * EXPORTED as a function rather than left as `Math.max(kFit, K_READABLE)` inline
  * in the component (req #3280), because a test can only reach the number the
@@ -2943,7 +2943,7 @@ export function readableDefaultScale(kFit) {
  *
  * `true` for everything else, and that fallback is load-bearing rather than a
  * default nobody reaches: the ruler's slot ticks, the launch-unit letters and
- * the epic band names are drawn at every level and are not gated at all.
+ * the initiative band names are drawn at every level and are not gated at all.
  *
  * This is DRAW-ONLY. `computePlanLayout` reserves every label's rect at every
  * level regardless — the zero-overlap invariant is asserted against it
@@ -3022,7 +3022,7 @@ function timeCmp(a, b) {
  *    wins. This is the same "topology outranks presentation" ruling design rule
  *    3 makes, applied to the DATA so that step 4 below needs no special case.
  *    It also resolves UNKNOWN for free: a req-less step inherits the time of the
- *    work it gates, exactly as it already inherits that work's epic label.
+ *    work it gates, exactly as it already inherits that work's initiative label.
  * 2. **Local depth.** Inside one slot, a step's offset is its dependency depth
  *    counting only same-slot dependencies. A chain done in one day reads as
  *    consecutive columns.
@@ -3040,7 +3040,7 @@ function timeCmp(a, b) {
  *   same-slot dep contributes `1 + col(d) ≤ origin[k] + localDepth(r)`, and an
  *   earlier-slot dep contributes `1 + col(d) ≤ origin[j] + span[j] + 1 ≤
  *   origin[k]`. Step 1 is what guarantees there is no LATER-slot dep to break
- *   the induction. So a never-started epic renders right of every started one
+ *   the induction. So a never-started initiative renders right of every started one
  *   with no synthetic dependency edge anywhere.
  *
  * DEGENERATE CASE, and it is the reason there is no second code path: with no
@@ -3176,7 +3176,7 @@ export const RULER_H = 36;
 const RULER_LABEL_Y = 12;
 const RULER_LABEL_H = 15;
 // px per mono char at font 13. Derived from the module's own ~0.61 px/pt mono
-// metric (CHW_REQ 8.4/13.75, CHW_LABEL 10.05/16.5, CHW_EPIC 9.15/15 are all
+// metric (CHW_REQ 8.4/13.75, CHW_LABEL 10.05/16.5, CHW_INITIATIVE 9.15/15 are all
 // 0.609–0.611), not eyeballed separately — a ruler metric that drifted from the
 // others would make the overlap contract narrower for this one class of text.
 const CHW_SLOT = 7.93;
@@ -3325,8 +3325,8 @@ export function computeRuler(slots, colX, colW, totalW) {
 // (the requirement's own words) — so panning down scrolled it away with the
 // rest of the plan and left nothing on screen naming which column is which
 // day. `stickyRulerY` is the SAME pin primitive `computeDayHeaders`
-// (`dayHeaderLayout.js`) and the sticky prev/next epic chips above
-// (`placeEpicChips`) both use — draw at the natural screen position until it
+// (`dayHeaderLayout.js`) and the sticky prev/next initiative chips above
+// (`placeInitiativeChips`) both use — draw at the natural screen position until it
 // scrolls past the viewport edge, then clamp flush to it — simplified to the
 // one-strip case: there is exactly one ruler, so nothing pushes it and it
 // never drops behind (it is a standing fact about the whole plan, not a
@@ -3338,9 +3338,9 @@ export function computeRuler(slots, colX, colW, totalW) {
 // The world reserves `RULER_H` (+ 8) WORLD px for the strip, but below k = 1 the
 // strip is a constant `RULER_H` SCREEN px (`rulerScreenMag`, below). Hung from
 // the world origin it was therefore `RULER_H·(1 − k)` px taller than the room
-// made for it, and that excess lay over the TOP band's header — the epic name
+// made for it, and that excess lay over the TOP band's header — the initiative name
 // was clamped below the strip and onto the lane-0 cards (the user's "one lane
-// violation", on Reset, in the top epic only). Unpinned, the strip now ENDS
+// violation", on Reset, in the top initiative only). Unpinned, the strip now ENDS
 // where its reservation ends and grows UPWARD; at and above k = 1 the excess is
 // zero and this is exactly `max(0, t.y)` as before. The base view
 // (`factoryDefaultView`) pulls the plan down by that excess so the strip has
@@ -3373,8 +3373,8 @@ export function rulerScreenMag(t) {
 }
 
 // The pinned strip's bottom edge in SCREEN space — req #3254's contract with
-// req #3257 (the concurrent epic-name work): "the date header owns the
-// topmost strip and the epic names stop just below it" needs ONE readable
+// req #3257 (the concurrent initiative-name work): "the date header owns the
+// topmost strip and the initiative names stop just below it" needs ONE readable
 // number, not a guessed pixel offset. A caller reading the SAME transform gets
 // the exact edge the ruler is drawn at, pinned or not.
 //
@@ -3383,7 +3383,7 @@ export function rulerScreenMag(t) {
 // strip's vertical axis is SCREEN space, so the `· k` is multiplied by
 // `rulerScreenMag(t)` and collapses to `max(k, 1)`. Above k = 1 nothing about
 // this number changed; below it, it stops reporting a 7px strip that is
-// actually 36px tall and letting the epic names park inside it.
+// actually 36px tall and letting the initiative names park inside it.
 export function rulerScreenBottom(t, rulerH = RULER_H) {
     const k = (t && typeof t.k === 'number' && t.k > 0) ? t.k : 1;
     return stickyRulerY(t) + rulerH * k * rulerScreenMag(t);
@@ -3547,41 +3547,41 @@ export function reqPillPrefix(reqId, reqPills) {
 
 const reqStr = (row) => (row.reqIds || []).join(' ');
 
-// ── Epic band label text (req #3225) ─────────────────────────────────────
+// ── Initiative band label text (req #3225) ─────────────────────────────────────
 //
 // THE COUNT SUFFIX IS AN ARGUMENT, NOT A ROW FIELD — the same reasoning as
-// `reqTitles` above: `epicCounts` is display data, and the engine's PlanRows
+// `reqTitles` above: `initiativeCounts` is display data, and the engine's PlanRows
 // stay untouched by it. Unlike `reqTitles` though, this is measured into the
 // band's own label rectangle rather than a per-requirement mark, because the
 // zero-overlap contract is asserted over `layout.labels` and a count drawn
 // beside the name in a second rectangle would not be covered by it — exactly
 // the failure the requirement calls out by name.
 //
-// Absent for the "No epic" band (epicId null): a bead with no epic has no
+// Absent for the "No initiative" band (initiativeId null): a bead with no initiative has no
 // requirement set to count against, and a stray "0/0" would claim an answer
-// that does not exist. Absent equally when `epicCounts` carries no entry for
-// a real epic — a truncated or stale counts map degrades to the plain name
+// that does not exist. Absent equally when `initiativeCounts` carries no entry for
+// a real initiative — a truncated or stale counts map degrades to the plain name
 // rather than a wrong number.
 //
-// @param {?number} epicId
-// @param {string} epicName
-// @param {?(Map|Object)} epicCounts  epicId -> {met, total}, or null/undefined
+// @param {?number} initiativeId
+// @param {string} initiativeName
+// @param {?(Map|Object)} initiativeCounts  initiativeId -> {met, total}, or null/undefined
 //                                    to leave every band's plain name alone
 // @returns {string}
-function epicBandLabelText(epicId, epicName, epicCounts) {
-    const countText = epicBandCountText(epicId, epicCounts);
-    return countText ? `${epicName} ${countText}` : epicName;
+function initiativeBandLabelText(initiativeId, initiativeName, initiativeCounts) {
+    const countText = initiativeBandCountText(initiativeId, initiativeCounts);
+    return countText ? `${initiativeName} ${countText}` : initiativeName;
 }
 
 // req #3580 — the SAME suffix on its own, so the chip can draw the closure
 // count as its own element (it is a zoom control; the name beside it is an
-// in-place editor). `epicBandLabelText` above is built FROM this, so the
+// in-place editor). `initiativeBandLabelText` above is built FROM this, so the
 // measured label and the two drawn pieces can never disagree.
-function epicBandCountText(epicId, epicCounts) {
-    if (!epicCounts || epicId == null) return null;
-    const counts = typeof epicCounts.get === 'function'
-        ? epicCounts.get(epicId)
-        : (Object.hasOwn(epicCounts, epicId) ? epicCounts[epicId] : null);
+function initiativeBandCountText(initiativeId, initiativeCounts) {
+    if (!initiativeCounts || initiativeId == null) return null;
+    const counts = typeof initiativeCounts.get === 'function'
+        ? initiativeCounts.get(initiativeId)
+        : (Object.hasOwn(initiativeCounts, initiativeId) ? initiativeCounts[initiativeId] : null);
     return counts ? `${counts.met}/${counts.total}` : null;
 }
 
@@ -3606,13 +3606,13 @@ function epicBandCountText(epicId, epicCounts) {
  * @param {('id'|'title')} [opts.stepLabel]  what the card's TITLE AREA says
  * @param {?Object} [opts.timeAxis]  planTimeAxis() output (req #3201). Omitted,
  *                             the axis degenerates to pure dependency depth and
- *                             bands stack by `epics.sort_order` (req #3430),
- *                             then epic id — see computeTimeColumns.
- * @param {?(Map|Object)} [opts.epicCounts]  req #3225 — epicId -> {met, total}.
+ *                             bands stack by `initiatives.sort_order` (req #3430),
+ *                             then initiative id — see computeTimeColumns.
+ * @param {?(Map|Object)} [opts.initiativeCounts]  req #3225 — initiativeId -> {met, total}.
  *                             Null/omitted (the toggle-off state) leaves every
  *                             band's label exactly as it reads today.
  * @param {?Object} [opts.pauseInfo]  req #3226 — `pauseState()`'s
- *                             `{pipelinePaused, pausedEpicIds}`. Null/omitted
+ *                             `{pipelinePaused, pausedInitiativeIds}`. Null/omitted
  *                             leaves every band unpaused, matching a caller
  *                             (a test, a hand-built probe) with no pause
  *                             concept at all.
@@ -3635,10 +3635,10 @@ export function computePlanLayout(rows, opts = {}) {
     }
     const {
         stepLabel = 'id',
-        reqLabel = 'id', reqTitles = null, timeAxis = null, epicCounts = null,
+        reqLabel = 'id', reqTitles = null, timeAxis = null, initiativeCounts = null,
         pauseInfo = null,
-        // req #3649 — `{ planLocked, lockedEpicIds }`; a band is LOCKED when
-        // the whole plan is or when its own epic is, resolved once here like
+        // req #3649 — `{ planLocked, lockedInitiativeIds }`; a band is LOCKED when
+        // the whole plan is or when its own initiative is, resolved once here like
         // `paused` below. Null = nothing locked.
         lockInfo = null,
         // req #3587 — requirement id -> {terminal, devServer}; see
@@ -3650,25 +3650,25 @@ export function computePlanLayout(rows, opts = {}) {
         // card.
         stepWidthLevel = DEFAULT_STEP_WIDTH_LEVEL,
         // req #3650 — the boxes the reader folded with their own collapse
-        // heads (`planCollapse.js`): epic ids (null = the "No epic" band) and
+        // heads (`planCollapse.js`): initiative ids (null = the "No initiative" band) and
         // step ids. Null folds nothing.
-        collapsedEpicIds = null, collapsedStepIds = null,
-        // req #3695 — epic key -> how far OPEN that band is drawn, 0..1, for
+        collapsedInitiativeIds = null, collapsedStepIds = null,
+        // req #3695 — initiative key -> how far OPEN that band is drawn, 0..1, for
         // the bands whose fold is ANIMATING (`planFoldAnimation.js`). It
         // overrides the fold for drawing only; `collapsed` still reports the
         // reader's fold. Null (every settled layout) animates nothing.
         foldReveal = null,
     } = opts || {};
-    const epicFolded = (key) => !!collapsedEpicIds?.has(key);
+    const initiativeFolded = (key) => !!collapsedInitiativeIds?.has(key);
     // req #3695 — a band's REVEAL: 1 open, 0 folded, between while its fold
     // animates. Clamped, so a frame that overshoots cannot draw a band taller
     // than open or a negative one.
     const bandRevealOf = (key) => {
         if (foldReveal?.has(key)) {
             const v = Number(foldReveal.get(key));
-            return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : (epicFolded(key) ? 0 : 1);
+            return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : (initiativeFolded(key) ? 0 : 1);
         }
-        return epicFolded(key) ? 0 : 1;
+        return initiativeFolded(key) ? 0 : 1;
     };
     const stepFolded = (r) => !!collapsedStepIds?.has(r.id);
     const widthScale = stepWidthScale(stepWidthLevel);
@@ -3803,25 +3803,25 @@ export function computePlanLayout(rows, opts = {}) {
     }));
     const ruler = computeRuler(slots, colX, colW, totalW);
 
-    // ── Epic bands (dominant label), stacked by `epics.sort_order` (req #3430),
-    //    then by DERIVED START (req #3201) for the epics nobody has ordered ────
+    // ── Initiative bands (dominant label), stacked by `initiatives.sort_order` (req #3430),
+    //    then by DERIVED START (req #3201) for the initiatives nobody has ordered ────
     //
-    // **THE USER'S ORDER WINS.** `epics.sort_order` is the AUTHORITATIVE epic
+    // **THE USER'S ORDER WINS.** `initiatives.sort_order` is the AUTHORITATIVE initiative
     // display order (user ruling, 2026-08-09), and THIS is the surface that
     // ruling was about: the band stack is what a person looking at the Pipeline
-    // Visualizer reads as "the order of the epics". An epic carrying a
+    // Visualizer reads as "the order of the initiatives". An initiative carrying a
     // `sort_order` is placed by it and by nothing else — derived start does not
     // get a vote, because a rule that sometimes overrides the order the user
     // typed is a rule the user cannot use.
     //
-    // Everything below is the FALLBACK, unchanged, for epics whose `sort_order`
+    // Everything below is the FALLBACK, unchanged, for initiatives whose `sort_order`
     // is NULL: an unordered plan stacks exactly as it did before req #3430, and
-    // an ordered epic always sits above an unordered one.
+    // an ordered initiative always sits above an unordered one.
     //
-    // The vertical axis reads as time too: the epic whose earliest step sits
-    // furthest left sits on top. An epic's start is the minimum over its STEPS'
+    // The vertical axis reads as time too: the initiative whose earliest step sits
+    // furthest left sits on top. An initiative's start is the minimum over its STEPS'
     // times — a step's time being its LAST activity, or today when it is
-    // running (req #3692) — there is no `epics.started_at` and design rule 1
+    // running (req #3692) — there is no `initiatives.started_at` and design rule 1
     // says there never will be — and `pipelinePlanTime.js` owns the derivation,
     // including the ruling that a requirement which completed without ever
     // being stamped `started_at` counts as active on its `completed_at`.
@@ -3830,12 +3830,12 @@ export function computePlanLayout(rows, opts = {}) {
     //   1. `dated`   — sort ascending on the derived start;
     //   2. `unknown` — no start, but evidence of work whose timing was never
     //                  recorded. A NULL start alone used to mean both this and
-    //                  tier 3, which let a pure BACKLOG epic stack above an
+    //                  tier 3, which let a pure BACKLOG initiative stack above an
     //                  ACTIVE one on an id tie-break (review finding);
     //   3. `future`  — every step positively has not begun. Sorts LAST.
-    // Within a tier: EPIC ID ascending, the label-less "No epic" band last of
+    // Within a tier: INITIATIVE ID ascending, the label-less "No initiative" band last of
     // all. Id rather than first appearance on purpose — first appearance moved
-    // a band down the stack whenever a step was appended to another epic, a
+    // a band down the stack whenever a step was appended to another initiative, a
     // documented wart of the old rule, and it carried no time meaning.
     const bandStarts = (timeAxis && timeAxis.bandStarts) || new Map();
     const bandKinds = (timeAxis && timeAxis.bandKinds) || new Map();
@@ -3845,62 +3845,62 @@ export function computePlanLayout(rows, opts = {}) {
         return t === undefined ? BAND_TIER.future : t;
     };
     // req #3226 — a band is PAUSED when the whole plan is paused (every band
-    // suppressed alike, "No epic" included — pause is a plan-wide fact there
-    // too) OR when this band's OWN epic is paused. Resolved once, here, rather
+    // suppressed alike, "No initiative" included — pause is a plan-wide fact there
+    // too) OR when this band's OWN initiative is paused. Resolved once, here, rather
     // than at render time in every consumer of `band`, the same reasoning
     // `bandStartOf` below is memoized for.
-    const pausedEpicIdSet = new Set(pauseInfo?.pausedEpicIds || []);
+    const pausedInitiativeIdSet = new Set(pauseInfo?.pausedInitiativeIds || []);
     const planPaused = !!pauseInfo?.pipelinePaused;
-    const bandPausedOf = (key) => planPaused || (key != null && pausedEpicIdSet.has(key));
-    const lockedEpicIdSet = new Set(lockInfo?.lockedEpicIds || []);
+    const bandPausedOf = (key) => planPaused || (key != null && pausedInitiativeIdSet.has(key));
+    const lockedInitiativeIdSet = new Set(lockInfo?.lockedInitiativeIds || []);
     const planLocked = !!lockInfo?.planLocked;
     const bandLockedByOf = (key) => (planLocked ? 'pipeline'
-        : (key != null && lockedEpicIdSet.has(key)) ? 'epic' : null);
+        : (key != null && lockedInitiativeIdSet.has(key)) ? 'initiative' : null);
 
-    // req #3372 (2026-08-10) — the requirement asked for the "No epic" band
+    // req #3372 (2026-08-10) — the requirement asked for the "No initiative" band
     // (the `key == null` case throughout this file) to be deleted outright,
-    // on the premise that `epic_fk` is a NOT NULL column upstream by the time
+    // on the premise that `initiative_fk` is a NOT NULL column upstream by the time
     // a row reaches this module. MEASURED WRONG the same day: req #3462
     // reverted req #3381's cutover of the browser onto the 2.0 composed read
     // (a production outage — no 1.0<->2.0 pipeline id mapping exists), so
     // `computePlanLayout`'s only live caller — `PipelinePlanVisualizer.jsx`,
     // mounted by `PipelineDetail.jsx` via `pipelineDetailModes.js`, fed by
-    // `pipelineModel.js`'s dominant-epic tally + label inheritance — can
-    // still hand this module a row with `epicId == null`. Deleting the
+    // `pipelineModel.js`'s dominant-initiative tally + label inheritance — can
+    // still hand this module a row with `initiativeId == null`. Deleting the
     // branch here would misrender or throw on that still-reachable case, so
     // it is kept — see `pipelinePlanLayout.test.js` "a band is a plain
     // column read" for the fixture proving it is exercised on purpose, not
     // defensively. This module's own job is unaffected either way: it never
-    // re-tallies an epic itself, it only reads `row.epicId` as handed to it.
+    // re-tallies an initiative itself, it only reads `row.initiativeId` as handed to it.
     const bandKeys = [];
     const bandByKey = new Map();
-    // req #3430 — epic id -> `epics.sort_order`, or null for UNORDERED. Taken
+    // req #3430 — initiative id -> `initiatives.sort_order`, or null for UNORDERED. Taken
     // from the row, which `pipelineModel.js::buildPlanRows` resolved from the
-    // one epics dictionary; this module never re-reads the table, so there is
+    // one initiatives dictionary; this module never re-reads the table, so there is
     // no second answer to keep in step. Every row of one band carries the same
-    // value (it is a property of the epic), so first-writer-wins is not a
+    // value (it is a property of the initiative), so first-writer-wins is not a
     // choice between candidates.
     const bandSortOrders = new Map();
     for (const r of safeRows) {
-        const key = r.epicId != null ? r.epicId : null;
+        const key = r.initiativeId != null ? r.initiativeId : null;
         if (!bandByKey.has(key)) {
-            const epic = r.epic || 'No epic';
-            bandSortOrders.set(key, key != null && Number.isFinite(r.epicSortOrder)
-                ? r.epicSortOrder : null);
+            const initiative = r.initiative || 'No initiative';
+            bandSortOrders.set(key, key != null && Number.isFinite(r.initiativeSortOrder)
+                ? r.initiativeSortOrder : null);
             bandByKey.set(key, {
-                key, epicId: key, epic,
+                key, initiativeId: key, initiative,
                 // req #3225 — the SAME string measures the zero-overlap label
                 // rect and the floating chip; see the helper's own comment.
-                epicLabel: epicBandLabelText(key, epic, epicCounts),
-                epicCountText: epicBandCountText(key, epicCounts),
+                initiativeLabel: initiativeBandLabelText(key, initiative, initiativeCounts),
+                initiativeCountText: initiativeBandCountText(key, initiativeCounts),
                 paused: bandPausedOf(key),
-                // req #3649 — `locked` is the band's EFFECTIVE lock (its epic's
+                // req #3649 — `locked` is the band's EFFECTIVE lock (its initiative's
                 // own, or the plan's); `lockedBy` says which.
                 locked: bandLockedByOf(key) != null,
                 lockedBy: bandLockedByOf(key),
                 // req #3650 — folded by its own collapse head: the band keeps
                 // its header (the chip that unfolds it) and draws no lanes.
-                collapsed: epicFolded(key),
+                collapsed: initiativeFolded(key),
                 // req #3695 — how far open the band is DRAWN (see
                 // `bandRevealOf`). Equal to `!collapsed` on every settled
                 // layout; only an animating fold puts it in between.
@@ -3917,8 +3917,8 @@ export function computePlanLayout(rows, opts = {}) {
     };
     bandKeys.sort((a, b) => {
         // req #3430 — the user's order, ahead of everything derived. NULL is
-        // UNORDERED, not zeroth: it sorts after every ordered epic and then
-        // falls through to the req #3201 tiers below, so the "No epic" band
+        // UNORDERED, not zeroth: it sorts after every ordered initiative and then
+        // falls through to the req #3201 tiers below, so the "No initiative" band
         // (which can never carry a `sort_order`) stays last of all exactly as
         // it was. Equal values fall through too rather than tie arbitrarily.
         const oa = bandSortOrders.get(a);
@@ -3943,9 +3943,9 @@ export function computePlanLayout(rows, opts = {}) {
     // THE PALETTE IS THE THEME'S (req #3365). `planPalette` resolves an unknown
     // or absent key to the default, so a caller that passes nothing gets exactly
     // the colours this module documented before themes existed.
-    const epicPalette = planPalette(opts.palette).epic;
+    const initiativePalette = planPalette(opts.palette).initiative;
     bandKeys.forEach((key, i) => {
-        bandByKey.get(key).color = epicPalette[i % epicPalette.length];
+        bandByKey.get(key).color = initiativePalette[i % initiativePalette.length];
     });
 
     // ── Chain-aware lanes with cross-column reservation ─────────────────────
@@ -4033,12 +4033,12 @@ export function computePlanLayout(rows, opts = {}) {
             }
             return true;
         };
-        const sameEpicDepsOf = (r) => depsOf(r).map((x) => byId.get(x))
-            .filter((a) => (a.epicId != null ? a.epicId : null) === key);
+        const sameInitiativeDepsOf = (r) => depsOf(r).map((x) => byId.get(x))
+            .filter((a) => (a.initiativeId != null ? a.initiativeId : null) === key);
         // Same-band dependents, for the corridor-aware placement check below.
         const dependentsInBand = new Map(); // id -> [dependent ids]
         for (const r of steps) {
-            for (const a of sameEpicDepsOf(r)) {
+            for (const a of sameInitiativeDepsOf(r)) {
                 if (!dependentsInBand.has(a.id)) dependentsInBand.set(a.id, []);
                 dependentsInBand.get(a.id).push(r.id);
             }
@@ -4047,7 +4047,7 @@ export function computePlanLayout(rows, opts = {}) {
         // When two dependents of one step both want that step's lane, the one
         // that PLACES first used to win — and placement order is column, then
         // display order, neither of which says which thread was there first.
-        // MEASURED on live plan 10's epic 24: 320 → 321 → 324 → 322 was one
+        // MEASURED on live plan 10's initiative 24: 320 → 321 → 324 → 322 was one
         // row; the user added 329 off 321. 329 and 324 share column 9, 329
         // sorts first, so 329 took 321's row and the ORIGINAL continuation
         // 324 → 322 dropped onto a new row below it. The user's words: *"I
@@ -4059,7 +4059,7 @@ export function computePlanLayout(rows, opts = {}) {
         // as old as the oldest step it leads to inside the band (itself or any
         // same-band descendant), and the oldest thread is the heir. Comparing
         // the direct dependents' own ids is not enough — a step INSERTED into
-        // the trunk is newer than the branch it competes with, and live epic
+        // the trunk is newer than the branch it competes with, and live initiative
         // 24 was built exactly that way (324 was inserted in front of 322, 329
         // in front of 323). The trunk still reaches its old tail; a new branch
         // reaches only new steps. Ties (a branch that merges back into the
@@ -4099,13 +4099,13 @@ export function computePlanLayout(rows, opts = {}) {
         // A step tries the lanes it is HEIR to first, so the row held for it
         // is the row it takes rather than one of its other dependencies'.
         const inheritOrder = (r) => {
-            const deps = sameEpicDepsOf(r);
+            const deps = sameInitiativeDepsOf(r);
             return [...deps.filter((a) => heirOf.get(a.id) === r.id),
                 ...deps.filter((a) => heirOf.get(a.id) !== r.id)];
         };
         // A lane is usable only if (1) the cell is free, (2) every same-lane
         // dependency arc into it crosses only in-chain beads, and (3) — the
-        // corridor-aware rule (user directive, epic #6 plan) — no shallower
+        // corridor-aware rule (user directive, initiative #6 plan) — no shallower
         // bead already on the lane still owes an arc PAST this column to a
         // deeper same-band dependent: parking here would sit this bead on that
         // arc's horizontal run (the 50-under-49 spaghetti). Exempt when r
@@ -4120,7 +4120,7 @@ export function computePlanLayout(rows, opts = {}) {
         // (1) and is untouched.
         const laneOk = (r, d, lane) => {
             if (!free(d, lane)) return false;
-            for (const a of sameEpicDepsOf(r)) {
+            for (const a of sameInitiativeDepsOf(r)) {
                 const al = laneById.get(a.id);
                 if (al === lane && !corridorOk(a, r, lane)) {
                     return false;
@@ -4189,7 +4189,7 @@ export function computePlanLayout(rows, opts = {}) {
             //     per-plan            no plan gained a crossing; 5 plans lost
             //                         6 between them (seeds 9, 149, 223, 243,
             //                         309 — the last losing two)
-            //   24,000-plan adversarial sweep (5-14 steps, 1-3 epics, dep
+            //   24,000-plan adversarial sweep (5-14 steps, 1-3 initiatives, dep
             //   densities 0.15-0.40, both axis modes — 48,000 layout pairs)
             //     total lanes    219,919 → 217,822 (-0.95%)
             //     arc crossings    5,938 →   5,659 (-4.7%)
@@ -4204,7 +4204,7 @@ export function computePlanLayout(rows, opts = {}) {
             // rule 11). The first draft of this comment also carried "First
             // Principles 11 → 10" and it was WRONG within half an hour: a
             // review re-measured 12 → 10. Between the two reads the plan's
-            // `steps`, `step_deps`, `step_requirements` and `epics` were
+            // `steps`, `step_deps`, `step_requirements` and `initiatives` were
             // byte-identical and EXACTLY ONE requirement stamp moved — 3446
             // reaching `met` at 19:32:54Z — and that stamp provably changes
             // nothing: `stepStart` (then) took the MINIMUM `requirementStart`
@@ -4224,7 +4224,7 @@ export function computePlanLayout(rows, opts = {}) {
             // stamped requirement on the plan under the shipped predicate, FIVE
             // move the First Principles count (3338, 3477, 3486, 3490, 3491),
             // every one of them seated in First Principles, none of them the
-            // one that actually changed. A per-epic count on an orchestrated
+            // one that actually changed. A per-initiative count on an orchestrated
             // plan moves while nobody edits the plan, and no test can ever
             // re-check it.
             //
@@ -4241,7 +4241,7 @@ export function computePlanLayout(rows, opts = {}) {
             //
             // THE CHAIN MAY LEAVE THE BAND. `reach` is band-agnostic, so
             // `rReach.has(sid)` is satisfiable by a path that detours through
-            // another epic and draws no arc in this band at all — measured,
+            // another initiative and draws no arc in this band at all — measured,
             // 43% of the 7,949 firings on the shipped corpus. That is
             // DELIBERATE and consistent: `corridorOk`, `corridorClear` and the
             // test suite's own `assertStraightArcsClear` all use the identical
@@ -4316,7 +4316,7 @@ export function computePlanLayout(rows, opts = {}) {
                 if (al !== undefined && laneOk(r, d, al)) { lane = al; break; }
             }
             if (lane === null) {
-                // Dep-adjacent lane INSERTION (user directive, epic #6 plan
+                // Dep-adjacent lane INSERTION (user directive, initiative #6 plan
                 // image review): when every anchored lane is occupied or
                 // corridor-blocked, a branch step opens a FRESH lane
                 // directly below its parent instead of scanning downward
@@ -4350,7 +4350,7 @@ export function computePlanLayout(rows, opts = {}) {
                 // published launch-unit lane run and re-anchor below one it
                 // landed inside — and req #3371 removed those runs, so the
                 // midpoint is simply taken.
-                const anchors = sameEpicDepsOf(r)
+                const anchors = sameInitiativeDepsOf(r)
                     .map((a) => laneById.get(a.id))
                     .filter((v) => v !== undefined);
                 if (anchors.length > 0) {
@@ -4371,7 +4371,7 @@ export function computePlanLayout(rows, opts = {}) {
                     //
                     // The requirement's own words are *"over time there is an
                     // ability to re-use swim lanes making the parallel threads
-                    // of epics to have better vertical compression"* — a lane
+                    // of initiatives to have better vertical compression"* — a lane
                     // whose chain has finished is free for a later one, exactly
                     // as the Build Visualizer packs its branches.
                     //
@@ -4409,7 +4409,7 @@ export function computePlanLayout(rows, opts = {}) {
             // step, so no LATER chain inherits a lane through it. take() never
             // overwrites, so an in-chain bead already in the corridor keeps its
             // identity for later corridorOk checks.
-            for (const a of sameEpicDepsOf(r)) {
+            for (const a of sameInitiativeDepsOf(r)) {
                 if (laneById.get(a.id) === lane) {
                     for (let dd = colOf.get(a.id) + 1; dd < d; dd++) {
                         take(dd, lane, reservedFor(a.id));
@@ -4487,8 +4487,8 @@ export function computePlanLayout(rows, opts = {}) {
         // A FOLDED band (req #3650) draws NO lanes, so its height is its
         // header alone. The lanes above are still assigned — the placement is
         // band-local, so assigning it changes nothing outside this band — and
-        // the COLUMNS were computed over every row, so folding an epic never
-        // moves another epic's cards sideways.
+        // the COLUMNS were computed over every row, so folding an initiative never
+        // moves another initiative's cards sideways.
         //
         // req #3695 — the fold ANIMATES: a band part-way open lays its lanes
         // out COMPRESSED by its reveal, so the band's height (header + the
@@ -4510,7 +4510,7 @@ export function computePlanLayout(rows, opts = {}) {
         const pitch = lanePitch(0);
         // EVERY BAND TAKES THE SAME HEADER, AND NOTHING REACHES INTO IT ANY MORE
         // (req #3498). The header used to absorb the stagger in title mode, and
-        // `epicLaneH` had to subtract `STEP_LABEL_RISE` on top of that, because a
+        // `initiativeLaneH` had to subtract `STEP_LABEL_RISE` on top of that, because a
         // lane-0 step label floated ABOVE its bead and reached back up into the
         // header — the "off-by-a-reservation" this constant's own history is made
         // of. A card starts AT its lane's top and nothing is drawn above it, so
@@ -4522,13 +4522,13 @@ export function computePlanLayout(rows, opts = {}) {
         // (`rv` = 1) is exactly `BAND_HEADER`.
         const headerH = rv >= 1 ? BAND_HEADER
             : BAND_HEADER_FOLDED + rv * (BAND_HEADER - BAND_HEADER_FOLDED);
-        // The EPIC'S OWN LANE: the part of the header no step content can reach.
+        // The INITIATIVE'S OWN LANE: the part of the header no step content can reach.
         // That is the whole header now — kept as a named field because the
-        // visualizer's floating epic chip clamps to THIS rather than re-deriving
+        // visualizer's floating initiative chip clamps to THIS rather than re-deriving
         // it, and the two must not drift apart again.
-        const epicLaneH = headerH;
+        const initiativeLaneH = headerH;
         bands.push({ ...band, steps, sub: drawnSub, pitch, laneY, laneCardH,
-            headerH, epicLaneH });
+            headerH, initiativeLaneH });
         bandUsed.push(used);
     }
     // The ruler's reservation, charged ONCE and unconditionally (see RULER_H).
@@ -4540,7 +4540,7 @@ export function computePlanLayout(rows, opts = {}) {
         band.height = band.headerH + band.laneY[band.sub];
         y += band.height + BAND_GAP;
     }
-    const totalH = y + 8 + (bands.length ? EPIC_ADD_RESERVE : 0);
+    const totalH = y + 8 + (bands.length ? INITIATIVE_ADD_RESERVE : 0);
 
     // ── Node positions: A NODE IS A BOX (req #3498) ─────────────────────────
     // `x`/`y` remain the node's CENTRE, and that is deliberate rather than
@@ -4637,7 +4637,7 @@ export function computePlanLayout(rows, opts = {}) {
     });
 
     // ── Dependency arcs: straight same-lane, cubic cross-lane ───────────────
-    // Cross-lane routing is ADAPTIVE (user directive, epic #6 plan — "less
+    // Cross-lane routing is ADAPTIVE (user directive, initiative #6 plan — "less
     // crossover"). The POC bent EARLY: the arc joined the DESTINATION lane's y
     // right after the source column and ran horizontally through every
     // intermediate column at that height — straight through any bead parked on
@@ -4690,20 +4690,20 @@ export function computePlanLayout(rows, opts = {}) {
                 });
                 continue;
             }
-            // req #3372 gate-delta F1 (2026-08-08) — a cross-epic dependency
+            // req #3372 gate-delta F1 (2026-08-08) — a cross-initiative dependency
             // edge is LEGAL, not a defect to report. `sameBand` stays a pure
             // boolean routing input: a cross-band arc simply takes the
             // 'early' shape below, same as any other cross-band arc always
             // has. No assertion, no violation, no side-channel field — see
-            // "cross-epic dependency edges stay legal" in
+            // "cross-initiative dependency edges stay legal" in
             // `pipelinePlanLayout.test.js` for the positive fixture.
             const sameBand = a.bandIndex === b.bandIndex;
             const late = sameBand
                 && corridorClear(a.bandIndex, a.lane, a.depth, b.depth, dId, r.id);
             // The arc carried a `bbox` (the convex hull of its own Bézier
             // control points) from req #3210 until req #3257: its ONLY consumer
-            // was the sticky epic chips' obstacle-avoidance pass, and that pass
-            // is gone along with it — an epic name is pinned to its band's
+            // was the sticky initiative chips' obstacle-avoidance pass, and that pass
+            // is gone along with it — an initiative name is pinned to its band's
             // rectangle now and draws OVER whatever it crosses. Computed on
             // every arc of every layout, it was dead weight the moment the pass
             // was, so it goes with it rather than waiting to be rediscovered as
@@ -5033,7 +5033,7 @@ export function computePlanLayout(rows, opts = {}) {
     // zero-overlap contract is asserted over `layout.labels` in all four
     // reqLayout × stepLabel combinations, and a date strip that carried its own
     // rects would be text on this surface that no invariant covers — which is
-    // how an epic-label collision got shipped once already (against the
+    // how an initiative-label collision got shipped once already (against the
     // launch-unit letter, itself since deleted by req #3371).
     // Left-anchored just inside the tick, because a ruler label belongs to a
     // BOUNDARY, not to the middle of a region whose width is an accident of how
@@ -5052,20 +5052,20 @@ export function computePlanLayout(rows, opts = {}) {
         });
     }
     for (const band of bands) {
-        // req #3225 — `epicLabel` already carries the count suffix when the
-        // toggle is on (identical to `band.epic` when it is off), so this
+        // req #3225 — `initiativeLabel` already carries the count suffix when the
+        // toggle is on (identical to `band.initiative` when it is off), so this
         // rectangle — the one the zero-overlap contract asserts over — grows
         // to cover it rather than a second, unchecked box drawn beside it.
-        const bandText = band.epicLabel || band.epic;
+        const bandText = band.initiativeLabel || band.initiative;
         labels.push({
-            kind: 'epic', epicId: band.epicId, text: bandText,
+            kind: 'initiative', initiativeId: band.initiativeId, text: bandText,
             x: 12, y: band.y + 6,
-            // req #3226 — the SAME reservation `placeEpicChips` measures the
+            // req #3226 — the SAME reservation `placeInitiativeChips` measures the
             // floating chip against, grown onto the rect the zero-overlap
             // invariant actually sweeps (req #3225 set this precedent: the
             // count suffix grew both together, never just the chip).
-            w: bandText.length * CHW_EPIC + EPIC_PAUSE_BUBBLE_W + EPIC_CHIP_COLLAPSE_W
-                + (band.epicId != null ? EPIC_LOCK_W : 0), h: 16,
+            w: bandText.length * CHW_INITIATIVE + INITIATIVE_PAUSE_BUBBLE_W + INITIATIVE_CHIP_COLLAPSE_W
+                + (band.initiativeId != null ? INITIATIVE_LOCK_W : 0), h: 16,
         });
     }
     // req #3695 — every piece of a card mid-fold carries its card's reveal, so
@@ -5119,8 +5119,8 @@ export function computePlanLayout(rows, opts = {}) {
     };
 }
 
-// ── Floating epic chips (req #3119, de-collided #3168, RE-RULED req #3257) ─
-// The epic name rides its band's own rectangle and clamps to the visible
+// ── Floating initiative chips (req #3119, de-collided #3168, RE-RULED req #3257) ─
+// The initiative name rides its band's own rectangle and clamps to the visible
 // content area while any part of that rectangle is on screen. This function is
 // the whole placement decision, in SCREEN space, as a pure function of the world
 // transform — it lives here rather than in the component for the same reason
@@ -5159,34 +5159,34 @@ export function computePlanLayout(rows, opts = {}) {
 //     rule as everything else instead of by a special case. Its guarantee is
 //     re-asserted in vitest against the new rule rather than assumed.
 //   · CHIP-ON-CHIP OVERLAP was, under #3257 alone, IMPOSSIBLE BY CONSTRUCTION —
-//     bands never overlap in world Y, the chip was sized to its band's own epic
-//     lane (`h + 2·CHIP_MARGIN_Y ≤ epicLaneH·k ≤ band.height·k`) and clamped
+//     bands never overlap in world Y, the chip was sized to its band's own initiative
+//     lane (`h + 2·CHIP_MARGIN_Y ≤ initiativeLaneH·k ≤ band.height·k`) and clamped
 //     inside its band's rectangle, so two chips would have had to share a
 //     rectangle to touch. **REQ #3272 ENDS THAT PREMISE** by flooring `h`, and
 //     the guarantee is restored by an explicit VERTICAL de-collision pass — see
-//     the block below and `placeEpicChips`' own stack pass. The sweep asserted
+//     the block below and `placeInitiativeChips`' own stack pass. The sweep asserted
 //     it before and asserts it now; what changed is whether the geometry alone
 //     is the proof.
 //
 // ── THE LEGIBILITY FLOOR IS ON THE FONT, NOT ON THE BOX (req #3272) ─────────
 //
 // The two sentences immediately below this one used to read "below
-// `EPIC_CHIP_MIN_H` the chip is DROPPED rather than drawn over the first row of
+// `INITIATIVE_CHIP_MIN_H` the chip is DROPPED rather than drawn over the first row of
 // steps", and that is exactly what a zoomed-out reader saw: a screenshot of
-// production on 2026-08-02 showing the whole plan with NO EPIC NAMES AT ALL,
+// production on 2026-08-02 showing the whole plan with NO INITIATIVE NAMES AT ALL,
 // and — one zoom step in — names at `15 × 11/24 ≈ 6.9px`. Both were deliberate
 // choices, correctly implemented. **THE USER OVERRULED THE CHOICE**: the name
 // must not shrink to nothing, it must hold a minimum legible size, and small is
 // fine.
 //
-// So the floor moved to the thing it was always about. `EPIC_CHIP_MIN_FONT` is
-// the input and the BOX is derived from it (`EPIC_CHIP_MIN_H` is now a
+// So the floor moved to the thing it was always about. `INITIATIVE_CHIP_MIN_FONT` is
+// the input and the BOX is derived from it (`INITIATIVE_CHIP_MIN_H` is now a
 // consequence, 17.6px, not a constant anybody picks). TWO documented decisions
 // are REVERSED here, and both are reversals rather than fixes:
 //
 //   1. THE DROP IS GONE. A lane too short for the floored chip no longer
 //      refuses the name — the chip is drawn over the first row of step labels.
-//      That collision is the one the epic lane exists to prevent, and paying it
+//      That collision is the one the initiative lane exists to prevent, and paying it
 //      is acceptable for two reasons already in this code: the chip draws on a
 //      60%-OPAQUE PANEL, and #3257 already ruled that where it crosses a bead,
 //      an arc or a step label IT DRAWS OVER IT. A name present and slightly
@@ -5202,16 +5202,16 @@ export function computePlanLayout(rows, opts = {}) {
 // WHAT IS NOT REVERSED: the placement rule itself (top-left of the band
 // rectangle ∩ the visible content area, clamped), the refusal to move a name
 // SIDEWAYS out of its own rectangle, the clip-or-drop resolution of the key and
-// the panel edge, and the `EPIC_CHIP_MIN_CHARS` floor — that one is stated in
+// the panel edge, and the `INITIATIVE_CHIP_MIN_CHARS` floor — that one is stated in
 // CHARACTERS OF THE NAME and is a different rule from this one.
 //
 // WHAT SURVIVES:
 //
 //   · THE PER-BAND SCALE SHRINK, now BOUNDED. The chip is a fixed SCREEN height
-//     and the epic lane reserving room for it is WORLD px, so below some k the
+//     and the initiative lane reserving room for it is WORLD px, so below some k the
 //     lane is genuinely shorter on screen than the chip. Shrinking still keeps
 //     the name out of lane 0's step labels for as long as it can — it simply
-//     stops at `EPIC_CHIP_MIN_FONT` instead of running to 6.9px and then to
+//     stops at `INITIATIVE_CHIP_MIN_FONT` instead of running to 6.9px and then to
 //     nothing.
 //   · THE LEGEND'S MEASURED KEEP-OUT — the one obstacle that may still bind.
 //     Resolved by CLIPPING the chip's width at the key's edge, and by dropping it
@@ -5233,21 +5233,21 @@ const CHIP_MARGIN_Y = 2;
 // The chip's own metrics, OWNED HERE (review finding). The component used to
 // carry its own `CHAR_W = 7.3`, a leftover from the pre-type-scale 12px chip,
 // while the chip has rendered at 15px bold mono since req #3119 — the same font
-// this module already measures as `CHW_EPIC`. Every estimate was ~22% short (the
-// fixture's four epic names came out 33–67px narrow), which is not a cosmetic
+// this module already measures as `CHW_INITIATIVE`. Every estimate was ~22% short (the
+// fixture's four initiative names came out 33–67px narrow), which is not a cosmetic
 // error once a DISPLACEMENT PASS is reading it: an under-measured chip is
 // declared clear of an obstacle it in fact overlaps, and the vitest sweep that
 // proves the pass works reads the same wrong number, so it cannot notice.
 // One constant, one source, and the tests inherit it by default.
-export const EPIC_CHIP_H = 24;      // the HTML chip's own height, in SCREEN px
-export const EPIC_CHIP_CHAR_W = CHW_EPIC;
-export const EPIC_CHIP_PAD_W = 18;  // px + border, both sides
-export const EPIC_CHIP_FONT = PLAN_VIZ_FONT.epic;
-// The epic band's own "open" ↗ control footprint (req #3204) — a
-// FLAT, unscaled screen-px reservation, not part of `EPIC_CHIP_PAD_W`
+export const INITIATIVE_CHIP_H = 24;      // the HTML chip's own height, in SCREEN px
+export const INITIATIVE_CHIP_CHAR_W = CHW_INITIATIVE;
+export const INITIATIVE_CHIP_PAD_W = 18;  // px + border, both sides
+export const INITIATIVE_CHIP_FONT = PLAN_VIZ_FONT.initiative;
+// The initiative band's own "open" ↗ control footprint (req #3204) — a
+// FLAT, unscaled screen-px reservation, not part of `INITIATIVE_CHIP_PAD_W`
 // (review finding, req #3210): the control is a fixed `fontSize: 12` glyph
 // plus its own padding and the chip's `gap`, none of which shrinks when the
-// chip does, unlike the name text `EPIC_CHIP_PAD_W` already accounts for. A
+// chip does, unlike the name text `INITIATIVE_CHIP_PAD_W` already accounts for. A
 // natural chip did not use to have this reserved — under #3168 it was checked
 // only against the legend and other chips, both comfortably clear at the sizes
 // this surface reaches in practice.
@@ -5264,12 +5264,12 @@ export const EPIC_CHIP_FONT = PLAN_VIZ_FONT.epic;
 // The glyph is the chip's own font size now (15) and the reservation grew with
 // it. BOTH links move together: they are siblings on one chip, and one of them
 // growing alone would read as an error rather than as emphasis.
-export const EPIC_CHIP_OPEN_LINK_W = 30;
-// The "open this epic's requirements as task cards" control (req #3428) — a
+export const INITIATIVE_CHIP_OPEN_LINK_W = 30;
+// The "open this initiative's requirements as task cards" control (req #3428) — a
 // SECOND link control riding beside the ↗, and the SAME kind of flat, unscaled
 // screen-px reservation for the identical reason: a fixed `fontSize: 14` MUI
 // glyph plus the chip's own flex `gap`, neither of which shrinks when the chip
-// does. It renders under exactly the same condition as the ↗ (`epicId != null`)
+// does. It renders under exactly the same condition as the ↗ (`initiativeId != null`)
 // and is measured under the same condition, so the two can never drift apart.
 //
 // UNMEASURED CONTENT IS CONTENT THAT HANGS PAST THE EDGE IT WAS CLAMPED TO —
@@ -5277,35 +5277,35 @@ export const EPIC_CHIP_OPEN_LINK_W = 30;
 // keeps the name inside its own rectangle and clear of the key, not merely clear
 // of another floating chip. 24 px of unreserved glyph is 24 px of name over the
 // band's right edge.
-export const EPIC_CHIP_CARDS_LINK_W = 30;
+export const INITIATIVE_CHIP_CARDS_LINK_W = 30;
 // The pause status bubble (req #3226) — a small filled circle immediately left
-// of the epic name, the SAME kind of flat, unscaled reservation as the ↗
+// of the initiative name, the SAME kind of flat, unscaled reservation as the ↗
 // control above and for the identical reason: it is a fixed-diameter dot plus
 // the chip's own flex `gap`, neither of which shrinks with the chip.
 //
 // The requirement calls this out by
 // name ("a bubble is width the label did not have before") because, unlike
 // the ↗ link, the bubble renders on EVERY band unconditionally (the ↗ link is
-// absent for the "No epic" band; the bubble is not carved out for it because
+// absent for the "No initiative" band; the bubble is not carved out for it because
 // pause is meaningful there too — the whole-plan pause suppresses it same as
 // any other band).
-export const EPIC_PAUSE_BUBBLE_D = 8;    // the dot's own diameter, screen px
-const EPIC_PAUSE_BUBBLE_GAP = 4;         // matches the chip's flex `gap`
-export const EPIC_PAUSE_BUBBLE_W = EPIC_PAUSE_BUBBLE_D + EPIC_PAUSE_BUBBLE_GAP;
+export const INITIATIVE_PAUSE_BUBBLE_D = 8;    // the dot's own diameter, screen px
+const INITIATIVE_PAUSE_BUBBLE_GAP = 4;         // matches the chip's flex `gap`
+export const INITIATIVE_PAUSE_BUBBLE_W = INITIATIVE_PAUSE_BUBBLE_D + INITIATIVE_PAUSE_BUBBLE_GAP;
 // req #3649 — the chip's padlock, a FLAT control like the bubble: its glyph
 // box plus the chip's flex gap, reserved on every band the same way.
-export const EPIC_LOCK_D = 12;
-export const EPIC_LOCK_W = EPIC_LOCK_D + EPIC_PAUSE_BUBBLE_GAP;
+export const INITIATIVE_LOCK_D = 12;
+export const INITIATIVE_LOCK_W = INITIATIVE_LOCK_D + INITIATIVE_PAUSE_BUBBLE_GAP;
 // req #3650 — the chip's COLLAPSE HEAD, which leads it: the TPU 3D head
 // (`.tpu3d-head`) at its own 10px. FLAT, like the pause bubble — the TPU head
-// never scales — and drawn at exactly `EPIC_CHIP_COLLAPSE_HEAD_W`, so this
+// never scales — and drawn at exactly `INITIATIVE_CHIP_COLLAPSE_HEAD_W`, so this
 // reservation is the box on screen; the rest is the chip's flex `gap`. The
-// chevron ALONE since req #3648 (user directive: "the color dot and epic name,
+// chevron ALONE since req #3648 (user directive: "the color dot and initiative name,
 // remove the steps") — it was chevron + "STEPS", 50px.
-export const EPIC_CHIP_COLLAPSE_HEAD_W = 14;
-export const EPIC_CHIP_COLLAPSE_W = EPIC_CHIP_COLLAPSE_HEAD_W + EPIC_PAUSE_BUBBLE_GAP;
+export const INITIATIVE_CHIP_COLLAPSE_HEAD_W = 14;
+export const INITIATIVE_CHIP_COLLAPSE_W = INITIATIVE_CHIP_COLLAPSE_HEAD_W + INITIATIVE_PAUSE_BUBBLE_GAP;
 // ── THE FLOOR (req #3272) ──────────────────────────────────────────────────
-// The smallest size the epic NAME may ever render at. This is the whole of the
+// The smallest size the initiative NAME may ever render at. This is the whole of the
 // requirement: a floor on the FONT, with the box derived from it, replacing a
 // floor on the BOX whose font came out at 6.9px and whose failure mode below
 // that was to drop the name entirely.
@@ -5314,20 +5314,20 @@ export const EPIC_CHIP_COLLAPSE_W = EPIC_CHIP_COLLAPSE_HEAD_W + EPIC_PAUSE_BUBBL
 // uses for the plan's smallest REQUIRED text (the requirement ids, which
 // `K_READABLE` is derived from), it is the floor MUI itself uses for
 // `caption`-class type, and it is the number this file already had in hand —
-// the old `EPIC_CHIP_MIN_H`. 11px bold mono is small and legible, which is
+// the old `INITIATIVE_CHIP_MIN_H`. 11px bold mono is small and legible, which is
 // exactly what the user asked for ("it may be small").
-export const EPIC_CHIP_MIN_FONT = 11;
-// The scale the floor corresponds to. The chip's font is `EPIC_CHIP_FONT ×
+export const INITIATIVE_CHIP_MIN_FONT = 11;
+// The scale the floor corresponds to. The chip's font is `INITIATIVE_CHIP_FONT ×
 // h / labelH`, so a font floor IS a scale floor and the box follows from it.
-const EPIC_CHIP_MIN_SCALE = EPIC_CHIP_MIN_FONT / EPIC_CHIP_FONT;   // 11/15
+const INITIATIVE_CHIP_MIN_SCALE = INITIATIVE_CHIP_MIN_FONT / INITIATIVE_CHIP_FONT;   // 11/15
 // The shortest box a chip is ever drawn in — 17.6px. **A CONSEQUENCE, NOT AN
 // INPUT** (req #3272 reversed which of the two is which). Exported because the
 // tests and any future caller need the derived number, never so that somebody
 // can pick it: editing it here would silently desync the box from the font it
 // is supposed to hold, which is the defect this requirement exists to fix.
-// Callers passing a non-default `labelH` get `labelH × EPIC_CHIP_MIN_SCALE`;
+// Callers passing a non-default `labelH` get `labelH × INITIATIVE_CHIP_MIN_SCALE`;
 // this constant is that value for the default chip.
-export const EPIC_CHIP_MIN_H = EPIC_CHIP_H * EPIC_CHIP_MIN_SCALE;
+export const INITIATIVE_CHIP_MIN_H = INITIATIVE_CHIP_H * INITIATIVE_CHIP_MIN_SCALE;
 // The clearance between two chips the de-collision pass stacks (req #3272).
 // `CHIP_MARGIN_Y` itself rather than a fresh number: it is already "the gap a
 // chip keeps from the thing above it", and two stacked names want the same
@@ -5342,7 +5342,7 @@ const CHIP_STACK_GAP = CHIP_MARGIN_Y;
 // different mark. Dropping is the honest outcome there.
 //
 // **THIS FLOOR IS UNTOUCHED BY REQ #3272, DELIBERATELY.** That requirement
-// removed the drop below `EPIC_CHIP_MIN_H` — a floor on the chip's HEIGHT,
+// removed the drop below `INITIATIVE_CHIP_MIN_H` — a floor on the chip's HEIGHT,
 // which controls how big the name is drawn. This one is a floor on how much of
 // the name SURVIVES A CLIP, which is a different question with a different
 // answer: a name that is present but too small to read is now refused (the
@@ -5350,32 +5350,32 @@ const CHIP_STACK_GAP = CHIP_MARGIN_Y;
 // still refused (this). The requirement says so in as many words.
 //
 // The floor is applied SCALED, in the same units as the chip's own measured
-// width (`EPIC_CHIP_PAD_W * scale + … + n * charW * scale`) — comparing a
+// width (`INITIATIVE_CHIP_PAD_W * scale + … + n * charW * scale`) — comparing a
 // scaled box against an unscaled floor is the units error this module's header
 // warns about, just with the operands swapped.
-export const EPIC_CHIP_MIN_CHARS = 3;
+export const INITIATIVE_CHIP_MIN_CHARS = 3;
 // Background opacity of the chip (user directive 2026-08-01: 40% transparent,
 // i.e. 60% opaque). It was fully opaque, which read as a solid tile punched into
 // the plan; at 0.6 the band beneath shows through as tint while the name still
 // wins over whatever it crosses.
-export const EPIC_CHIP_BG_ALPHA = 0.6;
-// ── A FOLDED EPIC IS A FLOATING TITLE BAR (req #3695) ───────────────────────
-// User direction: "Let a collapsed epic not have a display rectangle. it can
-// occupy a respectable amount of width as it is an epic … when collapsed it's
-// just a floating title bar so it gives way to the other highlighted epics."
+export const INITIATIVE_CHIP_BG_ALPHA = 0.6;
+// ── A FOLDED INITIATIVE IS A FLOATING TITLE BAR (req #3695) ───────────────────────
+// User direction: "Let a collapsed initiative not have a display rectangle. it can
+// occupy a respectable amount of width as it is an initiative … when collapsed it's
+// just a floating title bar so it gives way to the other highlighted initiatives."
 // The band draws no rectangle once folded (the renderer's call), so the chip is
-// all of the epic that remains — and a chip only as wide as its name reads as a
-// label, not as an epic. A folded chip therefore widens to this many SCREEN px:
+// all of the initiative that remains — and a chip only as wide as its name reads as a
+// label, not as an initiative. A folded chip therefore widens to this many SCREEN px:
 // flat, like the chip's other reservations, because a title bar is chrome the
 // reader reads at any zoom. It never NARROWS a chip (a longer name keeps its own
 // width) and it never takes room the name did not have — the band's right edge,
 // the panel edge and the key still bound it, and only the NAME decides whether
-// the chip is clipped. It morphs with the fold: an epic half-way through its
+// the chip is clipped. It morphs with the fold: an initiative half-way through its
 // animation is half-way between bar and chip.
-export const EPIC_BAR_W = 420;
+export const INITIATIVE_BAR_W = 420;
 
 /**
- * Where every epic band's name is drawn, in SCREEN px.
+ * Where every initiative band's name is drawn, in SCREEN px.
  *
  * ONE RULE — see this section's header comment: the top-left corner of the
  * INTERSECTION of the band's rectangle with the visible content area, plus the
@@ -5403,9 +5403,9 @@ export const EPIC_BAR_W = 420;
  *   for a caller with no pinned chrome at all.
  * @returns {Object[]} one entry per band with a name on screen
  */
-export function placeEpicChips({
+export function placeInitiativeChips({
     bands = [], transform, viewport, worldWidth,
-    labelH = EPIC_CHIP_H, charW = EPIC_CHIP_CHAR_W, keepOut = null,
+    labelH = INITIATIVE_CHIP_H, charW = INITIATIVE_CHIP_CHAR_W, keepOut = null,
     topInset = 0,
 } = {}) {
     const t = transform || { x: 0, y: 0, k: 1 };
@@ -5464,13 +5464,13 @@ export function placeEpicChips({
         ? [...bands].sort((a, b) => (a.y || 0) - (b.y || 0))
         : bands;
 
-    // req #3805 — A RUN OF FOLDED EPICS SHARES ITS ROOM. A folded band is only
+    // req #3805 — A RUN OF FOLDED INITIATIVES SHARES ITS ROOM. A folded band is only
     // `BAND_HEADER_FOLDED` tall, so at a plan's landing scale its floored name
     // no longer fits inside it, and the per-band push bound below would DROP
-    // it — measured, plan 7 landed with one of its two folded epics nameless,
-    // and a folded epic draws no rectangle, so its name IS the epic (and the
+    // it — measured, plan 7 landed with one of its two folded initiatives nameless,
+    // and a folded initiative draws no rectangle, so its name IS the initiative (and the
     // control that unfolds it). That bound exists so a pushed name never lands
-    // on another epic's cards; a folded band has none. So a FULLY folded band's
+    // on another initiative's cards; a folded band has none. So a FULLY folded band's
     // name may be pushed down through the folded bands after it, as far as the
     // bottom of the next OPEN band's header — its clear strip, which holds no
     // cards either — and with no open band after it, as far as the panel. One
@@ -5483,7 +5483,7 @@ export function placeEpicChips({
         for (let i = ordered.length - 1; i >= 0; i -= 1) {
             const b = ordered[i];
             if (foldedOf(b) >= 1) { runCap.set(b, cap); continue; }
-            cap = t.y + (b.y + (b.epicLaneH ?? b.headerH ?? 0)) * t.k;
+            cap = t.y + (b.y + (b.initiativeLaneH ?? b.headerH ?? 0)) * t.k;
         }
     }
 
@@ -5500,13 +5500,13 @@ export function placeEpicChips({
         const iy1 = Math.min(bottom, vh);
         if (ix1 <= ix0 || iy1 <= iy0) continue;
 
-        // SIZE — from the band's own EPIC LANE, unchanged from req #3168. The
+        // SIZE — from the band's own INITIATIVE LANE, unchanged from req #3168. The
         // lane is the reserved strip above lane 0 that no step content can
         // reach; the fallback keeps this function usable with hand-built bands.
-        // Note this is pan-INDEPENDENT (`laneBottom - top` is `epicLaneH · k`),
+        // Note this is pan-INDEPENDENT (`laneBottom - top` is `initiativeLaneH · k`),
         // so the chip's size is a function of zoom alone — the clamp below moves
         // the name, it never resizes it.
-        const laneBottom = t.y + (band.y + (band.epicLaneH ?? band.headerH)) * t.k;
+        const laneBottom = t.y + (band.y + (band.initiativeLaneH ?? band.headerH)) * t.k;
         const laneH = Math.max(0, laneBottom - top);
         // THE FLOOR IS ON THE FONT, AND THE BOX IS DERIVED FROM IT (req #3272).
         // The chip shrinks INTO its lane exactly as it always did — and stops at
@@ -5515,26 +5515,26 @@ export function placeEpicChips({
         // anyway, drawn over the first row of step labels on its 60%-opaque
         // panel. See this section's header for why that reversal is the
         // requirement rather than a regression.
-        const h = Math.max(labelH * EPIC_CHIP_MIN_SCALE,
+        const h = Math.max(labelH * INITIATIVE_CHIP_MIN_SCALE,
             Math.min(labelH, laneH - 2 * CHIP_MARGIN_Y));
         // Font and character width track the box, so a scaled chip's WIDTH is
         // measured at the size it is actually drawn.
         const scale = h / labelH;
-        // req #3225 — `epicLabel` carries the met/total suffix when the toggle
+        // req #3225 — `initiativeLabel` carries the met/total suffix when the toggle
         // is on; band fixtures that predate the field fall back to the plain
         // name, so this stays the identity transform for callers that never set
         // it.
-        const bandText = band.epicLabel || band.epic;
+        const bandText = band.initiativeLabel || band.initiative;
         // The FLAT, unscaled reservations: the two link controls — the ↗ to the
-        // epic's steps and the cards control to the epic's requirements (req
-        // #3428) — which render only when there is an epic to open, and the
-        // pause bubble, which renders on every band, "No epic" included. None of
+        // initiative's steps and the cards control to the initiative's requirements (req
+        // #3428) — which render only when there is an initiative to open, and the
+        // pause bubble, which renders on every band, "No initiative" included. None of
         // them shrinks with the chip, and all are in the measured box before
         // anything is clamped or clipped against it.
-        const wFull = bandText.length * charW * scale + EPIC_CHIP_PAD_W * scale
-            + (band.epicId != null ? EPIC_CHIP_OPEN_LINK_W + EPIC_CHIP_CARDS_LINK_W : 0)
-            + EPIC_PAUSE_BUBBLE_W + EPIC_CHIP_COLLAPSE_W
-            + (band.epicId != null ? EPIC_LOCK_W : 0);
+        const wFull = bandText.length * charW * scale + INITIATIVE_CHIP_PAD_W * scale
+            + (band.initiativeId != null ? INITIATIVE_CHIP_OPEN_LINK_W + INITIATIVE_CHIP_CARDS_LINK_W : 0)
+            + INITIATIVE_PAUSE_BUBBLE_W + INITIATIVE_CHIP_COLLAPSE_W
+            + (band.initiativeId != null ? INITIATIVE_LOCK_W : 0);
 
         // ── THE RULE ────────────────────────────────────────────────────────
         // First term: the intersection's own corner, plus the margin. Second:
@@ -5550,13 +5550,13 @@ export function placeEpicChips({
         // scales with `h`, so flooring the height WIDENS every floored chip by
         // 20–60% — and the crossing test that used to refuse a name only at
         // absurd zooms now refuses it at zooms the reader can reach. MEASURED:
-        // a 29-character epic name on a 900px panel over a 900px-wide world is
+        // a 29-character initiative name on a 900px panel over a 900px-wide world is
         // drawn by the pre-#3272 code at k = 0.25 (its own reachable zoom floor)
         // and REFUSED by the floored one, i.e. the fix re-created the vanishing
         // name on the other axis. So the band's right edge now joins the panel
         // edge and the key as a thing that takes WIDTH off the chip, resolved by
         // the identical clip-or-drop below and by the identical
-        // `EPIC_CHIP_MIN_CHARS` floor. That is one rule for width where there
+        // `INITIATIVE_CHIP_MIN_CHARS` floor. That is one rule for width where there
         // were two, and it is the rule #3257 already argued for: the reader
         // cannot tell one right-hand obstacle from another.
         const x = Math.min(ix0 + CHIP_MARGIN_X,
@@ -5565,7 +5565,7 @@ export function placeEpicChips({
         // (req #3272). `h` now has a floor, so it can exceed `band.height · k`,
         // and where it does the far-edge term resolves ABOVE the band's top —
         // parking the name over the band BEFORE it, where a reader reads it as
-        // that band's name. Reading it as the wrong epic is a worse failure than
+        // that band's name. Reading it as the wrong initiative is a worse failure than
         // either symptom this requirement fixes.
         //
         // INERT ABOVE THE FLOOR, and that is the point: whenever
@@ -5581,14 +5581,14 @@ export function placeEpicChips({
         // band is in view and slides up and off with that corner as the band
         // leaves, which is the same push-off, taken from the other edge because
         // that is the only edge the name can still be anchored to.
-        // req #3695 — how far FOLDED the band is drawn: 1 for a folded epic, 0
+        // req #3695 — how far FOLDED the band is drawn: 1 for a folded initiative, 0
         // for an open one, between while its fold animates. Hand-built bands
         // with no `reveal` answer from `collapsed`.
         const folded = foldedOf(band);
-        // req #3738 — A FOLDED EPIC DOES NOT HOLD THE TOP. Its title bar is all
+        // req #3738 — A FOLDED INITIATIVE DOES NOT HOLD THE TOP. Its title bar is all
         // that is left of it, so it scrolls with its band's own corner and goes
         // off under the ruler like any other row (the overlay's inset clips it),
-        // instead of pinning at the content area's top while the open epic below
+        // instead of pinning at the content area's top while the open initiative below
         // scrolls up. User direction: "when that top one is collapsed, it doesn't
         // have to hook the top of the screen and hold. scroll it bye bye".
         // Blended by `folded` so the fold animation never jumps the name.
@@ -5609,7 +5609,7 @@ export function placeEpicChips({
         if (!Number.isFinite(y) || !Number.isFinite(h)) continue;
 
         // ── VERTICAL DE-COLLISION (req #3272) ───────────────────────────────
-        // Two epic names must never overlap each other, and a floored chip can
+        // Two initiative names must never overlap each other, and a floored chip can
         // be taller than its band, so the guarantee #3257 got from the geometry
         // now needs a pass. It is the smallest one that can work: push DOWN,
         // never sideways (that is the defect #3257 deleted) and never by
@@ -5627,8 +5627,8 @@ export function placeEpicChips({
         // ACCUMULATES with nothing to stop it — MEASURED at the reachable zoom
         // floor of a 900px panel, the worst name landed FIVE WHOLE BANDS below
         // the band it names, and the chip is a click target that zooms to its
-        // epic (req #3204), so it also becomes the wrong control sitting over
-        // another epic's beads. That is the same failure the `max` above exists
+        // initiative (req #3204), so it also becomes the wrong control sitting over
+        // another initiative's beads. That is the same failure the `max` above exists
         // to prevent, taken in the other direction, and "the reader can see a
         // name" is worth nothing if the name is attached to the wrong thing.
         //
@@ -5706,7 +5706,7 @@ export function placeEpicChips({
         // and runs out of it) and the on-screen key. All three take WIDTH off
         // the chip — never move it, which is the defect req #3257 names — and
         // all three drop it when less than the floor would survive: padding +
-        // the pause dot + `EPIC_CHIP_MIN_CHARS` of the actual name.
+        // the pause dot + `INITIATIVE_CHIP_MIN_CHARS` of the actual name.
         //
         // Clipping the panel edge rather than dropping there is what keeps them
         // consistent. Dropping instead made the KEY able to SAVE a chip: a
@@ -5726,9 +5726,9 @@ export function placeEpicChips({
             const room = limit - x;
             // The collapse head (req #3650) leads the chip, so a cut chip
             // that keeps any of its name keeps the head that folds it.
-            const minW = EPIC_CHIP_PAD_W * scale + EPIC_PAUSE_BUBBLE_W
-                + EPIC_CHIP_COLLAPSE_W + (band.epicId != null ? EPIC_LOCK_W : 0)
-                + EPIC_CHIP_MIN_CHARS * charW * scale;
+            const minW = INITIATIVE_CHIP_PAD_W * scale + INITIATIVE_PAUSE_BUBBLE_W
+                + INITIATIVE_CHIP_COLLAPSE_W + (band.initiativeId != null ? INITIATIVE_LOCK_W : 0)
+                + INITIATIVE_CHIP_MIN_CHARS * charW * scale;
             if (room < minW) continue;
             w = room;
             clipped = true;
@@ -5737,7 +5737,7 @@ export function placeEpicChips({
         let bar = 0;
         if (!clipped && folded > 0) {
             bar = folded;
-            const wBar = wFull + folded * Math.max(0, EPIC_BAR_W - wFull);
+            const wBar = wFull + folded * Math.max(0, INITIATIVE_BAR_W - wFull);
             w = Math.max(wFull, Math.min(wBar, limit - x));
         }
 
@@ -5756,16 +5756,16 @@ export function placeEpicChips({
 
         out.push({
             key: band.key == null ? 'none' : band.key,
-            epicId: band.epicId,
+            initiativeId: band.initiativeId,
             text: bandText,
             // req #3580 — `text` split into its two drawn pieces: the NAME (an
             // in-place editor) and the closure COUNT (a zoom control), each its
             // own element. `text` stays the measured whole.
-            name: band.epic,
-            countText: band.epicCountText ?? null,
+            name: band.initiative,
+            countText: band.initiativeCountText ?? null,
             color: band.color,
             // The band itself, so a click can fit it (req #3204). Carried rather
-            // than re-looked-up by key: `band.key` is null for the "No epic"
+            // than re-looked-up by key: `band.key` is null for the "No initiative"
             // band and a find() on that would be a second place to get the null
             // handling right.
             band,
@@ -5781,7 +5781,7 @@ export function placeEpicChips({
             bar,
             // The renderer must draw at the size this was MEASURED at, or the
             // whole placement is decided against a box that does not exist.
-            fontSize: EPIC_CHIP_FONT * scale,
+            fontSize: INITIATIVE_CHIP_FONT * scale,
         });
     }
 
@@ -5982,7 +5982,7 @@ const NEXT_HALO_OUTER = NEXT_HALO_RADIUS + NEXT_HALO_STROKE / 2;
 //    deleted, because this list exists so a future reader does not re-derive a
 //    ceiling that was already tried.
 //  - "NEVER REACHES ANOTHER BEAD" was the second (3.76×). It cleared beads and
-//    crossed everything else — the epic chip's strip at every k below 0.371
+//    crossed everything else — the initiative chip's strip at every k below 0.371
 //    (which INCLUDES the opening view on a 1200px panel), and the launch-unit
 //    box on all four sides through essentially the whole 'out' band. Both
 //    found in review, measured, not hypothetical.
@@ -5992,7 +5992,7 @@ const NEXT_HALO_OUTER = NEXT_HALO_RADIUS + NEXT_HALO_STROKE / 2;
 // below (28, the binding one across the whole module), above (40) and to the
 // side (31.2) — and deleting it deleted them. The remaining
 // entries are unchanged, so the binding constraint simply moved to the next
-// one: `epicChipStrip` at 31, i.e. `NEXT_HALO_MAX_OUTER` 27 -> 30 and
+// one: `initiativeChipStrip` at 31, i.e. `NEXT_HALO_MAX_OUTER` 27 -> 30 and
 // `NEXT_HALO_MAX_MAGNIFY` 2.0x -> 2.222x. The mark req #3271 exists for is 11%
 // larger at Overview at zero cost, and `NEXT_MARK_FLOOR_K` (below) moves with
 // it, so the ring survives 10% further out.
@@ -6040,7 +6040,7 @@ const NEXT_HALO_OUTER = NEXT_HALO_RADIUS + NEXT_HALO_STROKE / 2;
 // TIGHTEST geometry, not the typical one.
 export const MIN_CARD_H = cardHeight(0, 'title');
 export const NEXT_HALO_CLEARANCES = {
-    // The epic chip's strip, above a LANE-0 bead — still the binding entry.
+    // The initiative chip's strip, above a LANE-0 bead — still the binding entry.
     // A LANE's top is the band header's bottom (for lane 0), which is where the
     // chip's strip ends, and every card is CENTRED in its lane — so a lane-0
     // bead sits half a LANE below the strip, and the lane is at least one card
@@ -6049,11 +6049,11 @@ export const NEXT_HALO_CLEARANCES = {
     // #3498 — the label does not float above the bead any more, so that
     // derivation went with it). NOT `h/2` of this card: a short card in a tall
     // lane sits lower, never higher, so the minimum lane is the binding case.
-    // It describes the chip's RESTING position: `placeEpicChips` pins a chip
+    // It describes the chip's RESTING position: `placeInitiativeChips` pins a chip
     // down into the band body while its band is partly scrolled off, and in that
     // state the chip overlaps beads and halos alike. Pre-existing sticky
     // behaviour, not something a world clearance can promise about.
-    epicChipStrip: MIN_CARD_H / 2,
+    initiativeChipStrip: MIN_CARD_H / 2,
     // The time axis's vertical slot rules, drawn at column LEFT EDGES — so half
     // the column pitch, which is now uniform. Non-binding by a long way (248.5
     // against the chip strip's 34) and listed because a list that quietly drops
@@ -6385,8 +6385,8 @@ export function nextMarkDotRadius(k) {
     return Number.isFinite(k) && k > 0 ? NEXT_MARK_SCREEN_RADIUS / k : NEXT_MARK_SCREEN_RADIUS;
 }
 
-// ── Epic focus geometry (req #3204) ─────────────────────────────────────────
-// Clicking an epic's name fits that epic's steps to the viewport. This is pure
+// ── Initiative focus geometry (req #3204) ─────────────────────────────────────────
+// Clicking an initiative's name fits that initiative's steps to the viewport. This is pure
 // geometry over a layout that is already computed, so it lives beside the
 // layout rather than in the component: the component's job is to hand the
 // resulting {x, y, k} to the d3-zoom BEHAVIOR, and nothing else.
@@ -6397,7 +6397,7 @@ export function nextMarkDotRadius(k) {
 // Margin left on all four sides, in SCREEN px. Screen, not world: it is
 // subtracted from the viewport BEFORE the scale is chosen, so the whitespace is
 // the same handful of pixels whether the fit lands at k=0.2 or k=2. A world-space
-// pad would shrink to nothing on a wide epic and swallow the view on a narrow one.
+// pad would shrink to nothing on a wide initiative and swallow the view on a narrow one.
 export const FOCUS_PAD = 44;
 // The zoom behavior's scale extent, as multiples of kBase (the fit-to-width
 // scale). Exported so the component's `scaleExtent` call, the focus clamp and
@@ -6405,9 +6405,9 @@ export const FOCUS_PAD = 44;
 export const ZOOM_MIN_RATIO = 0.25;
 export const ZOOM_MAX_RATIO = 8;
 // The focus ceiling and floor, in the same units. The ceiling exists because
-// "as close as possible" on a one-step epic is absurd magnification; 2.6 is
-// past SEMANTIC_IN_MIN (1.9), so a small epic lands on the Detail level, which
-// is the level a reader focusing on one epic wants.
+// "as close as possible" on a one-step initiative is absurd magnification; 2.6 is
+// past SEMANTIC_IN_MIN (1.9), so a small initiative lands on the Detail level, which
+// is the level a reader focusing on one initiative wants.
 //
 // The clamp is NOT a belt-and-braces duplicate of the behavior's own extent.
 // `zoom.transform` applies what it is given VERBATIM — unlike `scaleTo` /
@@ -6461,7 +6461,7 @@ export const FOCUS_MIN_RATIO = ZOOM_MIN_RATIO;
 // ── The NEIGHBOUR'S NAME IS PART OF THE FIT (req #3274) ─────────────────────
 // `FOCUS_PAD` used to be the whole of the space the bands above and below got,
 // and nothing in the transform knew that a neighbour needs a SPECIFIC amount of
-// room to render its name. On a large epic — the `Pipeline` band of pipeline 2
+// room to render its name. On a large initiative — the `Pipeline` band of pipeline 2
 // is the case reported — the fit filled the panel with one band and the reader
 // lost all sense of where in the plan they had landed.
 //
@@ -6476,24 +6476,24 @@ export const FOCUS_MIN_RATIO = ZOOM_MIN_RATIO;
 // jammed against the focused band's edge is legible but reads as chrome, and
 // the reserve exists so the neighbour's name sits in clear space.
 //
-// **THIS IS THE FULL CHIP, not the floored one.** `placeEpicChips` sizes a chip
-// from its band's own epic lane and floors it at `EPIC_CHIP_MIN_H` (req #3272),
-// so the height it actually draws at is somewhere in `[EPIC_CHIP_MIN_H,
-// EPIC_CHIP_H]` and depends on a `k` this function has not chosen yet.
+// **THIS IS THE FULL CHIP, not the floored one.** `placeInitiativeChips` sizes a chip
+// from its band's own initiative lane and floors it at `INITIATIVE_CHIP_MIN_H` (req #3272),
+// so the height it actually draws at is somewhere in `[INITIATIVE_CHIP_MIN_H,
+// INITIATIVE_CHIP_H]` and depends on a `k` this function has not chosen yet.
 // Reserving the maximum is the answer that is right at every scale and needs no
 // second pass; the difference is 6.4px.
 //
-// THE CONSEQUENCE, STATED RATHER THAN HIDDEN: a large epic is fitted slightly
+// THE CONSEQUENCE, STATED RATHER THAN HIDDEN: a large initiative is fitted slightly
 // smaller than it was. That is the trade the requirement asks for — orientation
 // beats maximum magnification — and it is the same trade `FOCUS_MAX_RATIO`
-// already makes in the other direction for a one-step epic.
-export const FOCUS_LABEL_H = EPIC_CHIP_H + 2 * CHIP_MARGIN_Y;
+// already makes in the other direction for a one-step initiative.
+export const FOCUS_LABEL_H = INITIATIVE_CHIP_H + 2 * CHIP_MARGIN_Y;
 
 /**
  * Does `band` have another band ABOVE it, BELOW it, or both (req #3274)?
  *
  * The answer decides which sides of the focus get the label reserve, because
- * "an epic at the very top of the plan" has no name to protect above it and
+ * "an initiative at the very top of the plan" has no name to protect above it and
  * reserving the strip there would spend the viewport on nothing.
  *
  * Decided from WORLD Y ALONE, never from the position of `band` in the array.
@@ -6512,7 +6512,7 @@ export const FOCUS_LABEL_H = EPIC_CHIP_H + 2 * CHIP_MARGIN_Y;
  * @returns {{above: boolean, below: boolean}} both false when there is nothing
  *   to compare against — a one-band plan, or a degenerate input.
  */
-export function epicFocusNeighbours(layout, band) {
+export function initiativeFocusNeighbours(layout, band) {
     const none = { above: false, below: false };
     const bands = layout?.bands;
     if (!Array.isArray(bands) || !band) return none;
@@ -6530,10 +6530,10 @@ export function epicFocusNeighbours(layout, band) {
 }
 
 /**
- * The world-space rectangle an epic band occupies.
+ * The world-space rectangle an initiative band occupies.
  *
  * Vertically: the band's own extent, which the layout already computed
- * (`band.y` → `band.y + band.height`, header strip included — the epic name
+ * (`band.y` → `band.y + band.height`, header strip included — the initiative name
  * lives there and belongs inside its own fit).
  *
  * Horizontally: everything the band's OWN steps DRAW, not the whole plan's
@@ -6550,7 +6550,7 @@ export function epicFocusNeighbours(layout, band) {
  * live plan before this was fixed: the rightmost title of one band landed 7px
  * PAST the viewport edge with the pad supposedly reserving 44.
  *
- * Non-contiguous columns are spanned rather than skipped: an epic with steps at
+ * Non-contiguous columns are spanned rather than skipped: an initiative with steps at
  * depth 0 and depth 4 wants both on screen, and there is no meaningful fit that
  * omits the middle.
  *
@@ -6584,7 +6584,7 @@ export function bandFitRect(layout, band) {
     }
     if (right <= left) return null;
     // Every label this band's steps draw — step titles/ids, requirement ids and
-    // the reserved title slot all carry `stepId`. The epic label does not, and
+    // the reserved title slot all carry `stepId`. The initiative label does not, and
     // must not: it renders as an HTML overlay pinned to the viewport, not in the
     // world, so its world x=12 would drag every band's fit back to the gutter.
     for (const l of (layout.labels || [])) {
@@ -6599,7 +6599,7 @@ export function bandFitRect(layout, band) {
  * The {x, y, k} that fits `band` into a `size.w` × `size.h` viewport with
  * FOCUS_PAD screen px of margin on all four sides — plus, on each vertical side
  * that HAS a neighbouring band, FOCUS_LABEL_H more for that neighbour's own
- * epic name (req #3274).
+ * initiative name (req #3274).
  *
  * The scale is the tighter of the two axis fits, clamped into the behavior's
  * scale extent; the translation then places the rect inside the reserved
@@ -6613,9 +6613,9 @@ export function bandFitRect(layout, band) {
  * @returns {{x:number,y:number,k:number}|null} null when there is nothing
  *   sensible to fit (no viewport yet, no columns, degenerate band, no floor).
  */
-export function epicFocusTransform(layout, band, size, kBase, kFloor) {
+export function initiativeFocusTransform(layout, band, size, kBase, kFloor) {
     return fitTransform(bandFitRect(layout, band), size, kBase,
-        epicFocusNeighbours(layout, band), kFloor);
+        initiativeFocusNeighbours(layout, band), kFloor);
 }
 
 /**
@@ -6690,7 +6690,7 @@ export function stepFitRect(layout, stepId) {
  * The {x, y, k} that centres ONE STEP in the viewport (req #3253).
  *
  * The receiving end of the requirement page's "view on plan" link. Shares
- * `epicFocusTransform`'s arithmetic verbatim — including the scale clamp, which
+ * `initiativeFocusTransform`'s arithmetic verbatim — including the scale clamp, which
  * is load-bearing rather than defensive: `zoom.transform` applies what it is
  * given without calling `constrain`, so a k outside the behaviour's own
  * `scaleExtent` would look correct until the reader's first wheel event snapped
@@ -6710,8 +6710,8 @@ export function stepFocusTransform(layout, stepId, size, kBase, kFloor) {
 /**
  * The rect a SET of steps occupies — the union of their own fit rects.
  *
- * Added at req #3365, when the epic name's second click was re-pointed from
- * "the next launch step" to "the active and pending work in this epic" (user
+ * Added at req #3365, when the initiative name's second click was re-pointed from
+ * "the next launch step" to "the active and pending work in this initiative" (user
  * directive). Ids that resolve to nothing are SKIPPED rather than failing the
  * whole union: a set is a request to frame what exists, and one unlaid step
  * must not cost the reader the other nine.
@@ -6772,7 +6772,7 @@ export const STEP_FOCUS_STEPS_ACROSS = 5;
  *
  * ONE STEP IS THE EXCEPTION, AND IT IS HANDLED HERE rather than in
  * `stepFocusTransform` so that BOTH ways of arriving at a single card take it —
- * the `?step=` deep link from the requirement editor, and an epic whose second
+ * the `?step=` deep link from the requirement editor, and an initiative whose second
  * click resolves to one step. A rule that lived in the single-id wrapper would
  * have covered the first and silently missed the second.
  *
@@ -6782,7 +6782,7 @@ export const STEP_FOCUS_STEPS_ACROSS = 5;
  * carried across two more subjects it was never re-derived for — see the
  * removed constant's git history) before fitting. Retuning that fraction
  * fixed a fixture in isolation but not the general case: measured on the
- * reported epic (9 open steps in a single-row sequence, no vertical binding),
+ * reported initiative (9 open steps in a single-row sequence, no vertical binding),
  * `k ∝ 1/(1 + 2·C)` regardless of C's value, so ANY proportional-of-content
  * margin scales with the very thing the reader asked to see tightly — 9
  * columns rendered at ~12 card widths at the old 0.25, and would still have
@@ -6791,13 +6791,13 @@ export const STEP_FOCUS_STEPS_ACROSS = 5;
  * that is a fraction of the VIEWPORT can.
  *
  * So this is now `fitTransform` on the RAW rect, with no inflation at all —
- * exactly `epicFocusTransform`'s own arithmetic, reused rather than
+ * exactly `initiativeFocusTransform`'s own arithmetic, reused rather than
  * reinvented. `fitTransform` already reserves `FOCUS_PAD` fixed screen px on
  * every side and picks whichever axis — width or height — actually needs the
  * tighter scale, so a SET of steps is framed by the same "identify the
  * horizontal and vertical extent, fit both at a small fixed screen margin"
- * rule the whole-epic view already uses, just over a smaller rect. Measured
- * on the reported epic (9 open steps, single row): a fixed 44px edge on
+ * rule the whole-initiative view already uses, just over a smaller rect. Measured
+ * on the reported initiative (9 open steps, single row): a fixed 44px edge on
  * whatever scale the fit chooses, not a fraction of 9 that grows or shrinks
  * with it — 9.28 columns of viewport on a 1730px panel, a little more on a
  * narrower one, in contrast to the retired proportional margin's 11.6–13.9.
@@ -6821,21 +6821,21 @@ export function stepsFocusTransform(layout, stepIds, size, kBase, kFloor) {
     return fitTransform(rect, size, kBase, null, kFloor);
 }
 
-// ── THE EPIC NAME'S WORK STOP SPENDS ITS SLACK ON THE EPIC (req #3685) ─────
+// ── THE INITIATIVE NAME'S WORK STOP SPENDS ITS SLACK ON THE INITIATIVE (req #3685) ─────
 // `stepsFocusTransform` picks the scale from whichever axis binds and CENTRES
-// the open work on the other one. For an epic's first click (req #3681) that
+// the open work on the other one. For an initiative's first click (req #3681) that
 // centring is wrong: the spare room on the non-binding axis is filled with
 // whatever lies either side of the open steps — measured on plan 10's 'Sunday
 // Review' at a 1730×850 panel, the open work is three tall cards in columns
-// 9–10, height binds, and the window ran world x 3546..5886 while the epic's
+// 9–10, height binds, and the window ran world x 3546..5886 while the initiative's
 // cards span 3321..5181: Infra Prio clipped on the left and ~520px of the empty
-// Oct 20 / future columns on the right, with the whole epic fitting at that
+// Oct 20 / future columns on the right, with the whole initiative fitting at that
 // very scale.
 //
 // So the SCALE is the work fit's, unchanged — the first click is still the
 // tightest frame that shows the open work, and the second (the band fit) still
 // zooms out from it — and only WHERE the window sits moves: on each axis it is
-// centred on the EPIC'S CARDS (`stepsFitRect` over the band's steps — not the
+// centred on the INITIATIVE'S CARDS (`stepsFitRect` over the band's steps — not the
 // band, whose name strip would push the cards below centre), then clamped so
 // the open work keeps its `FOCUS_PAD` margin, or the pinned ruler's height on
 // top where that is taller. On the binding axis there is no slack to spend,
@@ -6844,7 +6844,7 @@ export function stepsFocusTransform(layout, stepIds, size, kBase, kFloor) {
 // ONE OPEN CARD IS LEFT CENTRED. A single card is framed by the stated
 // steps-across scale and centred on itself (the 2026-08-13 directive above
 // `STEP_FOCUS_STEPS_ACROSS`: "anytime we click and the zoom is to a single
-// card"), and an epic click that resolves to one card is exactly that case.
+// card"), and an initiative click that resolves to one card is exactly that case.
 function slackCentre(ctx0, ctx1, need0, need1, span, current) {
     const lo = need1 - span / 2;
     const hi = need0 + span / 2;
@@ -6853,28 +6853,28 @@ function slackCentre(ctx0, ctx1, need0, need1, span, current) {
 }
 
 /**
- * The epic name's WORK stop: frame `stepIds` (the epic's unfinished steps) at
+ * The initiative name's WORK stop: frame `stepIds` (the initiative's unfinished steps) at
  * `stepsFocusTransform`'s scale, with the window centred on the band's cards
  * wherever the work leaves room. Falls back to the plain work fit for a single
  * open card, or when the band has no placed cards.
  *
  * @returns {{x:number,y:number,k:number}|null}
  */
-export function epicWorkFocusTransform(layout, band, stepIds, size, kBase, kFloor) {
+export function initiativeWorkFocusTransform(layout, band, stepIds, size, kBase, kFloor) {
     const tr = stepsFocusTransform(layout, stepIds, size, kBase, kFloor);
     if (!tr || placedStepCount(layout, stepIds) === 1) return tr;
     const work = stepsFitRect(layout, stepIds);
-    const epic = stepsFitRect(layout, band?.stepIds);
+    const initiative = stepsFitRect(layout, band?.stepIds);
     const w = size?.w || 0;
     const h = size?.h || 0;
-    if (!work || !epic || !(w > 0) || !(h > 0)) return tr;
+    if (!work || !initiative || !(w > 0) || !(h > 0)) return tr;
     const { k } = tr;
     const pad = FOCUS_PAD / k;
     // `rulerScreenMag`'s height: RULER_H screen px below k = 1, RULER_H·k above.
     const padTop = Math.max(FOCUS_PAD, RULER_H * Math.max(k, 1)) / k;
-    const cx = slackCentre(epic.x, epic.x + epic.w, work.x - pad, work.x + work.w + pad,
+    const cx = slackCentre(initiative.x, initiative.x + initiative.w, work.x - pad, work.x + work.w + pad,
         w / k, (w / 2 - tr.x) / k);
-    const cy = slackCentre(epic.y, epic.y + epic.h, work.y - padTop, work.y + work.h + pad,
+    const cy = slackCentre(initiative.y, initiative.y + initiative.h, work.y - padTop, work.y + work.h + pad,
         h / k, (h / 2 - tr.y) / k);
     return { k, x: w / 2 - cx * k, y: h / 2 - cy * k };
 }
@@ -6930,7 +6930,7 @@ export function centreTransform(rect, size, k, kBase, kFloor) {
 // A rect, a viewport and the base scale in; the transform d3-zoom is handed out.
 //
 // `neighbours` (req #3274) is the ONLY thing that differs between the two
-// callers now. `epicFocusTransform` hands in which vertical sides have a band
+// callers now. `initiativeFocusTransform` hands in which vertical sides have a band
 // whose name needs room; `stepFocusTransform` hands in nothing, and with both
 // flags false every line below reduces — algebraically, not approximately — to
 // the symmetric arithmetic this function has always done. That reduction is
@@ -6952,7 +6952,7 @@ function fitTransform(rect, size, kBase, neighbours, kFloor) {
     const labelBottom = neighbours?.below ? FOCUS_LABEL_H : 0;
     // ── AND THE PINNED RULER, ON THE TOP SIDE ONLY ──────────────────────────
     // The strip above the focused band is not all usable: req #3254 pins the
-    // time ruler to the viewport top and req #3257 stops every epic name just
+    // time ruler to the viewport top and req #3257 stops every initiative name just
     // BELOW it (`topInset: rulerScreenBottom(t)` in the visualizer), so a
     // reserve that ignored the ruler would park the neighbour's name underneath
     // it. Charged only when there IS a band above, which is NOT the same claim
@@ -7040,14 +7040,14 @@ function fitTransform(rect, size, kBase, neighbours, kFloor) {
 // #3216 redefined what the control returns to: fully zoomed out so the whole
 // plan's VERTICAL extent is visible, one click, from any pan or zoom. "reset
 // that lands somewhere the user still has to zoom out from is not reset." On a
-// plan with many epic bands the readable floor can sit ABOVE the scale that
+// plan with many initiative bands the readable floor can sit ABOVE the scale that
 // needs, which is exactly the failure mode this function exists to rule out —
 // it is deliberately NOT `kDefault`, and legibility is not a concern it weighs
 // at all.
 //
 // **AND SINCE req #3312 IT IS THE LANDING VIEW TOO.** #3216 left the two apart,
 // so a plan OPENED at `kDefault` — zoomed in past fit-to-width with the world
-// origin at the panel's top-left, i.e. on the top epic's name — and the reader
+// origin at the panel's top-left, i.e. on the top initiative's name — and the reader
 // had to click Reset to see the plan they had just opened. There is now ONE
 // base view and this function computes it; the component's `resetView` applies
 // it for the landing and for the header's Reset alike, so the two cannot
@@ -7056,7 +7056,7 @@ function fitTransform(rect, size, kBase, neighbours, kFloor) {
 // bare beads — precisely what Reset has shown on those plans since #3216, and
 // what was asked for.
 //
-// PURE and exported for the same reason `epicFocusTransform` is (the comment
+// PURE and exported for the same reason `initiativeFocusTransform` is (the comment
 // two functions up): this is a fit computation over `layout`/`size`, testable
 // with plain numbers, and the canvas component's job is only to draw what it
 // returns.
@@ -7064,14 +7064,14 @@ function fitTransform(rect, size, kBase, neighbours, kFloor) {
  * The scale at which the WHOLE plan — both axes, not just the width `kFit`
  * already fits — is visible in a `size.w` × `size.h` viewport.
  *
- * The tighter of the two axis fits, exactly `epicFocusTransform`'s own
+ * The tighter of the two axis fits, exactly `initiativeFocusTransform`'s own
  * "contain" idiom applied to the whole world instead of one band's rect.
  * Floored at `kFloor` — the CALLER's own configured `scaleExtent` minimum,
  * taken as a parameter rather than re-derived here, because
  * `zoom.transform` applies what it is given VERBATIM and does not clamp it
  * (see PipelinePlanVisualizer's `scaleExtent` comment): a k below the floor
  * would look right until the next wheel event snapped it back, the same bug
- * class `epicFocusTransform`'s own clamp exists to avoid. A re-derived
+ * class `initiativeFocusTransform`'s own clamp exists to avoid. A re-derived
  * `kFit * ZOOM_MIN_RATIO` here would only agree with the real floor by
  * algebraic coincidence (today, `Math.min(kFit, kDefault) === kFit` because
  * `kDefault = Math.max(kFit, K_READABLE)`) — a future caller whose floor
@@ -7123,7 +7123,7 @@ export function factoryDefaultView(layout, size, kFit, kFloor) {
 //
 // Req #3252 gave it a second producer: a viewport RESTORED from storage. That
 // one arrives through `zoom.transform`, which applies what it is given verbatim
-// and calls neither `constrain` nor `scaleExtent` (the `epicFocusTransform`
+// and calls neither `constrain` nor `scaleExtent` (the `initiativeFocusTransform`
 // comment above, verified against d3-zoom 3.0.0) — so a camera saved when the
 // panel was tall, restored into a short one, would sit outside the bound until
 // the reader's first gesture snapped it. Two copies of this arithmetic that
@@ -7184,8 +7184,8 @@ export function clampPlanTransform(t, size, layout, kMin, kMax) {
 // world camera — the plan's top stays put, which is the reader's place there.
 //
 // A FOLDED BAND places no cards, so where no card is on screen the band
-// headers are the anchors (keyed by epic, pinned at the band's top).
-const anchorKeyOfBand = (b) => `band:${b.epicId ?? 'none'}`;
+// headers are the anchors (keyed by initiative, pinned at the band's top).
+const anchorKeyOfBand = (b) => `band:${b.initiativeId ?? 'none'}`;
 const anchorRects = (layout) => {
     const out = new Map();
     for (const [id, n] of (layout?.nodes || [])) {

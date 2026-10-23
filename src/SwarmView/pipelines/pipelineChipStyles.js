@@ -174,19 +174,19 @@ export const pipelineStatusChipProps = (status) => {
 // eras share a vocabulary, they share the one function that colors it.
 // ---------------------------------------------------------------------------
 
-// epic_status — active|paused (req #3393/#3336). NEW: no equivalent editable
+// initiative_status — active|paused (req #3393/#3336). NEW: no equivalent editable
 // control exists in 1.0 at all, only a derived bubble. Amber-for-paused,
 // matching `pipeline_status`'s own `paused` treatment above, so "paused" reads
 // as one color across every plan-layer surface, either era.
-const EPIC_STATUS_CHIP = {
+const INITIATIVE_STATUS_CHIP = {
     active: { bgcolor: '#1c3a52', color: '#8fd0ff' },
     paused: { bgcolor: '#ff9800', color: '#000' },
 };
 
-export const epicStatus2Label = (status) => (status === 'paused' ? 'Paused' : 'Active');
+export const initiativeStatus2Label = (status) => (status === 'paused' ? 'Paused' : 'Active');
 
-export const epicStatus2ChipProps = (status) => ({
-    sx: EPIC_STATUS_CHIP[status] || EPIC_STATUS_CHIP.active,
+export const initiativeStatus2ChipProps = (status) => ({
+    sx: INITIATIVE_STATUS_CHIP[status] || INITIATIVE_STATUS_CHIP.active,
 });
 
 // execution_mode — parallel|serial (req #3388/#3393). NEW: no UI anywhere
