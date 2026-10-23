@@ -154,24 +154,55 @@ function insertAscending(ids, id) {
 }
 
 /**
+ * May a requirement be dropped on the Orchestrables box — UN-orchestrated —
+ * from this step (req #3817)? Any step's requirement may leave the plan except
+ * one on an effectively LOCKED step: a lock forbids the unlink, and the
+ * gateway would answer 423, so the box is not offered as a target.
+ *
+ * @param {?Object} row  the source step's plan row
+ */
+export function canUnseatFrom(row) {
+    return !!row && !row.effectiveLocked;
+}
+
+/**
+ * Do the server's rows already say what a move wrote (req #3817 widened this
+ * to the unseat)? A move is reflected once its target step lists the
+ * requirement; an unseat (`toStepId` null) once NO step does.
+ *
+ * @param {Object[]} rows  the server's plan rows
+ * @param {{reqId: number, toStepId: ?number}} move
+ */
+export function reqMoveReflected(rows, move) {
+    const server = Array.isArray(rows) ? rows : [];
+    if (move.toStepId == null) {
+        return !server.some((r) => (r.reqIds || []).includes(move.reqId));
+    }
+    return server.some((r) => r.id === move.toStepId && (r.reqIds || []).includes(move.reqId));
+}
+
+/**
  * The plan rows with each pending move applied — the requirement leaves every
  * row that lists it and joins its target. Applied in order, idempotent, and
  * a no-op for a move whose target is not on this plan. Rows the moves do not
- * touch keep their identity.
+ * touch keep their identity. A move with `toStepId` null is an UNSEAT (req
+ * #3817, dropped on the Orchestrables box): the requirement leaves every row
+ * and joins none.
  *
  * Only membership moves. `launchReqIds` loses the requirement on the way out
  * but is never GIVEN it: whether it launches from the new step is the engine's
  * answer, and it arrives with the refetch.
  *
  * @param {Object[]} rows
- * @param {Array<{reqId: number, toStepId: number}>} moves
+ * @param {Array<{reqId: number, toStepId: ?number}>} moves
  * @returns {Object[]}
  */
 export function applyReqMoves(rows, moves) {
     if (!Array.isArray(rows) || !rows.length || !moves?.length) return rows;
     let out = rows;
     for (const { reqId, toStepId } of moves) {
-        if (!out.some((r) => r.id === toStepId)) continue;
+        if (toStepId != null && !out.some((r) => r.id === toStepId)) continue;
+        if (toStepId == null && !out.some((r) => (r.reqIds || []).includes(reqId))) continue;
         const wasTracking = out.some((r) => (r.trackingReqIds || []).includes(reqId));
         out = out.map((r) => {
             const has = (r.reqIds || []).includes(reqId);

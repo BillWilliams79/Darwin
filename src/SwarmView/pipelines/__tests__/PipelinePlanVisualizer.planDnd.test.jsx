@@ -23,8 +23,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 // The requirement mark: client (100..140, 100..114) on the panel at the origin.
 const MARK = { x: 100, y: 100, w: 40, h: 14 };
+let markStepId = 10;
 const markNode = {
-    getAttr: (k) => ({ dragReqId: 900, dragStepId: 10 })[k],
+    getAttr: (k) => ({ dragReqId: 900, dragStepId: markStepId })[k],
     getStage: () => true,
     getParent: () => null,
     toDataURL: () => 'data:image/png;base64,',
@@ -99,6 +100,7 @@ vi.mock('../pipelineUnseated', async (orig) => {
 import { composedFixture } from './pipelineComposedFixture';
 import { adaptComposedPipeline, buildPlanModel } from '../pipelineAdapter';
 import PipelinePlanVisualizer from '../PipelinePlanVisualizer';
+import { useSnackBarStore } from '../../../stores/useSnackBarStore';
 import { UNSEATED_DRAG_TYPE } from '../pipelineUnseated';
 import {
     LIFT_DELAY_MS, LIFT_VIBRATE_MS, LONG_PRESS_MS, TOUCH_TOLERANCE_PX,
@@ -151,16 +153,20 @@ afterEach(() => {
     if (hadVibrate) Object.defineProperty(navigator, 'vibrate', hadVibrate);
     else delete navigator.vibrate;
     document.elementsFromPoint = undefined;
+    document.elementFromPoint = undefined;
+    markStepId = 10;
+    reqStatus = 'swarm_ready';
     document.body.innerHTML = '';
 });
 
+let reqStatus = 'swarm_ready';
 function render() {
     const payload = composedFixture({
         initiatives: [{ id: 5, title: 'Build', pipeline_fk: 2, sort_order: 1 }],
         steps: [step(10, 'Design'), step(11, 'Frozen', 1), step(12, 'Implement')],
         stepDeps: [{ id: 1, step_fk: 11, dep_step_fk: 10 }, { id: 2, step_fk: 12, dep_step_fk: 11 }],
-        requirements: [{ id: 900, title: 'Move me', requirement_status: 'swarm_ready', tracking: 0 }],
-        stepRequirements: [{ step_fk: 10, requirement_fk: 900 }],
+        requirements: [{ id: 900, title: 'Move me', requirement_status: reqStatus, tracking: 0 }],
+        stepRequirements: [{ step_fk: markStepId, requirement_fk: 900 }],
     });
     const container = document.createElement('div');
     document.body.appendChild(container);
@@ -205,6 +211,134 @@ const wait = (ms) => act(async () => { await new Promise((r) => { setTimeout(r, 
 const inFlight = () => panel.getAttribute('data-req-drag');
 const dropStep = () => panel.getAttribute('data-drop-step');
 const dropOn = (stepId) => { dropOverride = () => stepId; };
+
+// req #3817 — the Orchestrables box is a drop target: a requirement released
+// over it leaves the plan. The box is stubbed; its element is a plain div
+// handed over through `dropTargetRef`, at a known client rect.
+const placeBox = (rect = { left: 900, top: 20, right: 1100, bottom: 200 }) => {
+    const el = document.createElement('div');
+    el.getBoundingClientRect = () => ({ ...rect, width: rect.right - rect.left,
+        height: rect.bottom - rect.top });
+    document.body.appendChild(el);
+    // What is SEEN at a point: the box over its rect, the canvas elsewhere.
+    document.elementFromPoint = (x, y) => (x >= rect.left && x <= rect.right
+        && y >= rect.top && y <= rect.bottom ? el : canvas);
+    act(() => { boxProps.dropTargetRef.current = el; });
+    return el;
+};
+
+describe('dropped on the Orchestrables box, a requirement is un-orchestrated (req #3817)', () => {
+    it('over the box it is armed and over; released there, its seat is deleted', async () => {
+        render();
+        placeBox();
+        expect(boxProps.dropArmed).toBeNull();
+        pointer('pointerdown', 110, 105, { pointerType: 'mouse' });
+        pointer('pointermove', 400, 300, { pointerType: 'mouse' });
+        expect(inFlight()).toBe('900');
+        expect(boxProps.dropArmed).toBe('ok');
+        expect(boxProps.dropOver).toBe(false);
+        // A step card beneath the box never takes it: the box wins.
+        dropOn(12);
+        pointer('pointermove', 1000, 100, { pointerType: 'mouse' });
+        expect(boxProps.dropOver).toBe(true);
+        expect(dropStep()).toBe('');
+        pointer('pointerup', 1000, 100, { pointerType: 'mouse', buttons: 0 });
+        expect(inFlight()).toBe('');
+        expect(boxProps.dropOver).toBe(false);
+        expect(boxProps.dropArmed).toBeNull();
+        expect(moveStepRequirement).toHaveBeenCalledTimes(1);
+        expect(moveStepRequirement.mock.calls[0][2])
+            .toEqual({ requirementId: 900, fromStepId: 10, toStepId: null });
+        await wait(0);
+        // Swarm-ready, so it is the box's at once.
+        expect(boxProps.items.map((r) => Number(r.id))).toEqual([11, 900]);
+    });
+
+    it('moved off the box again, it is not dropped there', () => {
+        render();
+        placeBox();
+        pointer('pointerdown', 110, 105, { pointerType: 'mouse' });
+        pointer('pointermove', 1000, 100, { pointerType: 'mouse' });
+        expect(boxProps.dropOver).toBe(true);
+        pointer('pointermove', 400, 300, { pointerType: 'mouse' });
+        expect(boxProps.dropOver).toBe(false);
+        pointer('pointerup', 400, 300, { pointerType: 'mouse', buttons: 0 });
+        expect(moveStepRequirement).not.toHaveBeenCalled();
+    });
+
+    it('a box parked over the navbar — outside the plan panel — still takes it', () => {
+        render();
+        placeBox({ left: 0, top: -60, right: 300, bottom: -4 });
+        pointer('pointerdown', 110, 105, { pointerType: 'mouse' });
+        pointer('pointermove', 100, -30, { pointerType: 'mouse' });
+        expect(boxProps.dropOver).toBe(true);
+        pointer('pointerup', 100, -30, { pointerType: 'mouse', buttons: 0 });
+        expect(moveStepRequirement.mock.calls[0][2])
+            .toEqual({ requirementId: 900, fromStepId: 10, toStepId: null });
+    });
+
+    it('a box covered at the point (scrolled out of the rack, chrome over it) takes nothing', () => {
+        render();
+        placeBox();
+        document.elementFromPoint = () => canvas;
+        pointer('pointerdown', 110, 105, { pointerType: 'mouse' });
+        pointer('pointermove', 1000, 100, { pointerType: 'mouse' });
+        expect(boxProps.dropOver).toBe(false);
+        pointer('pointerup', 1000, 100, { pointerType: 'mouse', buttons: 0 });
+        expect(moveStepRequirement).not.toHaveBeenCalled();
+    });
+
+    it('a locked step\'s requirement cannot leave it: refused, nothing written', () => {
+        markStepId = 11;
+        render();
+        placeBox();
+        pointer('pointerdown', 110, 105, { pointerType: 'mouse' });
+        pointer('pointermove', 1000, 100, { pointerType: 'mouse' });
+        expect(inFlight()).toBe('900');
+        expect(boxProps.dropArmed).toBe('refused');
+        expect(boxProps.dropOver).toBe(false);
+        pointer('pointerup', 1000, 100, { pointerType: 'mouse', buttons: 0 });
+        expect(moveStepRequirement).not.toHaveBeenCalled();
+    });
+
+    it('a requirement that is not swarm-ready leaves the plan, is not drawn in the box, and is announced', async () => {
+        reqStatus = 'development';
+        render();
+        placeBox();
+        pointer('pointerdown', 110, 105, { pointerType: 'mouse' });
+        pointer('pointermove', 1000, 100, { pointerType: 'mouse' });
+        pointer('pointerup', 1000, 100, { pointerType: 'mouse', buttons: 0 });
+        await wait(0);
+        expect(moveStepRequirement.mock.calls[0][2])
+            .toEqual({ requirementId: 900, fromStepId: 10, toStepId: null });
+        expect(boxProps.items.map((r) => Number(r.id))).toEqual([11]);
+        expect(useSnackBarStore.getState().message || '').toContain('swarm-ready work only');
+    });
+
+    it('until its seat is deleted, the box row it became cannot be lifted', async () => {
+        let resolve;
+        moveStepRequirement.mockImplementation(() => new Promise((r) => { resolve = r; }));
+        render();
+        placeBox();
+        pointer('pointerdown', 110, 105, { pointerType: 'mouse' });
+        pointer('pointermove', 1000, 100, { pointerType: 'mouse' });
+        pointer('pointerup', 1000, 100, { pointerType: 'mouse', buttons: 0 });
+        expect(boxProps.items.find((r) => Number(r.id) === 900).unseating).toBe(true);
+        await act(async () => { resolve(); });
+        expect(boxProps.items.find((r) => Number(r.id) === 900).unseating).toBe(false);
+    });
+
+    it('Escape over the box puts it back: nothing is written', () => {
+        render();
+        placeBox();
+        pointer('pointerdown', 110, 105, { pointerType: 'mouse' });
+        pointer('pointermove', 1000, 100, { pointerType: 'mouse' });
+        act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
+        expect(boxProps.dropOver).toBe(false);
+        pointer('pointerup', 1000, 100, { pointerType: 'mouse', buttons: 0 });
+        expect(moveStepRequirement).not.toHaveBeenCalled();
+    });
+});
 
 describe('a requirement mark on the press timeline, by touch (req #3665)', () => {
     it('held still, it lifts with a haptic tick; moved, it carries; released on a step, it moves', async () => {
