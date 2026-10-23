@@ -894,9 +894,10 @@ export default function PipelineDetail() {
                     The title's tooltip was dropped by req #3648 (user
                     directive), so a clipped name is read from the plan list. */}
                 {/* The title's SLOT is the spacer (S11 — `flex: 1`, every
-                    pixel of slack); the title text sits at its start, shrinking
-                    to clip, and the Full screen switch follows the text
-                    (and the badges and Req # launcher, req #3798) inside the
+                    pixel of slack); the title text sits at its start (after
+                    the orchestration badges, req #3820), shrinking to clip,
+                    and the Full screen switch follows the text
+                    (and the Req # launcher, req #3798) inside the
                     slot (req #3793 — "in the title", as the TPU views'
                     follows "▾ Controls"), not the slot's far end. */}
                 {/* The floor is the NAME's (req #3809 review): the badges are
@@ -906,6 +907,12 @@ export default function PipelineDetail() {
                            minWidth: TITLE_MIN_W + REQ_JUMP_W + orchestrationBadgesWidth(
                                orchestrationBadgeList.length),
                            display: 'flex', alignItems: 'center', gap: 1 }}>
+                {/* ── ORCHESTRATION BADGES (req #3809; req #3820 moved them,
+                    user directive: "it should be to the left of pipeline's
+                    name in the title") ──────────────────────────────────────
+                    Rigid, so the plan's name is what clips first; they render
+                    only while somebody orchestrates this plan. */}
+                <OrchestrationBadges badges={orchestrationBadgeList} />
                 <Typography variant={isMobile ? 'h6' : 'h5'} noWrap
                             sx={{ flex: '0 1 auto', minWidth: 0 }}
                             data-testid="pipeline-title">
@@ -952,12 +959,6 @@ export default function PipelineDetail() {
                         </Box>
                     )}
                 </Typography>
-
-                {/* ── ORCHESTRATION BADGES (req #3809, user directive: "a
-                    circular badge to the right of your pipeline name") ──────
-                    Rigid, so the plan's name is what clips first; they render
-                    only while somebody orchestrates this plan. */}
-                <OrchestrationBadges badges={orchestrationBadgeList} />
 
                 {/* ── REQUIREMENT LAUNCHER (req #3798) ────────────────────────
                     The Requirements page's title-row "Req #" field, unchanged —

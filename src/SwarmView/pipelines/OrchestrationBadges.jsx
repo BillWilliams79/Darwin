@@ -2,7 +2,9 @@
 // beside its name (req #3809).
 //
 // User directive: "a circular badge to the right of your pipeline name — Green
-// master, Orange secondary — Mac or WSL inside". The derivation (one badge per
+// master, Orange secondary — Mac or WSL inside"; req #3820 moved the group to
+// the LEFT of the name and cut the tooltip to "Mac Mini is the master.
+// Orchestrating for 2h 05m". The derivation (one badge per
 // machine, which tone, the tooltip sentence) is `orchestrationBadges` in
 // orchestrationHolder.js; this file only draws it.
 
@@ -13,7 +15,7 @@ import { BADGE_LEAD, BADGE_SUBSCRIBER } from './orchestrationHolder';
 
 export const BADGE_SIZE = 30;
 const BADGE_GAP_PX = 4;      // the group's `gap: 0.5`
-const SLOT_GAP_PX = 8;       // the title slot's `gap: 1`, between name and group
+const SLOT_GAP_PX = 8;       // the title slot's `gap: 1`, between group and name
 
 /** The px the badge group adds to the title slot — 0 when it draws nothing. */
 export function orchestrationBadgesWidth(count) {
