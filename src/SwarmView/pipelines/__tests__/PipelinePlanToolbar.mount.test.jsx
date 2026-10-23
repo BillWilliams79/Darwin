@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
 // req #3648 — the plan toolbar: the "Color"/"View" captions are gone, the order
-// is colour | steps-across 6 5 4 3 | view, Step Width is hidden (code kept),
+// is colour | steps-across 6 5 4 | view, Step Width is hidden (code kept),
 // and Reset reads "Default".
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -34,10 +34,10 @@ afterEach(() => {
 const q = (id) => host.querySelector(`[data-testid="${id}"]`);
 
 describe('PipelinePlanToolbar (req #3648)', () => {
-    it('draws the steps-across ladder as 10 6 5 4 3, between the colour chips and the view group', () => {
+    it('draws the steps-across ladder as 6 5 4, between the colour chips and the view group', () => {
         const across = q('pipeline-viz-steps-across');
         expect([...across.querySelectorAll('[data-testid^="pipeline-viz-steps-across-"]')]
-            .map((c) => c.textContent)).toEqual(['10', '6', '5', '4', '3']);
+            .map((c) => c.textContent)).toEqual(['6', '5', '4']);
         const color = q('pipeline-viz-colorkey-toggle');
         const view = q('pipeline-viz-level-control');
         // eslint-disable-next-line no-bitwise
@@ -46,20 +46,16 @@ describe('PipelinePlanToolbar (req #3648)', () => {
         expect(across.compareDocumentPosition(view) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
-    // req #3722 — the Step chip leads the colour group as HOVER HELP ONLY: not a
-    // toggle, never pressed, no `?` chip or slot.
-    it('leads the colour group with a Step chip that is a label, not a switch', () => {
+    // req #3806 — the Step chip (hover help only) is gone from the title bar.
+    it('has no Step chip; the colour chips lead the group', () => {
         const color = q('pipeline-viz-colorkey-toggle');
-        const step = q('pipeline-viz-steps-toggle');
-        expect(step).not.toBeNull();
-        expect(color.firstElementChild).toBe(step);
-        expect(step.hasAttribute('aria-pressed')).toBe(false);
-        expect(step.className).not.toMatch(/clickable/);
+        expect(q('pipeline-viz-steps-toggle')).toBeNull();
+        expect(color.firstElementChild.getAttribute('data-testid')).toMatch(/^pipeline-viz-colorkey-/);
         expect(q('pipeline-viz-colorkey-help-slot')).toBeNull();
         expect(q('pipeline-viz-legend-toggle')).toBeNull();
     });
 
-    it('reports the hovered chip — the Step chip and any colour chip, active or not', () => {
+    it('reports the hovered colour chip, active or not', () => {
         const events = [];
         act(() => root.render(
             <PipelinePlanToolbar onStepsAcross={() => {}} stepWidthLevel={5}
@@ -74,11 +70,9 @@ describe('PipelinePlanToolbar (req #3648)', () => {
         const leave = (el) => act(() => {
             el.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
         });
-        enter(q('pipeline-viz-steps-toggle'));
-        leave(q('pipeline-viz-steps-toggle'));
         enter(q('pipeline-viz-colorkey-machine'));       // not the active scale
         leave(q('pipeline-viz-colorkey-machine'));
-        expect(events).toEqual(['step', null, 'machine', null]);
+        expect(events).toEqual(['machine', null]);
     });
 
     // req #3766 — a long press on a chip pins its help: hover leaving does not
@@ -121,7 +115,7 @@ describe('PipelinePlanToolbar (req #3648)', () => {
 
         it('unpins on the next press anywhere, falling back to the chip under the pointer', () => {
             const machine = q('pipeline-viz-colorkey-machine');
-            const step = q('pipeline-viz-steps-toggle');
+            const step = q('pipeline-viz-colorkey-state');
             longPress(machine);
             fire(machine, 'mouseout');
             fire(document.body, 'pointerdown');
@@ -129,7 +123,7 @@ describe('PipelinePlanToolbar (req #3648)', () => {
             longPress(step);
             fire(step, 'pointerdown');           // pressing the pinned chip itself
             fire(step, 'pointerup');
-            expect(events.slice(3)).toEqual(['step', 'step*', 'step']);
+            expect(events.slice(3)).toEqual(['state', 'state*', 'state']);
         });
 
         it('a click on a colour chip while pinned unpins AND does what the chip does', () => {
@@ -167,18 +161,19 @@ describe('PipelinePlanToolbar (req #3648)', () => {
     });
 
     // req #3686 — the Hide closed chip sits between the colour chips and the ladder.
-    it('draws Hide closed between the colour chips and the steps-across ladder', () => {
+    it('draws Closed between the colour chips and the steps-across ladder', () => {
         const color = q('pipeline-viz-colorkey-toggle');
         const hide = q('pipeline-viz-hide-closed');
         const across = q('pipeline-viz-steps-across');
         expect(hide).not.toBeNull();
+        expect(hide.textContent).toBe('Closed');
         // eslint-disable-next-line no-bitwise
         expect(color.compareDocumentPosition(hide) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
         // eslint-disable-next-line no-bitwise
         expect(hide.compareDocumentPosition(across) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
-    it('Hide closed toggles: reports the opposite of its current state', () => {
+    it('Closed toggles: reports the opposite of its current state', () => {
         const got = [];
         const render = (hideClosed) => act(() => root.render(
             <PipelinePlanToolbar onStepsAcross={() => {}} stepWidthLevel={5}
@@ -235,7 +230,8 @@ describe('PipelinePlanToolbar (req #3648)', () => {
     // req #3708 — the machine filter: one chip per machine, pressed = shown.
     it('draws one machine chip each, pressed unless deselected, and reports the machine id', () => {
         const got = [];
-        const machines = [{ id: 2, title: 'Mac Mini' }, { id: 3, title: 'MCHP Windows' }];
+        const machines = [{ id: 2, title: 'Mac Mini', platform: 'darwin' },
+            { id: 3, title: 'MCHP Windows', platform: 'wsl' }];
         act(() => root.render(
             <PipelinePlanToolbar onStepsAcross={() => {}} stepWidthLevel={5}
                                  onChangeStepWidthLevel={() => {}} colorKey="state"
@@ -247,7 +243,7 @@ describe('PipelinePlanToolbar (req #3648)', () => {
         const mac = q('pipeline-viz-machine-2');
         const win = q('pipeline-viz-machine-3');
         expect(mac.textContent).toBe('Mac Mini');
-        expect(win.textContent).toBe('MCHP Windows');
+        expect(win.textContent).toBe('WSL');
         expect(mac.getAttribute('aria-pressed')).toBe('true');
         expect(win.getAttribute('aria-pressed')).toBe('false');
         act(() => win.click());
@@ -255,8 +251,8 @@ describe('PipelinePlanToolbar (req #3648)', () => {
         expect(got).toEqual([3, 2]);
     });
 
-    // Follow-up: Any is a chip of its own, last, pressed unless 0 is deselected.
-    it('draws a trailing Any chip that toggles id 0', () => {
+    // req #3806 — Any leads, then this browser's machine, then the rest.
+    it('draws a leading Any chip that toggles id 0', () => {
         const got = [];
         const render = (hidden) => act(() => root.render(
             <PipelinePlanToolbar onStepsAcross={() => {}} stepWidthLevel={5}
@@ -270,7 +266,7 @@ describe('PipelinePlanToolbar (req #3648)', () => {
         render(new Set());
         const chips = [...q('pipeline-viz-machine-filter')
             .querySelectorAll('[data-testid^="pipeline-viz-machine-"]')];
-        expect(chips.map((c) => c.textContent)).toEqual(['Mac Mini', 'Any']);
+        expect(chips.map((c) => c.textContent)).toEqual(['Any', 'Mac Mini']);
         expect(q('pipeline-viz-machine-0').getAttribute('aria-pressed')).toBe('true');
         act(() => q('pipeline-viz-machine-0').click());
         expect(got).toEqual([0]);

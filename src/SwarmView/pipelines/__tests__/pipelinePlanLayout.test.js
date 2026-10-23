@@ -6075,8 +6075,8 @@ describe('hideClosedReqs (req #3686)', () => {
 describe('steps-across zoom (req #3498, user directive 2026-08-13)', () => {
     const COL = CARD_W + CARD_GAP_X;
 
-    it('offers 10 6 5 4 3, widest first (req #3648, #3686)', () => {
-        expect(STEPS_ACROSS_OPTIONS).toEqual([10, 6, 5, 4, 3]);
+    it('offers 6 5 4, widest first (req #3648, #3686, #3806)', () => {
+        expect(STEPS_ACROSS_OPTIONS).toEqual([6, 5, 4]);
     });
 
     // req #3648 — the buttons centre on the ACTIVE steps, not the viewport.

@@ -88,3 +88,21 @@ export function hideMachineReqs(rows, hidden, machineOf) {
         return { ...r, reqIds: kept, reqDoneFrom: keptBeforeDone };
     });
 }
+
+/** The chip label for a machine: the WSL platform reads "WSL" (req #3806), any other its title. */
+export const machineChipLabel = (m) =>
+    (m.platform === 'wsl' ? 'WSL' : (m.title || `Machine ${m.id}`));
+
+/**
+ * The filter chips in toolbar order (req #3806): Any, then the machine this
+ * browser is on, then the rest in dictionary order.
+ *
+ * @param {Object[]} machines   the open machines
+ * @param {?number} currentId   `resolveThisMachineId`'s answer, or null
+ */
+export function orderMachineChips(machines, currentId) {
+    const list = machines || [];
+    const current = list.filter((m) => m.id === currentId);
+    const others = list.filter((m) => m.id !== currentId);
+    return [{ id: ANY_MACHINE, title: 'Any' }, ...current, ...others];
+}

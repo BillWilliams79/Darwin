@@ -2514,7 +2514,9 @@ export const reqViewOptions = (v) => REQ_VIEWS[normalizeReqView(v)];
 // longer the viewport's but the active steps' (`activeStepIds`).
 // 10 joined the ladder in req #3686 (user directive: "make the width button have 10
 // as well as the other") — the widest look, widest first like the rest.
-export const STEPS_ACROSS_OPTIONS = [10, 6, 5, 4, 3];
+// 10 and 3 came off the toolbar again in req #3806 (user directive, title bar
+// diet): the ladder is 6 5 4.
+export const STEPS_ACROSS_OPTIONS = [6, 5, 4];
 
 // TWO IS THE EXCEPTION THE USER NAMED — *"fitting ... with tight white space
 // except when 2 is selected"*. Every other option fits its columns edge to
@@ -2655,7 +2657,7 @@ export function stepsAcrossTransform(layout, rows, n, size, kBase, kFloor) {
 //
 // EVERY RUNG IS A `stepsAcrossScale`, the buttons' own arithmetic, so the
 // wheel and a button land on the SAME scale wherever they share a count (4 and
-// 6 since req #3648 made the buttons 6 5 4 3). It extends as far as the zoom
+// 6 since req #3648 made the buttons 6 5 4). It extends as far as the zoom
 // extent allows: a toolbar has to stop somewhere, the ladder does not.
 export const SNAP_COLUMNS_STEP = 2;
 // The floor: two steps across — the closest look, below the buttons' 3.

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 
 import {
     parseHiddenMachines, toggleHiddenMachine, isMachineHidden, hideMachineReqs, ANY_MACHINE,
+    machineChipLabel, orderMachineChips,
 } from '../planMachineFilter';
 import { orderStepReqs } from '../pipelinePlanLayout';
 
@@ -81,5 +82,24 @@ describe('planMachineFilter (req #3708)', () => {
             expect(out[0].reqIds).toEqual([4]);
             expect(out[0].reqDoneFrom).toBe(0);
         });
+    });
+});
+
+describe('chip order and labels (req #3806)', () => {
+    const mac = { id: 2, title: 'Mac Mini', platform: 'darwin' };
+    const wsl = { id: 3, title: 'MCHP Windows', platform: 'wsl' };
+
+    it('leads with Any, then the current machine, then the rest', () => {
+        expect(orderMachineChips([mac, wsl], 3).map((m) => m.id)).toEqual([ANY_MACHINE, 3, 2]);
+        expect(orderMachineChips([mac, wsl], 2).map((m) => m.id)).toEqual([ANY_MACHINE, 2, 3]);
+    });
+
+    it('keeps dictionary order when the current machine is unknown', () => {
+        expect(orderMachineChips([mac, wsl], null).map((m) => m.id)).toEqual([ANY_MACHINE, 2, 3]);
+    });
+
+    it('labels the wsl platform "WSL" and any other machine by its title', () => {
+        expect(machineChipLabel(wsl)).toBe('WSL');
+        expect(machineChipLabel(mac)).toBe('Mac Mini');
     });
 });
