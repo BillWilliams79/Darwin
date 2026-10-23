@@ -11,7 +11,7 @@
 // How those four are OBTAINED was entirely different in the two eras, and that
 // difference was the whole of this file:
 //
-//   1.0  SEVEN bounded list reads (pipelines, steps, step requirements, step
+//   1.0  SEVEN bounded list reads (pipelines, epics, epic requirements, epic
 //        deps, requirements, the retired middle tier, initiatives) joined and
 //        derived IN THE BROWSER.
 //   2.0  ONE composed read (`pipeline_compose`, req #3367) — the join AND the
@@ -111,7 +111,7 @@ export function usePlanSources(pipelineId, creatorFk,
         () => (canBuild ? buildPlanModel(composed, machines, sessionStatus) : null),
         [canBuild, composed, machines, sessionStatus]);
 
-    // req #3618 / #3692 — empty and RUNNING steps sit on TODAY, the reader's
+    // req #3618 / #3692 — empty and RUNNING epics sit on TODAY, the reader's
     // LOCAL day. The day is a memo key so a render after local midnight
     // re-places them even when a refetch returned the structurally-shared,
     // unchanged `composed` object.

@@ -385,7 +385,7 @@ the browser half; the two share a database and nothing else.
 | PIPE-08 | Visualizer drag | The canvas mounts, a drag changes the world transform (pixel diff on a plan with no pulsing bead), and neither the container nor the document scrolls horizontally |
 | PIPE-09 | Zoom | The level chip crosses Overview → Plan → Detail and the canvas redraws at each |
 | ~~PIPE-10~~ | ~~Launch rectangle + conditional key~~ | **DELETED by req #3371.** It asserted one dashed launch-unit rectangle and a visible legend key on the co-launchable plan and neither on the Substrate plan. The rectangle, its `data-batch-boxes` count attribute and the key are all gone: the step is the launch unit and the bead stands for it, so there is no construct left to draw conditionally |
-| PIPE-11 | Click targets | Bead → Table mode focused on that row; requirement label → `/swarm/requirement/:id`; initiative band's ↗ → `/swarm/steps?initiative=<id>` (re-pointed off the retired browsable-catalog route by req #3373 — see req #3375 below) |
+| PIPE-11 | Click targets | Bead → Table mode focused on that row; requirement label → `/swarm/requirement/:id`; initiative band's ↗ → `/swarm/epics?initiative=<id>` (re-pointed off the retired browsable-catalog route by req #3373 — see req #3375 below) |
 | PIPE-12 | Loud failure | The corrupted plan raises the non-dismissible invariant banner naming the cycle, on BOTH views |
 | PIPE-13 | Description in the title bar (req #3179) | The goal field is ABSENT from the page column; the info button is inside the header row, right of the title and every chip; it opens a Dialog carrying the seeded text and closing unmounts it; and the canvas starts within 16px of the header row and runs to the bottom of the viewport |
 

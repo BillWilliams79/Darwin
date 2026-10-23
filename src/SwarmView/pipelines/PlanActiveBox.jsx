@@ -2,10 +2,10 @@
 // requirement on this plan whose latest session is under way, from `starting`
 // to `completing` (which ones is planActiveReqs.js's rule).
 //
-// ── THE STEP CARD'S ROWS ───────────────────────────────────────────────────
-// It replicates rows of the step cards, so each row is drawn the way a card
+// ── THE EPIC CARD'S ROWS ───────────────────────────────────────────────────
+// It replicates rows of the epic cards, so each row is drawn the way a card
 // draws it (user directive: "replicate the look and feel and widgets
-// of the step card"): the id in the reader's colour key (the canvas's own
+// of the epic card"): the id in the reader's colour key (the canvas's own
 // resolver, `idStyleOf`), then the Terminal and Dev Server pills in the card's
 // own palette (`REQ_PILL_*`, planReqPills.js) — clickable exactly as the card's
 // are — then the title, in the id's colour, on ONE line, cut with "…" (req
@@ -35,9 +35,10 @@ import { memo } from 'react';
 import Box from '@mui/material/Box';
 
 import AnchoredPanel from '../../Components/AnchoredPanel/AnchoredPanel';
+import { ActionPopupBadge } from '../../Components/AnchoredPanel/ActionPopupHead';
 import { validDock } from '../../Components/AnchoredPanel/anchoredPanelGeometry';
 import {
-    ACTION_POPUP_BADGE_EM, ACTION_POPUP_COLORS, ACTION_POPUP_FONT_PX, ACTION_POPUP_HEAD_PX, ACTION_POPUP_MONO, ACTION_POPUP_SX,
+    ACTION_POPUP_COLORS, ACTION_POPUP_FONT_PX, ACTION_POPUP_HEAD_PX, ACTION_POPUP_MONO, ACTION_POPUP_SX,
 } from '../../Components/AnchoredPanel/actionPopupChrome';
 import { SIDEBAR_WIDTH } from '../../NavBar/navConfig';
 import { usePlanActiveBoxStore } from '../../stores/usePlanActiveBoxStore';
@@ -65,7 +66,6 @@ export const ACTIVE_HOME = Object.freeze({
     h: 'l', x: SIDEBAR_WIDTH + 16, v: 'b', y: 16, w: null, ht: null,
 });
 const ACTIVE_HOME_MAXIMIZED = Object.freeze({ ...ACTIVE_HOME, x: 16 });
-const BADGE_EM = ACTION_POPUP_BADGE_EM;
 
 const SESSION_LABEL = {
     starting: 'Starting', waiting: 'Waiting', planning: 'Planning', active: 'Implementing',
@@ -121,16 +121,9 @@ function PlanActiveBox({ items, reqPills = null, idStyleOf, isLoading = false, o
                        limits={LIMITS} fontPx={ACTION_POPUP_FONT_PX} colors={ACTION_POPUP_COLORS}
                        sx={ACTION_POPUP_SX}
                        extras={
-                           // The step card's count badge (req #3503).
-                           <Box component="span" data-testid="pipeline-viz-active-count"
-                                sx={{ display: 'inline-flex', alignItems: 'center',
-                                       justifyContent: 'center', flexShrink: 0,
-                                       minWidth: BADGE_EM, height: BADGE_EM, px: '0.35em',
-                                       boxSizing: 'border-box', borderRadius: '999px',
-                                       bgcolor: P.badgeFill, color: P.badgeText,
-                                       fontFamily: MONO, fontWeight: 700, lineHeight: 1 }}>
+                           <ActionPopupBadge testid="pipeline-viz-active-count">
                                {isLoading ? '…' : count}
-                           </Box>
+                           </ActionPopupBadge>
                        }>
             {({ shapedWidth }) => {
                 // Content-sized (null) is never cut.

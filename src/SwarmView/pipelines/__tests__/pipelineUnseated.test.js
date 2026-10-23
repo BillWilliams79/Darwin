@@ -4,16 +4,16 @@
 import { describe, it, expect, vi } from 'vitest';
 
 import {
-    unorchestratedSwarmReady, stepAcceptsNewWork, seatTargetAt,
+    unorchestratedSwarmReady, epicAcceptsNewWork, seatTargetAt,
     screenToWorld, screenRectOf, UNSEATED_REQ_MIME, resolveSeatDrop,
     unseatedBoxFontPx, UNSEATED_FONT_MIN, UNSEATED_FONT_MAX, bulkSeatRequest,
-    unseatedBoxWidthPx, UNSEATED_MIN_WIDTH_EM, unseatedBoxZoom, UNSEATED_MAX_STEPS_ACROSS,
+    unseatedBoxWidthPx, UNSEATED_MIN_WIDTH_EM, unseatedBoxZoom, UNSEATED_MAX_EPICS_ACROSS,
     unseatedTextStep, unseatedResizedBox, unseatedMinStretchPx, UNSEATED_TEXT_RATIO,
     UNSEATED_MIN_LIST_EM,
     pointInRect, pointerCanSeat, runBulkSeat, bulkSeatFailureMessage,
 } from '../pipelineUnseated';
 import {
-    CARD_FONT, CARD_FRAME_W, computePlanLayout, STEP_WIDTH_RUNGS, stepsAcrossScale,
+    CARD_FONT, CARD_FRAME_W, computePlanLayout, EPIC_WIDTH_RUNGS, epicsAcrossScale,
 } from '../pipelinePlanLayout';
 
 describe('unorchestratedSwarmReady', () => {
@@ -24,8 +24,8 @@ describe('unorchestratedSwarmReady', () => {
         { id: 40, requirement_status: 'development', title: 'not ready' },
     ];
 
-    it('lists swarm-ready requirements no step carries, ascending by id', () => {
-        const junction = [{ step_fk: 7, requirement_fk: 20 }];
+    it('lists swarm-ready requirements no epic carries, ascending by id', () => {
+        const junction = [{ epic_fk: 7, requirement_fk: 20 }];
         expect(unorchestratedSwarmReady(reqs, junction).map((r) => r.id))
             .toEqual([10, 30]);
     });
@@ -36,7 +36,7 @@ describe('unorchestratedSwarmReady', () => {
     });
 
     it('matches junction ids across number/string encodings', () => {
-        const junction = [{ step_fk: 1, requirement_fk: '10' }];
+        const junction = [{ epic_fk: 1, requirement_fk: '10' }];
         expect(unorchestratedSwarmReady(
             [{ id: '10', requirement_status: 'swarm_ready' }], junction)).toEqual([]);
     });
@@ -60,17 +60,17 @@ describe('seatTargetAt', () => {
     ]);
 
     it('resolves a point inside a card frame, edges inclusive', () => {
-        expect(seatTargetAt(nodes, rowById, { x: 50, y: 25 })).toEqual({ stepId: 1, ok: true });
-        expect(seatTargetAt(nodes, rowById, { x: 100, y: 50 })).toEqual({ stepId: 1, ok: true });
+        expect(seatTargetAt(nodes, rowById, { x: 50, y: 25 })).toEqual({ epicId: 1, ok: true });
+        expect(seatTargetAt(nodes, rowById, { x: 100, y: 50 })).toEqual({ epicId: 1, ok: true });
     });
 
-    it('refuses an effectively locked step (req #3649 — the gateway answers 423)', () => {
-        expect(seatTargetAt(nodes, rowById, { x: 250, y: 10 })).toEqual({ stepId: 2, ok: false });
+    it('refuses an effectively locked epic (req #3649 — the gateway answers 423)', () => {
+        expect(seatTargetAt(nodes, rowById, { x: 250, y: 10 })).toEqual({ epicId: 2, ok: false });
     });
 
-    // req #3750 — a step has no state, so finished work never closes it.
-    it('accepts a step whose work is all finished', () => {
-        expect(stepAcceptsNewWork({ id: 3, state: 'done' })).toBe(true);
+    // req #3750 — an epic has no state, so finished work never closes it.
+    it('accepts an epic whose work is all finished', () => {
+        expect(epicAcceptsNewWork({ id: 3, state: 'done' })).toBe(true);
     });
 
     it('answers null between cards and without a point', () => {
@@ -78,9 +78,9 @@ describe('seatTargetAt', () => {
         expect(seatTargetAt(nodes, rowById, null)).toBeNull();
     });
 
-    it('treats a step with no plan row as unable to take work', () => {
-        expect(seatTargetAt(nodes, new Map(), { x: 10, y: 10 })).toEqual({ stepId: 1, ok: false });
-        expect(stepAcceptsNewWork(null)).toBe(false);
+    it('treats an epic with no plan row as unable to take work', () => {
+        expect(seatTargetAt(nodes, new Map(), { x: 10, y: 10 })).toEqual({ epicId: 1, ok: false });
+        expect(epicAcceptsNewWork(null)).toBe(false);
     });
 });
 
@@ -110,7 +110,7 @@ describe('resolveSeatDrop', () => {
 
     it('projects the screen point through the transform onto a card', () => {
         expect(resolveSeatDrop({ point: { x: 60, y: 60 }, t, nodes, rowById }))
-            .toEqual({ stepId: 1, ok: true });
+            .toEqual({ epicId: 1, ok: true });
     });
 
     it('lands nowhere over chrome or a chip, even with a card beneath', () => {
@@ -143,7 +143,7 @@ describe('unseatedBoxFontPx', () => {
     });
 });
 
-// req #3620 — the box is as wide as a step card, whatever the rung and zoom.
+// req #3620 — the box is as wide as an epic card, whatever the rung and zoom.
 describe('unseatedBoxWidthPx', () => {
     const rows = [{ id: 1, name: 'A', depIds: [], requirementIds: [] }];
     // The zoom at which the box's type hits its 16px ceiling.
@@ -162,8 +162,8 @@ describe('unseatedBoxWidthPx', () => {
 
     it('is exactly the card wherever the type tracks the ids, every rung', () => {
         const kMinFont = UNSEATED_FONT_MIN / CARD_FONT.req;
-        STEP_WIDTH_RUNGS.forEach((rung) => {
-            const frameW = computePlanLayout(rows, { stepWidthLevel: rung }).cardFrameW;
+        EPIC_WIDTH_RUNGS.forEach((rung) => {
+            const frameW = computePlanLayout(rows, { epicWidthLevel: rung }).cardFrameW;
             [kMinFont, 0.6, 1, kMaxFont, 3].forEach((k) => {
                 // The 3/4 card (req #3648) can be narrower than the box's own
                 // title bar, which is the box's floor at any rung.
@@ -175,20 +175,20 @@ describe('unseatedBoxWidthPx', () => {
     });
 
     it('mirrors every rung\'s drawn card frame, the seat outline\'s width', () => {
-        STEP_WIDTH_RUNGS.forEach((rung) => {
-            const layout = computePlanLayout(rows, { stepWidthLevel: rung });
+        EPIC_WIDTH_RUNGS.forEach((rung) => {
+            const layout = computePlanLayout(rows, { epicWidthLevel: rung });
             const node = [...layout.nodes.values()][0];
             const k = 2;
             const t = { k, x: 0, y: 0 };
             expect(unseatedBoxWidthPx(layout.cardFrameW, k))
                 .toBeCloseTo(screenRectOf(node, t).width, 6);
         });
-        const wide = computePlanLayout(rows, { stepWidthLevel: 6 }).cardFrameW;
+        const wide = computePlanLayout(rows, { epicWidthLevel: 6 }).cardFrameW;
         expect(wide).toBeGreaterThan(CARD_FRAME_W);
     });
 
     it('an empty plan still answers its rung\'s frame width', () => {
-        expect(computePlanLayout([], { stepWidthLevel: 4 }).cardFrameW).toBe(CARD_FRAME_W);
+        expect(computePlanLayout([], { epicWidthLevel: 4 }).cardFrameW).toBe(CARD_FRAME_W);
     });
 
     it('never answers NaN for a missing width or degenerate scale', () => {
@@ -244,7 +244,7 @@ describe('unseatedResizedBox', () => {
 
     it('never narrower than its title bar in the type it is drawn in', () => {
         // At the zoom floor the box is exactly its title bar wide: shrinking
-        // part of a step holds it there; a full step drops the type a size.
+        // part of an epic holds it there; a full epic drops the type a size.
         const floor = UNSEATED_MIN_WIDTH_EM * 9;
         expect(unseatedResizedBox(floor, 9, { ws: 0.9 }).widthPx).toBe(floor);
         const small = unseatedResizedBox(floor, 9, { ws: 0.5 });
@@ -264,36 +264,36 @@ describe('unseatedResizedBox', () => {
     });
 });
 
-// req #3608 — the whole box dropped on a step.
+// req #3608 — the whole box dropped on an epic.
 describe('bulkSeatRequest', () => {
     const rowById = new Map([[7, { id: 7, title: 'Build it' }], [8, { id: 8, title: 'Done' }]]);
     const items = [{ id: 12, title: 'B' }, { id: '11', title: 'A' }];
 
-    it('carries every row in the box, bound for the step under the pointer', () => {
-        expect(bulkSeatRequest(items, { stepId: 7, ok: true }, rowById)).toEqual({
-            stepId: 7, stepTitle: 'Build it', ok: true,
+    it('carries every row in the box, bound for the epic under the pointer', () => {
+        expect(bulkSeatRequest(items, { epicId: 7, ok: true }, rowById)).toEqual({
+            epicId: 7, epicTitle: 'Build it', ok: true,
             reqs: [{ id: 12, title: 'B' }, { id: 11, title: 'A' }],
         });
     });
 
-    it('still answers for a locked step, marked not ok, so the caller can say why', () => {
-        expect(bulkSeatRequest(items, { stepId: 8, ok: false }, rowById).ok).toBe(false);
+    it('still answers for a locked epic, marked not ok, so the caller can say why', () => {
+        expect(bulkSeatRequest(items, { epicId: 8, ok: false }, rowById).ok).toBe(false);
     });
 
-    it('is nothing to ask with no step under the pointer or an empty box', () => {
+    it('is nothing to ask with no epic under the pointer or an empty box', () => {
         expect(bulkSeatRequest(items, null, rowById)).toBeNull();
-        expect(bulkSeatRequest([], { stepId: 7, ok: true }, rowById)).toBeNull();
-        expect(bulkSeatRequest([{ id: 'x' }], { stepId: 7, ok: true }, rowById)).toBeNull();
+        expect(bulkSeatRequest([], { epicId: 7, ok: true }, rowById)).toBeNull();
+        expect(bulkSeatRequest([{ id: 'x' }], { epicId: 7, ok: true }, rowById)).toBeNull();
     });
 
-    it('names a step the rows do not carry by its id', () => {
-        expect(bulkSeatRequest(items, { stepId: 99, ok: true }, rowById).stepTitle)
-            .toBe('step 99');
+    it('names an epic the rows do not carry by its id', () => {
+        expect(bulkSeatRequest(items, { epicId: 99, ok: true }, rowById).epicTitle)
+            .toBe('epic 99');
     });
 
     it('is a snapshot — later changes to the box do not reach it', () => {
         const live = [{ id: 5, title: 'x' }];
-        const req = bulkSeatRequest(live, { stepId: 7, ok: true }, rowById);
+        const req = bulkSeatRequest(live, { epicId: 7, ok: true }, rowById);
         live.push({ id: 6, title: 'y' });
         expect(req.reqs.map((r) => r.id)).toEqual([5]);
     });
@@ -356,16 +356,16 @@ describe('bulkSeatFailureMessage', () => {
     });
     it('says plainly when every one failed, and tolerates a missing status', () => {
         expect(bulkSeatFailureMessage(2, [f(11, 409), f(12)]))
-            .toBe('Unable to add 11 (409), 12 to the step');
+            .toBe('Unable to add 11 (409), 12 to the epic');
     });
 });
 
 // req #3648 — "Orchestrables shouldn't get any bigger than it is at six window
-// widths": the box follows the zoom only up to the six-steps-across scale.
-describe('unseatedBoxZoom — capped at six steps across (req #3648)', () => {
+// widths": the box follows the zoom only up to the six-epics-across scale.
+describe('unseatedBoxZoom — capped at six epics across (req #3648)', () => {
     const VW = 1600;
     const pitch = 600;
-    const k6 = stepsAcrossScale(UNSEATED_MAX_STEPS_ACROSS, VW, pitch);
+    const k6 = epicsAcrossScale(UNSEATED_MAX_EPICS_ACROSS, VW, pitch);
 
     it('follows the zoom below six across', () => {
         expect(unseatedBoxZoom(k6 / 2, VW, pitch)).toBe(k6 / 2);

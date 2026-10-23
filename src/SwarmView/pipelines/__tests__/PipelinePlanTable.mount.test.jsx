@@ -58,7 +58,7 @@ const PLAN = {
             id: 48, title: 'Pause Enforcement', run: 'manual', notes: null,
             openReqIds: [3223, 3224], state: 'pending',
             reqIds: [3223, 3224], trackingReqIds: [], unresolvedReqIds: [],
-            // A step dependency AND a time gate, so `formatTimeGates` runs too.
+            // An epic dependency AND a time gate, so `formatTimeGates` runs too.
             depIds: [47], timeDeps: [{ at: '2026-08-04T12:00:00Z' }],
             initiativeId: 4, initiative: 'Orchestration',
             initiativeLabels: ['Orchestration'],
@@ -71,7 +71,7 @@ const PLAN = {
             noLaunchReason: null,
         },
     ],
-    eligibleStepIds: new Set([48]),
+    eligibleEpicIds: new Set([48]),
     violations: [],
 };
 
@@ -95,7 +95,7 @@ function render(props = {}) {
 }
 
 // jsdom implements no layout, so `Element.prototype.scrollIntoView` does not
-// exist — and the `focusStepId` branch below calls it to bring the focused row
+// exist — and the `focusEpicId` branch below calls it to bring the focused row
 // into view (the req #3115 bead-click handshake). Stubbed rather than avoided:
 // skipping that prop would leave the branch unrendered, and an unrendered branch
 // is exactly where the missing import this test exists for was hiding.
@@ -122,10 +122,10 @@ describe('PipelinePlanTable mounts (req #3324)', () => {
 
     // req #3371 — THE `/swarm-start` COMMAND DID NOT DISAPPEAR WITH THE BANNER.
     // The full-width launch banner that used to carry design rule 8's argument
-    // list is gone; the command is a property of the step's own row now, so the
+    // list is gone; the command is a property of the epic's own row now, so the
     // smoke test asserts it is actually painted rather than merely computable.
     // Scoped to SCHEDULED work, which is why the Running row must NOT carry one.
-    it('renders a scheduled step\'s exact /swarm-start argument list on its own row', () => {
+    it('renders a scheduled epic\'s exact /swarm-start argument list on its own row', () => {
         render();
         const cmd = document.querySelector('[data-testid="pipeline-launch-command-48"]');
         expect(cmd).not.toBeNull();
@@ -140,7 +140,7 @@ describe('PipelinePlanTable mounts (req #3324)', () => {
 
     // req #3649 — the barrier chip on every row (absent = the column
     // default, a barrier) and the lock chip only on an effectively-locked row.
-    // Row 48 becomes a PRIORITY step frozen by its initiative's lock; row 47 carries
+    // Row 48 becomes a PRIORITY epic frozen by its initiative's lock; row 47 carries
     // none of the flags, which is the adapter's absent default. A per-test plan,
     // because a locked row also withholds the "+" the tests below rely on.
     it('renders the barrier/priority chip and the inherited lock chip', () => {
@@ -155,10 +155,10 @@ describe('PipelinePlanTable mounts (req #3324)', () => {
         expect(q('pipeline-lock-chip-47')).toBeNull();
     });
 
-    // req #3676 — a step's ids in ORCHESTRATION order (open before complete,
+    // req #3676 — an epic's ids in ORCHESTRATION order (open before complete,
     // deployed first, then FIFO), with the dashed divider before the first
     // complete id, the same order the Plan card stacks them in.
-    it('lists a step\'s requirements in orchestration order with a complete divider', () => {
+    it('lists an epic\'s requirements in orchestration order with a complete divider', () => {
         const ordered = { ...PLAN, rows: PLAN.rows.map((r) => (r.id === 48
             ? { ...r, reqIds: [3656, 3641, 3655, 3646] } : r)) };
         const model = { requirements: [
@@ -176,25 +176,25 @@ describe('PipelinePlanTable mounts (req #3324)', () => {
             'pipeline-req-done-rule-48',
             // complete group: deployed 3656 before implemented 3646
             'pipeline-req-link-3656', 'pipeline-req-link-3646',
-            'pipeline-step-add-48',
+            'pipeline-epic-add-48',
         ]);
-        // No divider on a step with no complete work.
+        // No divider on an epic with no complete work.
         expect(document.querySelector('[data-testid="pipeline-req-done-rule-47"]')).toBeNull();
     });
 
     // The three optional props, because each one opens a branch — and a hook
     // called inside a branch this test never entered would still be missing.
-    it('renders with cost shown, a cost error, and a focused step', () => {
-        render({ showCost: true, costError: true, focusStepId: 47 });
+    it('renders with cost shown, a cost error, and a focused epic', () => {
+        render({ showCost: true, costError: true, focusEpicId: 47 });
         expect(document.querySelector('[data-testid="pipeline-plan-table"]'))
             .not.toBeNull();
         expect(document.body.textContent).toContain('Session Drain');
     });
 
-    // req #3582 — every step row offers "+", and following it lands on the
-    // requirement editor's "new" mode carrying the step to seat it on plus the
+    // req #3582 — every epic row offers "+", and following it lands on the
+    // requirement editor's "new" mode carrying the epic to seat it on plus the
     // plan provenance Back needs.
-    it('a step\'s "+" opens a new requirement draft carrying that step', () => {
+    it('an epic\'s "+" opens a new requirement draft carrying that epic', () => {
         function NewProbe() {
             const location = useLocation();
             return <pre data-testid="new-probe">{JSON.stringify(location.state)}</pre>;
@@ -214,32 +214,32 @@ describe('PipelinePlanTable mounts (req #3324)', () => {
             );
         });
         for (const id of [47, 48]) {
-            expect(document.querySelector(`[data-testid="pipeline-step-add-${id}"]`)
+            expect(document.querySelector(`[data-testid="pipeline-epic-add-${id}"]`)
                 .getAttribute('href')).toBe('/swarm/requirement/new');
         }
         act(() => {
-            document.querySelector('[data-testid="pipeline-step-add-48"]')
+            document.querySelector('[data-testid="pipeline-epic-add-48"]')
                 .dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 }));
         });
         expect(JSON.parse(document.querySelector('[data-testid="new-probe"]').textContent))
-            .toEqual({ seatStepId: 48, seatStepName: 'Pause Enforcement',
-                from: 'pipeline', pipelineId: 2, mode: 'table', backStepId: 48 });
+            .toEqual({ seatEpicId: 48, seatEpicName: 'Pause Enforcement',
+                from: 'pipeline', pipelineId: 2, mode: 'table', backEpicId: 48 });
     });
 
-    // req #3750 — a step has no state: one whose work is all finished still
+    // req #3750 — an epic has no state: one whose work is all finished still
     // offers its "+". Only a lock (req #3649) withholds it.
-    it('offers the "+" on a step whose work is all finished', () => {
+    it('offers the "+" on an epic whose work is all finished', () => {
         const finished = { ...PLAN, rows: PLAN.rows.map((r) => (r.id === 47
             ? { ...r, openReqIds: [], state: 'done' } : r)) };
         render({ plan: finished });
-        expect(document.querySelector('[data-testid="pipeline-step-add-47"]')).not.toBeNull();
+        expect(document.querySelector('[data-testid="pipeline-epic-add-47"]')).not.toBeNull();
     });
 
-    it('offers no "+" on an effectively locked step (req #3649)', () => {
+    it('offers no "+" on an effectively locked epic (req #3649)', () => {
         const locked = { ...PLAN, rows: PLAN.rows.map((r) => (r.id === 47
-            ? { ...r, effectiveLocked: true, lockedBy: 'step' } : r)) };
+            ? { ...r, effectiveLocked: true, lockedBy: 'epic' } : r)) };
         render({ plan: locked });
-        expect(document.querySelector('[data-testid="pipeline-step-add-47"]')).toBeNull();
-        expect(document.querySelector('[data-testid="pipeline-step-add-48"]')).not.toBeNull();
+        expect(document.querySelector('[data-testid="pipeline-epic-add-47"]')).toBeNull();
+        expect(document.querySelector('[data-testid="pipeline-epic-add-48"]')).not.toBeNull();
     });
 });

@@ -12,25 +12,25 @@
 //   - execution_mode chip (parallel|serial, req #3388) — a field 1.0 cards
 //     never show, since it has no equivalent read anywhere else either.
 //
-// ── COMPLETENESS IS MEASURED ON REQUIREMENTS, NOT ON STEPS (req #3365) ──────
-// User directive: *"let's just drop deriving and showing the step value and
+// ── COMPLETENESS IS MEASURED ON REQUIREMENTS, NOT ON EPICS (req #3365) ──────
+// User directive: *"let's just drop deriving and showing the epic value and
 // place our level of completeness on requirements for now … requirements have
 // meaning and actual status values."*
 //
-// The card used to draw a two-state done/open bar over STEPS, counted by
-// `if (step.completed_at)`. That was never a state a step reliably had:
-// `pipeline_steps` carries no status column at all, `completed_at` was stamped
-// only where a step had NO gating requirements — and since req #3750 a step
-// has no state whatsoever (req #3752 dropped the column; a step only holds
-// requirements). Measured on plan 7: **0 of 71 steps carried
+// The card used to draw a two-state done/open bar over EPICS, counted by
+// `if (epic.completed_at)`. That was never a state an epic reliably had:
+// `epics` carries no status column at all, `completed_at` was stamped
+// only where an epic had NO gating requirements — and since req #3750 an epic
+// has no state whatsoever (req #3752 dropped the column; an epic only holds
+// requirements). Measured on plan 7: **0 of 71 epics carried
 // one**, so the card read "0 complete · 71 open" for a plan whose real state
 // was 49 done / 21 pending / 1 running.
 //
 // A REQUIREMENT'S STATUS IS STORED, so counting it is a join rather than a
 // derivation — `pipelineRequirementCounts` needs no engine, no second
 // implementation of design rule 1, and cannot drift from the server's answer
-// because it is not answering the same question. The step COUNT stays on the
-// card (a count is honest); only the step STATE is gone.
+// because it is not answering the same question. The epic COUNT stays on the
+// card (a count is honest); only the epic STATE is gone.
 
 import Box from '@mui/material/Box';
 import Card from '@mui/material/Card';
@@ -85,7 +85,7 @@ export default function PipelinesCardsView({ pipelines, summaries, reqCounts,
                 const s = summaries.get(p.id) || EMPTY_SUMMARY;
                 const holder = orchestrationView(claims, p.id, machines);
                 const counts = showReqCounts ? reqCounts?.get(p.id) : null;
-                // Completeness is the REQUIREMENT tally now, not a step one.
+                // Completeness is the REQUIREMENT tally now, not an epic one.
                 const pct = counts && counts.total
                     ? Math.round((counts.met / counts.total) * 100) : 0;
                 return (
@@ -156,7 +156,7 @@ export default function PipelinesCardsView({ pipelines, summaries, reqCounts,
                                     <Chip size="small" variant="outlined"
                                           label={machineTitle(p.machine_fk, machines)} />
                                     <Chip size="small" variant="outlined"
-                                          label={`${s.total} step${s.total === 1 ? '' : 's'}`} />
+                                          label={`${s.total} epic${s.total === 1 ? '' : 's'}`} />
                                     <Tooltip title={p.execution_mode === 'serial'
                                         ? 'Serial — one initiative at a time, in sort_order'
                                         : 'Parallel — every initiative runs at once'}>
@@ -166,7 +166,7 @@ export default function PipelinesCardsView({ pipelines, summaries, reqCounts,
                                     </Tooltip>
                                     {/* req #3649 — display-only; the Table view toggles it. */}
                                     {Boolean(Number(p.locked)) && (
-                                        <Tooltip title="Locked — this plan, its initiatives and steps are frozen as a record">
+                                        <Tooltip title="Locked — this plan, its initiatives and epics are frozen as a record">
                                             <Chip size="small"
                                                   {...lockedChipProps(p.locked)}
                                                   label={lockedLabel(p.locked)}
@@ -187,11 +187,11 @@ export default function PipelinesCardsView({ pipelines, summaries, reqCounts,
                                 {/* THE ACCOUNTING LINE — requirements met, which
                                     is a STORED status, and the bar that draws
                                     the same number. See this file's header for
-                                    why this is no longer a step tally.
+                                    why this is no longer an epic tally.
 
                                     Rendered only when there is a tally to
                                     render: with no requirements seated on any
-                                    step, `total` is 0 and a full-width empty
+                                    epic, `total` is 0 and a full-width empty
                                     bar over "0 of 0" claims a measurement
                                     nobody made. */}
                                 {counts && counts.total > 0 && (

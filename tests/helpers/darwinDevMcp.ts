@@ -2,7 +2,7 @@
 // (req #3118).
 //
 // The mutation-replay half of the acceptance battery must exercise the REAL MCP
-// tools — create_pipeline_step, set_step_deps, drop_pipeline_step — through the
+// tools — create_epic, set_epic_deps, drop_epic — through the
 // REAL wrapper (`scripts/mcp/darwin-tool.sh`, the always-via-wrapper policy of
 // req #2365). It must not exercise them against production `darwin`, where
 // `pipelines` stays EMPTY until the Primary's live-plan cutover.

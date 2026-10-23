@@ -10,8 +10,8 @@ import {
     PLAN_LINK_CONSUMED_STATE_KEY,
 } from '../planViewEntry';
 
-const link = { stepId: 47, initiativeId: null };
-const held = { stepId: 12, initiativeId: 9 };
+const link = { epicId: 47, initiativeId: null };
+const held = { epicId: 12, initiativeId: 9 };
 
 describe('classifyPlanEntry', () => {
     it('an unmarked entry carrying a focus link is a LINK, however it was reached', () => {
@@ -43,25 +43,25 @@ describe('classifyPlanEntry', () => {
 
 describe('planEntryFocus', () => {
     it('a LINK hands over its own focus', () => {
-        expect(planEntryFocus(PLAN_ENTRY_LINK, link, held)).toEqual({ stepId: 47, initiativeId: null });
+        expect(planEntryFocus(PLAN_ENTRY_LINK, link, held)).toEqual({ epicId: 47, initiativeId: null });
     });
 
     it('a REWRITE keeps the focus in hand', () => {
-        expect(planEntryFocus(PLAN_ENTRY_REWRITE, link, held)).toEqual({ stepId: 12, initiativeId: 9 });
-        expect(planEntryFocus(PLAN_ENTRY_REWRITE, link, null)).toEqual({ stepId: null, initiativeId: null });
+        expect(planEntryFocus(PLAN_ENTRY_REWRITE, link, held)).toEqual({ epicId: 12, initiativeId: 9 });
+        expect(planEntryFocus(PLAN_ENTRY_REWRITE, link, null)).toEqual({ epicId: null, initiativeId: null });
     });
 
     it('a RETURN hands over NO focus, whatever was in hand', () => {
-        expect(planEntryFocus(PLAN_ENTRY_RETURN, link, held)).toEqual({ stepId: null, initiativeId: null });
+        expect(planEntryFocus(PLAN_ENTRY_RETURN, link, held)).toEqual({ epicId: null, initiativeId: null });
     });
 });
 
 describe('isPlanLinkConsumed', () => {
     it('matches the mark against the CURRENT query only', () => {
         const mark = (q) => ({ [PLAN_LINK_CONSUMED_STATE_KEY]: q });
-        expect(isPlanLinkConsumed({ search: '?step=4', state: mark('?step=4') })).toBe(true);
-        expect(isPlanLinkConsumed({ search: '?step=5', state: mark('?step=4') })).toBe(false);
-        expect(isPlanLinkConsumed({ search: '?step=4', state: null })).toBe(false);
+        expect(isPlanLinkConsumed({ search: '?epic=4', state: mark('?epic=4') })).toBe(true);
+        expect(isPlanLinkConsumed({ search: '?epic=5', state: mark('?epic=4') })).toBe(false);
+        expect(isPlanLinkConsumed({ search: '?epic=4', state: null })).toBe(false);
         expect(isPlanLinkConsumed(undefined)).toBe(false);
     });
 });

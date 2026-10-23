@@ -1,8 +1,10 @@
 // filedFromContext.js — where a requirement was filed from (req #3813). The
-// Requirement Filer's REQUIREMENT button snapshots it at the moment it is
-// pressed — before the editor opens, so the editor is never the subject — and
-// the new draft's description carries it as a delimited, machine-readable
-// block the AI that later builds the requirement can read:
+// Requirement Filer snapshots it the moment its body is clicked ("Create") —
+// before the editor opens, so the editor is never the subject. Since req #3815
+// (user ruling 2026-10-23, absorbing #3818) it is one category of the debug
+// capture — `filedFrom` in RequirementFiler/debugBundle.js, droppable like the
+// others — rather than a block in the description; the description's `Debug
+// capture` block carries its Surface and URL lines. What it records:
 //
 //   • URL     — path + query + hash of the page the reader was on.
 //   • Options — the page's view options: its query, the record ids in its
@@ -14,9 +16,9 @@
 //               database, theme, viewport, the reader's other open Action Popups.
 //   • Popup   — the filer's own rack / dock position and size.
 //
-// The block's `Surface:` line is `<path>?<query>` exactly as
-// /devops-devserver-start takes a deep link, so a worker opens its dev server
-// on the surface the requirement was filed from.
+// `surface` is `<path>?<query>` exactly as /devops-devserver-start takes a deep
+// link, so a worker opens its dev server on the surface the requirement was
+// filed from.
 //
 // NEVER A CREDENTIAL. Persisted state is read from an ALLOWLIST of the owning
 // application's view keys (never the auth/profile keys), and everything that
@@ -28,9 +30,7 @@ import { DEV_APP_GROUPS, DEV_APPS, NAV_GROUPS, appForRoute, isGroupVisible } fro
 import { usePanelRackStore } from '../stores/usePanelRackStore';
 
 export const FILED_FROM_VERSION = 1;
-export const FILED_FROM_BEGIN = `--- Filed-from context v${FILED_FROM_VERSION} (req #3813) ---`;
-export const FILED_FROM_END = '--- end Filed-from context ---';
-/** The block's size ceiling, chars — requirements.description is a TEXT column. */
+/** The context's size ceiling in the capture, serialized chars. */
 export const FILED_FROM_MAX_CHARS = 16000;
 /** One persisted view key's ceiling, chars; a bigger value is named, not copied. */
 const VIEW_VALUE_MAX_CHARS = 2000;
@@ -81,9 +81,10 @@ const rawPairs = (s) => (s || '').replace(/^[?#]/, '').split('&').filter(Boolean
     .map(raw => ({ raw, name: decode(raw.split('=')[0]) }))
     .filter(p => !secretParam(p.name) && !JWT_LIKE.test(decode(p.raw)));
 
-/** The query/hash with credential parameters removed, still raw-encoded. */
-export function cleanQuery(s, prefix = '?') {
-    const kept = rawPairs(s).map(p => p.raw);
+/** The query/hash with credential parameters (and any `drop`ped names)
+ *  removed, still raw-encoded. */
+export function cleanQuery(s, prefix = '?', drop = []) {
+    const kept = rawPairs(s).filter(p => !drop.includes(p.name)).map(p => p.raw);
     return kept.length ? `${prefix}${kept.join('&')}` : '';
 }
 
@@ -234,7 +235,8 @@ export function captureFiledFrom({ location, profile, database, theme, popupId, 
     const app = appForRoute(pathname);
     const popups = typeof document !== 'undefined' ? openActionPopups(document) : [];
     const self = popups.find(p => p.id === popupId) || null;
-    const query = cleanQuery(search);
+    // Without the filer's own `filer` parameter: opening the URL must not file again.
+    const query = cleanQuery(search, '?', ['filer']);
     const cleanHash = cleanQuery(hash, '#');
     return {
         version: FILED_FROM_VERSION,
@@ -270,79 +272,36 @@ export function captureFiledFrom({ location, profile, database, theme, popupId, 
     };
 }
 
-// ── The block ───────────────────────────────────────────────────────────────
+// ── At the press ────────────────────────────────────────────────────────────
 
-const render = (ctx) => [
-    FILED_FROM_BEGIN,
-    `Surface: ${ctx.surface}`,
-    `URL: ${ctx.url.full}`,
-    `Filed at: ${ctx.filedAt}`,
-    JSON.stringify(ctx, null, 2),
-    FILED_FROM_END,
-].join('\n');
-
-/** One header line's ceiling, chars. */
-const LINE_MAX_CHARS = 2000;
-const clip = (s) => (s.length > LINE_MAX_CHARS ? `${s.slice(0, LINE_MAX_CHARS)}…` : s);
-
-/** The description block for `ctx`, held under FILED_FROM_MAX_CHARS: the
- *  persisted view state goes first, then its largest keys' places are kept
- *  by name, then the other popups shrink to ids — and when even that is too
- *  big (a huge query), the header lines alone, clipped, which always fit. */
-export function formatFiledFromBlock(ctx) {
-    let text = render(ctx);
-    if (text.length <= FILED_FROM_MAX_CHARS) return text;
-    const vs = ctx.options.viewState && typeof ctx.options.viewState === 'object' ? ctx.options.viewState : {};
-    // Biggest first, until it fits: each dropped key keeps its name.
-    const sized = Object.keys(vs).map(k => [k, JSON.stringify(vs[k]).length]).sort((a, b) => b[1] - a[1]);
-    const trimmed = { ...vs };
-    for (const [k, n] of sized) {
-        trimmed[k] = `[${n} chars — over the block's size cap]`;
-        ctx = { ...ctx, options: { ...ctx.options, viewState: trimmed } };
-        text = render(ctx);
-        if (text.length <= FILED_FROM_MAX_CHARS) return text;
-    }
-    ctx = { ...ctx, state: { ...ctx.state, actionPopups: (ctx.state.actionPopups || []).map(p => p.id ?? p) } };
-    text = render(ctx);
-    if (text.length <= FILED_FROM_MAX_CHARS) return text;
-    return [
-        FILED_FROM_BEGIN,
-        `Surface: ${clip(ctx.surface)}`,
-        `URL: ${clip(ctx.url.full)}`,
-        `Filed at: ${ctx.filedAt}`,
-        `Context: over the block's ${FILED_FROM_MAX_CHARS}-char size cap — omitted`,
-        FILED_FROM_END,
-    ].join('\n');
-}
-
-/** The last Filed-from block in `text`: `{ surface, url, context }`, or null. */
-export function parseFiledFromBlock(text) {
-    if (typeof text !== 'string') return null;
-    const end = text.lastIndexOf(FILED_FROM_END);
-    const begin = end < 0 ? -1 : text.lastIndexOf(FILED_FROM_BEGIN, end);
-    if (begin < 0) return null;
-    const body = text.slice(begin + FILED_FROM_BEGIN.length, end);
-    const line = (name) => body.match(new RegExp(`^${name}: (.*)$`, 'm'))?.[1]?.trim() ?? null;
-    let context = null;
-    // The JSON opens its own line — a `{` in the URL line is not it.
-    const json = body.indexOf('\n{');
-    if (json >= 0) { try { context = JSON.parse(body.slice(json + 1)); } catch { context = null; } }
-    return { surface: line('Surface'), url: line('URL'), context };
-}
-
-/** The block for a requirement filed now. A capture that fails still files —
- *  with the URL and the failure, never silently without the block. */
-export function filedFromBlockNow(args) {
+/** Where the reader is filing from, now, held under FILED_FROM_MAX_CHARS: the
+ *  persisted view state goes first (each dropped key keeps its name), then the
+ *  other popups shrink to ids. A capture that fails still records the URL and
+ *  the failure — a requirement is never filed silently without its place. */
+export function filedFromNow(args) {
+    let ctx;
     try {
-        return formatFiledFromBlock(captureFiledFrom(args));
+        ctx = captureFiledFrom(args);
     } catch (e) {
         const { pathname = '/', search = '', hash = '' } = args?.location || {};
-        return [
-            FILED_FROM_BEGIN,
-            `Surface: ${surfaceOf(pathname, search)}`,
-            `URL: ${pathname}${cleanQuery(search)}${cleanQuery(hash, '#')}`,
-            `Capture failed: ${String(e?.message || e)}`,
-            FILED_FROM_END,
-        ].join('\n');
+        return {
+            version: FILED_FROM_VERSION,
+            surface: surfaceOf(pathname, search),
+            url: { full: `${pathname}${cleanQuery(search, '?', ['filer'])}${cleanQuery(hash, '#')}` },
+            captureError: String(e?.message || e),
+        };
     }
+    const size = (c) => JSON.stringify(c).length;
+    if (size(ctx) <= FILED_FROM_MAX_CHARS) return ctx;
+    const vs = ctx.options.viewState && typeof ctx.options.viewState === 'object' ? ctx.options.viewState : {};
+    const trimmed = { ...vs };
+    for (const [k, n] of Object.keys(vs).map(k => [k, JSON.stringify(vs[k]).length]).sort((a, b) => b[1] - a[1])) {
+        trimmed[k] = `[${n} chars — over the size cap]`;
+        ctx = { ...ctx, options: { ...ctx.options, viewState: trimmed } };
+        if (size(ctx) <= FILED_FROM_MAX_CHARS) return ctx;
+    }
+    ctx = { ...ctx, state: { ...ctx.state, actionPopups: (ctx.state.actionPopups || []).map(p => p.id ?? p) } };
+    if (size(ctx) <= FILED_FROM_MAX_CHARS) return ctx;
+    return { version: ctx.version, filedAt: ctx.filedAt, surface: ctx.surface.slice(0, 2000),
+        url: { full: ctx.url.full.slice(0, 2000) }, omitted: `over the ${FILED_FROM_MAX_CHARS}-char size cap` };
 }

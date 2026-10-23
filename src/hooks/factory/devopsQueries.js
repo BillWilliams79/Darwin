@@ -397,7 +397,7 @@ export const agentTelemetryRowDocs = createEntityQueries({
 //
 // EVERY READ IS A BOUNDED LIST READ, composed client-side (req #3080 design
 // rule 5 — the POC's 2–3 minute page regeneration from ~86 per-requirement
-// fetches is the named failure). There is deliberately NO per-step or
+// fetches is the named failure). There is deliberately NO per-epic or
 // per-requirement hook: the plan page joins four small lists in a useMemo. Nor
 // is there a refetchInterval anywhere (design rule 6 — the global staleTime +
 // refetchOnWindowFocus + invalidation the query client already provides is what
@@ -455,7 +455,7 @@ export const orchestrationClaims = createEntityQueries({
 // THE PLAN LAYER — one era, plain names (req #3356).
 //
 // These five blocks were declared twice until this requirement: a 1.0 set
-// (`pipelines`/`pipeline_steps`/…) and a 2.0 set (`pipeline2_*`) standing up
+// (`pipelines`/`epics`/…) and a 2.0 set (`pipeline2_*`) standing up
 // beside it. Migration 20260812175325 DROPPED the 1.0 tables and 20260812184333
 // RENAMED the 2.0 tables into the vacated names, so there is one set of tables
 // and one set of declarations. The 1.0 blocks are gone rather than repointed —
@@ -488,7 +488,7 @@ export const pipelines = createEntityQueries({
 });
 
 // ---------------------------------------------------------------------------
-// The plan-layer EDITORS (req #3393) — initiatives, steps and their two junctions.
+// The plan-layer EDITORS (req #3393) — initiatives, epics and their two junctions.
 // `pipelines` above is the req #3463 id PRODUCER (a thin list); these four are
 // what a person actually edits (execution_mode aside, which lives on the
 // pipeline row itself, above).
@@ -505,14 +505,14 @@ export const pipelines = createEntityQueries({
 export const initiatives = createEntityQueries({
     entity: 'initiatives',
     defaultFields:
-        // req #3649 — `locked` (a frozen initiative freezes its steps).
+        // req #3649 — `locked` (a frozen initiative freezes its epics).
         'id,pipeline_fk,title,description,initiative_status,locked,sort_order,category_fk,' +
         'closed,creator_fk,create_ts,update_ts',
     fieldsInKey: true,
     defaultSort: 'sort_order:asc',
 });
 
-// No `pipeline_fk` — containment means a step's plan is derived through its
+// No `pipeline_fk` — containment means an epic's plan is derived through its
 // initiative (data record § 6). `sort=id:asc` IS LOAD-BEARING, not cosmetic: there is
 // no sequence column (design rule 3 — display order is computed at render), and
 // `pipelineModel.displayOrder()` uses a row's position in the input array as its
@@ -520,10 +520,10 @@ export const initiatives = createEntityQueries({
 // first-appearance order. "Canonical stored order" for a table whose only stable
 // identity is its AUTO_INCREMENT id means id ascending; without the explicit
 // sort the plan could re-order between renders on an unordered result set.
-export const pipelineSteps = createEntityQueries({
-    entity: 'pipeline_steps',
+export const pipelineEpics = createEntityQueries({
+    entity: 'epics',
     // req #3649 — `checkpoint` (holds downstream launches) and `locked`.
-    // req #3750 — no `completed_at`: a step has no state and the column is
+    // req #3750 — no `completed_at`: an epic has no state and the column is
     // dropped, so naming it would 400 the whole read.
     defaultFields:
         'id,initiative_fk,title,run,checkpoint,locked,notes,not_before,creator_fk',
@@ -532,27 +532,27 @@ export const pipelineSteps = createEntityQueries({
 });
 
 // Junction, `PRIMARY KEY (requirement_fk)` alone (stage-2 gate ruling, req
-// #3336 — one step per requirement, structural) — no `id`, never request one.
+// #3336 — one epic per requirement, structural) — no `id`, never request one.
 //
 // `fieldsInKey` even though the projection is already the narrowest the junction
 // has: it is the req #2213 / #3015 collision guard, and its whole point is that
 // it has to be there BEFORE a second caller with a different projection arrives,
 // because the failure mode is silent (one caller serves the other its narrower
 // column set and a column renders blank).
-export const pipelineStepRequirements = createEntityQueries({
-    entity: 'pipeline_step_requirements',
-    defaultFields: 'step_fk,requirement_fk',
+export const pipelineEpicRequirements = createEntityQueries({
+    entity: 'epic_requirements',
+    defaultFields: 'epic_fk,requirement_fk',
     fieldsInKey: true,
 });
 
 // Dependency edges. No `time_at` column — the time gate is
-// `pipeline_steps.not_before`, a column on the step, not a kind of dep row.
-// Surrogate `id`, no creator_fk: the edges inherit their step's ownership, so
+// `epics.not_before`, a column on the epic, not a kind of dep row.
+// Surrogate `id`, no creator_fk: the edges inherit their epic's ownership, so
 // the `creatorFk` argument to useAll only shapes the cache key and the enabled
 // predicate.
-export const pipelineStepDeps = createEntityQueries({
-    entity: 'pipeline_step_deps',
-    defaultFields: 'id,step_fk,dep_step_fk',
+export const pipelineEpicDeps = createEntityQueries({
+    entity: 'epic_deps',
+    defaultFields: 'id,epic_fk,dep_epic_fk',
     fieldsInKey: true,
 });
 
@@ -579,7 +579,7 @@ export const requirementSessions = createEntityQueries({
 });
 
 // swarm_sessions projected to FIVE columns — the id, migration 077's two flat
-// rollups, `swarm_status` (req #3584), and `started_at` (req #3825 — a step
+// rollups, `swarm_status` (req #3584), and `started_at` (req #3825 — an epic
 // card's START is its requirements' first session start). Cost facts that happen to be stored
 // on the session row, plus one status per session that the plan visualizer's
 // Session colour key reduces to one value per REQUIREMENT — no session rows,

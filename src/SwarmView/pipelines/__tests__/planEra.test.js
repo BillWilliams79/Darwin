@@ -80,8 +80,8 @@ describe('planDetailPath — id handling', () => {
     });
 
     it('appends a query string only when one is given', () => {
-        expect(planDetailPath(2, 'mode=table&step=9'))
-            .toBe('/swarm/pipeline/2?mode=table&step=9');
+        expect(planDetailPath(2, 'mode=table&epic=9'))
+            .toBe('/swarm/pipeline/2?mode=table&epic=9');
         expect(planDetailPath(2, null)).toBe('/swarm/pipeline/2');
         expect(planDetailPath(2, '')).toBe('/swarm/pipeline/2');
     });
@@ -169,7 +169,7 @@ describe('THE GUARD — no file outside planEra.js spells a plan route', () => {
     ]);
 
     // `__tests__` IS EXEMPT, and deliberately so. A test that asserted
-    // `stepLinkTo(2, 47) === planDetailPath(1, 2, '…')` would be comparing the
+    // `epicLinkTo(2, 47) === planDetailPath(1, 2, '…')` would be comparing the
     // implementation against itself and would pass however wrong both were —
     // the literal in a test is the PIN, and banning it would delete the only
     // place the route's actual spelling is written down twice on purpose. The

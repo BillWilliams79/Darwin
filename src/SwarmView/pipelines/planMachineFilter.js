@@ -62,7 +62,7 @@ export function isMachineHidden(machineFk, hidden) {
 
 /**
  * Drop each row's requirements pinned to a deselected machine, from rows
- * already run through `orderStepReqs`. `reqDoneFrom` (the index where the
+ * already run through `orderEpicReqs`. `reqDoneFrom` (the index where the
  * closed tail starts, which positions the dashed complete line) shifts down by
  * the number of dropped ids that sat BEFORE it, so the line stays between the
  * same two surviving requirements. A row with nothing to drop is returned as

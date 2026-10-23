@@ -1,4 +1,4 @@
-// req #3825 — the step card's time line: START at the bottom-left, END at the
+// req #3825 — the epic card's time line: START at the bottom-left, END at the
 // bottom-right, reserved on every card whose work has begun.
 
 import { describe, it, expect } from 'vitest';
@@ -6,12 +6,12 @@ import { describe, it, expect } from 'vitest';
 import {
     computePlanLayout, cardHeight, drawsLabelKind,
     CARD_PAD_X, CARD_PAD_Y, CARD_FRAME_X, CARD_STAMP_H, CARD_STAMP_TEXT_H,
-    STEP_WIDTH_RUNGS,
+    EPIC_WIDTH_RUNGS,
 } from '../pipelinePlanLayout';
-import { formatClock } from '../planStepTimes';
+import { formatClock } from '../planEpicTimes';
 
 const mk = (id, extra = {}, depIds = [], reqIds = [100 + id]) => ({
-    id, title: `step ${id}`, run: 'auto', state: 'pending', reqIds,
+    id, title: `epic ${id}`, run: 'auto', state: 'pending', reqIds,
     depIds, timeDeps: [], initiativeId: 1, initiative: 'initiative-1',
     initiativeLabels: [], featureLabels: [], machineLabels: [], machineLabel: '—',
     ...extra,
@@ -29,10 +29,10 @@ const ROWS = [
 
 const rectsOverlap = (a, b) =>
     a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
-const stampsOf = (layout, stepId) =>
-    layout.labels.filter((l) => l.kind === 'stamp' && l.stepId === stepId);
+const stampsOf = (layout, epicId) =>
+    layout.labels.filter((l) => l.kind === 'stamp' && l.epicId === epicId);
 
-describe('the step card time line (req #3825)', () => {
+describe('the epic card time line (req #3825)', () => {
     const layout = computePlanLayout(ROWS);
     const bare = computePlanLayout(ROWS.map((r) => ({ ...r, stampsReserved: false })));
 
@@ -63,8 +63,8 @@ describe('the step card time line (req #3825)', () => {
     it('an end on a later local day carries +Nd and still fits the card', () => {
         const overnight = [mk(1, { stampsReserved: true, state: 'done',
             startedAt: '2026-10-14T08:00:00', endedAt: '2026-10-23T21:40:00' })];
-        for (const rung of STEP_WIDTH_RUNGS) {
-            const l = computePlanLayout(overnight, { stepWidthLevel: rung });
+        for (const rung of EPIC_WIDTH_RUNGS) {
+            const l = computePlanLayout(overnight, { epicWidthLevel: rung });
             const [start, end] = ['start', 'end'].map(
                 (side) => stampsOf(l, 1).find((s) => s.side === side));
             expect(end.text).toMatch(/^\d{2}:\d{2}(AM|PM)\+\d+d$/);
@@ -73,7 +73,7 @@ describe('the step card time line (req #3825)', () => {
         }
     });
 
-    it('a running step shows its start only; an unstamped start shows the end only', () => {
+    it('a running epic shows its start only; an unstamped start shows the end only', () => {
         expect(stampsOf(layout, 2).map((l) => l.side)).toEqual(['start']);
         expect(stampsOf(layout, 4).map((l) => l.side)).toEqual(['end']);
         expect(stampsOf(layout, 3)).toHaveLength(0);
@@ -82,7 +82,7 @@ describe('the step card time line (req #3825)', () => {
     it('sits below every other label of its card', () => {
         for (const id of [1, 2, 4]) {
             const stamps = stampsOf(layout, id);
-            const others = layout.labels.filter((l) => l.stepId === id && l.kind !== 'stamp');
+            const others = layout.labels.filter((l) => l.epicId === id && l.kind !== 'stamp');
             for (const s of stamps) {
                 for (const o of others) {
                     expect(rectsOverlap(s, o)).toBe(false);
@@ -92,9 +92,9 @@ describe('the step card time line (req #3825)', () => {
         }
     });
 
-    it('never lets START and END touch, at every step width', () => {
-        for (const rung of STEP_WIDTH_RUNGS) {
-            const l = computePlanLayout(ROWS, { stepWidthLevel: rung });
+    it('never lets START and END touch, at every epic width', () => {
+        for (const rung of EPIC_WIDTH_RUNGS) {
+            const l = computePlanLayout(ROWS, { epicWidthLevel: rung });
             const [start, end] = ['start', 'end'].map(
                 (side) => stampsOf(l, 1).find((s) => s.side === side));
             expect(rectsOverlap(start, end)).toBe(false);
@@ -102,7 +102,7 @@ describe('the step card time line (req #3825)', () => {
     });
 
     it('a folded card keeps its time line', () => {
-        const folded = computePlanLayout(ROWS, { collapsedStepIds: new Set([1]) });
+        const folded = computePlanLayout(ROWS, { collapsedEpicIds: new Set([1]) });
         expect(stampsOf(folded, 1)).toHaveLength(2);
         const n = folded.nodes.get(1);
         for (const s of stampsOf(folded, 1)) expect(s.y + s.h).toBeLessThanOrEqual(n.bottom);
@@ -112,17 +112,17 @@ describe('the step card time line (req #3825)', () => {
         const long = 'A requirement title long enough to wrap onto its second line';
         const rows = ROWS.map((r) => ({ ...r, reqIds: [101, 102, 103] }));
         const reqTitles = new Map([[101, long], [102, 'short'], [103, long]]);
-        for (const stepWidthLevel of STEP_WIDTH_RUNGS) {
-            for (const stepLabel of ['id', 'title']) {
+        for (const epicWidthLevel of EPIC_WIDTH_RUNGS) {
+            for (const epicLabel of ['id', 'title']) {
                 for (const reqLabel of ['id', 'title']) {
-                    for (const collapsedStepIds of [new Set(), new Set([1, 4])]) {
+                    for (const collapsedEpicIds of [new Set(), new Set([1, 4])]) {
                         const l = computePlanLayout(rows, {
-                            stepWidthLevel, stepLabel, reqLabel, reqTitles, collapsedStepIds,
+                            epicWidthLevel, epicLabel, reqLabel, reqTitles, collapsedEpicIds,
                         });
                         const stamps = l.labels.filter((x) => x.kind === 'stamp');
                         expect(stamps.length).toBe(4);
                         for (const st of stamps) {
-                            const n = l.nodes.get(st.stepId);
+                            const n = l.nodes.get(st.epicId);
                             expect(st.y + st.h).toBeLessThanOrEqual(n.bottom);
                             expect(st.x + st.w).toBeLessThanOrEqual(n.right);
                             for (const o of l.labels) {

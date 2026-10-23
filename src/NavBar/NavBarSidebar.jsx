@@ -85,6 +85,18 @@ const NavBarSidebar = () => {
     // that toolbar's to show.
     const rackDrag = usePanelRackStore(s => (s.pageSlot ? null : s.drag));
     const rackOver = !!rackDrag?.over;
+    // `?rack=<id>,<id>…` (req #3821): a link that lands with those Action
+    // Popups' rack places taken, in that order, at the bottom of the stack —
+    // so a page can be opened with its popups racked (a dev server's deep
+    // link). It places, it does not show: a popup hidden on the route (the
+    // Filer until `?filer=`, a dashboard closed by ×, the Plan's boxes off a
+    // plan) stays hidden. Once per landing on the parameter.
+    const rackParam = new URLSearchParams(location.search).get('rack');
+    useEffect(() => {
+        if (!rackParam) return;
+        const { rack } = usePanelRackStore.getState();
+        rackParam.split(',').map(s => s.trim()).filter(Boolean).forEach(id => rack(id));
+    }, [rackParam]);
 
     // Per-group collapsed state (req #2869). Clicking a group header hides/shows
     // its child links — purely visual, routes are unaffected. Seeded from and

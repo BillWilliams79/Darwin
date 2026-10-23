@@ -95,7 +95,7 @@ const samePos = (a, b) => !!a && !!b && a.x === b.x && a.y === b.y;
  *                       `PipelinePlanVisualizer`'s own `const [containerEl,
  *                       setContainer] = useState(null)` idiom, for that reason.
  * @param {{restore?: boolean}} [opts]  `restore: false` keeps RECORDING and skips
- *                       the one restore — what a deep link needs. `?step=`
+ *                       the one restore — what a deep link needs. `?epic=`
  *                       scrolls its row to centre, so a restore racing it puts
  *                       the reader somewhere neither asked for; but where the
  *                       link left them IS where they are, so their position must

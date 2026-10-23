@@ -1,22 +1,23 @@
 // Req #3811 — the popup requirement editor's pure half: the draft it starts
 // from, when it can save, and the exact POST / PUT bodies.
 
+import fs from 'node:fs';
+import path from 'node:path';
 import { describe, it, expect } from 'vitest';
 
-import { DEFAULT_REQUIREMENT_SPEC } from '../../SwarmView/requirementSpec';
 import {
-    buildPostBody, buildPutBody, defaultsFormValues, draftDirty, draftProblem, machineOptions,
-    newRequirementDraft, savedValues, staleRefs,
+    CARRIED_FIELDS, FILER_DEFAULT_SPEC, SPEC_LETTERS, buildPostBody, buildPutBody, carriedSettings, draftDirty,
+    draftProblem, machineOptions, newRequirementDraft, savedValues, specCode, staleCategory, staleMachine,
 } from '../requirementFilerModel';
-import { buildOrchestrationIndex } from '../../SwarmView/detail/orchestrationIndex';
 
 const NOW = '2026-10-23T10:00:00.000Z';
-const filled = (over = {}) => ({ ...newRequirementDraft(4, 862), title: '  Filer  ', ...over });
+// As the editor leaves a draft once its carried place has been checked.
+const filled = (over = {}) => ({ ...newRequirementDraft(4, 862), title: '  Filer  ', defaultsUnchecked: [], ...over });
 
 describe('requirementFilerModel (req #3811)', () => {
-    it('starts from DEFAULT_REQUIREMENT_SPEC, Any machine, work, where the last one was filed', () => {
+    it('starts from SRDOH, Any machine, work, where the last one was filed', () => {
         const d = newRequirementDraft(4, 862);
-        expect(d).toMatchObject({ ...DEFAULT_REQUIREMENT_SPEC, projectId: 4, category_fk: 862,
+        expect(d).toMatchObject({ ...FILER_DEFAULT_SPEC, projectId: 4, category_fk: 862,
             machine_fk: null, affected_repos: '', tracking: 0, title: '', description: '' });
         expect(newRequirementDraft()).toMatchObject({ projectId: null, category_fk: null });
     });
@@ -33,7 +34,7 @@ describe('requirementFilerModel (req #3811)', () => {
         expect(Array.isArray(body)).toBe(false);
         expect(body).toEqual({
             title: 'Filer', category_fk: 862, tracking: 0,
-            requirement_status: 'development', coordination_type: 'implemented', ai_model: 'opus', effort: 'high',
+            requirement_status: 'development', coordination_type: 'deployed', ai_model: 'opus', effort: 'high',
             started_at: NOW, completed_at: 'NULL', deferred_at: 'NULL',
         });
         const full = buildPostBody(filled({ description: 'd', machine_fk: 3, affected_repos: ' Darwin ', tracking: 1 }), NOW);
@@ -80,64 +81,70 @@ describe('requirementFilerModel (req #3811)', () => {
     });
 });
 
-// Req #3812 — the defaults every requirement filed from the popup starts with.
-describe('requirement filer defaults (req #3812)', () => {
-    it('a never-set field falls back to the standard spec; a set one wins', () => {
-        expect(defaultsFormValues({})).toMatchObject({ ...DEFAULT_REQUIREMENT_SPEC, projectId: null, seatStepId: null });
-        expect(defaultsFormValues({ effort: 'low', ai_model: '' })).toMatchObject({ effort: 'low', ai_model: 'opus' });
+// Req #3815 — a new requirement starts with the last one's settings (SRDOH
+// before any), and the editor shows them as their spec code.
+describe('the last settings and the spec code (req #3815)', () => {
+    it('a never-set setting is SRDOH on Any machine; a carried one wins; the place is the last filed', () => {
+        expect(newRequirementDraft(1, 10, {})).toMatchObject({ ...FILER_DEFAULT_SPEC, coordination_type: 'deployed',
+            machine_fk: null, tracking: 0, projectId: 1, category_fk: 10, defaultsUnchecked: ['category'] });
+        expect(newRequirementDraft(null, null, {}).defaultsUnchecked).toEqual([]);
+        const d = newRequirementDraft(1, 10, { effort: 'low', ai_model: '', machine_fk: 2, tracking: 1,
+            seatEpicId: 300, projectId: 9 });
+        expect(d).toMatchObject({ effort: 'low', ai_model: 'opus', machine_fk: 2, tracking: 1, projectId: 1, category_fk: 10 });
+        // Only what the form shows is carried — never a seat or a place.
+        expect(d).not.toHaveProperty('seatEpicId');
+        // The carried place and machine are checked against live data first, which holds File.
+        expect(d.defaultsUnchecked).toEqual(['category', 'machine']);
+        expect(draftProblem({ ...d, title: 'x' })).toBe('Checking the last settings…');
     });
 
-    it('a default place replaces the last-filed place; without one the last place stands', () => {
-        expect(newRequirementDraft(1, 10, {})).toMatchObject({ projectId: 1, category_fk: 10, defaultsUnchecked: [] });
-        expect(newRequirementDraft(1, 10, { projectId: 4, category_fk: 862 }))
-            .toMatchObject({ projectId: 4, category_fk: 862, defaultsUnchecked: ['category'] });
+    it('carries the settings the form shows, from what was saved', () => {
+        const saved = savedValues(filled({ requirement_status: 'approved', machine_fk: 3, tracking: 1 }));
+        expect(carriedSettings(saved)).toEqual({ requirement_status: 'approved', coordination_type: 'deployed',
+            ai_model: 'opus', effort: 'high', machine_fk: 3, tracking: 1 });
+        expect(Object.keys(carriedSettings(saved))).toEqual([...CARRIED_FIELDS]);
     });
 
-    it('applies the seat and marks every reference default for a live check, which holds Save', () => {
-        const d = newRequirementDraft(null, null,
-            { projectId: 4, category_fk: 862, machine_fk: 2, seatPipelineId: 2, seatInitiativeId: 30, seatStepId: 300 });
-        expect(d).toMatchObject({ machine_fk: 2, seatPipelineId: 2, seatInitiativeId: 30, seatStepId: 300 });
-        expect(d.defaultsUnchecked).toEqual(['category', 'machine', 'seat']);
-        expect(draftProblem({ ...d, title: 'x' })).toBe('Checking defaults…');
-        expect(draftProblem({ ...d, title: 'x', defaultsUnchecked: [] })).toBe(null);
+    it('a carried place that closed is stale; unknown until its reads land', () => {
+        const projects = [{ id: 4 }];
+        const categories = [{ id: 862 }];
+        expect(staleCategory({ projectId: 4, category_fk: 862 }, projects, categories)).toBe(null);
+        expect(staleCategory({ projectId: 4, category_fk: 1 }, projects, categories)).toEqual({ project: false, text: 'is closed or deleted' });
+        expect(staleCategory({ projectId: 9, category_fk: 1 }, projects, undefined)).toEqual({ project: true, text: 'is closed or deleted' });
+        expect(staleCategory({ projectId: 4, category_fk: 862 }, undefined, undefined)).toBe(undefined);
+        expect(staleCategory({ projectId: 4, category_fk: 862 }, projects, undefined, true)).toEqual({ project: false, text: 'could not be checked' });
+        expect(staleCategory({ category_fk: null }, undefined, undefined)).toBe(null);
+        // A category with no project cannot be read, so it is never waited on.
+        expect(staleCategory({ projectId: null, category_fk: 862 }, undefined, undefined)).toEqual({ project: false, text: 'could not be checked' });
     });
 
-    it('the seat is never in a requirement body, but a changed seat is something to save', () => {
-        const d = { ...newRequirementDraft(4, 862), title: 'x', seatStepId: 300, defaultsUnchecked: [] };
-        expect(buildPostBody(d, NOW)).not.toHaveProperty('seatStepId');
-        const saved = { ...savedValues(d), seatStepId: null };
-        expect(buildPutBody(1, d, saved, NOW)).toBe(null);
-        expect(draftDirty(d, 1, saved)).toBe(true);
-        expect(draftDirty(d, 1, savedValues(d))).toBe(false);
+    it('the spec code is the four launch fields\' letters', () => {
+        expect(specCode(FILER_DEFAULT_SPEC)).toBe('SRDOH');
+        expect(specCode({ requirement_status: 'swarm_ready', coordination_type: 'implemented', ai_model: 'sonnet', effort: 'medium' }))
+            .toBe('SRISM');
+        expect(specCode({ requirement_status: 'development', coordination_type: 'discuss', ai_model: 'fable', effort: 'ultracode' }))
+            .toBe('DVCFU');
+        expect(specCode({})).toBe('?????');
     });
 
-    it('staleRefs: closed or missing references, unknown until each read lands', () => {
-        const index = buildOrchestrationIndex({
-            pipelines: [{ id: 2, pipeline_status: 'active' }, { id: 5, pipeline_status: 'completed' }],
-            initiatives: [{ id: 30, pipeline_fk: 2 }, { id: 31, pipeline_fk: 2, closed: 1 }, { id: 50, pipeline_fk: 5 }],
-            steps: [{ id: 300, initiative_fk: 30 }, { id: 310, initiative_fk: 31 }, { id: 500, initiative_fk: 50 }],
-            stepRequirements: [],
-        });
-        const data = { projects: [{ id: 4 }], categories: [{ id: 862 }],
-            machines: [{ id: 2 }, { id: 3, closed: 1 }], index };
-        expect(staleRefs({ projectId: 4, category_fk: 862, machine_fk: 2, seatStepId: 300 }, data))
-            .toEqual({ project: null, category: null, machine: null, seat: null });
-        expect(staleRefs({ projectId: 9, category_fk: 862, machine_fk: 3, seatStepId: 310 }, data)).toEqual({
-            project: 'closed or deleted', category: 'its project is closed or deleted',
-            machine: 'closed', seat: 'its epic is closed or deleted' });
-        expect(staleRefs({ projectId: 4, category_fk: 1, machine_fk: 8, seatStepId: 500 }, data)).toEqual({
-            project: null, category: 'closed or deleted', machine: 'no longer exists',
-            seat: 'its pipeline is completed or deleted' });
-        expect(staleRefs({ seatStepId: 999 }, data).seat).toBe('no longer exists');
-        // A scope with no step.
-        expect(staleRefs({ seatPipelineId: 2, seatInitiativeId: 30 }, data).seat).toBe(null);
-        expect(staleRefs({ seatPipelineId: 5 }, data).seat).toBe('its pipeline is completed or deleted');
-        expect(staleRefs({ seatPipelineId: 2, seatInitiativeId: 31 }, data).seat).toBe('its epic is closed or deleted');
-        // A project with no category still waits for the project read.
-        expect(staleRefs({ projectId: 4, category_fk: null }, {}).category).toBe(undefined);
-        expect(staleRefs({ projectId: 9, category_fk: null }, data)).toMatchObject({ project: 'closed or deleted', category: null });
-        // Not yet read: unknown, never valid.
-        expect(staleRefs({ projectId: 4, category_fk: 862, machine_fk: 2, seatStepId: 300 }, {}))
-            .toEqual({ project: undefined, category: undefined, machine: undefined, seat: undefined });
+    it('its letter table is darwin-mcp\'s (services/requirement_spec.py), when the workspace has it', () => {
+        const py = path.resolve(__dirname, '../../../../darwin-mcp/services/requirement_spec.py');
+        if (!fs.existsSync(py)) return;      // a Darwin checkout on its own
+        const src = fs.readFileSync(py, 'utf8');
+        const table = (name) => Object.fromEntries([...src.match(new RegExp(`${name} = \\{([^}]*)\\}`))[1]
+            .matchAll(/'(\w+)': '(\w+)'/g)].map(m => [m[1], m[2]]));
+        expect(SPEC_LETTERS.requirement_status).toEqual(table('STATUS_CODES'));
+        expect(SPEC_LETTERS.coordination_type).toEqual(table('COORDINATION_CODES'));
+        expect(SPEC_LETTERS.ai_model).toEqual(table('MODEL_CODES'));
+        expect(SPEC_LETTERS.effort).toEqual(table('EFFORT_CODES'));
+    });
+
+    it('a carried machine that closed or went is stale; unknown until its read lands', () => {
+        const machines = [{ id: 2 }, { id: 3, closed: 1 }];
+        expect(staleMachine({ machine_fk: 2 }, machines)).toBe(null);
+        expect(staleMachine({ machine_fk: 3 }, machines)).toBe('closed');
+        expect(staleMachine({ machine_fk: 8 }, machines)).toBe('no longer exists');
+        expect(staleMachine({ machine_fk: 2 }, undefined)).toBe(undefined);
+        expect(staleMachine({ machine_fk: null }, undefined)).toBe(null);
     });
 });

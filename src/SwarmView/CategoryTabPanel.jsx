@@ -24,10 +24,10 @@ import Box from '@mui/material/Box';
 // filter is active. This panel neither reads the URL nor derives membership: the
 // host owns the filter, and one derivation upstairs is what stops the aggregator
 // and the category cards from disagreeing about what the initiative contains.
-// req #3503 — `stepReqIds` is the STEP filter's scope, the sibling of the above
+// req #3503 — `epicReqIds` is the EPIC filter's scope, the sibling of the above
 // and threaded the same way. Independent of it: both may be non-null at once and
 // the cards apply them in series.
-const CategoryTabPanel = ( { project, projectIndex, activeTab, showClosed, showSwarmStartCard, initiativeReqIds = null, stepReqIds = null } ) => {
+const CategoryTabPanel = ( { project, projectIndex, activeTab, showClosed, showSwarmStartCard, initiativeReqIds = null, epicReqIds = null } ) => {
 
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
@@ -202,7 +202,7 @@ const CategoryTabPanel = ( { project, projectIndex, activeTab, showClosed, showS
                     <DarwinSortableList id={categoriesListId} items={sortableCategoryIds} policy={CATEGORY_CARDS}>
                     <Box className="card swarm-card" ref={panelDropRef}>
                         {showSwarmStartCard && <SwarmStartCard projectId={project.id} panelActive={panelActive}
-                                                               initiativeReqIds={initiativeReqIds} stepReqIds={stepReqIds} />}
+                                                               initiativeReqIds={initiativeReqIds} epicReqIds={epicReqIds} />}
                         { renderedCategories.map((category) => (
                             <CategoryCard {...{key: category.id,
                                            category,
@@ -221,7 +221,7 @@ const CategoryTabPanel = ( { project, projectIndex, activeTab, showClosed, showS
                                            showClosed,
                                            panelActive,
                                            initiativeReqIds,
-                                           stepReqIds,}}/>
+                                           epicReqIds,}}/>
                         ))}
                     </Box>
                     </DarwinSortableList>

@@ -12,12 +12,12 @@
 //
 // The other half of what only this file can reach is WHICH ARRIVALS COUNT.
 // Req #3311 wrote the id from the list page's click handler, so a plan opened
-// by a `?step=` link, by the sessions grid, by the requirement page's initiative box
+// by a `?epic=` link, by the sessions grid, by the requirement page's initiative box
 // or by Back was never recorded — the reader had obviously last selected it and
 // the app disagreed. Recording on arrival is the fix, and "on arrival" is only
 // true if it survives the routes nobody enumerated.
 //
-// The two mode panels are STUBBED, as in `PipelineDetail.stepParam.test.jsx`:
+// The two mode panels are STUBBED, as in `PipelineDetail.epicParam.test.jsx`:
 // the real Plan mode is react-konva and needs a canvas jsdom does not provide,
 // and none of this requirement's behaviour is in either panel.
 
@@ -198,7 +198,7 @@ describe('PipelineDetail — recording the remembered place (req #3431)', () => 
     // list-page click handler could not see, and each one is a plan the reader
     // would swear they had last selected.
     it.each([
-        ['a ?step= deep link', '/swarm/pipeline/2?mode=plan&step=47'],
+        ['a ?epic= deep link', '/swarm/pipeline/2?mode=plan&epic=47'],
         ['an ?initiative= link from the requirement page', '/swarm/pipeline/2?initiative=9'],
         ['a ?mode= link', '/swarm/pipeline/2?mode=plan'],
         ['a bare bookmark', '/swarm/pipeline/2'],

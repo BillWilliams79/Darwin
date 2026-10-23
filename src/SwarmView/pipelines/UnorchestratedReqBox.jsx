@@ -3,10 +3,10 @@
 // "Orchestration Ready" by req #3648).
 //
 // An Action Popup in the canvas's top-right corner listing every requirement
-// that is ready to run but sits on no plan step. Each row is the SOURCE of a
-// drag: pick it up, drop it on a step card, and it is seated there. That is
+// that is ready to run but sits on no plan epic. Each row is the SOURCE of a
+// drag: pick it up, drop it on an epic card, and it is seated there. That is
 // what makes it "go hand in hand with" the visualizer's drag-and-drop (req
-// #3581) — that one moves work between steps, this one feeds new work in.
+// #3581) — that one moves work between epics, this one feeds new work in.
 //
 // ── A dnd-kit DRAG ON THE SHARED PRESS TIMELINE, NO HANDLE (req #3665) ────
 // The whole row is the grip (`useDarwinDraggable`), and it lifts the way every
@@ -16,7 +16,7 @@
 // face are set on the row itself, so the copy reads the same outside the box);
 // the row left behind greys out. Nothing on the canvas re-lays-out while the
 // requirement is in the air; the visualizer's collision detection hit-tests
-// the step cards and draws the outline (see its `seatTarget`). It replaced a
+// the epic cards and draws the outline (see its `seatTarget`). It replaced a
 // native HTML5 `draggable`, which touch browsers do not drive.
 //
 // ── IT IS CHROME, NOT CANVAS ───────────────────────────────────────────────
@@ -60,17 +60,17 @@
 // same anchoring its home corner has. A wheel over a box parked OFF the plan
 // does not zoom the plan about a point it cannot see.
 //
-// ── DROPPED ON A STEP, IT SEATS THE WHOLE SET (req #3608) ─────────────────
+// ── DROPPED ON AN EPIC, IT SEATS THE WHOLE SET (req #3608) ─────────────────
 // The same title-bar move doubles as a drag of EVERY requirement the box
 // lists. Each move frame hands the pointer to the visualizer (`onMoveOver`),
-// which outlines the step card beneath it; on release `onMoveDrop` is offered
-// the drop, and when it takes it (the pointer is over a step) the box goes back
+// which outlines the epic card beneath it; on release `onMoveDrop` is offered
+// the drop, and when it takes it (the pointer is over an epic) the box goes back
 // to where it was before the drag — that gesture was a seat, not a relocation —
 // and the spot is not remembered. The visualizer asks before writing anything.
 // An empty box has nothing to seat, so it only ever moves.
 //
 // While a carrying move is under way (req #3614) the box turns see-through, so
-// the step card it is aimed at can be read; undone on release.
+// the epic card it is aimed at can be read; undone on release.
 // `onCarryingChange` tells the visualizer, which then draws its seat-target
 // outline above the box.
 //
@@ -90,17 +90,17 @@
 // marks it feeds — held within 9–16px (`unseatedBoxFontPx`) so it stays
 // legible zoomed far out and never covers the canvas zoomed in (user ruling).
 //
-// ── AS WIDE AS A STEP (req #3620, user directive) ──────────────────────────
-// The one dimension NOT in em: the WIDTH is the step card's own on-screen
-// frame width (`widthPx`, from `unseatedBoxWidthPx`), so it follows the Step
-// Width rung and the zoom — "whatever the step width, the box will mirror its
+// ── AS WIDE AS AN EPIC (req #3620, user directive) ──────────────────────────
+// The one dimension NOT in em: the WIDTH is the epic card's own on-screen
+// frame width (`widthPx`, from `unseatedBoxWidthPx`), so it follows the Epic
+// Width rung and the zoom — "whatever the epic width, the box will mirror its
 // width". Never narrower than its whole title bar (`UNSEATED_MIN_WIDTH_EM`):
 // zoomed out past the type's 9px floor, a card is too thin to hold it.
 //
 // ── STRETCHED BY ITS CORNER, IN THREE TEXT SIZES (req #3654) ─────────────
 // On top of all that, the reader may drag the grip in the box's bottom corner
-// to stretch it wider or narrower, taller or shorter. Stretched a full step
-// wider its text goes ONE size bigger, a full step narrower ONE size smaller,
+// to stretch it wider or narrower, taller or shorter. Stretched a full epic
+// wider its text goes ONE size bigger, a full epic narrower ONE size smaller,
 // and never further — three sizes (user directive; the arithmetic is
 // `unseatedResizedBox`). The grip sits on the corner AWAY from the side the box
 // is anchored to — bottom-left at home or when remembered from the right, so
@@ -128,7 +128,9 @@
 // the id goes bold.
 //
 // ── FOLDED, IT IS A NARROW "OR" BAR (req #3648, user directive) ───────────
-// The title bar is every Action Popup's (req #3741): the ▾ (CollapseHead) at
+// The title bar is every Action Popup's (req #3741) — the same component,
+// ActionPopupHead, since req #3821, so it lines up with the rest in the rack:
+// the ▾ (CollapseHead) at
 // the upper left, then the count as a badge, then the name — and the upper
 // right blank, since the box has no close. Folding swaps the name for "OR" and
 // narrows the box to exactly that bar — ▾, badge, "OR", nothing else changed —
@@ -152,14 +154,14 @@
 // It is one of Darwin's Action Popups, so it racks like the rest
 // (the Dev Servers dashboard, the Dev Server panel, the Active box — pattern doc
 // memory/anchored-collapse-pattern.md § The rack). It draws its own frame rather
-// than being an AnchoredPanel — its zoom-following type, step-card width, text
+// than being an AnchoredPanel — its zoom-following type, epic-card width, text
 // sizes and carry-to-seat are its own — so it takes the rack from the SAME hook
 // AnchoredPanel does (`usePanelRack`): its title-bar move hit-tests the navbar,
 // the navbar glows in its purple while the pointer is over, and released there
 // it is RACKED — portalled into the navbar's rack slot at the navbar's width, in
 // the Action Popups' 12px type, its title whole even folded, no grip, stacked and
-// reordered with the others. Its rows still drag onto step cards from there, and
-// a carried move released over a step still seats the whole set — and leaves it
+// reordered with the others. Its rows still drag onto epic cards from there, and
+// a carried move released over an epic still seats the whole set — and leaves it
 // racked: that gesture was a seat, not a relocation. Dragged off the navbar it
 // floats again where it was dropped. In the icon-only navbar it keeps its badge
 // and ▾, and its rows their ids. While the page is MAXIMIZED the navbar is
@@ -169,14 +171,14 @@
 // every move of this box does (req #3677) — an AnchoredPanel shrinks to its head.
 //
 // ── A REQUIREMENT DROPPED ON IT LEAVES THE PLAN (req #3817) ───────────────
-// The box is a drop TARGET as well as a source: drag a requirement off a step
+// The box is a drop TARGET as well as a source: drag a requirement off an epic
 // card, release it over the box — home, floated anywhere, or racked in the
-// navbar — and it is un-orchestrated (its step seat deleted), so it is the
+// navbar — and it is un-orchestrated (its epic seat deleted), so it is the
 // box's. The gesture is the visualizer's; the box hands it its element
 // (`dropTargetRef`) to hit-test and draws what it is told: while a requirement
 // is in flight (`dropArmed`) a dashed purple outline says it takes drops, and
 // with the requirement over it (`dropOver`) it glows and its title reads
-// "Drop to un-orchestrate". A requirement on a LOCKED step cannot leave it
+// "Drop to un-orchestrate". A requirement on a LOCKED epic cannot leave it
 // (`dropArmed` 'refused'): no outline, a no-drop cursor.
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -186,8 +188,13 @@ import Collapse from '@mui/material/Collapse';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { lighten } from '@mui/material/styles';
 
-import CollapseHead from '../../Components/AnchoredPanel/CollapseHead';
-import { ACTION_POPUP_COLORS, ACTION_POPUP_FONT_PX } from '../../Components/AnchoredPanel/actionPopupChrome';
+import ActionPopupHead, {
+    ACTION_POPUP_BADGE_PAD_EM, ACTION_POPUP_HEAD_GAP_EM, ACTION_POPUP_HEAD_PAD_EM, ACTION_POPUP_TITLE_EM,
+    ACTION_POPUP_TITLE_TRACKING_EM, ActionPopupBadge,
+} from '../../Components/AnchoredPanel/ActionPopupHead';
+import {
+    ACTION_POPUP_BADGE_EM, ACTION_POPUP_COLORS, ACTION_POPUP_FONT_PX, ACTION_POPUP_HEAD_EM, ACTION_POPUP_MONO,
+} from '../../Components/AnchoredPanel/actionPopupChrome';
 import { rackOrder } from '../../Components/AnchoredPanel/panelRack';
 import { rackPortal, usePanelRack } from '../../Components/AnchoredPanel/usePanelRack';
 import { CARD_FRAME_W, PLAN_VIZ_PALETTE as P } from './pipelinePlanLayout';
@@ -201,7 +208,8 @@ import {
 } from '../../dnd';
 import { usePlanViewSetting } from './planViewSettings';
 
-const MONO = '"SF Mono", "JetBrains Mono", Menlo, monospace';
+// The Action Popups' type — the folded bar's `ch` width depends on it.
+const MONO = ACTION_POPUP_MONO;
 
 /** The box's outline (req #3605, user directive: "a strong visible purple" —
  *  neither dark nor pastel). ~4.5:1 against the box's own background. */
@@ -218,10 +226,12 @@ const CORNER_INSET = 8;
  *  seat dialog and every menu still open over it. The visualizer lifts the
  *  seat-target outline one above it while the box is carried. */
 export const UNSEATED_FLOAT_Z = 1201;
-/** The title bar's height — what must stay inside the pane or window: its
- *  padding (2 × 0.45em) and its tallest item, the 1.45em badge, plus the 2px
- *  frame top and bottom. */
-const HEADER_H = 'calc(2.35em + 4px)';
+/** The title bar's height — what must stay inside the pane or window: every
+ *  Action Popup's head row (req #3821), plus the 2px frame top and bottom. */
+const HEADER_H = `calc(${ACTION_POPUP_HEAD_EM}em + 4px)`;
+/** The bar's colours: no rule under it — the list draws its own, so the rule
+ *  folds away with the list. */
+const HEAD_COLORS = { head: ACTION_POPUP_COLORS.head, headHover: ACTION_POPUP_COLORS.headHover };
 /** Pointer travel, px, before a mouse press on the title bar (or the grip)
  *  becomes a move — the press timeline's (req #3665). */
 const MOVE_SLOP = MOUSE_ACTIVATION_PX;
@@ -238,13 +248,17 @@ const LIST_MAX_EM = 26;
 const ROUNDING_SLACK_PX = 2;
 /** How long a fold or unfold animates, ms. */
 export const FOLD_MS = 220;
-/** The folded bar's fixed parts, in em: the title bar's side padding (2 × 0.8),
- *  its two gaps (2 × 0.6), the ▾ (1em of its own 0.9em type = 0.9) and a
- *  little slack. The badge and "OR" itself are added in `ch`. */
-const FOLDED_FIXED_EM = 1.6 + 1.2 + 0.9 + 0.6;
-/** The count badge's side padding (2 × 0.45) and its floor, in em. */
-const BADGE_PAD_EM = 0.9;
-const BADGE_MIN_EM = 1.8;
+/** The folded bar's fixed parts, in em — the shared head row's (req #3821):
+ *  its side padding, its two gaps, the ▾ (1em of the title's type), the
+ *  tracking on "OR"'s two letters and a little slack. The badge and "OR"
+ *  itself are added in `ch`. */
+const FOLDED_FIXED_EM = Math.round(1000 * (2 * ACTION_POPUP_HEAD_PAD_EM + 2 * ACTION_POPUP_HEAD_GAP_EM
+    + ACTION_POPUP_TITLE_EM + 2 * ACTION_POPUP_TITLE_TRACKING_EM * ACTION_POPUP_TITLE_EM + 0.6)) / 1000;
+/** "OR" in the title's type, in the box's `ch`. */
+const FOLDED_TITLE_CH = 2 * ACTION_POPUP_TITLE_EM;
+/** The count badge's side padding (both sides) and its floor (the badge slot), in em. */
+const BADGE_PAD_EM = 2 * ACTION_POPUP_BADGE_PAD_EM;
+const BADGE_MIN_EM = parseFloat(ACTION_POPUP_BADGE_EM);
 
 /** A double-click this soon after a move ended is the move's own release
  *  pairing with a click, not a request to send the box home. */
@@ -429,7 +443,7 @@ export default function UnorchestratedReqBox({
     const [barLifted, setBarLifted] = useState(false);
     useEffect(() => () => clearTimeout(moveRef.current?.liftTimer), []);
     // True from the first move frame of a title-bar move that carries rows
-    // until it ends (req #3614): the box turns see-through so the step card
+    // until it ends (req #3614): the box turns see-through so the epic card
     // beneath it can be read, and is restored on release.
     const [carrying, setCarrying] = useState(false);
     useEffect(() => { onCarryingChange?.(carrying); }, [carrying]);
@@ -525,7 +539,7 @@ export default function UnorchestratedReqBox({
         lastMoveEndRef.current = Date.now();
         const released = e.type === 'pointerup';
         // The navbar first (req #3735): released over it, the box is racked
-        // whatever it carries — the navbar is no step. Its floating spot is
+        // whatever it carries — the navbar is no epic. Its floating spot is
         // kept for the day it is dragged back out. A cancelled move that
         // started in the rack stays there.
         if (released ? rack.isOver(e.clientX, e.clientY, m.fromRack) : m.fromRack) {
@@ -693,7 +707,7 @@ export default function UnorchestratedReqBox({
     // Folded, the box is exactly its "OR" bar wide: the badge holds the count's
     // digits (or the one-character loading/error mark) and "OR" is two.
     const badgeChars = isError || isLoading ? 1 : String(count).length;
-    const foldedW = `calc(${FOLDED_FIXED_EM}em + 2ch`
+    const foldedW = `calc(${FOLDED_FIXED_EM}em + ${FOLDED_TITLE_CH}ch`
         + ` + max(${BADGE_MIN_EM}em, ${badgeChars}ch + ${BADGE_PAD_EM}em) + 4px)`;
     const openDrawnW = `min(${drawn.widthPx}px, 100% - ${2 * CORNER_INSET}px)`;
     const drawnW = open ? openDrawnW : `min(${foldedW}, 100% - ${2 * CORNER_INSET}px)`;
@@ -818,7 +832,7 @@ export default function UnorchestratedReqBox({
                     fontFamily: MONO, color: P.text, userSelect: 'none',
                     overflow: 'hidden', zIndex: 2,
                     // See-through while carried (req #3614) so the outlined
-                    // step beneath can be read; over the navbar, the drop
+                    // epic beneath can be read; over the navbar, the drop
                     // zone shows through, as it does for every rackable window.
                     opacity: overRack ? 0.75 : (carrying ? 0.35 : 1),
                     // Only while folding — see the header.
@@ -831,53 +845,42 @@ export default function UnorchestratedReqBox({
                         '&::after': { content: '""', position: 'absolute', inset: 0,
                             borderRadius: 'inherit', pointerEvents: 'none', zIndex: 3,
                             boxShadow: `inset 0 0 0 0.3em ${OUTLINE}aa, inset 0 0 1.4em ${OUTLINE}88` } }) }}>
-            <Box ref={headerRef} data-testid="pipeline-viz-unseated-header"
-                 title={inRack
-                     ? `Drag to reorder · drag off the navbar to float it${count > 0 ? ' · drop on a step to seat them all' : ''}`
-                     : `Drag to move${count > 0 ? ' · drop on a step to seat them all' : ''}`
-                         + `${suspended ? '' : ' · drop on the navbar to rack it'} · double-click to put back`}
-                 onPointerDown={onBarDown}
-                 onPointerMove={onBarMove}
-                 onPointerUp={onBarUp}
-                 onPointerCancel={onBarUp}
-                 onLostPointerCapture={onBarUp}
-                 onDoubleClick={onBarDoubleClick}
-                 // A held finger raises no long-press menu or callout.
-                 onContextMenu={(e) => e.preventDefault()}
-                 sx={{ display: 'flex', alignItems: 'center', gap: '0.6em',
-                        px: '0.8em', py: '0.45em', flexShrink: 0,
-                        cursor: moving ? 'grabbing' : 'move', touchAction: 'none',
-                        WebkitTouchCallout: 'none', fontWeight: 600 }}>
-                {/* The ▾ at the upper left, as every Action Popup has it
-                    (req #3741); the upper right is left blank. */}
-                <CollapseHead open={open} onToggle={toggleOpen} name="Orchestrables"
-                              testid="pipeline-viz-unseated-toggle"
-                              color={ACTION_POPUP_COLORS.head} hoverColor={ACTION_POPUP_COLORS.headHover}
-                              fontSize="0.9em" showName={false} />
-                {/* The count is a badge LEFT of the name (req #3648), folded
-                    or not. */}
-                <Box component="span" data-testid="pipeline-viz-unseated-count"
-                     sx={{ flexShrink: 0, minWidth: `${BADGE_MIN_EM}em`,
-                            px: `${BADGE_PAD_EM / 2}em`, boxSizing: 'border-box',
-                            borderRadius: '1em', bgcolor: statusColor,
-                            color: '#0d1420', fontWeight: 700, lineHeight: 1.45,
-                            textAlign: 'center' }}>
-                    {isError ? '!' : (isLoading ? '…' : count)}
-                </Box>
-                {/* Folded, "OR" never gives way: the bar is sized to it. Racked,
-                    the navbar sets the width, so the name stays whole — and the
-                    icon-only navbar has room for the ▾ and badge alone. */}
-                {!narrow && (
-                <Box component="span" data-testid="pipeline-viz-unseated-title"
-                     sx={{ flex: open || inRack ? 1 : '1 0 auto',
-                            minWidth: open || inRack ? 0 : 'auto',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {dropOver && (open || inRack) ? 'Drop to un-orchestrate'
-                        : (open || inRack ? 'Orchestrables' : 'OR')}
-                </Box>
-                )}
-            </Box>
+            {/* Every Action Popup's head row (req #3821, ActionPopupHead): the
+                ▾ at the upper left (req #3741), the count as a badge LEFT of
+                the name (req #3648) folded or not, the upper right blank. */}
+            <ActionPopupHead ref={headerRef} open={open} onToggle={toggleOpen}
+                             name="Orchestrables" testid="pipeline-viz-unseated"
+                             badge={
+                                 <ActionPopupBadge testid="pipeline-viz-unseated-count"
+                                                   fill={statusColor} text="#0d1420">
+                                     {isError ? '!' : (isLoading ? '…' : count)}
+                                 </ActionPopupBadge>
+                             }
+                             // Folded, "OR" never gives way: the bar is sized to
+                             // it. Racked, the navbar sets the width, so the name
+                             // stays whole — and the icon-only navbar has room
+                             // for the ▾ and badge alone.
+                             label={dropOver && (open || inRack) ? 'Drop to un-orchestrate'
+                                 : (open || inRack ? 'Orchestrables' : 'OR')}
+                             narrow={narrow}
+                             // The list draws its own rule under the bar, so it
+                             // folds away with the list.
+                             colors={HEAD_COLORS}
+                             titleSx={{ flex: open || inRack ? 1 : '1 0 auto',
+                                        minWidth: open || inRack ? 0 : 'auto' }}
+                             title={inRack
+                                 ? `Drag to reorder · drag off the navbar to float it${count > 0 ? ' · drop on an epic to seat them all' : ''}`
+                                 : `Drag to move${count > 0 ? ' · drop on an epic to seat them all' : ''}`
+                                     + `${suspended ? '' : ' · drop on the navbar to rack it'} · double-click to put back`}
+                             onPointerDown={onBarDown}
+                             onPointerMove={onBarMove}
+                             onPointerUp={onBarUp}
+                             onPointerCancel={onBarUp}
+                             onLostPointerCapture={onBarUp}
+                             onDoubleClick={onBarDoubleClick}
+                             // A held finger raises no long-press menu or callout.
+                             onContextMenu={(e) => e.preventDefault()}
+                             sx={{ cursor: moving ? 'grabbing' : 'move', WebkitTouchCallout: 'none' }} />
 
             {/* Animated by the toggle, and nothing else — a carry keeps it open
                 (req #3677). Once ENTERED the wrappers are flex columns that may
@@ -984,7 +987,7 @@ function UnseatedRow({ row, id, fontPx, barColor, idStyle, narrow, onOpen }) {
         // req #3817 — un-orchestrated a moment ago, its seat not yet deleted.
         disabled: !!row.unseating,
     });
-    // No keyboard lift: the step it would land on is a canvas card a key
+    // No keyboard lift: the epic it would land on is a canvas card a key
     // cannot reach (the collision detection needs a pointer). From the keys a
     // row is a button — Enter or Space opens the requirement.
     const { onKeyDown: _keyLift, ...pointerListeners } = listeners || {};

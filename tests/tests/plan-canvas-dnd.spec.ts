@@ -9,18 +9,18 @@ import {
  * DnD part 4 of 4 — design req #3645):
  *
  *   PCDND-01  a swipe that starts on a requirement pans the canvas, lifts nothing
- *   PCDND-02  held still, a requirement lifts; dragged to another step and
- *             released, it is re-seated there (`moveStepRequirement`)
+ *   PCDND-02  held still, a requirement lifts; dragged to another epic and
+ *             released, it is re-seated there (`moveEpicRequirement`)
  *   PCDND-03  held still past the long press, it opens the title editor instead
- *   PCDND-04  an Orchestrables row, held and dragged by touch onto a step, is
- *             seated on it (dnd-kit + the canvas's own step hit test)
+ *   PCDND-04  an Orchestrables row, held and dragged by touch onto an epic, is
+ *             seated on it (dnd-kit + the canvas's own epic hit test)
  *
  * Real input throughout: CDP touch events through the shared helper, which
- * takes a CLIENT POINT for a spot on the canvas. The requirement marks and step
+ * takes a CLIENT POINT for a spot on the canvas. The requirement marks and epic
  * names are Konva shapes, so their points are read off the live Konva stage
  * (`window.Konva.stages`) — the same nodes the canvas hit-tests.
  *
- * One throwaway plan (two steps in a chain), owned by the E2E user, created
+ * One throwaway plan (two epics in a chain), owned by the E2E user, created
  * and deleted through the REST gateway. Serial: the tests move its rows.
  */
 test.describe.serial('Plan canvas — touch drag and drop (req #3665)', () => {
@@ -32,8 +32,8 @@ test.describe.serial('Plan canvas — touch drag and drop (req #3665)', () => {
   let categoryId: string;
   let pipelineId: string;
   let initiativeId: string;
-  let step1Id: string;
-  let step2Id: string;
+  let epic1Id: string;
+  let epic2Id: string;
   let seatedReqId: string;
   let readyReqId: string;
 
@@ -44,7 +44,7 @@ test.describe.serial('Plan canvas — touch drag and drop (req #3665)', () => {
     return r[0].id;
   };
   // A junction carries no `creator_fk` (its ownership is derived through the
-  // step it names, req #3122) and its POST echoes no row — so it is proved by
+  // epic it names, req #3122) and its POST echoes no row — so it is proved by
   // reading it back.
   const link = async (table: string, body: Record<string, string>, readBack: string) => {
     await apiCall(table, 'POST', body, idToken);
@@ -52,9 +52,9 @@ test.describe.serial('Plan canvas — touch drag and drop (req #3665)', () => {
     if (!Array.isArray(rows) || !rows.length) throw new Error(`Failed to create ${table}: ${JSON.stringify(rows)}`);
   };
   const seatOf = async (reqId: string) => {
-    const rows = await apiCall(`pipeline_step_requirements?requirement_fk=${reqId}`, 'GET', '', idToken) as
-      Array<{ step_fk: string | number }>;
-    return Array.isArray(rows) && rows.length ? String(rows[0].step_fk) : null;
+    const rows = await apiCall(`epic_requirements?requirement_fk=${reqId}`, 'GET', '', idToken) as
+      Array<{ epic_fk: string | number }>;
+    return Array.isArray(rows) && rows.length ? String(rows[0].epic_fk) : null;
   };
 
   test.beforeAll(async ({ browser }) => {
@@ -69,16 +69,16 @@ test.describe.serial('Plan canvas — touch drag and drop (req #3665)', () => {
     readyReqId = await post('requirements', { title: uniqueName('Orchestrable'), category_fk: categoryId, requirement_status: 'swarm_ready' });
     pipelineId = await post('pipelines', { title: uniqueName('PlanDnD plan'), pipeline_status: 'draft' });
     initiativeId = await post('initiatives', { pipeline_fk: pipelineId, title: uniqueName('PlanDnD initiative'), category_fk: categoryId });
-    step1Id = await post('pipeline_steps', { initiative_fk: initiativeId, title: 'Design' });
-    step2Id = await post('pipeline_steps', { initiative_fk: initiativeId, title: 'Implement' });
-    await link('pipeline_step_deps', { step_fk: step2Id, dep_step_fk: step1Id }, `step_fk=${step2Id}`);
-    await link('pipeline_step_requirements', { step_fk: step1Id, requirement_fk: seatedReqId },
+    epic1Id = await post('epics', { initiative_fk: initiativeId, title: 'Design' });
+    epic2Id = await post('epics', { initiative_fk: initiativeId, title: 'Implement' });
+    await link('epic_deps', { epic_fk: epic2Id, dep_epic_fk: epic1Id }, `epic_fk=${epic2Id}`);
+    await link('epic_requirements', { epic_fk: epic1Id, requirement_fk: seatedReqId },
       `requirement_fk=${seatedReqId}`);
   });
 
   test.afterAll(async () => {
-    // Dependent step first: the dependency edge RESTRICTs its target's delete.
-    for (const id of [step2Id, step1Id]) if (id) await apiDelete('pipeline_steps', id, idToken);
+    // Dependent epic first: the dependency edge RESTRICTs its target's delete.
+    for (const id of [epic2Id, epic1Id]) if (id) await apiDelete('epics', id, idToken);
     if (initiativeId) await apiDelete('initiatives', initiativeId, idToken);
     if (pipelineId) await apiDelete('pipelines', pipelineId, idToken);
     for (const id of [seatedReqId, readyReqId]) if (id) await apiDelete('requirements', id, idToken);
@@ -133,16 +133,16 @@ test.describe.serial('Plan canvas — touch drag and drop (req #3665)', () => {
     await touchSwipe(page, mark, 0, -160);
     expect(await panel(page).getAttribute('data-req-drag')).toBe('');
     expect(await transform(page)).not.toBe(before);
-    expect(await seatOf(seatedReqId)).toBe(String(step1Id));
+    expect(await seatOf(seatedReqId)).toBe(String(epic1Id));
   });
 
-  test('PCDND-02: held still, a requirement lifts and moves to another step', async ({ page }) => {
+  test('PCDND-02: held still, a requirement lifts and moves to another epic', async ({ page }) => {
     await openPlan(page);
     const mark = await nodeCentre(page, 'dragReqId', Number(seatedReqId));
-    const target = await nodeCentre(page, 'pressStepId', Number(step2Id));
+    const target = await nodeCentre(page, 'pressEpicId', Number(epic2Id));
     // Moved soon after the lift, well before the long press would edit.
     await dndKitTouchDrag(page, mark, target, { holdMs: LIFT_DELAY_MS + 40 });
-    await expect.poll(() => seatOf(seatedReqId), { timeout: 15000 }).toBe(String(step2Id));
+    await expect.poll(() => seatOf(seatedReqId), { timeout: 15000 }).toBe(String(epic2Id));
     expect(await panel(page).getAttribute('data-req-drag')).toBe('');
   });
 
@@ -154,25 +154,25 @@ test.describe.serial('Plan canvas — touch drag and drop (req #3665)', () => {
     expect(await panel(page).getAttribute('data-req-drag')).toBe('');
     await page.keyboard.press('Escape');
     // The hold moved nothing.
-    expect(await seatOf(seatedReqId)).toBe(String(step2Id));
+    expect(await seatOf(seatedReqId)).toBe(String(epic2Id));
   });
 
-  test('PCDND-04: an Orchestrables row, held and dragged by touch, seats onto a step', async ({ page }) => {
+  test('PCDND-04: an Orchestrables row, held and dragged by touch, seats onto an epic', async ({ page }) => {
     await openPlan(page);
     const row = page.getByTestId(`pipeline-viz-unseated-item-${readyReqId}`);
     await expect(row).toBeVisible({ timeout: 15000 });
-    const target = await nodeCentre(page, 'pressStepId', Number(step1Id));
+    const target = await nodeCentre(page, 'pressEpicId', Number(epic1Id));
     await dndKitTouchDrag(page, row, target, { holdMs: LIFT_DELAY_MS + 60 });
-    await expect.poll(() => seatOf(readyReqId), { timeout: 15000 }).toBe(String(step1Id));
+    await expect.poll(() => seatOf(readyReqId), { timeout: 15000 }).toBe(String(epic1Id));
     await expect(row).toHaveCount(0);
   });
 
   test('PCDND-05: a finger held past the long press and then dragged is a drag, never the title edit', async ({ page }) => {
     await openPlan(page);
     const mark = await nodeCentre(page, 'dragReqId', Number(seatedReqId));
-    const target = await nodeCentre(page, 'pressStepId', Number(step1Id));
+    const target = await nodeCentre(page, 'pressEpicId', Number(epic1Id));
     await dndKitTouchDrag(page, mark, target, { holdMs: LONG_PRESS_MS + 300 });
-    await expect.poll(() => seatOf(seatedReqId), { timeout: 15000 }).toBe(String(step1Id));
+    await expect.poll(() => seatOf(seatedReqId), { timeout: 15000 }).toBe(String(epic1Id));
     await expect(page.getByTestId(`pipeline-viz-req-edit-${seatedReqId}`)).toHaveCount(0);
   });
 
@@ -192,9 +192,9 @@ test.describe.serial('Plan canvas — touch drag and drop (req #3665)', () => {
     await page.keyboard.press('Escape');
     await expect(editor).toHaveCount(0);
 
-    // A press that moves drags at once — back to step 2.
+    // A press that moves drags at once — back to epic 2.
     mark = await nodeCentre(page, 'dragReqId', Number(seatedReqId));
-    const target = await nodeCentre(page, 'pressStepId', Number(step2Id));
+    const target = await nodeCentre(page, 'pressEpicId', Number(epic2Id));
     await page.mouse.move(mark.x, mark.y);
     await page.mouse.down();
     for (let i = 1; i <= 12; i++) {
@@ -202,7 +202,7 @@ test.describe.serial('Plan canvas — touch drag and drop (req #3665)', () => {
       await page.waitForTimeout(16);
     }
     await page.mouse.up();
-    await expect.poll(() => seatOf(seatedReqId), { timeout: 15000 }).toBe(String(step2Id));
+    await expect.poll(() => seatOf(seatedReqId), { timeout: 15000 }).toBe(String(epic2Id));
     await expect(editor).toHaveCount(0);
   });
 
@@ -229,19 +229,19 @@ test.describe.serial('Plan canvas — touch drag and drop (req #3665)', () => {
     await page.keyboard.press('Escape');
     await expect(reqEditor).toHaveCount(0);
 
-    // A step name ("Implement"), pressed in its middle.
-    const name = await nodeAt(page, 'pressStepId', Number(step2Id), 0.5);
+    // An epic name ("Implement"), pressed in its middle.
+    const name = await nodeAt(page, 'pressEpicId', Number(epic2Id), 0.5);
     await page.mouse.move(name.x, name.y);
     await page.mouse.down();
     await page.waitForTimeout(LONG_PRESS_MS + 200);
     await page.mouse.up();
-    const stepEditor = page.getByTestId(`pipeline-viz-step-edit-${step2Id}`);
-    await expect(stepEditor).toBeFocused();
-    const step = await stepEditor.evaluate((el: HTMLInputElement) =>
+    const epicEditor = page.getByTestId(`pipeline-viz-epic-edit-${epic2Id}`);
+    await expect(epicEditor).toBeFocused();
+    const epic = await epicEditor.evaluate((el: HTMLInputElement) =>
       ({ start: el.selectionStart!, end: el.selectionEnd!, len: el.value.length }));
-    expect(step.start).toBe(step.end);
-    expect(step.start).toBeGreaterThan(0);
-    expect(step.start).toBeLessThan(step.len);
+    expect(epic.start).toBe(epic.end);
+    expect(epic.start).toBeGreaterThan(0);
+    expect(epic.start).toBeLessThan(epic.len);
     await page.keyboard.press('Escape');
   });
 });

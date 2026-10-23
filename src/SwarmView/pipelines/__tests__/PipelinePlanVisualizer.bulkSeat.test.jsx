@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
 // Req #3614 (follow-on to #3608) — the WRITING half of the whole-box drop: the
-// confirm dialog opens with the box's snapshot, a locked step writes nothing,
+// confirm dialog opens with the box's snapshot, a locked epic writes nothing,
 // the seat writes run capped, a partial failure names each id with its own
 // status, the dropped rows stay hidden through the write and are released after
 // the refetch, the dialog cannot be dismissed mid-write, and a release outside
@@ -27,10 +27,10 @@ vi.mock('konva', () => ({
     default: { Animation: class { start() {} stop() {} } },
 }));
 
-const moveStepRequirement = vi.fn(() => Promise.resolve());
-vi.mock('../../../Steps/stepsApi', async (orig) => ({
+const moveEpicRequirement = vi.fn(() => Promise.resolve());
+vi.mock('../../../Epics/epicsApi', async (orig) => ({
     ...(await orig()),
-    moveStepRequirement: (...a) => moveStepRequirement(...a),
+    moveEpicRequirement: (...a) => moveEpicRequirement(...a),
 }));
 
 // The box's rows, and the props the visualizer hands the box on its last render.
@@ -44,7 +44,7 @@ vi.mock('../UnorchestratedReqBox', async (orig) => ({
     default: (props) => { boxProps = props; return <div data-testid="box-stub" />; },
 }));
 
-// Real geometry, except where a test pins the step a drop lands on.
+// Real geometry, except where a test pins the epic a drop lands on.
 let seatOverride = null;
 const resolveSeatDropSpy = vi.fn();
 vi.mock('../pipelineUnseated', async (orig) => {
@@ -75,7 +75,7 @@ let restoreSize;
 let canvas;
 
 const row = (id, title) => ({ id, title, requirement_status: 'swarm_ready' });
-const step = (id, initiative_fk, title, locked = 0) => ({
+const epic = (id, initiative_fk, title, locked = 0) => ({
     id, initiative_fk, title, run: 'auto', notes: null, locked, not_before: null,
 });
 
@@ -88,8 +88,8 @@ beforeEach(() => {
         if (w) Object.defineProperty(HTMLElement.prototype, 'clientWidth', w);
         if (h) Object.defineProperty(HTMLElement.prototype, 'clientHeight', h);
     };
-    moveStepRequirement.mockReset();
-    moveStepRequirement.mockImplementation(() => Promise.resolve());
+    moveEpicRequirement.mockReset();
+    moveEpicRequirement.mockImplementation(() => Promise.resolve());
     resolveSeatDropSpy.mockClear();
     seatOverride = null;
     boxItems = [row(11, 'First thing'), row(12, 'Second thing')];
@@ -108,8 +108,8 @@ afterEach(() => {
 function render() {
     const payload = composedFixture({
         initiatives: [{ id: 5, title: 'Build', pipeline_fk: 2, sort_order: 1 }],
-        steps: [step(10, 5, 'Design'), step(11, 5, 'Implement', 1)],
-        stepDeps: [{ id: 1, step_fk: 11, dep_step_fk: 10 }],
+        epics: [epic(10, 5, 'Design'), epic(11, 5, 'Implement', 1)],
+        epicDeps: [{ id: 1, epic_fk: 11, dep_epic_fk: 10 }],
     });
     const plan = adaptComposedPipeline(payload);
     const model = buildPlanModel(payload);
@@ -136,7 +136,7 @@ function render() {
     document.elementsFromPoint = () => [canvas];
 }
 
-const seatOn = (stepId, ok = true) => { seatOverride = () => ({ stepId, ok }); };
+const seatOn = (epicId, ok = true) => { seatOverride = () => ({ epicId, ok }); };
 const drop = (x = 300, y = 300) => {
     let seated;
     act(() => { seated = boxProps.onMoveDrop(x, y); });
@@ -169,17 +169,17 @@ describe('whole-box drop — the confirm dialog', () => {
         boxItems = [row(11, 'First thing'), row(12, 'Second thing'), row(13, 'Late arrival')];
         act(() => { boxProps.onMoveOver(300, 300); });
         expect(listText()).not.toContain('Late arrival');
-        expect(moveStepRequirement).not.toHaveBeenCalled();
+        expect(moveEpicRequirement).not.toHaveBeenCalled();
     });
 
-    // req #3750 — a step has no state; what refuses work is a LOCK (req #3649).
-    it('a locked step takes no work: a snackbar, no dialog, nothing written', () => {
+    // req #3750 — an epic has no state; what refuses work is a LOCK (req #3649).
+    it('a locked epic takes no work: a snackbar, no dialog, nothing written', () => {
         render();
         seatOn(11, false);
         expect(drop()).toBe(true);
         expect(dialog()).toBeNull();
         expect(snackbar()).toBe('"Implement" is locked — it takes no new work');
-        expect(moveStepRequirement).not.toHaveBeenCalled();
+        expect(moveEpicRequirement).not.toHaveBeenCalled();
     });
 
     it('keeps its title and list while it closes, then empties', async () => {
@@ -192,19 +192,19 @@ describe('whole-box drop — the confirm dialog', () => {
         expect(listText()).toContain('First thing');
         await settle(800);
         expect(dialog()).toBeNull();
-        expect(moveStepRequirement).not.toHaveBeenCalled();
+        expect(moveEpicRequirement).not.toHaveBeenCalled();
     });
 });
 
 describe('whole-box drop — the writes', () => {
-    it('seats every id onto the step with moveStepRequirement, capped in flight', async () => {
+    it('seats every id onto the epic with moveEpicRequirement, capped in flight', async () => {
         boxItems = [1, 2, 3, 4, 5, 6, 7, 8].map((n) => row(100 + n, `Req ${n}`));
         render();
         seatOn(10);
         drop();
         let inflight = 0;
         let peak = 0;
-        moveStepRequirement.mockImplementation(async () => {
+        moveEpicRequirement.mockImplementation(async () => {
             inflight += 1;
             peak = Math.max(peak, inflight);
             await new Promise((r) => setTimeout(r, 10));
@@ -212,12 +212,12 @@ describe('whole-box drop — the writes', () => {
         });
         await act(async () => { confirm().click(); });
         await settle(200);
-        expect(moveStepRequirement).toHaveBeenCalledTimes(8);
-        for (const call of moveStepRequirement.mock.calls) {
-            expect(call[2].toStepId).toBe(10);
-            expect(call[2].fromStepId).toBeUndefined();
+        expect(moveEpicRequirement).toHaveBeenCalledTimes(8);
+        for (const call of moveEpicRequirement.mock.calls) {
+            expect(call[2].toEpicId).toBe(10);
+            expect(call[2].fromEpicId).toBeUndefined();
         }
-        expect(moveStepRequirement.mock.calls.map((c) => c[2].requirementId).sort())
+        expect(moveEpicRequirement.mock.calls.map((c) => c[2].requirementId).sort())
             .toEqual([101, 102, 103, 104, 105, 106, 107, 108]);
         expect(peak).toBeGreaterThan(1);
         expect(peak).toBeLessThanOrEqual(4);
@@ -230,7 +230,7 @@ describe('whole-box drop — the writes', () => {
         drop();
         expect(boxProps.items.map((r) => r.id)).toEqual([11, 12]);
         const gate = deferred();
-        moveStepRequirement.mockImplementation(() => gate.promise);
+        moveEpicRequirement.mockImplementation(() => gate.promise);
         await act(async () => { confirm().click(); });
         expect(boxProps.items).toEqual([]);
         await act(async () => { gate.resolve(); });
@@ -244,7 +244,7 @@ describe('whole-box drop — the writes', () => {
         seatOn(10);
         drop();
         const gate = deferred();
-        moveStepRequirement.mockImplementation(() => gate.promise);
+        moveEpicRequirement.mockImplementation(() => gate.promise);
         await act(async () => { confirm().click(); });
         expect(cancel().disabled).toBe(true);
         expect(confirm().disabled).toBe(true);
@@ -275,12 +275,12 @@ describe('whole-box drop — the writes', () => {
         drop();
         await act(async () => { confirm().click(); });
         // Writes done, dialog fading out: the buttons are still in the DOM.
-        const calls = moveStepRequirement.mock.calls.length;
+        const calls = moveEpicRequirement.mock.calls.length;
         expect(calls).toBe(2);
         const btn = confirm();
         if (btn) act(() => { btn.click(); });
         await settle(800);
-        expect(moveStepRequirement).toHaveBeenCalledTimes(calls);
+        expect(moveEpicRequirement).toHaveBeenCalledTimes(calls);
         expect(snackbar()).toBe('');
     });
 
@@ -289,7 +289,7 @@ describe('whole-box drop — the writes', () => {
         render();
         seatOn(10);
         drop();
-        moveStepRequirement.mockImplementation(async (_u, _t, { requirementId }) => {
+        moveEpicRequirement.mockImplementation(async (_u, _t, { requirementId }) => {
             if (requirementId === 12) throw { httpStatus: { httpStatus: 409 } };
             if (requirementId === 13) throw { httpStatus: { httpStatus: 500 } };
         });
@@ -302,10 +302,10 @@ describe('whole-box drop — the writes', () => {
         render();
         seatOn(10);
         drop();
-        moveStepRequirement.mockImplementation(async () => { throw { httpStatus: { httpStatus: 409 } }; });
+        moveEpicRequirement.mockImplementation(async () => { throw { httpStatus: { httpStatus: 409 } }; });
         await act(async () => { confirm().click(); });
         await settle(50);
-        expect(snackbar()).toBe('Unable to add 11 (409), 12 (409) to the step');
+        expect(snackbar()).toBe('Unable to add 11 (409), 12 (409) to the epic');
         // The failed rows are not stranded hidden.
         expect(boxProps.items.map((r) => r.id)).toEqual([11, 12]);
     });
@@ -319,7 +319,7 @@ describe('whole-box drop — only on the plan panel', () => {
         expect(dialog()).toBeNull();
         expect(resolveSeatDropSpy).toHaveBeenLastCalledWith(
             expect.objectContaining({ overChrome: true }));
-        expect(moveStepRequirement).not.toHaveBeenCalled();
+        expect(moveEpicRequirement).not.toHaveBeenCalled();
     });
 
     it('a release outside the panel rect is no seat even over an element', () => {
@@ -370,7 +370,7 @@ describe('whole-box drop — the outline while carrying', () => {
         seatOn(10);
         act(() => { boxProps.onMoveOver(300, 300); });
         expect(outline()).not.toBeNull();
-        expect(outline().getAttribute('data-step-id')).toBe('10');
+        expect(outline().getAttribute('data-epic-id')).toBe('10');
         expect(getComputedStyle(outline()).zIndex).toBe('1');
         act(() => { boxProps.onCarryingChange(true); });
         expect(Number(getComputedStyle(outline()).zIndex)).toBeGreaterThan(UNSEATED_FLOAT_Z);
@@ -380,13 +380,13 @@ describe('whole-box drop — the outline while carrying', () => {
 
     it('re-resolves from the last pointer when the transform changes mid-carry', () => {
         render();
-        // The step under a FIXED pointer depends on the live zoom.
+        // The epic under a FIXED pointer depends on the live zoom.
         const panel = document.querySelector('[data-insert-edges]');
         const k0 = Number(panel.getAttribute('data-transform').split(',')[2]);
-        seatOverride = ({ t }) => ({ stepId: t.k > k0 + 0.01 ? 11 : 10, ok: true });
+        seatOverride = ({ t }) => ({ epicId: t.k > k0 + 0.01 ? 11 : 10, ok: true });
         act(() => { boxProps.onCarryingChange(true); });
         act(() => { boxProps.onMoveOver(300, 300); });
-        expect(outline().getAttribute('data-step-id')).toBe('10');
+        expect(outline().getAttribute('data-epic-id')).toBe('10');
         const before = panel.getAttribute('data-transform');
         act(() => {
             panel.dispatchEvent(new WheelEvent('wheel', {
@@ -394,7 +394,7 @@ describe('whole-box drop — the outline while carrying', () => {
             }));
         });
         expect(panel.getAttribute('data-transform')).not.toBe(before);
-        expect(outline().getAttribute('data-step-id')).toBe('11');
+        expect(outline().getAttribute('data-epic-id')).toBe('11');
     });
 
     it('does not re-resolve once the carry has ended', () => {

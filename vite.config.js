@@ -283,6 +283,11 @@ export default defineConfig(({ command }) => {
     },
     server: {
       port: 3000,
+      // The Bug button's console wrapper (req #3815) is the frame every console
+      // line passes through; ignore-listing it lets DevTools point each line's
+      // source link at its real caller. node_modules stays ignored (the default).
+      sourcemapIgnoreList: (sourcePath) =>
+        sourcePath.includes('node_modules') || sourcePath.endsWith('/utils/debugCapture.js'),
       proxy: {
         '/photos': {
           target: 'http://localhost:8091',

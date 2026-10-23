@@ -14,15 +14,15 @@
 //   - The dialog gains a Pipeline select (`pipeline_fk`, required at create,
 //     DISABLED once editing — re-homing an initiative is `move_initiative`, an
 //     MCP-only tool with cross-plan-edge checks this page does not
-//     reproduce, matching StepsPage.jsx's identical rule for its own
+//     reproduce, matching EpicsPage.jsx's identical rule for its own
 //     `pipeline_fk` field).
 //   - `initiative_status` (active|paused) gets a click-to-toggle chip — genuinely
 //     new UI: there is no pause/unpause control anywhere today, in either
 //     era, only a derived bubble.
 //   - No count column for the retired middle tier — 2.0 has no such tier
-//     (containment goes straight initiative -> step). A step_count column takes
+//     (containment goes straight initiative -> epic). An epic_count column takes
 //     its place, linking to
-//     `/swarm/steps?initiative=<id>`.
+//     `/swarm/epics?initiative=<id>`.
 //   - No orchestration-claim "orchestrated by" badge — not in the
 //     requirement's field matrix; left out deliberately rather than folded
 //     in silently.
@@ -51,9 +51,9 @@ import {
     useAllCategories,
     useAllPipelines,
     useAllInitiatives,
-    useAllPipelineSteps,
+    useAllPipelineEpics,
     initiativeKeys,
-    pipelineStepKeys,
+    pipelineEpicKeys,
 } from '../hooks/useDataQueries';
 import { pipelineComposeKeys } from '../hooks/useQueryKeys';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
@@ -86,11 +86,11 @@ export default function InitiativesPage() {
 
     const { data: pipelines = [], isLoading: pipelinesLoading } = useAllPipelines(creatorFk);
     const { data: initiatives = [], isLoading: initiativesLoading } = useAllInitiatives(creatorFk);
-    const { data: steps = [], isLoading: stepsLoading } = useAllPipelineSteps(creatorFk);
+    const { data: epics = [], isLoading: epicsLoading } = useAllPipelineEpics(creatorFk);
     const { data: categories = [], isLoading: categoriesLoading } =
         useAllCategories(creatorFk, { fields: CATEGORY_FIELDS });
 
-    const isLoading = pipelinesLoading || initiativesLoading || stepsLoading || categoriesLoading;
+    const isLoading = pipelinesLoading || initiativesLoading || epicsLoading || categoriesLoading;
 
     const [closedFilter, setClosedFilter] = useState(['open']);
     const toggleClosedFilter = (value) => setClosedFilter(current => (
@@ -102,14 +102,14 @@ export default function InitiativesPage() {
     // The editor dialog: `key` changes per open so the form seeds afresh.
     const [dialog, setDialog] = useState({ key: 0, open: false, initiative: null });
 
-    const stepCountByInitiative = useMemo(() => {
+    const epicCountByInitiative = useMemo(() => {
         const m = {};
-        for (const s of steps) {
+        for (const s of epics) {
             if (s.initiative_fk == null) continue;
             m[s.initiative_fk] = (m[s.initiative_fk] || 0) + 1;
         }
         return m;
-    }, [steps]);
+    }, [epics]);
 
     const pipelineById = useMemo(() => {
         const m = {};
@@ -134,7 +134,7 @@ export default function InitiativesPage() {
         return [...visible]
             .map(e => ({
                 ...e,
-                step_count: stepCountByInitiative[e.id] || 0,
+                epic_count: epicCountByInitiative[e.id] || 0,
                 pipeline_title: pipelineById[e.pipeline_fk]?.title
                     ?? (e.pipeline_fk != null ? `#${e.pipeline_fk}` : ''),
             }))
@@ -143,7 +143,7 @@ export default function InitiativesPage() {
                 const bo = b.sort_order == null ? Infinity : b.sort_order;
                 return ao - bo || a.id - b.id;
             });
-    }, [initiatives, closedFilter, stepCountByInitiative, pipelineById]);
+    }, [initiatives, closedFilter, epicCountByInitiative, pipelineById]);
 
     // An initiative write also invalidates the composed plan reads (req #3742), so a
     // plan open elsewhere — or opened next — never draws the pre-save initiative.
@@ -192,7 +192,7 @@ export default function InitiativesPage() {
         }
     };
 
-    // req #3649 — a locked initiative freezes itself and its steps (gateway 423).
+    // req #3649 — a locked initiative freezes itself and its epics (gateway 423).
     const toggleLock = async (row) => {
         try {
             await updateInitiative(darwinUri, idToken, row.id, { locked: row.locked ? 0 : 1 });
@@ -203,23 +203,23 @@ export default function InitiativesPage() {
     };
 
     const handleDelete = async (row) => {
-        const count = row.step_count;
+        const count = row.epic_count;
         const consequence = count
-            ? ` Its ${count} step${count === 1 ? '' : 's'} will be deleted with it (a step never `
+            ? ` Its ${count} epic${count === 1 ? '' : 's'} will be deleted with it (an epic never `
               + 'survives its initiative — containment). This cannot be undone.'
             : ' This cannot be undone.';
         if (!window.confirm(`Delete initiative "${row.title}"?${consequence}`)) return;
         try {
             await deleteInitiative(darwinUri, idToken, row.id);
             invalidateInitiatives();
-            // The initiative's steps CASCADE away with it (when the delete succeeds),
-            // so this page's own step_count read is stale until invalidated —
-            // same rule StepsPage.jsx's handleDelete follows for its own
+            // The initiative's epics CASCADE away with it (when the delete succeeds),
+            // so this page's own epic_count read is stale until invalidated —
+            // same rule EpicsPage.jsx's handleDelete follows for its own
             // dependency/link caches after a cascading delete.
-            queryClient.invalidateQueries({ queryKey: pipelineStepKeys.all(creatorFk) });
+            queryClient.invalidateQueries({ queryKey: pipelineEpicKeys.all(creatorFk) });
         } catch (err) {
-            showError(err, 'Could not delete initiative — if another step outside it depends on one '
-                + 'of its steps, remove that dependency first');
+            showError(err, 'Could not delete initiative — if another epic outside it depends on one '
+                + 'of its epics, remove that dependency first');
         }
     };
 
@@ -248,28 +248,28 @@ export default function InitiativesPage() {
             valueFormatter: (value) => value || '—',
         },
         {
-            field: 'step_count', headerName: 'Steps', width: 90, type: 'number',
+            field: 'epic_count', headerName: 'Epics', width: 90, type: 'number',
             renderCell: (params) => (
                 <Box
                     component="span"
                     role="link"
                     tabIndex={0}
-                    aria-label={`Open the steps filed under ${params.row.title}`}
+                    aria-label={`Open the epics filed under ${params.row.title}`}
                     onClick={(e) => {
                         e.stopPropagation();
-                        navigate(`/swarm/steps?initiative=${params.row.id}`);
+                        navigate(`/swarm/epics?initiative=${params.row.id}`);
                     }}
                     onKeyDown={(e) => {
                         if (e.key !== 'Enter') return;
                         e.stopPropagation();
-                        navigate(`/swarm/steps?initiative=${params.row.id}`);
+                        navigate(`/swarm/epics?initiative=${params.row.id}`);
                     }}
                     sx={{
                         cursor: 'pointer',
                         textDecoration: params.value > 0 ? 'underline' : 'none',
                         color: params.value > 0 ? 'primary.main' : 'text.secondary',
                     }}
-                    data-testid={`initiative-steps-link-${params.row.id}`}
+                    data-testid={`initiative-epics-link-${params.row.id}`}
                 >
                     {params.value}
                 </Box>
@@ -294,12 +294,12 @@ export default function InitiativesPage() {
             ),
         },
         {
-            // req #3649 — the lock cascades: a locked initiative freezes its steps.
+            // req #3649 — the lock cascades: a locked initiative freezes its epics.
             field: 'locked', headerName: 'Lock', width: 100, sortable: false,
             renderCell: (params) => (
                 <Tooltip title={params.value
-                    ? 'Locked — this initiative and its steps are frozen as a record. Click to unlock.'
-                    : 'Open — editable. Click to lock this initiative and freeze its steps.'}>
+                    ? 'Locked — this initiative and its epics are frozen as a record. Click to unlock.'
+                    : 'Open — editable. Click to lock this initiative and freeze its epics.'}>
                     <Chip
                         label={lockedLabel(params.value)}
                         size="small"

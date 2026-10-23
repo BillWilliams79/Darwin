@@ -45,7 +45,7 @@ const OTHER_ROWS = [
 const ALL_ROWS = [...INITIATIVE_ROWS, ...OTHER_ROWS];
 const PIPELINED = new Set([3428, 3430, 900]);
 // The junction rows behind PIPELINED, in the wire shape the real hook reads.
-const JUNCTION = [...PIPELINED].map((id) => ({ step_fk: 1, requirement_fk: id }));
+const JUNCTION = [...PIPELINED].map((id) => ({ epic_fk: 1, requirement_fk: id }));
 // `useAllRequirements` here serves BOTH the counts projection and the hook's
 // narrow id-only one, so no row is initiative-seated by that route — leaving
 // PIPELINED as the sole source of orchestrated-ness, which is what this
@@ -85,7 +85,7 @@ vi.mock('../../hooks/useDataQueries', () => ({
     // `useRequirementVisibility` joins these three bounded reads and applies the
     // initiative override itself, so the rule this file tests runs for real. Frozen at
     // module scope for the same reason `BY_STATUS` above is.
-    useAllPipelineStepRequirements: () => ({ data: JUNCTION }),
+    useAllPipelineEpicRequirements: () => ({ data: JUNCTION }),
     ALL_ROWS: 'all',
 }));
 

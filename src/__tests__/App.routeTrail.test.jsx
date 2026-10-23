@@ -133,7 +133,7 @@ describe('App — the route trail (req #3431)', () => {
     // "not a plan", the resume fires on the way out, and the list becomes
     // unreachable. The failure is invisible until somebody arrives by a link.
     it('records the path without the query string', () => {
-        mount('/swarm/pipeline/2?mode=plan&step=47');
+        mount('/swarm/pipeline/2?mode=plan&epic=47');
         click('to-list');
         expect(originSeenByTheList()).toBe('/swarm/pipeline/2');
         expect(isPipelineDetailPath(originSeenByTheList())).toBe(true);

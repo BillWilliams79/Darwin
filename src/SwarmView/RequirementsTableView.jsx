@@ -182,7 +182,7 @@ const RequirementsTableView = () => {
     //  - Requirements whose status isn't in the chip filter
     //  - Requirements linked to closed categories (categoryMap only has open ones)
     //  - req #3180/#3419 — when the orchestrated toggle is ON, every requirement
-    //    a pipeline STEP carries or an INITIATIVE seats, leaving the unplanned residue.
+    //    a pipeline EPIC carries or an INITIATIVE seats, leaving the unplanned residue.
     //
     // The orchestrated toggle applies to the NORMAL branch only, exactly like the
     // status chips: a Trends drill-down bypasses both. The drill's contract (see
@@ -259,7 +259,7 @@ const RequirementsTableView = () => {
 
     const hasBulkChanges = bulkCategory !== NO_CHANGE || bulkStatus !== NO_CHANGE || bulkAutonomy !== NO_CHANGE;
 
-    // Step 1: Save button opens the confirmation gate (does NOT apply changes yet)
+    // Epic 1: Save button opens the confirmation gate (does NOT apply changes yet)
     const handleRequestConfirm = () => {
         if (!hasBulkChanges || selectedCount === 0) return;
         setBulkConfirmOpen(true);
@@ -269,7 +269,7 @@ const RequirementsTableView = () => {
         if (!savingBulk) setBulkConfirmOpen(false);
     };
 
-    // Step 2: Confirm button in the gate dialog actually applies the changes
+    // Epic 2: Confirm button in the gate dialog actually applies the changes
     const handleConfirmBulkSave = async () => {
         const ids = getSelectedIds();
         if (ids.length === 0 || !hasBulkChanges) return;

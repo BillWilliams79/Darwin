@@ -37,7 +37,7 @@ export default function NewPipelineDialog({ machines = [] }) {
     const [machineFk, setMachineFk] = useState(ANY_MACHINE);
 
     // A double-click on the button lands its second click on the backdrop,
-    // which would close the dialog again at once (EmptyPlanAddStep's guard).
+    // which would close the dialog again at once (EmptyPlanAddEpic's guard).
     const openedAtRef = useRef(0);
     const openDialog = () => {
         openedAtRef.current = Date.now();
@@ -118,7 +118,7 @@ export default function NewPipelineDialog({ machines = [] }) {
                         </Box>
                         <Typography variant="body2" color="text.secondary">
                             The pipeline starts as a draft and opens on its plan, where you add
-                            its first initiative and step.
+                            its first initiative and epic.
                         </Typography>
                     </Stack>
                 </DialogContent>

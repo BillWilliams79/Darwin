@@ -2,7 +2,7 @@
 // filling the card's width, not the whole plan shrunk to beads.
 import { describe, it, expect } from 'vitest';
 
-import { thumbnailFrame, THUMB_H, THUMB_STEPS_ACROSS } from '../pipelineThumbnailFrame';
+import { thumbnailFrame, THUMB_H, THUMB_EPICS_ACROSS } from '../pipelineThumbnailFrame';
 import { adaptComposedPipeline } from '../../SwarmView/pipelines/pipelineAdapter';
 import { computePlanLayout } from '../../SwarmView/pipelines/pipelinePlanLayout';
 import { composedFixture } from '../../SwarmView/pipelines/__tests__/pipelineComposedFixture';
@@ -17,9 +17,9 @@ const layoutOf = (nodes, { width = 4000, height = 2000, colPitch = 465 } = {}) =
 });
 
 describe('thumbnailFrame', () => {
-    it('spans THUMB_STEPS_ACROSS step columns across the frame', () => {
+    it('spans THUMB_EPICS_ACROSS epic columns across the frame', () => {
         const f = thumbnailFrame(layoutOf([node(2000, 900, 200)]), 420);
-        expect(f.k).toBeCloseTo(420 / (THUMB_STEPS_ACROSS * 465));
+        expect(f.k).toBeCloseTo(420 / (THUMB_EPICS_ACROSS * 465));
     });
 
     it('picks the crop that shows the most card, not the empty middle', () => {
@@ -75,23 +75,23 @@ describe('thumbnailFrame', () => {
     // Against a REAL layout, so a change to `colPitch` or the node fields the
     // crop reads breaks here rather than in a blank thumbnail.
     it('frames a real computePlanLayout result with cards inside the frame', () => {
-        const steps = [10, 11, 12, 13].map((id, i) => ({
-            id, initiative_fk: 1, title: `Step ${i}`, run: 'auto',
+        const epics = [10, 11, 12, 13].map((id, i) => ({
+            id, initiative_fk: 1, title: `Epic ${i}`, run: 'auto',
             notes: null, not_before: null,
         }));
         const data = composedFixture({
             id: 7,
             initiatives: [{ id: 1, pipeline_fk: 7, title: 'E', sort_order: 1 }],
-            steps,
+            epics,
             requirements: [{ id: 501, title: 'R', requirement_status: 'met', tracking: 0 }],
-            stepRequirements: [{ step_fk: 10, requirement_fk: 501 }],
-            stepDeps: [{ id: 1, step_fk: 11, dep_step_fk: 10 },
-                { id: 2, step_fk: 12, dep_step_fk: 11 }, { id: 3, step_fk: 13, dep_step_fk: 12 }],
+            epicRequirements: [{ epic_fk: 10, requirement_fk: 501 }],
+            epicDeps: [{ id: 1, epic_fk: 11, dep_epic_fk: 10 },
+                { id: 2, epic_fk: 12, dep_epic_fk: 11 }, { id: 3, epic_fk: 13, dep_epic_fk: 12 }],
         });
         const plan = adaptComposedPipeline(data, { machines: [], now: new Date() });
-        const layout = computePlanLayout(plan.rows, { stepLabel: 'title', reqLabel: 'title' });
+        const layout = computePlanLayout(plan.rows, { epicLabel: 'title', reqLabel: 'title' });
         const f = thumbnailFrame(layout, 420);
-        expect(f.k).toBeCloseTo(420 / (THUMB_STEPS_ACROSS * layout.colPitch));
+        expect(f.k).toBeCloseTo(420 / (THUMB_EPICS_ACROSS * layout.colPitch));
         const inFrame = [...layout.nodes.values()].filter((n) =>
             n.right * f.k + f.ox > 0 && n.left * f.k + f.ox < 420
             && n.bottom * f.k + f.oy > 0 && n.top * f.k + f.oy < THUMB_H);

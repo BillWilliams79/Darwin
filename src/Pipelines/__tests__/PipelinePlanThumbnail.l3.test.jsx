@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
 // req #3641 — the card thumbnail draws the plan's L3 formation (cards with
-// their step names and requirement TITLES), not L1 beads, across the full
+// their epic names and requirement TITLES), not L1 beads, across the full
 // width of the card. react-konva is stubbed so the drawn text is observable.
 
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
@@ -57,11 +57,11 @@ afterEach(() => {
 });
 
 describe('PipelinePlanThumbnail — L3 crop (req #3641)', () => {
-    it('draws step names and requirement titles across the full card width', () => {
+    it('draws epic names and requirement titles across the full card width', () => {
         composed = composedFixture({
             id: 7,
             initiatives: [{ id: 1, pipeline_fk: 7, title: 'Polish', sort_order: 1 }],
-            steps: [
+            epics: [
                 { id: 10, initiative_fk: 1, title: 'Visualizer Polish', run: 'auto',
                     notes: null, not_before: null },
                 { id: 11, initiative_fk: 1, title: 'Cards Polish', run: 'manual',
@@ -71,11 +71,11 @@ describe('PipelinePlanThumbnail — L3 crop (req #3641)', () => {
                 { id: 501, title: 'Brighter arcs', requirement_status: 'met', tracking: 0 },
                 { id: 502, title: 'Preview at L3', requirement_status: 'development', tracking: 0 },
             ],
-            stepRequirements: [
-                { step_fk: 10, requirement_fk: 501 },
-                { step_fk: 11, requirement_fk: 502 },
+            epicRequirements: [
+                { epic_fk: 10, requirement_fk: 501 },
+                { epic_fk: 11, requirement_fk: 502 },
             ],
-            stepDeps: [{ id: 1, step_fk: 11, dep_step_fk: 10 }],
+            epicDeps: [{ id: 1, epic_fk: 11, dep_epic_fk: 10 }],
         });
         act(() => root.render(<PipelinePlanThumbnail pipelineId={7} />));
 
@@ -93,13 +93,13 @@ describe('PipelinePlanThumbnail — L3 crop (req #3641)', () => {
     });
 
     // req #3775 — "have the color bar always be the same color as the
-    // perimeter of the step": a done, a running and a pending card's bar each
+    // perimeter of the epic": a done, a running and a pending card's bar each
     // take their own frame's colour, never a state fill.
     it('draws every card state bar in its own frame colour', () => {
         composed = composedFixture({
             id: 7,
             initiatives: [{ id: 1, pipeline_fk: 7, title: 'Polish', sort_order: 1 }],
-            steps: [
+            epics: [
                 { id: 10, initiative_fk: 1, title: 'Done', run: 'auto', checkpoint: 0,
                     notes: null, not_before: null },
                 { id: 11, initiative_fk: 1, title: 'Running', run: 'manual',
@@ -112,13 +112,13 @@ describe('PipelinePlanThumbnail — L3 crop (req #3641)', () => {
                 { id: 502, title: 'b', requirement_status: 'development', tracking: 0 },
                 { id: 503, title: 'c', requirement_status: 'swarm_ready', tracking: 0 },
             ],
-            stepRequirements: [
-                { step_fk: 10, requirement_fk: 501 },
-                { step_fk: 11, requirement_fk: 502 },
-                { step_fk: 12, requirement_fk: 503 },
+            epicRequirements: [
+                { epic_fk: 10, requirement_fk: 501 },
+                { epic_fk: 11, requirement_fk: 502 },
+                { epic_fk: 12, requirement_fk: 503 },
             ],
-            stepDeps: [{ id: 1, step_fk: 11, dep_step_fk: 10 },
-                { id: 2, step_fk: 12, dep_step_fk: 11 }],
+            epicDeps: [{ id: 1, epic_fk: 11, dep_epic_fk: 10 },
+                { id: 2, epic_fk: 12, dep_epic_fk: 11 }],
         });
         act(() => root.render(<PipelinePlanThumbnail pipelineId={7} />));
 
@@ -135,12 +135,12 @@ describe('PipelinePlanThumbnail — L3 crop (req #3641)', () => {
             expect(bar.fill).toBe(frame.stroke);
         }
         expect(new Set(bars.map((b) => b.fill))).toEqual(new Set([
-            PLAN_VIZ_PALETTE.stepWillRun, PLAN_VIZ_PALETTE.stepManual,
-            PLAN_VIZ_PALETTE.stepBarrier]));
+            PLAN_VIZ_PALETTE.epicWillRun, PLAN_VIZ_PALETTE.epicManual,
+            PLAN_VIZ_PALETTE.epicBarrier]));
     });
 
-    it('renders a quiet empty frame for a plan with no steps', () => {
-        composed = composedFixture({ id: 8, steps: [] });
+    it('renders a quiet empty frame for a plan with no epics', () => {
+        composed = composedFixture({ id: 8, epics: [] });
         act(() => root.render(<PipelinePlanThumbnail pipelineId={8} />));
         const thumb = container.querySelector('[data-testid="pipelines-card-thumb-8"]');
         expect(thumb.getAttribute('data-thumb-state')).toBe('empty');

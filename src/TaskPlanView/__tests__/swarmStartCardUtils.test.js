@@ -115,7 +115,7 @@ describe('tallyRequirementStatuses', () => {
 
     it('counts every chip when orchestrated work is on screen (toggle OFF)', () => {
         // THE REGRESSION THIS REQUIREMENT WAS FILED FOR. Every row here is
-        // step-carried; with the toggle off the reader asked to see them, and
+        // epic-carried; with the toggle off the reader asked to see them, and
         // the launch chips must show them exactly as the observation chips do.
         const { counts, hidden } = tallyRequirementStatuses(
             rows, ALL_CHIPS, visible(new Set([1, 2, 3, 4, 5, 6]), false));

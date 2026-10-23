@@ -29,12 +29,12 @@
 // It was busted a THIRD time, and this harness passed the whole way through —
 // because it asserted the defect. The aggregator card kept a SECOND rule
 // underneath the shared one (`aggregatorRowVisible`'s unconditional launch
-// exclusion, req #3180): step-carried work was dropped from the
+// exclusion, req #3180): epic-carried work was dropped from the
 // `authoring`/`approved`/`swarm_ready` chips with no toggle. Measured on
-// production, 18 `authoring` requirements were step-carried; asked to SHOW
+// production, 18 `authoring` requirements were epic-carried; asked to SHOW
 // orchestrated work, the Cards view, the Table view and the elevator showed them
 // and the aggregator did not. The old harness had a case literally named
-// *"withholds step-carried work from a launch chip even with the toggle OFF"*.
+// *"withholds epic-carried work from a launch chip even with the toggle OFF"*.
 //
 // Two structural changes follow from that, and they are the reason this file is
 // shaped the way it is now:
@@ -58,7 +58,7 @@
 //
 // "This should also not break any filters applied from the pipeline views" is
 // part of the same requirement, so the initiative scope is exercised here too, through
-// the REAL `useInitiativeRequirementIds` derivation (steps -> junction -> requirement
+// the REAL `useInitiativeRequirementIds` derivation (epics -> junction -> requirement
 // ids), not a hand-made Set. It forces the toggle OFF and narrows rows AND chip
 // badges from one Set.
 
@@ -79,7 +79,7 @@ vi.mock('react-router-dom', () => ({
 
 // ── THE FIXTURE ──────────────────────────────────────────────────────────────
 //
-// Every requirement status, twice: one row a pipeline step carries and one row
+// Every requirement status, twice: one row a pipeline epic carries and one row
 // nothing carries. Ids are readable on sight — the tens digit is the status, the
 // units digit says orchestrated (1) or plain (0).
 //
@@ -87,7 +87,7 @@ vi.mock('react-router-dom', () => ({
 //   130/131  development   140/141  met           150/151  deferred
 //   160/161  wontfix
 //
-// The orchestrated rows are split across TWO steps under TWO initiatives, so the initiative
+// The orchestrated rows are split across TWO epics under TWO initiatives, so the initiative
 // section below filters to a real subset rather than to "everything orchestrated".
 const CATEGORY_ID = 5;
 const INITIATIVE_A = 7;
@@ -136,20 +136,20 @@ const ROWS = [
     row(161, 'wontfix', { completed_at: '2026-08-01T00:00:00' }),
 ];
 
-// Step 1 sits under initiative A, step 2 under initiative B — `pipeline_steps.initiative_fk` is
+// Epic 1 sits under initiative A, epic 2 under initiative B — `epics.initiative_fk` is
 // NOT NULL under containment, so this is the real shape.
-const STEPS = [
+const EPICS = [
     { id: 1, initiative_fk: INITIATIVE_A },
     { id: 2, initiative_fk: INITIATIVE_B },
 ];
 const JUNCTION = [
-    { step_fk: 1, requirement_fk: 101 },
-    { step_fk: 1, requirement_fk: 111 },
-    { step_fk: 1, requirement_fk: 121 },
-    { step_fk: 1, requirement_fk: 131 },
-    { step_fk: 2, requirement_fk: 141 },
-    { step_fk: 2, requirement_fk: 151 },
-    { step_fk: 2, requirement_fk: 161 },
+    { epic_fk: 1, requirement_fk: 101 },
+    { epic_fk: 1, requirement_fk: 111 },
+    { epic_fk: 1, requirement_fk: 121 },
+    { epic_fk: 1, requirement_fk: 131 },
+    { epic_fk: 2, requirement_fk: 141 },
+    { epic_fk: 2, requirement_fk: 151 },
+    { epic_fk: 2, requirement_fk: 161 },
 ];
 const CATEGORIES = [{ id: CATEGORY_ID, category_name: 'Harness', project_fk: 1, color: null, sort_mode: 'process' }];
 
@@ -194,8 +194,8 @@ const serve = (uri) => {
         }
         return ROWS;
     }
-    if (table === 'pipeline_step_requirements') return JUNCTION;
-    if (table === 'pipeline_steps') return STEPS;
+    if (table === 'epic_requirements') return JUNCTION;
+    if (table === 'epics') return EPICS;
     if (table === 'categories') return CATEGORIES;
     return [];
 };
@@ -419,7 +419,7 @@ describe('the requirement-visibility harness — one rule, every surface, every 
 
     // ── the answer itself ────────────────────────────────────────────────────
     describe('the shared hook', () => {
-        it('reads the junction and answers step association', async () => {
+        it('reads the junction and answers epic association', async () => {
             mount(<Probe />);
             await settle(() => probed.orchestratedIds.size === ORCHESTRATED.length);
             expect(sorted(probed.orchestratedIds)).toEqual(ORCHESTRATED);
@@ -431,9 +431,9 @@ describe('the requirement-visibility harness — one rule, every surface, every 
             expect(probed.orchestratedIds).toEqual(orchestratedRequirementIds(JUNCTION));
         }, TIMEOUT);
 
-        it('sees step-carried work under every step, not just the first', async () => {
-            // 141/151/161 are seated on step 2 — this pins that the read is a
-            // whole-table junction scan, not a lookup keyed to one step.
+        it('sees epic-carried work under every epic, not just the first', async () => {
+            // 141/151/161 are seated on epic 2 — this pins that the read is a
+            // whole-table junction scan, not a lookup keyed to one epic.
             mount(<Probe />);
             await settle(() => probed.orchestratedIds.size === ORCHESTRATED.length);
             for (const id of [141, 151, 161]) expect(probed.orchestratedIds.has(id)).toBe(true);
@@ -451,7 +451,7 @@ describe('the requirement-visibility harness — one rule, every surface, every 
             }
         }, TIMEOUT);
 
-        it('exposes no narrow step-only set for a caller to filter by (req #3502)', async () => {
+        it('exposes no narrow epic-only set for a caller to filter by (req #3502)', async () => {
             // `pipelinedIds` was the ingredient of the deleted second rule, and
             // its presence is what made a second rule easy to write. Gone.
             mount(<Probe />);
@@ -467,7 +467,7 @@ describe('the requirement-visibility harness — one rule, every surface, every 
             // the read happened at all, on the EXACT table name.
             mount(<Probe />);
             await settle(() => probed.orchestratedIds.size === ORCHESTRATED.length);
-            expect(restCalls.some(u => /\/pipeline_step_requirements\b/.test(u))).toBe(true);
+            expect(restCalls.some(u => /\/epic_requirements\b/.test(u))).toBe(true);
         }, TIMEOUT);
 
         it('hides nothing while the reads are in flight', () => {
@@ -838,7 +838,7 @@ describe('the requirement-visibility harness — one rule, every surface, every 
     // "This should also not break any filters applied from the pipeline views."
     // The initiative chip on a plan view lands on `/swarm?initiative=N`; `SwarmView` derives
     // the scope with `useInitiativeRequirementIds` and threads it down as a Set. The
-    // derivation runs FOR REAL here — steps -> junction -> requirement ids —
+    // derivation runs FOR REAL here — epics -> junction -> requirement ids —
     // because a hand-made Set would prove only that the consumers filter by
     // whatever they are handed, which is the standard of evidence this whole
     // harness exists to reject.
@@ -847,7 +847,7 @@ describe('the requirement-visibility harness — one rule, every surface, every 
             mount(<InitiativeProbe initiativeId={INITIATIVE_A} />);
             await settle(() => probedInitiative.initiativeReqIds && probedInitiative.initiativeReqIds.size === INITIATIVE_A_REQS.length);
             expect(sorted(probedInitiative.initiativeReqIds)).toEqual(INITIATIVE_A_REQS);
-            expect(probedInitiative.initiativeReqIds).toEqual(initiativeRequirementIds(STEPS, JUNCTION, INITIATIVE_A));
+            expect(probedInitiative.initiativeReqIds).toEqual(initiativeRequirementIds(EPICS, JUNCTION, INITIATIVE_A));
         }, TIMEOUT);
 
         it('reads null (no filter) when no initiative is named', async () => {
@@ -862,7 +862,7 @@ describe('the requirement-visibility harness — one rule, every surface, every 
             + 'orchestrated, so the card is on screen with none of them (req #3598)', async () => {
             // req #3428 forced the toggle off here; the user ruled a scope must
             // restrict the rows and override no control, so the stored ON hides
-            // the initiative's step-carried work exactly as it would unscoped.
+            // the initiative's epic-carried work exactly as it would unscoped.
             const c = mount(<Card initiativeReqIds={new Set(INITIATIVE_A_REQS)} />);
             mount(<Probe />);
             await settle(cardLoaded(c));

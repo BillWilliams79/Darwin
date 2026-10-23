@@ -1,14 +1,14 @@
 // @vitest-environment jsdom
 //
-// Req #3813 — the Filed-from block: what it reads, what it never carries
-// (credentials), the Surface line's deep-link form and the block's size cap.
+// Req #3813 — where a requirement was filed from: what it reads, what it never
+// carries (credentials), the surface's deep-link form and the size cap. Since
+// req #3815 it is the `filedFrom` category of the debug capture (filedFromNow).
 
 import { describe, it, expect, beforeEach } from 'vitest';
 
 import {
-    FILED_FROM_BEGIN, FILED_FROM_END, FILED_FROM_MAX_CHARS, REDACTED, captureFiledFrom, cleanQuery,
-    filedFromBlockNow, formatFiledFromBlock, parseFiledFromBlock, queryObject, redact, registerPageOptions,
-    routeIds, surfaceOf, viewState,
+    FILED_FROM_MAX_CHARS, REDACTED, captureFiledFrom, cleanQuery, filedFromNow, queryObject, redact,
+    registerPageOptions, routeIds, surfaceOf, viewState,
 } from '../filedFromContext';
 import { topologyPageOptions } from '../../Systems/SystemsPage2';
 
@@ -59,42 +59,24 @@ describe('filedFromContext (req #3813)', () => {
         expect(routeIds('/maps')).toEqual({});
     });
 
-    it('formats and parses back, and holds the size cap', () => {
-        const unregister = registerPageOptions(() => ({ options: { opt: 'K' }, surface: '/systems2?opt=K' }));
-        const ctx = captureFiledFrom({ location: { pathname: '/systems2', search: '?opt=H', hash: '' },
-            profile: {}, database: 'darwin', theme: null, popupId: 'requirement-filer', popupStore: { open: true, dock: null },
-            now: new Date('2026-10-23T10:00:00Z') });
-        unregister();
-        const text = formatFiledFromBlock(ctx);
-        expect(text.startsWith(FILED_FROM_BEGIN)).toBe(true);
-        expect(text.endsWith(FILED_FROM_END)).toBe(true);
-        const parsed = parseFiledFromBlock(`My words\n\n${text}\n`);
-        expect(parsed.surface).toBe('/systems2?opt=K');
-        expect(parsed.url).toBe('/systems2?opt=H');
-        expect(parsed.context).toEqual(JSON.parse(JSON.stringify(ctx)));
-        expect(parsed.context.filedAt).toBe('2026-10-23T10:00:00.000Z');
-        expect(parseFiledFromBlock('no block here')).toBe(null);
-
-        const big = { ...ctx, options: { ...ctx.options,
-            viewState: Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`k${i}`, 'v'.repeat(1900)])) } };
-        const capped = formatFiledFromBlock(big);
-        expect(capped.length).toBeLessThanOrEqual(FILED_FROM_MAX_CHARS);
-        const vs = parseFiledFromBlock(capped).context.options.viewState;
-        // Keys dropped biggest-first keep their names; the rest stay.
+    it('holds the size cap: view state first (names kept), then the popups, then the URL alone', () => {
+        const args = (search, store) => ({ location: { pathname: '/systems2', search, hash: '' }, profile: {},
+            database: 'darwin', theme: null, popupId: 'requirement-filer', popupStore: { open: true, dock: null } });
+        for (let i = 0; i < 40; i++) localStorage.setItem(`topology.k${i}`, 'v'.repeat(1900));
+        const capped = filedFromNow(args('?opt=H'));
+        expect(JSON.stringify(capped).length).toBeLessThanOrEqual(FILED_FROM_MAX_CHARS);
+        const vs = capped.options.viewState;
         expect(Object.keys(vs)).toHaveLength(40);
-        expect(Object.values(vs).filter(v => /over the block's size cap/.test(v)).length).toBeGreaterThan(0);
+        expect(Object.values(vs).filter(v => /over the size cap/.test(v)).length).toBeGreaterThan(0);
         expect(Object.values(vs).filter(v => v === 'v'.repeat(1900)).length).toBeGreaterThan(0);
+        localStorage.clear();
 
-        // A query too big for any JSON: the header lines alone, clipped — still under the cap.
-        const huge = `?ids=${'1,'.repeat(5000)}`;
-        const hugeCtx = captureFiledFrom({ location: { pathname: '/swarm', search: huge, hash: '' },
-            profile: {}, database: 'darwin', theme: null, popupId: 'requirement-filer', popupStore: null });
-        const hugeText = formatFiledFromBlock(hugeCtx);
-        expect(hugeText.length).toBeLessThanOrEqual(FILED_FROM_MAX_CHARS);
-        const hugeParsed = parseFiledFromBlock(hugeText);
-        expect(hugeParsed.surface.startsWith('/swarm?ids=1,1,')).toBe(true);
-        expect(hugeParsed.context).toBe(null);
-        expect(hugeText).toContain('size cap — omitted');
+        // A query too big for anything: the surface and URL alone, clipped.
+        const huge = filedFromNow({ ...args(`?ids=${'1,'.repeat(9000)}`), location: { pathname: '/swarm', search: `?ids=${'1,'.repeat(9000)}`, hash: '' } });
+        expect(JSON.stringify(huge).length).toBeLessThanOrEqual(FILED_FROM_MAX_CHARS);
+        expect(huge.surface.startsWith('/swarm?ids=1,1,')).toBe(true);
+        expect(huge.omitted).toMatch(/size cap/);
+        expect(huge.options).toBeUndefined();
     });
 
     it('a JWT under any name — query value, bare hash, a page\'s own surface — never reaches the block', () => {
@@ -102,26 +84,19 @@ describe('filedFromContext (req #3813)', () => {
         const ctx = captureFiledFrom({ location: { pathname: '/maps', search: `?view=cards&invite=${JWT}`, hash: `#${JWT}` },
             profile: {}, database: 'darwin', theme: null, popupId: 'requirement-filer', popupStore: null });
         unregister();
-        const text = formatFiledFromBlock(ctx);
+        const text = JSON.stringify(ctx);
         expect(text).not.toContain('eyJ');
         expect(text).not.toMatch(/code=abc|state=xyz/);
         expect(ctx.surface).toBe('/systems2?opt=H');
         expect(ctx.url.full).toBe('/maps?view=cards');
     });
 
-    it('a { in the URL line does not hide the JSON', () => {
-        const ctx = captureFiledFrom({ location: { pathname: '/maps', search: '?q={a}', hash: '' },
-            profile: {}, database: 'darwin', theme: null, popupId: 'requirement-filer', popupStore: null });
-        expect(parseFiledFromBlock(formatFiledFromBlock(ctx)).context.url.full).toBe('/maps?q={a}');
-    });
-
-    it('a capture that throws still files the URL and says so', () => {
-        const unregister = registerPageOptions(() => ({ options: {}, surface: '/x' }));
-        unregister();
-        const text = filedFromBlockNow({ location: { pathname: '/maps', search: '?a=1&filer=1', hash: '' },
+    it('a capture that throws still records the URL and says so', () => {
+        const ctx = filedFromNow({ location: { pathname: '/maps', search: '?a=1&filer=1', hash: '' },
             get profile() { throw new Error('boom'); } });
-        expect(text).toContain('Surface: /maps?a=1');
-        expect(text).toContain('Capture failed: boom');
+        expect(ctx.surface).toBe('/maps?a=1');
+        expect(ctx.url.full).toBe('/maps?a=1');
+        expect(ctx.captureError).toBe('boom');
     });
 
     it('the topology page reports the view on screen, not the one in the URL', () => {

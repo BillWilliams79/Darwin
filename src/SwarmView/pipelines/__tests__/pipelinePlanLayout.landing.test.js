@@ -22,7 +22,7 @@ describe('planLandingAction (req #3637)', () => {
         expect(planLandingAction(at(7), at(7), null)).toBe('keep');
     });
 
-    it('a Step Width change is an explicit rescale: base view, not a stale camera', () => {
+    it('an Epic Width change is an explicit rescale: base view, not a stale camera', () => {
         expect(planLandingAction(at(7, 1), at(7, 2), SAVED)).toBe('reset');
     });
 

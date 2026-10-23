@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
 // Req #3721 — the Plan visualizer's Active box: an AnchoredPanel listing the
-// plan's requirements whose sessions are under way, rows drawn like a step
+// plan's requirements whose sessions are under way, rows drawn like an epic
 // card's (id in the colour key, Terminal / Dev Server pills, title). Moving,
 // reshaping and collapsing are the panel's and are tested with it.
 
@@ -33,7 +33,7 @@ describe('PlanActiveBox (req #3721)', () => {
     });
     afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
-    it('is titled Active and counts its rows in the step card badge', () => {
+    it('is titled Active and counts its rows in the epic card badge', () => {
         render(<PlanActiveBox items={ITEMS} reqPills={PILLS} idStyleOf={idStyleOf} />);
         expect(screen.getByTestId('pipeline-viz-active-title').textContent).toBe('Active');
         expect(screen.getByTestId('pipeline-viz-active-count').textContent).toBe('2');

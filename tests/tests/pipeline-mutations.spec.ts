@@ -18,18 +18,18 @@ import {
 // darwin_dev, and after EACH one asserts three things:
 //
 //   1. THE ECHO. Every plan tool returns the full affected state read back
-//      from the database (req #3348 / #2828 discipline) — `{step, initiative,
-//      requirement_ids, deps}` for a step mutation. `devTool` throws on the
+//      from the database (req #3348 / #2828 discipline) — `{epic, initiative,
+//      requirement_ids, deps}` for an epic mutation. `devTool` throws on the
 //      `{error: ...}` shape refusals answer with, so an unverified call cannot
 //      pass for a successful one.
-//   2. THE DERIVED FACTS. A STEP HAS NO STATE (req #3750, user ruling
+//   2. THE DERIVED FACTS. A EPIC HAS NO STATE (req #3750, user ruling
 //      2026-10-21): it holds requirements, is never completed and never
 //      reopened, and every orchestration question is asked of the work it
 //      holds through `derived.rows[].open_req_ids` — its gating requirements
 //      not yet met/deferred/wontfix. So the assertion is always about what the
 //      SERVER derives: `darwin://pipeline/{id}`'s own `derived` block
 //      (`open_req_ids`, `gate_open`, `eligible`). Remediation B moved the
-//      join-and-derive step into Lambda-Rest (req #3367), so there is no
+//      join-and-derive epic into Lambda-Rest (req #3367), so there is no
 //      client-side model for this spec to build — the composed read's
 //      `derived` object IS the answer.
 //   3. A CLEAN ORDER. `derived.violations` must be empty, re-derived over a
@@ -52,10 +52,10 @@ import {
 // MUT-01..08 are the original eight (memory/pipeline-2-verification.md §7),
 // except MUT-06, which is RE-EXPRESSED — see its own comment. MUT-09..12 are
 // the four classes initiative containment creates. Req #3750 restated MUT-05,
-// MUT-06, MUT-07 and MUT-09: there is no `complete_pipeline_step` /
-// `reopen_pipeline_step` to call (MCP-020, MCP-035), no `state` on a derived
-// row and no `completed_at` on a step, so each now asserts the open work and
-// the gate the server derives from the requirements a step holds.
+// MUT-06, MUT-07 and MUT-09: there is no `complete_epic` /
+// `reopen_epic` to call (MCP-020, MCP-035), no `state` on a derived
+// row and no `completed_at` on an epic, so each now asserts the open work and
+// the gate the server derives from the requirements an epic holds.
 //
 // ── This spec runs against the live MCP daemon ─────────────────────────────
 // It drives darwin_dev through `scripts/mcp/darwin-tool.sh`, so it needs a
@@ -68,10 +68,10 @@ import {
 // construct: `derived` carries no `batches` key (DRV-021),
 // `launch_batches`/`_batch_letter`/`_launch_key` and the batch-contiguity
 // display rule are deleted, and `BATCH-SPANS-SCOPE` (DRV-022) is structurally
-// impossible once a step sits in exactly one initiative.
-// A step is the whole launch unit (memory/pipeline-2-first-principles.md
-// §8: "one step, N requirements, one announcement"). There is no tool call
-// that assembles several steps into one launch to replay, and no field on the
+// impossible once an epic sits in exactly one initiative.
+// An epic is the whole launch unit (memory/pipeline-2-first-principles.md
+// §8: "one epic, N requirements, one announcement"). There is no tool call
+// that assembles several epics into one launch to replay, and no field on the
 // composed read a test could assert is empty that would prove more than
 // `derived`'s own key set already does — so this comment is the proof rather
 // than a test with nothing to call.
@@ -80,16 +80,16 @@ const PLAN_TITLE = 'e2e-3377 mutation replay (throwaway)';
 const FOREIGN_PLAN_TITLE = 'e2e-3377 mutation replay — cross-plan probe (throwaway)';
 const REQ_PREFIX = 'e2e-3377-mutation';
 // Wall-clock gates, fixed so eligibility is deterministic against a real
-// clock. The future one is 2037, not 2099: a step's `not_before` is stored as
-// a MySQL TIMESTAMP (1970-01-01..2038-01-19) and `update_pipeline_step`/
-// `create_pipeline_step` REFUSE anything outside that range, because RDS's
+// clock. The future one is 2037, not 2099: an epic's `not_before` is stored as
+// a MySQL TIMESTAMP (1970-01-01..2038-01-19) and `update_epic`/
+// `create_epic` REFUSE anything outside that range, because RDS's
 // non-strict sql_mode would otherwise store the zero date — a gate that reads
 // as already satisfied.
 const PAST_GATE = '2020-01-01T00:00:00Z';
 const FUTURE_GATE = '2037-01-01T00:00:00Z';
 
-// No `completed_at`: a step has no state (req #3750), and req #3752 dropped the column.
-type Step = {
+// No `completed_at`: an epic has no state (req #3750), and req #3752 dropped the column.
+type Epic = {
     id: number; title: string; run: string; notes: string | null;
     not_before: string | null; initiative_fk: number;
 };
@@ -97,12 +97,12 @@ type Initiative = {
     id: number; title: string; description: string | null; initiative_status: string;
     sort_order: number | null; category_fk: number; closed: number; pipeline_fk: number;
 };
-type StepEcho = {
-    step: Step; initiative: Initiative; requirement_ids: number[];
-    deps: Array<{ id: number; step_fk: number; dep_step_fk: number }>;
+type EpicEcho = {
+    epic: Epic; initiative: Initiative; requirement_ids: number[];
+    deps: Array<{ id: number; epic_fk: number; dep_epic_fk: number }>;
 };
-// No `state`: a step has none (req #3750). `open_req_ids` is the one fact —
-// the step's gating requirements whose status is not terminal.
+// No `state`: an epic has none (req #3750). `open_req_ids` is the one fact —
+// the epic's gating requirements whose status is not terminal.
 type DerivedRow = {
     id: number; run: string; eligible: boolean; initiative_id: number;
     open_req_ids: number[]; gate_open: boolean; launch_candidate: boolean;
@@ -115,9 +115,9 @@ type DerivedRow = {
 type Composed = {
     pipeline: Record<string, unknown>;
     initiatives: Initiative[];
-    steps: Step[];
-    step_requirements: Array<{ step_fk: number; requirement_fk: number }>;
-    step_deps: Array<{ step_fk: number; dep_step_fk: number }>;
+    epics: Epic[];
+    epic_requirements: Array<{ epic_fk: number; requirement_fk: number }>;
+    epic_deps: Array<{ epic_fk: number; dep_epic_fk: number }>;
     requirements: Array<Record<string, unknown>>;
     // Present ONLY when the read was truncated. The marker is hoisted to the
     // TOP LEVEL (mcp-surface record §4.5) rather than appended as an element
@@ -125,8 +125,8 @@ type Composed = {
     _truncated?: unknown;
     derived: {
         initiative_order: number[]; display_order: number[]; rows: DerivedRow[];
-        eligible_step_ids: number[]; violations: unknown[]; cycle_detected: boolean;
-        cycle_step_ids: number[]; duplicate_step_ids: number[];
+        eligible_epic_ids: number[]; violations: unknown[]; cycle_detected: boolean;
+        cycle_epic_ids: number[]; duplicate_epic_ids: number[];
         unresolved_req_ids: number[]; out_of_scope_dep_ids: number[];
     };
 };
@@ -139,14 +139,14 @@ test.describe('Swarm Orchestration — 12-case mutation replay via MCP (req #337
     let categoryFk: number;
 
     const initiative: Record<string, number> = {};
-    const step: Record<string, number> = {};
+    const epic: Record<string, number> = {};
     const req: Record<string, number> = {};
     const createdRequirementIds: number[] = [];
 
     /**
      * Re-read a whole plan in ONE call — the same `darwin://pipeline/{id}`
      * payload the Primary AI sequences from (mcp-surface record §3: a fixed
-     * number of gateway reads, never a per-step fan-out — six, behind ONE
+     * number of gateway reads, never a per-epic fan-out — six, behind ONE
      * Lambda-Rest round trip since req #3367).
      */
     async function readPlan(id: number): Promise<Composed> {
@@ -161,8 +161,8 @@ test.describe('Swarm Orchestration — 12-case mutation replay via MCP (req #337
         expect(composed._truncated, 'a truncated read is a hard stop, never a partial render')
             .toBeUndefined();
         expect(composed.derived, 'the composed read must carry a derived block').toBeTruthy();
-        expect(composed.steps.every((s) => Number.isFinite(Number(s.id))),
-            'every returned step must carry a usable id').toBe(true);
+        expect(composed.epics.every((s) => Number.isFinite(Number(s.id))),
+            'every returned epic must carry a usable id').toBe(true);
         return composed;
     }
 
@@ -171,7 +171,7 @@ test.describe('Swarm Orchestration — 12-case mutation replay via MCP (req #337
         const composed = await readPlan(id);
         expect(composed.derived.violations, 'clean order after the mutation').toEqual([]);
         expect(composed.derived.cycle_detected).toBe(false);
-        expect(composed.derived.duplicate_step_ids).toEqual([]);
+        expect(composed.derived.duplicate_epic_ids).toEqual([]);
         expect(composed.derived.unresolved_req_ids).toEqual([]);
         return composed;
     }
@@ -196,24 +196,24 @@ test.describe('Swarm Orchestration — 12-case mutation replay via MCP (req #337
     }
 
     /**
-     * Reset a throwaway plan to empty: clear every step's own deps, unlink its
-     * requirements, drop the step, then delete the (now-childless) initiatives.
+     * Reset a throwaway plan to empty: clear every epic's own deps, unlink its
+     * requirements, drop the epic, then delete the (now-childless) initiatives.
      * Order matters — every FK below is ON DELETE RESTRICT.
      */
     async function wipePlan(id: number): Promise<void> {
         const composed = await devRead<Composed>(`darwin://pipeline/${id}`);
-        for (const s of composed.steps) {
-            try { await devTool('set_step_deps', { step_id: s.id }); } catch { /* ignore */ }
-            const links = composed.step_requirements.filter((l) => l.step_fk === s.id);
+        for (const s of composed.epics) {
+            try { await devTool('set_epic_deps', { epic_id: s.id }); } catch { /* ignore */ }
+            const links = composed.epic_requirements.filter((l) => l.epic_fk === s.id);
             for (const l of links) {
                 try {
-                    await devTool('unlink_step_requirement',
-                        { step_id: s.id, requirement_id: l.requirement_fk });
+                    await devTool('unlink_epic_requirement',
+                        { epic_id: s.id, requirement_id: l.requirement_fk });
                 } catch { /* ignore */ }
             }
         }
-        for (const s of composed.steps) {
-            try { await devTool('drop_pipeline_step', { id: s.id }); } catch { /* ignore */ }
+        for (const s of composed.epics) {
+            try { await devTool('drop_epic', { id: s.id }); } catch { /* ignore */ }
         }
         for (const e of composed.initiatives) {
             try { await devTool('delete_initiative', { id: e.id }); } catch { /* ignore */ }
@@ -294,7 +294,7 @@ test.describe('Swarm Orchestration — 12-case mutation replay via MCP (req #337
             }
         } catch { /* best-effort */ }
 
-        // ── The base initiative + steps the twelve cases mutate ───────────────────
+        // ── The base initiative + epics the twelve cases mutate ───────────────────
         const foundation = await devTool<Initiative>('create_initiative', {
             pipeline_fk: pipelineId, title: 'Foundation', category_fk: categoryFk,
         });
@@ -303,26 +303,26 @@ test.describe('Swarm Orchestration — 12-case mutation replay via MCP (req #337
         req.drain = await newRequirement('drain', 'met');
         req.safety = await newRequirement('substrate safety', 'development', 'planned');
 
-        const s1 = await devTool<StepEcho>('create_pipeline_step', {
+        const s1 = await devTool<EpicEcho>('create_epic', {
             initiative_fk: initiative.foundation,
             title: 'Drain: close every open swarm session',
             requirement_ids: [req.drain],
         });
         expect(s1.requirement_ids).toEqual([req.drain]);
-        step.drain = s1.step.id;
+        epic.drain = s1.epic.id;
 
-        const s2 = await devTool<StepEcho>('create_pipeline_step', {
+        const s2 = await devTool<EpicEcho>('create_epic', {
             initiative_fk: initiative.foundation,
             title: 'Substrate safety: eliminate dual-path git access',
             requirement_ids: [req.safety],
-            dep_step_ids: [step.drain],
+            dep_epic_ids: [epic.drain],
         });
-        expect(s2.deps.map((d) => d.dep_step_fk)).toEqual([step.drain]);
-        step.safety = s2.step.id;
+        expect(s2.deps.map((d) => d.dep_epic_fk)).toEqual([epic.drain]);
+        epic.safety = s2.epic.id;
 
         const composed = await expectCleanPlan();
-        expect(rowOf(composed, step.drain)?.open_req_ids, 'met work is not open').toEqual([]);
-        expect(rowOf(composed, step.safety)?.open_req_ids, 'development work is open')
+        expect(rowOf(composed, epic.drain)?.open_req_ids, 'met work is not open').toEqual([]);
+        expect(rowOf(composed, epic.safety)?.open_req_ids, 'development work is open')
             .toEqual([req.safety]);
     });
 
@@ -331,9 +331,9 @@ test.describe('Swarm Orchestration — 12-case mutation replay via MCP (req #337
         try {
             // `delete_pipeline` (MCP-032/033) hard-deletes a plan in one call
             // — no `wipePlan()` first. Both plans still carry whatever
-            // steps/links/deps the last mutation case left wired, so this IS
+            // epics/links/deps the last mutation case left wired, so this IS
             // the acceptance case for the two-phase delete path: it must
-            // succeed on a plan with internal step-to-step dependencies rather
+            // succeed on a plan with internal epic-to-epic dependencies rather
             // than surfacing a raw 1451. Neither plan ever leaves `draft`
             // anywhere in this suite, so the delete is legal on both.
             try {
@@ -364,41 +364,41 @@ test.describe('Swarm Orchestration — 12-case mutation replay via MCP (req #337
 
     // ── CASE 1 — one of the original eight ──────────────────────────────────
 
-    test('MUT-01: insert a step mid-plan and re-gate around it', async () => {
+    test('MUT-01: insert an epic mid-plan and re-gate around it', async () => {
         // COVERS: MCP-016, MCP-023, DRV-009
         req.bounded = await newRequirement('bounded list reads', 'met');
 
-        const inserted = await devTool<StepEcho>('create_pipeline_step', {
+        const inserted = await devTool<EpicEcho>('create_epic', {
             initiative_fk: initiative.foundation,
             title: 'INSERTED mid-plan: bound every MCP list read under the 6 MB ceiling',
             requirement_ids: [req.bounded],
-            dep_step_ids: [step.drain],
+            dep_epic_ids: [epic.drain],
         });
-        expect(inserted.step.title).toContain('INSERTED mid-plan');
+        expect(inserted.epic.title).toContain('INSERTED mid-plan');
         expect(inserted.requirement_ids).toEqual([req.bounded]);
-        expect(inserted.deps.map((d) => d.dep_step_fk)).toEqual([step.drain]);
-        step.inserted = inserted.step.id;
+        expect(inserted.deps.map((d) => d.dep_epic_fk)).toEqual([epic.drain]);
+        epic.inserted = inserted.epic.id;
 
-        // The insertion is only half of it — the step it displaces must
-        // re-gate onto it, and set_step_deps REPLACES rather than
+        // The insertion is only half of it — the epic it displaces must
+        // re-gate onto it, and set_epic_deps REPLACES rather than
         // merges (MCP-023).
-        const regated = await devTool<StepEcho>('set_step_deps', {
-            step_id: step.safety, dep_step_ids: [step.inserted],
+        const regated = await devTool<EpicEcho>('set_epic_deps', {
+            epic_id: epic.safety, dep_epic_ids: [epic.inserted],
         });
-        expect(regated.deps.map((d) => d.dep_step_fk)).toEqual([step.inserted]);
+        expect(regated.deps.map((d) => d.dep_epic_fk)).toEqual([epic.inserted]);
 
         const composed = await expectCleanPlan();
         // `indexOf` returns -1 for a MISSING id, and -1 is "less than" every
-        // real position — so a step silently dropped from `display_order`
+        // real position — so an epic silently dropped from `display_order`
         // would still pass a bare `toBeLessThan`. Assert presence first.
-        for (const id of [step.drain, step.inserted, step.safety]) {
-            expect(composed.derived.display_order, `step ${id} must appear in display order`)
+        for (const id of [epic.drain, epic.inserted, epic.safety]) {
+            expect(composed.derived.display_order, `epic ${id} must appear in display order`)
                 .toContain(id);
         }
         const at = (id: number) => composed.derived.display_order.indexOf(id);
-        expect(at(step.drain)).toBeLessThan(at(step.inserted));
-        expect(at(step.inserted)).toBeLessThan(at(step.safety));
-        expect(rowOf(composed, step.inserted)?.open_req_ids).toEqual([]);
+        expect(at(epic.drain)).toBeLessThan(at(epic.inserted));
+        expect(at(epic.inserted)).toBeLessThan(at(epic.safety));
+        expect(rowOf(composed, epic.inserted)?.open_req_ids).toEqual([]);
     });
 
     // ── CASE 2 — one of the original eight ──────────────────────────────────
@@ -407,26 +407,26 @@ test.describe('Swarm Orchestration — 12-case mutation replay via MCP (req #337
         async () => {
             // COVERS: DRV-009
             req.wontfixed = await newRequirement('dual-path audit', 'approved');
-            const folded = await devTool<StepEcho>('create_pipeline_step', {
+            const folded = await devTool<EpicEcho>('create_epic', {
                 initiative_fk: initiative.foundation,
                 title: 'Dual-path git audit (later folded elsewhere)',
                 requirement_ids: [req.wontfixed],
-                dep_step_ids: [step.inserted],
+                dep_epic_ids: [epic.inserted],
             });
-            step.folded = folded.step.id;
+            epic.folded = folded.epic.id;
 
             let composed = await expectCleanPlan();
-            expect(rowOf(composed, step.folded)?.open_req_ids, 'approved work is open')
+            expect(rowOf(composed, epic.folded)?.open_req_ids, 'approved work is open')
                 .toEqual([req.wontfixed]);
 
-            // (a) the disposition itself — wontfix is TERMINAL, so the step
+            // (a) the disposition itself — wontfix is TERMINAL, so the epic
             // holds no open work.
             const wontfixEcho = await devTool<{ requirement_status: string }>(
                 'update_requirement', { id: req.wontfixed, requirement_status: 'wontfix' });
             expect(wontfixEcho.requirement_status).toBe('wontfix');
 
             composed = await expectCleanPlan();
-            expect(rowOf(composed, step.folded)?.open_req_ids, 'wontfix is terminal → not open')
+            expect(rowOf(composed, epic.folded)?.open_req_ids, 'wontfix is terminal → not open')
                 .toEqual([]);
 
             // (b) the fold — the note lands in the RECEIVING requirement.
@@ -442,25 +442,25 @@ test.describe('Swarm Orchestration — 12-case mutation replay via MCP (req #337
             expect(receiver.description).toContain(foldNote);
             expect(receiver.description).toContain(String(req.wontfixed));
 
-            // (c) NO RESIDUE — the folded step leaves the plan entirely. Its
-            // dependent re-gates FIRST: `dep_step_fk` is ON DELETE RESTRICT.
-            await devTool('unlink_step_requirement',
-                { step_id: step.folded, requirement_id: req.wontfixed });
+            // (c) NO RESIDUE — the folded epic leaves the plan entirely. Its
+            // dependent re-gates FIRST: `dep_epic_fk` is ON DELETE RESTRICT.
+            await devTool('unlink_epic_requirement',
+                { epic_id: epic.folded, requirement_id: req.wontfixed });
             const dropped = await devTool<{
                 deleted: boolean; id: number; initiative_fk: number;
                 requirement_links_removed: number; dep_rows_removed: number;
-            }>('drop_pipeline_step', { id: step.folded });
+            }>('drop_epic', { id: epic.folded });
             expect(dropped.deleted).toBe(true);
-            expect(dropped.id).toBe(step.folded);
+            expect(dropped.id).toBe(epic.folded);
             expect(dropped.initiative_fk).toBe(initiative.foundation);
             expect(dropped.requirement_links_removed, 'already unlinked above').toBe(0);
-            expect(dropped.dep_rows_removed, 'its one gate on the inserted step').toBe(1);
+            expect(dropped.dep_rows_removed, 'its one gate on the inserted epic').toBe(1);
 
             const composed2 = await readPlan(pipelineId);
-            expect(composed2.steps.map((s) => s.id)).not.toContain(step.folded);
-            expect(composed2.step_requirements.some((l) => l.step_fk === step.folded)).toBe(false);
-            expect(composed2.step_deps.some(
-                (d) => d.step_fk === step.folded || d.dep_step_fk === step.folded)).toBe(false);
+            expect(composed2.epics.map((s) => s.id)).not.toContain(epic.folded);
+            expect(composed2.epic_requirements.some((l) => l.epic_fk === epic.folded)).toBe(false);
+            expect(composed2.epic_deps.some(
+                (d) => d.epic_fk === epic.folded || d.dep_epic_fk === epic.folded)).toBe(false);
             await expectCleanPlan();
         });
 
@@ -480,127 +480,127 @@ test.describe('Swarm Orchestration — 12-case mutation replay via MCP (req #337
         expect(echo.coordination_type, 'the flip, from the echo').toBe('deployed');
         expect(echo.description).toContain('AUTONOMY GRANT');
 
-        // Coordination is NOT an input to open work: the step holds exactly
+        // Coordination is NOT an input to open work: the epic holds exactly
         // the open work it held, and the order must be untouched.
         const composed = await expectCleanPlan();
-        expect(rowOf(composed, step.safety)?.open_req_ids).toEqual([req.safety]);
-        expect(rowOf(composed, step.safety)?.req_ids).toContain(req.safety);
+        expect(rowOf(composed, epic.safety)?.open_req_ids).toEqual([req.safety]);
+        expect(rowOf(composed, epic.safety)?.req_ids).toContain(req.safety);
     });
 
     // ── CASE 4 — one of the original eight ──────────────────────────────────
 
-    test('MUT-04: re-scope a step after filing — notes REPLACE, never append',
+    test('MUT-04: re-scope an epic after filing — notes REPLACE, never append',
         async () => {
             // COVERS: MCP-019
             const firstNotes = 'RE-SCOPED 2026-08-09: B5a only.';
-            const first = await devTool<StepEcho>('update_pipeline_step', {
-                id: step.safety,
+            const first = await devTool<EpicEcho>('update_epic', {
+                id: epic.safety,
                 title: 'Substrate safety: B5a flag flip only (B5b DEFERRED post-pipeline)',
                 notes: firstNotes,
             });
-            expect(first.step.title).toContain('B5b DEFERRED post-pipeline');
-            expect(first.step.notes).toBe(firstNotes);
+            expect(first.epic.title).toContain('B5b DEFERRED post-pipeline');
+            expect(first.epic.notes).toBe(firstNotes);
 
             // REPLACE semantics, stated in the tool's own contract and
             // asserted here because an appending implementation would still
             // look correct on the first write and only corrupt the second.
             const secondNotes = 'RE-SCOPED AGAIN 2026-08-09: B5b moves to its own requirement; '
-                + 'this step carries the flag flip and nothing else.';
-            const second = await devTool<StepEcho>('update_pipeline_step', {
-                id: step.safety, notes: secondNotes,
+                + 'this epic carries the flag flip and nothing else.';
+            const second = await devTool<EpicEcho>('update_epic', {
+                id: epic.safety, notes: secondNotes,
             });
-            expect(second.step.notes).toBe(secondNotes);
-            expect(second.step.notes).not.toContain(firstNotes);
-            expect(second.step.title, 'an unset field is left alone')
+            expect(second.epic.notes).toBe(secondNotes);
+            expect(second.epic.notes).not.toContain(firstNotes);
+            expect(second.epic.title, 'an unset field is left alone')
                 .toContain('B5b DEFERRED post-pipeline');
 
             const composed = await expectCleanPlan();
-            expect(composed.steps.find((s) => s.id === step.safety)?.notes).toBe(secondNotes);
+            expect(composed.epics.find((s) => s.id === epic.safety)?.notes).toBe(secondNotes);
         });
 
     // ── CASE 5 — one of the original eight ──────────────────────────────────
 
-    test('MUT-05: a gate passed WITH EXCEPTIONS, dispositioned into the step notes',
+    test('MUT-05: a gate passed WITH EXCEPTIONS, dispositioned into the epic notes',
         async () => {
             // COVERS: MCP-021, DRV-011
             //
-            // Req #3750 restated this case. A gate step is a req-less HOLDER:
+            // Req #3750 restated this case. A gate epic is a req-less HOLDER:
             // it is never completed (there is no completion tool — MCP-020), so
             // the disposition is simply its notes, and it holds no open work,
-            // so it never holds its dependents (DRV-011). And because a step
+            // so it never holds its dependents (DRV-011). And because an epic
             // has no state, finished work never closes it: any requirement —
-            // work or container — links onto any unlocked step (MCP-021).
+            // work or container — links onto any unlocked epic (MCP-021).
             const closed = await devTool<{ requirement_status: string }>(
                 'update_requirement', { id: req.safety, requirement_status: 'met' });
             expect(closed.requirement_status).toBe('met');
-            expect(rowOf(await expectCleanPlan(), step.safety)?.open_req_ids,
+            expect(rowOf(await expectCleanPlan(), epic.safety)?.open_req_ids,
                 'the gated work holds nothing open before its gate runs').toEqual([]);
 
-            const gate = await devTool<StepEcho>('create_pipeline_step', {
+            const gate = await devTool<EpicEcho>('create_epic', {
                 initiative_fk: initiative.foundation,
                 title: 'Gate: full skill-harness run before the substrate cutover',
-                dep_step_ids: [step.safety],
+                dep_epic_ids: [epic.safety],
             });
-            step.gate = gate.step.id;
-            expect(gate.requirement_ids, 'a gate step links no requirements').toEqual([]);
+            epic.gate = gate.epic.id;
+            expect(gate.requirement_ids, 'a gate epic links no requirements').toEqual([]);
 
             const disposition = 'GATE PASSED WITH EXCEPTIONS: 3709/3713. Four pre-existing '
                 + 'failures dispositioned into requirement 3061 scope, not fixed here.';
-            const noted = await devTool<StepEcho>('update_pipeline_step', {
-                id: step.gate, notes: disposition,
+            const noted = await devTool<EpicEcho>('update_epic', {
+                id: epic.gate, notes: disposition,
             });
-            expect(noted.step.notes).toBe(disposition);
-            // req #3752 dropped the column: a step has no completion stamp.
-            expect(noted.step).not.toHaveProperty('completed_at');
+            expect(noted.epic.notes).toBe(disposition);
+            // req #3752 dropped the column: an epic has no completion stamp.
+            expect(noted.epic).not.toHaveProperty('completed_at');
 
-            // DRV-011 — a step with no requirement holds no open work, so a
-            // step gated on it sees a CLEAR dependency.
-            const probe = await devTool<StepEcho>('create_pipeline_step', {
+            // DRV-011 — an epic with no requirement holds no open work, so a
+            // epic gated on it sees a CLEAR dependency.
+            const probe = await devTool<EpicEcho>('create_epic', {
                 initiative_fk: initiative.foundation, title: 'Probe: gated on the req-less gate',
-                dep_step_ids: [step.gate],
+                dep_epic_ids: [epic.gate],
             });
             let composed = await expectCleanPlan();
-            expect(rowOf(composed, step.gate)?.open_req_ids, 'a req-less step holds no open work')
+            expect(rowOf(composed, epic.gate)?.open_req_ids, 'a req-less epic holds no open work')
                 .toEqual([]);
-            expect(rowOf(composed, probe.step.id)?.gate_open,
+            expect(rowOf(composed, probe.epic.id)?.gate_open,
                 'a dependency holding no open work is clear').toBe(true);
-            expect(rowOf(composed, probe.step.id)?.checkpoint_blocked_by,
+            expect(rowOf(composed, probe.epic.id)?.checkpoint_blocked_by,
                 'a barrier holding no work holds nothing').toEqual([]);
-            expect(rowOf(composed, step.gate)?.launch_req_ids, '...and announces nothing')
+            expect(rowOf(composed, epic.gate)?.launch_req_ids, '...and announces nothing')
                 .toEqual([]);
-            expect(rowOf(composed, step.gate)?.launch_candidate).toBe(false);
-            expect(composed.derived.eligible_step_ids).not.toContain(step.gate);
-            expect(composed.steps.find((s) => s.id === step.gate)?.notes)
+            expect(rowOf(composed, epic.gate)?.launch_candidate).toBe(false);
+            expect(composed.derived.eligible_epic_ids).not.toContain(epic.gate);
+            expect(composed.epics.find((s) => s.id === epic.gate)?.notes)
                 .toContain('WITH EXCEPTIONS');
-            await devTool('drop_pipeline_step', { id: probe.step.id });
+            await devTool('drop_epic', { id: probe.epic.id });
 
             // MCP-021 — a WORK requirement and a CONTAINER both link onto the
-            // gate, a step whose dependencies are all finished. No stamp
+            // gate, an epic whose dependencies are all finished. No stamp
             // guard exists to refuse them.
             req.gateWork = await newRequirement('gate link probe (work)', 'approved');
-            const linkedWork = await devTool<StepEcho>('link_step_requirement',
-                { step_id: step.gate, requirement_id: req.gateWork });
+            const linkedWork = await devTool<EpicEcho>('link_epic_requirement',
+                { epic_id: epic.gate, requirement_id: req.gateWork });
             expect(linkedWork.requirement_ids).toEqual([req.gateWork]);
 
             req.gateContainer = await newRequirement(
                 'gate link probe (container)', 'development', 'implemented', 1);
-            const linkedContainer = await devTool<StepEcho>('link_step_requirement',
-                { step_id: step.gate, requirement_id: req.gateContainer });
+            const linkedContainer = await devTool<EpicEcho>('link_epic_requirement',
+                { epic_id: epic.gate, requirement_id: req.gateContainer });
             expect(linkedContainer.requirement_ids).toEqual([req.gateWork, req.gateContainer]);
 
             composed = await expectCleanPlan();
-            expect(rowOf(composed, step.gate)?.open_req_ids,
+            expect(rowOf(composed, epic.gate)?.open_req_ids,
                 'the linked work is open; the container is subtracted (DRV-009)')
                 .toEqual([req.gateWork]);
-            expect(rowOf(composed, step.gate)?.tracking_req_ids).toEqual([req.gateContainer]);
+            expect(rowOf(composed, epic.gate)?.tracking_req_ids).toEqual([req.gateContainer]);
 
             // Put the gate back to a req-less holder — later cases gate on it.
             for (const rid of [req.gateWork, req.gateContainer]) {
-                await devTool('unlink_step_requirement', { step_id: step.gate, requirement_id: rid });
+                await devTool('unlink_epic_requirement', { epic_id: epic.gate, requirement_id: rid });
             }
             composed = await expectCleanPlan();
-            expect(rowOf(composed, step.gate)?.req_ids).toEqual([]);
-            expect(rowOf(composed, step.gate)?.open_req_ids).toEqual([]);
+            expect(rowOf(composed, epic.gate)?.req_ids).toEqual([]);
+            expect(rowOf(composed, epic.gate)?.open_req_ids).toEqual([]);
         });
 
     // ── CASE 6 — RE-EXPRESSED (req #3377 item 1) ────────────────────────────
@@ -610,16 +610,16 @@ test.describe('Swarm Orchestration — 12-case mutation replay via MCP (req #337
             // COVERS: DRV-004, DRV-005
             //
             // RE-EXPRESSED. The original schema kept one condition per dep
-            // row, so a step waiting on a step AND on a wall clock carried TWO
-            // dep rows (one `dep_step_fk`, one `time_at`). The time gate now
-            // lives OFF the dep table entirely, on the step itself as
+            // row, so an epic waiting on an epic AND on a wall clock carried TWO
+            // dep rows (one `dep_epic_fk`, one `time_at`). The time gate now
+            // lives OFF the dep table entirely, on the epic itself as
             // `not_before` — a column, not a row (mcp-surface record §5.2:
             // "dep_times leaves the tool entirely"; first-principles record
-            // §4 item 3: several time gates on one step was never a real
+            // §4 item 3: several time gates on one epic was never a real
             // capability, because the latest instant always wins). So the
             // SAME real-world case — s0.4 waiting on a session AND a two-hour
-            // wall clock — is expressed as ONE dep row (the step dependency)
-            // plus ONE column (the step's own `not_before`), never two dep
+            // wall clock — is expressed as ONE dep row (the epic dependency)
+            // plus ONE column (the epic's own `not_before`), never two dep
             // rows.
             //
             // Each stage below isolates ONE condition at a time (stage (a)
@@ -628,174 +628,174 @@ test.describe('Swarm Orchestration — 12-case mutation replay via MCP (req #337
             // condition rather than about both at once, which would prove
             // nothing about dependency gating at all.
             //
-            // Req #3750: a dependency is CLEAR when that step holds no open
+            // Req #3750: a dependency is CLEAR when that epic holds no open
             // work, so the blocker holds a requirement of its own (a req-less
-            // step never gates — MUT-05), and the step gate is met by closing
-            // that requirement rather than by completing the step. The dual
-            // step's own work is `swarm_ready`, because `eligible` now means
-            // "carries launch-ready work AND its gate is open" — a step with
+            // epic never gates — MUT-05), and the epic gate is met by closing
+            // that requirement rather than by completing the epic. The dual
+            // epic's own work is `swarm_ready`, because `eligible` now means
+            // "carries launch-ready work AND its gate is open" — an epic with
             // nothing launchable is never eligible, which would make the
             // "not eligible" stages below prove nothing.
             req.dual = await newRequirement('dual-gated work', 'swarm_ready');
             req.blockerWork = await newRequirement('blocking work', 'approved');
-            const blocker = await devTool<StepEcho>('create_pipeline_step', {
+            const blocker = await devTool<EpicEcho>('create_epic', {
                 initiative_fk: initiative.foundation, title: 'Blocking gate for the dual-condition case',
                 requirement_ids: [req.blockerWork],
-                dep_step_ids: [step.gate],
+                dep_epic_ids: [epic.gate],
             });
-            step.blocker = blocker.step.id;
+            epic.blocker = blocker.epic.id;
 
-            const dual = await devTool<StepEcho>('create_pipeline_step', {
+            const dual = await devTool<EpicEcho>('create_epic', {
                 initiative_fk: initiative.foundation,
-                title: 'Dual-gated: waits on a step AND on a wall clock',
+                title: 'Dual-gated: waits on an epic AND on a wall clock',
                 requirement_ids: [req.dual],
-                dep_step_ids: [step.blocker],
+                dep_epic_ids: [epic.blocker],
                 not_before: PAST_GATE,
             });
-            step.dual = dual.step.id;
+            epic.dual = dual.epic.id;
             expect(dual.deps, 'one dep ROW now — the time gate left the table').toHaveLength(1);
-            expect(dual.deps.map((d) => d.dep_step_fk)).toEqual([step.blocker]);
-            expect(dual.step.not_before).toContain('2020');
+            expect(dual.deps.map((d) => d.dep_epic_fk)).toEqual([epic.blocker]);
+            expect(dual.epic.not_before).toContain('2020');
 
-            // (a) time gate ALREADY passed, step gate NOT met → not eligible.
-            // Isolates the STEP DEPENDENCY: a passed clock cannot carry an
-            // unmet step gate.
+            // (a) time gate ALREADY passed, epic gate NOT met → not eligible.
+            // Isolates the EPIC DEPENDENCY: a passed clock cannot carry an
+            // unmet epic gate.
             let composed = await expectCleanPlan();
-            expect(rowOf(composed, step.dual)?.launch_req_ids,
-                'the step carries launch-ready work — "not eligible" is about its gate')
+            expect(rowOf(composed, epic.dual)?.launch_req_ids,
+                'the epic carries launch-ready work — "not eligible" is about its gate')
                 .toEqual([req.dual]);
-            expect(rowOf(composed, step.blocker)?.open_req_ids).toEqual([req.blockerWork]);
-            expect(rowOf(composed, step.dual)?.gate_open).toBe(false);
-            expect(rowOf(composed, step.dual)?.eligible,
-                'a passed clock cannot carry an unmet step gate').toBe(false);
+            expect(rowOf(composed, epic.blocker)?.open_req_ids).toEqual([req.blockerWork]);
+            expect(rowOf(composed, epic.dual)?.gate_open).toBe(false);
+            expect(rowOf(composed, epic.dual)?.eligible,
+                'a passed clock cannot carry an unmet epic gate').toBe(false);
 
-            // (b) step gate met, time gate now moved to the FUTURE → still
-            // not eligible. Isolates the CLOCK: a met step gate cannot carry
-            // an unreached clock. The step's launch-ready work is asserted at
+            // (b) epic gate met, time gate now moved to the FUTURE → still
+            // not eligible. Isolates the CLOCK: a met epic gate cannot carry
+            // an unreached clock. The epic's launch-ready work is asserted at
             // every stage: eligibility is only evidence about the gate while
-            // the step genuinely has something to launch.
+            // the epic genuinely has something to launch.
             const blockerClosed = await devTool<{ requirement_status: string }>(
                 'update_requirement', { id: req.blockerWork, requirement_status: 'met' });
             expect(blockerClosed.requirement_status).toBe('met');
-            const future = await devTool<StepEcho>('update_pipeline_step', {
-                id: step.dual, not_before: FUTURE_GATE,
+            const future = await devTool<EpicEcho>('update_epic', {
+                id: epic.dual, not_before: FUTURE_GATE,
             });
-            expect(future.step.not_before).toContain('2037');
+            expect(future.epic.not_before).toContain('2037');
             composed = await expectCleanPlan();
-            expect(rowOf(composed, step.dual)?.launch_req_ids,
+            expect(rowOf(composed, epic.dual)?.launch_req_ids,
                 'still launch-ready — otherwise "not eligible" proves nothing')
                 .toEqual([req.dual]);
-            expect(rowOf(composed, step.blocker)?.open_req_ids, 'the step gate is now met')
+            expect(rowOf(composed, epic.blocker)?.open_req_ids, 'the epic gate is now met')
                 .toEqual([]);
-            expect(rowOf(composed, step.dual)?.gate_open).toBe(false);
-            expect(rowOf(composed, step.dual)?.eligible,
-                'a met step gate cannot carry an unreached clock').toBe(false);
+            expect(rowOf(composed, epic.dual)?.gate_open).toBe(false);
+            expect(rowOf(composed, epic.dual)?.eligible,
+                'a met epic gate cannot carry an unreached clock').toBe(false);
 
             // (c) BOTH satisfied → eligible. Only now.
-            const both = await devTool<StepEcho>('update_pipeline_step', {
-                id: step.dual, not_before: PAST_GATE,
+            const both = await devTool<EpicEcho>('update_epic', {
+                id: epic.dual, not_before: PAST_GATE,
             });
-            expect(both.step.not_before).toContain('2020');
+            expect(both.epic.not_before).toContain('2020');
             composed = await expectCleanPlan();
-            expect(rowOf(composed, step.dual)?.gate_open).toBe(true);
-            expect(rowOf(composed, step.dual)?.eligible,
+            expect(rowOf(composed, epic.dual)?.gate_open).toBe(true);
+            expect(rowOf(composed, epic.dual)?.eligible,
                 'both conditions satisfied → eligible').toBe(true);
         });
 
     // ── CASE 7 — one of the original eight ──────────────────────────────────
 
-    test('MUT-07: two requirements on one step — the open work shrinks as each closes',
+    test('MUT-07: two requirements on one epic — the open work shrinks as each closes',
         async () => {
             // COVERS: DRV-009
             //
             // This used to be the interesting case. Under initiative containment it
             // is the ORDINARY one — multi-requirement is the first choice at
-            // any width, since a step is the whole launch unit (the `run` /
+            // any width, since an epic is the whole launch unit (the `run` /
             // launch-unit doctrine, first-principles record §6/§8). Req #3750
-            // replaced the Running/Scheduled/Complete step states with the
-            // one fact a step has: which of its requirements are still open.
+            // replaced the Running/Scheduled/Complete epic states with the
+            // one fact an epic has: which of its requirements are still open.
             req.pairA = await newRequirement('paired work A', 'development');
             req.pairB = await newRequirement('paired work B', 'approved');
 
-            const paired = await devTool<StepEcho>('create_pipeline_step', {
+            const paired = await devTool<EpicEcho>('create_epic', {
                 initiative_fk: initiative.foundation,
                 title: 'TWO REQUIREMENTS, ONE SWARM-START: both close in one session',
                 requirement_ids: [req.pairA, req.pairB],
-                dep_step_ids: [step.gate],
+                dep_epic_ids: [epic.gate],
             });
-            step.paired = paired.step.id;
+            epic.paired = paired.epic.id;
             expect(paired.requirement_ids).toEqual([req.pairA, req.pairB]);
 
             // Both open — `development` and `approved` are both non-terminal.
             let composed = await expectCleanPlan();
-            expect(rowOf(composed, step.paired)?.open_req_ids).toEqual([req.pairA, req.pairB]);
+            expect(rowOf(composed, epic.paired)?.open_req_ids).toEqual([req.pairA, req.pairB]);
 
             // The development one closes → only the other is open.
             await devTool('update_requirement', { id: req.pairA, requirement_status: 'met' });
             composed = await expectCleanPlan();
-            expect(rowOf(composed, step.paired)?.open_req_ids).toEqual([req.pairB]);
+            expect(rowOf(composed, epic.paired)?.open_req_ids).toEqual([req.pairB]);
 
             // ALL terminal → nothing open. `deferred` counts, exactly like `met`.
             await devTool('update_requirement', { id: req.pairB, requirement_status: 'deferred' });
             composed = await expectCleanPlan();
-            expect(rowOf(composed, step.paired)?.open_req_ids).toEqual([]);
-            expect(rowOf(composed, step.paired)?.req_ids).toEqual([req.pairA, req.pairB]);
+            expect(rowOf(composed, epic.paired)?.open_req_ids).toEqual([]);
+            expect(rowOf(composed, epic.paired)?.req_ids).toEqual([req.pairA, req.pairB]);
         });
 
     // ── CASE 8 — one of the original eight ──────────────────────────────────
 
-    test('MUT-08: dropping a step is refused while gated on, then leaves no residue', async () => {
+    test('MUT-08: dropping an epic is refused while gated on, then leaves no residue', async () => {
         // COVERS: MCP-022
         req.dropped = await newRequirement('droppable work', 'approved');
-        const doomed = await devTool<StepEcho>('create_pipeline_step', {
-            initiative_fk: initiative.foundation, title: 'Droppable step (abort point)',
-            requirement_ids: [req.dropped], dep_step_ids: [step.gate],
+        const doomed = await devTool<EpicEcho>('create_epic', {
+            initiative_fk: initiative.foundation, title: 'Droppable epic (abort point)',
+            requirement_ids: [req.dropped], dep_epic_ids: [epic.gate],
         });
-        step.doomed = doomed.step.id;
+        epic.doomed = doomed.epic.id;
 
-        const dependent = await devTool<StepEcho>('create_pipeline_step', {
-            initiative_fk: initiative.foundation, title: 'Gated on the droppable step',
-            dep_step_ids: [step.doomed],
+        const dependent = await devTool<EpicEcho>('create_epic', {
+            initiative_fk: initiative.foundation, title: 'Gated on the droppable epic',
+            dep_epic_ids: [epic.doomed],
         });
-        step.dependent = dependent.step.id;
+        epic.dependent = dependent.epic.id;
 
-        // REFUSED, and the message names the step that gates on it. The
+        // REFUSED, and the message names the epic that gates on it. The
         // blockers are rendered as a Python list (`[443]`), so anchor on the
         // bracketed form rather than a bare digit substring — ids are
         // sequential in darwin_dev and a bare digit can appear inside another
         // id.
-        const refusal = await devToolExpectError('drop_pipeline_step', { id: step.doomed });
-        expect(refusal).toContain(`[${step.dependent}]`);
+        const refusal = await devToolExpectError('drop_epic', { id: epic.doomed });
+        expect(refusal).toContain(`[${epic.dependent}]`);
 
         // Nothing was deleted on the way to that refusal.
         let composed = await readPlan(pipelineId);
-        expect(composed.steps.map((s) => s.id)).toContain(step.doomed);
-        expect(composed.step_requirements.some(
-            (l) => l.step_fk === step.doomed && l.requirement_fk === req.dropped)).toBe(true);
+        expect(composed.epics.map((s) => s.id)).toContain(epic.doomed);
+        expect(composed.epic_requirements.some(
+            (l) => l.epic_fk === epic.doomed && l.requirement_fk === req.dropped)).toBe(true);
         await expectCleanPlan();
 
         // Clear the reference, then drop for real.
-        await devTool('drop_pipeline_step', { id: step.dependent });
-        await devTool('unlink_step_requirement',
-            { step_id: step.doomed, requirement_id: req.dropped });
-        await devTool('drop_pipeline_step', { id: step.doomed });
+        await devTool('drop_epic', { id: epic.dependent });
+        await devTool('unlink_epic_requirement',
+            { epic_id: epic.doomed, requirement_id: req.dropped });
+        await devTool('drop_epic', { id: epic.doomed });
 
-        // NO RESIDUE: no step row, no link row, no dep row on either side.
+        // NO RESIDUE: no epic row, no link row, no dep row on either side.
         composed = await readPlan(pipelineId);
-        expect(composed.steps.map((s) => s.id)).not.toContain(step.doomed);
-        expect(composed.steps.map((s) => s.id)).not.toContain(step.dependent);
-        expect(composed.step_requirements.some((l) => l.step_fk === step.doomed)).toBe(false);
-        expect(composed.step_deps.some(
-            (d) => d.step_fk === step.doomed || d.dep_step_fk === step.doomed)).toBe(false);
+        expect(composed.epics.map((s) => s.id)).not.toContain(epic.doomed);
+        expect(composed.epics.map((s) => s.id)).not.toContain(epic.dependent);
+        expect(composed.epic_requirements.some((l) => l.epic_fk === epic.doomed)).toBe(false);
+        expect(composed.epic_deps.some(
+            (d) => d.epic_fk === epic.doomed || d.dep_epic_fk === epic.doomed)).toBe(false);
 
         // And the surviving plan is still invariant-clean.
         const clean = await expectCleanPlan();
-        expect(clean.derived.rows.length).toBe(clean.steps.length);
+        expect(clean.derived.rows.length).toBe(clean.epics.length);
     });
 
     // ── CASE 9 — NEW: containment's re-parent ───────────────────────────────
 
-    test('MUT-09: re-parent a step across initiatives — legal within a plan, refused across plans',
+    test('MUT-09: re-parent an epic across initiatives — legal within a plan, refused across plans',
         async () => {
             // COVERS: MCP-029, MCP-030, MCP-031, MCP-046
             //
@@ -812,52 +812,52 @@ test.describe('Swarm Orchestration — 12-case mutation replay via MCP (req #337
                 pipeline_fk: pipelineId, title: 'Reparent target', category_fk: categoryFk,
             })).id;
 
-            const base = await devTool<StepEcho>('create_pipeline_step', {
+            const base = await devTool<EpicEcho>('create_epic', {
                 initiative_fk: initiative.reparentSource, title: 'Reparent base (stays put)',
             });
-            step.reparentBase = base.step.id;
+            epic.reparentBase = base.epic.id;
 
-            const mover = await devTool<StepEcho>('create_pipeline_step', {
+            const mover = await devTool<EpicEcho>('create_epic', {
                 initiative_fk: initiative.reparentSource, title: 'Reparent mover',
-                dep_step_ids: [step.reparentBase],
+                dep_epic_ids: [epic.reparentBase],
             });
-            step.reparentMover = mover.step.id;
+            epic.reparentMover = mover.epic.id;
 
-            const watcher = await devTool<StepEcho>('create_pipeline_step', {
+            const watcher = await devTool<EpicEcho>('create_epic', {
                 initiative_fk: initiative.reparentSource, title: 'Reparent watcher (gated on the mover)',
-                dep_step_ids: [step.reparentMover],
+                dep_epic_ids: [epic.reparentMover],
             });
-            step.reparentWatcher = watcher.step.id;
+            epic.reparentWatcher = watcher.epic.id;
 
             // The mover carries a notes disposition — it must ride along free
             // (MCP-031), since a move is one `initiative_fk` write and notes is an
             // ordinary column on the row. (There is no completion stamp to
-            // carry any more: a step has no state — req #3750.)
+            // carry any more: an epic has no state — req #3750.)
             const disposition = 'Notes written before the move on purpose: '
                 + 'proves they ride along.';
-            const noted = await devTool<StepEcho>('update_pipeline_step',
-                { id: step.reparentMover, notes: disposition });
-            expect(noted.step.notes).toBe(disposition);
+            const noted = await devTool<EpicEcho>('update_epic',
+                { id: epic.reparentMover, notes: disposition });
+            expect(noted.epic.notes).toBe(disposition);
 
             // (a) LEGAL: cross-initiative, same plan. No refusal, no pause.
-            const moved = await devTool<StepEcho>('move_step', {
-                step_id: step.reparentMover, initiative_fk: initiative.reparentTarget,
+            const moved = await devTool<EpicEcho>('move_epic', {
+                epic_id: epic.reparentMover, initiative_fk: initiative.reparentTarget,
             });
-            expect(moved.step.initiative_fk, 'landed in its new initiative').toBe(initiative.reparentTarget);
+            expect(moved.epic.initiative_fk, 'landed in its new initiative').toBe(initiative.reparentTarget);
             expect(moved.initiative.id, 'the echo\'s initiative row agrees').toBe(initiative.reparentTarget);
-            expect(moved.step.notes, 'notes ride along free').toBe(disposition);
-            expect(moved.deps.map((d) => d.dep_step_fk),
+            expect(moved.epic.notes, 'notes ride along free').toBe(disposition);
+            expect(moved.deps.map((d) => d.dep_epic_fk),
                 'its own edge (to the base) survives the move UNCHANGED')
-                .toEqual([step.reparentBase]);
+                .toEqual([epic.reparentBase]);
 
             let composed = await expectCleanPlan();
-            expect(composed.steps.find((s) => s.id === step.reparentMover)?.initiative_fk)
+            expect(composed.epics.find((s) => s.id === epic.reparentMover)?.initiative_fk)
                 .toBe(initiative.reparentTarget);
-            expect(composed.step_deps.some(
-                (d) => d.step_fk === step.reparentWatcher && d.dep_step_fk === step.reparentMover),
+            expect(composed.epic_deps.some(
+                (d) => d.epic_fk === epic.reparentWatcher && d.dep_epic_fk === epic.reparentMover),
                 'the watcher\'s cross-initiative edge onto the (now-moved) mover survives too').toBe(true);
 
-            // (b) REFUSED: crossing a PLAN. Move the SAME step again, this
+            // (b) REFUSED: crossing a PLAN. Move the SAME epic again, this
             // time into an initiative that belongs to the SECOND throwaway plan —
             // both the mover's own outgoing edge (to base, staying in plan 1)
             // and the watcher's incoming edge (onto the mover) would cross,
@@ -866,12 +866,12 @@ test.describe('Swarm Orchestration — 12-case mutation replay via MCP (req #337
                 pipeline_fk: foreignPlanId, title: 'Foreign target', category_fk: categoryFk,
             })).id;
 
-            const refusal = await devToolExpectError('move_step',
-                { step_id: step.reparentMover, initiative_fk: initiative.foreign });
+            const refusal = await devToolExpectError('move_epic',
+                { epic_id: epic.reparentMover, initiative_fk: initiative.foreign });
             expect(refusal, 'the mover\'s own OUTGOING edge, named')
-                .toContain(`${step.reparentMover} -> ${step.reparentBase}`);
+                .toContain(`${epic.reparentMover} -> ${epic.reparentBase}`);
             expect(refusal, 'the watcher\'s INCOMING edge onto the mover, named the other way')
-                .toContain(`${step.reparentWatcher} -> ${step.reparentMover}`);
+                .toContain(`${epic.reparentWatcher} -> ${epic.reparentMover}`);
             expect(refusal, 'the safe order is printed IN the refusal itself')
                 .toContain('/pipeline-pause');
             expect(refusal).toContain('/pipeline-unpause');
@@ -879,13 +879,13 @@ test.describe('Swarm Orchestration — 12-case mutation replay via MCP (req #337
 
             // Nothing moved on the way to that refusal.
             composed = await expectCleanPlan();
-            expect(composed.steps.find((s) => s.id === step.reparentMover)?.initiative_fk)
+            expect(composed.epics.find((s) => s.id === epic.reparentMover)?.initiative_fk)
                 .toBe(initiative.reparentTarget);
         });
 
     // ── CASE 10 — NEW: containment's initiative lifecycle ─────────────────────────
 
-    test('MUT-10: create and delete an initiative, refused while a surviving step is gated from outside',
+    test('MUT-10: create and delete an initiative, refused while a surviving epic is gated from outside',
         async () => {
             // COVERS: MCP-034, MCP-047
             const created = await devTool<Initiative>('create_initiative', {
@@ -899,53 +899,53 @@ test.describe('Swarm Orchestration — 12-case mutation replay via MCP (req #337
             expect(composed.initiatives.map((e) => e.id)).toContain(initiative.temporary);
             expect(composed.derived.initiative_order).toContain(initiative.temporary);
 
-            const inner = await devTool<StepEcho>('create_pipeline_step', {
+            const inner = await devTool<EpicEcho>('create_epic', {
                 initiative_fk: initiative.temporary, title: 'Inside the temporary initiative',
             });
-            step.temporaryInner = inner.step.id;
+            epic.temporaryInner = inner.epic.id;
 
-            // An OUTSIDE step gates on it — cross-initiative edges are legal, so
+            // An OUTSIDE epic gates on it — cross-initiative edges are legal, so
             // this is a REAL refusal (design rule 4, applied one level up),
             // not one containment makes impossible.
-            const outer = await devTool<StepEcho>('create_pipeline_step', {
+            const outer = await devTool<EpicEcho>('create_epic', {
                 initiative_fk: initiative.foundation, title: 'Outside, gated on the temporary initiative',
-                dep_step_ids: [step.temporaryInner],
+                dep_epic_ids: [epic.temporaryInner],
             });
-            step.temporaryOuter = outer.step.id;
+            epic.temporaryOuter = outer.epic.id;
 
             const refusal = await devToolExpectError(
                 'delete_initiative', { id: initiative.temporary });
             // Anchor on the bracketed list form the service renders blockers
             // as, not a bare digit substring — see MUT-08's identical note.
-            expect(refusal).toContain(`[${step.temporaryOuter}]`);
+            expect(refusal).toContain(`[${epic.temporaryOuter}]`);
 
             // Nothing was deleted on the way to that refusal.
             composed = await readPlan(pipelineId);
             expect(composed.initiatives.map((e) => e.id)).toContain(initiative.temporary);
-            expect(composed.steps.map((s) => s.id)).toContain(step.temporaryInner);
+            expect(composed.epics.map((s) => s.id)).toContain(epic.temporaryInner);
             await expectCleanPlan();
 
             // Clear the outside gate — then the delete succeeds and leaves no
             // residue.
-            await devTool('set_step_deps', { step_id: step.temporaryOuter });
+            await devTool('set_epic_deps', { epic_id: epic.temporaryOuter });
             const deleted = await devTool<{
-                deleted: boolean; id: number; step_count: number;
+                deleted: boolean; id: number; epic_count: number;
                 requirement_links_removed: number; dep_rows_removed: number;
             }>('delete_initiative', { id: initiative.temporary });
             expect(deleted.deleted).toBe(true);
             expect(deleted.id).toBe(initiative.temporary);
-            expect(deleted.step_count).toBe(1);
-            expect(deleted.dep_rows_removed, 'the inner step carried no dep rows of its own')
+            expect(deleted.epic_count).toBe(1);
+            expect(deleted.dep_rows_removed, 'the inner epic carried no dep rows of its own')
                 .toBe(0);
 
             composed = await readPlan(pipelineId);
             expect(composed.initiatives.map((e) => e.id)).not.toContain(initiative.temporary);
-            expect(composed.steps.map((s) => s.id)).not.toContain(step.temporaryInner);
+            expect(composed.epics.map((s) => s.id)).not.toContain(epic.temporaryInner);
             await expectCleanPlan();
 
-            // Tidy the now req-less, dep-less outer step out of the plan too
+            // Tidy the now req-less, dep-less outer epic out of the plan too
             // — it was scaffolding for this case only.
-            await devTool('drop_pipeline_step', { id: step.temporaryOuter });
+            await devTool('drop_epic', { id: epic.temporaryOuter });
             await expectCleanPlan();
         });
 
@@ -967,36 +967,36 @@ test.describe('Swarm Orchestration — 12-case mutation replay via MCP (req #337
             pipeline_fk: pipelineId, title: 'Reorder B', category_fk: categoryFk,
         })).id;
 
-        const stepA = await devTool<StepEcho>('create_pipeline_step', {
+        const epicA = await devTool<EpicEcho>('create_epic', {
             initiative_fk: initiative.reorderA, title: 'Lives in Reorder A',
         });
-        step.reorderA = stepA.step.id;
-        const stepB = await devTool<StepEcho>('create_pipeline_step', {
+        epic.reorderA = epicA.epic.id;
+        const epicB = await devTool<EpicEcho>('create_epic', {
             initiative_fk: initiative.reorderB, title: 'Lives in Reorder B',
         });
-        step.reorderB = stepB.step.id;
+        epic.reorderB = epicB.epic.id;
 
         let composed = await readPlan(pipelineId);
         // `indexOf` returns -1 for a MISSING id, and -1 sorts before every
-        // real position — so an initiative/step silently dropped from the derived
+        // real position — so an initiative/epic silently dropped from the derived
         // order would still pass a bare `toBeLessThan`. Assert presence
         // first, exactly as MUT-01 does.
         for (const id of [initiative.reorderA, initiative.reorderB]) {
             expect(composed.derived.initiative_order, `initiative ${id} must appear in initiative order`)
                 .toContain(id);
         }
-        for (const id of [step.reorderA, step.reorderB]) {
-            expect(composed.derived.display_order, `step ${id} must appear in display order`)
+        for (const id of [epic.reorderA, epic.reorderB]) {
+            expect(composed.derived.display_order, `epic ${id} must appear in display order`)
                 .toContain(id);
         }
         expect(composed.derived.initiative_order.indexOf(initiative.reorderA),
             'A was created before B, so with no sort_order A orders first by default')
             .toBeLessThan(composed.derived.initiative_order.indexOf(initiative.reorderB));
-        expect(composed.derived.display_order.indexOf(step.reorderA))
-            .toBeLessThan(composed.derived.display_order.indexOf(step.reorderB));
+        expect(composed.derived.display_order.indexOf(epic.reorderA))
+            .toBeLessThan(composed.derived.display_order.indexOf(epic.reorderB));
 
         // Give B an explicit sort_order ahead of A's — B must now lead, in
-        // BOTH the initiative order and the step display order the tree walk
+        // BOTH the initiative order and the epic display order the tree walk
         // derives from it. Verify the ECHO, not just the downstream effect —
         // a silently-ignored `sort_order` write would otherwise be masked by
         // the same ordering assertions this replaces.
@@ -1012,20 +1012,20 @@ test.describe('Swarm Orchestration — 12-case mutation replay via MCP (req #337
             expect(composed.derived.initiative_order, `initiative ${id} must still appear after reorder`)
                 .toContain(id);
         }
-        for (const id of [step.reorderA, step.reorderB]) {
-            expect(composed.derived.display_order, `step ${id} must still appear after reorder`)
+        for (const id of [epic.reorderA, epic.reorderB]) {
+            expect(composed.derived.display_order, `epic ${id} must still appear after reorder`)
                 .toContain(id);
         }
         expect(composed.derived.initiative_order.indexOf(initiative.reorderB), 'B now orders before A')
             .toBeLessThan(composed.derived.initiative_order.indexOf(initiative.reorderA));
-        expect(composed.derived.display_order.indexOf(step.reorderB),
-            'step display order followed the initiative reorder')
-            .toBeLessThan(composed.derived.display_order.indexOf(step.reorderA));
+        expect(composed.derived.display_order.indexOf(epic.reorderB),
+            'epic display order followed the initiative reorder')
+            .toBeLessThan(composed.derived.display_order.indexOf(epic.reorderA));
     });
 
     // ── CASE 12 — NEW: containment makes the edge case routine ─────────────
 
-    test('MUT-12: widen a step by linking a requirement to it while it is ALREADY eligible',
+    test('MUT-12: widen an epic by linking a requirement to it while it is ALREADY eligible',
         async () => {
             // COVERS: MCP-049
             //
@@ -1038,24 +1038,24 @@ test.describe('Swarm Orchestration — 12-case mutation replay via MCP (req #337
             // first choice at any width (first-principles record §8;
             // verification record §7 MUT-12).
             req.widenA = await newRequirement('widen A', 'swarm_ready');
-            const widenStep = await devTool<StepEcho>('create_pipeline_step', {
+            const widenEpic = await devTool<EpicEcho>('create_epic', {
                 initiative_fk: initiative.foundation, title: 'Widen target: already eligible on creation',
                 requirement_ids: [req.widenA],
             });
-            step.widen = widenStep.step.id;
+            epic.widen = widenEpic.epic.id;
 
             let composed = await expectCleanPlan();
-            let row = rowOf(composed, step.widen)!;
+            let row = rowOf(composed, epic.widen)!;
             expect(row.eligible, 'no unmet deps, no time gate → already eligible').toBe(true);
             expect(row.launch_req_ids).toEqual([req.widenA]);
 
             req.widenB = await newRequirement('widen B', 'swarm_ready');
-            const widened = await devTool<StepEcho>('link_step_requirement',
-                { step_id: step.widen, requirement_id: req.widenB });
+            const widened = await devTool<EpicEcho>('link_epic_requirement',
+                { epic_id: epic.widen, requirement_id: req.widenB });
             expect(widened.requirement_ids).toEqual([req.widenA, req.widenB]);
 
             composed = await expectCleanPlan();
-            row = rowOf(composed, step.widen)!;
+            row = rowOf(composed, epic.widen)!;
             expect(row.eligible, 'no false→true transition: it was already eligible').toBe(true);
             expect(row.launch_req_ids, 'the launch set widened even though eligible never edged')
                 .toEqual([req.widenA, req.widenB]);

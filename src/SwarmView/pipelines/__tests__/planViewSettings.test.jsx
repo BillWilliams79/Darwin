@@ -50,7 +50,7 @@ describe('usePlanViewSetting', () => {
         unmount();
     });
 
-    it('opens the step-card times ON (req #3825) and remembers them off', () => {
+    it('opens the epic-card times ON (req #3825) and remembers them off', () => {
         mount('showTimes');
         expect(api.value).toBe(true);
         act(() => { api.set(false); });

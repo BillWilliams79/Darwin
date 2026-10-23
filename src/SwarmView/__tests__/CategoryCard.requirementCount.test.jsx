@@ -31,7 +31,7 @@ vi.mock('../../hooks/useDataQueries', () => ({
     useRequirements: () => ({ data: reqData }),
     useSessions: () => ({ data: EMPTY_SESSIONS }),
     useAllRequirements: () => ({ data: EMPTY_ALL_REQS }),
-    useAllPipelineStepRequirements: () => ({ data: EMPTY_JUNCTION }),
+    useAllPipelineEpicRequirements: () => ({ data: EMPTY_JUNCTION }),
     ALL_ROWS: 'all',
 }));
 

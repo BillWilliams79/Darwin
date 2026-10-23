@@ -2,7 +2,7 @@
 // "swarm-ready, not orchestrated" box lists (req #3583).
 //
 // Two bounded list reads, both already cached app-wide: the swarm-ready
-// requirements (the SwarmStartCard's own read) and the step-requirement
+// requirements (the SwarmStartCard's own read) and the epic-requirement
 // junction (the orchestrated toggle's own read). No endpoint of its own, and
 // nothing that grows with the size of the plan. Kept out of the box component
 // so that file exports components only (React Fast Refresh).
@@ -15,7 +15,7 @@ import { useMemo } from 'react';
 
 import {
     useRequirementsByStatus,
-    useAllPipelineStepRequirements,
+    useAllPipelineEpicRequirements,
     useCategoryColors,
 } from '../../hooks/useDataQueries';
 import { unorchestratedSwarmReady } from './pipelineUnseated';
@@ -27,7 +27,7 @@ import { unorchestratedSwarmReady } from './pipelineUnseated';
  */
 export function useUnorchestratedRequirements(creatorFk) {
     const reqs = useRequirementsByStatus(creatorFk, 'swarm_ready');
-    const junction = useAllPipelineStepRequirements(creatorFk);
+    const junction = useAllPipelineEpicRequirements(creatorFk);
     // Until BOTH reads land the list is not an answer: a missing junction would
     // list every swarm-ready requirement as unorchestrated, and offer each of
     // them for a seat it may already have.

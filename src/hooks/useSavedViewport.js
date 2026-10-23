@@ -42,7 +42,7 @@ import { clearViewport, readViewport, writeViewport } from '../utils/viewportMem
  * @param {string}  fingerprint  a string that CHANGES whenever the world is
  *                               RESCALED, so a camera from another scale is
  *                               discarded rather than restored onto content it
- *                               does not describe (the plan canvas uses its Step
+ *                               does not describe (the plan canvas uses its Epic
  *                               Width rung — growth is clamped, not refused)
  * @returns {{record: function({x:number,y:number,k:number}): void,
  *            commit: function(): void,

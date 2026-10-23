@@ -3,12 +3,12 @@
 //
 // THE DEFECT THIS EXISTS FOR. The colour key's +/− (a bottom panel until req
 // #3722 made it a popup, which is not remembered) was component state, so every
-// way of leaving the canvas — the Plan|Table toggle, a step card into the Table
+// way of leaving the canvas — the Plan|Table toggle, an epic card into the Table
 // and Back, a requirement and "Back to Plan", a reload — re-mounted it collapsed:
 // *"I had popped out the text color help at the bottom and it closed that on
 // me. let's keep that setting and all the UI popout/popin settings for all
 // these transitions."* The unseated box's list and the Table's Time / Tokens
-// toggle had the same shape. Meanwhile the colour scale, the level and the Step
+// toggle had the same shape. Meanwhile the colour scale, the level and the Epic
 // Width each called `useViewPreference` with a key and a default spelled at the
 // call site. Two kinds of setting, one fact about both: a reader's choice about
 // how this page looks, which every transition must hand back unchanged.
@@ -37,7 +37,7 @@ import { useCallback, useRef } from 'react';
 
 import { useViewPreference } from '../../hooks/useViewPreference';
 import {
-    DEFAULT_COLOR_KEY, DEFAULT_PLAN_LEVEL_PREF, DEFAULT_PLAN_STEP_WIDTH,
+    DEFAULT_COLOR_KEY, DEFAULT_PLAN_LEVEL_PREF, DEFAULT_PLAN_EPIC_WIDTH,
 } from './pipelinePlanLayout';
 
 // `flag` settings are booleans stored as '1' / '0'; `value` settings are the
@@ -51,14 +51,14 @@ export const PLAN_VIEW_SETTINGS = Object.freeze({
     // A NEW key since req #3648: the value is now a rung in quarters of the
     // base card (6 5 4 3), and a level stored under the old key (1-4, where 1
     // was the base card) would read as a different width.
-    stepWidth: { kind: 'value', storageKey: 'darwin-pipeline-viz-step-width-q',
-        default: String(DEFAULT_PLAN_STEP_WIDTH) },
+    epicWidth: { kind: 'value', storageKey: 'darwin-pipeline-viz-epic-width-q',
+        default: String(DEFAULT_PLAN_EPIC_WIDTH) },
     level: { kind: 'value', storageKey: 'darwin-pipeline-viz-level',
         default: DEFAULT_PLAN_LEVEL_PREF },
     // req #3686 — the plan's closed requirements (met / deferred / wontfix),
-    // and the dashed line above them, hidden from every step card. Off until asked for.
+    // and the dashed line above them, hidden from every epic card. Off until asked for.
     hideClosed: { kind: 'flag', storageKey: 'darwin-pipeline-viz-hide-closed', default: false },
-    // req #3825 — the step cards' start / end time line. On until switched off.
+    // req #3825 — the epic cards' start / end time line. On until switched off.
     showTimes: { kind: 'flag', storageKey: 'darwin-pipeline-viz-show-times', default: true },
     // req #3708 — the machines the reader has DESELECTED in the toolbar's
     // machine filter, as `planMachineFilter.js` encodes them. Nothing hidden
@@ -74,10 +74,10 @@ export const PLAN_VIEW_SETTINGS = Object.freeze({
         default: true },
     // The Table's Time / Tokens columns: off until asked for (req #3117).
     showCost: { kind: 'flag', storageKey: 'darwin-pipeline-show-cost', default: false },
-    // The initiative bands and step cards folded by their own collapse heads (req
+    // The initiative bands and epic cards folded by their own collapse heads (req
     // #3650): a list of tokens `planCollapse.js` owns. Nothing folded until the
     // reader folds it.
-    collapsed: { kind: 'value', storageKey: 'darwin-pipeline-viz-collapsed', default: '' },
+    collapsed: { kind: 'value', storageKey: 'darwin-pipeline-viz-collapsed-v2', default: '' },
 });
 
 // A flag is stored as '1' / '0'. Decoding is anchored on the DEFAULT: only the

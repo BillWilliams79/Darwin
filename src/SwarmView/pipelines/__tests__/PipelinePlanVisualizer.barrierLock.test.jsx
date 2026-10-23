@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 //
-// Req #3649 — the step card's barrier button and the initiative chip's padlock
-// write the right stepsApi/initiativesApi call, and a LOCKED row refuses authoring
-// before any write. Req #3742 removed the step card's own padlock: a locked
-// step's card is drawn with a RED PERIMETER instead. jsdom has no canvas, so
+// Req #3649 — the epic card's barrier button and the initiative chip's padlock
+// write the right epicsApi/initiativesApi call, and a LOCKED row refuses authoring
+// before any write. Req #3742 removed the epic card's own padlock: a locked
+// epic's card is drawn with a RED PERIMETER instead. jsdom has no canvas, so
 // react-konva is stubbed: a Rect that carries a `name` is rendered as a real
 // button (publishing its stroke) whose click fires the Rect's `onActivate`. The
 // barrier is HTML since req #3673 and renders as itself.
@@ -32,10 +32,10 @@ vi.mock('konva', () => ({
     default: { Animation: class { start() {} stop() {} } },
 }));
 
-const updateStep = vi.fn(() => Promise.resolve({}));
-vi.mock('../../../Steps/stepsApi', async (orig) => ({
+const updateEpic = vi.fn(() => Promise.resolve({}));
+vi.mock('../../../Epics/epicsApi', async (orig) => ({
     ...(await orig()),
-    updateStep: (...a) => updateStep(...a),
+    updateEpic: (...a) => updateEpic(...a),
 }));
 const updateInitiative = vi.fn(() => Promise.resolve({}));
 vi.mock('../../../Initiatives/initiativesApi', async (orig) => ({
@@ -72,7 +72,7 @@ beforeEach(() => {
         if (w) Object.defineProperty(HTMLElement.prototype, 'clientWidth', w);
         if (h) Object.defineProperty(HTMLElement.prototype, 'clientHeight', h);
     };
-    updateStep.mockClear();
+    updateEpic.mockClear();
     updateInitiative.mockClear();
     showError.mockClear();
 });
@@ -84,17 +84,17 @@ afterEach(() => {
     document.body.innerHTML = '';
 });
 
-const step = (id, initiative_fk, title, extra = {}) => ({
+const epic = (id, initiative_fk, title, extra = {}) => ({
     id, initiative_fk, title, run: 'auto', notes: null, not_before: null,
     checkpoint: 1, locked: 0, ...extra,
 });
 
-function payloadFor({ initiativeLocked = 0, planLocked = 0, stepFlags = {} } = {}) {
+function payloadFor({ initiativeLocked = 0, planLocked = 0, epicFlags = {} } = {}) {
     const payload = composedFixture({
         initiatives: [{ id: 5, title: 'Build', pipeline_fk: 2, sort_order: 1, locked: initiativeLocked },
             { id: 6, title: 'Ship', pipeline_fk: 2, sort_order: 2, locked: 0 }],
-        steps: [step(10, 5, 'Design', stepFlags), step(11, 6, 'Implement')],
-        stepDeps: [{ id: 1, step_fk: 11, dep_step_fk: 10 }],
+        epics: [epic(10, 5, 'Design', epicFlags), epic(11, 6, 'Implement')],
+        epicDeps: [{ id: 1, epic_fk: 11, dep_epic_fk: 10 }],
     });
     payload.pipeline.locked = planLocked;
     return payload;
@@ -131,7 +131,7 @@ const click = (testId) => {
 };
 const flush = () => act(async () => { await Promise.resolve(); await Promise.resolve(); });
 
-describe('the step card\'s barrier, and its lock as a red perimeter (req #3649, #3673, #3742)', () => {
+describe('the epic card\'s barrier, and its lock as a red perimeter (req #3649, #3673, #3742)', () => {
     it('draws the barrier on every card and no padlock; the flag writes checkpoint=0', async () => {
         render(payloadFor());
         expect(document.querySelector('[data-testid="pipeline-viz-barrier-10"]')).not.toBeNull();
@@ -140,24 +140,24 @@ describe('the step card\'s barrier, and its lock as a red perimeter (req #3649, 
         expect(document.querySelector('[data-testid^="pipeline-viz-lock-"]')).toBeNull();
         click('pipeline-viz-barrier-10');
         await flush();
-        expect(updateStep).toHaveBeenCalledWith('http://test.local/darwin', 'tok', 10, { checkpoint: 0 });
+        expect(updateEpic).toHaveBeenCalledWith('http://test.local/darwin', 'tok', 10, { checkpoint: 0 });
     });
 
-    it('a priority step\'s flag writes checkpoint=1', async () => {
-        render(payloadFor({ stepFlags: { checkpoint: 0 } }));
+    it('a priority epic\'s flag writes checkpoint=1', async () => {
+        render(payloadFor({ epicFlags: { checkpoint: 0 } }));
         click('pipeline-viz-barrier-10');
         await flush();
-        expect(updateStep).toHaveBeenCalledWith('http://test.local/darwin', 'tok', 10, { checkpoint: 1 });
+        expect(updateEpic).toHaveBeenCalledWith('http://test.local/darwin', 'tok', 10, { checkpoint: 1 });
     });
 
-    it('a step under a LOCKED initiative refuses the flag and names the initiative, writing nothing', async () => {
+    it('an epic under a LOCKED initiative refuses the flag and names the initiative, writing nothing', async () => {
         const plan = render(payloadFor({ initiativeLocked: 1 }));
         const row = plan.rows.find((r) => r.id === 10);
         expect(row.effectiveLocked).toBe(true);
         expect(row.lockedBy).toBe('initiative');
         click('pipeline-viz-barrier-10');
         await flush();
-        expect(updateStep).not.toHaveBeenCalled();
+        expect(updateEpic).not.toHaveBeenCalled();
         expect(showError).toHaveBeenCalledWith(expect.stringMatching(/locked by its initiative/));
     });
 
@@ -169,22 +169,22 @@ describe('the step card\'s barrier, and its lock as a red perimeter (req #3649, 
             .getAttribute('data-arm')).toBe('down');
         // The hover title says what the state means and what a click does.
         expect(btn('pipeline-viz-barrier-10').getAttribute('title'))
-            .toMatch(/^Barrier ON — Dependent steps may start requirements only when all requirements in this step are met/);
+            .toMatch(/^Barrier ON — Dependent epics may start requirements only when all requirements in this epic are met/);
         act(() => { root.unmount(); });
         root = null;
         document.body.innerHTML = '';
-        render(payloadFor({ stepFlags: { checkpoint: 0 }, initiativeLocked: 1 }));
+        render(payloadFor({ epicFlags: { checkpoint: 0 }, initiativeLocked: 1 }));
         expect(btn('pipeline-viz-barrier-10').querySelector('[data-arm]')
             .getAttribute('data-arm')).toBe('up');
         expect(btn('pipeline-viz-barrier-10').getAttribute('title'))
-            .toMatch(/^Barrier OFF — Dependent steps may start requirements only when all requirements in this step have been started.*Locked by its initiative/);
+            .toMatch(/^Barrier OFF — Dependent epics may start requirements only when all requirements in this epic have been started.*Locked by its initiative/);
     });
 
-    // req #3742 — "a locked step has a red perimeter".
+    // req #3742 — "a locked epic has a red perimeter".
     const lockedFrames = () => [...document.querySelectorAll('[data-testid="locked-frame"]')];
 
-    it('a locked step\'s card has a red perimeter; an open one does not', () => {
-        render(payloadFor({ stepFlags: { locked: 1 } }));
+    it('a locked epic\'s card has a red perimeter; an open one does not', () => {
+        render(payloadFor({ epicFlags: { locked: 1 } }));
         const frames = lockedFrames();
         expect(frames).toHaveLength(1);
         expect(frames[0].getAttribute('data-stroke')).toBe(PLAN_VIZ_PALETTE.lockedFrame);
@@ -198,7 +198,7 @@ describe('the step card\'s barrier, and its lock as a red perimeter (req #3649, 
 
     it('a lock held by the initiative or the plan reddens every card under it', () => {
         render(payloadFor({ initiativeLocked: 1 }));
-        expect(lockedFrames()).toHaveLength(1);    // step 10, in initiative 5
+        expect(lockedFrames()).toHaveLength(1);    // epic 10, in initiative 5
         act(() => { root.unmount(); });
         root = null;
         document.body.innerHTML = '';
@@ -206,12 +206,12 @@ describe('the step card\'s barrier, and its lock as a red perimeter (req #3649, 
         expect(lockedFrames()).toHaveLength(2);
     });
 
-    it('a locked step takes no requirement drop, and the layout emits no padlock (layout)', () => {
-        const plan = adaptComposedPipeline(payloadFor({ stepFlags: { locked: 1 } }));
-        const layout = computePlanLayout(plan.rows, { stepLabel: 'title' });
+    it('a locked epic takes no requirement drop, and the layout emits no padlock (layout)', () => {
+        const plan = adaptComposedPipeline(payloadFor({ epicFlags: { locked: 1 } }));
+        const layout = computePlanLayout(plan.rows, { epicLabel: 'title' });
         expect(layout.labels.some((l) => l.kind === 'lock')).toBe(false);
         expect(plan.rows.find((r) => r.id === 10).effectiveLocked).toBe(true);
-        expect(layout.labels.find((l) => l.kind === 'barrier' && l.stepId === 10).on).toBe(true);
+        expect(layout.labels.find((l) => l.kind === 'barrier' && l.epicId === 10).on).toBe(true);
     });
 });
 
