@@ -86,7 +86,7 @@ import {
 } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useIsFetching, useQueryClient } from '@tanstack/react-query';
-import { Stage, Layer, Group, Rect, Circle, Line, Text, Path, Shape } from 'react-konva';
+import { Stage, Layer, Group, Rect, Circle, Line, Text, Path, Shape, Arrow } from 'react-konva';
 import Konva from 'konva';
 import { select } from 'd3-selection';
 import { zoom as d3zoom, zoomIdentity } from 'd3-zoom';
@@ -123,6 +123,9 @@ import { OrderViolationsAlert } from './PipelinePlanTable';
 import EmptyPlanAddEpic from './EmptyPlanAddEpic';
 import EpicEditDialog from '../../Epics/EpicEditDialog';
 import InitiativeEditDialog from '../../Initiatives/InitiativeEditDialog';
+import {
+    INITIATIVE_DEP_STUB_X, dependencyChoices, initiativeDepConnectors, initiativeWaitText,
+} from './pipelineInitiativeDeps';
 import {
     computePlanLayout, beadStyle, placeInitiativeChips,
     initiativeFocusTransform, epicFocusTransform, initiativeWorkFocusTransform,
@@ -190,6 +193,7 @@ import AuthContext from '../../Context/AuthContext';
 import { pipelineComposeKeys, requirementKeys } from '../../hooks/useQueryKeys';
 import {
     pipelineEpicRequirementKeys, pipelineEpicKeys, pipelineEpicDepKeys, initiativeKeys,
+    initiativeDepKeys,
     useAllCategories,
 } from '../../hooks/useDataQueries';
 import { useSnackBarStore } from '../../stores/useSnackBarStore';
@@ -3180,6 +3184,9 @@ export default function PipelinePlanVisualizer({
             creatorFk && queryClient.invalidateQueries({ queryKey: initiativeKeys.all(creatorFk) }),
             creatorFk && queryClient.invalidateQueries({
                 queryKey: pipelineEpicKeys.all(creatorFk) }),
+            // req #3823 — the editor writes initiative dependencies too.
+            creatorFk && queryClient.invalidateQueries({
+                queryKey: initiativeDepKeys.all(creatorFk) }),
         ]);
     }, [queryClient, pipeline?.id, profile?.userName]);
 
@@ -4424,6 +4431,25 @@ export default function PipelinePlanVisualizer({
                       stroke={P.wire} strokeWidth={1.2} opacity={0.18 * wireAlpha} />);
         }
     });
+
+    // ── INITIATIVE-TO-INITIATIVE DEPENDENCIES (req #3823) ──────────────────
+    // A bracket in the plan's left gutter from the band waited on to the band
+    // that waits, arrowhead into the waiting band — never among the cards, so
+    // it cannot be read as an epic arc. Its stroke holds a SCREEN width (the
+    // gutter is a few px at the landing zoom). The accent colour while the
+    // edge holds work back; dim once the initiative waited on holds none.
+    for (const c of initiativeDepConnectors(drawLayout.bands, plan.initiativeDeps,
+        plan.initiativeGates)) {
+        const w = Math.max(2, 2.4 / (t.k || 1));
+        const stroke = c.held ? P.accent : P.dim;
+        worldNodes.push(
+            <Arrow key={`initiative-dep-${c.key}`}
+                   points={[INITIATIVE_DEP_STUB_X, c.yTo, c.x, c.yTo, c.x, c.yFrom,
+                       INITIATIVE_DEP_STUB_X, c.yFrom]}
+                   stroke={stroke} fill={stroke} strokeWidth={w}
+                   dash={[3.5 * w, 2.2 * w]} pointerLength={4 * w} pointerWidth={4 * w}
+                   lineJoin="round" opacity={c.held ? 1 : 0.8} listening={false} />);
+    }
 
     // ── The time ruler (req #3207, sticky since req #3254) ──────────────────
     // Drawn AFTER the band washes and BEFORE the arcs and beads: the rules and
@@ -6260,6 +6286,45 @@ export default function PipelinePlanVisualizer({
                         </Box>
                         );
                     })}
+                    {/* req #3823 — WHAT AN INITIATIVE WAITS FOR, beside its name:
+                        "waiting on A" while an initiative it waits for holds
+                        open work (its epics are held), "after A" once none
+                        does. A SIBLING of the chip, positioned at its measured
+                        right edge, so nothing is added to the width
+                        `placeInitiativeChips` measured. Screen-sized, like the
+                        chip, so it reads at every zoom. */}
+                    {floatingInitiatives.map((e) => {
+                        const gate = e.initiativeId != null
+                            ? plan.initiativeGates?.get?.(e.initiativeId) : null;
+                        const text = initiativeWaitText(gate, (id) =>
+                            (model?.initiatives || []).find((i) => i.id === id)?.title ?? null);
+                        if (!text) return null;
+                        const held = gate.blockedBy.length > 0;
+                        return (
+                            <Box key={`waits-${e.key}`}
+                                 data-testid={`pipeline-viz-initiative-waits-${e.key}`}
+                                 data-held={held ? 'true' : 'false'}
+                                 title={held
+                                     ? `No epic of this initiative launches until ${text.replace(/^waiting on /, '')} `
+                                       + 'hold no open work.'
+                                     : `Waits for ${text.replace(/^after /, '')} — all closed, so it is free.`}
+                                 sx={{
+                                     position: 'absolute', left: e.x + e.w + 8,
+                                     top: e.y - initiativeOverlayTopInset,
+                                     height: e.h, display: 'flex', alignItems: 'center',
+                                     px: 0.8, borderRadius: '5px', whiteSpace: 'nowrap',
+                                     fontFamily: MONO, fontSize: Math.max(10, e.fontSize * 0.8),
+                                     fontWeight: held ? 700 : 400,
+                                     color: held ? P.panel : P.dim,
+                                     background: held ? P.accent : chipBg,
+                                     border: `1px dashed ${held ? P.accent : P.dim}`,
+                                     pointerEvents: 'auto', userSelect: 'none',
+                                 }}
+                            >
+                                {held ? '⏸ ' : '✓ '}{text}
+                            </Box>
+                        );
+                    })}
                 </Box>
 
                 {/* ── THE REQUIREMENT-COUNT BADGE LAYER (req #3503, round 4;
@@ -6856,6 +6921,13 @@ export default function PipelinePlanVisualizer({
                     open={planEditor.open}
                     initiative={planEditor.target}
                     pipelineOptions={pipeline ? [{ id: pipeline.id, title: pipeline.title }] : []}
+                    // req #3823 — the initiatives it waits for, chosen from this plan's.
+                    dependencies={planEditor.target ? {
+                        choices: dependencyChoices(model?.initiatives || [],
+                            planEditor.target.id, plan.initiativeDeps || []),
+                        rows: (plan.initiativeDepRows || [])
+                            .filter((r) => r.initiative_fk === planEditor.target.id),
+                    } : null}
                     onClose={closePlanEditor}
                     onSaved={refreshPlan}
                 />

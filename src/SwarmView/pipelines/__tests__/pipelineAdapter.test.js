@@ -371,7 +371,8 @@ describe('adaptComposedPipeline — the plan object', () => {
     it('reshapes violations — invariant/message kept, epic_ids -> epicIds', () => {
         const plan = adaptComposedPipeline(payload);
         expect(plan.violations).toEqual([
-            { invariant: 'topology', message: 'x renders before y', epicIds: [1, 2] },
+            { invariant: 'topology', message: 'x renders before y', epicIds: [1, 2],
+                initiativeIds: [] },
         ]);
     });
 

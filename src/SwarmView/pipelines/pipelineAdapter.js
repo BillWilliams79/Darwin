@@ -51,6 +51,7 @@ import { epicEndAt, epicStartAt, epicWorkBegun } from './planEpicTimes';
 import {
     sumReqCost, EPIC_DONE, EPIC_RUNNING, EPIC_PENDING,
 } from './pipelineModel';
+import { initiativeDepEdges, initiativeGates } from './pipelineInitiativeDeps';
 
 const asArray = (v) => (Array.isArray(v) ? v : []);
 
@@ -286,6 +287,9 @@ export function buildPlanRows(payload, machines = [], firstStarts = null) {
             // flag, on by default) still holding open work, holding this epic.
             // Empty = no barrier blocks it.
             checkpointBlockedBy: dr.checkpoint_blocked_by || [],
+            // req #3823 — initiatives this epic's initiative waits for
+            // (transitively) that still hold open work. Non-empty: held.
+            initiativeBlockedBy: dr.initiative_blocked_by || [],
             launchSuppressed: Boolean(dr.launch_suppressed),
             suppressedBy: dr.suppressed_by || [],
             swarmStartCommand: dr.swarm_start_command != null ? dr.swarm_start_command : null,
@@ -335,6 +339,8 @@ export function adaptComposedPipeline(payload, {
         invariant: v.invariant,
         message: v.message,
         epicIds: v.epic_ids || [],
+        // req #3823 — an initiative-level violation names initiatives.
+        initiativeIds: v.initiative_ids || [],
     }));
 
     const rc = derived.requirement_counts || {};
@@ -398,6 +404,12 @@ export function adaptComposedPipeline(payload, {
         locked: isFlagOn(payload.pipeline?.locked, false),
         lockedInitiativeIds: new Set(asArray(payload.initiatives)
             .filter((e) => isFlagOn(e.locked, false)).map((e) => e.id)),
+        // req #3823 — the plan's initiative-to-initiative edges (`from` waits
+        // for `to`), their raw rows for the editor, and the server's gate per
+        // initiative (`Map<id, { depIds, holdsOpenWork, blockedBy }>`).
+        initiativeDeps: initiativeDepEdges(payload.initiative_deps),
+        initiativeDepRows: asArray(payload.initiative_deps),
+        initiativeGates: initiativeGates(derived),
         cycleDetected: Boolean(derived.cycle_detected),
         cycleEpicIds: derived.cycle_epic_ids || [],
         duplicateEpicIds: derived.duplicate_epic_ids || [],

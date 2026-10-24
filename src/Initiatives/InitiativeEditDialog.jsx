@@ -22,12 +22,17 @@ import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
 import InputLabel from '@mui/material/InputLabel';
 import FormControl from '@mui/material/FormControl';
+import FormHelperText from '@mui/material/FormHelperText';
+import ListItemText from '@mui/material/ListItemText';
+import Checkbox from '@mui/material/Checkbox';
 
 import AuthContext from '../Context/AuthContext';
 import AppContext from '../Context/AppContext';
 import { useAllCategories } from '../hooks/useDataQueries';
 import { useSnackBarStore } from '../stores/useSnackBarStore';
-import { createInitiative, updateInitiative, isRestNullLiteral, REST_NULL } from './initiativesApi';
+import { createInitiative, updateInitiative, isRestNullLiteral, REST_NULL,
+    setInitiativeDeps } from './initiativesApi';
+import { initiativeDepEdit } from '../SwarmView/pipelines/pipelineInitiativeDeps';
 
 // Same projection 1.0's InitiativesPage requests — a NAME DICTIONARY, no `closed`
 // filter (an initiative filed under a since-closed category must still render it).
@@ -59,8 +64,13 @@ const parseSortOrder = (raw) => {
  * @param {Object[]} props.pipelineOptions  `{ id, title }` for the Pipeline select
  * @param {function} props.onClose
  * @param {function} props.onSaved          after a successful write, before onClose
+ * @param {?Object} [props.dependencies]    req #3823 — editing an EXISTING initiative's
+ *   "waits for" set: `{ choices, rows }` — `choices` from `dependencyChoices`
+ *   (the other initiatives of its plan, a cycle-closing one disabled), `rows`
+ *   its own `initiative_deps` rows. Absent, the field is not shown.
  */
-export default function InitiativeEditDialog({ open, initiative, pipelineOptions, onClose, onSaved }) {
+export default function InitiativeEditDialog({ open, initiative, pipelineOptions, onClose, onSaved,
+    dependencies = null }) {
     const { idToken, profile } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
     const showError = useSnackBarStore(s => s.showError);
@@ -93,6 +103,23 @@ export default function InitiativeEditDialog({ open, initiative, pipelineOptions
     const [formInitiativeStatus, setFormInitiativeStatus] = useState(
         initiative?.initiative_status === 'paused' ? 'paused' : 'active');
     const [submitting, setSubmitting] = useState(false);
+    // req #3823 — the initiatives this one WAITS FOR: no epic under it launches
+    // while any epic under one of them holds open work.
+    // The field shows the rows AS THEY ARE until the reader changes it; from
+    // then on it shows their choice, and a save applies only their delta
+    // (`initiativeDepEdit`) — never a snapshot that could drop an edge which
+    // arrived after the dialog opened. Untouched, nothing is written.
+    const depRows = dependencies?.rows || [];
+    const currentDepIds = depRows.map((r) => r.dep_initiative_fk);
+    const [depEdit, setDepEdit] = useState(null);       // { seen, chosen } once touched
+    const formDepIds = depEdit ? depEdit.chosen : currentDepIds;
+    // An edge to an initiative the choices do not offer (another plan's — a
+    // dangling edge) is still listed, so it can be unticked.
+    const depChoices = [...(dependencies?.choices || []),
+        ...formDepIds.filter((id) => !(dependencies?.choices || []).some((c) => c.id === id))
+            .map((id) => ({ id, title: `Initiative ${id}`, disabled: false,
+                reason: 'not in this plan — untick to remove' }))];
+    const depTitle = (id) => depChoices.find((c) => c.id === id)?.title ?? `Initiative ${id}`;
 
     const handleSubmit = async () => {
         const title = formTitle.trim();
@@ -125,6 +152,12 @@ export default function InitiativeEditDialog({ open, initiative, pipelineOptions
         }
         setSubmitting(true);
         try {
+            // req #3823 — the dependency set FIRST: a refusal (a cycle, a lock)
+            // arrives with the server's reason and nothing else is written.
+            if (initiative && dependencies && depEdit) {
+                await setInitiativeDeps(darwinUri, idToken, initiative.id,
+                    initiativeDepEdit(depRows, depEdit.seen, depEdit.chosen));
+            }
             if (initiative) {
                 // `pipeline_fk` is deliberately never sent here — the field is
                 // disabled once editing (see InitiativesPage's header).
@@ -148,7 +181,23 @@ export default function InitiativeEditDialog({ open, initiative, pipelineOptions
             await onSaved?.();
             onClose();
         } catch (err) {
-            showError(err, initiative ? 'Could not save initiative' : 'Could not create initiative');
+            // A dependency save can refuse part-way (adds go one at a time), so
+            // the caller re-reads what actually landed before the reader retries.
+            if (initiative && dependencies && depEdit) {
+                try { await onSaved?.(); } catch { /* the original error is the one to show */ }
+            }
+            // The SERVER'S REASON, when it gave one (req #3823): a dependency
+            // that would close a loop, or cross a plan, is refused with a
+            // sentence naming the initiatives — a bare status would hide it.
+            // `call_rest_api` throws `{data, httpStatus}`; a structured refusal
+            // (409 CONFLICT, 423 LOCKED) carries its sentence on `httpDetail`.
+            const reason = err?.httpStatus?.httpDetail?.message;
+            const what = initiative ? 'Could not save initiative' : 'Could not create initiative';
+            if (reason) {
+                showError(`${what} (${err.httpStatus.httpStatus}) — ${reason}`);
+            } else {
+                showError(err, what);
+            }
         } finally {
             setSubmitting(false);
         }
@@ -210,6 +259,33 @@ export default function InitiativeEditDialog({ open, initiative, pipelineOptions
                             <MenuItem value="paused">Paused — suppresses swarm-start</MenuItem>
                         </Select>
                     </FormControl>
+                    {initiative && dependencies && (
+                        <FormControl fullWidth>
+                            <InputLabel>Waits for</InputLabel>
+                            <Select label="Waits for" multiple value={formDepIds}
+                                    onChange={(e) => {
+                                        const chosen = typeof e.target.value === 'string'
+                                            ? e.target.value.split(',').map(Number) : e.target.value;
+                                        setDepEdit((prev) => ({ seen: prev?.seen ?? currentDepIds, chosen }));
+                                    }}
+                                    renderValue={(ids) => ids.map(depTitle).join(', ')}
+                                    data-testid="initiative-deps-select">
+                                {depChoices.map((c) => (
+                                    <MenuItem key={c.id} value={c.id}
+                                              disabled={c.disabled && !formDepIds.includes(c.id)}
+                                              data-testid={`initiative-deps-option-${c.id}`}>
+                                        <Checkbox size="small" checked={formDepIds.includes(c.id)} />
+                                        <ListItemText primary={c.title} secondary={c.reason} />
+                                    </MenuItem>
+                                ))}
+                            </Select>
+                            <FormHelperText>
+                                No epic of this initiative launches while any epic of an initiative
+                                it waits for holds open work. Only this plan&apos;s initiatives; a
+                                dependency that would close a loop is refused.
+                            </FormHelperText>
+                        </FormControl>
+                    )}
                     <TextField
                         label="Sort order"
                         value={formSortOrder}

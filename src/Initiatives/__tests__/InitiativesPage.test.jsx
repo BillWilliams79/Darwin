@@ -60,6 +60,7 @@ let initiatives;
 let epics;
 let categories;
 let loading;
+let initiativeDeps = [];
 
 vi.mock('../../hooks/useDataQueries', async (importOriginal) => {
     const actual = await importOriginal();
@@ -69,6 +70,8 @@ vi.mock('../../hooks/useDataQueries', async (importOriginal) => {
         useAllInitiatives: () => ({ data: initiatives, isLoading: loading.initiatives }),
         useAllPipelineEpics: () => ({ data: epics, isLoading: loading.epics }),
         useAllCategories: () => ({ data: categories, isLoading: loading.categories }),
+        // req #3823 — initiative-to-initiative edges (none unless a test seeds them).
+        useAllInitiativeDeps: () => ({ data: initiativeDeps, isSuccess: true }),
     };
 });
 
@@ -77,9 +80,14 @@ const restCalls = [];
 // fall back to the empty-array default. Lets the two-phase-delete tests
 // script a live re-read without a full REST mock.
 let restGetResponses = {};
+// `${method} ${uri}` -> the `httpStatus` call_rest_api THROWS for it (req #3823:
+// a gateway refusal), as the real one does on a non-2xx.
+let restFailures = {};
 vi.mock('../../RestApi/RestApi', () => ({
     default: vi.fn((uri, method, body) => {
         restCalls.push({ uri, method, body });
+        const failure = restFailures[`${method} ${uri}`];
+        if (failure) return Promise.reject({ data: null, httpStatus: failure });
         if (method === 'GET' && Object.prototype.hasOwnProperty.call(restGetResponses, uri)) {
             return Promise.resolve({ httpStatus: { httpStatus: 200 }, data: restGetResponses[uri] });
         }
@@ -137,6 +145,8 @@ beforeEach(() => {
     navigations.length = 0;
     restCalls.length = 0;
     restGetResponses = {};
+    restFailures = {};
+    initiativeDeps = [];
     mountedRoots = [];
     loading = { pipelines: false, initiatives: false, epics: false, categories: false };
     pipelines = [
@@ -401,6 +411,11 @@ describe('InitiativesPage2 delete', () => {
             method: 'GET',
             body: '',
         }, {
+            // req #3823 — whether another initiative waits for this one.
+            uri: 'http://test.local/darwin/initiative_deps?dep_initiative_fk=4&fields=id,initiative_fk',
+            method: 'GET',
+            body: '',
+        }, {
             uri: 'http://test.local/darwin/initiatives',
             method: 'DELETE',
             body: { id: 4 },
@@ -427,6 +442,11 @@ describe('InitiativesPage2 delete', () => {
             { uri: 'http://test.local/darwin/epics?initiative_fk=4&fields=id,locked', method: 'GET' },
             { uri: 'http://test.local/darwin/initiatives?id=4&fields=id,pipeline_fk,locked', method: 'GET' },
             {
+                uri: 'http://test.local/darwin/initiative_deps?dep_initiative_fk=4'
+                    + '&fields=id,initiative_fk',
+                method: 'GET',
+            },
+            {
                 uri: 'http://test.local/darwin/epic_deps?dep_epic_fk=(100,101)'
                     + '&fields=id,epic_fk,dep_epic_fk',
                 method: 'GET',
@@ -434,9 +454,22 @@ describe('InitiativesPage2 delete', () => {
             { uri: 'http://test.local/darwin/epic_deps', method: 'DELETE' },
             { uri: 'http://test.local/darwin/initiatives', method: 'DELETE' },
         ]);
-        expect(restCalls[3].body).toEqual({ id: 900 });
-        expect(restCalls[4].body).toEqual({ id: 4 });
+        expect(restCalls[4].body).toEqual({ id: 900 });
+        expect(restCalls[5].body).toEqual({ id: 4 });
         expect(useSnackBarStore.getState().open).toBe(false);
+    });
+
+    it('refuses, naming them, while another initiative waits for this one (req #3823)', async () => {
+        vi.spyOn(window, 'confirm').mockReturnValue(true);
+        restGetResponses['http://test.local/darwin/initiative_deps?dep_initiative_fk=4'
+            + '&fields=id,initiative_fk'] = [{ id: 70, initiative_fk: 5 }];
+        mount();
+        click(node('initiative-delete-4'));
+        await flush();
+
+        expect(restCalls.some(c => c.method === 'DELETE')).toBe(false);
+        expect(useSnackBarStore.getState().open).toBe(true);
+        expect(useSnackBarStore.getState().message).toContain('initiative 5 depends on it');
     });
 
     it('refuses when an epic outside the initiative depends on one of its epics', async () => {
@@ -482,5 +515,85 @@ describe('InitiativesPage2 delete', () => {
         await flush();
         expect(restCalls.some(c => c.method === 'DELETE')).toBe(false);
         expect(useSnackBarStore.getState().message).toContain('423');
+    });
+});
+
+// req #3823 — the editor's "Waits for": the initiatives this one waits for,
+// written as initiative_deps rows before anything else, and refused with the
+// server's own sentence.
+describe('InitiativesPage2 waits for (req #3823)', () => {
+    const chooseDependency = async (id) => {
+        const combo = node('initiative-deps-select').querySelector('[role="combobox"]');
+        act(() => {
+            combo.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
+        });
+        await flush();
+        click(node(`initiative-deps-option-${id}`));
+    };
+
+    it('lists what each initiative waits for, by name', () => {
+        initiativeDeps = [{ id: 70, initiative_fk: 5, dep_initiative_fk: 4 }];
+        mount();
+        expect(node('initiative-waits-for-5').textContent).toBe('1 · Core rebuild');
+        expect(node('initiative-waits-for-4')).toBeNull();
+    });
+
+    it('adds the chosen dependency BEFORE writing the initiative', async () => {
+        mount();
+        click(node('initiative-edit-4'));
+        await chooseDependency(5);
+        click(node('initiative-save'));
+        await flush();
+        const writes = restCalls.filter((c) => c.method !== 'GET');
+        expect(writes[0]).toEqual({ uri: 'http://test.local/darwin/initiative_deps', method: 'POST',
+            body: { initiative_fk: 4, dep_initiative_fk: 5 } });
+        expect(writes[1].uri).toBe('http://test.local/darwin/initiatives');
+        const keys = queryClient.invalidateQueries.mock.calls.map((c) => c[0].queryKey[0]);
+        expect(keys).toContain('initiative_deps');
+    });
+
+    it("removes an unchecked dependency by both columns", async () => {
+        initiativeDeps = [{ id: 70, initiative_fk: 4, dep_initiative_fk: 5 }];
+        mount();
+        click(node('initiative-edit-4'));
+        await chooseDependency(5);
+        click(node('initiative-save'));
+        await flush();
+        expect(restCalls.find((c) => c.uri.endsWith('/initiative_deps'))).toEqual({
+            uri: 'http://test.local/darwin/initiative_deps', method: 'DELETE',
+            body: { initiative_fk: 4, dep_initiative_fk: 5 } });
+    });
+
+    it("a refused dependency shows the server's reason and writes nothing else", async () => {
+        restFailures['POST http://test.local/darwin/initiative_deps'] = {
+            httpStatus: 409, httpMessage: 'initiative 4 cannot depend on initiative 5: …',
+            httpDetail: { error: 'CONFLICT', constraint: 'initiative-cycle',
+                message: 'initiative 4 cannot depend on initiative 5: initiative 5 already '
+                    + 'waits for initiative 4 (5 -> 4), so the two would hold each other forever' },
+        };
+        mount();
+        click(node('initiative-edit-4'));
+        await chooseDependency(5);
+        click(node('initiative-save'));
+        await flush();
+        expect(restCalls.some((c) => c.method === 'PUT')).toBe(false);
+        const { open, message } = useSnackBarStore.getState();
+        expect(open).toBe(true);
+        expect(message).toContain('hold each other forever');
+        expect(message).toContain('409');
+        expect(node('initiative-edit-dialog')).not.toBeNull();
+    });
+});
+
+describe('InitiativesPage2 waits for — a save that did not touch it (req #3823 review)', () => {
+    it('writes no dependency at all when the field was left alone', async () => {
+        initiativeDeps = [{ id: 70, initiative_fk: 4, dep_initiative_fk: 5 }];
+        mount();
+        click(node('initiative-edit-4'));
+        type(node('initiative-title-input'), 'Renamed');
+        click(node('initiative-save'));
+        await flush();
+        expect(restCalls.some((c) => c.uri.includes('initiative_deps') && c.method !== 'GET'))
+            .toBe(false);
     });
 });

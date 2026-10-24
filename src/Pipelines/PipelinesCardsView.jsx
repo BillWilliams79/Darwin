@@ -48,7 +48,7 @@ import { orchestrationView } from '../SwarmView/pipelines/orchestrationHolder';
 import PipelinePlanThumbnail from './PipelinePlanThumbnail';
 import NewPipelineCard from './NewPipelineCard';
 
-const EMPTY_SUMMARY = { total: 0 };
+const EMPTY_SUMMARY = { total: 0, initiativeDeps: 0 };
 
 // `lastOpenedId` is GONE (req #3365 user directive — "Remove 'last viewed'
 // entirely"). It drove a chip in the title row AND a primary-coloured border
@@ -151,6 +151,14 @@ export default function PipelinesCardsView({ pipelines, summaries, reqCounts,
                                           label={machineTitle(p.machine_fk, machines)} />
                                     <Chip size="small" variant="outlined"
                                           label={`${s.total} epic${s.total === 1 ? '' : 's'}`} />
+                                    {/* req #3823 — the plan's initiative-to-initiative dependencies. */}
+                                    {s.initiativeDeps > 0 && (
+                                        <Tooltip title="Initiatives in this plan that wait for another initiative's work to close">
+                                            <Chip size="small" variant="outlined"
+                                                  label={`${s.initiativeDeps} initiative dep${s.initiativeDeps === 1 ? '' : 's'}`}
+                                                  data-testid={`pipelines-card-initiative-deps-${p.id}`} />
+                                        </Tooltip>
+                                    )}
                                     {/* req #3649 — display-only; the Table view toggles it. */}
                                     {Boolean(Number(p.locked)) && (
                                         <Tooltip title="Locked — this plan, its initiatives and epics are frozen as a record">
