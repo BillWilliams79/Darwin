@@ -22,10 +22,15 @@ export function topologyPageOptions(frame, search) {
     try { lastOpt = localStorage.getItem('topology.lastOpt'); } catch { /* storage blocked */ }
     // A frame that cannot say (not loaded yet) leaves the URL's own ?opt=.
     // req #3803 — the Virgo Simple view's Traffic pattern and Adaptive Routing step deep-link too
-    // (&traffic=, &step=); the frame's <body> carries the live ones as data-vs-traffic / data-vs-step.
-    const kept = (search || '').replace(/^\?/, '').split('&')
-        .filter(p => p && !(opt ? /^(opt|filer|traffic|step)(=|$)/ : /^filer(=|$)/).test(p));
+    // (&traffic=, &step=); the frame's <body> carries the live ones as data-vs-traffic / data-vs-step,
+    // which replace the URL's. Another view's &traffic= (Virgo Plane's, req #3690) is kept only while
+    // the frame still shows the URL's own view — the pattern names belong to the view.
+    const params = (search || '').replace(/^\?/, '').split('&');
+    const urlOpt = params.find(p => /^opt=/.test(p))?.slice(4) ?? null;
     const live = opt === 'tpu8t-virgo-simple' ? doc?.body?.dataset : null;
+    const dropTraffic = !!opt && (!!live || opt !== urlOpt);
+    const kept = params.filter(p => p && !(opt ? /^(opt|filer)(=|$)/ : /^filer(=|$)/).test(p)
+        && !(dropTraffic && /^(traffic|step)(=|$)/.test(p)));
     const query = [...(opt ? [`opt=${encodeURIComponent(opt)}`] : []),
         ...(live?.vsTraffic ? [`traffic=${encodeURIComponent(live.vsTraffic)}`] : []),
         ...(live?.vsTraffic && live?.vsStep ? [`step=${encodeURIComponent(live.vsStep)}`] : []),

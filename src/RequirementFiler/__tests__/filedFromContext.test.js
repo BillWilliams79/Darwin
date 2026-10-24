@@ -126,6 +126,12 @@ describe('filedFromContext (req #3813)', () => {
         doc.body.className = 'opt-H';   // another view: a stale pattern on <body> is not this view's
         doc.body.dataset.vsTraffic = 'adaptive';
         expect(topologyPageOptions(frame, stale).surface).toBe('/systems2?opt=H');
+        // Virgo Plane's own &traffic= (req #3690) survives while that view is on screen, and not after a switch away
+        doc.body.className = 'opt-tpu8t-virgo-plane';
+        expect(topologyPageOptions(frame, '?opt=tpu8t-virgo-plane&traffic=spray').surface)
+            .toBe('/systems2?opt=tpu8t-virgo-plane&traffic=spray');
+        expect(topologyPageOptions(frame, '?opt=tpu8t-virgo-simple&traffic=incast').surface)
+            .toBe('/systems2?opt=tpu8t-virgo-plane');
     });
 });
 
