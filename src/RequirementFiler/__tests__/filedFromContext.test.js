@@ -111,6 +111,22 @@ describe('filedFromContext (req #3813)', () => {
         });
         expect(topologyPageOptions(null, '?opt=H&filer=1').surface).toBe('/systems2?opt=H');
     });
+
+    it('the Virgo Simple view records its live Traffic pattern and step, not the URL\'s (req #3803)', () => {
+        const doc = document.implementation.createHTMLDocument('t');
+        doc.body.className = 'opt-tpu8t-virgo-simple';
+        doc.body.dataset.vsTraffic = 'adaptive';
+        doc.body.dataset.vsStep = '1';
+        const frame = { contentDocument: doc, contentWindow: { location: { search: '' } } };
+        const stale = '?opt=tpu8t-virgo-simple&traffic=incast&step=3&filer=1';
+        expect(topologyPageOptions(frame, stale).surface).toBe('/systems2?opt=tpu8t-virgo-simple&traffic=adaptive&step=1');
+        delete doc.body.dataset.vsTraffic;
+        delete doc.body.dataset.vsStep;
+        expect(topologyPageOptions(frame, stale).surface).toBe('/systems2?opt=tpu8t-virgo-simple');
+        doc.body.className = 'opt-H';   // another view: a stale pattern on <body> is not this view's
+        doc.body.dataset.vsTraffic = 'adaptive';
+        expect(topologyPageOptions(frame, stale).surface).toBe('/systems2?opt=H');
+    });
 });
 
 describe('what the filer points at (req #3829)', () => {
