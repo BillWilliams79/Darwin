@@ -29,7 +29,7 @@
 
 import { slotOffset } from '../Components/AnchoredPanel/usePanelRack';
 import { DEV_APP_GROUPS, DEV_APPS, NAV_GROUPS, appForRoute, isGroupVisible } from '../NavBar/navConfig';
-import { usePanelRackStore } from '../stores/usePanelRackStore';
+import { rackPlacement, usePanelRackStore } from '../stores/usePanelRackStore';
 
 export const FILED_FROM_VERSION = 1;
 /** The context's size ceiling in the capture, serialized chars. */
@@ -173,7 +173,7 @@ const px = (n) => Math.round(n);
 
 /** One Action Popup as drawn: id, title, racked, open, dock and rect in Darwin's
  *  viewport px (`off` — its document's origin, for a rack in an iframe). */
-function popupRecord(el, off, racked) {
+function popupRecord(el, off, rackIndexOf) {
     const r = el.getBoundingClientRect();
     const id = el.getAttribute('data-rack-id');
     const testid = el.getAttribute('data-testid');
@@ -184,29 +184,37 @@ function popupRecord(el, off, racked) {
         id,
         ...(title ? { title } : null),
         racked: inRack,
-        ...(inRack ? { rackIndex: racked.indexOf(id) } : null),
+        ...(inRack ? { rackIndex: rackIndexOf(id) } : null),
+        ...(el.getAttribute('data-title-locked') === '1' ? { titleLocked: true } : null),
         open: body ? body.getAttribute('data-folded') !== '1' : null,
         dock: el.getAttribute('data-dock'),
         rect: { x: px(r.left + off.left), y: px(r.top + off.top), w: px(r.width), h: px(r.height) },
     };
 }
 
-/** Every Action Popup drawn now — floating in Darwin's page or racked in the
- *  rack, which may be a page toolbar's shadow root in an iframe (req #3792). */
+/** Every Action Popup drawn now — floating in Darwin's page or racked in a
+ *  rack: the navbar's, or a page toolbar's shadow root in an iframe (req #3792,
+ *  both at once since req #3886). `rackIndex` is its place in the stack it is
+ *  drawn in (a toolbar's popup drawn in the navbar meanwhile: after the
+ *  navbar's own). A popup drawn as its icon in a minimized bar has no head or
+ *  body: no title, `open: null`. */
 export function openActionPopups(doc = document) {
-    const { slot, racked } = usePanelRackStore.getState();
+    const s = usePanelRackStore.getState();
+    const rackIndexOf = (id) => rackPlacement(s, id)?.pos ?? -1;
     const seen = new Set();
     const out = [];
     const collect = (root, off) => {
         root?.querySelectorAll?.('[data-rack-id]').forEach((el) => {
             if (seen.has(el)) return;
             seen.add(el);
-            out.push(popupRecord(el, off, racked || []));
+            out.push(popupRecord(el, off, rackIndexOf));
         });
     };
     collect(doc, { left: 0, top: 0 });
-    const node = slot?.node;
-    if (node && node.ownerDocument !== doc) collect(node, slotOffset(slot));
+    [s.slot, s.pageSlot].forEach((slot) => {
+        const node = slot?.node;
+        if (node && node.ownerDocument !== doc) collect(node, slotOffset(slot));
+    });
     return out;
 }
 
@@ -414,7 +422,7 @@ function visibleApps(profile) {
  * @param {?string} p.database   AppContext database
  * @param {?{themeMode, effectiveMode}} p.theme  ThemeContext
  * @param {string} p.popupId     the filer's rack id
- * @param {?Object} p.popupStore the filer's { dock, open }
+ * @param {?Object} p.popupStore the filer's { dock, open, titleLock }
  * @param {?Element} [p.typingIn] the element focused as the press began
  * @param {Date} [p.now]
  */
@@ -427,7 +435,7 @@ export function captureFiledFrom({ location, profile, database, theme, popupId, 
     // Without the filer's own `filer` parameter: opening the URL must not file again.
     const query = cleanQuery(search, '?', ['filer']);
     const cleanHash = cleanQuery(hash, '#');
-    const racked = self ? self.racked : (usePanelRackStore.getState().racked || []).includes(popupId);
+    const racked = self ? self.racked : rackPlacement(usePanelRackStore.getState(), popupId) != null;
     const pointed = typeof document !== 'undefined'
         ? pointedAtNow(self ?? (racked ? { racked } : null), document, typingIn)
         : { pointedAt: null, pointedAtReason: POINTED_AT_REASONS.notDrawn };
@@ -462,6 +470,9 @@ export function captureFiledFrom({ location, profile, database, theme, popupId, 
             ...(self?.racked ? { rackIndex: self.rackIndex } : null),
             open: popupStore?.open ?? self?.open ?? null,
             dock: popupStore?.dock ?? null,
+            // Locked into the page's title bar (req #3857): where, and whether
+            // it is drawn there now.
+            ...(popupStore?.titleLock ? { titleLock: popupStore.titleLock, titleLocked: !!self?.titleLocked } : null),
             rect: self?.rect ?? null,
         },
     };

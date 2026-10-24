@@ -35,8 +35,7 @@ export default function useCreatePipeline() {
     // second pipeline.
     const inFlightRef = useRef(false);
 
-    const create = useCallback(async ({ title, description = '', execution_mode = 'parallel',
-        machine_fk = null }) => {
+    const create = useCallback(async ({ title, description = '', machine_fk = null }) => {
         if (inFlightRef.current) return false;
         const trimmed = (title ?? '').trim();
         if (!trimmed) {
@@ -54,7 +53,6 @@ export default function useCreatePipeline() {
             const id = await createPipeline(darwinUri, idToken, {
                 title: trimmed,
                 description: description.trim() || null,
-                execution_mode,
                 machine_fk,
             });
             if (id == null) {

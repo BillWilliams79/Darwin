@@ -6,7 +6,19 @@ import { getIdToken, apiCall, apiDelete, uniqueName } from '../helpers/api';
 // the filed requirement's description says `Pointed at:` naming that card (its
 // testid path and title text) and its debug capture carries the element's rect;
 // racked in the navbar the same press records pointedAt null with its reason;
-// the field being typed in is never copied into the bundle.
+// the field being typed in is never copied into the bundle. Each filing also
+// proves it was aimed at production (req #3888, below).
+
+// Req #3888 — the filer files into PRODUCTION from every build, while a local E2E
+// run must never write to production (req #2750, helpers/api.ts). So a run
+// against darwin_dev sends the filer's production calls on to darwin_dev — where
+// the seeded project, category and card live — and records each one, so every
+// test still proves the filer aimed at production. Only the filer reads these
+// tables from production on a dev server (the Dev Servers dashboard's title
+// lookup is a read; sending it to darwin_dev changes nothing here).
+const TEST_DATABASE = process.env.TEST_DATABASE || 'darwin_dev';
+const PROD_FILER_CALL = /\/eng\/darwin\/(requirements|requirement_debug_captures|projects|categories|machines)(\?|$)/;
+let prodCalls: string[] = [];
 
 let idToken: string;
 let projectId: string;
@@ -40,10 +52,18 @@ test.describe('Requirement Filer — pointed at (req #3829)', () => {
 
   /** /swarm on the seeded project's tab, the filer shown — floating, or racked. */
   async function openSwarm(page: Page, racked: boolean) {
+    prodCalls = [];
+    if (TEST_DATABASE !== 'darwin') {
+      await page.route(PROD_FILER_CALL, (route) => {
+        const req = route.request();
+        prodCalls.push(`${req.method()} ${new URL(req.url()).pathname}`);
+        return route.continue({ url: req.url().replace('/eng/darwin/', `/eng/${TEST_DATABASE}/`) });
+      });
+    }
     await page.addInitScript(({ pid, cid, racked }) => {
       localStorage.setItem('darwin-swarm-view', 'cards');
       localStorage.setItem('darwin_requirement_filer', JSON.stringify({
-        state: { show: true, open: true, dock: null, lastProjectId: pid, lastCategoryId: cid, defaults: {} }, version: 2 }));
+        state: { show: true, open: true, dock: null, lastProjectId: pid, lastCategoryId: cid, defaults: {} }, version: 3 }));
       localStorage.setItem('darwin_panel_rack', JSON.stringify({
         state: { racked: racked ? ['requirement-filer'] : [], seeded: ['dev-servers'] }, version: 1 }));
     }, { pid: Number(projectId), cid: Number(categoryId), racked });
@@ -74,16 +94,28 @@ test.describe('Requirement Filer — pointed at (req #3829)', () => {
     await page.getByTestId('requirement-editor-field-title').fill(title);
     await expect(page.getByTestId('requirement-editor-save')).toBeEnabled({ timeout: 15000 });
     await page.getByTestId('requirement-editor-save').click();
-    const link = page.getByTestId('requirement-editor-id-link');
-    await expect(link).toBeVisible({ timeout: 15000 });
-    const id = (await link.textContent())!.trim();
+    // Create closes the editor at the press (req #3860); the requirement joins the
+    // filer's list once its POST lands — the list's only row in this fresh browser.
+    const item = page.locator('[data-testid^="requirement-filer-item-"]').first();
+    await expect(item).toBeVisible({ timeout: 15000 });
+    const id = (await item.getAttribute('data-testid'))!.replace('requirement-filer-item-', '');
     filed.push(id);
+    if (TEST_DATABASE !== 'darwin') {
+      // Filed into production (req #3888): the create went to /darwin, and back in
+      // the editor from the list its id opens on darwin.one.
+      expect(prodCalls).toContain('POST /eng/darwin/requirements');
+      await item.click();
+      const link = page.getByTestId('requirement-editor-id-link');
+      await expect(link).toHaveText(id, { timeout: 15000 });
+      await expect(link).toHaveAttribute('href', `https://www.darwin.one/swarm/requirement/${id}`);
+    }
     let description = '';
     await expect.poll(async () => {
       const rows = await apiCall(`requirements?id=${id}`, 'GET', '', idToken) as Array<{ description: string }>;
       description = rows?.[0]?.description ?? '';
       return description.includes('--- end Debug capture ---');
     }, { timeout: 20000 }).toBe(true);
+    if (TEST_DATABASE !== 'darwin') expect(prodCalls).toContain('POST /eng/darwin/requirement_debug_captures');
     const caps = await apiCall(`requirement_debug_captures?requirement_fk=${id}`, 'GET', '', idToken) as Array<{ bundle: string }>;
     return { id, description, bundle: caps[0].bundle, filedFrom: JSON.parse(caps[0].bundle).filedFrom };
   }

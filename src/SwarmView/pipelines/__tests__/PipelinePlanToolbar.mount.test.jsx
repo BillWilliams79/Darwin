@@ -89,7 +89,8 @@ describe('PipelinePlanToolbar (req #3648)', () => {
     });
 
     // req #3766 — a long press on a chip pins its help: hover leaving does not
-    // close it, the release is not a click, and the next press anywhere unpins.
+    // close it and the release is not a click. req #3859 — only Escape or a
+    // press on a colour chip unpins it; a press anywhere else leaves it up.
     describe('long press pins the colour help (req #3766)', () => {
         let events;
         let picks;
@@ -126,12 +127,65 @@ describe('PipelinePlanToolbar (req #3648)', () => {
             expect(picks).toEqual([]);           // the release did not toggle the scale
         });
 
-        it('unpins on the next press anywhere, falling back to the chip under the pointer', () => {
+        it('stays pinned through presses and clicks anywhere but a colour chip (req #3859)', () => {
+            const machine = q('pipeline-viz-colorkey-machine');
+            longPress(machine);
+            fire(machine, 'mouseout');
+            for (const el of [document.body, q('pipeline-viz-reset'), q('pipeline-viz-level-1')]) {
+                fire(el, 'pointerdown');
+                fire(el, 'pointerup');
+                fire(el, 'click');
+            }
+            fire(document.body, 'pointerdown', { button: 2 });
+            expect(events).toEqual(['machine', 'machine*']);
+        });
+
+        it('stays pinned when another control re-renders the toolbar', () => {
+            longPress(q('pipeline-viz-colorkey-machine'));
+            act(() => root.render(
+                <PipelinePlanToolbar onEpicsAcross={() => {}} epicWidthLevel={4}
+                                     onChangeEpicWidthLevel={() => {}} colorKey="machine"
+                                     onChangeColorKey={() => {}} planLevelPref="2"
+                                     effectiveLevel="mid" onChangeLevelPref={() => {}}
+                                     onResetView={() => {}} hideClosed
+                                     onKeyHover={(h) => events.push(h && `${h.key}${h.pinned ? '*' : ''}`)} />));
+            expect(events).toEqual(['machine', 'machine*']);
+        });
+
+        it('Enter or Space on a colour chip unpins', () => {
+            const machine = q('pipeline-viz-colorkey-machine');
+            longPress(machine);
+            fire(machine, 'mouseout');
+            const state = q('pipeline-viz-colorkey-state');
+            act(() => { state.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+            expect(events).toEqual(['machine', 'machine*', null]);
+        });
+
+        it('a release off the chip does not swallow a later click', () => {
+            const chip = q('pipeline-viz-colorkey-machine');
+            fire(chip, 'mouseover');
+            fire(chip, 'pointerdown', { clientX: 10, clientY: 10 });
+            act(() => { vi.advanceTimersByTime(LONG_PRESS_MS); });
+            fire(document.body, 'pointerup');
+            fire(document.body, 'click');
+            act(() => { vi.advanceTimersByTime(0); });
+            act(() => chip.click());              // no press before it
+            expect(picks).toEqual(['machine']);
+        });
+
+        it('a right press on a colour chip does not unpin', () => {
+            longPress(q('pipeline-viz-colorkey-machine'));
+            fire(q('pipeline-viz-colorkey-state'), 'pointerdown', { button: 2 });
+            expect(events).toEqual(['machine', 'machine*']);
+        });
+
+        it('a press on a colour chip unpins, falling back to the chip under the pointer', () => {
             const machine = q('pipeline-viz-colorkey-machine');
             const epic = q('pipeline-viz-colorkey-state');
             longPress(machine);
             fire(machine, 'mouseout');
-            fire(document.body, 'pointerdown');
+            fire(epic, 'pointerdown');
+            fire(epic, 'pointerup');
             expect(events).toEqual(['machine', 'machine*', null]);
             longPress(epic);
             fire(epic, 'pointerdown');           // pressing the pinned chip itself
@@ -156,6 +210,19 @@ describe('PipelinePlanToolbar (req #3648)', () => {
             fire(chip, 'mouseout');
             act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
             expect(events.at(-1)).toBe(null);
+        });
+
+        it('unpins when the pinned chip leaves the page (Lock view)', () => {
+            longPress(q('pipeline-viz-colorkey-machine'));
+            act(() => root.render(
+                <PipelinePlanToolbar onEpicsAcross={() => {}} epicWidthLevel={5}
+                                     onChangeEpicWidthLevel={() => {}} colorKey="state"
+                                     onChangeColorKey={() => {}} planLevelPref="auto"
+                                     effectiveLevel="out" onChangeLevelPref={() => {}}
+                                     onResetView={() => {}} viewMode="lock"
+                                     onKeyHover={(h) => events.push(h && `${h.key}${h.pinned ? '*' : ''}`)} />));
+            expect(q('pipeline-viz-colorkey-machine')).toBeNull();
+            expect(events).toEqual(['machine', 'machine*', null]);
         });
 
         it('a short press or a press that moves does not pin', () => {

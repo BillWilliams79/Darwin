@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 //
 // Req #3792 — AI Architecture's own toolbar (the topology page's navbar, in a
-// same-origin iframe) is THE rack while it is drawn: a shadow-root rack below
-// its buttons is published as the page slot, racked windows portal into it
-// (styled there), the toolbar glows for a drop and the frame lets a carried
-// window keep its pointer; folded, the toolbar gives the windows back to the
-// Darwin navbar. (jsdom has no layout or ResizeObserver: those are faked.)
+// same-origin iframe) is a rack: a shadow-root rack below its buttons is
+// published as the page slot, the windows racked there portal into it (styled
+// there), the toolbar glows for a drop over it and the frame lets a carried
+// window keep its pointer. Req #3886 — beside the navbar's rack, not over it:
+// the navbar's windows stay in the navbar, and folded, the toolbar KEEPS its
+// windows (only a full screen sends them to the navbar meanwhile). (jsdom has
+// no layout or ResizeObserver: those are faked.)
 
 import React, { useRef } from 'react';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -30,6 +32,10 @@ function Page() {
                            name="Panel a" testid="p-a" limits={LIMITS} colors={COLORS}>
                 {() => <div>rows</div>}
             </AnchoredPanel>
+            <AnchoredPanel dock={HOME} rackId="n" onDockChange={() => {}} open onToggle={() => {}}
+                           name="Panel n" testid="p-n" limits={LIMITS} colors={COLORS}>
+                {() => <div>rows</div>}
+            </AnchoredPanel>
         </>
     );
 }
@@ -40,7 +46,7 @@ const host = () => frame.contentDocument.querySelector('[data-testid="toolbar-ra
 describe('ToolbarRack (req #3792)', () => {
     beforeEach(() => {
         localStorage.clear();
-        usePanelRackStore.setState({ racked: ['a'], slot: null, navSlot: null, pageSlot: null,
+        usePanelRackStore.setState({ racked: ['n'], pageRacked: ['a'], slot: null, pageSlot: null,
             drag: null, covered: false });
         navSlot = document.createElement('div');
         document.body.appendChild(navSlot);
@@ -59,8 +65,8 @@ describe('ToolbarRack (req #3792)', () => {
         const h = host();
         expect(h.parentElement).toBe(toolbar());
         expect(h.previousElementSibling.className).toBe('nav-vendor');
-        const { slot, pageSlot } = usePanelRackStore.getState();
-        expect(slot).toBe(pageSlot);
+        const slot = usePanelRackStore.getState().pageSlot;
+        expect(slot.name).toBe('toolbar');
         expect(h.shadowRoot.contains(slot.node)).toBe(true);
         // The racked window is drawn there, styled by the shadow root's own sheet.
         const panel = screen.queryByTestId('p-a') || h.shadowRoot.querySelector('[data-testid="p-a"]');
@@ -69,7 +75,9 @@ describe('ToolbarRack (req #3792)', () => {
         expect(h.shadowRoot.querySelector('style[data-emotion^="toolbar-rack"]')).not.toBe(null);
         // The topology page's scripts never see the window's buttons.
         expect(frame.contentDocument.querySelectorAll('nav.navbar button')).toHaveLength(1);
-        expect(navSlot.childElementCount).toBe(0);
+        // The navbar's window stays in the navbar (req #3886).
+        expect(navSlot.querySelector('[data-testid="p-n"]')).not.toBe(null);
+        expect(h.shadowRoot.querySelector('[data-testid="p-n"]')).toBe(null);
     });
 
     it('the zone is the toolbar\'s column, in Darwin\'s px through the frame', () => {
@@ -84,32 +92,67 @@ describe('ToolbarRack (req #3792)', () => {
 
     it('glows for a drop over it, and the frame keeps a carried window\'s pointer', () => {
         render(<Page />);
-        act(() => usePanelRackStore.getState().setDrag({ id: 'b', over: false, index: null, fromRack: false, color: '#ff6b35' }));
+        const drag = (d) => act(() => usePanelRackStore.getState().setDrag(
+            { id: 'b', over: false, rack: null, index: null, fromRack: false, from: null, color: '#ff6b35', ...d }));
+        drag({});
         expect(toolbar().getAttribute('data-rack-drop')).toBe('armed');
         expect(toolbar().style.boxShadow).toBe('');
         expect(frame.style.pointerEvents).toBe('none');
-        act(() => usePanelRackStore.getState().setDrag({ id: 'b', over: true, index: 0, fromRack: false, color: '#ff6b35' }));
+        drag({ over: true, rack: 'page', index: 0 });
         expect(toolbar().getAttribute('data-rack-drop')).toBe('over');
         expect(toolbar().style.boxShadow).toContain('#ff6b35');
+        // Over the navbar instead: the toolbar does not glow (req #3886).
+        drag({ over: true, rack: 'nav', index: 0 });
+        expect(toolbar().getAttribute('data-rack-drop')).toBe('armed');
+        expect(toolbar().style.boxShadow).toBe('');
+        // Carried out of the navbar's rack, the frame still keeps its pointer;
+        // out of this toolbar's, it is the toolbar document's own.
+        drag({ fromRack: true, from: 'nav' });
+        expect(frame.style.pointerEvents).toBe('none');
+        drag({ fromRack: true, from: 'page' });
+        expect(frame.style.pointerEvents).toBe('');
         act(() => usePanelRackStore.getState().setDrag(null));
         expect(toolbar().getAttribute('data-rack-drop')).toBe('off');
         expect(toolbar().style.boxShadow).toBe('');
         expect(frame.style.pointerEvents).toBe('');
     });
 
-    it('folded or under a full screen, the toolbar gives the windows back to the navbar', async () => {
+    it('folded, the toolbar keeps its windows in its strip; under a full screen they go to the navbar (req #3886)', async () => {
         render(<Page />);
+        const inToolbar = () => host().shadowRoot.querySelector('[data-testid="p-a"]');
         toolbar().classList.add('nav-collapsed');
         await tick();
-        expect(usePanelRackStore.getState().pageSlot).toBe(null);
-        expect(usePanelRackStore.getState().slot.node).toBe(navSlot);
-        expect(navSlot.querySelector('[data-testid="p-a"]')).not.toBe(null);
+        const { pageSlot } = usePanelRackStore.getState();
+        expect(pageSlot).toMatchObject({ folded: true, name: 'toolbar' });
+        expect(inToolbar()).not.toBe(null);
+        // Shown in the strip, which hides every other child of a folded toolbar.
+        expect(host().style.display).toBe('block');
+        // An icon's click unfolds it, through the toolbar's own ›.
+        const expand = frame.contentDocument.createElement('button');
+        expand.setAttribute('data-testid', 'topo-nav-collapse');
+        let clicks = 0;
+        expand.addEventListener('click', () => { clicks += 1; });
+        toolbar().prepend(expand);
+        act(() => pageSlot.expand());
+        expect(clicks).toBe(1);
         toolbar().classList.remove('nav-collapsed');
         await tick();
-        expect(usePanelRackStore.getState().slot.node).not.toBe(navSlot);
+        expect(usePanelRackStore.getState().pageSlot.folded).toBe(false);
+        act(() => usePanelRackStore.getState().pageSlot.expand());
+        expect(clicks).toBe(1);
         frame.contentDocument.querySelector('.tpu3d').classList.add('tpu3d-full');
         await tick();
-        expect(usePanelRackStore.getState().slot.node).toBe(navSlot);
+        expect(usePanelRackStore.getState().pageSlot).toBe(null);
+        expect(navSlot.querySelector('[data-testid="p-a"]')).not.toBe(null);
+        expect(usePanelRackStore.getState().pageRacked).toEqual(['a']);
+        // A 2D stage's fixed full-screen overlay covers it the same way.
+        frame.contentDocument.querySelector('.tpu3d').classList.remove('tpu3d-full');
+        await tick();
+        expect(usePanelRackStore.getState().pageSlot).not.toBe(null);
+        frame.contentDocument.querySelector('.stage').classList.add('s2-full');
+        await tick();
+        expect(usePanelRackStore.getState().pageSlot).toBe(null);
+        expect(navSlot.querySelector('[data-testid="p-a"]')).not.toBe(null);
     });
 
     it('sits under the buttons as the navbar\'s does: the toolbar gap is cancelled', () => {
@@ -127,7 +170,7 @@ describe('ToolbarRack (req #3792)', () => {
         act(() => { frame.dispatchEvent(new Event('load')); });
         const h = host();
         expect(h.parentElement).toBe(toolbar());
-        const { slot } = usePanelRackStore.getState();
+        const slot = usePanelRackStore.getState().pageSlot;
         expect(slot.node).not.toBe(first);
         expect(h.shadowRoot.contains(slot.node)).toBe(true);
         expect(h.shadowRoot.querySelector('[data-testid="p-a"]')).not.toBe(null);
