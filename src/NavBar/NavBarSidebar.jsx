@@ -76,15 +76,17 @@ const NavBarSidebar = () => {
     // is against the stack (rackDropIndex).
     const [rackNode, setRackNode] = useState(null);
     const setRackSlot = usePanelRackStore(s => s.setSlot);
+    // `expand` — a racked popup's icon in the icon-only navbar unfolds it
+    // (req #3886).
     useLayoutEffect(() => {
-        setRackSlot(rackNode ? { node: rackNode, width: sidebarWidth } : null);
+        setRackSlot(rackNode ? { node: rackNode, width: sidebarWidth, expand: () => setCollapsed(false) } : null);
     }, [rackNode, sidebarWidth, setRackSlot]);
     useLayoutEffect(() => () => setRackSlot(null), [setRackSlot]);
-    // A page that shows its own toolbar (AI Architecture) takes the rack while
-    // it is drawn (req #3792): the navbar is then no drop zone — the drag is
-    // that toolbar's to show.
-    const rackDrag = usePanelRackStore(s => (s.pageSlot ? null : s.drag));
-    const rackOver = !!rackDrag?.over;
+    // A page that shows its own toolbar (AI Architecture) is a SECOND rack
+    // (req #3886, replacing #3792's take-over): the navbar stays a drop zone
+    // beside it, and glows only for a drag over the navbar itself.
+    const rackDrag = usePanelRackStore(s => s.drag);
+    const rackOver = !!rackDrag?.over && rackDrag.rack === 'nav';
     // `?rack=<id>,<id>…` (req #3821): a link that lands with those Action
     // Popups' rack places taken, in that order, at the bottom of the stack —
     // so a page can be opened with its popups racked (a dev server's deep
@@ -394,7 +396,7 @@ const NavBarSidebar = () => {
                     sx={{ width, flexShrink: 0, transition: 'width 0.2s ease', height: '100vh', position: 'sticky', top: 0,
                           // A racked panel dragged out is drawn fixed from in
                           // here: lift the navbar so it stays above the page.
-                          ...(rackDrag?.fromRack && { zIndex: RACK_DRAG_Z }) }}
+                          ...(rackDrag?.from === 'nav' && { zIndex: RACK_DRAG_Z }) }}
                 >
                     <Box sx={{
                         display: 'flex',

@@ -27,7 +27,9 @@
 // (actionPopupChrome.js): the ▾ head and the REQUIREMENT title, + and × at the
 // far right. It has no badge slot: the title sits against the ▾, and folded
 // the + and × follow the title — `▸ REQUIREMENT + ×` — so the filer can live
-// folded in the rack (user ruling 2026-10-23, req #3830). RACKABLE (`rackId`) — drag its head onto the Darwin navbar, or AI
+// folded in the rack (user ruling 2026-10-23, req #3830). In a minimized bar
+// (the icon-only navbar, the folded topology toolbar) it is ONE + in its purple
+// box, and a click on it creates a new requirement as the + does (req #3886). RACKABLE (`rackId`) — drag its head onto the Darwin navbar, or AI
 // Architecture's toolbar, and it locks in below the nav buttons like every
 // other Action Popup; drag it off to float it again. LOCKABLE INTO THE TITLE
 // BAR (req #3857) — drop its head on the page's title bar and it stays there,
@@ -53,6 +55,7 @@ import { useLocation } from 'react-router-dom';
 
 import Box from '@mui/material/Box';
 import useMediaQuery from '@mui/material/useMediaQuery';
+import AddIcon from '@mui/icons-material/Add';
 
 import AnchoredPanel from '../Components/AnchoredPanel/AnchoredPanel';
 import { ActionPopupAdd, ActionPopupClose } from '../Components/AnchoredPanel/ActionPopupHead';
@@ -231,6 +234,9 @@ export default function RequirementFiler() {
         });
     };
     const fileRequirement = () => fileRequirementNow(filedFrom(), profile);
+    // What held focus as a press on the + began (req #3829) — the head's + and,
+    // in a minimized bar, the icon's (req #3886).
+    const notePress = () => { focusAtPress = { el: document.activeElement, t: performance.now() }; };
     useEffect(() => {
         if (!filerParam || !signedIn) return;
         useRequirementFilerStore.setState({ show: true, open: true });
@@ -258,13 +264,15 @@ export default function RequirementFiler() {
                        open={open} onToggle={toggleOpen}
                        name="Requirement" testid="requirement-filer" badgeSlot={false}
                        rackId={FILER_RACK_ID}
+                       rackIcon={AddIcon} onRackIcon={fileRequirement} onRackIconPress={notePress}
+                       rackIconLabel={`Requirement — create a new one${filesElsewhere ? ' (filed in production Darwin)' : ''}`}
                        titleLock={titleLock} onTitleLockChange={setTitleLock}
                        limits={LIMITS} fontPx={ACTION_POPUP_FONT_PX} colors={ACTION_POPUP_COLORS}
                        sx={ACTION_POPUP_SX}
                        actions={<>
                            {/* The one way to create (req #3830): after the title folded, far right open. */}
                            <Box sx={{ mr: '0.3em', display: 'flex' }}
-                                onPointerDownCapture={() => { focusAtPress = { el: document.activeElement, t: performance.now() }; }}>
+                                onPointerDownCapture={notePress}>
                                <ActionPopupAdd onClick={fileRequirement}
                                                label={`Create a requirement — it starts with the last one's settings and records this page and a debug capture${filesElsewhere ? ' — filed in production Darwin' : ''}`}
                                                testid="requirement-filer-add" />

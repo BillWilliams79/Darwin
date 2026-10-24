@@ -168,6 +168,28 @@ describe('Requirement Filer (req #3811)', () => {
         expect(useRequirementFilerStore.getState().open).toBe(false);
     });
 
+    it('in the icon-only navbar it is one + in its purple box, and a click creates a requirement (req #3886)', () => {
+        renderAll({ nav: true });
+        fireEvent.click(screen.getByTestId('navbar-requirement-filer'));
+        act(() => usePanelRackStore.getState().rack(FILER_RACK_ID, 0));
+        fireEvent.click(screen.getByTestId('navbar-collapse-toggle'));
+        const icon = screen.getByTestId('requirement-filer-rack-icon');
+        expect(screen.getByTestId('navbar-rack-slot').contains(icon)).toBe(true);
+        expect(icon.querySelector('[data-testid="AddIcon"]')).not.toBe(null);
+        expect(icon.style.border).toMatch(/rgb\(166, 77, 255\)/);
+        expect(icon.getAttribute('title')).toMatch(/^Requirement — create a new one/);
+        expect(screen.queryByTestId('requirement-filer-header')).toBe(null);
+        fireEvent.pointerDown(icon, { button: 0, pointerId: 1, clientX: 30, clientY: 300 });
+        fireEvent.pointerUp(icon, { button: 0, pointerId: 1, clientX: 30, clientY: 300 });
+        expect(screen.getByTestId('requirement-editor')).toBeTruthy();
+        // The navbar stays minimized: the icon filed, it did not unfold it.
+        expect(screen.getByTestId('requirement-filer-rack-icon')).toBeTruthy();
+        // Unfolded, it is the whole popup again.
+        fireEvent.click(screen.getByTestId('navbar-collapse-toggle'));
+        expect(screen.queryByTestId('requirement-filer-rack-icon')).toBe(null);
+        expect(screen.getByTestId('requirement-filer-header')).toBeTruthy();
+    });
+
     it('the + creates a requirement, open or folded; folded it follows REQUIREMENT (req #3830)', () => {
         useRequirementFilerStore.setState({ show: true });
         renderAll();
