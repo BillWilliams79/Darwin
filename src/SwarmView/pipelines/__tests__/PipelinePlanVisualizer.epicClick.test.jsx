@@ -45,9 +45,11 @@ vi.mock('konva', () => ({
 }));
 
 const updateEpic = vi.fn(() => Promise.resolve({}));
+const deleteEpicFreeingDependents = vi.fn(() => Promise.resolve());
 vi.mock('../../../Epics/epicsApi', async (orig) => ({
     ...(await orig()),
     updateEpic: (...a) => updateEpic(...a),
+    deleteEpicFreeingDependents: (...a) => deleteEpicFreeingDependents(...a),
 }));
 
 import { composedFixture } from './pipelineComposedFixture';
@@ -187,6 +189,65 @@ describe('a click on an epic opens its single editor (req #3742)', () => {
         await act(async () => { await Promise.resolve(); await Promise.resolve(); });
         expect(updateEpic).toHaveBeenCalledWith(undefined, undefined, id,
             { title: 'Renamed', notes: 'NULL', run: 'auto', checkpoint: 1, not_before: 'NULL' });
+    });
+
+    // req #3867 — Delete in the editor: the epics waiting on this one, from
+    // the rows the canvas holds, are freed of that dependency.
+    it('Delete in the editor frees the epics waiting on it, then removes it', async () => {
+        render('3');
+        await settle();
+        deleteEpicFreeingDependents.mockClear();
+        await clickLast('rect');
+        const dialog = document.querySelector('[data-testid="epic-edit-dialog"]');
+        const id = Number(dialog.textContent.match(/Edit epic (\d+)/)[1]);
+        act(() => { document.querySelector('[data-testid="epic-delete"]').click(); });
+        const consequence = document.querySelector('[data-testid="epic-delete-consequence"]');
+        expect(consequence.textContent).toContain(`Delete epic ${id} "Epic ${id}"?`);
+        act(() => { document.querySelector('[data-testid="epic-delete-confirm"]').click(); });
+        await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+        expect(deleteEpicFreeingDependents).toHaveBeenCalledWith(undefined, undefined, id,
+            id < 17 ? [id + 1] : []);
+    });
+
+    // The lock the gateway checks on a freed edge is the DEPENDENT's whole
+    // chain, so a dependent locked only through its initiative blocks Delete.
+    it('Delete is blocked when a dependent is locked through its initiative', async () => {
+        const payload = composedFixture({
+            initiatives: [
+                { id: 5, title: 'Build', pipeline_fk: 2, sort_order: 1 },
+                { id: 6, title: 'Frozen', pipeline_fk: 2, sort_order: 2, locked: 1 },
+            ],
+            epics: [epic(10, 'Upstream'), { ...epic(11, 'Downstream'), initiative_fk: 6 }],
+            epicDeps: [{ id: 1, epic_fk: 11, dep_epic_fk: 10 }],
+        });
+        const container = document.createElement('div');
+        document.body.appendChild(container);
+        root = createRoot(container);
+        act(() => {
+            root.render(
+                <QueryClientProvider client={new QueryClient()}>
+                    <MemoryRouter initialEntries={['/swarm/pipeline/2?mode=plan']}>
+                        <PipelinePlanVisualizer plan={adaptComposedPipeline(payload)}
+                                                model={buildPlanModel(payload)} levelPref="3"
+                                                pipeline={payload.pipeline} timezone="UTC" />
+                        <LocationProbe />
+                    </MemoryRouter>
+                </QueryClientProvider>
+            );
+        });
+        await settle();
+        const editorTitle = () => document.querySelector('[data-testid="epic-edit-dialog"]')
+            ?.textContent.match(/Edit epic (\d+)/)?.[1];
+        for (const target of document.querySelectorAll('[data-act="rect"][data-stroked="0"]')) {
+            act(() => { target.click(); });
+            await settle();
+            if (editorTitle() === '10') break;
+        }
+        expect(editorTitle()).toBe('10');
+        const del = document.querySelector('[data-testid="epic-delete"]');
+        expect(del.disabled).toBe(true);
+        expect(del.getAttribute('aria-label')).toBe(
+            'Epic 11 waits on it and is locked — unlock to delete this epic.');
     });
 
     // The second click of a quick double click on the title area lands on the
