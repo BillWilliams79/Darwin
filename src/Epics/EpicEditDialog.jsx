@@ -89,6 +89,10 @@ export default function EpicEditDialog({
     const [formBarrier, setFormBarrier] = useState(barrierOf(epic));
     const [formLocked, setFormLocked] = useState(!!epic?.locked);
     const [submitting, setSubmitting] = useState(false);
+    const initiativeName = epic
+        ? (initiativeOptions.find((o) => String(o.id) === String(epic.initiative_fk))?.title
+            || (epic.initiative_fk == null ? '(none)' : `Initiative ${epic.initiative_fk}`))
+        : null;
 
     // req #3742 — the lock is set here now that the epic card has no padlock.
     // An epic that STAYS locked takes no authoring write (the gateway would
@@ -171,22 +175,40 @@ export default function EpicEditDialog({
             <DialogTitle>{epic ? `Edit epic ${epic.id}` : 'New epic'}</DialogTitle>
             <DialogContent>
                 <Stack spacing={2} sx={{ mt: 1 }}>
-                    <FormControl fullWidth required disabled={!!epic}>
-                        <InputLabel>Initiative</InputLabel>
-                        <Select label="Initiative" value={formInitiativeFk}
-                                onChange={(e) => setFormInitiativeFk(e.target.value)}
-                                data-testid="epic-initiative-select">
-                            {initiativeOptions.map(e => (
-                                <MenuItem key={e.id} value={e.id}>{e.title}</MenuItem>
-                            ))}
-                        </Select>
-                    </FormControl>
-                    {epic && (
-                        <Typography variant="caption" sx={{ color: 'text.secondary', mt: -1 }}>
-                            An epic&apos;s initiative is its identity. To move this epic, delete it
-                            and create it in the other initiative — that forces its dependencies to
-                            be answered rather than silently broken.
+                    {/* req #3800 — the NAME is the first field. A greyed-out parent
+                        selector used to open this dialog, captioned with why it could
+                        not change, and read as "the name cannot be edited". */}
+                    <TextField
+                        label="Title"
+                        value={formTitle}
+                        onChange={(e) => setFormTitle(e.target.value)}
+                        helperText={lockHeld ? 'Locked — unlock to edit this epic.'
+                            : 'The epic\'s short NAME — "Session Drain", not a sentence.'}
+                        disabled={lockHeld}
+                        autoFocus required fullWidth
+                        slotProps={{ htmlInput: {
+                            'data-testid': 'epic-title-input', maxLength: TITLE_MAX } }}
+                    />
+                    {epic ? (
+                        // An epic's initiative is its identity, so on edit it is a fact
+                        // shown as text, not a disabled control competing with the name.
+                        <Typography variant="body2" sx={{ color: 'text.secondary' }}
+                                    data-testid="epic-initiative-readonly">
+                            Initiative: <strong>{initiativeName}</strong> — to move this epic,
+                            delete it and create it in the other initiative, so its
+                            dependencies are answered rather than silently broken.
                         </Typography>
+                    ) : (
+                        <FormControl fullWidth required>
+                            <InputLabel>Initiative</InputLabel>
+                            <Select label="Initiative" value={formInitiativeFk}
+                                    onChange={(e) => setFormInitiativeFk(e.target.value)}
+                                    data-testid="epic-initiative-select">
+                                {initiativeOptions.map(e => (
+                                    <MenuItem key={e.id} value={e.id}>{e.title}</MenuItem>
+                                ))}
+                            </Select>
+                        </FormControl>
                     )}
                     {epic && (
                         <FormControl fullWidth disabled={!!inheritedLock}>
@@ -207,17 +229,6 @@ export default function EpicEditDialog({
                             this epic.
                         </Typography>
                     )}
-                    <TextField
-                        label="Title"
-                        value={formTitle}
-                        onChange={(e) => setFormTitle(e.target.value)}
-                        helperText={lockHeld ? 'Locked — unlock to edit this epic.'
-                            : 'The epic\'s short NAME — "Session Drain", not a sentence.'}
-                        disabled={lockHeld}
-                        autoFocus required fullWidth
-                        slotProps={{ htmlInput: {
-                            'data-testid': 'epic-title-input', maxLength: TITLE_MAX } }}
-                    />
                     <TextField
                         label="Notes"
                         value={formNotes}
