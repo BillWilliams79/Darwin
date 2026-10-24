@@ -239,6 +239,7 @@ import {
 } from './planMaximize';
 import { activePlanRequirements } from './planActiveReqs';
 import { useUnorchestratedRequirements } from './useUnorchestratedRequirements';
+import { registerEpicAim } from '../../RequirementFiler/filerEpicAim';
 import {
     UNSEATED_DRAG_TYPE, bulkSeatRequest, resolveSeatDrop, screenRectOf, unseatedBoxFontPx,
     unseatedBoxWidthPx, unseatedBoxZoom,
@@ -317,6 +318,8 @@ const REQ_KEY_SCALES = REQ_COLOR_KEYS;
 // bound to, so a mousedown on them was never reachable as a pan gesture in the
 // first place. Anything added back over the canvas needs the attribute again.
 const CHROME_SELECTOR = '[data-viz-chrome]';
+// The Requirement Filer's panel (req #3854): its + is aimed THROUGH it.
+const FILER_SELECTOR = '[data-testid="requirement-filer"]';
 /** An Orchestrables row in the air (req #3665): highlighted, not popped — the
  *  same quiet lift the canvas requirement gets, in place of the shared
  *  pickup's scale-and-bounce (user directive: "it jumps way too much"). */
@@ -1074,6 +1077,15 @@ export default function PipelinePlanVisualizer({
     // once, at the top of the component, for req #3581.)
     const unseated = useUnorchestratedRequirements(profile?.userName);
     const [seatTarget, setSeatTarget] = useState(null);
+    // req #3854 — the Requirement Filer's + aimed at an epic card files the new
+    // requirement into it (RequirementFiler/filerEpicAim.js). Registered once;
+    // each call reads the newest render's hit test through the ref, set below.
+    const filerAimRef = useRef(null);
+    useEffect(() => registerEpicAim({
+        at: (x, y) => filerAimRef.current?.at(x, y) ?? null,
+        highlight: (target) => filerAimRef.current?.highlight(target),
+        seated: () => filerAimRef.current?.seated(),
+    }), []);
     const [pendingSeats, setPendingSeats] = useState(() => new Set());
     const [boxCarrying, setBoxCarrying] = useState(false);
     // req #3735 — a box carried OUT OF the navbar rack is drawn from inside the
@@ -4062,13 +4074,14 @@ export default function PipelinePlanVisualizer({
     // capture keeps delivering events past the window edge, where
     // `elementsFromPoint` answers [] — and a point outside the plan panel is no
     // seat either, so both are over-chrome.
-    const seatTargetAtPoint = (clientX, clientY, throughBox) => {
+    const seatTargetAtPoint = (clientX, clientY, throughBox, throughSelector = null) => {
         const el = containerEl;
         if (!el || clientX == null || clientY == null) return null;
         const overlay = document.querySelector('[data-testid="drag-overlay"]')?.parentElement;
         const beneath = (document.elementsFromPoint?.(clientX, clientY) || [])
             .find((n) => !overlay?.contains(n)
-                && !(throughBox && n.closest?.('[data-viz-unseated]')));
+                && !(throughBox && n.closest?.('[data-viz-unseated]'))
+                && !(throughSelector && n.closest?.(throughSelector)));
         const rect = el.getBoundingClientRect();
         const canSeat = pointerCanSeat(clientX, clientY, rect, beneath);
         return resolveSeatDrop({
@@ -4080,6 +4093,32 @@ export default function PipelinePlanVisualizer({
     };
     const sameTarget = (a, b) => (a === b)
         || (!!a && !!b && a.epicId === b.epicId && a.ok === b.ok);
+    // req #3854 — the filer's aim: the epic card beneath a client point, seen
+    // THROUGH the filer (its + is over the card it is aimed at), named and
+    // tagged with the database this plan was read from. Its outline is the
+    // drop-to-seat one; a filer hover never replaces a drag's own target.
+    filerAimRef.current = {
+        at: (clientX, clientY) => {
+            const target = seatTargetAtPoint(clientX, clientY, false, FILER_SELECTOR);
+            if (!target) return null;
+            return { ...target, title: rowById.get(target.epicId)?.title || `epic ${target.epicId}`,
+                pipelineId: pipeline?.id ?? null, darwinUri };
+        },
+        highlight: (target) => {
+            // The camera it was aimed under: one moved since outlines nothing,
+            // as the card is no longer beneath the + (re-aimed on the next move).
+            const next = target ? { epicId: target.epicId, ok: target.ok, filer: true,
+                cam: `${t.x},${t.y},${t.k}` } : null;
+            setSeatTarget((prev) => {
+                if (prev && !prev.filer) return prev;
+                return sameTarget(prev, next) && prev?.cam === next?.cam ? prev : next;
+            });
+        },
+        seated: () => Promise.allSettled([
+            queryClient.invalidateQueries({ queryKey: pipelineComposeKeys.byId(pipeline?.id) }),
+            queryClient.invalidateQueries({ queryKey: pipelineEpicRequirementKeys.all(profile?.userName) }),
+        ]),
+    };
     // The collision detection dnd-kit calls on every pointer frame. Its answer
     // carries the resolved target, so the move and drop handlers need not ask
     // again; the pointer is kept so a camera move under a still pointer (a
@@ -4226,7 +4265,8 @@ export default function PipelinePlanVisualizer({
     };
     const closeBulkSeat = () => { if (!bulkSeating) setBulkSeatOpen(false); };
 
-    const seatTargetNode = seatTarget ? drawLayout.nodes.get(seatTarget.epicId) : null;
+    const seatTargetNode = seatTarget && !(seatTarget.filer && seatTarget.cam !== `${t.x},${t.y},${t.k}`)
+        ? drawLayout.nodes.get(seatTarget.epicId) : null;
     const seatTargetRect = seatTargetNode ? screenRectOf(seatTargetNode, t) : null;
 
     const chipBg = rgba(P.panel, INITIATIVE_CHIP_BG_ALPHA);

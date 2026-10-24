@@ -994,7 +994,17 @@ export default function PipelineDetail() {
                     FIRST on the row, left of the plan's name (req #3875, user
                     directive: "these buttons should be to the left of the
                     pipeline name as is standard practice for rendering
-                    areas") — the view selector leads, the identity follows. */}
+                    areas") — the view selector leads, the identity follows.
+                    ICON-ONLY (req #3894, user directive: "Plan and engine
+                    buttons should drop the text"): a mode with an icon draws
+                    the icon AS the chip's content, so the padding is
+                    symmetric; the mode's label survives as the accessible
+                    name and the hover tooltip. `role="button"` holds on the
+                    selected chip too (no onClick → MUI drops the role, and a
+                    role-less div's aria-label is not read); `describeChild`
+                    keeps the Tooltip from naming the wrapper span a second
+                    time. The outlined chip's label padding is 1px less, as
+                    MUI's own is, so both chips are one width. */}
                 {switchModes.length > 1 && (
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}
                          role="group" aria-label="View" data-testid="pipeline-mode-switch">
@@ -1002,12 +1012,19 @@ export default function PipelineDetail() {
                             const Icon = m.icon;
                             const on = m.value === switchValue;
                             return (
-                                <Chip key={m.value} label={m.label}
-                                      icon={Icon ? <Icon fontSize="small" /> : undefined}
-                                      disabled={!!m.disabled}
-                                      onClick={on ? undefined : () => handleModeChange(m.value)}
-                                      data-testid={`pipeline-mode-${m.value}`}
-                                      {...toolbarChipProps(on)} />
+                                <Tooltip key={m.value} title={m.label} describeChild>
+                                    <span style={{ display: 'inline-flex' }}>
+                                        <Chip label={Icon ? <Icon fontSize="small" sx={{ display: 'block' }} /> : m.label}
+                                              role="button"
+                                              aria-label={m.label}
+                                              disabled={!!m.disabled}
+                                              onClick={on ? undefined : () => handleModeChange(m.value)}
+                                              data-testid={`pipeline-mode-${m.value}`}
+                                              {...toolbarChipProps(on, {
+                                                  sx: Icon ? { '& .MuiChip-label': { px: on ? '6px' : '5px' } } : undefined,
+                                              })} />
+                                    </span>
+                                </Tooltip>
                             );
                         })}
                     </Box>

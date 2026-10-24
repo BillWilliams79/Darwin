@@ -37,6 +37,14 @@
 // stays in memory and the editor offers Retry. Dropping every category files the
 // requirement with no capture.
 //
+// INTO AN EPIC (req #3854) — a draft the filer's + started while aimed at a
+// plan visualizer's epic card carries that epic (`draft.seat`, filerEpicAim.js),
+// shown on an `Epic - <title>` line under Category with a × to drop it. Create
+// POSTs the requirement, then seats it there (Epics/epicsApi.js
+// moveEpicRequirement) before its capture is written; a locked epic, or a plan
+// read from another database than the filer files into, is said on the line and
+// not written.
+//
 // SAVING (user ruling 2026-10-23): the first save is the deliberate CREATE press,
 // so a half-typed title never becomes a row; after that every change saves on
 // its own, LIVE_SAVE_MS after the last edit, like the requirement page. A failed
@@ -63,6 +71,7 @@ import { Link } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 
 import Box from '@mui/material/Box';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import useMediaQuery from '@mui/material/useMediaQuery';
 
 import AnchoredPanel from '../Components/AnchoredPanel/AnchoredPanel';
@@ -78,6 +87,7 @@ import { requirementKeys } from '../hooks/useQueryKeys';
 import { SIDEBAR_WIDTH } from '../NavBar/navConfig';
 import call_rest_api from '../RestApi/RestApi';
 import { useRequirementFilerStore } from '../stores/useRequirementFilerStore';
+import { prodRequirementUrl } from '../utils/prodUrl';
 import { PLAN_VIZ_PALETTE as P } from '../SwarmView/pipelines/pipelinePlanLayout';
 import { COORDINATION_COLOR } from '../SwarmView/coordinationChipStyles';
 import { AI_MODEL_COLOR, AI_MODELS, aiModelLabel } from '../SwarmView/modelChipStyles';
@@ -86,6 +96,9 @@ import {
     DEBUG_CATEGORIES, assembleBundle, debugCaptureUri, formatBytes, formatDebugBlock, keepsNothing, withDebugBlock,
 } from './debugBundle';
 import { BUG_COLOR } from './RequirementFiler';
+import { useFilerFilesElsewhere } from './filerScope';
+import { notifyEpicSeated, seatProblem } from './filerEpicAim';
+import { moveEpicRequirement } from '../Epics/epicsApi';
 import {
     buildPostBody, buildPutBody, defaultProjectId, draftDirty, draftProblem, machineOptions, savedValues, specCode,
     staleCategory, staleMachine,
@@ -255,22 +268,13 @@ export function captureSettled(key, timeoutMs = 3000) {
     });
 }
 
-/** The debug capture's status, as its one line says it. */
-function captureStatus({ stage, savedId, orphaned, total }) {
-    return stage === 'capturing' ? 'capturing…'
-        : orphaned && stage === 'ready' ? 'not saved — the requirement\'s id could not be read back'
-        : stage === 'done' ? 'saved'
-        : stage === 'none' ? 'every category dropped — filed without one'
-        : stage === 'failed' ? 'could not be captured — this files without one'
-        : stage === 'posted' ? 'saved — its description link is not'
-        : savedId != null ? 'not saved' : formatBytes(total);
-}
-
 /** The debug capture's place on the File row (req #3815): a DEBUG CAPTURE
- *  button — it slides the categories open below (CaptureDetails) — and its size
- *  beside it (or, off the usual path, what became of it). */
-function CaptureLine({ capture, dropped, stage, savedId, orphaned, expanded, onExpand }) {
-    const total = useMemo(() => (capture ? assembleBundle(capture, dropped).bytes : 0), [capture, dropped]);
+ *  button — it slides the categories open below (CaptureDetails) — a trash can
+ *  that drops every category (req #3887), and the size of what is kept. No
+ *  status text: the size is the whole report. */
+function CaptureLine({ capture, dropped, canDropAll, onDropAll, expanded, onExpand }) {
+    // Nothing kept saves nothing, so it measures 0 — not the bundle's bare header.
+    const total = useMemo(() => (capture && !keepsNothing(capture, dropped) ? assembleBundle(capture, dropped).bytes : 0), [capture, dropped]);
     return (
         <Box data-testid="requirement-editor-capture"
              sx={{ ml: 'auto', minWidth: 0, display: 'flex', alignItems: 'center', gap: '0.45em', flexWrap: 'wrap' }}>
@@ -283,8 +287,16 @@ function CaptureLine({ capture, dropped, stage, savedId, orphaned, expanded, onE
                         '&:hover:not(:disabled)': { borderColor: BUG_COLOR }, '&:disabled': { opacity: 0.6 } }}>
                 Debug Capture
             </Box>
+            <Box component="button" type="button" onClick={onDropAll} disabled={!canDropAll}
+                 aria-label="Drop every debug capture category" title="Drop everything"
+                 data-testid="requirement-editor-capture-drop-all"
+                 sx={{ display: 'inline-flex', p: '0.1em', border: 'none', background: 'transparent', color: P.dim,
+                        cursor: canDropAll ? 'pointer' : 'default', '&:hover:not(:disabled)': { color: BUG_COLOR },
+                        '&:disabled': { opacity: 0.4 } }}>
+                <DeleteOutlineIcon sx={{ fontSize: '1.2em' }} />
+            </Box>
             <Box component="span" data-testid="requirement-editor-capture-status"
-                 sx={{ color: P.dim, fontSize: '0.9em' }}>{captureStatus({ stage, savedId, orphaned, total })}</Box>
+                 sx={{ color: P.dim, fontSize: '0.9em' }}>{capture ? formatBytes(total) : ''}</Box>
         </Box>
     );
 }
@@ -294,6 +306,13 @@ function CaptureLine({ capture, dropped, stage, savedId, orphaned, expanded, onE
 function CaptureDetails({ capture, dropped, stage, savedId, locked, expanded, onToggle, onRetry }) {
     // Once a save has sent the bundle, the selection is what was sent.
     const editable = stage === 'ready' && !locked;
+    // Filed from always first, a light dashed line, then the rest biggest to
+    // smallest (req #3887). Sizes are fixed at capture time; the sort is stable.
+    const [filedFrom, rest] = useMemo(() => {
+        const cats = capture?.categories ?? [];
+        return [cats.find(c => c.key === 'filedFrom'),
+                cats.filter(c => c.key !== 'filedFrom').sort((a, b) => b.bytes - a.bytes)];
+    }, [capture]);
     return (
         <>
             {capture && (
@@ -304,7 +323,15 @@ function CaptureDetails({ capture, dropped, stage, savedId, locked, expanded, on
                         <Box component="ul" sx={{ listStyle: 'none', m: 0, p: 0, display: 'grid',
                                                   gridTemplateColumns: 'auto minmax(0, 1fr) auto', columnGap: '0.5em',
                                                   rowGap: '0.1em', alignItems: 'baseline' }}>
-                            {capture.categories.map(({ key, bytes, note }) => {
+                            {[filedFrom, 'rule', ...rest].filter(Boolean).map((c) => {
+                                if (c === 'rule') {
+                                    return filedFrom ? (
+                                        <Box component="li" key="rule" aria-hidden="true"
+                                             data-testid="requirement-editor-capture-rule"
+                                             sx={{ gridColumn: '1 / -1', borderTop: `1px dashed ${P.line}`, opacity: 0.6, my: '0.15em' }} />
+                                    ) : null;
+                                }
+                                const { key, bytes, note } = c;
                                 const label = DEBUG_CATEGORIES.find(c => c.key === key)?.label ?? key;
                                 const kept = !dropped.includes(key);
                                 return (
@@ -352,6 +379,7 @@ export default function RequirementEditorPopup() {
     const { profile, idToken } = useContext(AuthContext);
     const { darwinUri } = useContext(AppContext);
     const queryClient = useQueryClient();
+    const filesElsewhere = useFilerFilesElsewhere();
     const isDesktop = useMediaQuery('(min-width:900px)');
     const show = useRequirementFilerStore(s => s.editorShow);
     const open = useRequirementFilerStore(s => s.editorOpen);
@@ -367,8 +395,8 @@ export default function RequirementEditorPopup() {
     const captureStage = useRequirementFilerStore(s => s.captureStage);
     const captureSentDropped = useRequirementFilerStore(s => s.captureSentDropped);
     const { setEditorShow, toggleEditorOpen, setEditorDock, setFields, markSaved, markOrphaned,
-        clearFocusPending, toggleCaptureCategory, setCaptureStage, markCaptureSent,
-        setCreating, endCreating } = useRequirementFilerStore.getState();
+        clearFocusPending, toggleCaptureCategory, dropAllCaptureCategories, setCaptureStage, markCaptureSent,
+        setCreating, endCreating, clearSeat } = useRequirementFilerStore.getState();
     // Always as tall as its content (user, 2026-10-23: "probably 3x too tall"):
     // a height stored from an earlier, longer form is never applied.
     const dock = { ...(validDock(storedDock, MIN_W, MIN_H) || EDITOR_HOME), ht: null };
@@ -569,6 +597,28 @@ export default function RequirementEditorPopup() {
         setCaptureStage(key, 'done');
     };
 
+    // The Epic line's outcome, on the draft it was written for only.
+    const markSeat = (key, seat, outcome) => {
+        const st = useRequirementFilerStore.getState();
+        if (st.draftKey === key && st.draft?.seat?.epicId === seat.epicId) {
+            setFields({ seat: { ...st.draft.seat, ...outcome } });
+        }
+    };
+    // The plan epic the filer's + was aimed at (req #3854), once its requirement
+    // `id` exists: one seat write, then the plan refreshes. A failure leaves the
+    // requirement filed and unseated — it waits in the plan's unorchestrated box.
+    const seatInEpic = async (key, id, seat) => {
+        try {
+            await moveEpicRequirement(darwinUri, idToken, { requirementId: id, toEpicId: seat.epicId });
+        } catch (e) {
+            failOpen({ key, text: errorText(e, `#${id} filed, but not placed in ${seat.title}`) });
+            markSeat(key, seat, { failed: true });
+            return;
+        }
+        notifyEpicSeated(seat.epicId);
+        markSeat(key, seat, { placed: true });
+    };
+
     // Retry: the capture half only, for a requirement already saved.
     const retryCapture = async () => {
         if (savedId == null || saving === draftKey) return;
@@ -613,8 +663,8 @@ export default function RequirementEditorPopup() {
                     // Saved, but no id to PUT later edits to: keep what was typed,
                     // and refuse a second save that would POST a duplicate.
                     markOrphaned(key);
-                    failOpen({ key, text: 'Saved, but its id could not be read back — find it on /swarm, '
-                        + 'or start a new requirement.' });
+                    failOpen({ key, text: `Saved, but its id could not be read back — find it on ${
+                        filesElsewhere ? 'darwin.one/swarm' : '/swarm'}, or start a new requirement.` });
                     return;
                 }
             } else {
@@ -628,6 +678,9 @@ export default function RequirementEditorPopup() {
             }
             markSaved(key, id, values);
             if (useRequirementFilerStore.getState().captureStage) await saveCapture(key, id);
+            // Into the epic the + was aimed at (req #3854) — as Create was pressed.
+            // Last: the seat makes it launchable, so its row is complete first.
+            if (isPost && draft.seat && !seatProblem(draft.seat, darwinUri)) await seatInEpic(key, id, draft.seat);
         } catch (e) {
             fail(e, isPost ? 'Requirement not saved' : 'Changes not saved');
         } finally {
@@ -657,6 +710,7 @@ export default function RequirementEditorPopup() {
         if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); save(); }
     };
 
+    const seatIssue = savedId == null ? seatProblem(draft.seat, darwinUri) : null;
     const code = specCode(draft);
     const spec = machineLabel ? `${code} · ${machineLabel}` : code;
 
@@ -682,7 +736,10 @@ export default function RequirementEditorPopup() {
                         <Box data-testid="requirement-editor-identity"
                              sx={{ flexShrink: 0, fontSize: '1.15em', fontWeight: 600, whiteSpace: 'nowrap' }}>
                             {savedId != null ? (
-                                <Box component={Link} to={`/swarm/requirement/${savedId}`}
+                                <Box {...(filesElsewhere
+                                        // Filed into production from a dev build (req #3888): its page is on darwin.one.
+                                        ? { component: 'a', href: prodRequirementUrl(savedId), target: '_blank', rel: 'noopener noreferrer' }
+                                        : { component: Link, to: `/swarm/requirement/${savedId}` })}
                                      data-testid="requirement-editor-id-link"
                                      sx={{ color: P.req, textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}>
                                     {savedId}
@@ -736,6 +793,50 @@ export default function RequirementEditorPopup() {
                                 options={categoryOpts} disabled={projectId == null}
                                 onChange={(v) => setFields({ category_fk: toInt(v) })} />
                     </Box>
+
+                    {/* The plan epic the filer's + was aimed at (req #3854): Create seats it
+                        there; × before Create files it in no epic. */}
+                    {draft.seat && (
+                        <Box data-testid="requirement-editor-epic" data-epic-id={draft.seat.epicId}
+                             sx={{ display: 'flex', alignItems: 'baseline', gap: '0.25em', minWidth: 0,
+                                    fontWeight: 700, color: P.dim }}>
+                            <Box component="span" sx={{ flexShrink: 0 }}>Epic -</Box>
+                            <Box component="span" title={draft.seat.title}
+                                 sx={{ color: seatIssue ? INVALID : P.text, minWidth: 0, overflow: 'hidden',
+                                        textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {draft.seat.title}
+                            </Box>
+                            {seatIssue && (
+                                <Box component="span" data-testid="requirement-editor-epic-problem"
+                                     sx={{ color: INVALID, fontWeight: 400, fontSize: '0.9em', flexShrink: 1 }}>
+                                    {seatIssue}
+                                </Box>
+                            )}
+                            {draft.seat.failed && (
+                                <Box component="span" data-testid="requirement-editor-epic-failed"
+                                     sx={{ color: INVALID, fontWeight: 400, fontSize: '0.9em' }}>
+                                    not placed — drag it in from the plan's box
+                                </Box>
+                            )}
+                            {draft.seat.placed && (
+                                <Box component="span" data-testid="requirement-editor-epic-placed"
+                                     sx={{ color: P.dim, fontWeight: 400, fontSize: '0.9em' }}>
+                                    placed
+                                </Box>
+                            )}
+                            {savedId == null && (
+                                <Box component="button" type="button" onClick={clearSeat}
+                                     aria-label="File it in no epic" title="File it in no epic"
+                                     data-testid="requirement-editor-epic-clear"
+                                     sx={{ ml: 'auto', flexShrink: 0, alignSelf: 'center', p: 0, px: '0.3em',
+                                            border: 'none', background: 'transparent', color: P.dim,
+                                            fontFamily: ACTION_POPUP_MONO, fontSize: '1em', cursor: 'pointer',
+                                            '&:hover': { color: P.accent } }}>
+                                    ×
+                                </Box>
+                            )}
+                        </Box>
+                    )}
 
                     {/* The settings, slid open from the spec-code button. */}
                     <Box id="requirement-editor-settings" data-testid="requirement-editor-settings"
@@ -818,7 +919,9 @@ export default function RequirementEditorPopup() {
                             ) : null}
                             {hasCapture && (
                                 <CaptureLine capture={capture} dropped={captureSentDropped ?? captureDropped}
-                                             stage={captureStage} savedId={savedId} orphaned={orphaned}
+                                             canDropAll={captureStage === 'ready' && captureSentDropped == null
+                                                 && saving !== draftKey && !keepsNothing(capture, captureDropped)}
+                                             onDropAll={dropAllCaptureCategories}
                                              expanded={captureOpen} onExpand={() => setCaptureOpen(o => !o)} />
                             )}
                         </Box>

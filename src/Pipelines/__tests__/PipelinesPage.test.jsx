@@ -11,11 +11,12 @@
 // still emit, and this file asserts what production does rather than renaming
 // it from here.
 //
-// What is pinned: Cards is the default view and shows status/execution-mode/
-// epic-count/orchestration-holder chips and a progress bar over REQUIREMENTS
+// What is pinned: Cards is the default view and shows status/epic-count/
+// orchestration-holder chips and a progress bar over REQUIREMENTS
 // MET; the status filter hides/shows pipelines and names what it hid when the
 // result is empty; the Table view carries the one editor control (the
-// execution_mode toggle) Cards deliberately does not; opening a plan — from a
+// lock toggle) Cards deliberately does not; neither view nor the New pipeline
+// dialog offers an execution mode (req #3822 — a plan always runs parallel); opening a plan — from a
 // card, from the table title, or from clicking anywhere else in a table row —
 // always navigates to the real 2.0 visualizer (`/swarm/pipeline/:id`, req
 // #3463/#3372), and never fires a mutation; every editor control stops
@@ -56,7 +57,7 @@ vi.mock('@mui/x-data-grid', () => ({
     GridToolbar: () => null,
     // `onClick` on the row wrapper mirrors the real DataGrid's `onRowClick` —
     // real DOM/React event bubbling means a cell's own `e.stopPropagation()`
-    // (the title link, the Open action, the execution_mode chip, the
+    // (the title link, the Open action, the lock chip, the
     // description button) genuinely prevents this from firing, exactly as it
     // would against the real grid. That is the regression this stub exists to
     // catch: a control without its own stopPropagation would silently also
@@ -214,9 +215,9 @@ beforeEach(() => {
     };
     pipelines = [
         { id: 7, title: 'Plan Seven', description: 'Existing goal.', pipeline_status: 'active',
-          execution_mode: 'parallel', machine_fk: 4, started_at: '2026-08-01 00:00:00', completed_at: null },
+          machine_fk: 4, started_at: '2026-08-01 00:00:00', completed_at: null },
         { id: 8, title: 'Plan Eight', description: null, pipeline_status: 'draft',
-          execution_mode: 'serial', locked: 1, machine_fk: null, started_at: null,
+          locked: 1, machine_fk: null, started_at: null,
           completed_at: null },
     ];
     machines = [{ id: 4, title: 'Mac mini' }];
@@ -421,10 +422,10 @@ describe('PipelinesPage2 — opening the visualizer, Table view (req #3463/#3372
         expect(restCalls).toEqual([]);
     });
 
-    it('does NOT navigate away when the execution_mode chip is clicked', async () => {
+    it('does NOT navigate away when the lock chip is clicked', async () => {
         mount();
         switchToTable();
-        click(node('pipelines-execmode-chip-7'));
+        click(node('pipelines-lock-chip-7'));
         await flush();
         expect(navigations).toEqual([]);
     });
@@ -448,25 +449,19 @@ describe('PipelinesPage2 — opening the visualizer, Table view (req #3463/#3372
     });
 });
 
-describe('PipelinesPage2 execution_mode toggle (Table view)', () => {
-    it('flips parallel to serial with a one-field PUT', async () => {
+// req #3822 — a plan always runs every initiative at once, so no surface on
+// this page offers an execution mode: not the Table, not the Cards, not the
+// New pipeline dialog.
+describe('PipelinesPage2 — no execution mode anywhere (req #3822)', () => {
+    it('renders no execution-mode control in either view or the dialog', () => {
         mount();
+        expect(document.body.textContent).not.toMatch(/Parallel|Serial/);
         switchToTable();
-        click(node('pipelines-execmode-chip-7'));
-        await flush();
-        expect(restCalls).toEqual([{
-            uri: 'http://test.local/darwin/pipelines',
-            method: 'PUT',
-            body: [{ id: 7, execution_mode: 'serial' }],
-        }]);
-    });
-
-    it('flips serial back to parallel', async () => {
-        mount();
-        switchToTable();
-        click(node('pipelines-execmode-chip-8'));
-        await flush();
-        expect(restCalls[0].body).toEqual([{ id: 8, execution_mode: 'parallel' }]);
+        expect(node('pipelines-execmode-chip-7')).toBeNull();
+        expect(document.body.textContent).not.toMatch(/Execution|Parallel|Serial/);
+        click(node('pipelines-new-button'));
+        expect(node('pipelines-new-execmode')).toBeNull();
+        expect(document.body.textContent).not.toMatch(/Execution|Parallel|Serial/);
     });
 });
 
@@ -542,14 +537,13 @@ describe('PipelinesPage2 — create trial A: header button + dialog (req #3773)'
         expect(node('pipelines-new-dialog')).not.toBeNull();
         type(node('pipelines-new-title'), '  Fresh Plan  ');
         type(node('pipelines-new-description'), '  Why it exists.  ');
-        click(node('pipelines-new-execmode-serial'));
         await act(async () => { node('pipelines-new-create').click(); });
         await flush();
         expect(restCalls).toEqual([{
             uri: 'http://test.local/darwin/pipelines',
             method: 'POST',
             body: { title: 'Fresh Plan', description: 'Why it exists.',
-                    execution_mode: 'serial', machine_fk: null, ...POST_BODY_DEFAULTS },
+                    machine_fk: null, ...POST_BODY_DEFAULTS },
         }]);
         expect(navigations).toEqual(['/swarm/pipeline/99']);
     });
@@ -603,7 +597,7 @@ describe('PipelinesPage2 — create trial B: "New pipeline" card (req #3773)', (
         expect(restCalls).toEqual([{
             uri: 'http://test.local/darwin/pipelines',
             method: 'POST',
-            body: { title: 'Quick Plan', description: null, execution_mode: 'parallel',
+            body: { title: 'Quick Plan', description: null,
                     machine_fk: null, ...POST_BODY_DEFAULTS },
         }]);
         expect(navigations).toEqual(['/swarm/pipeline/99']);

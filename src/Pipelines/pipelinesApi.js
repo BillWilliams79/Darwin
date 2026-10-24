@@ -15,7 +15,6 @@
 //   title           NOT NULL
 //   description     nullable TEXT
 //   pipeline_status draft|active|paused|completed
-//   execution_mode  parallel|serial
 //   machine_fk      nullable
 
 import call_rest_api from '../RestApi/RestApi';
@@ -65,12 +64,11 @@ export const isRestNullLiteral = (value) => String(value ?? '').trim() === REST_
  * NOT retry on null — that would make a second plan.
  */
 export async function createPipeline(darwinUri, idToken,
-    { title, description = null, execution_mode = 'parallel', machine_fk = null }) {
+    { title, description = null, machine_fk = null }) {
     const r = await call_rest_api(`${darwinUri}/pipelines`, 'POST', {
         title,
         description,
         pipeline_status: 'draft',
-        execution_mode,
         machine_fk,
         locked: 0,
         started_at: null,

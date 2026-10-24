@@ -27,7 +27,9 @@
 // (actionPopupChrome.js): the ▾ head and the REQUIREMENT title, + and × at the
 // far right. It has no badge slot: the title sits against the ▾, and folded
 // the + and × follow the title — `▸ REQUIREMENT + ×` — so the filer can live
-// folded in the rack (user ruling 2026-10-23, req #3830). RACKABLE (`rackId`) — drag its head onto the Darwin navbar, or AI
+// folded in the rack (user ruling 2026-10-23, req #3830). In a minimized bar
+// (the icon-only navbar, the folded topology toolbar) it is ONE + in its purple
+// box, and a click on it creates a new requirement as the + does (req #3886). RACKABLE (`rackId`) — drag its head onto the Darwin navbar, or AI
 // Architecture's toolbar, and it locks in below the nav buttons like every
 // other Action Popup; drag it off to float it again. LOCKABLE INTO THE TITLE
 // BAR (req #3857) — drop its head on the page's title bar and it stays there,
@@ -39,6 +41,16 @@
 // (useRequirementFilerStore), as the Dev Servers dashboard remembers its own.
 // Desktop only, signed in only — the navbar control is the desktop sidebar's.
 //
+// PRODUCTION FROM EVERY BUILD (req #3888): App.jsx mounts the filer and its
+// editor inside FilerDataScope (filerScope.jsx), which points their `darwinUri`
+// at production `darwin` on a dev server — the requirement is real, filed with
+// the reader's own credentials, and its id opens on darwin.one.
+//
+// AIMED AT AN EPIC (req #3854): on a plan visualizer, the + hovered over an
+// epic card outlines that epic, and a click files the new requirement into it —
+// the editor names it on its Epic line and Create seats it there
+// (filerEpicAim.js). Anywhere else the + files as it always has.
+//
 // ADDRESSABLE: any page's `?filer=1` opens the filer and `?filer=new` also opens
 // a new requirement from that page, as the + does (`?filer=bug`, the
 // two-button era's link, does the same) — a link (or a dev server) can land on it.
@@ -48,6 +60,7 @@ import { useLocation } from 'react-router-dom';
 
 import Box from '@mui/material/Box';
 import useMediaQuery from '@mui/material/useMediaQuery';
+import AddIcon from '@mui/icons-material/Add';
 
 import AnchoredPanel from '../Components/AnchoredPanel/AnchoredPanel';
 import { ActionPopupAdd, ActionPopupClose } from '../Components/AnchoredPanel/ActionPopupHead';
@@ -63,6 +76,8 @@ import { useRequirementFilerStore } from '../stores/useRequirementFilerStore';
 import { PLAN_VIZ_PALETTE as P } from '../SwarmView/pipelines/pipelinePlanLayout';
 import ThemeContext from '../Theme/ThemeContext';
 import { buildDebugCapture } from './debugBundle';
+import { epicAimAt, highlightEpicAim, seatProblem } from './filerEpicAim';
+import { useFilerFilesElsewhere } from './filerScope';
 import { filedFromNow } from './filedFromContext';
 import { REOPEN_FIELDS, draftDirty } from './requirementFilerModel';
 
@@ -81,6 +96,8 @@ export const FILER_HOME = Object.freeze({ h: 'l', x: SIDEBAR_WIDTH + 16, v: 't',
 // Timed: a press that never became a click (dragged off) is forgotten.
 let focusAtPress = null;
 const PRESS_MS = 2000;
+// The plan epic beneath the + as that press began (req #3854, filerEpicAim.js).
+let aimAtPress = null;
 
 /** Whether the requirement in the editor stays there: asked when it has
  *  changes not yet sent (an orphaned draft — committed, id unknown — has none
@@ -129,9 +146,9 @@ function keepCreating() {
 /** Starts a new requirement in the editor, unless the reader keeps the one in
  *  it (keepsEditorDraft). `withCapture` — it awaits a debug capture (req #3815).
  *  Returns the new draft's key, or null when the reader kept the one in the editor. */
-export function startNewRequirement(withCapture = false) {
+export function startNewRequirement(withCapture = false, seat = null) {
     if (keepsEditorDraft()) return null;
-    return useRequirementFilerStore.getState().startNew(withCapture);
+    return useRequirementFilerStore.getState().startNew(withCapture, seat);
 }
 
 /** Brings filed requirement `id` back into the editor (req #3830), read fresh:
@@ -175,11 +192,12 @@ export async function reopenFiledRequirement(id, darwinUri, idToken) {
  *  on the draft when its ≤ 250 ms wait for failure bodies is over. A create
  *  still being written (req #3860) is waited for first (createSettled), and
  *  then null is returned; otherwise the new draft's key, or null when the
- *  reader kept the draft in the editor. */
-export function fileRequirementNow(filedFrom, profile) {
+ *  reader kept the draft in the editor. `seat` — the plan epic the + was
+ *  aimed at (req #3854): Create seats the requirement in it. */
+export function fileRequirementNow(filedFrom, profile, seat = null) {
     const pending = buildDebugCapture({ profile, filedFrom });
     const start = () => {
-        const key = startNewRequirement(true);
+        const key = startNewRequirement(true, seat);
         // Kept the draft in the editor: this capture is for no one — settle it quietly.
         if (key == null) { pending.catch(() => {}); return null; }
         const { setCapture } = useRequirementFilerStore.getState();
@@ -197,6 +215,7 @@ export function fileRequirementNow(filedFrom, profile) {
 export default function RequirementFiler() {
     const { profile, idToken } = useContext(AuthContext);
     const { database, darwinUri } = useContext(AppContext);
+    const filesElsewhere = useFilerFilesElsewhere();
     const theme = useContext(ThemeContext);
     const location = useLocation();
     const isDesktop = useMediaQuery('(min-width:900px)');
@@ -223,7 +242,30 @@ export default function RequirementFiler() {
                 titleLock: useRequirementFilerStore.getState().titleLock }, typingIn,
         });
     };
-    const fileRequirement = () => fileRequirementNow(filedFrom(), profile);
+    // The epic the + was aimed at as its press began (req #3854) — read at the
+    // press, as where it was filed from is, and then outlined no longer.
+    // A keyboard press (a click with no pointer, `detail` 0) aims at nothing: the
+    // last pointer press may have been dragged off the + instead of clicked.
+    const fileRequirement = (e) => {
+        const pointed = e?.detail !== 0 && aimAtPress && performance.now() - aimAtPress.t < PRESS_MS;
+        const seat = pointed ? aimAtPress.seat : null;
+        aimAtPress = null;
+        highlightEpicAim(null);
+        return fileRequirementNow(filedFrom(), profile, seat);
+    };
+    // What held focus as a press on the + began (req #3829) — the head's + and,
+    // in a minimized bar, the icon's (req #3886) — and the plan epic beneath it.
+    const notePress = (e) => {
+        focusAtPress = { el: document.activeElement, t: performance.now() };
+        aimAtPress = { seat: epicAimAt(e?.clientX, e?.clientY), t: performance.now() };
+    };
+    // Hovering the + over a plan's epic outlines the epic it would file into.
+    // An epic it could not be seated in (locked, or a plan read from another
+    // database than the filer files into) is outlined as the refusal it is.
+    const aimHover = (e) => {
+        const target = epicAimAt(e.clientX, e.clientY);
+        highlightEpicAim(target && { ...target, ok: !seatProblem(target, darwinUri) });
+    };
     useEffect(() => {
         if (!filerParam || !signedIn) return;
         useRequirementFilerStore.setState({ show: true, open: true });
@@ -251,15 +293,19 @@ export default function RequirementFiler() {
                        open={open} onToggle={toggleOpen}
                        name="Requirement" testid="requirement-filer" badgeSlot={false}
                        rackId={FILER_RACK_ID}
+                       rackIcon={AddIcon} onRackIcon={fileRequirement} onRackIconPress={notePress}
+                       rackIconLabel={`Requirement — create a new one${filesElsewhere ? ' (filed in production Darwin)' : ''}`}
                        titleLock={titleLock} onTitleLockChange={setTitleLock}
                        limits={LIMITS} fontPx={ACTION_POPUP_FONT_PX} colors={ACTION_POPUP_COLORS}
                        sx={ACTION_POPUP_SX}
                        actions={<>
                            {/* The one way to create (req #3830): after the title folded, far right open. */}
                            <Box sx={{ mr: '0.3em', display: 'flex' }}
-                                onPointerDownCapture={() => { focusAtPress = { el: document.activeElement, t: performance.now() }; }}>
+                                onPointerDownCapture={notePress}
+                                onPointerMove={aimHover}
+                                onPointerLeave={() => highlightEpicAim(null)}>
                                <ActionPopupAdd onClick={fileRequirement}
-                                               label="Create a requirement — it starts with the last one's settings and records this page and a debug capture"
+                                               label={`Create a requirement — it starts with the last one's settings and records this page and a debug capture${filesElsewhere ? ' — filed in production Darwin' : ''}`}
                                                testid="requirement-filer-add" />
                            </Box>
                            <ActionPopupClose onClick={() => setShow(false)}
