@@ -77,7 +77,7 @@ export function composedFixture({
     return {
         pipeline: {
             id, title, description: '', pipeline_status: pipelineStatus,
-            execution_mode: 'parallel', machine_fk: null,
+            machine_fk: null,
             started_at: null, completed_at: null, epic_count: rows.length,
         },
         initiatives: asArray(initiatives),
@@ -95,11 +95,6 @@ export function composedFixture({
                 pipeline_paused: pipelineStatus === 'paused',
                 paused_initiative_ids: [],
                 suppressed_epic_ids: [],
-            },
-            serial: {
-                execution_mode: 'parallel', serial: false, initiative_order: [],
-                closed_initiative_ids: [], live_initiative_id: null,
-                waiting_initiative_ids: [], held_epic_ids: [],
             },
             eligible_epic_ids: [],
             violations: [],

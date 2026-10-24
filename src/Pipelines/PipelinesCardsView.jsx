@@ -8,10 +8,6 @@
 // vocabulary functions, and req #3463 already established importing them
 // straight from the 1.0 files as the convention rather than duplicating them.
 //
-// Differences from the 1.0 card, both schema-driven:
-//   - execution_mode chip (parallel|serial, req #3388) — a field 1.0 cards
-//     never show, since it has no equivalent read anywhere else either.
-//
 // ── COMPLETENESS IS MEASURED ON REQUIREMENTS, NOT ON EPICS (req #3365) ──────
 // User directive: *"let's just drop deriving and showing the epic value and
 // place our level of completeness on requirements for now … requirements have
@@ -44,8 +40,6 @@ import Typography from '@mui/material/Typography';
 
 import {
     pipelineStatusChipProps,
-    executionModeChipProps,
-    executionModeLabel,
     lockedChipProps,
     lockedLabel,
 } from '../SwarmView/pipelines/pipelineChipStyles';
@@ -144,7 +138,7 @@ export default function PipelinesCardsView({ pipelines, summaries, reqCounts,
                                         same row as the pills"). First rather
                                         than appended: it is the only pill here
                                         that says what the plan is DOING, and
-                                        the three after it are properties it
+                                        the two after it are properties it
                                         has. `rowGap` above is not decoration —
                                         `Stack`'s `spacing` becomes a margin
                                         that does not apply between WRAPPED
@@ -157,13 +151,6 @@ export default function PipelinesCardsView({ pipelines, summaries, reqCounts,
                                           label={machineTitle(p.machine_fk, machines)} />
                                     <Chip size="small" variant="outlined"
                                           label={`${s.total} epic${s.total === 1 ? '' : 's'}`} />
-                                    <Tooltip title={p.execution_mode === 'serial'
-                                        ? 'Serial — one initiative at a time, in sort_order'
-                                        : 'Parallel — every initiative runs at once'}>
-                                        <Chip size="small"
-                                              {...executionModeChipProps(p.execution_mode)}
-                                              label={executionModeLabel(p.execution_mode)} />
-                                    </Tooltip>
                                     {/* req #3649 — display-only; the Table view toggles it. */}
                                     {Boolean(Number(p.locked)) && (
                                         <Tooltip title="Locked — this plan, its initiatives and epics are frozen as a record">

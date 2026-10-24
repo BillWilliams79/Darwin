@@ -200,6 +200,28 @@ export function recenterDecision({
     };
 }
 
+// ── Day-fit centering transform (req #3858) ─────────────────────────────────
+// "Today" (and every recenter) lands on the selected day at the base zoom. A busy
+// day — 40+ requirements stacked in lanes — is taller than the viewport at that
+// zoom, so its lower lanes fell off screen. When the day's row does not fit below
+// the axis bar at kBase, zoom OUT just far enough that its full height fits
+// (clamped to minK — the caller floors it at the 'mid' semantic level) and center the
+// narrower world horizontally. A day that already fits keeps the original
+// kBase / full-width / vertically-centered framing, so ordinary days are unchanged.
+// `rowCenterY` is the row's world-Y center; `rowHeight` its world height.
+export function fitDayTransform({
+    rowCenterY, rowHeight, viewW, viewH, worldW, kBase, axisH = 0, minK = 0, margin = 8,
+} = {}) {
+    const avail = viewH - axisH - 2 * margin;
+    if (!(rowHeight > 0) || !(avail > 0) || rowHeight * kBase <= avail) {
+        return { k: kBase, tx: 0, ty: viewH / 2 - rowCenterY * kBase };
+    }
+    const k = Math.max(minK, avail / rowHeight);
+    const tx = (viewW - worldW * k) / 2;
+    const ty = axisH + margin + avail / 2 - rowCenterY * k;
+    return { k, tx, ty };
+}
+
 // ── Shared-context precompute ───────────────────────────────────────────────
 // Build the cross-data maps once for the whole visible window so each per-day
 // build is cheap. `dates` is the full visible date list (the cross-day map needs

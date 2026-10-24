@@ -6,7 +6,8 @@
 // replacing #3812's DEFAULTS button). Its body lists the requirements it has
 // filed, newest first; a click brings one back into the editor, read fresh
 // from its row (user ruling 2026-10-23, req #3830 — the + replaced the body's
-// "Create").
+// "Create"). Create in the editor closes it at the press (req #3860): the
+// requirement joins this list as it is filed.
 //
 // CREATE RECORDS EVERYTHING, AT THE PRESS — before the editor opens, so the
 // editor is never the subject: where it was filed from (req #3813 — URL, view
@@ -28,12 +29,20 @@
 // the + and × follow the title — `▸ REQUIREMENT + ×` — so the filer can live
 // folded in the rack (user ruling 2026-10-23, req #3830). RACKABLE (`rackId`) — drag its head onto the Darwin navbar, or AI
 // Architecture's toolbar, and it locks in below the nav buttons like every
-// other Action Popup; drag it off to float it again.
+// other Action Popup; drag it off to float it again. LOCKABLE INTO THE TITLE
+// BAR (req #3857) — drop its head on the page's title bar and it stays there,
+// where it was dropped, in the bar's free space only: it never covers the bar's
+// own buttons and text, nor moves them (AnchoredPanel, titleBarLock.js).
 //
 // Opened from the navbar's filer control (NavBarSidebar); whether it is shown,
 // folded and where it floats are remembered per browser
 // (useRequirementFilerStore), as the Dev Servers dashboard remembers its own.
 // Desktop only, signed in only — the navbar control is the desktop sidebar's.
+//
+// PRODUCTION FROM EVERY BUILD (req #3888): App.jsx mounts the filer and its
+// editor inside FilerDataScope (filerScope.jsx), which points their `darwinUri`
+// at production `darwin` on a dev server — the requirement is real, filed with
+// the reader's own credentials, and its id opens on darwin.one.
 //
 // ADDRESSABLE: any page's `?filer=1` opens the filer and `?filer=new` also opens
 // a new requirement from that page, as the + does (`?filer=bug`, the
@@ -59,6 +68,7 @@ import { useRequirementFilerStore } from '../stores/useRequirementFilerStore';
 import { PLAN_VIZ_PALETTE as P } from '../SwarmView/pipelines/pipelinePlanLayout';
 import ThemeContext from '../Theme/ThemeContext';
 import { buildDebugCapture } from './debugBundle';
+import { useFilerFilesElsewhere } from './filerScope';
 import { filedFromNow } from './filedFromContext';
 import { REOPEN_FIELDS, draftDirty } from './requirementFilerModel';
 
@@ -95,6 +105,33 @@ function keepsEditorDraft() {
         && !window.confirm(`Discard ${lost.join(' and ')} in the requirement editor?`));
 }
 
+/** How long a new or reopened requirement waits for a create still being
+ *  written (req #3860) — its POST, capture row and description link take a
+ *  second or two; the bound is only a backstop. */
+export const CREATE_WAIT_MS = 10000;
+
+/** Resolves true once no create is being written with the editor closed (the
+ *  store's `creating`, req #3860), so the next draft never replaces one whose
+ *  debug capture is still on its way. A create that fails has brought its draft
+ *  back into the editor by then, and is asked about. Resolves false when one is
+ *  still being written after CREATE_WAIT_MS: the caller brings that draft back
+ *  into the editor instead of replacing it (keepCreating). */
+export function createSettled(timeoutMs = CREATE_WAIT_MS) {
+    if (useRequirementFilerStore.getState().creating == null) return Promise.resolve(true);
+    return new Promise((resolve) => {
+        const timer = setTimeout(() => { unsub(); resolve(useRequirementFilerStore.getState().creating == null); }, timeoutMs);
+        const unsub = useRequirementFilerStore.subscribe((st) => {
+            if (st.creating == null) { clearTimeout(timer); unsub(); resolve(true); }
+        });
+    });
+}
+
+/** A create slower than CREATE_WAIT_MS is never replaced unseen: the editor
+ *  comes back on it, still saving, and the reader presses again once it lands. */
+function keepCreating() {
+    useRequirementFilerStore.getState().setEditorShow(true);
+}
+
 /** Starts a new requirement in the editor, unless the reader keeps the one in
  *  it (keepsEditorDraft). `withCapture` — it awaits a debug capture (req #3815).
  *  Returns the new draft's key, or null when the reader kept the one in the editor. */
@@ -109,6 +146,7 @@ export function startNewRequirement(withCapture = false) {
  *  longer exists (it leaves the list), else a reason it could not be read. */
 let reopenSeq = 0;
 export async function reopenFiledRequirement(id, darwinUri, idToken) {
+    if (!(await createSettled())) { keepCreating(); return 'kept'; }
     const { savedId, editorShow } = useRequirementFilerStore.getState();
     if (savedId === id) { if (!editorShow) useRequirementFilerStore.getState().setEditorShow(true); return null; }
     if (keepsEditorDraft()) return 'kept';
@@ -140,31 +178,44 @@ export async function reopenFiledRequirement(id, darwinUri, idToken) {
 
 /** FILE: where it was filed from and the debug capture, both snapshotted NOW —
  *  before the confirm or the editor can change the page — the capture landing
- *  on the draft when its ≤ 250 ms wait for failure bodies is over. */
+ *  on the draft when its ≤ 250 ms wait for failure bodies is over. A create
+ *  still being written (req #3860) is waited for first (createSettled), and
+ *  then null is returned; otherwise the new draft's key, or null when the
+ *  reader kept the draft in the editor. */
 export function fileRequirementNow(filedFrom, profile) {
     const pending = buildDebugCapture({ profile, filedFrom });
-    const key = startNewRequirement(true);
-    // Kept the draft in the editor: this capture is for no one — settle it quietly.
-    if (key == null) { pending.catch(() => {}); return null; }
-    const { setCapture } = useRequirementFilerStore.getState();
-    pending.then((capture) => setCapture(key, capture), () => setCapture(key, null));
-    return key;
+    const start = () => {
+        const key = startNewRequirement(true);
+        // Kept the draft in the editor: this capture is for no one — settle it quietly.
+        if (key == null) { pending.catch(() => {}); return null; }
+        const { setCapture } = useRequirementFilerStore.getState();
+        pending.then((capture) => setCapture(key, capture), () => setCapture(key, null));
+        return key;
+    };
+    if (useRequirementFilerStore.getState().creating == null) return start();
+    createSettled().then((settled) => {
+        if (settled) start();
+        else { pending.catch(() => {}); keepCreating(); }
+    });
+    return null;
 }
 
 export default function RequirementFiler() {
     const { profile, idToken } = useContext(AuthContext);
     const { database, darwinUri } = useContext(AppContext);
+    const filesElsewhere = useFilerFilesElsewhere();
     const theme = useContext(ThemeContext);
     const location = useLocation();
     const isDesktop = useMediaQuery('(min-width:900px)');
     const show = useRequirementFilerStore(s => s.show);
     const open = useRequirementFilerStore(s => s.open);
     const storedDock = useRequirementFilerStore(s => s.dock);
+    const titleLock = useRequirementFilerStore(s => s.titleLock);
     const filed = useRequirementFilerStore(s => s.filed);
     const editingId = useRequirementFilerStore(s => (s.editorShow ? s.savedId : null));
     // Why the last pick could not be opened — this session's, cleared by the next.
     const [reopenNote, setReopenNote] = useState(null);
-    const { setShow, toggleOpen, setDock } = useRequirementFilerStore.getState();
+    const { setShow, toggleOpen, setDock, setTitleLock } = useRequirementFilerStore.getState();
     const dock = validDock(storedDock, MIN_W, MIN_H) || FILER_HOME;
     const filerParam = new URLSearchParams(location.search).get('filer');
     const signedIn = !!profile?.userName;
@@ -175,7 +226,8 @@ export default function RequirementFiler() {
         focusAtPress = null;
         return filedFromNow({
             location, profile, database, theme, popupId: FILER_RACK_ID,
-            popupStore: { open: useRequirementFilerStore.getState().open, dock }, typingIn,
+            popupStore: { open: useRequirementFilerStore.getState().open, dock,
+                titleLock: useRequirementFilerStore.getState().titleLock }, typingIn,
         });
     };
     const fileRequirement = () => fileRequirementNow(filedFrom(), profile);
@@ -206,6 +258,7 @@ export default function RequirementFiler() {
                        open={open} onToggle={toggleOpen}
                        name="Requirement" testid="requirement-filer" badgeSlot={false}
                        rackId={FILER_RACK_ID}
+                       titleLock={titleLock} onTitleLockChange={setTitleLock}
                        limits={LIMITS} fontPx={ACTION_POPUP_FONT_PX} colors={ACTION_POPUP_COLORS}
                        sx={ACTION_POPUP_SX}
                        actions={<>
@@ -213,7 +266,7 @@ export default function RequirementFiler() {
                            <Box sx={{ mr: '0.3em', display: 'flex' }}
                                 onPointerDownCapture={() => { focusAtPress = { el: document.activeElement, t: performance.now() }; }}>
                                <ActionPopupAdd onClick={fileRequirement}
-                                               label="Create a requirement — it starts with the last one's settings and records this page and a debug capture"
+                                               label={`Create a requirement — it starts with the last one's settings and records this page and a debug capture${filesElsewhere ? ' — filed in production Darwin' : ''}`}
                                                testid="requirement-filer-add" />
                            </Box>
                            <ActionPopupClose onClick={() => setShow(false)}

@@ -481,7 +481,7 @@ export const pipelines = createEntityQueries({
     entity: 'pipelines',
     defaultFields:
         // req #3649 — `locked` rides the index read so the list can show the lock.
-        'id,title,pipeline_status,execution_mode,locked,machine_fk,' +
+        'id,title,pipeline_status,locked,machine_fk,' +
         'started_at,completed_at,creator_fk,create_ts,update_ts',
     fieldsInKey: true,
     defaultSort: 'id:desc',
@@ -490,8 +490,7 @@ export const pipelines = createEntityQueries({
 // ---------------------------------------------------------------------------
 // The plan-layer EDITORS (req #3393) — initiatives, epics and their two junctions.
 // `pipelines` above is the req #3463 id PRODUCER (a thin list); these four are
-// what a person actually edits (execution_mode aside, which lives on the
-// pipeline row itself, above).
+// what a person actually edits.
 //
 // `description` IS carried here (unlike `pipelines`' list projection above):
 // these are the editor pages' own reads, not an id-producing index, and the

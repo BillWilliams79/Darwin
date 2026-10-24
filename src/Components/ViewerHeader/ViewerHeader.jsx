@@ -101,8 +101,11 @@ const ViewerHeader = ({
 
     return (
         <>
+            {/* req #3857 — the page's TITLE BAR: the Requirement Filer locks
+                into its free space (Components/AnchoredPanel/titleBarLock.js). */}
             <Box
                 className={className}
+                data-title-bar=""
                 sx={{
                     display: 'flex',
                     alignItems: 'center',
