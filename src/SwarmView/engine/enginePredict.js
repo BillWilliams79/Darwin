@@ -116,7 +116,6 @@ export function validatePayload(payload, pipelineId, initiativeId) {
         return ['ORDER-SHORTFALL', 'display_order does not name exactly the derived rows'];
     }
     if (!isDict(derived.pause)) return ['NO-PAUSE-DERIVATION', 'the derived block carries no pause state'];
-    if (!isDict(derived.serial)) return ['NO-SERIAL-DERIVATION', 'the derived block carries no serial state'];
     if (!Array.isArray(derived.launch_queue)) {
         return ['NO-LAUNCH-QUEUE', 'the derived block carries no launch_queue'];
     }
@@ -251,12 +250,11 @@ export function fairShare(free, own, peers) {
 }
 
 /** core.py `epic_hold`: [code, detail] for the first epic-level code that applies, or [null, null]. */
-export function epicHold(row, serial, derivedNow) {
+export function epicHold(row, derivedNow) {
     const by = asList(row.suppressed_by);
     const paused = by.filter((s) => s === 'pipeline' || s === 'initiative')
         .map((s) => (s === 'pipeline' ? 'plan' : 'initiative'));
     if (paused.length) return ['PAUSED', { by: paused }];
-    if (by.includes('turn')) return ['SERIAL_TURN', { live_initiative_id: serial.live_initiative_id ?? null }];
     if (asList(row.checkpoint_blocked_by).length) {
         return ['BARRIER', { barrier_epic_ids: [...row.checkpoint_blocked_by] }];
     }
@@ -308,7 +306,6 @@ export function predictRecord(payload, capacity, claims, clock) {
     const inScope = asList(order).filter((s) => byId.has(s)).map((s) => byId.get(s))
         .filter((row) => initiativeId == null || row.initiative_id === initiativeId);
     const scopeIds = new Set(inScope.map((row) => row.id));
-    const serial = isDict(derived.serial) ? derived.serial : {};
     const derivedNow = parseTime(derived.now);
     const requirements = new Map();
     if (isDict(payload)) {
@@ -343,7 +340,7 @@ export function predictRecord(payload, capacity, claims, clock) {
     const epicCode = new Map();
     for (const row of candidates) {
         epicCode.set(row.id, verdict !== VERDICT_OK
-            ? ['ENGINE_HOLD', { verdict }] : epicHold(row, serial, derivedNow));
+            ? ['ENGINE_HOLD', { verdict }] : epicHold(row, derivedNow));
     }
 
     const machine = own.machine_fk ?? null;

@@ -11,13 +11,13 @@
 // first pass (found in manual review): this page IS the 2.0 producer
 // `/swarm/pipeline/:id` (the visualizer, req #3463/#3372) needs to be
 // reachable from, so it has to be a real browsing surface, not just an
-// editor grid. Table view is that editor grid (execution_mode toggle,
+// editor grid. Table view is that editor grid (lock toggle,
 // description dialog) — Cards view is `PipelinesCardsView.jsx`, a new file
 // adapted from `PipelineCardsView.jsx`.
 //
 // Two ways to create a pipeline here (req #3773), both writing through
 // `useCreatePipeline`: the header's "New pipeline" button and dialog
-// (`NewPipelineDialog.jsx` — title, goal, execution mode, machine; both views)
+// (`NewPipelineDialog.jsx` — title, goal, machine; both views)
 // and the Cards view's "New pipeline" tile (`NewPipelineCard.jsx` — title
 // only, defaults for the rest). A new plan is born `draft` and opens at once.
 //
@@ -25,8 +25,7 @@
 // control — status transitions carry started_at/completed_at side effects
 // (`_derive_timestamps2` in darwin-mcp/services/pipelines2.py) a naive
 // click-to-cycle from this page would get wrong; that stays an MCP/Primary
-// decision. `execution_mode` (parallel|serial, req #3388) is a genuine
-// two-value toggle with no such side effects, so it is click-to-toggle here.
+// decision.
 //
 // Query layer, chip styles, orchestration-holder and the plan-place memory
 // are the SHARED files (`useDataQueries.js`, `pipelineChipStyles.js`,
@@ -84,8 +83,6 @@ import ChipFilter from '../Components/ChipFilter';
 import { formatDateTime } from '../utils/dateFormat';
 import {
     pipelineStatusChipProps,
-    executionModeChipProps,
-    executionModeLabel,
     lockedChipProps,
     lockedLabel,
     PIPELINE_STATUS_VALUES,
@@ -137,7 +134,7 @@ const DEFAULT_PIPELINE_STATUSES = ['draft', 'active', 'paused'];
 // (`pipelines` has `fieldsInKey: true`), so this does not collide with req
 // #3463's own narrower read of the same table.
 // req #3649 — `locked` added so the Lock column reads the stored flag.
-const PIPELINES_FIELDS = 'id,title,description,pipeline_status,execution_mode,locked,'
+const PIPELINES_FIELDS = 'id,title,description,pipeline_status,locked,'
     + 'machine_fk,started_at,completed_at,creator_fk,create_ts,update_ts';
 
 const pipelineStatusOptions = PIPELINE_STATUS_VALUES.map((status) => ({
@@ -288,16 +285,6 @@ export default function PipelinesPage() {
     const invalidatePipelines = () =>
         queryClient.invalidateQueries({ queryKey: pipelineKeys.all(creatorFk) });
 
-    const toggleExecutionMode = async (row) => {
-        try {
-            await updatePipeline(darwinUri, idToken, row.id,
-                { execution_mode: row.execution_mode === 'serial' ? 'parallel' : 'serial' });
-            invalidatePipelines();
-        } catch (err) {
-            showError(err, 'Could not change the plan execution mode');
-        }
-    };
-
     // req #3649 — a locked plan freezes its initiatives and epics (gateway 423).
     const toggleLock = async (row) => {
         try {
@@ -349,23 +336,6 @@ export default function PipelinesPage() {
                     {...pipelineStatusChipProps(params.value)}
                     data-testid={`pipelines-status-${params.row.id}`}
                 />
-            ),
-        },
-        {
-            field: 'execution_mode', headerName: 'Execution', width: 130, sortable: false,
-            renderCell: (params) => (
-                <Tooltip title={params.value === 'serial'
-                    ? 'Serial — one initiative at a time, in sort_order. Click for Parallel.'
-                    : 'Parallel — every initiative runs at once. Click for Serial.'}>
-                    <Chip
-                        label={executionModeLabel(params.value)}
-                        size="small"
-                        {...executionModeChipProps(params.value)}
-                        clickable
-                        onClick={(e) => { e.stopPropagation(); toggleExecutionMode(params.row); }}
-                        data-testid={`pipelines-execmode-chip-${params.row.id}`}
-                    />
-                </Tooltip>
             ),
         },
         {

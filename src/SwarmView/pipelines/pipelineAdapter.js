@@ -7,7 +7,7 @@
 // CONSUMES a derived block; it does not derive one" —
 // memory/pipeline-2-visualizer-design.md § 0). `pipeline_compose` /
 // `pipeline2_derive.py` (Lambda-Rest, req #3367) already ran display order,
-// open work, eligibility, pause and serial-turn suppression, and
+// open work, eligibility, pause suppression, and
 // requirement counts — server side, ONE producer, consumed identically by the
 // MCP daemon and the browser. Everything below is RESHAPING: snake_case wire
 // keys to the camelCase `PlanRow`/`plan` shapes `pipelinePlanLayout.js`,
@@ -353,17 +353,6 @@ export function adaptComposedPipeline(payload, {
         suppressedEpicIds: pauseSrc.suppressed_epic_ids || [],
     };
 
-    const serialSrc = derived.serial || {};
-    const serial = {
-        executionMode: serialSrc.execution_mode || 'parallel',
-        serial: Boolean(serialSrc.serial),
-        initiativeOrder: serialSrc.initiative_order || [],
-        closedInitiativeIds: serialSrc.closed_initiative_ids || [],
-        liveInitiativeId: serialSrc.live_initiative_id != null ? serialSrc.live_initiative_id : null,
-        waitingInitiativeIds: serialSrc.waiting_initiative_ids || [],
-        heldEpicIds: serialSrc.held_epic_ids || [],
-    };
-
     return {
         rows,
         violations,
@@ -416,7 +405,6 @@ export function adaptComposedPipeline(payload, {
         outOfScopeDepIds: derived.out_of_scope_dep_ids || [],
         requirementCounts,
         pause,
-        serial,
     };
 }
 
