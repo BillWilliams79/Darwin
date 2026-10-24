@@ -7,7 +7,7 @@
 // What is pinned: the req #3750 column order (no State, no Notes) and the
 // cascading Pipeline → Initiative filter; create/edit send the right body including
 // initiative_fk (create only) and the not_before conversion; the run, barrier and
-// lock chips toggle; delete names the blocker/consequence.
+// lock chips toggle; delete frees dependents (req #3877) and names the consequence.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import React from 'react';
@@ -77,9 +77,15 @@ vi.mock('react-router-dom', async (importOriginal) => {
 });
 
 const restCalls = [];
+// `restFail(uri, method)` returning a status refuses that call (req #3877).
+let restFail = null;
 vi.mock('../../RestApi/RestApi', () => ({
     default: vi.fn((uri, method, body) => {
         restCalls.push({ uri, method, body });
+        const failStatus = restFail && restFail(uri, method);
+        if (failStatus) {
+            return Promise.resolve({ httpStatus: { httpStatus: failStatus, httpMessage: 'refused' }, data: null });
+        }
         return Promise.resolve({ httpStatus: { httpStatus: 200 }, data: [] });
     }),
 }));
@@ -146,6 +152,7 @@ const snackMessage = () => useSnackBarStore.getState().message;
 
 beforeEach(() => {
     restCalls.length = 0;
+    restFail = null;
     navigateSpy.mockClear();
     mountedRoots = [];
     loading = {
@@ -624,12 +631,74 @@ describe('EpicsPage2 lock toggle', () => {
 });
 
 describe('EpicsPage2 delete', () => {
-    it('refuses an epic another epic depends on, with no write at all', async () => {
+    // req #3877 — a dependent is FREED, never a reason to refuse.
+    it('frees the epics that depend on it, then deletes it', async () => {
+        const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
         mount();
         click(node('epic-delete-103'));
         await flush();
+        expect(confirm.mock.calls[0][0]).toContain('Epic 102 will stop waiting on it.');
+        expect(restCalls).toEqual([
+            { uri: 'http://test.local/darwin/epic_deps', method: 'DELETE',
+              body: { epic_fk: 102, dep_epic_fk: 103 } },
+            { uri: 'http://test.local/darwin/epics', method: 'DELETE', body: { id: 103 } },
+        ]);
+        expect(snackMessage()).toBe('');
+    });
+
+    it('says its requirements are un-orchestrated, not deleted', async () => {
+        const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+        epics[1] = { ...epics[1], locked: 0 };
+        mount();
+        click(node('epic-delete-101'));
+        await flush();
+        expect(confirm.mock.calls[0][0]).toContain(
+            'Requirement 900 will be un-orchestrated — the requirements themselves are not deleted.');
         expect(restCalls).toEqual([]);
-        expect(snackMessage()).toContain('102');
+    });
+
+    it('refuses a locked epic up front, with no write at all', async () => {
+        const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+        mount();
+        click(node('epic-delete-101'));
+        await flush();
+        expect(confirm).not.toHaveBeenCalled();
+        expect(restCalls).toEqual([]);
+        expect(snackMessage()).toContain('locked');
+    });
+
+    it('a refused epic DELETE restores the freed edge, reports, and still refetches', async () => {
+        vi.spyOn(window, 'confirm').mockReturnValue(true);
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        restFail = (uri, method) => (uri.endsWith('/epics') && method === 'DELETE' ? 409 : null);
+        mount();
+        click(node('epic-delete-103'));
+        await flush();
+        expect(restCalls.map((c) => `${c.method} ${c.uri.split('/').pop()}`)).toEqual([
+            'DELETE epic_deps', 'DELETE epics', 'POST epic_deps',
+        ]);
+        expect(restCalls[2].body).toEqual({ epic_fk: 102, dep_epic_fk: 103 });
+        expect(snackMessage()).toContain('Could not delete epic');
+        const keys = queryClient.invalidateQueries.mock.calls.map(c => c[0].queryKey[0]);
+        expect(keys).toEqual(expect.arrayContaining(['epic_requirements', 'epic_deps', 'requirements']));
+    });
+
+    it('warns the database decides when the dependency rows could not be read', async () => {
+        const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+        loading.depsError = true;
+        epicDeps = [];
+        mount();
+        click(node('epic-delete-103'));
+        await flush();
+        expect(confirm.mock.calls[0][0]).toContain('the database will refuse');
+    });
+
+    it('names its own dependency rows going with it', async () => {
+        const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+        mount();
+        click(node('epic-delete-102'));
+        await flush();
+        expect(confirm.mock.calls[0][0]).toContain('Its 1 dependency row will be removed.');
     });
 
     it('deletes an epic nothing depends on and invalidates the link/dep caches', async () => {
