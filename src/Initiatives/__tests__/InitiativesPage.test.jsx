@@ -342,10 +342,18 @@ describe('InitiativesPage2 create', () => {
 });
 
 describe('InitiativesPage2 edit', () => {
-    it('disables the Pipeline select once editing', () => {
+    // req #3800 — a greyed-out Pipeline select captioned with an MCP tool name
+    // read as "the name cannot be edited". The name leads; the plan is text.
+    it('leads with the editable name and shows the plan as text once editing', () => {
         mount();
         click(node('initiative-edit-4'));
-        expect(node('initiative-pipeline-select').className).toContain('Mui-disabled');
+        const dialog = node('initiative-edit-dialog');
+        expect(dialog.querySelector('input:not([type="hidden"]), textarea'))
+            .toBe(node('initiative-title-input'));
+        expect(node('initiative-title-input').disabled).toBe(false);
+        expect(node('initiative-pipeline-select')).toBeNull();
+        expect(node('initiative-pipeline-readonly').textContent).toContain('Plan Seven');
+        expect(dialog.textContent).not.toMatch(/MCP/);
     });
 
     it('PUTs every editable column, never pipeline_fk', async () => {

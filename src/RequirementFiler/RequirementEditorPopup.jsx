@@ -37,6 +37,14 @@
 // stays in memory and the editor offers Retry. Dropping every category files the
 // requirement with no capture.
 //
+// INTO AN EPIC (req #3854) — a draft the filer's + started while aimed at a
+// plan visualizer's epic card carries that epic (`draft.seat`, filerEpicAim.js),
+// shown on an `Epic - <title>` line under Category with a × to drop it. Create
+// POSTs the requirement, then seats it there (Epics/epicsApi.js
+// moveEpicRequirement) before its capture is written; a locked epic, or a plan
+// read from another database than the filer files into, is said on the line and
+// not written.
+//
 // SAVING (user ruling 2026-10-23): the first save is the deliberate CREATE press,
 // so a half-typed title never becomes a row; after that every change saves on
 // its own, LIVE_SAVE_MS after the last edit, like the requirement page. A failed
@@ -89,6 +97,8 @@ import {
 } from './debugBundle';
 import { BUG_COLOR } from './RequirementFiler';
 import { useFilerFilesElsewhere } from './filerScope';
+import { notifyEpicSeated, seatProblem } from './filerEpicAim';
+import { moveEpicRequirement } from '../Epics/epicsApi';
 import {
     buildPostBody, buildPutBody, defaultProjectId, draftDirty, draftProblem, machineOptions, savedValues, specCode,
     staleCategory, staleMachine,
@@ -386,7 +396,7 @@ export default function RequirementEditorPopup() {
     const captureSentDropped = useRequirementFilerStore(s => s.captureSentDropped);
     const { setEditorShow, toggleEditorOpen, setEditorDock, setFields, markSaved, markOrphaned,
         clearFocusPending, toggleCaptureCategory, dropAllCaptureCategories, setCaptureStage, markCaptureSent,
-        setCreating, endCreating } = useRequirementFilerStore.getState();
+        setCreating, endCreating, clearSeat } = useRequirementFilerStore.getState();
     // Always as tall as its content (user, 2026-10-23: "probably 3x too tall"):
     // a height stored from an earlier, longer form is never applied.
     const dock = { ...(validDock(storedDock, MIN_W, MIN_H) || EDITOR_HOME), ht: null };
@@ -587,6 +597,28 @@ export default function RequirementEditorPopup() {
         setCaptureStage(key, 'done');
     };
 
+    // The Epic line's outcome, on the draft it was written for only.
+    const markSeat = (key, seat, outcome) => {
+        const st = useRequirementFilerStore.getState();
+        if (st.draftKey === key && st.draft?.seat?.epicId === seat.epicId) {
+            setFields({ seat: { ...st.draft.seat, ...outcome } });
+        }
+    };
+    // The plan epic the filer's + was aimed at (req #3854), once its requirement
+    // `id` exists: one seat write, then the plan refreshes. A failure leaves the
+    // requirement filed and unseated — it waits in the plan's unorchestrated box.
+    const seatInEpic = async (key, id, seat) => {
+        try {
+            await moveEpicRequirement(darwinUri, idToken, { requirementId: id, toEpicId: seat.epicId });
+        } catch (e) {
+            failOpen({ key, text: errorText(e, `#${id} filed, but not placed in ${seat.title}`) });
+            markSeat(key, seat, { failed: true });
+            return;
+        }
+        notifyEpicSeated(seat.epicId);
+        markSeat(key, seat, { placed: true });
+    };
+
     // Retry: the capture half only, for a requirement already saved.
     const retryCapture = async () => {
         if (savedId == null || saving === draftKey) return;
@@ -646,6 +678,9 @@ export default function RequirementEditorPopup() {
             }
             markSaved(key, id, values);
             if (useRequirementFilerStore.getState().captureStage) await saveCapture(key, id);
+            // Into the epic the + was aimed at (req #3854) — as Create was pressed.
+            // Last: the seat makes it launchable, so its row is complete first.
+            if (isPost && draft.seat && !seatProblem(draft.seat, darwinUri)) await seatInEpic(key, id, draft.seat);
         } catch (e) {
             fail(e, isPost ? 'Requirement not saved' : 'Changes not saved');
         } finally {
@@ -675,6 +710,7 @@ export default function RequirementEditorPopup() {
         if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); save(); }
     };
 
+    const seatIssue = savedId == null ? seatProblem(draft.seat, darwinUri) : null;
     const code = specCode(draft);
     const spec = machineLabel ? `${code} · ${machineLabel}` : code;
 
@@ -757,6 +793,50 @@ export default function RequirementEditorPopup() {
                                 options={categoryOpts} disabled={projectId == null}
                                 onChange={(v) => setFields({ category_fk: toInt(v) })} />
                     </Box>
+
+                    {/* The plan epic the filer's + was aimed at (req #3854): Create seats it
+                        there; × before Create files it in no epic. */}
+                    {draft.seat && (
+                        <Box data-testid="requirement-editor-epic" data-epic-id={draft.seat.epicId}
+                             sx={{ display: 'flex', alignItems: 'baseline', gap: '0.25em', minWidth: 0,
+                                    fontWeight: 700, color: P.dim }}>
+                            <Box component="span" sx={{ flexShrink: 0 }}>Epic -</Box>
+                            <Box component="span" title={draft.seat.title}
+                                 sx={{ color: seatIssue ? INVALID : P.text, minWidth: 0, overflow: 'hidden',
+                                        textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {draft.seat.title}
+                            </Box>
+                            {seatIssue && (
+                                <Box component="span" data-testid="requirement-editor-epic-problem"
+                                     sx={{ color: INVALID, fontWeight: 400, fontSize: '0.9em', flexShrink: 1 }}>
+                                    {seatIssue}
+                                </Box>
+                            )}
+                            {draft.seat.failed && (
+                                <Box component="span" data-testid="requirement-editor-epic-failed"
+                                     sx={{ color: INVALID, fontWeight: 400, fontSize: '0.9em' }}>
+                                    not placed — drag it in from the plan's box
+                                </Box>
+                            )}
+                            {draft.seat.placed && (
+                                <Box component="span" data-testid="requirement-editor-epic-placed"
+                                     sx={{ color: P.dim, fontWeight: 400, fontSize: '0.9em' }}>
+                                    placed
+                                </Box>
+                            )}
+                            {savedId == null && (
+                                <Box component="button" type="button" onClick={clearSeat}
+                                     aria-label="File it in no epic" title="File it in no epic"
+                                     data-testid="requirement-editor-epic-clear"
+                                     sx={{ ml: 'auto', flexShrink: 0, alignSelf: 'center', p: 0, px: '0.3em',
+                                            border: 'none', background: 'transparent', color: P.dim,
+                                            fontFamily: ACTION_POPUP_MONO, fontSize: '1em', cursor: 'pointer',
+                                            '&:hover': { color: P.accent } }}>
+                                    ×
+                                </Box>
+                            )}
+                        </Box>
+                    )}
 
                     {/* The settings, slid open from the spec-code button. */}
                     <Box id="requirement-editor-settings" data-testid="requirement-editor-settings"

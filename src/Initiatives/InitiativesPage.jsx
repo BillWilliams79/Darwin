@@ -12,7 +12,8 @@
 // schema-driven:
 //
 //   - The dialog gains a Pipeline select (`pipeline_fk`, required at create,
-//     DISABLED once editing — re-homing an initiative is `move_initiative`, an
+//     read-only text once editing, req #3800 — re-homing an initiative is
+//     `move_initiative`, an
 //     MCP-only tool with cross-plan-edge checks this page does not
 //     reproduce, matching EpicsPage.jsx's identical rule for its own
 //     `pipeline_fk` field).

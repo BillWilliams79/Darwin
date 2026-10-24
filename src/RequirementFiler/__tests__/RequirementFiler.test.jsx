@@ -63,6 +63,7 @@ import { usePanelRackStore } from '../../stores/usePanelRackStore';
 import ThemeContext from '../../Theme/ThemeContext';
 import { registerPageOptions } from '../filedFromContext';
 import { draftDirty } from '../requirementFilerModel';
+import { registerEpicAim } from '../filerEpicAim';
 
 const ok = (data) => ({ data, httpStatus: { httpStatus: 200, httpMessage: 'OK' } });
 
@@ -886,5 +887,127 @@ describe('FILE records where it was filed (req #3813), in its debug capture (req
         fireEvent.click(screen.getByTestId('requirement-filer-add'));
         expect(confirm).toHaveBeenCalledTimes(1);
         confirm.mockRestore();
+    });
+});
+
+describe('the + aimed at a plan epic files the requirement into it (req #3854)', () => {
+    let unregister = null;
+    let highlighted = [];
+    const seated = vi.fn();
+    const aim = (target) => {
+        unregister = registerEpicAim({ at: () => target, highlight: (t) => highlighted.push(t), seated });
+    };
+    beforeEach(() => {
+        captureOn = false;
+        desktop = true;
+        projectsQ = PROJECTS;
+        localStorage.clear();
+        rest.mockReset();
+        seated.mockReset();
+        highlighted = [];
+        usePanelRackStore.setState({ racked: [], seeded: [], slot: null, navSlot: null, pageSlot: null, drag: null, covered: false });
+        useRequirementFilerStore.setState({
+            show: true, open: true, dock: null, editorShow: false, editorOpen: true, editorDock: null,
+            draft: null, savedId: null, saved: null, lastProjectId: null, lastCategoryId: null,
+            draftKey: 0, orphaned: false, focusPending: false, creating: null, defaults: {}, filed: [],
+        });
+    });
+    afterEach(() => { unregister?.(); unregister = null; cleanup(); });
+
+    const press = () => {
+        const add = screen.getByTestId('requirement-filer-add');
+        fireEvent.pointerDown(add, { clientX: 400, clientY: 300 });
+        fireEvent.click(add, { detail: 1 });
+    };
+    const fillAndCreate = () => {
+        fill('title', 'Into the epic');
+        fill('category', '862');
+        fireEvent.click(screen.getByTestId('requirement-editor-save'));
+    };
+
+    it('hovering the + outlines the epic beneath it; Create POSTs, then seats it there', async () => {
+        aim({ epicId: 300, ok: true, title: 'Build', darwinUri: 'https://api/darwin_dev' });
+        renderAll();
+        fireEvent.pointerMove(screen.getByTestId('requirement-filer-add'), { clientX: 400, clientY: 300 });
+        expect(highlighted.at(-1)).toMatchObject({ epicId: 300, ok: true });
+        press();
+        expect(highlighted.at(-1)).toBe(null);
+        expect(screen.getByTestId('requirement-editor-epic').textContent).toContain('Build');
+        expect(screen.queryByTestId('requirement-editor-epic-problem')).toBe(null);
+
+        rest.mockResolvedValueOnce(ok([{ id: 4001, title: 'Into the epic' }]));
+        rest.mockResolvedValueOnce(ok([{ epic_fk: 300, requirement_fk: 4001 }]));
+        fillAndCreate();
+        await filedThenShown(4001);
+        expect(rest.mock.calls[0].slice(0, 2)).toEqual(['https://api/darwin_dev/requirements', 'POST']);
+        expect(rest.mock.calls[1].slice(0, 3)).toEqual(['https://api/darwin_dev/epic_requirements', 'POST',
+            { epic_fk: 300, requirement_fk: 4001 }]);
+        expect(seated).toHaveBeenCalledWith(300);
+        expect(screen.getByTestId('requirement-editor-epic-placed')).toBeTruthy();
+        // Filed: the epic can no longer be dropped from it here.
+        expect(screen.queryByTestId('requirement-editor-epic-clear')).toBe(null);
+    });
+
+    it('× on the Epic line files it in no epic', async () => {
+        aim({ epicId: 300, ok: true, title: 'Build', darwinUri: 'https://api/darwin_dev' });
+        renderAll();
+        press();
+        fireEvent.click(screen.getByTestId('requirement-editor-epic-clear'));
+        expect(screen.queryByTestId('requirement-editor-epic')).toBe(null);
+        rest.mockResolvedValueOnce(ok([{ id: 4002, title: 'Into the epic' }]));
+        fillAndCreate();
+        await filedThenShown(4002);
+        expect(rest.mock.calls.map(c => c[0])).toEqual(['https://api/darwin_dev/requirements']);
+    });
+
+    it('a locked epic is said so and not written', async () => {
+        aim({ epicId: 301, ok: false, title: 'Ship', darwinUri: 'https://api/darwin_dev' });
+        renderAll();
+        press();
+        expect(screen.getByTestId('requirement-editor-epic-problem').textContent).toMatch(/locked/);
+        rest.mockResolvedValueOnce(ok([{ id: 4003, title: 'Into the epic' }]));
+        fillAndCreate();
+        await filedThenShown(4003);
+        expect(rest.mock.calls.map(c => c[0])).toEqual(['https://api/darwin_dev/requirements']);
+        expect(seated).not.toHaveBeenCalled();
+    });
+
+    it('on a dev server a darwin_dev plan epic is outlined as a refusal and never seated from production', async () => {
+        aim({ epicId: 300, ok: true, title: 'Build', darwinUri: 'https://api/darwin_dev' });
+        renderAll({ scoped: true });
+        fireEvent.pointerMove(screen.getByTestId('requirement-filer-add'), { clientX: 400, clientY: 300 });
+        expect(highlighted.at(-1)).toMatchObject({ epicId: 300, ok: false });
+        press();
+        expect(screen.getByTestId('requirement-editor-epic-problem').textContent).toMatch(/darwin_dev/);
+    });
+
+    it('a seat that fails leaves the requirement filed and says so', async () => {
+        aim({ epicId: 300, ok: true, title: 'Build', darwinUri: 'https://api/darwin_dev' });
+        renderAll();
+        press();
+        rest.mockResolvedValueOnce(ok([{ id: 4004, title: 'Into the epic' }]));
+        rest.mockRejectedValueOnce({ data: 'Duplicate', httpStatus: { httpStatus: 409 } });
+        fillAndCreate();
+        await waitFor(() => expect(screen.getByTestId('requirement-editor-error').textContent)
+            .toMatch(/#4004 filed, but not placed in Build/));
+        expect(useRequirementFilerStore.getState().savedId).toBe(4004);
+        expect(screen.getByTestId('requirement-editor-epic-failed')).toBeTruthy();
+        expect(seated).not.toHaveBeenCalled();
+    });
+
+    it('a keyboard press aims at nothing, even just after a pointer press dragged off the +', () => {
+        aim({ epicId: 300, ok: true, title: 'Build', darwinUri: 'https://api/darwin_dev' });
+        renderAll();
+        const add = screen.getByTestId('requirement-filer-add');
+        fireEvent.pointerDown(add, { clientX: 400, clientY: 300 });
+        fireEvent.click(add, { detail: 0 });
+        expect(useRequirementFilerStore.getState().draft.seat).toBe(null);
+    });
+
+    it('with no plan on the page the + files as it always has', () => {
+        renderAll();
+        press();
+        expect(screen.queryByTestId('requirement-editor-epic')).toBe(null);
+        expect(useRequirementFilerStore.getState().draft.seat).toBe(null);
     });
 });
